@@ -1,0 +1,30 @@
+name: Source checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    strategy:
+      matrix:
+        os: [windows-2022, ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Source layering
+        run: cmake "-DVIRTOOLSDEV_SOURCE_DIR=${{ github.workspace }}" -P tests/CheckLayering.cmake
+      - name: Python syntax
+        run: python -m compileall -q tools tests
+      - name: Configure resource extractor
+        if: runner.os == 'Windows'
+        run: cmake -S tools -B out/resource-tools -G "Visual Studio 17 2022" -A x64
+      - name: Build resource extractor
+        if: runner.os == 'Windows'
+        run: cmake --build out/resource-tools --config Release
