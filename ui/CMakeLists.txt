@@ -1,0 +1,173 @@
+# VirtoolsDev.exe: the Dear ImGui front end on VirtoolsDevCore; with
+# VIRTOOLSDEV_BUILD_UI_TESTS also VirtoolsDevUiTests.exe, the same editor
+# built with Dear ImGui Test Engine and the UI tests of tests/ui.
+
+set(_imgui_sources
+        ${VIRTOOLSDEV_IMGUI_DIR}/imgui.cpp
+        ${VIRTOOLSDEV_IMGUI_DIR}/imgui_demo.cpp
+        ${VIRTOOLSDEV_IMGUI_DIR}/imgui_draw.cpp
+        ${VIRTOOLSDEV_IMGUI_DIR}/imgui_tables.cpp
+        ${VIRTOOLSDEV_IMGUI_DIR}/imgui_widgets.cpp
+        ${VIRTOOLSDEV_IMGUI_DIR}/misc/cpp/imgui_stdlib.cpp
+        ${VIRTOOLSDEV_IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
+        ${VIRTOOLSDEV_IMGUI_DIR}/backends/imgui_impl_sdlgpu3.cpp)
+
+add_library(VirtoolsDevImGui STATIC ${_imgui_sources})
+target_include_directories(VirtoolsDevImGui PUBLIC ${VIRTOOLSDEV_IMGUI_DIR} ${VIRTOOLSDEV_IMGUI_DIR}/backends)
+target_compile_features(VirtoolsDevImGui PUBLIC cxx_std_17)
+target_link_libraries(VirtoolsDevImGui PUBLIC SDL3::SDL3)
+set_target_properties(VirtoolsDevImGui PROPERTIES FOLDER "VirtoolsDev")
+
+set(_editor_sources
+        # The program: window, main loop, menus, state, preferences, capture.
+        app/Main.cpp
+        app/CaptureDriver.cpp
+        app/EditorApp.cpp
+        app/EditorStartup.cpp
+        app/FileMenu.cpp
+        app/StatusBar.cpp
+        app/DuplicateNames.cpp
+        app/Preferences.cpp
+        app/DesktopFiles.cpp
+        render/UiRenderer.cpp
+        render/ImageFiles.cpp
+        # Dev's look and the shared widgets.
+        controls/DevTheme.cpp
+        controls/DevControls.cpp
+        controls/DevIcons.cpp
+        controls/DevBitmaps.cpp
+        controls/FileDialogs.cpp
+        controls/ValueEditor.cpp
+        controls/ParameterBox.cpp
+        controls/TypeAhead.cpp
+        controls/BehaviorInfoDialog.cpp
+        # The Schematic.
+        schematic/SchematicCanvas.cpp
+        schematic/SchematicInput.cpp
+        schematic/SchematicDialogs.cpp
+        schematic/SchematicMenus.cpp
+        schematic/SchematicLinking.cpp
+        schematic/SchematicPrint.cpp
+        schematic/SchematicRenderer.cpp
+        schematic/Snapshots.cpp
+        # The 3D Layout.
+        layout/LayoutWindow.cpp
+        layout/LayoutInput.cpp
+        layout/LayoutMenu.cpp
+        layout/LayoutDrop.cpp
+        layout/LayoutExplorer.cpp
+        layout/LayoutSnapshot.cpp
+        layout/LayoutFullScreen.cpp
+        # Docked panels and managers.
+        panels/EditorPanels.cpp
+        panels/LevelManager.cpp
+        panels/DebuggerPanel.cpp
+        panels/ManagerWindows.cpp
+        panels/HierarchyManager.cpp
+        # The Setups.
+        setup/SetupWindows.cpp
+        setup/SetupRenderPages.cpp
+        setup/SetupScenePages.cpp
+        setup/SetupObjectPages.cpp
+        # The Resources, Editors, Options and Help windows.
+        tools/ToolWindows.cpp
+        tools/GeneralPreferences.cpp
+        tools/DataResources.cpp)
+
+if(WIN32)
+    list(APPEND _editor_sources print/PrinterWindows.cpp)
+elseif(APPLE)
+    enable_language(OBJCXX)
+    list(APPEND _editor_sources print/PrinterMac.mm print/PrintDocument.cpp)
+    set_source_files_properties(print/PrinterMac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GTKPRINT REQUIRED IMPORTED_TARGET gtk+-unix-print-3.0 gio-unix-2.0)
+    list(APPEND _editor_sources print/PrinterLinux.cpp print/PrintDocument.cpp)
+endif()
+if(NOT WIN32)
+    find_path(VIRTOOLSDEV_HARU_INCLUDE_DIR hpdf.h REQUIRED)
+    find_library(VIRTOOLSDEV_HARU_LIBRARY NAMES hpdf libhpdf REQUIRED)
+endif()
+
+# The editor as target, on the Dear ImGui library imgui, with the sources after it.
+function(virtoolsdev_add_editor target imgui)
+    add_executable(${target} WIN32 ${_editor_sources} ${ARGN})
+    # LinkRouting.h and SchematicGrid.h: the canvas routes links on Dev's grid.
+    target_link_libraries(${target} PRIVATE VirtoolsDevCore ${imgui} SDL3::SDL3 stb)
+    add_dependencies(${target} VirtoolsDevRuntime)
+    if(WIN32)
+        target_link_libraries(${target} PRIVATE comdlg32 shell32 ole32)
+    else()
+        target_include_directories(${target} PRIVATE "${VIRTOOLSDEV_HARU_INCLUDE_DIR}")
+        target_link_libraries(${target} PRIVATE "${VIRTOOLSDEV_HARU_LIBRARY}")
+        if(APPLE)
+            target_link_libraries(${target} PRIVATE "-framework AppKit")
+        else()
+            target_link_libraries(${target} PRIVATE PkgConfig::GTKPRINT)
+        endif()
+    endif()
+    target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    # Use the library's platform-specific runtime setup.
+    virtoolsdev_enable_delay_load_runtime(${target})
+    # Dev's bitmaps and icons, interface.nmo and documentation.chm (resources/data).
+    virtoolsdev_add_resources(${target})
+    set_target_properties(${target} PROPERTIES FOLDER "VirtoolsDev"
+            VS_DEBUGGER_ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+endfunction()
+
+virtoolsdev_add_editor(VirtoolsDev VirtoolsDevImGui)
+set_target_properties(VirtoolsDev PROPERTIES OUTPUT_NAME NemoDev)
+
+if (VIRTOOLSDEV_BUILD_UI_TESTS)
+    # Dear ImGui with the test engine's hooks (IMGUI_ENABLE_TEST_ENGINE, from
+    # imgui_te_imconfig.h) and the engine, its coroutine on a std::thread.
+    set(_engine_dir "${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR}/imgui_test_engine")
+    add_library(VirtoolsDevImGuiTestEngine STATIC ${_imgui_sources}
+            ${_engine_dir}/imgui_capture_tool.cpp
+            ${_engine_dir}/imgui_te_context.cpp
+            ${_engine_dir}/imgui_te_coroutine.cpp
+            ${_engine_dir}/imgui_te_engine.cpp
+            ${_engine_dir}/imgui_te_exporters.cpp
+            ${_engine_dir}/imgui_te_perftool.cpp
+            ${_engine_dir}/imgui_te_ui.cpp
+            ${_engine_dir}/imgui_te_utils.cpp)
+    target_include_directories(VirtoolsDevImGuiTestEngine PUBLIC ${VIRTOOLSDEV_IMGUI_DIR}
+            ${VIRTOOLSDEV_IMGUI_DIR}/backends ${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR} ${_engine_dir})
+    target_compile_definitions(VirtoolsDevImGuiTestEngine PUBLIC IMGUI_USER_CONFIG="imgui_te_imconfig.h"
+            IMGUI_TEST_ENGINE_ENABLE_COROUTINE_STDTHREAD_IMPL=1)
+    target_compile_definitions(VirtoolsDevImGuiTestEngine PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_features(VirtoolsDevImGuiTestEngine PUBLIC cxx_std_17)
+    target_link_libraries(VirtoolsDevImGuiTestEngine PUBLIC SDL3::SDL3)
+    set_target_properties(VirtoolsDevImGuiTestEngine PROPERTIES FOLDER "VirtoolsDev")
+
+    virtoolsdev_add_editor(VirtoolsDevUiTests VirtoolsDevImGuiTestEngine
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTestRun.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.h
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AppTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/SchematicTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/LayoutTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/LevelTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/SetupTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/HierarchyTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/BlocksTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AttributesTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/CreateTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/SoundTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/CharacterTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/DebuggerTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ToolsTests.cpp)
+    target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PrintTests.cpp)
+    target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PlayerTests.cpp)
+    target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/DesktopTests.cpp)
+    if(WIN32)
+        target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WindowsDialogTests.cpp)
+    endif()
+    target_compile_definitions(VirtoolsDevUiTests PRIVATE
+            VIRTOOLSDEV_DIALOG_DRIVER="${VIRTOOLSDEV_SOURCE_DIR}/tests/NativeDialogDriver.py")
+    target_link_libraries(VirtoolsDevUiTests PRIVATE ${CMAKE_DL_LIBS})
+    target_compile_definitions(VirtoolsDevUiTests PRIVATE VIRTOOLSDEV_UI_TESTS)
+    # A console program with the editor's SDL main and results on stdout.
+    set_target_properties(VirtoolsDevUiTests PROPERTIES WIN32_EXECUTABLE FALSE)
+endif ()

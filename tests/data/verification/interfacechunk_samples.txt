@@ -1,0 +1,17 @@
+# Candidate Virtools samples for InterfaceChunk verification.
+# Paths are relative to VIRTOOLSDEV_SAMPLE_ROOT (local-samples/ by default).
+#
+# These SDK documentation samples have CKBehavior InterfaceChunk data when
+# loaded with CKContext::SetInterfaceMode(TRUE). Keep this list small and curated
+# so the round-trip oracle stays fast and deterministic.
+
+data/BBSamples/3D Transformations/Activate Link.cmo
+data/BBSamples/3D Transformations/Add Control Point.cmo
+data/BBSamples/3D Transformations/Find Path.cmo
+data/BBSamples/Cameras/Camera Orbit.cmo
+data/BBSamples/Controllers/Keyboard Controller.cmo
+data/BBSamples/Interface/2D Flow Layout.cmo
+data/BBSamples/Interface/2D Grid Layout.cmo
+data/BBSamples/Interface/Additional View.cmo
+data/TechnicalSamples/WebPlayer/Composition.cmo
+data/TechnicalSamples/VSL/Documentation samples/Hello World.cmo

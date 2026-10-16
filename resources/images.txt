@@ -1,0 +1,366 @@
+# The images of Virtools Dev the editor draws, built into it (resources.rc).
+# One per line: group, kind, id and, for an icon, the size it is drawn at.
+# The id is the image's resource id in Dev's own file: ui in resvis.dll,
+# parameter in Managers\CK2UI.dll, app in Dev.exe. tools/ExtractResources
+# (see README.md) writes images/ and resources.rc from this list.
+ui bitmap 590
+ui bitmap 591
+ui bitmap 592
+ui bitmap 593
+ui bitmap 594
+ui bitmap 595
+ui bitmap 596
+ui bitmap 597
+ui bitmap 598
+ui bitmap 599
+ui bitmap 600
+ui bitmap 601
+ui bitmap 602
+ui bitmap 603
+ui bitmap 604
+ui bitmap 605
+ui bitmap 606
+ui bitmap 607
+ui bitmap 608
+ui bitmap 613
+ui bitmap 614
+ui bitmap 615
+ui bitmap 616
+ui bitmap 617
+ui bitmap 618
+ui bitmap 619
+ui bitmap 620
+ui bitmap 621
+ui bitmap 622
+ui bitmap 623
+ui bitmap 624
+ui bitmap 625
+ui bitmap 626
+ui bitmap 664
+ui bitmap 665
+ui bitmap 666
+ui bitmap 668
+ui bitmap 669
+ui bitmap 670
+ui bitmap 671
+ui bitmap 672
+ui bitmap 673
+ui bitmap 674
+ui bitmap 675
+ui bitmap 676
+ui bitmap 678
+ui bitmap 679
+ui bitmap 680
+ui bitmap 692
+ui bitmap 693
+ui bitmap 694
+ui bitmap 699
+ui bitmap 700
+ui bitmap 701
+ui bitmap 705
+ui bitmap 706
+ui bitmap 707
+ui bitmap 708
+ui bitmap 709
+ui bitmap 710
+ui bitmap 711
+ui bitmap 715
+ui bitmap 716
+ui bitmap 717
+ui bitmap 724
+ui bitmap 725
+ui bitmap 726
+ui bitmap 727
+ui bitmap 728
+ui bitmap 729
+ui bitmap 730
+ui bitmap 731
+ui bitmap 732
+ui bitmap 733
+ui bitmap 734
+ui bitmap 735
+ui bitmap 736
+ui bitmap 737
+ui bitmap 738
+ui bitmap 774
+ui bitmap 775
+ui bitmap 776
+ui bitmap 777
+ui bitmap 778
+ui bitmap 779
+ui bitmap 804
+ui bitmap 805
+ui bitmap 806
+ui bitmap 807
+ui bitmap 808
+ui bitmap 809
+ui bitmap 810
+ui bitmap 811
+ui bitmap 834
+ui bitmap 835
+ui bitmap 836
+ui bitmap 837
+ui bitmap 838
+ui bitmap 839
+ui bitmap 840
+ui bitmap 841
+ui bitmap 842
+ui bitmap 843
+ui bitmap 844
+ui bitmap 845
+ui bitmap 877
+ui bitmap 878
+ui bitmap 879
+ui bitmap 880
+ui bitmap 893
+ui bitmap 894
+ui bitmap 895
+ui bitmap 907
+ui bitmap 908
+ui bitmap 910
+ui bitmap 911
+ui bitmap 912
+ui bitmap 913
+ui bitmap 914
+ui bitmap 915
+ui bitmap 916
+ui bitmap 929
+ui bitmap 961
+ui bitmap 969
+ui bitmap 970
+ui bitmap 971
+ui bitmap 972
+ui bitmap 973
+ui bitmap 974
+ui bitmap 975
+ui bitmap 976
+ui bitmap 977
+ui bitmap 978
+ui bitmap 985
+ui bitmap 986
+ui bitmap 987
+ui bitmap 988
+ui bitmap 989
+ui bitmap 990
+ui bitmap 991
+ui bitmap 992
+ui bitmap 1002
+ui bitmap 1003
+ui bitmap 1004
+ui bitmap 1005
+ui bitmap 1022
+ui bitmap 1023
+ui bitmap 1024
+ui bitmap 1025
+ui bitmap 1026
+ui bitmap 1027
+ui bitmap 1028
+ui bitmap 1029
+ui bitmap 1030
+ui bitmap 1031
+ui bitmap 1032
+ui bitmap 1033
+ui bitmap 1034
+ui bitmap 1035
+ui bitmap 1036
+ui bitmap 1037
+ui bitmap 1038
+ui bitmap 1039
+ui bitmap 1041
+ui bitmap 1042
+ui bitmap 1043
+ui bitmap 1044
+ui bitmap 1045
+ui bitmap 1046
+ui bitmap 1047
+ui bitmap 1048
+ui bitmap 1049
+ui bitmap 1050
+ui bitmap 1051
+ui bitmap 1052
+ui bitmap 1057
+ui bitmap 1058
+ui bitmap 1059
+ui bitmap 1060
+ui bitmap 1061
+ui bitmap 1062
+ui bitmap 1063
+ui bitmap 1064
+ui bitmap 1077
+ui bitmap 1078
+ui bitmap 1079
+ui bitmap 1080
+ui bitmap 1109
+ui bitmap 1110
+ui bitmap 1114
+ui bitmap 1117
+ui bitmap 1146
+ui bitmap 1147
+ui bitmap 1148
+ui bitmap 1150
+ui bitmap 1151
+ui bitmap 1152
+ui bitmap 1153
+ui bitmap 1187
+ui bitmap 1188
+ui bitmap 1189
+ui bitmap 1238
+ui bitmap 1239
+ui bitmap 1240
+ui bitmap 1254
+ui bitmap 1255
+ui bitmap 1256
+ui bitmap 1257
+ui bitmap 1258
+ui bitmap 1259
+ui bitmap 1260
+ui bitmap 1261
+ui bitmap 1262
+ui bitmap 1263
+ui bitmap 1264
+ui bitmap 1265
+ui bitmap 1266
+ui bitmap 1267
+ui bitmap 1268
+ui bitmap 1269
+ui bitmap 1276
+ui bitmap 1277
+ui bitmap 1278
+ui bitmap 1290
+ui bitmap 1291
+ui bitmap 1292
+ui bitmap 1293
+ui bitmap 1298
+ui bitmap 1299
+ui bitmap 1300
+ui bitmap 1301
+ui bitmap 1306
+ui bitmap 1307
+ui bitmap 1308
+ui bitmap 1309
+ui bitmap 1310
+ui bitmap 1311
+ui bitmap 1324
+ui bitmap 1325
+ui bitmap 1326
+ui bitmap 1327
+ui bitmap 1328
+ui bitmap 1329
+ui bitmap 1333
+ui bitmap 1334
+ui bitmap 1335
+ui bitmap 1338
+ui bitmap 1339
+ui bitmap 1340
+ui bitmap 1341
+ui bitmap 1342
+ui bitmap 1343
+ui bitmap 1344
+ui bitmap 1346
+ui bitmap 1347
+ui bitmap 1353
+ui bitmap 719
+ui bitmap 720
+ui bitmap 721
+ui bitmap 1354
+ui bitmap 1355
+ui bitmap 1356
+ui bitmap 1357
+parameter bitmap 2003
+parameter bitmap 2004
+parameter bitmap 2005
+parameter bitmap 2006
+parameter bitmap 2007
+parameter bitmap 2008
+parameter bitmap 2010
+parameter bitmap 2011
+parameter bitmap 2012
+parameter bitmap 2013
+ui icon 195 11
+ui icon 196 11
+ui icon 197 11
+ui icon 198 11
+ui icon 199 11
+ui icon 200 11
+ui icon 201 11
+ui icon 202 11
+ui icon 203 11
+ui icon 204 11
+ui icon 205 11
+ui icon 206 11
+ui icon 207 11
+ui icon 208 11
+ui icon 209 11
+ui icon 210 11
+ui icon 211 11
+ui icon 212 11
+ui icon 213 11
+ui icon 214 11
+ui icon 215 11
+ui icon 216 11
+ui icon 217 11
+ui icon 218 11
+ui icon 373 11
+ui icon 374 11
+ui icon 375 11
+ui icon 376 11
+ui icon 380 11
+ui icon 382 11
+ui icon 383 11
+ui icon 384 11
+ui icon 385 11
+ui icon 386 11
+ui icon 387 11
+ui icon 388 11
+ui icon 389 11
+ui icon 390 11
+ui icon 392 11
+ui icon 393 11
+ui icon 526 11
+ui icon 532 11
+ui icon 533 11
+ui icon 534 11
+ui icon 949 11
+ui icon 950 11
+ui icon 951 11
+ui icon 952 11
+ui icon 953 11
+ui icon 960 11
+ui icon 961 11
+ui icon 962 11
+ui icon 963 11
+ui icon 964 11
+ui icon 965 11
+ui icon 966 11
+ui icon 1011 11
+ui icon 1324 11
+ui icon 1317 32
+ui icon 1318 32
+ui icon 1319 32
+ui icon 1320 32
+ui icon 1321 32
+ui icon 1322 32
+app icon 217 11
+app icon 218 11
+app icon 385 11
+app icon 386 11
+app icon 390 11
+app icon 534 11
+app icon 535 11
+app icon 536 11
+app icon 537 11
+app icon 720 11
+app icon 721 11
+app icon 722 11
+app icon 723 11
+app icon 724 11
+app icon 725 11
+app icon 751 11
+app appicon 10 32
+ui bitmap 609
+ui bitmap 610
+ui bitmap 611
+ui bitmap 612
+ui bitmap 1141
+ui bitmap 1142
+ui bitmap 1145
