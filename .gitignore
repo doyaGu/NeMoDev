@@ -1,0 +1,36 @@
+# Build output and machine-specific configuration
+/build*/
+/out/
+cmake-build-*/
+/CMakeUserPresets.json
+/local-resources/
+/local-samples/
+__pycache__/
+*.pyc
+
+# Editor state
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.VC.db
+*.opendb
+*.code-workspace
+
+# Private working notes and generated reports
+/.claude/
+/.codex/
+/docs/
+/AGENTS.md
+/CLAUDE.md
+/CONTEXT.md
+
+# Original Virtools assets and compositions are supplied separately.
+/resources/images/
+/resources/data/
+/resources/fonts/*.ttf
+/resources/fonts/*.otf
+/tests/data/BBSamples/
+/tests/data/TechnicalSamples/
+/tests/data/Demo/

@@ -1,0 +1,196 @@
+{
+  "repository": "https://github.com/BearKidsTeam/VirtoolsScriptDeobfuscation",
+  "revision": "9e8fc2ae01b4f25565df67488e03d5e8972bc2f9",
+  "source": "published revision with repository-relative includes and portable editor adaptations",
+  "license": "CC-BY-NC-SA-4.0",
+  "files": [
+    {
+      "source": "include/Geometry.h",
+      "destination": "core/schematic/Geometry.h",
+      "sha256_before_include_changes": "e10001d9667edcb2466096b9a90925c71e054b596c74c960b1104d563d76e995"
+    },
+    {
+      "source": "include/InterfaceChunkFormat.h",
+      "destination": "core/interface/InterfaceChunkFormat.h",
+      "sha256_before_include_changes": "04cd1b4fb14ac71a94f91dc7251c5c0f1fc0e239df33546d8f12b1ae372e67d9"
+    },
+    {
+      "source": "include/InterfaceData.h",
+      "destination": "core/interface/InterfaceData.h",
+      "sha256_before_include_changes": "30f057362519b1f75867df12d90647070b7a4a63090cb7ded7e27ecb44be31d6"
+    },
+    {
+      "source": "include/InterfaceDataDiff.h",
+      "destination": "core/interface/InterfaceDataDiff.h",
+      "sha256_before_include_changes": "11f2086c5c8bd268b2fad14af20c4499aedcdb4a574c963f0261725c08c0211d"
+    },
+    {
+      "source": "include/InterfaceDataElements.h",
+      "destination": "core/interface/InterfaceDataElements.h",
+      "sha256_before_include_changes": "c578c9ed3bae5825edc2a566163c2c82f89eb4e144077e725e24d20f2c461197"
+    },
+    {
+      "source": "include/InterfaceDataReconstruction.h",
+      "destination": "core/schematic/InterfaceDataReconstruction.h",
+      "sha256_before_include_changes": "f253d075a595145c026d20efe394c44e7ea4e14c36ce6884550f5410b7f93cb7"
+    },
+    {
+      "source": "include/VirtoolsRuntimeLayout.h",
+      "destination": "core/runtime/VirtoolsRuntimeLayout.h",
+      "sha256_before_include_changes": "f7d503ce96b402047a52dd69eec92a37e5fa5b209348165339cd16e99ba6eb6b"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceBitmap.cpp",
+      "destination": "core/interface/detail/InterfaceBitmap.cpp",
+      "sha256_before_include_changes": "fb2fdfbd9fe62a3fa452d45c487626b108503fe73368fdcabe3fb51ea2b6b9da"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceBitmap.h",
+      "destination": "core/interface/detail/InterfaceBitmap.h",
+      "sha256_before_include_changes": "a4eecfddaa4ad1b8071f5b56057c673b10dda8e9c75f121be8a9b067f11d8191"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceChunkFormat.cpp",
+      "destination": "core/interface/InterfaceChunkFormat.cpp",
+      "sha256_before_include_changes": "be2fdcdb7377e42254cc3533364d1c096cc2fa891c5a65a01a643795af4837e5"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceChunkReader.cpp",
+      "destination": "core/interface/detail/InterfaceChunkReader.cpp",
+      "sha256_before_include_changes": "950eddc159e6b8c188d43e6ee80a09578ecf5f5d95e2d835994d611419376b74"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceChunkReader.h",
+      "destination": "core/interface/detail/InterfaceChunkReader.h",
+      "sha256_before_include_changes": "c2091e715b5a201efed0870bfe8fc860ea4fdfe801c39ef37534667d858f0abf"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceChunkSections.cpp",
+      "destination": "core/interface/detail/InterfaceChunkSections.cpp",
+      "sha256_before_include_changes": "5cd24fa13ad7cc05ba3f128d6b5611eb14d227e932a45dff441c980a48c492e7"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceChunkSections.h",
+      "destination": "core/interface/detail/InterfaceChunkSections.h",
+      "sha256_before_include_changes": "52c9059d86eaf568cd896c40cb15114e12fc8c1ab502810be643b0a75e32e85e"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceData.cpp",
+      "destination": "core/interface/InterfaceData.cpp",
+      "sha256_before_include_changes": "4977dd077e5e368b23c319a18609f0d10af62d9807421a921f2c9a85ea612fab"
+    },
+    {
+      "source": "src/interfacechunk/InterfaceDataSerialization.cpp",
+      "destination": "core/interface/InterfaceDataSerialization.cpp",
+      "sha256_before_include_changes": "7648666837d0119746b1882bf013fd20486cf8f676ef6a4a578e2bce58961c2b"
+    },
+    {
+      "source": "src/reconstruction/BehaviorDisplayGeometry.cpp",
+      "destination": "core/schematic/BehaviorDisplayGeometry.cpp",
+      "sha256_before_include_changes": "56e122a4372963b3e8fa15945b67ce22aa9f5c010f224d204da95e750a01e38a"
+    },
+    {
+      "source": "src/reconstruction/BehaviorDisplayGeometry.h",
+      "destination": "core/schematic/BehaviorDisplayGeometry.h",
+      "sha256_before_include_changes": "940c40d1d638dc8d1dbb4a77ae22a42f8402fb1470dd963f41b23f5f12868bc2"
+    },
+    {
+      "source": "src/reconstruction/GraphBuilder.cpp",
+      "destination": "core/schematic/detail/GraphBuilder.cpp",
+      "sha256_before_include_changes": "6bf80ca9c5afc8bd30fa948adf1016f739a2bc24a8a503739b1d9413d736dcff"
+    },
+    {
+      "source": "src/reconstruction/GraphBuilder.h",
+      "destination": "core/schematic/detail/GraphBuilder.h",
+      "sha256_before_include_changes": "c836129d0937568d998a97bddbafc0b3f8d67f6b63a8101f67842159db0081c8"
+    },
+    {
+      "source": "src/reconstruction/InterfaceDataReconstruction.cpp",
+      "destination": "core/schematic/InterfaceDataReconstruction.cpp",
+      "sha256_before_include_changes": "fb8871e570d72afdcf652c6d96af2148fb8045e77c9961dbf8878757415a653b"
+    },
+    {
+      "source": "src/reconstruction/InterfaceDataValidation.cpp",
+      "destination": "core/interface/InterfaceDataValidation.cpp",
+      "sha256_before_include_changes": "90470407b0ef4b94959b9fa8a33c54b939f36835bad8c2c2b7af2edab92aa5f3"
+    },
+    {
+      "source": "src/reconstruction/InterfaceDataValidation.h",
+      "destination": "core/interface/InterfaceDataValidation.h",
+      "sha256_before_include_changes": "e54e82eb5caa7b514bfc405eb716b5a4bffe73e8958db05369859f047b24dada"
+    },
+    {
+      "source": "src/reconstruction/LayoutCalculator.cpp",
+      "destination": "core/schematic/LayoutCalculator.cpp",
+      "sha256_before_include_changes": "03ee9cc386d10b7613f95fdbff21be504ed3a82b0877863bbb89847c43b458e7"
+    },
+    {
+      "source": "src/reconstruction/LayoutCalculator.h",
+      "destination": "core/schematic/LayoutCalculator.h",
+      "sha256_before_include_changes": "e5da58c294edd00c6cf3da7cb5b10f6543ad971bf96a71b7c11c6e5be7e13ab3"
+    },
+    {
+      "source": "src/reconstruction/LinkEndpointGeometry.cpp",
+      "destination": "core/schematic/LinkEndpointGeometry.cpp",
+      "sha256_before_include_changes": "f4022ffb88d0eb84a051696b0b1bcc9db0dc250abe46ac5837868359f6d0731f"
+    },
+    {
+      "source": "src/reconstruction/LinkEndpointGeometry.h",
+      "destination": "core/schematic/LinkEndpointGeometry.h",
+      "sha256_before_include_changes": "af002297e054780cd00c2d52ed812e5787a15bb1669e0a72a77cae84552fdcf5"
+    },
+    {
+      "source": "src/reconstruction/LinkRouting.cpp",
+      "destination": "core/schematic/LinkRouting.cpp",
+      "sha256_before_include_changes": "fc45bd3232524f4332935eaf01df89e282eaaadf6e812c3b07c446831cc974d7"
+    },
+    {
+      "source": "src/reconstruction/LinkRouting.h",
+      "destination": "core/schematic/LinkRouting.h",
+      "sha256_before_include_changes": "ae2428bb36cc9a6ce641e8b9d29bd986fbc0d68c18bc761035b7907bc2b1f878"
+    },
+    {
+      "source": "src/reconstruction/OrthogonalRouter.cpp",
+      "destination": "core/schematic/detail/OrthogonalRouter.cpp",
+      "sha256_before_include_changes": "662a88882184ecfc42c864a8f048f187a94177c505a5311cefb046214ca598a2"
+    },
+    {
+      "source": "src/reconstruction/OrthogonalRouter.h",
+      "destination": "core/schematic/detail/OrthogonalRouter.h",
+      "sha256_before_include_changes": "0ea905ef2915ec8e7fbe89a15247d94c594a69cbc3e583949c907a3f4146035f"
+    },
+    {
+      "source": "src/reconstruction/ParameterDisplayGeometry.cpp",
+      "destination": "core/schematic/ParameterDisplayGeometry.cpp",
+      "sha256_before_include_changes": "30903384e64d071b75cce290eff202b82d3c9b7f5123a19dd1ce1aea8418343c"
+    },
+    {
+      "source": "src/reconstruction/ParameterDisplayGeometry.h",
+      "destination": "core/schematic/ParameterDisplayGeometry.h",
+      "sha256_before_include_changes": "b2146f2d62d87736cc844b0aa28f0a1368e5689c7dc74c3bd1d0ed93df6f5e35"
+    },
+    {
+      "source": "src/reconstruction/SchematicGrid.h",
+      "destination": "core/schematic/SchematicGrid.h",
+      "sha256_before_include_changes": "aa222ef34bdf3a9c85a1fd48ec019d6ba6b21b90f17a3910f957fe494dfff182"
+    },
+    {
+      "source": "src/runtime/VirtoolsRuntimeLayout.cpp",
+      "destination": "core/runtime/VirtoolsRuntimeLayout.cpp",
+      "sha256_before_include_changes": "ea34795e390f6574a3f625634cb0d9954b263dcd80e2b29f99bd7b55a3b0f65f"
+    },
+    {
+      "source": "tools/ProjectParameterTypes.h",
+      "destination": "core/document/detail/ProjectParameterTypes.h",
+      "sha256_before_include_changes": "a68600334a98ea0daa4989182945fffdaec0a0d25e662f5eb9b2d09769b4aa26"
+    }
+  ],
+  "build_helpers": [
+    {
+      "source": "cmake/VirtoolsTargets.cmake",
+      "destination": "cmake/RuntimeTargets.cmake",
+      "source_sha256": "c7c107613d72bf9e4af57c6ef79e143555294c03ed188ff5875bc0ee7f352466",
+      "adaptation": "Editor-owned runtime/test helpers and SDK discovery; upstream project setup removed"
+    }
+  ]
+}
