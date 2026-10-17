@@ -1,17 +1,92 @@
+#ifdef _WIN32
 #include "core/runtime/TextEncoding.h"
-#include "VxWindowFunctions.h"
+
+#include <windows.h>
+
+namespace vdev {
+
+namespace {
+
+std::function<void(const std::string &)> &LossyHandler() {
+    static std::function<void(const std::string &)> handler;
+    return handler;
+}
+
+std::wstring ToWide(const std::string &text, UINT from) {
+    if (text.empty()) return std::wstring();
+    const int length = MultiByteToWideChar(from, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    if (length <= 0) return std::wstring();
+    std::wstring wide(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(from, 0, text.data(), static_cast<int>(text.size()), &wide[0], length);
+    return wide;
+}
+
+std::string FromWide(const std::wstring &wide, UINT to, bool *lossy) {
+    if (lossy) *lossy = false;
+    if (wide.empty()) return std::string();
+    // The ANSI code page: no best fit (another letter, another file), the
+    // default character for the others, which tells the loss.
+    const DWORD flags = to == CP_UTF8 ? 0 : WC_NO_BEST_FIT_CHARS;
+    BOOL usedDefault = FALSE;
+    BOOL *used = to == CP_UTF8 ? nullptr : &usedDefault;
+    const int length =
+        WideCharToMultiByte(to, flags, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    if (length <= 0) return std::string();
+    std::string text(static_cast<size_t>(length), '\0');
+    WideCharToMultiByte(to, flags, wide.data(), static_cast<int>(wide.size()), &text[0], length, nullptr, used);
+    if (usedDefault) {
+        if (lossy) *lossy = true;
+        if (LossyHandler()) LossyHandler()(FromWide(wide, CP_UTF8, nullptr));
+    }
+    return text;
+}
+
+} // namespace
+
+std::string AnsiToUtf8(const std::string &text) {
+    if (text.empty()) return text;
+    const std::wstring wide = ToWide(text, CP_ACP);
+    return wide.empty() ? text : FromWide(wide, CP_UTF8, nullptr);
+}
+
+std::string Utf8ToAnsi(const std::string &text, bool *lossy) {
+    if (lossy) *lossy = false;
+    if (text.empty()) return text;
+    const std::wstring wide = ToWide(text, CP_UTF8);
+    return wide.empty() ? text : FromWide(wide, CP_ACP, lossy); // not UTF-8: kept as it is
+}
+
+std::wstring AnsiToWide(const std::string &text) {
+    return ToWide(text, CP_ACP);
+}
+
+std::string WideToAnsi(const std::wstring &text, bool *lossy) {
+    return FromWide(text, CP_ACP, lossy);
+}
+
+std::string WideToUtf8(const std::wstring &text) {
+    return FromWide(text, CP_UTF8, nullptr);
+}
+
+std::wstring Utf8ToWide(const std::string &text) {
+    return ToWide(text, CP_UTF8);
+}
+
+void SetLossyTextHandler(std::function<void(const std::string &text)> handler) {
+    LossyHandler() = std::move(handler);
+}
+
+} // namespace vdev
+
+#else
+#include "core/runtime/TextEncoding.h"
 #include <climits>
 #include <cstring>
 #include <limits>
 #include <utility>
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
-#else
 #include <SDL3/SDL_endian.h>
 #include <cerrno>
 #include <iconv.h>
-#endif
 
 namespace vdev {
 namespace {
@@ -19,53 +94,7 @@ std::function<void(const std::string &)> &LossyHandler() {
     static std::function<void(const std::string &)> handler;
     return handler;
 }
-#ifdef _WIN32
-UINT CodePage() {
-    const std::string name = VxGetTextEncoding();
-    if (name == "windows-936") return 936;
-    if (name == "windows-1252") return 1252;
-    if (name == "UTF-8") return CP_UTF8;
-    throw TextEncodingError("Unavailable CK text encoding: " + name);
-}
-int Length(size_t length) {
-    if (length > INT_MAX) throw TextEncodingError("Text is too long to convert");
-    return static_cast<int>(length);
-}
-std::wstring Decode(const std::string &text, UINT codepage, bool displayReplacement = false) {
-    if (text.empty()) return {};
-    const DWORD flags = displayReplacement ? 0 : MB_ERR_INVALID_CHARS;
-    const int size = Length(text.size());
-    const int length = MultiByteToWideChar(codepage, flags, text.data(), size, nullptr, 0);
-    if (!length) throw TextEncodingError("Invalid text in code page " + std::to_string(codepage));
-    std::wstring value(static_cast<size_t>(length), L'\0');
-    if (MultiByteToWideChar(codepage, flags, text.data(), size, value.data(), length) != length)
-        throw TextEncodingError("Cannot decode text in code page " + std::to_string(codepage));
-    return value;
-}
-std::string Encode(const std::wstring &text, UINT codepage) {
-    if (text.empty()) return {};
-    const bool unicode = codepage == CP_UTF8;
-    const DWORD flags = unicode ? WC_ERR_INVALID_CHARS : WC_NO_BEST_FIT_CHARS;
-    BOOL substituted = FALSE;
-    const int size = Length(text.size());
-    const int length = WideCharToMultiByte(codepage, flags, text.data(), size, nullptr, 0,
-                                           nullptr, unicode ? nullptr : &substituted);
-    if (!length || substituted)
-        throw TextEncodingError("Text cannot be represented in code page " + std::to_string(codepage));
-    std::string value(static_cast<size_t>(length), '\0');
-    if (WideCharToMultiByte(codepage, flags, text.data(), size, value.data(), length,
-                            nullptr, unicode ? nullptr : &substituted) != length || substituted)
-        throw TextEncodingError("Text cannot be represented in code page " + std::to_string(codepage));
-    return value;
-}
-#else
-const char *LegacyEncoding() {
-    const std::string name = VxGetTextEncoding();
-    if (name == "windows-936") return "CP936";
-    if (name == "windows-1252") return "CP1252";
-    if (name == "UTF-8") return "UTF-8";
-    throw TextEncodingError("Unavailable CK text encoding: " + name);
-}
+const char *LegacyEncoding() { return "CP936"; }
 const char *WideEncoding() {
 #if SDL_BYTEORDER == SDL_BIG_ENDIAN
     return sizeof(wchar_t) == 2 ? "UTF-16BE" : "UTF-32BE";
@@ -114,21 +143,12 @@ std::string Convert(const char *input, size_t remaining, const char *from, const
 std::string Convert(const std::string &text, const char *from, const char *to, bool replacement = false) {
     return Convert(text.data(), text.size(), from, to, replacement);
 }
-#endif
 }
 std::string AnsiToUtf8(const std::string &text) {
     try {
-#ifdef _WIN32
-        return Encode(Decode(text, CodePage()), CP_UTF8);
-#else
         return Convert(text, LegacyEncoding(), "UTF-8");
-#endif
     } catch (const TextEncodingError &) {
-#ifdef _WIN32
-        const std::string display = Encode(Decode(text, CodePage(), true), CP_UTF8);
-#else
         const std::string display = Convert(text, LegacyEncoding(), "UTF-8", true);
-#endif
         if (LossyHandler()) LossyHandler()(display);
         return display;
     }
@@ -136,11 +156,7 @@ std::string AnsiToUtf8(const std::string &text) {
 std::string Utf8ToAnsi(const std::string &text, bool *lossy) {
     if (lossy) *lossy = false;
     try {
-#ifdef _WIN32
-        return Encode(Decode(text, CP_UTF8), CodePage());
-#else
         return Convert(text, "UTF-8", LegacyEncoding());
-#endif
     } catch (const TextEncodingError &) {
         if (lossy) *lossy = true;
         if (LossyHandler()) LossyHandler()(text);
@@ -150,21 +166,15 @@ std::string Utf8ToAnsi(const std::string &text, bool *lossy) {
 std::wstring AnsiToWide(const std::string &text) { return Utf8ToWide(AnsiToUtf8(text)); }
 std::string WideToAnsi(const std::wstring &text, bool *lossy) { return Utf8ToAnsi(WideToUtf8(text), lossy); }
 std::string WideToUtf8(const std::wstring &text) {
-#ifdef _WIN32
-    return Encode(text, CP_UTF8);
-#else
     return Convert(reinterpret_cast<const char *>(text.data()), text.size() * sizeof(wchar_t), WideEncoding(), "UTF-8");
-#endif
 }
 std::wstring Utf8ToWide(const std::string &text) {
-#ifdef _WIN32
-    return Decode(text, CP_UTF8);
-#else
     const std::string bytes = Convert(text, "UTF-8", WideEncoding());
     std::wstring result(bytes.size() / sizeof(wchar_t), L'\0');
     if (!bytes.empty()) std::memcpy(result.data(), bytes.data(), bytes.size());
     return result;
-#endif
 }
 void SetLossyTextHandler(std::function<void(const std::string &)> handler) { LossyHandler() = std::move(handler); }
 } // namespace vdev
+
+#endif

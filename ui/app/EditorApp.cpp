@@ -118,12 +118,6 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     m_State.runtimeDirectory = runtimeDirectory;
     m_Tools.applyPreferences = [this] {
         ApplyPreferences();
-        const std::string encoding = m_State.preferences.Text("CK2 Settings\\Text Encoding");
-        if (!m_State.host.SetTextEncoding(encoding)) m_State.Log(LogLevel::Error, "Unavailable CK text encoding: " + encoding);
-        else {
-            m_State.catalog.Refresh();
-            if (m_State.document) m_State.document->RefreshScripts();
-        }
         ApplyRuntimeSettings();
         SavePreferences();
     };
@@ -131,7 +125,6 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         return m_Panels.LevelSelection().size() == 1 ? *m_Panels.LevelSelection().begin() : 0;
     };
     std::string error;
-    m_State.host.SetTextEncoding(preferences.Text("CK2 Settings\\Text Encoding"));
     m_State.host.SetRenderEngine(preferences.Text("CK2 Settings\\Render Engine"));
     const bool started = m_State.host.Start(runtimeDirectory, [this](LogLevel level, const std::string &message) {
         m_State.Log(level, message);

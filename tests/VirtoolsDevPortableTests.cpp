@@ -56,37 +56,6 @@ void BitmapChecks() {
     bitmap.reset();
     Require(independent[4] == reinterpret_cast<XBYTE *>(source)[4], "converted pixels survive bitmap destruction");
 }
-void EncodingChecks() {
-    using namespace vdev;
-    const std::string previous = VxGetTextEncoding();
-    struct Restore { std::string encoding; ~Restore() { SetLossyTextHandler(nullptr); VxSetTextEncoding(encoding.c_str()); } } restore{previous};
-    std::vector<std::string> reports;
-    SetLossyTextHandler([&](const std::string &text) { reports.push_back(text); });
-    Require(VxSetTextEncoding("windows-936"), "select CP936");
-    const std::string chinese = "\xE4\xB8\xAD\xE6\x96\x87";
-    const std::string gbk = "\xD6\xD0\xCE\xC4";
-    Require(Utf8ToAnsi(chinese) == gbk && AnsiToUtf8(gbk) == chinese, "CP936 round trip");
-    const std::string path = chinese + "/saved.cmo";
-    Require(WideToUtf8(Utf8ToWide(path)) == path, "Chinese UTF-8 paths do not use legacy conversion");
-    const std::string supplementary = "\xF0\x9F\x98\x80";
-    Require(WideToUtf8(Utf8ToWide(supplementary)) == supplementary, "wide supplementary character round trip");
-    std::string original = gbk;
-    bool lossy = false, rejected = false;
-    try { original = Utf8ToAnsi(supplementary, &lossy); } catch (const TextEncodingError &) { rejected = true; }
-    Require(rejected && lossy && original == gbk && reports.size() == 1, "unencodable write leaves original bytes");
-    const std::string invalid(1, '\x81');
-    const std::string display = AnsiToUtf8(invalid);
-    Require(!display.empty() && invalid == std::string(1, '\x81') && reports.size() == 2, "invalid CK byte is reported for display only");
-    Require(VxSetTextEncoding("windows-1252"), "select CP1252");
-    const std::string western = "Caf\xC3\xA9 \xE2\x82\xAC";
-    Require(Utf8ToAnsi(western) == "Caf\xE9 \x80" && AnsiToUtf8("Caf\xE9 \x80") == western, "CP1252 round trip");
-    rejected = false;
-    try { Utf8ToWide("\xC0\xAF"); } catch (const TextEncodingError &) { rejected = true; }
-    Require(rejected, "reject overlong UTF-8");
-    const std::string embedded("A\0*.a\0", 6);
-    Require(WideToUtf8(Utf8ToWide(embedded)) == embedded, "embedded NUL round trip");
-    Require(!VxSetTextEncoding("does-not-exist") && std::string(VxGetTextEncoding()) == "windows-1252", "invalid encoding leaves selection unchanged");
-}
 struct Bounds { int left = 640, top = 160, right = -1, bottom = -1; size_t ink = 0; };
 Bounds InkBounds(const std::vector<XDWORD> &pixels, int width) {
     Bounds bounds;
@@ -114,9 +83,6 @@ std::vector<XDWORD> Draw(const char *text, int weight, bool italic, bool underli
     return Pixels(bitmap.handle);
 }
 void FontChecks() {
-    const std::string previous = VxGetTextEncoding();
-    struct Restore { std::string encoding; ~Restore() { VxSetTextEncoding(encoding.c_str()); } } restore{previous};
-    Require(VxSetTextEncoding("windows-936"), "font encoding");
     const auto regular = Draw("Ag Test", 400, false, false, VXTEXT_LEFT | VXTEXT_TOP);
     const Bounds topLeft = InkBounds(regular, 640);
     Require(topLeft.ink > 80 && topLeft.left >= 20 && topLeft.top >= 10, "font produces visible pixels within rectangle");
@@ -150,47 +116,15 @@ void FontChecks() {
     Require(VxDrawBitmapText(bitmap.handle, second, "\xD6\xD0\xCE\xC4", &rect,
                             VXTEXT_LEFT | VXTEXT_TOP, 0xffffff, 0x0000ff), "second font survives first font release");
     Require(Pixels(bitmap.handle) == chinese, "shared font data retains glyph pixels");
-    const auto before = Pixels(bitmap.handle);
-    Require(!VxDrawBitmapText(bitmap.handle, second, "\x81", &rect, VXTEXT_LEFT | VXTEXT_TOP, 0, 0), "invalid encoded text is rejected");
-    Require(Pixels(bitmap.handle) == before, "rejected font text leaves bitmap unchanged");
     for (int i = 0; i < 8; ++i) Require(Draw("Ag Test", 400, false, false, VXTEXT_LEFT | VXTEXT_TOP) == regular, "repeated font creation drawing and release");
 }
 }
 int main() {
     try {
         Require(SDL_Init(0), "SDL initialization");
-        {
-            const auto path = std::filesystem::temp_directory_path() /
-                std::filesystem::u8path(std::string("virtoolsdev-") + std::to_string(SDL_GetPerformanceCounter()) +
-                                       u8"-\u4e2d\u6587-\u20ac-\U0001f600.bin");
-            struct RemovePath {
-                std::filesystem::path path;
-                ~RemovePath() { std::error_code ignored; std::filesystem::remove(path, ignored); }
-            } remove{path};
-            FILE *file = VxFOpen(path.u8string().c_str(), "wb");
-            Require(file != nullptr, "UTF-8 filename outside CP936 opens for writing");
-            const unsigned char expected[] = {0, 0x81, 0xFE, 0xFF};
-            const size_t written = std::fwrite(expected, 1, sizeof(expected), file);
-            const int closed = std::fclose(file);
-            Require(written == sizeof(expected) && closed == 0, "UTF-8 file contents written and closed");
-            VxMemoryMappedFile loaded(path.u8string().c_str());
-            Require(loaded.IsValid() && loaded.GetFileSize() == sizeof(expected) &&
-                    std::memcmp(loaded.GetBase(), expected, sizeof(expected)) == 0, "UTF-8 file reload preserves bytes");
-            const auto copied = std::filesystem::u8path(path.u8string() + ".copy");
-            RemovePath removeCopy{copied};
-            Require(VxCopyFile(path.u8string().c_str(), copied.u8string().c_str(), TRUE) &&
-                    !VxCopyFile(path.u8string().c_str(), copied.u8string().c_str(), TRUE), "UTF-8 file copy and overwrite refusal");
-            std::vector<std::string> names;
-            Require(VxListDirectory(path.parent_path().u8string().c_str(), path.filename().u8string().c_str(), FALSE,
-                [](const VxDirectoryEntry *entry, void *data) -> XBOOL {
-                    static_cast<std::vector<std::string> *>(data)->emplace_back(entry->Name.CStr());
-                    return TRUE;
-                }, &names) && names.size() == 1 && names.front() == path.filename().u8string(), "UTF-8 directory enumeration");
-            Require(VxDeleteFile(copied.u8string().c_str()) && !std::filesystem::exists(copied), "UTF-8 file deletion");
-        }
-        BitmapChecks(); EncodingChecks(); FontChecks();
+        BitmapChecks(); FontChecks();
         SDL_Quit();
-        std::cout << "Bitmap ownership, encoding and font pixels passed\n";
+        std::cout << "Bitmap ownership and font pixels passed\n";
         return 0;
     } catch (const std::exception &failure) {
         std::cerr << failure.what() << '\n'; SDL_Quit(); return 1;

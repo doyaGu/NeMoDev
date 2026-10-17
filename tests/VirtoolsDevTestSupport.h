@@ -382,7 +382,6 @@ void ObjectPropertyUndo(CkRuntimeHost &host);
 void CkArrays(CkRuntimeHost &host);
 void SetupActions(CkRuntimeHost &host);
 void NewSceneEnvironment(CkRuntimeHost &host);
-void Utf8FileAndStringBytes(CkRuntimeHost &host);
 void DeterministicEdits(CkRuntimeHost &host, const std::vector<CKGUID> &prototypes);
 void SyntheticFuzz(CkRuntimeHost &host, const std::vector<CKGUID> &prototypes, unsigned seed = 20261003u,
                    int steps = 200);

@@ -785,13 +785,6 @@ void ToolWindows::MiscPage(Preferences &p) {
     ImGui::SameLine(240);
     ImGui::TextUnformatted(version);
     ImGui::Separator();
-    ImGui::TextUnformatted("CK Text Encoding");
-    ImGui::SameLine(240);
-    const std::vector<std::string> textEncodings = {"CP936 (GBK)", "CP1252", "UTF-8"};
-    const std::string encoding = p.Text("CK2 Settings\\Text Encoding");
-    int textEncoding = encoding == "UTF-8" ? 2 : encoding == "windows-1252" ? 1 : 0;
-    if (Combo("##ckTextEncoding", textEncoding, textEncodings, 200))
-        p.Set("CK2 Settings\\Text Encoding", textEncoding == 2 ? "UTF-8" : textEncoding == 1 ? "windows-1252" : "windows-936");
     ImGui::TextUnformatted("Render Engine");
     ImGui::SameLine(240);
     // The render engine plugins, named by their dll in lower case (Dev's "Render Engine").

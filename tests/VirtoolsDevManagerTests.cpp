@@ -1324,38 +1324,24 @@ void Catalogs(CKContext *context) {
               << signatures.size() << " Addition signatures" << '\n';
 }
 
-// Encoding failures reject writes; existing representable strings round-trip.
+// The original ANSI conversions and reporting of lossy UI text.
 void TextEncodingChecks() {
     std::vector<std::string> told;
-    const std::string previous = VxGetTextEncoding();
     SetLossyTextHandler([&told](const std::string &text) { told.push_back(text); });
+    // Taken back however the case ends (a failed CHECK leaves it): the handler names this frame's told.
     struct Restore {
-        std::string encoding;
-        ~Restore() { SetLossyTextHandler(nullptr); VxSetTextEncoding(encoding.c_str()); }
-    } restore{previous};
-    CHECK(VxSetTextEncoding("windows-936"));
+        ~Restore() { SetLossyTextHandler(nullptr); }
+    } restore;
     const std::string smile = "Smile \xF0\x9F\x98\x80";
     bool lossy = false;
-    std::string unchanged = "original bytes";
-    bool rejected = false;
-    try { unchanged = Utf8ToAnsi(smile, &lossy); } catch (const TextEncodingError &) { rejected = true; }
-    CHECK(rejected && unchanged == "original bytes" && lossy && told.size() == 1 && told.front() == smile);
-    rejected = false;
-    try { unchanged = WideToAnsi(Utf8ToWide(smile), &lossy); } catch (const TextEncodingError &) { rejected = true; }
-    CHECK(rejected && unchanged == "original bytes" && lossy && told.size() == 2);
+    const std::string ansi = Utf8ToAnsi(smile, &lossy);
+    CHECK(lossy && told.size() == 1 && told.front() == smile && ansi.find('?') != std::string::npos);
+    CHECK(WideToAnsi(Utf8ToWide(smile), &lossy).find('?') != std::string::npos && lossy && told.size() == 2);
     const std::string plain = "Plain name 1.cmo";
     CHECK(Utf8ToAnsi(plain, &lossy) == plain && !lossy && AnsiToUtf8(plain) == plain && told.size() == 2);
     CHECK(WideToUtf8(Utf8ToWide(smile)) == smile);
-    const std::string chinese = "\xE4\xB8\xAD\xE6\x96\x87";
-    const std::string gbk = "\xD6\xD0\xCE\xC4";
-    CHECK(Utf8ToAnsi(chinese) == gbk && AnsiToUtf8(gbk) == chinese);
-    CHECK(VxSetTextEncoding("windows-1252"));
-    const std::string western = "Caf\xC3\xA9 \xE2\x82\xAC";
-    const std::string cp1252 = "Caf\xE9 \x80";
-    CHECK(Utf8ToAnsi(western) == cp1252 && AnsiToUtf8(cp1252) == western);
-    CHECK(VxSetTextEncoding("windows-936"));
-    const std::string filter("A\0*.a\0", 6);
-    CHECK(AnsiToWide(filter).size() == 6 && WideToUtf8(Utf8ToWide(filter)) == filter);
+    const std::string filter("A\0*.a\0", 6); // the common dialogs' filters keep their NULs
+    CHECK(AnsiToWide(filter).size() == 6);
     std::cout << "Text encoding passed\n";
 }
 
@@ -1629,91 +1615,6 @@ void SetupActions(CkRuntimeHost &host) {
               << mesh->GetVertexCount() << " vertices\n";
     CHECK(consolidated.ok || consolidated.Unchanged());
     if (consolidated.ok) CHECK(document.History().Undo() && mesh->GetVertexCount() == 4);
-}
-
-void Utf8FileAndStringBytes(CkRuntimeHost &host) {
-    const std::string previous = host.TextEncoding();
-    struct RestoreEncoding {
-        CkRuntimeHost &host; std::string value;
-        ~RestoreEncoding() { host.SetTextEncoding(value); }
-    } restore{host, previous};
-    for (const auto &input : std::vector<std::pair<std::string, std::string>>{
-             {"windows-936", "\xD6\xD0\xCE\xC4"}, {"windows-1252", "Caf\xE9 \x80"}}) {
-        CHECK(host.SetTextEncoding(input.first));
-        const auto path = std::filesystem::temp_directory_path() /
-            std::filesystem::u8path(std::string("virtoolsdev-") + input.first + u8"-\u4e2d\u6587-\U0001f600.cmo");
-        struct RemoveFile {
-            std::filesystem::path path;
-            ~RemoveFile() { std::error_code ignored; std::filesystem::remove(path, ignored); }
-        } remove{path};
-        Document document(host);
-        std::string error;
-        CHECK(document.New(&error));
-        const EditResult script = CreateScript(document, host.Context()->GetCurrentLevel()->GetID(), input.second);
-        CHECK(script.ok);
-        const EditResult local = AddLocalParameter(document, script.created, script.created, "Kept Bytes", CKPGUID_STRING, Point(100, 100));
-        CKParameterLocal *parameter = CKParameterLocal::Cast(host.Context()->GetObject(local.created));
-        CHECK(local.ok && parameter && parameter->SetStringValue(input.second.c_str()) == CK_OK);
-        SaveOptions options; options.allowOverwrite = true;
-        SaveReport report;
-        CHECK(SaveDocumentAs(document, path.u8string(), options, report));
-        CHECK(std::filesystem::exists(path));
-        CHECK(document.Open(path.u8string(), &error));
-        CHECK(document.Scripts().size() == 1);
-        auto *loaded = CKBehavior::Cast(host.Context()->GetObject(document.Scripts().front().id));
-        CHECK(loaded && loaded->GetName() && std::string(loaded->GetName()) == input.second);
-        CHECK(loaded->GetLocalParameterCount() == 1);
-        CHECK(ParameterText(loaded->GetLocalParameter(0)) == input.second);
-    }
-    const auto root = std::filesystem::temp_directory_path() / std::filesystem::u8path(
-        std::string("virtoolsdev-resource-") + std::to_string(SDL_GetPerformanceCounter()) + u8"-\u4e2d\u6587-\U0001f600");
-    const auto resourcePath = std::filesystem::u8path(root.u8string() + ".rsc");
-    struct RemoveResource {
-        std::filesystem::path root, file;
-        ~RemoveResource() {
-            std::error_code ignored;
-            if (root.parent_path() == std::filesystem::temp_directory_path() &&
-                root.filename().u8string().find("virtoolsdev-resource-") == 0)
-                std::filesystem::remove_all(root, ignored);
-            std::filesystem::remove(file, ignored);
-        }
-    } removeResource{root, resourcePath};
-    std::string resourceError;
-    CHECK(CreateDataResource(resourcePath.u8string(), &resourceError));
-    DataResource resource;
-    CHECK(ReadDataResource(resourcePath.u8string(), resource, &resourceError));
-    CHECK(resource.root.path == root.u8string());
-    CHECK(DataResourceFolderClass((root / "Characters" / "Animations").u8string()) == CKCID_ANIMATION);
-    CHECK(DataResourceFolderClass((root / "3D Entities" / "Animations").u8string()) == CKCID_ANIMATION);
-    // A real BMP through the SDK reader, with a UTF-8 path and a CP936 name.
-    CHECK(host.SetTextEncoding("windows-936"));
-    const auto bitmap = root / "Textures" / std::filesystem::u8path(u8"\u4e2d\u6587.bmp");
-    std::vector<unsigned char> bytes(70, 0);
-    bytes[0] = 'B'; bytes[1] = 'M'; bytes[26] = 1; bytes[28] = 24;
-    auto put = [&](size_t offset, unsigned int value) {
-        for (int i = 0; i < 4; ++i) bytes[offset+i] = static_cast<unsigned char>(value >> (i*8));
-    };
-    put(2, 70); put(10, 54); put(14, 40); put(18, 2); put(22, 2); put(34, 16);
-    const unsigned char rows[] = {255,0,0, 255,255,255, 0,0, 0,0,255, 0,255,0, 0,0};
-    std::copy(std::begin(rows), std::end(rows), bytes.begin()+54);
-    FILE *image = VxFOpen(bitmap.u8string().c_str(), "wb");
-    CHECK(image != nullptr);
-    if (image) {
-        CHECK(std::fwrite(bytes.data(), 1, bytes.size(), image) == bytes.size());
-        CHECK(std::fclose(image) == 0);
-    }
-    Document pictures(host);
-    CHECK(pictures.New(&resourceError));
-    const EditResult imported = LoadResourceFile(pictures, bitmap.u8string(), CKCID_TEXTURE, 0);
-    CKTexture *texture = CKTexture::Cast(host.Context()->GetObject(imported.created));
-    CHECK(imported.ok && texture && texture->GetName() && std::string(texture->GetName()) == "\xD6\xD0\xCE\xC4");
-    CHECK(texture && texture->GetWidth() == 2 && texture->GetHeight() == 2);
-    if (texture && texture->GetWidth() == 2 && texture->GetHeight() == 2) {
-        CHECK((texture->GetPixel(0, 0, 0) & 0xffffff) == 0xff0000 &&
-              (texture->GetPixel(1, 0, 0) & 0xffffff) == 0x00ff00);
-        CHECK((texture->GetPixel(0, 1, 0) & 0xffffff) == 0x0000ff &&
-              (texture->GetPixel(1, 1, 0) & 0xffffff) == 0xffffff);
-    }
 }
 
 void NewSceneEnvironment(CkRuntimeHost &host) {

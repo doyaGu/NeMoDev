@@ -1,5 +1,4 @@
 #include "core/document/ToolCommands.h"
-#include "VxWindowFunctions.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -37,7 +36,7 @@ std::string Lower(std::string text) {
 // Dev's marker: "%d\n%s\n", hidden (Dev.exe sub_57AB50).
 bool WriteMarker(const fs::path &folder, CK_CLASSID cid, const char *name) {
     const fs::path marker = folder / "_marker_";
-    FILE *file = VxFOpen(marker.u8string().c_str(), "wt");
+    FILE *file = fopen(marker.u8string().c_str(), "wt");
     if (!file) return false;
     std::fprintf(file, "%d\n%s\n", static_cast<int>(cid), name);
     std::fclose(file);
@@ -106,7 +105,7 @@ bool CreateDataResource(const std::string &file, std::string *error) {
     root.replace_extension();
     std::error_code ec;
     fs::create_directories(root, ec);
-    FILE *out = VxFOpen(rsc.u8string().c_str(), "wt");
+    FILE *out = fopen(rsc.u8string().c_str(), "wt");
     if (!out) {
         if (error) *error = "Cannot write " + rsc.u8string();
         return false;
@@ -144,7 +143,7 @@ bool CreateDataResource(const std::string &file, std::string *error) {
 
 CK_CLASSID DataResourceFolderClass(const std::string &folder) {
     for (const char *name : {"_marker_", "_nemo.dir"}) {
-        FILE *file = VxFOpen((fs::u8path(folder) / name).u8string().c_str(), "rt");
+        FILE *file = fopen((fs::u8path(folder) / name).u8string().c_str(), "rt");
         if (!file) continue;
         int cid = 0;
         if (std::fscanf(file, "%d", &cid) != 1) cid = 0;
@@ -159,7 +158,7 @@ std::string BehaviorDescriptionPath(const std::string &nms) {
 }
 
 bool ReadBehaviorDescription(const std::string &nms, BehaviorDescription &description) {
-    FILE *file = VxFOpen(BehaviorDescriptionPath(nms).c_str(), "rb");
+    FILE *file = fopen(BehaviorDescriptionPath(nms).c_str(), "rb");
     if (!file) return false;
     BehaviorDescription read;
     int cid = 0;
@@ -184,7 +183,7 @@ bool ReadBehaviorDescription(const std::string &nms, BehaviorDescription &descri
 }
 
 bool WriteBehaviorDescription(const std::string &nms, const BehaviorDescription &description) {
-    FILE *file = VxFOpen(BehaviorDescriptionPath(nms).c_str(), "wb");
+    FILE *file = fopen(BehaviorDescriptionPath(nms).c_str(), "wb");
     if (!file) return false;
     const int cid = static_cast<int>(description.cid);
     std::fwrite(&cid, 4, 1, file);
@@ -200,7 +199,7 @@ bool WriteBehaviorDescription(const std::string &nms, const BehaviorDescription 
 
 bool ReadDataResource(const std::string &file, DataResource &resource, std::string *error) {
     resource = DataResource();
-    FILE *in = VxFOpen(file.c_str(), "rt");
+    FILE *in = fopen(file.c_str(), "rt");
     char header[64] = "";
     const bool read = in && std::fgets(header, sizeof(header), in);
     if (in) std::fclose(in);
@@ -249,7 +248,7 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
             // The path remains usable even when its suggested object name
             // does not fit the session encoding. CK generates its own name.
             host.Log(LogLevel::Info, "The file name cannot be used as a CK object name in " +
-                                      host.TextEncoding() + "; using a generated name");
+                                      std::string("the ANSI code page; using a generated name"));
         }
         CKObject *object = context->CreateObject(kind, ckName.empty() ? nullptr : const_cast<CKSTRING>(ckName.c_str()));
         if (object) created.push_back(object->GetID());

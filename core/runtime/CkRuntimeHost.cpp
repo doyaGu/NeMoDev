@@ -131,14 +131,6 @@ bool RuntimeVersion(const std::string &runtimeDirectory, int &major, int &minor)
     return true;
 }
 
-bool CkRuntimeHost::SetTextEncoding(const std::string &encoding) {
-    const std::string previous = VxGetTextEncoding();
-    if (!VxSetTextEncoding(encoding.c_str())) return false;
-    if (!m_StartedUp && m_PreviousTextEncoding.empty()) VxSetTextEncoding(previous.c_str());
-    m_TextEncoding = encoding;
-    return true;
-}
-
 void CkRuntimeHost::Log(LogLevel level, const std::string &message) const {
     if (m_Sink) m_Sink(level, message);
 }
@@ -158,8 +150,6 @@ bool CkRuntimeHost::Start(const std::string &runtimeDirectory, LogSink sink, std
     if (!RuntimeVersion(runtimeDirectory, runtimeMajor, runtimeMinor))
         return fail("Only the Ballanced runtime staged by this source build is supported: " + runtimeDirectory);
 
-    m_PreviousTextEncoding = VxGetTextEncoding();
-    if (!SetTextEncoding(m_TextEncoding)) return fail("The CK text encoding is unavailable");
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return fail(std::string("SDL video initialization failed: ") + SDL_GetError());
     m_OwnsVideo = true;
     if (!mainWindow) {
@@ -246,10 +236,7 @@ void CkRuntimeHost::Stop() {
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
         m_OwnsVideo = false;
     }
-    if (!m_PreviousTextEncoding.empty()) {
-        VxSetTextEncoding(m_PreviousTextEncoding.c_str());
-        m_PreviousTextEncoding.clear();
-    }
+
 }
 
 void CkRuntimeHost::ClearAll() {

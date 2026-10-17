@@ -46,8 +46,6 @@ public:
     // Engine": a render engine plugin's dll name, as "ck2_3d"); unknown or
     // empty: the first one. Set before Start.
     void SetRenderEngine(const std::string &engine) { m_RenderEngine = engine; }
-    bool SetTextEncoding(const std::string &encoding);
-    const std::string &TextEncoding() const { return m_TextEncoding; }
 
     CKContext *Context() const { return m_Context; }
     // CKContext::ClearAll, the managers left active as they were. CK2's
@@ -80,8 +78,6 @@ private:
     LogSink m_Sink;
     SDL_Window *m_FallbackWindow = nullptr;
     bool m_OwnsVideo = false;
-    std::string m_TextEncoding = "windows-936";
-    std::string m_PreviousTextEncoding;
 };
 
 // Runs fn, converting a structured exception raised inside Building Block or

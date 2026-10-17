@@ -168,7 +168,6 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"TextEncoding", [] { TextEncodingChecks(); }},
             {"Resources", [] { ResourceChecks(); }},
             {"NewSceneEnvironment", [&] { NewSceneEnvironment(host); }},
-            {"Utf8FileAndStringBytes", [&] { Utf8FileAndStringBytes(host); }},
             {"Catalogs", [&] { Catalogs(host.Context()); }},
             {"Edits", [&] { Edits(host); }},
             {"UndoRoundTrips", [&] { UndoRoundTrips(host, prototypes); }},

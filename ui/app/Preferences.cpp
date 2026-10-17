@@ -211,7 +211,6 @@ const std::vector<DevSetting> &DevSettings() {
         {"Schematic\\Autoscroll Delay", "50", 'i'},
         {"Schematic\\Edit Parameter Operation Mode", "1", 'i'}, // 1 Easy Finding, 0 Quick Finding
         // Miscellaneous Controls
-        {"CK2 Settings\\Text Encoding", "windows-936", 's'},
         {"CK2 Settings\\Render Engine", "ck2_3d", 's'},
         {"CK2 Settings\\Sound Enabled", "1", 'b'},
         {"CK2 Settings\\Direct Input Enabled", "1", 'b'},
