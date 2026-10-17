@@ -843,6 +843,15 @@ void CkArrays(CkRuntimeHost &host) {
     CHECK(InsertBehaviorIo(graph, 1, in, true));
     CHECK(graph->GetInputCount() == 3 && graph->GetInput(1) == in && named(graph->GetInput(2)) == "In B");
     CHECK(in->GetOwner() == graph);
+    CHECK(!InsertBehaviorIo(graph, 0, in, true) && graph->GetInputCount() == 3 && graph->GetInput(1) == in);
+    CKBehavior *otherGraph = NewScript(context, "Other Arrays Graph");
+    keep(otherGraph);
+    CHECK(!InsertBehaviorIo(otherGraph, 0, in, true) && otherGraph->GetInputCount() == 1);
+    CHECK(graph->RemoveInput(1) == in && in->GetOwner() == graph);
+    CHECK(InsertBehaviorIo(otherGraph, 0, in, true) && in->GetOwner() == otherGraph);
+    CHECK(otherGraph->RemoveInput(0) == in);
+    CHECK(InsertBehaviorIo(graph, 1, in, true) && graph->GetInput(1) == in);
+    CHECK(in->GetOwner() == graph);
     graph->CreateOutput((CKSTRING) "Out B");
     auto *out = CKBehaviorIO::Cast(keep(context->CreateObject(CKCID_BEHAVIORIO, (CKSTRING) "Out A")));
     out->SetType(CK_BEHAVIORIO_OUT);
@@ -868,6 +877,16 @@ void CkArrays(CkRuntimeHost &host) {
     keep(local);
     CHECK(InsertLocalParameter(graph, 1, local));
     CHECK(graph->GetLocalParameterCount() == 2 && graph->GetLocalParameter(1) == local && local->GetOwner() == graph);
+    CHECK(!InsertInputParameter(graph, 0, pin) && graph->GetInputParameterCount() == 3);
+    CHECK(!InsertOutputParameter(graph, 0, pout) && graph->GetOutputParameterCount() == 2);
+    CHECK(!InsertLocalParameter(otherGraph, 0, local) && otherGraph->GetLocalParameterCount() == 0);
+    CHECK(local->GetOwner() == graph && graph->GetLocalParameter(1) == local);
+    CHECK(graph->RemoveLocalParameter(1) == local);
+    CHECK(local->GetOwner() == graph); // CK removal leaves the prior owner metadata.
+    CHECK(InsertLocalParameter(otherGraph, 0, local) && otherGraph->GetLocalParameter(0) == local);
+    CHECK(local->GetOwner() == otherGraph);
+    CHECK(otherGraph->RemoveLocalParameter(0) == local);
+    CHECK(InsertLocalParameter(graph, 1, local) && local->GetOwner() == graph);
 
     // Sub-behaviors of equal priority where asked, the end out of range; a
     // priority changed: CK's order, the ties as they were.
@@ -883,6 +902,7 @@ void CkArrays(CkRuntimeHost &host) {
         return order;
     };
     CHECK(subs() == "ADBCE");
+    CHECK(!AddSubBehaviorAt(graph, a, 1) && subs() == "ADBCE");
     SetPriorityKeepingTies(b, 10);
     const bool firstHigh = subs() == "BADCE"; // CK puts the higher priority first, or last
     CHECK(firstHigh || subs() == "ADCEB");

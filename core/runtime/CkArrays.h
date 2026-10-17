@@ -4,14 +4,14 @@
 
 namespace vdev {
 
-// Editor insertion operations use CK2's array ownership and indexed methods.
+// Editor insertion operations keep CK ownership and ordering here.
 // No internal arrays or native object layouts are exposed to callers.
 bool InsertBehaviorIo(CKBehavior *behavior, int slot, CKBehaviorIO *io, bool input);
 bool InsertInputParameter(CKBehavior *behavior, int slot, CKParameterIn *in);
 bool InsertOutputParameter(CKBehavior *behavior, int slot, CKParameterOut *out);
 bool InsertLocalParameter(CKBehavior *behavior, int slot, CKParameterLocal *local);
 
-// Ballanced keeps equal-priority behavior and Script ordering stable.
+// Dev preserves equal-priority behavior and Script ordering.
 
 // A sub-behavior added to a graph, among its equal priorities at position
 // of the order before (the end when position is out of range).
