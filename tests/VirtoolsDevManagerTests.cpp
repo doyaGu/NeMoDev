@@ -1694,6 +1694,27 @@ void InputViewport(CkRuntimeHost &host) {
     SDL_Event focusLost{}; focusLost.type = SDL_EVENT_WINDOW_FOCUS_LOST; focusLost.window.windowID = id;
     CHECK(SDL_PushEvent(&focusLost) && input->PreProcess() == CK_OK && !input->IsKeyDown(0x30));
     while (SDL_PollEvent(&event)) {}
+    // Multiple queue reallocations retain key order, and SDL keeps its copy.
+    for (int i = 0; i < 200; ++i) {
+        key.type = i % 2 ? SDL_EVENT_KEY_UP : SDL_EVENT_KEY_DOWN;
+        key.key.scancode = (i / 2) % 2 ? SDL_SCANCODE_D : SDL_SCANCODE_C;
+        key.key.down = i % 2 == 0;
+        CHECK(SDL_PushEvent(&key));
+    }
+    CHECK(input->PreProcess() == CK_OK && input->GetNumberOfKeyInBuffer() == 200);
+    for (int i = 0; i < 200; ++i) {
+        CKDWORD code = 0;
+        CHECK(input->GetKeyFromBuffer(i, code) == (i % 2 ? KEY_RELEASED : KEY_PRESSED));
+        CHECK(code == ((i / 2) % 2 ? 0x20u : 0x2eu));
+    }
+    keyEvents = 0;
+    while (SDL_PollEvent(&event))
+        if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) ++keyEvents;
+    CHECK(keyEvents == 200 && input->PostProcess() == CK_OK);
+    input->Pause(TRUE);
+    input->Pause(FALSE);
+    CHECK(input->PreProcess() == CK_OK && input->GetNumberOfKeyInBuffer() == 0);
+    CHECK(!input->IsKeyDown(0x2e) && !input->IsKeyDown(0x20));
 }
 
 } // namespace vdevtest
