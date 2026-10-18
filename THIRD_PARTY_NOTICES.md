@@ -104,9 +104,9 @@ tree, and `licenses/fonts/` in the runtime. The SDK also places these notices
 beside the deployed fonts in `Bin/data/fonts`.
 
 `resources/fonts/sources.json` records immutable download revisions and SHA-256
-checksums. It is copied to `licenses/fonts/sources.json` in the runtime. Fonts
-are prepared separately and are not included in this source repository. Retain
-their notices when bundling the fonts.
+checksums. It is copied to `licenses/fonts/sources.json` in the runtime. The
+recorded fonts are included under `resources/fonts/`. Retain their notices
+when bundling the fonts.
 
 ## System libraries and build tools
 
@@ -126,8 +126,9 @@ if they are redistributed with a development environment or installer.
 
 Virtools images, icons, `interface.nmo`, CHM documentation and sample
 compositions retain their original ownership. NemoDev provides no license or
-redistribution grant for them. They are supplied locally and excluded from the
-source repository. The build embeds images in the executable and stages data
-and extracted help alongside it, so a binary package containing those assets
-requires the corresponding permissions. A source-code license is not a grant
-for those resources.
+redistribution grant for them. Images, icons and `interface.nmo` are included
+under `resources/`; CHM documentation and samples are supplied locally and
+excluded from the source repository. The build embeds images in the executable
+and stages data and extracted help alongside it. A binary package containing
+those assets requires the corresponding permissions. A source-code license is
+not a grant for those resources.

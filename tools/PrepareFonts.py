@@ -1,4 +1,4 @@
-"""Download the recorded Noto fonts and their licenses to a local resource directory."""
+"""Verify the bundled Noto fonts and licenses, downloading missing files."""
 import argparse
 import hashlib
 import json
@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / "local-resources/fonts")
+    parser.add_argument("--output", type=Path, default=ROOT / "resources/fonts")
     args = parser.parse_args()
     sources = json.loads((ROOT / "resources/fonts/sources.json").read_text(encoding="utf-8"))
     args.output.mkdir(parents=True, exist_ok=True)

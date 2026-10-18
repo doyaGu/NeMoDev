@@ -26,11 +26,8 @@ __pycache__/
 /CLAUDE.md
 /CONTEXT.md
 
-# Original Virtools assets and compositions are supplied separately.
-/resources/images/
-/resources/data/
-/resources/fonts/*.ttf
-/resources/fonts/*.otf
+# Help archives and original sample compositions are supplied separately.
+*.[cC][hH][mM]
 /tests/data/BBSamples/
 /tests/data/TechnicalSamples/
 /tests/data/Demo/

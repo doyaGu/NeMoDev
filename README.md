@@ -55,11 +55,17 @@ Virtools SDKs and runtimes are not supported by this build.
 For SDL3, build a shared installation with `SDL_SHARED=ON`, `SDL_STATIC=OFF` and
 `SDL_TESTS=OFF`, then pass its installation prefix as `CMAKE_PREFIX_PATH`.
 
-## Prepare local resources
+## Resources
 
-Original Virtools images, icons, `interface.nmo`, CHM documentation and sample
-compositions are not distributed here. To use an existing Virtools Dev 2.5
-installation, build the standalone resource extractor on Windows:
+Images, icons, `interface.nmo` and the Noto fonts are included under `resources/`,
+the default resource directory. CHM documentation and sample compositions are
+supplied separately. Before configuring, copy `data/documentation.chm` from an
+existing Virtools Dev 2.5 installation to
+`local-resources/data/documentation.chm`. On Linux or macOS, transfer that file
+from the installation as well.
+
+To regenerate a local resource collection from that installation, build the
+standalone resource extractor on Windows:
 
 ```powershell
 cmake -S tools -B out/resource-tools -G "Visual Studio 17 2022" -A x64
@@ -71,26 +77,24 @@ The extractor needs neither Ballanced nor the editor's resources to build. It
 reads `Dev.exe`, `resvis.dll`, `Managers/CK2UI.dll` and the installation's data
 files. The manifest at `resources/images.txt` selects the images to extract.
 
-Prepare the fonts separately:
+To verify the bundled fonts or download missing files:
 
 ```sh
 python tools/PrepareFonts.py
 ```
 
-This downloads the recorded Noto fonts and OFL licenses into
-`local-resources/fonts`, checking every file against its recorded checksum.
-It reuses matching local files and refuses to overwrite different ones. For a
-custom resource directory, pass `--output "<resource directory>/fonts"`.
+This checks the recorded Noto fonts and OFL licenses in `resources/fonts`
+against their pinned checksums, downloading only missing files. It reuses
+matching files and refuses to overwrite different ones. For a custom resource
+directory, pass `--output "<resource directory>/fonts"`.
 
-The resulting resource directory contains `images.txt`, `images/`,
-`data/interface.nmo`, `data/documentation.chm` and `fonts/`. For Linux or macOS,
-prepare that directory on Windows and transfer it to the build machine. An
-existing resource directory can be selected with `VIRTOOLSDEV_RESOURCES_DIR`.
-The image manifest, images, `interface.nmo` and `documentation.chm` must be ready
-before configuring the editor, even when tests are disabled. Resource images
-are embedded at build time; 7-Zip extracts the CHM into local HTML while
-retaining the Building Block topic paths. The SDK stages the verified fonts
-and their licenses into `runtime/Bin/data/fonts`.
+An alternative directory containing `images.txt`, `images/`,
+`data/interface.nmo` and `fonts/` can be selected with `VIRTOOLSDEV_RESOURCES_DIR`.
+The build first looks for `data/documentation.chm` in that directory, then in
+`local-resources/`. The CHM is required even when tests are disabled and is
+excluded from Git. Resource images are embedded at build time; 7-Zip extracts
+the CHM into local HTML while retaining the Building Block topic paths. The
+SDK stages the verified fonts and their licenses into `runtime/Bin/data/fonts`.
 
 ## Build and run
 
@@ -228,9 +232,10 @@ do not establish that the editor runs there.
 
 ## Current limitations
 
-- Building requires the separately supplied Ballanced sources and original
-  Virtools resources. The repository alone is not a complete build or test
-  distribution, and it does not pin a Ballanced revision.
+- Building requires the separately supplied Ballanced sources and CHM help;
+  full regression tests also require original sample compositions.
+  The repository alone is not a complete build or test distribution, and it
+  does not pin a Ballanced revision.
 - Legacy CK text depends on the host character set. Preserving its bytes does
   not guarantee identical display across machines or unrestricted Unicode
   names through every SDK interface.

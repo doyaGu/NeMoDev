@@ -25,17 +25,24 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif ()
 
 set(VIRTOOLSDEV_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-# Original Virtools images and data are supplied locally, outside the source
-# repository. tools/ has a standalone Windows resource extractor.
-set(VIRTOOLSDEV_RESOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/local-resources" CACHE PATH
-        "Local Virtools resources: images.txt, images/, data/ and fonts/")
+# Images, interface data and fonts are included; the help archive is supplied locally.
+set(VIRTOOLSDEV_RESOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources" CACHE PATH
+        "Virtools resources: images.txt, images/, data/ and fonts/")
 get_filename_component(VIRTOOLSDEV_RESOURCES_DIR "${VIRTOOLSDEV_RESOURCES_DIR}" ABSOLUTE)
-foreach(_resource images.txt data/interface.nmo data/documentation.chm)
+foreach(_resource images.txt data/interface.nmo)
     if(NOT EXISTS "${VIRTOOLSDEV_RESOURCES_DIR}/${_resource}")
         message(FATAL_ERROR "Missing local resource: ${VIRTOOLSDEV_RESOURCES_DIR}/${_resource}. "
                 "Prepare resources as described in README.md, or set VIRTOOLSDEV_RESOURCES_DIR.")
     endif()
 endforeach()
+set(_help_archive "${VIRTOOLSDEV_RESOURCES_DIR}/data/documentation.chm")
+if(NOT EXISTS "${_help_archive}")
+    set(_help_archive "${CMAKE_CURRENT_SOURCE_DIR}/local-resources/data/documentation.chm")
+endif()
+if(NOT EXISTS "${_help_archive}")
+    message(FATAL_ERROR "Missing local help archive: ${_help_archive}. "
+            "Supply documentation.chm as described in README.md.")
+endif()
 # The editor and its tests share runtime/Bin for every configuration.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/runtime/Bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${PROJECT_BINARY_DIR}/runtime/Bin")
@@ -70,9 +77,8 @@ endif ()
 
 include(cmake/RuntimeTargets.cmake)
 
-# The editor's images are built into it (resources/images, listed in
-# images.txt, named in resources.rc); local data files are copied to data/
-# beside the program. See README.md for preparing the resource directory.
+# The images listed in images.txt are embedded in the editor. Interface data
+# and the local help archive are copied beside the program.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 execute_process(COMMAND ${Python3_EXECUTABLE} -c "import PIL" RESULT_VARIABLE _pillow_result)
 if(NOT _pillow_result EQUAL 0)
@@ -90,14 +96,14 @@ add_library(VirtoolsDevResources STATIC "${_compiled_images}")
 target_include_directories(VirtoolsDevResources PUBLIC "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(VirtoolsDevResources PUBLIC cxx_std_17)
 # As core/runtime/Resources.h names them.
-set(VIRTOOLSDEV_DATA_FILES "${VIRTOOLSDEV_RESOURCES_DIR}/data/interface.nmo" "${VIRTOOLSDEV_RESOURCES_DIR}/data/documentation.chm")
+set(VIRTOOLSDEV_DATA_FILES "${VIRTOOLSDEV_RESOURCES_DIR}/data/interface.nmo" "${_help_archive}")
 find_program(VIRTOOLSDEV_SEVEN_ZIP NAMES 7zz 7z 7za HINTS "C:/Program Files/7-Zip" REQUIRED)
 set(_help_output "${PROJECT_BINARY_DIR}/generated/help")
 add_custom_command(OUTPUT "${_help_output}/VirtoolsDevHelp.html"
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py"
-        --archive "${VIRTOOLSDEV_RESOURCES_DIR}/data/documentation.chm"
+        --archive "${_help_archive}"
         --seven-zip "${VIRTOOLSDEV_SEVEN_ZIP}" --output "${_help_output}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py" "${VIRTOOLSDEV_RESOURCES_DIR}/data/documentation.chm"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py" "${_help_archive}"
     VERBATIM)
 add_custom_target(VirtoolsDevHelp DEPENDS "${_help_output}/VirtoolsDevHelp.html")
 set(_runtime_data "${PROJECT_BINARY_DIR}/runtime/Bin/data")
