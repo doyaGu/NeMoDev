@@ -22,6 +22,8 @@ jobs:
         run: cmake "-DVIRTOOLSDEV_SOURCE_DIR=${{ github.workspace }}" -P tests/CheckLayering.cmake
       - name: Python syntax
         run: python -m compileall -q tools tests
+      - name: Runtime license materials
+        run: cmake "-DSOURCE_DIRECTORY=${{ github.workspace }}" "-DBINARY_DIRECTORY=${{ github.workspace }}/out/release-materials" -P tests/ReleaseMaterialsTests.cmake
       - name: Configure resource extractor
         if: runner.os == 'Windows'
         run: cmake -S tools -B out/resource-tools -G "Visual Studio 17 2022" -A x64

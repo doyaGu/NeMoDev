@@ -1,5 +1,10 @@
 # Virtools Dev's tests: they link the core only.
 
+add_test(NAME VirtoolsDevLicenseDeployment COMMAND ${CMAKE_COMMAND}
+        "-DSOURCE_DIRECTORY=${VIRTOOLSDEV_SOURCE_DIR}"
+        "-DRUNTIME_DIRECTORY=${PROJECT_BINARY_DIR}/runtime"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/CheckLicenseDeployment.cmake")
+
 add_test(NAME VirtoolsDevFontDeployment COMMAND ${CMAKE_COMMAND}
         "-DRUNTIME_DIRECTORY=${VIRTOOLS_RUNTIME_PATH}"
         "-DFONT_MANIFEST=${VIRTOOLS_SDK_PATH}/Source/VxMath/fonts/sources.json"

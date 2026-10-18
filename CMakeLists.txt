@@ -43,6 +43,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${PROJECT_BINARY_DIR}/runtime/Bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${PROJECT_BINARY_DIR}/runtime/Bin")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${PROJECT_BINARY_DIR}/runtime/Bin")
 include(cmake/Ballanced.cmake)
+include(cmake/ThirdPartyNotices.cmake)
 
 option(VIRTOOLSDEV_BUILD_TESTS "Build NemoDev tests" ON)
 # Original regression compositions are provided locally, never redistributed.
