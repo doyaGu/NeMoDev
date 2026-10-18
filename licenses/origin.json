@@ -1,0 +1,72 @@
+{
+  "description": "Origins of license text copies; these revisions identify notices and do not select build dependencies. SHA-256 uses LF line endings.",
+  "files": [
+    {
+      "file": "DearImGui-MIT.txt",
+      "source": "https://raw.githubusercontent.com/ocornut/imgui/64944b4520b30772de8dbf0b37d0311746477a32/LICENSE.txt",
+      "sha256": "173506a2d6f7fb67990d257fb2507f188690eca39060c39469ae7bef43aae2a3"
+    },
+    {
+      "file": "ImGuiTestEngine-License.txt",
+      "source": "https://raw.githubusercontent.com/ocornut/imgui_test_engine/16b6efbb393fdef0dcac9b0794a8ee476606a152/imgui_test_engine/LICENSE.txt",
+      "sha256": "8d01df5085b3d7c055999188bfc743354b00658be309819eb0415239820b1835"
+    },
+    {
+      "file": "Ballanced-MIT.txt",
+      "source": "https://raw.githubusercontent.com/doyaGu/Ballanced/e501fee83e4206f24cd843716a9a6c1f31edcbf7/LICENSE",
+      "sha256": "ae0cd25729ad3f4c4076cafbc92d220f4455f288cce394cb5ccae8db6aa3702a"
+    },
+    {
+      "file": "Apache-2.0.txt",
+      "source": "https://raw.githubusercontent.com/doyaGu/CK2/636172f82627f39720751f2140b81eb5ac37dc97/LICENSE",
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "file": "stb-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/nothings/stb/31c1ad37456438565541f4919958214b6e762fb4/LICENSE",
+      "sha256": "bebfe904b14301657e4e5d655c811d51fd31b97c455b9cc2d8600d6bac6cff63"
+    },
+    {
+      "file": "SIMDe-MIT.txt",
+      "source": "https://raw.githubusercontent.com/simd-everywhere/simde/2e5224981e9123b8fe89a9833a978556d636a565/COPYING",
+      "sha256": "75ce0a8c5a7bff42fbd6f8f3b469b518132132c4f4948fb8d02b1ccb5d0df9d8"
+    },
+    {
+      "file": "miniz-MIT.txt",
+      "source": "https://raw.githubusercontent.com/richgel999/miniz/d10b03cc73475af673df40f06e5cefd1d5f940d9/LICENSE",
+      "sha256": "6f20fa7672b00e2e975c291df737cf227addf3ad32e36fef3fe0f416e4664d3d"
+    },
+    {
+      "file": "Qhull-COPYING.txt",
+      "source": "https://raw.githubusercontent.com/qhull/qhull/d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6/COPYING.txt",
+      "sha256": "106d55c931fd6a84822e5345d900273d059f1c27310d02567ccb313c5d18c55d"
+    },
+    {
+      "file": "dr_wav-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/doyaGu/CKPlugins/032131df0a50788a6bd662208e89401434a58901/WavReader/dr_wav.h",
+      "sha256": "1e3d12bc24ca40e24b24c1f71521d9cbb783bdc041eb827d84ca69ff66521ddb",
+      "note": "Final license comment; both alternatives retained verbatim."
+    },
+    {
+      "file": "SDL3-zlib.txt",
+      "source": "https://raw.githubusercontent.com/libsdl-org/SDL/829a65d769d935c4852f8159e964312c0957260a/LICENSE.txt",
+      "sha256": "1c040b8271b37e5076359f8fd54240e371114112924d2df81ef87c7d6a1dfdfd"
+    },
+    {
+      "file": "libharu-zlib.txt",
+      "source": "https://raw.githubusercontent.com/libharu/libharu/8fe5a738541a04642885fb7a75b2b5b9c5b416fa/LICENSE",
+      "sha256": "860e4e6f467a9c02298e36382a581a2fa31b2d1e7755da08f8cc0f2036b6857d"
+    },
+    {
+      "file": "LGPL-2.1.txt",
+      "source": "https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt",
+      "sha256": "20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95"
+    },
+    {
+      "file": "VirtoolsScriptDeobfuscation-CC-BY-NC-SA-4.0.txt",
+      "source": "https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.txt",
+      "sha256": "58032a8173195237068ab02d429948bc3233d8e6858d1b9ddfdc47e3bbc3d847",
+      "note": "Existing incorporated-code license copy retained unchanged; canonical Creative Commons legal code linked for reference."
+    }
+  ]
+}
