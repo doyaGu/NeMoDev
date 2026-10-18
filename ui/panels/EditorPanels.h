@@ -60,6 +60,7 @@ public:
     // The composition is closed: the ids kept (rows, results, a dialog's
     // object) name objects of the next one after ClearAll.
     void DocumentClosed();
+#ifdef VIRTOOLSDEV_UI_TESTS
     // A Level Manager row drawn at the last frame, wholly in the list (the
     // UI tests click it): its object (0: a folder), name, class, depth, its
     // children, whether open and selected; on screen its rectangle, its
@@ -75,6 +76,7 @@ public:
     };
     // None when the Level Manager was not drawn.
     std::vector<ShownRow> ShownLevelRows() const;
+#endif
 
 private:
     void SelectRow(CK_ID id);
@@ -92,7 +94,9 @@ private:
         CK_ID object;
     };
     std::vector<PickRow> m_PickRows;
+#ifdef VIRTOOLSDEV_UI_TESTS
     std::vector<ShownRow> m_ShownRows;
+#endif
     int m_PickFrame = -1;
     // Level Manager commands on the selected rows (toolbar, keys, menu).
     std::vector<CK_ID> LevelTargets() const { return std::vector<CK_ID>(m_Doc.levelSelection.begin(), m_Doc.levelSelection.end()); }

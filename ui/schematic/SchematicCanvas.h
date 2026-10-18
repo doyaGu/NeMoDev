@@ -120,6 +120,7 @@ public:
     void AddGraphIo(bool input);
     void OpenGraphParameterPicker(bool input);
     void CreateGraphAt(CK_ID script, const Point &local);
+#ifdef VIRTOOLSDEV_UI_TESTS
     // A behavior drawn at the last frame, wholly in the canvas and in its
     // open Script's body (the UI tests find what they click with it); none
     // when the canvas was not drawn.
@@ -151,6 +152,7 @@ public:
         ImVec2 start; // screen
     };
     std::vector<ShownScript> ShownScripts() const;
+#endif
     // The global zoom of the whole Schematic (+ / -), each Script's scale apart.
     float GlobalZoom() const { return m_View.zoom; }
     // The Script Debugger's Breakpoints buttons: Configure Breakpoints (the

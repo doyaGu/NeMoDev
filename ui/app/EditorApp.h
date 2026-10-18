@@ -105,13 +105,15 @@ public:
     // it is dropped on or is imported where it is dropped (Dev drag and drop
     // of resources).
     void DropFiles(const std::vector<std::wstring> &paths, float x, float y);
-    // What the UI tests (tests/ui) check the UI's work on.
     EditorState &State() { return m_State; }
+#ifdef VIRTOOLSDEV_UI_TESTS
+    // What the UI tests (tests/ui) check the UI's work on.
     const SchematicCanvas &Canvas() const { return m_Canvas; }
     const LayoutWindow &Layout() const { return m_Layout; }
     const EditorPanels &Panels() const { return m_Panels; }
     const SetupWindows &Setups() const { return m_Setups; }
     const ManagerWindows &Managers() const { return m_Managers; }
+#endif
 
 private:
     enum class PendingAction { None, New, Open, OpenPath, Close, Quit };

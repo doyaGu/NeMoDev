@@ -65,6 +65,7 @@ public:
     // composition plays, the Player Mode preferences, no navigation but the
     // left button's tools, no shortcut menu, clicks sent to the objects.
     bool PlayerMode() const;
+#ifdef VIRTOOLSDEV_UI_TESTS
     // The view's rectangle on screen when it was drawn at the last frame
     // (the UI tests click in it); false when it was not.
     bool ShownView(ImVec2 &min, ImVec2 &max) const {
@@ -73,7 +74,6 @@ public:
         max = m_ViewMax;
         return true;
     }
-#ifdef VIRTOOLSDEV_UI_TESTS
     // --layout-tool / --layout-view (capture checks): a tool by name, a camera by name.
     void StartupOptions(const std::string &tool, const std::string &camera);
     // --drop-block: a Building Block dropped at a client point once the view has drawn.

@@ -221,6 +221,7 @@ void SchematicCanvas::ZoomScript(ScriptView &view, float scale) {
     UpdateTransforms();
 }
 
+#ifdef VIRTOOLSDEV_UI_TESTS
 std::vector<SchematicCanvas::ShownBehavior> SchematicCanvas::ShownBehaviors() const {
     // Drawn as SchematicRenderer does: the children of an open graph, not
     // open themselves.
@@ -285,6 +286,8 @@ std::vector<SchematicCanvas::ShownScript> SchematicCanvas::ShownScripts() const 
     }
     return shown;
 }
+
+#endif
 
 bool SchematicCanvas::PrintSize(float &width, float &height) const {
     if (m_Views.empty()) return false;

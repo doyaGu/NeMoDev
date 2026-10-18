@@ -43,7 +43,9 @@ public:
     bool Render(ImDrawData *data, bool present, std::string *error);
     std::unique_ptr<UiTexture> CreateTexture(int width, int height, const void *rgba);
     bool UpdateTexture(UiTexture &texture, const void *rgba);
+#ifdef VIRTOOLSDEV_UI_TESTS
     bool ReadFrame(std::vector<unsigned char> &rgba, int &width, int &height);
+#endif
     bool RenderPage(ImDrawData *data, int width, int height, std::vector<unsigned char> &rgba);
     bool Started() const { return m_Device != nullptr; }
 private:

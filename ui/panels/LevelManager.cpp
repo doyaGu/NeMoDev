@@ -115,15 +115,19 @@ void EditorPanels::SyncObjectSelection() {
         m_Doc.levelFollower.Push(objects, m_Doc.levelSelection, context);
 }
 
+#ifdef VIRTOOLSDEV_UI_TESTS
 std::vector<EditorPanels::ShownRow> EditorPanels::ShownLevelRows() const {
     if (ImGui::GetFrameCount() - m_PickFrame > 1) return {};
     return m_ShownRows;
 }
+#endif
 
 void EditorPanels::ScriptsPanel(bool *open) {
     SyncObjectSelection();
     m_PickRows.clear();
+#ifdef VIRTOOLSDEV_UI_TESTS
     m_ShownRows.clear();
+#endif
     m_State.objectPick["Level Manager"] = [this](float x, float y, CK_CLASSID cid) -> CK_ID {
         if (ImGui::GetFrameCount() - m_PickFrame > 2 || !m_State.HasDocument()) return 0;
         for (const PickRow &row : m_PickRows) {
@@ -460,6 +464,7 @@ void EditorPanels::ScriptsPanel(bool *open) {
         const float y = rowsTop + rowHeight * index++;
         const ImVec2 rowMin(list.x, y), rowMax(rowRight, y + rowHeight);
         const bool shown = rowMax.y >= list.y + scrollY + headerHeight && rowMin.y <= list.y + scrollY + windowHeight;
+#ifdef VIRTOOLSDEV_UI_TESTS
         // The row as the UI tests see it (ShownLevelRows), when wholly in the list.
         ShownRow report;
         report.object = cells.layer;
@@ -470,6 +475,7 @@ void EditorPanels::ScriptsPanel(bool *open) {
         report.selected = selected;
         report.min = rowMin;
         report.max = ImVec2(rowMax.x, rowMax.y - 1.0f);
+#endif
         const ImU32 ink = vi::Color(selected ? 9 : 0);
         if (shown) {
             tl->AddRectFilled(rowMin, rowMax, vi::Color(selected ? 4 : section ? 7 : 6));
@@ -503,8 +509,10 @@ void EditorPanels::ScriptsPanel(bool *open) {
         if (object && object->CanBeHide()) {
             const int state = object->IsVisible() ? 0 : object->IsHierarchicallyHide() ? 1 : 2;
             cellIcon(3, EYE[HiddenByParent(object) ? 1 : 0][state]);
+#ifdef VIRTOOLSDEV_UI_TESTS
             report.eyeMin = ImVec2(columnX[3], y);
             report.eyeMax = ImVec2(columnX[4], y + rowHeight - 1.0f);
+#endif
             if (cellButton("##visible", 3)) {
                 const std::vector<CK_ID> rows = m_Doc.levelSelection.count(object->GetID()) ? LevelTargets()
                                                                                          : std::vector<CK_ID>{object->GetID()};
@@ -527,10 +535,12 @@ void EditorPanels::ScriptsPanel(bool *open) {
             if (cellButton("##activate", 4)) FlagClick(object->GetID(), 1, scene);
             if (cellButton("##reset", 5)) FlagClick(object->GetID(), 2, scene);
             if (cellButton("##activenow", 6)) FlagClick(object->GetID(), 3, scene);
+#ifdef VIRTOOLSDEV_UI_TESTS
             report.activateMin = ImVec2(columnX[4], y);
             report.activateMax = ImVec2(columnX[5], y + rowHeight - 1.0f);
             report.activeMin = ImVec2(columnX[6], y);
             report.activeMax = ImVec2(columnX[7], y + rowHeight - 1.0f);
+#endif
             int priority = -1;
             if (CKBeObject *beObject = CKBeObject::Cast(object)) priority = beObject->GetPriority();
             else if (CKBehavior *behavior = CKBehavior::Cast(object)) priority = behavior->GetPriority();
@@ -561,8 +571,10 @@ void EditorPanels::ScriptsPanel(bool *open) {
             if (shown) DrawIcon(tl, open ? ARROW_OPEN : ARROW_CLOSED, arrow, s, true);
             ImGui::SetCursorScreenPos(arrow);
             if (ImGui::InvisibleButton("##arrow", ImVec2(11.0f * s, 11.0f * s))) toggled = true;
+#ifdef VIRTOOLSDEV_UI_TESTS
             report.arrowMin = arrow;
             report.arrowMax = ImVec2(arrow.x + 11.0f * s, arrow.y + 11.0f * s);
+#endif
         }
         if (shown) {
             DrawIcon(tl, icon, ImVec2(arrow.x + 13.0f * s, arrow.y), s, false);
@@ -629,7 +641,9 @@ void EditorPanels::ScriptsPanel(bool *open) {
         // sub_569960: the Setup only for a row without).
         if (children && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) toggled = true;
         (void)folder;
+#ifdef VIRTOOLSDEV_UI_TESTS
         report.open = open;
+#endif
         NavRow nav;
         nav.object = cells.layer;
         nav.scene = sectionScene;
@@ -640,8 +654,10 @@ void EditorPanels::ScriptsPanel(bool *open) {
         nav.open = open;
         nav.label = label;
         m_NavDrawn.push_back(std::move(nav));
+#ifdef VIRTOOLSDEV_UI_TESTS
         if (rowMin.y >= list.y + scrollY + headerHeight && rowMax.y <= list.y + scrollY + windowHeight)
             m_ShownRows.push_back(report);
+#endif
         if (toggled) {
             open = !open;
             storage->SetBool(key, open);

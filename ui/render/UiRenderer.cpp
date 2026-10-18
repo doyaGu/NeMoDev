@@ -166,11 +166,13 @@ bool UiRenderer::ReadTexture(const UiTexture &texture, std::vector<unsigned char
     SDL_ReleaseGPUTransferBuffer(m_Device, transfer);
     return done;
 }
+#ifdef VIRTOOLSDEV_UI_TESTS
 bool UiRenderer::ReadFrame(std::vector<unsigned char> &rgba, int &width, int &height) {
     if (!m_Frame) return false;
     width = m_Frame->Width(); height = m_Frame->Height();
     return ReadTexture(*m_Frame, rgba);
 }
+#endif
 bool UiRenderer::RenderPage(ImDrawData *data, int width, int height, std::vector<unsigned char> &rgba) {
     auto target = MakeTarget(width, height);
     return target && Draw(data, *target, false, {1.0f, 1.0f, 1.0f, 1.0f}, nullptr) && ReadTexture(*target, rgba);

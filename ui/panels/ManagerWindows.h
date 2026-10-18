@@ -35,6 +35,7 @@ public:
         m_Doc.addAttributeMore = more;
         m_Doc.openAddAttribute = true;
     }
+#ifdef VIRTOOLSDEV_UI_TESTS
     // A Hierarchy Manager row drawn at the last frame, wholly in the list
     // (the UI tests click it): its object (0: a root), name (ANSI), class,
     // depth, its children, whether open and selected; on screen its
@@ -52,6 +53,7 @@ public:
         if (ImGui::GetFrameCount() - m_HierarchyPickFrame > 1) return {};
         return m_HierarchyShownRows;
     }
+#endif
 
 private:
     void AddAttributeDialog();
@@ -134,7 +136,9 @@ private:
         CK_ID object;
     };
     std::vector<PickRow> m_HierarchyPickRows;
+#ifdef VIRTOOLSDEV_UI_TESTS
     std::vector<ShownRow> m_HierarchyShownRows;
+#endif
     int m_HierarchyPickFrame = -1;
     // A drag refused (body parts, different depths): told once a drag.
     bool m_HierarchyDragRefused = false;

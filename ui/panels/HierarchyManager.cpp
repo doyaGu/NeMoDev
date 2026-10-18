@@ -68,7 +68,9 @@ void ManagerWindows::HierarchyManager(bool *open) {
         BeginDevWindow("Hierarchy Manager", open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     m_HierarchyPickRows.clear();
+#ifdef VIRTOOLSDEV_UI_TESTS
     m_HierarchyShownRows.clear();
+#endif
     m_State.objectPick["Hierarchy Manager"] = [this](float x, float y, CK_CLASSID cid) -> CK_ID {
         if (ImGui::GetFrameCount() - m_HierarchyPickFrame > 2 || !m_State.HasDocument()) return 0;
         for (const PickRow &row : m_HierarchyPickRows) {
@@ -238,6 +240,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
             m_HierarchyPickRows.push_back({std::max(rowMin.x, clipMin.x), std::max(rowMin.y, clipMin.y),
                                            std::min(rowMax.x, clipMax.x), std::min(rowMax.y, clipMax.y), item.object});
         }
+#ifdef VIRTOOLSDEV_UI_TESTS
         // The row as the UI tests see it (ShownHierarchyRows), when wholly in the list.
         if (y >= listOrigin.y + scroll + headerHeight && y + rowHeight <= listOrigin.y + scroll + ImGui::GetWindowHeight()) {
             ShownRow shown;
@@ -260,6 +263,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
             }
             m_HierarchyShownRows.push_back(shown);
         }
+#endif
         const bool clicked = !toggled && ImGui::IsItemClicked(ImGuiMouseButton_Left);
         const bool rightClicked = ImGui::IsItemClicked(ImGuiMouseButton_Right);
         const bool onPriority = io.MousePos.x >= nameRightX;
