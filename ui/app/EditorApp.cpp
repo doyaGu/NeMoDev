@@ -303,6 +303,7 @@ void EditorApp::CreateDataResourceDialog() {
 }
 
 void EditorApp::OpenOnlineReference() {
+    if (!HelpAvailable()) return;
     std::string error;
     if (!OpenHelpTopic("VirtoolsDevHelp.html", &error)) m_State.Log(LogLevel::Warning, "Online Reference: " + error);
 }
@@ -798,7 +799,7 @@ void EditorApp::MainMenu() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Help")) {
-        if (ImGui::MenuItem("Online Reference", "F1")) OpenOnlineReference();
+        if (ImGui::MenuItem("Online Reference", "F1", false, HelpAvailable())) OpenOnlineReference();
         if (ImGui::MenuItem("About Virtools...")) m_Tools.OpenAbout();
         ImGui::EndMenu();
     }

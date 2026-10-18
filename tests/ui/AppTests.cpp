@@ -2,6 +2,8 @@
 // the dialogs of the Options and Help menus and their shortcuts.
 
 #include "tests/ui/UiTests.h"
+#include "ui/app/DesktopFiles.h"
+#include "imgui_internal.h"
 
 namespace vdevuitest {
 
@@ -81,6 +83,38 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//General Preferences/Cancel");
         ctx->Yield(3);
         IM_CHECK(!WindowShown(ctx, "//General Preferences"));
+    };
+
+    // Local help is optional. Missing help disables its menus and makes
+    // the reference and Building Block shortcuts quiet.
+    t = IM_REGISTER_TEST(engine, "app", "optional_help");
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Building Blocks");
+        const bool available = vdev::HelpAvailable();
+        ctx->LogInfo("Local help: %s", available ? "installed" : "absent");
+        ctx->MenuClick("//##MainMenuBar/Help");
+        IM_CHECK(((ctx->ItemInfo("//$FOCUSED/Online Reference").ItemFlags & ImGuiItemFlags_Disabled) == 0) == available);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->ItemInputValue("//Building Blocks/##filter", "Rotate");
+        ctx->ItemClick("//Building Blocks/**/Rotate", ImGuiMouseButton_Right);
+        IM_CHECK(((ctx->ItemInfo("//$FOCUSED/Html Help").ItemFlags & ImGuiItemFlags_Disabled) == 0) == available);
+        ctx->KeyPress(ImGuiKey_Escape);
+        if (!available) {
+            const auto &state = App().State();
+            const size_t logCount = state.log.size();
+            const int repeats = logCount ? state.log.back().repeats : 0;
+            const bool dirty = state.document->Dirty();
+            ctx->WindowFocus("//Level Manager");
+            ctx->MouseMoveToPos(ImVec2(10, 10));
+            ctx->KeyPress(ImGuiKey_F1);
+            ctx->MouseMove("//Building Blocks/**/Rotate");
+            ctx->KeyPress(ImGuiKey_F1);
+            ctx->ItemDoubleClick("//Building Blocks/**/Rotate");
+            ctx->Yield(3);
+            IM_CHECK_EQ(state.log.size(), logCount);
+            if (logCount) IM_CHECK_EQ(state.log.back().repeats, repeats);
+            IM_CHECK(state.document->Dirty() == dirty);
+        }
     };
 
     // Help > About Virtools..., closed with OK.

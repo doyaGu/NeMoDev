@@ -12,8 +12,9 @@ and Building Block help. Compositions can be opened, edited, saved and reopened.
 
 - CMake 3.25 or newer, a C compiler and a C++17 compiler.
 - Shared SDL3 3.4.8 or newer, installed in a CMake package prefix.
-- Git, Python 3.8 or newer with Pillow 9.1 or newer, and 7-Zip (`7zz`, `7z`
-  or `7za`). CMake must find the Python interpreter that has Pillow installed.
+- Git and Python 3.8 or newer with Pillow 9.1 or newer. CMake must find the
+  Python interpreter that has Pillow installed.
+- Optional local help: CHM documentation and 7-Zip (`7zz`, `7z` or `7za`).
 - Windows: Visual Studio 2022 with C++ tools.
 - Linux: Ninja for the preset, pkg-config, GTK3 Unix Print, GIO Unix and libharu
   development files. Ubuntu packages: `ninja-build`, `pkg-config`, `libgtk-3-dev`,
@@ -58,11 +59,11 @@ For SDL3, build a shared installation with `SDL_SHARED=ON`, `SDL_STATIC=OFF` and
 ## Resources
 
 Images, icons, `interface.nmo` and the Noto fonts are included under `resources/`,
-the default resource directory. CHM documentation and sample compositions are
-supplied separately. Before configuring, copy `data/documentation.chm` from an
-existing Virtools Dev 2.5 installation to
-`local-resources/data/documentation.chm`. On Linux or macOS, transfer that file
-from the installation as well.
+the default resource directory. Optional CHM documentation and the original
+test samples are supplied separately. To enable local help, copy
+`data/documentation.chm` from an existing Virtools Dev 2.5 installation to
+`local-resources/data/documentation.chm` before configuring. The same file can
+be transferred to a Linux or macOS build machine.
 
 To regenerate a local resource collection from that installation, build the
 standalone resource extractor on Windows:
@@ -91,10 +92,12 @@ directory, pass `--output "<resource directory>/fonts"`.
 An alternative directory containing `images.txt`, `images/`,
 `data/interface.nmo` and `fonts/` can be selected with `VIRTOOLSDEV_RESOURCES_DIR`.
 The build first looks for `data/documentation.chm` in that directory, then in
-`local-resources/`. The CHM is required even when tests are disabled and is
-excluded from Git. Resource images are embedded at build time; 7-Zip extracts
-the CHM into local HTML while retaining the Building Block topic paths. The
-SDK stages the verified fonts and their licenses into `runtime/Bin/data/fonts`.
+`local-resources/`. The CHM is excluded from Git. When present, 7-Zip extracts
+it into local HTML while retaining the Building Block topic paths. Without
+it, the build skips help extraction and deployment and does not require 7-Zip.
+The editor disables local help menus and shortcuts when extracted help is not
+installed. Resource images are embedded at build time. The SDK stages the
+verified fonts and their licenses into `runtime/Bin/data/fonts`.
 
 ## Build and run
 
@@ -232,7 +235,7 @@ do not establish that the editor runs there.
 
 ## Current limitations
 
-- Building requires the separately supplied Ballanced sources and CHM help;
+- Building requires the separately supplied Ballanced sources;
   full regression tests also require original sample compositions.
   The repository alone is not a complete build or test distribution, and it
   does not pin a Ballanced revision.

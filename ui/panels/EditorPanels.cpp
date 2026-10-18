@@ -1,4 +1,5 @@
 #include "ui/panels/EditorPanels.h"
+#include "ui/app/DesktopFiles.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/DevBitmaps.h"
@@ -165,7 +166,7 @@ void EditorPanels::BuildingBlockItem(size_t index) {
         m_Canvas.OpenHtmlHelpOf(entry);
     }
     if (ImGui::BeginPopupContextItem("bbmenu")) {
-        if (ImGui::MenuItem("Html Help", "F1")) m_Canvas.OpenHtmlHelpOf(entry);
+        if (ImGui::MenuItem("Html Help", "F1", false, HelpAvailable())) m_Canvas.OpenHtmlHelpOf(entry);
         ImGui::EndPopup();
     }
     if (ImGui::BeginDragDropSource()) {
@@ -191,7 +192,7 @@ void EditorPanels::BuildingBlockItem(size_t index) {
             ImGui::TextDisabled("Apply to: %s%s", AnsiToUtf8(entry.compatibleClassName).c_str(),
                                 entry.targetable ? "   (T: can use a target)" : "");
         ImGui::TextDisabled("Version: 0x%08X   Author: %s", static_cast<unsigned>(entry.version), AnsiToUtf8(entry.author).c_str());
-        ImGui::TextDisabled("F1: Html Help");
+        if (HelpAvailable()) ImGui::TextDisabled("F1: Html Help");
         if (!entry.description.empty()) {
             ImGui::Separator();
             ImGui::PushTextWrapPos(420.0f);

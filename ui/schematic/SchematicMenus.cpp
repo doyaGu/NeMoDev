@@ -1225,6 +1225,7 @@ void SchematicCanvas::OpenHtmlHelp(CK_ID behaviorId) {
 }
 
 void SchematicCanvas::OpenHtmlHelpOf(const BuildingBlockEntry &bb) {
+    if (!HelpAvailable()) return;
     const BuildingBlockEntry *entry = &bb;
     // documentation.chm (resources/data): behaviors/<top category>/<name>.html.
     const std::string category = entry->category.substr(0, entry->category.find('/'));
@@ -1578,7 +1579,7 @@ void SchematicCanvas::BehaviorMenu(ScriptView &view, const BehaviorItem &behavio
         ImGui::MenuItem(runtime->IsUsingTarget() ? "Remove Target Parameter" : "Add Target Parameter", "T"))
         ToggleTargetOfSelection();
     if (ImGui::MenuItem("Edit Priority", "Y")) OpenPriorityDialog();
-    if (behavior.buildingBlock && ImGui::MenuItem("Html Help", "F1")) OpenHtmlHelp(behavior.id);
+    if (behavior.buildingBlock && ImGui::MenuItem("Html Help", "F1", false, HelpAvailable())) OpenHtmlHelp(behavior.id);
     BreakpointItems();
     if (behavior.expandable) {
         ImGui::Separator();

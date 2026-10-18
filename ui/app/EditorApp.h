@@ -143,7 +143,7 @@ private:
     void ImportFile(Document::ImportMode mode, const std::string &path = std::string());
     void OpenDataResourceDialog();
     void CreateDataResourceDialog();
-    // Help > Online Reference: the runtime's documentation.chm.
+    // Help > Online Reference: the optional local HTML reference.
     void OpenOnlineReference();
     // Editors > Close All Setups and Managers.
     void CloseSetupsAndManagers();

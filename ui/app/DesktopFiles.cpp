@@ -93,6 +93,10 @@ bool OpenDesktopFile(const std::string &path, std::string *error) {
     if (error) *error = SDL_GetError();
     return false;
 }
+bool HelpAvailable() {
+    std::error_code failure;
+    return std::filesystem::is_regular_file(std::filesystem::u8path(DataFilePath("help/VirtoolsDevHelp.html")), failure);
+}
 bool OpenHelpTopic(const std::string &topic, std::string *error) {
     auto directory = std::filesystem::u8path(DataFilePath("help"));
 #if defined(__linux__)
