@@ -112,6 +112,9 @@ struct State {
     InterfaceData data;
 };
 
+// Canonical CK topology and local values for undo round-trip comparisons.
+std::string TopologyFingerprint(CKBehavior *script);
+
 inline State Capture(Document &document, CK_ID script) {
     State state;
     state.topology = TopologyFingerprint(CKBehavior::Cast(document.Context()->GetObject(script)));

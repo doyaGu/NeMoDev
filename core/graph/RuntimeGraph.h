@@ -49,11 +49,6 @@ std::set<std::string> RuntimeConsistencyIssues(CKContext *context, const Interfa
 // locals, sub-behaviors, sub-links and operation parameters, recursively.
 std::set<CK_ID> CollectOwnedObjects(CKContext *context, const std::set<CK_ID> &roots);
 
-// Canonical text of a Script's CK topology (behaviors, IOs, parameters and
-// their sources/destinations, links with delays, operations, locals, names,
-// Target use). Equal fingerprints mean equal topology; used by undo tests.
-std::string TopologyFingerprint(CKBehavior *script);
-
 // True for parameter types whose 4-byte value is a pointer the type creates,
 // copies and deletes (2D Curve, arrays, ...): raw value bytes must never be
 // copied; use CKParameter::CopyValue or the string form.

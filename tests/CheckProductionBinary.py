@@ -11,7 +11,7 @@ MARKERS = ENGINE_MARKERS + (
     "--ui-tests", "--ui-results", "--capture", "--insert-block", "--drop-block",
     "--edit-value", "--layout-command", "Edit Parameter###StartupValue",
     "Last undo step:", "page(s) written to ",
-    "ShownLevelRows", "ShownHierarchyRows",
+    "TopologyFingerprint", "ShownLevelRows", "ShownHierarchyRows",
     "ShownBehaviors", "ShownPins", "ShownScripts",
     "UiRenderer9ReadFrame",
 )
