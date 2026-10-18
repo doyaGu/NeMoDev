@@ -282,7 +282,7 @@ void LayoutWindow::ResetCamera() {
     if (CKTargetCamera *targeted = CKTargetCamera::Cast(camera))
         if (CK3dEntity *target = targeted->GetTarget()) moved.push_back(target->GetID());
     ObjectsGesture gesture;
-    gesture.Begin(m_State.host.Context(), moved);
+    if (!gesture.Begin(m_State.host.Context(), moved)) return;
     m_View.ResetCamera();
     if (m_State.HasDocument())
         gesture.Commit(*m_State.document, "Reset Current Camera Settings", !m_View.IsViewCamera(camera->GetID()));

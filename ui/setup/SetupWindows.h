@@ -12,6 +12,7 @@
 #include "ui/app/EditorState.h"
 #include "core/level/LevelCommands.h"
 #include "core/level/ObjectProperties.h"
+#include "core/level/ObjectEditCommands.h"
 #include "ui/controls/ParameterBox.h"
 
 namespace vdev {
@@ -272,7 +273,7 @@ private:
     std::string m_AttributeType;
     bool m_OpenAttributeValue = false;
     void AttributeValueDialog();
-    CKStateChunk *m_Pending = nullptr;
+    ObjectsGesture m_Pending;
     CK_ID m_PendingObject = 0;
     std::string m_PendingLabel;
     bool m_PendingSceneActive = false;

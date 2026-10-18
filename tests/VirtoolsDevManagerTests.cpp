@@ -1272,10 +1272,11 @@ void EditorCommands(CkRuntimeHost &host, const std::vector<CKGUID> &prototypes) 
 
     // A Setup's edit of any object: its state before, then one step.
     {
-        CKStateChunk *before = CaptureObjectState(context, entity->GetID());
+        ObjectsGesture edit;
+        CHECK(edit.Begin(document, {entity->GetID()}));
         const VxVector moved(1.0f, 2.0f, 3.0f);
         entity->SetPosition(&moved);
-        CHECK(CommitObjectEdit(document, entity->GetID(), before, "Set Position"));
+        CHECK(edit.Commit(document, "Set Position").ok);
         VxVector now;
         CHECK(undo.Undo());
         entity->GetPosition(&now);
@@ -1283,7 +1284,8 @@ void EditorCommands(CkRuntimeHost &host, const std::vector<CKGUID> &prototypes) 
         CHECK(undo.Redo());
         entity->GetPosition(&now);
         CHECK(Magnitude(now - moved) < 0.001f);
-        CHECK(!CommitObjectEdit(document, entity->GetID(), CaptureObjectState(context, entity->GetID()), "Nothing"));
+        CHECK(edit.Begin(document, {entity->GetID()}));
+        CHECK(edit.Commit(document, "Nothing").Unchanged());
     }
     // Send to Place: the place becomes the parent; undo gives the old one back.
     {

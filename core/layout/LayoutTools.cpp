@@ -134,7 +134,7 @@ bool CameraGesture::Begin(LayoutView &view, CameraAction action, const CameraSte
     m_LastY = y;
     m_DeltaX = m_DeltaY = 0;
     m_AroundSelection = false;
-    m_Undo.Begin(context, {m_Camera, m_Target});
+    if (!m_Undo.Begin(context, {m_Camera, m_Target})) return false;
     const bool perspective = camera->GetProjectionType() == CK_PERSPECTIVEPROJECTION;
     switch (action) {
     case CameraAction::Dolly:
@@ -333,7 +333,7 @@ bool CameraGesture::End(Document *document) {
     }
     // The 3D Layout's own cameras are not the composition's.
     return m_Undo.Commit(*document, CameraActionText(m_Action, false, m_Target != 0, m_AroundSelection),
-                         !m_ViewCamera);
+                         !m_ViewCamera).ok;
 }
 
 // ------------------------------------------------------------- transformations
@@ -454,7 +454,7 @@ bool TransformGesture::Begin(LayoutView &view, TransformAction action, const Tra
     CKCamera *camera = view.Camera();
     m_SingleAxis = settings.axes == 1 || settings.axes == 2 || settings.axes == 4;
     m_Normal = TranslatePlaneNormal(settings.axes, axes, camera ? &camera->GetWorldMatrix() : nullptr);
-    m_Undo.Begin(context, undoIds);
+    if (!m_Undo.Begin(context, undoIds)) return false;
     m_Active = true;
     return true;
 }
@@ -668,7 +668,7 @@ bool TransformGesture::End(Document *document) {
         return false;
     }
     static const char *const labels[] = {"Move Objects", "Rotate Objects", "Scale Objects"};
-    return m_Undo.Commit(*document, labels[static_cast<int>(m_Action)]);
+    return m_Undo.Commit(*document, labels[static_cast<int>(m_Action)]).ok;
 }
 
 void WheelZoom(LayoutView &view, const CameraSteps &steps, int notches, float extent) {
@@ -917,7 +917,7 @@ bool Transform2DGesture::Begin(LayoutView &view, TransformAction action, int axe
                 }
         }
     }
-    m_Undo.Begin(context, ids);
+    if (!m_Undo.Begin(context, ids)) return false;
     m_Active = true;
     return true;
 }
@@ -975,7 +975,7 @@ bool Transform2DGesture::End(Document *document) {
         m_Undo.Cancel(m_View->Context());
         return false;
     }
-    return m_Undo.Commit(*document, m_Action == TransformAction::Translate ? "Move 2D Entities" : "Scale 2D Entities");
+    return m_Undo.Commit(*document, m_Action == TransformAction::Translate ? "Move 2D Entities" : "Scale 2D Entities").ok;
 }
 
 } // namespace vdev

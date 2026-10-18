@@ -83,6 +83,9 @@ using namespace vdev;
 
 namespace vdevtest {
 
+void ObjectEditFailures(CkRuntimeHost &host);
+void ObjectEditCancellation(CkRuntimeHost &host);
+
 // A check that failed: the case stops (CheckFailure), main reports it with
 // the expression and its place and goes on with the next case. Checks with
 // their own message write it first, then Fail.
@@ -266,12 +269,12 @@ inline CompositionState CaptureComposition(Document &document, const std::vector
     }
     for (CK_ID id : watched) {
         std::string &bytes = state.watched[id];
-        CKStateChunk *chunk = CaptureObjectState(context, id);
+        std::unique_ptr<CKStateChunk, decltype(&DeleteCKStateChunk)> chunk(
+            CKSaveObjectState(context->GetObject(id)), &DeleteCKStateChunk);
         if (!chunk) continue;
         chunk->StartRead();
         if (const void *data = chunk->LockReadBuffer())
             bytes.assign(static_cast<const char *>(data), static_cast<size_t>(chunk->GetDataSize()));
-        ReleaseObjectState(chunk);
     }
     state.dirty = document.Dirty();
     return state;

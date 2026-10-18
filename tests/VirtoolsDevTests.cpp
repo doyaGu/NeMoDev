@@ -176,6 +176,8 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"LayoutGestures", [&] { LayoutGestures(host); }},
             {"BatchCommands", [&] { BatchCommands(host, prototypes); }},
             {"ObjectPropertyUndo", [&] { ObjectPropertyUndo(host); }},
+            {"ObjectEditFailures", [&] { ObjectEditFailures(host); }},
+            {"ObjectEditCancellation", [&] { ObjectEditCancellation(host); }},
             {"CkArrays", [&] { CkArrays(host); }},
             {"SetupActions", [&] { SetupActions(host); }},
             {"DeterministicEdits", [&] { DeterministicEdits(host, prototypes); }},

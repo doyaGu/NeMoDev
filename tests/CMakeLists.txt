@@ -27,6 +27,7 @@ virtoolsdev_add_test(SchematicModelTests SchematicModelTests)
 
 add_executable(VirtoolsDevTests
         VirtoolsDevTests.cpp
+        ObjectEditFailureTests.cpp
         VirtoolsDevEditTests.cpp
         VirtoolsDevTopologyTests.cpp
         VirtoolsDevManagerTests.cpp

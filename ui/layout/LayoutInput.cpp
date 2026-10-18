@@ -517,13 +517,13 @@ void LayoutWindow::Shortcuts() {
 void LayoutWindow::BeginFly() {
     CKCamera *camera = m_View.Camera();
     if (!camera) return;
-    m_Tool = LayoutTool::Fly;
-    m_State.curveTool.tool = 0;
-    m_Doc.flyCamera = camera->GetID();
     std::vector<CK_ID> moved{camera->GetID()};
     if (CKTargetCamera *targeted = CKTargetCamera::Cast(camera))
         if (CK3dEntity *target = targeted->GetTarget()) moved.push_back(target->GetID());
-    m_FlyUndo.Begin(m_State.host.Context(), moved);
+    if (!m_FlyUndo.Begin(m_State.host.Context(), moved)) return;
+    m_Tool = LayoutTool::Fly;
+    m_State.curveTool.tool = 0;
+    m_Doc.flyCamera = camera->GetID();
     // Dev measures from where the cursor is when the flight begins.
     m_FlyStart = m_FlyLast = ImVec2(ImGui::GetIO().MousePos.x - m_Origin.x - 76.0f * m_Scale,
                                     ImGui::GetIO().MousePos.y - m_Origin.y - 21.0f * m_Scale);

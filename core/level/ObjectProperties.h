@@ -186,7 +186,7 @@ std::vector<ObjectPropertyCheck> ObjectPropertyChecks();
 
 // An object's values of the properties its state does not keep
 // (ObjectProperty::inState false), as text (to tell a change) and as setters
-// putting them back. CaptureObjectState takes them with the state.
+// putting them back. Object edits keep them with the native state.
 struct UnkeptValues {
     std::string text;
     std::vector<std::function<void(CKObject *)>> restore;

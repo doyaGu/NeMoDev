@@ -256,7 +256,7 @@ void SetupWindows::Draw(ImGuiID dock) {
     m_Doc.setups.erase(std::remove_if(m_Doc.setups.begin(), m_Doc.setups.end(), [](const Setup &s) { return !s.open; }),
                    m_Doc.setups.end());
     // A gesture ends when no control is held any more.
-    if ((m_Pending || m_PendingSceneActive) && !ImGui::IsAnyItemActive()) FlushPending();
+    if ((m_Pending.Active() || m_PendingSceneActive) && !ImGui::IsAnyItemActive()) FlushPending();
     PortalPick();
     SetupPick();
 }
@@ -638,9 +638,12 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
 
 void SetupWindows::Live(CK_ID id, const char *label, const std::function<void(CKObject *)> &change) {
     CKContext *context = m_State.document->Context();
-    if (m_PendingSceneActive || (m_Pending && (m_PendingObject != id || m_PendingLabel != label))) FlushPending();
-    if (!m_Pending) {
-        m_Pending = CaptureObjectState(context, id);
+    if (m_PendingSceneActive || (m_Pending.Active() && (m_PendingObject != id || m_PendingLabel != label))) FlushPending();
+    if (!m_Pending.Active()) {
+        if (!m_Pending.Begin(*m_State.document, {id})) {
+            Report(EditResult::Error("Cannot capture the object's state"), label);
+            return;
+        }
         m_PendingObject = id;
         m_PendingLabel = label;
     }
@@ -652,7 +655,7 @@ void SetupWindows::Live(CK_ID id, const char *label, const std::function<void(CK
 void SetupWindows::LiveScene(CK_ID id, const char *label, const std::function<void(CKScene *)> &change) {
     CKScene *scene = Get<CKScene>(m_State, id);
     if (!scene) return;
-    if (m_Pending || (m_PendingSceneActive && (m_PendingScene != id || m_PendingLabel != label))) FlushPending();
+    if (m_Pending.Active() || (m_PendingSceneActive && (m_PendingScene != id || m_PendingLabel != label))) FlushPending();
     if (!m_PendingSceneActive) {
         m_PendingSceneActive = true;
         m_PendingScene = id;
@@ -671,12 +674,11 @@ void SetupWindows::FlushPending() {
         m_PendingScene = 0;
         m_PendingLabel.clear();
     }
-    if (!m_Pending) return;
+    if (!m_Pending.Active()) return;
     if (m_State.HasDocument())
-        CommitObjectEdit(*m_State.document, m_PendingObject, m_Pending, m_PendingLabel);
+        Report(m_Pending.Commit(*m_State.document, m_PendingLabel), m_PendingLabel.c_str());
     else
-        ReleaseObjectState(m_Pending);
-    m_Pending = nullptr;
+        m_Pending.Begin(nullptr, {});
     m_PendingObject = 0;
     m_PendingLabel.clear();
 }
