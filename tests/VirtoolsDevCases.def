@@ -5,6 +5,7 @@
 // level the others use.
 VIRTOOLSDEV_CASE(Checks)
 VIRTOOLSDEV_CASE(TextEncoding)
+VIRTOOLSDEV_CASE(NativePaths)
 VIRTOOLSDEV_CASE(Resources)
 VIRTOOLSDEV_CASE(NewSceneEnvironment)
 VIRTOOLSDEV_CASE(Catalogs)

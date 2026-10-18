@@ -1,3 +1,4 @@
+#include <filesystem>
 // Dev's Setup panels; layout after the Dev 2.5 screenshots the user gave
 // (Grid, 2D Frame, 3D Object, Target Camera, Point Light, Material, Mesh,
 // Texture, Curve, Character, Sound, Array and Group Setup). Values are read from CK every frame.
@@ -528,7 +529,7 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
                 // The sound made again from the file (SetFileStreaming recreates it).
                 Report(EditObjectState(*m_State.document, id, "Change File", [chosen](CKObject *o) {
                     CKWaveSound *wave = CKWaveSound::Cast(o);
-                    wave->SetSoundFileName(const_cast<CKSTRING>(chosen.c_str()));
+                    wave->SetSoundFileName(const_cast<CKSTRING>(std::filesystem::u8path(chosen).string().c_str()));
                     wave->SetFileStreaming(wave->GetFileStreaming(), TRUE);
                 }), "Change File");
             });
@@ -550,7 +551,7 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
                 if (result.status != FileDialogResult::Status::Selected) return;
                 const std::string chosen = result.paths.front();
                 Report(EditObjectState(*m_State.document, id, "Change File", [chosen](CKObject *o) {
-                    CKMidiSound::Cast(o)->SetSoundFileName(const_cast<CKSTRING>(chosen.c_str()));
+                    CKMidiSound::Cast(o)->SetSoundFileName(const_cast<CKSTRING>(std::filesystem::u8path(chosen).string().c_str()));
                 }), "Change File");
             });
         }
@@ -583,7 +584,7 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
             m_State.RequestFile(options, [this, id = object->GetID()](const FileDialogResult &result) {
                 if (result.status != FileDialogResult::Status::Selected || m_State.document->IsDiscarded(id)) return;
                 const std::string &path = result.paths.front();
-                if (void *bitmap = CKLoadBitmap(const_cast<CKSTRING>(path.c_str())))
+                if (void *bitmap = CKLoadBitmap(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str())))
                     m_State.SetObjectPictureBitmap(id, bitmap);
                 else m_State.Log(LogLevel::Warning, "Load Snapshot: cannot read " + path);
             });

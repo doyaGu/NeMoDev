@@ -1,3 +1,4 @@
+#include <filesystem>
 #include "core/level/SetupCommands.h"
 
 #include <algorithm>
@@ -47,7 +48,8 @@ struct Images {
         return (texture ? texture->Create(width, height, 32, slot) : sprite->Create(width, height, 32, slot)) != FALSE;
     }
     bool Load(const std::string &path, int slot) const {
-        CKSTRING name = const_cast<CKSTRING>(path.c_str());
+        std::string native = std::filesystem::u8path(path).string();
+        CKSTRING name = native.data();
         return (texture ? texture->LoadImage(name, slot) : sprite->LoadImage(name, slot)) != FALSE;
     }
     bool Movie() const {
@@ -250,7 +252,7 @@ EditResult ReplaceSlotAlpha(Document &document, CK_ID texture, const std::string
     int sw = 0, sh = 0;
     GuardedCall(
         [&] {
-            if (!source->LoadImage(const_cast<CKSTRING>(path.c_str()), 0)) return;
+            if (!source->LoadImage(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str()), 0)) return;
             sw = source->GetWidth();
             sh = source->GetHeight();
             if (CKBYTE *pixels = sw > 0 && sh > 0 ? source->LockSurfacePtr(0) : nullptr) {

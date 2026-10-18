@@ -371,6 +371,7 @@ inline void WriteFrame(const std::string &path, int width, int height, const std
 
 // The default suite's cases (main's table; --case NAME runs one).
 void TextEncodingChecks();
+void NativePathChecks(CkRuntimeHost &host);
 void ResourceChecks();
 void Catalogs(CKContext *context);
 void Edits(CkRuntimeHost &host);

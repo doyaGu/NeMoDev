@@ -166,6 +166,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
         const std::vector<std::pair<std::string, std::function<void()>>> cases = {
             {"Checks", [] { Checks(); }},
             {"TextEncoding", [] { TextEncodingChecks(); }},
+            {"NativePaths", [&] { NativePathChecks(host); }},
             {"Resources", [] { ResourceChecks(); }},
             {"NewSceneEnvironment", [&] { NewSceneEnvironment(host); }},
             {"Catalogs", [&] { Catalogs(host.Context()); }},

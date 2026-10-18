@@ -1,3 +1,4 @@
+#include <filesystem>
 // The classes without a Dev Setup (animations, Script objects, parameters, ...) and the Attribute page.
 
 #include "ui/setup/SetupWindows.h"
@@ -309,7 +310,7 @@ void SetupWindows::MidiSoundPage(CKMidiSound *sound) {
             if (result.status != FileDialogResult::Status::Selected) return;
             const std::string chosen = result.paths.front();
             Report(EditObjectState(*m_State.document, id, "Change File", [chosen](CKObject *o) {
-                CKMidiSound::Cast(o)->SetSoundFileName(const_cast<CKSTRING>(chosen.c_str()));
+                CKMidiSound::Cast(o)->SetSoundFileName(const_cast<CKSTRING>(std::filesystem::u8path(chosen).string().c_str()));
             }), "Change File");
         });
     }

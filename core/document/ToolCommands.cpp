@@ -36,7 +36,11 @@ std::string Lower(std::string text) {
 // Dev's marker: "%d\n%s\n", hidden (Dev.exe sub_57AB50).
 bool WriteMarker(const fs::path &folder, CK_CLASSID cid, const char *name) {
     const fs::path marker = folder / "_marker_";
+    #ifdef _WIN32
+    FILE *file = _wfopen(marker.c_str(), L"wt");
+    #else
     FILE *file = fopen(marker.u8string().c_str(), "wt");
+    #endif
     if (!file) return false;
     std::fprintf(file, "%d\n%s\n", static_cast<int>(cid), name);
     std::fclose(file);
@@ -77,17 +81,13 @@ int AddFolderPaths(CKPathManager *paths, const DataResourceFolder &folder) {
         int category = 1;
         if (folder.cid == CKCID_SOUND || folder.cid == CKCID_WAVESOUND || folder.cid == CKCID_MIDISOUND) category = 2;
         else if (folder.cid == CKCID_SPRITE || folder.cid == CKCID_TEXTURE || folder.cid == CKCID_SPRITE3D) category = 0;
-        XString path(const_cast<CKSTRING>(folder.path.c_str()));
+        XString path(const_cast<CKSTRING>(fs::u8path(folder.path).string().c_str()));
         if (category < paths->GetCategoryCount() && paths->GetPathIndex(category, path) < 0 &&
             paths->AddPath(category, path) >= 0)
             ++added;
     }
     for (const auto &child : folder.folders) added += AddFolderPaths(paths, child);
     return added;
-}
-
-std::string FileStem(const std::string &path) {
-    return fs::u8path(path).stem().u8string();
 }
 
 bool IsMovie(const std::string &path) {
@@ -105,7 +105,11 @@ bool CreateDataResource(const std::string &file, std::string *error) {
     root.replace_extension();
     std::error_code ec;
     fs::create_directories(root, ec);
+    #ifdef _WIN32
+    FILE *out = _wfopen(rsc.c_str(), L"wt");
+    #else
     FILE *out = fopen(rsc.u8string().c_str(), "wt");
+    #endif
     if (!out) {
         if (error) *error = "Cannot write " + rsc.u8string();
         return false;
@@ -143,7 +147,11 @@ bool CreateDataResource(const std::string &file, std::string *error) {
 
 CK_CLASSID DataResourceFolderClass(const std::string &folder) {
     for (const char *name : {"_marker_", "_nemo.dir"}) {
+        #ifdef _WIN32
+        FILE *file = _wfopen((fs::u8path(folder) / name).c_str(), L"rt");
+        #else
         FILE *file = fopen((fs::u8path(folder) / name).u8string().c_str(), "rt");
+        #endif
         if (!file) continue;
         int cid = 0;
         if (std::fscanf(file, "%d", &cid) != 1) cid = 0;
@@ -158,7 +166,11 @@ std::string BehaviorDescriptionPath(const std::string &nms) {
 }
 
 bool ReadBehaviorDescription(const std::string &nms, BehaviorDescription &description) {
+    #ifdef _WIN32
+    FILE *file = _wfopen(fs::u8path(BehaviorDescriptionPath(nms)).c_str(), L"rb");
+    #else
     FILE *file = fopen(BehaviorDescriptionPath(nms).c_str(), "rb");
+    #endif
     if (!file) return false;
     BehaviorDescription read;
     int cid = 0;
@@ -183,7 +195,11 @@ bool ReadBehaviorDescription(const std::string &nms, BehaviorDescription &descri
 }
 
 bool WriteBehaviorDescription(const std::string &nms, const BehaviorDescription &description) {
+    #ifdef _WIN32
+    FILE *file = _wfopen(fs::u8path(BehaviorDescriptionPath(nms)).c_str(), L"wb");
+    #else
     FILE *file = fopen(BehaviorDescriptionPath(nms).c_str(), "wb");
+    #endif
     if (!file) return false;
     const int cid = static_cast<int>(description.cid);
     std::fwrite(&cid, 4, 1, file);
@@ -199,7 +215,11 @@ bool WriteBehaviorDescription(const std::string &nms, const BehaviorDescription 
 
 bool ReadDataResource(const std::string &file, DataResource &resource, std::string *error) {
     resource = DataResource();
+    #ifdef _WIN32
+    FILE *in = _wfopen(fs::u8path(file).c_str(), L"rt");
+    #else
     FILE *in = fopen(file.c_str(), "rt");
+    #endif
     char header[64] = "";
     const bool read = in && std::fgets(header, sizeof(header), in);
     if (in) std::fclose(in);
@@ -239,21 +259,29 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
     CKLevel *level = context ? context->GetCurrentLevel() : nullptr;
     if (!document.IsOpen() || !level) return EditResult::Refused("No composition is open");
     CkRuntimeHost &host = document.Host();
-    const std::string name = FileStem(path);
-    std::vector<CK_ID> created;
-    auto create = [&](CK_CLASSID kind) {
-        std::string ckName;
-        try { ckName = Utf8ToAnsi(name); }
-        catch (const TextEncodingError &) {
-            // The path remains usable even when its suggested object name
-            // does not fit the session encoding. CK generates its own name.
-            host.Log(LogLevel::Info, "The file name cannot be used as a CK object name in " +
-                                      std::string("the ANSI code page; using a generated name"));
+    if (CKIsChildClassOf(cid, CKCID_BEHAVIOR)) {
+        // Behavior graph files: their Scripts go to an object.
+        if (!target) return EditResult::Refused("Select the object that receives the Scripts");
+        return LoadScripts(document, path, target);
+    }
+    if (ResourceFileIsImported(cid)) {
+        // 3D entities, characters and the rest: the file is imported.
+        const Document::ImportMode mode = CKIsChildClassOf(cid, CKCID_CHARACTER)
+                                                       ? Document::ImportMode::Character
+                                                       : Document::ImportMode::File;
+        std::string error;
+        std::vector<CK_ID> imported;
+        if (!document.Import(path, mode, &error, &imported, duplicates)) {
+            host.Log(LogLevel::Warning, error);
+            return EditResult::Refused("Cannot import the resource file");
         }
-        CKObject *object = context->CreateObject(kind, ckName.empty() ? nullptr : const_cast<CKSTRING>(ckName.c_str()));
-        if (object) created.push_back(object->GetID());
-        return object;
-    };
+        if (loaded) loaded->insert(loaded->end(), imported.begin(), imported.end());
+        return EditResult::Applied("Imported", imported.empty() ? 0 : imported.front());
+    }
+    std::string filename;
+    try { filename = fs::u8path(path).string(); }
+    catch (const std::system_error &) { return EditResult::Refused("The file path cannot be represented in the native character set"); }
+    std::vector<CK_ID> created;
     auto discard = [&](CKObject *object) {
         created.erase(std::remove(created.begin(), created.end(), object->GetID()), created.end());
         GuardedCall([&] { context->DestroyObject(object); }, &host, "CKContext::DestroyObject");
@@ -265,17 +293,12 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
         if (loaded) loaded->insert(loaded->end(), created.begin(), created.end());
         return EditResult::Applied(what, created.empty() ? 0 : created.front());
     };
-    if (CKIsChildClassOf(cid, CKCID_BEHAVIOR)) {
-        // Behavior graph files: their Scripts go to an object.
-        if (!target) return EditResult::Refused("Select the object that receives the Scripts");
-        return LoadScripts(document, path, target);
-    }
     if (CKIsChildClassOf(cid, CKCID_ANIMATION)) {
         CKCharacter *character = CKCharacter::Cast(context->GetObject(target));
         if (!character) return EditResult::Refused("Select the character that receives the animations");
         CKObjectArray *objects = CreateCKObjectArray();
         CKERROR result = CKERR_INVALIDFILE;
-        GuardedCall([&] { result = context->LoadAnimationOnCharacter(const_cast<CKSTRING>(path.c_str()), objects, character); },
+        GuardedCall([&] { result = context->LoadAnimationOnCharacter(const_cast<CKSTRING>(filename.c_str()), objects, character); },
                     &host, "CKContext::LoadAnimationOnCharacter");
         for (objects->Reset(); !objects->EndOfList(); objects->Next()) created.push_back(objects->GetDataId());
         DeleteCKObjectArray(objects);
@@ -285,12 +308,19 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
         }
         return finish("Animations of");
     }
+    // Resource names retain native filename bytes, independently of UI text.
+    const std::string ckName = fs::u8path(path).stem().string();
+    auto create = [&](CK_CLASSID kind) {
+        CKObject *object = context->CreateObject(kind, ckName.empty() ? nullptr : const_cast<CKSTRING>(ckName.c_str()));
+        if (object) created.push_back(object->GetID());
+        return object;
+    };
     if (CKIsChildClassOf(cid, CKCID_SPRITE3D)) {
         CKTexture *texture = CKTexture::Cast(create(CKCID_TEXTURE));
         CKBOOL ok = FALSE;
         if (texture)
-            GuardedCall([&] { ok = IsMovie(path) ? texture->LoadMovie(const_cast<CKSTRING>(path.c_str()))
-                                                 : texture->LoadImage(const_cast<CKSTRING>(path.c_str()), 0); },
+            GuardedCall([&] { ok = IsMovie(path) ? texture->LoadMovie(const_cast<CKSTRING>(filename.c_str()))
+                                                 : texture->LoadImage(const_cast<CKSTRING>(filename.c_str()), 0); },
                         &host, "CKTexture::LoadImage");
         if (!ok) {
             if (texture) discard(texture);
@@ -310,8 +340,8 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
         CKSprite *sprite = CKSprite::Cast(create(CKCID_SPRITE));
         CKBOOL ok = FALSE;
         if (sprite)
-            GuardedCall([&] { ok = IsMovie(path) ? sprite->LoadMovie(const_cast<CKSTRING>(path.c_str()), 0, 0, 16)
-                                                 : sprite->LoadImage(const_cast<CKSTRING>(path.c_str()), 0); },
+            GuardedCall([&] { ok = IsMovie(path) ? sprite->LoadMovie(const_cast<CKSTRING>(filename.c_str()), 0, 0, 16)
+                                                 : sprite->LoadImage(const_cast<CKSTRING>(filename.c_str()), 0); },
                         &host, "CKSprite::LoadImage");
         if (!ok) {
             if (sprite) discard(sprite);
@@ -326,8 +356,8 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
         CKTexture *texture = CKTexture::Cast(create(CKCID_TEXTURE));
         CKBOOL ok = FALSE;
         if (texture)
-            GuardedCall([&] { ok = IsMovie(path) ? texture->LoadMovie(const_cast<CKSTRING>(path.c_str()))
-                                                 : texture->LoadImage(const_cast<CKSTRING>(path.c_str()), 0); },
+            GuardedCall([&] { ok = IsMovie(path) ? texture->LoadMovie(const_cast<CKSTRING>(filename.c_str()))
+                                                 : texture->LoadImage(const_cast<CKSTRING>(filename.c_str()), 0); },
                         &host, "CKTexture::LoadImage");
         if (!ok) {
             if (texture) discard(texture);
@@ -350,8 +380,8 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
         CKTexture *texture = CKTexture::Cast(create(CKCID_TEXTURE));
         CKBOOL ok = FALSE;
         if (texture)
-            GuardedCall([&] { ok = IsMovie(path) ? texture->LoadMovie(const_cast<CKSTRING>(path.c_str()))
-                                                 : texture->LoadImage(const_cast<CKSTRING>(path.c_str()), 0); },
+            GuardedCall([&] { ok = IsMovie(path) ? texture->LoadMovie(const_cast<CKSTRING>(filename.c_str()))
+                                                 : texture->LoadImage(const_cast<CKSTRING>(filename.c_str()), 0); },
                         &host, "CKTexture::LoadImage");
         if (!ok) {
             if (texture) discard(texture);
@@ -364,7 +394,7 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
         CKWaveSound *wave = CKWaveSound::Cast(create(CKCID_WAVESOUND));
         CKERROR result = CKERR_INVALIDFILE;
         if (wave)
-            GuardedCall([&] { result = wave->Create(TRUE, const_cast<CKSTRING>(path.c_str())); }, &host,
+            GuardedCall([&] { result = wave->Create(TRUE, const_cast<CKSTRING>(filename.c_str())); }, &host,
                         "CKWaveSound::Create");
         if (wave && result == CK_OK) {
             wave->SetMinMaxDistance(10.0f, 100.0f, FALSE);
@@ -373,23 +403,12 @@ EditResult LoadResourceFile(Document &document, const std::string &path, CK_CLAS
         if (wave) discard(wave);
         if (Lower(fs::u8path(path).extension().u8string()) == ".mid") {
             CKMidiSound *midi = CKMidiSound::Cast(create(CKCID_MIDISOUND));
-            if (midi) midi->SetSoundFileName(const_cast<CKSTRING>(path.c_str()));
+            if (midi) midi->SetSoundFileName(const_cast<CKSTRING>(filename.c_str()));
             return finish("MIDI Sound");
         }
         return EditResult::Refused("Cannot load Sound!");
     }
-    // 3D entities, characters and the rest: the file is imported.
-    const Document::ImportMode mode = CKIsChildClassOf(cid, CKCID_CHARACTER)
-                                                   ? Document::ImportMode::Character
-                                                   : Document::ImportMode::File;
-    std::string error;
-    std::vector<CK_ID> imported;
-    if (!document.Import(path, mode, &error, &imported, duplicates)) {
-        host.Log(LogLevel::Warning, error);
-        return EditResult::Refused("Cannot import the resource file");
-    }
-    if (loaded) loaded->insert(loaded->end(), imported.begin(), imported.end());
-    return EditResult::Applied("Imported", imported.empty() ? 0 : imported.front());
+    return EditResult::Refused("Unsupported resource class");
 }
 
 namespace {
@@ -468,7 +487,7 @@ EditResult DropResourceFile(Document &document, const std::string &path, CK_CLAS
         // CK_LOAD_ANIMATION only (LoadNmo with 1).
         CKObjectArray *objects = CreateCKObjectArray();
         CKERROR result = CKERR_INVALIDFILE;
-        GuardedCall([&] { result = context->Load(const_cast<CKSTRING>(path.c_str()), objects, CK_LOAD_ANIMATION); },
+        GuardedCall([&] { result = context->Load(const_cast<CKSTRING>(fs::u8path(path).string().c_str()), objects, CK_LOAD_ANIMATION); },
                     &host, "CKContext::Load");
         std::vector<CK_ID> loaded;
         for (objects->Reset(); !objects->EndOfList(); objects->Next()) loaded.push_back(objects->GetDataId());
@@ -587,7 +606,7 @@ std::vector<UnusedObject> UnusedObjects(Document &document, std::string *error) 
         CKERROR saved = CKERR_INVALIDFILE;
         const bool completed = GuardedCall(
             [&] {
-                if ((saved = file->StartSave(const_cast<CKSTRING>(path.c_str()))) != CK_OK) return;
+                if ((saved = file->StartSave(const_cast<CKSTRING>(fs::u8path(path).string().c_str()))) != CK_OK) return;
                 seeds->Reset();
                 file->SaveObjects(seeds);
                 for (int i = 0; i < file->m_FileObjects.Size(); ++i)

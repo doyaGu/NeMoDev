@@ -1,3 +1,4 @@
+#include <filesystem>
 // The Setups of the render objects: 3D entities, cameras, lights, sprites, materials, meshes, textures, grids.
 
 #include "ui/setup/SetupWindows.h"
@@ -1465,7 +1466,8 @@ void SetupWindows::MaterialPage(Setup &setup, CKMaterial *material) {
         // The effect's image (Dev.exe sub_469070: InterfacePlugins\\<DescImage>
         // in the program's folder; here the runtime's), 128 x 128 at 766, 183.
         if (description.DescImage.Length()) {
-            const std::string path = m_State.host.RuntimeDirectory() + "\\InterfacePlugins\\" + description.DescImage.CStr();
+            const std::string path = (std::filesystem::u8path(m_State.host.RuntimeDirectory()) / "InterfacePlugins" /
+                                      std::filesystem::path(description.DescImage.CStr())).u8string();
             const unsigned long long imageKey = (std::hash<std::string>()(path) | 1ull) << 2 | 3ull;
             static std::set<std::string> tried;
             if (!tried.count(path)) {
@@ -1474,7 +1476,7 @@ void SetupWindows::MaterialPage(Setup &setup, CKMaterial *material) {
                 CKFileExtension imageExt(const_cast<char *>(dot ? dot + 1 : ""));
                 CKBitmapReader *reader = CKGetPluginManager() ? CKGetPluginManager()->GetBitmapReader(imageExt) : nullptr;
                 CKBitmapProperties *read = nullptr;
-                if (reader && reader->ReadFile(const_cast<char *>(path.c_str()), &read) == 0 && read && read->m_Data) {
+                if (reader && reader->ReadFile(const_cast<char *>(std::filesystem::u8path(path).string().c_str()), &read) == 0 && read && read->m_Data) {
                     VxImageDescEx source = read->m_Format;
                     source.Image = static_cast<XBYTE *>(read->m_Data);
                     VxImageDescEx bgra;

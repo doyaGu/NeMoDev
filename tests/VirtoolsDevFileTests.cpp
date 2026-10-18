@@ -1,5 +1,6 @@
 // The modes on files: save, New Composition and Merge, tools, Duplicate Names, the 3D Layout's data and the objects' pictures, the File menu, links.
 #include "VirtoolsDevTestSupport.h"
+#include <SDL3/SDL.h>
 
 namespace vdevtest {
 
@@ -1204,6 +1205,96 @@ int LinksFiles(CkRuntimeHost &host, const std::vector<std::string> &paths) {
 // The images the editor draws (resources/images.txt) are in the program
 // (generated ResourceImages.cpp, built into this one too, as named in
 // ui/controls/DevBitmaps.cpp), the data files in data beside it.
+void NativePathChecks(CkRuntimeHost &host) {
+    namespace fs = std::filesystem;
+    const fs::path parent = fs::current_path();
+    const fs::path root = parent / ("native-paths-" + std::to_string(SDL_GetPerformanceCounter()));
+    CHECK(root.parent_path() == parent);
+    CHECK(fs::create_directory(root));
+    struct Cleanup {
+        fs::path root;
+        ~Cleanup() { std::error_code error; fs::remove_all(root, error); }
+    } cleanup{root};
+    const char *names[] = {"plain", u8"caf\u00E9", u8"\u4E2D\u6587", u8"\U0001F642"};
+    const std::string rawName = "legacy-\xE9\x9C\xD6\xD0\xCE\xC4";
+    for (const char *name : names) {
+        const fs::path directory = root / fs::u8path(name);
+        CHECK(fs::create_directory(directory));
+        const std::string resource = (directory / "Data.rsc").u8string();
+        std::string error;
+        CHECK(CreateDataResource(resource, &error));
+        DataResource folders;
+        CHECK(ReadDataResource(resource, folders, &error));
+        CHECK(folders.root.folders.size() == 7);
+        BehaviorDescription description;
+        description.name = rawName; description.author = rawName; description.description = rawName;
+        description.cid = CKCID_3DENTITY; description.version = 1.5f;
+        const std::string behavior = (directory / "behavior.nms").u8string();
+        CHECK(WriteBehaviorDescription(behavior, description));
+        BehaviorDescription read;
+        CHECK(ReadBehaviorDescription(behavior, read));
+        CHECK(read.name == description.name && read.author == description.author && read.description == description.description);
+        CHECK(read.cid == description.cid && read.version == description.version);
+
+        Document document(host);
+        CHECK(document.New(&error));
+        const EditResult made = CreateLayoutObject(document, LayoutObject::Frame3D);
+        CHECK(made.ok && RenameLevelObject(document, made.created, rawName).ok);
+        const fs::path imageFile = directory / fs::u8path(std::string(name) + ".bmp");
+        CKDWORD colors[] = {0xFF123456, 0xFFABCDEF, 0xFF765432, 0xFF010203};
+        SDL_Surface *surface = SDL_CreateSurfaceFrom(2, 2, SDL_PIXELFORMAT_ARGB8888, colors, 8);
+        CHECK(surface);
+        const bool written = SDL_SaveBMP(surface, imageFile.u8string().c_str());
+        SDL_DestroySurface(surface);
+        CHECK(written);
+        bool representable = true;
+        try { (void)imageFile.string(); } catch (const std::system_error &) { representable = false; }
+        const size_t createdCount = document.CreatedObjects().size();
+        const EditResult image = LoadResourceFile(document, imageFile.u8string(), CKCID_TEXTURE, 0);
+        CHECK(image.ok == representable);
+        std::string imageName, imageReference;
+        auto checkPixels = [&](CKTexture *texture) {
+            CHECK(texture && texture->GetWidth() == 2 && texture->GetHeight() == 2);
+            const CKBYTE *pixels = texture->LockSurfacePtr(0);
+            CHECK(pixels);
+            CKDWORD actual[4];
+            std::memcpy(actual, pixels, sizeof(actual));
+            texture->ReleaseSurfacePtr(0);
+            CHECK(std::memcmp(actual, colors, sizeof(colors)) == 0);
+        };
+        if (representable) {
+            CKTexture *texture = CKTexture::Cast(host.Context()->GetObject(image.created));
+            checkPixels(texture);
+            CHECK(texture->GetName() && texture->GetSlotFileName(0));
+            CHECK(imageFile.stem().string() == texture->GetName());
+            imageName = texture->GetName();
+            imageReference = texture->GetSlotFileName(0);
+            CHECK(imageReference == imageFile.string());
+        } else CHECK(document.CreatedObjects().size() == createdCount);
+        SaveOptions options;
+        SaveReport report;
+        const fs::path saved = directory / "roundtrip.cmo";
+        const bool dirty = document.Dirty();
+        CHECK(SaveDocumentAs(document, saved.u8string(), options, report) == representable);
+        CHECK(report.saved == representable);
+        if (!representable) {
+            CHECK(!report.errors.empty() && !fs::exists(saved) && document.Dirty() == dirty);
+            CHECK(rawName == host.Context()->GetObject(made.created)->GetName());
+            continue;
+        }
+        document.Close();
+        CHECK(document.Open(saved.u8string(), &error) && !document.Dirty());
+        CKObject *object = host.Context()->GetObjectByNameAndClass(const_cast<CKSTRING>(rawName.c_str()), CKCID_3DENTITY);
+        CHECK(object && rawName == object->GetName());
+        CKTexture *texture = CKTexture::Cast(host.Context()->GetObjectByNameAndClass(const_cast<CKSTRING>(imageName.c_str()), CKCID_TEXTURE));
+        checkPixels(texture);
+        // CKBitmapData saves CKJustFile: keep the native filename bytes.
+        CHECK(texture->GetSlotFileName(0));
+        CHECK(imageFile.filename().string() == texture->GetSlotFileName(0));
+    }
+    std::cout << "Native resource paths, metadata bytes and composition round trips passed\n";
+}
+
 void ResourceChecks() {
     std::ifstream manifest(std::string(VIRTOOLSDEV_RESOURCES_DIR) + "/images.txt");
     CHECK(manifest);
