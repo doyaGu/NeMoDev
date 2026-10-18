@@ -1,3 +1,4 @@
+#include <filesystem>
 #include "core/runtime/SdkCompat.h"
 
 #include <algorithm>
@@ -65,11 +66,12 @@ CKERROR CreateCKContext(CKContext **context, void *window, int renderEngine) {
 CKERROR LoadFileChoosingDuplicates(CKContext *context, CKFile *file, const std::string &path, CKObjectArray *objects,
                                    CK_LOAD_FLAGS flags, const std::vector<DuplicateName> *duplicates,
                                    std::vector<CK_ID> &replaced) {
-    if (!duplicates) return file->Load(const_cast<CKSTRING>(path.c_str()), objects, flags);
+    const std::string native = std::filesystem::u8path(path).string();
+    if (!duplicates) return file->Load(const_cast<CKSTRING>(native.c_str()), objects, flags);
     (void) replaced; // no Replace (DUPLICATE_REPLACE_AVAILABLE)
     DuplicateChoices choices{context, *duplicates};
     context->SetUserLoadCallback(&AnswerDuplicate, &choices);
-    const CKERROR loaded = file->Load(const_cast<CKSTRING>(path.c_str()), objects,
+    const CKERROR loaded = file->Load(const_cast<CKSTRING>(native.c_str()), objects,
                                       static_cast<CK_LOAD_FLAGS>(flags | CK_LOAD_CHECKDUPLICATES));
     context->SetUserLoadCallback(nullptr, nullptr);
     return loaded;

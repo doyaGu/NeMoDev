@@ -264,8 +264,14 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
         return false;
     }
     std::error_code ec;
-    const fs::path output = fs::absolute(path, ec);
-    const fs::path source = fs::absolute(document.SourcePath(), ec);
+    const fs::path output = fs::absolute(fs::u8path(path), ec);
+    std::string outputName;
+    try { outputName = output.string(); }
+    catch (const std::system_error &) {
+        report.errors.push_back("The output path cannot be represented in the native character set");
+        return false;
+    }
+    const fs::path source = fs::absolute(fs::u8path(document.SourcePath()), ec);
     if (output == source || fs::equivalent(output, source, ec)) {
         report.errors.push_back("The loaded source file is never overwritten; choose a new file");
         return false;
@@ -344,7 +350,6 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
     if (CKLevel *level = context->GetCurrentLevel()) list(level->GetID());
     for (CK_ID id : document.LoadedObjects()) list(id);
     for (CK_ID id : document.CreatedObjects()) list(id);
-    const std::string outputName = output.string();
     const CK_FILE_WRITEMODE writeMode = context->GetFileWriteMode();
     const bool forViewer = ((writeMode | options.writeMode) & CKFILE_FORVIEWER) != 0;
     context->SetFileWriteMode(static_cast<CK_FILE_WRITEMODE>(writeMode | options.writeMode));

@@ -1,3 +1,4 @@
+#include <filesystem>
 #include "core/document/Document.h"
 
 #include <algorithm>
@@ -84,7 +85,7 @@ bool Document::Open(const std::string &path, std::string *error) {
     CKERROR result = CKERR_INVALIDFILE;
     const bool completed = GuardedCall(
         [&] {
-            result = file->Load(const_cast<CKSTRING>(path.c_str()), objects, CK_LOAD_DEFAULT);
+            result = file->Load(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str()), objects, CK_LOAD_DEFAULT);
             if (result == CK_OK) RestoreSpriteTextAlignments(*file);
         },
         &m_Host, "CKFile::Load");
@@ -267,7 +268,7 @@ bool Document::Import(const std::string &path, ImportMode mode, std::string *err
     } else {
         // Other formats go through their model reader.
         completed = GuardedCall(
-            [&] { result = context->Load(const_cast<CKSTRING>(path.c_str()), objects, flags); }, &m_Host,
+            [&] { result = context->Load(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str()), objects, flags); }, &m_Host,
             "CKContext::Load");
     }
     std::vector<CK_ID> array;
@@ -552,7 +553,7 @@ std::vector<DuplicateName> Document::FindDuplicateNames(const std::string &path)
     // CKFile::CheckDuplicateNames finds them (the 2.1 runtime lists none): a
     // file object of a class checking names, named as an object of its class
     // in the context, not one used automatically.
-    GuardedCall([&] { result = file->OpenFile(const_cast<CKSTRING>(path.c_str()), CK_LOAD_DEFAULT); }, &m_Host,
+    GuardedCall([&] { result = file->OpenFile(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str()), CK_LOAD_DEFAULT); }, &m_Host,
                 "CKFile::OpenFile");
     if (result == CK_OK || result == CKERR_PLUGINSMISSING)
         for (int index = 0; index < file->m_FileObjects.Size(); ++index) {

@@ -1,3 +1,4 @@
+#include <filesystem>
 #include "core/graph/NmsCommands.h"
 
 #include <algorithm>
@@ -72,8 +73,9 @@ bool SaveBehaviorsAsNms(Document &document, const std::vector<CK_ID> &behaviors,
     if (array->GetCount() > 0)
         GuardedCall(
             [&] {
+                const std::string native = std::filesystem::u8path(path).string();
                 CKFile *file = context->CreateCKFile();
-                saved = file->StartSave(const_cast<CKSTRING>(path.c_str()));
+                saved = file->StartSave(const_cast<CKSTRING>(native.c_str()));
                 if (saved == CK_OK) {
                     array->Reset();
                     file->SaveObjects(array);
@@ -94,7 +96,7 @@ EditResult ImportBehaviorGraph(Document &document, CK_ID script, CK_ID graph,
     CKContext *context = document.Context();
     CKObjectArray *array = CreateCKObjectArray();
     CKERROR loaded = CKERR_INVALIDPARAMETER;
-    GuardedCall([&] { loaded = context->Load(const_cast<CKSTRING>(path.c_str()), array, CK_LOAD_DEFAULT); },
+    GuardedCall([&] { loaded = context->Load(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str()), array, CK_LOAD_DEFAULT); },
                 &document.Host(), "CKContext::Load");
     std::vector<CK_ID> objects;
     for (array->Reset(); !array->EndOfList(); array->Next()) objects.push_back(array->GetDataId());

@@ -60,7 +60,10 @@ bool VirtoolsIsIgnoredPlugin(const std::string &fileName) {
 int VirtoolsParsePlugins(CKPluginManager *plugins, const std::string &directory, std::vector<std::string> *skipped) {
     if (!plugins || !IsDirectory(directory)) return 0;
     std::string path = directory;
-    VxAddLibrarySearchPath(&path[0]);
+    std::string native;
+    try { native = std::filesystem::u8path(path).string(); }
+    catch (const std::system_error &) { return 0; }
+    VxAddLibrarySearchPath(native.data());
     int registered = 0;
     std::error_code error;
     std::vector<std::string> files;
@@ -82,7 +85,9 @@ int VirtoolsParsePlugins(CKPluginManager *plugins, const std::string &directory,
             if (skipped) skipped->push_back(file);
             continue;
         }
-        if (plugins->RegisterPlugin(file.data()) == CK_OK) ++registered;
+        try { native = std::filesystem::u8path(file).string(); }
+        catch (const std::system_error &) { continue; }
+        if (plugins->RegisterPlugin(native.data()) == CK_OK) ++registered;
     }
     return registered;
 }

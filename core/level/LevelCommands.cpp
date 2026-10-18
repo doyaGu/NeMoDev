@@ -1,3 +1,4 @@
+#include <filesystem>
 #include "core/level/LevelCommands.h"
 
 #include <algorithm>
@@ -112,7 +113,7 @@ EditResult LoadScripts(Document &document, const std::string &path, CK_ID ownerI
     if (!owner || CKBehavior::Cast(owner) || CKScene::Cast(owner)) return EditResult::Refused("Can only load Scripts on objects !");
     CKObjectArray *array = CreateCKObjectArray();
     CKERROR loaded = CKERR_INVALIDPARAMETER;
-    GuardedCall([&] { loaded = context->Load(const_cast<CKSTRING>(path.c_str()), array, CK_LOAD_DEFAULT); },
+    GuardedCall([&] { loaded = context->Load(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str()), array, CK_LOAD_DEFAULT); },
                 &document.Host(), "CKContext::Load");
     std::vector<CK_ID> objects;
     for (array->Reset(); !array->EndOfList(); array->Next()) objects.push_back(array->GetDataId());
@@ -1102,7 +1103,7 @@ bool SaveObjectsAs(Document &document, const std::vector<CK_ID> &objects, const 
     SavedInterfaces own;
     for (CKBehavior *script : scripts) PrepareInterfaceForSave(document, script, hideScripts, own);
     CKERROR saved = CKERR_INVALIDPARAMETER;
-    GuardedCall([&] { saved = context->Save(const_cast<CKSTRING>(path.c_str()), array, 0); }, &document.Host(),
+    GuardedCall([&] { saved = context->Save(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str()), array, 0); }, &document.Host(),
                 "CKContext::Save");
     RestoreInterfaces(own);
     DeleteCKObjectArray(array);

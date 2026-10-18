@@ -1,3 +1,4 @@
+#include <filesystem>
 #include "core/layout/LayoutView.h"
 
 #include <SDL3/SDL.h>
@@ -268,7 +269,7 @@ void LayoutView::CreateInterfaceObjects() {
     const std::string file = DataFilePath(INTERFACE_FILE);
     CKObjectArray *loaded = CreateCKObjectArray();
     CKERROR result = CKERR_INVALIDFILE;
-    GuardedCall([&] { result = context->Load(const_cast<CKSTRING>(file.c_str()), loaded, CK_LOAD_GEOMETRY); }, &m_Host,
+    GuardedCall([&] { result = context->Load(const_cast<CKSTRING>(std::filesystem::u8path(file).string().c_str()), loaded, CK_LOAD_GEOMETRY); }, &m_Host,
                 "CKContext::Load interface.nmo");
     if (result != CK_OK) m_Host.Log(LogLevel::Warning, "3D Layout: cannot load " + file);
     for (loaded->Reset(); !loaded->EndOfList(); loaded->Next()) {
