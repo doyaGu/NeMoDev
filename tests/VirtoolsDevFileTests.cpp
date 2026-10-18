@@ -587,14 +587,11 @@ int ToolsFile(CkRuntimeHost &host, const std::string &path, const std::string &o
     check(walk.empty() && listed, "the unused material is listed: " + walk);
     check(DestroyLevelObjects(document, {unused->GetID()}).ok && !context->GetObject(unused->GetID()),
           "Delete destroys it");
-    // Building Block Version Test: nothing to replace in a Dev 2.5 file on
-    // the 2.5 runtime; another runtime's Building Blocks may have other
-    // versions (2.1: Create System Font), then listed to replace.
+    // Building Block Version Test compares the file with the loaded prototypes.
     const VersionTestResult test = TestBuildingBlockVersions(document);
     std::cout << "version test: " << test.report;
     const bool noError = test.report.find("No error found") != std::string::npos;
     check(test.changed.empty() == noError, "the differences listed to replace");
-    if (SDK_25) check(noError, "no version difference");
     // Installed Plugins in Dev's order.
     const std::vector<PluginCategory> plugins = InstalledPlugins(context);
     check(plugins.size() >= 8 && plugins[0].name == "Bitmap Readers" && plugins[1].name == "Movie Readers",
@@ -629,8 +626,7 @@ int ToolsFile(CkRuntimeHost &host, const std::string &path, const std::string &o
 // Saved compositions have none; with --remove, removing them leaves none.
 // Dev's Duplicate Names Found: a file merged into itself lists its named
 // objects as duplicates; Ignore adds another object of the name, Rename one
-// with a number added, Use Current and Replace none (Replace loads the
-// file's data into the existing object).
+// with a number added, Use Current keeps the existing object and its data.
 int DuplicatesFile(CkRuntimeHost &host, const std::string &path) {
     CKContext *context = host.Context();
     Document document(host);
@@ -661,15 +657,13 @@ int DuplicatesFile(CkRuntimeHost &host, const std::string &path) {
     check(document.FindDuplicateNames(path + ".bmp").empty(), "other formats have none");
     // One object of each choice: named behavioral objects alone of their
     // name and class in the file and in the composition.
-    const DuplicateAction actions[] = {DuplicateAction::Ignore, DuplicateAction::Rename, DuplicateAction::UseCurrent,
-                                       DuplicateAction::Replace};
+    const DuplicateAction actions[] = {DuplicateAction::Ignore, DuplicateAction::Rename, DuplicateAction::UseCurrent};
     struct Chosen {
         DuplicateName duplicate;
         CK_ID existing = 0;
     };
     std::vector<Chosen> chosen;
-    // Replace with the 2.5 runtime only (DUPLICATE_REPLACE_AVAILABLE).
-    const size_t choices = DUPLICATE_REPLACE_AVAILABLE ? 4 : 3;
+    const size_t choices = std::size(actions);
     for (DuplicateName &duplicate : duplicates) {
         if (chosen.size() == choices) break;
         if (!CKIsChildClassOf(duplicate.cid, CKCID_BEOBJECT) || CKIsChildClassOf(duplicate.cid, CKCID_LEVEL) ||
@@ -688,24 +682,31 @@ int DuplicatesFile(CkRuntimeHost &host, const std::string &path) {
         std::cout << "  " << CKClassIDToString(c.duplicate.cid) << " '" << c.duplicate.name << "': "
                   << static_cast<int>(c.duplicate.action) << '\n';
     if (failures) return 1;
-    // Replace: a material's color changed here comes back from the file.
-    CKMaterial *replaced = choices == 4 ? CKMaterial::Cast(context->GetObject(chosen[3].existing)) : nullptr;
-    const VxColor diffuse = replaced ? replaced->GetDiffuse() : VxColor();
-    if (replaced) replaced->SetDiffuse(VxColor(0.25f, 0.5f, 0.75f, 1.0f));
-    // A step recorded before: it no longer matches the replaced objects.
+    // Use Current must retain content and relationships absent from the file.
+    const EditResult keptScript = CreateScript(document, chosen[2].existing, "Duplicate test script");
+    CHECK(keptScript.ok);
+    const EditResult keptValue = AddLocalParameter(document, keptScript.created, keptScript.created,
+                                                   "Duplicate test value", CKPGUID_INT, Point(200, 60));
+    CHECK(keptValue.ok && SetParameterText(document, keptScript.created, keptValue.created, "137").ok);
+    ScriptSession *session = document.Session(keptScript.created);
+    auto checkKept = [&](int expected) {
+        CKBehavior *script = CKBehavior::Cast(context->GetObject(keptScript.created));
+        CKParameterLocal *parameter = CKParameterLocal::Cast(context->GetObject(keptValue.created));
+        CHECK(script && script->GetOwner() && script->GetOwner()->GetID() == chosen[2].existing);
+        CHECK(parameter && parameter->GetOwner() == script && script->GetLocalParameterPosition(parameter) >= 0);
+        int value = 0;
+        CHECK(parameter->GetValue(&value, FALSE) == CK_OK && value == expected);
+        CHECK(document.Session(keptScript.created) == session);
+    };
     UndoHistory &undo = document.History();
     bool applied = false;
     RecordValue(document, "Before", applied, true);
     std::vector<CK_ID> merged;
     check(document.Merge(path, false, &error, &merged, &duplicates), "merge: " + error);
-    if (replaced) {
-        const VxColor now = replaced->GetDiffuse();
-        check(now.r == diffuse.r && now.g == diffuse.g && now.b == diffuse.b, "Replace loads the file's data into the object");
-    }
-    if (choices == 4)
-        check(!undo.CanUndo() && !undo.Undo() && applied, "objects replaced: the undo history is cleared");
-    else
-        check(undo.CanUndo(), "no object replaced: the undo history is kept");
+    check(undo.CanUndo(), "no object replaced: the undo history is kept");
+    checkKept(137);
+    CHECK(undo.Undo() && !applied);
+    CHECK(undo.Redo() && applied);
     for (const Chosen &c : chosen) {
         const DuplicateName &d = c.duplicate;
         const int exact = count(d.cid, d.name, false), numbered = count(d.cid, d.name, true);
@@ -713,20 +714,68 @@ int DuplicatesFile(CkRuntimeHost &host, const std::string &path) {
         case DuplicateAction::Ignore: check(exact == 2 && numbered == 0, "Ignore adds one of the same name: " + d.name); break;
         case DuplicateAction::Rename: check(exact == 1 && numbered == 1, "Rename adds one numbered: " + d.name); break;
         case DuplicateAction::UseCurrent:
-        case DuplicateAction::Replace:
             check(exact == 1 && numbered == 0 && context->GetObject(c.existing),
-                  "Use Current / Replace keep the existing object only: " + d.name);
+                  "Use Current keeps the existing object only: " + d.name);
             break;
         }
+    }
+    CHECK(SetParameterText(document, keptScript.created, keptValue.created, "271").ok);
+    CHECK(undo.Undo());
+    checkKept(137);
+    CHECK(undo.Redo());
+    checkKept(271);
+    const CompositionState beforeCancel = CaptureComposition(document, {keptValue.created});
+    const size_t historyCount = undo.UndoCount();
+    {
+        Edit edit(document, "Cancelled duplicate value");
+        CHECK(SetParameterText(document, keptScript.created, keptValue.created, "999").ok);
+        checkKept(999);
+        CHECK(edit.Cancel());
+    }
+    ExpectSameComposition(beforeCancel, CaptureComposition(document, {keptValue.created}), "cancel after merge");
+    CHECK(undo.UndoCount() == historyCount);
+    std::vector<CK_ID> imported;
+    CHECK(document.Import(path, Document::ImportMode::File, &error, &imported, &duplicates));
+    CHECK(!imported.empty() && undo.UndoCount() == historyCount);
+    checkKept(271);
+    for (const Chosen &c : chosen) {
+        const DuplicateName &d = c.duplicate;
+        check(count(d.cid, d.name, false) == (d.action == DuplicateAction::Ignore ? 3 : 1),
+              "Import applies the duplicate choice: " + d.name);
+        check(count(d.cid, d.name, true) == (d.action == DuplicateAction::Rename ? 2 : 0),
+              "Import preserves numbering: " + d.name);
     }
     // Without the choices CK keeps them all (Ignore).
     const DuplicateName &first = chosen.front().duplicate;
     const int before = count(first.cid, first.name, false);
     check(document.Merge(path, false, &error), "merge without choices: " + error);
     check(count(first.cid, first.name, false) == before + 1, "without choices the duplicates are loaded");
+    checkKept(271);
+    const CompositionState beforeFailure = CaptureComposition(document, {keptValue.created});
+    CHECK(!document.Merge(path + ".missing", false, &error, nullptr, &duplicates));
+    CHECK(!document.Import(path + ".missing.cmo", Document::ImportMode::File, &error, nullptr, &duplicates));
+    ExpectSameComposition(beforeFailure, CaptureComposition(document, {keptValue.created}), "failed duplicate load");
+    CHECK(undo.UndoCount() == historyCount);
+    namespace fs = std::filesystem;
+    const fs::path root = fs::current_path() / ("duplicates-" + std::to_string(SDL_GetPerformanceCounter()));
+    CHECK(root.parent_path() == fs::current_path() && fs::create_directory(root));
+    struct Cleanup { fs::path root; ~Cleanup() { std::error_code error; fs::remove_all(root, error); } } cleanup{root};
+    SaveOptions options;
+    SaveReport report;
+    CHECK(SaveDocumentAs(document, (root / "roundtrip.cmo").u8string(), options, report));
+    document.Close();
+    CHECK(document.Open((root / "roundtrip.cmo").u8string(), &error) && !document.Dirty());
+    CKBehavior *script = CKBehavior::Cast(context->GetObjectByNameAndClass((CKSTRING) "Duplicate test script", CKCID_BEHAVIOR));
+    CHECK(script && script->GetOwner() && script->GetOwner()->GetClassID() == chosen[2].duplicate.cid);
+    CHECK(chosen[2].duplicate.name == script->GetOwner()->GetName());
+    CHECK(script->GetLocalParameterCount() == 1);
+    CKParameterLocal *parameter = script->GetLocalParameter(0);
+    int value = 0;
+    CHECK(parameter && std::string(parameter->GetName()) == "Duplicate test value");
+    CHECK(parameter->GetOwner() == script && parameter->GetValue(&value, FALSE) == CK_OK && value == 271);
     document.Close();
     if (failures) return 1;
-    std::cout << "Duplicate names: " << duplicates.size() << " found, the four choices applied\n";
+    std::cout << "Duplicate names: " << duplicates.size() << " found, three choices, values, history and round trip checked\n";
     return 0;
 }
 
@@ -1293,6 +1342,80 @@ void NativePathChecks(CkRuntimeHost &host) {
         CHECK(imageFile.filename().string() == texture->GetSlotFileName(0));
     }
     std::cout << "Native resource paths, metadata bytes and composition round trips passed\n";
+}
+
+void CompositionReadCompatibility(CkRuntimeHost &host) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::current_path() / ("composition-formats-" + std::to_string(SDL_GetPerformanceCounter()));
+    CHECK(root.parent_path() == fs::current_path() && fs::create_directory(root));
+    struct Cleanup { fs::path root; ~Cleanup() { std::error_code error; fs::remove_all(root, error); } } cleanup{root};
+    const struct { CKDWORD version; int extra; } formats[] = {{0x0D, 0}, {0x10, 1}, {0x12, 2}, {0x16, 3}};
+    const std::string comment = "Stored comment \xE9\x9C\xD6\xD0";
+    for (const auto &format : formats) {
+        Document document(host);
+        std::string error;
+        CHECK(document.New(&error));
+        const EditResult owner = CreateLayoutObject(document, LayoutObject::Frame3D);
+        CHECK(owner.ok);
+        const EditResult made = CreateScript(document, owner.created, "Stored Script");
+        CHECK(made.ok);
+        const EditResult local = AddLocalParameter(document, made.created, made.created,
+                                                   "Stored value", CKPGUID_INT, Point(200, 60));
+        CHECK(local.ok && SetParameterText(document, made.created, local.created, "137").ok);
+        CKBehavior *script = CKBehavior::Cast(document.Context()->GetObject(made.created));
+        InterfaceData data;
+        data.version = format.version;
+        data.useDevSectionedLayout = InterfaceChunkFormat::VersionUsesSections(format.version);
+        data.rootBehavior.id = made.created;
+        data.rootBehavior.rect = Rect(0, 0, 600, 240);
+        data.rootBehavior.folded = false;
+        data.rootBehavior.localParams.emplace_back(local.created, 10, 3, PARAM_STYLE_NAME);
+        data.rootBehavior.comments.emplace_back(0, 200, 120, 180, 60, comment);
+        data.extraDataVersion = format.extra;
+        if (format.extra) {
+            ExtraData breakpoint;
+            breakpoint.type = EXTRA_DATA_BEHAVIOR;
+            breakpoint.id1 = made.created;
+            data.extraData.push_back(breakpoint);
+        }
+        CKStateChunk *chunk = GenerateInterfaceChunk(data, script);
+        CHECK(chunk);
+        script->SetInterfaceChunk(chunk);
+        document.Session(made.created)->Assign(data);
+        document.Session(made.created)->MarkSaved();
+        const fs::path source = root / (std::to_string(format.version) + "-source.cmo");
+        const fs::path saved = root / (std::to_string(format.version) + "-saved.cmo");
+        SaveOptions options;
+        SaveReport report;
+        CHECK(SaveDocumentAs(document, source.u8string(), options, report));
+        document.Close();
+        for (const auto &path : {source, saved}) {
+            CHECK(document.Open(path.u8string(), &error) && !document.Dirty());
+            CHECK(document.Scripts().size() == 1);
+            const CK_ID id = document.Scripts().front().id;
+            ScriptSession *session = document.Session(id);
+            CHECK(session && session->Origin() == SessionOrigin::LoadedChunk && !session->Dirty());
+            CHECK(session->Data().version == format.version && session->Data().extraDataVersion == format.extra);
+            CHECK(session->Data().rootBehavior.comments.size() == 1);
+            CHECK(session->Data().rootBehavior.comments.front().text == comment);
+            CHECK(session->Data().extraData.size() == (format.extra ? 1u : 0u));
+            if (format.extra) CHECK(session->Data().extraData.front().id1 == id);
+            script = CKBehavior::Cast(document.Context()->GetObject(id));
+            CHECK(script && script->GetOwner() && script->GetLocalParameterCount() == 1);
+            CKParameterLocal *parameter = script->GetLocalParameter(0);
+            int value = 0;
+            CHECK(parameter && parameter->GetOwner() == script && parameter->GetValue(&value, FALSE) == CK_OK && value == 137);
+            if (path == source) {
+                const auto original = ChunkBytes(script->GetInterfaceChunk());
+                CHECK(!original.empty());
+                CHECK(SaveDocumentAs(document, saved.u8string(), options, report));
+                CHECK(ChunkBytes(script->GetInterfaceChunk()) == original);
+                CHECK(CompareReloadedChunks(document, saved.string()) == 1);
+            }
+            document.Close();
+        }
+    }
+    std::cout << "Sectioned and inline compositions preserve values, raw comments, breakpoints and InterfaceChunk bytes\n";
 }
 
 void ResourceChecks() {

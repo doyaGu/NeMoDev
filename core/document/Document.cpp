@@ -175,14 +175,12 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
     CKObjectArray *objects = CreateCKObjectArray();
     CKFile *file = context->CreateCKFile();
     CKERROR result = CKERR_INVALIDFILE;
-    std::vector<CK_ID> replaced;
     const bool completed = GuardedCall(
         [&] {
-            result = LoadFileChoosingDuplicates(context, file, path, objects, CK_LOAD_DEFAULT, duplicates, replaced);
+            result = LoadFileChoosingDuplicates(context, file, path, objects, CK_LOAD_DEFAULT, duplicates);
             if (result == CK_OK) RestoreSpriteTextAlignments(*file, duplicates);
         },
         &m_Host, "CKFile::Load");
-    ForgetReplaced(replaced); // loaded into whether the rest of the load failed or not
     std::vector<CK_ID> loaded;
     std::set<CK_ID> listed(m_LoadedObjects.begin(), m_LoadedObjects.end());
     if (completed && result == CK_OK) CollectLoaded(file, objects, listed, loaded);
@@ -255,14 +253,12 @@ bool Document::Import(const std::string &path, ImportMode mode, std::string *err
         // As Open and Merge: the file's object list also has the objects the
         // returned array omits.
         CKFile *file = context->CreateCKFile();
-        std::vector<CK_ID> replaced;
         completed = GuardedCall(
             [&] {
-                result = LoadFileChoosingDuplicates(context, file, path, objects, flags, duplicates, replaced);
+                result = LoadFileChoosingDuplicates(context, file, path, objects, flags, duplicates);
                 if (result == CK_OK) RestoreSpriteTextAlignments(*file, duplicates);
             },
             &m_Host, "CKFile::Load");
-        ForgetReplaced(replaced);
         if (completed && result == CK_OK) CollectLoaded(file, nullptr, listed, loaded); // the array below
         context->DeleteCKFile(file);
     } else {
@@ -417,29 +413,11 @@ bool Document::IsDiscarded(CK_ID id) const {
     return false;
 }
 
-// The replaced objects have the file's data under their ids: a Script among
-// them, or holding one, is opened again (its display data and the runtime
-// it names are the file's), and the undo history is to go.
 bool Document::InvalidateHistory() {
     const bool any = m_History.CanUndo() || m_History.CanRedo();
     m_History.Clear();
     MarkTopologyChanged();
     return any;
-}
-
-void Document::ForgetReplaced(const std::vector<CK_ID> &replaced) {
-    if (replaced.empty()) return;
-    if (InvalidateHistory()) m_Host.Log(LogLevel::Info, "The loaded file replaced objects: the undo history is cleared");
-    CKContext *context = Context();
-    std::set<CK_ID> scripts;
-    for (CK_ID id : replaced)
-        if (const CK_ID script = OwningScript(context ? context->GetObject(id) : nullptr)) scripts.insert(script);
-    for (CK_ID script : scripts) {
-        const auto session = m_Sessions.find(script);
-        if (session == m_Sessions.end()) continue;
-        m_ChangesOutsideUndo += session->second->ChangesOutsideUndo();
-        m_Sessions.erase(session);
-    }
 }
 
 void Document::RefreshScripts() {

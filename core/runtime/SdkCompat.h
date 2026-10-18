@@ -6,7 +6,6 @@
 
 #include "CKAll.h"
 #include "core/runtime/FileDuplicates.h"
-#include "core/runtime/SdkVersion.h"
 
 // SDK helpers for the source-built Ballanced runtime.
 namespace vdev {
@@ -90,16 +89,10 @@ CKERROR CreateCKContext(CKContext **context, void *window, int renderEngine = 0)
 // ------------------------------------------------------------- loading files
 
 // CKFile::Load with the Duplicate Names Found choices (none: CKFile::Load).
-// CK2 2.5: OpenFile, then LoadFileData, the choices given to the file's
-// objects in between as Dev.exe sub_59BCA0 does (CKFileObject::Options: Ignore CK_FO_DEFAULT,
-// Rename CK_FO_RENAMEOBJECT, Use Current CK_FO_DONTLOADOBJECT, Replace
-// CK_FO_REPLACEOBJECT); a choice whose file object is not the one listed is
-// left out. 2.1: FinishLoading reads no options; under CK_LOAD_CHECKDUPLICATES
-// CKContext::LoadVerifyObjectUnicity asks the user load callback about each
-// duplicate (AnswerDuplicate: CKLOAD_OK, CKLOAD_RENAME, CKLOAD_USECURRENT).
-// replaced: the existing objects Replace loaded the file's data into.
+// Under CK_LOAD_CHECKDUPLICATES, CKContext::LoadVerifyObjectUnicity asks the
+// load callback about each duplicate (CKLOAD_OK, CKLOAD_RENAME,
+// CKLOAD_USECURRENT).
 CKERROR LoadFileChoosingDuplicates(CKContext *context, CKFile *file, const std::string &path, CKObjectArray *objects,
-                                   CK_LOAD_FLAGS flags, const std::vector<DuplicateName> *duplicates,
-                                   std::vector<CK_ID> &replaced);
+                                   CK_LOAD_FLAGS flags, const std::vector<DuplicateName> *duplicates);
 
 } // namespace vdev

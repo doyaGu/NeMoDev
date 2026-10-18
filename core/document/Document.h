@@ -43,8 +43,7 @@ public:
     // File > Merge Composition (Dev.exe sub_5C54C0): loads a file into the
     // context and merges its level into the current one (CKLevel::Merge;
     // asScene: Merge Composition as New Scene), then destroys the loaded level.
-    // Not undoable (objects replaced: InvalidateHistory). merged: the objects
-    // added to the composition.
+    // Not undoable. merged: the objects added to the composition.
     // duplicates: the Duplicate Names Found choices (FindDuplicateNames);
     // without them the duplicates are loaded as CK does (Ignore).
     bool Merge(const std::string &path, bool asScene, std::string *error, std::vector<CK_ID> *merged = nullptr,
@@ -125,12 +124,9 @@ public:
     // made or closed.
     UndoHistory &History() { return m_History; }
     const UndoHistory &History() const { return m_History; }
-    // The composition stopped matching the undo steps recorded before: a load
-    // replaced objects in place (Merge or Import, Duplicate Names Found:
-    // Replace; they keep their ids with the file's data, and the sessions of
-    // the Scripts they touch are opened again from the file), or an edit that
-    // failed could not be rolled back. Clears the history (a change outside
-    // undo); true when it had steps.
+    // The composition stopped matching the recorded undo steps, e.g. an edit
+    // failed and could not be rolled back. Clears the history (a change
+    // outside undo); true when it had steps.
     bool InvalidateHistory();
     // An edit is being built (Edit): the history is not undone or redone
     // meanwhile, and an edit begun now is nested in it.
@@ -148,7 +144,6 @@ private:
     friend class Edit;
     friend class UndoStep;
     friend struct DocumentSaverAccess;
-    void ForgetReplaced(const std::vector<CK_ID> &replaced);
     void ListScripts();
 
     CkRuntimeHost &m_Host;

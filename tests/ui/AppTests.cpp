@@ -4,6 +4,7 @@
 #include "tests/ui/UiTests.h"
 #include "ui/app/DesktopFiles.h"
 #include "imgui_internal.h"
+#include "core/level/LevelCommands.h"
 
 namespace vdevuitest {
 
@@ -83,6 +84,57 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//General Preferences/Cancel");
         ctx->Yield(3);
         IM_CHECK(!WindowShown(ctx, "//General Preferences"));
+    };
+
+    t = IM_REGISTER_TEST(engine, "app", "duplicate_names_cancel");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto loaded = std::make_shared<bool>(false);
+        CK_ID object = 0;
+        size_t historyCount = 0, scriptCount = 0;
+        std::set<CK_ID> created;
+        std::vector<CK_ID> loadedObjects;
+        std::string sourcePath;
+        bool dirty = false;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            object = made.created;
+            historyCount = state.History().UndoCount();
+            created = state.document->CreatedObjects();
+            loadedObjects = state.document->LoadedObjects();
+            scriptCount = state.document->Scripts().size();
+            sourcePath = state.document->SourcePath();
+            dirty = state.document->Dirty();
+            vdev::EditorState::DuplicateNamesRequest request;
+            request.path = "cancelled.cmo";
+            request.serial = ++state.duplicateNamesAsked;
+            request.duplicates.push_back({0, CKCID_3DENTITY, "Existing object", vdev::DuplicateAction::Ignore});
+            request.load = [loaded](const std::vector<vdev::DuplicateName> *) { *loaded = true; };
+            state.duplicateNames.push_back(std::move(request));
+        });
+        ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, "//###DuplicateNames"));
+        ctx->ItemClick("//###DuplicateNames/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(!*loaded && App().State().duplicateNames.empty());
+        IM_CHECK(!WindowShown(ctx, "//###DuplicateNames"));
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.document->IsLive(object));
+            IM_CHECK_NO_RET(state.document->CreatedObjects() == created);
+            IM_CHECK_NO_RET(state.document->LoadedObjects() == loadedObjects);
+            IM_CHECK_EQ_NO_RET(state.document->Scripts().size(), scriptCount);
+            IM_CHECK_NO_RET(state.document->SourcePath() == sourcePath);
+            IM_CHECK_NO_RET(state.document->Dirty() == dirty);
+            IM_CHECK_EQ_NO_RET(state.History().UndoCount(), historyCount);
+            IM_CHECK_NO_RET(state.History().Undo());
+            IM_CHECK_NO_RET(!state.document->IsLive(object));
+            IM_CHECK_NO_RET(state.History().Redo());
+            IM_CHECK_NO_RET(state.document->IsLive(object));
+        });
     };
 
     // Local help is optional. Missing help disables its menus and makes

@@ -33,9 +33,7 @@ const Category CATEGORIES[] = {{CKCID_CHARACTER, "Characters"}, {CKCID_SPRITE3D,
                                {CKCID_MATERIAL, "Materials"},   {CKCID_TEXTURE, "Textures"},
                                {CKCID_GROUP, "Groups"},         {CKCID_SPRITE, "2D Sprites"},
                                {CKCID_OBJECT, "Others"}};
-// The actions, by the menu's commands 291 to 294 (Replace with the 2.5
-// runtime only: DUPLICATE_REPLACE_AVAILABLE).
-const char *const ACTIONS[] = {"Ignore", "Rename", "Use Current", "Replace"};
+const char *const ACTIONS[] = {"Ignore", "Rename", "Use Current"};
 constexpr int ARROW_CLOSED = 0xD9, ARROW_OPEN = 0xDA; // Dev.exe's icons
 constexpr float ROW = 17.0f, HEADER = 15.0f;
 constexpr float OBJECT_COLUMN = 250.0f, ACTION_COLUMN = 118.0f;
@@ -245,13 +243,13 @@ void EditorApp::DuplicateNamesDialog() {
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor();
         // The menu (sub_59BA50) on the rows selected: Expand Children, the
-        // four actions (sub_59BCA0: each selected item and those below it).
+        // three actions, applied to each selected item and those below it.
         if (menu) ImGui::OpenPopup("##duplicatemenu");
         if (ImGui::BeginPopup("##duplicatemenu")) {
             if (ImGui::MenuItem("Expand Children"))
                 for (int node : g_Tree.selected) OpenAll(g_Tree, node);
             ImGui::Separator();
-            for (int a = 0; a < (DUPLICATE_REPLACE_AVAILABLE ? 4 : 3); ++a)
+            for (int a = 0; a < static_cast<int>(std::size(ACTIONS)); ++a)
                 if (ImGui::MenuItem(ACTIONS[a]))
                     for (int node : g_Tree.selected) SetAction(g_Tree, node, static_cast<DuplicateAction>(a), duplicates);
             ImGui::EndPopup();
