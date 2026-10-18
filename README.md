@@ -37,6 +37,9 @@ git submodule update --init --recursive external/imgui external/imgui_test_engin
 python -m pip install "Pillow>=9.1"
 ```
 
+The presets enable UI tests, which use the separately licensed ImGui Test
+Engine. Review [its license conditions](#imgui-test-engine-license) before use.
+
 Provide a maintained Ballanced source checkout with VxMath, CK2, RenderEngine,
 Managers, Plugins and BuildingBlocks, including their nested dependencies.
 Initialize the required submodules in that checkout, then set
@@ -116,7 +119,8 @@ Machine-specific overrides belong in an ignored `CMakeUserPresets.json`.
 
 The CMake targets and options retain the `VirtoolsDev` / `VIRTOOLSDEV_` names.
 Use `VIRTOOLSDEV_BUILD_TESTS=OFF` and `VIRTOOLSDEV_BUILD_UI_TESTS=OFF` to build
-without the regression executables. The ImGui Test Engine has a separate license.
+without the regression executables. To keep core tests while omitting ImGui
+Test Engine, set only `VIRTOOLSDEV_BUILD_UI_TESTS=OFF`.
 
 ## Text and paths
 
@@ -173,9 +177,32 @@ manager. Desktop tests require a real window manager and can be
 registered with `VIRTOOLSDEV_TEST_DESKTOP=ON`. They move focus, enter fullscreen
 and operate native dialogs. Direct printing requires a configured printer.
 
-Public CI checks include source layering, Python syntax and the standalone
-Windows extractor build. Full editor builds and runtime regressions require the
-local resources described above.
+Public CI checks include source layering, runtime notice installation, Python
+syntax and the standalone Windows extractor build. Full editor builds and
+runtime regressions require the local resources described above.
+
+## ImGui Test Engine license
+
+ImGui Test Engine is used only by `VirtoolsDevUiTests`; the regular `NemoDev`
+executable does not link it. The pinned dependency uses
+[Dear ImGui Test Engine License v1.04](licenses/ImGuiTestEngine-License.txt),
+which is separate from Dear ImGui's MIT license.
+
+A free license applies to natural persons, users that are not legal entities,
+not-for-profit entities, educational use, qualifying derivative software
+released publicly under an OSI-defined Open Source license, or legal entities
+with turnover below USD 2 million (or equivalent) in their last fiscal year.
+Meeting any one condition is sufficient. If none applies, the license permits
+a maximum 45-day trial; continued use then requires a paid license from DISCO
+HELLO. Public source availability alone does not establish eligibility under
+the Open Source license condition.
+
+Preserve its copyright notice and full license when redistributing Test Engine
+or the UI test executable. The full terms govern use and distribution; see also
+[third-party notices](THIRD_PARTY_NOTICES.md#ui-test-dependency).
+
+For the editor and core tests, initialize only `external/imgui` and configure
+with `-DVIRTOOLSDEV_BUILD_UI_TESTS=OFF` to omit Test Engine.
 
 ## Verified platforms
 
@@ -216,6 +243,19 @@ do not establish that the editor runs there.
   not recover from native access violations.
 - The build produces a staged runtime directory. Platform installers and a
   macOS application bundle are not provided.
+
+## License
+
+The [CC BY-NC-SA 4.0 license](LICENSE) applies only to NemoDev-authored code. Incorporated
+VirtoolsScriptDeobfuscation code and its adaptations remain CC BY-NC-SA 4.0;
+dependencies, fonts and original Virtools resources retain their own terms.
+The project license does not relicense the editor's third-party components.
+
+[Third-party notices](THIRD_PARTY_NOTICES.md) describe the license scope,
+authorship, copied license texts and unresolved SDK redistribution permissions.
+The Runtime install stages `LICENSE`, `THIRD_PARTY_NOTICES.md` and `licenses/`
+at the root of `runtime/`; keep those materials with the corresponding binaries.
+They do not grant redistribution rights for original Virtools assets.
 
 ## Source layout and attribution
 
