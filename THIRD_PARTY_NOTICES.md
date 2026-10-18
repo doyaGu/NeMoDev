@@ -30,7 +30,7 @@ an upstream checkout or binary.
 
 | Component and authors | Use | License text |
 | --- | --- | --- |
-| [Dear ImGui](https://github.com/ocornut/imgui), Omar Cornut and contributors | Editor UI and SDL3/SDL GPU backends; submodule revision `64944b4520b30772de8dbf0b37d0311746477a32` | [MIT](licenses/DearImGui-MIT.txt) |
+| [Dear ImGui](https://github.com/ocornut/imgui), Omar Cornut and contributors | Editor UI and SDL3/SDL GPU backends; `v1.93.0-docking`, revision `b916186e66aa3c02b72c6ca17455516512ed8049` | [MIT](licenses/DearImGui-MIT.txt) |
 | [SDL3](https://github.com/libsdl-org/SDL), Sam Lantinga and contributors | Shared window, input, GPU and platform runtime | [zlib](licenses/SDL3-zlib.txt) |
 | [stb](https://github.com/nothings/stb), Sean Barrett and contributors | Editor image loading/writing and SDK image/font support | [MIT or public domain](licenses/stb-LICENSE.txt) |
 | [libharu](https://github.com/libharu/libharu), Takeshi Kanno, Antony Dovgal and contributors | Internal PDF generation for Linux/macOS printing | [zlib-style license](licenses/libharu-zlib.txt) |
