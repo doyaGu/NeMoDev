@@ -1,3 +1,6 @@
+#include <clocale>
+#include <cwchar>
+#include <climits>
 // Level Manager, Setups, managers, the Create menu, scenes, the Script debugger, Building Block callbacks, text encoding.
 #include "VirtoolsDevTestSupport.h"
 #include <SDL3/SDL.h>
@@ -1324,25 +1327,105 @@ void Catalogs(CKContext *context) {
               << signatures.size() << " Addition signatures" << '\n';
 }
 
-// The original ANSI conversions and reporting of lossy UI text.
+// Native text conversion at the CK/UI boundary, without selecting a code page.
 void TextEncodingChecks() {
     std::vector<std::string> told;
     SetLossyTextHandler([&told](const std::string &text) { told.push_back(text); });
-    // Taken back however the case ends (a failed CHECK leaves it): the handler names this frame's told.
     struct Restore {
-        ~Restore() { SetLossyTextHandler(nullptr); }
+#ifndef _WIN32
+        std::string locale = std::setlocale(LC_CTYPE, nullptr);
+#endif
+        ~Restore() {
+            SetLossyTextHandler(nullptr);
+#ifndef _WIN32
+            std::setlocale(LC_CTYPE, locale.c_str());
+#endif
+        }
     } restore;
-    const std::string smile = "Smile \xF0\x9F\x98\x80";
-    bool lossy = false;
-    const std::string ansi = Utf8ToAnsi(smile, &lossy);
-    CHECK(lossy && told.size() == 1 && told.front() == smile && ansi.find('?') != std::string::npos);
-    CHECK(WideToAnsi(Utf8ToWide(smile), &lossy).find('?') != std::string::npos && lossy && told.size() == 2);
     const std::string plain = "Plain name 1.cmo";
-    CHECK(Utf8ToAnsi(plain, &lossy) == plain && !lossy && AnsiToUtf8(plain) == plain && told.size() == 2);
+    bool lossy = true;
+    CHECK(Utf8ToAnsi(plain, &lossy) == plain && !lossy && AnsiToUtf8(plain) == plain && told.empty());
+    const std::string filter("A\0*.a\0", 6);
+    CHECK(AnsiToWide(filter).size() == filter.size());
+    CHECK(WideToAnsi(AnsiToWide(filter)) == filter);
+    CHECK(WideToUtf8(Utf8ToWide(filter)) == filter);
+    CHECK(AnsiToUtf8("").empty() && Utf8ToAnsi("", &lossy).empty() && !lossy);
+    const std::string smile = "Smile \xF0\x9F\x98\x80";
     CHECK(WideToUtf8(Utf8ToWide(smile)) == smile);
-    const std::string filter("A\0*.a\0", 6); // the common dialogs' filters keep their NULs
-    CHECK(AnsiToWide(filter).size() == 6);
-    std::cout << "Text encoding passed\n";
+    const std::string invalid[] = {"\xC0\xAF", "\xED\xA0\x80", "\xF4\x90\x80\x80", "\xE2\x82", "\xFF"};
+    for (const auto &text : invalid) {
+        bool rejected = false;
+        try { Utf8ToWide(text); } catch (const TextEncodingError &) { rejected = true; }
+        CHECK(rejected);
+        std::string output = "original";
+        rejected = false;
+        told.clear();
+        try { output = Utf8ToAnsi(text, &lossy); } catch (const TextEncodingError &) { rejected = true; }
+        CHECK(rejected && lossy && output == "original" && told.size() == 1 && told.front() == "Invalid UTF-8 text");
+    }
+#ifdef _WIN32
+    const int localeCount = 1;
+#else
+    const int localeCount = 2;
+    const char *locales[] = {"C", ""};
+#endif
+    for (int locale = 0; locale < localeCount; ++locale) {
+#ifndef _WIN32
+        CHECK(std::setlocale(LC_CTYPE, locales[locale]) != nullptr);
+#endif
+        const std::string samples[] = {plain, "caf\xC3\xA9", "\xE2\x82\xAC", "\xE4\xB8\xAD\xE6\x96\x87", smile, "\xEF\xBF\xBD"};
+        for (const auto &utf8 : samples) {
+            const std::wstring wide = Utf8ToWide(utf8);
+            std::string expected;
+            bool valid = true;
+#ifdef _WIN32
+            const UINT page = GetACP();
+            BOOL substituted = FALSE;
+            BOOL *used = page == CP_UTF8 ? nullptr : &substituted;
+            DWORD flags = page == CP_UTF8 ? WC_ERR_INVALID_CHARS : WC_NO_BEST_FIT_CHARS;
+            int length = WideCharToMultiByte(page, flags, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, used);
+            valid = length > 0 && !substituted;
+            if (valid) {
+                expected.resize(length);
+                CHECK(WideCharToMultiByte(page, flags, wide.data(), static_cast<int>(wide.size()), expected.data(), length, nullptr, used) == length && !substituted);
+            }
+#else
+            std::mbstate_t state = {};
+            for (wchar_t character : wide) {
+                char bytes[MB_LEN_MAX];
+                size_t count = std::wcrtomb(bytes, character, &state);
+                if (count == static_cast<size_t>(-1)) { valid = false; break; }
+                expected.append(bytes, count);
+            }
+            if (valid && !std::mbsinit(&state)) {
+                char bytes[MB_LEN_MAX];
+                size_t count = std::wcrtomb(bytes, L'\0', &state);
+                CHECK(count != static_cast<size_t>(-1));
+                expected.append(bytes, count - 1);
+            }
+#endif
+            told.clear(); lossy = true;
+            std::string actual = "original";
+            bool rejected = false;
+            try { actual = Utf8ToAnsi(utf8, &lossy); } catch (const TextEncodingError &) { rejected = true; }
+            CHECK(rejected != valid && lossy == !valid);
+            if (valid) {
+                CHECK(actual == expected && told.empty());
+                CHECK(AnsiToUtf8(actual) == utf8 && AnsiToWide(actual) == wide);
+                CHECK(WideToAnsi(wide, &lossy) == expected && !lossy && told.empty());
+            } else {
+                CHECK(actual == "original" && told.size() == 1 && told.front() == utf8);
+                rejected = false;
+                try { actual = WideToAnsi(wide, &lossy); } catch (const TextEncodingError &) { rejected = true; }
+                CHECK(rejected && lossy && actual == "original" && told.size() == 2 && told.back() == utf8);
+            }
+        }
+        const std::string raw("\xD6\xD0\xCE\xC4");
+        const std::string before = raw;
+        const std::string display = AnsiToUtf8(raw);
+        CHECK(raw == before && WideToUtf8(Utf8ToWide(display)) == display);
+    }
+    std::cout << "Native text encoding passed\n";
 }
 
 // The Setups' actions (SetupCommands): each one undo step, undone and redone;

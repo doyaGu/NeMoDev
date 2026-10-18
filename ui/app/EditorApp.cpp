@@ -97,7 +97,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     // The Event Log's first line (Dev.exe sub_4229D0, language pack 141).
     m_State.Log(LogLevel::Info, "Virtools Started.");
     m_State.log.back().status = false;
-    // CK text follows the session encoding; file paths remain UTF-8.
+    // CK text retains its native bytes; file paths remain UTF-8.
     SetLossyTextHandler([this](const std::string &text) {
         m_State.Log(LogLevel::Warning, "Text conversion failed; original CK bytes kept: " + text);
     });

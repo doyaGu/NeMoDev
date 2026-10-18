@@ -14,6 +14,7 @@
 #include "core/runtime/VirtoolsRuntimeLayout.h"
 #include <algorithm>
 #include <cstdio>
+#include <clocale>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -65,6 +66,9 @@ bool MainWritePng(const std::wstring &path, unsigned int width, unsigned int hei
 }
 
 int main(int argc, char **argv) {
+#ifndef _WIN32
+    std::setlocale(LC_CTYPE, "");
+#endif
     std::vector<std::wstring> args;
     for (int i = 0; i < argc; ++i) args.push_back(vdev::Utf8ToWide(argv[i]));
     vdev::CommandLine line; line.Parse(args);

@@ -1,180 +1,163 @@
-#ifdef _WIN32
 #include "core/runtime/TextEncoding.h"
 
+#include <SDL3/SDL_stdinc.h>
+#include <climits>
+#include <cwchar>
+#include <utility>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 namespace vdev {
 
-namespace {
-
-std::function<void(const std::string &)> &LossyHandler() {
+static std::function<void(const std::string &)> &LossyHandler() {
     static std::function<void(const std::string &)> handler;
     return handler;
 }
 
-std::wstring ToWide(const std::string &text, UINT from) {
-    if (text.empty()) return std::wstring();
-    const int length = MultiByteToWideChar(from, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    if (length <= 0) return std::wstring();
-    std::wstring wide(static_cast<size_t>(length), L'\0');
-    MultiByteToWideChar(from, 0, text.data(), static_cast<int>(text.size()), &wide[0], length);
-    return wide;
+#ifdef _WIN32
+static std::wstring ToWide(const std::string &text, UINT page, bool replace = false) {
+    if (text.empty()) return {};
+    if (text.size() > INT_MAX) throw TextEncodingError("Text is too long");
+    DWORD flags = replace ? 0 : MB_ERR_INVALID_CHARS;
+    int count = MultiByteToWideChar(page, flags, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    if (!count) throw TextEncodingError("Invalid text encoding");
+    std::wstring result(static_cast<size_t>(count), L'\0');
+    if (MultiByteToWideChar(page, flags, text.data(), static_cast<int>(text.size()), result.data(), count) != count)
+        throw TextEncodingError("Text conversion failed");
+    return result;
 }
 
-std::string FromWide(const std::wstring &wide, UINT to, bool *lossy) {
-    if (lossy) *lossy = false;
-    if (wide.empty()) return std::string();
-    // The ANSI code page: no best fit (another letter, another file), the
-    // default character for the others, which tells the loss.
-    const DWORD flags = to == CP_UTF8 ? 0 : WC_NO_BEST_FIT_CHARS;
-    BOOL usedDefault = FALSE;
-    BOOL *used = to == CP_UTF8 ? nullptr : &usedDefault;
-    const int length =
-        WideCharToMultiByte(to, flags, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
-    if (length <= 0) return std::string();
-    std::string text(static_cast<size_t>(length), '\0');
-    WideCharToMultiByte(to, flags, wide.data(), static_cast<int>(wide.size()), &text[0], length, nullptr, used);
-    if (usedDefault) {
-        if (lossy) *lossy = true;
-        if (LossyHandler()) LossyHandler()(FromWide(wide, CP_UTF8, nullptr));
+static std::string FromWide(const std::wstring &text, UINT page) {
+    if (text.empty()) return {};
+    if (text.size() > INT_MAX) throw TextEncodingError("Text is too long");
+    DWORD flags = page == CP_UTF8 ? WC_ERR_INVALID_CHARS : WC_NO_BEST_FIT_CHARS;
+    BOOL substituted = FALSE;
+    BOOL *used = page == CP_UTF8 ? nullptr : &substituted;
+    int count = WideCharToMultiByte(page, flags, text.data(), static_cast<int>(text.size()), nullptr, 0, nullptr, used);
+    if (!count || substituted) throw TextEncodingError("Text cannot be represented in the native character set");
+    std::string result(static_cast<size_t>(count), '\0');
+    if (WideCharToMultiByte(page, flags, text.data(), static_cast<int>(text.size()), result.data(), count, nullptr, used) != count || substituted)
+        throw TextEncodingError("Text cannot be represented in the native character set");
+    return result;
+}
+#endif
+
+std::wstring AnsiToWide(const std::string &text) {
+#ifdef _WIN32
+    try { return ToWide(text, GetACP()); }
+    catch (const TextEncodingError &) {
+        std::wstring result = ToWide(text, GetACP(), true);
+        if (LossyHandler()) LossyHandler()(WideToUtf8(result));
+        return result;
     }
-    return text;
+#else
+    std::wstring result;
+    std::mbstate_t state = {};
+    bool replaced = false;
+    for (size_t at = 0; at < text.size();) {
+        wchar_t character = 0;
+        size_t count = std::mbrtowc(&character, text.data() + at, text.size() - at, &state);
+        if (count == static_cast<size_t>(-1) || count == static_cast<size_t>(-2) ||
+            character < 0 || character > 0x10FFFF || (character >= 0xD800 && character <= 0xDFFF)) {
+            character = 0xFFFD; count = 1; state = {}; replaced = true;
+        }
+        result.push_back(character);
+        at += count ? count : 1;
+    }
+    if (replaced && LossyHandler()) LossyHandler()(WideToUtf8(result));
+    return result;
+#endif
 }
 
-} // namespace
+std::string WideToAnsi(const std::wstring &text, bool *lossy) {
+    if (lossy) *lossy = false;
+    try {
+#ifdef _WIN32
+        return FromWide(text, GetACP());
+#else
+        std::string result;
+        std::mbstate_t state = {};
+        for (wchar_t character : text) {
+            if (character < 0 || character > 0x10FFFF || (character >= 0xD800 && character <= 0xDFFF))
+                throw TextEncodingError("Invalid wide text");
+            char bytes[MB_LEN_MAX];
+            size_t count = std::wcrtomb(bytes, character, &state);
+            if (count == static_cast<size_t>(-1)) throw TextEncodingError("Text cannot be represented in the native character set");
+            result.append(bytes, count);
+        }
+        if (!std::mbsinit(&state)) {
+            char bytes[MB_LEN_MAX];
+            size_t count = std::wcrtomb(bytes, L'\0', &state);
+            if (count == static_cast<size_t>(-1)) throw TextEncodingError("Text conversion failed");
+            result.append(bytes, count - 1);
+        }
+        return result;
+#endif
+    } catch (const TextEncodingError &) {
+        if (lossy) *lossy = true;
+        if (LossyHandler()) LossyHandler()(WideToUtf8(text));
+        throw;
+    }
+}
 
 std::string AnsiToUtf8(const std::string &text) {
-    if (text.empty()) return text;
-    const std::wstring wide = ToWide(text, CP_ACP);
-    return wide.empty() ? text : FromWide(wide, CP_UTF8, nullptr);
+    return WideToUtf8(AnsiToWide(text));
 }
 
 std::string Utf8ToAnsi(const std::string &text, bool *lossy) {
     if (lossy) *lossy = false;
-    if (text.empty()) return text;
-    const std::wstring wide = ToWide(text, CP_UTF8);
-    return wide.empty() ? text : FromWide(wide, CP_ACP, lossy); // not UTF-8: kept as it is
-}
-
-std::wstring AnsiToWide(const std::string &text) {
-    return ToWide(text, CP_ACP);
-}
-
-std::string WideToAnsi(const std::wstring &text, bool *lossy) {
-    return FromWide(text, CP_ACP, lossy);
+    std::wstring wide;
+    try { wide = Utf8ToWide(text); }
+    catch (const TextEncodingError &) {
+        if (lossy) *lossy = true;
+        if (LossyHandler()) LossyHandler()("Invalid UTF-8 text");
+        throw;
+    }
+    return WideToAnsi(wide, lossy);
 }
 
 std::string WideToUtf8(const std::wstring &text) {
-    return FromWide(text, CP_UTF8, nullptr);
+#ifdef _WIN32
+    return FromWide(text, CP_UTF8);
+#else
+    std::string result;
+    for (wchar_t character : text) {
+        if (character < 0 || character > 0x10FFFF || (character >= 0xD800 && character <= 0xDFFF))
+            throw TextEncodingError("Invalid wide text");
+        char bytes[4];
+        char *end = SDL_UCS4ToUTF8(static_cast<Uint32>(character), bytes);
+        result.append(bytes, end);
+    }
+    return result;
+#endif
 }
 
 std::wstring Utf8ToWide(const std::string &text) {
+#ifdef _WIN32
     return ToWide(text, CP_UTF8);
+#else
+    std::wstring result;
+    const char *cursor = text.data();
+    size_t remaining = text.size();
+    while (remaining) {
+        if (!*cursor) {
+            result.push_back(0); ++cursor; --remaining; continue;
+        }
+        const char *start = cursor;
+        Uint32 character = SDL_StepUTF8(&cursor, &remaining);
+        if (character > 0x10FFFF || (character >= 0xD800 && character <= 0xDFFF) ||
+            (character == SDL_INVALID_UNICODE_CODEPOINT &&
+             (cursor - start != 3 || start[0] != '\xEF' || start[1] != '\xBF' || start[2] != '\xBD')))
+            throw TextEncodingError("Invalid UTF-8 text");
+        result.push_back(static_cast<wchar_t>(character));
+    }
+    return result;
+#endif
 }
 
-void SetLossyTextHandler(std::function<void(const std::string &text)> handler) {
+void SetLossyTextHandler(std::function<void(const std::string &)> handler) {
     LossyHandler() = std::move(handler);
 }
 
 } // namespace vdev
-
-#else
-#include "core/runtime/TextEncoding.h"
-#include <climits>
-#include <cstring>
-#include <limits>
-#include <utility>
-#include <SDL3/SDL_endian.h>
-#include <cerrno>
-#include <iconv.h>
-
-namespace vdev {
-namespace {
-std::function<void(const std::string &)> &LossyHandler() {
-    static std::function<void(const std::string &)> handler;
-    return handler;
-}
-const char *LegacyEncoding() { return "CP936"; }
-const char *WideEncoding() {
-#if SDL_BYTEORDER == SDL_BIG_ENDIAN
-    return sizeof(wchar_t) == 2 ? "UTF-16BE" : "UTF-32BE";
-#else
-    return sizeof(wchar_t) == 2 ? "UTF-16LE" : "UTF-32LE";
-#endif
-}
-std::string Convert(const char *input, size_t remaining, const char *from, const char *to,
-                    bool displayReplacement = false) {
-    if (!remaining) return {};
-    iconv_t converter = iconv_open(to, from);
-    if (converter == reinterpret_cast<iconv_t>(-1))
-        throw TextEncodingError(std::string("Unavailable text conversion: ") + from + " to " + to);
-    struct Close { iconv_t converter; ~Close() { iconv_close(converter); } } close{converter};
-    std::string value(remaining + 16, '\0');
-    size_t written = 0;
-    char *cursor = const_cast<char *>(input);
-    while (remaining) {
-        char *output = value.data() + written;
-        size_t room = value.size() - written;
-        const size_t result = iconv(converter, &cursor, &remaining, &output, &room);
-        written = value.size() - room;
-        if (result != static_cast<size_t>(-1)) {
-            if (result) throw TextEncodingError(std::string("Text cannot be represented in ") + to);
-            break;
-        }
-        if (errno == E2BIG) {
-            if (value.size() > value.max_size() / 2) throw TextEncodingError("Converted text is too long");
-            value.resize(value.size() * 2);
-            continue;
-        }
-        if (displayReplacement && (errno == EILSEQ || errno == EINVAL)) {
-            // Only display decoding calls this mode, and its destination is UTF-8.
-            // Keep the original CK bytes at the caller; never use this result for a write.
-            if (value.size() - written < 3) value.resize(value.size() * 2);
-            value.replace(written, 3, "\xEF\xBF\xBD", 3);
-            written += 3;
-            ++cursor; --remaining;
-            continue;
-        }
-        throw TextEncodingError(std::string("Invalid or unrepresentable text: ") + from + " to " + to);
-    }
-    value.resize(written);
-    return value;
-}
-std::string Convert(const std::string &text, const char *from, const char *to, bool replacement = false) {
-    return Convert(text.data(), text.size(), from, to, replacement);
-}
-}
-std::string AnsiToUtf8(const std::string &text) {
-    try {
-        return Convert(text, LegacyEncoding(), "UTF-8");
-    } catch (const TextEncodingError &) {
-        const std::string display = Convert(text, LegacyEncoding(), "UTF-8", true);
-        if (LossyHandler()) LossyHandler()(display);
-        return display;
-    }
-}
-std::string Utf8ToAnsi(const std::string &text, bool *lossy) {
-    if (lossy) *lossy = false;
-    try {
-        return Convert(text, "UTF-8", LegacyEncoding());
-    } catch (const TextEncodingError &) {
-        if (lossy) *lossy = true;
-        if (LossyHandler()) LossyHandler()(text);
-        throw; // Reject the write before it reaches CK.
-    }
-}
-std::wstring AnsiToWide(const std::string &text) { return Utf8ToWide(AnsiToUtf8(text)); }
-std::string WideToAnsi(const std::wstring &text, bool *lossy) { return Utf8ToAnsi(WideToUtf8(text), lossy); }
-std::string WideToUtf8(const std::wstring &text) {
-    return Convert(reinterpret_cast<const char *>(text.data()), text.size() * sizeof(wchar_t), WideEncoding(), "UTF-8");
-}
-std::wstring Utf8ToWide(const std::string &text) {
-    const std::string bytes = Convert(text, "UTF-8", WideEncoding());
-    std::wstring result(bytes.size() / sizeof(wchar_t), L'\0');
-    if (!bytes.empty()) std::memcpy(result.data(), bytes.data(), bytes.size());
-    return result;
-}
-void SetLossyTextHandler(std::function<void(const std::string &)> handler) { LossyHandler() = std::move(handler); }
-} // namespace vdev
-
-#endif

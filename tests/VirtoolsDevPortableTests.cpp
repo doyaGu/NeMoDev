@@ -7,6 +7,7 @@
 #include <iostream>
 #include <filesystem>
 #include <cstdio>
+#include <clocale>
 #include "VxMemoryMappedFile.h"
 #include <memory>
 #include <stdexcept>
@@ -102,8 +103,14 @@ void FontChecks() {
     const auto underline = Draw("Ag Test", 400, false, true, VXTEXT_LEFT | VXTEXT_TOP);
     Require(bold != regular && italic != regular && underline != regular, "bold italic and underline alter pixels");
     Require(InkBounds(bold, 640).ink > topLeft.ink && InkBounds(underline, 640).ink > topLeft.ink, "bold and underline add ink");
-    const auto chinese = Draw("\xD6\xD0\xCE\xC4", 400, false, false, VXTEXT_LEFT | VXTEXT_TOP);
-    Require(InkBounds(chinese, 640).ink > 100 && chinese != regular, "Chinese glyph fallback produces pixels");
+    std::string native;
+    try { native = vdev::Utf8ToAnsi(u8"\u4E2D\u6587"); }
+    catch (const vdev::TextEncodingError &) { std::cout << "The native character set cannot represent the CJK sample\n"; }
+    std::vector<XDWORD> chinese;
+    if (!native.empty()) {
+        chinese = Draw(native.c_str(), 400, false, false, VXTEXT_LEFT | VXTEXT_TOP);
+        Require(InkBounds(chinese, 640).ink > 100 && chinese != regular, "Chinese glyph fallback produces pixels");
+    }
     std::vector<XDWORD> blank(640 * 160, 0xffffffff);
     Bitmap bitmap(Description(640, 160, blank.data()));
     FONT_HANDLE first = VxCreateFont("Noto Sans", -32, 400, FALSE, FALSE);
@@ -113,14 +120,17 @@ void FontChecks() {
     VxDeleteFont(first);
     releaseFirst.font = nullptr;
     CKRECT rect{20, 10, 620, 150};
-    Require(VxDrawBitmapText(bitmap.handle, second, "\xD6\xD0\xCE\xC4", &rect,
+    Require(VxDrawBitmapText(bitmap.handle, second, native.empty() ? "Ag Test" : native.c_str(), &rect,
                             VXTEXT_LEFT | VXTEXT_TOP, 0xffffff, 0x0000ff), "second font survives first font release");
-    Require(Pixels(bitmap.handle) == chinese, "shared font data retains glyph pixels");
+    Require(Pixels(bitmap.handle) == (native.empty() ? regular : chinese), "shared font data retains glyph pixels");
     for (int i = 0; i < 8; ++i) Require(Draw("Ag Test", 400, false, false, VXTEXT_LEFT | VXTEXT_TOP) == regular, "repeated font creation drawing and release");
 }
 }
 int main() {
     try {
+#ifndef _WIN32
+        Require(std::setlocale(LC_CTYPE, "") != nullptr, "native test locale");
+#endif
         Require(SDL_Init(0), "SDL initialization");
         BitmapChecks(); FontChecks();
         SDL_Quit();

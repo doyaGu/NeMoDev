@@ -11,7 +11,8 @@ public:
     using std::runtime_error::runtime_error;
 };
 
-// CK names and parameter strings use the runtime session's selected encoding.
+// CK names and parameter strings retain their original bytes. Display and edits
+// use the Windows ACP or the current C runtime character set on other platforms.
 // The UI and file paths use UTF-8. AnsiToUtf8 reports invalid bytes and replaces
 // them only for display; the caller must keep the original CK bytes.
 // Utf8ToAnsi rejects unrepresentable or invalid text with TextEncodingError,
