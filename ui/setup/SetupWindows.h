@@ -48,6 +48,7 @@ public:
     std::vector<OpenSetup> OpenSetups() const;
 
 private:
+    friend struct SetupEditTests;
     enum class Kind { Entity3D, Camera, Light, Entity2D, Material, Mesh, Texture, Grid, Other, Curve, Character, Sound, Array, Group, Scene, Sprite3D, Sprite2D,
                       Animation, ObjectAnimation, MidiSound, SpriteText, KinematicChain, Layer, Parameter, ParameterIn,
                       Operation, Behavior, BehaviorIO, BehaviorLink, Synchro, State, CriticalSection, InterfaceObjects };
@@ -230,10 +231,11 @@ private:
     // An action (core SetupCommands): the edit being made recorded first,
     // then the action's undo step; a refusal logged.
     template <typename Command> void Act(const char *what, Command command) {
-        FlushPending();
+        if (!FlushPending()) return;
         Report(command(), what);
     }
-    void FlushPending();
+    bool FlushPending();
+    void CancelPending();
     // The same for a scene's environment (not an object state: the scene
     // also holds the initial conditions of its objects).
     void LiveScene(CK_ID scene, const char *label, const std::function<void(CKScene *)> &change);

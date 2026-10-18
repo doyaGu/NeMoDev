@@ -286,6 +286,9 @@ void ApplySceneEnvironment(CKContext *context, CKScene *scene, const SceneEnviro
 // step; refused when nothing changed).
 EditResult CommitSceneEnvironment(Document &document, CK_ID scene,
                                   const SceneEnvironment &before, const std::string &label);
+// Cancel a live environment edit without adding a history step. An
+// incomplete restoration invalidates the history and marks the document.
+bool CancelSceneEnvironment(Document &document, CK_ID scene, const SceneEnvironment &before);
 EditResult SetSceneEnvironment(Document &document, CK_ID scene,
                                const SceneEnvironment &environment, const std::string &label);
 

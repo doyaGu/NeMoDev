@@ -130,7 +130,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
         virtoolsdev_add_test(VirtoolsDevUi.${_category} VirtoolsDevUiTests --ui-tests "^${_category}$"
                 --ui-results "${_dev_ui_results}/${_category}.xml" "${_dev_command_sample}")
     endforeach ()
-    foreach (_category layout level setup hierarchy blocks attributes create tools)
+    foreach (_category layout level setup propertyedits hierarchy blocks attributes create tools)
         virtoolsdev_add_test(VirtoolsDevUi.${_category} VirtoolsDevUiTests --ui-tests "^${_category}$"
                 --ui-results "${_dev_ui_results}/${_category}.xml" "${_dev_ui_entities}")
     endforeach ()

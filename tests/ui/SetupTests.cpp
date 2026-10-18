@@ -10,7 +10,35 @@
 
 #include "core/runtime/TextEncoding.h"
 #include "core/level/ObjectProperties.h"
+#include "core/level/SceneCommands.h"
 #include "tests/ui/UiTests.h"
+#include "tests/ObjectEditTestObject.h"
+
+namespace vdev {
+
+// Exercise the same live-edit entry points as the widgets, using a CK
+// object with failing Save/Load methods. No production failure switches.
+struct SetupEditTests {
+    static SetupWindows &Setups(EditorApp &app) { return const_cast<SetupWindows &>(app.Setups()); }
+    static void Set(EditorApp &app, CK_ID id, int value, bool fail = false) {
+        Setups(app).Live(id, "Property test", [value, fail](CKObject *object) {
+            auto *test = static_cast<vdevtest::PropertyTestObject *>(object);
+            ++test->writes;
+            test->value = value;
+            if (fail) throw std::runtime_error("Property setter failed");
+        });
+    }
+    static bool Finish(EditorApp &app) { return Setups(app).FlushPending(); }
+    static void Cancel(EditorApp &app) { Setups(app).CancelPending(); }
+    static void Scene(EditorApp &app, CK_ID id, float fog, bool fail = false) {
+        Setups(app).LiveScene(id, "Scene property test", [fog, fail](CKScene *scene) {
+            scene->SetFogStart(fog);
+            if (fail) throw std::runtime_error("Scene setter failed");
+        });
+    }
+};
+
+} // namespace vdev
 
 namespace vdevuitest {
 
@@ -39,6 +67,109 @@ bool Near(float a, float b) { return std::fabs(a - b) < 1e-3f; }
 
 void RegisterSetupTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "propertyedits", "capture_and_recovery_failures");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        struct Results { bool before = false, after = false, exception = false, cancel = false, recovery = false; } results;
+        OnMainThread(ctx, [&] {
+            auto &app = App();
+            auto &document = *app.State().document;
+            auto &history = document.History();
+            auto *object = new vdevtest::PropertyTestObject(document.Context());
+            document.Include(object->GetID());
+            document.MarkSaved();
+            history.MarkSavePoint();
+            const size_t count = history.UndoCount();
+            object->failSave = object->saves + 1;
+            vdev::SetupEditTests::Set(app, object->GetID(), 10);
+            results.before = object->writes == 0 && object->value == 0 && !document.Dirty() &&
+                             history.UndoCount() == count;
+            object->failSave = object->saves + 2;
+            vdev::SetupEditTests::Set(app, object->GetID(), 20);
+            results.after = !vdev::SetupEditTests::Finish(app) && object->value == 0 && !document.Dirty() &&
+                            history.UndoCount() == count;
+            vdev::SetupEditTests::Set(app, object->GetID(), 30, true);
+            results.exception = object->value == 0 && !document.Dirty() && history.UndoCount() == count;
+            vdev::SetupEditTests::Set(app, object->GetID(), 10);
+            const bool committed = vdev::SetupEditTests::Finish(app);
+            vdev::SetupEditTests::Set(app, object->GetID(), 20);
+            vdev::SetupEditTests::Cancel(app);
+            results.cancel = committed && object->value == 10 && history.UndoCount() == count + 1 &&
+                             history.Undo() && object->value == 0 && !document.Dirty() &&
+                             history.Redo() && object->value == 10;
+            vdev::SetupEditTests::Set(app, object->GetID(), 30);
+            object->failLoad = object->loads + 1;
+            vdev::SetupEditTests::Cancel(app);
+            results.recovery = object->value == -100 && document.Dirty() && !history.CanUndo() && !history.CanRedo();
+            object->value = 0;
+            document.MarkSaved();
+            history.MarkSavePoint();
+        });
+        IM_CHECK(results.before);
+        IM_CHECK(results.after);
+        IM_CHECK(results.exception);
+        IM_CHECK(results.cancel);
+        IM_CHECK(results.recovery);
+    };
+
+    t = IM_REGISTER_TEST(engine, "propertyedits", "scene_cancel_and_setter_failure");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        IM_CHECK(Read<bool>(ctx, [] {
+            auto &app = App();
+            auto &document = *app.State().document;
+            CKScene *scene = vdev::InitialConditionsScene(document.Context());
+            if (!scene) return false;
+            const auto before = vdev::ReadSceneEnvironment(scene);
+            auto restored = [&] {
+                const auto now = vdev::ReadSceneEnvironment(scene);
+                return now.ambient == before.ambient && now.fogColor == before.fogColor &&
+                       now.background == before.background && now.fogMode == before.fogMode &&
+                       now.fogStart == before.fogStart && now.fogEnd == before.fogEnd &&
+                       now.fogDensity == before.fogDensity && now.backgroundTexture == before.backgroundTexture &&
+                       now.startingCamera == before.startingCamera && now.useAtStart == before.useAtStart;
+            };
+            const size_t count = document.History().UndoCount();
+            vdev::SetupEditTests::Scene(app, scene->GetID(), before.fogStart + 50.0f);
+            vdev::SetupEditTests::Cancel(app);
+            if (!restored() || document.History().UndoCount() != count) return false;
+            vdev::SetupEditTests::Scene(app, scene->GetID(), before.fogStart + 80.0f, true);
+            return restored() && document.History().UndoCount() == count && !document.Dirty();
+        }));
+    };
+
+    t = IM_REGISTER_TEST(engine, "propertyedits", "position_drag_cancel_undo_redo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        const auto row = OpenSetup(ctx);
+        IM_CHECK_SILENT(row.has_value() && SetupShown(ctx));
+        const VxVector before = Position(ctx, row->object);
+        const size_t count = App().State().History().UndoCount();
+        ctx->SetRef(SETUP);
+        const ImVec2 at = ctx->ItemInfo("**/##v").RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(at.x + 40.0f, at.y));
+        IM_CHECK(!Near(Position(ctx, row->object).x, before.x));
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        const VxVector cancelled = Position(ctx, row->object);
+        IM_CHECK(Near(cancelled.x, before.x) && Near(cancelled.y, before.y) && Near(cancelled.z, before.z));
+        IM_CHECK(App().State().History().UndoCount() == count && !App().State().document->Dirty());
+        ctx->ItemInputValue("**/##v", before.x + 12.5f);
+        ctx->Yield(3);
+        IM_CHECK(Near(Position(ctx, row->object).x, before.x + 12.5f));
+        IM_CHECK(App().State().History().UndoCount() == count + 1);
+        Undo(ctx);
+        IM_CHECK(Near(Position(ctx, row->object).x, before.x) && !App().State().document->Dirty());
+        Redo(ctx);
+        IM_CHECK(Near(Position(ctx, row->object).x, before.x + 12.5f));
+        Undo(ctx);
+    };
 
     t = IM_REGISTER_TEST(engine, "setup", "sprite_text_alignment_undo");
     t->GuiFunc = MainThreadGui;

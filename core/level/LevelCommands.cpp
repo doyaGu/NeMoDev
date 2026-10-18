@@ -1423,6 +1423,19 @@ EditResult CommitSceneEnvironment(Document &document, CK_ID sceneId,
     return edit.Commit();
 }
 
+bool CancelSceneEnvironment(Document &document, CK_ID sceneId, const SceneEnvironment &before) {
+    bool restored = false;
+    const bool called = GuardedCall([&] {
+        CKScene *scene = Get<CKScene>(document, sceneId);
+        if (!scene) return;
+        ApplySceneEnvironment(document.Context(), scene, before);
+        restored = Get<CKScene>(document, sceneId) == scene && ReadSceneEnvironment(scene) == before;
+    }, &document.Host(), "Cancel scene environment");
+    if (!called || !restored) document.InvalidateHistory();
+    document.RefreshScripts();
+    return called && restored;
+}
+
 EditResult SetSceneEnvironment(Document &document, CK_ID sceneId,
                                const SceneEnvironment &environment, const std::string &label) {
     CKScene *scene = Get<CKScene>(document, sceneId);

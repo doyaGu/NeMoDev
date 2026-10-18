@@ -248,9 +248,12 @@ void SetupWindows::Draw(ImGuiID dock) {
     }
     m_Doc.gridLayer = 0;
     if (!m_State.HasDocument()) {
+        m_Pending.Begin(nullptr, {});
+        m_PendingSceneActive = false;
         m_Doc.setups.clear();
         return;
     }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) CancelPending();
     for (Setup &setup : m_Doc.setups)
         if (setup.open) DrawSetup(setup, dock);
     m_Doc.setups.erase(std::remove_if(m_Doc.setups.begin(), m_Doc.setups.end(), [](const Setup &s) { return !s.open; }),
@@ -637,8 +640,10 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
 // ---------------------------------------------------------------- edits
 
 void SetupWindows::Live(CK_ID id, const char *label, const std::function<void(CKObject *)> &change) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) return;
     CKContext *context = m_State.document->Context();
-    if (m_PendingSceneActive || (m_Pending.Active() && (m_PendingObject != id || m_PendingLabel != label))) FlushPending();
+    if (m_PendingSceneActive || (m_Pending.Active() && (m_PendingObject != id || m_PendingLabel != label)))
+        if (!FlushPending()) return;
     if (!m_Pending.Active()) {
         if (!m_Pending.Begin(*m_State.document, {id})) {
             Report(EditResult::Error("Cannot capture the object's state"), label);
@@ -647,40 +652,74 @@ void SetupWindows::Live(CK_ID id, const char *label, const std::function<void(CK
         m_PendingObject = id;
         m_PendingLabel = label;
     }
-    if (CKObject *object = context->GetObject(id))
-        if (!GuardedCall([&] { change(object); }, &m_State.document->Host(), label))
-            m_State.Log(LogLevel::Warning, std::string(label) + " raised an exception");
+    CKObject *object = context->GetObject(id);
+    if (!object || !GuardedCall([&] { change(object); }, &m_State.document->Host(), label)) {
+        CancelPending();
+        Report(EditResult::Error("The property edit failed"), label);
+    }
 }
 
 void SetupWindows::LiveScene(CK_ID id, const char *label, const std::function<void(CKScene *)> &change) {
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) return;
     CKScene *scene = Get<CKScene>(m_State, id);
     if (!scene) return;
-    if (m_Pending.Active() || (m_PendingSceneActive && (m_PendingScene != id || m_PendingLabel != label))) FlushPending();
+    if (m_Pending.Active() || (m_PendingSceneActive && (m_PendingScene != id || m_PendingLabel != label)))
+        if (!FlushPending()) return;
     if (!m_PendingSceneActive) {
+        if (!GuardedCall([&] { m_PendingSceneBefore = ReadSceneEnvironment(scene); },
+                         &m_State.document->Host(), "Capture scene environment")) {
+            Report(EditResult::Error("Cannot capture the scene environment"), label);
+            return;
+        }
         m_PendingSceneActive = true;
         m_PendingScene = id;
-        m_PendingSceneBefore = ReadSceneEnvironment(scene);
         m_PendingLabel = label;
     }
-    if (!GuardedCall([&] { change(scene); }, &m_State.document->Host(), label))
-        m_State.Log(LogLevel::Warning, std::string(label) + " raised an exception");
+    if (!GuardedCall([&] { change(scene); }, &m_State.document->Host(), label)) {
+        CancelPending();
+        Report(EditResult::Error("The scene edit failed"), label);
+    }
 }
 
-void SetupWindows::FlushPending() {
+void SetupWindows::CancelPending() {
+    bool restored = true;
+    if (m_State.HasDocument()) {
+        if (m_Pending.Active()) restored = m_Pending.Cancel(*m_State.document);
+        if (m_PendingSceneActive)
+            restored = CancelSceneEnvironment(*m_State.document, m_PendingScene, m_PendingSceneBefore) && restored;
+    } else {
+        m_Pending.Begin(nullptr, {});
+    }
+    if (!restored) Report(EditResult::Error("Recovery was incomplete: the undo history is cleared"), m_PendingLabel.c_str());
+    m_PendingObject = 0;
+    m_PendingSceneActive = false;
+    m_PendingScene = 0;
+    m_PendingLabel.clear();
+    m_SpriteTextEditing = 0;
+}
+
+bool SetupWindows::FlushPending() {
+    bool ok = true;
     if (m_PendingSceneActive) {
-        if (m_State.HasDocument())
-            CommitSceneEnvironment(*m_State.document, m_PendingScene, m_PendingSceneBefore, m_PendingLabel);
+        if (m_State.HasDocument()) {
+            const EditResult result = CommitSceneEnvironment(*m_State.document, m_PendingScene, m_PendingSceneBefore, m_PendingLabel);
+            Report(result, m_PendingLabel.c_str());
+            ok = result.ok || result.Unchanged();
+        }
         m_PendingSceneActive = false;
         m_PendingScene = 0;
         m_PendingLabel.clear();
     }
-    if (!m_Pending.Active()) return;
-    if (m_State.HasDocument())
-        Report(m_Pending.Commit(*m_State.document, m_PendingLabel), m_PendingLabel.c_str());
-    else
+    if (!m_Pending.Active()) return ok;
+    if (m_State.HasDocument()) {
+        const EditResult result = m_Pending.Commit(*m_State.document, m_PendingLabel);
+        Report(result, m_PendingLabel.c_str());
+        ok = (result.ok || result.Unchanged()) && ok;
+    } else
         m_Pending.Begin(nullptr, {});
     m_PendingObject = 0;
     m_PendingLabel.clear();
+    return ok;
 }
 
 // Dev "Used By" lists; double-click opens the user's Setup.
