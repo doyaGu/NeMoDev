@@ -210,6 +210,53 @@ bool Nonblank(const Image &image) {
         if (!std::equal(image.pixels.begin(), image.pixels.begin()+3, image.pixels.begin()+i)) ++different;
     return different > 100;
 }
+#if defined(_WIN32)
+Image DisplayedImage(ImGuiTestContext *ctx) {
+    return Read<Image>(ctx, [] {
+        Image image;
+        HWND window = static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(RenderWindow()),
+            SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+        RECT rect{};
+        POINT origin{};
+        if (!window || !GetClientRect(window, &rect) || !ClientToScreen(window, &origin)) return image;
+        const int width = rect.right, height = rect.bottom;
+        HDC screen = GetDC(nullptr), memory = screen ? CreateCompatibleDC(screen) : nullptr;
+        BITMAPINFO info{};
+        info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        info.bmiHeader.biWidth = width;
+        info.bmiHeader.biHeight = -height;
+        info.bmiHeader.biPlanes = 1;
+        info.bmiHeader.biBitCount = 32;
+        info.bmiHeader.biCompression = BI_RGB;
+        void *pixels = nullptr;
+        HBITMAP bitmap = memory ? CreateDIBSection(screen, &info, DIB_RGB_COLORS, &pixels, nullptr, 0) : nullptr;
+        HGDIOBJ previous = bitmap ? SelectObject(memory, bitmap) : nullptr;
+        if (bitmap && pixels && BitBlt(memory, 0, 0, width, height, screen, origin.x, origin.y, SRCCOPY | CAPTUREBLT)) {
+            GdiFlush();
+            image.width = width; image.height = height;
+            const auto *bytes = static_cast<const unsigned char *>(pixels);
+            image.pixels.assign(bytes, bytes + static_cast<size_t>(width) * height * 4);
+            for (size_t at = 3; at < image.pixels.size(); at += 4) image.pixels[at] = 255;
+        }
+        if (previous) SelectObject(memory, previous);
+        if (bitmap) DeleteObject(bitmap);
+        if (memory) DeleteDC(memory);
+        if (screen) ReleaseDC(nullptr, screen);
+        return image;
+    });
+}
+bool DisplaysScene(const Image &rendered, const Image &displayed) {
+    if (rendered.width != displayed.width || rendered.height != displayed.height || rendered.pixels.empty()) return false;
+    size_t bright = 0, visible = 0;
+    for (size_t at = 0; at < rendered.pixels.size(); at += 4) {
+        if (rendered.pixels[at] + rendered.pixels[at+1] + rendered.pixels[at+2] < 384) continue;
+        ++bright;
+        if (displayed.pixels[at] + displayed.pixels[at+1] + displayed.pixels[at+2] >= 192) ++visible;
+    }
+    // Compare the scene's bright regions, so a cursor on a black screen cannot pass.
+    return bright > 1000 && visible > bright / 2;
+}
+#endif
 bool SaveImage(const char *name, const Image &image) {
     const auto directory = std::filesystem::u8path(SDL_GetBasePath()) / "test-player";
     std::filesystem::create_directories(directory);
@@ -283,6 +330,11 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             const Image full = RenderedImage(ctx);
             IM_CHECK(Nonblank(full));
             IM_CHECK(SaveImage("fullscreen.png", full));
+#if defined(_WIN32)
+            const Image displayed = DisplayedImage(ctx);
+            IM_CHECK(SaveImage("fullscreen-desktop.png", displayed));
+            IM_CHECK(DisplaysScene(full, displayed));
+#endif
             const int points = Read<int>(ctx, CurvePoints);
             OnMainThread(ctx, [] { PushKey(RenderWindow(), SDL_SCANCODE_SPACE, true); });
             ctx->Yield(3);
