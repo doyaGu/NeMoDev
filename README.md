@@ -10,32 +10,44 @@ and Building Block help. Compositions can be opened, edited, saved and reopened.
 
 ## Requirements
 
-- CMake 3.25 or newer and a C/C++17 compiler.
+- CMake 3.25 or newer, a C compiler and a C++17 compiler.
 - Shared SDL3 3.4.8 or newer, installed in a CMake package prefix.
-- Python 3 with Pillow, Git and 7-Zip (`7zz`, `7z` or `7za`).
+- Git, Python 3.8 or newer with Pillow 9.1 or newer, and 7-Zip (`7zz`, `7z`
+  or `7za`). CMake must find the Python interpreter that has Pillow installed.
 - Windows: Visual Studio 2022 with C++ tools.
-- Linux: Ninja, GTK3 Unix Print, CUPS, libharu and the SDL graphics dependencies.
-  On Ubuntu, the print packages are `libgtk-3-dev libcups2-dev libhpdf-dev`.
-- macOS: Xcode command-line tools, Ninja and libharu.
+- Linux: Ninja for the preset, pkg-config, GTK3 Unix Print, GIO Unix and libharu
+  development files. Ubuntu packages: `ninja-build`, `pkg-config`, `libgtk-3-dev`,
+  `libglib2.0-dev` and `libhpdf-dev`. Native printing uses GTK's Unix print
+  backend, including CUPS or Print to File.
+- macOS: Xcode command-line tools, Ninja and libharu; printing uses AppKit.
+
+The editor needs a working SDL GPU backend and graphics driver at runtime.
+SDL3's own build dependencies depend on the window, audio and GPU backends
+enabled in its installation. All native libraries must match the target
+architecture.
 
 The build presets are `windows-x86`, `windows-x64`, `linux-x64`, `macos-x64` and
-`macos-arm64`. SDL3 and the other native libraries must match the chosen
-architecture. The presets describe build configurations; they do not establish
-that every platform has been tested.
+`macos-arm64`. See [Verified platforms](#verified-platforms) for the platforms
+actually checked.
 
 ## Prepare dependencies
 
 ```sh
-git submodule update --init external/imgui external/imgui_test_engine
-python -m pip install Pillow
-python tools/PrepareFonts.py
+git submodule update --init --recursive external/imgui external/imgui_test_engine
+python -m pip install "Pillow>=9.1"
 ```
 
-Provide a maintained Ballanced source checkout with its runtime components
-initialized, and set `VIRTOOLS_SDK_PATH` explicitly when configuring. No SDK path
-is supplied by the shared configuration. NemoDev builds those sources directly
-without maintaining SDK copies or patches. The Ballanced Player and game-asset
-staging are excluded from the editor build.
+Provide a maintained Ballanced source checkout with VxMath, CK2, RenderEngine,
+Managers, Plugins and BuildingBlocks, including their nested dependencies.
+Initialize the required submodules in that checkout, then set
+`VIRTOOLS_SDK_PATH` explicitly when configuring. The selected sources must
+provide the SDL runtime and font deployment used by the editor. No SDK path or
+SDK revision is supplied by the shared configuration.
+
+NemoDev builds these components as shared libraries directly from those sources,
+without maintaining SDK copies or patches. The Ballanced root project, Player
+and game-asset staging are excluded from the editor build. Original binary
+Virtools SDKs and runtimes are not supported by this build.
 
 For SDL3, build a shared installation with `SDL_SHARED=ON`, `SDL_STATIC=OFF` and
 `SDL_TESTS=OFF`, then pass its installation prefix as `CMAKE_PREFIX_PATH`.
@@ -52,30 +64,53 @@ cmake --build out/resource-tools --config Release
 out/resource-tools/Release/ExtractResources.exe "<Virtools Dev install>" local-resources resources/images.txt
 ```
 
-The extractor needs neither Ballanced nor the editor's resources to build.
-`PrepareFonts.py` downloads the recorded Noto fonts and OFL licenses into
+The extractor needs neither Ballanced nor the editor's resources to build. It
+reads `Dev.exe`, `resvis.dll`, `Managers/CK2UI.dll` and the installation's data
+files. The manifest at `resources/images.txt` selects the images to extract.
+
+Prepare the fonts separately:
+
+```sh
+python tools/PrepareFonts.py
+```
+
+This downloads the recorded Noto fonts and OFL licenses into
 `local-resources/fonts`, checking every file against its recorded checksum.
+It reuses matching local files and refuses to overwrite different ones. For a
+custom resource directory, pass `--output "<resource directory>/fonts"`.
 
 The resulting resource directory contains `images.txt`, `images/`,
 `data/interface.nmo`, `data/documentation.chm` and `fonts/`. For Linux or macOS,
 prepare that directory on Windows and transfer it to the build machine. An
 existing resource directory can be selected with `VIRTOOLSDEV_RESOURCES_DIR`.
-Resource images are embedded at build time; the CHM is extracted into local HTML
-while retaining the Building Block topic paths.
+The image manifest, images, `interface.nmo` and `documentation.chm` must be ready
+before configuring the editor, even when tests are disabled. Resource images
+are embedded at build time; 7-Zip extracts the CHM into local HTML while
+retaining the Building Block topic paths. The SDK stages the verified fonts
+and their licenses into `runtime/Bin/data/fonts`.
 
 ## Build and run
 
-For example, with an SDL3 installation available on the CMake package search path:
+From the NemoDev source directory on Windows:
 
-```sh
+```powershell
 cmake --preset windows-x64 -DVIRTOOLS_SDK_PATH="<Ballanced source checkout>" -DCMAKE_PREFIX_PATH="<SDL3 installation prefix>"
 cmake --build --preset windows-x64 --parallel 8
 out/windows-x64/runtime/Bin/NemoDev.exe
 ```
 
-Replace the preset for another platform. On Linux and macOS the executable is
-`out/<preset>/runtime/Bin/NemoDev`. Shared libraries, plugins, rendering settings
-and data are staged under `runtime/`; keep those directories together.
+On Linux:
+
+```sh
+cmake --preset linux-x64 -DVIRTOOLS_SDK_PATH="<Ballanced source checkout>" -DCMAKE_PREFIX_PATH="<SDL3 installation prefix>"
+cmake --build --preset linux-x64 --parallel 8
+out/linux-x64/runtime/Bin/NemoDev
+```
+
+For macOS, choose `macos-x64` or `macos-arm64`; the executable is
+`out/<preset>/runtime/Bin/NemoDev`. Add any other custom library prefixes to
+`CMAKE_PREFIX_PATH`. Shared libraries, plugin category directories, rendering
+settings and data are staged under `runtime/`; keep that directory tree together.
 `VIRTOOLS_SDK_PATH` selects the Ballanced source tree to build against.
 Machine-specific overrides belong in an ignored `CMakeUserPresets.json`.
 
@@ -83,10 +118,25 @@ The CMake targets and options retain the `VirtoolsDev` / `VIRTOOLSDEV_` names.
 Use `VIRTOOLSDEV_BUILD_TESTS=OFF` and `VIRTOOLSDEV_BUILD_UI_TESTS=OFF` to build
 without the regression executables. The ImGui Test Engine has a separate license.
 
-CK strings default to CP936, configurable in General Preferences. Unedited
-strings retain their original bytes; an unrepresentable edit reports an error.
-Filesystem paths use UTF-8. Fonts use GDI or stb_truetype, and text conversion uses
-Windows code-page APIs or iconv.
+## Text and paths
+
+CK object names and parameter strings retain their original bytes when left
+unedited. Display and edit conversions use the Windows active ANSI code page
+or the current C runtime character set on other platforms. On those platforms,
+the application initializes `LC_CTYPE` from the environment. It does not detect
+a composition's character set or select one for it. Files from another system
+can therefore display differently, while their unedited bytes remain intact.
+Invalid native bytes may be replaced for display only; invalid or
+unrepresentable text is rejected when converting an edit back to CK.
+
+The editor and SDL use UTF-8 file paths. At legacy SDK calls, Windows paths
+are converted to the native filename encoding; POSIX paths pass through as
+native filesystem bytes. A Windows path that cannot be represented at an SDK
+boundary is rejected rather than substituted. Text interpretation and
+filesystem path handling are separate.
+
+CK font rendering keeps Windows GDI behavior and uses stb_truetype on other
+platforms. The prepared Noto fonts provide the deployed UI and fallback fonts.
 
 ## Tests
 
@@ -101,17 +151,71 @@ under `local-samples/data`, or through `VIRTOOLSDEV_SAMPLE_ROOT`. Copy
 `tests/data/verification/interfacechunk_samples.txt` into that collection's
 `data/verification/` directory. The list preserves the original sample paths.
 Supply the complete sample collection for the full suite; missing samples do
-not count as successful regressions.
+not count as successful regressions. Some sample tests are registered only
+when their fixtures exist; others report CTest skip code 77. Check both the
+registered test list and skipped results when comparing runs.
+
+The latest focused regression can be run with:
+
+```sh
+ctest --preset windows-x64 -E "VirtoolsDevUi|VirtoolsDevLayout$"
+ctest --preset windows-x64 -R "^VirtoolsDevUi[.](setup|propertyedits|layout)$"
+```
+
+Replace the preset for another platform. The first command excludes all UI
+groups and the standalone rendered Layout test. The second runs the Setup,
+property-edit failure and Layout UI groups; neither command is the full suite.
 
 On a Linux build host without a desktop, use
 `SDL_AUDIO_DRIVER=dummy xvfb-run -a ctest --preset linux-x64 -LE desktop` with a
-working SDL GPU backend. Desktop tests require a real window manager and can be
+working SDL GPU backend. Xvfb supplies a display, not a GPU backend or window
+manager. Desktop tests require a real window manager and can be
 registered with `VIRTOOLSDEV_TEST_DESKTOP=ON`. They move focus, enter fullscreen
 and operate native dialogs. Direct printing requires a configured printer.
 
 Public CI checks include source layering, Python syntax and the standalone
 Windows extractor build. Full editor builds and runtime regressions require the
 local resources described above.
+
+## Verified platforms
+
+Validation on 2026-10-18, after the property-edit fixes in `fea0398`, used SDL3
+3.4.18 and prepared resources and samples:
+
+| Platform | Toolchain / preset | Result |
+| --- | --- | --- |
+| Windows 11 x64 | Visual Studio 2022; `windows-x64` configuration | Editor built; 53/53 core checks and 36/36 selected UI scenarios passed |
+| Ubuntu 26.04 x64 | GCC 15.2; Release build | Editor built; 53/53 core checks and 36/36 selected UI scenarios passed under Xvfb |
+| Windows x86 | `windows-x86` | Preset available; not verified in this baseline |
+| macOS x64 | `macos-x64` | Preset available; editor build and runtime not verified |
+| macOS ARM64 | `macos-arm64` | Preset available; editor build and runtime not verified |
+
+The selected UI scenarios comprise 17 Setup checks, 3 property-edit checks and
+16 Layout checks. Together with the core checks, they cover actual values,
+texture pixels and slots, Undo/Redo, Escape cancellation, partial-write recovery
+and document-close handling. These results cover the listed builds and
+scenarios, not every graphics backend or desktop workflow. Native file dialogs,
+Player Mode, fullscreen, focus transitions, direct printing and help launch were not rerun
+as desktop acceptance tests in this baseline. Source checks on a CI platform
+do not establish that the editor runs there.
+
+## Current limitations
+
+- Building requires the separately supplied Ballanced sources and original
+  Virtools resources. The repository alone is not a complete build or test
+  distribution, and it does not pin a Ballanced revision.
+- Legacy CK text depends on the host character set. Preserving its bytes does
+  not guarantee identical display across machines or unrestricted Unicode
+  names through every SDK interface.
+- Worksets are kept for the current editor run; their membership is not saved
+  with the composition.
+- Printing depends on the platform's configured destinations. A successful
+  submission reports acceptance by the print system, not completed paper
+  output. Image-page tests do not verify a physical printer.
+- Windows retains native structured-exception protection. Other platforms do
+  not recover from native access violations.
+- The build produces a staged runtime directory. Platform installers and a
+  macOS application bundle are not provided.
 
 ## Source layout and attribution
 
