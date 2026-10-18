@@ -169,6 +169,18 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         }
     };
 
+    t = IM_REGISTER_TEST(engine, "app", "editors_menu");
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        ctx->MenuClick("//##MainMenuBar/Editors");
+        IM_CHECK(!ctx->ItemExists("//$FOCUSED/Variable Manager"));
+        IM_CHECK(!ctx->ItemExists("//$FOCUSED/VSL Script Manager"));
+        for (const char *item : {"Attributes Manager", "Hierarchy Manager", "Path Manager", "Parameter Debugger",
+                                 "Close All Setups and Managers"})
+            IM_CHECK_NO_RET(ctx->ItemExists((std::string("//$FOCUSED/") + item).c_str()));
+        ctx->KeyPress(ImGuiKey_Escape);
+    };
+
     // Help > About Virtools..., closed with OK.
     t = IM_REGISTER_TEST(engine, "app", "about");
     t->TestFunc = [](ImGuiTestContext *ctx) {

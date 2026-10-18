@@ -1437,7 +1437,6 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
     if (ImGui::MenuItem("Add Building Block by Name", "Ctrl+Left Dbl Click")) OpenQuickAdd(script, local);
     if (ImGui::MenuItem("Add Local Parameter", "Alt+L")) OpenLocalParameterPicker(script, local);
     if (ImGui::MenuItem("Add <This> Parameter", "Alt+T")) AddThisAt(script, local);
-    Unavailable("Import from Variable Manager");
     if (ImGui::MenuItem("Add Parameter Operation", "Alt+P")) OpenOperationPicker(script, local);
     if (ImGui::MenuItem("Add Comment", "C")) AddComment(script, local);
     if (m_State.clipboard.valid) {

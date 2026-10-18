@@ -244,6 +244,14 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const int before = CommentCount(ctx, point->first);
         IM_CHECK_SILENT(before >= 0);
         ctx->MouseMoveToPos(point->second);
+        ctx->MouseClick(ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        IM_CHECK(!ctx->ItemExists("//$FOCUSED/Import from Variable Manager"));
+        for (const char *item : {"Add Building Block", "Add Local Parameter", "Add <This> Parameter",
+                                 "Add Parameter Operation", "Add Comment"})
+            IM_CHECK_NO_RET(ctx->ItemExists((std::string("//$FOCUSED/") + item).c_str()));
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(2);
         ctx->KeyPress(ImGuiKey_C);
         ctx->Yield(3);
         IM_CHECK_EQ(CommentCount(ctx, point->first), before + 1);

@@ -745,14 +745,11 @@ void EditorApp::MainMenu() {
         }
         ImGui::EndMenu();
     }
-    // Dev's Editors menu (screenshot); VSL and the Variable Manager are not
-    // part of this editor.
+    // Dev's Editors menu.
     if (ImGui::BeginMenu("Editors")) {
         ImGui::MenuItem("Attributes Manager", nullptr, &m_State.showAttributeManager, hasDocument);
         ImGui::MenuItem("Hierarchy Manager", nullptr, &m_State.showHierarchy, hasDocument);
         if (ImGui::MenuItem("Path Manager")) m_Tools.OpenPathManager();
-        unavailable("Variable Manager", nullptr, "Not part of this editor");
-        unavailable("VSL Script Manager", nullptr, "Not part of this editor");
         ImGui::MenuItem("Parameter Debugger", nullptr, &m_Tools.showParameterDebugger);
         ImGui::Separator();
         if (ImGui::MenuItem("Close All Setups and Managers")) CloseSetupsAndManagers();
