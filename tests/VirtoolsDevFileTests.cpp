@@ -1307,7 +1307,11 @@ void ResourceChecks() {
             Fail(("no " + name + " in the program").c_str(), __FILE__, __LINE__);
         if (entry.size) CHECK(image->width == entry.size && image->height == entry.size);
     }
-    for (const char *file : {INTERFACE_FILE, HELP_FILE}) CHECK(std::filesystem::exists(DataFilePath(file)));
+    CHECK(std::filesystem::exists(DataFilePath(INTERFACE_FILE)));
+#if VIRTOOLSDEV_HAS_HELP
+    CHECK(std::filesystem::exists(DataFilePath(HELP_FILE)));
+    CHECK(std::filesystem::exists(DataFilePath("help/VirtoolsDevHelp.html")));
+#endif
     std::cout << "Resources: " << entries.size() << " in the program\n";
 }
 

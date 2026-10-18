@@ -110,7 +110,7 @@ function(virtoolsdev_add_editor target imgui)
     target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
     # Use the library's platform-specific runtime setup.
     virtoolsdev_enable_delay_load_runtime(${target})
-    # Dev's bitmaps and icons, interface.nmo and documentation.chm (resources/data).
+    # Dev's bitmaps and icons, interface.nmo and optional local help.
     virtoolsdev_add_resources(${target})
     set_target_properties(${target} PROPERTIES FOLDER "VirtoolsDev"
             VS_DEBUGGER_ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")

@@ -173,6 +173,7 @@ int main(int argc, char **argv) {
     std::ofstream(out / "resources.rc") << rc.str();
     for (const fs::path file : {fs::path("InterfacePlugins") / vdev::INTERFACE_FILE,
                                 fs::path("Documentation") / vdev::HELP_FILE}) {
+        if (file.filename() == vdev::HELP_FILE && !fs::exists(dev / file)) continue;
         std::error_code error;
         fs::create_directories(out / "data");
         fs::copy_file(dev / file, out / "data" / file.filename(), fs::copy_options::overwrite_existing, error);

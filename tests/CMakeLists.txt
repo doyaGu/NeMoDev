@@ -42,7 +42,8 @@ add_executable(VirtoolsDevTests
         VirtoolsDevCases.def)
 target_link_libraries(VirtoolsDevTests PRIVATE VirtoolsDevCore)
 target_compile_definitions(VirtoolsDevTests PRIVATE _CRT_SECURE_NO_WARNINGS
-        VIRTOOLSDEV_RESOURCES_DIR="${VIRTOOLSDEV_RESOURCES_DIR}")
+        VIRTOOLSDEV_RESOURCES_DIR="${VIRTOOLSDEV_RESOURCES_DIR}"
+        VIRTOOLSDEV_HAS_HELP=$<BOOL:${VIRTOOLSDEV_HAS_HELP}>)
 # The Resources case: the images in the program, the data files beside it.
 virtoolsdev_add_resources(VirtoolsDevTests)
 set_target_properties(VirtoolsDevTests PROPERTIES FOLDER "VirtoolsDev")
@@ -147,7 +148,11 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
                 --ui-results "${_dev_ui_results}/player.xml" "${_dev_ui_entities}")
         set_tests_properties(VirtoolsDevUi.player PROPERTIES RUN_SERIAL TRUE LABELS desktop TIMEOUT 180)
         if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-            foreach(_category desktopfiles desktopprint desktophelp)
+            set(_desktop_categories desktopfiles desktopprint)
+            if(VIRTOOLSDEV_HAS_HELP)
+                list(APPEND _desktop_categories desktophelp)
+            endif()
+            foreach(_category IN LISTS _desktop_categories)
                 virtoolsdev_add_test(VirtoolsDevUi.${_category} VirtoolsDevUiTests --ui-tests "^${_category}$" --ui-show --open-scripts
                         --ui-results "${_dev_ui_results}/${_category}.xml" "${_dev_command_sample}")
                 set_tests_properties(VirtoolsDevUi.${_category} PROPERTIES RUN_SERIAL TRUE LABELS desktop TIMEOUT 180)

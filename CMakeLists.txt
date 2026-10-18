@@ -25,7 +25,7 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif ()
 
 set(VIRTOOLSDEV_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-# Images, interface data and fonts are included; the help archive is supplied locally.
+# Images, interface data and fonts are included; optional help is supplied locally.
 set(VIRTOOLSDEV_RESOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources" CACHE PATH
         "Virtools resources: images.txt, images/, data/ and fonts/")
 get_filename_component(VIRTOOLSDEV_RESOURCES_DIR "${VIRTOOLSDEV_RESOURCES_DIR}" ABSOLUTE)
@@ -39,9 +39,11 @@ set(_help_archive "${VIRTOOLSDEV_RESOURCES_DIR}/data/documentation.chm")
 if(NOT EXISTS "${_help_archive}")
     set(_help_archive "${CMAKE_CURRENT_SOURCE_DIR}/local-resources/data/documentation.chm")
 endif()
-if(NOT EXISTS "${_help_archive}")
-    message(FATAL_ERROR "Missing local help archive: ${_help_archive}. "
-            "Supply documentation.chm as described in README.md.")
+set(VIRTOOLSDEV_HAS_HELP OFF)
+if(EXISTS "${_help_archive}")
+    set(VIRTOOLSDEV_HAS_HELP ON)
+else()
+    message(STATUS "CHM documentation not found; local help will not be deployed.")
 endif()
 # The editor and its tests share runtime/Bin for every configuration.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/runtime/Bin")
@@ -96,23 +98,30 @@ add_library(VirtoolsDevResources STATIC "${_compiled_images}")
 target_include_directories(VirtoolsDevResources PUBLIC "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(VirtoolsDevResources PUBLIC cxx_std_17)
 # As core/runtime/Resources.h names them.
-set(VIRTOOLSDEV_DATA_FILES "${VIRTOOLSDEV_RESOURCES_DIR}/data/interface.nmo" "${_help_archive}")
-find_program(VIRTOOLSDEV_SEVEN_ZIP NAMES 7zz 7z 7za HINTS "C:/Program Files/7-Zip" REQUIRED)
-set(_help_output "${PROJECT_BINARY_DIR}/generated/help")
-add_custom_command(OUTPUT "${_help_output}/VirtoolsDevHelp.html"
-    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py"
-        --archive "${_help_archive}"
-        --seven-zip "${VIRTOOLSDEV_SEVEN_ZIP}" --output "${_help_output}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py" "${_help_archive}"
-    VERBATIM)
-add_custom_target(VirtoolsDevHelp DEPENDS "${_help_output}/VirtoolsDevHelp.html")
+set(VIRTOOLSDEV_DATA_FILES "${VIRTOOLSDEV_RESOURCES_DIR}/data/interface.nmo")
 set(_runtime_data "${PROJECT_BINARY_DIR}/runtime/Bin/data")
 add_custom_target(VirtoolsDevData ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_runtime_data}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${VIRTOOLSDEV_DATA_FILES} "${_runtime_data}"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${_help_output}" "${_runtime_data}/help"
-    DEPENDS VirtoolsDevHelp ${VIRTOOLSDEV_DATA_FILES}
+    DEPENDS ${VIRTOOLSDEV_DATA_FILES}
     VERBATIM)
+if(VIRTOOLSDEV_HAS_HELP)
+    find_program(VIRTOOLSDEV_SEVEN_ZIP NAMES 7zz 7z 7za HINTS "C:/Program Files/7-Zip" REQUIRED)
+    set(_help_output "${PROJECT_BINARY_DIR}/generated/help")
+    add_custom_command(OUTPUT "${_help_output}/VirtoolsDevHelp.html"
+        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py"
+            --archive "${_help_archive}"
+            --seven-zip "${VIRTOOLSDEV_SEVEN_ZIP}" --output "${_help_output}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py" "${_help_archive}"
+        VERBATIM)
+    add_custom_target(VirtoolsDevHelp
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${_runtime_data}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_help_archive}" "${_runtime_data}"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${_help_output}" "${_runtime_data}/help"
+        DEPENDS "${_help_output}/VirtoolsDevHelp.html" "${_help_archive}"
+        VERBATIM)
+    add_dependencies(VirtoolsDevData VirtoolsDevHelp)
+endif()
 add_dependencies(VirtoolsDevRuntime VirtoolsDevData)
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/application.rc"
         "${PROJECT_BINARY_DIR}/generated/application.rc" @ONLY)
