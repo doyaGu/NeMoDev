@@ -132,6 +132,9 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
     set(_dev_ui_results "${PROJECT_BINARY_DIR}/virtoolsdev-ui")
     set(_dev_ui_entities "${_dev_data}/BBSamples/3D Transformations/Add Control Point.cmo")
     virtoolsdev_add_test(VirtoolsDevUi.app VirtoolsDevUiTests --ui-tests "^app$" --ui-results "${_dev_ui_results}/app.xml")
+    virtoolsdev_add_test(VirtoolsDevUi.filemenu VirtoolsDevUiTests --ui-tests "^filemenu$" --ui-results "${_dev_ui_results}/filemenu.xml")
+    # Temporarily removes the build runtime's version marker to test export failure.
+    set_tests_properties(VirtoolsDevUi.filemenu PROPERTIES RUN_SERIAL TRUE)
     foreach (_category schematic debugger)
         virtoolsdev_add_test(VirtoolsDevUi.${_category} VirtoolsDevUiTests --ui-tests "^${_category}$"
                 --ui-results "${_dev_ui_results}/${_category}.xml" "${_dev_command_sample}")

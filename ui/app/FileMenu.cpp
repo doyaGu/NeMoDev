@@ -295,6 +295,11 @@ void EditorApp::WebPageDialog() {
 // sub_598700: the composition next to the page, then the page.
 void EditorApp::WriteWebPage() {
     if (!m_State.HasDocument()) return;
+    int major = 0, minor = 0;
+    if (!RuntimeVersion(m_State.host.RuntimeDirectory(), major, minor)) {
+        m_State.Log(LogLevel::Error, "Cannot create web page: invalid Ballanced runtime metadata");
+        return;
+    }
     const std::string composition = WebPageCompositionPath(m_WebPagePath, m_WebPageCmo);
     std::string error;
     if (!ExportTo(composition, CKFILE_WHOLECOMPRESSED | (m_WebPageCmo ? 0u : CKFILE_FORVIEWER), &error)) {
@@ -305,8 +310,6 @@ void EditorApp::WriteWebPage() {
     }
     const int width = std::atoi(m_WebPageWidth.c_str()), height = std::atoi(m_WebPageHeight.c_str());
     std::ofstream page(fs::u8path(m_WebPagePath), std::ios::binary | std::ios::trunc);
-    int major = 2, minor = 5; // Dev 2.5's page without a version
-    RuntimeVersion(m_State.host.RuntimeDirectory(), major, minor);
     page << WebPageHtml(m_WebPageTitle, composition, width, height, major, minor);
     page.close();
     if (!page) m_State.Log(LogLevel::Error, "Cannot write " + m_WebPagePath);

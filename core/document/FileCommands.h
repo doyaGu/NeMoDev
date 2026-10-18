@@ -20,9 +20,9 @@ std::string WebPageCompositionPath(const std::string &htmlPath, bool cmo);
 
 // The page: Dev.exe's HTML template (resource 711, type 23) with its title,
 // the composition's file name and the player's size; the player's version
-// in its download addresses that of the runtime (Dev 2.5's: 2.5).
+// in its download addresses supplied by the validated runtime metadata.
 std::string WebPageHtml(const std::string &title, const std::string &compositionPath, int width, int height,
-                        int major = 2, int minor = 5);
+                        int major, int minor);
 
 // A file saved for the player (CKFILE_FORVIEWER in its header: Export to
 // Virtools Player): its Scripts have no Schematic, rebuilt when it opens.

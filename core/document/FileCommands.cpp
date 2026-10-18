@@ -23,12 +23,12 @@ const char WEB_PAGE_TEMPLATE[] =
     "<OBJECT\r\n"
     "    CLASSID=\"CLSID:C4925E65-7A1E-11D2-8BB4-00A0C9CC72C3\"\r\n"
     "    ID=\"Virtools\" WIDTH=\"$WIDTH$\" HEIGHT=\"$HEIGHT$\"\r\n"
-    "    CODEBASE=\"http://player.virtools.com/downloads/player/Install2.5/Installer.exe#Version=2,5,0,1\">\r\n"
+    "    CODEBASE=\"http://player.virtools.com/downloads/player/Install$PLAYER_VERSION$/Installer.exe#Version=$PLAYER_COMPONENTS$,0,1\">\r\n"
     "    <PARAM NAME=\"SRC\" VALUE=\"$CMO$\">\r\n"
     "    <EMBED\r\n"
     "        SRC=\"$CMO$\"\r\n"
     "        TYPE=\"application/x-virtools\"\r\n"
-    "        PLUGINSPAGE=\"http://player.virtools.com/downloads/playernetscape2.5.asp\"\r\n"
+    "        PLUGINSPAGE=\"http://player.virtools.com/downloads/playernetscape$PLAYER_VERSION$.asp\"\r\n"
     "        WIDTH=\"$WIDTH$\" HEIGHT=\"$HEIGHT$\"\r\n"
     "        NAME=\"Virtools\">\r\n"
     "    </EMBED> \r\n"
@@ -77,11 +77,9 @@ std::string WebPageCompositionPath(const std::string &htmlPath, bool cmo) {
 std::string WebPageHtml(const std::string &title, const std::string &compositionPath, int width, int height, int major,
                         int minor) {
     std::string page = WEB_PAGE_TEMPLATE;
-    // The template is Dev 2.5's: the player of the runtime instead.
     const std::string dotted = std::to_string(major) + "." + std::to_string(minor);
-    ReplaceAll(page, "Install2.5/", "Install" + dotted + "/");
-    ReplaceAll(page, "Version=2,5,0,1", "Version=" + std::to_string(major) + "," + std::to_string(minor) + ",0,1");
-    ReplaceAll(page, "playernetscape2.5.asp", "playernetscape" + dotted + ".asp");
+    ReplaceAll(page, "$PLAYER_VERSION$", dotted);
+    ReplaceAll(page, "$PLAYER_COMPONENTS$", std::to_string(major) + "," + std::to_string(minor));
     ReplaceAll(page, "$PAGENAME$", title);
     ReplaceAll(page, "$CMO$", compositionPath.substr(NameStart(compositionPath)));
     ReplaceAll(page, "$WIDTH$", std::to_string(width));

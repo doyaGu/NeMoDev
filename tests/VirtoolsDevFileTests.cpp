@@ -1137,14 +1137,14 @@ int FileMenuFile(CkRuntimeHost &host, const std::string &path, const std::string
     check(WebPageCompositionPath("C:\\Web\\Page.htm", false) == "C:\\Web\\Page.vmo" &&
               WebPageCompositionPath("C:\\Web\\Page.htm", true) == "C:\\Web\\Page.cmo",
           "the web page's composition");
-    const std::string page = WebPageHtml("A Title", "C:\\Web\\Page.vmo", 320, 240);
+    int major = 0, minor = 0;
+    check(RuntimeVersion(host.RuntimeDirectory(), major, minor) && major == 2 && minor >= 1,
+          "the runtime's version: " + std::to_string(major) + "." + std::to_string(minor));
+    const std::string page = WebPageHtml("A Title", "C:\\Web\\Page.vmo", 320, 240, major, minor);
     const std::string page21 = WebPageHtml("A Title", "C:\\Web\\Page.vmo", 320, 240, 2, 1);
     check(page21.find("Install2.1/Installer.exe#Version=2,1,0,1") != std::string::npos &&
               page21.find("playernetscape2.1.asp") != std::string::npos && page21.find("2.5") == std::string::npos,
           "the web page names the runtime's player");
-    int major = 0, minor = 0;
-    check(RuntimeVersion(host.RuntimeDirectory(), major, minor) && major == 2 && minor >= 1,
-          "the runtime's version: " + std::to_string(major) + "." + std::to_string(minor));
     check(page.find("<TITLE>A Title</TITLE>") != std::string::npos &&
               page.find("<PARAM NAME=\"SRC\" VALUE=\"Page.vmo\">") != std::string::npos &&
               page.find("SRC=\"Page.vmo\"") != std::string::npos &&
