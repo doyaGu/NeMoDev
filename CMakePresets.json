@@ -17,14 +17,24 @@
     {"name": "windows-x64", "inherits": "desktop", "generator": "Visual Studio 17 2022", "architecture": "x64", "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"}},
     {"name": "linux-x64", "inherits": "desktop", "generator": "Ninja", "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux"}},
     {"name": "macos-x64", "inherits": "desktop", "generator": "Ninja", "cacheVariables": {"CMAKE_OSX_ARCHITECTURES": "x86_64"}, "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin"}},
-    {"name": "macos-arm64", "inherits": "desktop", "generator": "Ninja", "cacheVariables": {"CMAKE_OSX_ARCHITECTURES": "arm64"}, "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin"}}
+    {"name": "macos-arm64", "inherits": "desktop", "generator": "Ninja", "cacheVariables": {"CMAKE_OSX_ARCHITECTURES": "arm64"}, "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin"}},
+    {"name": "windows-x86-release", "inherits": "windows-x86", "cacheVariables": {"VIRTOOLSDEV_BUILD_TESTS": "OFF", "VIRTOOLSDEV_BUILD_UI_TESTS": "OFF"}},
+    {"name": "windows-x64-release", "inherits": "windows-x64", "cacheVariables": {"VIRTOOLSDEV_BUILD_TESTS": "OFF", "VIRTOOLSDEV_BUILD_UI_TESTS": "OFF"}},
+    {"name": "linux-x64-release", "inherits": "linux-x64", "cacheVariables": {"VIRTOOLSDEV_BUILD_TESTS": "OFF", "VIRTOOLSDEV_BUILD_UI_TESTS": "OFF"}},
+    {"name": "macos-x64-release", "inherits": "macos-x64", "cacheVariables": {"VIRTOOLSDEV_BUILD_TESTS": "OFF", "VIRTOOLSDEV_BUILD_UI_TESTS": "OFF"}},
+    {"name": "macos-arm64-release", "inherits": "macos-arm64", "cacheVariables": {"VIRTOOLSDEV_BUILD_TESTS": "OFF", "VIRTOOLSDEV_BUILD_UI_TESTS": "OFF"}}
   ],
   "buildPresets": [
     {"name": "windows-x86", "configurePreset": "windows-x86", "configuration": "Release"},
     {"name": "windows-x64", "configurePreset": "windows-x64", "configuration": "Release"},
     {"name": "linux-x64", "configurePreset": "linux-x64"},
     {"name": "macos-x64", "configurePreset": "macos-x64"},
-    {"name": "macos-arm64", "configurePreset": "macos-arm64"}
+    {"name": "macos-arm64", "configurePreset": "macos-arm64"},
+    {"name": "windows-x86-release", "configurePreset": "windows-x86-release", "configuration": "Release", "targets": ["VirtoolsDev"]},
+    {"name": "windows-x64-release", "configurePreset": "windows-x64-release", "configuration": "Release", "targets": ["VirtoolsDev"]},
+    {"name": "linux-x64-release", "configurePreset": "linux-x64-release", "targets": ["VirtoolsDev"]},
+    {"name": "macos-x64-release", "configurePreset": "macos-x64-release", "targets": ["VirtoolsDev"]},
+    {"name": "macos-arm64-release", "configurePreset": "macos-arm64-release", "targets": ["VirtoolsDev"]}
   ],
   "testPresets": [
     {"name": "windows-x86", "configurePreset": "windows-x86", "configuration": "Release", "output": {"outputOnFailure": true}, "execution": {"timeout": 180}},

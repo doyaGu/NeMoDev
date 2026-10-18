@@ -1,6 +1,9 @@
 // The capture mode's startup actions (StartupOptions, CommandLine.h): what
 // the command line asks done once the composition is open, and in the first
 // frames. None of it runs in an ordinary session.
+#ifndef VIRTOOLSDEV_UI_TESTS
+#error Regression startup actions must only be compiled in the UI test executable.
+#endif
 #include "ui/app/EditorApp.h"
 #include "ui/schematic/Snapshots.h"
 

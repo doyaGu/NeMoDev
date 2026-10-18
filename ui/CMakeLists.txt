@@ -4,7 +4,6 @@
 
 set(_imgui_sources
         ${VIRTOOLSDEV_IMGUI_DIR}/imgui.cpp
-        ${VIRTOOLSDEV_IMGUI_DIR}/imgui_demo.cpp
         ${VIRTOOLSDEV_IMGUI_DIR}/imgui_draw.cpp
         ${VIRTOOLSDEV_IMGUI_DIR}/imgui_tables.cpp
         ${VIRTOOLSDEV_IMGUI_DIR}/imgui_widgets.cpp
@@ -116,7 +115,14 @@ function(virtoolsdev_add_editor target imgui)
 endfunction()
 
 virtoolsdev_add_editor(VirtoolsDev VirtoolsDevImGui)
+target_compile_definitions(VirtoolsDev PRIVATE VIRTOOLSDEV_PRODUCTION)
 set_target_properties(VirtoolsDev PROPERTIES OUTPUT_NAME NemoDev)
+install(TARGETS VirtoolsDev RUNTIME DESTINATION Bin COMPONENT Application)
+install(FILES ${VIRTOOLSDEV_DATA_FILES} DESTINATION Bin/data COMPONENT Application)
+if(VIRTOOLSDEV_HAS_HELP)
+    install(FILES "${_help_archive}" DESTINATION Bin/data COMPONENT Application)
+    install(DIRECTORY "${_help_output}/" DESTINATION Bin/data/help COMPONENT Application)
+endif()
 
 if (VIRTOOLSDEV_BUILD_UI_TESTS)
     # Dear ImGui with the test engine's hooks (IMGUI_ENABLE_TEST_ENGINE, from

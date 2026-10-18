@@ -1,4 +1,13 @@
 # Virtools Dev's tests: they link the core only.
+set(_production_check ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/CheckProductionBinary.py"
+        --binary $<TARGET_FILE:VirtoolsDev>)
+if(VIRTOOLSDEV_BUILD_UI_TESTS)
+    list(APPEND _production_check --test-binary $<TARGET_FILE:VirtoolsDevUiTests>)
+endif()
+add_test(NAME NemoDevProductionIsolation COMMAND ${_production_check})
+add_executable(NemoDevCommandLineTests CommandLineTests.cpp ../ui/app/CommandLine.cpp)
+target_link_libraries(NemoDevCommandLineTests PRIVATE VirtoolsDevCore)
+virtoolsdev_add_test(NemoDevCommandLine NemoDevCommandLineTests)
 
 add_test(NAME VirtoolsDevLicenseDeployment COMMAND ${CMAKE_COMMAND}
         "-DSOURCE_DIRECTORY=${VIRTOOLSDEV_SOURCE_DIR}"

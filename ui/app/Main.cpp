@@ -2,6 +2,9 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include "imgui.h"
+#if defined(VIRTOOLSDEV_PRODUCTION) && (defined(VIRTOOLSDEV_UI_TESTS) || defined(IMGUI_ENABLE_TEST_ENGINE))
+#error The production editor must not enable the regression driver or ImGui Test Engine.
+#endif
 #include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
 #include "ui/render/UiRenderer.h"
@@ -78,7 +81,11 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "Invalid option: %s\n", vdev::WideToUtf8(line.badOption).c_str()); return 2;
     }
     if (!line.fileToOpen.empty() && !fs::exists(fs::u8path(vdev::WideToUtf8(line.fileToOpen)))) {
+#ifdef VIRTOOLSDEV_UI_TESTS
         std::fprintf(stderr, "Sample not found: %s\n", vdev::WideToUtf8(line.fileToOpen).c_str()); return 77;
+#else
+        std::fprintf(stderr, "Composition not found: %s\n", vdev::WideToUtf8(line.fileToOpen).c_str()); return 2;
+#endif
     }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { std::fprintf(stderr, "%s\n", SDL_GetError()); return 1; }
     const std::string runtime = ResolveRuntime(args);

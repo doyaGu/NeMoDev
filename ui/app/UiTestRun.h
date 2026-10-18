@@ -1,4 +1,7 @@
 #pragma once
+#ifndef VIRTOOLSDEV_UI_TESTS
+#error ImGui Test Engine integration must only be compiled in the UI test executable.
+#endif
 
 // VirtoolsDevUiTests (VIRTOOLSDEV_UI_TESTS): Dear ImGui Test Engine driving
 // the editor through its UI. Main.cpp makes the run after the editor

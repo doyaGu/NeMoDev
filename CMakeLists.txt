@@ -54,7 +54,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${PROJECT_BINARY_DIR}/runtime/Bin
 include(cmake/Ballanced.cmake)
 include(cmake/ThirdPartyNotices.cmake)
 
-option(VIRTOOLSDEV_BUILD_TESTS "Build NemoDev tests" ON)
+option(VIRTOOLSDEV_BUILD_TESTS "Build NemoDev tests" OFF)
 # Original regression compositions are provided locally, never redistributed.
 set(VIRTOOLSDEV_SAMPLE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/local-samples" CACHE PATH
         "The directory whose data/ holds the samples the tests open")
