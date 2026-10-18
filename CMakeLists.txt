@@ -30,9 +30,7 @@ set(VIRTOOLSDEV_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(VIRTOOLSDEV_RESOURCES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/local-resources" CACHE PATH
         "Local Virtools resources: images.txt, images/, data/ and fonts/")
 get_filename_component(VIRTOOLSDEV_RESOURCES_DIR "${VIRTOOLSDEV_RESOURCES_DIR}" ABSOLUTE)
-foreach(_resource images.txt data/interface.nmo data/documentation.chm
-        fonts/NotoSans-Regular.ttf fonts/NotoSans-Bold.ttf fonts/NotoSansSC-Regular.otf
-        fonts/OFL-NotoSans.txt fonts/OFL.txt)
+foreach(_resource images.txt data/interface.nmo data/documentation.chm)
     if(NOT EXISTS "${VIRTOOLSDEV_RESOURCES_DIR}/${_resource}")
         message(FATAL_ERROR "Missing local resource: ${VIRTOOLSDEV_RESOURCES_DIR}/${_resource}. "
                 "Prepare resources as described in README.md, or set VIRTOOLSDEV_RESOURCES_DIR.")
@@ -105,7 +103,6 @@ set(_runtime_data "${PROJECT_BINARY_DIR}/runtime/Bin/data")
 add_custom_target(VirtoolsDevData ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_runtime_data}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${VIRTOOLSDEV_DATA_FILES} "${_runtime_data}"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${VIRTOOLSDEV_RESOURCES_DIR}/fonts" "${_runtime_data}/fonts"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${_help_output}" "${_runtime_data}/help"
     DEPENDS VirtoolsDevHelp ${VIRTOOLSDEV_DATA_FILES}
     VERBATIM)

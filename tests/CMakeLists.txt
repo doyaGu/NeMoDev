@@ -1,5 +1,10 @@
 # Virtools Dev's tests: they link the core only.
 
+add_test(NAME VirtoolsDevFontDeployment COMMAND ${CMAKE_COMMAND}
+        "-DRUNTIME_DIRECTORY=${VIRTOOLS_RUNTIME_PATH}"
+        "-DFONT_MANIFEST=${VIRTOOLS_SDK_PATH}/Source/VxMath/fonts/sources.json"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/CheckFontDeployment.cmake")
+
 add_executable(VirtoolsDevFileDialogTests VirtoolsDevFileDialogTests.cpp
     ../ui/controls/FileDialogs.cpp ../ui/app/Preferences.cpp)
 target_link_libraries(VirtoolsDevFileDialogTests PRIVATE VirtoolsDevCore)
