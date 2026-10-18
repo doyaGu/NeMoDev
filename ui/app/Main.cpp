@@ -148,7 +148,10 @@ int main(int argc, char **argv) {
             if (event.type == SDL_EVENT_DROP_FILE && event.drop.data) dropped.push_back(vdev::Utf8ToWide(event.drop.data));
             if (event.type == SDL_EVENT_DROP_COMPLETE && !dropped.empty()) { app.DropFiles(dropped, event.drop.x, event.drop.y); dropped.clear(); }
         }
-        vdev::MainRenderer().NewFrame(); ImGui_ImplSDL3_NewFrame();
+        if (!vdev::MainRenderer().NewFrame(&error)) {
+            std::fprintf(stderr, "UI frame failed: %s\n", error.c_str()); exitCode = 3; break;
+        }
+        ImGui_ImplSDL3_NewFrame();
 #ifdef VIRTOOLSDEV_UI_TESTS
         if (capture) line.FeedInput(frame, app);
 #endif

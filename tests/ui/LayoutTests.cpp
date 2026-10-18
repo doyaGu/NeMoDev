@@ -9,8 +9,10 @@
 // dialog; each undone.
 
 #include <cmath>
+#include <algorithm>
 
 #include "tests/ui/UiTests.h"
+#include "ui/render/UiRenderer.h"
 
 namespace vdevuitest {
 
@@ -134,6 +136,54 @@ std::vector<CK_ID> OthersSelected(CK_ID entity) {
 
 void RegisterLayoutTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "layout", "continuous_viewport_uploads");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        auto picture = [&] {
+            std::vector<unsigned char> result;
+            OnMainThread(ctx, [&] {
+                std::vector<unsigned char> pixels;
+                int width = 0, height = 0;
+                const bool read = vdev::MainRenderer().ReadFrame(pixels, width, height);
+                IM_CHECK_NO_RET(read);
+                if (!read) return;
+                ImVec2 min, max;
+                const bool shown = App().Layout().ShownView(min, max);
+                IM_CHECK_NO_RET(shown);
+                if (!shown) return;
+                const ImVec2 origin = ImGui::GetMainViewport()->Pos, size = ImGui::GetIO().DisplaySize;
+                const int left = std::clamp(int((min.x-origin.x)*width/size.x), 0, width);
+                const int right = std::clamp(int((max.x-origin.x)*width/size.x), left, width);
+                const int top = std::clamp(int((min.y-origin.y)*height/size.y), 0, height);
+                const int bottom = std::clamp(int((max.y-origin.y)*height/size.y), top, height);
+                for (int y = top; y < bottom; ++y)
+                    result.insert(result.end(), pixels.begin()+(size_t(y)*width+left)*4,
+                                  pixels.begin()+(size_t(y)*width+right)*4);
+            });
+            return result;
+        };
+        const auto before = picture();
+        IM_CHECK(!before.empty());
+        const CK_ID camera = CurrentCamera(ctx);
+        const bool dirty = App().State().document->Dirty();
+        const size_t steps = App().State().History().UndoCount();
+        // No intervening readback: hidden frames must not accumulate GPU submissions.
+        ctx->Yield(600);
+        ImVec2 min, max;
+        IM_CHECK(App().Layout().ShownView(min, max));
+        ctx->MouseMoveToPos(Center(min, max));
+        ctx->KeyPress(ImGuiKey_N);
+        ctx->Yield(3);
+        IM_CHECK(CurrentCamera(ctx) != camera);
+        IM_CHECK(picture() != before);
+        ctx->KeyPress(ImGuiMod_Shift | ImGuiKey_N);
+        ctx->Yield(3);
+        IM_CHECK_EQ(CurrentCamera(ctx), camera);
+        IM_CHECK(App().State().document->Dirty() == dirty);
+        IM_CHECK_EQ(App().State().History().UndoCount(), steps);
+    };
 
     // Dev's tool keys: X Translate, C Rotate, V Scale, O Orbit, A Select.
     t = IM_REGISTER_TEST(engine, "layout", "tool_keys");

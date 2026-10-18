@@ -8,6 +8,7 @@
 struct SDL_Window;
 struct SDL_GPUDevice;
 struct SDL_GPUTexture;
+struct SDL_GPUFence;
 namespace vdev {
 class UiRenderer;
 class UiTexture {
@@ -38,7 +39,7 @@ public:
     UiRenderer &operator=(const UiRenderer &) = delete;
     bool Start(SDL_Window *window, std::string *error);
     void Stop();
-    void NewFrame();
+    bool NewFrame(std::string *error = nullptr);
     bool Render(ImDrawData *data, bool present, std::string *error);
     std::unique_ptr<UiTexture> CreateTexture(int width, int height, const void *rgba);
     bool UpdateTexture(UiTexture &texture, const void *rgba);
@@ -47,11 +48,14 @@ public:
     bool Started() const { return m_Device != nullptr; }
 private:
     bool ReadTexture(const UiTexture &texture, std::vector<unsigned char> &rgba);
-    bool Draw(ImDrawData *data, UiTexture &texture, bool present, const std::array<float, 4> &clear, std::string *error);
+    bool Draw(ImDrawData *data, UiTexture &texture, bool present, const std::array<float, 4> &clear, std::string *error,
+              SDL_GPUFence **completion = nullptr);
     std::unique_ptr<UiTexture> MakeTarget(int width, int height);
     SDL_GPUDevice *m_Device = nullptr;
     SDL_Window *m_Window = nullptr; // borrowed, survives Stop
     std::unique_ptr<UiTexture> m_Frame;
+    std::array<SDL_GPUFence *, 2> m_FrameFences{};
+    size_t m_FrameIndex = 0;
 };
 UiRenderer &MainRenderer();
 bool WriteBgraPng(const std::string &path, int width, int height, const unsigned char *pixels);

@@ -31,6 +31,11 @@ bool UiRenderer::Start(SDL_Window *window, std::string *error) {
 void UiRenderer::Stop() {
     if (!m_Device) { m_Window = nullptr; return; }
     SDL_WaitForGPUIdle(m_Device);
+    for (SDL_GPUFence *&fence : m_FrameFences) {
+        if (fence) SDL_ReleaseGPUFence(m_Device, fence);
+        fence = nullptr;
+    }
+    m_FrameIndex = 0;
     m_Frame.reset();
     if (ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData)
         ImGui_ImplSDLGPU3_Shutdown();
@@ -38,7 +43,21 @@ void UiRenderer::Stop() {
     SDL_DestroyGPUDevice(m_Device);
     m_Device = nullptr; m_Window = nullptr;
 }
-void UiRenderer::NewFrame() { ImGui_ImplSDLGPU3_NewFrame(); }
+bool UiRenderer::NewFrame(std::string *error) {
+    // Hidden windows have no swapchain acquisition to bound CPU submission.
+    // Complete the oldest of two frames before uploads can cycle textures again.
+    SDL_GPUFence *&fence = m_FrameFences[m_FrameIndex];
+    if (fence) {
+        if (!SDL_WaitForGPUFences(m_Device, true, &fence, 1)) {
+            if (error) *error = SDL_GetError();
+            return false;
+        }
+        SDL_ReleaseGPUFence(m_Device, fence);
+        fence = nullptr;
+    }
+    ImGui_ImplSDLGPU3_NewFrame();
+    return true;
+}
 
 std::unique_ptr<UiTexture> UiRenderer::MakeTarget(int width, int height) {
     if (!m_Device || width <= 0 || height <= 0) return {};
@@ -78,7 +97,8 @@ bool UiRenderer::UpdateTexture(UiTexture &texture, const void *rgba) {
     SDL_ReleaseGPUTransferBuffer(m_Device, transfer);
     return submitted;
 }
-bool UiRenderer::Draw(ImDrawData *data, UiTexture &texture, bool present, const std::array<float, 4> &clear, std::string *error) {
+bool UiRenderer::Draw(ImDrawData *data, UiTexture &texture, bool present, const std::array<float, 4> &clear, std::string *error,
+                      SDL_GPUFence **completion) {
     SDL_GPUCommandBuffer *command = SDL_AcquireGPUCommandBuffer(m_Device);
     if (!command) { if (error) *error = SDL_GetError(); return false; }
     ImGui_ImplSDLGPU3_PrepareDrawData(data, command);
@@ -105,7 +125,9 @@ bool UiRenderer::Draw(ImDrawData *data, UiTexture &texture, bool present, const 
             SDL_BlitGPUTexture(command, &blit);
         }
     }
-    if (!SDL_SubmitGPUCommandBuffer(command)) { if (error) *error = SDL_GetError(); return false; }
+    const bool submitted = completion ? (*completion = SDL_SubmitGPUCommandBufferAndAcquireFence(command)) != nullptr
+                                     : SDL_SubmitGPUCommandBuffer(command);
+    if (!submitted) { if (error) *error = SDL_GetError(); return false; }
     return true;
 }
 bool UiRenderer::Render(ImDrawData *data, bool present, std::string *error) {
@@ -113,7 +135,10 @@ bool UiRenderer::Render(ImDrawData *data, bool present, std::string *error) {
     if (!SDL_GetWindowSizeInPixels(m_Window, &width, &height)) return false;
     if (width <= 0 || height <= 0) return true;
     if (!m_Frame || m_Frame->Width() != width || m_Frame->Height() != height) m_Frame = MakeTarget(width, height);
-    return m_Frame && Draw(data, *m_Frame, present, {0.392f, 0.392f, 0.392f, 1.0f}, error);
+    if (!m_Frame || !Draw(data, *m_Frame, present, {0.392f, 0.392f, 0.392f, 1.0f}, error,
+                          &m_FrameFences[m_FrameIndex])) return false;
+    m_FrameIndex = (m_FrameIndex + 1) % m_FrameFences.size();
+    return true;
 }
 bool UiRenderer::ReadTexture(const UiTexture &texture, std::vector<unsigned char> &rgba) {
     const size_t bytes = static_cast<size_t>(texture.m_Width) * texture.m_Height * 4;

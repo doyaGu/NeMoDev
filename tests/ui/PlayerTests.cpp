@@ -310,6 +310,47 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         IM_CHECK(Released(ctx));
     };
 
+    t = IM_REGISTER_TEST(engine, "player", "fullscreen_default_mode");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        Session session(ctx);
+        const bool available = Read<bool>(ctx, [] {
+            const vdev::Preferences defaults;
+            auto &p = App().State().preferences;
+            p.Set("3D Layout\\Player Mode\\Render Mode", defaults.Text("3D Layout\\Player Mode\\Render Mode"));
+            CKContext *context = App().State().host.Context();
+            const int driver = vdev::LayoutFullScreenDriver(context, p.Text("3D Layout\\Player Mode\\FullScren Driver"));
+            VxDisplayMode mode;
+            return vdev::LayoutFullScreenMode(context, driver, p.Text("3D Layout\\Player Mode\\Render Mode"), mode);
+        });
+        IM_CHECK(Start(ctx));
+        NativeWindowInput nativeInput(ctx);
+        const size_t logged = App().State().log.size();
+        AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return EditorWindow(); }));
+        if (available) {
+            IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && SDL_GetKeyboardFocus() == RenderWindow(); }));
+            ctx->Yield(12);
+            const Image image = RenderedImage(ctx);
+            IM_CHECK(Nonblank(image));
+            IM_CHECK(SaveImage("fullscreen-default.png", image));
+#if defined(_WIN32)
+            const Image displayed = DisplayedImage(ctx);
+            IM_CHECK(SaveImage("fullscreen-default-desktop.png", displayed));
+            IM_CHECK(DisplaysScene(image, displayed));
+#endif
+            AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return RenderWindow(); }));
+            IM_CHECK(Until(ctx, [] { return !App().Layout().FullScreen() && SDL_GetKeyboardFocus() == EditorWindow(); }));
+        } else {
+            IM_CHECK(!App().Layout().FullScreen());
+            bool warned = false;
+            for (size_t i = logged; i < App().State().log.size(); ++i)
+                warned |= App().State().log[i].text.find("unavailable fullscreen mode") != std::string::npos;
+            IM_CHECK(warned);
+            IM_CHECK(Read<bool>(ctx, [] { return !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN); }));
+        }
+    };
+
     t = IM_REGISTER_TEST(engine, "player", "fullscreen_roundtrip_focus");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
@@ -335,6 +376,18 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             IM_CHECK(SaveImage("fullscreen-desktop.png", displayed));
             IM_CHECK(DisplaysScene(full, displayed));
 #endif
+            if (cycle == 0) {
+                // The hidden editor still submits UI frames during fullscreen.
+                // Keep it running long enough to expose an unbounded GPU queue.
+                ctx->Yield(600);
+                const Image running = RenderedImage(ctx);
+                IM_CHECK(Nonblank(running));
+#if defined(_WIN32)
+                const Image screen = DisplayedImage(ctx);
+                IM_CHECK(SaveImage("fullscreen-desktop-running.png", screen));
+                IM_CHECK(DisplaysScene(running, screen));
+#endif
+            }
             const int points = Read<int>(ctx, CurvePoints);
             OnMainThread(ctx, [] { PushKey(RenderWindow(), SDL_SCANCODE_SPACE, true); });
             ctx->Yield(3);
