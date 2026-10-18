@@ -18,7 +18,8 @@
 
 namespace vdev {
 
-// Command-line display options (used by --capture checks).
+#ifdef VIRTOOLSDEV_UI_TESTS
+// Command-line display options for the regression executable.
 struct StartupOptions {
     bool openScripts = false;  // open every shown Script (an undoable display edit)
     bool expandGraphs = false; // expand every behavior graph of the shown Scripts
@@ -72,6 +73,7 @@ struct StartupOptions {
     // layout file (Main.cpp): the same start on every machine.
     bool isolated = false;
 };
+#endif
 
 class EditorApp {
 public:
@@ -79,8 +81,11 @@ public:
 
     // Starts the CK runtime; runtimeDirectory must already be on the DLL
     // search path (CK2.dll and VxMath.dll are delay-loaded).
-    bool Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen,
-                    const StartupOptions &startup = StartupOptions());
+    bool Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen
+#ifdef VIRTOOLSDEV_UI_TESTS
+                    , const StartupOptions &startup = StartupOptions()
+#endif
+                    );
     void Frame();
     void HandleEvent(const SDL_Event &event);
     void Shutdown();
@@ -88,8 +93,10 @@ public:
     void RequestQuit();
     // Dev creation tools (Create menu); the new object's Setup opens.
     void CreateObject(LayoutObject kind);
+#ifdef VIRTOOLSDEV_UI_TESTS
     // Logs the label of the last undo step (capture-mode UI checks).
     void LogUndoTop();
+#endif
     bool ShouldQuit() const { return m_Quit; }
     // The 3D Layout is fullscreen: the editor's window, hidden, keeps its frames going.
     bool LayoutFullScreen() const { return m_Layout.FullScreen(); }
@@ -150,12 +157,14 @@ private:
     // Values of the General Preferences the CK context takes (file save
     // options, quantization, behavior iterations, path manager).
     void ApplyRuntimeSettings();
+#ifdef VIRTOOLSDEV_UI_TESTS
     // The capture mode's startup actions (EditorStartup.cpp): after opening,
     // a --tool window, and each frame (settled: the start's focus is done).
     void RunStartupActions(bool opened);
     void OpenStartupTool(const std::string &name);
     void OpenStartupDialog(const std::string &name);
     void StartupFrame(bool settled);
+#endif
     void CloseDocument();
     void SaveAs(std::function<void(bool)> completed = {});
     void Save(std::function<void(bool)> completed = {});
@@ -189,7 +198,11 @@ private:
     void MessageDialog();
     // Print Schematic (SchematicPrint.cpp, Dev.exe sub_5380F0): the printer's
     // setup, Schematic Print Parameters (dialog 702), then the pages.
-    void PrintSchematic(const std::string &pngFolder = std::string());
+    void PrintSchematic(
+#ifdef VIRTOOLSDEV_UI_TESTS
+        const std::string &pngFolder = std::string()
+#endif
+    );
     void PrintParametersDialog();
     void PrintPages();
     void EndPrint();
@@ -202,16 +215,22 @@ private:
         // Dev's fields: pixels per mm, pixels a page, pages; horizontal, vertical.
         int perMm[2] = {4, 4}, resolution[2] = {}, pages[2] = {1, 1};
         std::string text[6]; // the edits, in the order of the fields
+#ifdef VIRTOOLSDEV_UI_TESTS
         std::string pngFolder; // --tool printpages:DIR: the pages as PNG files, no printer
+#endif
     };
     PrintJob m_Print;
     SchematicPrint m_PrintOptions; // Dev's globals: kept from one print to the next
+#ifdef VIRTOOLSDEV_UI_TESTS
     std::string m_PendingPrintPages, m_PendingPrintDialog; // --tool printpages:DIR, print:DIR
     std::string m_PendingStartupDialog;                     // --tool breakpoints, breakpointconfig, invalidlinks
     int m_PrintPagesFrames = 0;
+#endif
     void Undo();
     void Redo();
+#ifdef VIRTOOLSDEV_UI_TESTS
     void InsertStartupBlock();
+#endif
     // Dev's status bar and its Time Settings (StatusBar.cpp).
     void StatusBar();
     void TimeSettingsDialog();
@@ -229,8 +248,10 @@ private:
     ManagerWindows m_Managers{m_State};
     ToolWindows m_Tools;
     LayoutWindow m_Layout{m_State};
+#ifdef VIRTOOLSDEV_UI_TESTS
     ParameterBox m_StartupValue{m_State}; // --edit-value
     int m_StartupValueState = 0;          // 1: to open, 2: open
+#endif
     SDL_Window * m_Window = nullptr;
     bool m_Quit = false;
     bool m_LayoutChecked = false;
@@ -261,12 +282,16 @@ private:
     bool m_ResetLayout = false;
     int m_FocusSchematic = 0; // frames left to bring the default layout's front tabs forward
     const char *m_ToFront = nullptr; // the window an event brings forward, once no popup is open (DispatchEvents)
+#ifdef VIRTOOLSDEV_UI_TESTS
     StartupOptions m_Startup;
     int m_FitFrames = 0;
+#endif
     std::uint64_t m_ScriptsSeen = 0; // Document::ScriptsRevision when the stack was made
     // The status bar: the log entries seen (an error makes the Event Log's
     // bomb flash until then), the Time Settings dialog and its values.
+#ifdef VIRTOOLSDEV_UI_TESTS
     CK_ID m_StartupParametersScript = 0, m_StartupParameters = 0; // --edit-parameters
+#endif
     size_t m_LogSeen = 0;
     double m_BombFlashUntil = 0.0;
     bool m_OpenTimeSettings = false;

@@ -201,6 +201,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     }
 }
 
+#ifdef VIRTOOLSDEV_UI_TESTS
 void LayoutWindow::StartupOptions(const std::string &tool, const std::string &camera) {
     static const std::map<std::string, int> tools = {{"select", 25}, {"translate", 9},  {"rotate", 11}, {"scale", 46},
                                                      {"orbit", 49},  {"orbitcamera", 50}, {"dolly", 23}, {"zoom", 51},
@@ -256,6 +257,7 @@ void LayoutWindow::StartupDrop(const CKGUID &guid, float x, float y) {
     m_StartupDropAt = ImVec2(x, y);
     m_StartupDropFrames = 10;
 }
+#endif
 
 void LayoutWindow::SetSelection(std::vector<CK_ID> objects) {
     if (m_State.objectSelection.locked || objects == m_State.objectSelection.objects) return;

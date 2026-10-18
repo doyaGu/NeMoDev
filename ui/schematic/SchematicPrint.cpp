@@ -30,15 +30,22 @@ bool RenderPage(const std::function<void(ImDrawList *)> &draw, int width, int he
     return true;
 }
 }
-void EditorApp::PrintSchematic(const std::string &pngFolder) {
+void EditorApp::PrintSchematic(
+#ifdef VIRTOOLSDEV_UI_TESTS
+    const std::string &pngFolder
+#endif
+) {
     if (!m_State.HasDocument() || m_Print.open) return;
     if (m_State.document->Scripts().empty()) { m_State.Log(LogLevel::Error, "No Script to print"); return; }
     PrintJob job;
     if (!m_Canvas.PrintSize(job.width, job.height)) { m_State.Log(LogLevel::Error, "No visible Script to print"); return; }
     if (job.height <= 0.0f) return;
     PrinterSettings settings;
+#ifdef VIRTOOLSDEV_UI_TESTS
     job.pngFolder = pngFolder;
-    if (pngFolder.empty()) {
+    if (pngFolder.empty())
+#endif
+    {
         PrinterSelection selection = Printer::Select(m_Window);
         if (selection.status == PrinterSelectionStatus::Failed) m_State.Log(LogLevel::Error, selection.error);
         if (selection.status == PrinterSelectionStatus::Cancelled) m_State.Log(LogLevel::Info, "Print cancelled");
@@ -136,7 +143,9 @@ void EditorApp::PrintPages() {
     const int resolution[2] = {std::max(1, job.resolution[0]), std::max(1, job.resolution[1])};
     constexpr int TILE = 2048;
     float scale = float(job.device[0]) / resolution[0];
+#ifdef VIRTOOLSDEV_UI_TESTS
     if (!job.printer) scale = std::min(scale, 2.0f);
+#endif
     scale = std::max(scale, 1.0f);
     const int width = std::max(1, int(resolution[0] * scale + 0.5f)), height = std::max(1, int(resolution[1] * scale + 0.5f));
     const float toDeviceX = job.printer ? float(job.device[0])/width : 1.0f;
@@ -147,12 +156,16 @@ void EditorApp::PrintPages() {
         if (started == PrinterStartStatus::Cancelled) { m_State.Log(LogLevel::Info, "Print cancelled"); return; }
         if (started == PrinterStartStatus::Failed) { m_State.Log(LogLevel::Error, error); return; }
     }
+#ifdef VIRTOOLSDEV_UI_TESTS
     int written = 0;
+#endif
     bool aborted = false;
     for (int page = 0; page < count && !aborted; ++page) {
         const float x = float(resolution[0] * (page % columns)), y = float(resolution[1] * (page / columns));
+#ifdef VIRTOOLSDEV_UI_TESTS
         std::vector<unsigned char> whole;
         if (!job.printer) whole.assign(static_cast<size_t>(width)*height*4, 255);
+#endif
         if (job.printer && !job.printer->BeginPage(error)) { aborted = true; break; }
         for (int ty = 0; ty < height && !aborted; ty += TILE)
             for (int tx = 0; tx < width && !aborted; tx += TILE) {
@@ -165,13 +178,17 @@ void EditorApp::PrintPages() {
                     const int left = int(tx*toDeviceX+0.5f), top = int(ty*toDeviceY+0.5f);
                     const int right = int((tx+tw)*toDeviceX+0.5f), bottom = int((ty+th)*toDeviceY+0.5f);
                     if (!job.printer->DrawTile(pixels.data(), tw, th, left, top, right, bottom, error)) aborted = true;
-                } else {
+                }
+#ifdef VIRTOOLSDEV_UI_TESTS
+                else {
                     for (int row = 0; row < th; ++row)
                         std::memcpy(whole.data() + (static_cast<size_t>(ty+row)*width+tx)*4,
                                     pixels.data() + static_cast<size_t>(row)*tw*4, static_cast<size_t>(tw)*4);
                 }
+#endif
             }
         if (!aborted && job.printer && !job.printer->EndPage(error)) aborted = true;
+#ifdef VIRTOOLSDEV_UI_TESTS
         if (!aborted && !job.printer) {
             const auto directory = std::filesystem::u8path(job.pngFolder);
             std::error_code failure; std::filesystem::create_directories(directory, failure);
@@ -180,6 +197,7 @@ void EditorApp::PrintPages() {
                 error = "Cannot write the Schematic print page"; aborted = true;
             } else ++written;
         }
+#endif
     }
     if (aborted) {
         if (job.printer) job.printer->Cancel();
@@ -189,7 +207,10 @@ void EditorApp::PrintPages() {
         std::string identifier;
         if (!job.printer->Submit(identifier, error)) { job.printer->Cancel(); m_State.Log(LogLevel::Error, error); }
         else m_State.Log(LogLevel::Info, "Printer job submitted: " + identifier);
-    } else m_State.Log(LogLevel::Info, std::to_string(written) + " page(s) written to " + job.pngFolder);
+    }
+#ifdef VIRTOOLSDEV_UI_TESTS
+    else m_State.Log(LogLevel::Info, std::to_string(written) + " page(s) written to " + job.pngFolder);
+#endif
 }
 void EditorApp::EndPrint() { m_Print = PrintJob(); }
 } // namespace vdev

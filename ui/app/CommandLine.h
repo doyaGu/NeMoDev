@@ -1,19 +1,22 @@
 #pragma once
 
-// The command line (Main.cpp): the file to open, the runtime, and the
-// capture mode's options for headless UI checks: the frames to render, the
-// startup actions (StartupOptions, run by EditorStartup.cpp) and the input
-// events injected into ImGui. None of them is used in an ordinary session.
+// The composition path and runtime override. The regression executable also
+// accepts capture, startup actions and injected input for UI checks.
 
 #include <string>
 #include <vector>
 
+#ifdef VIRTOOLSDEV_UI_TESTS
 #include "ui/app/EditorApp.h"
+#endif
 
 namespace vdev {
 
 struct CommandLine {
-    std::wstring fileToOpen, capturePath;
+    std::wstring fileToOpen, badOption;
+    void Parse(const std::vector<std::wstring> &args);
+#ifdef VIRTOOLSDEV_UI_TESTS
+    std::wstring capturePath;
     int captureFrames = 20;
     // --drag x0 y0 x1 y1 (capture mode): a left-button drag in client pixels,
     // injected as ImGui mouse events from frame DRAG_START on (UI checks).
@@ -43,9 +46,7 @@ struct CommandLine {
     // home, end, pageup, pagedown, space, enter, escape, delete, f1..f12) or a
     // character, with "shift+", "ctrl+", "alt+" before it.
     std::vector<std::wstring> keys;
-    std::wstring badOption;
     vdev::StartupOptions startup;
-#ifdef VIRTOOLSDEV_UI_TESTS
     // VirtoolsDevUiTests (tests/ui): --ui-tests FILTER, the tests to run (the
     // test engine's filter: "all", "app", "schematic,-move"); --ui-results
     // FILE, a JUnit XML of the results; --ui-show, the window shown and the
@@ -54,22 +55,17 @@ struct CommandLine {
     std::wstring uiResults;
     bool uiShow = false;
     bool UiTests() const { return !uiTests.empty(); }
-#else
-    bool UiTests() const { return false; }
-#endif
 
     // The arguments after the program's name (--runtime is ResolveRuntime's).
-    void Parse(const std::vector<std::wstring> &args);
     bool Capture() const { return !capturePath.empty(); }
     // No window shown, no message box: the capture mode and the UI tests (but --ui-show).
     bool Headless() const {
-#ifdef VIRTOOLSDEV_UI_TESTS
         if (UiTests()) return !uiShow;
-#endif
         return Capture();
     }
     // The capture mode's input events of frame frameCount, before ImGui::NewFrame.
     void FeedInput(int frameCount, EditorApp &app) const;
+#endif
 };
 
 } // namespace vdev

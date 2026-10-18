@@ -1,4 +1,4 @@
-// The capture mode's startup actions (StartupOptions, CaptureDriver.h): what
+// The capture mode's startup actions (StartupOptions, CommandLine.h): what
 // the command line asks done once the composition is open, and in the first
 // frames. None of it runs in an ordinary session.
 #include "ui/app/EditorApp.h"

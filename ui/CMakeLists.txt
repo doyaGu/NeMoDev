@@ -21,9 +21,8 @@ set_target_properties(VirtoolsDevImGui PROPERTIES FOLDER "VirtoolsDev")
 set(_editor_sources
         # The program: window, main loop, menus, state, preferences, capture.
         app/Main.cpp
-        app/CaptureDriver.cpp
+        app/CommandLine.cpp
         app/EditorApp.cpp
-        app/EditorStartup.cpp
         app/FileMenu.cpp
         app/StatusBar.cpp
         app/DuplicateNames.cpp
@@ -142,6 +141,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
     set_target_properties(VirtoolsDevImGuiTestEngine PROPERTIES FOLDER "VirtoolsDev")
 
     virtoolsdev_add_editor(VirtoolsDevUiTests VirtoolsDevImGuiTestEngine
+            app/EditorStartup.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTestRun.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.h
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.cpp

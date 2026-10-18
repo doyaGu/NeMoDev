@@ -5,7 +5,7 @@
 #include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
 #include "ui/render/UiRenderer.h"
-#include "ui/app/CaptureDriver.h"
+#include "ui/app/CommandLine.h"
 #include "ui/app/EditorApp.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/schematic/Snapshots.h"
@@ -51,6 +51,7 @@ std::string ResolveRuntime(const std::vector<std::wstring> &args) {
     if (path.empty()) path = SDL_GetBasePath();
     return VirtoolsRuntimeDirectory(path);
 }
+#ifdef VIRTOOLSDEV_UI_TESTS
 bool CaptureFrame(const std::wstring &path) {
     std::vector<unsigned char> pixels;
     int width = 0, height = 0;
@@ -58,11 +59,7 @@ bool CaptureFrame(const std::wstring &path) {
     for (size_t i = 0; i < pixels.size(); i += 4) std::swap(pixels[i], pixels[i+2]);
     return vdev::WriteBgraPng(vdev::WideToUtf8(path), width, height, pixels.data());
 }
-}
-
-// Kept for the Schematic page capture path while print jobs own their output.
-bool MainWritePng(const std::wstring &path, unsigned int width, unsigned int height, const unsigned char *pixels) {
-    return vdev::WriteBgraPng(vdev::WideToUtf8(path), int(width), int(height), pixels);
+#endif
 }
 
 int main(int argc, char **argv) {
@@ -72,7 +69,11 @@ int main(int argc, char **argv) {
     std::vector<std::wstring> args;
     for (int i = 0; i < argc; ++i) args.push_back(vdev::Utf8ToWide(argv[i]));
     vdev::CommandLine line; line.Parse(args);
-    const bool capture = line.Capture(), headless = line.Headless();
+#ifdef VIRTOOLSDEV_UI_TESTS
+    const bool capture = line.Capture(), headless = line.Headless(), isolated = line.startup.isolated;
+#else
+    const bool headless = false, isolated = false;
+#endif
     if (!line.badOption.empty()) {
         std::fprintf(stderr, "Invalid option: %s\n", vdev::WideToUtf8(line.badOption).c_str()); return 2;
     }
@@ -95,7 +96,7 @@ int main(int argc, char **argv) {
     char *preferences = SDL_GetPrefPath("Virtools", "VirtoolsDev");
     const std::string iniPath = preferences ? (fs::u8path(preferences) / "VirtoolsDevInterface.ini").u8string() : std::string();
     SDL_free(preferences);
-    if (!line.startup.isolated && !iniPath.empty()) {
+    if (!isolated && !iniPath.empty()) {
         std::error_code failure;
         const auto saved = fs::u8path(iniPath);
         const auto previous = fs::u8path(SDL_GetBasePath()) / "VirtoolsDevInterface.ini";
@@ -104,7 +105,7 @@ int main(int argc, char **argv) {
             if (failure) std::fprintf(stderr, "Cannot migrate the saved window layout: %s\n", failure.message().c_str());
         }
     }
-    io.IniFilename = line.startup.isolated || iniPath.empty() ? nullptr : iniPath.c_str();
+    io.IniFilename = isolated || iniPath.empty() ? nullptr : iniPath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
     vdev::ApplyDevTheme(ImGui::GetStyle()); ImGui::GetStyle().ScaleAllSizes(scale);
     LoadFonts(scale);
@@ -117,12 +118,18 @@ int main(int argc, char **argv) {
     if (!headless) SDL_ShowWindow(window);
     vdev::EditorApp app;
     int exitCode = 0;
-    if (!app.Initialize(window, runtime, vdev::WideToUtf8(line.fileToOpen), line.startup)) exitCode = 1;
+    if (!app.Initialize(window, runtime, vdev::WideToUtf8(line.fileToOpen)
+#ifdef VIRTOOLSDEV_UI_TESTS
+                        , line.startup
+#endif
+                        )) exitCode = 1;
 #ifdef VIRTOOLSDEV_UI_TESTS
     std::unique_ptr<vdev::UiTestRun> tests;
     if (!exitCode && line.UiTests()) tests = std::make_unique<vdev::UiTestRun>(app, line.uiTests, line.uiResults, line.uiShow);
 #endif
+#ifdef VIRTOOLSDEV_UI_TESTS
     int frame = 0;
+#endif
     std::vector<std::wstring> dropped;
     while (!exitCode && !app.ShouldQuit()) {
         SDL_Event event;
@@ -135,7 +142,9 @@ int main(int argc, char **argv) {
             if (event.type == SDL_EVENT_DROP_COMPLETE && !dropped.empty()) { app.DropFiles(dropped, event.drop.x, event.drop.y); dropped.clear(); }
         }
         vdev::MainRenderer().NewFrame(); ImGui_ImplSDL3_NewFrame();
+#ifdef VIRTOOLSDEV_UI_TESTS
         if (capture) line.FeedInput(frame, app);
+#endif
         ImGui::NewFrame();
         ImGuiErrorRecoveryState recovery;
         ImGui::ErrorRecoveryStoreState(&recovery);
@@ -152,14 +161,16 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "UI render failed: %s\n", error.c_str()); exitCode = 3; break;
         }
         vdev::ReleaseRetiredTextures();
-        if (capture && ++frame >= line.captureFrames) { exitCode = CaptureFrame(line.capturePath) ? 0 : 3; break; }
 #ifdef VIRTOOLSDEV_UI_TESTS
+        if (capture && ++frame >= line.captureFrames) { exitCode = CaptureFrame(line.capturePath) ? 0 : 3; break; }
         if (tests) {
             tests->PreSwap(); tests->PostSwap();
             if (tests->Finished()) { exitCode = tests->ExitCode(); break; }
         }
-#endif
         if (!capture) SDL_Delay(1);
+#else
+        SDL_Delay(1);
+#endif
     }
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (tests) { if (!tests->Finished()) exitCode = 1; tests->Stop(); }

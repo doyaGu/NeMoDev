@@ -1,4 +1,4 @@
-#include "ui/app/CaptureDriver.h"
+#include "ui/app/CommandLine.h"
 
 
 #include <algorithm>
@@ -7,7 +7,9 @@
 #include <filesystem>
 #include <sstream>
 
+#ifdef VIRTOOLSDEV_UI_TESTS
 #include "imgui.h"
+#endif
 
 #include "core/runtime/TextEncoding.h"
 
@@ -23,7 +25,9 @@ std::wstring AbsolutePath(const std::wstring &path) {
 void CommandLine::Parse(const std::vector<std::wstring> &args) {
     for (size_t i = 1; i < args.size(); ++i) {
         if (args[i] == L"--runtime") {
-            ++i;
+            if (i + 1 < args.size()) ++i;
+            else badOption = args[i];
+#ifdef VIRTOOLSDEV_UI_TESTS
         } else if (args[i] == L"--capture" && i + 1 < args.size()) {
             capturePath = AbsolutePath(args[++i]);
         } else if (args[i] == L"--drag" && i + 4 < args.size()) {
@@ -131,7 +135,6 @@ void CommandLine::Parse(const std::vector<std::wstring> &args) {
             startup.showScript = WideToUtf8(args[++i]);
         } else if (args[i] == L"--isolated") {
             startup.isolated = true;
-#ifdef VIRTOOLSDEV_UI_TESTS
         } else if (args[i] == L"--ui-tests" && i + 1 < args.size()) {
             uiTests = WideToUtf8(args[++i]);
             startup.isolated = true;
@@ -149,6 +152,7 @@ void CommandLine::Parse(const std::vector<std::wstring> &args) {
     }
 }
 
+#ifdef VIRTOOLSDEV_UI_TESTS
 void CommandLine::FeedInput(int frameCount, EditorApp &app) const {
     const bool capture = Capture();
         if (capture && drag) {
@@ -242,4 +246,5 @@ void CommandLine::FeedInput(int frameCount, EditorApp &app) const {
         }
 }
 
+#endif
 } // namespace vdev

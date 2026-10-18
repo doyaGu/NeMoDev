@@ -73,6 +73,7 @@ public:
         max = m_ViewMax;
         return true;
     }
+#ifdef VIRTOOLSDEV_UI_TESTS
     // --layout-tool / --layout-view (capture checks): a tool by name, a camera by name.
     void StartupOptions(const std::string &tool, const std::string &camera);
     // --drop-block: a Building Block dropped at a client point once the view has drawn.
@@ -80,6 +81,7 @@ public:
     // --layout-select / --layout-group / --layout-command: objects selected by
     // name, a name entered in the Selection Groups combo, commands by Dev's id.
     void StartupSelection(const std::vector<std::string> &names, const std::string &group, const std::vector<int> &commands);
+#endif
     // The status bar's action text (Dev's <Action Info>); empty when the
     // 3D Layout was not the last window used.
     std::string ActionText() const;
@@ -387,9 +389,11 @@ private:
     std::string m_DropText;
     ParameterBox m_DropBox{m_State};
     ParameterBox m_CopyBox{m_State}; // Copy Options
+#ifdef VIRTOOLSDEV_UI_TESTS
     CKGUID m_StartupDrop;
     ImVec2 m_StartupDropAt;
     int m_StartupDropFrames = 0;
+#endif
     // Selection Groups: the group shown (Dev.exe view +60), the combo's
     // text, whether it is being typed in, the selection it was matched with.
     CK_ID m_Group = 0;

@@ -90,10 +90,18 @@ const wchar_t *RESOURCE_FILTER = L"Virtools Resources (*.rsc)\0*.rsc\0";
 
 } // namespace
 
-bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen,
-                           const StartupOptions &startup) {
+bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen
+#ifdef VIRTOOLSDEV_UI_TESTS
+                           , const StartupOptions &startup
+#endif
+                           ) {
     m_Window = window;
+#ifdef VIRTOOLSDEV_UI_TESTS
     m_Startup = startup;
+    const bool isolated = startup.isolated;
+#else
+    const bool isolated = false;
+#endif
     // The Event Log's first line (Dev.exe sub_4229D0, language pack 141).
     m_State.Log(LogLevel::Info, "Virtools Started.");
     m_State.log.back().status = false;
@@ -104,8 +112,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     // Preferences: our file, else Dev's own settings (read-only), else Dev's
     // defaults (isolated: the defaults).
     Preferences &preferences = m_State.preferences;
-    const bool loaded = !startup.isolated && preferences.Load(PreferencesPath());
-    if (!startup.isolated && !loaded) {
+    const bool loaded = !isolated && preferences.Load(PreferencesPath());
+    if (!isolated && !loaded) {
         const int imported = preferences.ImportFromDev() + preferences.ImportDevIni(runtimeDirectory);
         if (imported) m_State.Log(LogLevel::Info, "Imported " + std::to_string(imported) + " Virtools Dev preferences");
     } else if (loaded && !preferences.settingsSaved) {
@@ -114,7 +122,9 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         if (imported) m_State.Log(LogLevel::Info, "Imported " + std::to_string(imported) + " Virtools Dev General Preferences");
     }
     ApplyPreferences();
+#ifdef VIRTOOLSDEV_UI_TESTS
     m_State.view.showAllScripts = startup.showAllScripts;
+#endif
     m_State.runtimeDirectory = runtimeDirectory;
     m_Tools.applyPreferences = [this] {
         ApplyPreferences();
@@ -138,7 +148,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     m_State.debugger = std::make_unique<Debugger>(*m_State.document);
     // Dev's paths (HKCU\Software\Virtools\Data Paths, read-only) until the
     // editor has its own.
-    if (!startup.isolated && !preferences.pathsSaved && preferences.ImportDevPaths())
+    if (!isolated && !preferences.pathsSaved && preferences.ImportDevPaths())
         m_State.Log(LogLevel::Info, "Path Manager: Virtools Dev's paths");
     ApplyRuntimeSettings();
     m_HideFps = m_State.preferences.Bool("Time Settings\\Hide Fps");
@@ -164,9 +174,11 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     if (!m_Layout.Start(window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     for (const std::string &resource : std::vector<std::string>(preferences.dataResources))
         m_Tools.OpenDataResource(resource, false);
+#ifdef VIRTOOLSDEV_UI_TESTS
     for (const std::string &resource : m_Startup.resources) m_Tools.OpenDataResource(resource, false);
     if (!m_Startup.resourceFolder.empty()) m_Tools.SelectResourceFolder(m_Startup.resourceFolder);
     if (m_Startup.newComposition) NewComposition();
+#endif
     const bool opened = !fileToOpen.empty() && OpenFile(fileToOpen);
     // Dev starts on a new composition (its 3D Layout shows the new scene's
     // gray), saying nothing on the status bar.
@@ -175,7 +187,9 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         NewComposition();
         for (size_t i = logged; i < m_State.log.size(); ++i) m_State.log[i].status = false;
     }
+#ifdef VIRTOOLSDEV_UI_TESTS
     RunStartupActions(opened);
+#endif
     UpdateTitle();
     return true;
 }
@@ -198,7 +212,10 @@ std::string EditorApp::PreferencesPath() const {
 }
 
 void EditorApp::SavePreferences() {
-    if (!m_Startup.isolated) m_State.preferences.Save(PreferencesPath());
+#ifdef VIRTOOLSDEV_UI_TESTS
+    if (m_Startup.isolated) return;
+#endif
+    m_State.preferences.Save(PreferencesPath());
 }
 
 void EditorApp::ApplyPreferences() {
@@ -804,10 +821,12 @@ void EditorApp::MainMenu() {
     PopDarkChrome();
 }
 
+#ifdef VIRTOOLSDEV_UI_TESTS
 void EditorApp::LogUndoTop() {
     m_State.Log(LogLevel::Info, m_State.History().CanUndo() ? "Last undo step: " + m_State.History().UndoLabel()
                                                        : std::string("Last undo step: (none)"));
 }
+#endif
 
 void EditorApp::CreateObject(LayoutObject kind) {
     if (!m_State.HasDocument()) return;
@@ -1065,13 +1084,16 @@ void EditorApp::Frame() {
     // Dev's main windows have no close button.
     m_Canvas.Draw(SCHEMATIC_WINDOW, nullptr);
     // The canvas size is known only after a docked frame.
+#ifdef VIRTOOLSDEV_UI_TESTS
     if (m_FitFrames > 0 && --m_FitFrames == 0) m_Canvas.FitAll();
+#endif
     m_Panels.ScriptsPanel(nullptr);
     m_Panels.DeleteObjectsDialog(); // the Level Manager's and the 3D Layout's
     DuplicateNamesDialog();
     WebPageDialog();
     PrintParametersDialog();
     MessageDialog();
+#ifdef VIRTOOLSDEV_UI_TESTS
     // --tool print:DIR (the dialog, pages to DIR on OK), once the Schematic has its Scripts.
     if (!m_PendingStartupDialog.empty() && m_FocusSchematic <= 0 && ++m_PrintPagesFrames > 5) {
         OpenStartupDialog(m_PendingStartupDialog);
@@ -1088,6 +1110,7 @@ void EditorApp::Frame() {
         EndPrint();
         m_PendingPrintPages.clear();
     }
+#endif
     m_Panels.BuildingBlocksPanel(nullptr);
     if (m_ShowExplorer) m_Panels.ExplorerPanel(&m_ShowExplorer);
     if (m_ShowLog) m_Panels.LogPanel(&m_ShowLog);
@@ -1122,7 +1145,9 @@ void EditorApp::Frame() {
                                  : frames != debugger.Frames() || ++m_DebugRefresh % 10 == 0;
         if (active && refresh) m_Canvas.RefreshValues();
     }
+#ifdef VIRTOOLSDEV_UI_TESTS
     const bool settled = m_FocusSchematic <= 0;
+#endif
     if (m_FocusSchematic > 0) {
         // The front tabs of Dev's start (the Level Manager in front of the
         // Schematic, focused last); repeated because windows appearing later
@@ -1130,6 +1155,7 @@ void EditorApp::Frame() {
         ImGui::SetWindowFocus("3D Layout");
         ImGui::SetWindowFocus("Building Blocks");
         ImGui::SetWindowFocus("Level Manager");
+#ifdef VIRTOOLSDEV_UI_TESTS
         // Several windows (names separated by '|'): one a frame, the window
         // focused at the end of a frame being the one whose tab shows.
         std::vector<std::string> names;
@@ -1140,9 +1166,12 @@ void EditorApp::Frame() {
             at = end + 1;
         }
         if (!names.empty()) ImGui::SetWindowFocus(names[m_FocusSchematic % names.size()].c_str());
+#endif
         --m_FocusSchematic;
     }
+#ifdef VIRTOOLSDEV_UI_TESTS
     StartupFrame(settled);
+#endif
 
     GlobalShortcuts();
     UnsavedChangesDialog();

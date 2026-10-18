@@ -716,9 +716,11 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     if (m_Started && m_Capturing) CaptureInput(at);
     else if (m_Started) ViewInput(at, ImGui::IsItemHovered());
     if (m_Started) DropTarget(at);
+#ifdef VIRTOOLSDEV_UI_TESTS
     if (m_Started && m_StartupDropFrames > 0 && --m_StartupDropFrames == 0)
         DropBuildingBlock(static_cast<int>(m_StartupDropAt.x - at.x), static_cast<int>(m_StartupDropAt.y - at.y),
                           m_StartupDrop);
+#endif
     if (!m_Started) {
         dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), LEFT_BAR);
         const std::string text = "No 3D Layout: " + AnsiToUtf8(m_StartError);
