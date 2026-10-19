@@ -556,6 +556,23 @@ static void DeviceTextDecorations() {
               "CSS decoration did not reach the device's public flags");
     }
 }
+static void LinkIdentityIgnoresGeneratedImages() {
+    TestHtmlResources resources;
+    resources.files["book://manual/topics/icon.png"] = "image";
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>@media(min-width:300px){body:before{content:url(icon.png)}}</style>"
+                   "<a href=first>First</a><a href=second>Second</a>");
+    const auto links = document.Links();
+    std::string error;
+    Check(document.Layout({200, 300}, 1, error), error.c_str());
+    Check(document.Links().size() == 2 && document.Links()[0].id == links[0].id &&
+              document.Links()[1].id == links[1].id,
+          "Generated images changed source link identities after reflow");
+    HtmlNavigation navigation;
+    Check(document.Activate(links[0].id, navigation) && navigation.url == links[0].navigation.url,
+          "A retained keyboard link ID activated a different destination");
+}
 int main() {
     try {
         CascadeAndResources();
@@ -576,6 +593,7 @@ int main() {
         InteractionFailuresRequireSuccessfulLayout();
         ReadingPositionsIgnoreGeneratedContent();
         DeviceTextDecorations();
+        LinkIdentityIgnoresGeneratedImages();
         GradientPixels();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;

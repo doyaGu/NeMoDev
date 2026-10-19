@@ -597,6 +597,8 @@ struct HtmlDocument::Impl : litehtml::document_container {
         std::map<const litehtml::element *, size_t> order;
         size_t ordinal = 0;
         const auto assign = [&](const auto &self, const litehtml::element::ptr &node) -> void {
+            if (HtmlGenerated(node))
+                return;
             if (node->tag() == litehtml::_a_ || node->tag() == litehtml::_area_ || node->tag() == litehtml::_img_)
                 order[node.get()] = ordinal++;
             for (const auto &child : node->children())
@@ -926,6 +928,8 @@ bool HtmlDocument::Activate(std::uint64_t id, HtmlNavigation &navigation) const 
     return false;
 }
 void HtmlDocument::SetVisited(const std::vector<std::string> &urls) {
+    if (m_Impl->visited == urls)
+        return;
     m_Impl->visited = urls;
     m_Impl->UpdateInteraction([&] {
         m_Impl->ApplyVisited();
