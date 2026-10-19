@@ -776,7 +776,7 @@ const std::string &HtmlDocument::Text() const { return m_Impl->text; }
 const std::vector<std::string> &HtmlDocument::Diagnostics() const { return m_Impl->diagnostics; }
 const std::vector<HtmlLink> &HtmlDocument::Links() const { return m_Impl->links; }
 HtmlHit HtmlDocument::HitTest(HtmlPoint point) const {
-    if (!m_Impl->document)
+    if (!m_Impl->laidOut)
         return {};
     const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
     auto element = m_Impl->document->root_render()->get_element_by_point(x, y, x, y, [](const auto &) { return true; });
@@ -829,7 +829,7 @@ bool HtmlDocument::FindAnchor(const std::string &name, HtmlPoint &point) const {
     return false;
 }
 bool HtmlDocument::Hover(HtmlPoint point) {
-    if (!m_Impl->document)
+    if (!m_Impl->laidOut)
         return false;
     litehtml::position::vector changed;
     const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
@@ -896,10 +896,10 @@ bool HtmlDocument::Activate(std::uint64_t id, HtmlNavigation &navigation) const 
     return false;
 }
 void HtmlDocument::SetVisited(const std::vector<std::string> &urls) {
-    if (!m_Impl->document)
+    m_Impl->visited = urls;
+    if (!m_Impl->laidOut)
         return;
     const std::set<std::string> visited(urls.begin(), urls.end());
-    m_Impl->visited = urls;
     for (const auto &node : m_Impl->document->root()->select_all("a[href]")) {
         const bool found = visited.count(HtmlResolve(m_Impl->base, node->get_attr("href", ""))) != 0;
         node->set_pseudo_class(litehtml::_id("visited"), found);
@@ -912,7 +912,7 @@ void HtmlDocument::SetVisited(const std::vector<std::string> &urls) {
 }
 HtmlReadingPosition HtmlDocument::CapturePosition(HtmlPoint point) const {
     HtmlReadingPosition result;
-    if (!m_Impl->document)
+    if (!m_Impl->laidOut)
         return result;
     auto data = std::make_shared<HtmlReadingPosition::Data>();
     data->source = m_Impl->source;
@@ -948,7 +948,7 @@ HtmlReadingPosition HtmlDocument::CapturePosition(HtmlPoint point) const {
     return result;
 }
 bool HtmlDocument::RestorePosition(const HtmlReadingPosition &position, HtmlPoint &point) const {
-    if (!position.m_Data || !m_Impl->document || position.m_Data->base != m_Impl->base ||
+    if (!position.m_Data || !m_Impl->laidOut || position.m_Data->base != m_Impl->base ||
         *position.m_Data->source != *m_Impl->source)
         return false;
     auto node = m_Impl->document->root();

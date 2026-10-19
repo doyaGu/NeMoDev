@@ -315,6 +315,27 @@ static void FailuresKeepTheDocument() {
     document.Draw({}, {0, 0, 400, 300});
     Check(!device.text.empty() && device.clip.empty(), "Missing resources prevented drawing or left clipping active");
 }
+static void LayoutOwnsGeometryLifetime() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    std::string error;
+    Check(document.Load("<!doctype html><style>a:visited{color:red}</style><a href=other.html>Visited</a>",
+                        "book://manual/page.html", error),
+          error.c_str());
+    const auto invalid = document.CapturePosition({});
+    HtmlPoint restored;
+    Check(!document.Hover({1, 1}) && document.HitTest({1, 1}).link == 0 && !document.RestorePosition(invalid, restored),
+          "An unlaid-out document invented geometry or accepted a reading position");
+    document.SetVisited({"book://manual/other.html"});
+    Check(document.Layout({400, 300}, 1, error), error.c_str());
+    document.Draw({}, {0, 0, 400, 300});
+    Check(!device.text.empty() && device.text.front().color == 0xff0000ff,
+          "Visited URLs supplied before layout were lost");
+    Check(!document.RestorePosition(invalid, restored) &&
+              document.RestorePosition(document.CapturePosition({8, 8}), restored),
+          "Layout did not establish reading-position lifetime");
+}
 static void ImageMapShapesAndZoom() {
     TestHtmlResources resources;
     resources.files["book://manual/topics/diagram.png"] = "image";
@@ -435,6 +456,7 @@ int main() {
         BaseElementAndZoom();
         TablesAndReflow();
         FailuresKeepTheDocument();
+        LayoutOwnsGeometryLifetime();
         ImageMapShapesAndZoom();
         StylesheetCyclesAndFailedReflow();
         PointerStatesAndVisitedLinks();

@@ -119,7 +119,9 @@ public:
     const std::string &Text() const;
     const std::vector<std::string> &Diagnostics() const;
 
-    // Points, rectangles and returned positions use document pixel coordinates.
+    // Geometry, input and reading positions require a successful Layout. Before
+    // that they return empty results. Coordinates use document pixels; link
+    // views are refreshed by layout and interaction state changes.
     HtmlHit HitTest(HtmlPoint point) const;
     const std::vector<HtmlLink> &Links() const;
     bool FindAnchor(const std::string &name, HtmlPoint &position) const;
@@ -129,6 +131,7 @@ public:
     bool PointerUp(HtmlPoint point, HtmlNavigation &navigation);
     void CancelPointer();
     bool Activate(std::uint64_t link, HtmlNavigation &navigation) const;
+    // May be supplied before the first Layout; the next layout applies it.
     void SetVisited(const std::vector<std::string> &urls);
     HtmlReadingPosition CapturePosition(HtmlPoint point) const;
     bool RestorePosition(const HtmlReadingPosition &position, HtmlPoint &point) const;
