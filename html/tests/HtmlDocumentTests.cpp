@@ -247,13 +247,15 @@ static void LegacyMarkupAndStyles() {
     document.Hover({box.x + 1, box.y + 1});
     device.text.clear();
     document.Draw({}, {0, 0, 400, 300});
-    Check(text("Link").color == 0xffff0000 && (text("Link").font.decoration & 1) && text("fixed").color == 0xff008000,
+    Check(text("Link").color == 0xffff0000 && (text("Link").font.decoration & HtmlDecorationUnderline) &&
+              text("fixed").color == 0xff008000,
           "Hover lost link decoration or changed an explicitly styled descendant");
     document.Leave();
     document.SetVisited({"book://manual/topics/page.html"});
     device.text.clear();
     document.Draw({}, {0, 0, 400, 300});
-    Check(text("Link").color == 0xff800080 && !(text("Link").font.decoration & 1) && text("fixed").color == 0xff008000,
+    Check(text("Link").color == 0xff800080 && !(text("Link").font.decoration & HtmlDecorationUnderline) &&
+              text("fixed").color == 0xff008000,
           "Visited state lost its cascade or retained hover decoration");
 }
 static void BaseElementAndZoom() {
@@ -529,6 +531,31 @@ static void ReadingPositionsIgnoreGeneratedContent() {
               std::fabs(restored.x - target.x - 2) < .01f && std::fabs(restored.y - target.y - 2) < .01f,
           "Generated CSS nodes changed the identity of a reading position");
 }
+static void DeviceTextDecorations() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    std::string error;
+    Check(document.Load("<!doctype html><p style='text-decoration:underline'>Under</p>"
+                        "<p style='text-decoration:overline'>Over</p>"
+                        "<p style='text-decoration:line-through'>Strike</p>"
+                        "<p style='text-decoration:underline overline line-through'>Combined</p>",
+                        "https://docs.example.test/index.html", error) &&
+              document.Layout({400, 300}, 1, error),
+          error.c_str());
+    document.Draw({}, {0, 0, 400, 300});
+    const std::map<std::string, unsigned> expected = {
+        {"Under", HtmlDecorationUnderline},
+        {"Over", HtmlDecorationOverline},
+        {"Strike", HtmlDecorationLineThrough},
+        {"Combined", HtmlDecorationUnderline | HtmlDecorationOverline | HtmlDecorationLineThrough}};
+    for (const auto &item : expected) {
+        const auto draw = std::find_if(device.text.begin(), device.text.end(),
+                                       [&](const auto &draw) { return draw.text == item.first; });
+        Check(draw != device.text.end() && draw->font.decoration == item.second,
+              "CSS decoration did not reach the device's public flags");
+    }
+}
 int main() {
     try {
         CascadeAndResources();
@@ -548,6 +575,7 @@ int main() {
         InteractionRefreshesReadableText();
         InteractionFailuresRequireSuccessfulLayout();
         ReadingPositionsIgnoreGeneratedContent();
+        DeviceTextDecorations();
         GradientPixels();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;

@@ -17,12 +17,18 @@ struct HtmlRect {
 };
 using HtmlColor = std::uint32_t; // RGBA, with red in the least significant byte
 
+enum HtmlTextDecoration : unsigned {
+    HtmlDecorationNone = 0,
+    HtmlDecorationUnderline = 1u << 0,
+    HtmlDecorationOverline = 1u << 1,
+    HtmlDecorationLineThrough = 1u << 2
+};
 struct HtmlFontDescription {
     std::string families;
     float size = 16;
     int weight = 400;
     bool italic = false;
-    unsigned decoration = 0; // underline, overline, line-through
+    unsigned decoration = HtmlDecorationNone; // bitwise combination of HtmlTextDecoration
 };
 struct HtmlFontMetrics {
     float ascent = 0, descent = 0, height = 0, xHeight = 0;
@@ -53,12 +59,15 @@ public:
 
 // Graphics and font measurement belong to the same device, so layout uses the
 // font that will actually be painted. Coordinates and font sizes are in pixels.
-// SetClip replaces the current convex clipping region; an empty region resets it.
+// SetClip replaces the current convex clipping region (clockwise in screen
+// coordinates); an empty region resets it. Fill accepts simple concave polygons.
 class HtmlRenderDevice {
 public:
     virtual ~HtmlRenderDevice() = default;
     virtual std::shared_ptr<HtmlFont> CreateFont(const HtmlFontDescription &description) = 0;
     virtual std::shared_ptr<HtmlImage> DecodeImage(const std::string &url, const std::vector<unsigned char> &bytes) = 0;
+    // Packed RGBA bytes are borrowed only for this call; the returned image owns
+    // its storage. Font/image arguments to painting come from this same device.
     virtual std::shared_ptr<HtmlImage> CreateImage(unsigned width, unsigned height, const unsigned char *rgba) = 0;
     virtual void SetClip(const std::vector<HtmlPoint> &polygon) = 0;
     virtual void Text(const HtmlFont &font, std::string_view text, HtmlPoint position, HtmlColor color) = 0;

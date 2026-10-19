@@ -201,12 +201,12 @@ void HtmlRenderer::Text(const HtmlFont &font, std::string_view text, HtmlPoint p
         }
         const auto metrics = native.Metrics();
         const float width = native.Width(text), thickness = std::max(1.0f, native.style.size / 16);
-        if (native.style.decoration & 1)
+        if (native.style.decoration & HtmlDecorationUnderline)
             draw->AddLine(ImVec2(position.x, position.y + metrics.ascent + thickness),
                           ImVec2(position.x + width, position.y + metrics.ascent + thickness), color, thickness);
-        if (native.style.decoration & 2)
+        if (native.style.decoration & HtmlDecorationOverline)
             draw->AddLine(ImVec2(position.x, position.y), ImVec2(position.x + width, position.y), color, thickness);
-        if (native.style.decoration & 4)
+        if (native.style.decoration & HtmlDecorationLineThrough)
             draw->AddLine(ImVec2(position.x, position.y + metrics.ascent * .6f),
                           ImVec2(position.x + width, position.y + metrics.ascent * .6f), color, thickness);
     });

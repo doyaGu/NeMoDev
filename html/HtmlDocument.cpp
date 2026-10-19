@@ -378,8 +378,13 @@ struct HtmlDocument::Impl : litehtml::document_container {
     litehtml::uint_ptr create_font(const litehtml::font_description &description, const litehtml::document *,
                                    litehtml::font_metrics *metrics) override {
         HtmlFontDescription request{description.family, description.size * scale, description.weight,
-                                    description.style == litehtml::font_style_italic,
-                                    unsigned(description.decoration_line)};
+                                    description.style == litehtml::font_style_italic};
+        if (description.decoration_line & litehtml::text_decoration_line_underline)
+            request.decoration |= HtmlDecorationUnderline;
+        if (description.decoration_line & litehtml::text_decoration_line_overline)
+            request.decoration |= HtmlDecorationOverline;
+        if (description.decoration_line & litehtml::text_decoration_line_line_through)
+            request.decoration |= HtmlDecorationLineThrough;
         auto font = device.CreateFont(request);
         if (!font)
             throw std::runtime_error("Font could not be created: " + description.family);
