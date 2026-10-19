@@ -40,6 +40,8 @@ static std::vector<HtmlPoint> HtmlRoundedRectangle(const litehtml::position &p, 
     return result;
 }
 static std::vector<HtmlPoint> HtmlClipPolygon(std::vector<HtmlPoint> polygon, const std::vector<HtmlPoint> &clip) {
+    if (clip.empty())
+        return {};
     for (size_t i = 0; i < clip.size() && !polygon.empty(); ++i) {
         const HtmlPoint a = clip[i], b = clip[(i + 1) % clip.size()];
         const auto distance = [&](HtmlPoint p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); };
@@ -61,6 +63,18 @@ static std::vector<HtmlPoint> HtmlClipPolygon(std::vector<HtmlPoint> polygon, co
         polygon = std::move(output);
     }
     return polygon;
+}
+static litehtml::position HtmlPolygonBounds(const std::vector<HtmlPoint> &polygon) {
+    if (polygon.empty())
+        return {};
+    float left = polygon[0].x, right = left, top = polygon[0].y, bottom = top;
+    for (const auto &point : polygon) {
+        left = std::min(left, point.x);
+        right = std::max(right, point.x);
+        top = std::min(top, point.y);
+        bottom = std::max(bottom, point.y);
+    }
+    return {left, top, right - left, bottom - top};
 }
 void HtmlPainting::Begin(HtmlPoint origin, float scale, const litehtml::position &visible) {
     m_Origin = origin;
@@ -113,20 +127,29 @@ void HtmlPainting::Image(const HtmlImage &image, const litehtml::background_laye
     PushClip(layer.border_box, layer.border_radius);
     PushClip(layer.clip_box);
     const auto &p = layer.origin_box;
-    if (p.width > 0 && p.height > 0) {
+    const auto visible = HtmlPolygonBounds(m_Clips.back());
+    if (p.width > 0 && p.height > 0 && visible.width > 0 && visible.height > 0) {
         const bool rx =
             layer.repeat == litehtml::background_repeat_repeat || layer.repeat == litehtml::background_repeat_repeat_x;
         const bool ry =
             layer.repeat == litehtml::background_repeat_repeat || layer.repeat == litehtml::background_repeat_repeat_y;
         float left = p.x, top = p.y;
         if (rx)
-            left += std::floor((layer.clip_box.x - left) / p.width) * p.width;
+            left += std::floor((visible.x - left) / p.width) * p.width;
         if (ry)
-            top += std::floor((layer.clip_box.y - top) / p.height) * p.height;
-        for (float y = top; y < (ry ? layer.clip_box.bottom() : top + p.height); y += p.height)
-            for (float x = left; x < (rx ? layer.clip_box.right() : left + p.width); x += p.width)
+            top += std::floor((visible.y - top) / p.height) * p.height;
+        const float right = rx ? visible.right() : left + p.width;
+        const float bottom = ry ? visible.bottom() : top + p.height;
+        for (float y = top; y < bottom; y += p.height) {
+            if (y + p.height <= y)
+                throw std::runtime_error("Background tile height cannot advance at this position");
+            for (float x = left; x < right; x += p.width) {
+                if (x + p.width <= x)
+                    throw std::runtime_error("Background tile width cannot advance at this position");
                 m_Device.Image(
                     image, {m_Origin.x + x * m_Scale, m_Origin.y + y * m_Scale, p.width * m_Scale, p.height * m_Scale});
+            }
+        }
     }
     PopClip();
     PopClip();
@@ -323,13 +346,8 @@ void HtmlPainting::Gradient(const litehtml::background_layer &layer,
         PopClip();
         return;
     }
-    float left = m_Clips.back()[0].x, top = m_Clips.back()[0].y, right = left, bottom = top;
-    for (const auto &p : m_Clips.back()) {
-        left = std::min(left, p.x);
-        right = std::max(right, p.x);
-        top = std::min(top, p.y);
-        bottom = std::max(bottom, p.y);
-    }
+    const auto visible = HtmlPolygonBounds(m_Clips.back());
+    float left = visible.x, top = visible.y, right = visible.right(), bottom = visible.bottom();
     const auto &box = layer.origin_box;
     const bool rx =
         layer.repeat == litehtml::background_repeat_repeat || layer.repeat == litehtml::background_repeat_repeat_x;

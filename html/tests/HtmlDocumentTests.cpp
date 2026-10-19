@@ -54,6 +54,7 @@ public:
     std::vector<HtmlPoint> clip;
     std::vector<std::shared_ptr<TestHtmlImage>> generated;
     std::vector<HtmlColor> fills;
+    std::vector<std::vector<HtmlPoint>> fillClips;
     bool failFont = false;
     std::shared_ptr<HtmlFont> CreateFont(const HtmlFontDescription &description) override {
         return failFont ? nullptr : std::make_shared<TestHtmlFont>(description);
@@ -73,7 +74,10 @@ public:
         text.push_back({std::string(value), point, color, static_cast<const TestHtmlFont &>(font).style});
     }
     void Image(const HtmlImage &, HtmlRect rect) override { images.push_back(rect); }
-    void Fill(const std::vector<HtmlPoint> &, HtmlColor color) override { fills.push_back(color); }
+    void Fill(const std::vector<HtmlPoint> &, HtmlColor color) override {
+        fills.push_back(color);
+        fillClips.push_back(clip);
+    }
 };
 
 static void Load(HtmlDocument &document, const std::string &html, float width = 400, float scale = 1) {
@@ -659,6 +663,38 @@ static void WrappedAnchorsStartAtFirstFragment() {
     Check(document.Layout({600, 600}, 1.5f, error), error.c_str());
     verify();
 }
+static void EmptyClipsStayEmpty() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>body{margin:0}</style>"
+                   "<div style='width:30px;height:30px;overflow:hidden'>"
+                   "<div style='margin-left:40px;width:30px;height:30px;background:red'></div></div>");
+    document.Draw({}, {0, 0, 300, 300});
+    for (size_t i = 0; i < device.fills.size(); ++i) {
+        if (device.fills[i] != 0xff0000ff)
+            continue;
+        const auto &clip = device.fillClips[i];
+        Check(!clip.empty() && std::all_of(clip.begin(), clip.end(),
+                                           [&](const auto &point) {
+                                               return point.x == clip.front().x && point.y == clip.front().y;
+                                           }),
+              "A nested background expanded an empty overflow clip");
+    }
+}
+static void RepeatedImagesOnlyPaintVisibleTiles() {
+    TestHtmlResources resources;
+    resources.files["book://manual/topics/tile.png"] = "image";
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>body{margin:0}div{width:100px;height:10000px;"
+                   "background:url(tile.png) repeat;background-size:10px 10px}</style><div></div>");
+    document.Draw({}, {0, 4000, 100, 80});
+    Check(!device.images.empty() && device.images.size() <= 90,
+          "A repeated background submitted tiles outside the visible document area");
+    for (const auto &rect : device.images)
+        Check(rect.y >= 4000 && rect.y < 4080, "Repeat alignment was not retained after clipping");
+}
 int main() {
     try {
         CascadeAndResources();
@@ -684,6 +720,8 @@ int main() {
         ImageSizingAndVisibility();
         HiddenAnchorsAndImageMaps();
         WrappedAnchorsStartAtFirstFragment();
+        EmptyClipsStayEmpty();
+        RepeatedImagesOnlyPaintVisibleTiles();
         GradientPixels();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;
