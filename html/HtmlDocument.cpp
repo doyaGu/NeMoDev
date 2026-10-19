@@ -115,13 +115,16 @@ static bool HtmlGenerated(const litehtml::element::ptr &node) {
 static void HtmlPlainText(const litehtml::element::ptr &node, std::string &text) {
     if (node->css().get_display() == litehtml::display_none)
         return;
-    if (node->is_text())
-        node->get_text(text);
-    else if (node->tag() == litehtml::_img_)
-        text += node->get_attr("alt", "");
-    else if (node->is_break())
-        text += '\n';
-    else {
+    if (node->is_text() || node->tag() == litehtml::_img_ || node->is_break()) {
+        if (node->css().get_visibility() != litehtml::visibility_visible)
+            return;
+        if (node->is_text())
+            node->get_text(text);
+        else if (node->tag() == litehtml::_img_)
+            text += node->get_attr("alt", "");
+        else
+            text += '\n';
+    } else {
         for (const auto &child : node->children())
             HtmlPlainText(child, text);
         if (node->is_block_box() && !text.empty() && text.back() != '\n')
@@ -319,17 +322,23 @@ struct HtmlDocument::Impl : litehtml::document_container {
                     return true;
         return false;
     }
-    void ApplyVisited() {
+    bool ApplyVisited() {
         const std::set<std::string> known(visited.begin(), visited.end());
+        bool changed = false;
         for (const auto &node : document->root()->select_all("a[href]")) {
             const bool found = known.count(HtmlResolve(base, node->get_attr("href", ""))) != 0;
-            node->set_pseudo_class(litehtml::_id("visited"), found);
-            node->set_pseudo_class(litehtml::_link_, !found);
+            changed |= node->set_pseudo_class(litehtml::_id("visited"), found);
+            changed |= node->set_pseudo_class(litehtml::_link_, !found);
         }
-        document->root()->refresh_styles();
-        document->root()->compute_styles();
+        if (changed) {
+            document->root()->refresh_styles();
+            document->root()->compute_styles();
+        }
+        return changed;
     }
-    void Render() {
+    void Render(bool rebuild = false) {
+        if (rebuild)
+            document->rebuild_render_tree();
         document->render(viewport.width / scale);
         std::string readable;
         HtmlPlainText(document->root(), readable);
@@ -343,7 +352,7 @@ struct HtmlDocument::Impl : litehtml::document_container {
         try {
             const bool changed = change();
             if (changed)
-                Render();
+                Render(true);
             return changed;
         } catch (...) {
             // Style calculation may have changed native nodes before failing.
@@ -785,8 +794,8 @@ bool HtmlDocument::Layout(HtmlSize viewport, float scale, std::string &error) {
         next->diagnostics = m_Impl->diagnostics;
         next->document = litehtml::document::createFromString(
             litehtml::estring(*next->source, litehtml::encoding::utf_8), next.get());
-        next->ApplyVisited();
-        next->Render();
+        const bool changed = next->ApplyVisited();
+        next->Render(changed);
         m_Impl = std::move(next);
         error.clear();
         return true;
@@ -941,10 +950,7 @@ void HtmlDocument::SetVisited(const std::vector<std::string> &urls) {
     if (m_Impl->visited == urls)
         return;
     m_Impl->visited = urls;
-    m_Impl->UpdateInteraction([&] {
-        m_Impl->ApplyVisited();
-        return true;
-    });
+    m_Impl->UpdateInteraction([&] { return m_Impl->ApplyVisited(); });
 }
 HtmlReadingPosition HtmlDocument::CapturePosition(HtmlPoint point) const {
     HtmlReadingPosition result;

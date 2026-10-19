@@ -8,8 +8,7 @@ endif()
 function(nemodev_html_dependencies)
     set(BUILD_SHARED_LIBS OFF)
     set(LITEHTML_BUILD_TESTING OFF)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../external/litehtml"
-        "${CMAKE_CURRENT_BINARY_DIR}/litehtml" EXCLUDE_FROM_ALL)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/detail/Litehtml.cmake")
 endfunction()
 nemodev_html_dependencies()
 

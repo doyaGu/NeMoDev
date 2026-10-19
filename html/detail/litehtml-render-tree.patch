@@ -1,0 +1,259 @@
+diff --git a/include/litehtml/document.h b/include/litehtml/document.h
+--- a/include/litehtml/document.h
++++ b/include/litehtml/document.h
+@@ -96,6 +96,7 @@
+ 		std::shared_ptr<element>		create_element(const char* tag_name, const string_map& attributes);
+ 		std::shared_ptr<element>		root();
+ 		std::shared_ptr<render_item>	root_render();
++		void rebuild_render_tree();
+ 		void							get_fixed_boxes(position::vector& fixed_boxes);
+ 		void							add_fixed_box(const position& pos);
+ 		void							add_media_list(media_query_list_list::ptr list);
+diff --git a/src/document.cpp b/src/document.cpp
+--- a/src/document.cpp
++++ b/src/document.cpp
+@@ -495,6 +495,16 @@
+ 	return add_font(descr, fm);
+ }
+ 
++void document::rebuild_render_tree()
++{
++	// Keep source elements and input state, retiring the previous formatting tree.
++	m_tabular_elements.clear();
++	m_root_render = m_root->create_render_item(nullptr);
++	fix_tables_layout();
++	if(m_root_render)
++		m_root_render = m_root_render->init();
++}
++
+ pixel_t document::render( pixel_t max_width, render_type rt )
+ {
+ 	pixel_t ret = 0;
+@@ -532,7 +542,8 @@
+ {
+ 	if(m_root && m_root_render)
+ 	{
+-		m_root->draw(hdc, x, y, clip, m_root_render);
++		if(m_root_render->is_visible())
++			m_root->draw(hdc, x, y, clip, m_root_render);
+ 		m_root_render->draw_stacking_context(hdc, x, y, clip, true);
+ 	}
+ }
+diff --git a/src/element.cpp b/src/element.cpp
+--- a/src/element.cpp
++++ b/src/element.cpp
+@@ -206,6 +206,9 @@
+ 
+ void element::add_render(const std::shared_ptr<render_item>& ri)
+ {
++	m_renders.erase(std::remove_if(m_renders.begin(), m_renders.end(),
++		[](const std::weak_ptr<render_item>& old) { return old.expired(); }),
++		m_renders.end());
+ 	m_renders.push_back(ri);
+ }
+ 
+diff --git a/include/litehtml/render_item.h b/include/litehtml/render_item.h
+--- a/include/litehtml/render_item.h
++++ b/include/litehtml/render_item.h
+@@ -417,9 +417,14 @@
+                    !is_one_of(css().get_overflow(), overflow_hidden, overflow_scroll, overflow_auto);
+         }
+ 
++        bool has_layout() const
++        {
++            return !m_skip && src_el()->css().get_display() != display_none;
++        }
++
+         bool is_visible() const
+         {
+-            return !(m_skip || src_el()->css().get_display() == display_none || src_el()->css().get_visibility() != visibility_visible);
++            return has_layout() && src_el()->css().get_visibility() == visibility_visible;
+         }
+ 
+ 		bool is_flex_item() const
+diff --git a/src/render_item.cpp b/src/render_item.cpp
+--- a/src/render_item.cpp
++++ b/src/render_item.cpp
+@@ -682,7 +682,7 @@
+ 
+ void litehtml::render_item::get_redraw_box(litehtml::position& pos, pixel_t x /*= 0*/, pixel_t y /*= 0*/)
+ {
+-    if(is_visible())
++    if(has_layout())
+     {
+         pixel_t p_left		= std::min(pos.left(),	x + m_pos.left() - m_padding.left - m_borders.left);
+         pixel_t p_right		= std::max(pos.right(), x + m_pos.right() + m_padding.left + m_borders.left);
+@@ -711,7 +711,7 @@
+ {
+ 	if(css().get_display() != display_inline && css().get_display() != display_table_row)
+ 	{
+-		if(is_visible())
++		if(has_layout())
+ 		{
+ 			if(src_el()->css().get_position() != element_position_fixed)
+ 			{
+@@ -767,7 +767,7 @@
+ 
+ void litehtml::render_item::draw_stacking_context( uint_ptr hdc, pixel_t x, pixel_t y, const position* clip, bool with_positioned )
+ {
+-    if(!is_visible()) return;
++    if(!has_layout()) return;
+ 
+     std::map<int, bool> z_indexes;
+     if(with_positioned)
+@@ -840,7 +840,7 @@
+ 
+     for (const auto& el : m_children)
+     {
+-        if (el->is_visible())
++        if (el->has_layout())
+         {
+             bool process = true;
+             switch (flag)
+@@ -851,12 +851,18 @@
+                         if (el->src_el()->css().get_position() == element_position_fixed)
+ 						{
+ 							// Fixed elements position is always relative to the (0,0)
+-                            el->src_el()->draw(hdc, 0, 0, clip, el);
++                            if (el->is_visible())
++                            {
++                                el->src_el()->draw(hdc, 0, 0, clip, el);
++                            }
+                             el->draw_stacking_context(hdc, 0, 0, clip, true);
+                         }
+                         else
+                         {
+-                            el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
++                            if (el->is_visible())
++                            {
++                                el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
++                            }
+                             el->draw_stacking_context(hdc, pos.x, pos.y, clip, true);
+                         }
+                         process = false;
+@@ -865,13 +871,19 @@
+                 case draw_block:
+                     if (!el->src_el()->is_inline() && el->src_el()->css().get_float() == float_none && !el->src_el()->is_positioned())
+                     {
+-                        el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
++                        if (el->is_visible())
++                        {
++                            el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
++                        }
+                     }
+                     break;
+                 case draw_floats:
+                     if (el->src_el()->css().get_float() != float_none && !el->src_el()->is_positioned())
+                     {
+-                        el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
++                        if (el->is_visible())
++                        {
++                            el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
++                        }
+                         el->draw_stacking_context(hdc, pos.x, pos.y, clip, false);
+                         process = false;
+                     }
+@@ -879,7 +891,10 @@
+                 case draw_inlines:
+                     if (el->src_el()->is_inline() && el->src_el()->css().get_float() == float_none && !el->src_el()->is_positioned())
+                     {
+-                        el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
++                        if (el->is_visible())
++                        {
++                            el->src_el()->draw(hdc, pos.x, pos.y, clip, el);
++                        }
+                         if (el->src_el()->css().get_display() == display_inline_block || el->src_el()->css().get_display() == display_inline_flex)
+                         {
+                             el->draw_stacking_context(hdc, pos.x, pos.y, clip, false);
+@@ -939,7 +954,7 @@
+     {
+         const auto& el = *i;
+ 
+-        if(el->is_visible() && el->src_el()->css().get_display() != display_inline_text)
++        if(el->has_layout() && el->src_el()->css().get_display() != display_inline_text)
+         {
+         	bool process = true;
+             switch(flag)
+@@ -950,7 +965,7 @@
+                         if(el->src_el()->css().get_position() == element_position_fixed)
+                         {
+                             ret = el->get_element_by_point(client_x, client_y, client_x, client_y, check);
+-                            if(!ret && el->is_point_inside(client_x, client_y))
++                            if(!ret && el->is_visible() && el->is_point_inside(client_x, client_y))
+                             {
+ 								if (!check || check(el))
+ 								{
+@@ -960,7 +975,7 @@
+                         } else
+                         {
+                             ret = el->get_element_by_point(el_pos.x, el_pos.y, client_x, client_y, check);
+-                            if(!ret && el->is_point_inside(el_pos.x, el_pos.y))
++                            if(!ret && el->is_visible() && el->is_point_inside(el_pos.x, el_pos.y))
+                             {
+ 								if (!check || check(el))
+ 								{
+@@ -976,7 +991,7 @@
+                     {
+                         ret = el->get_child_by_point(el_pos.x, el_pos.y, client_x, client_y, flag, zindex, check);
+ 
+-                    	if(!ret && el->is_point_inside(el_pos.x, el_pos.y))
++                    	if(!ret && el->is_visible() && el->is_point_inside(el_pos.x, el_pos.y))
+                         {
+ 							if (!check || check(el))
+ 							{
+@@ -991,7 +1006,7 @@
+                     {
+                         ret = el->get_element_by_point(el_pos.x, el_pos.y, client_x, client_y, check);
+ 
+-                        if(!ret && el->is_point_inside(el_pos.x, el_pos.y))
++                        if(!ret && el->is_visible() && el->is_point_inside(el_pos.x, el_pos.y))
+                         {
+                             ret = el->src_el();
+                         }
+@@ -1008,7 +1023,7 @@
+                             ret = el->get_element_by_point(el_pos.x, el_pos.y, client_x, client_y, check);
+                             process = false;
+                         }
+-                        if(!ret && el->is_point_inside(el_pos.x, el_pos.y))
++                        if(!ret && el->is_visible() && el->is_point_inside(el_pos.x, el_pos.y))
+                         {
+                         	if (!check || check(el))
+                         	{
+@@ -1077,7 +1092,7 @@
+ 
+ std::shared_ptr<litehtml::element> litehtml::render_item::get_element_by_point(pixel_t x, pixel_t y, pixel_t client_x, pixel_t client_y, const std::function<bool(const std::shared_ptr<render_item>&)>& check)
+ {
+-    if(!is_visible()) return nullptr;
++    if(!has_layout()) return nullptr;
+ 
+     element::ptr ret;
+ 
+@@ -1127,7 +1142,7 @@
+ 
+     if(src_el()->css().get_position() == element_position_fixed)
+     {
+-        if(is_point_inside(client_x, client_y))
++        if(is_visible() && is_point_inside(client_x, client_y))
+         {
+ 			if (!check || check(this->shared_from_this()))
+ 			{
+@@ -1137,7 +1152,7 @@
+         }
+     } else
+     {
+-        if(is_point_inside(x, y))
++        if(is_visible() && is_point_inside(x, y))
+         {
+ 			if (!check || check(this->shared_from_this()))
+ 			{
+diff --git a/src/el_text.cpp b/src/el_text.cpp
+--- a/src/el_text.cpp
++++ b/src/el_text.cpp
+@@ -32,6 +32,7 @@
+ 		css_w().line_height_w() = el_parent->css().line_height();
+ 		css_w().set_font(el_parent->css().get_font());
+ 		css_w().set_font_metrics(el_parent->css().get_font_metrics());
++		css_w().set_visibility(el_parent->css().get_visibility());
+ 		css_w().set_white_space(el_parent->css().get_white_space());
+ 		css_w().set_text_transform(el_parent->css().get_text_transform());
+ 	}

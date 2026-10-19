@@ -3,3 +3,6 @@
 # Keep upstream license formatting and stable notice checksums.
 /licenses/*.txt text eol=lf whitespace=-blank-at-eol,-blank-at-eof
 /resources/fonts/*.txt text eol=lf whitespace=-blank-at-eol,-blank-at-eof
+
+# Unified diff context preserves source indentation and empty lines.
+/html/detail/*.patch text eol=lf whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

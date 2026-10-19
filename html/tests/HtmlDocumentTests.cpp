@@ -488,6 +488,9 @@ static void InteractionRefreshesReadableText() {
     Check(document.Text().find("Details") == std::string::npos, "Hidden text was exposed before interaction");
     document.Hover({box.x + 2, box.y + 2});
     Check(document.Text().find("Details") != std::string::npos, "Hover did not refresh readable text");
+    document.Draw({}, {0, 0, 400, 300});
+    Check(std::any_of(device.text.begin(), device.text.end(), [](const auto &draw) { return draw.text == "Details"; }),
+          "A newly displayed hover span did not join the rendering tree");
     document.Leave();
     Check(document.Text().find("Details") == std::string::npos, "Leaving retained hidden hover text");
     document.SetVisited({"book://manual/topics/next"});
@@ -695,6 +698,28 @@ static void RepeatedImagesOnlyPaintVisibleTiles() {
     for (const auto &rect : device.images)
         Check(rect.y >= 4000 && rect.y < 4080, "Repeat alignment was not retained after clipping");
 }
+static void VisibilityPreservesVisibleDescendants() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><div style='visibility:hidden;height:40px'>Hidden"
+                   "<span style='visibility:visible'>Visible</span>"
+                   "<a href=next style='visibility:visible'>VisibleLink</a></div><p id=after>After</p>");
+    document.Draw({}, {0, 0, 400, 300});
+    Check(
+        std::none_of(device.text.begin(), device.text.end(), [](const auto &draw) { return draw.text == "Hidden"; }) &&
+            std::any_of(device.text.begin(), device.text.end(),
+                        [](const auto &draw) { return draw.text == "Visible"; }),
+        "Visibility inheritance suppressed an explicitly visible descendant");
+    Check(document.Text().find("Hidden") == std::string::npos && document.Text().find("Visible") != std::string::npos,
+          "Readable text did not follow inherited visibility");
+    HtmlPoint after;
+    Check(document.FindAnchor("after", after) && after.y >= 40, "Hidden content stopped reserving its layout height");
+    Check(document.Links().size() == 1, "A visible link inside hidden content was lost");
+    const auto box = document.Links().front().bounds.front();
+    Check(document.HitTest({box.x + 2, box.y + 2}).link == document.Links().front().id,
+          "A visible descendant was painted but could not be hit");
+}
 int main() {
     try {
         CascadeAndResources();
@@ -722,6 +747,7 @@ int main() {
         WrappedAnchorsStartAtFirstFragment();
         EmptyClipsStayEmpty();
         RepeatedImagesOnlyPaintVisibleTiles();
+        VisibilityPreservesVisibleDescendants();
         GradientPixels();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;
