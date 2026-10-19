@@ -78,6 +78,36 @@ void HelpWindow::FollowLink(const std::string &link) {
     else m_Pending = link;
 }
 
+void HelpWindow::DrawImageAreas(const HelpDrawing &image, ImVec2 origin) {
+    if (!image.source || image.source->imageAreas.empty()) return;
+    const ImVec2 mouse = ImGui::GetMousePos();
+    const float x = (mouse.x - origin.x) / image.size.x, y = (mouse.y - origin.y) / image.size.y;
+    const HelpImageArea *hit = nullptr;
+    for (const auto &area : image.source->imageAreas) if (area.Contains(x, y)) { hit = &area; break; }
+    for (const auto &area : image.source->imageAreas) {
+        ImVec2 minimum(1, 1), maximum(0, 0);
+        for (size_t i = 0; i < area.points.size(); i += 2) {
+            minimum.x = std::min(minimum.x, area.points[i]); minimum.y = std::min(minimum.y, area.points[i+1]);
+            maximum.x = std::max(maximum.x, area.points[i]); maximum.y = std::max(maximum.y, area.points[i+1]);
+        }
+        minimum = ImVec2(origin.x + std::max(0.0f, minimum.x) * image.size.x, origin.y + std::max(0.0f, minimum.y) * image.size.y);
+        maximum = ImVec2(origin.x + std::min(1.0f, maximum.x) * image.size.x, origin.y + std::min(1.0f, maximum.y) * image.size.y);
+        if (maximum.x <= minimum.x || maximum.y <= minimum.y) continue;
+        ImGui::PushID(&area); ImGui::SetCursorScreenPos(minimum);
+        if (ImGui::InvisibleButton((area.title + "##help-area").c_str(), ImVec2(maximum.x - minimum.x, maximum.y - minimum.y), ImGuiButtonFlags_EnableNav)) {
+            // The first matching area in source order wins, including overlapping
+            // polygons. A polygon's rectangular navigation bounds are not its hit area.
+            if (!ImGui::IsMouseReleased(ImGuiMouseButton_Left)) FollowLink(area.link);
+            else if (hit) FollowLink(hit->link);
+        }
+        if (hit && ImGui::IsItemHovered()) {
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand); ImGui::SetTooltip("%s", hit->link.c_str());
+        }
+        if (ImGui::IsItemFocused()) ImGui::GetWindowDrawList()->AddRect(minimum, maximum, 0xff0033ff);
+        ImGui::PopID();
+    }
+}
+
 void HelpWindow::DrawPage(const HelpTopic &topic) {
     const float width = ImGui::GetContentRegionAvail().x;
     const float scale = ImGui::GetFontSize() / 14.0f * m_Zoom;
@@ -93,7 +123,8 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
         const ImVec2 at(origin.x + item.position.x, origin.y + item.position.y);
         const ImVec2 end(at.x + item.size.x, at.y + item.size.y);
         unsigned color = item.color, flags = item.flags;
-        if (!item.link.empty() && item.size.x > 0 && item.size.y > 0) {
+        if (!item.link.empty() && item.size.x > 0 && item.size.y > 0 &&
+            (item.kind != HelpDrawing::Image || !item.source || item.source->imageAreas.empty())) {
             ImGui::SetCursorScreenPos(at); ImGui::PushID(static_cast<int>(i));
             if (ImGui::InvisibleButton((item.text + "##help-link").c_str(), item.size, ImGuiButtonFlags_EnableNav)) FollowLink(item.link);
             const auto *target = m_Book.Find(item.link);
@@ -113,6 +144,7 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
                 ++m_ShownImages;
 #endif
             } else draw->AddText(at, 0xff0000a0, ("[Missing image: " + item.image + "]").c_str());
+            ImGui::PushID(static_cast<int>(i)); DrawImageAreas(item, at); ImGui::PopID();
         } else {
             if (item.background) draw->AddRectFilled(at, end, item.background);
             const int first = draw->VtxBuffer.Size;

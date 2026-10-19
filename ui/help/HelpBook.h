@@ -20,10 +20,18 @@ struct HelpAppearance {
     unsigned hoverFlags = 0, visitedFlags = 0;
 };
 
+struct HelpImageArea {
+    enum Shape { Rectangle, Polygon };
+    Shape shape = Rectangle;
+    std::string link, title;
+    std::vector<float> points; // normalized to the source image's dimensions
+    bool Contains(float x, float y) const;
+};
 struct HelpSpan {
     std::string text, link, image, anchor;
     HelpAppearance appearance;
     unsigned imageWidth = 0, imageHeight = 0;
+    std::vector<HelpImageArea> imageAreas;
 };
 struct HelpBlock {
     enum Kind { Paragraph, Heading, Preformatted, ListItem, Rule, Table, Row, Cell, Group };

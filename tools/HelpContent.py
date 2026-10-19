@@ -4,6 +4,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 import posixpath
 import re
+import math
 import struct
 import tempfile
 from urllib.parse import unquote, urlsplit
@@ -91,7 +92,7 @@ def anchors(node):
     names = [node.attrs.get("id", "")]
     if node.tag == "a":
         names.append(node.attrs.get("name", ""))
-    return [["", "", "", name, node.appearance, 0, 0] for name in dict.fromkeys(names) if name]
+    return [["", "", "", name, node.appearance, 0, 0, []] for name in dict.fromkeys(names) if name]
 
 
 def marked(block, node):
@@ -118,7 +119,7 @@ def blocks(children, topic, link="", pre=False, appearance=None):
         if isinstance(node, str):
             text = node if pre else re.sub(r"[ \t\r\n\f]+", " ", node)
             if text:
-                spans.append([text, target, "", "", text_style, 0, 0])
+                spans.append([text, target, "", "", text_style, 0, 0, []])
             return
         if node.tag in {"head", "script", "style", "object", "noscript"}:
             return
@@ -131,9 +132,9 @@ def blocks(children, topic, link="", pre=False, appearance=None):
                 if attrs.get("onclick"):
                     target = "unsupported:" + attrs["onclick"]
         if node.tag == "br":
-            spans.append(["\n", "", "", "", text_style, 0, 0])
+            spans.append(["\n", "", "", "", text_style, 0, 0, []])
         elif node.tag == "img":
-            spans.append([attrs.get("alt", ""), target, reference(topic, attrs.get("src", "")), "", text_style, 0, 0])
+            spans.append([attrs.get("alt", ""), target, reference(topic, attrs.get("src", "")), "", text_style, 0, 0, attrs.get("usemap", "")])
         else:
             for child in node.children:
                 inline(child, target, text_style)
@@ -223,16 +224,44 @@ def blocks(children, topic, link="", pre=False, appearance=None):
     return result
 
 
-def compile_help(root, tree, home, decode):
+def image_areas(node, topic, width, height, diagnostics):
+    result = []
+    for area in elements(node, "area"):
+        if not area.attrs.get("href") or "nohref" in area.attrs:
+            continue
+        shape = {"rect": 0, "poly": 1, "polygon": 1}.get(area.attrs.get("shape", "rect").lower())
+        try:
+            points = [float(value) for value in re.split(r"[,\s]+", area.attrs.get("coords", "").strip())]
+            valid = width and height and len(points) % 2 == 0 and all(math.isfinite(n) for n in points)
+            valid = valid and ((shape == 0 and len(points) == 4 and points[2] > points[0] and points[3] > points[1]) or
+                              (shape == 1 and len(points) >= 6))
+            if not valid:
+                raise ValueError()
+            normalized = [value / (width if at % 2 == 0 else height) for at, value in enumerate(points)]
+            if any(abs(value) > 10000 for value in normalized):
+                raise ValueError()
+        except ValueError:
+            diagnostics.append({"topic": topic, "coords": area.attrs.get("coords", ""), "reason": "Invalid image map area"})
+            continue
+        link = reference(topic, area.attrs["href"])
+        label = area.attrs.get("alt") or area.attrs.get("title") or posixpath.basename(link)
+        result.append((shape, link, label, normalized))
+    return result
+
+
+def compile_help(root, tree, home, decode, diagnostics=None):
     from PIL import Image
     pages = []
     assets = {file.relative_to(root).as_posix().casefold(): file for file in root.rglob("*") if file.is_file()}
     image_sizes = {}
+    diagnostics = diagnostics if diagnostics is not None else []
     for file in sorted(root.rglob("*")):
         if file.suffix.lower() not in {".html", ".htm"} or file.name == "VirtoolsDevHelp.html":
             continue
         topic = file.relative_to(root).as_posix()
         document = Document(decode(file.read_bytes()))
+        maps = {name.casefold(): node for node in elements(document.root, "map")
+                for name in (node.attrs.get("name", ""), node.attrs.get("id", "")) if name}
         rules = []
         for css in elements(document.root, "link"):
             if css.attrs.get("rel", "").lower() == "stylesheet":
@@ -261,6 +290,14 @@ def compile_help(root, tree, home, decode):
                         except (OSError, AttributeError):
                             image_sizes[key] = (0, 0)
                     span[5], span[6] = image_sizes[key]
+                    usemap = span[7]
+                    span[7] = []
+                    if usemap:
+                        node = maps.get(unquote(usemap.removeprefix("#")).casefold())
+                        if node:
+                            span[7] = image_areas(node, topic, span[5], span[6], diagnostics)
+                        else:
+                            diagnostics.append({"topic": topic, "reason": "Missing image map", "map": usemap})
                 sizes(item[3])
         sizes(content)
         pages.append((topic, plain(title).strip() if title else file.stem, body.appearance, content))
@@ -280,12 +317,19 @@ def compile_help(root, tree, home, decode):
                 integer(value)
                 write_appearance(appearance)
                 integer(len(spans))
-                for text, link, image, anchor, appearance, width, height in spans:
+                for text, link, image, anchor, appearance, width, height, areas in spans:
                     for field in (text, link, image, anchor):
                         string(field)
                     write_appearance(appearance)
                     integer(width)
                     integer(height)
+                    integer(len(areas))
+                    for shape, target, label, points in areas:
+                        integer(shape)
+                        string(target)
+                        string(label)
+                        integer(len(points))
+                        stream.write(struct.pack("<" + "f" * len(points), *points))
                 write_blocks(children)
         def write_appearance(style):
             for value in (style.color, style.background, style.flags, style.align, style.valign, style.floating):
@@ -304,7 +348,7 @@ def compile_help(root, tree, home, decode):
                 string(node["name"])
                 string(node.get("local", ""))
                 contents(node["children"])
-        stream.write(b"NDEVHLP2")
+        stream.write(b"NDEVHLP3")
         string(home)
         contents(tree)
         integer(len(pages))

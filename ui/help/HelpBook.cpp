@@ -9,6 +9,19 @@
 #include <stdexcept>
 
 namespace vdev {
+bool HelpImageArea::Contains(float x, float y) const {
+    if (x < 0 || y < 0 || x > 1 || y > 1) return false;
+    if (shape == Rectangle) return points.size() == 4 && x >= points[0] && y >= points[1] && x <= points[2] && y <= points[3];
+    if (points.size() < 6 || points.size() % 2) return false;
+    bool inside = false;
+    for (size_t i = 0, j = points.size() - 2; i < points.size(); j = i, i += 2) {
+        const float xi = points[i], yi = points[i+1], xj = points[j], yj = points[j+1];
+        if (std::fabs((x - xi) * (yj - yi) - (y - yi) * (xj - xi)) < 0.000001f &&
+            x >= std::min(xi, xj) && x <= std::max(xi, xj) && y >= std::min(yi, yj) && y <= std::max(yi, yj)) return true;
+        if ((yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+}
 static std::string HelpLower(std::string text) {
     for (char &c : text) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
     return text;
@@ -46,7 +59,7 @@ public:
         file.seekg(0);
         char magic[8];
         Read(magic, 8);
-        if (std::string(magic, 8) != "NDEVHLP2") throw std::runtime_error("Unsupported help content version.");
+        if (std::string(magic, 8) != "NDEVHLP3") throw std::runtime_error("Unsupported help content version.");
     }
     unsigned Number(unsigned limit = 100000) {
         unsigned char bytes[4];
@@ -106,10 +119,24 @@ public:
             block.kind = static_cast<HelpBlock::Kind>(Number(HelpBlock::Group));
             block.value = Number(10000);
             block.appearance = Appearance();
-            block.spans.resize(Count(144));
+            block.spans.resize(Count(148));
             for (auto &span : block.spans) {
                 span.text = Text(); span.link = Text(); span.image = Text(); span.anchor = Text();
                 span.appearance = Appearance(); span.imageWidth = Number(100000); span.imageHeight = Number(100000);
+                span.imageAreas.resize(Count(32, 1000));
+                for (auto &area : span.imageAreas) {
+                    area.shape = static_cast<HelpImageArea::Shape>(Number(HelpImageArea::Polygon));
+                    area.link = Text(); area.title = Text(); area.points.resize(Count(4, 2048));
+                    if ((area.shape == HelpImageArea::Rectangle && area.points.size() != 4) ||
+                        (area.shape == HelpImageArea::Polygon && (area.points.size() < 6 || area.points.size() % 2)))
+                        throw std::runtime_error("Invalid help image map.");
+                    for (float &point : area.points) {
+                        const unsigned bits = Number(0xffffffffu); std::memcpy(&point, &bits, sizeof(point));
+                        if (!std::isfinite(point) || std::fabs(point) > 10000) throw std::runtime_error("Invalid image map coordinate.");
+                    }
+                    if (area.shape == HelpImageArea::Rectangle && (area.points[2] <= area.points[0] || area.points[3] <= area.points[1]))
+                        throw std::runtime_error("Invalid image map rectangle.");
+                }
             }
             block.children = Blocks(depth + 1);
         }

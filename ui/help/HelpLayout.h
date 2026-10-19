@@ -15,6 +15,7 @@ struct HelpDrawing {
     unsigned hoverFlags = 0, visitedFlags = 0;
     float fontSize = 0.0f, thickness = 1.0f;
     ImFont *font = nullptr;
+    const HelpSpan *source = nullptr; // borrowed from the immutable topic
 };
 struct HelpPageLayout {
     std::vector<HelpDrawing> drawings;

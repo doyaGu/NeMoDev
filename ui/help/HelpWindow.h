@@ -23,6 +23,7 @@ private:
     void History(int direction);
     void Contents(const std::vector<HelpContents> &items);
     void DrawPage(const HelpTopic &topic);
+    void DrawImageAreas(const HelpDrawing &image, ImVec2 origin);
     void FollowLink(const std::string &link);
     UiTexture *Image(const std::string &path);
     struct Visit { std::string topic; ImVec2 scroll; };

@@ -194,6 +194,8 @@ def resolve(node, rules, parent=None, state=""):
         style.margin[0] = style.margin[2] = style.size * 0.67
     if tag in ("td", "th"):
         style.padding = [style.cell_padding] * 4
+    if tag == "table":
+        style.valign = 1
     for key in ("cellpadding", "cellspacing"):
         parsed = length(attrs.get(key, ""))
         if parsed is not None:
@@ -212,6 +214,8 @@ def resolve(node, rules, parent=None, state=""):
         style.floating = 1 if attrs["align"].lower() == "left" else 2
     else:
         style.align = {"left": 0, "center": 1, "right": 2}.get(attrs.get("align", "").lower(), style.align)
+    if tag == "img":
+        style.valign = {"top": 0, "middle": 1, "absmiddle": 1, "bottom": 2, "baseline": 2}.get(attrs.get("align", "").lower(), style.valign)
     style.valign = {"top": 0, "middle": 1, "bottom": 2}.get(attrs.get("valign", "").lower(), style.valign)
     if tag == "center":
         style.align = 1

@@ -229,6 +229,35 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, sampleY - 120.0f), ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(4);
         IM_CHECK(HelpFrame(ctx, "image-columns.png"));
     };
+    t = IM_REGISTER_TEST(engine, "help", "image_map_navigation_and_scaling");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Level Manager");
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"concepts/class_hierarchy.html"}); });
+        ctx->Yield(4);
+        for (float zoom : {0.75f, 2.0f}) {
+            ctx->ItemInputValue("//Help/Zoom", zoom); ctx->Yield(5);
+            float imageWidth = 0, imageLeft = 0, imageTop = 0;
+            for (const auto &item : App().Help().PageLayout().drawings)
+                if (item.kind == vdev::HelpDrawing::Image && item.source && !item.source->imageAreas.empty()) { imageWidth = item.size.x; imageLeft = item.position.x; imageTop = item.position.y; }
+            IM_CHECK_GT(imageWidth, 0);
+            ImGuiWindow *article = HelpArticle(ctx);
+            IM_CHECK(article);
+            ctx->ScrollTo(article->ID, ImGuiAxis_X, std::max(0.0f, imageLeft + imageWidth * 348.5f / 697.0f - article->InnerRect.GetWidth() / 2), ImGuiTestOpFlags_NoFocusWindow);
+            const float imageY = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + imageTop;
+            ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, article->Scroll.y + imageY - article->InnerRect.Min.y - 100), ImGuiTestOpFlags_NoFocusWindow);
+            ctx->Yield(3);
+            const auto area = ctx->ItemInfo("//Help/**/1_ckbeobject.html##help-area");
+            IM_CHECK(std::fabs(area.RectFull.GetWidth() / imageWidth - 95.0f / 697.0f) < 0.001f);
+            if (zoom < 1) ctx->ItemClick(area.ID);
+            else ctx->ItemNavActivate(area.ID);
+            ctx->Yield(4);
+            IM_CHECK(App().Help().CurrentTopic() == "beobjects/1_ckbeobject.html");
+            ctx->ItemClick("//Help/Back"); ctx->Yield(4);
+            IM_CHECK(App().Help().CurrentTopic() == "concepts/class_hierarchy.html");
+        }
+        IM_CHECK(HelpFrame(ctx, "image-map-zoom.png"));
+    };
     t = IM_REGISTER_TEST(engine, "help", "reference_layout_at_multiple_widths");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

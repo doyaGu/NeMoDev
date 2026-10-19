@@ -9,11 +9,31 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from ExtractHelp import Contents, correct_topic_case, decode
-from HelpContent import Document, blocks, compile_help, reference
+from HelpContent import Document, blocks, compile_help, reference, image_areas
 from HelpStyles import resolve_styles, stylesheet
 
 
 class HelpContentTests(unittest.TestCase):
+    def test_image_maps_and_alignment(self):
+        document = Document('<map name="m"><area shape="rect" coords="0,0,50,40" href="other.html#top">'
+                            '<area shape="poly" coords="0,0,100,0,0,80" href="#top">'
+                            '<area shape="poly" coords="526,98,480,73" href="#"></map>')
+        issues = []
+        areas = image_areas(document.root.children[0], 'topics/page.html', 100, 80, issues)
+        self.assertEqual(len(areas), 2)
+        self.assertEqual(areas[0][1], 'topics/other.html#top')
+        self.assertEqual(areas[0][3], [0, 0, .5, .5])
+        self.assertEqual(areas[1][3], [0, 0, 1, 0, 0, 1])
+        self.assertEqual(len(issues), 1)
+        self.assertEqual(issues[0]['coords'], '526,98,480,73')
+        document = Document('<body><img align="bottom"><img align="absmiddle">'
+                            '<table><tr><td>A<td valign="top">B</table></body>')
+        resolve_styles(document.root, [])
+        body = document.root.children[0]
+        self.assertEqual([n.appearance.valign for n in body.children[:2]], [2, 1])
+        cells = body.children[2].children[0].children
+        self.assertEqual([n.appearance.valign for n in cells], [1, 0])
+
     def test_element_ids_and_named_anchors(self):
         document = Document('<body><h3 id="heading">Title</h3><div id="section">Text</div>'
                             '<table id="table"><tr id="row"><td id="cell">Value</table>'
@@ -90,7 +110,8 @@ class HelpContentTests(unittest.TestCase):
             previous = b'previous compiled book'
             (root / 'help.ndh').write_bytes(previous)
             (root / 'index.html').write_text('<body>Content</body>', encoding='utf-8')
-            with patch('HelpContent.struct.pack', side_effect=OSError('Write failed')):
+            with patch('HelpContent.struct') as binary:
+                binary.pack.side_effect = OSError('Write failed')
                 with self.assertRaises(OSError):
                     compile_help(root, [], 'index.html', decode)
             self.assertEqual((root / 'help.ndh').read_bytes(), previous)
@@ -130,13 +151,17 @@ def native_fixture(binary, real):
     with tempfile.TemporaryDirectory(prefix="nemodev-help-") as temporary:
         root = Path(temporary)
         (root / "images").mkdir()
-        (root / "images" / "Diagram.PNG").write_bytes(b"image")
+        from PIL import Image
+        Image.new('RGBA', (100, 80), 'white').save(root / "images" / "Diagram.PNG")
         (root / "index.html").write_text('<html><title>Reference</title><body><h1>Reference</h1>'
                                         '<p>Home <a href="topic%20two.html#inputs">Inputs</a></p></body></html>', encoding="utf-8")
         (root / "topic two.html").write_text('<html><meta charset="utf-8"><title>Key Event BB</title><body>'
                                             '<h3><a name="inputs"></a>Inputs</h3><p><span class="pin">Key:</span> '
                                             'Activates when pressed. Caf\u00e9 \u4e2d\u6587 Para<b>meter</b></p>'
-                                            '<img src="images/diagram.png"><table><tr><td>On<td>Off</table>'
+                                            '<img src="images/diagram.png" usemap="#Demo">'
+                                            '<map name="Demo"><area shape="rect" coords="0,0,50,40" href="index.html">'
+                                            '<area shape="poly" coords="0,0,100,0,0,80" href="index.html"></map>'
+                                            '<table><tr><td>On<td>Off</table>'
                                             '</body></html>', encoding="utf-8")
         tree = Contents()
         tree.feed('<ul><li><object type="text/sitemap"><param name="Name" value="Home">'

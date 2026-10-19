@@ -15,6 +15,13 @@ static std::string Text(const std::vector<vdev::HelpBlock> &blocks) {
     }
     return text;
 }
+static const vdev::HelpSpan *Image(const std::vector<vdev::HelpBlock> &blocks) {
+    for (const auto &block : blocks) {
+        for (const auto &span : block.spans) if (!span.image.empty()) return &span;
+        if (const auto *image = Image(block.children)) return image;
+    }
+    return nullptr;
+}
 int main(int argc, char **argv) {
     try {
         Check(argc >= 2, "Missing help fixture");
@@ -29,6 +36,11 @@ int main(int argc, char **argv) {
         Check(topic->appearance.background == 0xffffffff && topic->blocks[0].appearance.size == 16.0f &&
               (topic->blocks[0].appearance.flags & vdev::HelpAppearance::Bold), "Resolved presentation was lost");
         Check(Text(topic->blocks).find(u8"Caf\u00e9 \u4e2d\u6587") != std::string::npos, "Help UTF-8 text was changed");
+        const auto *diagram = Image(topic->blocks);
+        Check(diagram && diagram->imageAreas.size() == 2 && diagram->imageWidth == 100 && diagram->imageHeight == 80,
+              "Image dimensions or hotspots were lost");
+        Check(diagram->imageAreas[0].Contains(.25f, .25f) && !diagram->imageAreas[0].Contains(.75f, .25f), "Rectangle hit testing failed");
+        Check(diagram->imageAreas[1].Contains(.1f, .1f) && !diagram->imageAreas[1].Contains(.9f, .9f), "Polygon hit testing used its bounding box");
         const auto results = book.Search("EVENT pressed");
         Check(results.size() == 1 && results.front() == topic, "Full-text search did not combine its terms");
         Check(book.Search("parameter").size() == 1, "Inline formatting split a search word");
@@ -40,7 +52,7 @@ int main(int argc, char **argv) {
         Check(!book.Find("absent.html"), "Missing topic appeared valid");
         const auto invalid = std::filesystem::u8path(argv[1]) / "invalid";
         std::filesystem::create_directory(invalid);
-        { std::ofstream file(invalid / "help.ndh", std::ios::binary); file << "NDEVHLP2\xff\xff\xff\xff"; }
+        { std::ofstream file(invalid / "help.ndh", std::ios::binary); file << "NDEVHLP3\xff\xff\xff\xff"; }
         Check(!book.Load(invalid.u8string(), error) && !error.empty(), "Malformed content appeared valid");
         Check(book.Find("topic two.html") == topic, "Failed load replaced the previous book");
         Check(!book.Load((invalid / "missing").u8string(), error), "Missing optional content appeared installed");
