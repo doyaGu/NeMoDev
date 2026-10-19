@@ -135,21 +135,31 @@ bool Start(ImGuiTestContext *ctx) {
 }
 
 bool ChooseMode(ImGuiTestContext *ctx) {
-    return Read<bool>(ctx, [] {
+    return Read<bool>(ctx, [ctx] {
         CKRenderManager *renderer = App().State().host.Context()->GetRenderManager();
         const auto &p = App().State().preferences;
         const int driver = vdev::LayoutFullScreenDriver(App().State().host.Context(), p.Text("3D Layout\\Player Mode\\FullScren Driver"));
         const VxDriverDesc *desc = renderer->GetRenderDriverDescription(driver);
         const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(SDL_GetDisplayForWindow(EditorWindow()));
         int chosen = -1;
+        float nearestRate = -1.0f;
         for (int i = 0; desc && i < vdev::DisplayModeCount(desc); ++i) {
             const auto &candidate = vdev::DisplayModeAt(desc, i);
             if (candidate.Bpp < 24) continue;
             if (chosen < 0) chosen = i;
-            if (desktop && candidate.Width == desktop->w && candidate.Height == desktop->h) { chosen = i; break; }
+            if (desktop && candidate.Width == desktop->w && candidate.Height == desktop->h) {
+                const float difference = std::fabs(candidate.RefreshRate - desktop->refresh_rate);
+                if (nearestRate < 0.0f || difference < nearestRate) {
+                    chosen = i;
+                    nearestRate = difference;
+                }
+            }
         }
         if (chosen < 0) return false;
         const auto &mode = vdev::DisplayModeAt(desc, chosen);
+        ctx->LogInfo("Fullscreen mode %dx%dx%d at %d Hz; desktop %dx%d at %.3f Hz",
+            mode.Width, mode.Height, mode.Bpp, mode.RefreshRate,
+            desktop ? desktop->w : 0, desktop ? desktop->h : 0, desktop ? desktop->refresh_rate : 0.0f);
         App().State().preferences.Set("3D Layout\\Player Mode\\Render Mode",
             std::to_string(mode.Width) + "x" + std::to_string(mode.Height) + "x" + std::to_string(mode.Bpp) + "x" + std::to_string(mode.RefreshRate));
         return true;
@@ -368,10 +378,21 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             const int frames = App().State().debugger->Frames();
             ctx->Yield(6);
             IM_CHECK_GT(App().State().debugger->Frames(), frames);
+            // Check sustained presentation before any readback can synchronize
+            // the render queue or change the backbuffer being inspected.
+            if (cycle == 0) {
+                ctx->Yield(600);
+                IM_CHECK_GT(App().State().debugger->Frames(), frames + 6);
+            }
+#if defined(_WIN32)
+            const Image beforeReadback = DisplayedImage(ctx);
+            IM_CHECK(SaveImage("fullscreen-before-readback.png", beforeReadback));
+#endif
             const Image full = RenderedImage(ctx);
             IM_CHECK(Nonblank(full));
             IM_CHECK(SaveImage("fullscreen.png", full));
 #if defined(_WIN32)
+            IM_CHECK(DisplaysScene(full, beforeReadback));
             const Image displayed = DisplayedImage(ctx);
             IM_CHECK(SaveImage("fullscreen-desktop.png", displayed));
             IM_CHECK(DisplaysScene(full, displayed));
