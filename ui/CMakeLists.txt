@@ -27,6 +27,8 @@ set(_editor_sources
         app/DuplicateNames.cpp
         app/Preferences.cpp
         app/DesktopFiles.cpp
+        help/HelpBook.cpp
+        help/HelpWindow.cpp
         render/UiRenderer.cpp
         render/ImageFiles.cpp
         # Dev's look and the shared widgets.
@@ -167,6 +169,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ToolsTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PrintTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PlayerTests.cpp)
+    target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/HelpTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/DesktopTests.cpp)
     if(WIN32)
         target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WindowsDialogTests.cpp)

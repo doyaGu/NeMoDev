@@ -63,6 +63,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine);
 void RegisterToolsTests(ImGuiTestEngine *engine);
 void RegisterPrintTests(ImGuiTestEngine *engine);
 void RegisterPlayerTests(ImGuiTestEngine *engine);
+void RegisterHelpTests(ImGuiTestEngine *engine);
 void RegisterDesktopTests(ImGuiTestEngine *engine);
 
 // ---------------------------------------------------------------- the editor's thread

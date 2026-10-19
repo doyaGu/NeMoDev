@@ -1,6 +1,7 @@
 #pragma once
 
 #include <utility>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -71,10 +72,14 @@ struct OpenLinkProperties {};
 // posted): Document::ScriptsRevision tells the Scripts' changes.
 struct RefreshScriptStack {};
 
+// A local reference topic requested by the Building Blocks or Schematic.
+// It contains no CK object and the help window owns the reading history.
+struct ShowHelpTopic { std::string topic; };
+
 using EditorEvent =
     std::variant<ShowElement, ShowObjectSetup, ShowInLevelManager, OpenAddAttribute, ConfirmDeleteObjects,
                  ShowGeneralPreferences, FocusSchematic, OpenSchematicExplorer, OpenLinkProperties,
-                 RefreshScriptStack>;
+                 RefreshScriptStack, ShowHelpTopic>;
 
 class EditorEvents {
 public:

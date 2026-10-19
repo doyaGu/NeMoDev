@@ -15,6 +15,7 @@
 #include "ui/panels/ManagerWindows.h"
 #include "ui/setup/SetupWindows.h"
 #include "ui/tools/ToolWindows.h"
+#include "ui/help/HelpWindow.h"
 
 namespace vdev {
 
@@ -113,6 +114,7 @@ public:
     const EditorPanels &Panels() const { return m_Panels; }
     const SetupWindows &Setups() const { return m_Setups; }
     const ManagerWindows &Managers() const { return m_Managers; }
+    const HelpWindow &Help() const { return m_Help; }
 #endif
 
 private:
@@ -249,6 +251,7 @@ private:
     SetupWindows m_Setups{m_State};
     ManagerWindows m_Managers{m_State};
     ToolWindows m_Tools;
+    HelpWindow m_Help;
     LayoutWindow m_Layout{m_State};
 #ifdef VIRTOOLSDEV_UI_TESTS
     ParameterBox m_StartupValue{m_State}; // --edit-value

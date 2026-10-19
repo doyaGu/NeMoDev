@@ -150,6 +150,10 @@ endif ()
 # "open_from_level_manager" of "setup").
 if (VIRTOOLSDEV_BUILD_UI_TESTS)
     set(_dev_ui_results "${PROJECT_BINARY_DIR}/virtoolsdev-ui")
+    if(VIRTOOLSDEV_HAS_HELP)
+        virtoolsdev_add_test(VirtoolsDevUi.help VirtoolsDevUiTests --ui-tests "^help$"
+                --ui-results "${_dev_ui_results}/help.xml")
+    endif()
     set(_dev_ui_entities "${_dev_data}/BBSamples/3D Transformations/Add Control Point.cmo")
     virtoolsdev_add_test(VirtoolsDevUi.app VirtoolsDevUiTests --ui-tests "^app$" --ui-results "${_dev_ui_results}/app.xml")
     virtoolsdev_add_test(VirtoolsDevUi.filemenu VirtoolsDevUiTests --ui-tests "^filemenu$" --ui-results "${_dev_ui_results}/filemenu.xml")

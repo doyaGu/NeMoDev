@@ -1229,9 +1229,8 @@ void SchematicCanvas::OpenHtmlHelpOf(const BuildingBlockEntry &bb) {
     const BuildingBlockEntry *entry = &bb;
     // documentation.chm (resources/data): behaviors/<top category>/<name>.html.
     const std::string category = entry->category.substr(0, entry->category.find('/'));
-    std::string error;
     const std::string topic = "behaviors/" + AnsiToUtf8(category) + "/" + AnsiToUtf8(entry->name) + ".html";
-    if (!OpenHelpTopic(topic, &error)) m_State.Log(LogLevel::Warning, "Html Help: " + error);
+    m_State.events.Post(ShowHelpTopic{topic});
 }
 
 // Dev's Script header sorts (documentation): the order of the stack.

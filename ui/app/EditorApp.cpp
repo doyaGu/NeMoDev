@@ -321,8 +321,7 @@ void EditorApp::CreateDataResourceDialog() {
 
 void EditorApp::OpenOnlineReference() {
     if (!HelpAvailable()) return;
-    std::string error;
-    if (!OpenHelpTopic("VirtoolsDevHelp.html", &error)) m_State.Log(LogLevel::Warning, "Online Reference: " + error);
+    m_Help.Open();
 }
 
 // Dev keeps its default windows (3D Layout, Building Blocks, Level Manager,
@@ -336,6 +335,7 @@ void EditorApp::CloseSetupsAndManagers() {
 }
 
 void EditorApp::Shutdown() {
+    m_Help.Close();
     m_State.fileDialogs.Close();
     // Toolbar toggles are preferences too.
     Preferences &p = m_State.preferences;
@@ -920,6 +920,8 @@ void EditorApp::GlobalShortcuts() {
     // The Schematic takes F1 (a Building Block's help) and Ctrl+T itself;
     // the Level Manager F3 (its Find Item).
     const ImGuiWindow *focused = ImGui::GetCurrentContext()->NavWindow;
+    if (focused && focused->RootWindow && std::strcmp(focused->RootWindow->Name, "Help") == 0 &&
+        io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F, false)) return;
     const bool levelManager = focused && focused->RootWindow && std::strcmp(focused->RootWindow->Name, "Level Manager") == 0;
     const bool schematic = focused && focused->RootWindow && std::strcmp(focused->RootWindow->Name, SCHEMATIC_WINDOW) == 0;
     // F3 / Shift+F3: the Schematic's Find (once a text was asked), else the
@@ -1046,6 +1048,8 @@ void EditorApp::DispatchEvents() {
             m_Tools.OpenLinkProperties();
         } else if (std::holds_alternative<RefreshScriptStack>(event)) {
             refresh = true;
+        } else if (const ShowHelpTopic *help = std::get_if<ShowHelpTopic>(&event)) {
+            m_Help.Open(help->topic);
         }
     }
     if (refresh) {
@@ -1127,6 +1131,7 @@ void EditorApp::Frame() {
         // The Parameter Debugger and Data Resources join the Building Blocks (Dev's top tab row).
         m_Tools.Draw(blocks ? blocks->DockId : 0, m_FocusSchematic <= 0);
     }
+    m_Help.Draw();
     if (m_State.showDebugger) m_Panels.DebuggerPanel(&m_State.showDebugger);
     // The Script Debugger advances with the UI; shown values follow the run.
     if (m_State.debugger && m_State.HasDocument()) {

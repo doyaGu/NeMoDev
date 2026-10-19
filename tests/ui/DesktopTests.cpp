@@ -7,19 +7,6 @@
 
 #if defined(__linux__)
 #include <gtk/gtkunixprint.h>
-#include <dlfcn.h>
-namespace {
-bool recordHelp = false;
-std::vector<std::string> helpUrls;
-}
-// Observe the real launcher boundary, then forward to SDL. These desktop
-// regressions still open the user's actual browser.
-extern "C" bool SDLCALL SDL_OpenURL(const char *url) {
-    if (recordHelp) helpUrls.emplace_back(url);
-    using Open = bool (SDLCALL *)(const char *);
-    static Open real = reinterpret_cast<Open>(dlsym(RTLD_NEXT, "SDL_OpenURL"));
-    return real ? real(url) : SDL_SetError("Cannot resolve SDL's browser launcher");
-}
 #endif
 
 namespace vdevuitest {
@@ -228,7 +215,8 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
         ctx->ItemInputValue("//Building Blocks/##filter", "Rotate");
         ctx->MouseMove("//Building Blocks/**/Rotate");
         for (int action = 0; action < 3; ++action) {
-            helpUrls.clear(); recordHelp = true;
+            ctx->WindowFocus("//Building Blocks");
+            ctx->MouseMove("//Building Blocks/**/Rotate");
             if (action == 0) ctx->KeyPress(ImGuiKey_F1);
             else if (action == 1) ctx->ItemDoubleClick("//Building Blocks/**/Rotate");
             else {
@@ -236,24 +224,16 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
                 ctx->ItemClick("//$FOCUSED/Html Help");
             }
             ctx->Yield(3);
-            recordHelp = false;
-            for (const auto &url : helpUrls) ctx->LogInfo("Browser: %s", url.c_str());
-            IM_CHECK_EQ(helpUrls.size(), size_t(1));
-            IM_CHECK(helpUrls.front().find("behaviors/3D%20Transformations/Rotate.html") != std::string::npos);
+            IM_CHECK(InFront(ctx, "//Help"));
+            IM_CHECK(App().Help().CurrentTopic() == "behaviors/3D Transformations/Rotate.html");
+            IM_CHECK(App().Help().ShownText().find("Rotate") != std::string::npos);
         }
-        helpUrls.clear(); recordHelp = true;
         ctx->MenuClick("//##MainMenuBar/Help/Online Reference"); ctx->Yield(3);
-        recordHelp = false;
-        for (const auto &url : helpUrls) ctx->LogInfo("Browser: %s", url.c_str());
-        IM_CHECK_EQ(helpUrls.size(), size_t(1));
-        IM_CHECK(helpUrls.front().find("/VirtoolsDevHelp.html") != std::string::npos);
+        IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
         ctx->WindowFocus("//Level Manager"); ctx->MouseMoveToPos(ImVec2(10, 10));
-        helpUrls.clear(); recordHelp = true;
         ctx->KeyPress(ImGuiKey_F1); ctx->Yield(3);
-        recordHelp = false;
-        for (const auto &url : helpUrls) ctx->LogInfo("Browser: %s", url.c_str());
-        IM_CHECK_EQ(helpUrls.size(), size_t(1));
-        IM_CHECK(helpUrls.front().find("/VirtoolsDevHelp.html") != std::string::npos);
+        IM_CHECK(InFront(ctx, "//Help"));
+        IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
     };
 
     t = IM_REGISTER_TEST(engine, "desktopfiles", "native_error");
