@@ -18,8 +18,9 @@ struct HelpDrawing {
 };
 struct HelpPageLayout {
     std::vector<HelpDrawing> drawings;
-    std::map<std::string, float> anchors;
+    std::map<std::string, ImVec2> anchors;
     ImVec2 size;
+    bool Anchor(const std::string &name, ImVec2 &position) const;
 };
 
 // Computes one page from immutable content, font metrics, width and scale.

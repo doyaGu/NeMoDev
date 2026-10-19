@@ -25,7 +25,7 @@ private:
     void DrawPage(const HelpTopic &topic);
     void FollowLink(const std::string &link);
     UiTexture *Image(const std::string &path);
-    struct Visit { std::string topic; float scroll = 0.0f; };
+    struct Visit { std::string topic; ImVec2 scroll; };
     HelpBook m_Book;
     HelpFonts m_Fonts;
     HelpPageLayout m_Page;
@@ -38,9 +38,8 @@ private:
     std::vector<Visit> m_History;
     std::set<std::string> m_Visited;
     size_t m_Visit = 0;
-    float m_Scroll = 0.0f, m_RestoreScroll = -1.0f;
+    ImVec2 m_Scroll, m_RestoreScroll = ImVec2(-1, -1);
     std::string m_Anchor;
-    std::map<std::string, float> m_Anchors;
     std::map<std::string, std::unique_ptr<UiTexture>> m_Images;
     float m_Zoom = 1.0f;
 #ifdef VIRTOOLSDEV_UI_TESTS

@@ -87,6 +87,18 @@ def reference(topic, target):
     return path + ("#" + unquote(url.fragment) if url.fragment else "")
 
 
+def anchors(node):
+    names = [node.attrs.get("id", "")]
+    if node.tag == "a":
+        names.append(node.attrs.get("name", ""))
+    return [["", "", "", name, node.appearance, 0, 0] for name in dict.fromkeys(names) if name]
+
+
+def marked(block, node):
+    block[2][:0] = anchors(node)
+    return block
+
+
 # Block kinds and resolved appearance match ui/help/HelpBook.h. Strings are UTF-8;
 # every count and length is a little-endian uint32. No SDK data is converted.
 def blocks(children, topic, link="", pre=False, appearance=None):
@@ -112,9 +124,8 @@ def blocks(children, topic, link="", pre=False, appearance=None):
             return
         attrs = node.attrs
         text_style = node.appearance
+        spans.extend(anchors(node))
         if node.tag == "a":
-            if attrs.get("id") or attrs.get("name"):
-                spans.append(["", "", "", attrs.get("id") or attrs["name"], text_style, 0, 0])
             if "href" in attrs:
                 target = reference(topic, attrs["href"])
                 if attrs.get("onclick"):
@@ -137,8 +148,8 @@ def blocks(children, topic, link="", pre=False, appearance=None):
         if tag in {"p", "div", "center", "blockquote", "body", "html", "section", "dl", "dt", "dd"} or child.appearance.display == "block" and tag != "pre":
             flush()
             nested = blocks(child.children, topic, link, pre, inherited(child.appearance))
-            if tag not in {"body", "html"} and nested:
-                result.append([8, 0, [], nested, child.appearance])
+            if tag not in {"body", "html"} and (nested or anchors(child)):
+                result.append(marked([8, 0, [], nested, child.appearance], child))
             else:
                 result.extend(nested)
         elif tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
@@ -155,36 +166,40 @@ def blocks(children, topic, link="", pre=False, appearance=None):
             for item in child.children:
                 if isinstance(item, Element) and item.tag == "li":
                     number += 1
-                    result.append([3, number if tag == "ol" else 0, [], blocks(item.children, topic, appearance=inherited(item.appearance)), item.appearance])
+                    result.append(marked([3, number if tag == "ol" else 0, [], blocks(item.children, topic, appearance=inherited(item.appearance)), item.appearance], item))
                 elif not isinstance(item, str) or item.strip():
                     # The legacy HTML also places explanatory text between li's.
                     result.extend(blocks([item], topic, appearance=inherited(child.appearance)))
             nested = result[start:]
             del result[start:]
-            result.append([8, 0, [], nested, child.appearance])
+            result.append(marked([8, 0, [], nested, child.appearance], child))
         elif tag == "li":
             flush()
-            result.append([3, 0, [], blocks(child.children, topic, appearance=inherited(child.appearance)), child.appearance])
+            result.append(marked([3, 0, [], blocks(child.children, topic, appearance=inherited(child.appearance)), child.appearance], child))
         elif tag == "pre":
             flush()
             content = blocks(child.children, topic, link, True, child.appearance)
             for block in content:
                 block[0] = 2
+            if anchors(child):
+                if not content:
+                    content.append([2, 0, [], [], child.appearance])
+                marked(content[0], child)
             result.extend(content)
         elif tag == "hr":
             flush()
-            result.append([4, 0, [], [], child.appearance])
+            result.append(marked([4, 0, [], [], child.appearance], child))
         elif tag == "table":
             flush()
             rows = []
             def rows_in(node):
                 for row in node.children:
                     if isinstance(row, Element) and row.tag == "tr":
-                        cells = [[7, max(1, min(32, int(cell.attrs.get("colspan", "1") or "1"))), [],
-                                  blocks(cell.children, topic, appearance=inherited(cell.appearance)), cell.appearance]
+                        cells = [marked([7, max(1, min(32, int(cell.attrs.get("colspan", "1") or "1"))), [],
+                                  blocks(cell.children, topic, appearance=inherited(cell.appearance)), cell.appearance], cell)
                                  for cell in row.children if isinstance(cell, Element) and cell.tag in {"td", "th"}]
                         if cells:
-                            rows.append([6, 0, [], cells, row.appearance])
+                            rows.append(marked([6, 0, [], cells, row.appearance], row))
                     elif isinstance(row, Element) and row.tag in {"thead", "tbody", "tfoot"}:
                         rows_in(row)
             rows_in(child)
@@ -201,7 +216,7 @@ def blocks(children, topic, link="", pre=False, appearance=None):
                             occupied[c] = r + cell[4].rowspan
                         column += cell[1]
                         columns = max(columns, column)
-                result.append([5, columns, [], rows, child.appearance])
+                result.append(marked([5, columns, [], rows, child.appearance], child))
         else:
             inline(child)
     flush()
@@ -230,6 +245,8 @@ def compile_help(root, tree, home, decode):
         title = next(elements(document.root, "title"), None)
         body = next(elements(document.root, "body"), document.root)
         content = blocks(body.children, topic, appearance=inherited(body.appearance))
+        if anchors(body):
+            content.insert(0, marked([0, 0, [], [], inherited(body.appearance)], body))
         def sizes(items):
             for item in items:
                 for span in item[2]:

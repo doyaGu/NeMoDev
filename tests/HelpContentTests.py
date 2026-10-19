@@ -14,6 +14,18 @@ from HelpStyles import resolve_styles, stylesheet
 
 
 class HelpContentTests(unittest.TestCase):
+    def test_element_ids_and_named_anchors(self):
+        document = Document('<body><h3 id="heading">Title</h3><div id="section">Text</div>'
+                            '<table id="table"><tr id="row"><td id="cell">Value</table>'
+                            '<img id="diagram" src="a.png"><a id="new" name="old">End</a></body>')
+        resolve_styles(document.root, [])
+        content = blocks(document.root.children[0].children, 'page.html')
+        def names(items):
+            for item in items:
+                yield from (span[3] for span in item[2] if span[3])
+                yield from names(item[3])
+        self.assertEqual(set(names(content)), {'heading', 'section', 'table', 'row', 'cell', 'diagram', 'new', 'old'})
+
     def test_resolved_css_and_html_layout(self):
         document = Document('<body><h3>Inputs</h3><p><span class="pin">Key</span></p>'
                             '<center><img src="a.png" width="120" height="40" border="1"></center>'

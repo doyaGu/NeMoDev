@@ -4,6 +4,23 @@
 #include <cmath>
 
 namespace vdev {
+bool HelpPageLayout::Anchor(const std::string &name, ImVec2 &position) const {
+    const auto exact = anchors.find(name);
+    if (exact != anchors.end()) { position = exact->second; return true; }
+    // The original CHM has case mismatches. Accept a unique legacy spelling,
+    // while retaining exact, case-sensitive matches and rejecting ambiguity.
+    const auto lower = [](std::string value) {
+        for (char &c : value) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+        return value;
+    };
+    const std::string key = lower(name);
+    bool found = false;
+    for (const auto &anchor : anchors) if (lower(anchor.first) == key) {
+        if (found) return false;
+        position = anchor.second; found = true;
+    }
+    return found;
+}
 ImFont *HelpLayout::Font(const HelpAppearance &style) const {
     if ((style.flags & HelpAppearance::Monospace) && m_Fonts.mono) return m_Fonts.mono;
     if ((style.flags & HelpAppearance::Bold) && m_Fonts.bold) return m_Fonts.bold;
@@ -42,14 +59,16 @@ ImVec2 HelpLayout::Flow(const std::vector<HelpBlock> &blocks, ImVec2 origin, flo
         const float padLeft = style.padding[3] * m_Scale, padRight = style.padding[1] * m_Scale;
         ImVec2 start(origin.x + left, origin.y + y);
         const ImVec2 inner(start.x + padLeft, start.y + style.padding[0] * m_Scale);
+        if (block.kind == HelpBlock::Group || block.kind == HelpBlock::ListItem || block.kind == HelpBlock::Table || block.kind == HelpBlock::Rule)
+            for (const auto &span : block.spans) if (!span.anchor.empty()) page.anchors.emplace(span.anchor, inner);
         const size_t background = page.drawings.size();
         if (style.background) {
             HelpDrawing fill; fill.kind = HelpDrawing::Fill; fill.position = start; fill.color = style.background;
             page.drawings.push_back(fill);
         }
-        const size_t contentStart = page.drawings.size();
+        HelpPageLayout table;
         ImVec2 size;
-        if (block.kind == HelpBlock::Table) size = Table(block, inner, boxWidth - padLeft - padRight, page);
+        if (block.kind == HelpBlock::Table) size = Table(block, inner, boxWidth - padLeft - padRight, table);
         else if (block.kind == HelpBlock::Group) size = Flow(block.children, inner, boxWidth - padLeft - padRight, page);
         else if (block.kind == HelpBlock::ListItem) {
             const std::string label = block.value ? std::to_string(block.value) + "." : u8"\u2022";
@@ -66,7 +85,8 @@ ImVec2 HelpLayout::Flow(const std::vector<HelpBlock> &blocks, ImVec2 origin, flo
         if (block.kind == HelpBlock::Table) {
             const float spare = std::max(0.0f, boxWidth - size.x);
             const float shift = style.align == 1 ? spare / 2 : style.align == 2 ? spare : 0;
-            for (size_t i = contentStart; i < page.drawings.size(); ++i) page.drawings[i].position.x += shift;
+            for (auto &item : table.drawings) { item.position.x += shift; page.drawings.push_back(std::move(item)); }
+            for (auto &anchor : table.anchors) { anchor.second.x += shift; page.anchors.emplace(anchor); }
             start.x += shift;
             boxWidth = size.x;
             if (style.background) page.drawings[background].position.x += shift;
@@ -84,6 +104,8 @@ ImVec2 HelpLayout::Paragraph(const HelpBlock &block, ImVec2 origin, float width,
     struct Float { float bottom, width; unsigned side; };
     std::vector<Float> floats;
     std::map<size_t, HelpAppearance> imageStyles;
+    std::map<size_t, std::vector<std::string>> lineAnchors;
+    std::vector<std::string> pendingAnchors;
     std::vector<size_t> line;
     float x = 0, y = 0, lineHeight = block.appearance.size * m_Scale * 1.2f;
     float extent = 0, bottom = 0;
@@ -110,6 +132,8 @@ ImVec2 HelpLayout::Paragraph(const HelpBlock &block, ImVec2 origin, float width,
                 else if (image->second.valign == 2) item.position.y += lineHeight - item.size.y;
             }
             extent = std::max(extent, item.position.x - origin.x + item.size.x);
+            const auto names = lineAnchors.find(index);
+            if (names != lineAnchors.end()) for (const auto &name : names->second) page.anchors.emplace(name, item.position);
             if (image != imageStyles.end()) { const ImVec2 at = item.position, size = item.size; Borders(image->second, at, size, page); }
         }
         y += lineHeight; x = 0; line.clear(); pendingSpace = false;
@@ -118,11 +142,16 @@ ImVec2 HelpLayout::Paragraph(const HelpBlock &block, ImVec2 origin, float width,
     auto add = [&](HelpDrawing item) {
         item.position = ImVec2(x, 0); x += item.size.x;
         lineHeight = std::max(lineHeight, item.kind == HelpDrawing::Text ? item.fontSize * 1.2f : item.size.y);
+        if (!pendingAnchors.empty()) { lineAnchors.emplace(page.drawings.size(), std::move(pendingAnchors)); pendingAnchors.clear(); }
         line.push_back(page.drawings.size()); page.drawings.push_back(std::move(item));
+    };
+    const auto placeAnchors = [&](ImVec2 position) {
+        for (const auto &name : pendingAnchors) page.anchors.emplace(name, position);
+        pendingAnchors.clear();
     };
     for (const auto &span : block.spans) {
         const auto &style = span.appearance;
-        if (!span.anchor.empty()) page.anchors[span.anchor] = origin.y + y;
+        if (!span.anchor.empty()) pendingAnchors.push_back(span.anchor);
         if (!span.image.empty()) {
             HelpDrawing image; image.kind = HelpDrawing::Image; image.image = span.image; image.link = span.link;
             float w = style.width ? Length(style.width, width) : span.imageWidth * m_Scale;
@@ -133,6 +162,7 @@ ImVec2 HelpLayout::Paragraph(const HelpBlock &block, ImVec2 origin, float width,
             if (style.floating) {
                 const ImVec2 range = bounds();
                 image.position = ImVec2(origin.x + (style.floating == 1 ? range.x : range.y - image.size.x), origin.y + y);
+                placeAnchors(image.position);
                 floats.push_back({y + image.size.y, image.size.x + 3 * m_Scale, style.floating});
                 bottom = std::max(bottom, y + image.size.y);
                 extent = std::max(extent, image.position.x - origin.x + image.size.x);
@@ -151,7 +181,7 @@ ImVec2 HelpLayout::Paragraph(const HelpBlock &block, ImVec2 origin, float width,
         const bool pre = (style.flags & HelpAppearance::PreserveWhitespace) || block.kind == HelpBlock::Preformatted;
         const char *at = span.text.data(), *end = at + span.text.size();
         while (at < end) {
-            if (*at == '\n') { flush(); ++at; continue; }
+            if (*at == '\n') { placeAnchors(ImVec2(origin.x + bounds().x + x, origin.y + y)); flush(); ++at; continue; }
             if (!pre && (*at == ' ' || *at == '\t' || *at == '\r')) { pendingSpace = x > 0; ++at; continue; }
             if (pre && *at == '\t') {
                 const float tab = std::max(1.0f, font->CalcTextSizeA(size, FLT_MAX, 0, " ").x * 8);
@@ -182,6 +212,7 @@ ImVec2 HelpLayout::Paragraph(const HelpBlock &block, ImVec2 origin, float width,
             add(std::move(text)); at = next;
         }
     }
+    placeAnchors(ImVec2(origin.x + bounds().x + x, origin.y + y));
     if (!line.empty() || x > 0) flush();
     return ImVec2(extent, std::max(y, bottom));
 }
@@ -277,6 +308,7 @@ ImVec2 HelpLayout::Table(const HelpBlock &block, ImVec2 origin, float width, Hel
     }
     float rowY = origin.y + spacing;
     for (size_t r = 0; r < rows; ++r) {
+        for (const auto &span : block.children[r].spans) if (!span.anchor.empty()) page.anchors.emplace(span.anchor, ImVec2(origin.x, rowY));
         if (block.children[r].appearance.background) {
             HelpDrawing fill; fill.kind = HelpDrawing::Fill; fill.position = ImVec2(origin.x + spacing, rowY);
             fill.size = ImVec2(actualWidth - 2 * spacing, heights[r]); fill.color = block.children[r].appearance.background;
@@ -296,8 +328,9 @@ ImVec2 HelpLayout::Table(const HelpBlock &block, ImVec2 origin, float width, Hel
             page.drawings.push_back(fill);
         }
         const float vertical = style.valign == 1 ? (cellHeight - cell.size.y) / 2 : style.valign == 2 ? cellHeight - cell.size.y : 0;
+        for (const auto &span : cell.block->spans) if (!span.anchor.empty()) page.anchors.emplace(span.anchor, at);
         for (auto &item : cell.content.drawings) { item.position.x += at.x; item.position.y += at.y + vertical; page.drawings.push_back(std::move(item)); }
-        for (const auto &anchor : cell.content.anchors) page.anchors[anchor.first] = anchor.second + at.y + vertical;
+        for (const auto &anchor : cell.content.anchors) page.anchors.emplace(anchor.first, ImVec2(anchor.second.x + at.x, anchor.second.y + at.y + vertical));
         HelpAppearance border = style;
         if (block.appearance.border[0] > 0) for (float &edge : border.border) edge = std::max(edge, block.appearance.border[0]);
         Borders(border, at, ImVec2(cell.size.x, cellHeight), page);

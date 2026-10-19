@@ -17,19 +17,21 @@ void HelpWindow::Close() {
     m_Images.clear();
 }
 void HelpWindow::Navigate(const std::string &topic) {
-    if (m_Current == topic) return;
-    if (!m_History.empty()) m_History[m_Visit].scroll = m_Scroll;
-    m_History.resize(m_History.empty() ? 0 : m_Visit + 1);
-    m_History.push_back({topic, 0.0f});
-    if (m_History.size() > 128) m_History.erase(m_History.begin());
-    m_Visit = m_History.size() - 1;
+    const bool samePage = m_Book.Find(m_Current) == m_Book.Find(topic);
+    if (m_Current != topic) {
+        if (!m_History.empty()) m_History[m_Visit].scroll = m_Scroll;
+        m_History.resize(m_History.empty() ? 0 : m_Visit + 1);
+        m_History.push_back({topic, {}});
+        if (m_History.size() > 128) m_History.erase(m_History.begin());
+        m_Visit = m_History.size() - 1;
+    }
     m_Current = topic;
     if (const auto *page = m_Book.Find(topic)) m_Visited.insert(page->path);
     const size_t fragment = topic.find('#');
     m_Anchor = fragment == std::string::npos ? std::string() : topic.substr(fragment + 1);
-    m_RestoreScroll = 0.0f;
+    m_RestoreScroll = samePage && !m_Anchor.empty() ? m_Scroll : ImVec2();
     m_Error = m_Book.Find(topic) ? std::string() : "This topic is missing from the source help archive: " + topic;
-    m_Images.clear();
+    if (!samePage) m_Images.clear();
     m_Notice.clear();
 }
 void HelpWindow::History(int direction) {
@@ -126,7 +128,12 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
 #endif
         }
     }
-    for (const auto &anchor : m_Page.anchors) m_Anchors[anchor.first] = localY + anchor.second;
+    if (!m_Anchor.empty()) {
+        ImVec2 position;
+        if (m_Page.Anchor(m_Anchor, position)) m_RestoreScroll = ImVec2(position.x, localY + position.y);
+        else m_Notice = "The source topic does not contain anchor: " + m_Anchor;
+        m_Anchor.clear();
+    }
     ImGui::SetCursorScreenPos(origin); ImGui::Dummy(m_Page.size);
 }
 void HelpWindow::Draw() {
@@ -171,7 +178,6 @@ void HelpWindow::Draw() {
         const HelpTopic *topic = m_Book.Find(m_Current);
         ImGui::PushStyleColor(ImGuiCol_ChildBg, topic ? topic->appearance.background : 0xffffffffu);
         ImGui::BeginChild("article", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-        m_Anchors.clear();
 #ifdef VIRTOOLSDEV_UI_TESTS
         m_ShownText.clear(); m_ShownImages = 0;
 #endif
@@ -183,14 +189,11 @@ void HelpWindow::Draw() {
             ImGui::Separator();
             DrawPage(*topic);
         }
-        if (!m_Anchor.empty()) {
-            const auto anchor = m_Anchors.find(m_Anchor);
-            if (anchor != m_Anchors.end()) m_RestoreScroll = anchor->second;
-            else m_Notice = "The source topic does not contain anchor: " + m_Anchor;
-            m_Anchor.clear();
+        if (m_RestoreScroll.y >= 0.0f) {
+            ImGui::SetScrollX(m_RestoreScroll.x); ImGui::SetScrollY(m_RestoreScroll.y);
+            m_RestoreScroll = ImVec2(-1, -1);
         }
-        if (m_RestoreScroll >= 0.0f) { ImGui::SetScrollY(m_RestoreScroll); m_RestoreScroll = -1.0f; }
-        m_Scroll = ImGui::GetScrollY();
+        m_Scroll = ImVec2(ImGui::GetScrollX(), ImGui::GetScrollY());
         ImGui::EndChild(); ImGui::PopStyleColor(); ImGui::EndTable();
     }
     ImGui::End();
