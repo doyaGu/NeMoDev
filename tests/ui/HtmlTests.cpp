@@ -1,6 +1,7 @@
 #include "tests/ui/UiTests.h"
 #include "ui/render/HtmlRenderer.h"
 #include "ui/render/UiRenderer.h"
+#include <algorithm>
 #include <cmath>
 
 namespace vdevuitest {
@@ -50,7 +51,8 @@ struct HtmlUiFixture {
             rendered = document.Load("<!doctype "
                                      "html><style>body{margin:0}#circle{width:100px;height:100px;background:red;border-"
                                      "radius:50px}</style>"
-                                     "<div id=circle></div><img id=picture src=checker.bmp width=64 height=64>",
+                                     "<div id=circle></div><img id=picture src=checker.bmp width=64 height=64>"
+                                     "<span style='font-size:0'>Hidden</span>",
                                      "book://tests/index.html", error) &&
                        document.Layout({available.x, available.y}, pixels, error);
             if (rendered) {
@@ -59,6 +61,12 @@ struct HtmlUiFixture {
                     document.Draw({origin.x, origin.y}, {0, 0, available.x, available.y});
                     rendered = document.Diagnostics().empty() && document.FindAnchor("circle", circle) &&
                                document.FindAnchor("picture", image);
+                    const auto hidden = renderer.CreateFont({"sans-serif", 0, 400, false, 0});
+                    rendered =
+                        rendered && hidden && hidden->Width("Hidden") == 0 && hidden->Metrics().height == 0 &&
+                        std::none_of(renderer.Drawings().begin(), renderer.Drawings().end(), [](const auto &item) {
+                            return item.kind == vdev::HtmlRenderer::Drawing::Text && item.text == "Hidden";
+                        });
                     circle.x += origin.x;
                     circle.y += origin.y;
                     image.x += origin.x;

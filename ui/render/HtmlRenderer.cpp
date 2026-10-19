@@ -2,6 +2,8 @@
 #include "imgui_internal.h"
 #include "ui/render/UiRenderer.h"
 #include <algorithm>
+#include <cctype>
+#include <cfloat>
 #include <cmath>
 #include <functional>
 #include <limits>
@@ -16,13 +18,15 @@ public:
     UiHtmlFont(ImFont *face, HtmlFontDescription description, bool strong)
         : font(face), style(std::move(description)), syntheticBold(strong) {}
     HtmlFontMetrics Metrics() const override {
+        if (style.size == 0)
+            return {};
         auto *baked = font->GetFontBaked(style.size);
         const auto *glyph = baked->FindGlyph('x');
         return {baked->Ascent, -baked->Descent, baked->Ascent - baked->Descent,
                 glyph ? glyph->Y1 - glyph->Y0 : style.size / 2};
     }
     float Width(std::string_view text) const override {
-        if (text.empty())
+        if (text.empty() || style.size == 0)
             return 0;
         return font->CalcTextSizeA(style.size, FLT_MAX, 0, text.data(), text.data() + text.size()).x;
     }
@@ -145,6 +149,8 @@ void HtmlRenderer::Begin(ImDrawList *draw) {
 #endif
 }
 std::shared_ptr<HtmlFont> HtmlRenderer::CreateFont(const HtmlFontDescription &description) {
+    if (!std::isfinite(description.size) || description.size < 0)
+        return {};
     std::string names = description.families;
     std::transform(names.begin(), names.end(), names.begin(), [](unsigned char c) { return char(std::tolower(c)); });
     const bool mono = names.find("monospace") != std::string::npos || names.find("courier") != std::string::npos ||
@@ -179,6 +185,8 @@ std::shared_ptr<HtmlImage> HtmlRenderer::CreateImage(unsigned width, unsigned he
 void HtmlRenderer::SetClip(const std::vector<HtmlPoint> &polygon) { m_Impl->clip = polygon; }
 void HtmlRenderer::Text(const HtmlFont &font, std::string_view text, HtmlPoint position, HtmlColor color) {
     const auto &native = static_cast<const UiHtmlFont &>(font);
+    if (native.style.size == 0)
+        return;
     m_Impl->Paint([&](ImDrawList *draw) {
         const int start = draw->VtxBuffer.Size;
         draw->AddText(native.font, native.style.size, ImVec2(position.x, position.y), color, text.data(),
