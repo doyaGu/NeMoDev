@@ -320,6 +320,39 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK_LT(article->ScrollMax.x, 1);
         IM_CHECK(HelpFrame(ctx, "zoom-out-scrollbar.png"));
     };
+    t = IM_REGISTER_TEST(engine, "help", "missing_image_does_not_cover_text");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Level Manager");
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"ui/7_schematic/toolbar/2_schematic_explorer.html"}); });
+        ctx->Yield(4);
+        ctx->WindowResize("//Help", ImVec2(1280, 760));
+        ctx->ItemInputValue("//Help/Zoom", 1.0f); ctx->Yield(5);
+        const vdev::HelpDrawing *missing = nullptr;
+        for (const auto &item : App().Help().PageLayout().drawings)
+            if (item.image == "images/filter_script.png") missing = &item;
+        IM_CHECK(missing);
+        ImGuiWindow *article = HelpArticle(ctx);
+        IM_CHECK(article);
+        const float imageY = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + missing->position.y;
+        ctx->ScrollTo(article->ID, ImGuiAxis_Y, article->Scroll.y + imageY - article->InnerRect.Min.y - 80, ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(4);
+        const float right = article->DC.CursorStartPos.x + missing->position.x + missing->size.x;
+        const float top = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + missing->position.y;
+        const float bottom = top + missing->size.y;
+        const size_t overflow = Read<size_t>(ctx, [=] {
+            std::vector<unsigned char> pixels; int width = 0, height = 0;
+            if (!vdev::MainRenderer().ReadFrame(pixels, width, height)) return size_t(-1);
+            size_t red = 0;
+            for (int y = std::max(0, int(std::floor(top))); y < std::min(height, int(std::ceil(bottom))); ++y)
+                for (int x = std::max(0, int(std::ceil(right)) + 2); x < std::min(width, int(right) + 80); ++x) {
+                    const size_t at = (size_t(y) * width + x) * 4;
+                    red += pixels[at] == 160 && pixels[at+1] == 0 && pixels[at+2] == 0;
+                }
+            return red;
+        });
+        IM_CHECK_EQ(overflow, size_t(0));
+        IM_CHECK(HelpFrame(ctx, "missing-image.png"));
+    };
     t = IM_REGISTER_TEST(engine, "help", "reference_layout_at_multiple_widths");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

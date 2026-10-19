@@ -14,6 +14,16 @@ from HelpStyles import resolve_styles, stylesheet
 
 
 class HelpContentTests(unittest.TestCase):
+    def test_missing_image_is_reported_without_modifying_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = '<body><img src="missing.png" width="11" height="11">Script</body>'
+            (root / 'index.html').write_text(source, encoding='utf-8')
+            issues = []
+            self.assertEqual(compile_help(root, [], 'index.html', decode, issues), 1)
+            self.assertEqual(issues, [{'topic': 'index.html', 'image': 'missing.png', 'reason': 'Missing or unreadable source image'}])
+            self.assertEqual((root / 'index.html').read_text(encoding='utf-8'), source)
+
     def test_image_maps_and_alignment(self):
         document = Document('<map name="m"><area shape="rect" coords="0,0,50,40" href="other.html#top">'
                             '<area shape="poly" coords="0,0,100,0,0,80" href="#top">'

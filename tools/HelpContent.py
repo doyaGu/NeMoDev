@@ -289,6 +289,7 @@ def compile_help(root, tree, home, decode, diagnostics=None):
                                 image_sizes[key] = image.size
                         except (OSError, AttributeError):
                             image_sizes[key] = (0, 0)
+                            diagnostics.append({"topic": topic, "image": span[2], "reason": "Missing or unreadable source image"})
                     span[5], span[6] = image_sizes[key]
                     usemap = span[7]
                     span[7] = []

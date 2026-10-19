@@ -178,8 +178,8 @@ ImVec2 HelpLayout::Paragraph(const HelpBlock &block, ImVec2 origin, float width,
         if (!span.image.empty()) {
             HelpDrawing image; image.kind = HelpDrawing::Image; image.image = span.image; image.link = span.link;
             image.source = &span;
-            float w = style.width ? Length(style.width, width) : span.imageWidth * m_Scale;
-            float h = style.height ? Length(style.height, 0) : span.imageHeight * m_Scale;
+            float w = style.width ? Length(style.width, width) : (span.imageWidth ? span.imageWidth : 16) * m_Scale;
+            float h = style.height ? Length(style.height, 0) : (span.imageHeight ? span.imageHeight : 16) * m_Scale;
             if (style.width && !style.height && span.imageWidth) h = w * span.imageHeight / span.imageWidth;
             if (style.height && !style.width && span.imageHeight) w = h * span.imageWidth / span.imageHeight;
             image.size = ImVec2(std::max(1.0f, w), std::max(1.0f, h));

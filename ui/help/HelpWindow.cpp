@@ -165,7 +165,14 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
 #ifdef VIRTOOLSDEV_UI_TESTS
                 ++m_ShownImages;
 #endif
-            } else draw->AddText(at, 0xff0000a0, ("[Missing image: " + item.image + "]").c_str());
+            } else {
+                draw->AddRectFilled(at, end, 0xffeeeeee);
+                draw->AddRect(at, end, 0xff0000a0);
+                draw->AddLine(at, end, 0xff0000a0);
+                draw->AddLine(ImVec2(at.x, end.y), ImVec2(end.x, at.y), 0xff0000a0);
+                if (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(at, end))
+                    ImGui::SetTooltip("Missing source image: %s", item.image.c_str());
+            }
             ImGui::PushID(static_cast<int>(i)); DrawImageAreas(item, at); ImGui::PopID();
         } else {
             if (item.background) draw->AddRectFilled(at, end, item.background);
