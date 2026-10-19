@@ -1,42 +1,45 @@
 #pragma once
 #include "ui/help/HelpBook.h"
-#include "ui/help/HelpLayout.h"
-#include "ui/render/UiRenderer.h"
-#include <map>
-#include <set>
+#include "ui/render/HtmlRenderer.h"
 #include <optional>
+#include <set>
 
 namespace vdev {
 class HelpWindow {
 public:
-    explicit HelpWindow(HelpFonts fonts) : m_Fonts(fonts) {}
+    explicit HelpWindow(HtmlFonts fonts) : m_Renderer(fonts) {}
     void Open(const std::string &topic = std::string());
     void Draw();
     void Close();
 #ifdef VIRTOOLSDEV_UI_TESTS
     const std::string &CurrentTopic() const { return m_Current; }
-    const std::string &ShownText() const { return m_ShownText; }
-    size_t ShownImages() const { return m_ShownImages; }
-    const HelpPageLayout &PageLayout() const { return m_Page; }
+    const std::string &ShownText() const { return m_Document->Text(); }
+    size_t ShownImages() const;
+    struct PagePainting {
+        std::vector<HtmlRenderer::Drawing> drawings;
+        ImVec2 size;
+    };
+    const PagePainting &PagePaint() const { return m_PagePaint; }
+    const HtmlDocument &PageDocument() const { return *m_Document; }
 #endif
 private:
     void Navigate(const std::string &topic);
     void History(int direction);
     void Contents(const std::vector<HelpContents> &items);
     void DrawPage(const HelpTopic &topic);
-    void DrawImageAreas(const HelpDrawing &image, ImVec2 origin);
-    void FollowLink(const std::string &link);
-    HelpReadingPosition ReadingPosition() const;
+    void FollowLink(const HtmlNavigation &navigation);
+    HtmlReadingPosition ReadingPosition() const;
     ImVec2 ScrollPosition() const;
-    UiTexture *Image(const std::string &path);
-    struct Visit { std::string topic; HelpReadingPosition position; };
+    struct Visit {
+        std::string topic;
+        HtmlReadingPosition position;
+    };
     HelpBook m_Book;
-    HelpFonts m_Fonts;
-    HelpPageLayout m_Page;
+    HtmlRenderer m_Renderer;
+    std::unique_ptr<HtmlDocument> m_Document;
     const HelpTopic *m_LayoutTopic = nullptr;
-    float m_LayoutWidth = 0.0f, m_LayoutScale = 0.0f;
+    float m_LayoutWidth = 0, m_LayoutHeight = 0, m_LayoutScale = 0;
     bool m_Open = false, m_Focus = false, m_Loaded = false;
-    bool m_RetireImages = false;
     std::string m_Current, m_Pending, m_Error, m_Notice, m_Query;
     std::vector<const HelpTopic *> m_Results;
     std::vector<Visit> m_History;
@@ -44,14 +47,11 @@ private:
     size_t m_Visit = 0;
     ImVec2 m_RestoreScroll = ImVec2(-1, -1);
     ImGuiID m_ArticleId = 0;
-    std::optional<HelpReadingPosition> m_RestorePosition;
-    float m_PageY = 0.0f;
+    std::optional<HtmlReadingPosition> m_RestorePosition;
+    float m_PageY = 0, m_Zoom = 1;
     std::string m_Anchor;
-    std::map<std::string, std::unique_ptr<UiTexture>> m_Images;
-    float m_Zoom = 1.0f;
 #ifdef VIRTOOLSDEV_UI_TESTS
-    std::string m_ShownText;
-    size_t m_ShownImages = 0;
+    PagePainting m_PagePaint;
 #endif
 };
-}
+} // namespace vdev

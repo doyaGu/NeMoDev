@@ -28,7 +28,7 @@
 
 namespace {
 namespace fs = std::filesystem;
-vdev::HelpFonts LoadFonts(float scale) {
+vdev::HtmlFonts LoadFonts(float scale) {
     ImGuiIO &io = ImGui::GetIO();
     const fs::path directory = fs::u8path(SDL_GetBasePath()) / "data" / "fonts";
     const auto regular = (directory / "NotoSans-Regular.ttf").u8string();
@@ -121,7 +121,7 @@ int main(int argc, char **argv) {
     io.IniFilename = isolated || iniPath.empty() ? nullptr : iniPath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
     vdev::ApplyDevTheme(ImGui::GetStyle()); ImGui::GetStyle().ScaleAllSizes(scale);
-    const vdev::HelpFonts helpFonts = LoadFonts(scale);
+    const vdev::HtmlFonts helpFonts = LoadFonts(scale);
     ImGui_ImplSDL3_InitForSDLGPU(window);
     std::string error;
     if (!vdev::MainRenderer().Start(window, &error)) {

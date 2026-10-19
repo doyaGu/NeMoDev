@@ -28,7 +28,6 @@ set(_editor_sources
         app/Preferences.cpp
         app/DesktopFiles.cpp
         help/HelpBook.cpp
-        help/HelpLayout.cpp
         help/HelpWindow.cpp
         render/UiRenderer.cpp
         render/ImageFiles.cpp

@@ -78,7 +78,7 @@ struct StartupOptions {
 
 class EditorApp {
 public:
-    explicit EditorApp(HelpFonts fonts) : m_Canvas(m_State), m_Panels(m_State, m_Canvas), m_Tools(m_State, m_Canvas), m_Help(fonts) {}
+    explicit EditorApp(HtmlFonts fonts) : m_Canvas(m_State), m_Panels(m_State, m_Canvas), m_Tools(m_State, m_Canvas), m_Help(fonts) {}
 
     // Starts the CK runtime; runtimeDirectory must already be on the DLL
     // search path (CK2.dll and VxMath.dll are delay-loaded).
