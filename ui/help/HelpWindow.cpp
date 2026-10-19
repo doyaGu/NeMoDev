@@ -103,10 +103,8 @@ void HelpWindow::FollowLink(const HtmlNavigation &navigation) {
             m_Visited.insert(url);
     } else
         m_Notice = "This link requires an external application: " + url;
-    if (m_Document)
-        m_Document->SetVisited({m_Visited.begin(), m_Visited.end()});
 }
-void HelpWindow::DrawPage(const HelpTopic &topic) {
+bool HelpWindow::DrawPage(const HelpTopic &topic) {
     const ImGuiWindow *window = ImGui::GetCurrentWindow();
     const float width = std::max(1.0f, window->InnerRect.GetWidth() - 2 * window->WindowPadding.x);
     const float scale = ImGui::GetFontSize() / 14.0f * m_Zoom;
@@ -114,28 +112,31 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
     if (m_LayoutTopic != &topic || m_LayoutWidth != width || m_LayoutHeight != height || m_LayoutScale != scale) {
         if (m_LayoutTopic == &topic && !m_RestorePosition && m_RestoreScroll.y < 0 && m_Anchor.empty())
             m_RestorePosition = ReadingPosition();
-        if (m_LayoutTopic != &topic) {
-            auto document = std::make_unique<HtmlDocument>(m_Book, m_Renderer);
-            if (!document->Load(topic.html, HelpBook::Url(topic.path), m_Error) ||
-                !document->Layout({width, height}, scale, m_Error)) {
-                ImGui::TextWrapped("%s", m_Error.c_str());
-                return;
-            }
-            document->SetVisited({m_Visited.begin(), m_Visited.end()});
-            m_Document = std::move(document);
-            m_LayoutTopic = &topic;
-        } else if (!m_Document->Layout({width, height}, scale, m_Error)) {
-            ImGui::TextWrapped("%s", m_Error.c_str());
-            return;
-        }
-        m_LayoutWidth = width;
-        m_LayoutHeight = height;
-        m_LayoutScale = scale;
     }
+    if (m_LayoutTopic != &topic) {
+        auto document = std::make_unique<HtmlDocument>(m_Book, m_Renderer);
+        if (!document->Load(topic.html, HelpBook::Url(topic.path), m_Error)) {
+            ImGui::TextWrapped("%s", m_Error.c_str());
+            return false;
+        }
+        document->SetVisited({m_Visited.begin(), m_Visited.end()});
+        if (!document->Layout({width, height}, scale, m_Error)) {
+            ImGui::TextWrapped("%s", m_Error.c_str());
+            return false;
+        }
+        m_Document = std::move(document);
+        m_LayoutTopic = &topic;
+    } else if (!m_Document->Layout({width, height}, scale, m_Error)) {
+        // An interrupted interaction may require rebuilding even at the same size.
+        ImGui::TextWrapped("%s", m_Error.c_str());
+        return false;
+    }
+    m_LayoutWidth = width;
+    m_LayoutHeight = height;
+    m_LayoutScale = scale;
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float localY = ImGui::GetCursorPosY();
     m_PageY = localY;
-    const auto size = m_Document->ContentSize();
     const ImVec2 mouse = ImGui::GetMousePos();
     const HtmlPoint point{mouse.x - origin.x, mouse.y - origin.y};
     const bool hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) &&
@@ -145,8 +146,7 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
     if (hovered) {
         m_Document->Hover(point);
         const auto hit = m_Document->HitTest(point);
-        if (hit.link)
-            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        m_Renderer.SetCursor(hit.cursor);
         if (!hit.title.empty())
             ImGui::SetTooltip("%s", hit.title.c_str());
         else if (hit.link)
@@ -160,15 +160,12 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
         if (m_Document->PointerUp(hovered ? point : HtmlPoint{-1, -1}, navigation))
             FollowLink(navigation);
     }
+    m_Document->SetVisited({m_Visited.begin(), m_Visited.end()});
     m_Renderer.Begin(ImGui::GetWindowDrawList());
-    try {
-        const float left = std::max(0.0f, window->InnerRect.Min.x - origin.x);
-        const float top = std::max(0.0f, window->InnerRect.Min.y - origin.y);
-        m_Document->Draw({origin.x, origin.y}, {left, top, std::max(0.0f, window->InnerRect.Max.x - origin.x - left),
-                                                std::max(0.0f, window->InnerRect.Max.y - origin.y - top)});
-    } catch (const std::exception &error) {
-        m_Notice = error.what();
-    }
+    const float left = std::max(0.0f, window->InnerRect.Min.x - origin.x);
+    const float top = std::max(0.0f, window->InnerRect.Min.y - origin.y);
+    m_Document->Draw({origin.x, origin.y}, {left, top, std::max(0.0f, window->InnerRect.Max.x - origin.x - left),
+                                            std::max(0.0f, window->InnerRect.Max.y - origin.y - top)});
     // ImGui owns keyboard focus; HTML owns link identity and activation. Pointer
     // activation uses actual HTML hit regions, including overlapping image maps.
     const auto links = m_Document->Links();
@@ -211,6 +208,7 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
             m_Notice = "The source topic does not contain anchor: " + m_Anchor;
         m_Anchor.clear();
     }
+    const auto size = m_Document->ContentSize();
 #ifdef VIRTOOLSDEV_UI_TESTS
     // Inspect all actual paint operations without submitting offscreen UI geometry.
     m_Renderer.Begin(nullptr);
@@ -220,6 +218,7 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
 #endif
     ImGui::SetCursorScreenPos(origin);
     ImGui::Dummy(ImVec2(size.width, size.height));
+    return true;
 }
 #ifdef VIRTOOLSDEV_UI_TESTS
 size_t HelpWindow::ShownImages() const {
@@ -297,11 +296,15 @@ void HelpWindow::Draw() {
         if (!m_Notice.empty())
             ImGui::TextWrapped("%s", m_Notice.c_str());
         if (topic) {
-            if (ImGui::SmallButton("Copy text"))
-                SDL_SetClipboardText(topic->text.c_str());
+            const bool copy = ImGui::SmallButton("Copy text");
             ImGui::TextDisabled("%s", topic->path.c_str());
             ImGui::Separator();
-            DrawPage(*topic);
+            try {
+                if (DrawPage(*topic) && copy && !SDL_SetClipboardText(m_Document->Text().c_str()))
+                    m_Notice = SDL_GetError();
+            } catch (const std::exception &error) {
+                m_Notice = error.what();
+            }
         }
         if (m_RestoreScroll.y >= 0.0f) {
             ImGui::SetScrollX(m_RestoreScroll.x);

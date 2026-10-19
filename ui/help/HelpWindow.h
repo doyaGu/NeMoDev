@@ -26,7 +26,7 @@ private:
     void Navigate(const std::string &topic);
     void History(int direction);
     void Contents(const std::vector<HelpContents> &items);
-    void DrawPage(const HelpTopic &topic);
+    bool DrawPage(const HelpTopic &topic);
     void FollowLink(const HtmlNavigation &navigation);
     HtmlReadingPosition ReadingPosition() const;
     ImVec2 ScrollPosition() const;

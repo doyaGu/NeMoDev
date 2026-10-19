@@ -139,6 +139,28 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
                      SDL_free(text);
                      return copy;
                  }).find("Key State:") != std::string::npos);
+        const auto clipboardFailure = Read<std::string>(ctx, [] {
+            char *text = SDL_GetClipboardText();
+            std::string copied = text ? text : "";
+            SDL_free(text);
+            // SDL's Windows clipboard stores native CRLF line endings.
+            for (size_t at = 0; (at = copied.find("\r\n", at)) != std::string::npos; ++at)
+                copied.erase(at, 1);
+            const auto &expected = App().Help().PageDocument().Text();
+            size_t at = 0;
+            while (at < copied.size() && at < expected.size() && copied[at] == expected[at])
+                ++at;
+            if (at == copied.size() && at == expected.size())
+                return std::string();
+            return "Clipboard differs at " + std::to_string(at) + ", copied " +
+                   (at < copied.size() ? std::to_string(static_cast<unsigned char>(copied[at])) : "end") +
+                   ", expected " +
+                   (at < expected.size() ? std::to_string(static_cast<unsigned char>(expected[at])) : "end") +
+                   ", lengths " + std::to_string(copied.size()) + "/" + std::to_string(expected.size());
+        });
+        if (!clipboardFailure.empty())
+            ctx->LogError("%s", clipboardFailure.c_str());
+        IM_CHECK(clipboardFailure.empty());
         ctx->ItemClick("//Help/**/BEOBJECT##help-link");
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "concepts/class_hierarchy.html");
