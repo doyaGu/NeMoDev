@@ -3,6 +3,7 @@
 #include "ui/render/UiRenderer.h"
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 
 namespace vdevuitest {
 class HtmlUiResources : public HtmlResources {
@@ -32,45 +33,67 @@ struct HtmlUiFixture {
     HtmlUiResources resources;
     vdev::HtmlRenderer renderer;
     HtmlPoint circle, image;
+    HtmlPoint origin, head, first, second, third;
     float scale = 1;
     std::string error;
-    bool rendered = false;
+    bool rendered = false, detailed = false;
     HtmlUiFixture() : renderer({ImGui::GetIO().FontDefault, ImGui::GetIO().FontDefault, ImGui::GetIO().FontDefault}) {}
     void Draw() {
         ImGui::SetNextWindowPos(ImVec2(40, 40), ImGuiCond_Appearing);
         ImGui::SetNextWindowSize(ImVec2(900, 700), ImGuiCond_Always);
         if (ImGui::Begin("HTML Renderer")) {
-            const auto origin = ImGui::GetCursorScreenPos();
+            const auto start = ImGui::GetCursorScreenPos();
+            origin = {start.x, start.y};
             const auto available = ImGui::GetContentRegionAvail();
             const float pixels = ImGui::GetFontSize() / 14.0f * scale;
             auto *draw = ImGui::GetWindowDrawList();
-            draw->AddRectFilled(origin, ImVec2(origin.x + available.x, origin.y + available.y), 0xffffffff);
+            draw->AddRectFilled(start, ImVec2(start.x + available.x, start.y + available.y), 0xffffffff);
             // Destroying the document before frame submission must not retire an
             // image still referenced by the draw commands emitted below.
             HtmlDocument document(resources, renderer);
-            rendered = document.Load("<!doctype "
-                                     "html><style>body{margin:0}#circle{width:100px;height:100px;background:red;border-"
-                                     "radius:50px}</style>"
-                                     "<div id=circle></div><img id=picture src=checker.bmp width=64 height=64>"
-                                     "<span style='font-size:0'>Hidden</span>",
-                                     "book://tests/index.html", error) &&
+            const std::string basic =
+                "<!doctype "
+                "html><style>body{margin:0}#circle{width:100px;height:100px;background:red;border-"
+                "radius:50px}</style>"
+                "<div id=circle></div><img id=picture src=checker.bmp width=64 height=64>"
+                "<span style='font-size:0'>Hidden</span>";
+            const std::string details =
+                "<!doctype html><style>body{margin:0}#border{position:absolute;left:0;top:0;width:80px;height:80px;"
+                "box-sizing:border-box;border:12px solid red;border-radius:40px;background:blue}"
+                "#clip{position:absolute;left:100px;top:0;width:32px;height:32px;overflow:hidden}"
+                "#clip div{margin-left:40px;width:32px;height:32px;background:lime}"
+                "#repeat{position:absolute;left:100px;top:50px;width:64px;height:32px;"
+                "background:url(checker.bmp) repeat;background-size:16px 16px}"
+                "table{position:absolute;left:0;top:100px;width:180px;border-collapse:collapse}"
+                "td{height:20px;padding:0;border:2px solid black}#head{background:red}#first{background:lime}"
+                "#second{background:blue}#third{background:yellow}</style>"
+                "<div id=border></div><div id=clip><div></div></div><div id=repeat></div>"
+                "<table><tr><td id=head colspan=2></td></tr><tr><td id=first rowspan=2></td><td id=second></td></tr>"
+                "<tr><td id=third></td></tr></table>";
+            rendered = document.Load(detailed ? details : basic, "book://tests/index.html", error) &&
                        document.Layout({available.x, available.y}, pixels, error);
             if (rendered) {
                 renderer.Begin(draw);
                 try {
-                    document.Draw({origin.x, origin.y}, {0, 0, available.x, available.y});
-                    rendered = document.Diagnostics().empty() && document.FindAnchor("circle", circle) &&
-                               document.FindAnchor("picture", image);
-                    const auto hidden = renderer.CreateFont({"sans-serif", 0, 400, false, 0});
-                    rendered =
-                        rendered && hidden && hidden->Width("Hidden") == 0 && hidden->Metrics().height == 0 &&
-                        std::none_of(renderer.Drawings().begin(), renderer.Drawings().end(), [](const auto &item) {
-                            return item.kind == vdev::HtmlRenderer::Drawing::Text && item.text == "Hidden";
-                        });
-                    circle.x += origin.x;
-                    circle.y += origin.y;
-                    image.x += origin.x;
-                    image.y += origin.y;
+                    document.Draw(origin, {0, 0, available.x, available.y});
+                    if (detailed) {
+                        rendered = document.Diagnostics().empty() && document.FindAnchor("head", head) &&
+                                   document.FindAnchor("first", first) && document.FindAnchor("second", second) &&
+                                   document.FindAnchor("third", third);
+                    } else {
+                        rendered = document.Diagnostics().empty() && document.FindAnchor("circle", circle) &&
+                                   document.FindAnchor("picture", image);
+                        const auto hidden = renderer.CreateFont({"sans-serif", 0, 400, false, 0});
+                        rendered =
+                            rendered && hidden && hidden->Width("Hidden") == 0 && hidden->Metrics().height == 0 &&
+                            std::none_of(renderer.Drawings().begin(), renderer.Drawings().end(), [](const auto &item) {
+                                return item.kind == vdev::HtmlRenderer::Drawing::Text && item.text == "Hidden";
+                            });
+                        circle.x += origin.x;
+                        circle.y += origin.y;
+                        image.x += origin.x;
+                        image.y += origin.y;
+                    }
                 } catch (const std::exception &failure) {
                     error = failure.what();
                     rendered = false;
@@ -83,8 +106,15 @@ struct HtmlUiFixture {
 };
 static std::unique_ptr<HtmlUiFixture> g_HtmlFixture;
 static bool g_HtmlVisible = false;
+struct HtmlUiLifetime {
+    ~HtmlUiLifetime() {
+        g_HtmlVisible = false;
+        g_HtmlFixture.reset();
+    }
+};
 void RegisterHtmlTests(ImGuiTestEngine *engine) {
     auto *test = IM_REGISTER_TEST(engine, "html", "rounded_clip_image_pixels_and_resource_lifetime");
+    test->SetVarsDataType<HtmlUiLifetime>();
     test->GuiFunc = [](ImGuiTestContext *ctx) {
         MainThreadGui(ctx);
         if (g_HtmlVisible) {
@@ -131,10 +161,72 @@ void RegisterHtmlTests(ImGuiTestEngine *engine) {
                 ctx->LogError("%s", failure.c_str());
             IM_CHECK(failure.empty());
         }
+    };
+    test = IM_REGISTER_TEST(engine, "html", "table_border_background_and_overflow_pixels");
+    test->SetVarsDataType<HtmlUiLifetime>();
+    test->GuiFunc = [](ImGuiTestContext *ctx) {
+        MainThreadGui(ctx);
+        if (g_HtmlVisible) {
+            if (!g_HtmlFixture)
+                g_HtmlFixture = std::make_unique<HtmlUiFixture>();
+            g_HtmlFixture->Draw();
+        }
+    };
+    test->TestFunc = [](ImGuiTestContext *ctx) {
         OnMainThread(ctx, [] {
-            g_HtmlVisible = false;
-            g_HtmlFixture.reset();
+            g_HtmlVisible = true;
+            g_HtmlFixture = std::make_unique<HtmlUiFixture>();
+            g_HtmlFixture->detailed = true;
         });
+        for (float zoom : {1.0f, 1.5f}) {
+            OnMainThread(ctx, [=] { g_HtmlFixture->scale = zoom; });
+            ctx->Yield(5);
+            ctx->WindowFocus("//HTML Renderer");
+            ctx->Yield(3);
+            IM_CHECK(g_HtmlFixture->rendered);
+            const auto failure = Read<std::string>(ctx, [] {
+                std::vector<unsigned char> rgba;
+                int width = 0, height = 0;
+                if (!vdev::MainRenderer().ReadFrame(rgba, width, height))
+                    return std::string("Frame readback failed");
+                auto bgra = rgba;
+                for (size_t at = 0; at < bgra.size(); at += 4)
+                    std::swap(bgra[at], bgra[at + 2]);
+                const auto folder = std::filesystem::u8path(SDL_GetBasePath()) / "test-help";
+                std::filesystem::create_directories(folder);
+                if (!vdev::WriteBgraPng((folder / "html-details.png").u8string(), width, height, bgra.data()))
+                    return std::string("HTML pixel diagnostic could not be written");
+                const float scale = ImGui::GetFontSize() / 14.0f * g_HtmlFixture->scale;
+                const auto pixel = [&](float x, float y, unsigned char r, unsigned char g, unsigned char b) {
+                    const int px = int(g_HtmlFixture->origin.x + x * scale);
+                    const int py = int(g_HtmlFixture->origin.y + y * scale);
+                    if (px < 0 || py < 0 || px >= width || py >= height)
+                        return false;
+                    const size_t at = (size_t(py) * width + px) * 4;
+                    return std::abs(int(rgba[at]) - r) < 15 && std::abs(int(rgba[at + 1]) - g) < 15 &&
+                           std::abs(int(rgba[at + 2]) - b) < 15;
+                };
+                if (!pixel(40, 40, 0, 0, 255) || !pixel(2, 2, 255, 255, 255) || !pixel(18, 18, 255, 0, 0))
+                    return std::string("Rounded border inner or outer curve is wrong");
+                if (!pixel(150, 16, 255, 255, 255))
+                    return std::string("Nested backgrounds escaped the overflow clip");
+                if (!pixel(102, 52, 255, 0, 0) || !pixel(114, 52, 0, 255, 0) || !pixel(118, 52, 255, 0, 0))
+                    return std::string("Repeated background changed tile phase or scale");
+                const auto cell = [&](HtmlPoint point, unsigned char r, unsigned char g, unsigned char b) {
+                    return pixel(point.x / scale + 4, point.y / scale + 4, r, g, b);
+                };
+                if (!cell(g_HtmlFixture->head, 255, 0, 0))
+                    return std::string("Colspan table cell background is wrong");
+                if (!cell(g_HtmlFixture->first, 0, 255, 0))
+                    return std::string("Rowspan table cell background is wrong");
+                if (!cell(g_HtmlFixture->second, 0, 0, 255) || !cell(g_HtmlFixture->third, 255, 255, 0))
+                    return std::string("Table cells next to a rowspan background are wrong");
+                return std::string();
+            });
+            if (!failure.empty())
+                ctx->LogError("%s", failure.c_str());
+            IM_CHECK(failure.empty());
+        }
     };
     test = IM_REGISTER_TEST(engine, "html", "computed_cursor_presentation");
     test->GuiFunc = MainThreadGui;

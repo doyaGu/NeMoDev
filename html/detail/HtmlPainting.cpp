@@ -7,27 +7,39 @@
 static HtmlColor HtmlPaintColor(litehtml::web_color color) {
     return unsigned(color.red) | unsigned(color.green) << 8 | unsigned(color.blue) << 16 | unsigned(color.alpha) << 24;
 }
-static std::vector<HtmlPoint> HtmlRoundedRectangle(const litehtml::position &p, const litehtml::border_radiuses &r,
-                                                   float scale) {
-    if (!r.top_left_x && !r.top_left_y && !r.top_right_x && !r.top_right_y && !r.bottom_right_x && !r.bottom_right_y &&
-        !r.bottom_left_x && !r.bottom_left_y)
-        return {{p.x, p.y}, {p.right(), p.y}, {p.right(), p.bottom()}, {p.x, p.bottom()}};
-    const std::array<float, 4> xs = {std::max(0.0f, r.top_left_x), std::max(0.0f, r.top_right_x),
-                                     std::max(0.0f, r.bottom_right_x), std::max(0.0f, r.bottom_left_x)};
-    const std::array<float, 4> ys = {std::max(0.0f, r.top_left_y), std::max(0.0f, r.top_right_y),
-                                     std::max(0.0f, r.bottom_right_y), std::max(0.0f, r.bottom_left_y)};
+static litehtml::border_radiuses HtmlUsedRadii(const litehtml::position &p, litehtml::border_radiuses r) {
+    float *values[] = {&r.top_left_x,     &r.top_left_y,     &r.top_right_x,   &r.top_right_y,
+                       &r.bottom_right_x, &r.bottom_right_y, &r.bottom_left_x, &r.bottom_left_y};
+    for (auto *value : values)
+        *value = std::max(0.0f, *value);
     float factor = 1;
     const auto fit = [&](float size, float sum) {
         if (sum > 0)
             factor = std::min(factor, std::max(0.0f, size) / sum);
     };
-    fit(p.width, xs[0] + xs[1]);
-    fit(p.width, xs[2] + xs[3]);
-    fit(p.height, ys[0] + ys[3]);
-    fit(p.height, ys[1] + ys[2]);
+    fit(p.width, r.top_left_x + r.top_right_x);
+    fit(p.width, r.bottom_left_x + r.bottom_right_x);
+    fit(p.height, r.top_left_y + r.bottom_left_y);
+    fit(p.height, r.top_right_y + r.bottom_right_y);
+    for (auto *value : values)
+        *value *= factor;
+    return r;
+}
+static std::vector<HtmlPoint> HtmlRoundedRectangle(const litehtml::position &p, const litehtml::border_radiuses &r,
+                                                   float scale, int firstCorner = 0) {
+    const auto used = HtmlUsedRadii(p, r);
+    if (!r.top_left_x && !r.top_left_y && !r.top_right_x && !r.top_right_y && !r.bottom_right_x && !r.bottom_right_y &&
+        !r.bottom_left_x && !r.bottom_left_y) {
+        std::vector<HtmlPoint> corners{{p.x, p.y}, {p.right(), p.y}, {p.right(), p.bottom()}, {p.x, p.bottom()}};
+        std::rotate(corners.begin(), corners.begin() + firstCorner, corners.end());
+        return corners;
+    }
+    const std::array<float, 4> xs = {used.top_left_x, used.top_right_x, used.bottom_right_x, used.bottom_left_x};
+    const std::array<float, 4> ys = {used.top_left_y, used.top_right_y, used.bottom_right_y, used.bottom_left_y};
     std::vector<HtmlPoint> result;
-    for (int i = 0; i < 4; ++i) {
-        const float rx = xs[i] * factor, ry = ys[i] * factor;
+    for (int corner = 0; corner < 4; ++corner) {
+        const int i = (firstCorner + corner) % 4;
+        const float rx = xs[i], ry = ys[i];
         const float cx = i == 0 || i == 3 ? p.x + rx : p.right() - rx;
         const float cy = i < 2 ? p.y + ry : p.bottom() - ry;
         const int segments =
@@ -38,6 +50,63 @@ static std::vector<HtmlPoint> HtmlRoundedRectangle(const litehtml::position &p, 
         }
     }
     return result;
+}
+static std::vector<HtmlPoint> HtmlBorderArc(const litehtml::position &box, const litehtml::borders &border, int side,
+                                            float depth, float scale) {
+    const auto radii = HtmlUsedRadii(box, border.radius);
+    const float left = border.left.width * depth, right = border.right.width * depth;
+    const float top = border.top.width * depth, bottom = border.bottom.width * depth;
+    const litehtml::position inset{box.x + left, box.y + top, std::max(0.0f, box.width - left - right),
+                                   std::max(0.0f, box.height - top - bottom)};
+    auto inner = radii;
+    inner.top_left_x -= left;
+    inner.top_left_y -= top;
+    inner.top_right_x -= right;
+    inner.top_right_y -= top;
+    inner.bottom_right_x -= right;
+    inner.bottom_right_y -= bottom;
+    inner.bottom_left_x -= left;
+    inner.bottom_left_y -= bottom;
+    const auto contour = HtmlRoundedRectangle(inset, inner, scale, side);
+    const HtmlPoint outer[] = {
+        {box.x, box.y}, {box.right(), box.y}, {box.right(), box.bottom()}, {box.x, box.bottom()}};
+    const HtmlPoint padding[] = {{box.x + border.left.width, box.y + border.top.width},
+                                 {box.right() - border.right.width, box.y + border.top.width},
+                                 {box.right() - border.right.width, box.bottom() - border.bottom.width},
+                                 {box.x + border.left.width, box.bottom() - border.bottom.width}};
+    std::vector<HtmlPoint> arc;
+    const auto append = [&](HtmlPoint point) {
+        if (arc.empty() || std::hypot(arc.back().x - point.x, arc.back().y - point.y) > .0001f)
+            arc.push_back(point);
+    };
+    for (size_t i = 0; i < contour.size(); ++i) {
+        const auto a = contour[i], z = contour[(i + 1) % contour.size()];
+        float begin = 0, end = 1;
+        for (int edge = 0; edge < 2; ++edge) {
+            const int corner = (side + edge) % 4;
+            const auto distance = [&](HtmlPoint point) {
+                const auto o = outer[corner], p = padding[corner];
+                return ((p.x - o.x) * (point.y - o.y) - (p.y - o.y) * (point.x - o.x)) * (edge ? 1 : -1);
+            };
+            const float before = distance(a), after = distance(z);
+            if (before < 0 && after < 0) {
+                end = -1;
+                break;
+            }
+            if ((before < 0) != (after < 0)) {
+                const float t = before / (before - after);
+                if (before < 0)
+                    begin = std::max(begin, t);
+                else
+                    end = std::min(end, t);
+            }
+        }
+        if (end >= begin) {
+            append({a.x + (z.x - a.x) * begin, a.y + (z.y - a.y) * begin});
+            append({a.x + (z.x - a.x) * end, a.y + (z.y - a.y) * end});
+        }
+    }
+    return arc;
 }
 static std::vector<HtmlPoint> HtmlClipPolygon(std::vector<HtmlPoint> polygon, const std::vector<HtmlPoint> &clip) {
     if (clip.empty())
@@ -203,6 +272,9 @@ void HtmlPainting::Marker(const litehtml::position &p, bool hollow, bool square,
 }
 void HtmlPainting::Borders(const litehtml::position &p, const litehtml::borders &b) {
     PushClip(p, b.radius);
+    const auto &radius = b.radius;
+    const bool rounded = radius.top_left_x || radius.top_left_y || radius.top_right_x || radius.top_right_y ||
+                         radius.bottom_right_x || radius.bottom_right_y || radius.bottom_left_x || radius.bottom_left_y;
     const litehtml::border sides[] = {b.top, b.right, b.bottom, b.left};
     const HtmlPoint outside[] = {{p.x, p.y}, {p.right(), p.y}, {p.right(), p.bottom()}, {p.x, p.bottom()}};
     const HtmlPoint inside[] = {{p.x + b.left.width, p.y + b.top.width},
@@ -223,9 +295,17 @@ void HtmlPainting::Borders(const litehtml::position &p, const litehtml::borders 
         if (side.width <= 0 || side.style == litehtml::border_style_none || side.style == litehtml::border_style_hidden)
             continue;
         const auto band = [&](float begin, float end, litehtml::web_color color) {
-            Polygon({mix(outside[i], inside[i], begin), mix(outside[(i + 1) % 4], inside[(i + 1) % 4], begin),
-                     mix(outside[(i + 1) % 4], inside[(i + 1) % 4], end), mix(outside[i], inside[i], end)},
-                    color);
+            if (!rounded) {
+                Polygon({mix(outside[i], inside[i], begin), mix(outside[(i + 1) % 4], inside[(i + 1) % 4], begin),
+                         mix(outside[(i + 1) % 4], inside[(i + 1) % 4], end), mix(outside[i], inside[i], end)},
+                        color);
+                return;
+            }
+            auto outer = HtmlBorderArc(p, b, i, begin, m_Scale);
+            const auto inner = HtmlBorderArc(p, b, i, end, m_Scale);
+            outer.insert(outer.end(), inner.rbegin(), inner.rend());
+            if (outer.size() >= 3)
+                Polygon(outer, color);
         };
         if (side.style == litehtml::border_style_double && side.width >= 3) {
             band(0, 1.0f / 3, side.color);
