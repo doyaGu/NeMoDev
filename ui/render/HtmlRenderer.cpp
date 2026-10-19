@@ -148,6 +148,32 @@ void HtmlRenderer::Begin(ImDrawList *draw) {
     m_Impl->drawings.clear();
 #endif
 }
+void HtmlRenderer::SetCursor(std::string_view cursor) {
+    ImGuiMouseCursor shape = ImGuiMouseCursor_Arrow;
+    if (cursor == "none")
+        shape = ImGuiMouseCursor_None;
+    else if (cursor == "pointer")
+        shape = ImGuiMouseCursor_Hand;
+    else if (cursor == "text" || cursor == "vertical-text")
+        shape = ImGuiMouseCursor_TextInput;
+    else if (cursor == "move" || cursor == "all-scroll")
+        shape = ImGuiMouseCursor_ResizeAll;
+    else if (cursor == "wait")
+        shape = ImGuiMouseCursor_Wait;
+    else if (cursor == "progress")
+        shape = ImGuiMouseCursor_Progress;
+    else if (cursor == "not-allowed" || cursor == "no-drop")
+        shape = ImGuiMouseCursor_NotAllowed;
+    else if (cursor == "e-resize" || cursor == "w-resize" || cursor == "ew-resize" || cursor == "col-resize")
+        shape = ImGuiMouseCursor_ResizeEW;
+    else if (cursor == "n-resize" || cursor == "s-resize" || cursor == "ns-resize" || cursor == "row-resize")
+        shape = ImGuiMouseCursor_ResizeNS;
+    else if (cursor == "ne-resize" || cursor == "sw-resize" || cursor == "nesw-resize")
+        shape = ImGuiMouseCursor_ResizeNESW;
+    else if (cursor == "nw-resize" || cursor == "se-resize" || cursor == "nwse-resize")
+        shape = ImGuiMouseCursor_ResizeNWSE;
+    ImGui::SetMouseCursor(shape);
+}
 std::shared_ptr<HtmlFont> HtmlRenderer::CreateFont(const HtmlFontDescription &description) {
     if (!std::isfinite(description.size) || description.size < 0)
         return {};

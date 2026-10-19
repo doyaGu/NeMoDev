@@ -136,5 +136,41 @@ void RegisterHtmlTests(ImGuiTestEngine *engine) {
             g_HtmlFixture.reset();
         });
     };
+    test = IM_REGISTER_TEST(engine, "html", "computed_cursor_presentation");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        IM_CHECK(Read<bool>(ctx, [] {
+            HtmlUiResources resources;
+            vdev::HtmlRenderer renderer(
+                {ImGui::GetIO().FontDefault, ImGui::GetIO().FontDefault, ImGui::GetIO().FontDefault});
+            HtmlDocument document(resources, renderer);
+            const std::pair<const char *, ImGuiMouseCursor> cases[] = {{"pointer", ImGuiMouseCursor_Hand},
+                                                                       {"text", ImGuiMouseCursor_TextInput},
+                                                                       {"move", ImGuiMouseCursor_ResizeAll},
+                                                                       {"ew-resize", ImGuiMouseCursor_ResizeEW},
+                                                                       {"ns-resize", ImGuiMouseCursor_ResizeNS},
+                                                                       {"nesw-resize", ImGuiMouseCursor_ResizeNESW},
+                                                                       {"nwse-resize", ImGuiMouseCursor_ResizeNWSE},
+                                                                       {"not-allowed", ImGuiMouseCursor_NotAllowed},
+                                                                       {"wait", ImGuiMouseCursor_Wait},
+                                                                       {"progress", ImGuiMouseCursor_Progress},
+                                                                       {"none", ImGuiMouseCursor_None},
+                                                                       {"default", ImGuiMouseCursor_Arrow},
+                                                                       {"crosshair", ImGuiMouseCursor_Arrow}};
+            for (const auto &item : cases) {
+                std::string error;
+                const std::string html =
+                    "<!doctype html><a href=next style='cursor:" + std::string(item.first) + "'>Cursor</a>";
+                if (!document.Load(html, "https://docs.example.test/index.html", error) ||
+                    !document.Layout({400, 300}, 1, error) || document.Links().empty())
+                    return false;
+                const auto box = document.Links().front().bounds.front();
+                renderer.SetCursor(document.HitTest({box.x + 2, box.y + 2}).cursor);
+                if (ImGui::GetMouseCursor() != item.second)
+                    return false;
+            }
+            return true;
+        }));
+    };
 }
 } // namespace vdevuitest

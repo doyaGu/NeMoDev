@@ -14,6 +14,8 @@ public:
     explicit HtmlRenderer(HtmlFonts fonts);
     ~HtmlRenderer();
     void Begin(ImDrawList *draw);
+    // Apply the supported native cursor shape; unknown CSS shapes use Arrow.
+    void SetCursor(std::string_view cursor);
     std::shared_ptr<HtmlFont> CreateFont(const HtmlFontDescription &description) override;
     std::shared_ptr<HtmlImage> DecodeImage(const std::string &url, const std::vector<unsigned char> &bytes) override;
     std::shared_ptr<HtmlImage> CreateImage(unsigned width, unsigned height, const unsigned char *rgba) override;
