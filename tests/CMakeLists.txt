@@ -1,4 +1,14 @@
 # Virtools Dev's tests: they link the core only.
+add_executable(NemoDevHelpTests HelpBookTests.cpp ../ui/help/HelpBook.cpp)
+target_include_directories(NemoDevHelpTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
+target_compile_features(NemoDevHelpTests PRIVATE cxx_std_17)
+set(_help_test ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/HelpContentTests.py"
+        --reader $<TARGET_FILE:NemoDevHelpTests>)
+if(VIRTOOLSDEV_HAS_HELP)
+    list(APPEND _help_test --content "${_help_output}")
+    add_dependencies(NemoDevHelpTests VirtoolsDevHelp)
+endif()
+add_test(NAME NemoDevHelpContent COMMAND ${_help_test})
 set(_production_check ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/CheckProductionBinary.py"
         --binary $<TARGET_FILE:VirtoolsDev>)
 if(VIRTOOLSDEV_BUILD_UI_TESTS)

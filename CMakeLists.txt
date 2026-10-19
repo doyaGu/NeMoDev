@@ -108,17 +108,18 @@ add_custom_target(VirtoolsDevData ALL
 if(VIRTOOLSDEV_HAS_HELP)
     find_program(VIRTOOLSDEV_SEVEN_ZIP NAMES 7zz 7z 7za HINTS "C:/Program Files/7-Zip" REQUIRED)
     set(_help_output "${PROJECT_BINARY_DIR}/generated/help")
-    add_custom_command(OUTPUT "${_help_output}/VirtoolsDevHelp.html"
+    add_custom_command(OUTPUT "${_help_output}/help.ndh" "${_help_output}/VirtoolsDevHelp.html"
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py"
             --archive "${_help_archive}"
             --seven-zip "${VIRTOOLSDEV_SEVEN_ZIP}" --output "${_help_output}"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py" "${_help_archive}"
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/HelpContent.py" "${_help_archive}"
         VERBATIM)
     add_custom_target(VirtoolsDevHelp
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_runtime_data}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_help_archive}" "${_runtime_data}"
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${_help_output}" "${_runtime_data}/help"
-        DEPENDS "${_help_output}/VirtoolsDevHelp.html" "${_help_archive}"
+        DEPENDS "${_help_output}/help.ndh" "${_help_archive}"
         VERBATIM)
     add_dependencies(VirtoolsDevData VirtoolsDevHelp)
 endif()

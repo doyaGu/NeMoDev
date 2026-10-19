@@ -1434,6 +1434,7 @@ void ResourceChecks() {
 #if VIRTOOLSDEV_HAS_HELP
     CHECK(std::filesystem::exists(DataFilePath(HELP_FILE)));
     CHECK(std::filesystem::exists(DataFilePath("help/VirtoolsDevHelp.html")));
+    CHECK(std::filesystem::exists(DataFilePath("help/help.ndh")));
 #endif
     std::cout << "Resources: " << entries.size() << " in the program\n";
 }
