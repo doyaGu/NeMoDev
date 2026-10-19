@@ -573,6 +573,92 @@ static void LinkIdentityIgnoresGeneratedImages() {
     Check(document.Activate(links[0].id, navigation) && navigation.url == links[0].navigation.url,
           "A retained keyboard link ID activated a different destination");
 }
+static void CascadeAcrossReflowAndInteraction() {
+    TestHtmlResources resources;
+    resources.files["book://manual/topics/first.css"] =
+        "@import 'nested/second.css'; #target{color:red!important} p{font-size:12px}";
+    resources.files["book://manual/topics/nested/second.css"] = "p{color:blue} #target{color:purple}";
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><link rel=stylesheet href=first.css><style>p{color:yellow}"
+                   "a:hover{color:blue} @media(max-width:250px){p{font-size:20px}}</style>"
+                   "<p id=target style='color:green'>Cascade</p><a href=next>Hover</a>");
+    const auto verify = [&](float scale, float size) {
+        device.text.clear();
+        document.Draw({}, {0, 0, 800, 800});
+        const auto text = std::find_if(device.text.begin(), device.text.end(),
+                                       [](const auto &draw) { return draw.text == "Cascade"; });
+        Check(text != device.text.end() && text->color == 0xff0000ff && text->font.size == size * scale,
+              "Import order, inline priority, important or media query cascade changed");
+    };
+    verify(1, 12);
+    const auto rect = document.Links().front().bounds.front();
+    document.Hover({rect.x + 2, rect.y + 2});
+    document.Leave();
+    verify(1, 12);
+    std::string error;
+    Check(document.Layout({400, 300}, 2, error), error.c_str());
+    verify(2, 20);
+    Check(resources.requests.size() == 2, "Reflow reloaded imported stylesheets");
+}
+static void ImageSizingAndVisibility() {
+    TestHtmlResources resources;
+    resources.files["book://manual/topics/image.png"] = "image";
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>body{margin:0}#scaled{width:60px;height:auto}"
+                   "#limited{max-width:50px;height:auto}</style>"
+                   "<img id=scaled src=image.png width=120 height=50>"
+                   "<img id=limited src=image.png><img src=image.png style='visibility:hidden'>");
+    const auto verify = [&](float scale) {
+        device.images.clear();
+        document.Draw({}, {0, 0, 800, 800});
+        Check(device.images.size() == 2, "An invisible image was painted");
+        Check(std::fabs(device.images[0].width - 60 * scale) < .01f &&
+                  std::fabs(device.images[0].height - 48 * scale) < .01f &&
+                  std::fabs(device.images[1].width - 50 * scale) < .01f &&
+                  std::fabs(device.images[1].height - 40 * scale) < .01f,
+              "CSS image constraints lost the intrinsic aspect ratio");
+    };
+    verify(1);
+    std::string error;
+    Check(document.Layout({800, 600}, 2, error), error.c_str());
+    verify(2);
+}
+static void HiddenAnchorsAndImageMaps() {
+    TestHtmlResources resources;
+    resources.files["book://manual/topics/image.png"] = "image";
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><div style='height:100px'></div>"
+                   "<div style='display:none'><p id=hidden>Hidden</p>"
+                   "<img src=image.png usemap='#hidden-map'></div>"
+                   "<img src=image.png usemap='#hidden-map' style='visibility:hidden'>"
+                   "<map name=hidden-map><area coords='0,0,50,50' href=next></map><p id=visible>Visible</p>");
+    HtmlPoint point{19, 23};
+    Check(!document.FindAnchor("hidden", point) && point.x == 19 && point.y == 23,
+          "An anchor without layout supplied a false navigation position");
+    Check(document.Links().empty(), "Hidden image maps remained keyboard activatable");
+    Check(document.FindAnchor("visible", point) && point.y >= 100, "Visible anchor geometry was lost");
+}
+static void WrappedAnchorsStartAtFirstFragment() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><div style='margin:200px 50px;width:100px'><a id=wrapped href=next>"
+                   "Several words wrapping across multiple lines</a></div>");
+    const auto verify = [&] {
+        const auto box = document.Links().front().bounds.front();
+        HtmlPoint point;
+        Check(document.FindAnchor("wrapped", point) && std::fabs(point.y - box.y) < .01f &&
+                  std::fabs(point.x - box.x) < .01f,
+              "A wrapped anchor navigated to its last line instead of its first fragment");
+    };
+    verify();
+    std::string error;
+    Check(document.Layout({600, 600}, 1.5f, error), error.c_str());
+    verify();
+}
 int main() {
     try {
         CascadeAndResources();
@@ -594,6 +680,10 @@ int main() {
         ReadingPositionsIgnoreGeneratedContent();
         DeviceTextDecorations();
         LinkIdentityIgnoresGeneratedImages();
+        CascadeAcrossReflowAndInteraction();
+        ImageSizingAndVisibility();
+        HiddenAnchorsAndImageMaps();
+        WrappedAnchorsStartAtFirstFragment();
         GradientPixels();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;

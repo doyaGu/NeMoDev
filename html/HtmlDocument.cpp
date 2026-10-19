@@ -624,6 +624,13 @@ struct HtmlDocument::Impl : litehtml::document_container {
                 linkElements[element.get()] = id;
         }
         for (const auto &image : document->root()->select_all("img[usemap]")) {
+            bool visible = false;
+            image->run_on_renderers([&](const auto &render) {
+                visible = visible || render->is_visible();
+                return true;
+            });
+            if (!visible)
+                continue;
             const std::string reference = image->get_attr("usemap", "");
             if (reference.empty() || reference[0] != '#')
                 continue;
@@ -856,6 +863,9 @@ bool HtmlDocument::FindAnchor(const std::string &name, HtmlPoint &point) const {
         for (const auto &node : m_Impl->document->root()->select_all(selector)) {
             const char *value = node->get_attr(selector[0] == '[' ? "id" : "name", "");
             if (decoded == value) {
+                for (auto parent = node; parent; parent = parent->parent())
+                    if (parent->css().get_display() == litehtml::display_none)
+                        return false;
                 const auto p = node->get_placement();
                 point = {p.x * m_Impl->scale, p.y * m_Impl->scale};
                 return true;
