@@ -127,7 +127,8 @@ def main():
     report = {"home": home, "topics": len(list(topics(tree.root))), "missing_source_topics": sorted(set(missing)),
               "case_corrected_topics": corrected}
     report["source_issues"] = []
-    report["compiled_topics"] = compile_help(args.output, tree.root, home, decode, report["source_issues"])
+    report["source_recoveries"] = []
+    report["compiled_topics"] = compile_help(args.output, tree.root, home, decode, report["source_issues"], report["source_recoveries"])
     (args.output / "help-manifest.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     page = """<!doctype html><html lang="en"><meta charset="utf-8">
 <title>Virtools Online Reference</title><style>

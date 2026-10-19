@@ -322,7 +322,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK_LT(article->ScrollMax.x, 1);
         IM_CHECK(HelpFrame(ctx, "zoom-out-scrollbar.png"));
     };
-    t = IM_REGISTER_TEST(engine, "help", "missing_image_does_not_cover_text");
+    t = IM_REGISTER_TEST(engine, "help", "recovered_script_image_does_not_cover_text");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, "//Level Manager");
@@ -330,17 +330,32 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         ctx->WindowResize("//Help", ImVec2(1280, 760));
         ctx->ItemInputValue("//Help/Zoom", 1.0f); ctx->Yield(5);
-        const vdev::HelpDrawing *missing = nullptr;
+        const vdev::HelpDrawing *script = nullptr;
         for (const auto &item : App().Help().PageLayout().drawings)
-            if (item.image == "images/filter_script.png") missing = &item;
-        IM_CHECK(missing);
+            if (item.image == "_recovered/filter_script.png") script = &item;
+        IM_CHECK(script);
         ImGuiWindow *article = HelpArticle(ctx);
         IM_CHECK(article);
-        const float imageY = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + missing->position.y;
+        const float imageY = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + script->position.y;
         ctx->ScrollTo(article->ID, ImGuiAxis_Y, article->Scroll.y + imageY - article->InnerRect.Min.y - 80, ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(4);
-        const float right = article->DC.CursorStartPos.x + missing->position.x + missing->size.x;
-        const float top = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + missing->position.y;
-        const float bottom = top + missing->size.y;
+        const float right = article->DC.CursorStartPos.x + script->position.x + script->size.x;
+        const float top = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + script->position.y;
+        const float bottom = top + script->size.y;
+        const float left = right - script->size.x;
+        const bool glyph = Read<bool>(ctx, [=] {
+            std::vector<unsigned char> pixels; int width = 0, height = 0;
+            if (!vdev::MainRenderer().ReadFrame(pixels, width, height)) return false;
+            size_t black = 0, white = 0, red = 0;
+            for (int y = std::max(0, int(std::ceil(top))); y < std::min(height, int(bottom)); ++y)
+                for (int x = std::max(0, int(std::ceil(left))); x < std::min(width, int(right)); ++x) {
+                    const size_t at = (size_t(y) * width + x) * 4;
+                    black += pixels[at] < 80 && pixels[at+1] < 80 && pixels[at+2] < 80;
+                    white += pixels[at] > 230 && pixels[at+1] > 230 && pixels[at+2] > 230;
+                    red += pixels[at] == 160 && pixels[at+1] == 0 && pixels[at+2] == 0;
+                }
+            return black > 4 && white > 4 && red == 0;
+        });
+        IM_CHECK(glyph);
         const size_t overflow = Read<size_t>(ctx, [=] {
             std::vector<unsigned char> pixels; int width = 0, height = 0;
             if (!vdev::MainRenderer().ReadFrame(pixels, width, height)) return size_t(-1);
@@ -353,7 +368,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             return red;
         });
         IM_CHECK_EQ(overflow, size_t(0));
-        IM_CHECK(HelpFrame(ctx, "missing-image.png"));
+        IM_CHECK(HelpFrame(ctx, "recovered-script-image.png"));
     };
     t = IM_REGISTER_TEST(engine, "help", "reference_layout_at_multiple_widths");
     t->GuiFunc = MainThreadGui;

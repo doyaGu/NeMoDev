@@ -5,6 +5,7 @@ from pathlib import Path
 import posixpath
 import re
 import math
+import hashlib
 import struct
 import tempfile
 from urllib.parse import unquote, urlsplit
@@ -249,17 +250,61 @@ def image_areas(node, topic, width, height, diagnostics):
     return result
 
 
-def compile_help(root, tree, home, decode, diagnostics=None):
+def recover_source_images(root, topic, document, assets, recoveries):
+    from PIL import Image
+    # These five author-local references describe the same flags illustrated in
+    # the Level Manager column pages. Reuse those archived images at their size.
+    scene_images = dict(zip(("Activate", "Deactivate", "DoNothing", "Reset", "NoReset"),
+                           ("active.PNG", "inactive.PNG", "nothing.png", "reset.png", "noreset.png")))
+    for node in elements(document.root, "img"):
+        original = reference(topic, node.attrs.get("src", ""))
+        if original.casefold() in assets:
+            continue
+        replacement = ""
+        record = {"topic": topic, "image": original}
+        if topic == "whitepapers/SceneManagement.htm":
+            for state, image in scene_images.items():
+                if original == "file:///G%7C/Documentation/Doc%202.5/Dev/WhitePapers/images/Scene_" + state + ".jpg":
+                    replacement = "images/" + image
+                    break
+        elif topic == "ui/7_schematic/toolbar/2_schematic_explorer.html" and original == "images/filter_script.png":
+            source = assets.get("images/filter_tree.png")
+            # The screenshot labels this 11x11 glyph as Ball Script. Check the
+            # exact source before taking pixels; a different book may move it.
+            if source and hashlib.sha256(source.read_bytes()).hexdigest() == "be7bd90279f61c5960c4f316eda194fb05bf2e14e729b2ff8a3e6061d35299d6":
+                replacement = "_recovered/filter_script.png"
+                target = root / replacement
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with Image.open(source) as screenshot:
+                    screenshot.crop((40, 54, 51, 65)).save(target)
+                assets[replacement.casefold()] = target
+                record.update(source="images/filter_tree.png", rectangle=[40, 54, 51, 65])
+        source = assets.get(replacement.casefold()) if replacement else None
+        if not source:
+            continue
+        try:
+            with Image.open(source) as image:
+                width, height = image.size
+        except OSError:
+            continue
+        node.attrs.update(src=posixpath.relpath(replacement, posixpath.dirname(topic)), width=str(width), height=str(height))
+        record.update(replacement=replacement)
+        recoveries.append(record)
+
+
+def compile_help(root, tree, home, decode, diagnostics=None, recoveries=None):
     from PIL import Image
     pages = []
     assets = {file.relative_to(root).as_posix().casefold(): file for file in root.rglob("*") if file.is_file()}
     image_sizes = {}
     diagnostics = diagnostics if diagnostics is not None else []
+    recoveries = recoveries if recoveries is not None else []
     for file in sorted(root.rglob("*")):
         if file.suffix.lower() not in {".html", ".htm"} or file.name == "VirtoolsDevHelp.html":
             continue
         topic = file.relative_to(root).as_posix()
         document = Document(decode(file.read_bytes()))
+        recover_source_images(root, topic, document, assets, recoveries)
         maps = {name.casefold(): node for node in elements(document.root, "map")
                 for name in (node.attrs.get("name", ""), node.attrs.get("id", "")) if name}
         rules = []

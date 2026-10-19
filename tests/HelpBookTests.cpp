@@ -22,6 +22,12 @@ static const vdev::HelpSpan *Image(const std::vector<vdev::HelpBlock> &blocks) {
     }
     return nullptr;
 }
+static void Images(const std::vector<vdev::HelpBlock> &blocks, std::vector<const vdev::HelpSpan *> &images) {
+    for (const auto &block : blocks) {
+        for (const auto &span : block.spans) if (!span.image.empty()) images.push_back(&span);
+        Images(block.children, images);
+    }
+}
 int main(int argc, char **argv) {
     try {
         Check(argc >= 2, "Missing help fixture");
@@ -65,6 +71,26 @@ int main(int argc, char **argv) {
             Check(Text(key->blocks).find("Key State:") != std::string::npos, "Original parameter description was lost");
             Check(original.Find("behaviors/3d transformations/rotate.html"), "Original Rotate help lookup failed");
             Check(!original.Search("parameter links").empty(), "Original full-text index is empty");
+            const auto *scene = original.Find("whitepapers/SceneManagement.htm");
+            Check(scene, "Original Scene Management help was lost");
+            std::vector<const vdev::HelpSpan *> images;
+            Images(scene->blocks, images);
+            const char *states[] = {"images/active.PNG", "images/inactive.PNG", "images/nothing.png", "images/reset.png", "images/noreset.png"};
+            Check(images.size() == 5, "Scene state illustrations were lost");
+            for (size_t i = 0; i < images.size(); ++i) {
+                Check(images[i]->image == states[i], "Scene state illustration still uses an author's local file");
+                Check(images[i]->imageWidth > 0 && images[i]->imageHeight > 0 && !original.ImagePath(images[i]->image).empty(),
+                      "Recovered Scene state illustration is unavailable");
+            }
+            const auto *explorer = original.Find("ui/7_schematic/toolbar/2_schematic_explorer.html");
+            Check(explorer, "Original Schematic Explorer help was lost");
+            images.clear();
+            Images(explorer->blocks, images);
+            bool script = false;
+            for (const auto *item : images) if (item->image == "_recovered/filter_script.png") {
+                script = item->imageWidth == 11 && item->imageHeight == 11 && !original.ImagePath(item->image).empty();
+            }
+            Check(script, "Schematic Script icon was not recovered from the original screenshot");
         }
         std::cout << "Help topics, markup, paths, search and failed loads passed\n";
         return 0;

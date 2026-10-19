@@ -9,11 +9,48 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from ExtractHelp import Contents, correct_topic_case, decode
-from HelpContent import Document, blocks, compile_help, reference, image_areas
+from HelpContent import Document, blocks, compile_help, reference, image_areas, recover_source_images, elements
 from HelpStyles import resolve_styles, stylesheet
 
 
 class HelpContentTests(unittest.TestCase):
+    def test_recover_only_known_missing_source_images(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'images').mkdir()
+            Image.new('RGB', (17, 18), 'gray').save(root / 'images/active.PNG')
+            assets = {'images/active.png': root / 'images/active.PNG'}
+            missing = 'file:///G%7C/Documentation/Doc%202.5/Dev/WhitePapers/images/Scene_Activate.jpg'
+            html = '<body><img src="' + missing + '" width="9" height="10"><img src="unknown.jpg"></body>'
+            page = root / 'whitepapers/SceneManagement.htm'
+            page.parent.mkdir()
+            page.write_text(html, encoding='utf-8')
+            document = Document(html)
+            recoveries = []
+            recover_source_images(root, 'whitepapers/SceneManagement.htm', document, assets, recoveries)
+            images = list(elements(document.root, 'img'))
+            self.assertEqual(images[0].attrs, {'src': '../images/active.PNG', 'width': '17', 'height': '18'})
+            self.assertEqual(images[1].attrs['src'], 'unknown.jpg')
+            self.assertEqual(recoveries, [{'topic': 'whitepapers/SceneManagement.htm', 'image': missing, 'replacement': 'images/active.PNG'}])
+            self.assertEqual(page.read_text(encoding='utf-8'), html)
+            for topic, sources in [('other.htm', assets), ('whitepapers/SceneManagement.htm', {})]:
+                document = Document(html)
+                recoveries = []
+                recover_source_images(root, topic, document, sources, recoveries)
+                self.assertEqual(next(elements(document.root, 'img')).attrs['src'], missing)
+                self.assertEqual(recoveries, [])
+            # An existing original illustration wins; unrelated screenshots must
+            # never be cropped at coordinates belonging to another help book.
+            for topic, html, sources in [
+                ('whitepapers/SceneManagement.htm', html, {**assets, missing.casefold(): page}),
+                ('ui/7_schematic/toolbar/2_schematic_explorer.html', '<img src="../../../images/filter_script.png">',
+                 {'images/filter_tree.png': root / 'images/active.PNG'})]:
+                recoveries = []
+                recover_source_images(root, topic, Document(html), sources, recoveries)
+                self.assertEqual(recoveries, [])
+            self.assertFalse((root / '_recovered/filter_script.png').exists())
+
     def test_missing_image_is_reported_without_modifying_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -182,6 +219,12 @@ def native_fixture(binary, real):
         compile_help(root, tree.root, "index.html", decode)
         args = [str(binary), str(root)] + ([str(real)] if real else [])
         subprocess.run(args, check=True)
+        if real:
+            from PIL import Image, ImageChops
+            with Image.open(real / 'images/filter_tree.png') as source, Image.open(real / '_recovered/filter_script.png') as recovered:
+                difference = ImageChops.difference(source.crop((40, 54, 51, 65)).convert('RGB'), recovered.convert('RGB'))
+                if difference.getbbox() is not None:
+                    raise AssertionError('Recovered Script icon differs from the original screenshot')
 
 
 if __name__ == "__main__":
