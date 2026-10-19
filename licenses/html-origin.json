@@ -1,0 +1,22 @@
+{
+  "name": "litehtml and bundled Gumbo",
+  "revision": "9bc84b8b8d15a4e50f18b327aa30955048b441c2",
+  "tag": "v0.10",
+  "files": [
+    {
+      "file": "litehtml-BSD-3-Clause.txt",
+      "source": "https://raw.githubusercontent.com/litehtml/litehtml/9bc84b8b8d15a4e50f18b327aa30955048b441c2/LICENSE",
+      "sha256": "71bd488e77ee821bf38d89e2b8a9c5ebe687553fcae9cefa00a96499792a3e23"
+    },
+    {
+      "file": "gumbo-Apache-2.0.txt",
+      "source": "https://raw.githubusercontent.com/litehtml/litehtml/9bc84b8b8d15a4e50f18b327aa30955048b441c2/src/gumbo/LICENSE",
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "file": "litehtml-PrimateLabs-BSD-3-Clause.txt",
+      "source": "https://raw.githubusercontent.com/litehtml/litehtml/9bc84b8b8d15a4e50f18b327aa30955048b441c2/include/litehtml/url.h",
+      "sha256": "acf0438b9a2d3ad10eb8b20a0b4117e7ec7e144ee82e7209f4d4d153b212bde1"
+    }
+  ]
+}

@@ -135,6 +135,8 @@ function(virtoolsdev_add_resources target)
     endif()
 endfunction()
 add_subdirectory(core)
+set(NEMODEV_HTML_BUILD_TESTS "${VIRTOOLSDEV_BUILD_TESTS}")
+add_subdirectory(html)
 
 if (VIRTOOLSDEV_BUILD_TESTS)
     enable_testing()
