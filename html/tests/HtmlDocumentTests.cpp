@@ -55,6 +55,7 @@ public:
     std::vector<std::shared_ptr<TestHtmlImage>> generated;
     std::vector<HtmlColor> fills;
     std::vector<std::vector<HtmlPoint>> fillClips;
+    std::vector<std::vector<HtmlPoint>> fillPolygons;
     bool failFont = false;
     std::shared_ptr<HtmlFont> CreateFont(const HtmlFontDescription &description) override {
         return failFont ? nullptr : std::make_shared<TestHtmlFont>(description);
@@ -74,9 +75,10 @@ public:
         text.push_back({std::string(value), point, color, static_cast<const TestHtmlFont &>(font).style});
     }
     void Image(const HtmlImage &, HtmlRect rect) override { images.push_back(rect); }
-    void Fill(const std::vector<HtmlPoint> &, HtmlColor color) override {
+    void Fill(const std::vector<HtmlPoint> &polygon, HtmlColor color) override {
         fills.push_back(color);
         fillClips.push_back(clip);
+        fillPolygons.push_back(polygon);
     }
 };
 
@@ -720,6 +722,46 @@ static void VisibilityPreservesVisibleDescendants() {
     Check(document.HitTest({box.x + 2, box.y + 2}).link == document.Links().front().id,
           "A visible descendant was painted but could not be hit");
 }
+static HtmlRect FilledBounds(const TestHtmlDevice &device, HtmlColor color) {
+    for (size_t i = 0; i < device.fills.size(); ++i) {
+        if (device.fills[i] != color)
+            continue;
+        const auto &points = device.fillPolygons[i];
+        Check(!points.empty(), "An expected background has no polygon");
+        float left = points.front().x, right = left, top = points.front().y, bottom = top;
+        for (const auto &point : points) {
+            left = std::min(left, point.x);
+            right = std::max(right, point.x);
+            top = std::min(top, point.y);
+            bottom = std::max(bottom, point.y);
+        }
+        return {left, top, right - left, bottom - top};
+    }
+    throw std::runtime_error("An expected background was not painted");
+}
+static void EmptyTableColumnsShareExtraWidth() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>body{margin:0}table{width:180px;border-collapse:collapse}"
+                   "td{height:20px;padding:0;border:2px solid black}#head{background:red}#left{background:lime}"
+                   "#right{background:blue}#bottom{background:yellow}</style>"
+                   "<table><tr><td id=head colspan=2></td></tr>"
+                   "<tr><td id=left rowspan=2></td><td id=right></td></tr><tr><td id=bottom></td></tr></table>");
+    for (float scale : {1.0f, 1.5f}) {
+        std::string error;
+        Check(document.Layout({600, 600}, scale, error), error.c_str());
+        device.fills.clear();
+        device.fillPolygons.clear();
+        document.Draw({}, {0, 0, 600, 600});
+        const auto left = FilledBounds(device, 0xff00ff00), right = FilledBounds(device, 0xffff0000);
+        const auto head = FilledBounds(device, 0xff0000ff), bottom = FilledBounds(device, 0xff00ffff);
+        Check(left.width / scale > 80 && std::fabs(left.width - right.width) < scale && head.width / scale >= 176,
+              "Empty table columns assigned all extra width to the last column");
+        Check(left.height > right.height && bottom.y >= right.y + 20 * scale && right.x > left.x + 80 * scale,
+              "Rowspan or colspan lost its cell occupancy after resizing");
+    }
+}
 int main() {
     try {
         CascadeAndResources();
@@ -748,6 +790,7 @@ int main() {
         EmptyClipsStayEmpty();
         RepeatedImagesOnlyPaintVisibleTiles();
         VisibilityPreservesVisibleDescendants();
+        EmptyTableColumnsShareExtraWidth();
         GradientPixels();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;

@@ -1,0 +1,19 @@
+diff --git a/src/table.cpp b/src/table.cpp
+--- a/src/table.cpp
++++ b/src/table.cpp
+@@ -272,7 +272,14 @@
+ 				}
+ 			} else
+ 			{
+-				distribute_columns.back()->width += width;
++				// Equal flexibility must not collapse every column except the last.
++				const pixel_t share = width / (pixel_t) distribute_columns.size();
++				for (auto* column : distribute_columns)
++				{
++					column->width += share;
++					added_width += share;
++				}
++				distribute_columns.back()->width += width - added_width;
+ 				added_width = width;
+ 			}
+ 		}
