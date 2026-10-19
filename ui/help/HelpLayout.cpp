@@ -4,6 +4,28 @@
 #include <cmath>
 
 namespace vdev {
+HelpReadingPosition HelpPageLayout::CapturePosition(ImVec2 point) const {
+    HelpReadingPosition position;
+    position.fallback = ImVec2(point.x / scale, point.y / scale);
+    float bestY = FLT_MAX, bestX = FLT_MAX;
+    for (const auto &item : drawings) if (item.source && item.size.x > 0 && item.size.y > 0) {
+        const float dy = std::max({item.position.y - point.y, point.y - item.position.y - item.size.y, 0.0f});
+        const float dx = std::max({item.position.x - point.x, point.x - item.position.x - item.size.x, 0.0f});
+        if (dy > bestY || (dy == bestY && dx >= bestX)) continue;
+        bestY = dy; bestX = dx;
+        position.source = item.source; position.textOffset = item.textOffset;
+        position.distance = ImVec2((point.x - item.position.x) / scale, (point.y - item.position.y) / scale);
+    }
+    return position;
+}
+ImVec2 HelpPageLayout::RestorePosition(const HelpReadingPosition &position) const {
+    if (position.source) for (const auto &item : drawings) {
+        if (item.source == position.source && (item.kind == HelpDrawing::Image ||
+            (position.textOffset >= item.textOffset && position.textOffset < item.textOffset + item.text.size())))
+            return ImVec2(item.position.x + position.distance.x * scale, item.position.y + position.distance.y * scale);
+    }
+    return ImVec2(position.fallback.x * scale, position.fallback.y * scale);
+}
 bool HelpPageLayout::Anchor(const std::string &name, ImVec2 &position) const {
     const auto exact = anchors.find(name);
     if (exact != anchors.end()) { position = exact->second; return true; }
@@ -41,6 +63,7 @@ void HelpLayout::Borders(const HelpAppearance &style, ImVec2 origin, ImVec2 size
 }
 HelpPageLayout HelpLayout::Build(const HelpTopic &topic, float width) {
     HelpPageLayout page;
+    page.scale = m_Scale;
     const auto &style = topic.appearance;
     const ImVec2 inset(style.margin[3] * m_Scale, style.margin[0] * m_Scale);
     const ImVec2 content = Flow(topic.blocks, inset, std::max(1.0f, width - inset.x - style.margin[1] * m_Scale), page);
@@ -207,6 +230,7 @@ ImVec2 HelpLayout::Paragraph(const HelpBlock &block, ImVec2 origin, float width,
                 w = font->CalcTextSizeA(size, FLT_MAX, 0, at, next).x;
             }
             HelpDrawing text; text.text.assign(at, next); text.link = span.link; text.font = font; text.fontSize = size;
+            text.source = &span; text.textOffset = static_cast<size_t>(at - span.text.data());
             text.size = ImVec2(w, size * 1.2f); text.color = style.color; text.background = style.background; text.flags = style.flags;
             text.hoverColor = style.hoverColor; text.visitedColor = style.visitedColor;
             text.hoverFlags = style.hoverFlags; text.visitedFlags = style.visitedFlags;

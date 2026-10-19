@@ -258,6 +258,68 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         }
         IM_CHECK(HelpFrame(ctx, "image-map-zoom.png"));
     };
+    t = IM_REGISTER_TEST(engine, "help", "zoom_reading_position_and_history");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Level Manager");
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"vsl/CoreLanguageFeatures/1_Types.html"}); });
+        ctx->Yield(4);
+        ctx->WindowResize("//Help", ImVec2(1280, 760));
+        ctx->ItemInputValue("//Help/Zoom", 1.0f); ctx->Yield(5);
+        ImGuiWindow *article = HelpArticle(ctx);
+        IM_CHECK(article);
+        const auto codeY = [&]() {
+            for (const auto &item : App().Help().PageLayout().drawings)
+                if (item.text == "struct") return article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + item.position.y;
+            return -100000.0f;
+        };
+        IM_CHECK_GT(codeY(), -10000);
+        ctx->ScrollTo(article->ID, ImGuiAxis_Y, article->Scroll.y + codeY() - article->InnerRect.Min.y + 3, ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(3);
+        IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 6);
+        ctx->ItemInputValue("//Help/Zoom", 2.0f); ctx->Yield(5);
+        IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);
+        ctx->WindowResize("//Help", ImVec2(900, 680)); ctx->Yield(5);
+        IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);
+        ctx->ItemClick("//Help/Home"); ctx->Yield(4);
+        ctx->ItemInputValue("//Help/Zoom", .75f); ctx->Yield(5);
+        ctx->ItemClick("//Help/Back"); ctx->Yield(5);
+        IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);
+        ctx->ItemClick("//Help/Forward"); ctx->Yield(4);
+        IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
+        ctx->ItemInputValue("//Help/Zoom", 1.5f); ctx->Yield(5);
+        ctx->ItemClick("//Help/Back"); ctx->Yield(5);
+        IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);
+        IM_CHECK(HelpFrame(ctx, "zoom-reading-position.png"));
+    };
+    t = IM_REGISTER_TEST(engine, "help", "zoom_limits_and_scrollbar");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Level Manager");
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"concepts/class_hierarchy.html"}); });
+        ctx->Yield(4);
+        ctx->WindowResize("//Help", ImVec2(1280, 760));
+        const auto imageWidth = [] {
+            for (const auto &item : App().Help().PageLayout().drawings)
+                if (item.source && !item.source->imageAreas.empty()) return item.size.x;
+            return 0.0f;
+        };
+        ctx->ItemInputValue("//Help/Zoom", 2.0f); ctx->Yield(5);
+        const float maximum = imageWidth();
+        IM_CHECK_GT(maximum, 100);
+        ctx->ItemInputValue("//Help/Zoom", 3.0f); ctx->Yield(5);
+        IM_CHECK(std::fabs(imageWidth() - maximum) < 1);
+        ctx->ItemInputValue("//Help/Zoom", .75f); ctx->Yield(5);
+        const float minimum = imageWidth();
+        ctx->ItemInputValue("//Help/Zoom", -1.0f); ctx->Yield(5);
+        IM_CHECK(std::fabs(imageWidth() - minimum) < 1);
+        ImGuiWindow *article = HelpArticle(ctx);
+        IM_CHECK(article);
+        const float extraWidth = std::max(0.0f, imageWidth() - article->InnerRect.GetWidth());
+        ctx->WindowResize("//Help", ImVec2(1280 + extraWidth + 64, 760)); ctx->Yield(5);
+        IM_CHECK_LT(imageWidth(), article->InnerRect.GetWidth());
+        IM_CHECK_LT(article->ScrollMax.x, 1);
+        IM_CHECK(HelpFrame(ctx, "zoom-out-scrollbar.png"));
+    };
     t = IM_REGISTER_TEST(engine, "help", "reference_layout_at_multiple_widths");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

@@ -2,6 +2,7 @@
 #include "core/runtime/Resources.h"
 #include "ui/app/DesktopFiles.h"
 #include "misc/cpp/imgui_stdlib.h"
+#include "imgui_internal.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cmath>
@@ -16,10 +17,23 @@ void HelpWindow::Close() {
     m_Open = false;
     m_Images.clear();
 }
+ImVec2 HelpWindow::ScrollPosition() const {
+    const ImGuiWindow *article = ImGui::FindWindowByID(m_ArticleId);
+    return article ? article->Scroll : ImVec2();
+}
+HelpReadingPosition HelpWindow::ReadingPosition() const {
+    const ImVec2 scroll = ScrollPosition();
+    if (m_LayoutTopic && m_LayoutTopic == m_Book.Find(m_Current))
+        return m_Page.CapturePosition(ImVec2(scroll.x, scroll.y - m_PageY));
+    HelpReadingPosition position;
+    const float scale = ImGui::GetFontSize() / 14.0f * m_Zoom;
+    position.fallback = ImVec2(scroll.x / scale, scroll.y / scale);
+    return position;
+}
 void HelpWindow::Navigate(const std::string &topic) {
     const bool samePage = m_Book.Find(m_Current) == m_Book.Find(topic);
     if (m_Current != topic) {
-        if (!m_History.empty()) m_History[m_Visit].scroll = m_Scroll;
+        if (!m_History.empty()) m_History[m_Visit].position = ReadingPosition();
         m_History.resize(m_History.empty() ? 0 : m_Visit + 1);
         m_History.push_back({topic, {}});
         if (m_History.size() > 128) m_History.erase(m_History.begin());
@@ -29,16 +43,18 @@ void HelpWindow::Navigate(const std::string &topic) {
     if (const auto *page = m_Book.Find(topic)) m_Visited.insert(page->path);
     const size_t fragment = topic.find('#');
     m_Anchor = fragment == std::string::npos ? std::string() : topic.substr(fragment + 1);
-    m_RestoreScroll = samePage && !m_Anchor.empty() ? m_Scroll : ImVec2();
+    m_RestoreScroll = samePage && !m_Anchor.empty() ? ScrollPosition() : ImVec2();
+    m_RestorePosition.reset();
     m_Error = m_Book.Find(topic) ? std::string() : "This topic is missing from the source help archive: " + topic;
     if (!samePage) m_Images.clear();
     m_Notice.clear();
 }
 void HelpWindow::History(int direction) {
-    m_History[m_Visit].scroll = m_Scroll;
+    m_History[m_Visit].position = ReadingPosition();
     m_Visit = static_cast<size_t>(static_cast<int>(m_Visit) + direction);
     m_Current = m_History[m_Visit].topic;
-    m_RestoreScroll = m_History[m_Visit].scroll;
+    m_RestorePosition = m_History[m_Visit].position;
+    m_RestoreScroll = ImVec2(-1, -1);
     m_Anchor.clear();
     m_Error = m_Book.Find(m_Current) ? std::string() : "This topic is missing from the source help archive: " + m_Current;
     // Retire images at the beginning of the next frame, after submission.
@@ -109,14 +125,20 @@ void HelpWindow::DrawImageAreas(const HelpDrawing &image, ImVec2 origin) {
 }
 
 void HelpWindow::DrawPage(const HelpTopic &topic) {
-    const float width = ImGui::GetContentRegionAvail().x;
+    // A scrolling child inside a table can expose an expanded WorkRect.
+    // Wrapping uses the visible article width, not the previous content width.
+    const ImGuiWindow *window = ImGui::GetCurrentWindow();
+    const float width = std::max(1.0f, window->InnerRect.GetWidth() - 2 * window->WindowPadding.x);
     const float scale = ImGui::GetFontSize() / 14.0f * m_Zoom;
     if (m_LayoutTopic != &topic || m_LayoutWidth != width || m_LayoutScale != scale) {
+        if (m_LayoutTopic == &topic && !m_RestorePosition && m_RestoreScroll.y < 0 && m_Anchor.empty())
+            m_RestorePosition = ReadingPosition();
         m_Page = HelpLayout(m_Fonts, scale).Build(topic, width);
         m_LayoutTopic = &topic; m_LayoutWidth = width; m_LayoutScale = scale;
     }
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float localY = ImGui::GetCursorPosY();
+    m_PageY = localY;
     ImDrawList *draw = ImGui::GetWindowDrawList();
     for (size_t i = 0; i < m_Page.drawings.size(); ++i) {
         const auto &item = m_Page.drawings[i];
@@ -160,6 +182,11 @@ void HelpWindow::DrawPage(const HelpTopic &topic) {
 #endif
         }
     }
+    if (m_RestorePosition) {
+        const ImVec2 position = m_Page.RestorePosition(*m_RestorePosition);
+        m_RestoreScroll = ImVec2(std::max(0.0f, position.x), std::max(0.0f, localY + position.y));
+        m_RestorePosition.reset();
+    }
     if (!m_Anchor.empty()) {
         ImVec2 position;
         if (m_Page.Anchor(m_Anchor, position)) m_RestoreScroll = ImVec2(position.x, localY + position.y);
@@ -184,7 +211,7 @@ void HelpWindow::Draw() {
     if (ImGui::Button("Home") && m_Loaded) m_Pending = m_Book.Home();
     ImGui::SameLine();
     ImGui::SetNextItemWidth(100);
-    ImGui::SliderFloat("Zoom", &m_Zoom, 0.75f, 2.0f, "%.2fx");
+    ImGui::SliderFloat("Zoom", &m_Zoom, 0.75f, 2.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
     ImGui::TextWrapped("Original Virtools reference. Some features and scripted examples are not available in NemoDev.");
     if (ImGui::BeginTable("help", 2, ImGuiTableFlags_Resizable)) {
         ImGui::TableSetupColumn("Navigation", ImGuiTableColumnFlags_WidthFixed, 270.0f);
@@ -210,6 +237,7 @@ void HelpWindow::Draw() {
         const HelpTopic *topic = m_Book.Find(m_Current);
         ImGui::PushStyleColor(ImGuiCol_ChildBg, topic ? topic->appearance.background : 0xffffffffu);
         ImGui::BeginChild("article", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+        m_ArticleId = ImGui::GetCurrentWindow()->ID;
 #ifdef VIRTOOLSDEV_UI_TESTS
         m_ShownText.clear(); m_ShownImages = 0;
 #endif
@@ -220,12 +248,15 @@ void HelpWindow::Draw() {
             ImGui::TextDisabled("%s", topic->path.c_str());
             ImGui::Separator();
             DrawPage(*topic);
+        } else if (m_RestorePosition) {
+            const float scale = ImGui::GetFontSize() / 14.0f * m_Zoom;
+            m_RestoreScroll = ImVec2(m_RestorePosition->fallback.x * scale, m_RestorePosition->fallback.y * scale);
+            m_RestorePosition.reset();
         }
         if (m_RestoreScroll.y >= 0.0f) {
             ImGui::SetScrollX(m_RestoreScroll.x); ImGui::SetScrollY(m_RestoreScroll.y);
             m_RestoreScroll = ImVec2(-1, -1);
         }
-        m_Scroll = ImVec2(ImGui::GetScrollX(), ImGui::GetScrollY());
         ImGui::EndChild(); ImGui::PopStyleColor(); ImGui::EndTable();
     }
     ImGui::End();

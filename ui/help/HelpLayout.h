@@ -16,12 +16,23 @@ struct HelpDrawing {
     float fontSize = 0.0f, thickness = 1.0f;
     ImFont *font = nullptr;
     const HelpSpan *source = nullptr; // borrowed from the immutable topic
+    size_t textOffset = 0;
+};
+// A location in immutable help content, with a CSS-pixel offset into its
+// displayed line or image. The owning book must outlive saved positions.
+struct HelpReadingPosition {
+    const HelpSpan *source = nullptr;
+    size_t textOffset = 0;
+    ImVec2 distance, fallback;
 };
 struct HelpPageLayout {
     std::vector<HelpDrawing> drawings;
     std::map<std::string, ImVec2> anchors;
     ImVec2 size;
+    float scale = 1.0f;
     bool Anchor(const std::string &name, ImVec2 &position) const;
+    HelpReadingPosition CapturePosition(ImVec2 point) const;
+    ImVec2 RestorePosition(const HelpReadingPosition &position) const;
 };
 
 // Computes one page from immutable content, font metrics, width and scale.

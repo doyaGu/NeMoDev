@@ -4,6 +4,7 @@
 #include "ui/render/UiRenderer.h"
 #include <map>
 #include <set>
+#include <optional>
 
 namespace vdev {
 class HelpWindow {
@@ -25,8 +26,10 @@ private:
     void DrawPage(const HelpTopic &topic);
     void DrawImageAreas(const HelpDrawing &image, ImVec2 origin);
     void FollowLink(const std::string &link);
+    HelpReadingPosition ReadingPosition() const;
+    ImVec2 ScrollPosition() const;
     UiTexture *Image(const std::string &path);
-    struct Visit { std::string topic; ImVec2 scroll; };
+    struct Visit { std::string topic; HelpReadingPosition position; };
     HelpBook m_Book;
     HelpFonts m_Fonts;
     HelpPageLayout m_Page;
@@ -39,7 +42,10 @@ private:
     std::vector<Visit> m_History;
     std::set<std::string> m_Visited;
     size_t m_Visit = 0;
-    ImVec2 m_Scroll, m_RestoreScroll = ImVec2(-1, -1);
+    ImVec2 m_RestoreScroll = ImVec2(-1, -1);
+    ImGuiID m_ArticleId = 0;
+    std::optional<HelpReadingPosition> m_RestorePosition;
+    float m_PageY = 0.0f;
     std::string m_Anchor;
     std::map<std::string, std::unique_ptr<UiTexture>> m_Images;
     float m_Zoom = 1.0f;
