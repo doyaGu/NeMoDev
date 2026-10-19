@@ -1,9 +1,36 @@
 #include "tests/ui/UiTests.h"
+#include "core/runtime/Resources.h"
 #include "imgui_internal.h"
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <algorithm>
+#include <set>
 
 namespace vdevuitest {
+static ImGuiWindow *HelpArticle(ImGuiTestContext *ctx) {
+    for (ImGuiWindow *child : ctx->GetWindowByRef("//Help")->DC.ChildWindows)
+        if (std::strstr(child->Name, "/article_")) return child;
+    return nullptr;
+}
+static bool HelpFrame(ImGuiTestContext *ctx, const char *name, bool checkStyles = false) {
+    return Read<bool>(ctx, [=] {
+        std::vector<unsigned char> pixels;
+        int width = 0, height = 0;
+        if (!vdev::MainRenderer().ReadFrame(pixels, width, height)) return false;
+        size_t white = 0, section = 0, purple = 0;
+        for (size_t at = 0; at < pixels.size(); at += 4) {
+            white += pixels[at] == 255 && pixels[at+1] == 255 && pixels[at+2] == 255;
+            section += pixels[at] == 242 && pixels[at+1] == 242 && pixels[at+2] == 242;
+            purple += pixels[at] == 102 && pixels[at+1] == 0 && pixels[at+2] == 102;
+            std::swap(pixels[at], pixels[at+2]);
+        }
+        const auto directory = std::filesystem::u8path(SDL_GetBasePath()) / "test-help";
+        std::filesystem::create_directories(directory);
+        return (!checkStyles || (white > 5000 && section > 1000 && purple > 5)) &&
+            vdev::WriteBgraPng((directory / name).u8string(), width, height, pixels.data());
+    });
+}
 void RegisterHelpTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = IM_REGISTER_TEST(engine, "help", "contents_search_history");
     t->GuiFunc = MainThreadGui;
@@ -15,6 +42,12 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         IM_CHECK(InFront(ctx, "//Help"));
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
+        ctx->ItemClick("//Help/**/Interface"); ctx->Yield(3);
+        IM_CHECK(App().Help().CurrentTopic() == "ui/0_interface_index.html");
+        ctx->ItemOpen("//Help/**/Interface", ImGuiTestOpFlags_MoveToEdgeL);
+        ctx->ItemClick("//Help/**/Building Blocks Resource"); ctx->Yield(3);
+        IM_CHECK(App().Help().CurrentTopic() == "ui/4_building_blocks_resource.html");
+        ctx->ItemClick("//Help/Home"); ctx->Yield(3);
         ctx->ItemInputValue("//Help/**/##search", "Key Event");
         ctx->ItemClick("//Help/**/Key Event BB");
         ctx->Yield(3);
@@ -50,9 +83,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK(InFront(ctx, "//Help"));
         IM_CHECK_GT(App().Help().ShownImages(), size_t(3));
         IM_CHECK(App().Help().ShownText().find("Parameter Output, pOut") != std::string::npos);
-        ImGuiWindow *article = nullptr;
-        for (ImGuiWindow *child : ctx->GetWindowByRef("//Help")->DC.ChildWindows)
-            if (std::strstr(child->Name, "/article_")) article = child;
+        ImGuiWindow *article = HelpArticle(ctx);
         IM_CHECK(article);
         const float start = article->Scroll.y;
         ctx->MouseMoveToPos(article->InnerRect.GetCenter());
@@ -96,6 +127,115 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK(App().Help().CurrentTopic() == "missing-source.html");
         ctx->ItemClick("//Help/Back"); ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
+    };
+    t = IM_REGISTER_TEST(engine, "help", "source_styles_and_table_geometry");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Level Manager");
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"behaviors/Controllers/Key Event.html"}); });
+        ctx->Yield(4);
+        bool heading = false, input = false;
+        for (const auto &item : App().Help().PageLayout().drawings) {
+            if (item.kind == vdev::HelpDrawing::Text && item.text == "Description") {
+                heading = item.color == 0xff660066 && (item.flags & 1) && item.font != ImGui::GetIO().FontDefault;
+            }
+            if (item.kind == vdev::HelpDrawing::Text && item.text == "On:") input = item.color == 0xff0000ff && (item.flags & 1);
+        }
+        IM_CHECK(heading && input);
+        IM_CHECK(HelpFrame(ctx, "building-block.png", true));
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"ui/0_interface_index.html"}); });
+        ctx->Yield(4);
+        const vdev::HelpDrawing *first = nullptr, *last = nullptr, *map = nullptr;
+        for (const auto &item : App().Help().PageLayout().drawings) {
+            if (item.image.find("taboff_menu_bar.png") != std::string::npos) first = &item;
+            if (item.image.find("tabon_status_bar.png") != std::string::npos) last = &item;
+            if (item.image.find("map_index_interface.png") != std::string::npos) map = &item;
+        }
+        IM_CHECK(first && last && map);
+        IM_CHECK(std::fabs(first->position.y - map->position.y) < 1.0f);
+        IM_CHECK(std::fabs(map->size.x / first->size.x - 513.0f / 114.0f) < 0.01f);
+        IM_CHECK(std::fabs(last->position.y + last->size.y - map->position.y - map->size.y) < 2.0f);
+        IM_CHECK(HelpFrame(ctx, "interface-table.png"));
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"vsl/CoreLanguageFeatures/1_Types.html"}); });
+        ctx->Yield(4);
+        bool codeBackground = false, mono = false;
+        float codeY = -1.0f, tableY = -1.0f;
+        for (const auto &item : App().Help().PageLayout().drawings) {
+            codeBackground |= item.kind == vdev::HelpDrawing::Fill && item.color == 0xfffaebd7;
+            if (item.kind == vdev::HelpDrawing::Text && item.text == "struct") {
+                mono = (item.flags & 4) && std::fabs(item.font->CalcTextSizeA(item.fontSize, 10000, 0, "iiii").x -
+                    item.font->CalcTextSizeA(item.fontSize, 10000, 0, "WWWW").x) < 0.1f;
+                if (codeY < 0) codeY = item.position.y;
+            }
+            if (item.kind == vdev::HelpDrawing::Text && item.text == "bool" && tableY < 0) tableY = item.position.y;
+        }
+        IM_CHECK(codeBackground && mono);
+        ImGuiWindow *article = HelpArticle(ctx);
+        IM_CHECK(article && codeY >= 0 && tableY >= 0);
+        ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, tableY - 80.0f), ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(4);
+        IM_CHECK(HelpFrame(ctx, "types-table.png"));
+        ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, codeY - 100.0f), ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(4);
+        IM_CHECK(HelpFrame(ctx, "code.png"));
+        ctx->WindowResize("//Help", ImVec2(760, 620)); ctx->Yield(4);
+        IM_CHECK_GT(article->ScrollMax.x, 20.0f);
+        ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, tableY - 80.0f), ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(4);
+        IM_CHECK(HelpFrame(ctx, "narrow-table.png"));
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"behaviors/Visuals/Volumetric Fog.html"}); });
+        ctx->Yield(4);
+        const vdev::HelpDrawing *sample = nullptr, *texture = nullptr, *cloud = nullptr;
+        for (const auto &item : App().Help().PageLayout().drawings) {
+            if (item.image.find("image000.jpg") != std::string::npos) sample = &item;
+            if (item.image.find("image001.jpg") != std::string::npos) texture = &item;
+            if (item.image.find("image002.jpg") != std::string::npos) cloud = &item;
+        }
+        IM_CHECK(sample && texture && cloud);
+        IM_CHECK_LE(sample->position.x + sample->size.x, texture->position.x);
+        IM_CHECK_LE(texture->position.x + texture->size.x, cloud->position.x);
+        const float sampleY = sample->position.y;
+        ctx->WindowResize("//Help", ImVec2(1280, 760)); ctx->Yield(4);
+        ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, sampleY - 120.0f), ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(4);
+        IM_CHECK(HelpFrame(ctx, "image-columns.png"));
+    };
+    t = IM_REGISTER_TEST(engine, "help", "reference_layout_at_multiple_widths");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Level Manager");
+        const std::string failure = Read<std::string>(ctx, [] {
+            vdev::HelpBook book;
+            std::string error;
+            if (!book.Load(vdev::DataFilePath("help"), error)) return error;
+            std::set<std::string> topics;
+            std::function<void(const std::vector<vdev::HelpContents> &)> collect = [&](const auto &items) {
+                for (const auto &item : items) {
+                    if (!item.topic.empty()) topics.insert(item.topic);
+                    collect(item.children);
+                }
+            };
+            collect(book.Contents());
+            ImFont *font = ImGui::GetIO().FontDefault;
+            for (const auto &path : topics) {
+                const auto *topic = book.Find(path);
+                if (!topic) return "Missing topic: " + path;
+                for (float scale : {1.0f, 1.5f}) for (float width : {320.0f, 960.0f}) {
+                    const auto page = vdev::HelpLayout({font, font, font}, scale).Build(*topic, width);
+                    if (!std::isfinite(page.size.x) || !std::isfinite(page.size.y) || page.size.x < width || page.size.y < 0)
+                        return "Invalid page size: " + path;
+                    for (const auto &item : page.drawings) {
+                        if (!std::isfinite(item.position.x) || !std::isfinite(item.position.y) ||
+                            !std::isfinite(item.size.x) || !std::isfinite(item.size.y) || item.size.x < 0 || item.size.y < 0 ||
+                            item.position.x + item.size.x > page.size.x + 2 || item.position.y + item.size.y > page.size.y + 2)
+                            return "Content outside scrollable page: " + path + " [" + item.text + item.image + "] at " +
+                                std::to_string(item.position.x) + "," + std::to_string(item.position.y) + " size " +
+                                std::to_string(item.size.x) + "," + std::to_string(item.size.y) + " page " +
+                                std::to_string(page.size.x) + "," + std::to_string(page.size.y) + " width " +
+                                std::to_string(width) + " scale " + std::to_string(scale);
+                    }
+                }
+            }
+            return std::string();
+        });
+        if (!failure.empty()) ctx->LogError("%s", failure.c_str());
+        IM_CHECK(failure.empty());
     };
 }
 }

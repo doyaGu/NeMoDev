@@ -15,6 +15,7 @@ MARKERS = ENGINE_MARKERS + (
     "ShownBehaviors", "ShownPins", "ShownScripts",
     "UiRenderer9ReadFrame",
     "HelpWindow12CurrentTopic", "HelpWindow9ShownText", "HelpWindow11ShownImages",
+    "HelpWindow10PageLayout",
 )
 
 
@@ -48,7 +49,7 @@ def main():
         forbidden = ("VirtoolsDevTests", "VirtoolsDevUiTests", "VirtoolsDevPortableTests",
                      "VirtoolsDevFileDialogTests", "NemoDevCommandLineTests", "NemoDevHelpTests", "SchematicModelTests",
                      "ImGuiTestEngine", "imgui_test_engine", "imgui_te_",
-                     "test-player", "test-desktop", "test-windows-desktop", "virtoolsdev-ui", "local-samples")
+                     "test-player", "test-help", "test-desktop", "test-windows-desktop", "virtoolsdev-ui", "local-samples")
         for path in args.package.rglob("*"):
             # Keep the existing third-party notice; it contains no engine code.
             if path == args.package / "licenses" / "ImGuiTestEngine-License.txt":
