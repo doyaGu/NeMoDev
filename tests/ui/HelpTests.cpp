@@ -191,18 +191,20 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK(HelpFrame(ctx, "interface-table.png"));
         OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"vsl/CoreLanguageFeatures/1_Types.html"}); });
         ctx->Yield(4);
-        bool codeBackground = false, mono = false;
+        bool codeBackground = false, mono = false, scalable = false;
         float codeY = -1.0f, tableY = -1.0f;
         for (const auto &item : App().Help().PageLayout().drawings) {
             codeBackground |= item.kind == vdev::HelpDrawing::Fill && item.color == 0xfffaebd7;
             if (item.kind == vdev::HelpDrawing::Text && item.text == "struct") {
                 mono = (item.flags & 4) && std::fabs(item.font->CalcTextSizeA(item.fontSize, 10000, 0, "iiii").x -
                     item.font->CalcTextSizeA(item.fontSize, 10000, 0, "WWWW").x) < 0.1f;
+                scalable = std::strstr(item.font->GetDebugName(), "ProggyForever") != nullptr;
                 if (codeY < 0) codeY = item.position.y;
             }
             if (item.kind == vdev::HelpDrawing::Text && item.text == "bool" && tableY < 0) tableY = item.position.y;
         }
         IM_CHECK(codeBackground && mono);
+        IM_CHECK(scalable);
         ImGuiWindow *article = HelpArticle(ctx);
         IM_CHECK(article && codeY >= 0 && tableY >= 0);
         ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, tableY - 80.0f), ImGuiTestOpFlags_NoFocusWindow); ctx->Yield(4);

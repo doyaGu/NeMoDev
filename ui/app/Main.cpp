@@ -46,7 +46,7 @@ vdev::HelpFonts LoadFonts(float scale) {
     ImFont *strong = add(14.0f * scale, true);
     vdev::SetVIFonts(normal, strong);
     ImFontConfig monoConfig; monoConfig.SizePixels = 14.0f * scale;
-    ImFont *mono = io.Fonts->AddFontDefault(&monoConfig);
+    ImFont *mono = io.Fonts->AddFontDefaultVector(&monoConfig);
     ImFontConfig fallback; fallback.MergeMode = true; fallback.DstFont = mono;
     io.Fonts->AddFontFromFileTTF(regular.c_str(), 14.0f * scale, &fallback);
     if (fs::exists(fs::u8path(cjk))) io.Fonts->AddFontFromFileTTF(cjk.c_str(), 14.0f * scale, &fallback);
