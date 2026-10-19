@@ -143,29 +143,24 @@ def searchable_text(node):
     return text
 
 
-def image_areas(node, topic, width, height, diagnostics):
-    result = []
+def audit_image_map(node, topic, diagnostics):
+    # Source diagnostics only. Shape geometry, clipping and hit testing belong
+    # to the HTML renderer; the compiled book retains the original attributes.
     for area in elements(node, "area"):
         if not area.attrs.get("href") or "nohref" in area.attrs:
             continue
-        shape = {"rect": 0, "poly": 1, "polygon": 1}.get(area.attrs.get("shape", "rect").lower())
+        shape = area.attrs.get("shape", "rect").lower()
+        if shape == "default":
+            continue
+        minimum = {"circle": 3, "circ": 3, "poly": 6, "polygon": 6}.get(shape, 4)
         try:
             points = [float(value) for value in re.split(r"[,\s]+", area.attrs.get("coords", "").strip())]
-            valid = width and height and len(points) % 2 == 0 and all(math.isfinite(n) for n in points)
-            valid = valid and ((shape == 0 and len(points) == 4 and points[2] > points[0] and points[3] > points[1]) or
-                              (shape == 1 and len(points) >= 6))
-            if not valid:
+            if len(points) < minimum or not all(math.isfinite(n) for n in points):
                 raise ValueError()
-            normalized = [value / (width if at % 2 == 0 else height) for at, value in enumerate(points)]
-            if any(abs(value) > 10000 for value in normalized):
+            if shape in {"circle", "circ"} and points[2] < 0:
                 raise ValueError()
         except ValueError:
             diagnostics.append({"topic": topic, "coords": area.attrs.get("coords", ""), "reason": "Invalid image map area"})
-            continue
-        link = reference(topic, area.attrs["href"])
-        label = area.attrs.get("alt") or area.attrs.get("title") or posixpath.basename(link)
-        result.append((shape, link, label, normalized))
-    return result
 
 
 def recover_source_images(root, topic, document, assets, recoveries):
@@ -331,7 +326,7 @@ def compile_help(root, tree, home, decode, diagnostics=None, recoveries=None):
             if node.attrs.get("usemap"):
                 name = unquote(node.attrs["usemap"].removeprefix("#")).casefold()
                 if name in maps:
-                    image_areas(maps[name], topic, *image_sizes[key], diagnostics)
+                    audit_image_map(maps[name], topic, diagnostics)
                 else:
                     diagnostics.append({"topic": topic, "reason": "Missing image map", "map": node.attrs["usemap"]})
         pages.append((topic, plain(title).strip() if title else Path(topic).stem,

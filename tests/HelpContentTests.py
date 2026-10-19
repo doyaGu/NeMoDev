@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from ExtractHelp import Contents, correct_topic_case, decode
-from HelpContent import Document, compile_help, reference, image_areas, recover_source_images, elements, anchors, searchable_text, plain as plain_text
+from HelpContent import Document, compile_help, reference, audit_image_map, recover_source_images, elements, anchors, searchable_text, plain as plain_text
 
 
 class HelpContentTests(unittest.TestCase):
@@ -82,10 +82,12 @@ class HelpContentTests(unittest.TestCase):
         recoveries = []
         recover_source_links({'ui/7_schematic/0_schematic_index.html': document,
                               'ui/7_schematic/toolbar/9_sh_links_informations.html': target}, [], recoveries)
-        areas = image_areas(document.root, 'ui/7_schematic/0_schematic_index.html', 888, 371, [])
-        self.assertEqual(areas[0][2], 'Show/Hide Link Information')
-        self.assertEqual(areas[0][1], 'ui/7_schematic/toolbar/9_sh_links_informations.html')
-        self.assertEqual(areas[0][3], [535 / 888, 18 / 371, 558 / 888, 37 / 371])
+        area = next(elements(document.root, 'area'))
+        self.assertEqual(area.attrs['alt'], 'Show/Hide Link Information')
+        self.assertEqual(reference('ui/7_schematic/0_schematic_index.html', area.attrs['href']),
+                         'ui/7_schematic/toolbar/9_sh_links_informations.html')
+        self.assertEqual(area.attrs['coords'], '535,18,558,37')
+        self.assertIn('coords="535,18,558,37"', document.prepared_html())
         self.assertEqual(len(recoveries), 1)
 
     def test_recover_only_known_missing_source_images(self):
@@ -140,11 +142,13 @@ class HelpContentTests(unittest.TestCase):
                             '<area shape="poly" coords="0,0,100,0,0,80" href="#top">'
                             '<area shape="poly" coords="526,98,480,73" href="#"></map>')
         issues = []
-        areas = image_areas(document.root.children[0], 'topics/page.html', 100, 80, issues)
-        self.assertEqual(len(areas), 2)
-        self.assertEqual(areas[0][1], 'topics/other.html#top')
-        self.assertEqual(areas[0][3], [0, 0, .5, .5])
-        self.assertEqual(areas[1][3], [0, 0, 1, 0, 0, 1])
+        audit_image_map(document.root.children[0], 'topics/page.html', issues)
+        areas = list(elements(document.root, 'area'))
+        self.assertEqual(reference('topics/page.html', areas[0].attrs['href']), 'topics/other.html#top')
+        self.assertEqual(areas[0].attrs['coords'], '0,0,50,40')
+        self.assertEqual(areas[1].attrs['coords'], '0,0,100,0,0,80')
+        self.assertIn('coords="0,0,50,40"', document.prepared_html())
+        self.assertIn('coords="0,0,100,0,0,80"', document.prepared_html())
         self.assertEqual(len(issues), 1)
         self.assertEqual(issues[0]['coords'], '526,98,480,73')
         document = Document('<body><img align="bottom"><img align="absmiddle">'
@@ -153,6 +157,17 @@ class HelpContentTests(unittest.TestCase):
         self.assertEqual([n.attrs["align"] for n in body.children[:2]], ["bottom", "absmiddle"])
         cells = body.children[2].children[0].children
         self.assertEqual([n.attrs.get("valign") for n in cells], [None, "top"])
+
+    def test_hotspot_audit_keeps_html_processing_inputs(self):
+        html = ('<map><area shape="rect" coords="40,40,0,0,99" href="rect">'
+                '<area shape="circle" coords="20,20,10,99" href="circle">'
+                '<area shape="poly" coords="0,0,20,0,0,20,99" href="poly">'
+                '<area shape="default" href="fallback"></map>')
+        document = Document(html)
+        issues = []
+        audit_image_map(document.root, 'index.html', issues)
+        self.assertEqual(issues, [])
+        self.assertEqual(document.prepared_html(), html)
 
     def test_element_ids_and_named_anchors(self):
         document = Document('<body><h3 id="heading">Title</h3><div id="section">Text</div>'
