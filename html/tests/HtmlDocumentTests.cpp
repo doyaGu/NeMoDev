@@ -445,6 +445,90 @@ static void GradientPixels() {
               image.rgba[middle + 2] < 145,
           "Gradient did not interpolate its actual pixels");
 }
+static void HitQueriesUseComputedStyles() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>body{margin:0}a{cursor:crosshair}div{cursor:help}</style>"
+                   "<a href=next>Link</a><div id=plain>Plain</div>");
+    const auto box = document.Links().front().bounds.front();
+    const HtmlPoint link{box.x + 2, box.y + 2};
+    HtmlPoint plain;
+    Check(document.FindAnchor("plain", plain), "Plain text position was lost");
+    plain.x += 2;
+    plain.y += 2;
+    Check(document.HitTest(link).cursor == "crosshair", "Link hit testing ignored the author's cursor");
+    Check(document.HitTest(plain).cursor == "help", "Cursor queries require an earlier hover event");
+    document.Hover(link);
+    Check(document.HitTest(plain).cursor == "help", "Cursor queries reused another element's hover state");
+    Check(document.HitTest({-100, -100}).cursor.empty(), "An empty hit retained a previous cursor");
+    resources.files["book://manual/topics/image.png"] = "image";
+    Load(document, "<!doctype html><style>body{margin:0}img{cursor:help}</style><img src=image.png usemap='#map'>"
+                   "<map name=map><area coords='0,0,20,20' style='cursor:wait' href=next>"
+                   "<area coords='20,0,40,20' title=Unlinked><area coords='40,0,60,20' href=next></map>");
+    Check(document.HitTest({2, 2}).cursor == "wait", "Image map hit testing ignored the area's cursor");
+    const auto unlinked = document.HitTest({22, 2});
+    Check(!unlinked.link && unlinked.title == "Unlinked" && unlinked.cursor == "help",
+          "An unlinked image map area discarded its tooltip or image cursor");
+    Check(document.HitTest({42, 2}).cursor == "help", "Image map hit testing replaced the image's author cursor");
+}
+static void InteractionRefreshesReadableText() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>span{display:none}a:hover span,a:visited span{display:inline}</style>"
+                   "<a href=next>Link<span>Details</span></a>");
+    const auto box = document.Links().front().bounds.front();
+    Check(document.Text().find("Details") == std::string::npos, "Hidden text was exposed before interaction");
+    document.Hover({box.x + 2, box.y + 2});
+    Check(document.Text().find("Details") != std::string::npos, "Hover did not refresh readable text");
+    document.Leave();
+    Check(document.Text().find("Details") == std::string::npos, "Leaving retained hidden hover text");
+    document.SetVisited({"book://manual/topics/next"});
+    Check(document.Text().find("Details") != std::string::npos, "Visited styles did not refresh readable text");
+    document.SetVisited({});
+    Check(document.Text().find("Details") == std::string::npos, "Clearing visited links retained their text");
+}
+static void InteractionFailuresRequireSuccessfulLayout() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>a:hover{font-size:30px}</style><a href=next>Link</a>");
+    const auto box = document.Links().front().bounds.front();
+    const HtmlPoint point{box.x + 2, box.y + 2};
+    device.failFont = true;
+    bool failed = false;
+    try {
+        document.Hover(point);
+    } catch (const std::exception &) {
+        failed = true;
+    }
+    Check(failed, "A failed interaction was silently accepted");
+    Check(document.ContentSize().height == 0 && document.Links().empty() && !document.HitTest(point).link,
+          "An interrupted style refresh exposed stale geometry");
+    device.failFont = false;
+    std::string error;
+    Check(document.Layout({400, 300}, 1, error), error.c_str());
+    document.Draw({}, {0, 0, 400, 300});
+    Check(document.Links().size() == 1 && !device.text.empty(), "Layout could not recover failed interaction");
+}
+static void ReadingPositionsIgnoreGeneratedContent() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>body{margin:0}p{margin:0}"
+                   "@media(min-width:300px){p:before{content:'Generated';display:block;height:80px}}</style>"
+                   "<div style='height:100px'></div><p><span id=target>Original</span></p>");
+    HtmlPoint target;
+    Check(document.FindAnchor("target", target), "Reading target was lost");
+    const auto position = document.CapturePosition({target.x + 2, target.y + 2});
+    std::string error;
+    Check(document.Layout({200, 300}, 1, error), error.c_str());
+    HtmlPoint restored;
+    Check(document.FindAnchor("target", target) && document.RestorePosition(position, restored) &&
+              std::fabs(restored.x - target.x - 2) < .01f && std::fabs(restored.y - target.y - 2) < .01f,
+          "Generated CSS nodes changed the identity of a reading position");
+}
 int main() {
     try {
         CascadeAndResources();
@@ -460,6 +544,10 @@ int main() {
         ImageMapShapesAndZoom();
         StylesheetCyclesAndFailedReflow();
         PointerStatesAndVisitedLinks();
+        HitQueriesUseComputedStyles();
+        InteractionRefreshesReadableText();
+        InteractionFailuresRequireSuccessfulLayout();
+        ReadingPositionsIgnoreGeneratedContent();
         GradientPixels();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;

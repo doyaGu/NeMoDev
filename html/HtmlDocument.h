@@ -125,6 +125,8 @@ public:
     HtmlHit HitTest(HtmlPoint point) const;
     const std::vector<HtmlLink> &Links() const;
     bool FindAnchor(const std::string &name, HtmlPoint &position) const;
+    // Interaction updates styles, layout, readable text and link geometry as one
+    // operation. Backend failures throw; geometry then requires another Layout.
     bool Hover(HtmlPoint point);
     void Leave();
     void PointerDown(HtmlPoint point);

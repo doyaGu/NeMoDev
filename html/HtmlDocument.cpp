@@ -108,6 +108,10 @@ static std::string HtmlFragment(const std::string &fragment) {
 }
 static std::atomic<std::uint64_t> HtmlDocumentSequence{1};
 
+static bool HtmlGenerated(const litehtml::element::ptr &node) {
+    return node->tag() == litehtml::__tag_before_ || node->tag() == litehtml::__tag_after_;
+}
+
 static void HtmlPlainText(const litehtml::element::ptr &node, std::string &text) {
     if (node->css().get_display() == litehtml::display_none)
         return;
@@ -140,7 +144,7 @@ struct HtmlDocument::Impl : litehtml::document_container {
     HtmlResources &resources;
     HtmlRenderDevice &device;
     HtmlPainting painting;
-    std::string sourceBase, base, title, text, cursor;
+    std::string sourceBase, base, title, text;
     std::shared_ptr<const std::string> source;
     HtmlSize viewport;
     float scale = 1;
@@ -162,6 +166,7 @@ struct HtmlDocument::Impl : litehtml::document_container {
     std::map<std::pair<size_t, size_t>, std::uint64_t> linkIds;
     struct Area {
         const litehtml::element *image = nullptr;
+        const litehtml::element *element = nullptr;
         HtmlRect picture, bounds;
         std::uint64_t link = 0;
         enum Shape { Rectangle, Circle, Polygon, Default } shape = Rectangle;
@@ -315,8 +320,6 @@ struct HtmlDocument::Impl : litehtml::document_container {
         return false;
     }
     void ApplyVisited() {
-        if (visited.empty())
-            return;
         const std::set<std::string> known(visited.begin(), visited.end());
         for (const auto &node : document->root()->select_all("a[href]")) {
             const bool found = known.count(HtmlResolve(base, node->get_attr("href", ""))) != 0;
@@ -325,6 +328,34 @@ struct HtmlDocument::Impl : litehtml::document_container {
         }
         document->root()->refresh_styles();
         document->root()->compute_styles();
+    }
+    void Render() {
+        document->render(viewport.width / scale);
+        std::string readable;
+        HtmlPlainText(document->root(), readable);
+        CollectLinks();
+        text = std::move(readable);
+        laidOut = true;
+    }
+    template <class Change> bool UpdateInteraction(Change change) {
+        if (!laidOut)
+            return false;
+        try {
+            const bool changed = change();
+            if (changed)
+                Render();
+            return changed;
+        } catch (...) {
+            // Style calculation may have changed native nodes before failing.
+            // Geometry becomes usable only after a complete Layout rebuild.
+            laidOut = false;
+            pressedLink = 0;
+            links.clear();
+            linkElements.clear();
+            areas.clear();
+            text.clear();
+            throw;
+        }
     }
     HtmlRect Rect(const litehtml::position &p) const {
         return {p.x * scale, p.y * scale, p.width * scale, p.height * scale};
@@ -450,7 +481,7 @@ struct HtmlDocument::Impl : litehtml::document_container {
     }
     void on_anchor_click(const char *, const litehtml::element::ptr &) override {}
     void on_mouse_event(const litehtml::element::ptr &, litehtml::mouse_event) override {}
-    void set_cursor(const char *value) override { cursor = value ? value : ""; }
+    void set_cursor(const char *) override {} // HitTest reads the actual element's computed cursor.
     void transform_text(std::string &value, litehtml::text_transform transform) override {
         bool start = true;
         for (char &c : value) {
@@ -603,6 +634,7 @@ struct HtmlDocument::Impl : litehtml::document_container {
             for (const auto &element : map->select_all("area")) {
                 Area area;
                 area.image = image.get();
+                area.element = element.get();
                 area.picture = picture;
                 std::string shape = element->get_attr("shape", "rect");
                 for (char &ch : shape)
@@ -740,10 +772,7 @@ bool HtmlDocument::Layout(HtmlSize viewport, float scale, std::string &error) {
         next->document = litehtml::document::createFromString(
             litehtml::estring(*next->source, litehtml::encoding::utf_8), next.get());
         next->ApplyVisited();
-        HtmlPlainText(next->document->root(), next->text);
-        next->document->render(viewport.width / scale);
-        next->CollectLinks();
-        next->laidOut = true;
+        next->Render();
         m_Impl = std::move(next);
         error.clear();
         return true;
@@ -767,7 +796,7 @@ void HtmlDocument::Draw(HtmlPoint origin, HtmlRect visible) {
     m_Impl->painting.End();
 }
 HtmlSize HtmlDocument::ContentSize() const {
-    return m_Impl->document
+    return m_Impl->laidOut
                ? HtmlSize{m_Impl->document->width() * m_Impl->scale, m_Impl->document->height() * m_Impl->scale}
                : HtmlSize{};
 }
@@ -781,12 +810,21 @@ HtmlHit HtmlDocument::HitTest(HtmlPoint point) const {
     const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
     auto element = m_Impl->document->root_render()->get_element_by_point(x, y, x, y, [](const auto &) { return true; });
     HtmlHit hit;
+    if (element)
+        hit.cursor = element->css().get_cursor();
     for (const auto &area : m_Impl->areas)
         if (area.image == element.get() && area.Contains(point, m_Impl->scale)) {
+            hit.title = area.element->get_attr("title", "");
+            const auto &cursor = area.element->css().get_cursor();
+            if (cursor != "auto")
+                hit.cursor = cursor;
             for (const auto &link : m_Impl->links)
-                if (link.id == area.link)
-                    return {link.id, link.navigation, link.title, "pointer"};
-            return {}; // An unlinked area masks linked shapes underneath it.
+                if (link.id == area.link) {
+                    if (hit.cursor == "auto")
+                        hit.cursor = "pointer";
+                    return {link.id, link.navigation, hit.title, hit.cursor};
+                }
+            return hit; // An unlinked area masks linked shapes underneath it.
         }
     for (auto node = element; node; node = node->parent()) {
         if (hit.title.empty())
@@ -797,12 +835,10 @@ HtmlHit HtmlDocument::HitTest(HtmlPoint point) const {
                 if (link.id == found->second) {
                     hit.link = link.id;
                     hit.navigation = link.navigation;
-                    hit.cursor = "pointer";
                     return hit;
                 }
         }
     }
-    hit.cursor = m_Impl->cursor;
     return hit;
 }
 bool HtmlDocument::FindAnchor(const std::string &name, HtmlPoint &point) const {
@@ -831,35 +867,28 @@ bool HtmlDocument::FindAnchor(const std::string &name, HtmlPoint &point) const {
 bool HtmlDocument::Hover(HtmlPoint point) {
     if (!m_Impl->laidOut)
         return false;
-    litehtml::position::vector changed;
-    const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
-    const bool redraw = m_Impl->document->on_mouse_over(x, y, x, y, changed);
-    if (redraw) {
-        m_Impl->document->render(m_Impl->viewport.width / m_Impl->scale);
-        m_Impl->CollectLinks();
-    }
-    return redraw;
+    return m_Impl->UpdateInteraction([&] {
+        litehtml::position::vector changed;
+        const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
+        return m_Impl->document->on_mouse_over(x, y, x, y, changed);
+    });
 }
 void HtmlDocument::Leave() {
-    if (!m_Impl->document)
-        return;
-    litehtml::position::vector changed;
-    if (m_Impl->document->on_mouse_leave(changed)) {
-        m_Impl->document->render(m_Impl->viewport.width / m_Impl->scale);
-        m_Impl->CollectLinks();
-    }
+    m_Impl->UpdateInteraction([&] {
+        litehtml::position::vector changed;
+        return m_Impl->document->on_mouse_leave(changed);
+    });
 }
 void HtmlDocument::PointerDown(HtmlPoint point) {
     if (!m_Impl->laidOut)
         return;
     Hover(point);
     m_Impl->pressedLink = HitTest(point).link;
-    litehtml::position::vector changed;
-    const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
-    if (m_Impl->document->on_lbutton_down(x, y, x, y, changed)) {
-        m_Impl->document->render(m_Impl->viewport.width / m_Impl->scale);
-        m_Impl->CollectLinks();
-    }
+    m_Impl->UpdateInteraction([&] {
+        litehtml::position::vector changed;
+        const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
+        return m_Impl->document->on_lbutton_down(x, y, x, y, changed);
+    });
 }
 bool HtmlDocument::PointerUp(HtmlPoint point, HtmlNavigation &navigation) {
     navigation = {};
@@ -868,23 +897,19 @@ bool HtmlDocument::PointerUp(HtmlPoint point, HtmlNavigation &navigation) {
     Hover(point);
     const auto released = HitTest(point).link, pressed = m_Impl->pressedLink;
     m_Impl->pressedLink = 0;
-    litehtml::position::vector changed;
-    const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
-    if (m_Impl->document->on_lbutton_up(x, y, x, y, changed)) {
-        m_Impl->document->render(m_Impl->viewport.width / m_Impl->scale);
-        m_Impl->CollectLinks();
-    }
+    m_Impl->UpdateInteraction([&] {
+        litehtml::position::vector changed;
+        const float x = point.x / m_Impl->scale, y = point.y / m_Impl->scale;
+        return m_Impl->document->on_lbutton_up(x, y, x, y, changed);
+    });
     return pressed && pressed == released && Activate(pressed, navigation);
 }
 void HtmlDocument::CancelPointer() {
-    if (!m_Impl->document)
-        return;
     m_Impl->pressedLink = 0;
-    litehtml::position::vector changed;
-    if (m_Impl->document->on_button_cancel(changed) && m_Impl->laidOut) {
-        m_Impl->document->render(m_Impl->viewport.width / m_Impl->scale);
-        m_Impl->CollectLinks();
-    }
+    m_Impl->UpdateInteraction([&] {
+        litehtml::position::vector changed;
+        return m_Impl->document->on_button_cancel(changed);
+    });
 }
 bool HtmlDocument::Activate(std::uint64_t id, HtmlNavigation &navigation) const {
     for (const auto &link : m_Impl->links)
@@ -897,18 +922,10 @@ bool HtmlDocument::Activate(std::uint64_t id, HtmlNavigation &navigation) const 
 }
 void HtmlDocument::SetVisited(const std::vector<std::string> &urls) {
     m_Impl->visited = urls;
-    if (!m_Impl->laidOut)
-        return;
-    const std::set<std::string> visited(urls.begin(), urls.end());
-    for (const auto &node : m_Impl->document->root()->select_all("a[href]")) {
-        const bool found = visited.count(HtmlResolve(m_Impl->base, node->get_attr("href", ""))) != 0;
-        node->set_pseudo_class(litehtml::_id("visited"), found);
-        node->set_pseudo_class(litehtml::_link_, !found);
-    }
-    m_Impl->document->root()->refresh_styles();
-    m_Impl->document->root()->compute_styles();
-    m_Impl->document->render(m_Impl->viewport.width / m_Impl->scale);
-    m_Impl->CollectLinks();
+    m_Impl->UpdateInteraction([&] {
+        m_Impl->ApplyVisited();
+        return true;
+    });
 }
 HtmlReadingPosition HtmlDocument::CapturePosition(HtmlPoint point) const {
     HtmlReadingPosition result;
@@ -920,7 +937,9 @@ HtmlReadingPosition HtmlDocument::CapturePosition(HtmlPoint point) const {
     std::vector<size_t> path;
     float nearest = std::numeric_limits<float>::max();
     const auto visit = [&](const auto &self, const litehtml::element::ptr &node) -> void {
-        if (node->children().empty()) {
+        if (node->css().get_display() == litehtml::display_none)
+            return;
+        if (node->children().empty() && node->css().get_visibility() == litehtml::visibility_visible) {
             const auto r = m_Impl->Rect(node->get_placement());
             if (r.width > 0 && r.height > 0) {
                 const float dy = point.y < r.y               ? r.y - point.y
@@ -937,6 +956,8 @@ HtmlReadingPosition HtmlDocument::CapturePosition(HtmlPoint point) const {
         }
         size_t i = 0;
         for (const auto &child : node->children()) {
+            if (HtmlGenerated(child))
+                continue;
             path.push_back(i++);
             self(self, child);
             path.pop_back();
@@ -953,13 +974,21 @@ bool HtmlDocument::RestorePosition(const HtmlReadingPosition &position, HtmlPoin
         return false;
     auto node = m_Impl->document->root();
     for (size_t index : position.m_Data->path) {
-        if (index >= node->children().size())
+        litehtml::element::ptr found;
+        size_t i = 0;
+        for (const auto &child : node->children()) {
+            if (!HtmlGenerated(child) && i++ == index) {
+                found = child;
+                break;
+            }
+        }
+        if (!found)
             return false;
-        auto at = node->children().begin();
-        std::advance(at, index);
-        node = *at;
+        node = std::move(found);
     }
     const auto r = node->get_placement();
+    if (r.width <= 0 || r.height <= 0 || node->css().get_visibility() != litehtml::visibility_visible)
+        return false;
     point = {(r.x + position.m_Data->offset.x) * m_Impl->scale, (r.y + position.m_Data->offset.y) * m_Impl->scale};
     return true;
 }
