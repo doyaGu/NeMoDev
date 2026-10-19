@@ -15,7 +15,7 @@ endif ()
 get_filename_component(VIRTOOLSDEV_SOURCE_DIR "${VIRTOOLSDEV_SOURCE_DIR}" ABSOLUTE)
 
 file(GLOB_RECURSE _headers RELATIVE "${VIRTOOLSDEV_SOURCE_DIR}"
-        "${VIRTOOLSDEV_SOURCE_DIR}/core/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.h")
+        "${VIRTOOLSDEV_SOURCE_DIR}/core/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/html/*.h")
 set(_header_names "")
 foreach (_header IN LISTS _headers)
     get_filename_component(_name "${_header}" NAME)
@@ -25,6 +25,7 @@ endforeach ()
 file(GLOB_RECURSE _sources RELATIVE "${VIRTOOLSDEV_SOURCE_DIR}"
         "${VIRTOOLSDEV_SOURCE_DIR}/core/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/core/*.cpp"
         "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.cpp"
+        "${VIRTOOLSDEV_SOURCE_DIR}/html/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/html/*.cpp"
         "${VIRTOOLSDEV_SOURCE_DIR}/tests/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/tests/*.cpp")
 
 set(_errors "")
@@ -40,12 +41,21 @@ foreach (_source IN LISTS _sources)
             endif ()
         endif ()
         if (_source MATCHES "^core/")
-            if (_path MATCHES "^ui/" OR _path MATCHES "^imgui" OR _path MATCHES "^backends/"
+            if (_path MATCHES "^ui/" OR _path MATCHES "^html/" OR _path MATCHES "^imgui" OR _path MATCHES "^backends/"
                     OR _path MATCHES "^misc/cpp/" OR _path MATCHES "^d3d")
                 list(APPEND _errors "${_source}: core includes ${_path}")
             endif ()
         elseif (_path MATCHES "^core/[^/]+/detail/")
             list(APPEND _errors "${_source}: includes the core's private ${_path}")
+        endif ()
+        if (_source MATCHES "^html/" AND (_path MATCHES "^core/|^ui/|^imgui|^SDL|^CK|^Vx|^windows\\.h|^d3d"))
+            list(APPEND _errors "${_source}: HTML rendering includes application or platform header ${_path}")
+        endif ()
+        if (NOT _source MATCHES "^html/" AND (_path MATCHES "^html/detail/|^litehtml"))
+            list(APPEND _errors "${_source}: includes HTML rendering internals ${_path}")
+        endif ()
+        if (_source STREQUAL "html/HtmlDocument.h" AND _path MATCHES "^litehtml|^html/detail/")
+            list(APPEND _errors "${_source}: public HTML interface exposes ${_path}")
         endif ()
         if (NOT _source MATCHES "^tests/ui/" AND (_path MATCHES "^imgui_te_" OR _path MATCHES "^tests/"))
             list(APPEND _errors "${_source}: only the UI tests include ${_path}")

@@ -16,6 +16,8 @@ MARKERS = ENGINE_MARKERS + (
     "UiRenderer9ReadFrame",
     "HelpWindow12CurrentTopic", "HelpWindow9ShownText", "HelpWindow11ShownImages",
     "HelpWindow10PageLayout",
+    "HelpWindow9PagePaint", "HelpWindow12PageDocument",
+    "HtmlRenderer8Drawings",
 )
 
 
@@ -47,7 +49,7 @@ def main():
         if not args.package.is_dir():
             raise RuntimeError(f"Package directory not found: {args.package}")
         forbidden = ("VirtoolsDevTests", "VirtoolsDevUiTests", "VirtoolsDevPortableTests",
-                     "VirtoolsDevFileDialogTests", "NemoDevCommandLineTests", "NemoDevHelpTests", "SchematicModelTests",
+                     "VirtoolsDevFileDialogTests", "NemoDevCommandLineTests", "NemoDevHelpTests", "NemoDevHtmlTests", "SchematicModelTests",
                      "ImGuiTestEngine", "imgui_test_engine", "imgui_te_",
                      "test-player", "test-help", "test-desktop", "test-windows-desktop", "virtoolsdev-ui", "local-samples")
         for path in args.package.rglob("*"):

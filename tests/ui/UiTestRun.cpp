@@ -84,6 +84,7 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     vdevuitest::RegisterPrintTests(engine);
     vdevuitest::RegisterPlayerTests(engine);
     vdevuitest::RegisterHelpTests(engine);
+    vdevuitest::RegisterHtmlTests(engine);
     vdevuitest::RegisterDesktopTests(engine);
     ImGuiTestEngine_QueueTests(engine, ImGuiTestGroup_Tests, filter.c_str(), ImGuiTestRunFlags_RunFromCommandLine);
     m_Engine->queued = !ImGuiTestEngine_IsTestQueueEmpty(engine);

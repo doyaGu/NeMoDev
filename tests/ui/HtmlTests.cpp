@@ -1,0 +1,132 @@
+#include "tests/ui/UiTests.h"
+#include "ui/render/HtmlRenderer.h"
+#include "ui/render/UiRenderer.h"
+#include <cmath>
+
+namespace vdevuitest {
+class HtmlUiResources : public HtmlResources {
+public:
+    bool Read(const std::string &url, std::vector<unsigned char> &bytes, std::string &error) override {
+        if (url != "book://tests/checker.bmp") {
+            error = "Not found";
+            return false;
+        }
+        bytes.assign(70, 0);
+        bytes[0] = 'B';
+        bytes[1] = 'M';
+        bytes[2] = 70;
+        bytes[10] = 54;
+        bytes[14] = 40;
+        bytes[18] = 2;
+        bytes[22] = 2;
+        bytes[26] = 1;
+        bytes[28] = 24;
+        bytes[34] = 16;
+        const unsigned char pixels[] = {255, 0, 0, 255, 255, 255, 0, 0, 0, 0, 255, 0, 255, 0, 0, 0};
+        std::copy(std::begin(pixels), std::end(pixels), bytes.begin() + 54);
+        return true;
+    }
+};
+struct HtmlUiFixture {
+    HtmlUiResources resources;
+    vdev::HtmlRenderer renderer;
+    HtmlPoint circle, image;
+    float scale = 1;
+    std::string error;
+    bool rendered = false;
+    HtmlUiFixture() : renderer({ImGui::GetIO().FontDefault, ImGui::GetIO().FontDefault, ImGui::GetIO().FontDefault}) {}
+    void Draw() {
+        ImGui::SetNextWindowPos(ImVec2(40, 40), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(900, 700), ImGuiCond_Always);
+        if (ImGui::Begin("HTML Renderer")) {
+            const auto origin = ImGui::GetCursorScreenPos();
+            const auto available = ImGui::GetContentRegionAvail();
+            const float pixels = ImGui::GetFontSize() / 14.0f * scale;
+            auto *draw = ImGui::GetWindowDrawList();
+            draw->AddRectFilled(origin, ImVec2(origin.x + available.x, origin.y + available.y), 0xffffffff);
+            // Destroying the document before frame submission must not retire an
+            // image still referenced by the draw commands emitted below.
+            HtmlDocument document(resources, renderer);
+            rendered = document.Load("<!doctype "
+                                     "html><style>body{margin:0}#circle{width:100px;height:100px;background:red;border-"
+                                     "radius:50px}</style>"
+                                     "<div id=circle></div><img id=picture src=checker.bmp width=64 height=64>",
+                                     "book://tests/index.html", error) &&
+                       document.Layout({available.x, available.y}, pixels, error);
+            if (rendered) {
+                renderer.Begin(draw);
+                try {
+                    document.Draw({origin.x, origin.y}, {0, 0, available.x, available.y});
+                    rendered = document.Diagnostics().empty() && document.FindAnchor("circle", circle) &&
+                               document.FindAnchor("picture", image);
+                    circle.x += origin.x;
+                    circle.y += origin.y;
+                    image.x += origin.x;
+                    image.y += origin.y;
+                } catch (const std::exception &failure) {
+                    error = failure.what();
+                    rendered = false;
+                }
+                ImGui::Dummy(ImVec2(document.ContentSize().width, document.ContentSize().height));
+            }
+        }
+        ImGui::End();
+    }
+};
+static std::unique_ptr<HtmlUiFixture> g_HtmlFixture;
+static bool g_HtmlVisible = false;
+void RegisterHtmlTests(ImGuiTestEngine *engine) {
+    auto *test = IM_REGISTER_TEST(engine, "html", "rounded_clip_image_pixels_and_resource_lifetime");
+    test->GuiFunc = [](ImGuiTestContext *ctx) {
+        MainThreadGui(ctx);
+        if (g_HtmlVisible) {
+            if (!g_HtmlFixture)
+                g_HtmlFixture = std::make_unique<HtmlUiFixture>();
+            g_HtmlFixture->Draw();
+        }
+    };
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        OnMainThread(ctx, [] { g_HtmlVisible = true; });
+        for (float zoom : {1.0f, 1.5f}) {
+            OnMainThread(ctx, [=] { g_HtmlFixture->scale = zoom; });
+            ctx->Yield(5);
+            ctx->WindowFocus("//HTML Renderer");
+            ctx->Yield(3);
+            IM_CHECK(g_HtmlFixture->rendered);
+            IM_CHECK(g_HtmlFixture->error.empty());
+            const auto failure = Read<std::string>(ctx, [] {
+                std::vector<unsigned char> rgba;
+                int width = 0, height = 0;
+                if (!vdev::MainRenderer().ReadFrame(rgba, width, height))
+                    return std::string("Frame readback failed");
+                const auto pixel = [&](HtmlPoint origin, float x, float y, unsigned char r, unsigned char g,
+                                       unsigned char b) {
+                    const float scale = ImGui::GetFontSize() / 14.0f * g_HtmlFixture->scale;
+                    const int px = int(origin.x + x * scale), py = int(origin.y + y * scale);
+                    if (px < 0 || py < 0 || px >= width || py >= height)
+                        return false;
+                    const size_t at = (size_t(py) * width + px) * 4;
+                    return std::abs(int(rgba[at]) - r) < 15 && std::abs(int(rgba[at + 1]) - g) < 15 &&
+                           std::abs(int(rgba[at + 2]) - b) < 15;
+                };
+                if (!pixel(g_HtmlFixture->circle, 50, 50, 255, 0, 0))
+                    return std::string("Rounded background center is not red");
+                if (!pixel(g_HtmlFixture->circle, 2, 2, 255, 255, 255))
+                    return std::string("Rounded clipping painted outside the corner");
+                if (!pixel(g_HtmlFixture->image, 8, 8, 255, 0, 0) || !pixel(g_HtmlFixture->image, 56, 8, 0, 255, 0) ||
+                    !pixel(g_HtmlFixture->image, 8, 56, 0, 0, 255) ||
+                    !pixel(g_HtmlFixture->image, 56, 56, 255, 255, 255))
+                    return std::string("Image pixels or their submission lifetime are wrong");
+                return std::string();
+            });
+            if (!failure.empty())
+                ctx->LogError("%s", failure.c_str());
+            IM_CHECK(failure.empty());
+        }
+        OnMainThread(ctx, [] {
+            g_HtmlVisible = false;
+            g_HtmlFixture.reset();
+        });
+    };
+}
+} // namespace vdevuitest

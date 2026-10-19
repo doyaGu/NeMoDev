@@ -28,6 +28,9 @@ bool ReadImageRgba(const std::string &path, std::vector<unsigned char> &pixels, 
     std::ifstream file(std::filesystem::u8path(path), std::ios::binary);
     if (!file) return false;
     std::vector<unsigned char> bytes(std::istreambuf_iterator<char>(file), {});
+    return DecodeImageRgba(bytes,pixels,width,height);
+}
+bool DecodeImageRgba(const std::vector<unsigned char> &bytes, std::vector<unsigned char> &pixels, int &width, int &height) {
     if (bytes.size() > std::numeric_limits<int>::max()) return false;
     int channels = 0;
     stbi_uc *image = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()), &width, &height, &channels, 4);

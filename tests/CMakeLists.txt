@@ -150,6 +150,8 @@ endif ()
 # "open_from_level_manager" of "setup").
 if (VIRTOOLSDEV_BUILD_UI_TESTS)
     set(_dev_ui_results "${PROJECT_BINARY_DIR}/virtoolsdev-ui")
+    virtoolsdev_add_test(VirtoolsDevUi.html VirtoolsDevUiTests --ui-tests "^html$"
+            --ui-results "${_dev_ui_results}/html.xml")
     if(VIRTOOLSDEV_HAS_HELP)
         virtoolsdev_add_test(VirtoolsDevUi.help VirtoolsDevUiTests --ui-tests "^help$"
                 --ui-results "${_dev_ui_results}/help.xml")

@@ -1,4 +1,5 @@
 #include "ui/render/UiRenderer.h"
+#include <algorithm>
 #include <SDL3/SDL.h>
 #include "imgui_impl_sdlgpu3.h"
 #include <cstring>
@@ -36,6 +37,7 @@ void UiRenderer::Stop() {
         fence = nullptr;
     }
     m_FrameIndex = 0;
+    m_FrameTextures.clear();
     m_Frame.reset();
     if (ImGui::GetCurrentContext() && ImGui::GetIO().BackendRendererUserData)
         ImGui_ImplSDLGPU3_Shutdown();
@@ -44,6 +46,7 @@ void UiRenderer::Stop() {
     m_Device = nullptr; m_Window = nullptr;
 }
 bool UiRenderer::NewFrame(std::string *error) {
+    m_FrameTextures.clear();
     // Hidden windows have no swapchain acquisition to bound CPU submission.
     // Complete the oldest of two frames before uploads can cycle textures again.
     SDL_GPUFence *&fence = m_FrameFences[m_FrameIndex];
@@ -57,6 +60,10 @@ bool UiRenderer::NewFrame(std::string *error) {
     }
     ImGui_ImplSDLGPU3_NewFrame();
     return true;
+}
+void UiRenderer::RetainTextureForFrame(const std::shared_ptr<UiTexture> &texture) {
+    if (texture && std::find(m_FrameTextures.begin(),m_FrameTextures.end(),texture)==m_FrameTextures.end())
+        m_FrameTextures.push_back(texture);
 }
 
 std::unique_ptr<UiTexture> UiRenderer::MakeTarget(int width, int height) {

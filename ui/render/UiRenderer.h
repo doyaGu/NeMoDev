@@ -42,6 +42,9 @@ public:
     bool NewFrame(std::string *error = nullptr);
     bool Render(ImDrawData *data, bool present, std::string *error);
     std::unique_ptr<UiTexture> CreateTexture(int width, int height, const void *rgba);
+    // Draw commands hold texture identifiers until submission. Retain their
+    // allocations here even if a view or document closes during the frame.
+    void RetainTextureForFrame(const std::shared_ptr<UiTexture> &texture);
     bool UpdateTexture(UiTexture &texture, const void *rgba);
 #ifdef VIRTOOLSDEV_UI_TESTS
     bool ReadFrame(std::vector<unsigned char> &rgba, int &width, int &height);
@@ -58,8 +61,10 @@ private:
     std::unique_ptr<UiTexture> m_Frame;
     std::array<SDL_GPUFence *, 2> m_FrameFences{};
     size_t m_FrameIndex = 0;
+    std::vector<std::shared_ptr<UiTexture>> m_FrameTextures;
 };
 UiRenderer &MainRenderer();
 bool WriteBgraPng(const std::string &path, int width, int height, const unsigned char *pixels);
 bool ReadImageRgba(const std::string &path, std::vector<unsigned char> &pixels, int &width, int &height);
+bool DecodeImageRgba(const std::vector<unsigned char> &bytes, std::vector<unsigned char> &pixels, int &width, int &height);
 }

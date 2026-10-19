@@ -32,6 +32,7 @@ set(_editor_sources
         help/HelpWindow.cpp
         render/UiRenderer.cpp
         render/ImageFiles.cpp
+        render/HtmlRenderer.cpp
         # Dev's look and the shared widgets.
         controls/DevTheme.cpp
         controls/DevControls.cpp
@@ -95,7 +96,7 @@ endif()
 function(virtoolsdev_add_editor target imgui)
     add_executable(${target} WIN32 ${_editor_sources} ${ARGN})
     # LinkRouting.h and SchematicGrid.h: the canvas routes links on Dev's grid.
-    target_link_libraries(${target} PRIVATE VirtoolsDevCore ${imgui} SDL3::SDL3 stb)
+    target_link_libraries(${target} PRIVATE VirtoolsDevCore NemoDevHtml ${imgui} SDL3::SDL3 stb)
     add_dependencies(${target} VirtoolsDevRuntime)
     if(WIN32)
         target_link_libraries(${target} PRIVATE comdlg32 shell32 ole32)
@@ -171,6 +172,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PrintTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PlayerTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/HelpTests.cpp)
+    target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/HtmlTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/DesktopTests.cpp)
     if(WIN32)
         target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WindowsDialogTests.cpp)
