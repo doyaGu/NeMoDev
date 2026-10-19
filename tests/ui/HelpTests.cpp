@@ -370,6 +370,60 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(overflow, size_t(0));
         IM_CHECK(HelpFrame(ctx, "recovered-script-image.png"));
     };
+    t = IM_REGISTER_TEST(engine, "help", "recovered_source_links_and_hotspots");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Level Manager");
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"beobjects/1_ckgroup.html"}); });
+        ctx->Yield(4);
+        ctx->WindowResize("//Help", ImVec2(1280, 760));
+        ctx->ItemInputValue("//Help/Zoom", 1.0f); ctx->Yield(4);
+        ImGuiWindow *article = HelpArticle(ctx);
+        IM_CHECK(article);
+        const vdev::HelpDrawing *link = nullptr;
+        for (const auto &item : App().Help().PageLayout().drawings)
+            if (item.link == "behaviors/Logics/_Cat_Logics.html#groups") { link = &item; break; }
+        IM_CHECK(link);
+        const float linkY = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + link->position.y;
+        ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::clamp(article->Scroll.y + linkY - article->InnerRect.Min.y - 120, 0.0f, article->ScrollMax.y), ImGuiTestOpFlags_NoFocusWindow);
+        ctx->Yield(4);
+        ctx->MouseMove("//Help/**/Level\\/Groups##help-link");
+        const float scroll = article->Scroll.y;
+        ctx->MouseClick(); ctx->Yield(4);
+        IM_CHECK(App().Help().CurrentTopic() == "behaviors/Logics/_Cat_Logics.html#groups");
+        ImVec2 anchor;
+        IM_CHECK(App().Help().PageLayout().Anchor("groups", anchor));
+        IM_CHECK_GT(anchor.y, 500);
+        IM_CHECK_GE(article->Scroll.y, std::min(article->ScrollMax.y, anchor.y) - 2);
+        bool heading = false;
+        for (const auto &item : App().Help().PageLayout().drawings) if (item.text == "Groups") {
+            const float y = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + item.position.y;
+            heading = y >= article->InnerRect.Min.y - 2 && y < article->InnerRect.Min.y + 64;
+        }
+        IM_CHECK(heading);
+        IM_CHECK(HelpFrame(ctx, "recovered-groups-anchor.png"));
+        ctx->ItemClick("//Help/Back"); ctx->Yield(4);
+        IM_CHECK(App().Help().CurrentTopic() == "beobjects/1_ckgroup.html");
+        IM_CHECK(std::fabs(article->Scroll.y - scroll) < 2);
+        ctx->ItemClick("//Help/Forward"); ctx->Yield(4);
+        IM_CHECK(App().Help().CurrentTopic() == "behaviors/Logics/_Cat_Logics.html#groups");
+        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"ui/7_schematic/0_schematic_index.html"}); });
+        ctx->Yield(4);
+        // The repaired label belongs to the existing toolbar rectangle. Activate
+        // it through navigation as well as checking the native map's geometry.
+        const vdev::HelpDrawing *diagram = nullptr;
+        for (const auto &item : App().Help().PageLayout().drawings)
+            if (item.image == "images/schematic_map.png") diagram = &item;
+        IM_CHECK(diagram);
+        ctx->ScrollTo(article->ID, ImGuiAxis_X, std::max(0.0f, diagram->position.x + diagram->size.x * 546.5f / 888 - article->InnerRect.GetWidth() / 2), ImGuiTestOpFlags_NoFocusWindow);
+        const float diagramY = article->DC.CursorMaxPos.y - App().Help().PageLayout().size.y + diagram->position.y;
+        ctx->ScrollTo(article->ID, ImGuiAxis_Y, article->Scroll.y + diagramY - article->InnerRect.Min.y - 80, ImGuiTestOpFlags_NoFocusWindow);
+        ctx->Yield(4);
+        const auto hotspot = ctx->ItemInfo("//Help/**/Show\\/Hide Link Information##help-area");
+        ctx->ItemNavActivate(hotspot.ID); ctx->Yield(4);
+        IM_CHECK(App().Help().CurrentTopic() == "ui/7_schematic/toolbar/9_sh_links_informations.html");
+        IM_CHECK(App().Help().ShownText().find("show/hide link delays") != std::string::npos);
+    };
     t = IM_REGISTER_TEST(engine, "help", "reference_layout_at_multiple_widths");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

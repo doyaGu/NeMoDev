@@ -28,6 +28,20 @@ static void Images(const std::vector<vdev::HelpBlock> &blocks, std::vector<const
         Images(block.children, images);
     }
 }
+static bool HasAnchor(const std::vector<vdev::HelpBlock> &blocks, const std::string &name) {
+    for (const auto &block : blocks) {
+        for (const auto &span : block.spans) if (span.anchor == name) return true;
+        if (HasAnchor(block.children, name)) return true;
+    }
+    return false;
+}
+static bool HasLink(const std::vector<vdev::HelpBlock> &blocks, const std::string &link) {
+    for (const auto &block : blocks) {
+        for (const auto &span : block.spans) if (span.link == link) return true;
+        if (HasLink(block.children, link)) return true;
+    }
+    return false;
+}
 int main(int argc, char **argv) {
     try {
         Check(argc >= 2, "Missing help fixture");
@@ -91,6 +105,28 @@ int main(int argc, char **argv) {
                 script = item->imageWidth == 11 && item->imageHeight == 11 && !original.ImagePath(item->image).empty();
             }
             Check(script, "Schematic Script icon was not recovered from the original screenshot");
+            const auto *logics = original.Find("behaviors/Logics/_Cat_Logics.html");
+            Check(logics && HasAnchor(logics->blocks, "groups"), "Groups anchor was not recovered at its existing heading");
+            const auto *alphabet = original.Find("behaviors/_Global_BB_Index.html");
+            Check(alphabet, "Original alphabetical index was lost");
+            for (const char *letter : {"Q", "X", "Y", "Z"}) {
+                Check(!HasAnchor(alphabet->blocks, letter), "An absent alphabetical section was invented");
+                Check(!HasLink(alphabet->blocks, std::string("behaviors/_Global_BB_Index.html#") + letter), "An absent alphabetical section remains clickable");
+                Check(Text(alphabet->blocks).find(letter) != std::string::npos, "Original alphabet label was removed");
+            }
+            Check(HasLink(alphabet->blocks, "behaviors/_Global_BB_Index.html#R"), "An existing alphabetical section was disabled");
+            const auto *schematic = original.Find("ui/7_schematic/0_schematic_index.html");
+            Check(schematic, "Original Schematic map was lost");
+            images.clear();
+            Images(schematic->blocks, images);
+            bool information = false;
+            for (const auto *item : images) if (item->image == "images/schematic_map.png") {
+                Check(item->imageAreas.size() == 35, "Valid Schematic hotspots were lost or an invalid polygon became active");
+                for (const auto &area : item->imageAreas)
+                    if (area.link == "ui/7_schematic/toolbar/9_sh_links_informations.html")
+                        information = area.title == "Show/Hide Link Information";
+            }
+            Check(information, "Malformed Schematic hotspot label was not recovered from the destination title");
         }
         std::cout << "Help topics, markup, paths, search and failed loads passed\n";
         return 0;

@@ -14,6 +14,50 @@ from HelpStyles import resolve_styles, stylesheet
 
 
 class HelpContentTests(unittest.TestCase):
+    def test_missing_anchors_use_only_unique_existing_headings(self):
+        from HelpContent import recover_source_links
+        source = Document('<a href="topic.html#groups">Groups</a><a href="topic.html#absent">Absent</a>'
+                          '<a href="topic.html#duplicate">Duplicate</a><a href="topic.html#kept">Existing</a>'
+                          '<a href="https://example.com/#absent">External</a>')
+        target = Document('<h3 id="old">Groups</h3><h3>Duplicate</h3><h3>Duplicate</h3><p id="Kept">Keep</p>')
+        issues, recoveries = [], []
+        recover_source_links({'index.html': source, 'topic.html': target}, issues, recoveries)
+        links = list(elements(source.root, 'a'))
+        self.assertEqual([link.attrs.get('href') for link in links],
+                         ['topic.html#groups', None, None, 'topic.html#kept', 'https://example.com/#absent'])
+        heading = next(elements(target.root, 'h3'))
+        self.assertEqual(heading.attrs['id'], 'old')
+        self.assertEqual(list(elements(heading, 'a'))[0].attrs['name'], 'groups')
+        self.assertEqual([item['link'] for item in issues], ['topic.html#absent', 'topic.html#duplicate'])
+        self.assertEqual(recoveries, [{'topic': 'topic.html', 'anchor': 'groups', 'heading': 'Groups'}])
+        self.assertEqual(''.join(link.children[0] for link in links), 'GroupsAbsentDuplicateExistingExternal')
+        # Recompiling the repaired DOM neither duplicates anchors nor creates content.
+        issues, recoveries = [], []
+        recover_source_links({'index.html': source, 'topic.html': target}, issues, recoveries)
+        self.assertEqual(issues, [])
+        self.assertEqual(recoveries, [])
+        self.assertEqual(len(list(elements(heading, 'a'))), 1)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            text = '<body><a href="#groups">Groups</a><a href="#Q">Q</a><h3>Groups</h3></body>'
+            (root / 'index.html').write_text(text, encoding='utf-8')
+            compile_help(root, [], 'index.html', decode)
+            self.assertEqual((root / 'index.html').read_text(encoding='utf-8'), text)
+
+    def test_malformed_hotspot_label_uses_its_destination_title(self):
+        from HelpContent import recover_source_links
+        document = Document('<map><area shape="rect" coords="535,18,558,37" href="toolbar/9_sh_links_informations.html" '
+                            'alt="Show/Hide Link Informations title="Show/Hide Link Information"></map>')
+        target = Document('<title>Show/Hide Link Information</title>')
+        recoveries = []
+        recover_source_links({'ui/7_schematic/0_schematic_index.html': document,
+                              'ui/7_schematic/toolbar/9_sh_links_informations.html': target}, [], recoveries)
+        areas = image_areas(document.root, 'ui/7_schematic/0_schematic_index.html', 888, 371, [])
+        self.assertEqual(areas[0][2], 'Show/Hide Link Information')
+        self.assertEqual(areas[0][1], 'ui/7_schematic/toolbar/9_sh_links_informations.html')
+        self.assertEqual(areas[0][3], [535 / 888, 18 / 371, 558 / 888, 37 / 371])
+        self.assertEqual(len(recoveries), 1)
+
     def test_recover_only_known_missing_source_images(self):
         from PIL import Image
         with tempfile.TemporaryDirectory() as directory:
