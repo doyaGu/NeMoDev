@@ -762,6 +762,28 @@ static void EmptyTableColumnsShareExtraWidth() {
               "Rowspan or colspan lost its cell occupancy after resizing");
     }
 }
+static void PositionedBorderBoxConstraints() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document,
+         "<!doctype html><style>body{margin:0}div{position:absolute;top:0;width:80px;height:80px;"
+         "border:12px solid red;box-sizing:border-box}#box{left:0;background:blue}"
+         "#limited{left:120px;min-width:90px;max-width:100px;min-height:90px;max-height:100px;background:lime}"
+         "</style><div id=box></div><div id=limited></div>");
+    for (float scale : {1.0f, 1.5f}) {
+        std::string error;
+        Check(document.Layout({600, 600}, scale, error), error.c_str());
+        device.fills.clear();
+        device.fillPolygons.clear();
+        document.Draw({}, {0, 0, 600, 600});
+        const auto box = FilledBounds(device, 0xffff0000), limited = FilledBounds(device, 0xff00ff00);
+        Check(std::fabs(box.width - 80 * scale) < .01f && std::fabs(box.height - 80 * scale) < .01f,
+              "Positioned border-box sizing counted the borders twice");
+        Check(std::fabs(limited.width - 90 * scale) < .01f && std::fabs(limited.height - 90 * scale) < .01f,
+              "Positioned min/max constraints used the wrong box or minimum height");
+    }
+}
 int main() {
     try {
         CascadeAndResources();
@@ -791,6 +813,7 @@ int main() {
         RepeatedImagesOnlyPaintVisibleTiles();
         VisibilityPreservesVisibleDescendants();
         EmptyTableColumnsShareExtraWidth();
+        PositionedBorderBoxConstraints();
         GradientPixels();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;

@@ -1,0 +1,30 @@
+diff --git a/src/render_item.cpp b/src/render_item.cpp
+--- a/src/render_item.cpp
++++ b/src/render_item.cpp
+@@ -295,7 +295,7 @@
+ 			auto fix_height_min_max = [&] (pixel_t height)
+ 			{
+ 				auto max_height = el->css().get_max_height();
+-				auto min_height = el->css().get_max_height();
++				auto min_height = el->css().get_min_height();
+ 				if(!max_height.is_predefined())
+ 				{
+ 					pixel_t max_height_value = max_height.calc_percent(containing_block_size.height);
+@@ -312,7 +312,7 @@
+ 						height = min_height_value;
+ 					}
+ 				}
+-				height += el->content_offset_height();
++				height = std::max(0.0f, height - el->box_sizing_height()) + el->content_offset_height();
+ 				return height;
+ 			};
+ 
+@@ -336,7 +336,7 @@
+ 						width = min_width_value;
+ 					}
+ 				}
+-				width += el->content_offset_width();
++				width = std::max(0.0f, width - el->box_sizing_width()) + el->content_offset_width();
+ 				return width;
+ 			};
+ 
