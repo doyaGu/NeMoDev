@@ -53,6 +53,7 @@ public:
     std::vector<HtmlRect> images;
     std::vector<HtmlPoint> clip;
     std::vector<std::shared_ptr<TestHtmlImage>> generated;
+    std::vector<HtmlColor> fills;
     bool failFont = false;
     std::shared_ptr<HtmlFont> CreateFont(const HtmlFontDescription &description) override {
         return failFont ? nullptr : std::make_shared<TestHtmlFont>(description);
@@ -72,7 +73,7 @@ public:
         text.push_back({std::string(value), point, color, static_cast<const TestHtmlFont &>(font).style});
     }
     void Image(const HtmlImage &, HtmlRect rect) override { images.push_back(rect); }
-    void Fill(const std::vector<HtmlPoint> &, HtmlColor) override {}
+    void Fill(const std::vector<HtmlPoint> &, HtmlColor color) override { fills.push_back(color); }
 };
 
 static void Load(HtmlDocument &document, const std::string &html, float width = 400, float scale = 1) {
@@ -87,7 +88,7 @@ static void CascadeAndResources() {
     resources.files["book://manual/images/picture.png"] = "image";
     TestHtmlDevice device;
     HtmlDocument document(resources, device);
-    Load(document, "<!doctype html><link rel=stylesheet href='../styles/main.css'><title>Example</title>"
+    Load(document, "<!doctype html><link rel='preload StyleSheet' href='../styles/main.css'><title>Example</title>"
                    "<p class=mark id=chosen>Priority</p><img src='../images/picture.png' width=50 height=40>");
     document.Draw({}, {0, 0, 400, 300});
     const auto word =
@@ -155,6 +156,105 @@ static void UrlsAndFragmentEncoding() {
     Check(document.FindAnchor("caf%C3%A9", point), "UTF-8 fragment bytes were changed");
     Check(document.FindAnchor("top", point) && point.y > 100, "Top fallback replaced an actual ID");
     Check(document.FindAnchor("TOP", point) && point.y == 0, "HTML top fallback failed");
+}
+static void NestedMultilineLinkGeometry() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><div style='margin:200px 50px;width:100px'><p><a href='nested.html'>"
+                   "Multiple words wrapped across several lines</a></p></div>");
+    Check(document.Links().size() == 1, "Nested link was lost");
+    const auto link = document.Links().front();
+    Check(link.bounds.size() > 1, "Wrapped link lost its line fragments");
+    for (const auto &box : link.bounds) {
+        Check(box.x >= 50 && box.y >= 200, "Link geometry stayed relative to an internal parent");
+        Check(document.HitTest({box.x + box.width / 2, box.y + box.height / 2}).link == link.id,
+              "Nested link's keyboard geometry disagrees with pointer hit testing");
+    }
+}
+static void PresentationalHintsSurviveLinkStates() {
+    TestHtmlResources resources;
+    resources.files["book://manual/topics/image.png"] = "image";
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document,
+         "<style>a:hover{color:red} td{color:green}</style><body bgcolor=white><table cellpadding=0 cellspacing=0>"
+         "<tr><td id=first height=17><a href='other.html'><img src=image.png width=114 height=17></a></td>"
+         "<td rowspan=3 height=66><img src=image.png width=513 height=66></td></tr>"
+         "<tr><td height=32>&nbsp;</td></tr><tr><td id=last height=17><img src=image.png width=114 height=17></td></tr>"
+         "</table><font color=red>Font</font></body>",
+         900);
+    HtmlPoint first, last;
+    Check(document.FindAnchor("first", first) && document.FindAnchor("last", last) && last.y - first.y == 49,
+          "Legacy table cell heights were not honored");
+    const auto size = document.ContentSize();
+    const auto box = document.Links().front().bounds.front();
+    document.Hover({box.x + 2, box.y + 2});
+    document.Leave();
+    document.SetVisited({"book://manual/topics/other.html"});
+    Check(document.FindAnchor("last", last) && last.y - first.y == 49 && document.ContentSize().height == size.height,
+          "Link state refresh discarded HTML attribute styles");
+    document.Draw({}, {0, 0, 900, 300});
+    Check(device.images.size() == 3 && device.images[1].width == 513 && device.images[1].height == 66,
+          "Link state refresh discarded image dimensions");
+    const auto font =
+        std::find_if(device.text.begin(), device.text.end(), [](const auto &draw) { return draw.text == "Font"; });
+    Check(font != device.text.end() && font->color == 0xff0000ff, "Link state refresh discarded font color");
+}
+static void LegacyMarkupAndStyles() {
+    TestHtmlResources resources;
+    resources.files["book://manual/topics/a.png"] = "image";
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document,
+         "<!doctype html><style>body{background:white;font-size:x-small} h3{color:#660066;background:#f2f2f2;"
+         "margin-top:24pt;padding-left:5pt;font-size:medium}.pin{color:#4040ff;font-weight:bold}"
+         ".code{background:#faebd7}</style><body><h3 id=heading>Inputs</h3><p><span class=pin>Key</span></p>"
+         "<center><img id=diagram src=a.png width=120 height=40 border=1></center>"
+         "<table id=table border=0 width='75%' cellpadding=0 cellspacing=0><tr id=row><td id=cell width='20%'>A"
+         "<td rowspan=2 width='80%'>B<tr><td>C</table><pre class=code>\r\nfirst\r\n\tsecond</pre>"
+         "<a id=new name=old>End</a><ul><li>one<li>two</ul><script>bad()</script></body>",
+         800);
+    document.Draw({}, {0, 0, 800, 1000});
+    const auto text = [&](const char *word) -> const TestHtmlDevice::TextDraw & {
+        const auto found =
+            std::find_if(device.text.begin(), device.text.end(), [&](const auto &draw) { return draw.text == word; });
+        Check(found != device.text.end(), "Styled text was not painted");
+        return *found;
+    };
+    Check(text("Inputs").color == 0xff660066 && text("Inputs").font.size == 16 && text("Inputs").point.y >= 32 &&
+              text("Inputs").point.x > 14,
+          "Heading color, size, margin or padding was lost");
+    Check(text("Key").color == 0xffff4040 && text("Key").font.weight >= 600, "Inline color or bold style was lost");
+    Check(std::find(device.fills.begin(), device.fills.end(), 0xfff2f2f2) != device.fills.end() &&
+              std::find(device.fills.begin(), device.fills.end(), 0xffd7ebfa) != device.fills.end(),
+          "Heading or preformatted background was lost");
+    Check(device.images.size() == 1 && device.images[0].width == 120 && device.images[0].height == 40 &&
+              std::fabs(device.images[0].x + 60 - 400) < 2,
+          "Centered image dimensions or alignment were lost");
+    Check(document.Text().find("first\n\tsecond") != std::string::npos &&
+              document.Text().find("bad()") == std::string::npos,
+          "Preformatted whitespace or script exclusion failed");
+    for (const char *name : {"heading", "table", "row", "cell", "diagram", "new", "old"}) {
+        HtmlPoint position;
+        Check(document.FindAnchor(name, position), "An element ID or named anchor was lost");
+    }
+    Load(document,
+         "<!doctype html><style>a{text-decoration:none}a:link{color:red}a:hover{color:blue;text-decoration:underline}"
+         "a:visited{color:purple}</style><body><p>Start&nbsp;here<h3>Title</h3><p><a href=page.html>Link"
+         "<span style=color:green>fixed</span></a></body>");
+    const auto box = document.Links()[0].bounds[0];
+    document.Hover({box.x + 1, box.y + 1});
+    device.text.clear();
+    document.Draw({}, {0, 0, 400, 300});
+    Check(text("Link").color == 0xffff0000 && (text("Link").font.decoration & 1) && text("fixed").color == 0xff008000,
+          "Hover lost link decoration or changed an explicitly styled descendant");
+    document.Leave();
+    document.SetVisited({"book://manual/topics/page.html"});
+    device.text.clear();
+    document.Draw({}, {0, 0, 400, 300});
+    Check(text("Link").color == 0xff800080 && !(text("Link").font.decoration & 1) && text("fixed").color == 0xff008000,
+          "Visited state lost its cascade or retained hover decoration");
 }
 static void BaseElementAndZoom() {
     TestHtmlResources resources;
@@ -329,6 +429,9 @@ int main() {
         CascadeAndResources();
         LinksAndAnchors();
         UrlsAndFragmentEncoding();
+        NestedMultilineLinkGeometry();
+        PresentationalHintsSurviveLinkStates();
+        LegacyMarkupAndStyles();
         BaseElementAndZoom();
         TablesAndReflow();
         FailuresKeepTheDocument();

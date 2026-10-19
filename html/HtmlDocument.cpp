@@ -1,5 +1,6 @@
 #include "html/HtmlDocument.h"
 #include "html/detail/HtmlPainting.h"
+#include "html/detail/HtmlStyledElement.h"
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -7,11 +8,19 @@
 #include <cstdlib>
 #include <limits>
 #include <litehtml.h>
+#include <litehtml/el_body.h>
+#include <litehtml/el_div.h>
+#include <litehtml/el_font.h>
 #include <litehtml/el_image.h>
+#include <litehtml/el_para.h>
+#include <litehtml/el_table.h>
+#include <litehtml/el_td.h>
+#include <litehtml/el_tr.h>
 #include <litehtml/render_item.h>
 #include <litehtml/url.h>
 #include <map>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 
 static bool HtmlContains(HtmlRect rect, HtmlPoint point) {
@@ -183,9 +192,70 @@ struct HtmlDocument::Impl : litehtml::document_container {
     std::vector<Area> areas;
     litehtml::document::ptr document; // destroyed before its container resources
 
-    struct ImageElement : litehtml::el_image {
+    struct CellElement : HtmlStyledElement<litehtml::el_td> {
+        using HtmlStyledElement::HtmlStyledElement;
+        void parse_attributes() override {
+            for (auto node = parent(); node; node = node->parent()) {
+                if (node->tag() == litehtml::_table_) {
+                    if (const char *padding = node->get_attr("cellpadding"))
+                        map_to_pixel_length_property(litehtml::_padding_, padding);
+                    break;
+                }
+            }
+            HtmlStyledElement::parse_attributes();
+        }
+        void compute_styles(bool recursive = true) override {
+            HtmlStyledElement::compute_styles(recursive);
+            // CSS 2.1 table height: the cell's specified height is a minimum.
+            // The engine intentionally gives cells an auto containing height;
+            // use its minimum-height path after the author cascade is resolved.
+            const auto &height = css().get_height();
+            const auto &minimum = css().get_min_height();
+            if (!height.is_predefined() && height.units() != litehtml::css_units_percentage &&
+                (minimum.is_predefined() || minimum.units() != litehtml::css_units_percentage)) {
+                const auto doc = get_document();
+                const auto metrics = css().get_font_metrics();
+                const float value = doc->to_pixels(height, metrics, 0);
+                const float prior = minimum.is_predefined() ? 0 : doc->to_pixels(minimum, metrics, 0);
+                if (value > prior)
+                    css_w().set_min_height(litehtml::css_length(value));
+            }
+        }
+    };
+
+    struct ImageElement : HtmlStyledElement<litehtml::el_image> {
         Impl &owner;
-        ImageElement(const litehtml::document::ptr &doc, Impl &container) : litehtml::el_image(doc), owner(container) {}
+        ImageElement(const litehtml::document::ptr &doc, Impl &container) : HtmlStyledElement(doc), owner(container) {}
+        void compute_styles(bool recursive = true) override {
+            HtmlStyledElement::compute_styles(recursive);
+            if (get_document()->mode() == litehtml::no_quirks_mode ||
+                css().get_vertical_align() != litehtml::va_baseline)
+                return;
+            auto cell = parent();
+            while (cell && cell->tag() != litehtml::_td_ && cell->tag() != litehtml::_th_)
+                cell = cell->parent();
+            if (!cell)
+                return;
+            bool text = false;
+            const auto inspect = [&](const auto &self, const litehtml::element::ptr &node) -> void {
+                if (node->tag() == litehtml::_img_ || node->tag() == litehtml::_map_ ||
+                    node->tag() == litehtml::_script_)
+                    return;
+                if (node->is_text()) {
+                    std::string value;
+                    node->get_text(value);
+                    if (value.find_first_not_of(" \t\r\n\f") != std::string::npos)
+                        text = true;
+                }
+                for (const auto &child : node->children())
+                    self(self, child);
+            };
+            inspect(inspect, cell);
+            // HTML's table-cell line-height quirk removes baseline descent from
+            // image-only cells. Retain author alignment and normal text cells.
+            if (!text)
+                css_w().set_vertical_align(litehtml::va_text_bottom);
+        }
         void get_content_size(litehtml::size &size, float maximumWidth) override {
             if (owner.Image(get_attr("src", ""), nullptr)) {
                 litehtml::el_image::get_content_size(size, maximumWidth);
@@ -356,7 +426,28 @@ struct HtmlDocument::Impl : litehtml::document_container {
         if (value && *value)
             base = HtmlResolve(base, value);
     }
-    void link(const litehtml::document::ptr &, const litehtml::element::ptr &) override {}
+    void link(const litehtml::document::ptr &doc, const litehtml::element::ptr &element) override {
+        // rel is a set of ASCII case-insensitive tokens. The engine handles the
+        // single lowercase token itself and delegates other forms to its host.
+        std::istringstream tokens(element->get_attr("rel", ""));
+        std::set<std::string> relations;
+        std::string token;
+        while (tokens >> token) {
+            for (char &c : token)
+                if (c >= 'A' && c <= 'Z')
+                    c += 'a' - 'A';
+            relations.insert(token);
+        }
+        if (!relations.count("stylesheet") || relations.count("alternate"))
+            return;
+        const char *href = element->get_attr("href", "");
+        if (!*href)
+            return;
+        std::string css, relativeBase;
+        import_css(css, href, relativeBase);
+        if (!css.empty())
+            doc->add_stylesheet(css.c_str(), relativeBase.c_str(), element->get_attr("media"));
+    }
     void on_anchor_click(const char *, const litehtml::element::ptr &) override {}
     void on_mouse_event(const litehtml::element::ptr &, litehtml::mouse_event) override {}
     void set_cursor(const char *value) override { cursor = value ? value : ""; }
@@ -403,6 +494,21 @@ struct HtmlDocument::Impl : litehtml::document_container {
                                           const litehtml::document::ptr &doc) override {
         if (std::string_view(name) == "img")
             return std::make_shared<ImageElement>(doc, *this);
+        const std::string_view tag(name);
+        if (tag == "body")
+            return std::make_shared<HtmlStyledElement<litehtml::el_body>>(doc);
+        if (tag == "div")
+            return std::make_shared<HtmlStyledElement<litehtml::el_div>>(doc);
+        if (tag == "p")
+            return std::make_shared<HtmlStyledElement<litehtml::el_para>>(doc);
+        if (tag == "font")
+            return std::make_shared<HtmlStyledElement<litehtml::el_font>>(doc);
+        if (tag == "table")
+            return std::make_shared<HtmlStyledElement<litehtml::el_table>>(doc);
+        if (tag == "td" || tag == "th")
+            return std::make_shared<CellElement>(doc);
+        if (tag == "tr")
+            return std::make_shared<HtmlStyledElement<litehtml::el_tr>>(doc);
         return {};
     }
     void get_media_features(litehtml::media_features &media) const override {
@@ -463,10 +569,14 @@ struct HtmlDocument::Impl : litehtml::document_container {
         assign(assign, document->root());
         for (const auto &element : document->root()->select_all("a[href]")) {
             litehtml::position::vector boxes;
-            if (auto render = element->get_render_item())
-                render->get_inline_boxes(boxes);
-            if (boxes.empty())
-                boxes.push_back(element->get_placement());
+            element->run_on_renderers([&](const auto &render) {
+                if (render->is_visible()) {
+                    litehtml::position::vector fragment;
+                    render->get_rendering_boxes(fragment);
+                    boxes.insert(boxes.end(), fragment.begin(), fragment.end());
+                }
+                return true;
+            });
             std::vector<HtmlRect> bounds;
             for (const auto &box : boxes)
                 if (box.width > 0 && box.height > 0)
