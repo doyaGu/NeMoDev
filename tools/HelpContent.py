@@ -5,7 +5,9 @@ from pathlib import Path
 import posixpath
 import re
 import struct
+import tempfile
 from urllib.parse import unquote, urlsplit
+from HelpStyles import Appearance, inherited, resolve_styles, stylesheet
 
 
 @dataclass
@@ -13,6 +15,7 @@ class Element:
     tag: str
     attrs: dict = field(default_factory=dict)
     children: list = field(default_factory=list)
+    appearance: Appearance = field(default_factory=Appearance)
 
 
 class Document(HTMLParser):
@@ -20,13 +23,20 @@ class Document(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.root = Element("document")
         self.stack = [self.root]
-        self.feed(text)
+        self.feed(text.replace("\r\n", "\n").replace("\r", "\n"))
 
     def handle_starttag(self, tag, attributes):
         # These optional end tags are frequently omitted in the original help.
         close = {"p": ({"p"}, {"td", "th", "li", "body"}),
                  "li": ({"li"}, {"ul", "ol"}), "tr": ({"tr"}, {"table"}),
                  "td": ({"td", "th"}, {"tr", "table"}), "th": ({"td", "th"}, {"tr", "table"})}
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6", "div", "table", "pre", "ul", "ol", "hr", "blockquote"}:
+            for at in range(len(self.stack) - 1, 0, -1):
+                if self.stack[at].tag == "p":
+                    del self.stack[at:]
+                    break
+                if self.stack[at].tag in {"td", "th", "li", "body", "table"}:
+                    break
         if tag in close:
             targets, boundaries = close[tag]
             for at in range(len(self.stack) - 1, 0, -1):
@@ -35,7 +45,7 @@ class Document(HTMLParser):
                     break
                 if self.stack[at].tag in boundaries:
                     break
-        node = Element(tag, dict(attributes))
+        node = Element(tag, {key: value if value is not None else "1" if key == "border" else "" for key, value in attributes})
         self.stack[-1].children.append(node)
         if tag not in {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "wbr"}:
             self.stack.append(node)
@@ -51,6 +61,8 @@ class Document(HTMLParser):
                 break
 
     def handle_data(self, data):
+        if self.stack[-1].tag == "pre" and not self.stack[-1].children and data.startswith("\n"):
+            data = data[1:]
         self.stack[-1].children.append(data)
 
 
@@ -75,79 +87,93 @@ def reference(topic, target):
     return path + ("#" + unquote(url.fragment) if url.fragment else "")
 
 
-# Block kinds and span style bits match ui/help/HelpBook.h. Strings are UTF-8;
+# Block kinds and resolved appearance match ui/help/HelpBook.h. Strings are UTF-8;
 # every count and length is a little-endian uint32. No SDK data is converted.
-def blocks(children, topic, style=0, link="", pre=False):
+def blocks(children, topic, link="", pre=False, appearance=None):
     result, spans = [], []
+    appearance = appearance or Appearance()
 
     def flush(kind=0, value=0):
         nonlocal spans
-        if spans and (pre or any(span[0].strip() or span[2] or span[3] or span[0] == "\n" for span in spans)):
+        if spans and (pre or any(span[0].strip() or "\xa0" in span[0] or span[2] or span[3] or span[0] == "\n" for span in spans)):
             if not pre:
                 spans[0][0] = spans[0][0].lstrip(" \t\r\n")
                 spans[-1][0] = spans[-1][0].rstrip(" \t\r\n")
-            result.append([kind, value, spans, []])
+            result.append([kind, value, spans, [], appearance])
         spans = []
 
-    def inline(node, inherited=style, target=link):
+    def inline(node, target=link, text_style=appearance):
         if isinstance(node, str):
-            text = node if pre else re.sub(r"\s+", " ", node)
+            text = node if pre else re.sub(r"[ \t\r\n\f]+", " ", node)
             if text:
-                spans.append([text, target, "", "", inherited])
+                spans.append([text, target, "", "", text_style, 0, 0])
             return
         if node.tag in {"head", "script", "style", "object", "noscript"}:
             return
         attrs = node.attrs
-        inherited |= {"b": 1, "strong": 1, "i": 2, "em": 2, "code": 4, "tt": 4}.get(node.tag, 0)
-        inherited |= {"in": 8, "out": 16, "pin": 32, "pout": 64}.get(attrs.get("class", "").lower(), 0)
+        text_style = node.appearance
         if node.tag == "a":
             if attrs.get("id") or attrs.get("name"):
-                spans.append(["", "", "", attrs.get("id") or attrs["name"], 0])
+                spans.append(["", "", "", attrs.get("id") or attrs["name"], text_style, 0, 0])
             if "href" in attrs:
                 target = reference(topic, attrs["href"])
                 if attrs.get("onclick"):
                     target = "unsupported:" + attrs["onclick"]
         if node.tag == "br":
-            spans.append(["\n", "", "", "", 0])
+            spans.append(["\n", "", "", "", text_style, 0, 0])
         elif node.tag == "img":
-            spans.append([attrs.get("alt", ""), target, reference(topic, attrs.get("src", "")), "", 0])
+            spans.append([attrs.get("alt", ""), target, reference(topic, attrs.get("src", "")), "", text_style, 0, 0])
         else:
             for child in node.children:
-                inline(child, inherited, target)
+                inline(child, target, text_style)
 
     for child in children:
         if isinstance(child, str):
             inline(child)
             continue
         tag = child.tag
-        if tag in {"head", "script", "style", "object", "noscript"}:
+        if tag in {"head", "script", "style", "object", "noscript"} or child.appearance.display == "none":
             continue
-        if tag in {"p", "div", "center", "blockquote", "body", "html", "section", "dl", "dt", "dd"}:
+        if tag in {"p", "div", "center", "blockquote", "body", "html", "section", "dl", "dt", "dd"} or child.appearance.display == "block" and tag != "pre":
             flush()
-            result.extend(blocks(child.children, topic, style, link, pre))
+            nested = blocks(child.children, topic, link, pre, inherited(child.appearance))
+            if tag not in {"body", "html"} and nested:
+                result.append([8, 0, [], nested, child.appearance])
+            else:
+                result.extend(nested)
         elif tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             flush()
-            inline(child, style | 1)
+            inline(child)
+            previous = appearance
+            appearance = child.appearance
             flush(1, int(tag[1]))
+            appearance = previous
         elif tag in {"ul", "ol"}:
             flush()
+            start = len(result)
             number = 0
             for item in child.children:
                 if isinstance(item, Element) and item.tag == "li":
                     number += 1
-                    result.append([3, number if tag == "ol" else 0, [], blocks(item.children, topic)])
+                    result.append([3, number if tag == "ol" else 0, [], blocks(item.children, topic, appearance=inherited(item.appearance)), item.appearance])
                 elif not isinstance(item, str) or item.strip():
                     # The legacy HTML also places explanatory text between li's.
-                    result.extend(blocks([item], topic))
+                    result.extend(blocks([item], topic, appearance=inherited(child.appearance)))
+            nested = result[start:]
+            del result[start:]
+            result.append([8, 0, [], nested, child.appearance])
+        elif tag == "li":
+            flush()
+            result.append([3, 0, [], blocks(child.children, topic, appearance=inherited(child.appearance)), child.appearance])
         elif tag == "pre":
             flush()
-            content = blocks(child.children, topic, style | 4, link, True)
+            content = blocks(child.children, topic, link, True, child.appearance)
             for block in content:
                 block[0] = 2
             result.extend(content)
         elif tag == "hr":
             flush()
-            result.append([4, 0, [], []])
+            result.append([4, 0, [], [], child.appearance])
         elif tag == "table":
             flush()
             rows = []
@@ -155,15 +181,27 @@ def blocks(children, topic, style=0, link="", pre=False):
                 for row in node.children:
                     if isinstance(row, Element) and row.tag == "tr":
                         cells = [[7, max(1, min(32, int(cell.attrs.get("colspan", "1") or "1"))), [],
-                                  blocks(cell.children, topic, 1 if cell.tag == "th" else 0)]
+                                  blocks(cell.children, topic, appearance=inherited(cell.appearance)), cell.appearance]
                                  for cell in row.children if isinstance(cell, Element) and cell.tag in {"td", "th"}]
                         if cells:
-                            rows.append([6, 0, [], cells])
+                            rows.append([6, 0, [], cells, row.appearance])
                     elif isinstance(row, Element) and row.tag in {"thead", "tbody", "tfoot"}:
                         rows_in(row)
             rows_in(child)
             if rows:
-                result.append([5, max(sum(cell[1] for cell in row[3]) for row in rows), [], rows])
+                # Count columns with the same occupancy rules used by table layout.
+                occupied = {}
+                columns = 0
+                for r, row in enumerate(rows):
+                    column = 0
+                    for cell in row[3]:
+                        while occupied.get(column, 0) > r:
+                            column += 1
+                        for c in range(column, column + cell[1]):
+                            occupied[c] = r + cell[4].rowspan
+                        column += cell[1]
+                        columns = max(columns, column)
+                result.append([5, columns, [], rows, child.appearance])
         else:
             inline(child)
     flush()
@@ -171,16 +209,47 @@ def blocks(children, topic, style=0, link="", pre=False):
 
 
 def compile_help(root, tree, home, decode):
+    from PIL import Image
     pages = []
+    assets = {file.relative_to(root).as_posix().casefold(): file for file in root.rglob("*") if file.is_file()}
+    image_sizes = {}
     for file in sorted(root.rglob("*")):
         if file.suffix.lower() not in {".html", ".htm"} or file.name == "VirtoolsDevHelp.html":
             continue
         topic = file.relative_to(root).as_posix()
         document = Document(decode(file.read_bytes()))
+        rules = []
+        for css in elements(document.root, "link"):
+            if css.attrs.get("rel", "").lower() == "stylesheet":
+                source = assets.get(reference(topic, css.attrs.get("href", "")).casefold())
+                if source:
+                    rules.extend(stylesheet(decode(source.read_bytes())))
+        for css in elements(document.root, "style"):
+            rules.extend(stylesheet(plain(css)))
+        resolve_styles(document.root, rules)
         title = next(elements(document.root, "title"), None)
         body = next(elements(document.root, "body"), document.root)
-        pages.append((topic, plain(title).strip() if title else file.stem, blocks(body.children, topic)))
-    with (root / "help.ndh").open("wb") as stream:
+        content = blocks(body.children, topic, appearance=inherited(body.appearance))
+        def sizes(items):
+            for item in items:
+                for span in item[2]:
+                    if not span[2]:
+                        continue
+                    key = span[2].casefold()
+                    if key not in image_sizes:
+                        source = assets.get(key)
+                        try:
+                            with Image.open(source) as image:
+                                image_sizes[key] = image.size
+                        except (OSError, AttributeError):
+                            image_sizes[key] = (0, 0)
+                    span[5], span[6] = image_sizes[key]
+                sizes(item[3])
+        sizes(content)
+        pages.append((topic, plain(title).strip() if title else file.stem, body.appearance, content))
+    stream = tempfile.NamedTemporaryFile(dir=root, prefix="help-", suffix=".tmp", delete=False)
+    temporary = Path(stream.name)
+    try:
         def integer(value):
             stream.write(struct.pack("<I", value))
         def string(value):
@@ -189,27 +258,47 @@ def compile_help(root, tree, home, decode):
             stream.write(data)
         def write_blocks(items):
             integer(len(items))
-            for kind, value, spans, children in items:
+            for kind, value, spans, children, appearance in items:
                 integer(kind)
                 integer(value)
+                write_appearance(appearance)
                 integer(len(spans))
-                for text, link, image, anchor, style in spans:
+                for text, link, image, anchor, appearance, width, height in spans:
                     for field in (text, link, image, anchor):
                         string(field)
-                    integer(style)
+                    write_appearance(appearance)
+                    integer(width)
+                    integer(height)
                 write_blocks(children)
+        def write_appearance(style):
+            for value in (style.color, style.background, style.flags, style.align, style.valign, style.floating):
+                integer(value)
+            values = [style.size, style.width, style.height, *style.margin, *style.padding, *style.border,
+                      style.cell_padding, style.cell_spacing]
+            stream.write(struct.pack("<" + "f" * len(values), *values))
+            integer(style.border_color)
+            integer(style.rowspan)
+            integer(style.collapse_borders)
+            for value in (style.hover_color, style.visited_color, style.hover_flags, style.visited_flags):
+                integer(value)
         def contents(nodes):
             integer(len(nodes))
             for node in nodes:
                 string(node["name"])
                 string(node.get("local", ""))
                 contents(node["children"])
-        stream.write(b"NDEVHLP1")
+        stream.write(b"NDEVHLP2")
         string(home)
         contents(tree)
         integer(len(pages))
-        for path, title, content in pages:
+        for path, title, appearance, content in pages:
             string(path)
             string(title)
+            write_appearance(appearance)
             write_blocks(content)
+        stream.close()
+        temporary.replace(root / "help.ndh")
+    finally:
+        stream.close()
+        temporary.unlink(missing_ok=True)
     return len(pages)

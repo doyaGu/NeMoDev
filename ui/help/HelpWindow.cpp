@@ -24,6 +24,7 @@ void HelpWindow::Navigate(const std::string &topic) {
     if (m_History.size() > 128) m_History.erase(m_History.begin());
     m_Visit = m_History.size() - 1;
     m_Current = topic;
+    if (const auto *page = m_Book.Find(topic)) m_Visited.insert(page->path);
     const size_t fragment = topic.find('#');
     m_Anchor = fragment == std::string::npos ? std::string() : topic.substr(fragment + 1);
     m_RestoreScroll = 0.0f;
@@ -70,142 +71,63 @@ UiTexture *HelpWindow::Image(const std::string &path) {
 void HelpWindow::FollowLink(const std::string &link) {
     if (link.compare(0, 7, "http://") == 0 || link.compare(0, 8, "https://") == 0) {
         if (!SDL_OpenURL(link.c_str())) m_Notice = SDL_GetError();
+        else m_Visited.insert(link);
     } else if (link.find(':') != std::string::npos) m_Notice = "This legacy scripted link cannot run in the help viewer.";
     else m_Pending = link;
 }
 
-void HelpWindow::Paragraph(const HelpBlock &block) {
-    const float size = ImGui::GetFontSize();
-    const float line = size + 4.0f;
+void HelpWindow::DrawPage(const HelpTopic &topic) {
+    const float width = ImGui::GetContentRegionAvail().x;
+    const float scale = ImGui::GetFontSize() / 14.0f * m_Zoom;
+    if (m_LayoutTopic != &topic || m_LayoutWidth != width || m_LayoutScale != scale) {
+        m_Page = HelpLayout(m_Fonts, scale).Build(topic, width);
+        m_LayoutTopic = &topic; m_LayoutWidth = width; m_LayoutScale = scale;
+    }
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const float localY = ImGui::GetCursorPosY();
-    const float width = std::max(20.0f, m_LineWidth > 0.0f ? m_LineWidth : ImGui::GetContentRegionAvail().x);
-    float x = 0.0f, y = 0.0f, height = line;
     ImDrawList *draw = ImGui::GetWindowDrawList();
-    auto newline = [&] { x = 0.0f; y += height; height = line; };
-    for (const auto &span : block.spans) {
-        if (!span.anchor.empty()) m_Anchors[span.anchor] = localY + y;
-        if (!span.image.empty()) {
-            UiTexture *texture = Image(span.image);
-            if (texture) {
-                const float scale = std::min(m_Zoom, width / texture->Width());
-                const float w = texture->Width() * scale, h = texture->Height() * scale;
-                if (x && x + w > width) newline();
-                draw->AddImage(texture->Id(), ImVec2(origin.x + x, origin.y + y), ImVec2(origin.x + x + w, origin.y + y + h));
-                if (!span.link.empty()) {
-                    ImGui::SetCursorScreenPos(ImVec2(origin.x + x, origin.y + y));
-                    ImGui::PushID(m_Item++);
-                    if (ImGui::InvisibleButton("image link", ImVec2(w, h), ImGuiButtonFlags_EnableNav)) FollowLink(span.link);
-                    if (ImGui::IsItemHovered()) { ImGui::SetMouseCursor(ImGuiMouseCursor_Hand); ImGui::SetTooltip("%s", span.link.c_str()); }
-                    ImGui::PopID();
-                }
-                x += w + 3.0f; height = std::max(height, h + 3.0f);
+    for (size_t i = 0; i < m_Page.drawings.size(); ++i) {
+        const auto &item = m_Page.drawings[i];
+        const ImVec2 at(origin.x + item.position.x, origin.y + item.position.y);
+        const ImVec2 end(at.x + item.size.x, at.y + item.size.y);
+        unsigned color = item.color, flags = item.flags;
+        if (!item.link.empty() && item.size.x > 0 && item.size.y > 0) {
+            ImGui::SetCursorScreenPos(at); ImGui::PushID(static_cast<int>(i));
+            if (ImGui::InvisibleButton((item.text + "##help-link").c_str(), item.size, ImGuiButtonFlags_EnableNav)) FollowLink(item.link);
+            const auto *target = m_Book.Find(item.link);
+            if (m_Visited.count(target ? target->path : item.link)) { color = item.visitedColor; flags = item.visitedFlags; }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand); ImGui::SetTooltip("%s", item.link.c_str());
+                color = item.hoverColor; flags = item.hoverFlags;
+            }
+            ImGui::PopID();
+        }
+        if (item.kind == HelpDrawing::Fill) draw->AddRectFilled(at, end, item.color);
+        else if (item.kind == HelpDrawing::Line) draw->AddLine(at, end, item.color, item.thickness);
+        else if (item.kind == HelpDrawing::Image) {
+            if (UiTexture *texture = Image(item.image)) {
+                draw->AddImage(texture->Id(), at, end);
 #ifdef VIRTOOLSDEV_UI_TESTS
                 ++m_ShownImages;
 #endif
-            } else {
-                const std::string label = "[Missing image: " + span.image + "]";
-                if (x) newline();
-                draw->AddText(ImVec2(origin.x, origin.y + y), ImGui::GetColorU32(ImGuiCol_TextDisabled), label.c_str());
-                newline();
-            }
-            continue;
-        }
-#ifdef VIRTOOLSDEV_UI_TESTS
-        m_ShownText += span.text;
-#endif
-        ImU32 color = ImGui::GetColorU32(ImGuiCol_Text);
-        const bool light = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg).x > 0.5f;
-        if (span.style & (8 | 32)) color = light ? IM_COL32(20, 80, 135, 255) : IM_COL32(110, 190, 245, 255);
-        if (span.style & (16 | 64)) color = light ? IM_COL32(140, 75, 15, 255) : IM_COL32(235, 170, 95, 255);
-        if (!span.link.empty()) color = light ? IM_COL32(25, 75, 145, 255) : ImGui::GetColorU32(ImGuiCol_TextLink);
-        const char *at = span.text.data(), *end = at + span.text.size();
-        while (at < end) {
-            if (*at == '\n') { newline(); ++at; continue; }
-            const char *next = at;
-            if (*next == ' ' || *next == '\t') ++next;
-            else while (next < end && *next != ' ' && *next != '\t' && *next != '\n') ++next;
-            float w = ImGui::CalcTextSize(at, next).x;
-            if (block.kind != HelpBlock::Preformatted && x && x + w > width) newline();
-            if (*at == ' ' && x == 0.0f && block.kind != HelpBlock::Preformatted) { at = next; continue; }
-            // Split long identifiers on UTF-8 boundaries when no word fits.
-            if (block.kind != HelpBlock::Preformatted && w > width) {
-                next = at;
-                while (next < end && *next != ' ' && *next != '\n') {
-                    const char *character = next + 1;
-                    while (character < end && (static_cast<unsigned char>(*character) & 0xc0) == 0x80) ++character;
-                    if (next > at && ImGui::CalcTextSize(at, character).x > width) break;
-                    next = character;
-                }
-                w = ImGui::CalcTextSize(at, next).x;
-            }
-            const ImVec2 pos(origin.x + x, origin.y + y);
-            if (span.style & 4) draw->AddRectFilled(pos, ImVec2(pos.x + w, pos.y + line), ImGui::GetColorU32(ImGuiCol_FrameBg));
-            const int firstVertex = draw->VtxBuffer.Size;
-            draw->AddText(pos, color, at, next);
-            if (span.style & 1) draw->AddText(ImVec2(pos.x + 0.5f, pos.y), color, at, next);
-            if (span.style & 2)
-                for (int i = firstVertex; i < draw->VtxBuffer.Size; ++i)
-                    draw->VtxBuffer[i].pos.x += (pos.y + size - draw->VtxBuffer[i].pos.y) * 0.15f;
-            if (!span.link.empty() && w > 0.0f) {
-                ImGui::SetCursorScreenPos(pos);
-                ImGui::PushID(m_Item++);
-                if (ImGui::InvisibleButton((span.text + "##help-link").c_str(), ImVec2(w, line), ImGuiButtonFlags_EnableNav)) FollowLink(span.link);
-                if (ImGui::IsItemHovered()) { ImGui::SetMouseCursor(ImGuiMouseCursor_Hand); ImGui::SetTooltip("%s", span.link.c_str()); }
-                draw->AddLine(ImVec2(pos.x, pos.y + size), ImVec2(pos.x + w, pos.y + size), color);
-                ImGui::PopID();
-            }
-            x += w; at = next;
-        }
-    }
-    ImGui::SetCursorScreenPos(origin);
-    ImGui::Dummy(ImVec2(block.kind == HelpBlock::Preformatted ? std::max(width, x) : width, y + height));
-}
-void HelpWindow::Blocks(const std::vector<HelpBlock> &blocks) {
-    for (const auto &block : blocks) {
-        ImGui::PushID(&block);
-        if (block.kind == HelpBlock::Rule) ImGui::Separator();
-        else if (block.kind == HelpBlock::Table) {
-            const int columns = static_cast<int>(std::min(32u, std::max(1u, block.value)));
-            const float previousWidth = m_LineWidth;
-            const float width = previousWidth > 0.0f ? previousWidth : ImGui::GetContentRegionAvail().x;
-            for (const auto &row : block.children) {
-                const ImVec2 start = ImGui::GetCursorScreenPos();
-                float height = 1.0f;
-                int column = 0;
-                for (const auto &cell : row.children) {
-                    const int span = std::min(columns - column, static_cast<int>(std::max(1u, cell.value)));
-                    if (span <= 0) break;
-                    m_LineWidth = std::max(20.0f, width * span / columns - 12.0f);
-                    ImGui::SetCursorScreenPos(ImVec2(start.x + width * column / columns + 6, start.y + 6));
-                    ImGui::BeginGroup(); Blocks(cell.children); ImGui::EndGroup();
-                    height = std::max(height, ImGui::GetItemRectSize().y + 12.0f);
-                    column += span;
-                }
-                column = 0;
-                for (const auto &cell : row.children) {
-                    const int span = std::min(columns - column, static_cast<int>(std::max(1u, cell.value)));
-                    if (span <= 0) break;
-                    ImGui::GetWindowDrawList()->AddRect(ImVec2(start.x + width * column / columns, start.y),
-                        ImVec2(start.x + width * (column + span) / columns, start.y + height), ImGui::GetColorU32(ImGuiCol_Border));
-                    column += span;
-                }
-                ImGui::SetCursorScreenPos(start); ImGui::Dummy(ImVec2(width, height));
-            }
-            m_LineWidth = previousWidth;
-        } else if (block.kind == HelpBlock::ListItem) {
-            if (block.value) ImGui::Text("%u.", block.value); else ImGui::Bullet();
-            ImGui::SameLine();
-            ImGui::BeginGroup(); Blocks(block.children); ImGui::EndGroup();
+            } else draw->AddText(at, 0xff0000a0, ("[Missing image: " + item.image + "]").c_str());
         } else {
-            const float font = ImGui::GetFontSize();
-            if (block.kind == HelpBlock::Heading) ImGui::PushFont(nullptr, font * (block.value <= 2 ? 1.35f : 1.15f));
-            Paragraph(block);
-            if (block.kind == HelpBlock::Heading) ImGui::PopFont();
+            if (item.background) draw->AddRectFilled(at, end, item.background);
+            const int first = draw->VtxBuffer.Size;
+            draw->AddText(item.font, item.fontSize, at, color, item.text.c_str());
+            if ((flags & HelpAppearance::Bold) && (flags & HelpAppearance::Monospace))
+                draw->AddText(item.font, item.fontSize, ImVec2(at.x + 0.5f, at.y), color, item.text.c_str());
+            if (flags & HelpAppearance::Italic)
+                for (int vertex = first; vertex < draw->VtxBuffer.Size; ++vertex)
+                    draw->VtxBuffer[vertex].pos.x += (at.y + item.fontSize - draw->VtxBuffer[vertex].pos.y) * 0.15f;
+            if (flags & HelpAppearance::Underline) draw->AddLine(ImVec2(at.x, at.y + item.fontSize), ImVec2(end.x, at.y + item.fontSize), color);
+#ifdef VIRTOOLSDEV_UI_TESTS
+            m_ShownText += item.text; m_ShownText += ' ';
+#endif
         }
-        ImGui::Spacing();
-        ImGui::PopID();
     }
+    for (const auto &anchor : m_Page.anchors) m_Anchors[anchor.first] = localY + anchor.second;
+    ImGui::SetCursorScreenPos(origin); ImGui::Dummy(m_Page.size);
 }
 void HelpWindow::Draw() {
     if (m_RetireImages) { m_Images.clear(); m_RetireImages = false; }
@@ -246,20 +168,20 @@ void HelpWindow::Draw() {
         }
         ImGui::EndChild();
         ImGui::TableNextColumn();
+        const HelpTopic *topic = m_Book.Find(m_Current);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, topic ? topic->appearance.background : 0xffffffffu);
         ImGui::BeginChild("article", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-        ImGui::PushFont(nullptr, ImGui::GetFontSize() * m_Zoom);
-        m_Item = 0; m_Anchors.clear();
+        m_Anchors.clear();
 #ifdef VIRTOOLSDEV_UI_TESTS
         m_ShownText.clear(); m_ShownImages = 0;
 #endif
         if (!m_Error.empty()) ImGui::TextWrapped("%s", m_Error.c_str());
         if (!m_Notice.empty()) ImGui::TextWrapped("%s", m_Notice.c_str());
-        if (const HelpTopic *topic = m_Book.Find(m_Current)) {
+        if (topic) {
             if (ImGui::SmallButton("Copy text")) SDL_SetClipboardText(topic->text.c_str());
-            ImGui::TextWrapped("%s", topic->title.c_str());
             ImGui::TextDisabled("%s", topic->path.c_str());
             ImGui::Separator();
-            Blocks(topic->blocks);
+            DrawPage(*topic);
         }
         if (!m_Anchor.empty()) {
             const auto anchor = m_Anchors.find(m_Anchor);
@@ -269,7 +191,7 @@ void HelpWindow::Draw() {
         }
         if (m_RestoreScroll >= 0.0f) { ImGui::SetScrollY(m_RestoreScroll); m_RestoreScroll = -1.0f; }
         m_Scroll = ImGui::GetScrollY();
-        ImGui::PopFont(); ImGui::EndChild(); ImGui::EndTable();
+        ImGui::EndChild(); ImGui::PopStyleColor(); ImGui::EndTable();
     }
     ImGui::End();
 }

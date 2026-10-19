@@ -26,6 +26,8 @@ int main(int argc, char **argv) {
         Check(book.Contents().size() == 1 && book.Contents()[0].topic == "index.html", "Contents were lost");
         const auto *topic = book.Find("TOPIC%20TWO.HTML#inputs");
         Check(topic && topic->title == "Key Event BB", "CHM case or escaped path lookup failed");
+        Check(topic->appearance.background == 0xffffffff && topic->blocks[0].appearance.size == 16.0f &&
+              (topic->blocks[0].appearance.flags & vdev::HelpAppearance::Bold), "Resolved presentation was lost");
         Check(Text(topic->blocks).find(u8"Caf\u00e9 \u4e2d\u6587") != std::string::npos, "Help UTF-8 text was changed");
         const auto results = book.Search("EVENT pressed");
         Check(results.size() == 1 && results.front() == topic, "Full-text search did not combine its terms");
@@ -38,7 +40,7 @@ int main(int argc, char **argv) {
         Check(!book.Find("absent.html"), "Missing topic appeared valid");
         const auto invalid = std::filesystem::u8path(argv[1]) / "invalid";
         std::filesystem::create_directory(invalid);
-        { std::ofstream file(invalid / "help.ndh", std::ios::binary); file << "NDEVHLP1\xff\xff\xff\xff"; }
+        { std::ofstream file(invalid / "help.ndh", std::ios::binary); file << "NDEVHLP2\xff\xff\xff\xff"; }
         Check(!book.Load(invalid.u8string(), error) && !error.empty(), "Malformed content appeared valid");
         Check(book.Find("topic two.html") == topic, "Failed load replaced the previous book");
         Check(!book.Load((invalid / "missing").u8string(), error), "Missing optional content appeared installed");

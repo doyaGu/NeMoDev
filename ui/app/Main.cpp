@@ -28,7 +28,7 @@
 
 namespace {
 namespace fs = std::filesystem;
-void LoadFonts(float scale) {
+vdev::HelpFonts LoadFonts(float scale) {
     ImGuiIO &io = ImGui::GetIO();
     const fs::path directory = fs::u8path(SDL_GetBasePath()) / "data" / "fonts";
     const auto regular = (directory / "NotoSans-Regular.ttf").u8string();
@@ -45,6 +45,12 @@ void LoadFonts(float scale) {
     ImFont *normal = add(12.0f * scale, false);
     ImFont *strong = add(14.0f * scale, true);
     vdev::SetVIFonts(normal, strong);
+    ImFontConfig monoConfig; monoConfig.SizePixels = 14.0f * scale;
+    ImFont *mono = io.Fonts->AddFontDefault(&monoConfig);
+    ImFontConfig fallback; fallback.MergeMode = true; fallback.DstFont = mono;
+    io.Fonts->AddFontFromFileTTF(regular.c_str(), 14.0f * scale, &fallback);
+    if (fs::exists(fs::u8path(cjk))) io.Fonts->AddFontFromFileTTF(cjk.c_str(), 14.0f * scale, &fallback);
+    return {io.FontDefault, strong, mono};
 }
 std::string ResolveRuntime(const std::vector<std::wstring> &args) {
     std::string path;
@@ -115,7 +121,7 @@ int main(int argc, char **argv) {
     io.IniFilename = isolated || iniPath.empty() ? nullptr : iniPath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
     vdev::ApplyDevTheme(ImGui::GetStyle()); ImGui::GetStyle().ScaleAllSizes(scale);
-    LoadFonts(scale);
+    const vdev::HelpFonts helpFonts = LoadFonts(scale);
     ImGui_ImplSDL3_InitForSDLGPU(window);
     std::string error;
     if (!vdev::MainRenderer().Start(window, &error)) {
@@ -123,7 +129,7 @@ int main(int argc, char **argv) {
         ImGui_ImplSDL3_Shutdown(); ImGui::DestroyContext(); SDL_DestroyWindow(window); SDL_Quit(); return 1;
     }
     if (!headless) SDL_ShowWindow(window);
-    vdev::EditorApp app;
+    vdev::EditorApp app(helpFonts);
     int exitCode = 0;
     if (!app.Initialize(window, runtime, vdev::WideToUtf8(line.fileToOpen)
 #ifdef VIRTOOLSDEV_UI_TESTS

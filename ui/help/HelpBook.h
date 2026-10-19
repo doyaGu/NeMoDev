@@ -5,19 +5,37 @@
 
 namespace vdev {
 
+// Resolved presentation in CSS pixels. Content owns these values; DPI, zoom
+// and available width are inputs to layout, not changes to the stored topic.
+struct HelpAppearance {
+    enum TextFlag { Bold = 1, Italic = 2, Monospace = 4, Underline = 8, PreserveWhitespace = 16 };
+    unsigned color = 0xff000000, background = 0, flags = 0;
+    unsigned align = 0, valign = 0, floating = 0;
+    float size = 10.0f, width = 0.0f, height = 0.0f;
+    float margin[4] = {}, padding[4] = {}, border[4] = {};
+    float cellPadding = 1.0f, cellSpacing = 2.0f;
+    unsigned borderColor = 0xff000000, rowSpan = 1;
+    bool collapseBorders = false;
+    unsigned hoverColor = 0xff000000, visitedColor = 0xff000000;
+    unsigned hoverFlags = 0, visitedFlags = 0;
+};
+
 struct HelpSpan {
     std::string text, link, image, anchor;
-    unsigned style = 0; // bold, italic, code, input, output, parameter input/output
+    HelpAppearance appearance;
+    unsigned imageWidth = 0, imageHeight = 0;
 };
 struct HelpBlock {
-    enum Kind { Paragraph, Heading, Preformatted, ListItem, Rule, Table, Row, Cell };
+    enum Kind { Paragraph, Heading, Preformatted, ListItem, Rule, Table, Row, Cell, Group };
     Kind kind = Paragraph;
     unsigned value = 0; // heading level, list number, table columns or cell span
+    HelpAppearance appearance;
     std::vector<HelpSpan> spans;
     std::vector<HelpBlock> children;
 };
 struct HelpTopic {
     std::string path, title, text;
+    HelpAppearance appearance;
     std::vector<HelpBlock> blocks;
 };
 struct HelpContents {

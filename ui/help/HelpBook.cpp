@@ -1,6 +1,8 @@
 #include "ui/help/HelpBook.h"
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -44,7 +46,7 @@ public:
         file.seekg(0);
         char magic[8];
         Read(magic, 8);
-        if (std::string(magic, 8) != "NDEVHLP1") throw std::runtime_error("Unsupported help content version.");
+        if (std::string(magic, 8) != "NDEVHLP2") throw std::runtime_error("Unsupported help content version.");
     }
     unsigned Number(unsigned limit = 100000) {
         unsigned char bytes[4];
@@ -66,6 +68,29 @@ public:
         if (count > remaining / minimumBytes) throw std::runtime_error("Truncated help entries.");
         return count;
     }
+    HelpAppearance Appearance() {
+        HelpAppearance style;
+        style.color = Number(0xffffffffu); style.background = Number(0xffffffffu);
+        style.flags = Number(31); style.align = Number(2); style.valign = Number(2); style.floating = Number(2);
+        auto scalar = [&](bool percentage = false) {
+            const unsigned bits = Number(0xffffffffu);
+            float value;
+            std::memcpy(&value, &bits, sizeof(value));
+            if (!std::isfinite(value) || value < (percentage ? -100.0f : 0.0f) || value > 10000.0f) throw std::runtime_error("Invalid help style length.");
+            return value;
+        };
+        style.size = scalar(); style.width = scalar(true); style.height = scalar(true);
+        for (float &value : style.margin) value = scalar();
+        for (float &value : style.padding) value = scalar();
+        for (float &value : style.border) value = scalar();
+        style.cellPadding = scalar(); style.cellSpacing = scalar();
+        style.borderColor = Number(0xffffffffu); style.rowSpan = Number(1000);
+        style.collapseBorders = Number(1) != 0;
+        style.hoverColor = Number(0xffffffffu); style.visitedColor = Number(0xffffffffu);
+        style.hoverFlags = Number(31); style.visitedFlags = Number(31);
+        if (style.size <= 0.0f || !style.rowSpan) throw std::runtime_error("Invalid help style.");
+        return style;
+    }
     std::vector<HelpContents> Contents(unsigned depth = 0) {
         if (depth > 64) throw std::runtime_error("Help contents are too deeply nested.");
         std::vector<HelpContents> items(Count(12));
@@ -76,13 +101,15 @@ public:
     }
     std::vector<HelpBlock> Blocks(unsigned depth = 0) {
         if (depth > 64) throw std::runtime_error("Help tables are too deeply nested.");
-        std::vector<HelpBlock> blocks(Count(16));
+        std::vector<HelpBlock> blocks(Count(136));
         for (auto &block : blocks) {
-            block.kind = static_cast<HelpBlock::Kind>(Number(HelpBlock::Cell));
+            block.kind = static_cast<HelpBlock::Kind>(Number(HelpBlock::Group));
             block.value = Number(10000);
-            block.spans.resize(Count(20));
+            block.appearance = Appearance();
+            block.spans.resize(Count(144));
             for (auto &span : block.spans) {
-                span.text = Text(); span.link = Text(); span.image = Text(); span.anchor = Text(); span.style = Number(127);
+                span.text = Text(); span.link = Text(); span.image = Text(); span.anchor = Text();
+                span.appearance = Appearance(); span.imageWidth = Number(100000); span.imageHeight = Number(100000);
             }
             block.children = Blocks(depth + 1);
         }
@@ -113,9 +140,9 @@ bool HelpBook::Load(const std::string &directory, std::string &error) {
         loaded.m_Directory = directory;
         loaded.m_Home = reader.Text();
         loaded.m_Contents = reader.Contents();
-        loaded.m_Topics.resize(reader.Count(12, 10000));
+        loaded.m_Topics.resize(reader.Count(132, 10000));
         for (auto &topic : loaded.m_Topics) {
-            topic.path = reader.Text(); topic.title = reader.Text(); topic.blocks = reader.Blocks();
+            topic.path = reader.Text(); topic.title = reader.Text(); topic.appearance = reader.Appearance(); topic.blocks = reader.Blocks();
             const size_t at = loaded.m_SearchText.size();
             if (!loaded.m_Index.emplace(HelpTopicKey(topic.path), at).second)
                 throw std::runtime_error("Duplicate help topic: " + topic.path);

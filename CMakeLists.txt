@@ -114,6 +114,7 @@ if(VIRTOOLSDEV_HAS_HELP)
             --seven-zip "${VIRTOOLSDEV_SEVEN_ZIP}" --output "${_help_output}"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/ExtractHelp.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/HelpContent.py" "${_help_archive}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/HelpStyles.py"
         VERBATIM)
     add_custom_target(VirtoolsDevHelp
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_runtime_data}"

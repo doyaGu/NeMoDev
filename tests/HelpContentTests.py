@@ -5,13 +5,85 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from ExtractHelp import Contents, correct_topic_case, decode
 from HelpContent import Document, blocks, compile_help, reference
+from HelpStyles import resolve_styles, stylesheet
 
 
 class HelpContentTests(unittest.TestCase):
+    def test_resolved_css_and_html_layout(self):
+        document = Document('<body><h3>Inputs</h3><p><span class="pin">Key</span></p>'
+                            '<center><img src="a.png" width="120" height="40" border="1"></center>'
+                            '<table border="0" width="75%" cellpadding="0" cellspacing="0">'
+                            '<tr><td width="20%">A<td rowspan="2" width="80%">B<tr><td>C</table>'
+                            '<pre class="code">\r\nfirst\r\n\tsecond</pre></body>')
+        resolve_styles(document.root, stylesheet('body {background:white;font-size:x-small} h3 {color:#660066;'
+                'background:#f2f2f2;margin-top:24pt;padding-left:5pt;font-size:medium} '
+                '.pin {color:#4040ff;font-weight:bold} .code {background:#faebd7}'))
+        content = blocks(document.root.children, 'page.html')
+        def visit(items):
+            for item in items:
+                yield item
+                yield from visit(item[3])
+        all_blocks = list(visit(content))
+        heading = next(block for block in all_blocks if block[0] == 1)
+        self.assertEqual(heading[4].color, 0xff660066)
+        self.assertEqual(heading[4].background, 0xfff2f2f2)
+        self.assertEqual(heading[4].margin[0], 32.0)
+        self.assertAlmostEqual(heading[4].padding[3], 20 / 3)
+        pin = next(span for block in all_blocks for span in block[2] if span[0] == 'Key')
+        self.assertEqual(pin[4].color, 0xffff4040)
+        self.assertTrue(pin[4].flags & 1)
+        image = next(span for block in all_blocks for span in block[2] if span[2])
+        self.assertEqual((image[4].width, image[4].height, image[4].align), (120, 40, 1))
+        table = next(block for block in all_blocks if block[0] == 5)
+        self.assertEqual(table[1], 2)
+        self.assertEqual(table[4].width, -75)
+        self.assertEqual(table[4].border, [0] * 4)
+        self.assertEqual(table[3][0][3][1][4].rowspan, 2)
+        self.assertEqual(table[3][0][3][0][4].padding, [0] * 4)
+        code = next(block for block in all_blocks if block[0] == 2)
+        self.assertEqual(code[2][0][0], 'first\n\tsecond')
+        self.assertTrue(code[4].flags & 4)
+        self.assertEqual(code[4].background, 0xffd7ebfa)
+
+    def test_link_states_and_optional_paragraph_end(self):
+        document = Document('<body><p>Start&nbsp;here<h3>Title</h3><p><a href="page.html">'
+                            'Link<span style="color:green">fixed</span></a></body>')
+        resolve_styles(document.root, stylesheet('a {text-decoration:none} a:link {color:red}'
+                       'a:hover {color:blue;text-decoration:underline} a:visited {color:purple}'))
+        body = document.root.children[0]
+        self.assertEqual([child.tag for child in body.children], ['p', 'h3', 'p'])
+        content = blocks(body.children, 'index.html')
+        self.assertEqual(content[0][3][0][2][0][0], 'Start\xa0here')
+        spans = content[2][3][0][2]
+        link, fixed = (span[4] for span in spans)
+        self.assertEqual((link.color, link.hover_color, link.visited_color), (0xff0000ff, 0xffff0000, 0xff800080))
+        self.assertEqual((link.flags & 8, link.hover_flags & 8, link.visited_flags & 8), (0, 8, 0))
+        self.assertEqual((fixed.color, fixed.hover_color, fixed.visited_color), (0xff008000,) * 3)
+
+    def test_block_styles_and_failed_compile(self):
+        document = Document('<body><span class="code">Example</span>'
+                            '<table style="border-collapse:collapse"><tr><td>A</table></body>')
+        resolve_styles(document.root, stylesheet('.code {display:block;background:#d7ebfa}'))
+        content = blocks(document.root.children[0].children, 'index.html')
+        self.assertEqual(content[0][0], 8)
+        self.assertEqual(content[0][4].background, 0xfffaebd7)
+        self.assertTrue(content[1][4].collapse_borders)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            previous = b'previous compiled book'
+            (root / 'help.ndh').write_bytes(previous)
+            (root / 'index.html').write_text('<body>Content</body>', encoding='utf-8')
+            with patch('HelpContent.struct.pack', side_effect=OSError('Write failed')):
+                with self.assertRaises(OSError):
+                    compile_help(root, [], 'index.html', decode)
+            self.assertEqual((root / 'help.ndh').read_bytes(), previous)
+            self.assertEqual(list(root.glob('help-*.tmp')), [])
+
     def test_relative_links_and_anchors(self):
         self.assertEqual(reference("concepts/page.html", "../images/a%20b.png"), "images/a b.png")
         self.assertEqual(reference("concepts/page.html", "#Inputs"), "concepts/page.html#Inputs")
@@ -23,6 +95,7 @@ class HelpContentTests(unittest.TestCase):
                             '<a href="#top">a link</a>.<table><tr><th>Name<th>Value'
                             '<tr><td><p><img src="images/a.png"><td><pre>a\n b</pre></table>'
                             '<ul><li>one<li>two</ul><script>bad()</script></body></html>')
+        resolve_styles(document.root, [])
         content = blocks(document.root.children, "page.html")
         def visit(items):
             for item in items:
@@ -30,7 +103,7 @@ class HelpContentTests(unittest.TestCase):
                 yield from visit(item[3])
         all_blocks = list(visit(content))
         spans = [span for block in all_blocks for span in block[2]]
-        self.assertTrue(any(span[0] == "bold" and span[4] & 1 for span in spans))
+        self.assertTrue(any(span[0] == "bold" and span[4].flags & 1 for span in spans))
         self.assertTrue(any(span[1] == "page.html#top" for span in spans))
         self.assertTrue(any(span[3] == "top" for span in spans))
         self.assertTrue(any(span[2] == "images/a.png" for span in spans))
