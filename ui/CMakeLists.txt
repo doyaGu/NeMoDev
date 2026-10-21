@@ -133,6 +133,14 @@ if(VIRTOOLSDEV_HAS_HELP)
     install(DIRECTORY "${_help_output}/" DESTINATION Bin/data/help COMPONENT Application)
 endif()
 
+if(VIRTOOLSDEV_BUILD_TESTS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME NemoDevInstalledRuntime COMMAND ${Python3_EXECUTABLE}
+            "${VIRTOOLSDEV_SOURCE_DIR}/tests/InstalledRuntimeTests.py"
+            --build "${PROJECT_BINARY_DIR}" --cmake "${CMAKE_COMMAND}" --config "$<CONFIG>"
+            --binary-name "$<TARGET_FILE_NAME:VirtoolsDev>" --haru-library "${VIRTOOLSDEV_HARU_LIBRARY}")
+    set_tests_properties(NemoDevInstalledRuntime PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+endif()
+
 if (VIRTOOLSDEV_BUILD_UI_TESTS)
     # Dear ImGui with the test engine's hooks (IMGUI_ENABLE_TEST_ENGINE, from
     # imgui_te_imconfig.h) and the engine, its coroutine on a std::thread.
