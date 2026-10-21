@@ -89,6 +89,12 @@ endif()
 if(NOT WIN32)
     find_path(VIRTOOLSDEV_HARU_INCLUDE_DIR hpdf.h REQUIRED)
     find_library(VIRTOOLSDEV_HARU_LIBRARY NAMES hpdf libhpdf REQUIRED)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT VIRTOOLSDEV_HARU_LIBRARY MATCHES "\\.a$")
+        # Preserve the SONAME links, rebased beside the real shared library.
+        install(CODE "file(INSTALL \"${VIRTOOLSDEV_HARU_LIBRARY}\"
+                DESTINATION \"\${CMAKE_INSTALL_PREFIX}/Bin\" FOLLOW_SYMLINK_CHAIN)"
+                COMPONENT Runtime)
+    endif()
 endif()
 
 # The editor as target, on the Dear ImGui library imgui, with the sources after it.
