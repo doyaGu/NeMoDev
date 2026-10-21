@@ -129,8 +129,11 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             if (!vdev::MainRenderer().ReadFrame(pixels, width, height))
                 return false;
             size_t ink = 0;
-            for (int y = std::max(0, int(copy.Min.y) + 2); y < std::min(height, int(copy.Max.y) - 2); ++y)
-                for (int x = std::max(0, int(copy.Min.x) + 2); x < std::min(width, int(copy.Max.x) - 2); ++x) {
+            const ImVec2 density = ImGui::GetIO().DisplayFramebufferScale;
+            for (int y = std::max(0, int((copy.Min.y + 2) * density.y));
+                 y < std::min(height, int((copy.Max.y - 2) * density.y)); ++y)
+                for (int x = std::max(0, int((copy.Min.x + 2) * density.x));
+                     x < std::min(width, int((copy.Max.x - 2) * density.x)); ++x) {
                     const size_t at = (size_t(y) * width + x) * 4;
                     ink += pixels[at] < 100 && pixels[at + 1] < 100 && pixels[at + 2] < 100;
                 }
@@ -572,8 +575,11 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             if (!vdev::MainRenderer().ReadFrame(pixels, width, height))
                 return false;
             size_t black = 0, white = 0, red = 0;
-            for (int y = std::max(0, int(std::ceil(top))); y < std::min(height, int(bottom)); ++y)
-                for (int x = std::max(0, int(std::ceil(left))); x < std::min(width, int(right)); ++x) {
+            const ImVec2 density = ImGui::GetIO().DisplayFramebufferScale;
+            for (int y = std::max(0, int(std::ceil(top * density.y))); y < std::min(height, int(bottom * density.y));
+                 ++y)
+                for (int x = std::max(0, int(std::ceil(left * density.x))); x < std::min(width, int(right * density.x));
+                     ++x) {
                     const size_t at = (size_t(y) * width + x) * 4;
                     black += pixels[at] < 80 && pixels[at + 1] < 80 && pixels[at + 2] < 80;
                     white += pixels[at] > 230 && pixels[at + 1] > 230 && pixels[at + 2] > 230;
@@ -588,8 +594,11 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             if (!vdev::MainRenderer().ReadFrame(pixels, width, height))
                 return size_t(-1);
             size_t red = 0;
-            for (int y = std::max(0, int(std::floor(top))); y < std::min(height, int(std::ceil(bottom))); ++y)
-                for (int x = std::max(0, int(std::ceil(right)) + 2); x < std::min(width, int(right) + 80); ++x) {
+            const ImVec2 density = ImGui::GetIO().DisplayFramebufferScale;
+            for (int y = std::max(0, int(std::floor(top * density.y)));
+                 y < std::min(height, int(std::ceil(bottom * density.y))); ++y)
+                for (int x = std::max(0, int(std::ceil((right + 2) * density.x)));
+                     x < std::min(width, int((right + 80) * density.x)); ++x) {
                     const size_t at = (size_t(y) * width + x) * 4;
                     red += pixels[at] == 160 && pixels[at + 1] == 0 && pixels[at + 2] == 0;
                 }
