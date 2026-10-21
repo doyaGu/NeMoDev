@@ -40,7 +40,8 @@ struct HtmlUiFixture {
     HtmlUiFixture() : renderer({ImGui::GetIO().FontDefault, ImGui::GetIO().FontDefault, ImGui::GetIO().FontDefault}) {}
     void Draw() {
         ImGui::SetNextWindowPos(ImVec2(40, 40), ImGuiCond_Appearing);
-        ImGui::SetNextWindowSize(ImVec2(900, 700), ImGuiCond_Always);
+        const float width = detailed ? std::max(900.0f, 500 * ImGui::GetFontSize() / 14 * scale + 32) : 900.0f;
+        ImGui::SetNextWindowSize(ImVec2(width, 700), ImGuiCond_Always);
         if (ImGui::Begin("HTML Renderer")) {
             const auto start = ImGui::GetCursorScreenPos();
             origin = {start.x, start.y};
@@ -64,10 +65,14 @@ struct HtmlUiFixture {
                 "#clip div{margin-left:40px;width:32px;height:32px;background:lime}"
                 "#repeat{position:absolute;left:100px;top:50px;width:64px;height:32px;"
                 "background:url(checker.bmp) repeat;background-size:16px 16px}"
+                "#dash,#dot{position:absolute;top:0;width:120px;height:120px;box-sizing:border-box;"
+                "border:8px dashed red;border-radius:60px;background:blue}"
+                "#dash{left:200px}#dot{left:340px;border-style:dotted}"
                 "table{position:absolute;left:0;top:100px;width:180px;border-collapse:collapse}"
                 "td{height:20px;padding:0;border:2px solid black}#head{background:red}#first{background:lime}"
                 "#second{background:blue}#third{background:yellow}</style>"
                 "<div id=border></div><div id=clip><div></div></div><div id=repeat></div>"
+                "<div id=dash></div><div id=dot></div>"
                 "<table><tr><td id=head colspan=2></td></tr><tr><td id=first rowspan=2></td><td id=second></td></tr>"
                 "<tr><td id=third></td></tr></table>";
             rendered = document.Load(detailed ? details : basic, "book://tests/index.html", error) &&
@@ -208,6 +213,11 @@ void RegisterHtmlTests(ImGuiTestEngine *engine) {
                 };
                 if (!pixel(40, 40, 0, 0, 255) || !pixel(2, 2, 255, 255, 255) || !pixel(18, 18, 255, 0, 0))
                     return std::string("Rounded border inner or outer curve is wrong");
+                for (float left : {200.0f, 340.0f}) {
+                    if (!pixel(left + 23, 19, 255, 0, 0) || !pixel(left + 40, 8, 0, 0, 255) ||
+                        !pixel(left + 60, 60, 0, 0, 255) || !pixel(left + 2, 2, 255, 255, 255))
+                        return std::string("Rounded dashes or dots lost their curves, gaps or clipping");
+                }
                 if (!pixel(150, 16, 255, 255, 255))
                     return std::string("Nested backgrounds escaped the overflow clip");
                 if (!pixel(102, 52, 255, 0, 0) || !pixel(114, 52, 0, 255, 0) || !pixel(118, 52, 255, 0, 0))

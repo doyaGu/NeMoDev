@@ -510,6 +510,82 @@ static void UnsupportedGradientsPreserveFallbacks() {
             Check(device.clip.empty(), "Unsupported CSS left the drawing clip active");
         }
 }
+static void RoundedBorderPatterns() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    for (const char *style : {"dashed", "dotted"}) {
+        Load(document, "<!doctype html><style>body{margin:0}div{width:120px;height:120px;box-sizing:border-box;"
+                       "border:8px " +
+                           std::string(style) + " red;border-radius:60px}</style><div></div>");
+        for (float scale : {1.0f, 1.5f, 2.0f}) {
+            std::string error;
+            Check(document.Layout({400, 400}, scale, error), error.c_str());
+            device.fills.clear();
+            device.fillPolygons.clear();
+            device.fillClips.clear();
+            document.Draw({}, {0, 0, 400, 400});
+            Check(!device.fillPolygons.empty(), "A rounded border pattern disappeared");
+            for (const auto &polygon : device.fillPolygons) {
+                if (std::string(style) == "dotted") {
+                    float left = polygon.front().x, right = left, top = polygon.front().y, bottom = top;
+                    for (const auto point : polygon) {
+                        left = std::min(left, point.x);
+                        right = std::max(right, point.x);
+                        top = std::min(top, point.y);
+                        bottom = std::max(bottom, point.y);
+                    }
+                    const float radius = std::hypot((left + right) / 2 / scale - 60, (top + bottom) / 2 / scale - 60);
+                    Check(std::fabs(radius - 56) < .3f, "Round border dots did not follow the curved centerline");
+                } else {
+                    Check(polygon.size() >= 4, "A curved dash lost its border band");
+                    for (const auto point : polygon) {
+                        const float radius = std::hypot(point.x / scale - 60, point.y / scale - 60);
+                        Check(radius >= 51.7f && radius <= 60.3f,
+                              "A curved dash left the inner or outer border contour");
+                    }
+                }
+            }
+        }
+    }
+}
+static void SingleSideBorderPatterns() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    for (const char *style : {"solid", "dashed", "dotted"})
+        for (int radius : {0, 20}) {
+            Load(document, "<!doctype html><style>body{margin:0}div{width:120px;height:100px;box-sizing:border-box;"
+                           "border-top:8px " +
+                               std::string(style) + " red;border-radius:" + std::to_string(radius) +
+                               "px}</style><div></div>");
+            device.fillPolygons.clear();
+            device.fills.clear();
+            document.Draw({}, {0, 0, 400, 300});
+            Check(!device.fillPolygons.empty(), "An isolated top border disappeared");
+            for (const auto &polygon : device.fillPolygons)
+                for (const auto point : polygon)
+                    Check(point.y <= radius + 8.01f, "An isolated top border continued around the other sides");
+        }
+}
+static void RoundedDashCaps() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    Load(document, "<!doctype html><style>body{margin:0}div{width:200px;height:100px;box-sizing:border-box;"
+                   "border:8px dashed red;border-radius:20px}</style><div></div>");
+    document.Draw({}, {0, 0, 400, 300});
+    bool checked = false;
+    for (const auto &polygon : device.fillPolygons) {
+        if (polygon.size() != 4 || std::any_of(polygon.begin(), polygon.end(),
+                                               [](HtmlPoint p) { return p.y > 8.01f || p.x < 30 || p.x > 170; }))
+            continue;
+        Check(std::fabs(polygon[0].x - polygon[3].x) < .01f && std::fabs(polygon[1].x - polygon[2].x) < .01f,
+              "Dashes on a rounded rectangle have slanted caps on a straight side");
+        checked = true;
+    }
+    Check(checked, "No complete dash was checked on the straight side");
+}
 static void HitQueriesUseComputedStyles() {
     TestHtmlResources resources;
     TestHtmlDevice device;
@@ -874,6 +950,9 @@ int main() {
         GradientPixels();
         GradientInterpolationPixels();
         UnsupportedGradientsPreserveFallbacks();
+        RoundedBorderPatterns();
+        SingleSideBorderPatterns();
+        RoundedDashCaps();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;
     } catch (const std::exception &failure) {

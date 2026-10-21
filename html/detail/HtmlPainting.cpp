@@ -26,18 +26,19 @@ static litehtml::border_radiuses HtmlUsedRadii(const litehtml::position &p, lite
     return r;
 }
 static std::vector<HtmlPoint> HtmlRoundedRectangle(const litehtml::position &p, const litehtml::border_radiuses &r,
-                                                   float scale, int firstCorner = 0) {
+                                                   float scale, int firstCorner = 0, int cornerCount = 4) {
     const auto used = HtmlUsedRadii(p, r);
     if (!r.top_left_x && !r.top_left_y && !r.top_right_x && !r.top_right_y && !r.bottom_right_x && !r.bottom_right_y &&
         !r.bottom_left_x && !r.bottom_left_y) {
         std::vector<HtmlPoint> corners{{p.x, p.y}, {p.right(), p.y}, {p.right(), p.bottom()}, {p.x, p.bottom()}};
         std::rotate(corners.begin(), corners.begin() + firstCorner, corners.end());
+        corners.resize(cornerCount);
         return corners;
     }
     const std::array<float, 4> xs = {used.top_left_x, used.top_right_x, used.bottom_right_x, used.bottom_left_x};
     const std::array<float, 4> ys = {used.top_left_y, used.top_right_y, used.bottom_right_y, used.bottom_left_y};
     std::vector<HtmlPoint> result;
-    for (int corner = 0; corner < 4; ++corner) {
+    for (int corner = 0; corner < cornerCount; ++corner) {
         const int i = (firstCorner + corner) % 4;
         const float rx = xs[i], ry = ys[i];
         const float cx = i == 0 || i == 3 ? p.x + rx : p.right() - rx;
@@ -67,7 +68,7 @@ static std::vector<HtmlPoint> HtmlBorderArc(const litehtml::position &box, const
     inner.bottom_right_y -= bottom;
     inner.bottom_left_x -= left;
     inner.bottom_left_y -= bottom;
-    const auto contour = HtmlRoundedRectangle(inset, inner, scale, side);
+    const auto contour = HtmlRoundedRectangle(inset, inner, scale, side, 2);
     const HtmlPoint outer[] = {
         {box.x, box.y}, {box.right(), box.y}, {box.right(), box.bottom()}, {box.x, box.bottom()}};
     const HtmlPoint padding[] = {{box.x + border.left.width, box.y + border.top.width},
@@ -79,8 +80,8 @@ static std::vector<HtmlPoint> HtmlBorderArc(const litehtml::position &box, const
         if (arc.empty() || std::hypot(arc.back().x - point.x, arc.back().y - point.y) > .0001f)
             arc.push_back(point);
     };
-    for (size_t i = 0; i < contour.size(); ++i) {
-        const auto a = contour[i], z = contour[(i + 1) % contour.size()];
+    for (size_t i = 1; i < contour.size(); ++i) {
+        const auto a = contour[i - 1], z = contour[i];
         float begin = 0, end = 1;
         for (int edge = 0; edge < 2; ++edge) {
             const int corner = (side + edge) % 4;
@@ -108,30 +109,56 @@ static std::vector<HtmlPoint> HtmlBorderArc(const litehtml::position &box, const
     }
     return arc;
 }
+static std::vector<HtmlPoint> HtmlClipEdge(const std::vector<HtmlPoint> &polygon, HtmlPoint a, HtmlPoint b) {
+    if (polygon.empty())
+        return {};
+    const auto distance = [&](HtmlPoint p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); };
+    std::vector<HtmlPoint> output;
+    HtmlPoint previous = polygon.back();
+    float before = distance(previous);
+    for (const HtmlPoint current : polygon) {
+        const float after = distance(current);
+        if ((before >= 0) != (after >= 0)) {
+            const float t = before / (before - after);
+            output.push_back({previous.x + (current.x - previous.x) * t, previous.y + (current.y - previous.y) * t});
+        }
+        if (after >= 0)
+            output.push_back(current);
+        previous = current;
+        before = after;
+    }
+    return output;
+}
 static std::vector<HtmlPoint> HtmlClipPolygon(std::vector<HtmlPoint> polygon, const std::vector<HtmlPoint> &clip) {
     if (clip.empty())
         return {};
-    for (size_t i = 0; i < clip.size() && !polygon.empty(); ++i) {
-        const HtmlPoint a = clip[i], b = clip[(i + 1) % clip.size()];
-        const auto distance = [&](HtmlPoint p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); };
-        std::vector<HtmlPoint> output;
-        HtmlPoint previous = polygon.back();
-        float before = distance(previous);
-        for (const HtmlPoint current : polygon) {
-            const float after = distance(current);
-            if ((before >= 0) != (after >= 0)) {
-                const float t = before / (before - after);
-                output.push_back(
-                    {previous.x + (current.x - previous.x) * t, previous.y + (current.y - previous.y) * t});
-            }
-            if (after >= 0)
-                output.push_back(current);
-            previous = current;
-            before = after;
-        }
-        polygon = std::move(output);
-    }
+    for (size_t i = 0; i < clip.size() && !polygon.empty(); ++i)
+        polygon = HtmlClipEdge(polygon, clip[i], clip[(i + 1) % clip.size()]);
     return polygon;
+}
+static float HtmlArcLength(const std::vector<HtmlPoint> &arc) {
+    float length = 0;
+    for (size_t i = 1; i < arc.size(); ++i)
+        length += std::hypot(arc[i].x - arc[i - 1].x, arc[i].y - arc[i - 1].y);
+    return length;
+}
+struct HtmlArcSample {
+    HtmlPoint point, direction;
+};
+static HtmlArcSample HtmlSampleArc(const std::vector<HtmlPoint> &arc, float fraction) {
+    const float target = fraction * HtmlArcLength(arc);
+    float travelled = 0;
+    for (size_t i = 1; i < arc.size(); ++i) {
+        const auto a = arc[i - 1], z = arc[i];
+        const HtmlPoint direction{z.x - a.x, z.y - a.y};
+        const float segment = std::hypot(direction.x, direction.y);
+        if (segment > 0 && (travelled + segment >= target || i + 1 == arc.size())) {
+            const float t = std::clamp((target - travelled) / segment, 0.0f, 1.0f);
+            return {{a.x + direction.x * t, a.y + direction.y * t}, direction};
+        }
+        travelled += segment;
+    }
+    return {arc.empty() ? HtmlPoint{} : arc.front(), {}};
 }
 static litehtml::position HtmlPolygonBounds(const std::vector<HtmlPoint> &polygon) {
     if (polygon.empty())
@@ -317,20 +344,36 @@ void HtmlPainting::Borders(const litehtml::position &p, const litehtml::borders 
             band(0, .5f, shade(side.color, light));
             band(.5f, 1, shade(side.color, !light));
         } else if (side.style == litehtml::border_style_dashed || side.style == litehtml::border_style_dotted) {
-            const HtmlPoint a = mix(outside[i], inside[i], .5f),
-                            z = mix(outside[(i + 1) % 4], inside[(i + 1) % 4], .5f);
-            const float length = std::hypot(z.x - a.x, z.y - a.y),
-                        dash = side.width * (side.style == litehtml::border_style_dashed ? 3 : 1);
-            for (float start = 0; start < length; start += dash * 2) {
-                const float begin = start / length, end = std::min(length, start + dash) / length;
+            const auto contour = [&](float depth) {
+                return rounded ? HtmlBorderArc(p, b, i, depth, m_Scale)
+                               : std::vector<HtmlPoint>{mix(outside[i], inside[i], depth),
+                                                        mix(outside[(i + 1) % 4], inside[(i + 1) % 4], depth)};
+            };
+            const auto center = contour(.5f);
+            const float length = HtmlArcLength(center);
+            if (length <= 0)
+                continue;
+            auto band = contour(0);
+            const auto inner = contour(1);
+            band.insert(band.end(), inner.rbegin(), inner.rend());
+            const float dash = side.width * (side.style == litehtml::border_style_dashed ? 3 : 1);
+            const int count = std::max(1, int(std::ceil(length / (dash * 2))));
+            for (int n = 0; n < count; ++n) {
+                const float begin = float(n) / count, end = (n + .5f) / count;
                 if (side.style == litehtml::border_style_dotted) {
-                    const auto c = mix(a, z, (begin + end) / 2);
+                    const float middle = (begin + end) / 2;
+                    const auto c = HtmlSampleArc(center, middle).point;
                     Marker({c.x - side.width / 2, c.y - side.width / 2, side.width, side.width}, false, false,
                            side.color);
-                } else
-                    Polygon({mix(outside[i], outside[(i + 1) % 4], begin), mix(outside[i], outside[(i + 1) % 4], end),
-                             mix(inside[i], inside[(i + 1) % 4], end), mix(inside[i], inside[(i + 1) % 4], begin)},
-                            side.color);
+                } else {
+                    // Square ends are perpendicular to the centerline, including
+                    // the straight portions between unequal corner radii.
+                    const auto a = HtmlSampleArc(center, begin), z = HtmlSampleArc(center, end);
+                    auto polygon = HtmlClipEdge(band, a.point, {a.point.x + a.direction.y, a.point.y - a.direction.x});
+                    polygon = HtmlClipEdge(polygon, z.point, {z.point.x - z.direction.y, z.point.y + z.direction.x});
+                    if (polygon.size() >= 3)
+                        Polygon(polygon, side.color);
+                }
             }
         } else
             band(0, 1, side.color);
