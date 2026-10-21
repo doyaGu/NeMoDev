@@ -18,7 +18,7 @@ list(FILTER _html_engine_files EXCLUDE REGEX "^\\.git(/|$)")
 foreach(_file IN LISTS _html_engine_files)
     configure_file("${_html_engine_source}/${_file}" "${_html_engine_input}/${_file}" COPYONLY)
 endforeach()
-foreach(_patch litehtml-render-tree.patch litehtml-table-sizing.patch litehtml-box-sizing.patch)
+foreach(_patch litehtml-render-tree.patch litehtml-table-sizing.patch litehtml-box-sizing.patch litehtml-gradient-support.patch)
     set(_html_engine_patch "${CMAKE_CURRENT_SOURCE_DIR}/detail/${_patch}")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_html_engine_patch}")
     execute_process(COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${CMAKE_CURRENT_BINARY_DIR}"

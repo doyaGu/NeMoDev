@@ -440,7 +440,7 @@ static void GradientPixels() {
     TestHtmlDevice device;
     HtmlDocument document(resources, device);
     Load(document, "<!doctype html><style>body{margin:0}div{width:100px;height:20px;background:linear-gradient(to "
-                   "right,red,blue)}</style><div></div>");
+                   "right in srgb,red,blue)}</style><div></div>");
     document.Draw({}, {0, 0, 100, 20});
     Check(device.generated.size() == 1, "A gradient did not produce an image");
     const auto &image = *device.generated.front();
@@ -452,6 +452,63 @@ static void GradientPixels() {
     Check(image.rgba[middle] > 110 && image.rgba[middle] < 145 && image.rgba[middle + 2] > 110 &&
               image.rgba[middle + 2] < 145,
           "Gradient did not interpolate its actual pixels");
+}
+static void GradientInterpolationPixels() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    // Reference midpoints for opaque red/blue in the three supported spaces.
+    struct Sample {
+        const char *space;
+        int red, green, blue;
+    };
+    for (const auto sample : {Sample{"srgb", 128, 0, 128}, Sample{"srgb-linear", 188, 0, 188},
+                              Sample{"oklab", 140, 83, 162}, Sample{"", 140, 83, 162}}) {
+        const std::string interpolation = *sample.space ? std::string(" in ") + sample.space : "";
+        for (const auto gradient : {"linear-gradient(to right" + interpolation + ",red,blue)",
+                                    "radial-gradient(circle 100px at .5px .5px" + interpolation + ",red,blue)",
+                                    "conic-gradient(from 0deg at 50.5px -50px" + interpolation + ",red,blue)"}) {
+            Load(document, "<!doctype html><style>body{margin:0}div{width:101px;height:1px;background:" + gradient +
+                               "}</style><div></div>");
+            device.generated.clear();
+            document.Draw({}, {0, 0, 101, 1});
+            Check(device.generated.size() == 1, "A supported gradient did not render");
+            const auto &rgba = device.generated.front()->rgba;
+            const std::string failure = "Wrong interpolation midpoint for " + gradient + ": " +
+                                        std::to_string(rgba[200]) + "," + std::to_string(rgba[201]) + "," +
+                                        std::to_string(rgba[202]);
+            Check(std::abs(int(rgba[200]) - sample.red) <= 2 && std::abs(int(rgba[201]) - sample.green) <= 2 &&
+                      std::abs(int(rgba[202]) - sample.blue) <= 2,
+                  failure.c_str());
+        }
+    }
+}
+static void UnsupportedGradientsPreserveFallbacks() {
+    TestHtmlResources resources;
+    TestHtmlDevice device;
+    HtmlDocument document(resources, device);
+    for (const char *space : {"display-p3", "a98-rgb", "prophoto-rgb", "rec2020", "lab", "xyz", "xyz-d50", "xyz-d65",
+                              "hsl", "hwb", "lch", "oklch"})
+        for (const char *kind : {"linear", "radial", "conic"}) {
+            const std::string gradient = std::string(kind) + "-gradient(in " + space + ",red,blue)";
+            Load(document,
+                 "<!doctype html><style>body{margin:0}div{width:80px;height:20px;background:lime}"
+                 "#long{background-image:linear-gradient(in srgb,red,blue);background-image:" +
+                     gradient + "}#short{background:" + gradient + "}#list{background-image:url(missing.png)," +
+                     gradient +
+                     "}</style><div id=long></div><div id=short></div><div id=list></div><a href=next>Readable</a>");
+            device.generated.clear();
+            device.fills.clear();
+            device.fillPolygons.clear();
+            document.Draw({}, {0, 0, 400, 300});
+            Check(device.generated.size() == 1, "An unsupported gradient replaced a supported fallback declaration");
+            Check(std::count(device.fills.begin(), device.fills.end(), 0xff00ff00) == 3,
+                  "An unsupported background shorthand or image list erased the fallback color");
+            Check(document.Links().size() == 1 && document.Text().find("Readable") != std::string::npos,
+                  "An unsupported background prevented document interaction");
+            Check(document.Diagnostics().empty(), "A discarded image declaration still requested its resources");
+            Check(device.clip.empty(), "Unsupported CSS left the drawing clip active");
+        }
 }
 static void HitQueriesUseComputedStyles() {
     TestHtmlResources resources;
@@ -815,6 +872,8 @@ int main() {
         EmptyTableColumnsShareExtraWidth();
         PositionedBorderBoxConstraints();
         GradientPixels();
+        GradientInterpolationPixels();
+        UnsupportedGradientsPreserveFallbacks();
         std::cout << "HTML parsing, CSS cascade, resources, links, tables, reflow and failures passed\n";
         return 0;
     } catch (const std::exception &failure) {
