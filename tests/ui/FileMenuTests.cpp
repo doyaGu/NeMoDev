@@ -40,7 +40,112 @@ static void SubmitWebPage(ImGuiTestContext *ctx, bool cmo, bool overwrite) {
 }
 
 void RegisterFileMenuTests(ImGuiTestEngine *engine) {
-    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "web_page_runtime_version");
+    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "save_failure_keeps_previous_file_and_save_point");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        namespace fs = std::filesystem;
+        Settle(ctx);
+        const auto root = fs::current_path() / ("save-menu-" + std::to_string(SDL_GetTicksNS()));
+        IM_CHECK(fs::create_directory(root));
+        const auto source = root / "source.cmo", version = root / "source_01.cmo";
+        struct Cleanup {
+            fs::path root, version;
+            ~Cleanup() {
+                std::error_code error;
+                fs::permissions(version, fs::perms::owner_all, fs::perm_options::replace, error);
+                fs::remove_all(root, error);
+            }
+        } cleanup{root, version};
+        OnMainThread(ctx, [&] {
+            vdev::SaveReport report;
+            IM_CHECK_NO_RET(vdev::SaveDocumentAs(*App().State().document, source.u8string(), {}, report));
+            App().DropFiles({vdev::Utf8ToWide(source.u8string())}, 0, 0);
+        });
+        ctx->Yield(4);
+        fs::copy_file(source, version);
+        const auto original = PageFileBytes(version);
+        IM_CHECK(!original.empty());
+        std::string objectName;
+        CK_ID object = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.document->SourcePath() == source.u8string());
+            const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            object = made.created;
+            objectName = Object<CKObject>(object)->GetName();
+            IM_CHECK_NO_RET(state.document->Dirty());
+        });
+        const auto permissions = fs::status(version).permissions();
+        fs::permissions(version, fs::perms::owner_read, fs::perm_options::replace);
+        const auto saveVersion = [&] {
+            ctx->MenuClick("//##MainMenuBar/File/Save Version");
+            ctx->Yield(3);
+            ctx->ItemClick("//###DevMessage/OK/##dialogbutton");
+            ctx->Yield(3);
+        };
+        saveVersion();
+        IM_CHECK(PageFileBytes(version) == original);
+        IM_CHECK(Read<bool>(ctx, [] { return App().State().document->Dirty(); }));
+        IM_CHECK(Read<bool>(ctx, [] {
+            const auto &log = App().State().log;
+            return std::any_of(log.begin(), log.end(), [](const auto &entry) {
+                return entry.level == vdev::LogLevel::Error && entry.text.find("Save failed: ") == 0;
+            });
+        }));
+        ctx->ItemClick("//Save report/OK");
+        OnMainThread(ctx, [] { App().RequestQuit(); });
+        ctx->Yield(3);
+        ctx->ItemClick("//Unsaved changes/Cancel");
+        IM_CHECK(Read<bool>(ctx, [] { return !App().ShouldQuit() && App().State().document->Dirty(); }));
+        fs::permissions(version, permissions, fs::perm_options::replace);
+        saveVersion();
+        IM_CHECK(PageFileBytes(version) != original);
+        IM_CHECK(!fs::exists(root / "source_02.cmo"));
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(!state.document->Dirty());
+            IM_CHECK_NO_RET(state.History().Undo() && state.document->Dirty() && !state.document->IsLive(object));
+            IM_CHECK_NO_RET(state.History().Redo() && !state.document->Dirty() && state.document->IsLive(object));
+        });
+        ctx->ItemClick("//Save report/OK");
+        const auto savedVersion = PageFileBytes(version);
+        IM_CHECK(PageFileBytes(source) == original);
+        fs::permissions(version, fs::perms::owner_read, fs::perm_options::replace);
+        CK_ID unsaved = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            unsaved = made.created;
+            App().RequestQuit();
+        });
+        ctx->Yield(3);
+        ctx->ItemClick("//Unsaved changes/Save");
+        ctx->Yield(3);
+        IM_CHECK(PageFileBytes(version) == savedVersion);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            const auto &state = App().State();
+            return !App().ShouldQuit() && state.document->Dirty() && state.document->IsLive(unsaved);
+        }));
+        ctx->ItemClick("//Save report/OK");
+        fs::permissions(version, permissions, fs::perm_options::replace);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.History().Undo() && !state.document->Dirty() && !state.document->IsLive(unsaved));
+        });
+        OnMainThread(ctx, [&] { App().DropFiles({vdev::Utf8ToWide(version.u8string())}, 0, 0); });
+        ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            auto &state = App().State();
+            return state.document->SourcePath() == version.u8string() && !state.document->Dirty() &&
+                   state.host.Context()->GetObjectByNameAndClass(const_cast<CKSTRING>(objectName.c_str()), CKCID_3DENTITY);
+        }));
+        ctx->MenuClick("//##MainMenuBar/File/New Composition");
+        ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [] { return App().State().document->SourcePath().empty(); }));
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "web_page_runtime_version");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         namespace fs = std::filesystem;

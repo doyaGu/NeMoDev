@@ -487,7 +487,7 @@ bool EditorApp::SaveTo(const std::string &path, bool allowOverwrite) {
     SaveReport report;
     const LayoutInterfaceData layout = LayoutDataToSave();
     const bool saved = SaveComposition(*m_State.document, path, CompositionToSave(layout), options, report);
-    std::string text = saved ? "Saved " + path : (report.saved ? "Written but NOT verified: " : "Save failed: ") + path;
+    std::string text = (saved ? "Saved " : "Save failed: ") + path;
     text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
             "\nScripts verified in a new context: " + std::to_string(report.scriptsVerified) +
             "\nParameters verified: " + std::to_string(report.parametersVerified);

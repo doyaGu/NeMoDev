@@ -109,9 +109,10 @@ bool EditorApp::ExportTo(const std::string &path, unsigned int writeMode, std::s
     const LayoutInterfaceData layout = LayoutDataToSave();
     SaveReport report;
     const bool saved = SaveComposition(*m_State.document, path, CompositionToSave(layout), options, report);
-    std::string text = (saved ? "Exported " : report.saved ? "Written but NOT verified: " : "Export failed: ") + path;
+    std::string text = (saved ? "Exported " : "Export failed: ") + path;
     text += "\nParameters verified: " + std::to_string(report.parametersVerified);
     for (const auto &message : report.errors) text += "\nError: " + AnsiToUtf8(message);
+    for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
     m_State.Log(saved ? LogLevel::Info : LogLevel::Error, text);
     if (error) *error = report.errors.empty() ? std::string() : AnsiToUtf8(report.errors.front());
     UpdateTitle();
