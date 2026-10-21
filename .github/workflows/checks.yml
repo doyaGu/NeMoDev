@@ -8,6 +8,23 @@ permissions:
   contents: read
 
 jobs:
+  html:
+    name: Standalone HTML (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize HTML dependency
+        run: git submodule update --init --recursive external/litehtml
+      - name: Configure standalone HTML
+        run: cmake -S html -B out/html -DCMAKE_BUILD_TYPE=Release -DNEMODEV_HTML_BUILD_TESTS=ON
+      - name: Build standalone HTML tests
+        run: cmake --build out/html --config Release --target NemoDevHtmlTests --parallel 2
+      - name: Test standalone HTML
+        run: ctest --test-dir out/html -C Release --output-on-failure --no-tests=error
   source:
     strategy:
       matrix:
