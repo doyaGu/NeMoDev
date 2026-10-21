@@ -179,6 +179,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"ObjectPropertyUndo", [&] { ObjectPropertyUndo(host); }},
             {"ObjectEditFailures", [&] { ObjectEditFailures(host); }},
             {"ObjectEditCancellation", [&] { ObjectEditCancellation(host); }},
+            {"SaveFailures", [&] { SaveFailures(host); }},
             {"CkArrays", [&] { CkArrays(host); }},
             {"SetupActions", [&] { SetupActions(host); }},
             {"DeterministicEdits", [&] { DeterministicEdits(host, prototypes); }},

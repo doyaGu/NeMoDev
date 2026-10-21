@@ -11,6 +11,7 @@ namespace vdev {
 class Document;
 
 struct SaveReport {
+    // True only after the verified composition was published at the requested path.
     bool saved = false;
     int chunksWritten = 0;
     int scriptsVerified = 0;
@@ -40,9 +41,11 @@ struct SaveOptions {
 // Writes a whole composition (tools/InterfaceChunkProjectWriter.cpp flow):
 // every edited Script session is validated, serialized and reloaded before
 // any chunk is installed; untouched Scripts keep their original chunk bytes.
-// The output is then loaded in a separate CKContext, where parameter types,
-// object references, Sprite Text alignment and every rewritten InterfaceChunk are checked (a file
-// for the player has no InterfaceChunk and loads only outside interface mode).
+// A temporary file in the destination directory is loaded in a separate CKContext,
+// where parameter types, object references, Sprite Text alignment and every rewritten
+// InterfaceChunk are checked (a player file loads outside interface mode and has no InterfaceChunk).
+// Only the verified file replaces the destination. Failure retains its previous
+// contents and does not mark the document saved; notes report cleanup failures.
 bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptions &options,
                     SaveReport &report);
 
