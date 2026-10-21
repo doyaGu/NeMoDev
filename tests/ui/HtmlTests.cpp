@@ -142,10 +142,12 @@ void RegisterHtmlTests(ImGuiTestEngine *engine) {
                 int width = 0, height = 0;
                 if (!vdev::MainRenderer().ReadFrame(rgba, width, height))
                     return std::string("Frame readback failed");
+                const ImVec2 density = ImGui::GetIO().DisplayFramebufferScale;
                 const auto pixel = [&](HtmlPoint origin, float x, float y, unsigned char r, unsigned char g,
                                        unsigned char b) {
                     const float scale = ImGui::GetFontSize() / 14.0f * g_HtmlFixture->scale;
-                    const int px = int(origin.x + x * scale), py = int(origin.y + y * scale);
+                    const int px = int((origin.x + x * scale) * density.x);
+                    const int py = int((origin.y + y * scale) * density.y);
                     if (px < 0 || py < 0 || px >= width || py >= height)
                         return false;
                     const size_t at = (size_t(py) * width + px) * 4;
@@ -202,9 +204,10 @@ void RegisterHtmlTests(ImGuiTestEngine *engine) {
                 if (!vdev::WriteBgraPng((folder / "html-details.png").u8string(), width, height, bgra.data()))
                     return std::string("HTML pixel diagnostic could not be written");
                 const float scale = ImGui::GetFontSize() / 14.0f * g_HtmlFixture->scale;
+                const ImVec2 density = ImGui::GetIO().DisplayFramebufferScale;
                 const auto pixel = [&](float x, float y, unsigned char r, unsigned char g, unsigned char b) {
-                    const int px = int(g_HtmlFixture->origin.x + x * scale);
-                    const int py = int(g_HtmlFixture->origin.y + y * scale);
+                    const int px = int((g_HtmlFixture->origin.x + x * scale) * density.x);
+                    const int py = int((g_HtmlFixture->origin.y + y * scale) * density.y);
                     if (px < 0 || py < 0 || px >= width || py >= height)
                         return false;
                     const size_t at = (size_t(py) * width + px) * 4;
