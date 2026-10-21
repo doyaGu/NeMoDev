@@ -34,12 +34,16 @@ actually checked.
 ## Prepare dependencies
 
 ```sh
-git submodule update --init --recursive external/imgui external/imgui_test_engine
+git submodule update --init --recursive external/imgui external/litehtml external/imgui_test_engine
 python -m pip install "Pillow>=9.1"
 ```
 
 The presets enable UI tests, which use the separately licensed ImGui Test
 Engine. Review [its license conditions](#imgui-test-engine-license) before use.
+
+The editor always requires Dear ImGui and litehtml, including litehtml's bundled
+Gumbo parser. Without UI tests, initialize only `external/imgui` and
+`external/litehtml`, and configure with `-DVIRTOOLSDEV_BUILD_UI_TESTS=OFF`.
 
 Provide a maintained Ballanced source checkout with VxMath, CK2, RenderEngine,
 Managers, Plugins and BuildingBlocks, including their nested dependencies.
@@ -184,9 +188,20 @@ manager. Desktop tests require a real window manager and can be
 registered with `VIRTOOLSDEV_TEST_DESKTOP=ON`. They move focus, enter fullscreen
 and operate native dialogs. Direct printing requires a configured printer.
 
-Public CI checks include source layering, runtime notice installation, Python
-syntax and the standalone Windows extractor build. Full editor builds and
-runtime regressions require the local resources described above.
+The standalone HTML module can be built and tested without Ballanced, SDL3,
+ImGui, Python or the editor's resources. Initialize `external/litehtml`, then run:
+
+```sh
+cmake -S html -B out/html -DCMAKE_BUILD_TYPE=Release -DNEMODEV_HTML_BUILD_TESTS=ON
+cmake --build out/html --config Release --target NemoDevHtmlTests --parallel 2
+ctest --test-dir out/html -C Release --output-on-failure --no-tests=error
+```
+
+Public CI builds and tests this module on Windows, Linux and macOS, including
+the diagnostics for missing or incomplete litehtml sources. It also checks
+source layering, runtime notice installation, Python syntax and the standalone
+Windows extractor build. Full editor builds need the dependencies described
+above; the full runtime regression suite also needs the separately supplied samples.
 
 ## ImGui Test Engine license
 
@@ -208,8 +223,8 @@ Preserve its copyright notice and full license when redistributing Test Engine
 or the UI test executable. The full terms govern use and distribution; see also
 [third-party notices](THIRD_PARTY_NOTICES.md#ui-test-dependency).
 
-For the editor and core tests, initialize only `external/imgui` and configure
-with `-DVIRTOOLSDEV_BUILD_UI_TESTS=OFF` to omit Test Engine.
+For the editor and core tests, initialize `external/imgui` and `external/litehtml`,
+then configure with `-DVIRTOOLSDEV_BUILD_UI_TESTS=OFF` to omit Test Engine.
 
 ## Verified platforms
 
