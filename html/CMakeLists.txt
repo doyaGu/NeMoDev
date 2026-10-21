@@ -6,6 +6,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(_html_test_default ON)
 endif()
 function(nemodev_html_dependencies)
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
     set(BUILD_SHARED_LIBS OFF)
     set(LITEHTML_BUILD_TESTING OFF)
     include("${CMAKE_CURRENT_SOURCE_DIR}/detail/Litehtml.cmake")
@@ -27,4 +28,8 @@ if(NEMODEV_HTML_BUILD_TESTS)
     add_executable(NemoDevHtmlTests tests/HtmlDocumentTests.cpp)
     target_link_libraries(NemoDevHtmlTests PRIVATE NemoDevHtml)
     add_test(NAME NemoDevHtml COMMAND NemoDevHtmlTests)
+    add_test(NAME NemoDevHtmlDependencies COMMAND "${CMAKE_COMMAND}"
+        "-DHTML_SOURCE_DIRECTORY=${CMAKE_CURRENT_SOURCE_DIR}"
+        "-DTEST_BINARY_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/dependency-tests"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/DependencyTests.cmake")
 endif()

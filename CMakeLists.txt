@@ -70,11 +70,13 @@ endif ()
 option(VIRTOOLSDEV_BUILD_UI_TESTS "Build VirtoolsDevUiTests (Dear ImGui Test Engine)" ${_ui_tests_default})
 
 if (NOT EXISTS "${VIRTOOLSDEV_IMGUI_DIR}/imgui.cpp")
-    message(FATAL_ERROR "Dear ImGui not found at ${VIRTOOLSDEV_IMGUI_DIR} (git submodule update --init)")
+    message(FATAL_ERROR "Dear ImGui not found at ${VIRTOOLSDEV_IMGUI_DIR}. "
+            "From the NemoDev repository root, run: git submodule update --init --recursive external/imgui")
 endif ()
 if (VIRTOOLSDEV_BUILD_UI_TESTS AND NOT EXISTS "${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR}/imgui_test_engine/imgui_te_engine.cpp")
     message(FATAL_ERROR "Dear ImGui Test Engine not found at ${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR} "
-            "(git submodule update --init, or -DVIRTOOLSDEV_BUILD_UI_TESTS=OFF)")
+            "From the NemoDev repository root, run: git submodule update --init --recursive external/imgui_test_engine; "
+            "or configure with -DVIRTOOLSDEV_BUILD_UI_TESTS=OFF.")
 endif ()
 
 include(cmake/RuntimeTargets.cmake)

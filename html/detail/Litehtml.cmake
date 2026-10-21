@@ -1,7 +1,15 @@
 # Keep narrow CSS/layout corrections private to the pinned engine's build copy.
 # The source submodule and the application's public HTML interface stay unchanged.
-find_package(Git REQUIRED)
 set(_html_engine_source "${CMAKE_CURRENT_SOURCE_DIR}/../external/litehtml")
+foreach(_entry CMakeLists.txt include/litehtml.h src/gumbo/CMakeLists.txt)
+    if(NOT EXISTS "${_html_engine_source}/${_entry}")
+        message(FATAL_ERROR
+            "litehtml sources are missing or incomplete at ${_html_engine_source}.\n"
+            "From the NemoDev repository root, run:\n"
+            "  git submodule update --init --recursive external/litehtml")
+    endif()
+endforeach()
+find_package(Git REQUIRED)
 set(_html_engine_copy "${CMAKE_CURRENT_BINARY_DIR}/litehtml-source")
 set(_html_engine_input "${CMAKE_CURRENT_BINARY_DIR}/litehtml-patch-input")
 file(GLOB_RECURSE _html_engine_files CONFIGURE_DEPENDS LIST_DIRECTORIES false
