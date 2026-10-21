@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <set>
 
 #include "imgui_internal.h"
@@ -20,7 +21,8 @@ ImVec4 Rgb(int r, int g, int b, int alpha = 255) {
 
 } // namespace
 
-void ApplyDevTheme(ImGuiStyle &style) {
+void ApplyDevTheme(ImGuiStyle &style, float contentScale) {
+    style = ImGuiStyle();
     style.WindowRounding = 0.0f;
     style.ChildRounding = 0.0f;
     style.FrameRounding = 0.0f;
@@ -88,6 +90,11 @@ void ApplyDevTheme(ImGuiStyle &style) {
     c[ImGuiCol_DragDropTarget] = Rgb(40, 60, 200);
     c[ImGuiCol_NavCursor] = Rgb(40, 60, 200);
     c[ImGuiCol_ModalWindowDimBg] = Gray(0, 70);
+    if (!std::isfinite(contentScale) || contentScale <= 0)
+        contentScale = 1;
+    style.ScaleAllSizes(contentScale);
+    style.FontSizeBase = 14;
+    style.FontScaleDpi = contentScale;
 }
 
 void PushDevMenuStyle() {

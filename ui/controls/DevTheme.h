@@ -8,7 +8,9 @@ namespace vdev {
 
 // Dear ImGui colors modeled on Virtools Dev 2.5: light gray panels with
 // black text, dark menu bar, toolbars and status bar with light text.
-void ApplyDevTheme(ImGuiStyle &style);
+// Rebuild sizes from the unscaled theme; repeated display changes do not
+// accumulate rounding. The font atlas and its font objects remain in use.
+void ApplyDevTheme(ImGuiStyle &style, float contentScale = 1.0f);
 
 // Dark chrome (menu bar, toolbars, status bar): push before, pop after.
 void PushDarkChrome();

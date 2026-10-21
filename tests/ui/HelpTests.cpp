@@ -1,6 +1,7 @@
 #include "core/runtime/Resources.h"
 #include "imgui_internal.h"
 #include "tests/ui/UiTests.h"
+#include "ui/controls/DevTheme.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -9,6 +10,10 @@
 #include <stdexcept>
 
 namespace vdevuitest {
+struct HelpScaleLifetime {
+    ImGuiStyle style = ImGui::GetStyle();
+    ~HelpScaleLifetime() { ImGui::GetStyle() = style; }
+};
 // The complete-book matrix measures real ImGui fonts and decodes source images,
 // but does not enqueue thousands of GPU textures in a single test frame.
 class HelpLayoutProbe : public HtmlRenderDevice {
@@ -436,6 +441,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK(HelpFrame(ctx, "image-map-zoom.png"));
     };
     t = IM_REGISTER_TEST(engine, "help", "zoom_reading_position_and_history");
+    t->SetVarsDataType<HelpScaleLifetime>();
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, "//Level Manager");
@@ -458,6 +464,24 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
                       ImGuiTestOpFlags_NoFocusWindow);
         ctx->Yield(3);
         IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 6);
+        const HtmlDocument *document = &App().Help().PageDocument();
+        ImFont *font = ImGui::GetIO().FontDefault;
+        const auto codeWidth = [&]() {
+            for (const auto &item : App().Help().PagePaint().drawings)
+                if (item.text == "struct")
+                    return item.size.x;
+            return 0.0f;
+        };
+        const float originalScale = ImGui::GetStyle().FontScaleDpi;
+        const float originalWidth = codeWidth() / originalScale;
+        for (float scale : {1.5f, 2.0f, 1.0f, originalScale}) {
+            OnMainThread(ctx, [=] { vdev::ApplyDevTheme(ImGui::GetStyle(), scale); });
+            ctx->Yield(5);
+            IM_CHECK(ImGui::GetIO().FontDefault == font);
+            IM_CHECK(&App().Help().PageDocument() == document);
+            IM_CHECK(std::fabs(codeWidth() - originalWidth * scale) < 2);
+            IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12 * scale);
+        }
         ctx->ItemInputValue("//Help/Zoom", 2.0f);
         ctx->Yield(5);
         IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);

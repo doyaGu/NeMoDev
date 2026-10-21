@@ -1,10 +1,12 @@
 // "app": the editor on its new composition: its windows, the File menu,
 // the dialogs of the Options and Help menus and their shortcuts.
 
+#include "core/level/LevelCommands.h"
+#include "imgui_internal.h"
 #include "tests/ui/UiTests.h"
 #include "ui/app/DesktopFiles.h"
-#include "imgui_internal.h"
-#include "core/level/LevelCommands.h"
+#include "ui/controls/DevTheme.h"
+#include <cmath>
 
 namespace vdevuitest {
 
@@ -19,6 +21,30 @@ bool WindowShown(ImGuiTestContext *ctx, const char *name) {
 
 void RegisterAppTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "app", "display_scale_rebuilds_theme_sizes");
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        ImGuiStyle base, scaled;
+        vdev::ApplyDevTheme(base);
+        for (int pass = 0; pass < 8; ++pass) {
+            for (float scale : {.75f, 1.25f, 1.5f, 2.0f, 1.0f}) {
+                vdev::ApplyDevTheme(scaled, scale);
+                ImGuiStyle expected = base;
+                expected.ScaleAllSizes(scale);
+                IM_CHECK_EQ(scaled.FramePadding.x, expected.FramePadding.x);
+                IM_CHECK_EQ(scaled.WindowPadding.y, expected.WindowPadding.y);
+                IM_CHECK_EQ(scaled.ItemSpacing.x, expected.ItemSpacing.x);
+                IM_CHECK_EQ(scaled.ScrollbarSize, expected.ScrollbarSize);
+                IM_CHECK_EQ(scaled.FontScaleDpi, scale);
+                IM_CHECK_EQ(scaled.FontSizeBase, 14.0f);
+            }
+        }
+        for (float invalid : {0.0f, -1.0f, NAN, INFINITY}) {
+            vdev::ApplyDevTheme(scaled, invalid);
+            IM_CHECK_EQ(scaled.FontScaleDpi, 1.0f);
+            IM_CHECK_EQ(scaled.FramePadding.x, base.FramePadding.x);
+        }
+    };
 
     // Dev's main windows are there on a new composition.
     t = IM_REGISTER_TEST(engine, "app", "main_windows");

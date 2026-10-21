@@ -5,19 +5,20 @@
 #if defined(VIRTOOLSDEV_PRODUCTION) && (defined(VIRTOOLSDEV_UI_TESTS) || defined(IMGUI_ENABLE_TEST_ENGINE))
 #error The production editor must not enable the regression driver or ImGui Test Engine.
 #endif
-#include "imgui_internal.h"
-#include "imgui_impl_sdl3.h"
-#include "ui/render/UiRenderer.h"
-#include "ui/app/CommandLine.h"
-#include "ui/app/EditorApp.h"
-#include "ui/controls/DevTheme.h"
-#include "ui/schematic/Snapshots.h"
 #include "core/runtime/Resources.h"
 #include "core/runtime/TextEncoding.h"
 #include "core/runtime/VirtoolsRuntimeLayout.h"
+#include "imgui_impl_sdl3.h"
+#include "imgui_internal.h"
+#include "ui/app/CommandLine.h"
+#include "ui/app/EditorApp.h"
+#include "ui/controls/DevTheme.h"
+#include "ui/render/UiRenderer.h"
+#include "ui/schematic/Snapshots.h"
 #include <algorithm>
-#include <cstdio>
 #include <clocale>
+#include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -26,9 +27,8 @@
 #include "ui/app/UiTestRun.h"
 #endif
 
-namespace {
 namespace fs = std::filesystem;
-vdev::HtmlFonts LoadFonts(float scale) {
+static vdev::HtmlFonts LoadFonts() {
     ImGuiIO &io = ImGui::GetIO();
     const fs::path directory = fs::u8path(SDL_GetBasePath()) / "data" / "fonts";
     const auto regular = (directory / "NotoSans-Regular.ttf").u8string();
@@ -41,18 +41,27 @@ vdev::HtmlFonts LoadFonts(float scale) {
         if (fs::exists(fs::u8path(cjk))) io.Fonts->AddFontFromFileTTF(cjk.c_str(), size, &merge);
         return font;
     };
-    io.FontDefault = add(14.0f * scale, false);
-    ImFont *normal = add(12.0f * scale, false);
-    ImFont *strong = add(14.0f * scale, true);
+    io.FontDefault = add(14.0f, false);
+    ImFont *normal = add(12.0f, false);
+    ImFont *strong = add(14.0f, true);
     vdev::SetVIFonts(normal, strong);
-    ImFontConfig monoConfig; monoConfig.SizePixels = 14.0f * scale;
+    ImFontConfig monoConfig;
+    monoConfig.SizePixels = 14.0f;
     ImFont *mono = io.Fonts->AddFontDefaultVector(&monoConfig);
     ImFontConfig fallback; fallback.MergeMode = true; fallback.DstFont = mono;
-    io.Fonts->AddFontFromFileTTF(regular.c_str(), 14.0f * scale, &fallback);
-    if (fs::exists(fs::u8path(cjk))) io.Fonts->AddFontFromFileTTF(cjk.c_str(), 14.0f * scale, &fallback);
+    io.Fonts->AddFontFromFileTTF(regular.c_str(), 14.0f, &fallback);
+    if (fs::exists(fs::u8path(cjk)))
+        io.Fonts->AddFontFromFileTTF(cjk.c_str(), 14.0f, &fallback);
     return {io.FontDefault, strong, mono};
 }
-std::string ResolveRuntime(const std::vector<std::wstring> &args) {
+// ImGui uses window coordinates; its SDL backend applies pixel density to the
+// framebuffer. Only the remaining content scale belongs in fonts and spacing.
+static float WindowContentScale(SDL_Window *window) {
+    const float density = SDL_GetWindowPixelDensity(window);
+    const float scale = density > 0 ? SDL_GetWindowDisplayScale(window) / density : 1;
+    return std::isfinite(scale) && scale > 0 ? scale : 1;
+}
+static std::string ResolveRuntime(const std::vector<std::wstring> &args) {
     std::string path;
     for (size_t i = 0; i + 1 < args.size(); ++i)
         if (args[i] == L"--runtime") { path = vdev::WideToUtf8(args[i+1]); break; }
@@ -61,7 +70,7 @@ std::string ResolveRuntime(const std::vector<std::wstring> &args) {
     return VirtoolsRuntimeDirectory(path);
 }
 #ifdef VIRTOOLSDEV_UI_TESTS
-bool CaptureFrame(const std::wstring &path) {
+static bool CaptureFrame(const std::wstring &path) {
     std::vector<unsigned char> pixels;
     int width = 0, height = 0;
     if (!vdev::MainRenderer().ReadFrame(pixels, width, height)) return false;
@@ -69,7 +78,6 @@ bool CaptureFrame(const std::wstring &path) {
     return vdev::WriteBgraPng(vdev::WideToUtf8(path), width, height, pixels.data());
 }
 #endif
-}
 
 int main(int argc, char **argv) {
 #ifndef _WIN32
@@ -95,7 +103,7 @@ int main(int argc, char **argv) {
     }
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { std::fprintf(stderr, "%s\n", SDL_GetError()); return 1; }
     const std::string runtime = ResolveRuntime(args);
-    const float scale = std::max(1.0f, SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay()));
+    float scale = std::max(1.0f, SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay()));
     SDL_Window *window = SDL_CreateWindow("NemoDev", int(1600 * scale), int(960 * scale),
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
     if (!window) { std::fprintf(stderr, "%s\n", SDL_GetError()); SDL_Quit(); return 1; }
@@ -120,8 +128,10 @@ int main(int argc, char **argv) {
     }
     io.IniFilename = isolated || iniPath.empty() ? nullptr : iniPath.c_str();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
-    vdev::ApplyDevTheme(ImGui::GetStyle()); ImGui::GetStyle().ScaleAllSizes(scale);
-    const vdev::HtmlFonts helpFonts = LoadFonts(scale);
+    io.ConfigDpiScaleViewports = true;
+    scale = WindowContentScale(window);
+    vdev::ApplyDevTheme(ImGui::GetStyle(), scale);
+    const vdev::HtmlFonts helpFonts = LoadFonts();
     ImGui_ImplSDL3_InitForSDLGPU(window);
     std::string error;
     if (!vdev::MainRenderer().Start(window, &error)) {
@@ -153,6 +163,11 @@ int main(int argc, char **argv) {
             if (event.type == SDL_EVENT_DROP_BEGIN) dropped.clear();
             if (event.type == SDL_EVENT_DROP_FILE && event.drop.data) dropped.push_back(vdev::Utf8ToWide(event.drop.data));
             if (event.type == SDL_EVENT_DROP_COMPLETE && !dropped.empty()) { app.DropFiles(dropped, event.drop.x, event.drop.y); dropped.clear(); }
+        }
+        const float contentScale = WindowContentScale(window);
+        if (contentScale != scale) {
+            vdev::ApplyDevTheme(ImGui::GetStyle(), contentScale);
+            scale = contentScale;
         }
         if (!vdev::MainRenderer().NewFrame(&error)) {
             std::fprintf(stderr, "UI frame failed: %s\n", error.c_str()); exitCode = 3; break;
