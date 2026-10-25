@@ -112,15 +112,20 @@ static std::vector<HtmlPoint> HtmlBorderArc(const litehtml::position &box, const
 static std::vector<HtmlPoint> HtmlClipEdge(const std::vector<HtmlPoint> &polygon, HtmlPoint a, HtmlPoint b) {
     if (polygon.empty())
         return {};
-    const auto distance = [&](HtmlPoint p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); };
+    // Keep intersections on the clip boundary after rounding to device floats.
+    // Float intermediates can cross it when multiply-add is contracted.
+    const auto distance = [&](HtmlPoint p) {
+        return (double(b.x) - a.x) * (double(p.y) - a.y) - (double(b.y) - a.y) * (double(p.x) - a.x);
+    };
     std::vector<HtmlPoint> output;
     HtmlPoint previous = polygon.back();
-    float before = distance(previous);
+    double before = distance(previous);
     for (const HtmlPoint current : polygon) {
-        const float after = distance(current);
+        const double after = distance(current);
         if ((before >= 0) != (after >= 0)) {
-            const float t = before / (before - after);
-            output.push_back({previous.x + (current.x - previous.x) * t, previous.y + (current.y - previous.y) * t});
+            const double t = before / (before - after);
+            output.push_back({float(previous.x + (double(current.x) - previous.x) * t),
+                              float(previous.y + (double(current.y) - previous.y) * t)});
         }
         if (after >= 0)
             output.push_back(current);

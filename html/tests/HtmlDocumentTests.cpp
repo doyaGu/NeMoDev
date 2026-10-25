@@ -832,6 +832,29 @@ static void RepeatedImagesOnlyPaintVisibleTiles() {
           "A repeated background submitted tiles outside the visible document area");
     for (const auto &rect : device.images)
         Check(rect.y >= 4000 && rect.y < 4080, "Repeat alignment was not retained after clipping");
+    for (float scale : {.75f, 1.0f, 1.5f}) {
+        Load(document, "<!doctype html><style>body{margin:0}div{width:10000px;height:10000px;"
+                       "background:url(tile.png) repeat;background-size:10px 10px}</style><div></div>", 400, scale);
+        for (float offset : {4000.0f, 4000.25f, 5600.0f, 5600.25f}) {
+            device.images.clear();
+            document.Draw({}, {offset * scale, offset * scale, 80 * scale, 80 * scale});
+            Check(!device.images.empty() && device.images.size() <= 81,
+                  "A scrolled repeated background submitted invisible tiles");
+            const float first = std::floor(offset / 10) * 10 * scale;
+            const float end = (offset + 80) * scale;
+            float left = end, top = end;
+            for (const auto &rect : device.images) {
+                Check(rect.x >= first && rect.x < end && rect.y >= first && rect.y < end,
+                      "Clipping changed the repeated background phase at this scale");
+                Check(rect.width == 10 * scale && rect.height == 10 * scale,
+                      "Clipping changed the background tile size");
+                left = std::min(left, rect.x);
+                top = std::min(top, rect.y);
+            }
+            Check(left == first && top == first, "The first visible background tile was omitted");
+            Check(device.clip.empty(), "Repeated background drawing left clipping active");
+        }
+    }
 }
 static void VisibilityPreservesVisibleDescendants() {
     TestHtmlResources resources;
