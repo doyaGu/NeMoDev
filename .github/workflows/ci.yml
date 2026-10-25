@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+  schedule:
+    - cron: '23 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  html:
+    name: HTML / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022, macos-15]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Initialize only the HTML dependency
+        run: git submodule update --init --recursive external/litehtml
+      - name: Build the standalone module
+        run: |
+          cmake -S html -B out/html -DCMAKE_BUILD_TYPE=Release -DNEMODEV_HTML_BUILD_TESTS=ON
+          cmake --build out/html --config Release --parallel 4
+      - name: Test
+        run: |
+          ctest --test-dir out/html -C Release --show-only=json-v1 > out/html-inventory.json
+          ctest --test-dir out/html -C Release --no-tests=error --output-on-failure --output-junit "$PWD/out/html-results.xml"
+          python tests/CheckCTestResults.py out/html-results.xml out/html-inventory.json
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: html-${{ matrix.os }}-logs
+          path: |
+            out/html-results.xml
+            out/html-inventory.json
+            out/html/Testing/Temporary/
+          retention-days: 14
+
+  editor:
+    name: Editor / ${{ matrix.preset }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            preset: linux-x64
+            ui: 'ON'
+          - os: windows-2022
+            preset: windows-x64
+            ui: 'OFF'
+    defaults:
+      run:
+        shell: bash
+    env:
+      SDL_AUDIO_DRIVER: dummy
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Prepare editor dependencies
+        run: |
+          git submodule update --init --recursive external/imgui external/litehtml
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            git submodule update --init --recursive external/imgui_test_engine
+          fi
+          python -m pip install 'Pillow>=9.1'
+          python tools/PrepareFonts.py
+      - name: Install Linux build and software-rendering dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libgtk-3-dev libglib2.0-dev libhpdf-dev \
+            libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libx11-dev libxext-dev \
+            libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
+            libegl1-mesa-dev libdrm-dev libgbm-dev libvulkan-dev mesa-vulkan-drivers xvfb xauth
+      - name: Check out Ballanced mainline
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: doyaGu/Ballanced
+          ref: sdl
+          path: out/Ballanced
+          persist-credentials: false
+      - name: Initialize SDK components and record their revisions
+        run: |
+          git -C out/Ballanced submodule update --init --recursive \
+            Source/VxMath Source/CK2 Source/RenderEngine Source/Plugins Source/BuildingBlocks \
+            Source/Managers/ParameterOperations Source/Managers/SdlInputManager Source/Managers/SdlSoundManager
+          git -C out/Ballanced rev-parse HEAD > out/ballanced-revision.txt
+          git -C out/Ballanced submodule status --recursive >> out/ballanced-revision.txt
+          cat out/ballanced-revision.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Cache the installed SDL library
+        id: sdl-cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/sdl
+          key: sdl-3.4.18-shared-${{ matrix.os }}-${{ runner.arch }}-v1
+      - name: Build shared SDL
+        if: steps.sdl-cache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch release-3.4.18 https://github.com/libsdl-org/SDL.git out/SDL
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cmake -S out/SDL -B out/sdl-build -G 'Visual Studio 17 2022' -A x64 -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF
+          else
+            cmake -S out/SDL -B out/sdl-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF
+          fi
+          cmake --build out/sdl-build --config Release --parallel 4
+          cmake --install out/sdl-build --config Release --prefix '${{ github.workspace }}/out/sdl'
+      - name: Configure the editor and self-contained regressions
+        run: |
+          cmake --preset '${{ matrix.preset }}' \
+            -DVIRTOOLS_SDK_PATH='${{ github.workspace }}/out/Ballanced' \
+            -DCMAKE_PREFIX_PATH='${{ github.workspace }}/out/sdl' \
+            -DPython3_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
+            -DVIRTOOLSDEV_BUILD_UI_TESTS=${{ matrix.ui }}
+      - name: Build
+        run: cmake --build --preset '${{ matrix.preset }}' --parallel 4
+      - name: Record the selected test inventory
+        run: ctest --preset '${{ matrix.preset }}' -L self-contained --show-only=json-v1 > out/test-inventory.json
+      - name: Run core and UI regressions with software Vulkan
+        if: runner.os == 'Linux'
+        env:
+          SDL_VIDEO_DRIVER: x11
+          SDL_GPU_DRIVER: vulkan
+          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: |
+          xvfb-run -a -s '-screen 0 1920x1080x24' \
+            ctest --preset linux-x64 -L self-contained --no-tests=error --output-junit "$PWD/out/results.xml"
+          python tests/CheckCTestResults.py out/results.xml out/test-inventory.json
+      - name: Run core regressions without a graphics device
+        if: runner.os == 'Windows'
+        env:
+          SDL_VIDEO_DRIVER: dummy
+        run: |
+          ctest --preset windows-x64 -L self-contained --no-tests=error --output-junit "$PWD/out/results.xml"
+          python tests/CheckCTestResults.py out/results.xml out/test-inventory.json
+      - name: Install the production program
+        run: |
+          cmake --install 'out/${{ matrix.preset }}' --config Release --prefix out/package --component Runtime
+          cmake --install 'out/${{ matrix.preset }}' --config Release --prefix out/package --component Application
+      - name: Check the installed Windows program without development paths
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          Remove-Item Env:VIRTOOLS_PATH -ErrorAction SilentlyContinue
+          & $python tests/CheckProductionBinary.py --binary out/package/Bin/NeMoDev.exe --package out/package
+      - name: Check the installed Linux program
+        if: runner.os == 'Linux'
+        run: python tests/CheckProductionBinary.py --binary out/package/Bin/NeMoDev --package out/package
+      - name: Upload test and configuration logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: editor-${{ matrix.preset }}-logs
+          path: |
+            out/results.xml
+            out/test-inventory.json
+            out/ballanced-revision.txt
+            out/${{ matrix.preset }}/Testing/Temporary/
+            out/${{ matrix.preset }}/virtoolsdev-ui/*.xml
+            out/${{ matrix.preset }}/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 14
