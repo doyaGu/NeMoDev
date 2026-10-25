@@ -11,7 +11,7 @@ interface, running on [Ballanced](https://github.com/doyaGu/Ballanced).
 - Preview compositions in Player Mode, debug Scripts and capture snapshots.
 - Undo and redo edits, save compositions, print Schematics and browse local help.
 
-Windows x64 and Linux x64 are the active editor targets. The macOS editor and
+The editor targets Windows x64, Linux x64 and macOS ARM64. The macOS x64 and
 Windows x86 presets are experimental. NeMoDev builds its runtime from Ballanced
 source; it does not use the original binary Virtools SDK or runtime.
 
@@ -139,7 +139,7 @@ ctest --test-dir out/html -C Release --output-on-failure --no-tests=error
 ### Continuous integration
 
 [CI](https://github.com/doyaGu/NeMoDev/actions/workflows/ci.yml) builds the
-editor against Ballanced mainline on Windows and Linux. It runs the
+editor against Ballanced mainline on Windows, Linux and macOS ARM64. It runs the
 self-contained regressions, checks installed runtime dependencies and verifies
 that the production package contains no test code. Linux also runs the
 self-contained UI groups through Xvfb and software Vulkan. The standalone

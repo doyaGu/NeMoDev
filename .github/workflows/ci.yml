@@ -72,6 +72,9 @@ jobs:
           - os: windows-2022
             preset: windows-x64
             ui: 'OFF'
+          - os: macos-15
+            preset: macos-arm64
+            ui: 'OFF'
     defaults:
       run:
         shell: bash
@@ -108,6 +111,9 @@ jobs:
           test -f "$VK_DRIVER_FILES"
           echo "VK_DRIVER_FILES=$VK_DRIVER_FILES" >> "$GITHUB_ENV"
           xvfb-run -a -s '-screen 0 1920x1080x24' vulkaninfo --summary
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install ninja libharu
       - name: Check out Ballanced mainline
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -135,6 +141,8 @@ jobs:
           git clone --depth 1 --branch release-3.4.18 https://github.com/libsdl-org/SDL.git out/SDL
           if [[ "$RUNNER_OS" == Windows ]]; then
             cmake -S out/SDL -B out/sdl-build -G 'Visual Studio 17 2022' -A x64 -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF
+          elif [[ "$RUNNER_OS" == macOS ]]; then
+            cmake -S out/SDL -B out/sdl-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 -DSDL_FRAMEWORK=OFF -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF
           else
             cmake -S out/SDL -B out/sdl-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF
           fi
@@ -142,9 +150,13 @@ jobs:
           cmake --install out/sdl-build --config Release --prefix '${{ github.workspace }}/out/sdl'
       - name: Configure the editor and self-contained regressions
         run: |
+          prefix='${{ github.workspace }}/out/sdl'
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            prefix="$prefix;$(brew --prefix)"
+          fi
           cmake --preset '${{ matrix.preset }}' \
             -DVIRTOOLS_SDK_PATH='${{ github.workspace }}/out/Ballanced' \
-            -DCMAKE_PREFIX_PATH='${{ github.workspace }}/out/sdl' \
+            -DCMAKE_PREFIX_PATH="$prefix" \
             -DPython3_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
             -DVIRTOOLSDEV_BUILD_UI_TESTS=${{ matrix.ui }}
       - name: Build
@@ -161,11 +173,11 @@ jobs:
             ctest --preset linux-x64 -L self-contained --no-tests=error --output-junit "$PWD/out/results.xml"
           python tests/CheckCTestResults.py out/results.xml out/test-inventory.json
       - name: Run core regressions without a graphics device
-        if: runner.os == 'Windows'
+        if: runner.os != 'Linux'
         env:
           SDL_VIDEO_DRIVER: dummy
         run: |
-          ctest --preset windows-x64 -L self-contained --no-tests=error --output-junit "$PWD/out/results.xml"
+          ctest --preset '${{ matrix.preset }}' -L self-contained --no-tests=error --output-junit "$PWD/out/results.xml"
           python tests/CheckCTestResults.py out/results.xml out/test-inventory.json
       - name: Install the production program
         run: |
@@ -179,8 +191,8 @@ jobs:
           $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
           Remove-Item Env:VIRTOOLS_PATH -ErrorAction SilentlyContinue
           & $python tests/CheckProductionBinary.py --binary out/package/Bin/NeMoDev.exe --package out/package
-      - name: Check the installed Linux program
-        if: runner.os == 'Linux'
+      - name: Check the installed Unix program
+        if: runner.os != 'Windows'
         run: python tests/CheckProductionBinary.py --binary out/package/Bin/NeMoDev --package out/package
       - name: Upload test and configuration logs
         if: always()
