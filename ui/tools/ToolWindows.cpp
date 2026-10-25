@@ -1010,7 +1010,7 @@ void ToolWindows::LinkPropertiesDialog() {
 
 void ToolWindows::AboutDialog() {
     if (!BeginDevModal("About Virtools", &m_OpenAbout, m_OpenPopups, ImVec2(0, 0), ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::TextUnformatted("NemoDev");
+    ImGui::TextUnformatted("NeMoDev");
     ImGui::TextUnformatted("An editor for Virtools compositions using the Ballanced runtime.");
     ImGui::Separator();
     ImGui::Text("CK version %x", static_cast<unsigned>(CKGetVersion()));

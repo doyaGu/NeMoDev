@@ -10,7 +10,7 @@ set(_runtime "${BINARY_DIRECTORY}/runtime")
 file(MAKE_DIRECTORY "${_project}")
 file(WRITE "${_project}/CMakeLists.txt"
         "cmake_minimum_required(VERSION 3.25)\n"
-        "project(NemoDevReleaseMaterials NONE)\n"
+        "project(NeMoDevReleaseMaterials NONE)\n"
         "set(VIRTOOLSDEV_SOURCE_DIR [==[${SOURCE_DIRECTORY}]==])\n"
         "include([==[${SOURCE_DIRECTORY}/cmake/ThirdPartyNotices.cmake]==])\n")
 execute_process(COMMAND "${CMAKE_COMMAND}" -S "${_project}" -B "${_build}"

@@ -1,23 +1,23 @@
 # Virtools Dev's tests: they link the core only.
-add_executable(NemoDevHelpTests HelpBookTests.cpp ../ui/help/HelpBook.cpp)
-target_include_directories(NemoDevHelpTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
-target_compile_features(NemoDevHelpTests PRIVATE cxx_std_17)
+add_executable(NeMoDevHelpTests HelpBookTests.cpp ../ui/help/HelpBook.cpp)
+target_include_directories(NeMoDevHelpTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
+target_compile_features(NeMoDevHelpTests PRIVATE cxx_std_17)
 set(_help_test ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/HelpContentTests.py"
-        --reader $<TARGET_FILE:NemoDevHelpTests>)
+        --reader $<TARGET_FILE:NeMoDevHelpTests>)
 if(VIRTOOLSDEV_HAS_HELP)
     list(APPEND _help_test --content "${_help_output}")
-    add_dependencies(NemoDevHelpTests VirtoolsDevHelp)
+    add_dependencies(NeMoDevHelpTests VirtoolsDevHelp)
 endif()
-add_test(NAME NemoDevHelpContent COMMAND ${_help_test})
+add_test(NAME NeMoDevHelpContent COMMAND ${_help_test})
 set(_production_check ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/CheckProductionBinary.py"
         --binary $<TARGET_FILE:VirtoolsDev>)
 if(VIRTOOLSDEV_BUILD_UI_TESTS)
     list(APPEND _production_check --test-binary $<TARGET_FILE:VirtoolsDevUiTests>)
 endif()
-add_test(NAME NemoDevProductionIsolation COMMAND ${_production_check})
-add_executable(NemoDevCommandLineTests CommandLineTests.cpp ../ui/app/CommandLine.cpp)
-target_link_libraries(NemoDevCommandLineTests PRIVATE VirtoolsDevCore)
-virtoolsdev_add_test(NemoDevCommandLine NemoDevCommandLineTests)
+add_test(NAME NeMoDevProductionIsolation COMMAND ${_production_check})
+add_executable(NeMoDevCommandLineTests CommandLineTests.cpp ../ui/app/CommandLine.cpp)
+target_link_libraries(NeMoDevCommandLineTests PRIVATE VirtoolsDevCore)
+virtoolsdev_add_test(NeMoDevCommandLine NeMoDevCommandLineTests)
 
 add_test(NAME VirtoolsDevLicenseDeployment COMMAND ${CMAKE_COMMAND}
         "-DSOURCE_DIRECTORY=${VIRTOOLSDEV_SOURCE_DIR}"

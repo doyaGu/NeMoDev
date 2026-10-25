@@ -5,7 +5,7 @@ foreach(_entry CMakeLists.txt include/litehtml.h src/gumbo/CMakeLists.txt)
     if(NOT EXISTS "${_html_engine_source}/${_entry}")
         message(FATAL_ERROR
             "litehtml sources are missing or incomplete at ${_html_engine_source}.\n"
-            "From the NemoDev repository root, run:\n"
+            "From the NeMoDev repository root, run:\n"
             "  git submodule update --init --recursive external/litehtml")
     endif()
 endforeach()

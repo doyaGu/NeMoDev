@@ -104,7 +104,7 @@ int main(int argc, char **argv) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { std::fprintf(stderr, "%s\n", SDL_GetError()); return 1; }
     const std::string runtime = ResolveRuntime(args);
     float scale = std::max(1.0f, SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay()));
-    SDL_Window *window = SDL_CreateWindow("NemoDev", int(1600 * scale), int(960 * scale),
+    SDL_Window *window = SDL_CreateWindow("NeMoDev", int(1600 * scale), int(960 * scale),
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN);
     if (!window) { std::fprintf(stderr, "%s\n", SDL_GetError()); SDL_Quit(); return 1; }
     if (const vdev::EmbeddedImage *icon = vdev::FindEmbeddedImage("app", "appicon", 10)) {

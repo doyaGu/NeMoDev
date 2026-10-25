@@ -101,7 +101,7 @@ endif()
 function(virtoolsdev_add_editor target imgui)
     add_executable(${target} WIN32 ${_editor_sources} ${ARGN})
     # LinkRouting.h and SchematicGrid.h: the canvas routes links on Dev's grid.
-    target_link_libraries(${target} PRIVATE VirtoolsDevCore NemoDevHtml ${imgui} SDL3::SDL3 stb)
+    target_link_libraries(${target} PRIVATE VirtoolsDevCore NeMoDevHtml ${imgui} SDL3::SDL3 stb)
     add_dependencies(${target} VirtoolsDevRuntime)
     if(WIN32)
         target_link_libraries(${target} PRIVATE comdlg32 shell32 ole32)
@@ -125,7 +125,7 @@ endfunction()
 
 virtoolsdev_add_editor(VirtoolsDev VirtoolsDevImGui)
 target_compile_definitions(VirtoolsDev PRIVATE VIRTOOLSDEV_PRODUCTION)
-set_target_properties(VirtoolsDev PROPERTIES OUTPUT_NAME NemoDev)
+set_target_properties(VirtoolsDev PROPERTIES OUTPUT_NAME NeMoDev)
 install(TARGETS VirtoolsDev RUNTIME DESTINATION Bin COMPONENT Application)
 install(FILES ${VIRTOOLSDEV_DATA_FILES} DESTINATION Bin/data COMPONENT Application)
 if(VIRTOOLSDEV_HAS_HELP)
@@ -134,11 +134,11 @@ if(VIRTOOLSDEV_HAS_HELP)
 endif()
 
 if(VIRTOOLSDEV_BUILD_TESTS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    add_test(NAME NemoDevInstalledRuntime COMMAND ${Python3_EXECUTABLE}
+    add_test(NAME NeMoDevInstalledRuntime COMMAND ${Python3_EXECUTABLE}
             "${VIRTOOLSDEV_SOURCE_DIR}/tests/InstalledRuntimeTests.py"
             --build "${PROJECT_BINARY_DIR}" --cmake "${CMAKE_COMMAND}" --config "$<CONFIG>"
             --binary-name "$<TARGET_FILE_NAME:VirtoolsDev>" --haru-library "${VIRTOOLSDEV_HARU_LIBRARY}")
-    set_tests_properties(NemoDevInstalledRuntime PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    set_tests_properties(NeMoDevInstalledRuntime PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
 endif()
 
 if (VIRTOOLSDEV_BUILD_UI_TESTS)

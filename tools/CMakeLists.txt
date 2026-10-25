@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(NemoDevResourceTools LANGUAGES CXX)
+project(NeMoDevResourceTools LANGUAGES CXX)
 
 if(NOT WIN32)
     message(FATAL_ERROR "ExtractResources reads Windows PE resources; build it on Windows.")

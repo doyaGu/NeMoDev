@@ -260,7 +260,7 @@ void HelpWindow::Draw() {
     ImGui::SetNextItemWidth(100);
     ImGui::SliderFloat("Zoom", &m_Zoom, 0.75f, 2.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
     ImGui::TextWrapped(
-        "Original Virtools reference. Some features and scripted examples are not available in NemoDev.");
+        "Original Virtools reference. Some features and scripted examples are not available in NeMoDev.");
     if (ImGui::BeginTable("help", 2, ImGuiTableFlags_Resizable)) {
         ImGui::TableSetupColumn("Navigation", ImGuiTableColumnFlags_WidthFixed, 270.0f);
         ImGui::TableSetupColumn("Topic", ImGuiTableColumnFlags_WidthStretch);

@@ -140,7 +140,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         m_State.Log(level, message);
     }, &error, window);
     if (!started) {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NemoDev", ("Cannot start the Virtools runtime:\n" + error).c_str(), window);
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NeMoDev", ("Cannot start the Virtools runtime:\n" + error).c_str(), window);
         return false;
     }
     m_State.catalog.Refresh();
@@ -657,7 +657,7 @@ void EditorApp::RunAction(PendingAction action) {
 void EditorApp::UpdateTitle() {
     // Documentation "Menu Bar": the level and scene current in the title
     // bar, and the path of the composition loaded.
-    std::wstring title = L"NemoDev";
+    std::wstring title = L"NeMoDev";
     if (m_State.HasDocument()) {
         const std::string &file = m_LastSavedPath.empty() ? m_State.document->SourcePath() : m_LastSavedPath;
         const std::wstring name = file.empty() ? L"New Composition" : Utf8ToWide(file);
@@ -705,7 +705,7 @@ void EditorApp::MainMenu() {
                 if (!ImGui::MenuItem(label)) return;
                 DevMessage message;
                 message.text = std::string(function) + " function not available";
-                message.title = "NemoDev";
+                message.title = "NeMoDev";
                 ShowMessage(std::move(message));
             };
             item("Get Latest Version...", "Get Latest Version");

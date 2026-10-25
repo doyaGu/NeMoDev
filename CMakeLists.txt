@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-# NemoDev: a headless core (CK runtime, document, model, commands)
+# NeMoDev: a headless core (CK runtime, document, model, commands)
 # and a Dear ImGui SDL3/GPU front end. Core tests link the core; UI tests
 # build the editor itself with Dear ImGui Test Engine.
 #
@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.25)
 # "ui/app/EditorApp.h". tests/CheckLayering.cmake (CTest VirtoolsDevLayering)
 # checks that, and that core includes no ui or ImGui header and only core
 # includes a core/*/detail header.
-project(NemoDev LANGUAGES C CXX)
+project(NeMoDev LANGUAGES C CXX)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
@@ -54,7 +54,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${PROJECT_BINARY_DIR}/runtime/Bin
 include(cmake/Ballanced.cmake)
 include(cmake/ThirdPartyNotices.cmake)
 
-option(VIRTOOLSDEV_BUILD_TESTS "Build NemoDev tests" OFF)
+option(VIRTOOLSDEV_BUILD_TESTS "Build NeMoDev tests" OFF)
 # Original regression compositions are provided locally, never redistributed.
 set(VIRTOOLSDEV_SAMPLE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/local-samples" CACHE PATH
         "The directory whose data/ holds the samples the tests open")
@@ -71,11 +71,11 @@ option(VIRTOOLSDEV_BUILD_UI_TESTS "Build VirtoolsDevUiTests (Dear ImGui Test Eng
 
 if (NOT EXISTS "${VIRTOOLSDEV_IMGUI_DIR}/imgui.cpp")
     message(FATAL_ERROR "Dear ImGui not found at ${VIRTOOLSDEV_IMGUI_DIR}. "
-            "From the NemoDev repository root, run: git submodule update --init --recursive external/imgui")
+            "From the NeMoDev repository root, run: git submodule update --init --recursive external/imgui")
 endif ()
 if (VIRTOOLSDEV_BUILD_UI_TESTS AND NOT EXISTS "${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR}/imgui_test_engine/imgui_te_engine.cpp")
     message(FATAL_ERROR "Dear ImGui Test Engine not found at ${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR} "
-            "From the NemoDev repository root, run: git submodule update --init --recursive external/imgui_test_engine; "
+            "From the NeMoDev repository root, run: git submodule update --init --recursive external/imgui_test_engine; "
             "or configure with -DVIRTOOLSDEV_BUILD_UI_TESTS=OFF.")
 endif ()
 

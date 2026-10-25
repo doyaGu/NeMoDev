@@ -1,7 +1,7 @@
-# NemoDev
+# NeMoDev
 
 A desktop editor for Virtools compositions, built with SDL3, SDL GPU and Dear
-ImGui. NemoDev builds the Ballanced runtime from source and uses that same runtime
+ImGui. NeMoDev builds the Ballanced runtime from source and uses that same runtime
 for editing, playback and tests.
 
 The editor includes Schematic editing, 3D Layout, Level and Hierarchy Managers,
@@ -52,7 +52,7 @@ Initialize the required submodules in that checkout, then set
 provide the SDL runtime and font deployment used by the editor. No SDK path or
 SDK revision is supplied by the shared configuration.
 
-NemoDev builds these components as shared libraries directly from those sources,
+NeMoDev builds these components as shared libraries directly from those sources,
 without maintaining SDK copies or patches. The Ballanced root project, Player
 and game-asset staging are excluded from the editor build. Original binary
 Virtools SDKs and runtimes are not supported by this build.
@@ -105,12 +105,12 @@ verified fonts and their licenses into `runtime/Bin/data/fonts`.
 
 ## Build and run
 
-From the NemoDev source directory on Windows:
+From the NeMoDev source directory on Windows:
 
 ```powershell
 cmake --preset windows-x64 -DVIRTOOLS_SDK_PATH="<Ballanced source checkout>" -DCMAKE_PREFIX_PATH="<SDL3 installation prefix>"
 cmake --build --preset windows-x64 --parallel 8
-out/windows-x64/runtime/Bin/NemoDev.exe
+out/windows-x64/runtime/Bin/NeMoDev.exe
 ```
 
 On Linux:
@@ -118,11 +118,11 @@ On Linux:
 ```sh
 cmake --preset linux-x64 -DVIRTOOLS_SDK_PATH="<Ballanced source checkout>" -DCMAKE_PREFIX_PATH="<SDL3 installation prefix>"
 cmake --build --preset linux-x64 --parallel 8
-out/linux-x64/runtime/Bin/NemoDev
+out/linux-x64/runtime/Bin/NeMoDev
 ```
 
 For macOS, choose `macos-x64` or `macos-arm64`; the executable is
-`out/<preset>/runtime/Bin/NemoDev`. Add any other custom library prefixes to
+`out/<preset>/runtime/Bin/NeMoDev`. Add any other custom library prefixes to
 `CMAKE_PREFIX_PATH`. Shared libraries, plugin category directories, rendering
 settings and data are staged under `runtime/`; keep that directory tree together.
 `VIRTOOLS_SDK_PATH` selects the Ballanced source tree to build against.
@@ -193,7 +193,7 @@ ImGui, Python or the editor's resources. Initialize `external/litehtml`, then ru
 
 ```sh
 cmake -S html -B out/html -DCMAKE_BUILD_TYPE=Release -DNEMODEV_HTML_BUILD_TESTS=ON
-cmake --build out/html --config Release --target NemoDevHtmlTests --parallel 2
+cmake --build out/html --config Release --target NeMoDevHtmlTests --parallel 2
 ctest --test-dir out/html -C Release --output-on-failure --no-tests=error
 ```
 
@@ -205,7 +205,7 @@ above; the full runtime regression suite also needs the separately supplied samp
 
 ## ImGui Test Engine license
 
-ImGui Test Engine is used only by `VirtoolsDevUiTests`; the regular `NemoDev`
+ImGui Test Engine is used only by `VirtoolsDevUiTests`; the regular `NeMoDev`
 executable does not link it. The pinned dependency uses
 [Dear ImGui Test Engine License v1.04](licenses/ImGuiTestEngine-License.txt),
 which is separate from Dear ImGui's MIT license.
@@ -269,7 +269,7 @@ do not establish that the editor runs there.
 
 ## License
 
-The [CC BY-NC-SA 4.0 license](LICENSE) applies only to NemoDev-authored code. Incorporated
+The [CC BY-NC-SA 4.0 license](LICENSE) applies only to NeMoDev-authored code. Incorporated
 VirtoolsScriptDeobfuscation code and its adaptations remain CC BY-NC-SA 4.0;
 dependencies, fonts and original Virtools resources retain their own terms.
 The project license does not relicense the editor's third-party components.

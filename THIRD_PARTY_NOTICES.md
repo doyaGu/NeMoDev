@@ -1,6 +1,6 @@
 # Third-party notices
 
-The CC BY-NC-SA 4.0 grant in [LICENSE](LICENSE) covers NemoDev-authored code only. Each
+The CC BY-NC-SA 4.0 grant in [LICENSE](LICENSE) covers NeMoDev-authored code only. Each
 component below retains its own copyright and license. Inclusion of a license
 text does not mean that every component is bundled in every build or that an
 unresolved redistribution permission has been granted.
@@ -12,10 +12,10 @@ runtime directory helpers, parameter verification and adapted build helpers
 come from [BearKidsTeam/VirtoolsScriptDeobfuscation](https://github.com/BearKidsTeam/VirtoolsScriptDeobfuscation),
 revision `9e8fc2ae01b4f25565df67488e03d5e8972bc2f9`.
 
-These files and the NemoDev adaptations of them remain under
+These files and the NeMoDev adaptations of them remain under
 [CC BY-NC-SA 4.0](licenses/VirtoolsScriptDeobfuscation-CC-BY-NC-SA-4.0.txt).
 The license requires attribution, noncommercial use and sharing adaptations
-under the same or a compatible license. The CC BY-NC-SA 4.0 grant for other NemoDev code
+under the same or a compatible license. The CC BY-NC-SA 4.0 grant for other NeMoDev code
 does not remove these requirements from the incorporated material.
 
 The source manifest is `core/interface/origin.json` in the source tree and
@@ -23,7 +23,7 @@ The source manifest is `core/interface/origin.json` in the source tree and
 records the original paths, revision, hashes and destinations, including the
 adapted CMake helper. Changes include repository-relative includes, module
 placement, portable bitmap ownership, runtime loading, native path conversion
-and compiler fixes. NemoDev compiles this material directly; it does not require
+and compiler fixes. NeMoDev compiles this material directly; it does not require
 an upstream checkout or binary.
 
 ## Editor dependencies
@@ -43,7 +43,7 @@ redistributing a different version or a library with additional dependencies.
 ## UI test dependency
 
 [Dear ImGui Test Engine](https://github.com/ocornut/imgui_test_engine), copyright
-2018-2026 Omar Cornut, is used only by `VirtoolsDevUiTests`. The `NemoDev`
+2018-2026 Omar Cornut, is used only by `VirtoolsDevUiTests`. The `NeMoDev`
 executable does not link it. The submodule revision is
 `16b6efbb393fdef0dcac9b0794a8ee476606a152`.
 
@@ -125,7 +125,7 @@ if they are redistributed with a development environment or installer.
 ## Original Virtools resources
 
 Virtools images, icons, `interface.nmo`, CHM documentation and sample
-compositions retain their original ownership. NemoDev provides no license or
+compositions retain their original ownership. NeMoDev provides no license or
 redistribution grant for them. Images, icons and `interface.nmo` are included
 under `resources/`; CHM documentation and samples are supplied locally and
 excluded from the source repository. The build embeds images in the executable

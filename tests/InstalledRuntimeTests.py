@@ -65,7 +65,7 @@ def main():
     library = args.haru_library.resolve(strict=True)
     shared = library.suffix != ".a"
     environment = clean_environment()
-    with tempfile.TemporaryDirectory(prefix="NemoDev installed runtime ") as temporary:
+    with tempfile.TemporaryDirectory(prefix="NeMoDev installed runtime ") as temporary:
         root = Path(temporary).resolve()
         original, relocated = root / "installation", root / "relocated package"
         for component in ("Runtime", "Application"):
