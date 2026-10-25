@@ -54,6 +54,7 @@ add_executable(VirtoolsDevTests
         GraphTestSupport.cpp
         ObjectEditFailureTests.cpp
         SaveFailureTests.cpp
+        InitialConditionsTests.cpp
         VirtoolsDevEditTests.cpp
         VirtoolsDevTopologyTests.cpp
         VirtoolsDevManagerTests.cpp

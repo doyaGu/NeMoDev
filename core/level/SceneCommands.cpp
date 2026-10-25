@@ -41,16 +41,16 @@ std::string Label(InitialConditions action) {
 // Scene data and possibly restored values: the models and the dirty state follow.
 class InitialConditionsAction : public Action {
 public:
-    InitialConditionsAction(InitialConditions action, std::vector<Entry> entries)
-        : m_Action(action), m_Entries(std::move(entries)) {}
+    InitialConditionsAction(CKScene *scene, InitialConditions action, std::vector<Entry> entries)
+        : m_Scene(scene->GetID()), m_SceneInstance(scene), m_Action(action), m_Entries(std::move(entries)) {}
     bool Redo(Document &document) override { return Apply(document, false); }
     bool Undo(Document &document) override { return Apply(document, true); }
 
 private:
     bool Apply(Document &document, bool undo) {
         CKContext *context = document.Context();
-        CKScene *scene = InitialConditionsScene(context);
-        if (!scene) return false;
+        CKScene *scene = CKScene::Cast(context->GetObject(m_Scene));
+        if (!scene || scene != m_SceneInstance) return false;
         bool ok = true;
         for (const auto &entry : m_Entries) {
             CKObject *object = context->GetObject(entry.object);
@@ -73,6 +73,8 @@ private:
         return ok;
     }
 
+    CK_ID m_Scene;
+    CKScene *m_SceneInstance;
     InitialConditions m_Action;
     std::vector<Entry> m_Entries;
 };
@@ -173,7 +175,7 @@ EditResult ApplyInitialConditions(Document &document, const std::vector<CK_ID> &
     }
     const size_t count = entries.size();
     Edit edit(document, Label(action));
-    if (!edit.Do(std::make_unique<InitialConditionsAction>(action, std::move(entries))))
+    if (!edit.Do(std::make_unique<InitialConditionsAction>(scene, action, std::move(entries))))
         return edit.Fail(Label(action) + " failed: an object is no longer in the scene");
     return edit.Commit(std::to_string(count) + " object(s)");
 }

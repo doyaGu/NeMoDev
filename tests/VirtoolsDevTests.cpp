@@ -181,6 +181,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"ObjectEditCancellation", [&] { ObjectEditCancellation(host); }},
             {"SaveFailures", [&] { SaveFailures(host); }},
             {"SaveCallbacks", [&] { SaveCallbacks(host); }},
+            {"InitialConditionsScenes", [&] { InitialConditionsScenes(host); }},
             {"CkArrays", [&] { CkArrays(host); }},
             {"SetupActions", [&] { SetupActions(host); }},
             {"DeterministicEdits", [&] { DeterministicEdits(host, prototypes); }},
