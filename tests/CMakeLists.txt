@@ -45,8 +45,6 @@ add_executable(SchematicModelTests SchematicModelTests.cpp)
 target_link_libraries(SchematicModelTests PRIVATE VirtoolsDevCore)
 target_compile_definitions(SchematicModelTests PRIVATE _CRT_SECURE_NO_WARNINGS)
 set_target_properties(SchematicModelTests PROPERTIES FOLDER "VirtoolsDev")
-# The runtime delay-loaded: without it the tests start and skip (VirtoolsRuntimeCheck.h).
-virtoolsdev_enable_delay_load_runtime(SchematicModelTests)
 virtoolsdev_add_test(SchematicModelTests SchematicModelTests)
 
 add_executable(VirtoolsDevTests
@@ -70,7 +68,6 @@ target_compile_definitions(VirtoolsDevTests PRIVATE _CRT_SECURE_NO_WARNINGS
 # The Resources case: the images in the program, the data files beside it.
 virtoolsdev_add_resources(VirtoolsDevTests)
 set_target_properties(VirtoolsDevTests PROPERTIES FOLDER "VirtoolsDev")
-virtoolsdev_enable_delay_load_runtime(VirtoolsDevTests)
 # The default suite, each case alone in its process (VirtoolsDevTests --case,
 # the cases of VirtoolsDevCases.def): a failure names its case, none depends
 # on another.

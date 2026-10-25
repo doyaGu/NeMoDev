@@ -45,12 +45,17 @@ The editor always requires Dear ImGui and litehtml, including litehtml's bundled
 Gumbo parser. Without UI tests, initialize only `external/imgui` and
 `external/litehtml`, and configure with `-DVIRTOOLSDEV_BUILD_UI_TESTS=OFF`.
 
-Provide a maintained Ballanced source checkout with VxMath, CK2, RenderEngine,
-Managers, Plugins and BuildingBlocks, including their nested dependencies.
-Initialize the required submodules in that checkout, then set
-`VIRTOOLS_SDK_PATH` explicitly when configuring. The selected sources must
-provide the SDL runtime and font deployment used by the editor. No SDK path or
-SDK revision is supplied by the shared configuration.
+Use [Ballanced's default `sdl` branch](https://github.com/doyaGu/Ballanced/tree/sdl)
+with its submodules initialized:
+
+```sh
+git clone --branch sdl --recurse-submodules https://github.com/doyaGu/Ballanced.git "<Ballanced source checkout>"
+```
+
+An existing checkout can be used directly. Initialize VxMath, CK2, RenderEngine,
+Managers, Plugins and BuildingBlocks, including their nested dependencies,
+then set `VIRTOOLS_SDK_PATH` explicitly when configuring. The editor uses those
+sources as they are; no SDK path or revision is supplied by the shared configuration.
 
 NeMoDev builds these components as shared libraries directly from those sources,
 without maintaining SDK copies or patches. The Ballanced root project, Player
@@ -170,7 +175,7 @@ not count as successful regressions. Some sample tests are registered only
 when their fixtures exist; others report CTest skip code 77. Check both the
 registered test list and skipped results when comparing runs.
 
-The latest focused regression can be run with:
+A focused regression can be run with:
 
 ```sh
 ctest --preset windows-x64 -E "VirtoolsDevUi|VirtoolsDevLayout$"
@@ -222,24 +227,25 @@ then configure with `-DVIRTOOLSDEV_BUILD_UI_TESTS=OFF` to omit Test Engine.
 
 ## Verified platforms
 
-Validation on 2026-10-18, after the property-edit fixes in `fea0398`, used SDL3
-3.4.18 and prepared resources and samples:
+Windows validation on 2026-10-25 used a clean checkout of Ballanced's public
+default `sdl` branch (`be42c19`), its recorded submodule revisions, SDL3 and
+the prepared resources and samples. No SDK patches were applied.
 
 | Platform | Toolchain / preset | Result |
 | --- | --- | --- |
-| Windows 11 x64 | Visual Studio 2022; `windows-x64` configuration | Editor built; 53/53 core checks and 36/36 selected UI scenarios passed |
-| Ubuntu 26.04 x64 | GCC 15.2; Release build | Editor built; 53/53 core checks and 36/36 selected UI scenarios passed under Xvfb |
-| Windows x86 | `windows-x86` | Preset available; not verified in this baseline |
+| Windows 11 x64 | Visual Studio 2022; Release | Clean editor build; 57/57 selected CTest tests passed; installed production program passed startup and isolation checks |
+| Ubuntu 26.04 x64 | GCC 15.2; Release | Earlier validation on 2026-10-25 passed 53/53 selected tests; the current public-mainline SDK build was not rerun |
+| Windows x86 | `windows-x86` | Preset available; not verified |
 | macOS x64 | `macos-x64` | Preset available; editor build and runtime not verified |
 | macOS ARM64 | `macos-arm64` | Preset available; editor build and runtime not verified |
 
-The selected UI scenarios comprise 17 Setup checks, 3 property-edit checks and
-16 Layout checks. Together with the core checks, they cover actual values,
-texture pixels and slots, Undo/Redo, Escape cancellation, partial-write recovery
-and document-close handling. These results cover the listed builds and
-scenarios, not every graphics backend or desktop workflow. Native file dialogs,
-Player Mode, fullscreen, focus transitions, direct printing and help launch were not rerun
-as desktop acceptance tests in this baseline.
+The 57-test Windows selection covers the core cases, sample save/reopen,
+HTML, font and license deployment, production isolation, and the File menu,
+Schematic, Level, Setup and property-edit UI groups. It checks actual values,
+Undo/Redo, cancellation, partial-write recovery and document-close handling.
+This is not a full-suite or native desktop acceptance run. Player Mode,
+fullscreen, focus transitions, native file dialogs and direct printing were
+not rerun for this SDK update.
 
 ## Current limitations
 
