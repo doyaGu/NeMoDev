@@ -197,12 +197,6 @@ cmake --build out/html --config Release --target NeMoDevHtmlTests --parallel 2
 ctest --test-dir out/html -C Release --output-on-failure --no-tests=error
 ```
 
-Public CI builds and tests this module on Windows, Linux and macOS, including
-the diagnostics for missing or incomplete litehtml sources. It also checks
-source layering, runtime notice installation, Python syntax and the standalone
-Windows extractor build. Full editor builds need the dependencies described
-above; the full runtime regression suite also needs the separately supplied samples.
-
 ## ImGui Test Engine license
 
 ImGui Test Engine is used only by `VirtoolsDevUiTests`; the regular `NeMoDev`
@@ -245,8 +239,7 @@ texture pixels and slots, Undo/Redo, Escape cancellation, partial-write recovery
 and document-close handling. These results cover the listed builds and
 scenarios, not every graphics backend or desktop workflow. Native file dialogs,
 Player Mode, fullscreen, focus transitions, direct printing and help launch were not rerun
-as desktop acceptance tests in this baseline. Source checks on a CI platform
-do not establish that the editor runs there.
+as desktop acceptance tests in this baseline.
 
 ## Current limitations
 
