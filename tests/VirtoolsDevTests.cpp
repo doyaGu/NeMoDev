@@ -182,6 +182,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"SaveFailures", [&] { SaveFailures(host); }},
             {"SaveCallbacks", [&] { SaveCallbacks(host); }},
             {"InitialConditionsScenes", [&] { InitialConditionsScenes(host); }},
+            {"InitialConditionsFailures", [&] { InitialConditionsFailures(host); }},
             {"ParameterValueFailures", [&] { ParameterValueFailures(host); }},
             {"CkArrays", [&] { CkArrays(host); }},
             {"SetupActions", [&] { SetupActions(host); }},
