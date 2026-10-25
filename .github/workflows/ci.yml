@@ -100,7 +100,14 @@ jobs:
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libx11-dev libxext-dev \
             libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
-            libegl1-mesa-dev libdrm-dev libgbm-dev libvulkan-dev mesa-vulkan-drivers xvfb xauth
+            libegl1-mesa-dev libdrm-dev libgbm-dev libvulkan-dev mesa-vulkan-drivers vulkan-tools xvfb xauth
+      - name: Verify software Vulkan before building
+        if: runner.os == 'Linux'
+        run: |
+          export VK_DRIVER_FILES="$(dpkg -L mesa-vulkan-drivers | grep '/lvp_icd[^/]*\.json$')"
+          test -f "$VK_DRIVER_FILES"
+          echo "VK_DRIVER_FILES=$VK_DRIVER_FILES" >> "$GITHUB_ENV"
+          xvfb-run -a -s '-screen 0 1920x1080x24' vulkaninfo --summary
       - name: Check out Ballanced mainline
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -149,7 +156,6 @@ jobs:
         env:
           SDL_VIDEO_DRIVER: x11
           SDL_GPU_DRIVER: vulkan
-          VK_DRIVER_FILES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
         run: |
           xvfb-run -a -s '-screen 0 1920x1080x24' \
             ctest --preset linux-x64 -L self-contained --no-tests=error --output-junit "$PWD/out/results.xml"
