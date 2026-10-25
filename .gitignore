@@ -3,6 +3,7 @@
 /out/
 cmake-build-*/
 /CMakeUserPresets.json
+/.venv/
 /local-resources/
 /local-samples/
 __pycache__/

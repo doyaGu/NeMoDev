@@ -83,10 +83,14 @@ include(cmake/RuntimeTargets.cmake)
 
 # The images listed in images.txt are embedded in the editor. Interface data
 # and the local help archive are copied beside the program.
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-execute_process(COMMAND ${Python3_EXECUTABLE} -c "import PIL" RESULT_VARIABLE _pillow_result)
+find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND "${Python3_EXECUTABLE}" -c "from PIL import Image; Image.Resampling.NEAREST"
+    RESULT_VARIABLE _pillow_result OUTPUT_QUIET ERROR_QUIET)
 if(NOT _pillow_result EQUAL 0)
-    message(FATAL_ERROR "Resource compilation requires Pillow for ${Python3_EXECUTABLE}")
+    message(FATAL_ERROR "Resource compilation requires Pillow 9.1 or newer for ${Python3_EXECUTABLE}.\n"
+        "Install Pillow with that interpreter's -m pip install \"Pillow>=9.1\", "
+        "or set Python3_EXECUTABLE to the Python interpreter in your build virtual environment. "
+        "See README.md for the platform-specific commands.")
 endif()
 file(GLOB_RECURSE _resource_images CONFIGURE_DEPENDS "${VIRTOOLSDEV_RESOURCES_DIR}/images/*")
 set(_compiled_images "${PROJECT_BINARY_DIR}/generated/ResourceImages.cpp")

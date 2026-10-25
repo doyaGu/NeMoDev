@@ -8,12 +8,15 @@ get_filename_component(VIRTOOLS_SDK_PATH "${VIRTOOLS_SDK_PATH}" ABSOLUTE)
 set(_ballanced_components VxMath CK2 RenderEngine Managers Plugins BuildingBlocks)
 foreach(_component IN LISTS _ballanced_components)
     if(NOT EXISTS "${VIRTOOLS_SDK_PATH}/Source/${_component}/CMakeLists.txt")
-        message(FATAL_ERROR "VIRTOOLS_SDK_PATH must name a complete Ballanced checkout: missing Source/${_component}")
+        message(FATAL_ERROR "VIRTOOLS_SDK_PATH must name a complete Ballanced checkout: missing Source/${_component}.\n"
+            "From the Ballanced checkout, run: git submodule update --init --recursive")
     endif()
 endforeach()
 find_package(SDL3 3.4.8 CONFIG REQUIRED)
 if(NOT TARGET SDL3::SDL3-shared)
-    message(FATAL_ERROR "The Ballanced runtime requires shared SDL3")
+    message(FATAL_ERROR "The Ballanced runtime requires shared SDL3. "
+        "Build and install SDL3 with SDL_SHARED=ON and SDL_STATIC=OFF, "
+        "then set CMAKE_PREFIX_PATH to that installation prefix.")
 endif()
 install(IMPORTED_RUNTIME_ARTIFACTS SDL3::SDL3-shared
     RUNTIME DESTINATION Bin COMPONENT Runtime
