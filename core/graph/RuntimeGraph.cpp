@@ -242,13 +242,28 @@ bool ManagesMemory(CKContext *context, CKParameterType type) {
 }
 
 std::string ParameterText(CKParameter *parameter) {
-    if (!parameter) return std::string();
-    const int size = parameter->GetStringValue(nullptr, FALSE);
-    if (size <= 0 || size > 65536) return std::string();
-    std::string text(static_cast<size_t>(size), '\0');
-    parameter->GetStringValue(&text[0], FALSE);
-    text.resize(std::strlen(text.c_str()));
+    std::string text;
+    ParameterText(parameter, text);
     return text;
+}
+
+bool ParameterText(CKParameter *parameter, std::string &text) {
+    text.clear();
+    if (!parameter) return false;
+    CKContext *context = parameter->GetCKContext();
+    const CK_ID id = parameter->GetID();
+    const int size = parameter->GetStringValue(nullptr, FALSE);
+    if (!context || context->GetObject(id) != parameter) return false;
+    if (size <= 0 || size > 65536) return false;
+    std::string buffer(static_cast<size_t>(size), '\xFF');
+    const int read = parameter->GetStringValue(&buffer[0], FALSE);
+    if (context->GetObject(id) != parameter) return false;
+    if (read <= 0 || read > size) return false;
+    const auto end = buffer.find('\0');
+    if (end == std::string::npos) return false;
+    buffer.resize(end);
+    text = std::move(buffer);
+    return true;
 }
 
 } // namespace vdev

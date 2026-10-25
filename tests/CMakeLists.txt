@@ -55,6 +55,7 @@ add_executable(VirtoolsDevTests
         ObjectEditFailureTests.cpp
         SaveFailureTests.cpp
         InitialConditionsTests.cpp
+        ParameterValueFailureTests.cpp
         VirtoolsDevEditTests.cpp
         VirtoolsDevTopologyTests.cpp
         VirtoolsDevManagerTests.cpp

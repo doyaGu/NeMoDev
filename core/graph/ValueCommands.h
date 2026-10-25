@@ -16,6 +16,8 @@ class Document;
 
 // Raw value bytes (CKParameter::GetValue without update), empty on failure.
 std::vector<unsigned char> ParameterBytes(CKParameter *parameter);
+// Checked read for editing; a failed read must not become recovery material.
+bool ParameterBytes(CKParameter *parameter, std::vector<unsigned char> &bytes);
 
 EditResult SetParameterBytes(Document &document, CK_ID script, CK_ID parameter,
                              const std::vector<unsigned char> &bytes);

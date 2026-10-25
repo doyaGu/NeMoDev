@@ -12,56 +12,102 @@
 
 namespace vdev {
 
-namespace {
-
 // A value is either raw bytes, or (for memory-managing types) its text.
-struct Value {
+struct ParameterValue {
+    CKGUID type;
+    std::uint64_t generation = 0;
     bool text = false;
     std::vector<unsigned char> bytes;
     std::string string;
 };
 
-bool SetValue(Document &document, CK_ID id, const Value &value) {
-    CKParameter *parameter = CKParameter::Cast(document.Context()->GetObject(id));
-    if (!parameter) return false;
-    CKERROR result = CKERR_INVALIDPARAMETER;
-    GuardedCall(
-        [&] {
-            result = value.text ? parameter->SetStringValue(const_cast<CKSTRING>(value.string.c_str()))
-                                : parameter->SetValue(value.bytes.data(), static_cast<int>(value.bytes.size()));
-        },
-        &document.Host(), "CKParameter value");
-    return result == CK_OK;
-}
-
-} // namespace
-
 std::vector<unsigned char> ParameterBytes(CKParameter *parameter) {
     std::vector<unsigned char> bytes;
-    if (!parameter) return bytes;
-    const int size = parameter->GetDataSize();
-    if (size <= 0) return bytes;
-    bytes.resize(static_cast<size_t>(size));
-    // Do not evaluate a parameter operation while reading a value.
-    if (parameter->GetValue(bytes.data(), FALSE) != CK_OK) bytes.clear();
+    ParameterBytes(parameter, bytes);
     return bytes;
 }
 
-namespace {
+bool ParameterBytes(CKParameter *parameter, std::vector<unsigned char> &bytes) {
+    bytes.clear();
+    if (!parameter) return false;
+    const int size = parameter->GetDataSize();
+    if (size < 0) return false;
+    if (!size) return true;
+    bytes.resize(static_cast<size_t>(size));
+    // Do not evaluate a parameter operation while reading a value.
+    if (parameter->GetValue(bytes.data(), FALSE) == CK_OK) return true;
+    bytes.clear();
+    return false;
+}
 
-// One undo step; the Script shows the value (its session is marked with the composition).
-EditResult Push(Document &document, CK_ID script, CK_ID id, Value before, Value after) {
-    if (before.text ? before.string == after.string : before.bytes == after.bytes)
-        return EditResult::NoChange("The value is unchanged");
+static CKParameter *ParameterInstance(Document &document, CK_ID id, CKParameter *instance, const ParameterValue &value) {
+    if (document.Host().Generation() != value.generation) return nullptr;
+    CKContext *context = document.Context();
+    CKParameter *parameter = context ? CKParameter::Cast(context->GetObject(id)) : nullptr;
+    return parameter && parameter == instance && parameter->GetGUID() == value.type ? parameter : nullptr;
+}
+
+static bool SameValue(const ParameterValue &a, const ParameterValue &b) {
+    return a.generation == b.generation && a.type == b.type && a.text == b.text &&
+           (a.text ? a.string == b.string : a.bytes == b.bytes);
+}
+
+static bool ReadParameterValue(Document &document, CK_ID id, CKParameter *instance, ParameterValue &value) {
+    bool read = false;
+    return GuardedCall([&] {
+        CKParameter *parameter = ParameterInstance(document, id, instance, value);
+        if (!parameter) return;
+        read = value.text ? ParameterText(parameter, value.string) : ParameterBytes(parameter, value.bytes);
+        read = read && ParameterInstance(document, id, instance, value);
+    }, &document.Host(), "Read parameter value") && read;
+}
+
+static bool WriteParameterValue(Document &document, CK_ID id, CKParameter *instance, const ParameterValue &value) {
+    CKERROR result = CKERR_INVALIDPARAMETER;
+    const bool written = GuardedCall([&] {
+        CKParameter *parameter = ParameterInstance(document, id, instance, value);
+        if (!parameter) return;
+        result = value.text ? parameter->SetStringValue(value.string.c_str())
+                            : parameter->SetValue(value.bytes.data(), static_cast<int>(value.bytes.size()));
+    }, &document.Host(), "Write parameter value");
+    if (!written || result != CK_OK) return false;
+    ParameterValue actual = value;
+    return ReadParameterValue(document, id, instance, actual) && SameValue(actual, value);
+}
+
+class ParameterValueAction : public Action {
+public:
+    ParameterValueAction(CK_ID id, CKParameter *instance, ParameterValue before, ParameterValue after)
+        : m_Id(id), m_Instance(instance), m_Before(std::move(before)), m_After(std::move(after)) {}
+    bool Redo(Document &document) override { return Apply(document, false); }
+    bool Undo(Document &document) override { return Apply(document, true); }
+private:
+    bool Apply(Document &document, bool undo) {
+        if (WriteParameterValue(document, m_Id, m_Instance, undo ? m_Before : m_After)) return true;
+        // A rejected setter may already have written. This action alone owns
+        // recovery of its value, including a failing Undo or Redo.
+        if (!WriteParameterValue(document, m_Id, m_Instance, undo ? m_After : m_Before)) {
+            document.Host().Log(LogLevel::Error, "Parameter value recovery was incomplete: the undo history is cleared");
+            if (document.Host().Generation() == m_Before.generation) document.InvalidateHistory();
+        }
+        return false;
+    }
+    CK_ID m_Id;
+    CKParameter *m_Instance;
+    ParameterValue m_Before, m_After;
+};
+
+static EditResult PushValue(Document &document, CK_ID script, CK_ID id, CKParameter *instance,
+                            ParameterValue before, ParameterValue after) {
+    if (SameValue(before, after)) return EditResult::NoChange("The value is unchanged");
     Edit edit(document, "Set Value");
-    if (!edit.Do([&document, id, after] { return SetValue(document, id, after); },
-                 [&document, id, before] { return SetValue(document, id, before); }))
-        return edit.Fail("The value was rejected");
+    if (!edit.Do(std::make_unique<ParameterValueAction>(id, instance, std::move(before), std::move(after)))) {
+        edit.Fail("The value could not be applied");
+        return EditResult::Error("The value could not be applied; check the runtime log for recovery failures");
+    }
     edit.Touches(script);
     return edit.Commit();
 }
-
-} // namespace
 
 EditResult SetParameterBytes(Document &document, CK_ID script, CK_ID id,
                              const std::vector<unsigned char> &bytes) {
@@ -69,40 +115,36 @@ EditResult SetParameterBytes(Document &document, CK_ID script, CK_ID id,
     if (!parameter) return EditResult::Refused("Parameter not found");
     if (ManagesMemory(document.Context(), parameter->GetType()))
         return EditResult::Refused("Values of this type can only be set as text");
-    Value before, after;
-    before.bytes = ParameterBytes(parameter);
+    ParameterValue before, after;
+    before.type = after.type = parameter->GetGUID();
+    before.generation = after.generation = document.Host().Generation();
+    if (!ReadParameterValue(document, id, parameter, before)) return EditResult::Error("Cannot read the parameter value");
     after.bytes = bytes;
-    return Push(document, script, id, std::move(before), std::move(after));
+    return PushValue(document, script, id, parameter, std::move(before), std::move(after));
 }
 
-EditResult SetParameterText(Document &document, CK_ID script, CK_ID id,
-                            const std::string &text) {
+EditResult SetParameterText(Document &document, CK_ID script, CK_ID id, const std::string &text) {
     CKParameter *parameter = CKParameter::Cast(document.Context()->GetObject(id));
     if (!parameter) return EditResult::Refused("Parameter not found");
-    const bool managed = ManagesMemory(document.Context(), parameter->GetType());
-    Value before, after;
-    before.text = after.text = managed;
-    if (managed) before.string = ParameterText(parameter);
-    else before.bytes = ParameterBytes(parameter);
-    // Parse with the type's own function, read the result, restore.
+    ParameterValue before, after;
+    before.type = after.type = parameter->GetGUID();
+    before.generation = after.generation = document.Host().Generation();
+    before.text = after.text = ManagesMemory(document.Context(), parameter->GetType());
+    if (!ReadParameterValue(document, id, parameter, before)) return EditResult::Error("Cannot read the parameter value");
+    // Parse with the type's own function, capture the normalized result, and
+    // restore before recording an action. All temporary writes are owned here.
     CKERROR parsed = CKERR_INVALIDPARAMETER;
-    const bool read = GuardedCall(
-        [&] {
-            parsed = parameter->SetStringValue(const_cast<CKSTRING>(text.c_str()));
-            if (managed) after.string = ParameterText(parameter);
-            else after.bytes = ParameterBytes(parameter);
-        },
-        &document.Host(), "CKParameter::SetStringValue");
-    // The type's own functions run again to put the value back.
-    const bool restored = GuardedCall(
-        [&] {
-            if (managed) parameter->SetStringValue(const_cast<CKSTRING>(before.string.c_str()));
-            else parameter->SetValue(before.bytes.data(), static_cast<int>(before.bytes.size()));
-        },
-        &document.Host(), "CKParameter::SetStringValue");
-    if (!read || !restored) return EditResult::Error("The parameter type raised an exception");
+    const bool called = GuardedCall([&] { parsed = parameter->SetStringValue(text.c_str()); },
+                                    &document.Host(), "CKParameter::SetStringValue");
+    const bool read = called && parsed == CK_OK && ReadParameterValue(document, id, parameter, after);
+    if (!WriteParameterValue(document, id, parameter, before)) {
+        if (document.Host().Generation() == before.generation) document.InvalidateHistory();
+        return EditResult::Error("The parameter value could not be restored: the undo history is cleared");
+    }
+    if (!called) return EditResult::Error("The parameter type raised an exception");
     if (parsed != CK_OK) return EditResult::Refused("The text is not a valid value of this type");
-    return Push(document, script, id, std::move(before), std::move(after));
+    if (!read) return EditResult::Error("Cannot read the parsed parameter value");
+    return PushValue(document, script, id, parameter, std::move(before), std::move(after));
 }
 
 CKParameterLocal *EditableValueOf(CKParameterIn *input) {

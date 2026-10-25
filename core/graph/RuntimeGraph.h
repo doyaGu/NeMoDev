@@ -56,5 +56,7 @@ bool ManagesMemory(CKContext *context, CKParameterType type);
 
 // Text form of a value (CKParameter::GetStringValue, ANSI); empty on failure.
 std::string ParameterText(CKParameter *parameter);
+// Checked read for editing: failure is distinct from a valid empty string.
+bool ParameterText(CKParameter *parameter, std::string &text);
 
 } // namespace vdev
