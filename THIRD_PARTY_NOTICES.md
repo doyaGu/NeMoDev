@@ -15,8 +15,8 @@ revision `9e8fc2ae01b4f25565df67488e03d5e8972bc2f9`.
 These files and the NeMoDev adaptations of them remain under
 [CC BY-NC-SA 4.0](licenses/VirtoolsScriptDeobfuscation-CC-BY-NC-SA-4.0.txt).
 The license requires attribution, noncommercial use and sharing adaptations
-under the same or a compatible license. The CC BY-NC-SA 4.0 grant for other NeMoDev code
-does not remove these requirements from the incorporated material.
+under the same or a compatible license. NeMoDev-authored code uses CC BY-NC-SA
+4.0 as well; dependencies and original resources keep their separate terms.
 
 The source manifest is `core/interface/origin.json` in the source tree and
 `licenses/VirtoolsScriptDeobfuscation-origin.json` in the staged runtime. It

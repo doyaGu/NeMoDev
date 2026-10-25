@@ -170,9 +170,9 @@ output. Workset membership lasts for the current editor session.
 
 ## License and credits
 
-[CC BY-NC-SA 4.0](LICENSE) covers NeMoDev-authored code only. Incorporated code adapted from
+[CC BY-NC-SA 4.0](LICENSE) covers NeMoDev-authored code. Incorporated code adapted from
 [VirtoolsScriptDeobfuscation](https://github.com/BearKidsTeam/VirtoolsScriptDeobfuscation)
-remains **CC BY-NC-SA 4.0**. Dependencies retain their own licenses.
+also retains **CC BY-NC-SA 4.0**.
 
 Ballanced, SDL3, Dear ImGui, litehtml, fonts and original Virtools resources
 retain their own terms. See [third-party notices](THIRD_PARTY_NOTICES.md) for
