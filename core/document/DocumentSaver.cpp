@@ -206,6 +206,28 @@ struct DocumentSaverAccess {
     static const std::set<CK_ID> &Graveyard(const Document &document) { return document.m_Graveyard; }
 };
 
+// Only tracked composition edits participate in its save point. Navigation
+// and opening an unchanged Script session do not change the written content.
+struct DocumentSaveRevisions {
+    std::uint64_t generation, topology;
+    std::map<CK_ID, std::uint64_t> scripts;
+    explicit DocumentSaveRevisions(const Document &document)
+        : generation(document.Host().Generation()), topology(document.TopologyRevision()) {
+        for (const auto &entry : document.Sessions()) scripts.emplace(entry.first, entry.second->Revision());
+    }
+    bool Unchanged(const Document &document) const {
+        if (!document.IsOpen() || document.EditOpen() || document.Host().Generation() != generation ||
+            document.TopologyRevision() != topology) return false;
+        for (const auto &entry : scripts) {
+            const auto found = document.Sessions().find(entry.first);
+            if (found == document.Sessions().end() || found->second->Revision() != entry.second) return false;
+        }
+        for (const auto &entry : document.Sessions())
+            if (!scripts.count(entry.first) && entry.second->Dirty()) return false;
+        return true;
+    }
+};
+
 namespace {
 
 // Graveyard objects plus everything they own (IOs, parameters, links,
@@ -422,6 +444,10 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
         report.errors.push_back("No composition is open");
         return false;
     }
+    if (document.EditOpen()) {
+        report.errors.push_back("Finish the current edit before saving the composition");
+        return false;
+    }
     std::error_code ec;
     fs::path output = fs::absolute(fs::u8path(path), ec);
     if (ec) {
@@ -483,6 +509,7 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
     if (!options.saveScriptSnapshots)
         for (const ScriptInfo &info : document.Scripts())
             if (info.hasInterfaceChunk && !document.IsDiscarded(info.id)) document.Session(info.id);
+    const DocumentSaveRevisions revisions(document);
     for (const auto &entry : document.Sessions()) {
         ScriptSession &session = *entry.second;
         if (session.ReadOnly()) continue;
@@ -603,7 +630,20 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
     // replacement leave the previous destination and save point intact.
     if (!pending.Publish(options.allowOverwrite)) return false;
     report.saved = true;
-    if (options.markSaved) document.MarkSaved();
+    if (options.markSaved) {
+        if (revisions.Unchanged(document)) {
+            document.MarkSaved();
+            report.documentSaved = true;
+        } else {
+            // A callback can undo back to the previous save point. That older
+            // content must not appear saved after its file has been replaced.
+            if (document.IsOpen() && document.Host().Generation() == revisions.generation && !document.Dirty())
+                document.MarkTopologyChanged();
+            report.notes.push_back("The file was saved, but the document changed during saving; newer edits remain unsaved");
+        }
+        if (document.IsOpen() && document.Host().Generation() == revisions.generation)
+            document.History().MarkSavePoint();
+    }
     report.notes.push_back("Native Dev load/save/reopen has not been performed");
     return true;
 }

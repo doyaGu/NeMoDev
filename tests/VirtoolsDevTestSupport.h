@@ -86,6 +86,7 @@ namespace vdevtest {
 void ObjectEditFailures(CkRuntimeHost &host);
 void ObjectEditCancellation(CkRuntimeHost &host);
 void SaveFailures(CkRuntimeHost &host);
+void SaveCallbacks(CkRuntimeHost &host);
 
 // A check that failed: the case stops (CheckFailure), main reports it with
 // the expression and its place and goes on with the next case. Checks with

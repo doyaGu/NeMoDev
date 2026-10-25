@@ -496,13 +496,12 @@ bool EditorApp::SaveTo(const std::string &path, bool allowOverwrite) {
     m_SaveReportText = std::move(text);
     m_OpenSaveReport = true;
     m_State.Log(saved ? LogLevel::Info : LogLevel::Error, m_SaveReportText);
-    if (saved) {
+    if (report.documentSaved) {
         m_LastSavedPath = path;
         RememberRecentFile(path);
-        m_State.History().MarkSavePoint();
     }
     UpdateTitle();
-    return saved;
+    return report.documentSaved;
 }
 
 // The Setups of the 3D Layout's data open again (Dev.exe sub_4B46C0 ->

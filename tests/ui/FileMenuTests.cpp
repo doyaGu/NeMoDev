@@ -39,6 +39,22 @@ static void SubmitWebPage(ImGuiTestContext *ctx, bool cmo, bool overwrite) {
     }
 }
 
+class FileMenuSaveManager : public CKBaseManager {
+public:
+    vdev::Document &document;
+    bool enabled = false;
+    explicit FileMenuSaveManager(vdev::Document &owner)
+        : CKBaseManager(owner.Context(), CKGUID(0x41e65027, 0x36d23517), "File menu save regression"), document(owner) {}
+    CKDWORD GetValidFunctionsMask() override { return CKMANAGER_FUNC_PostSave; }
+    CKERROR PostSave() override {
+        if (enabled) {
+            document.Context()->GetCurrentLevel()->GetLevelScene()->SetFogEnd(777);
+            document.MarkTopologyChanged();
+        }
+        return CK_OK;
+    }
+};
+
 void RegisterFileMenuTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "save_failure_keeps_previous_file_and_save_point");
     t->GuiFunc = MainThreadGui;
@@ -144,6 +160,57 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         ctx->MenuClick("//##MainMenuBar/File/New Composition");
         ctx->Yield(4);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().document->SourcePath().empty(); }));
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "save_callback_keeps_document_open");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        namespace fs = std::filesystem;
+        Settle(ctx);
+        const auto root = fs::current_path() / ("save-callback-" + std::to_string(SDL_GetTicksNS()));
+        IM_CHECK(fs::create_directory(root));
+        const auto source = root / "source.cmo";
+        FileMenuSaveManager *manager = nullptr;
+        struct Cleanup {
+            fs::path root;
+            FileMenuSaveManager *&manager;
+            ~Cleanup() {
+                if (manager) manager->enabled = false;
+                std::error_code error;
+                fs::remove_all(root, error);
+            }
+        } cleanup{root, manager};
+        OnMainThread(ctx, [&] {
+            vdev::SaveReport report;
+            IM_CHECK_NO_RET(vdev::SaveDocumentAs(*App().State().document, source.u8string(), {}, report));
+            App().DropFiles({vdev::Utf8ToWide(source.u8string())}, 0, 0);
+            manager = new FileMenuSaveManager(*App().State().document);
+            IM_CHECK_NO_RET(App().State().host.Context()->RegisterNewManager(manager) == CK_OK);
+        });
+        ctx->Yield(4);
+        ctx->MenuClick("//##MainMenuBar/File/Save Version");
+        ctx->Yield(4);
+        ctx->ItemClick("//Save report/OK");
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(vdev::CreateLayoutObject(*App().State().document, vdev::LayoutObject::Frame3D).ok);
+            manager->enabled = true;
+            App().RequestQuit();
+        });
+        ctx->Yield(3);
+        ctx->ItemClick("//Unsaved changes/Save");
+        ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [] {
+            const auto &state = App().State();
+            return !App().ShouldQuit() && state.document->Dirty() &&
+                   state.host.Context()->GetCurrentLevel()->GetLevelScene()->GetFogEnd() == 777;
+        }));
+        OnMainThread(ctx, [&] { manager->enabled = false; });
+        ctx->ItemClick("//Save report/OK");
+        ctx->MenuClick("//##MainMenuBar/File/Save Composition");
+        ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [] { return !App().ShouldQuit() && !App().State().document->Dirty(); }));
+        ctx->ItemClick("//Save report/OK");
+        ctx->MenuClick("//##MainMenuBar/File/New Composition");
+        ctx->Yield(4);
     };
     t = IM_REGISTER_TEST(engine, "filemenu", "web_page_runtime_version");
     t->GuiFunc = MainThreadGui;

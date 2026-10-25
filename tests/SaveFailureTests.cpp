@@ -10,14 +10,15 @@ public:
     std::filesystem::path target, written;
     std::string error;
     int saves = 0;
+    std::function<void()> afterSave;
 #ifdef _WIN32
     HANDLE locked = INVALID_HANDLE_VALUE;
 #else
     std::filesystem::perms permissions = std::filesystem::perms::unknown;
 #endif
 
-    explicit SaveFailureManager(CKContext *context)
-        : CKBaseManager(context, CKGUID(0x64b63c49, 0x122922e1), "Save failure regression") {}
+    explicit SaveFailureManager(CKContext *context, CKGUID guid = CKGUID(0x64b63c49, 0x122922e1))
+        : CKBaseManager(context, guid, "Save failure regression") {}
 
     CKDWORD GetValidFunctionsMask() override { return CKMANAGER_FUNC_PostSave; }
     CKStateChunk *SaveData(CKFile *file) override {
@@ -69,6 +70,7 @@ public:
                 error = failure.message();
 #endif
         }
+        if (afterSave) afterSave();
         return CK_OK;
     }
     void Reset() {
@@ -85,6 +87,7 @@ public:
         permissions = std::filesystem::perms::unknown;
 #endif
         mode = None;
+        afterSave = nullptr;
     }
     ~SaveFailureManager() override { Reset(); }
 };
@@ -93,9 +96,9 @@ class SaveFailureFolder {
 public:
     std::filesystem::path directory;
     SaveFailureManager *manager;
-    explicit SaveFailureFolder(CKContext *context)
+    explicit SaveFailureFolder(CKContext *context, CKGUID guid = CKGUID(0x64b63c49, 0x122922e1))
         : directory(std::filesystem::absolute("save-failures-" + std::to_string(SDL_GetTicksNS()))),
-          manager(new SaveFailureManager(context)) {
+          manager(new SaveFailureManager(context, guid)) {
         CHECK(std::filesystem::create_directory(directory));
         CHECK(context->RegisterNewManager(manager) == CK_OK);
     }
@@ -105,6 +108,83 @@ public:
         std::filesystem::remove_all(directory, ignored);
     }
 };
+
+void SaveCallbacks(CkRuntimeHost &host) {
+    Document document(host);
+    CHECK(document.New(nullptr));
+    SaveFailureFolder folder(document.Context(), CKGUID(0x63a54911, 0x32816274));
+    auto &manager = *folder.manager;
+    SaveOptions options;
+    options.allowOverwrite = true;
+    SaveReport report;
+    for (bool display : {false, true}) {
+        CHECK(document.New(nullptr));
+        auto *scene = document.Context()->GetCurrentLevel()->GetLevelScene();
+        scene->SetFogEnd(100);
+        const auto owner = CreateLayoutObject(document, LayoutObject::Frame3D);
+        CHECK(owner.ok);
+        const auto script = CreateScript(document, owner.created, "Saved Script");
+        CHECK(script.ok);
+        CHECK(AddLocalParameter(document, script.created, script.created, "Saved value", CKPGUID_INT, Point(100, 100)).ok);
+        ScriptSession *session = document.Session(script.created);
+        CHECK(session && !session->ReadOnly());
+        const auto color = session->Data().header.color;
+        const auto path = folder.directory / (display ? "display.cmo" : "topology.cmo");
+        manager.afterSave = [&] {
+            if (display) {
+                session->Data().header.color = color ^ 0x00FFFFFF;
+                session->Touch();
+            } else {
+                scene->SetFogEnd(777);
+                document.MarkTopologyChanged();
+            }
+        };
+        const bool written = SaveDocumentAs(document, path.u8string(), options, report);
+        for (const auto &error : report.errors) std::cerr << error << '\n';
+        CHECK(written);
+        CHECK(report.saved && !report.documentSaved && document.Dirty());
+        CHECK(display ? session->Data().header.color != color : scene->GetFogEnd() == 777);
+        manager.afterSave = nullptr;
+        CHECK(document.Open(path.u8string(), nullptr));
+        CHECK(document.Context()->GetCurrentLevel()->GetLevelScene()->GetFogEnd() == 100);
+        CHECK(document.Scripts().size() == 1);
+        CHECK(document.Session(document.Scripts().front().id)->Data().header.color == color);
+        CHECK(!document.Dirty());
+    }
+    // Merely opening a clean session or changing its view must not prevent saving.
+    auto *session = document.Session(document.Scripts().front().id);
+    manager.afterSave = [&] { session->SetOpen(!session->IsOpen()); };
+    const auto path = folder.directory / "view.cmo";
+    CHECK(SaveDocumentAs(document, path.u8string(), options, report));
+    CHECK(report.saved && report.documentSaved && !document.Dirty());
+    manager.afterSave = nullptr;
+    auto *scene = document.Context()->GetCurrentLevel()->GetLevelScene();
+    auto environment = ReadSceneEnvironment(scene);
+    environment.fogEnd = 222;
+    CHECK(SetSceneEnvironment(document, scene->GetID(), environment, "After save").ok);
+    CHECK(document.History().Undo() && !document.Dirty());
+    CHECK(document.History().Redo() && document.Dirty());
+
+    // A callback undoing an edit can reach the old save point while EndSave
+    // is still running. The replaced file contains the newer value instead.
+    CHECK(document.New(nullptr));
+    scene = document.Context()->GetCurrentLevel()->GetLevelScene();
+    scene->SetFogEnd(100);
+    const auto historyPath = folder.directory / "history.cmo";
+    CHECK(SaveDocumentAs(document, historyPath.u8string(), options, report));
+    CHECK(report.documentSaved);
+    environment = ReadSceneEnvironment(scene);
+    environment.fogEnd = 200;
+    CHECK(SetSceneEnvironment(document, scene->GetID(), environment, "Before callback").ok);
+    manager.afterSave = [&] { CHECK(document.History().Undo()); };
+    CHECK(SaveDocumentAs(document, historyPath.u8string(), options, report));
+    manager.afterSave = nullptr;
+    CHECK(report.saved && !report.documentSaved && document.Dirty() && scene->GetFogEnd() == 100);
+    CHECK(document.History().Redo() && document.Dirty() && scene->GetFogEnd() == 200);
+    CHECK(document.History().Undo() && document.Dirty() && scene->GetFogEnd() == 100);
+    CHECK(document.Open(historyPath.u8string(), nullptr));
+    CHECK(document.Context()->GetCurrentLevel()->GetLevelScene()->GetFogEnd() == 200);
+}
 
 static std::vector<unsigned char> SavedFileBytes(const std::filesystem::path &path) {
     std::ifstream file(path, std::ios::binary);
