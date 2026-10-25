@@ -15,6 +15,8 @@ if(VIRTOOLSDEV_BUILD_UI_TESTS)
     list(APPEND _production_check --test-binary $<TARGET_FILE:VirtoolsDevUiTests>)
 endif()
 add_test(NAME NeMoDevProductionIsolation COMMAND ${_production_check})
+add_test(NAME NeMoDevCTestResults COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/CTestResultsTests.py")
 add_executable(NeMoDevCommandLineTests CommandLineTests.cpp ../ui/app/CommandLine.cpp)
 target_link_libraries(NeMoDevCommandLineTests PRIVATE VirtoolsDevCore)
 virtoolsdev_add_test(NeMoDevCommandLine NeMoDevCommandLineTests)
@@ -78,6 +80,10 @@ foreach (_dev_case_line IN LISTS _dev_case_lines)
     string(REGEX REPLACE "^VIRTOOLSDEV_CASE\\(([A-Za-z0-9_]+)\\).*$" "\\1" _dev_case "${_dev_case_line}")
     virtoolsdev_add_test(VirtoolsDev.${_dev_case} VirtoolsDevTests --case ${_dev_case})
 endforeach ()
+# These tests supply their own inputs and can run from a public checkout.
+# Original-composition regressions below retain their separate fixtures.
+get_property(_self_contained_tests DIRECTORY PROPERTY TESTS)
+set_tests_properties(${_self_contained_tests} PROPERTIES LABELS self-contained)
 # The samples of VIRTOOLSDEV_SAMPLE_ROOT/data. Edits a copy in memory;
 # outputs go to the build tree, never into data/.
 set(_dev_data "${VIRTOOLSDEV_SAMPLE_ROOT}/data")
@@ -161,6 +167,8 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
     virtoolsdev_add_test(VirtoolsDevUi.filemenu VirtoolsDevUiTests --ui-tests "^filemenu$" --ui-results "${_dev_ui_results}/filemenu.xml")
     # Temporarily removes the build runtime's version marker to test export failure.
     set_tests_properties(VirtoolsDevUi.filemenu PROPERTIES RUN_SERIAL TRUE)
+    set_tests_properties(VirtoolsDevUi.html VirtoolsDevUi.app VirtoolsDevUi.filemenu
+            PROPERTIES LABELS self-contained)
     foreach (_category schematic debugger)
         virtoolsdev_add_test(VirtoolsDevUi.${_category} VirtoolsDevUiTests --ui-tests "^${_category}$"
                 --ui-results "${_dev_ui_results}/${_category}.xml" "${_dev_command_sample}")
@@ -211,3 +219,4 @@ endif ()
 add_test(NAME VirtoolsDevLayering
         COMMAND ${CMAKE_COMMAND} -DVIRTOOLSDEV_SOURCE_DIR=${VIRTOOLSDEV_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/CheckLayering.cmake)
+set_tests_properties(VirtoolsDevLayering PROPERTIES LABELS self-contained)

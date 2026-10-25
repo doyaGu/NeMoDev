@@ -136,7 +136,7 @@ if(VIRTOOLSDEV_BUILD_TESTS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
             "${VIRTOOLSDEV_SOURCE_DIR}/tests/InstalledRuntimeTests.py"
             --build "${PROJECT_BINARY_DIR}" --cmake "${CMAKE_COMMAND}" --config "$<CONFIG>"
             --binary-name "$<TARGET_FILE_NAME:VirtoolsDev>" --haru-library "${VIRTOOLSDEV_HARU_LIBRARY}")
-    set_tests_properties(NeMoDevInstalledRuntime PROPERTIES RUN_SERIAL TRUE TIMEOUT 180)
+    set_tests_properties(NeMoDevInstalledRuntime PROPERTIES RUN_SERIAL TRUE TIMEOUT 180 LABELS self-contained)
 endif()
 
 if (VIRTOOLSDEV_BUILD_UI_TESTS)

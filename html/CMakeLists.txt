@@ -32,4 +32,5 @@ if(NEMODEV_HTML_BUILD_TESTS)
         "-DHTML_SOURCE_DIRECTORY=${CMAKE_CURRENT_SOURCE_DIR}"
         "-DTEST_BINARY_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/dependency-tests"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/DependencyTests.cmake")
+    set_tests_properties(NeMoDevHtml NeMoDevHtmlDependencies PROPERTIES LABELS self-contained)
 endif()
