@@ -1,6 +1,5 @@
-# VirtoolsDev.exe: the Dear ImGui front end on VirtoolsDevCore; with
-# VIRTOOLSDEV_BUILD_UI_TESTS also VirtoolsDevUiTests.exe, the same editor
-# built with Dear ImGui Test Engine and the UI tests of tests/ui.
+# NeMoDev: the Dear ImGui front end on VirtoolsDevCore. Optional UI regressions
+# build the same editor with Dear ImGui Test Engine and the tests of tests/ui.
 
 set(_imgui_sources
         ${VIRTOOLSDEV_IMGUI_DIR}/imgui.cpp

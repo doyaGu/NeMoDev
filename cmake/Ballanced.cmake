@@ -62,6 +62,7 @@ install(FILES "${PROJECT_BINARY_DIR}/BallancedRuntime.txt" DESTINATION Bin COMPO
 
 # All targets retain their component's install ownership. Stage Runtime only,
 # after building its modules, for both the editor and the real-runtime tests.
+# This is a development deployment, independent of DESTDIR used for packaging.
 function(virtoolsdev_collect_targets directory output)
     get_property(_targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
     get_property(_children DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
@@ -88,6 +89,10 @@ foreach(_component IN LISTS _ballanced_components)
     endforeach()
 endforeach()
 add_custom_target(VirtoolsDevRuntime ALL
-    COMMAND ${CMAKE_COMMAND} --install "${PROJECT_BINARY_DIR}" --prefix "${PROJECT_BINARY_DIR}/runtime" --component Runtime --config $<CONFIG>
+    COMMAND ${CMAKE_COMMAND} -E env --unset=DESTDIR ${CMAKE_COMMAND}
+        --install "${PROJECT_BINARY_DIR}" --prefix "${PROJECT_BINARY_DIR}/runtime" --component Runtime --config $<CONFIG>
+    COMMAND ${CMAKE_COMMAND} -E env --unset=DESTDIR ${CMAKE_COMMAND}
+        "-DCMAKE_INSTALL_PREFIX=${PROJECT_BINARY_DIR}/runtime"
+        -P "${VIRTOOLSDEV_SOURCE_DIR}/cmake/InstallApplicationData.cmake"
     DEPENDS ${_runtime_targets}
     VERBATIM)

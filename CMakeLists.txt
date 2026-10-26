@@ -54,13 +54,28 @@ if(EXISTS "${_help_archive}")
 else()
     message(STATUS "CHM documentation not found; local help will not be deployed.")
 endif()
-# The editor and its tests share runtime/Bin for every configuration.
+# SDK libraries share runtime/Bin for every configuration. The editor and its
+# tests use the same directory, or a development application bundle on macOS.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/runtime/Bin")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${PROJECT_BINARY_DIR}/runtime/Bin")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE "${PROJECT_BINARY_DIR}/runtime/Bin")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${PROJECT_BINARY_DIR}/runtime/Bin")
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${PROJECT_BINARY_DIR}/runtime/Bin")
+foreach(_configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${_configuration} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+endforeach()
 include(cmake/Ballanced.cmake)
+set(_runtime_data "${PROJECT_BINARY_DIR}/runtime/data")
+if(APPLE)
+    # Cocoa/SDL resolves resources relative to the development application too.
+    # Share the runtime's data directory rather than maintaining another copy.
+    set(_development_bundle "${PROJECT_BINARY_DIR}/runtime/NeMoDev.app/Contents")
+    file(MAKE_DIRECTORY "${_development_bundle}/Resources" "${_runtime_data}")
+    file(CREATE_LINK "../../../data" "${_development_bundle}/Resources/data" SYMBOLIC)
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DevelopmentBundleInfo.plist.in"
+        "${_development_bundle}/Info.plist" @ONLY)
+    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_development_bundle}/MacOS")
+    foreach(_configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${_configuration} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
+    endforeach()
+    list(APPEND CMAKE_BUILD_RPATH "@loader_path/../../../Bin")
+endif()
 include(cmake/ThirdPartyNotices.cmake)
 
 option(VIRTOOLSDEV_BUILD_TESTS "Build NeMoDev tests" OFF)
@@ -91,7 +106,7 @@ endif ()
 include(cmake/RuntimeTargets.cmake)
 
 # The images listed in images.txt are embedded in the editor. Interface data
-# and the local help archive are copied beside the program.
+# and optional local help are deployed in the runtime's root data directory.
 find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
 execute_process(COMMAND "${Python3_EXECUTABLE}" -c "from PIL import Image; Image.Resampling.NEAREST"
     RESULT_VARIABLE _pillow_result OUTPUT_QUIET ERROR_QUIET)
@@ -114,11 +129,6 @@ target_include_directories(VirtoolsDevResources PUBLIC "${VIRTOOLSDEV_SOURCE_DIR
 target_compile_features(VirtoolsDevResources PUBLIC cxx_std_17)
 # As core/runtime/Resources.h names them.
 set(VIRTOOLSDEV_DATA_FILES "${VIRTOOLSDEV_RESOURCES_DIR}/data/interface.nmo")
-set(_runtime_data "${PROJECT_BINARY_DIR}/runtime/data")
-add_custom_command(TARGET VirtoolsDevRuntime POST_BUILD
-    COMMAND ${CMAKE_COMMAND} "-DCMAKE_INSTALL_PREFIX=${PROJECT_BINARY_DIR}/runtime"
-        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/InstallApplicationData.cmake"
-    VERBATIM)
 add_custom_target(VirtoolsDevData ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_runtime_data}"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${VIRTOOLSDEV_DATA_FILES} "${_runtime_data}"
@@ -143,20 +153,6 @@ if(VIRTOOLSDEV_HAS_HELP)
     add_dependencies(VirtoolsDevHelp VirtoolsDevData)
 endif()
 add_dependencies(VirtoolsDevData VirtoolsDevRuntime)
-if(APPLE)
-    # Cocoa/SDL resolves resources relative to the development application too.
-    # Share the runtime's data directory rather than maintaining another copy.
-    set(_development_bundle "${PROJECT_BINARY_DIR}/runtime/NeMoDev.app/Contents")
-    file(MAKE_DIRECTORY "${_development_bundle}/Resources" "${_runtime_data}")
-    file(CREATE_LINK "../../../data" "${_development_bundle}/Resources/data" SYMBOLIC)
-    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DevelopmentBundleInfo.plist.in"
-        "${_development_bundle}/Info.plist" @ONLY)
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${_development_bundle}/MacOS")
-    foreach(_configuration DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
-        set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${_configuration} "${_development_bundle}/MacOS")
-    endforeach()
-    list(APPEND CMAKE_BUILD_RPATH "@loader_path/../../../Bin")
-endif()
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/resources/application.rc"
         "${PROJECT_BINARY_DIR}/generated/application.rc" @ONLY)
 function(virtoolsdev_add_resources target)
