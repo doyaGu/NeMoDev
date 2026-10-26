@@ -35,6 +35,12 @@ add_test(NAME NeMoDevApplicationData COMMAND ${CMAKE_COMMAND}
         "-DSOURCE_DIRECTORY=${VIRTOOLSDEV_SOURCE_DIR}"
         "-DBINARY_DIRECTORY=${PROJECT_BINARY_DIR}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/ApplicationDataTests.cmake")
+if(APPLE)
+    add_test(NAME NeMoDevMacRuntimeStaging COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/MacRuntimeStagingTests.py"
+            --build "${PROJECT_BINARY_DIR}" --cmake "${CMAKE_COMMAND}" --config "$<CONFIG>")
+    set_tests_properties(NeMoDevMacRuntimeStaging PROPERTIES RUN_SERIAL TRUE TIMEOUT 300)
+endif()
 
 add_test(NAME VirtoolsDevLicenseDeployment COMMAND ${CMAKE_COMMAND}
         "-DSOURCE_DIRECTORY=${VIRTOOLSDEV_SOURCE_DIR}"

@@ -83,6 +83,10 @@ foreach(_component IN LISTS _ballanced_components)
                 set_property(TARGET ${_target} APPEND PROPERTY INSTALL_RPATH "$ORIGIN/../Bin")
                 if(APPLE)
                     set_property(TARGET ${_target} PROPERTY INSTALL_RPATH "@loader_path/../Bin")
+                    # SDK libraries are already built inside runtime/. Staging
+                    # must not rewrite these build outputs in place on every
+                    # install, leaving CMake's recorded build RPATH out of date.
+                    set_property(TARGET ${_target} PROPERTY BUILD_WITH_INSTALL_RPATH TRUE)
                 endif()
             endif()
         endif()
