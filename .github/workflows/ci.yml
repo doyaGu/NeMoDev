@@ -99,7 +99,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build libgtk-3-dev libglib2.0-dev libhpdf-dev \
+          sudo apt-get install -y ninja-build dpkg-dev libgtk-3-dev libglib2.0-dev libhpdf-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libx11-dev libxext-dev \
             libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
@@ -194,6 +194,28 @@ jobs:
       - name: Check the installed Unix program
         if: runner.os != 'Windows'
         run: python tests/CheckProductionBinary.py --binary out/package/Bin/NeMoDev --package out/package
+      - name: Package and verify the native distribution
+        run: |
+          python tools/Package.py --installed out/package --output out/dist \
+            --version '0.0.${{ github.run_number }}' --revision '${{ github.sha }}' \
+            --sdk-revisions out/ballanced-revision.txt
+      - name: Install and start the Ubuntu package in a clean system
+        if: runner.os == 'Linux'
+        run: |
+          docker run --rm -v "$PWD/out/dist:/packages:ro" -v "$PWD/tests:/checks:ro" \
+            ubuntu:24.04 bash /checks/CheckUbuntuPackage.sh
+      - name: Upload the end-user distribution
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: NeMoDev-${{ matrix.preset }}
+          path: |
+            out/dist/NeMoDev-*.zip
+            out/dist/NeMoDev-*.deb
+            out/dist/NeMoDev-*.dmg
+            out/dist/NeMoDev-*.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
       - name: Upload test and configuration logs
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
