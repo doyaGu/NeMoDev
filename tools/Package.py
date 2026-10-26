@@ -26,7 +26,14 @@ PLUGINS = ("RenderEngines", "Managers", "BuildingBlocks", "Plugins")
 
 
 def run(*command, **kwargs):
-    return subprocess.run([str(item) for item in command], check=True, **kwargs)
+    try:
+        return subprocess.run([str(item) for item in command], check=True, **kwargs)
+    except subprocess.CalledProcessError as error:
+        if error.stdout:
+            print(error.stdout)
+        if error.stderr:
+            print(error.stderr, file=sys.stderr)
+        raise
 
 
 def check_production(binary, package):
@@ -40,7 +47,17 @@ def check_production(binary, package):
         "--binary", binary, "--package", package, env=env)
 
 
+def check_symlinks(package):
+    for path in package.rglob("*"):
+        if path.is_symlink():
+            try:
+                path.resolve(strict=True).relative_to(package.resolve())
+            except (ValueError, OSError, RuntimeError) as error:
+                raise RuntimeError(f"Installed symlink is broken or leaves the package: {path}") from error
+
+
 def check_payload(package):
+    check_symlinks(package)
     required = ("Bin/data/interface.nmo", "Bin/BallancedRuntime.txt", "LICENSE", "THIRD_PARTY_NOTICES.md",
                 "Bin/data/fonts/NotoSans-Regular.ttf", "Bin/data/fonts/NotoSansSC-Regular.otf")
     for name in required:
@@ -131,6 +148,9 @@ def linux_deb(package, output, name, version, work):
     copyright_path = root / "usr/share/doc/nemodev/copyright"
     copyright_path.parent.mkdir(parents=True)
     shutil.copy2(payload / "THIRD_PARTY_NOTICES.md", copyright_path)
+    for path in (root, *root.rglob("*")):
+        if not path.is_symlink():
+            path.chmod(0o755 if path.is_dir() or path.stat().st_mode & 0o111 else 0o644)
     archive = output / f"{name}.deb"
     run("dpkg-deb", "--build", "--root-owner-group", root, archive)
     extracted = work / "Extracted DEB"

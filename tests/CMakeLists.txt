@@ -17,6 +17,10 @@ endif()
 add_test(NAME NeMoDevProductionIsolation COMMAND ${_production_check})
 add_test(NAME NeMoDevCTestResults COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/CTestResultsTests.py")
+if(UNIX)
+    add_test(NAME NeMoDevPackaging COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/PackagingTests.py")
+endif()
 add_executable(NeMoDevCommandLineTests CommandLineTests.cpp ../ui/app/CommandLine.cpp)
 target_link_libraries(NeMoDevCommandLineTests PRIVATE VirtoolsDevCore)
 virtoolsdev_add_test(NeMoDevCommandLine NeMoDevCommandLineTests)

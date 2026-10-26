@@ -47,6 +47,9 @@ if(NOT EXISTS "${_help_archive}")
 endif()
 set(VIRTOOLSDEV_HAS_HELP OFF)
 if(EXISTS "${_help_archive}")
+    # A locally supplied archive may itself be a symlink. Install its contents,
+    # rather than retaining a link to the developer's resource directory.
+    get_filename_component(_help_archive "${_help_archive}" REALPATH)
     set(VIRTOOLSDEV_HAS_HELP ON)
 else()
     message(STATUS "CHM documentation not found; local help will not be deployed.")
