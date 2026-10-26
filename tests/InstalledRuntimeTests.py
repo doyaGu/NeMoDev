@@ -69,11 +69,14 @@ def main():
     environment = clean_environment()
     with tempfile.TemporaryDirectory(prefix="NeMoDev installed runtime ") as temporary:
         root = Path(temporary).resolve()
-        original, relocated = root / "installation", root / "relocated package"
+        staging = root / "staging"
+        original, relocated = staging / "opt/nemodev", root / "relocated package"
+        install_environment = os.environ.copy()
+        install_environment["DESTDIR"] = str(staging)
         for component in ("Runtime", "Application"):
-            result = subprocess.run([args.cmake, "--install", str(build), "--prefix", str(original),
+            result = subprocess.run([args.cmake, "--install", str(build), "--prefix", "/opt/nemodev",
                                      "--component", component, "--config", args.config],
-                                    capture_output=True, text=True, timeout=90)
+                                    env=install_environment, capture_output=True, text=True, timeout=90)
             if result.returncode:
                 raise RuntimeError("Installation failed:\n" + result.stdout + result.stderr)
         original.rename(relocated)

@@ -1,8 +1,9 @@
-# The SDK installs fonts in Bin/data. The application's installed layout keeps
-# all read-only data next to Bin. Run before installing current application data
-# so that a reinstall cannot replace it with an older copy from Bin/data.
-set(_legacy_data "${CMAKE_INSTALL_PREFIX}/Bin/data")
-set(_data "${CMAKE_INSTALL_PREFIX}/data")
+# The SDK installs fonts in Bin/data. Both the development runtime and the
+# installed application keep read-only data next to Bin. Run before installing
+# current application data so a reinstall cannot replace it with an older copy.
+set(_installation "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+set(_legacy_data "${_installation}/Bin/data")
+set(_data "${_installation}/data")
 
 function(_nemodev_move_data source destination)
     file(MAKE_DIRECTORY "${destination}")
@@ -31,7 +32,7 @@ function(_nemodev_move_data source destination)
     file(REMOVE_RECURSE "${source}")
 endfunction()
 if(IS_DIRECTORY "${_legacy_data}")
-    file(REAL_PATH "${CMAKE_INSTALL_PREFIX}" _prefix)
+    file(REAL_PATH "${_installation}" _prefix)
     file(REAL_PATH "${_legacy_data}" _source)
     cmake_path(IS_PREFIX _prefix "${_source}" NORMALIZE _source_inside)
     if(NOT _source_inside OR IS_SYMLINK "${_legacy_data}")
