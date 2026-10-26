@@ -283,6 +283,9 @@ jobs:
         run: |
           docker run --rm -v "$PWD/out/dist:/packages:ro" -v "$PWD/tests:/checks:ro" \
             ubuntu:24.04 bash /checks/CheckUbuntuPackage.sh
+      - name: Verify the relocated Windows ZIP runtime and resources
+        if: runner.os == 'Windows'
+        run: python tests/CheckWindowsPackage.py out/windows-x64/runtime/Bin/NeMoDevRuntimeLayoutTests.exe out/dist/NeMoDev-*.zip
       - name: Verify the macOS bundle runtime and resources
         if: runner.os == 'macOS'
         run: bash tests/CheckMacPackage.sh out/macos-arm64/runtime/NeMoDev.app/Contents/MacOS/NeMoDevRuntimeLayoutTests out/dist/NeMoDev-*.dmg
