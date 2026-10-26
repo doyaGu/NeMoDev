@@ -163,7 +163,7 @@ def linux_tar(package, output, name, work):
                "Extract the entire archive and run ./NeMoDev. Keep all folders together.\n"
                "The launcher also works through a symlink and preserves your working directory.\n\n"
                "System requirements: glibc 2.35+, GTK3 with its Unix Print/CUPS backend, GIO,\n"
-               "libpng16, zlib, libstdc++, Vulkan loader and a working graphics driver.\n"
+               "libpng16, zlib, libstdc++, libudev, D-Bus, libdecor, Vulkan and a graphics driver.\n"
                "Install Zenity for SDL's native file dialogs, and ALSA/PulseAudio libraries for audio.\n"
                "SDL3, libharu, the Ballanced runtime, plugins and fonts are included.\n"
                "Actual required symbol versions are recorded in build-info.json.\n\n"
@@ -215,7 +215,7 @@ def linux_deb(package, output, name, version, work):
     linked = next(line.partition("=")[2] for line in dependencies.stdout.splitlines()
                   if line.startswith("shlibs:Depends="))
     # SDL loads these backends at runtime, beyond the ELF dependency table.
-    required = linked + ", libvulkan1, libasound2t64 | libasound2, libpulse0, zenity"
+    required = linked + ", libvulkan1, libasound2t64 | libasound2, libpulse0, libudev1, libdbus-1-3, libdecor-0-0, zenity"
     size = sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) // 1024 + 1
     write_text(root / "DEBIAN/control", f"Package: nemodev\nVersion: {version}\nArchitecture: amd64\n"
                "Section: non-free/devel\nPriority: optional\nMaintainer: NeMoDev contributors <noreply@github.com>\n"

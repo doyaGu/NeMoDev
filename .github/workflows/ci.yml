@@ -287,11 +287,6 @@ jobs:
           python tools/Package.py --installed out/package --output out/dist \
             --version '0.0.${{ github.run_number }}' --revision '${{ github.sha }}' \
             --sdk-revisions out/ballanced-revision.txt "${formats[@]}"
-      - name: Install and start the Ubuntu package in a clean system
-        if: runner.os == 'Linux'
-        run: |
-          docker run --rm -v "$PWD/out/dist:/packages:ro" -v "$PWD/tests:/checks:ro" \
-            ubuntu:24.04 bash /checks/CheckUbuntuPackage.sh
       - name: Verify the relocated Windows ZIP runtime and resources
         if: runner.os == 'Windows'
         run: python tests/CheckWindowsPackage.py out/windows-x64/runtime/Bin/NeMoDevRuntimeLayoutTests.exe out/dist/NeMoDev-*.zip
@@ -336,7 +331,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: ['ubuntu:22.04', 'debian:12', 'debian:13', 'fedora:44', 'opensuse/tumbleweed:latest', 'archlinux:base']
+        image: ['ubuntu:22.04', 'ubuntu:24.04', 'debian:12', 'debian:13', 'fedora:44', 'opensuse/tumbleweed:latest', 'archlinux:base']
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Run in a fresh ubuntu:24.04 container. Only the DEB and external checks are
+# Run in a fresh Debian-family container. Only the DEB and external checks are
 # mounted, so build tools, SDK trees and developer library paths cannot help it.
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
