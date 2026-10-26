@@ -23,13 +23,18 @@ def main():
     package = args.package.resolve(strict=True)
     user = C.WinDLL("user32", use_last_error=True)
     kernel = C.WinDLL("kernel32", use_last_error=True)
+    user.SetThreadDpiAwarenessContext.argtypes = [W.HANDLE]
+    user.SetThreadDpiAwarenessContext.restype = W.HANDLE
+    if not user.SetThreadDpiAwarenessContext(W.HANDLE(-4)):  # PER_MONITOR_AWARE_V2
+        raise C.WinError(C.get_last_error())
     callback_type = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
     user.EnumWindows.argtypes = [callback_type, W.LPARAM]
     user.GetWindowThreadProcessId.argtypes = [W.HWND, C.POINTER(W.DWORD)]
     user.GetWindowTextW.argtypes = [W.HWND, W.LPWSTR, C.c_int]
     user.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
     user.SetWindowPos.argtypes = [W.HWND, W.HWND, C.c_int, C.c_int, C.c_int, C.c_int, W.UINT]
-    user.GetWindowRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
+    user.GetClientRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
+    user.ClientToScreen.argtypes = [W.HWND, C.POINTER(W.POINT)]
     kernel.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
     kernel.OpenProcess.restype = W.HANDLE
     kernel.CloseHandle.argtypes = [W.HANDLE]
@@ -74,18 +79,23 @@ def main():
                 if not user.SetWindowPos(window, W.HWND(-1), 20, 20, 1200, 800, 0x40):
                     raise C.WinError(C.get_last_error())
                 colors = []
+                painted_frames = 0
                 deadline = time.monotonic() + 60
                 while time.monotonic() < deadline and process.poll() is None:
                     rectangle = W.RECT()
-                    if not user.GetWindowRect(window, C.byref(rectangle)):
+                    origin = W.POINT()
+                    if not user.GetClientRect(window, C.byref(rectangle)) or not user.ClientToScreen(window, C.byref(origin)):
                         raise C.WinError(C.get_last_error())
-                    image = ImageGrab.grab(bbox=(rectangle.left + 20, rectangle.top + 80,
-                                                rectangle.left + 520, rectangle.top + 380)).convert("RGB")
+                    if rectangle.right < 520 or rectangle.bottom < 380:
+                        raise RuntimeError("The editor client area is too small for frame inspection")
+                    image = ImageGrab.grab(bbox=(origin.x + 20, origin.y + 80,
+                                                origin.x + 520, origin.y + 380)).convert("RGB")
                     colors = image.getcolors(image.width * image.height) or []
-                    if len(colors) > 24:
+                    painted_frames = painted_frames + 1 if len(colors) > 24 else 0
+                    if painted_frames >= 2:
                         break
                     time.sleep(.25)
-                if len(colors) <= 24:
+                if painted_frames < 2:
                     raise RuntimeError(f"The editor did not draw its interface: {len(colors)} colors")
                 handle = kernel.OpenProcess(0x410, False, process.pid)  # QUERY_INFORMATION | VM_READ
                 if not handle:
