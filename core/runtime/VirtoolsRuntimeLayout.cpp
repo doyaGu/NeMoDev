@@ -7,37 +7,46 @@
 
 #include "CKAll.h"
 
-namespace {
-
-bool IsDirectory(const std::string &path) {
+static bool IsDirectory(const std::string &path) {
     std::error_code error;
     return std::filesystem::is_directory(std::filesystem::u8path(path), error);
 }
 
-std::string WithoutTrailingSeparator(std::string path) {
+static std::string WithoutTrailingSeparator(std::string path) {
     while (path.size() > 1 && (path.back() == '\\' || path.back() == '/')) path.pop_back();
     return path;
 }
 
-std::string Lower(std::string text) {
+static std::string Lower(std::string text) {
     for (char &c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return text;
 }
 
-bool IsFile(const std::string &path) {
+static bool IsFile(const std::string &path) {
     std::error_code error;
     return std::filesystem::is_regular_file(std::filesystem::u8path(path), error);
 }
 
-const char *const IGNORED_PLUGINS[] = {"bmlplus.dll", "angelscript.dll"};
+static const char *const IGNORED_PLUGINS[] = {"bmlplus.dll", "angelscript.dll"};
 
-} // namespace
+static std::string BundleContents(const std::string &directory) {
+    auto path = std::filesystem::u8path(directory);
+    if (path.extension() == ".app") return (path / "Contents").u8string();
+    if (path.filename() != "Contents") path = path.parent_path();
+    if (path.filename() == "Contents" && path.parent_path().extension() == ".app")
+        return path.u8string();
+    return {};
+}
 
 const char *const VIRTOOLS_PLUGIN_FOLDERS[4] = {"RenderEngines", "Managers", "BuildingBlocks", "Plugins"};
 
 std::string VirtoolsRuntimeDirectory(const std::string &path) {
     const std::string directory = WithoutTrailingSeparator(path.empty() ? "." : path);
-    if (!IsFile(directory + "/" VIRTOOLS_CK2_FILENAME) && IsFile(directory + "/Bin/" VIRTOOLS_CK2_FILENAME)) return directory + "/Bin";
+    if (IsFile(directory + "/" VIRTOOLS_CK2_FILENAME)) return directory;
+    if (IsFile(directory + "/Bin/" VIRTOOLS_CK2_FILENAME)) return directory + "/Bin";
+    const std::string contents = BundleContents(directory);
+    if (!contents.empty() && IsFile(contents + "/Frameworks/" VIRTOOLS_CK2_FILENAME))
+        return contents + "/Frameworks";
     return directory;
 }
 
@@ -46,6 +55,9 @@ std::string VirtoolsPluginRoot(const std::string &runtimeDirectory) {
     if (IsDirectory(directory + "/RenderEngines")) return directory;
     const std::string parent = std::filesystem::u8path(directory).parent_path().u8string();
     if (IsDirectory(parent + "/RenderEngines")) return parent;
+    const std::string contents = BundleContents(directory);
+    if (!contents.empty() && IsDirectory(contents + "/PlugIns/RenderEngines"))
+        return contents + "/PlugIns";
     return directory;
 }
 

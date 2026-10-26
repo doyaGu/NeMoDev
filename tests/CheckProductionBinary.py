@@ -49,12 +49,12 @@ def main():
         if not args.package.is_dir():
             raise RuntimeError(f"Package directory not found: {args.package}")
         forbidden = ("VirtoolsDevTests", "VirtoolsDevUiTests", "VirtoolsDevPortableTests",
-                     "VirtoolsDevFileDialogTests", "NeMoDevCommandLineTests", "NeMoDevHelpTests", "NeMoDevHtmlTests", "SchematicModelTests",
+                     "VirtoolsDevFileDialogTests", "NeMoDevCommandLineTests", "NeMoDevRuntimeLayoutTests", "NeMoDevHelpTests", "NeMoDevHtmlTests", "SchematicModelTests",
                      "ImGuiTestEngine", "imgui_test_engine", "imgui_te_",
                      "test-player", "test-help", "test-desktop", "test-windows-desktop", "virtoolsdev-ui", "local-samples")
         for path in args.package.rglob("*"):
             # Keep the existing third-party notice; it contains no engine code.
-            if path == args.package / "licenses" / "ImGuiTestEngine-License.txt":
+            if path.name == "ImGuiTestEngine-License.txt" and path.parent.name == "licenses":
                 continue
             if path.name.lower() == "tests" or any(name.lower() in path.name.lower() for name in forbidden):
                 raise RuntimeError(f"Regression material in the package: {path}")
