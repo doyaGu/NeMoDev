@@ -77,10 +77,16 @@ void ToolWindows::LoadResource(const std::string &path, CK_CLASSID cid) {
     const CK_ID target = levelTarget ? levelTarget() : 0;
     auto load = [this, path, cid, target](const std::vector<DuplicateName> *duplicates) {
         if (!m_State.HasDocument()) return;
-        const EditResult result = LoadResourceFile(*m_State.document, path, cid, target, nullptr, duplicates);
-        m_State.Log(result.ok ? LogLevel::Info : LogLevel::Warning,
-                    (result.ok ? std::string("Loaded: ") : std::string("Load failed: ")) + AnsiToUtf8(result.message) + " (" + path + ")");
-        if (result.ok) m_Canvas.Invalidate();
+        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
+        auto result = std::make_shared<EditResult>(EditResult::NoChange());
+        m_State.RunRuntime("Loading resource", [this, path, cid, target, choices, result] {
+            *result = LoadResourceFile(*m_State.document, path, cid, target, nullptr, choices.get());
+        }, [this, path, result](bool ok) {
+            if (!ok) return;
+            m_State.Log(result->ok ? LogLevel::Info : LogLevel::Warning,
+                        (result->ok ? std::string("Loaded: ") : std::string("Load failed: ")) + AnsiToUtf8(result->message) + " (" + path + ")");
+            if (result->ok) m_Canvas.Invalidate();
+        });
     };
     // The imported files ask about duplicate names (Dev.exe sub_56BC90).
     if (ResourceFileIsImported(cid)) m_State.LoadAskingDuplicates(path, load);
@@ -90,10 +96,16 @@ void ToolWindows::LoadResource(const std::string &path, CK_CLASSID cid) {
 void ToolWindows::ImportResource(const std::string &path, Document::ImportMode mode) {
     if (!m_State.HasDocument()) return;
     m_State.LoadAskingDuplicates(path, [this, path, mode](const std::vector<DuplicateName> *duplicates) {
-        std::string error;
-        if (!m_State.HasDocument() || !m_State.document->Import(path, mode, &error, nullptr, duplicates, m_State.preferences.NewSceneEnvironment()))
-            m_State.Log(LogLevel::Warning, error);
-        m_Canvas.Invalidate();
+        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
+        auto result = std::make_shared<std::pair<bool, std::string>>();
+        const auto environment = m_State.preferences.NewSceneEnvironment();
+        m_State.RunRuntime("Importing resource", [this, path, mode, choices, environment, result] {
+            result->first = m_State.document->Import(path, mode, &result->second, nullptr, choices.get(), environment);
+        }, [this, result](bool ok) {
+            if (!ok) return;
+            if (!result->first) m_State.Log(LogLevel::Warning, result->second);
+            m_Canvas.Invalidate();
+        });
     });
 }
 

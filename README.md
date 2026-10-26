@@ -9,6 +9,10 @@ interface, running on [Ballanced](https://github.com/doyaGu/Ballanced).
 Opening an `.nmo` is a shortcut for New Composition followed by Import File.
 The imported objects belong to a new, unsaved composition.
 
+Loading, saving, importing, merging and exporting files run in the background.
+The window keeps redrawing and shows the current operation; document editing
+and scene playback wait until the operation finishes.
+
 - Edit Scripts, Building Blocks, parameters, pins and connections in the Schematic.
 - Organize Levels, Scenes and objects with the Level and Hierarchy Managers.
 - Preview compositions in Player Mode, debug Scripts and capture snapshots.

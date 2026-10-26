@@ -3,9 +3,13 @@
 #include "core/graph/Debugger.h"
 #include <algorithm>
 #include <cstring>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
+#include <thread>
+#include <stdexcept>
 #include <string>
 #include <set>
 #include <vector>
@@ -22,6 +26,7 @@
 #include "core/document/UndoHistory.h"
 #include "core/level/LevelCommands.h"
 #include "ui/app/EditorEvents.h"
+#include "ui/app/RuntimeOperation.h"
 #include "core/runtime/TextEncoding.h"
 #include "ui/controls/FileDialogs.h"
 
@@ -328,7 +333,7 @@ struct EditorState : DocumentSession {
 private:
     std::shared_ptr<int> m_DocumentIdentity = std::make_shared<int>(0);
 public:
-    ~EditorState() { ClearDocumentState(); }
+    ~EditorState() { FinishRuntimeOperations(); ClearDocumentState(); }
 
     CkRuntimeHost host;
     std::unique_ptr<Document> document;
@@ -485,6 +490,58 @@ public:
         log.push_back({level, text});
         if (log.size() > 5000) log.erase(log.begin(), log.begin() + 1000);
     }
+    // Runtime and text-conversion callbacks can log from the worker. Only
+    // the UI thread appends to the log read by panels and the status bar.
+    void RuntimeLog(LogLevel level, const std::string &text) {
+        if (std::this_thread::get_id() == m_UiThread) { Log(level, text); return; }
+        std::lock_guard<std::mutex> lock(m_RuntimeLogMutex);
+        m_RuntimeLog.push_back({level, text});
+    }
+    void DrainRuntimeLog() {
+        std::vector<LogEntry> entries;
+        {
+            std::lock_guard<std::mutex> lock(m_RuntimeLogMutex);
+            entries.swap(m_RuntimeLog);
+        }
+        for (const auto &entry : entries) Log(entry.level, entry.text);
+    }
+    bool RunRuntime(const std::string &label, std::function<void()> work, std::function<void(bool)> completed = {}) {
+        if (runtimeOperation.Busy()) {
+            std::weak_ptr<int> identity = m_DocumentIdentity;
+            m_RuntimeRequests.push_back([this, identity, label, work = std::move(work), completed = std::move(completed)] {
+                if (!identity.expired()) RunRuntime(label, work, completed);
+                else if (completed) completed(false);
+            });
+            return true;
+        }
+        if (document && document->EditOpen()) {
+            Log(LogLevel::Warning, "Finish the current operation before " + label);
+            if (completed) completed(false);
+            return false;
+        }
+        return runtimeOperation.Queue(label, [this, label, work = std::move(work)] {
+            if (!GuardedCall(work, &host, label.c_str())) throw std::runtime_error(label + " failed");
+        }, [this, completed = std::move(completed)](const std::string &error) {
+            DrainRuntimeLog();
+            if (!error.empty()) Log(LogLevel::Error, error);
+            if (completed) completed(error.empty());
+        });
+    }
+    void PollRuntimeOperations() {
+        runtimeOperation.Poll();
+        while (!runtimeOperation.Busy() && !m_RuntimeRequests.empty()) {
+            auto next = std::move(m_RuntimeRequests.front());
+            m_RuntimeRequests.pop_front();
+            next();
+        }
+        DrainRuntimeLog();
+    }
+    void FinishRuntimeOperations() {
+        do {
+            runtimeOperation.Finish();
+            PollRuntimeOperations();
+        } while (runtimeOperation.Busy());
+    }
     bool HasDocument() const { return document && document->IsOpen(); }
     // The document's undo history (the document is made at startup and lives until shutdown).
     UndoHistory &History() { return document->History(); }
@@ -500,13 +557,24 @@ public:
     // Runs load at once (no choices) when the file brings no duplicate name,
     // else once the dialog has the choices.
     void LoadAskingDuplicates(const std::string &path, std::function<void(const std::vector<DuplicateName> *)> load) {
-        std::vector<DuplicateName> found = HasDocument() ? document->FindDuplicateNames(path) : std::vector<DuplicateName>();
-        if (found.empty()) {
-            load(nullptr);
-            return;
-        }
-        duplicateNames.push_back({path, std::move(found), std::move(load), ++duplicateNamesAsked});
+        auto found = std::make_shared<std::vector<DuplicateName>>();
+        RunRuntime("Checking duplicate names", [this, path, found] {
+            if (HasDocument()) *found = document->FindDuplicateNames(path);
+        }, [this, path, found, load = std::move(load)](bool ok) mutable {
+            if (!ok) return;
+            if (found->empty()) load(nullptr);
+            else duplicateNames.push_back({path, std::move(*found), std::move(load), ++duplicateNamesAsked});
+        });
     }
+
+private:
+    const std::thread::id m_UiThread = std::this_thread::get_id();
+    std::mutex m_RuntimeLogMutex;
+    std::vector<LogEntry> m_RuntimeLog;
+    std::deque<std::function<void()>> m_RuntimeRequests;
+public:
+    // Declared last so its worker and captures go before the document/host.
+    RuntimeOperation runtimeOperation;
 };
 
 } // namespace vdev

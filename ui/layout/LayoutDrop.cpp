@@ -238,9 +238,15 @@ void LayoutWindow::DropResource(int x, int y, const ResourceFilePayload &file) {
     const std::string path = file.path;
     auto load = [this, path, cid, target](const std::vector<DuplicateName> *duplicates) {
         if (!m_State.HasDocument()) return;
-        const EditResult result = LoadResourceFile(*m_State.document, path, cid, target, nullptr, duplicates);
-        m_State.Log(result.ok ? LogLevel::Info : LogLevel::Warning,
-                    (result.ok ? std::string("Loaded: ") : std::string("Load failed: ")) + AnsiToUtf8(result.message) + " (" + path + ")");
+        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
+        auto result = std::make_shared<EditResult>(EditResult::NoChange());
+        m_State.RunRuntime("Loading resource", [this, path, cid, target, choices, result] {
+            *result = LoadResourceFile(*m_State.document, path, cid, target, nullptr, choices.get());
+        }, [this, path, result](bool ok) {
+            if (!ok) return;
+            m_State.Log(result->ok ? LogLevel::Info : LogLevel::Warning,
+                        (result->ok ? std::string("Loaded: ") : std::string("Load failed: ")) + AnsiToUtf8(result->message) + " (" + path + ")");
+        });
     };
     // The imported files ask about duplicate names (Dev.exe sub_4AC330, CK_LOAD_DODIALOG).
     if (ResourceFileIsImported(cid)) m_State.LoadAskingDuplicates(path, load);

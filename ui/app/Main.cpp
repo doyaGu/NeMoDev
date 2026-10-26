@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
         }
         ImGui_ImplSDL3_NewFrame();
 #ifdef VIRTOOLSDEV_UI_TESTS
-        if (capture) line.FeedInput(frame, app);
+        if (capture && !app.State().runtimeOperation.Busy()) line.FeedInput(frame, app);
 #endif
         ImGui::NewFrame();
         ImGuiErrorRecoveryState recovery;
@@ -192,8 +192,9 @@ int main(int argc, char **argv) {
             std::fprintf(stderr, "UI render failed: %s\n", error.c_str()); exitCode = 3; break;
         }
         vdev::ReleaseRetiredTextures();
+        app.EndFrame();
 #ifdef VIRTOOLSDEV_UI_TESTS
-        if (capture && ++frame >= line.captureFrames) { exitCode = CaptureFrame(line.capturePath) ? 0 : 3; break; }
+        if (capture && !app.State().runtimeOperation.Busy() && ++frame >= line.captureFrames) { exitCode = CaptureFrame(line.capturePath) ? 0 : 3; break; }
         if (tests) {
             tests->PreSwap(); tests->PostSwap();
             if (tests->Finished()) { exitCode = tests->ExitCode(); break; }

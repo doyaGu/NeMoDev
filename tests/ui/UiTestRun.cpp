@@ -24,12 +24,14 @@ vdev::EditorApp &App() { return *g_App; }
 void OnMainThread(ImGuiTestContext *ctx, const std::function<void()> &work) {
     g_Work = work;
     // The next frame's GuiFunc runs it; one more if the test has no MainThreadGui.
-    for (int frame = 0; g_Work && frame < 2; ++frame) ctx->Yield();
+    const auto deadline = SDL_GetTicks() + 10000;
+    while (g_Work && SDL_GetTicks() < deadline) ctx->Yield();
     IM_CHECK_NO_RET(!g_Work);
     g_Work = nullptr;
 }
 
 void MainThreadGui(ImGuiTestContext *) {
+    if (g_App->State().runtimeOperation.Busy()) return;
     if (!g_Work) return;
     g_Work();
     g_Work = nullptr;

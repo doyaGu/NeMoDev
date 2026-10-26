@@ -21,6 +21,7 @@ set(_editor_sources
         app/Main.cpp
         app/CommandLine.cpp
         app/EditorApp.cpp
+        app/RuntimeOperation.cpp
         app/FileMenu.cpp
         app/StatusBar.cpp
         app/DuplicateNames.cpp
@@ -97,10 +98,11 @@ if(NOT WIN32)
 endif()
 
 # The editor as target, on the Dear ImGui library imgui, with the sources after it.
+find_package(Threads REQUIRED)
 function(virtoolsdev_add_editor target imgui)
     add_executable(${target} WIN32 ${_editor_sources} ${ARGN})
     # LinkRouting.h and SchematicGrid.h: the canvas routes links on Dev's grid.
-    target_link_libraries(${target} PRIVATE VirtoolsDevCore NeMoDevHtml ${imgui} SDL3::SDL3 stb)
+    target_link_libraries(${target} PRIVATE VirtoolsDevCore NeMoDevHtml ${imgui} SDL3::SDL3 stb Threads::Threads)
     add_dependencies(${target} VirtoolsDevRuntime)
     if(WIN32)
         target_link_libraries(${target} PRIVATE comdlg32 shell32 ole32)

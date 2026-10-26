@@ -27,6 +27,7 @@
 namespace vdev {
 
 void EditorApp::HandleEvent(const SDL_Event &event) {
+    if (m_State.runtimeOperation.Busy()) return;
     m_Layout.HandleEvent(event);
     if (!m_Window || event.type != SDL_EVENT_WINDOW_FOCUS_LOST ||
         event.window.windowID != SDL_GetWindowID(m_Window) || m_Layout.FullScreen()) return;
@@ -107,7 +108,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     m_State.log.back().status = false;
     // CK text retains its native bytes; file paths remain UTF-8.
     SetLossyTextHandler([this](const std::string &text) {
-        m_State.Log(LogLevel::Warning, "Text conversion failed; original CK bytes kept: " + text);
+        m_State.RuntimeLog(LogLevel::Warning, "Text conversion failed; original CK bytes kept: " + text);
     });
     // Preferences: our file, else Dev's own settings (read-only), else Dev's
     // defaults (isolated: the defaults).
@@ -137,7 +138,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     std::string error;
     m_State.host.SetRenderEngine(preferences.Text("CK2 Settings\\Render Engine"));
     const bool started = m_State.host.Start(runtimeDirectory, [this](LogLevel level, const std::string &message) {
-        m_State.Log(level, message);
+        m_State.RuntimeLog(level, message);
     }, &error, window);
     if (!started) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NeMoDev", ("Cannot start the Virtools runtime:\n" + error).c_str(), window);
@@ -177,18 +178,20 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
 #ifdef VIRTOOLSDEV_UI_TESTS
     for (const std::string &resource : m_Startup.resources) m_Tools.OpenDataResource(resource, false);
     if (!m_Startup.resourceFolder.empty()) m_Tools.SelectResourceFolder(m_Startup.resourceFolder);
-    if (m_Startup.newComposition) NewComposition();
+    if (m_Startup.newComposition) NewComposition(false);
 #endif
-    const bool opened = !fileToOpen.empty() && OpenFile(fileToOpen);
     // Dev starts on a new composition (its 3D Layout shows the new scene's
     // gray), saying nothing on the status bar.
     if (!m_State.HasDocument()) {
         const size_t logged = m_State.log.size();
-        NewComposition();
+        NewComposition(false);
         for (size_t i = logged; i < m_State.log.size(); ++i) m_State.log[i].status = false;
     }
 #ifdef VIRTOOLSDEV_UI_TESTS
-    RunStartupActions(opened);
+    if (fileToOpen.empty()) RunStartupActions(false);
+    else OpenFile(fileToOpen, [this](bool opened) { RunStartupActions(opened); });
+#else
+    if (!fileToOpen.empty()) OpenFile(fileToOpen);
 #endif
     UpdateTitle();
     return true;
@@ -286,20 +289,26 @@ void EditorApp::ImportFile(Document::ImportMode mode, const std::string &file) {
     // Dev loads with CK_LOAD_DODIALOG: Duplicate Names Found first.
     m_State.LoadAskingDuplicates(path, [this, mode, path](const std::vector<DuplicateName> *duplicates) {
         if (!m_State.HasDocument()) return;
-        std::string error;
-        std::vector<CK_ID> imported;
-        if (!m_State.document->Import(path, mode, &error, &imported, duplicates, m_State.preferences.NewSceneEnvironment())) {
-            m_State.Log(LogLevel::Error, error);
-            return;
-        }
-        m_State.selection.Clear();
-        m_Canvas.Invalidate();
-        for (const ScriptInfo &script : m_State.document->Scripts())
-            if (std::find(imported.begin(), imported.end(), script.id) != imported.end()) {
-                m_Panels.ShowScript(script.id, ElementRef(), 0, false);
-                break;
+        struct Result { bool loaded = false; std::string error; std::vector<CK_ID> imported; };
+        auto result = std::make_shared<Result>();
+        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
+        const SceneEnvironment environment = m_State.preferences.NewSceneEnvironment();
+        m_State.RunRuntime("Importing file", [this, path, mode, environment, choices, result] {
+            result->loaded = m_State.document->Import(path, mode, &result->error, &result->imported, choices.get(), environment);
+        }, [this, result](bool ok) {
+            if (!ok || !result->loaded) {
+                if (!result->error.empty()) m_State.Log(LogLevel::Error, result->error);
+                return;
             }
-        UpdateTitle();
+            m_State.selection.Clear();
+            m_Canvas.Invalidate();
+            for (const ScriptInfo &script : m_State.document->Scripts())
+                if (std::find(result->imported.begin(), result->imported.end(), script.id) != result->imported.end()) {
+                    m_Panels.ShowScript(script.id, ElementRef(), 0, false);
+                    break;
+                }
+            UpdateTitle();
+        });
     });
 }
 
@@ -335,6 +344,8 @@ void EditorApp::CloseSetupsAndManagers() {
 }
 
 void EditorApp::Shutdown() {
+    m_State.FinishRuntimeOperations();
+    m_State.DrainRuntimeLog();
     m_Help.Close();
     m_State.fileDialogs.Close();
     // Toolbar toggles are preferences too.
@@ -358,20 +369,59 @@ void EditorApp::Shutdown() {
 }
 
 void EditorApp::RequestQuit() {
+    if (m_State.runtimeOperation.Busy()) { m_QuitAfterOperation = true; return; }
     BeginAction(PendingAction::Quit);
 }
 
-bool EditorApp::OpenFile(const std::string &path) {
+struct EditorApp::OpenResult {
+    std::unique_ptr<Document::PreparedOpen> prepared;
     std::string error;
-    auto prepared = m_State.document->PrepareOpen(path, &error, m_State.preferences.NewSceneEnvironment());
-    if (!prepared) {
-        m_State.Log(LogLevel::Error, error);
-        return false;
-    }
-    // No old document or UI state is released until the new file has loaded.
-    CloseDocument();
-    m_Layout.Stop();
-    prepared->Commit();
+    LayoutInterfaceData layout;
+    std::map<CK_ID, void *> pictures;
+    std::vector<InvalidLink> invalid;
+    int removed = 0;
+};
+
+bool EditorApp::OpenFile(const std::string &path, std::function<void(bool)> completed) {
+    auto result = std::make_shared<OpenResult>();
+    const SceneEnvironment environment = m_State.preferences.NewSceneEnvironment();
+    const bool testTypes = m_State.preferences.Bool("Schematic\\Test Parameter Link after Loading");
+    const bool removeInvalid = m_State.preferences.Bool("Schematic\\Remove Invalid Link after Loading");
+    return m_State.RunRuntime("Opening composition", [this, path, environment, result] {
+        result->prepared = m_State.document->PrepareOpen(path, &result->error, environment);
+    }, [this, path, testTypes, removeInvalid, result, completed = std::move(completed)](bool ok) {
+        if (!ok || !result->prepared) {
+            if (!result->error.empty()) m_State.Log(LogLevel::Error, result->error);
+            if (completed) completed(false);
+            return;
+        }
+        // Only a successfully loaded candidate releases the old UI. Window
+        // and render-context teardown stays on the main thread; potentially
+        // expensive object/context teardown stays in the runtime lane.
+        CloseDocument(false);
+        m_Layout.Stop();
+        m_State.RunRuntime("Finishing composition load", [this, result, testTypes, removeInvalid] {
+            result->prepared->Commit();
+            result->prepared.reset();
+            Document &document = *m_State.document;
+            if (!document.SourcePath().empty()) {
+                result->layout = ReadLayoutInterfaceData(document.Context());
+                result->pictures = ReadObjectPictures(document);
+                result->invalid = FindInvalidLinks(document, testTypes);
+                if (removeInvalid && !result->invalid.empty()) {
+                    result->removed = RemoveInvalidLinks(document, result->invalid);
+                    result->invalid.clear();
+                }
+            }
+            if (!document.Scripts().empty()) document.Session(document.Scripts().front().id);
+        }, [this, path, result, completed](bool committed) {
+            if (committed) CompleteOpen(path, *result);
+            if (completed) completed(committed);
+        });
+    });
+}
+
+void EditorApp::CompleteOpen(const std::string &path, const OpenResult &result) {
     std::string layoutError;
     if (!m_Layout.Start(m_Window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     m_LastSavedPath.clear();
@@ -379,12 +429,14 @@ bool EditorApp::OpenFile(const std::string &path) {
     // NMO opens are imports into a new composition. Keep its editor state,
     // just as Import File does, rather than restoring the library's layout.
     if (!m_State.document->SourcePath().empty()) {
-        const LayoutInterfaceData layout = ReadLayoutInterfaceData(m_State.document->Context());
-        m_Layout.ApplyLayoutData(layout);
-        ReopenSetups(layout);
-        m_State.objectPictures = ReadObjectPictures(*m_State.document);
+        m_Layout.ApplyLayoutData(result.layout);
+        ReopenSetups(result.layout);
+        m_State.objectPictures = result.pictures;
         m_State.objectPicturesChanged = false;
-        ValidateLinks();
+        m_State.invalidLinks = result.invalid;
+        if (result.removed) m_State.Log(LogLevel::Warning, std::to_string(result.removed) + " invalid link(s) removed after loading");
+        if (!result.invalid.empty())
+            m_State.Log(LogLevel::Warning, std::to_string(result.invalid.size()) + " invalid link(s): see the Links with Errors Explorer");
     }
     // Dev's Event Log line (language pack [File IO]).
     m_State.Log(LogLevel::Info, "File Loaded Successfully. (" + path + ")");
@@ -396,36 +448,26 @@ bool EditorApp::OpenFile(const std::string &path) {
     if (!m_State.document->Scripts().empty()) m_Panels.ShowScript(m_State.document->Scripts().front().id, ElementRef(), 0, false);
     m_State.History().MarkSavePoint(); // NMO's imported objects still mark the new composition modified.
     UpdateTitle();
-    return true;
 }
 
-// Dev.exe ValidateAndFinalizeLinks after loading: the stored links that are
-// not valid (Test Parameter Link after Loading also tests the parameter
-// types) are removed (Remove Invalid Link after Loading) or kept in the
-// Invalid Link Color and listed by the Links with Errors Explorer.
-void EditorApp::ValidateLinks() {
-    m_State.invalidLinks.clear();
-    if (!m_State.HasDocument()) return;
-    const Preferences &p = m_State.preferences;
-    std::vector<InvalidLink> invalid =
-        FindInvalidLinks(*m_State.document, p.Bool("Schematic\\Test Parameter Link after Loading"));
-    if (invalid.empty()) return;
-    if (p.Bool("Schematic\\Remove Invalid Link after Loading")) {
-        const int removed = RemoveInvalidLinks(*m_State.document, invalid);
-        m_Canvas.Invalidate();
-        m_State.Log(LogLevel::Warning, std::to_string(removed) + " invalid link(s) removed after loading");
+void EditorApp::NewComposition(bool background) {
+    if (!background) {
+        CloseDocument();
+        std::string error;
+        if (!m_State.document->New(&error, m_State.preferences.NewSceneEnvironment())) m_State.Log(LogLevel::Error, error);
+        else m_State.History().MarkSavePoint();
+        UpdateTitle();
         return;
     }
-    m_State.Log(LogLevel::Warning, std::to_string(invalid.size()) + " invalid link(s): see the Links with Errors Explorer");
-    m_State.invalidLinks = std::move(invalid);
-}
-
-void EditorApp::NewComposition() {
-    CloseDocument();
-    std::string error;
-    if (!m_State.document->New(&error, m_State.preferences.NewSceneEnvironment())) m_State.Log(LogLevel::Error, error);
-    else m_State.History().MarkSavePoint();
-    UpdateTitle();
+    CloseDocument(false);
+    const auto environment = m_State.preferences.NewSceneEnvironment();
+    auto error = std::make_shared<std::string>();
+    m_State.RunRuntime("Creating composition", [this, error, environment] {
+        if (m_State.document->New(error.get(), environment)) m_State.History().MarkSavePoint();
+    }, [this, error](bool) {
+        if (!error->empty()) m_State.Log(LogLevel::Error, *error);
+        UpdateTitle();
+    });
 }
 
 // Dev (sub_5C54C0) asks for the file, merges it and keeps the composition's
@@ -442,27 +484,38 @@ void EditorApp::MergeComposition(bool asScene, const std::string &file) {
     // Dev loads with CK_LOAD_DODIALOG: Duplicate Names Found first.
     m_State.LoadAskingDuplicates(path, [this, asScene, path](const std::vector<DuplicateName> *duplicates) {
         if (!m_State.HasDocument()) return;
-        std::string error;
-        std::vector<CK_ID> merged;
-        if (!m_State.document->Merge(path, asScene, &error, &merged, duplicates)) {
-            m_State.Log(LogLevel::Error, error);
-            return;
-        }
-        m_State.selection.Clear();
-        m_Canvas.Invalidate();
-        RememberRecentFile(path);
-        // The merged file's pictures join (Dev.exe sub_5C54C0 -> sub_5D1D60).
-        std::map<CK_ID, void *> pictures = ReadObjectPictures(*m_State.document);
-        for (const auto &picture : m_State.objectPictures) pictures[picture.first] = picture.second;
-        m_State.objectPictures = std::move(pictures);
-        m_State.objectPicturesChanged = true;
-        // Show the first merged Script.
-        for (const ScriptInfo &script : m_State.document->Scripts())
-            if (std::find(merged.begin(), merged.end(), script.id) != merged.end()) {
-                m_Panels.ShowScript(script.id, ElementRef(), 0, false);
-                break;
+        struct Result {
+            bool loaded = false;
+            std::string error;
+            std::vector<CK_ID> merged;
+            std::map<CK_ID, void *> pictures;
+        };
+        auto result = std::make_shared<Result>();
+        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
+        m_State.RunRuntime("Merging composition", [this, path, asScene, choices, result] {
+            result->loaded = m_State.document->Merge(path, asScene, &result->error, &result->merged, choices.get());
+            if (result->loaded) result->pictures = ReadObjectPictures(*m_State.document);
+        }, [this, path, result](bool ok) {
+            if (!ok || !result->loaded) {
+                if (!result->error.empty()) m_State.Log(LogLevel::Error, result->error);
+                return;
             }
-        UpdateTitle();
+            m_State.selection.Clear();
+            m_Canvas.Invalidate();
+            RememberRecentFile(path);
+            // The merged file's pictures join (Dev.exe sub_5C54C0 -> sub_5D1D60).
+            std::map<CK_ID, void *> pictures = result->pictures;
+            for (const auto &picture : m_State.objectPictures) pictures[picture.first] = picture.second;
+            m_State.objectPictures = std::move(pictures);
+            m_State.objectPicturesChanged = true;
+            // Show the first merged Script.
+            for (const ScriptInfo &script : m_State.document->Scripts())
+                if (std::find(result->merged.begin(), result->merged.end(), script.id) != result->merged.end()) {
+                    m_Panels.ShowScript(script.id, ElementRef(), 0, false);
+                    break;
+                }
+            UpdateTitle();
+        });
     });
 }
 
@@ -473,7 +526,7 @@ void EditorApp::RememberRecentFile(const std::string &path) {
     SavePreferences();
 }
 
-void EditorApp::CloseDocument() {
+void EditorApp::CloseDocument(bool closeRuntime) {
     EndPrint();
     m_Setups.CloseAll();
     m_Tools.DocumentClosed();
@@ -485,33 +538,38 @@ void EditorApp::CloseDocument() {
     m_Canvas.DocumentClosed();
     ReleaseSnapshotTextures(); // the document frees its bitmaps
     if (m_State.debugger) m_State.debugger->Detach();
-    if (m_State.document) m_State.document->Close();
+    if (closeRuntime && m_State.document) m_State.document->Close();
     m_LastSavedPath.clear();
     UpdateTitle();
 }
 
-bool EditorApp::SaveTo(const std::string &path, bool allowOverwrite) {
+void EditorApp::SaveTo(const std::string &path, bool allowOverwrite, std::function<void(bool)> completed) {
     SaveOptions options;
     options.saveScriptSnapshots = m_State.preferences.Bool("Schematic\\Save Script Snapshot");
     options.allowOverwrite = allowOverwrite;
-    SaveReport report;
-    const LayoutInterfaceData layout = LayoutDataToSave();
-    const bool saved = SaveComposition(*m_State.document, path, CompositionToSave(layout), options, report);
-    std::string text = (saved ? "Saved " : "Save failed: ") + path;
-    text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
-            "\nScripts verified in a new context: " + std::to_string(report.scriptsVerified) +
-            "\nParameters verified: " + std::to_string(report.parametersVerified);
-    for (const auto &error : report.errors) text += "\nError: " + AnsiToUtf8(error);
-    for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
-    m_SaveReportText = std::move(text);
-    m_OpenSaveReport = true;
-    m_State.Log(saved ? LogLevel::Info : LogLevel::Error, m_SaveReportText);
-    if (report.documentSaved) {
-        m_LastSavedPath = path;
-        RememberRecentFile(path);
-    }
-    UpdateTitle();
-    return report.documentSaved;
+    struct Result { SaveReport report; bool saved = false; };
+    auto result = std::make_shared<Result>();
+    const CompositionSnapshot snapshot = CompositionToSave(LayoutDataToSave());
+    m_State.RunRuntime("Saving composition", [this, path, options, snapshot, result] {
+        result->saved = SaveComposition(*m_State.document, path, snapshot.Data(), options, result->report);
+    }, [this, path, result, completed = std::move(completed)](bool ok) {
+        const SaveReport &report = result->report;
+        std::string text = (ok && result->saved ? "Saved " : "Save failed: ") + path;
+        text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
+                "\nScripts verified in a new context: " + std::to_string(report.scriptsVerified) +
+                "\nParameters verified: " + std::to_string(report.parametersVerified);
+        for (const auto &error : report.errors) text += "\nError: " + AnsiToUtf8(error);
+        for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
+        m_SaveReportText = std::move(text);
+        m_OpenSaveReport = true;
+        m_State.Log(ok && result->saved ? LogLevel::Info : LogLevel::Error, m_SaveReportText);
+        if (report.documentSaved) {
+            m_LastSavedPath = path;
+            RememberRecentFile(path);
+        }
+        UpdateTitle();
+        if (completed) completed(ok && report.documentSaved && !m_State.document->Dirty());
+    });
 }
 
 // The Setups of the 3D Layout's data open again (Dev.exe sub_4B46C0 ->
@@ -561,10 +619,11 @@ LayoutInterfaceData EditorApp::LayoutDataToSave() const {
 // The 3D Layout's data goes with the composition (Dev.exe DoSaveObjects);
 // the pictures only when they changed (else the file's are kept as they are),
 // written into the composition now.
-CompositionData EditorApp::CompositionToSave(const LayoutInterfaceData &layout) {
-    CompositionData data;
-    data.layout = &layout;
-    if (m_State.objectPicturesChanged) data.pictures = &m_State.objectPictures;
+EditorApp::CompositionSnapshot EditorApp::CompositionToSave(const LayoutInterfaceData &layout) {
+    CompositionSnapshot data;
+    data.layout = layout;
+    data.writePictures = m_State.objectPicturesChanged;
+    if (data.writePictures) data.pictures = m_State.objectPictures;
     m_State.objectPicturesChanged = false;
     return data;
 }
@@ -576,17 +635,16 @@ void EditorApp::SaveAs(std::function<void(bool)> completed) {
     else suggestion.replace_filename(suggestion.stem().u8string() + "-edited" + suggestion.extension().u8string());
     const auto options = FileDialog(m_Window, true, m_LastSavedPath.empty() ? suggestion.u8string() : m_LastSavedPath);
     m_State.RequestFile(options, [this, completed = std::move(completed)](const FileDialogResult &result) {
-        const bool saved = result.status == FileDialogResult::Status::Selected && m_State.HasDocument() &&
-                           SaveTo(result.paths.front(), true);
-        if (completed) completed(saved && !m_State.document->Dirty());
+        if (result.status == FileDialogResult::Status::Selected && m_State.HasDocument())
+            SaveTo(result.paths.front(), true, completed);
+        else if (completed) completed(false);
     });
 }
 
 void EditorApp::Save(std::function<void(bool)> completed) {
     if (!m_State.HasDocument()) { if (completed) completed(false); return; }
     if (m_LastSavedPath.empty()) { SaveAs(std::move(completed)); return; }
-    const bool saved = SaveTo(m_LastSavedPath, true);
-    if (completed) completed(saved && !m_State.document->Dirty());
+    SaveTo(m_LastSavedPath, true, std::move(completed));
 }
 
 void EditorApp::Undo() {
@@ -654,7 +712,8 @@ void EditorApp::RunAction(PendingAction action) {
         m_PendingPath.clear();
         break;
     case PendingAction::Close:
-        CloseDocument();
+        CloseDocument(false);
+        m_State.RunRuntime("Closing composition", [this] { m_State.document->Close(); }, [this](bool) { UpdateTitle(); });
         break;
     case PendingAction::Quit:
         m_Quit = true;
@@ -919,7 +978,7 @@ void EditorApp::BuildDefaultLayout(ImGuiID dockspace, bool closeSeparated) {
 }
 
 bool EditorApp::Busy() const {
-    return ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) || m_Canvas.Busy() ||
+    return m_State.runtimeOperation.Busy() || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) || m_Canvas.Busy() ||
            m_Layout.Busy();
 }
 
@@ -1074,11 +1133,44 @@ void EditorApp::DispatchEvents() {
     }
 }
 
+void EditorApp::RuntimeOperationFrame() {
+    // Keep docking assignments alive while runtime-backed windows are
+    // suspended. This frame touches ImGui only, never the CK document.
+    const ImGuiID dockspace = ImGui::GetID("SchematicEditorDockSpace");
+    ImGui::DockSpaceOverViewport(dockspace, ImGui::GetMainViewport(), ImGuiDockNodeFlags_KeepAliveOnly);
+    const ImGuiViewport *viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(360, 95));
+    ImGui::Begin("Working###RuntimeOperation", nullptr,
+                 ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+                 ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
+    const char spinner[] = {'|', '/', '-', '\\'};
+    ImGui::Text("%c  %s", spinner[static_cast<int>(ImGui::GetTime() * 8) % 4], m_State.runtimeOperation.Label().c_str());
+    ImGui::TextUnformatted("Please wait...");
+    ImGui::End();
+    ImGui::SetMouseCursor(ImGuiMouseCursor_Wait);
+}
+
 void EditorApp::Frame() {
+    m_State.PollRuntimeOperations();
+#ifdef VIRTOOLSDEV_UI_TESTS
+    if (m_StartupAfterLoads && !m_State.runtimeOperation.Busy()) {
+        const bool opened = m_StartupAfterLoads == 2;
+        m_StartupAfterLoads = 0;
+        RunStartupActions(opened);
+    }
+#endif
+    if (m_QuitAfterOperation && !m_State.runtimeOperation.Busy()) {
+        m_QuitAfterOperation = false;
+        BeginAction(PendingAction::Quit);
+    }
+    if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
+    if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     // The current scene and the changes show in the title (cheap: set only when it changes).
     UpdateTitle();
     MainMenu();
+    if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     // The editor's former name: the saved window layouts know this ID.
     const ImGuiID dockspace = ImGui::GetID("SchematicEditorDockSpace");
     StatusBar();

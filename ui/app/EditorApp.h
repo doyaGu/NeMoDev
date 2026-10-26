@@ -88,6 +88,8 @@ public:
 #endif
                     );
     void Frame();
+    // Called only after rendering and releasing this frame's UI textures.
+    void EndFrame() { m_State.runtimeOperation.Start(); }
     void HandleEvent(const SDL_Event &event);
     void Shutdown();
     // Window close request: asks about unsaved changes first.
@@ -144,10 +146,12 @@ private:
 
     void BeginAction(PendingAction action);
     void RunAction(PendingAction action);
-    bool OpenFile(const std::string &path);
+    bool OpenFile(const std::string &path, std::function<void(bool)> completed = {});
+    struct OpenResult;
+    void CompleteOpen(const std::string &path, const OpenResult &result);
+    void RuntimeOperationFrame();
     // File > New Composition, Merge Composition (as New Scene), Revert to Saved.
-    void NewComposition();
-    void ValidateLinks();
+    void NewComposition(bool background = true);
     void MergeComposition(bool asScene, const std::string &path = std::string()); // empty: ask for the file
     void RememberRecentFile(const std::string &path);
     // Resources menu: Import File (As), Open / Create New Data Resource.
@@ -169,13 +173,19 @@ private:
     void OpenStartupDialog(const std::string &name);
     void StartupFrame(bool settled);
 #endif
-    void CloseDocument();
+    void CloseDocument(bool closeRuntime = true);
     void SaveAs(std::function<void(bool)> completed = {});
     void Save(std::function<void(bool)> completed = {});
-    bool SaveTo(const std::string &path, bool allowOverwrite);
+    void SaveTo(const std::string &path, bool allowOverwrite, std::function<void(bool)> completed = {});
     // What Save and the exports write with the composition (the pictures
     // are then written: not changed any longer).
-    CompositionData CompositionToSave(const LayoutInterfaceData &layout);
+    struct CompositionSnapshot {
+        LayoutInterfaceData layout;
+        std::map<CK_ID, void *> pictures;
+        bool writePictures = false;
+        CompositionData Data() const { return {&layout, writePictures ? &pictures : nullptr}; }
+    };
+    CompositionSnapshot CompositionToSave(const LayoutInterfaceData &layout);
     void ReopenSetups(const LayoutInterfaceData &data);
     LayoutInterfaceData LayoutDataToSave() const;
     // The File menu's other commands (FileMenu.cpp): Save Version, Revert to
@@ -187,7 +197,7 @@ private:
     void ExportToPlayer();
     // Writes the composition without marking it saved, with these
     // CK_FILE_WRITEMODE flags added; the report goes to the Event Log.
-    bool ExportTo(const std::string &path, unsigned int writeMode, std::string *error);
+    void ExportTo(const std::string &path, unsigned int writeMode, std::function<void(bool, const std::string &)> completed);
     void WebPageDialog();
     // Dev's message box (Dev.exe sub_5D5E60, dialog 727): the text (ANSI,
     // lines centered), the title (empty: "Warning!"), icon: Dev's icon type
@@ -259,6 +269,7 @@ private:
 #endif
     SDL_Window * m_Window = nullptr;
     bool m_Quit = false;
+    bool m_QuitAfterOperation = false;
     bool m_LayoutChecked = false;
     PendingAction m_Pending = PendingAction::None;
     bool m_OpenUnsavedDialog = false;
@@ -289,6 +300,7 @@ private:
     const char *m_ToFront = nullptr; // the window an event brings forward, once no popup is open (DispatchEvents)
 #ifdef VIRTOOLSDEV_UI_TESTS
     StartupOptions m_Startup;
+    int m_StartupAfterLoads = 0;
     int m_FitFrames = 0;
 #endif
     std::uint64_t m_ScriptsSeen = 0; // Document::ScriptsRevision when the stack was made

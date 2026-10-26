@@ -29,9 +29,15 @@
 namespace vdev {
 
 void EditorApp::RunStartupActions(bool opened) {
-    for (const auto &merge : m_Startup.merges) MergeComposition(merge.second, merge.first);
-    for (const auto &import : m_Startup.imports)
-        ImportFile(static_cast<Document::ImportMode>(import.second), import.first);
+    if (!m_Startup.merges.empty() || !m_Startup.imports.empty()) {
+        for (const auto &merge : m_Startup.merges) MergeComposition(merge.second, merge.first);
+        for (const auto &import : m_Startup.imports)
+            ImportFile(static_cast<Document::ImportMode>(import.second), import.first);
+        m_Startup.merges.clear();
+        m_Startup.imports.clear();
+        m_StartupAfterLoads = opened ? 2 : 1;
+        return;
+    }
     for (const std::string &tool : m_Startup.tools) OpenStartupTool(tool);
     if (!m_Startup.layoutTool.empty() || !m_Startup.layoutView.empty())
         m_Layout.StartupOptions(m_Startup.layoutTool, m_Startup.layoutView);

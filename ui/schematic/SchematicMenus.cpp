@@ -125,11 +125,17 @@ void SchematicCanvas::SaveBehaviorInfo() {
     const std::string path = m_SavePath;
     m_SaveBehaviors.clear();
     m_SavePath.clear();
-    std::string error;
-    if (SaveBehaviorsAsNms(*m_State.document, behaviors, path, &error, asked && m_SaveInfo.HideRepresentation()))
-        m_State.Log(LogLevel::Info, "Saved " + std::to_string(behaviors.size()) + " behavior(s) to " + path);
-    else
-        m_State.Log(LogLevel::Error, "Save As: " + error);
+    auto result = std::make_shared<std::pair<bool, std::string>>();
+    const bool hide = asked && m_SaveInfo.HideRepresentation();
+    m_State.RunRuntime("Saving behavior graphs", [this, behaviors, path, hide, result] {
+        result->first = SaveBehaviorsAsNms(*m_State.document, behaviors, path, &result->second, hide);
+    }, [this, behaviors, path, result](bool ok) {
+        if (!ok) return;
+        if (result->first)
+            m_State.Log(LogLevel::Info, "Saved " + std::to_string(behaviors.size()) + " behavior(s) to " + path);
+        else
+            m_State.Log(LogLevel::Error, "Save As: " + result->second);
+    });
 }
 
 void SchematicCanvas::SaveSelectionAsNms() {
@@ -151,8 +157,12 @@ void SchematicCanvas::ImportBehaviorFile(CK_ID script, const Point &local) {
         return;
     }
     m_State.RequestFile(BehaviorFileDialog(false, {}), [this, script, graph, local](const FileDialogResult &selection) {
-        if (selection.status == FileDialogResult::Status::Selected)
-            Report(ImportBehaviorGraph(*m_State.document, script, graph, selection.paths.front(), local), "Import Behavior Graph");
+        if (selection.status != FileDialogResult::Status::Selected) return;
+        const std::string path = selection.paths.front();
+        auto result = std::make_shared<EditResult>(EditResult::NoChange());
+        m_State.RunRuntime("Importing behavior graph", [this, script, graph, path, local, result] {
+            *result = ImportBehaviorGraph(*m_State.document, script, graph, path, local);
+        }, [this, result](bool ok) { if (ok) Report(*result, "Import Behavior Graph"); });
     });
 }
 
@@ -914,14 +924,21 @@ bool SchematicCanvas::DropFile(const std::wstring &path, const std::string &ansi
         if (hit.ref.kind == ElementKind::Behavior) {
             const BehaviorItem *behavior = hit.view->model.FindBehavior(hit.ref.object);
             if (behavior && behavior->expandable) {
-                Report(ReplaceWithFileGraph(*m_State.document, script, behavior->id, ansiPath),
-                       "Replace with File Graph");
+                const CK_ID target = behavior->id;
+                auto result = std::make_shared<EditResult>(EditResult::NoChange());
+                m_State.RunRuntime("Replacing behavior graph", [this, script, target, ansiPath, result] {
+                    *result = ReplaceWithFileGraph(*m_State.document, script, target, ansiPath);
+                }, [this, result](bool ok) { if (ok) Report(*result, "Replace with File Graph"); });
                 return true;
             }
         }
         const CK_ID graph = GraphAt(*hit.view, hit.local);
         if (!graph) return false;
-        Report(ImportBehaviorGraph(*m_State.document, script, graph, ansiPath, hit.local), "Import Behavior Graph");
+        const Point local = hit.local;
+        auto result = std::make_shared<EditResult>(EditResult::NoChange());
+        m_State.RunRuntime("Importing behavior graph", [this, script, graph, ansiPath, local, result] {
+            *result = ImportBehaviorGraph(*m_State.document, script, graph, ansiPath, local);
+        }, [this, result](bool ok) { if (ok) Report(*result, "Import Behavior Graph"); });
         return true;
     }
     return false;
@@ -1047,9 +1064,15 @@ void SchematicCanvas::ReplaceGraphDialog() {
 void SchematicCanvas::ReplaceWithFile(CK_ID script, CK_ID graph) {
     m_State.RequestFile(BehaviorFileDialog(false, {}), [this, script, graph](const FileDialogResult &selection) {
         if (selection.status != FileDialogResult::Status::Selected) return;
-        const EditResult result = ReplaceWithFileGraph(*m_State.document, script, graph, selection.paths.front());
-        Report(result, "Replace with File Graph");
-        if (result.ok) m_State.selection.Clear();
+        const std::string path = selection.paths.front();
+        auto result = std::make_shared<EditResult>(EditResult::NoChange());
+        m_State.RunRuntime("Replacing behavior graph", [this, script, graph, path, result] {
+            *result = ReplaceWithFileGraph(*m_State.document, script, graph, path);
+        }, [this, result](bool ok) {
+            if (!ok) return;
+            Report(*result, "Replace with File Graph");
+            if (result->ok) m_State.selection.Clear();
+        });
     });
 }
 

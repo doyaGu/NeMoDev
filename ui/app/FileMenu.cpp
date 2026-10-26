@@ -99,24 +99,29 @@ void EditorApp::RevertToSaved() {
     ShowMessage(std::move(message));
 }
 
-bool EditorApp::ExportTo(const std::string &path, unsigned int writeMode, std::string *error) {
-    if (!m_State.HasDocument()) return false;
+void EditorApp::ExportTo(const std::string &path, unsigned int writeMode, std::function<void(bool, const std::string &)> completed) {
+    if (!m_State.HasDocument()) { completed(false, "No composition is open"); return; }
     SaveOptions options;
     options.saveScriptSnapshots = m_State.preferences.Bool("Schematic\\Save Script Snapshot");
     options.allowOverwrite = true; // asked before
     options.writeMode = writeMode;
     options.markSaved = false;
-    const LayoutInterfaceData layout = LayoutDataToSave();
-    SaveReport report;
-    const bool saved = SaveComposition(*m_State.document, path, CompositionToSave(layout), options, report);
-    std::string text = (saved ? "Exported " : "Export failed: ") + path;
-    text += "\nParameters verified: " + std::to_string(report.parametersVerified);
-    for (const auto &message : report.errors) text += "\nError: " + AnsiToUtf8(message);
-    for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
-    m_State.Log(saved ? LogLevel::Info : LogLevel::Error, text);
-    if (error) *error = report.errors.empty() ? std::string() : AnsiToUtf8(report.errors.front());
-    UpdateTitle();
-    return saved;
+    const CompositionSnapshot snapshot = CompositionToSave(LayoutDataToSave());
+    struct Result { SaveReport report; bool saved = false; };
+    auto result = std::make_shared<Result>();
+    m_State.RunRuntime("Exporting composition", [this, path, options, snapshot, result] {
+        result->saved = SaveComposition(*m_State.document, path, snapshot.Data(), options, result->report);
+    }, [this, path, result, completed = std::move(completed)](bool ok) {
+        const SaveReport &report = result->report;
+        const bool saved = ok && result->saved;
+        std::string text = (saved ? "Exported " : "Export failed: ") + path;
+        text += "\nParameters verified: " + std::to_string(report.parametersVerified);
+        for (const auto &message : report.errors) text += "\nError: " + AnsiToUtf8(message);
+        for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
+        m_State.Log(saved ? LogLevel::Info : LogLevel::Error, text);
+        UpdateTitle();
+        completed(saved, report.errors.empty() ? std::string() : AnsiToUtf8(report.errors.front()));
+    });
 }
 
 // Export to Virtools Player (sub_5C6400): a .vmo next to the composition's
@@ -133,11 +138,12 @@ void EditorApp::ExportToPlayer() {
     options.initial = Utf8ToWide(initial);
     m_State.RequestFile(options, [this](const FileDialogResult &result) {
         if (result.status != FileDialogResult::Status::Selected) return;
-        std::string error;
-        if (ExportTo(result.paths.front(), CKFILE_FORVIEWER | CKFILE_WHOLECOMPRESSED, &error)) return;
-        DevMessage message;
-        message.text = Format("Save Level Error: %s", error);
-        ShowMessage(std::move(message));
+        ExportTo(result.paths.front(), CKFILE_FORVIEWER | CKFILE_WHOLECOMPRESSED, [this](bool saved, const std::string &error) {
+            if (saved) return;
+            DevMessage message;
+            message.text = Format("Save Level Error: %s", error);
+            ShowMessage(std::move(message));
+        });
     });
 }
 
@@ -302,23 +308,27 @@ void EditorApp::WriteWebPage() {
         return;
     }
     const std::string composition = WebPageCompositionPath(m_WebPagePath, m_WebPageCmo);
-    std::string error;
-    if (!ExportTo(composition, CKFILE_WHOLECOMPRESSED | (m_WebPageCmo ? 0u : CKFILE_FORVIEWER), &error)) {
-        DevMessage message;
-        message.text = "Unable to save CMO file !";
-        ShowMessage(std::move(message));
-        return;
-    }
+    const std::string path = m_WebPagePath, title = m_WebPageTitle;
     const int width = std::atoi(m_WebPageWidth.c_str()), height = std::atoi(m_WebPageHeight.c_str());
-    std::ofstream page(fs::u8path(m_WebPagePath), std::ios::binary | std::ios::trunc);
-    page << WebPageHtml(m_WebPageTitle, composition, width, height, major, minor);
-    page.close();
-    if (!page) m_State.Log(LogLevel::Error, "Cannot write " + m_WebPagePath);
-    else m_State.Log(LogLevel::Info, "Web page written: " + m_WebPagePath);
-    if (m_WebPagePreview) {
-        std::string error;
-        if (!OpenDesktopFile(m_WebPagePath, &error)) m_State.Log(LogLevel::Warning, error);
-    }
+    const bool preview = m_WebPagePreview;
+    ExportTo(composition, CKFILE_WHOLECOMPRESSED | (m_WebPageCmo ? 0u : CKFILE_FORVIEWER),
+             [this, path, title, width, height, major, minor, composition, preview](bool saved, const std::string &) {
+        if (!saved) {
+            DevMessage message;
+            message.text = "Unable to save CMO file !";
+            ShowMessage(std::move(message));
+            return;
+        }
+        std::ofstream page(fs::u8path(path), std::ios::binary | std::ios::trunc);
+        page << WebPageHtml(title, composition, width, height, major, minor);
+        page.close();
+        if (!page) m_State.Log(LogLevel::Error, "Cannot write " + path);
+        else m_State.Log(LogLevel::Info, "Web page written: " + path);
+        if (preview) {
+            std::string error;
+            if (!OpenDesktopFile(path, &error)) m_State.Log(LogLevel::Warning, error);
+        }
+    });
 }
 
 } // namespace vdev

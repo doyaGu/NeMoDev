@@ -1165,10 +1165,16 @@ void EditorPanels::DropOnLevel(const LevelDrop &drop) {
     for (const LevelDropTarget &target : targets) {
         auto load = [this, path, cid, target](const std::vector<DuplicateName> *duplicates) {
             if (!m_State.HasDocument()) return;
-            const EditResult result = DropResourceFile(*m_State.document, path, cid, target, duplicates);
-            m_State.Log(result.ok ? LogLevel::Info : LogLevel::Warning,
-                        (result.ok ? std::string("Loaded: ") : std::string("Load failed: ")) + AnsiToUtf8(result.message) + " (" + path + ")");
-            if (result.ok) m_Canvas.Invalidate();
+            auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
+            auto result = std::make_shared<EditResult>(EditResult::NoChange());
+            m_State.RunRuntime("Loading resource", [this, path, cid, target, choices, result] {
+                *result = DropResourceFile(*m_State.document, path, cid, target, choices.get());
+            }, [this, path, result](bool ok) {
+                if (!ok) return;
+                m_State.Log(result->ok ? LogLevel::Info : LogLevel::Warning,
+                            (result->ok ? std::string("Loaded: ") : std::string("Load failed: ")) + AnsiToUtf8(result->message) + " (" + path + ")");
+                if (result->ok) m_Canvas.Invalidate();
+            });
         };
         if (!behaviors && ResourceFileIsImported(cid)) m_State.LoadAskingDuplicates(path, load);
         else load(nullptr);
@@ -1505,9 +1511,15 @@ void EditorPanels::CreateScripts() {
 void EditorPanels::LoadScriptOn(CK_ID object) {
     m_State.RequestFile(ScriptFileDialog(), [this, object](const FileDialogResult &selection) {
         if (selection.status != FileDialogResult::Status::Selected) return;
-        const EditResult result = LoadScripts(*m_State.document, selection.paths.front(), object);
-        Report(result, "Load Script");
-        if (result.ok) ShowScript(result.created);
+        const std::string path = selection.paths.front();
+        auto result = std::make_shared<EditResult>(EditResult::NoChange());
+        m_State.RunRuntime("Loading Script", [this, path, object, result] {
+            *result = LoadScripts(*m_State.document, path, object);
+        }, [this, result](bool ok) {
+            if (!ok) return;
+            Report(*result, "Load Script");
+            if (result->ok) ShowScript(result->created);
+        });
     });
 }
 
@@ -1571,11 +1583,16 @@ void EditorPanels::SaveAsDialog() {
         const bool hide = m_SaveAsHide;
         m_State.RequestFile(options, [this, objects, hide](const FileDialogResult &selection) {
             if (selection.status != FileDialogResult::Status::Selected) return;
-            std::string error;
-            const std::string &path = selection.paths.front();
-            if (SaveObjectsAs(*m_State.document, objects, path, &error, hide))
-                m_State.Log(LogLevel::Info, "Saved " + std::to_string(objects.size()) + " object(s) to " + path);
-            else m_State.Log(LogLevel::Error, "Save as: " + error);
+            auto result = std::make_shared<std::pair<bool, std::string>>();
+            const std::string path = selection.paths.front();
+            m_State.RunRuntime("Saving objects", [this, objects, path, hide, result] {
+                result->first = SaveObjectsAs(*m_State.document, objects, path, &result->second, hide);
+            }, [this, objects, path, result](bool ok) {
+                if (!ok) return;
+                if (result->first)
+                    m_State.Log(LogLevel::Info, "Saved " + std::to_string(objects.size()) + " object(s) to " + path);
+                else m_State.Log(LogLevel::Error, "Save as: " + result->second);
+            });
         });
         m_Doc.deleteObjects.clear();
     }
@@ -1597,11 +1614,16 @@ void EditorPanels::SaveObjectsDialog() {
     const auto objects = m_Doc.deleteObjects;
     m_State.RequestFile(options, [this, objects](const FileDialogResult &selection) {
         if (selection.status != FileDialogResult::Status::Selected) return;
-        std::string error;
-        const std::string &path = selection.paths.front();
-        if (SaveObjectsAs(*m_State.document, objects, path, &error))
-            m_State.Log(LogLevel::Info, "Saved " + std::to_string(objects.size()) + " object(s) to " + path);
-        else m_State.Log(LogLevel::Error, "Save Objects as: " + error);
+        auto result = std::make_shared<std::pair<bool, std::string>>();
+        const std::string path = selection.paths.front();
+        m_State.RunRuntime("Saving objects", [this, objects, path, result] {
+            result->first = SaveObjectsAs(*m_State.document, objects, path, &result->second);
+        }, [this, objects, path, result](bool ok) {
+            if (!ok) return;
+            if (result->first)
+                m_State.Log(LogLevel::Info, "Saved " + std::to_string(objects.size()) + " object(s) to " + path);
+            else m_State.Log(LogLevel::Error, "Save Objects as: " + result->second);
+        });
     });
     m_Doc.deleteObjects.clear();
 }

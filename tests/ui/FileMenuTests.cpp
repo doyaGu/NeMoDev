@@ -3,6 +3,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <mutex>
 
 #include "tests/ui/UiTests.h"
 #include "core/document/FileCommands.h"
@@ -37,6 +41,7 @@ static void SubmitWebPage(ImGuiTestContext *ctx, bool cmo, bool overwrite) {
         ctx->ItemClick("//###DevMessage/OK/##dialogbutton");
         ctx->Yield(3);
     }
+    OnMainThread(ctx, [] {}); // File operations finish asynchronously.
 }
 
 class FileMenuSaveManager : public CKBaseManager {
@@ -55,8 +60,147 @@ public:
     }
 };
 
+struct SlowSaveProbe {
+    std::mutex mutex;
+    std::condition_variable changed;
+    int frames = 0;
+    SDL_ThreadID mainThread = 0;
+    std::atomic<bool> done{false}, responsive{false}, worker{false};
+    bool requestClose = false;
+    std::atomic<bool> closeRequested{false};
+    void Tick() {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++frames;
+        changed.notify_all();
+    }
+    void WaitForFrames() {
+        worker = SDL_GetCurrentThreadID() != mainThread;
+        std::unique_lock<std::mutex> lock(mutex);
+        const int before = frames;
+        responsive = changed.wait_for(lock, std::chrono::seconds(2), [&] { return frames >= before + 3; });
+        done = true;
+    }
+};
+
+static std::shared_ptr<SlowSaveProbe> g_SlowSave;
+
+static void SlowRuntimeGui(ImGuiTestContext *ctx) {
+    MainThreadGui(ctx);
+    if (!g_SlowSave) return;
+    g_SlowSave->Tick();
+    if (g_SlowSave->requestClose && g_SlowSave->worker && !g_SlowSave->done && !g_SlowSave->closeRequested.exchange(true))
+        App().RequestQuit();
+}
+
+class SlowSaveManager : public CKBaseManager {
+public:
+    std::shared_ptr<SlowSaveProbe> probe;
+    SlowSaveManager(CKContext *context, std::shared_ptr<SlowSaveProbe> probe)
+        : CKBaseManager(context, CKGUID(0x682a5301, 0x51fc8712), "Slow save regression"), probe(std::move(probe)) {}
+    CKDWORD GetValidFunctionsMask() override { return CKMANAGER_FUNC_PostSave; }
+    CKERROR PostSave() override {
+        if (probe->done) return CK_OK;
+        probe->WaitForFrames();
+        return CK_OK;
+    }
+};
+
 void RegisterFileMenuTests(ImGuiTestEngine *engine) {
-    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "failed_open_preserves_document_selection_and_history");
+    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "slow_save_keeps_ui_responsive");
+    t->GuiFunc = SlowRuntimeGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        namespace fs = std::filesystem;
+        Settle(ctx);
+        const auto root = fs::current_path() / ("slow-save-" + std::to_string(SDL_GetTicksNS()));
+        IM_CHECK(fs::create_directory(root));
+        struct Cleanup { fs::path root; ~Cleanup() { std::error_code error; fs::remove_all(root, error); } } cleanup{root};
+        const auto source = (root / "source.cmo").u8string();
+        OnMainThread(ctx, [&] {
+            vdev::SaveReport report;
+            IM_CHECK_NO_RET(vdev::SaveDocumentAs(*App().State().document, source, {}, report));
+            App().DropFiles({vdev::Utf8ToWide(source)}, 0, 0);
+        });
+        ctx->Yield(10);
+        auto probe = std::make_shared<SlowSaveProbe>();
+        OnMainThread(ctx, [&] {
+            probe->mainThread = SDL_GetCurrentThreadID();
+            g_SlowSave = probe;
+            auto *manager = new SlowSaveManager(App().State().document->Context(), probe);
+            IM_CHECK_NO_RET(App().State().host.Context()->RegisterNewManager(manager) == CK_OK);
+        });
+        // Control: the same CK save on the UI thread really prevents the
+        // frame hook from running. This also checks the manager is invoked.
+        OnMainThread(ctx, [&] {
+            vdev::SaveReport report;
+            IM_CHECK_NO_RET(vdev::SaveDocumentAs(*App().State().document, (root / "control.cmo").u8string(), {}, report));
+        });
+        IM_CHECK(probe->done && !probe->worker && !probe->responsive);
+        probe->done = probe->worker = probe->responsive = false;
+        ctx->MenuClick("//##MainMenuBar/File/Save Version");
+        const auto deadline = SDL_GetTicks() + 10000;
+        while (!probe->done && SDL_GetTicks() < deadline) ctx->Yield();
+        ctx->LogInfo("Slow save: done=%d worker=%d UI frames advanced=%d", static_cast<int>(probe->done.load()),
+                     static_cast<int>(probe->worker.load()), static_cast<int>(probe->responsive.load()));
+        if (!probe->done || !probe->worker || !probe->responsive) LogEditor(ctx, 0);
+        IM_CHECK(probe->done && probe->worker && probe->responsive);
+        OnMainThread(ctx, [] {});
+        ctx->ItemClick("//Save report/OK");
+        IM_CHECK(fs::exists(root / "source_01.cmo"));
+        OnMainThread(ctx, [] { g_SlowSave.reset(); });
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "runtime_requests_are_serial_and_drop_old_document_work");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        struct Probe { int order = 0, completed = 0; bool staleRan = false, staleCancelled = false, mainCompletion = true; };
+        auto probe = std::make_shared<Probe>();
+        OnMainThread(ctx, [probe] {
+            auto &state = App().State();
+            const auto mainThread = SDL_GetCurrentThreadID();
+            state.RunRuntime("First operation", [probe] {
+                probe->order = 1;
+                App().State().RuntimeLog(vdev::LogLevel::Info, "Background runtime log regression");
+            }, [probe, mainThread](bool ok) {
+                auto &state = App().State();
+                probe->mainCompletion = ok && SDL_GetCurrentThreadID() == mainThread;
+                ++probe->completed;
+                state.ClearDocumentState();
+                state.RunRuntime("Follow-up operation", [probe] { if (probe->order == 1) probe->order = 2; },
+                    [probe, mainThread](bool nextOk) {
+                        probe->mainCompletion = probe->mainCompletion && nextOk && SDL_GetCurrentThreadID() == mainThread;
+                        ++probe->completed;
+                    });
+            });
+            state.RunRuntime("Old document operation", [probe] { probe->staleRan = true; },
+                [probe](bool ok) { probe->staleCancelled = !ok; });
+        });
+        OnMainThread(ctx, [] {});
+        IM_CHECK(probe->order == 2 && probe->completed == 2 && probe->mainCompletion);
+        IM_CHECK(!probe->staleRan && probe->staleCancelled);
+        IM_CHECK(Read<bool>(ctx, [] {
+            const auto &log = App().State().log;
+            return std::any_of(log.begin(), log.end(), [](const auto &entry) { return entry.text == "Background runtime log regression"; });
+        }));
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "window_close_waits_for_runtime_and_preserves_unsaved_work");
+    t->GuiFunc = SlowRuntimeGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto probe = std::make_shared<SlowSaveProbe>();
+        OnMainThread(ctx, [probe] {
+            probe->mainThread = SDL_GetCurrentThreadID();
+            probe->requestClose = true;
+            g_SlowSave = probe;
+            App().State().document->MarkTopologyChanged();
+            App().State().RunRuntime("Slow operation before closing", [probe] { probe->WaitForFrames(); });
+        });
+        OnMainThread(ctx, [] {});
+        IM_CHECK(probe->done && probe->responsive && probe->closeRequested);
+        ctx->ItemClick("//Unsaved changes/Cancel");
+        IM_CHECK(Read<bool>(ctx, [] { return !App().ShouldQuit() && App().State().HasDocument() && App().State().document->Dirty(); }));
+        OnMainThread(ctx, [] { g_SlowSave.reset(); });
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "failed_open_preserves_document_selection_and_history");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         namespace fs = std::filesystem;
@@ -253,6 +397,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             ctx->Yield(3);
             ctx->ItemClick("//###DevMessage/OK/##dialogbutton");
             ctx->Yield(3);
+            OnMainThread(ctx, [] {});
         };
         saveVersion();
         IM_CHECK(PageFileBytes(version) == original);
@@ -337,6 +482,8 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             vdev::SaveReport report;
             IM_CHECK_NO_RET(vdev::SaveDocumentAs(*App().State().document, source.u8string(), {}, report));
             App().DropFiles({vdev::Utf8ToWide(source.u8string())}, 0, 0);
+        });
+        OnMainThread(ctx, [&] {
             manager = new FileMenuSaveManager(*App().State().document);
             IM_CHECK_NO_RET(App().State().host.Context()->RegisterNewManager(manager) == CK_OK);
         });

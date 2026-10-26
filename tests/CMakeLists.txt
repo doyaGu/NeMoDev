@@ -1,4 +1,13 @@
 # Virtools Dev's tests: they link the core only.
+find_package(Threads REQUIRED)
+add_executable(NeMoDevRuntimeOperationTests RuntimeOperationTests.cpp ../ui/app/RuntimeOperation.cpp)
+target_include_directories(NeMoDevRuntimeOperationTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
+target_compile_features(NeMoDevRuntimeOperationTests PRIVATE cxx_std_17)
+target_link_libraries(NeMoDevRuntimeOperationTests PRIVATE Threads::Threads)
+if(WIN32)
+    target_link_libraries(NeMoDevRuntimeOperationTests PRIVATE ole32)
+endif()
+add_test(NAME NeMoDevRuntimeOperation COMMAND NeMoDevRuntimeOperationTests)
 add_executable(NeMoDevHelpTests HelpBookTests.cpp ../ui/help/HelpBook.cpp)
 target_include_directories(NeMoDevHelpTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(NeMoDevHelpTests PRIVATE cxx_std_17)
@@ -57,8 +66,11 @@ add_test(NAME VirtoolsDevFontDeployment COMMAND ${CMAKE_COMMAND}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/CheckFontDeployment.cmake")
 
 add_executable(VirtoolsDevFileDialogTests VirtoolsDevFileDialogTests.cpp
-    ../ui/controls/FileDialogs.cpp ../ui/app/Preferences.cpp)
-target_link_libraries(VirtoolsDevFileDialogTests PRIVATE VirtoolsDevCore)
+    ../ui/controls/FileDialogs.cpp ../ui/app/Preferences.cpp ../ui/app/RuntimeOperation.cpp)
+target_link_libraries(VirtoolsDevFileDialogTests PRIVATE VirtoolsDevCore Threads::Threads)
+if(WIN32)
+    target_link_libraries(VirtoolsDevFileDialogTests PRIVATE ole32)
+endif()
 target_include_directories(VirtoolsDevFileDialogTests PRIVATE ${VIRTOOLSDEV_IMGUI_DIR})
 target_compile_definitions(VirtoolsDevFileDialogTests PRIVATE SDL_STATIC_LIB)
 virtoolsdev_add_test(VirtoolsDevFileDialogs VirtoolsDevFileDialogTests)
