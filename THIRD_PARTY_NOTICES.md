@@ -118,6 +118,11 @@ not copied into the runtime by this project. If bundling them, supply their
 matching source, notices and the other materials required by their licenses.
 macOS uses the system AppKit framework; Windows uses system APIs.
 
+Windows binary packages include Microsoft's Visual C++ runtime DLLs under
+the Visual Studio redistributable terms; the NeMoDev license does not cover
+them. macOS packages include libpng when required by libharu, with the
+installed libpng license copied to `Contents/Resources/licenses/libpng-LICENSE.txt`.
+
 Python, Pillow, Git, CMake, platform compilers and 7-Zip are build tools supplied
 by the user. This project does not bundle those tools. Their own licenses apply
 if they are redistributed with a development environment or installer.

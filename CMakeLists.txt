@@ -10,6 +10,12 @@ cmake_minimum_required(VERSION 3.25)
 # includes a core/*/detail header.
 project(NeMoDev LANGUAGES C CXX)
 
+if(MSVC)
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION Bin)
+    set(CMAKE_INSTALL_SYSTEM_RUNTIME_COMPONENT Runtime)
+    include(InstallRequiredSystemLibraries)
+endif()
+
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 set(CMAKE_BUILD_RPATH_USE_ORIGIN TRUE)

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=NeMoDev
+Comment=Edit Virtools compositions
+Exec=nemodev %F
+Icon=nemodev
+Terminal=false
+Categories=Development;Graphics;
+MimeType=application/x-virtools-composition;
+StartupWMClass=NeMoDev
