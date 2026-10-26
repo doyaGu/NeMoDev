@@ -21,6 +21,10 @@ if(UNIX)
     add_test(NAME NeMoDevPackaging COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/PackagingTests.py")
 endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME NeMoDevLinuxPackaging COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/LinuxPackageTests.py")
+endif()
 add_executable(NeMoDevCommandLineTests CommandLineTests.cpp ../ui/app/CommandLine.cpp)
 target_link_libraries(NeMoDevCommandLineTests PRIVATE VirtoolsDevCore)
 virtoolsdev_add_test(NeMoDevCommandLine NeMoDevCommandLineTests)

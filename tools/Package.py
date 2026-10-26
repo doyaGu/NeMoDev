@@ -1,4 +1,4 @@
-"""Package a Release install as a Windows ZIP, Ubuntu DEB or macOS DMG.
+"""Package a Release install as Windows ZIP, Linux tar.xz/DEB or macOS DMG.
 
 Run on the target operating system after installing Runtime and Application.
 Only the installed payload is used; build trees and SDK sources are excluded.
@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import zipfile
 
@@ -108,7 +109,86 @@ def windows_zip(package, output, name, work):
     return archive
 
 
+def elf_files(package):
+    files = []
+    for path in package.rglob("*"):
+        if path.is_file() and not path.is_symlink():
+            with path.open("rb") as handle:
+                if handle.read(4) == b"\x7fELF":
+                    files.append(path)
+    return files
+
+
+def linux_symbol_versions(text):
+    versions = {}
+    for name in re.findall(r"\bName:\s+((?:GLIBCXX|GLIBC|CXXABI)_[\w.]+)", text):
+        family, version = name.split("_", 1)
+        if name in ("CXXABI_TM_1", "CXXABI_FLOAT128"):
+            continue
+        if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)+", version):
+            raise RuntimeError(f"Unsupported Linux ABI requirement: {name}")
+        parsed = tuple(map(int, version.split(".")))
+        versions[family] = max(versions.get(family, ()), parsed)
+    return versions
+
+
+def check_linux_abi(package):
+    # Keep the portable build usable on the Ubuntu 22.04 / Debian 12 generation
+    # and newer glibc distributions. A filename alone cannot establish this.
+    limits = {"GLIBC": (2, 35), "GLIBCXX": (3, 4, 30), "CXXABI": (1, 3, 13)}
+    versions = {}
+    for path in elf_files(package):
+        result = run("readelf", "--version-info", "--wide", path, capture_output=True, text=True,
+                     env={**os.environ, "LC_ALL": "C"})
+        for family, version in linux_symbol_versions(result.stdout).items():
+            if version > limits[family]:
+                required = ".".join(map(str, version))
+                raise RuntimeError(f"{path.name} requires {family}_{required}; build the portable package "
+                                   "on the supported older Linux baseline instead")
+            versions[family] = max(versions.get(family, ()), version)
+    if "GLIBC" not in versions:
+        raise RuntimeError("The portable package has no observable glibc requirements")
+    return {family: ".".join(map(str, version)) for family, version in versions.items()}
+
+
+def linux_tar(package, output, name, work):
+    payload = work / "portable"
+    shutil.copytree(package, payload, symlinks=True)
+    versions = check_linux_abi(payload)
+    info = json.loads((payload / "build-info.json").read_text())
+    info["linux_abi"] = versions
+    write_text(payload / "build-info.json", json.dumps(info, indent=2) + "\n")
+    write_text(payload / "NeMoDev", (SOURCE / "tools/packaging/NeMoDev.sh").read_text(encoding="utf-8"), 0o755)
+    write_text(payload / "START-HERE.txt", "NeMoDev for Linux x86_64\n\n"
+               "Extract the entire archive and run ./NeMoDev. Keep all folders together.\n"
+               "The launcher also works through a symlink and preserves your working directory.\n\n"
+               "System requirements: glibc 2.35+, GTK3 with its Unix Print/CUPS backend, GIO,\n"
+               "libpng16, zlib, libstdc++, Vulkan loader and a working graphics driver.\n"
+               "Install Zenity for SDL's native file dialogs, and ALSA/PulseAudio libraries for audio.\n"
+               "SDL3, libharu, the Ballanced runtime, plugins and fonts are included.\n"
+               "Actual required symbol versions are recorded in build-info.json.\n\n"
+               "Use your distribution's package manager to install these system libraries.\n"
+               "This archive does not replace glibc, GTK, graphics drivers or system settings.\n"
+               "See LICENSE and THIRD_PARTY_NOTICES.md.\n")
+    archive = output / f"{name}.tar.xz"
+
+    def owner(entry):
+        entry.uid = entry.gid = 0
+        entry.uname = entry.gname = ""
+        return entry
+
+    with tarfile.open(archive, "w:xz") as handle:
+        handle.add(payload, arcname="NeMoDev", filter=owner)
+    extracted = work / "Extracted Linux archive"
+    with tarfile.open(archive) as handle:
+        handle.extractall(extracted)
+    check_payload(extracted / "NeMoDev")
+    return archive
+
+
 def linux_deb(package, output, name, version, work):
+    if not shutil.which("dpkg-deb") or not shutil.which("dpkg-shlibdeps"):
+        raise RuntimeError("DEB packaging requires dpkg-dev; select --linux-format portable otherwise")
     root = work / "deb"
     payload = root / "opt/nemodev"
     shutil.copytree(package, payload, symlinks=True)
@@ -128,20 +208,14 @@ def linux_deb(package, output, name, version, work):
     write_text(analysis / "debian/control", "Source: nemodev\nSection: non-free/devel\nPriority: optional\n"
                "Maintainer: NeMoDev contributors <noreply@github.com>\n\nPackage: nemodev\nArchitecture: amd64\n"
                "Description: Virtools composition editor\n")
-    elf_files = []
-    for path in payload.rglob("*"):
-        if path.is_file() and not path.is_symlink():
-            with path.open("rb") as handle:
-                if handle.read(4) == b"\x7fELF":
-                    elf_files.append(path)
     dependencies = run("dpkg-shlibdeps", "-O", "--ignore-missing-info", f"-l{payload / 'Bin'}",
-                       *(f"-e{path}" for path in elf_files), cwd=analysis,
+                       *(f"-e{path}" for path in elf_files(payload)), cwd=analysis,
                        capture_output=True, text=True)
     print(dependencies.stderr, end="")
     linked = next(line.partition("=")[2] for line in dependencies.stdout.splitlines()
                   if line.startswith("shlibs:Depends="))
     # SDL loads these backends at runtime, beyond the ELF dependency table.
-    required = linked + ", libvulkan1, libasound2t64, libpulse0, zenity"
+    required = linked + ", libvulkan1, libasound2t64 | libasound2, libpulse0, zenity"
     size = sum(path.stat().st_size for path in root.rglob("*") if path.is_file()) // 1024 + 1
     write_text(root / "DEBIAN/control", f"Package: nemodev\nVersion: {version}\nArchitecture: amd64\n"
                "Section: non-free/devel\nPriority: optional\nMaintainer: NeMoDev contributors <noreply@github.com>\n"
@@ -250,6 +324,8 @@ def main():
     parser.add_argument("--version", required=True, help="Three numeric components, e.g. 0.0.123")
     parser.add_argument("--revision", required=True)
     parser.add_argument("--sdk-revisions", type=Path, required=True)
+    parser.add_argument("--linux-format", choices=("portable", "deb", "all"), default="portable",
+                        help="Linux output: portable tar.xz (default), native DEB, or both")
     args = parser.parse_args()
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.version):
         parser.error("version must contain three numeric components")
@@ -257,12 +333,7 @@ def main():
         parser.error("revision must be a full Git commit ID")
     system = {"win32": "windows-x64", "darwin": "macos-arm64"}.get(sys.platform)
     if sys.platform == "linux":
-        release = dict(line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines() if "=" in line)
-        distribution = release.get("ID", "").strip('"')
-        distribution_version = release.get("VERSION_ID", "").strip('"')
-        if distribution != "ubuntu" or not re.fullmatch(r"[0-9]+\.[0-9]+", distribution_version):
-            parser.error("DEB packaging requires an Ubuntu build host")
-        system = f"ubuntu-{distribution_version}-amd64"
+        system = "linux-x64"
     expected_arch = "arm64" if sys.platform == "darwin" else "x86_64"
     actual_arch = platform.machine().lower().replace("amd64", "x86_64").replace("aarch64", "arm64")
     if not system or actual_arch != expected_arch:
@@ -279,14 +350,19 @@ def main():
             "revision": args.revision, "platform": system, "configuration": "Release"}, indent=2) + "\n")
         shutil.copy2(args.sdk_revisions, package / "ballanced-revisions.txt")
         if sys.platform == "win32":
-            archive = windows_zip(package, output, name, work)
+            archives = [windows_zip(package, output, name, work)]
         elif sys.platform == "darwin":
-            archive = mac_dmg(package, output, name, args.version, work)
+            archives = [mac_dmg(package, output, name, args.version, work)]
         else:
-            archive = linux_deb(package, output, name, args.version, work)
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-        write_text(Path(str(archive) + ".sha256"), f"{digest}  {archive.name}\n")
-        print(f"Verified distribution: {archive}")
+            archives = []
+            if args.linux_format in ("portable", "all"):
+                archives.append(linux_tar(package, output, name, work))
+            if args.linux_format in ("deb", "all"):
+                archives.append(linux_deb(package, output, name, args.version, work))
+        for archive in archives:
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            write_text(Path(str(archive) + ".sha256"), f"{digest}  {archive.name}\n")
+            print(f"Verified distribution: {archive}")
 
 
 if __name__ == "__main__":
