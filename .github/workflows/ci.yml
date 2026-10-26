@@ -148,6 +148,10 @@ jobs:
             out/${{ matrix.preset }}/.ninja_log
             out/${{ matrix.preset }}/.ninja_deps
           key: ballanced-v1-${{ matrix.preset }}-${{ steps.sdk.outputs.image }}-sdl3.4.18-${{ steps.sdk.outputs.revision }}-${{ hashFiles('cmake/Ballanced.cmake', 'CMakeLists.txt', 'CMakePresets.json') }}
+          # Reconfigure and build normally after restoration: Ninja/MSBuild
+          # revalidate compiler flags. Deployment-only changes can reuse objects
+          # from the same SDK, SDL and toolchain snapshot.
+          restore-keys: ballanced-v1-${{ matrix.preset }}-${{ steps.sdk.outputs.image }}-sdl3.4.18-${{ steps.sdk.outputs.revision }}-
       - name: Initialize missing SDK components and record their revisions
         run: |
           git -C out/Ballanced submodule update --init --recursive \
