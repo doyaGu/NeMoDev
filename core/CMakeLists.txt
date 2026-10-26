@@ -82,7 +82,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         catalog/ParameterUIs.cpp)
 
 add_library(VirtoolsDevCore STATIC ${VIRTOOLS_DEV_CORE_SOURCES})
-add_dependencies(VirtoolsDevCore VirtoolsDevRuntime)
+add_dependencies(VirtoolsDevCore VirtoolsDevData)
 target_include_directories(VirtoolsDevCore PUBLIC ${VIRTOOLSDEV_SOURCE_DIR})
 target_link_libraries(VirtoolsDevCore PUBLIC CK2 VxMath)
 target_compile_definitions(VirtoolsDevCore PRIVATE VIRTOOLS_CK2_FILENAME="$<TARGET_FILE_NAME:CK2>")

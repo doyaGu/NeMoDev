@@ -47,6 +47,10 @@ std::string VirtoolsRuntimeDirectory(const std::string &path) {
     const std::string contents = BundleContents(directory);
     if (!contents.empty() && IsFile(contents + "/Frameworks/" VIRTOOLS_CK2_FILENAME))
         return contents + "/Frameworks";
+    if (!contents.empty()) {
+        const auto shared = std::filesystem::u8path(contents).parent_path().parent_path() / "Bin";
+        if (IsFile((shared / VIRTOOLS_CK2_FILENAME).u8string())) return shared.u8string();
+    }
     return directory;
 }
 
@@ -64,10 +68,7 @@ std::string VirtoolsPluginRoot(const std::string &runtimeDirectory) {
 std::string VirtoolsDataDirectory(const std::string &baseDirectory) {
     const auto base = std::filesystem::u8path(WithoutTrailingSeparator(baseDirectory.empty() ? "." : baseDirectory));
     const auto data = base / "data";
-    if (base.filename() == "Bin") {
-        const auto installed = base.parent_path() / "data";
-        if (IsDirectory(installed.u8string()) || !IsDirectory(data.u8string())) return installed.u8string();
-    }
+    if (base.filename() == "Bin") return (base.parent_path() / "data").u8string();
     return data.u8string();
 }
 

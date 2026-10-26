@@ -9,7 +9,8 @@ class CKPluginManager;
 // as Ballance has CK2.dll in Bin\); path when neither has it. The editor's
 // --runtime (ui/app/Main.cpp) and the build's VIRTOOLS_RUNTIME_PATH take a
 // game folder the same way. A macOS application bundle keeps its runtime in
-// Contents/Frameworks; its Resources and MacOS directories resolve there too.
+// Contents/Frameworks; development bundles use the adjacent runtime/Bin.
+// Their Resources and MacOS directories resolve to the same library directory.
 std::string VirtoolsRuntimeDirectory(const std::string &path);
 
 // Where a Virtools runtime keeps its plugins. A Dev install has CK2.dll and
@@ -21,7 +22,6 @@ std::string VirtoolsRuntimeDirectory(const std::string &path);
 std::string VirtoolsPluginRoot(const std::string &runtimeDirectory);
 
 // Read-only application data beside Bin, or below a macOS bundle's Resources.
-// The SDK's Bin/data development layout remains a fallback when present.
 std::string VirtoolsDataDirectory(const std::string &baseDirectory);
 
 // The plugin folders, in the SDK Standalone Player's order.

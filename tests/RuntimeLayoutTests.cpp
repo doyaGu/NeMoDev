@@ -24,7 +24,8 @@ static void CheckInstalledRuntime(const std::string &path) {
 #endif
     vdev::CkRuntimeHost host;
     std::string error;
-    if (!host.Start(VirtoolsRuntimeDirectory(path), {}, &error))
+    const char *base = SDL_GetBasePath();
+    if (!host.Start(VirtoolsRuntimeDirectory(path == "auto" && base ? base : path), {}, &error))
         throw std::runtime_error(error);
     const auto &counts = host.Counts();
     if (!counts.behaviorDlls || !counts.managerDlls || !counts.renderEngines || !counts.behaviorPrototypes)
@@ -119,7 +120,7 @@ int main(int argc, char **argv) {
         RequirePath(VirtoolsPluginRoot((game / "Bin").u8string()), game);
         RequirePath(VirtoolsDataDirectory((game / "Bin").u8string()), game / "data");
         std::filesystem::create_directories(game / "Bin/data");
-        RequirePath(VirtoolsDataDirectory((game / "Bin").u8string()), game / "Bin/data");
+        RequirePath(VirtoolsDataDirectory((game / "Bin").u8string()), game / "data");
         std::filesystem::create_directories(game / "data");
         RequirePath(VirtoolsDataDirectory((game / "Bin").u8string() + "/"), game / "data");
         RequirePath(VirtoolsDataDirectory(game.u8string()), game / "data");
@@ -136,6 +137,11 @@ int main(int argc, char **argv) {
 
         std::filesystem::remove(contents / "Frameworks" / VIRTOOLS_CK2_FILENAME);
         RequirePath(VirtoolsRuntimeDirectory((contents / "Resources").u8string()), contents / "Resources");
+        const auto developmentBin = app.parent_path() / "Bin";
+        std::filesystem::create_directories(developmentBin);
+        std::ofstream(developmentBin / VIRTOOLS_CK2_FILENAME).put('\0');
+        for (const auto &input : {app, contents, contents / "Resources", contents / "MacOS"})
+            RequirePath(VirtoolsRuntimeDirectory(input.u8string()), developmentBin);
         RequirePath(VirtoolsRuntimeDirectory((root / "missing").u8string()), root / "missing");
         RequirePath(VirtoolsPluginRoot((root / "missing").u8string()), root / "missing");
         std::filesystem::create_directories(root / "ordinary" / "Frameworks");

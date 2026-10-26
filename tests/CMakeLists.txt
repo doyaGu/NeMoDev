@@ -29,6 +29,8 @@ add_executable(NeMoDevRuntimeLayoutTests RuntimeLayoutTests.cpp)
 target_link_libraries(NeMoDevRuntimeLayoutTests PRIVATE VirtoolsDevCore)
 target_compile_definitions(NeMoDevRuntimeLayoutTests PRIVATE VIRTOOLS_CK2_FILENAME="$<TARGET_FILE_NAME:CK2>")
 virtoolsdev_add_test(NeMoDevRuntimeLayout NeMoDevRuntimeLayoutTests)
+add_test(NAME NeMoDevRuntimeStartup COMMAND NeMoDevRuntimeLayoutTests --runtime auto)
+set_tests_properties(NeMoDevRuntimeStartup PROPERTIES ENVIRONMENT "VIRTOOLS_PATH=;SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy")
 add_test(NAME NeMoDevApplicationData COMMAND ${CMAKE_COMMAND}
         "-DSOURCE_DIRECTORY=${VIRTOOLSDEV_SOURCE_DIR}"
         "-DBINARY_DIRECTORY=${PROJECT_BINARY_DIR}"
@@ -40,7 +42,7 @@ add_test(NAME VirtoolsDevLicenseDeployment COMMAND ${CMAKE_COMMAND}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/CheckLicenseDeployment.cmake")
 
 add_test(NAME VirtoolsDevFontDeployment COMMAND ${CMAKE_COMMAND}
-        "-DRUNTIME_DIRECTORY=${VIRTOOLS_RUNTIME_PATH}"
+        "-DFONT_DIRECTORY=${PROJECT_BINARY_DIR}/runtime/data/fonts"
         "-DFONT_MANIFEST=${VIRTOOLS_SDK_PATH}/Source/VxMath/fonts/sources.json"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/CheckFontDeployment.cmake")
 
@@ -55,6 +57,12 @@ add_executable(VirtoolsDevPortableTests VirtoolsDevPortableTests.cpp)
 target_link_libraries(VirtoolsDevPortableTests PRIVATE VirtoolsDevCore)
 virtoolsdev_add_resources(VirtoolsDevPortableTests)
 virtoolsdev_add_test(VirtoolsDevPortable VirtoolsDevPortableTests)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # This checks VxMath's primitive bitmap/font APIs without a CK runtime.
+    # Supply their asset fixture through the SDK's standard XDG search path.
+    set_tests_properties(VirtoolsDevPortable PROPERTIES ENVIRONMENT_MODIFICATION
+            "XDG_DATA_DIRS=path_list_prepend:${PROJECT_BINARY_DIR}/runtime/data")
+endif()
 
 add_executable(SchematicModelTests SchematicModelTests.cpp)
 target_link_libraries(SchematicModelTests PRIVATE VirtoolsDevCore)

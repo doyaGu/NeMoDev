@@ -281,7 +281,7 @@ jobs:
             ubuntu:24.04 bash /checks/CheckUbuntuPackage.sh
       - name: Verify the macOS bundle runtime and resources
         if: runner.os == 'macOS'
-        run: bash tests/CheckMacPackage.sh out/macos-arm64/runtime/Bin/NeMoDevRuntimeLayoutTests out/dist/NeMoDev-*.dmg
+        run: bash tests/CheckMacPackage.sh out/macos-arm64/runtime/NeMoDev.app/Contents/MacOS/NeMoDevRuntimeLayoutTests out/dist/NeMoDev-*.dmg
       - name: Upload the end-user distribution
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
