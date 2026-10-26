@@ -159,6 +159,18 @@ def linux_deb(package, output, name, version, work):
     return archive
 
 
+def move_mac_resources(contents):
+    # macOS signs code directories as nested code. Keep SDK configuration and
+    # runtime metadata in Resources, with internal relative links at the SDK's
+    # existing lookup locations; no SDK source changes are required.
+    metadata = [contents / "Frameworks/BallancedRuntime.txt", *contents.glob("PlugIns/**/*.ini")]
+    for path in metadata:
+        destination = contents / "Resources/runtime" / path.relative_to(contents)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(path, destination)
+        path.symlink_to(os.path.relpath(destination, path.parent))
+
+
 def mac_dmg(package, output, name, version, work):
     volume = work / "volume"
     app = volume / "NeMoDev.app"
@@ -173,6 +185,7 @@ def mac_dmg(package, output, name, version, work):
     shutil.move(frameworks / "NeMoDev", executable)
     for category in PLUGINS:
         shutil.copytree(package / category, contents / "PlugIns" / category, symlinks=True)
+    move_mac_resources(contents)
     for path in package.iterdir():
         if path.name == "Bin" or path.name in PLUGINS:
             continue
@@ -205,7 +218,8 @@ def mac_dmg(package, output, name, version, work):
         for rpath in re.findall(r"cmd LC_RPATH\n.*?\n\s*path (.*?) \(offset", commands):
             if rpath.startswith("/"):
                 run("install_name_tool", "-delete_rpath", rpath, binary)
-        run("codesign", "--force", "--sign", "-", "--timestamp=none", binary)
+        if binary != executable:
+            run("codesign", "--force", "--sign", "-", "--timestamp=none", binary)
     run("codesign", "--force", "--sign", "-", "--timestamp=none", app)
     run("codesign", "--verify", "--deep", "--strict", app)
     check_production(executable, app)

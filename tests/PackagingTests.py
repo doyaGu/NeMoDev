@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from Package import check_symlinks
+from Package import check_symlinks, move_mac_resources
 
 
 class PackageLinks(unittest.TestCase):
@@ -46,6 +46,28 @@ class PackageLinks(unittest.TestCase):
             link.symlink_to("lib.so")
             with self.assertRaises(RuntimeError):
                 check_symlinks(package)
+
+    def test_mac_resources_keep_sdk_lookup_paths_after_relocation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "NeMoDev.app"
+            contents = app / "Contents"
+            for name in ("Frameworks/BallancedRuntime.txt", "PlugIns/RenderEngines/CK2_3D.ini"):
+                path = contents / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"Original SDK data\n")
+            library = contents / "Frameworks/libCK2.dylib"
+            library.write_bytes(b"Library unchanged")
+            move_mac_resources(contents)
+            app.rename(Path(directory) / "Moved App.app")
+            moved = Path(directory) / "Moved App.app"
+            check_symlinks(moved)
+            for name in ("Frameworks/BallancedRuntime.txt", "PlugIns/RenderEngines/CK2_3D.ini"):
+                path = moved / "Contents" / name
+                self.assertTrue(path.is_symlink())
+                self.assertFalse(Path(path.readlink()).is_absolute())
+                self.assertEqual(path.read_bytes(), b"Original SDK data\n")
+                self.assertEqual(path.resolve(), moved / "Contents/Resources/runtime" / name)
+            self.assertEqual((moved / "Contents/Frameworks/libCK2.dylib").read_bytes(), b"Library unchanged")
 
 
 if __name__ == "__main__":
