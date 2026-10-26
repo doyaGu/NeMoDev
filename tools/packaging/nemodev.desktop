@@ -2,7 +2,7 @@
 Type=Application
 Name=NeMoDev
 Comment=Edit Virtools compositions
-Exec=nemodev %F
+Exec=nemodev %f
 Icon=nemodev
 Terminal=false
 Categories=Development;Graphics;
