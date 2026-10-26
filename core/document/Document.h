@@ -32,13 +32,20 @@ struct ScriptInfo {
 // Script's display data lives in a lazily created ScriptSession.
 class Document {
 public:
+    class PreparedOpen;
     explicit Document(CkRuntimeHost &host) : m_Host(host), m_History(*this) {}
     ~Document();
 
+    // Immediate load into this context; interactive replacement uses PrepareOpen.
     // Opening .nmo is New + Import: an unsaved, modified composition using
     // the caller's new-scene environment. Other compositions load as saved.
     bool Open(const std::string &path, std::string *error,
               const SceneEnvironment &environment = DefaultNewSceneEnvironment());
+    // Load in an independent context. Failure or discarding the candidate
+    // leaves this document, its objects and undo history unchanged. Callers
+    // release old UI/render state only once preparation succeeds, then Commit.
+    std::unique_ptr<PreparedOpen> PrepareOpen(const std::string &path, std::string *error,
+                                            const SceneEnvironment &environment = DefaultNewSceneEnvironment());
     // File > New Composition (Dev.exe sub_5C3BC0, sub_5CB640): an empty level
     // named "Level" as the current level, its level scene with Dev's default
     // environment supplied for the new composition.
@@ -148,6 +155,7 @@ private:
     friend class UndoStep;
     friend struct DocumentSaverAccess;
     void ListScripts();
+    void CommitOpen(PreparedOpen &prepared);
 
     CkRuntimeHost &m_Host;
     bool m_Open = false;
@@ -166,6 +174,21 @@ private:
     // (Close).
     UndoHistory m_History;
     Edit *m_OpenEdit = nullptr; // the innermost
+};
+
+class Document::PreparedOpen {
+public:
+    ~PreparedOpen();
+    // Consumes the loaded candidate. Context/object pointers from the old
+    // document must not be used after this call; the Document itself stays.
+    void Commit();
+
+private:
+    friend class Document;
+    explicit PreparedOpen(Document &target);
+    Document &m_Target;
+    std::unique_ptr<CkRuntimeHost> m_Host;
+    std::unique_ptr<Document> m_Document;
 };
 
 } // namespace vdev

@@ -362,12 +362,18 @@ void EditorApp::RequestQuit() {
 }
 
 bool EditorApp::OpenFile(const std::string &path) {
-    CloseDocument();
     std::string error;
-    if (!m_State.document->Open(path, &error, m_State.preferences.NewSceneEnvironment())) {
+    auto prepared = m_State.document->PrepareOpen(path, &error, m_State.preferences.NewSceneEnvironment());
+    if (!prepared) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }
+    // No old document or UI state is released until the new file has loaded.
+    CloseDocument();
+    m_Layout.Stop();
+    prepared->Commit();
+    std::string layoutError;
+    if (!m_Layout.Start(m_Window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     m_LastSavedPath.clear();
     RememberRecentFile(path);
     // NMO opens are imports into a new composition. Keep its editor state,

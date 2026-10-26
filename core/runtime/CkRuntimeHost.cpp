@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <utility>
 
 #include "core/runtime/VirtoolsRuntimeLayout.h"
 #include "core/runtime/SdkCompat.h"
@@ -236,6 +237,69 @@ bool CkRuntimeHost::Start(const std::string &runtimeDirectory, LogSink sink, std
     Log(CKGetVersion() == CKVERSION ? LogLevel::Info : LogLevel::Warning,
         std::string(version) + (CKGetVersion() == CKVERSION ? "" : ": the runtime is not the SDK's"));
     return true;
+}
+
+std::unique_ptr<CkRuntimeHost> CkRuntimeHost::CreateDocumentHost(std::string *error) const {
+    if (!m_Context) {
+        if (error) *error = "Virtools runtime is not started";
+        return {};
+    }
+    auto candidate = std::make_unique<CkRuntimeHost>();
+    candidate->m_Sink = m_Sink;
+    candidate->m_RuntimeDirectory = m_RuntimeDirectory;
+    candidate->m_RenderEngine = m_RenderEngine;
+    candidate->m_Counts = m_Counts;
+    CKERROR result = CKERR_INVALIDPARAMETER;
+    const bool completed = GuardedCall([&] {
+        result = CreateCKContext(&candidate->m_Context, m_Context->GetMainWindow(), m_Context->GetSelectedRenderEngine());
+        if (result != CK_OK || !candidate->m_Context) return;
+        CKContext *context = candidate->m_Context;
+        context->SetInterfaceMode(TRUE, &CkRuntimeHost::UiCallback, candidate.get());
+        context->SetFileWriteMode(m_Context->GetFileWriteMode());
+        context->SetCompressionLevel(m_Context->GetCompressionLevel());
+        context->SetGlobalImagesSaveOptions(m_Context->GetGlobalImagesSaveOptions());
+        context->SetGlobalSoundsSaveOptions(m_Context->GetGlobalSoundsSaveOptions());
+        context->SetGlobalImagesSaveFormat(m_Context->GetGlobalImagesSaveFormat());
+        context->GetBehaviorManager()->SetBehaviorMaxIteration(m_Context->GetBehaviorManager()->GetBehaviorMaxIteration());
+        CKTimeManager *sourceTime = m_Context->GetTimeManager(), *time = context->GetTimeManager();
+        if (sourceTime && time) {
+            const CKDWORD limits = sourceTime->GetLimitOptions();
+            time->ChangeLimitOptions(static_cast<CK_FRAMERATE_LIMITS>(limits & CK_FRAMERATE_MASK),
+                                     static_cast<CK_FRAMERATE_LIMITS>(limits & CK_BEHRATE_MASK));
+            time->SetFrameRateLimit(sourceTime->GetFrameRateLimit());
+            time->SetBehavioralRateLimit(sourceTime->GetBehavioralRateLimit());
+            time->SetTimeScaleFactor(sourceTime->GetTimeScaleFactor());
+            time->SetMinimumDeltaTime(sourceTime->GetMinimumDeltaTime());
+            time->SetMaximumDeltaTime(sourceTime->GetMaximumDeltaTime());
+        }
+        CKPathManager *source = m_Context->GetPathManager(), *paths = context->GetPathManager();
+        for (int category = 0; source && paths && category < source->GetCategoryCount(); ++category) {
+            XString name;
+            source->GetCategoryName(category, name);
+            int target = paths->GetCategoryIndex(name);
+            if (target < 0) target = paths->AddCategory(name);
+            if (target < 0) continue;
+            while (paths->GetPathCount(target) > 0) paths->RemovePath(target, 0);
+            for (int index = 0; index < source->GetPathCount(category); ++index) {
+                XString path;
+                source->GetPathName(category, index, path);
+                paths->AddPath(target, path);
+            }
+        }
+    }, this, "Create document context");
+    if (!completed || result != CK_OK || !candidate->m_Context) {
+        if (error) *error = "Cannot create the document context (CKERROR " + std::to_string(result) + ")";
+        return {};
+    }
+    return candidate;
+}
+
+void CkRuntimeHost::ExchangeContext(CkRuntimeHost &other) {
+    std::swap(m_Context, other.m_Context);
+    ++m_Generation;
+    ++other.m_Generation;
+    if (m_Context) m_Context->SetInterfaceMode(TRUE, &CkRuntimeHost::UiCallback, this);
+    if (other.m_Context) other.m_Context->SetInterfaceMode(TRUE, &CkRuntimeHost::UiCallback, &other);
 }
 
 void CkRuntimeHost::Stop() {

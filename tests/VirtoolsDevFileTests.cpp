@@ -1345,6 +1345,90 @@ void NativePathChecks(CkRuntimeHost &host) {
     std::cout << "Native resource paths, metadata bytes and composition round trips passed\n";
 }
 
+void OpenFailurePreservation(CkRuntimeHost &host) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::current_path() / ("open-failures-" + std::to_string(SDL_GetTicksNS()));
+    CHECK(fs::create_directory(root));
+    struct Cleanup { fs::path root; ~Cleanup() { std::error_code error; fs::remove_all(root, error); } } cleanup{root};
+    Document document(host);
+    std::string error;
+    CHECK(document.New(&error));
+    const EditResult made = CreateLayoutObject(document, LayoutObject::Frame3D);
+    CHECK(made.ok);
+    const std::string name = document.Context()->GetObject(made.created)->GetName();
+    const std::string valid = (root / "valid.cmo").u8string();
+    const std::string objects = (root / "objects.nmo").u8string();
+    CHECK(SaveObjectsAs(document, {made.created}, objects, &error));
+    const float savedScale = document.Context()->GetTimeManager()->GetTimeScaleFactor();
+    const float savedRate = document.Context()->GetTimeManager()->GetFrameRateLimit();
+    SaveReport report;
+    CHECK(SaveDocumentAs(document, valid, {}, report));
+    CHECK(RenameLevelObject(document, made.created, "Pending rename").ok);
+    CHECK(document.History().Undo() && !document.Dirty());
+    CKContext *original = document.Context();
+    original->GetTimeManager()->SetTimeScaleFactor(0.5f);
+    original->GetTimeManager()->SetFrameRateLimit(77);
+    const auto generation = host.Generation(), revision = document.TopologyRevision();
+    const auto undo = document.History().UndoLabel(), redo = document.History().RedoLabel();
+    const auto loaded = document.LoadedObjects();
+    auto check = [&] {
+        CHECK(document.IsOpen() && document.Context() == original && host.Generation() == generation);
+        CHECK(document.TopologyRevision() == revision && document.LoadedObjects() == loaded);
+        CHECK(document.IsLive(made.created) && !document.Dirty());
+        CHECK(document.History().UndoLabel() == undo && document.History().RedoLabel() == redo);
+        CHECK(std::string(original->GetObject(made.created)->GetName()) == name);
+        CHECK(original->GetTimeManager()->GetTimeScaleFactor() == 0.5f);
+        CHECK(original->GetTimeManager()->GetFrameRateLimit() == 77);
+    };
+    for (const char *extension : {"cmo", "NMO", "vmo"}) {
+        const auto broken = root / (std::string("broken.") + extension);
+        std::ofstream(broken, std::ios::binary) << "Invalid composition";
+        CHECK(!document.PrepareOpen(broken.u8string(), &error) && !error.empty());
+        check();
+        CHECK(!document.PrepareOpen((root / (std::string("missing.") + extension)).u8string(), &error));
+        check();
+    }
+    // A valid candidate can also be abandoned without changing the old document.
+    {
+        auto prepared = document.PrepareOpen(valid, &error);
+        CHECK(prepared);
+        check();
+    }
+    check();
+    CHECK(document.History().Redo());
+    CHECK(std::string(original->GetObject(made.created)->GetName()) == "Pending rename");
+    CHECK(document.History().Undo() && !document.Dirty());
+    // Commit uses the loaded context, inheriting settings unless the file saves its own.
+    original->SetCompressionLevel(7);
+    original->GetBehaviorManager()->SetBehaviorMaxIteration(137);
+    XString category("Open preservation paths"), path(root.u8string().c_str());
+    const int index = original->GetPathManager()->AddCategory(category);
+    CHECK(index >= 0 && original->GetPathManager()->AddPath(index, path) >= 0);
+    auto prepared = document.PrepareOpen(valid, &error);
+    CHECK(prepared);
+    CHECK(fs::remove(fs::u8path(valid))); // Commit must not reopen the source file.
+    prepared->Commit();
+    CHECK(document.Context() != original && host.Generation() != generation);
+    CHECK(document.IsOpen() && document.SourcePath() == valid && !document.Dirty());
+    CHECK(!document.History().CanUndo() && !document.History().CanRedo());
+    CHECK(document.Context()->GetObjectByNameAndClass(const_cast<CKSTRING>(name.c_str()), CKCID_3DENTITY));
+    CHECK(document.Context()->GetCompressionLevel() == 7);
+    CHECK(document.Context()->GetBehaviorManager()->GetBehaviorMaxIteration() == 137);
+    CHECK(document.Context()->GetTimeManager()->GetTimeScaleFactor() == savedScale);
+    CHECK(document.Context()->GetTimeManager()->GetFrameRateLimit() == savedRate);
+    CHECK(document.Context()->GetPathManager()->GetCategoryIndex(category) >= 0);
+    // Object libraries carry no level timing settings: New + Import keeps the current ones.
+    document.Context()->GetTimeManager()->SetTimeScaleFactor(0.5f);
+    document.Context()->GetTimeManager()->SetFrameRateLimit(77);
+    prepared = document.PrepareOpen(objects, &error);
+    CHECK(prepared);
+    prepared->Commit();
+    CHECK(document.SourcePath().empty() && document.Dirty());
+    CHECK(document.Context()->GetTimeManager()->GetTimeScaleFactor() == 0.5f);
+    CHECK(document.Context()->GetTimeManager()->GetFrameRateLimit() == 77);
+    std::cout << "Failed and abandoned opens preserve objects, revisions and Undo/Redo; commit adopts the loaded context\n";
+}
+
 void ObjectFileOpen(CkRuntimeHost &host) {
     namespace fs = std::filesystem;
     const fs::path root = fs::current_path() / ("object-file-open-" + std::to_string(SDL_GetPerformanceCounter()));

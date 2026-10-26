@@ -385,6 +385,7 @@ void TextEncodingChecks();
 void NativePathChecks(CkRuntimeHost &host);
 void CompositionReadCompatibility(CkRuntimeHost &host);
 void ObjectFileOpen(CkRuntimeHost &host);
+void OpenFailurePreservation(CkRuntimeHost &host);
 std::vector<unsigned char> ChunkBytes(CKStateChunk *chunk);
 int CompareReloadedChunks(Document &document, const std::string &path);
 void ResourceChecks();

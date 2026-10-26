@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -68,6 +69,11 @@ public:
     void Log(LogLevel level, const std::string &message) const;
 
 private:
+    friend class Document;
+    // A document candidate shares process-wide plugins and SDL ownership,
+    // but owns its CKContext. The original host must outlive it.
+    std::unique_ptr<CkRuntimeHost> CreateDocumentHost(std::string *error) const;
+    void ExchangeContext(CkRuntimeHost &other);
     static CKERROR UiCallback(CKUICallbackStruct &param, void *data);
 
     CKContext *m_Context = nullptr;

@@ -56,7 +56,102 @@ public:
 };
 
 void RegisterFileMenuTests(ImGuiTestEngine *engine) {
-    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "open_nmo_populates_level_manager_as_new_import");
+    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "failed_open_preserves_document_selection_and_history");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        namespace fs = std::filesystem;
+        Settle(ctx);
+        const auto root = fs::current_path() / ("failed-open-" + std::to_string(SDL_GetTicksNS()));
+        IM_CHECK(fs::create_directory(root));
+        struct Cleanup {
+            fs::path root;
+            ~Cleanup() { std::error_code error; fs::remove_all(root, error); }
+        } cleanup{root};
+        const std::string source = (root / "source.cmo").u8string();
+        OnMainThread(ctx, [&] {
+            auto &document = *App().State().document;
+            IM_CHECK_NO_RET(vdev::CreateLayoutObject(document, vdev::LayoutObject::Frame3D).ok);
+            vdev::SaveReport report;
+            IM_CHECK_NO_RET(vdev::SaveDocumentAs(document, source, {}, report));
+            App().DropFiles({vdev::Utf8ToWide(source)}, 0, 0);
+        });
+        ctx->Yield(5);
+        const std::string broken = (root / "broken.cmo").u8string();
+        IM_CHECK(WritePageFile(broken, "Invalid composition"));
+        CKContext *original = nullptr;
+        CKRenderContext *render = nullptr;
+        CK_ID object = 0, script = 0;
+        vdev::ScriptSession *session = nullptr;
+        std::string undo, redo;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &document = *state.document;
+            const auto made = vdev::CreateLayoutObject(document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            object = made.created;
+            const auto madeScript = vdev::CreateScript(document, object, "Preserved Script");
+            IM_CHECK_NO_RET(madeScript.ok);
+            script = madeScript.created;
+            session = document.Session(script);
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, object, "Renamed frame").ok);
+            IM_CHECK_NO_RET(document.History().Undo());
+            document.MarkSaved();
+            document.History().MarkSavePoint();
+            original = document.Context();
+            render = App().Layout().View().RenderContext();
+            undo = document.History().UndoLabel();
+            redo = document.History().RedoLabel();
+            state.objectSelection.Set({object});
+            state.objectSelection.locked = true;
+        });
+        ctx->Yield(5);
+        OnMainThread(ctx, [&] { App().State().selection.Set(script, vdev::Selection::HeaderOf(script)); });
+        auto check = [&] {
+            IM_CHECK(Read<bool>(ctx, [&] {
+                auto &state = App().State();
+                auto &document = *state.document;
+                return document.IsOpen() && document.Context() == original && document.IsLive(object) &&
+                       document.SourcePath() == source && document.ExistingSession(script) == session &&
+                       !document.Dirty() && document.History().UndoLabel() == undo &&
+                       document.History().RedoLabel() == redo && state.objectSelection.locked &&
+                       state.objectSelection.objects == std::vector<CK_ID>{object} &&
+                       state.selection.Contains(script, vdev::Selection::HeaderOf(script)) &&
+                       App().Panels().LevelSelection() == std::set<CK_ID>{object} &&
+                       App().Layout().View().RenderContext() == render;
+            }));
+        };
+        for (const char *extension : {"cmo", "NMO", "vmo"}) {
+            const auto invalid = (root / (std::string("invalid.") + extension)).u8string();
+            IM_CHECK(WritePageFile(invalid, "Invalid composition"));
+            OnMainThread(ctx, [&] { App().DropFiles({vdev::Utf8ToWide(invalid)}, 0, 0); });
+            ctx->Yield(5);
+            check();
+        }
+        const auto missing = (root / "missing.cmo").u8string();
+        OnMainThread(ctx, [&] { App().DropFiles({vdev::Utf8ToWide(missing)}, 0, 0); });
+        ctx->Yield(5);
+        check();
+        OnMainThread(ctx, [&] {
+            auto &document = *App().State().document;
+            IM_CHECK_NO_RET(document.History().Redo() && document.Dirty());
+            IM_CHECK_NO_RET(std::string(document.Context()->GetObject(object)->GetName()) == "Renamed frame");
+            App().DropFiles({vdev::Utf8ToWide(broken)}, 0, 0);
+        });
+        ctx->Yield(3);
+        ctx->ItemClick("//Unsaved changes/Discard");
+        ctx->Yield(5);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            auto &state = App().State();
+            return state.document->Context() == original && state.document->Dirty() &&
+                   state.document->IsLive(object) && state.document->History().CanUndo() &&
+                   state.objectSelection.objects == std::vector<CK_ID>{object} && state.objectSelection.locked;
+        }));
+        OnMainThread(ctx, [&] {
+            auto &document = *App().State().document;
+            IM_CHECK_NO_RET(document.History().Undo() && !document.Dirty());
+        });
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "open_nmo_populates_level_manager_as_new_import");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         namespace fs = std::filesystem;

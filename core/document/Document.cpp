@@ -72,6 +72,54 @@ CKContext *Document::Context() const {
     return m_Host.Context();
 }
 
+Document::PreparedOpen::PreparedOpen(Document &target) : m_Target(target) {}
+Document::PreparedOpen::~PreparedOpen() = default;
+
+void Document::PreparedOpen::Commit() {
+    if (m_Document) m_Target.CommitOpen(*this);
+}
+
+std::unique_ptr<Document::PreparedOpen> Document::PrepareOpen(const std::string &path, std::string *error,
+                                                            const SceneEnvironment &environment) {
+    if (EditOpen()) {
+        if (error) *error = "Finish the current edit before opening a composition";
+        return {};
+    }
+    auto prepared = std::unique_ptr<PreparedOpen>(new PreparedOpen(*this));
+    prepared->m_Host = m_Host.CreateDocumentHost(error);
+    if (!prepared->m_Host) return {};
+    prepared->m_Document = std::make_unique<Document>(*prepared->m_Host);
+    bool loaded = false;
+    const bool completed = GuardedCall([&] {
+        loaded = prepared->m_Document->Open(path, error, environment);
+    }, &m_Host, "Prepare composition");
+    if (!completed || !loaded) {
+        if (!completed && error) *error = "Cannot prepare " + path + ": the runtime raised an exception";
+        return {};
+    }
+    return prepared;
+}
+
+void Document::CommitOpen(PreparedOpen &prepared) {
+    Close();
+    m_Host.ExchangeContext(*prepared.m_Host);
+    Document &candidate = *prepared.m_Document;
+    m_Open = candidate.m_Open;
+    m_SourcePath = std::move(candidate.m_SourcePath);
+    m_LoadedObjects = std::move(candidate.m_LoadedObjects);
+    m_Scripts = std::move(candidate.m_Scripts);
+    m_Sessions = std::move(candidate.m_Sessions);
+    m_Graveyard = std::move(candidate.m_Graveyard);
+    m_CreatedObjects = std::move(candidate.m_CreatedObjects);
+    m_Bitmaps = std::move(candidate.m_Bitmaps);
+    m_TopologyRevision = candidate.m_TopologyRevision;
+    m_SavedTopologyRevision = candidate.m_SavedTopologyRevision;
+    m_ChangesOutsideUndo = candidate.m_ChangesOutsideUndo;
+    ++m_ScriptsRevision;
+    candidate.m_Open = false; // Its context now belongs to this document.
+    prepared.m_Document.reset();
+}
+
 bool Document::Open(const std::string &path, std::string *error, const SceneEnvironment &environment) {
     // NMO files are object libraries, even when they contain a saved level.
     // Opening one is the editor's shortcut for New Composition followed by
