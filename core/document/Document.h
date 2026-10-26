@@ -35,7 +35,10 @@ public:
     explicit Document(CkRuntimeHost &host) : m_Host(host), m_History(*this) {}
     ~Document();
 
-    bool Open(const std::string &path, std::string *error);
+    // Opening .nmo is New + Import: an unsaved, modified composition using
+    // the caller's new-scene environment. Other compositions load as saved.
+    bool Open(const std::string &path, std::string *error,
+              const SceneEnvironment &environment = DefaultNewSceneEnvironment());
     // File > New Composition (Dev.exe sub_5C3BC0, sub_5CB640): an empty level
     // named "Level" as the current level, its level scene with Dev's default
     // environment supplied for the new composition.

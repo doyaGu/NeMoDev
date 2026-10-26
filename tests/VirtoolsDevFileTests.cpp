@@ -1,5 +1,6 @@
 // The modes on files: save, New Composition and Merge, tools, Duplicate Names, the 3D Layout's data and the objects' pictures, the File menu, links.
 #include "VirtoolsDevTestSupport.h"
+#include "core/level/LevelTree.h"
 #include <SDL3/SDL.h>
 
 namespace vdevtest {
@@ -1342,6 +1343,83 @@ void NativePathChecks(CkRuntimeHost &host) {
         CHECK(imageFile.filename().string() == texture->GetSlotFileName(0));
     }
     std::cout << "Native resource paths, metadata bytes and composition round trips passed\n";
+}
+
+void ObjectFileOpen(CkRuntimeHost &host) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::current_path() / ("object-file-open-" + std::to_string(SDL_GetPerformanceCounter()));
+    CHECK(fs::create_directory(root));
+    struct Cleanup { fs::path root; ~Cleanup() { std::error_code error; fs::remove_all(root, error); } } cleanup{root};
+    const std::string path = (root / "objects.NMO").u8string();
+    Document document(host);
+    std::string error;
+    CHECK(document.New(&error));
+    const EditResult made = CreateLayoutObject(document, LayoutObject::Frame3D);
+    CHECK(made.ok);
+    CKObject *object = document.Context()->GetObject(made.created);
+    object->SetName((CKSTRING) "Object file entity");
+    const EditResult script = CreateScript(document, made.created, "Object file script");
+    CHECK(script.ok);
+    const EditResult parameter = AddLocalParameter(document, script.created, script.created, "Stored value",
+                                                   CKPGUID_INT, Point(200, 60));
+    CHECK(parameter.ok && SetParameterText(document, script.created, parameter.created, "137").ok);
+    CHECK(SaveObjectsAs(document, {made.created}, path, &error));
+    CKFile *inspection = document.Context()->CreateCKFile();
+    CHECK(inspection->OpenFile(const_cast<CKSTRING>(path.c_str()), CK_LOAD_DEFAULT) == CK_OK);
+    for (int i = 0; i < inspection->m_FileObjects.Size(); ++i)
+        CHECK(inspection->m_FileObjects[i].ObjectCid != CKCID_LEVEL);
+    document.Context()->DeleteCKFile(inspection);
+
+    // A .nmo containing a whole level must follow the same import path too.
+    const std::string withLevel = (root / "with-level.nmo").u8string();
+    SaveReport report;
+    const bool savedLevel = SaveDocumentAs(document, withLevel, {}, report);
+    for (const auto &message : report.errors) std::cerr << message << '\n';
+    CHECK(savedLevel);
+    SceneEnvironment environment = DefaultNewSceneEnvironment();
+    environment.background = 0xFF123456;
+    environment.fogEnd = 321.0f;
+    auto check = [&] {
+        object = document.Context()->GetObjectByNameAndClass((CKSTRING) "Object file entity", CKCID_3DENTITY);
+        CKLevel *level = document.Context()->GetCurrentLevel();
+        CHECK(object && level && level->GetLevelScene()->IsObjectHere(object));
+        CHECK(document.LiveObjects(CKCID_LEVEL).size() == 1);
+        const SceneContents contents = ListSceneContents(document.Context(), level->GetLevelScene(), level, false);
+        CHECK(contents.global.at("3D Frames").size() == 1);
+        CHECK(document.Scripts().size() == 1 && document.Scripts().front().ownerId == object->GetID());
+        CKBehavior *loadedScript = CKBehavior::Cast(document.Context()->GetObject(document.Scripts().front().id));
+        int value = 0;
+        CHECK(loadedScript && loadedScript->GetLocalParameterCount() == 1);
+        CHECK(loadedScript->GetLocalParameter(0)->GetValue(&value, FALSE) == CK_OK && value == 137);
+        CHECK(level->GetLevelScene()->GetBackgroundColor() == environment.background);
+        CHECK(level->GetLevelScene()->GetFogEnd() == environment.fogEnd);
+        CHECK(document.SourcePath().empty() && document.Dirty() && !document.History().CanUndo());
+    };
+    for (const auto &input : {path, withLevel}) {
+        CHECK(document.New(&error, environment));
+        CHECK(document.Import(input, Document::ImportMode::File, &error));
+        check();
+        const size_t imported = document.LoadedObjects().size();
+        CHECK(document.Open(input, &error, environment));
+        check();
+        CHECK(document.LoadedObjects().size() == imported);
+        const std::string saved = (root / "roundtrip.cmo").u8string();
+        SaveOptions options;
+        options.allowOverwrite = true;
+        CHECK(SaveDocumentAs(document, saved, options, report));
+        CHECK(document.Open(saved, &error));
+        CHECK(document.SourcePath() == saved && !document.Dirty());
+        CKLevel *level = document.Context()->GetCurrentLevel();
+        object = document.Context()->GetObjectByNameAndClass((CKSTRING) "Object file entity", CKCID_3DENTITY);
+        CHECK(object && level && level->GetLevelScene()->IsObjectHere(object));
+        CHECK(level->GetLevelScene()->GetBackgroundColor() == environment.background);
+        CHECK(document.Scripts().size() == 1);
+    }
+    // A failed import must not leave the temporary new composition open.
+    CHECK(!document.Open((root / "missing.nmo").u8string(), &error));
+    CHECK(!error.empty() && !document.IsOpen() && document.LoadedObjects().empty());
+    CHECK(!document.Context()->GetCurrentLevel());
+    std::cout << "Opening NMO is New + Import, including level membership, Scripts, settings and save/reopen\n";
 }
 
 void CompositionReadCompatibility(CkRuntimeHost &host) {

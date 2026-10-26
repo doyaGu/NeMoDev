@@ -6,6 +6,9 @@ NeMoDev is a desktop editor for Virtools compositions (`.cmo`, `.nmo` and `.vmo`
 It brings the Schematic, 3D Layout and object editors to an SDL3 / Dear ImGui
 interface, running on [Ballanced](https://github.com/doyaGu/Ballanced).
 
+Opening an `.nmo` is a shortcut for New Composition followed by Import File.
+The imported objects belong to a new, unsaved composition.
+
 - Edit Scripts, Building Blocks, parameters, pins and connections in the Schematic.
 - Organize Levels, Scenes and objects with the Level and Hierarchy Managers.
 - Preview compositions in Player Mode, debug Scripts and capture snapshots.

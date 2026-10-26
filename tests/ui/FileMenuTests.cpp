@@ -56,7 +56,66 @@ public:
 };
 
 void RegisterFileMenuTests(ImGuiTestEngine *engine) {
-    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "save_failure_keeps_previous_file_and_save_point");
+    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "open_nmo_populates_level_manager_as_new_import");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        namespace fs = std::filesystem;
+        Settle(ctx);
+        const auto root = fs::current_path() / ("open-nmo-" + std::to_string(SDL_GetTicksNS()));
+        IM_CHECK(fs::create_directory(root));
+        struct Cleanup {
+            fs::path root;
+            ~Cleanup() { std::error_code error; fs::remove_all(root, error); }
+        } cleanup{root};
+        const std::string path = (root / "objects.NMO").u8string();
+        std::string name;
+        OnMainThread(ctx, [&] {
+            auto &document = *App().State().document;
+            const auto made = vdev::CreateLayoutObject(document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            name = document.Context()->GetObject(made.created)->GetName();
+            std::string error;
+            IM_CHECK_NO_RET(vdev::SaveObjectsAs(document, {made.created}, path, &error));
+            document.MarkSaved();
+            document.History().MarkSavePoint();
+            App().DropFiles({vdev::Utf8ToWide(path)}, 0, 0);
+        });
+        ctx->Yield(5);
+        IM_CHECK(Read<bool>(ctx, [] {
+            auto &document = *App().State().document;
+            return document.Context()->GetCurrentLevel() && document.SourcePath().empty() && document.Dirty() &&
+                   !document.History().CanUndo();
+        }));
+        Settle(ctx, "//Level Manager");
+        const auto row = FindLevelRow(ctx, CKCID_3DENTITY);
+        IM_CHECK(row.has_value());
+        IM_CHECK(Read<bool>(ctx, [&] {
+            CKObject *object = App().State().document->Context()->GetObject(row->object);
+            return object && object->GetName() && name == object->GetName();
+        }));
+        // Import keeps the new composition's editor state even when the NMO
+        // carries a saved selection and lock from a whole composition.
+        const std::string withLayout = (root / "with-layout.nmo").u8string();
+        OnMainThread(ctx, [&] {
+            auto &document = *App().State().document;
+            vdev::LayoutInterfaceData layout;
+            layout.present = true;
+            layout.selection = {row->object};
+            layout.locked = true;
+            vdev::WriteLayoutInterfaceData(document, layout);
+            vdev::SaveReport report;
+            IM_CHECK_NO_RET(vdev::SaveDocumentAs(document, withLayout, {}, report));
+            App().DropFiles({vdev::Utf8ToWide(withLayout)}, 0, 0);
+        });
+        ctx->Yield(5);
+        IM_CHECK(Read<bool>(ctx, [] {
+            auto &state = App().State();
+            return state.document->SourcePath().empty() && state.document->Dirty() &&
+                   vdev::ReadLayoutInterfaceData(state.document->Context()).locked &&
+                   !state.objectSelection.locked;
+        }));
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "save_failure_keeps_previous_file_and_save_point");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         namespace fs = std::filesystem;

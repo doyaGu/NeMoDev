@@ -364,17 +364,22 @@ void EditorApp::RequestQuit() {
 bool EditorApp::OpenFile(const std::string &path) {
     CloseDocument();
     std::string error;
-    if (!m_State.document->Open(path, &error)) {
+    if (!m_State.document->Open(path, &error, m_State.preferences.NewSceneEnvironment())) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }
     m_LastSavedPath.clear();
     RememberRecentFile(path);
-    const LayoutInterfaceData layout = ReadLayoutInterfaceData(m_State.document->Context());
-    m_Layout.ApplyLayoutData(layout);
-    ReopenSetups(layout);
-    m_State.objectPictures = ReadObjectPictures(*m_State.document);
-    m_State.objectPicturesChanged = false;
+    // NMO opens are imports into a new composition. Keep its editor state,
+    // just as Import File does, rather than restoring the library's layout.
+    if (!m_State.document->SourcePath().empty()) {
+        const LayoutInterfaceData layout = ReadLayoutInterfaceData(m_State.document->Context());
+        m_Layout.ApplyLayoutData(layout);
+        ReopenSetups(layout);
+        m_State.objectPictures = ReadObjectPictures(*m_State.document);
+        m_State.objectPicturesChanged = false;
+        ValidateLinks();
+    }
     // Dev's Event Log line (language pack [File IO]).
     m_State.Log(LogLevel::Info, "File Loaded Successfully. (" + path + ")");
     // Dev refuses a file for the player ("This content can only be opened in
@@ -382,9 +387,8 @@ bool EditorApp::OpenFile(const std::string &path) {
     if (IsPlayerFile(path))
         m_State.Log(LogLevel::Warning, "A file for the player: the Scripts' Schematic is rebuilt from their graphs "
                                        "(no comments, colors or saved layout)");
-    ValidateLinks();
     if (!m_State.document->Scripts().empty()) m_Panels.ShowScript(m_State.document->Scripts().front().id, ElementRef(), 0, false);
-    m_State.History().MarkSavePoint(); // undone back to as it was opened: unmodified
+    m_State.History().MarkSavePoint(); // NMO's imported objects still mark the new composition modified.
     UpdateTitle();
     return true;
 }

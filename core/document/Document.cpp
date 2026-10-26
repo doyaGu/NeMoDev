@@ -72,7 +72,18 @@ CKContext *Document::Context() const {
     return m_Host.Context();
 }
 
-bool Document::Open(const std::string &path, std::string *error) {
+bool Document::Open(const std::string &path, std::string *error, const SceneEnvironment &environment) {
+    // NMO files are object libraries, even when they contain a saved level.
+    // Opening one is the editor's shortcut for New Composition followed by
+    // Import: retain the new scene's settings and save the result as a new
+    // composition rather than overwriting the source object library.
+    const std::string extension = std::filesystem::u8path(path).extension().u8string();
+    if (_stricmp(extension.c_str(), ".nmo") == 0) {
+        if (!New(error, environment)) return false;
+        if (Import(path, ImportMode::File, error, nullptr, nullptr, environment)) return true;
+        Close();
+        return false;
+    }
     Close();
     CKContext *context = Context();
     if (!context) {
