@@ -15,6 +15,25 @@ The editor targets Windows x64, Linux x64 and macOS ARM64. The macOS x64 and
 Windows x86 presets are experimental. NeMoDev builds its runtime from Ballanced
 source; it does not use the original binary Virtools SDK or runtime.
 
+## Downloads
+
+Open a successful [CI run](https://github.com/doyaGu/NeMoDev/actions/workflows/ci.yml)
+and download the matching **NeMoDev** artifact. These are Release builds of the
+editor with its runtime, plugins, fonts and license materials. Each package
+includes its source revisions and a SHA-256 checksum; test logs are separate.
+
+| Platform | Package | Install and run |
+| --- | --- | --- |
+| Windows 10/11 x64 | Portable ZIP | Extract the entire archive and open `Bin/NeMoDev.exe`. Visual C++ runtime DLLs are included. |
+| Ubuntu 24.04 x64 | DEB | Run `sudo apt install ./NeMoDev-*.deb`, then open NeMoDev from the application menu or run `nemodev`. APT installs the system dependencies. |
+| macOS 15+ Apple Silicon | DMG | Open the image and drag `NeMoDev.app` to Applications. No Homebrew installation is needed. |
+
+A working graphics driver with SDL GPU support is required. Windows builds
+are not Authenticode signed. macOS builds are **ad hoc signed and not notarized**;
+after verifying the download, allow the app through System Settings → Privacy &
+Security if Gatekeeper blocks it. Builds use CI build numbers rather than a
+stable-release version. Original CHM help is not included.
+
 ## Building
 
 You will need:
@@ -36,7 +55,7 @@ On macOS, install Ninja and libharu alongside the Xcode tools. SDL's
 [Linux dependency list](https://wiki.libsdl.org/SDL3/README-linux) covers its
 window and audio backends. Running the editor requires a working SDL GPU
 backend and graphics driver. The [CI workflow](.github/workflows/ci.yml)
-contains the complete Windows/Linux dependency setup used on clean runners.
+contains the complete dependency setup used on clean runners.
 
 ### Get the sources
 
@@ -84,6 +103,15 @@ cmake --build --preset linux-x64-release --parallel 4
 out/linux-x64-release/runtime/Bin/NeMoDev
 ```
 
+**macOS ARM64:** install `cmake`, `ninja`, `sdl3`, `libharu` and Python with
+Homebrew, then prepare the Python virtual environment as above:
+
+```sh
+cmake --preset macos-arm64-release -DVIRTOOLS_SDK_PATH="<Ballanced checkout>" -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
+cmake --build --preset macos-arm64-release --parallel 4
+out/macos-arm64-release/runtime/Bin/NeMoDev
+```
+
 The `-release` presets omit regression executables and ImGui Test Engine.
 Other presets are listed in [CMakePresets.json](CMakePresets.json), including
 `macos-x64-release` and `macos-arm64-release`. Use matching architectures for
@@ -103,8 +131,10 @@ cmake --install out/<preset> --config Release --prefix out/package --component A
 Run `out/package/Bin/NeMoDev` (`NeMoDev.exe` on Windows). Keep the entire package
 together: the executable needs its libraries, plugins, data, fonts and license
 files. The Linux install includes SDL3 and shared libharu; GTK, GIO and the
-graphics driver remain system dependencies. Native installers and a macOS
-application bundle are not provided.
+graphics driver remain system dependencies. For native distribution packages,
+`tools/Package.py --help` describes the packaging inputs. Run it on the target
+platform after installing both components; DEB packaging also needs `dpkg-dev`.
+It packages and checks the installed program without copying the build tree.
 
 ## Development and tests
 
@@ -146,7 +176,11 @@ self-contained UI groups through Xvfb and software Vulkan. The standalone
 HTML module is built and tested on Windows, Linux and macOS.
 
 Selected tests must all pass; skips fail CI. Each run records the Ballanced
-revision and uploads test inventories, results and failure logs. A weekly run
+revision and uploads test inventories, results and failure logs. Distribution
+checks reopen the Windows ZIP, install and start the Ubuntu DEB in a clean
+Ubuntu 24.04 container, and mount the macOS DMG to verify its bundle and loading.
+Hosted Windows/macOS checks do not replace GPU and native-desktop acceptance.
+A weekly run
 checks compatibility with changes in Ballanced even when NeMoDev is unchanged.
 
 Original-composition regressions need samples supplied under `local-samples/data`
