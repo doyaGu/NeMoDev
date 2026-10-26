@@ -80,6 +80,9 @@ jobs:
         shell: bash
     env:
       SDL_AUDIO_DRIVER: dummy
+      CCACHE_DIR: ${{ github.workspace }}/out/compiler-cache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_MAXSIZE: 512M
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -99,7 +102,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build dpkg-dev libgtk-3-dev libglib2.0-dev libhpdf-dev \
+          sudo apt-get install -y ninja-build ccache dpkg-dev libgtk-3-dev libglib2.0-dev libhpdf-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libx11-dev libxext-dev \
             libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
@@ -113,7 +116,7 @@ jobs:
           xvfb-run -a -s '-screen 0 1920x1080x24' vulkaninfo --summary
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
-        run: brew install ninja libharu
+        run: brew install ninja ccache libharu
       - name: Check out Ballanced mainline
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -122,13 +125,23 @@ jobs:
           path: out/Ballanced
           persist-credentials: false
       - name: Initialize SDK components and record their revisions
+        id: sdk
         run: |
           git -C out/Ballanced submodule update --init --recursive \
             Source/VxMath Source/CK2 Source/RenderEngine Source/Plugins Source/BuildingBlocks \
             Source/Managers/ParameterOperations Source/Managers/SdlInputManager Source/Managers/SdlSoundManager
           git -C out/Ballanced rev-parse HEAD > out/ballanced-revision.txt
+          echo "revision=$(git -C out/Ballanced rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           git -C out/Ballanced submodule status --recursive >> out/ballanced-revision.txt
           cat out/ballanced-revision.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Restore compiler cache
+        if: runner.os != 'Windows'
+        id: compiler-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: compiler-${{ matrix.os }}-${{ runner.arch }}-${{ steps.sdk.outputs.revision }}-${{ github.sha }}
+          restore-keys: compiler-${{ matrix.os }}-${{ runner.arch }}-
       - name: Cache the installed SDL library
         id: sdl-cache
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
@@ -157,10 +170,23 @@ jobs:
           cmake --preset '${{ matrix.preset }}' \
             -DVIRTOOLS_SDK_PATH='${{ github.workspace }}/out/Ballanced' \
             -DCMAKE_PREFIX_PATH="$prefix" \
+            -DCMAKE_C_COMPILER_LAUNCHER="${{ runner.os != 'Windows' && 'ccache' || '' }}" \
+            -DCMAKE_CXX_COMPILER_LAUNCHER="${{ runner.os != 'Windows' && 'ccache' || '' }}" \
             -DPython3_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
             -DVIRTOOLSDEV_BUILD_UI_TESTS=${{ matrix.ui }}
       - name: Build
-        run: cmake --build --preset '${{ matrix.preset }}' --parallel 4
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            _CL_=-MP4 cmake --build --preset '${{ matrix.preset }}' --parallel 2
+          else
+            cmake --build --preset '${{ matrix.preset }}' --parallel 4
+          fi
+      - name: Save compiled objects even if a later check fails
+        if: always() && runner.os != 'Windows' && steps.compiler-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: compiler-${{ matrix.os }}-${{ runner.arch }}-${{ steps.sdk.outputs.revision }}-${{ github.sha }}
       - name: Record the selected test inventory
         run: ctest --preset '${{ matrix.preset }}' -L self-contained --show-only=json-v1 > out/test-inventory.json
       - name: Run core and UI regressions with software Vulkan
