@@ -176,7 +176,10 @@ self-contained UI groups through Xvfb and software Vulkan. The standalone
 HTML module is built and tested on Windows, Linux and macOS.
 
 Selected tests must all pass; skips fail CI. Each run records the Ballanced
-revision and uploads test inventories, results and failure logs. Distribution
+revision and uploads test inventories, results and failure logs. Ballanced's
+native build is cached by SDK revision, runner image, SDL version and build
+configuration; editor source changes reuse it. Tests and package checks still
+run on cache hits. Distribution
 checks reopen the Windows ZIP, install and start the Ubuntu DEB in a clean
 Ubuntu 24.04 container, and mount the macOS DMG to verify its bundle and loading.
 Hosted Windows/macOS checks do not replace GPU and native-desktop acceptance.
