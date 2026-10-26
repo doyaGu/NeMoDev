@@ -124,14 +124,35 @@ jobs:
           ref: sdl
           path: out/Ballanced
           persist-credentials: false
-      - name: Initialize SDK components and record their revisions
+      - name: Identify Ballanced and the build environment
         id: sdk
+        run: |
+          echo "revision=$(git -C out/Ballanced rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          image="${ImageVersion:-${IMAGEVERSION:-}}"
+          test -n "$image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+      - name: Restore the Ballanced source and native build
+        id: ballanced-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          # Preserve source mtimes and the build system's dependency records.
+          # Object files alone still cause Ninja/MSBuild to rebuild the SDK.
+          path: |
+            out/Ballanced
+            out/${{ matrix.preset }}/Ballanced
+            out/${{ matrix.preset }}/lib
+            out/${{ matrix.preset }}/runtime/Bin/*.dll
+            out/${{ matrix.preset }}/runtime/Bin/*.dylib
+            out/${{ matrix.preset }}/runtime/Bin/*.so*
+            out/${{ matrix.preset }}/.ninja_log
+            out/${{ matrix.preset }}/.ninja_deps
+          key: ballanced-v1-${{ matrix.preset }}-${{ steps.sdk.outputs.image }}-sdl3.4.18-${{ steps.sdk.outputs.revision }}-${{ hashFiles('cmake/Ballanced.cmake', 'CMakeLists.txt', 'CMakePresets.json') }}
+      - name: Initialize missing SDK components and record their revisions
         run: |
           git -C out/Ballanced submodule update --init --recursive \
             Source/VxMath Source/CK2 Source/RenderEngine Source/Plugins Source/BuildingBlocks \
             Source/Managers/ParameterOperations Source/Managers/SdlInputManager Source/Managers/SdlSoundManager
           git -C out/Ballanced rev-parse HEAD > out/ballanced-revision.txt
-          echo "revision=$(git -C out/Ballanced rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           git -C out/Ballanced submodule status --recursive >> out/ballanced-revision.txt
           cat out/ballanced-revision.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Restore compiler cache
@@ -193,6 +214,20 @@ jobs:
         with:
           path: ${{ env.CCACHE_DIR }}
           key: compiler-${{ matrix.os }}-${{ runner.arch }}-${{ steps.sdk.outputs.revision }}-${{ github.sha }}
+      - name: Save the completed Ballanced build
+        if: success() && steps.ballanced-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            out/Ballanced
+            out/${{ matrix.preset }}/Ballanced
+            out/${{ matrix.preset }}/lib
+            out/${{ matrix.preset }}/runtime/Bin/*.dll
+            out/${{ matrix.preset }}/runtime/Bin/*.dylib
+            out/${{ matrix.preset }}/runtime/Bin/*.so*
+            out/${{ matrix.preset }}/.ninja_log
+            out/${{ matrix.preset }}/.ninja_deps
+          key: ${{ steps.ballanced-cache.outputs.cache-primary-key }}
       - name: Record the selected test inventory
         run: ctest --preset '${{ matrix.preset }}' -L self-contained --show-only=json-v1 > out/test-inventory.json
       - name: Run core and UI regressions with software Vulkan
