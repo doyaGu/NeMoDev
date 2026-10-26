@@ -13,6 +13,7 @@
 
 #include "core/runtime/VirtoolsRuntimeLayout.h"
 #include "core/runtime/SdkCompat.h"
+#include "core/runtime/Resources.h"
 #include "core/runtime/TextEncoding.h"
 
 namespace vdev {
@@ -150,6 +151,26 @@ bool CkRuntimeHost::Start(const std::string &runtimeDirectory, LogSink sink, std
     if (!RuntimeVersion(runtimeDirectory, runtimeMajor, runtimeMinor))
         return fail("Only the Ballanced runtime staged by this source build is supported: " + runtimeDirectory);
 
+#if defined(__linux__)
+    // VxMath supports XDG font directories. Add the installed data directory
+    // to SDL's environment while the runtime is active, without changing the
+    // process environment or moving user preferences into the installation.
+    const auto fonts = std::filesystem::u8path(DataFilePath("fonts"));
+    const char *base = SDL_GetBasePath();
+    std::error_code fontError;
+    if (base && fonts != std::filesystem::u8path(base) / "data/fonts" &&
+        std::filesystem::is_directory(fonts, fontError)) {
+        SDL_Environment *environment = SDL_GetEnvironment();
+        const char *previous = SDL_GetEnvironmentVariable(environment, "XDG_DATA_DIRS");
+        m_PreviousDataDirectories = previous ? std::optional<std::string>(previous) : std::nullopt;
+        std::string directories = fonts.parent_path().u8string() + ":" +
+            (previous && *previous ? previous : "/usr/local/share:/usr/share");
+        if (!SDL_SetEnvironmentVariable(environment, "XDG_DATA_DIRS", directories.c_str(), true))
+            return fail(std::string("Cannot prepare the runtime font directories: ") + SDL_GetError());
+        m_FontDataDirectories = std::move(directories);
+    }
+#endif
+
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return fail(std::string("SDL video initialization failed: ") + SDL_GetError());
     m_OwnsVideo = true;
     if (!mainWindow) {
@@ -236,7 +257,20 @@ void CkRuntimeHost::Stop() {
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
         m_OwnsVideo = false;
     }
-
+#if defined(__linux__)
+    if (!m_FontDataDirectories.empty()) {
+        SDL_Environment *environment = SDL_GetEnvironment();
+        const char *current = SDL_GetEnvironmentVariable(environment, "XDG_DATA_DIRS");
+        if (current && m_FontDataDirectories == current) {
+            const bool restored = m_PreviousDataDirectories
+                ? SDL_SetEnvironmentVariable(environment, "XDG_DATA_DIRS", m_PreviousDataDirectories->c_str(), true)
+                : SDL_UnsetEnvironmentVariable(environment, "XDG_DATA_DIRS");
+            if (!restored) Log(LogLevel::Error, std::string("Cannot restore the font directories: ") + SDL_GetError());
+        }
+        m_FontDataDirectories.clear();
+    }
+    m_PreviousDataDirectories.reset();
+#endif
 }
 
 void CkRuntimeHost::ClearAll() {

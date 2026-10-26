@@ -60,8 +60,7 @@ inline std::string ResourceName(const std::string &group, const std::string &kin
 constexpr const char *INTERFACE_FILE = "interface.nmo"; // the shapes of frames and icons
 constexpr const char *HELP_FILE = "documentation.chm";
 
-// A data file in the data folder beside the program, where the build copies
-// resources/data. UTF-8.
+// An application data path, independent of the working directory. UTF-8.
 std::string DataFilePath(const std::string &name);
 
 } // namespace vdev

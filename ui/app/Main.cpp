@@ -30,7 +30,7 @@
 namespace fs = std::filesystem;
 static vdev::HtmlFonts LoadFonts() {
     ImGuiIO &io = ImGui::GetIO();
-    const fs::path directory = fs::u8path(SDL_GetBasePath()) / "data" / "fonts";
+    const fs::path directory = fs::u8path(vdev::DataFilePath("fonts"));
     const auto regular = (directory / "NotoSans-Regular.ttf").u8string();
     const auto bold = (directory / "NotoSans-Bold.ttf").u8string();
     const auto cjk = (directory / "NotoSansSC-Regular.otf").u8string();

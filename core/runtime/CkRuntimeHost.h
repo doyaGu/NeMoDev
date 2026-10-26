@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -78,6 +79,10 @@ private:
     LogSink m_Sink;
     SDL_Window *m_FallbackWindow = nullptr;
     bool m_OwnsVideo = false;
+#if defined(__linux__)
+    std::optional<std::string> m_PreviousDataDirectories;
+    std::string m_FontDataDirectories;
+#endif
 };
 
 // Runs fn, converting a structured exception raised inside Building Block or

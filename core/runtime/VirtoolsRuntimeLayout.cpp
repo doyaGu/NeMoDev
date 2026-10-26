@@ -61,6 +61,16 @@ std::string VirtoolsPluginRoot(const std::string &runtimeDirectory) {
     return directory;
 }
 
+std::string VirtoolsDataDirectory(const std::string &baseDirectory) {
+    const auto base = std::filesystem::u8path(WithoutTrailingSeparator(baseDirectory.empty() ? "." : baseDirectory));
+    const auto data = base / "data";
+    if (base.filename() == "Bin") {
+        const auto installed = base.parent_path() / "data";
+        if (IsDirectory(installed.u8string()) || !IsDirectory(data.u8string())) return installed.u8string();
+    }
+    return data.u8string();
+}
+
 bool VirtoolsIsIgnoredPlugin(const std::string &fileName) {
     const size_t slash = fileName.find_last_of("\\/");
     const std::string name = Lower(slash == std::string::npos ? fileName : fileName.substr(slash + 1));

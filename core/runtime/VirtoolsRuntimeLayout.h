@@ -20,6 +20,10 @@ std::string VirtoolsRuntimeDirectory(const std::string &path);
 // RenderEngines folder, or Contents/PlugIns in a macOS application bundle.
 std::string VirtoolsPluginRoot(const std::string &runtimeDirectory);
 
+// Read-only application data beside Bin, or below a macOS bundle's Resources.
+// The SDK's Bin/data development layout remains a fallback when present.
+std::string VirtoolsDataDirectory(const std::string &baseDirectory);
+
 // The plugin folders, in the SDK Standalone Player's order.
 extern const char *const VIRTOOLS_PLUGIN_FOLDERS[4];
 
