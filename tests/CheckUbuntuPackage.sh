@@ -13,3 +13,6 @@ export VK_DRIVER_FILES
 VK_DRIVER_FILES="$(dpkg -L mesa-vulkan-drivers | grep '/lvp_icd[^/]*\.json$')"
 test -f "$VK_DRIVER_FILES"
 xvfb-run -a -s '-screen 0 1920x1080x24' python3 /checks/InstalledAppSmoke.py
+mv /opt/nemodev '/opt/Relocated Package [test]'
+xvfb-run -a -s '-screen 0 1920x1080x24' python3 /checks/InstalledAppSmoke.py \
+    --package '/opt/Relocated Package [test]'
