@@ -57,6 +57,7 @@ jobs:
             out/html-inventory.json
             out/html/Testing/Temporary/
           retention-days: 14
+          overwrite: true
 
   editor:
     name: Editor / ${{ matrix.preset }}
@@ -201,19 +202,13 @@ jobs:
             -DCMAKE_CXX_COMPILER_LAUNCHER="${{ runner.os != 'Windows' && 'ccache' || '' }}" \
             -DPython3_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
             -DVIRTOOLSDEV_BUILD_UI_TESTS=${{ matrix.ui }}
-      - name: Build
+      - name: Build Ballanced
         run: |
           if [[ "$RUNNER_OS" == Windows ]]; then
-            _CL_=-MP4 cmake --build --preset '${{ matrix.preset }}' --parallel 2
+            _CL_=-MP4 cmake --build --preset '${{ matrix.preset }}' --target VirtoolsDevRuntime --parallel 2
           else
-            cmake --build --preset '${{ matrix.preset }}' --parallel 4
+            cmake --build --preset '${{ matrix.preset }}' --target VirtoolsDevRuntime --parallel 4
           fi
-      - name: Save compiled objects even if a later check fails
-        if: always() && runner.os != 'Windows' && steps.compiler-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
-        with:
-          path: ${{ env.CCACHE_DIR }}
-          key: compiler-${{ matrix.os }}-${{ runner.arch }}-${{ steps.sdk.outputs.revision }}-${{ github.sha }}
       - name: Save the completed Ballanced build
         if: success() && steps.ballanced-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
@@ -228,6 +223,19 @@ jobs:
             out/${{ matrix.preset }}/.ninja_log
             out/${{ matrix.preset }}/.ninja_deps
           key: ${{ steps.ballanced-cache.outputs.cache-primary-key }}
+      - name: Build the editor and regressions
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            _CL_=-MP4 cmake --build --preset '${{ matrix.preset }}' --parallel 2
+          else
+            cmake --build --preset '${{ matrix.preset }}' --parallel 4
+          fi
+      - name: Save compiled objects even if a later check fails
+        if: always() && runner.os != 'Windows' && steps.compiler-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: compiler-${{ matrix.os }}-${{ runner.arch }}-${{ steps.sdk.outputs.revision }}-${{ github.sha }}
       - name: Record the selected test inventory
         run: ctest --preset '${{ matrix.preset }}' -L self-contained --show-only=json-v1 > out/test-inventory.json
       - name: Run core and UI regressions with software Vulkan
@@ -286,6 +294,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
+          overwrite: true
       - name: Upload test and configuration logs
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -299,3 +308,4 @@ jobs:
             out/${{ matrix.preset }}/virtoolsdev-ui/*.xml
             out/${{ matrix.preset }}/CMakeFiles/CMakeConfigureLog.yaml
           retention-days: 14
+          overwrite: true
