@@ -29,6 +29,10 @@ add_executable(NeMoDevRuntimeLayoutTests RuntimeLayoutTests.cpp)
 target_link_libraries(NeMoDevRuntimeLayoutTests PRIVATE VirtoolsDevCore)
 target_compile_definitions(NeMoDevRuntimeLayoutTests PRIVATE VIRTOOLS_CK2_FILENAME="$<TARGET_FILE_NAME:CK2>")
 virtoolsdev_add_test(NeMoDevRuntimeLayout NeMoDevRuntimeLayoutTests)
+add_test(NAME NeMoDevApplicationData COMMAND ${CMAKE_COMMAND}
+        "-DSOURCE_DIRECTORY=${VIRTOOLSDEV_SOURCE_DIR}"
+        "-DBINARY_DIRECTORY=${PROJECT_BINARY_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/ApplicationDataTests.cmake")
 
 add_test(NAME VirtoolsDevLicenseDeployment COMMAND ${CMAKE_COMMAND}
         "-DSOURCE_DIRECTORY=${VIRTOOLSDEV_SOURCE_DIR}"

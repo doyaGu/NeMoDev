@@ -4,6 +4,7 @@ import hashlib
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -60,6 +61,7 @@ def main():
     parser.add_argument("--config", default="Release")
     parser.add_argument("--binary-name", required=True)
     parser.add_argument("--haru-library", type=Path, required=True)
+    parser.add_argument("--runtime-check", type=Path, required=True)
     args = parser.parse_args()
     build = args.build.resolve(strict=True)
     library = args.haru_library.resolve(strict=True)
@@ -75,6 +77,8 @@ def main():
             if result.returncode:
                 raise RuntimeError("Installation failed:\n" + result.stdout + result.stderr)
         original.rename(relocated)
+        if (relocated / "Bin/data").exists() or not (relocated / "data/interface.nmo").is_file():
+            raise RuntimeError("Installed data must be at the package root next to Bin")
         binary = relocated / "Bin" / args.binary_name
         haru = installed_haru(binary, environment, shared, build)
         if haru and hashlib.sha256(haru.read_bytes()).digest() != hashlib.sha256(library.read_bytes()).digest():
@@ -84,6 +88,24 @@ def main():
         subprocess.run([sys.executable, str(Path(__file__).with_name("CheckProductionBinary.py")),
                         "--binary", str(binary), "--package", str(relocated)],
                        env=environment, cwd=root, check=True, timeout=60)
+        # Copy an external check into this temporary installation only. Isolate
+        # user and system font directories so the SDK must use packaged fonts.
+        check = binary.parent / "RuntimeCheck"
+        shutil.copy2(args.runtime_check, check)
+        isolated = environment.copy()
+        isolated.update(SDL_VIDEO_DRIVER="dummy", SDL_AUDIO_DRIVER="dummy", HOME=str(root / "home"),
+                        XDG_DATA_HOME=str(root / "user-data"), XDG_DATA_DIRS=str(root / "system-data"))
+        try:
+            subprocess.run([str(check), "--runtime", str(binary.parent)], env=isolated, cwd=root,
+                           check=True, timeout=60)
+            isolated["SDL_VIDEO_DRIVER"] = "nemodev-missing-video-driver"
+            for supplied in (True, False):
+                if not supplied:
+                    isolated.pop("XDG_DATA_DIRS", None)
+                subprocess.run([str(check), "--runtime-failure", str(binary.parent)],
+                               env=isolated, cwd=root, check=True, timeout=60)
+        finally:
+            check.unlink()
         if haru:
             hidden = root / haru.name
             haru.rename(hidden)

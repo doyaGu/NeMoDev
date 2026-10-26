@@ -58,8 +58,10 @@ def check_symlinks(package):
 
 def check_payload(package):
     check_symlinks(package)
-    required = ("Bin/data/interface.nmo", "Bin/BallancedRuntime.txt", "LICENSE", "THIRD_PARTY_NOTICES.md",
-                "Bin/data/fonts/NotoSans-Regular.ttf", "Bin/data/fonts/NotoSansSC-Regular.otf")
+    if (package / "Bin/data").exists():
+        raise RuntimeError("Application data must be next to Bin, not inside it")
+    required = ("data/interface.nmo", "Bin/BallancedRuntime.txt", "LICENSE", "THIRD_PARTY_NOTICES.md",
+                "data/fonts/NotoSans-Regular.ttf", "data/fonts/NotoSansSC-Regular.otf")
     for name in required:
         if not (package / name).is_file():
             raise RuntimeError(f"Missing installed resource: {name}")
@@ -179,7 +181,6 @@ def mac_dmg(package, output, name, version, work):
     resources = contents / "Resources"
     shutil.copytree(package / "Bin", frameworks, symlinks=True)
     resources.mkdir()
-    shutil.move(str(frameworks / "data"), str(resources / "data"))
     (contents / "MacOS").mkdir()
     executable = contents / "MacOS/NeMoDev"
     shutil.move(str(frameworks / "NeMoDev"), str(executable))

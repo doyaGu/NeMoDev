@@ -125,16 +125,18 @@ virtoolsdev_add_editor(VirtoolsDev VirtoolsDevImGui)
 target_compile_definitions(VirtoolsDev PRIVATE VIRTOOLSDEV_PRODUCTION)
 set_target_properties(VirtoolsDev PROPERTIES OUTPUT_NAME NeMoDev)
 install(TARGETS VirtoolsDev RUNTIME DESTINATION Bin COMPONENT Application)
-install(FILES ${VIRTOOLSDEV_DATA_FILES} DESTINATION Bin/data COMPONENT Application)
+install(SCRIPT "${VIRTOOLSDEV_SOURCE_DIR}/cmake/InstallApplicationData.cmake" COMPONENT Application)
+install(FILES ${VIRTOOLSDEV_DATA_FILES} DESTINATION data COMPONENT Application)
 if(VIRTOOLSDEV_HAS_HELP)
-    install(FILES "${_help_archive}" DESTINATION Bin/data COMPONENT Application)
-    install(DIRECTORY "${_help_output}/" DESTINATION Bin/data/help COMPONENT Application)
+    install(FILES "${_help_archive}" DESTINATION data COMPONENT Application)
+    install(DIRECTORY "${_help_output}/" DESTINATION data/help COMPONENT Application)
 endif()
 
 if(VIRTOOLSDEV_BUILD_TESTS AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME NeMoDevInstalledRuntime COMMAND ${Python3_EXECUTABLE}
             "${VIRTOOLSDEV_SOURCE_DIR}/tests/InstalledRuntimeTests.py"
             --build "${PROJECT_BINARY_DIR}" --cmake "${CMAKE_COMMAND}" --config "$<CONFIG>"
+            --runtime-check "$<TARGET_FILE:NeMoDevRuntimeLayoutTests>"
             --binary-name "$<TARGET_FILE_NAME:VirtoolsDev>" --haru-library "${VIRTOOLSDEV_HARU_LIBRARY}")
     set_tests_properties(NeMoDevInstalledRuntime PROPERTIES RUN_SERIAL TRUE TIMEOUT 180 LABELS self-contained)
 endif()
