@@ -31,6 +31,7 @@ class Event(C.Union):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", type=Path, default=Path("/opt/nemodev"))
+    parser.add_argument("--executable", type=Path, help="Use a package launcher or its symlink")
     args = parser.parse_args()
     package = args.package.resolve()
     env = {key: value for key, value in os.environ.items()
@@ -57,7 +58,8 @@ def main():
         with tempfile.TemporaryDirectory(prefix="nemodev-installed-") as temporary:
             env.update(XDG_CONFIG_HOME=temporary + "/config", XDG_DATA_HOME=temporary + "/data")
             with tempfile.TemporaryFile(mode="w+") as log:
-                process = subprocess.Popen([str(package / "Bin/NeMoDev")], env=env, cwd=temporary,
+                executable = args.executable.absolute() if args.executable else package / "Bin/NeMoDev"
+                process = subprocess.Popen([str(executable)], env=env, cwd=temporary,
                                            stdout=log, stderr=subprocess.STDOUT)
                 try:
                     window = None

@@ -67,7 +67,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
+          - os: ubuntu-22.04
             preset: linux-x64
             ui: 'ON'
           - os: windows-2022
@@ -103,17 +103,21 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ccache dpkg-dev libgtk-3-dev libglib2.0-dev libhpdf-dev \
+          sudo apt-get install -y g++-12 ninja-build ccache dpkg-dev libgtk-3-dev libglib2.0-dev libhpdf-dev \
             libasound2-dev libpulse-dev libudev-dev libdbus-1-dev libx11-dev libxext-dev \
             libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev \
             libegl1-mesa-dev libdrm-dev libgbm-dev libvulkan-dev mesa-vulkan-drivers vulkan-tools xvfb xauth
+          echo 'CC=gcc-12' >> "$GITHUB_ENV"
+          echo 'CXX=g++-12' >> "$GITHUB_ENV"
       - name: Verify software Vulkan before building
         if: runner.os == 'Linux'
         run: |
           export VK_DRIVER_FILES="$(dpkg -L mesa-vulkan-drivers | grep '/lvp_icd[^/]*\.json$')"
           test -f "$VK_DRIVER_FILES"
           echo "VK_DRIVER_FILES=$VK_DRIVER_FILES" >> "$GITHUB_ENV"
+          echo "VK_ICD_FILENAMES=$VK_DRIVER_FILES" >> "$GITHUB_ENV"
+          export VK_ICD_FILENAMES="$VK_DRIVER_FILES"
           xvfb-run -a -s '-screen 0 1920x1080x24' vulkaninfo --summary
       - name: Install macOS dependencies
         if: runner.os == 'macOS'
@@ -131,6 +135,9 @@ jobs:
           echo "revision=$(git -C out/Ballanced rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           image="${ImageVersion:-${IMAGEVERSION:-}}"
           test -n "$image"
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            image="$(. /etc/os-release; printf '%s-%s' "$ID" "$VERSION_ID")-$image"
+          fi
           echo "image=$image" >> "$GITHUB_OUTPUT"
       - name: Restore the Ballanced source and native build
         id: ballanced-cache
@@ -275,9 +282,11 @@ jobs:
         run: python tests/CheckProductionBinary.py --binary out/package/Bin/NeMoDev --package out/package
       - name: Package and verify the native distribution
         run: |
+          formats=()
+          if [[ "$RUNNER_OS" == Linux ]]; then formats=(--linux-format all); fi
           python tools/Package.py --installed out/package --output out/dist \
             --version '0.0.${{ github.run_number }}' --revision '${{ github.sha }}' \
-            --sdk-revisions out/ballanced-revision.txt
+            --sdk-revisions out/ballanced-revision.txt "${formats[@]}"
       - name: Install and start the Ubuntu package in a clean system
         if: runner.os == 'Linux'
         run: |
@@ -297,11 +306,13 @@ jobs:
             out/dist/NeMoDev-*.zip
             out/dist/NeMoDev-*.deb
             out/dist/NeMoDev-*.dmg
+            out/dist/NeMoDev-*.tar.xz
             out/dist/NeMoDev-*.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
           overwrite: true
+
       - name: Upload test and configuration logs
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -314,5 +325,38 @@ jobs:
             out/${{ matrix.preset }}/Testing/Temporary/
             out/${{ matrix.preset }}/virtoolsdev-ui/*.xml
             out/${{ matrix.preset }}/CMakeFiles/CMakeConfigureLog.yaml
+          retention-days: 14
+          overwrite: true
+
+  linux-distribution:
+    name: Linux package / ${{ matrix.image }}
+    needs: editor
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:22.04', 'debian:12', 'debian:13', 'fedora:44', 'opensuse/tumbleweed:latest', 'archlinux:base']
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: NeMoDev-linux-x64
+          path: out/distribution
+      - name: Verify the same archive without build dependencies
+        shell: bash
+        run: |
+          set -o pipefail
+          docker run --rm -v "$PWD/out/distribution:/packages:ro" -v "$PWD/tests:/checks:ro" \
+            '${{ matrix.image }}' bash /checks/CheckLinuxPackage.sh 2>&1 | tee out/distribution-check.log
+      - name: Upload distribution validation logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: linux-package-${{ strategy.job-index }}-logs
+          path: out/distribution-check.log
+          if-no-files-found: warn
           retention-days: 14
           overwrite: true
