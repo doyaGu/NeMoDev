@@ -27,9 +27,14 @@ case "$ID" in
     *) printf 'No runtime test setup for %s\n' "$ID" >&2; exit 1 ;;
 esac
 
-export VK_DRIVER_FILES
-VK_DRIVER_FILES="$(find /usr/share/vulkan/icd.d -name '*lvp*json' -print -quit)"
-test -f "$VK_DRIVER_FILES"
+export VK_DRIVER_FILES=""
+for driver in /usr/share/vulkan/icd.d/*lvp*.json; do
+    if test -f "$driver"; then VK_DRIVER_FILES="$driver"; break; fi
+done
+if ! test -f "$VK_DRIVER_FILES"; then
+    printf 'The software Vulkan ICD is unavailable\n' >&2
+    exit 1
+fi
 export VK_ICD_FILENAMES="$VK_DRIVER_FILES"
 checks=/checks
 temporary="$(mktemp -d)"
