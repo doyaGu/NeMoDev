@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "core/document/Edit.h"
+#include "core/graph/RuntimeGraph.h"
 #include "core/document/SpriteTextPersistence.h"
 #include "core/runtime/CkArrays.h"
 #include "core/runtime/CkRuntimeHost.h"
@@ -419,31 +420,83 @@ void Document::Close() {
         edit = outer;
     }
     m_OpenEdit = nullptr;
+    // Clear releases the steps, then collects detached objects while their
+    // former owners still exist (before ClearAll).
     m_History.Clear();
-    // Soft-deleted objects are detached but still name their former parent
-    // and owner. Destroy them together while those still exist, before
-    // ClearAll (a batch lets CK resolve references among them).
-    if (m_Open && Context() && !m_Graveyard.empty()) {
-        CKContext *context = Context();
-        std::vector<CK_ID> doomed;
-        for (CK_ID id : m_Graveyard)
-            if (context->GetObject(id)) doomed.push_back(id);
-        if (!doomed.empty() &&
-            !GuardedCall([&] { context->DestroyObjects(doomed.data(), static_cast<int>(doomed.size())); }, &m_Host,
-                         "CKContext::DestroyObjects"))
-            m_Host.Log(LogLevel::Warning, "Discarding deleted Schematic objects raised an exception");
-    }
     for (const auto &entry : m_Sessions) m_ChangesOutsideUndo += entry.second->ChangesOutsideUndo();
     m_Sessions.clear();
     m_Bitmaps.clear(); // after the sessions borrowing them
     m_Scripts.clear();
     m_LoadedObjects.clear();
     m_Graveyard.clear();
+    m_GraveyardCollectionPending = false;
     m_CreatedObjects.clear();
     m_SourcePath.clear();
     m_TopologyRevision = m_SavedTopologyRevision = 0;
     if (m_Open && Context()) m_Host.ClearAll();
     m_Open = false;
+}
+
+void Document::RequestGraveyardCollection() {
+    m_GraveyardCollectionPending = true;
+    CollectGraveyard();
+}
+
+void Document::CollectGraveyard() {
+    CKContext *context = Context();
+    if (!m_GraveyardCollectionPending || !context || EditOpen() || m_History.m_Running || m_CollectingGraveyard) return;
+    m_GraveyardCollectionPending = false;
+    if (m_Graveyard.empty()) return;
+
+    // An action's ordinary references are ordered before the step that
+    // buries their objects. Keeping creations/deletions in both stacks thus
+    // keeps those references too. A retained child also needs its holders;
+    // destruction of a graph must not invalidate a retained descendant.
+    std::set<CK_ID> retained = m_History.RetainedObjects();
+    const auto roots = retained;
+    for (CK_ID id : roots) {
+        CKObject *object = context->GetObject(id);
+        for (int depth = 0; object && depth < 256; ++depth, object = HolderOf(object))
+            retained.insert(object->GetID());
+    }
+    retained = CollectOwnedObjects(context, retained);
+
+    std::vector<CK_ID> doomed;
+    for (CK_ID id : m_Graveyard) {
+        if (!context->GetObject(id) || retained.count(id)) continue;
+        const auto owned = CollectOwnedObjects(context, {id});
+        if (std::none_of(owned.begin(), owned.end(), [&](CK_ID child) { return retained.count(child); }))
+            doomed.push_back(id);
+    }
+    if (!doomed.empty()) {
+        m_CollectingGraveyard = true;
+        // Optional resource dependencies (meshes, materials, animations)
+        // may be shared by the live composition. CK still destroys graph
+        // internals and other mandatory owned objects with their roots.
+        CKDependencies dependencies;
+        if (!GuardedCall([&] {
+                // CK's skin dependencies ignore the optional flags and
+                // include the current mesh and bones. Release only the
+                // discarded entity's skin; those resources may still live.
+                for (CK_ID id : doomed)
+                    if (CK3dEntity *entity = CK3dEntity::Cast(context->GetObject(id))) entity->DestroySkin();
+                context->DestroyObjects(doomed.data(), static_cast<int>(doomed.size()), 0, &dependencies);
+            },
+                         &m_Host, "Collect graveyard"))
+            m_Host.Log(LogLevel::Warning, "Discarding deleted objects raised an exception");
+        m_CollectingGraveyard = false;
+    }
+    // Include descendants destroyed by CK, not just the graveyard roots.
+    // Stale tracking would misidentify an object if its ID is reused.
+    for (auto it = m_Graveyard.begin(); it != m_Graveyard.end();)
+        if (!context->GetObject(*it)) it = m_Graveyard.erase(it);
+        else ++it;
+    for (auto it = m_CreatedObjects.begin(); it != m_CreatedObjects.end();)
+        if (!context->GetObject(*it)) it = m_CreatedObjects.erase(it);
+        else ++it;
+    m_LoadedObjects.erase(std::remove_if(m_LoadedObjects.begin(), m_LoadedObjects.end(),
+                                        [&](CK_ID id) { return !context->GetObject(id); }), m_LoadedObjects.end());
+    RefreshScripts();
 }
 
 bool Document::IsLive(CK_ID id) const {

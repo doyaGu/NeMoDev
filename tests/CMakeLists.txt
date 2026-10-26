@@ -83,6 +83,7 @@ virtoolsdev_add_test(SchematicModelTests SchematicModelTests)
 add_executable(VirtoolsDevTests
         VirtoolsDevTests.cpp
         GraphTestSupport.cpp
+        GraveyardTests.cpp
         ObjectEditFailureTests.cpp
         SaveFailureTests.cpp
         InitialConditionsTests.cpp

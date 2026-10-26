@@ -100,7 +100,7 @@ public:
 
     // Which of the context's objects are the composition's. An
     // object an edit removed is kept alive for undo (never saved, destroyed
-    // when the document closes): it and the objects it holds (a deleted
+    // once no undo/redo step needs it): it and the objects it holds (a deleted
     // Building Block's parameters and I/Os, a deleted Script's behaviors) are
     // discarded. They still reference the composition (their inputs their
     // sources) but are not part of it: whatever lists, counts or looks for
@@ -153,9 +153,14 @@ private:
     // the queries (what it writes).
     friend class Edit;
     friend class UndoStep;
+    friend class UndoHistory;
     friend struct DocumentSaverAccess;
     void ListScripts();
     void CommitOpen(PreparedOpen &prepared);
+    // Run only after edits/replay have ended and discarded steps released
+    // their actions/state chunks. Live objects never enter this collection.
+    void CollectGraveyard();
+    void RequestGraveyardCollection();
 
     CkRuntimeHost &m_Host;
     bool m_Open = false;
@@ -174,6 +179,8 @@ private:
     // (Close).
     UndoHistory m_History;
     Edit *m_OpenEdit = nullptr; // the innermost
+    bool m_CollectingGraveyard = false;
+    bool m_GraveyardCollectionPending = false;
 };
 
 class Document::PreparedOpen {

@@ -145,12 +145,13 @@ void Edits(CkRuntimeHost &host) {
         CHECK(history.Redo() && !document.IsDiscarded(madeId) && document.IsDiscarded(removedId));
         // Taken back: never part of the composition.
         CKObject *dropped = context->CreateObject(CKCID_DATAARRAY, (CKSTRING) "Edit Dropped");
+        const CK_ID droppedId = dropped->GetID();
         {
             Edit edit(document, "Dropped");
-            edit.Created(dropped->GetID());
+            edit.Created(droppedId);
             edit.Bury(madeId);
         }
-        CHECK(document.IsDiscarded(dropped->GetID()) && !document.IsDiscarded(madeId));
+        CHECK(!context->GetObject(droppedId) && !document.IsDiscarded(madeId));
     }
 
     // What cannot be taken back clears the history, keeps the objects made,

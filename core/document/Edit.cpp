@@ -103,6 +103,15 @@ bool UndoStep::Empty() const {
     return m_Actions.empty() && m_Displays.empty() && m_Touched.empty() && m_Created.empty() && m_Buried.empty();
 }
 
+void UndoStep::RetainObjects(std::set<CK_ID> &objects) const {
+    objects.insert(m_Created.begin(), m_Created.end());
+    objects.insert(m_Buried.begin(), m_Buried.end());
+    objects.insert(m_Touched.begin(), m_Touched.end());
+    for (const Display &display : m_Displays) objects.insert(display.script);
+    for (const auto &action : m_Actions)
+        if (const auto *nested = dynamic_cast<const NestedStep *>(action.get())) nested->step->RetainObjects(objects);
+}
+
 // ---------------------------------------------------------------------------
 // Edit
 
@@ -208,6 +217,8 @@ EditResult Edit::Commit(const std::string &message, CK_ID created) {
     }
     if (m_Step->Empty()) {
         Finish();
+        m_Step.reset();
+        m_Document->CollectGraveyard();
         return EditResult::NoChange();
     }
     Document &document = *m_Document;
@@ -267,6 +278,8 @@ bool Edit::Rollback() {
     if (!restored || m_Broken) {
         for (Edit *outer = m_Parent; outer; outer = outer->m_Parent) outer->m_Broken = true;
         Finish();
+        m_Step.reset();
+        document.RequestGraveyardCollection();
         return false;
     }
     // Never part of the composition once taken back: kept out of the saved file.
@@ -274,6 +287,8 @@ bool Edit::Rollback() {
     // Shown back as it was (the sessions marked), unmodified as it was.
     if (!m_Parent && m_CleanAtStart && document.ChangesOutsideUndo() == m_OutsideAtStart) document.MarkSaved();
     Finish();
+    m_Step.reset(); // Release actions and state chunks before their objects.
+    document.RequestGraveyardCollection();
     return true;
 }
 

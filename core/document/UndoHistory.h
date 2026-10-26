@@ -3,7 +3,10 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <set>
 #include <string>
+
+#include "CKTypes.h"
 
 namespace vdev {
 
@@ -49,13 +52,15 @@ private:
     // A new step (applied already): the steps undone are dropped.
     void Push(std::unique_ptr<UndoStep> step);
     const UndoStep *Top() const { return m_Undo.empty() ? nullptr : m_Undo.back().get(); }
-    void Evict();
+    bool Evict();
     void ReachSavePoint();
+    std::set<CK_ID> RetainedObjects() const;
 
     Document &m_Document;
     size_t m_Limit;
     std::deque<std::unique_ptr<UndoStep>> m_Undo;
     std::deque<std::unique_ptr<UndoStep>> m_Redo;
+    bool m_Running = false; // A step being replayed is temporarily outside both stacks.
     // The save point: the step on top then (null: none), whether it can
     // still be reached, the changes outside undo then.
     const UndoStep *m_SaveTop = nullptr;

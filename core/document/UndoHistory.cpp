@@ -11,7 +11,7 @@ UndoHistory::~UndoHistory() = default;
 
 void UndoHistory::SetLimit(size_t limit) {
     m_Limit = limit;
-    Evict();
+    if (Evict()) m_Document.RequestGraveyardCollection();
 }
 
 std::string UndoHistory::UndoLabel() const {
@@ -24,20 +24,33 @@ std::string UndoHistory::RedoLabel() const {
 
 void UndoHistory::Push(std::unique_ptr<UndoStep> step) {
     if (!step) return;
+    const bool discardedRedo = !m_Redo.empty();
     // The save point ahead (undone since): the new edit replaces it.
     for (const auto &undone : m_Redo)
         if (undone.get() == m_SaveTop) m_SaveReachable = false;
     m_Redo.clear();
     m_Undo.push_back(std::move(step));
-    Evict();
+    const bool evicted = Evict();
+    if (evicted || discardedRedo) m_Document.RequestGraveyardCollection();
+    else m_Document.CollectGraveyard(); // A clear requested during the edit.
 }
 
-void UndoHistory::Evict() {
+bool UndoHistory::Evict() {
+    bool evicted = false;
     while (m_Undo.size() > m_Limit) {
         // The save point is the evicted step, or before all steps.
         if (!m_SaveTop || m_Undo.front().get() == m_SaveTop) m_SaveReachable = false;
         m_Undo.pop_front();
+        evicted = true;
     }
+    return evicted;
+}
+
+std::set<CK_ID> UndoHistory::RetainedObjects() const {
+    std::set<CK_ID> objects;
+    for (const auto &step : m_Undo) step->RetainObjects(objects);
+    for (const auto &step : m_Redo) step->RetainObjects(objects);
+    return objects;
 }
 
 void UndoHistory::MarkSavePoint() {
@@ -51,28 +64,41 @@ void UndoHistory::ReachSavePoint() {
 }
 
 bool UndoHistory::Undo() {
-    if (m_Document.EditOpen() || m_Undo.empty()) return false;
+    if (m_Running || m_Document.EditOpen() || m_Undo.empty()) return false;
+    m_Running = true;
     std::unique_ptr<UndoStep> step = std::move(m_Undo.back());
     m_Undo.pop_back();
     if (!step->Undo(m_Document)) {
         Clear(); // the composition may be partly restored: no step matches it any longer
+        step.reset();
+        m_Running = false;
+        m_Document.CollectGraveyard();
         return false;
     }
     m_Redo.push_back(std::move(step));
     ReachSavePoint();
+    m_Running = false;
+    m_Document.CollectGraveyard();
     return true;
 }
 
 bool UndoHistory::Redo() {
-    if (m_Document.EditOpen() || m_Redo.empty()) return false;
+    if (m_Running || m_Document.EditOpen() || m_Redo.empty()) return false;
+    m_Running = true;
     std::unique_ptr<UndoStep> step = std::move(m_Redo.back());
     m_Redo.pop_back();
     if (!step->Redo(m_Document)) {
         Clear();
+        step.reset();
+        m_Running = false;
+        m_Document.CollectGraveyard();
         return false;
     }
     m_Undo.push_back(std::move(step));
     ReachSavePoint();
+    m_Running = false;
+    if (Evict()) m_Document.RequestGraveyardCollection();
+    else m_Document.CollectGraveyard();
     return true;
 }
 
@@ -81,6 +107,7 @@ void UndoHistory::Clear() {
     m_Redo.clear();
     m_SaveTop = nullptr;
     m_SaveReachable = false;
+    m_Document.RequestGraveyardCollection();
 }
 
 } // namespace vdev

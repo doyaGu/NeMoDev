@@ -156,6 +156,9 @@ public:
 private:
     friend class Edit;
     friend class NestedStep;
+    friend class UndoHistory;
+    // Objects required to replay this step, including its nested edits.
+    void RetainObjects(std::set<CK_ID> &objects) const;
     // A Script's display before and after the step.
     struct Display {
         CK_ID script = 0;
