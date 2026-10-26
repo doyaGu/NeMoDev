@@ -17,8 +17,6 @@
 
 namespace vdev {
 
-namespace {
-
 // InterfaceControls.dll's colors (sub_24211910): ZC_MAINBACK 100,
 // ZC_TOOLBARBACK 65 (the bar), ZC_TOOLBARBORDER 176 (its outline and texts).
 constexpr ImU32 MAIN_BACK = IM_COL32(100, 100, 100, 255);
@@ -29,9 +27,10 @@ constexpr ImU32 BAR_TEXT = IM_COL32(176, 176, 176, 255);
 // clipped; the Event Log's text ends with "..."), in the VI font (GetVIFont
 // 0 or 1 by sub_41F8D0): laid out at its height, then narrowed about its
 // left edge to GDI's width 5.
-void BarText(ImDrawList *dl, const ImVec2 &min, const ImVec2 &max, const std::string &text, bool bold,
+static void BarText(ImDrawList *dl, const ImVec2 &min, const ImVec2 &max, const std::string &text, bool bold,
              bool ellipsis = false) {
-    const float s = ImGui::GetFontSize() / 13.0f;
+    // PushFont takes a base size; ImGui applies DPI and user scaling itself.
+    const float s = ImGui::GetStyle().FontSizeBase / 13.0f;
     const float narrow = VIFontWidth(bold);
     const ImVec2 wide(min.x + (max.x - min.x) / narrow, max.y);
     const int first = dl->VtxBuffer.Size;
@@ -49,8 +48,6 @@ void BarText(ImDrawList *dl, const ImVec2 &min, const ImVec2 &max, const std::st
     if (narrow != 1.0f)
         for (int i = first; i < dl->VtxBuffer.Size; ++i) dl->VtxBuffer[i].pos.x = min.x + (dl->VtxBuffer[i].pos.x - min.x) * narrow;
 }
-
-} // namespace
 
 // Dev's items, in Dev pixels from the bar's top and its right end R
 // (sub_4229D0): Selection (L + 10 .. R - 871), Action (bold, R - 863 ..

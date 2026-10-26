@@ -46,6 +46,60 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         }
     };
 
+    // Explicit status fonts keep their original proportions at every DPI.
+    t = IM_REGISTER_TEST(engine, "app", "status_bar_text_scales_once");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const ImGuiStyle saved = ImGui::GetStyle();
+        OnMainThread(ctx, [] { App().State().Log(vdev::LogLevel::Info, "Status text"); });
+        for (float dpi : {1.0f, 1.5f, 2.0f, 1.0f}) {
+            ctx->LogInfo("Status bar DPI scale %.2f", dpi);
+            OnMainThread(ctx, [dpi] { ImGui::GetStyle().FontScaleDpi = dpi; });
+            ctx->Yield(3);
+            OnMainThread(ctx, [&] {
+                ImGuiWindow *bar = ImGui::FindWindowByName("##StatusBar");
+                IM_CHECK(bar && bar->WasActive);
+                const float scale = ImGui::GetFontSize() / 13.0f;
+                const ImU32 color = IM_COL32(176, 176, 176, 255);
+                auto check = [&](float left, float right, float top, float bottom, const char *text, bool bold) {
+                    const ImVec2 min(IM_ROUND(bar->Pos.x + bar->Size.x - left * scale),
+                                     IM_ROUND(bar->Pos.y + top * scale));
+                    const ImVec2 max(IM_ROUND(bar->Pos.x + bar->Size.x - right * scale),
+                                     IM_ROUND(bar->Pos.y + bottom * scale));
+                    // Plain labels use GPU clipping; ellipsis labels also clip
+                    // glyph quads on the CPU. Compare their visible geometry.
+                    auto visible = [&](ImVec2 point) {
+                        return ImVec2(ImClamp(point.x, min.x, max.x), ImClamp(point.y, min.y, max.y));
+                    };
+                    ImDrawList expected(ImGui::GetDrawListSharedData());
+                    expected._ResetForNewFrame();
+                    expected.PushClipRectFullScreen();
+                    expected.PushTexture(ImGui::GetIO().Fonts->TexRef);
+                    const float height = vdev::VIFontHeight(bold);
+                    vdev::DrawVIText(&expected, min, color, text, bold,
+                                    ImGui::GetRoundedFontSize(height * scale) / height, &max);
+                    std::vector<ImVec2> actual;
+                    for (const ImDrawVert &vertex : bar->DrawList->VtxBuffer)
+                        if (vertex.col == color && vertex.pos.x >= min.x - 1 && vertex.pos.x <= max.x + 1 &&
+                            vertex.pos.y >= min.y - 1 && vertex.pos.y <= max.y + 1)
+                            actual.push_back(visible(vertex.pos));
+                    IM_CHECK(expected.VtxBuffer.Size > 0);
+                    IM_CHECK_EQ(actual.size(), static_cast<size_t>(expected.VtxBuffer.Size));
+                    for (size_t i = 0; i < actual.size(); ++i) {
+                        const ImVec2 point = visible(expected.VtxBuffer[static_cast<int>(i)].pos);
+                        IM_CHECK(std::fabs(actual[i].x - point.x) < .1f);
+                        IM_CHECK(std::fabs(actual[i].y - point.y) < .1f);
+                    }
+                };
+                check(154, 124, 4, 17, "FPS", true);
+                check(185, 155, 7, 19, "NA", false);
+                check(407, 207, 6, 18, "Status text", false);
+            });
+        }
+        OnMainThread(ctx, [&] { ImGui::GetStyle() = saved; });
+    };
+
     // Dev's main windows are there on a new composition.
     t = IM_REGISTER_TEST(engine, "app", "main_windows");
     t->TestFunc = [](ImGuiTestContext *ctx) {
