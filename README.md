@@ -25,7 +25,8 @@ includes its source revisions and a SHA-256 checksum; test logs are separate.
 | Platform | Package | Install and run |
 | --- | --- | --- |
 | Windows 10/11 x64 | Portable ZIP | Extract the entire archive and open `Bin/NeMoDev.exe`. Visual C++ runtime DLLs are included. |
-| Ubuntu 24.04 x64 | DEB | Run `sudo apt install ./NeMoDev-*.deb`, then open NeMoDev from the application menu or run `nemodev`. APT installs the system dependencies. |
+| Linux x64, glibc 2.35+ | Portable tar.xz | Extract the complete archive and run `./NeMoDev`. The directory can be moved; the launcher also works through a symlink. |
+| Debian / Ubuntu x64 | DEB | Run `sudo apt install ./NeMoDev-*.deb`, then open NeMoDev from the application menu or run `nemodev`. APT installs the system dependencies. |
 | macOS 15+ Apple Silicon | DMG | Open the image and drag `NeMoDev.app` to Applications. No Homebrew installation is needed. |
 
 A working graphics driver with SDL GPU support is required. Windows builds
@@ -33,6 +34,27 @@ are not Authenticode signed. macOS builds are **ad hoc signed and not notarized*
 after verifying the download, allow the app through System Settings → Privacy &
 Security if Gatekeeper blocks it. Builds use CI build numbers rather than a
 stable-release version. Original CHM help is not included.
+
+Linux portable packages include SDL3, libharu, the Ballanced runtime, plugins
+and fonts. GTK3 with its Unix Print/CUPS backend, GIO, the Vulkan loader and a
+graphics driver remain system dependencies, alongside libudev, D-Bus and
+libdecor for SDL's desktop/device backends. Install Zenity for native file
+dialogs and the ALSA/PulseAudio libraries for audio. For example:
+
+```sh
+# Fedora
+sudo dnf install gtk3 libstdc++ systemd-libs dbus-libs libdecor vulkan-loader alsa-lib pulseaudio-libs zenity
+# openSUSE
+sudo zypper install libgtk-3-0 libstdc++6 libudev1 libdbus-1-3 libdecor-0-0 libvulkan1 libasound2 libpulse0 zenity
+# Arch Linux
+sudo pacman -S --needed gtk3 gcc-libs systemd-libs dbus libdecor vulkan-icd-loader alsa-lib libpulse zenity
+```
+
+DEB packages handle these dependencies on Debian and Ubuntu. Portable releases
+are built on Ubuntu 22.04 with GCC 12 and checked for their required glibc,
+libstdc++ and C++ ABI symbol versions. `build-info.json` records those actual
+requirements. Prebuilt packages target glibc systems; musl-based distributions
+are outside their support range.
 
 ## Building
 
@@ -48,7 +70,12 @@ You will need:
 Linux also needs the GTK3 Unix Print, GIO and libharu development packages:
 
 ```sh
-sudo apt-get install build-essential cmake ninja-build pkg-config python3-venv libgtk-3-dev libglib2.0-dev libhpdf-dev
+# Debian / Ubuntu
+sudo apt-get install build-essential ninja-build pkg-config python3-venv libgtk-3-dev libglib2.0-dev libhpdf-dev
+# Fedora
+sudo dnf install gcc-c++ cmake ninja-build pkgconf-pkg-config python3-pip gtk3-devel glib2-devel libharu-devel
+# Arch Linux
+sudo pacman -S --needed base-devel cmake ninja python-pip gtk3 glib2 libharu
 ```
 
 On macOS, install Ninja and libharu alongside the Xcode tools. SDL's
@@ -97,11 +124,15 @@ out/windows-x64-release/runtime/Bin/NeMoDev.exe
 
 ```sh
 python3 -m venv .venv
-.venv/bin/python -m pip install "Pillow>=9.1"
+. .venv/bin/activate
+python -m pip install "cmake>=3.25,<4" "Pillow>=9.1"
 cmake --preset linux-x64-release -DVIRTOOLS_SDK_PATH="<Ballanced checkout>" -DCMAKE_PREFIX_PATH="<SDL installation>" -DPython3_EXECUTABLE="$PWD/.venv/bin/python"
 cmake --build --preset linux-x64-release --parallel 4
 out/linux-x64-release/runtime/Bin/NeMoDev
 ```
+
+The virtual environment supplies a current CMake on distributions such as
+Ubuntu 22.04 whose default CMake package predates the required version.
 
 **macOS ARM64:** install `cmake`, `ninja`, `sdl3`, `libharu` and Python with
 Homebrew, then prepare the Python virtual environment as above:
@@ -133,7 +164,11 @@ together: the executable needs its libraries, plugins, data, fonts and license
 files. The Linux install includes SDL3 and shared libharu; GTK, GIO and the
 graphics driver remain system dependencies. For native distribution packages,
 `tools/Package.py --help` describes the packaging inputs. Run it on the target
-platform after installing both components; DEB packaging also needs `dpkg-dev`.
+platform after installing both components. Linux defaults to a portable
+`tar.xz`; use `--linux-format all` to produce both it and a DEB, or
+`--linux-format deb` for just a native DEB. Portable packaging needs `readelf`
+from binutils and a build compatible with the older ABI baseline. DEB packaging
+needs `dpkg-dev` and derives its system dependencies from the actual ELF files.
 It packages and checks the installed program without copying the build tree.
 
 ## Development and tests
@@ -180,8 +215,14 @@ revision and uploads test inventories, results and failure logs. Ballanced's
 native build is cached by SDK revision, runner image, SDL version and build
 configuration; editor source changes reuse it. Tests and package checks still
 run on cache hits. Distribution
-checks reopen the Windows ZIP, install and start the Ubuntu DEB in a clean
-Ubuntu 24.04 container, and mount the macOS DMG to verify its bundle and loading.
+checks reopen the Windows ZIP, install and start the Debian/Ubuntu DEB, and
+mount the macOS DMG to verify its bundle and loading. The same Linux portable
+archive is checked in clean Ubuntu 22.04/24.04, Debian 12/13, Fedora 44, openSUSE
+Tumbleweed and Arch Linux containers. These checks use X11/software Vulkan and
+cover a new composition, drawn frames, packaged libraries, relocation, launcher symlinks, GTK print
+backends and PDF output. The extra distributions consume the one Linux build;
+they do not rebuild Ballanced. The Debian and Ubuntu containers also install
+and launch the DEB before and after relocating its payload.
 Hosted Windows/macOS checks do not replace GPU and native-desktop acceptance.
 A weekly run
 checks compatibility with changes in Ballanced even when NeMoDev is unchanged.
