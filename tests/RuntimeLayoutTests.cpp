@@ -1,4 +1,7 @@
 #include "core/runtime/VirtoolsRuntimeLayout.h"
+#include "core/runtime/CkRuntimeHost.h"
+#include "core/runtime/Resources.h"
+#include "core/document/Document.h"
 
 #include <chrono>
 #include <filesystem>
@@ -11,10 +14,31 @@ static void RequirePath(const std::string &actual, const std::filesystem::path &
         throw std::runtime_error("Expected " + expected.u8string() + ", got " + actual);
 }
 
-int main() {
+static void CheckInstalledRuntime(const std::string &path) {
+    vdev::CkRuntimeHost host;
+    std::string error;
+    if (!host.Start(VirtoolsRuntimeDirectory(path), {}, &error))
+        throw std::runtime_error(error);
+    const auto &counts = host.Counts();
+    if (!counts.behaviorDlls || !counts.managerDlls || !counts.renderEngines || !counts.behaviorPrototypes)
+        throw std::runtime_error("The installed runtime did not register its plugins");
+    if (!std::filesystem::is_regular_file(std::filesystem::u8path(vdev::DataFilePath("interface.nmo"))))
+        throw std::runtime_error("The application bundle's interface data is unavailable");
+    vdev::Document document(host);
+    if (!document.New(&error) || !document.Context()->GetCurrentLevel())
+        throw std::runtime_error("Cannot create a composition with the installed runtime: " + error);
+    std::cout << "Installed runtime: plugins registered, interface data found, composition created\n";
+}
+
+int main(int argc, char **argv) {
     const auto root = std::filesystem::temp_directory_path() /
         ("nemodev-runtime-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     try {
+        if (argc == 3 && std::string(argv[1]) == "--runtime") {
+            CheckInstalledRuntime(argv[2]);
+            return 0;
+        }
+        if (argc != 1) throw std::runtime_error("Expected no arguments or --runtime PATH");
         const auto flat = root / "flat";
         std::filesystem::create_directories(flat / "RenderEngines");
         std::ofstream(flat / VIRTOOLS_CK2_FILENAME).put('\0');
