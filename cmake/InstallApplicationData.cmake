@@ -6,7 +6,11 @@ set(_data "${CMAKE_INSTALL_PREFIX}/data")
 
 function(_nemodev_move_data source destination)
     file(MAKE_DIRECTORY "${destination}")
-    file(GLOB _entries LIST_DIRECTORIES true "${source}/*" "${source}/.*")
+    # The installation directory is a literal path, not a glob expression.
+    string(REPLACE "[" "[[]" _pattern "${source}")
+    string(REPLACE "*" "[*]" _pattern "${_pattern}")
+    string(REPLACE "?" "[?]" _pattern "${_pattern}")
+    file(GLOB _entries LIST_DIRECTORIES true "${_pattern}/*" "${_pattern}/.*")
     foreach(_entry IN LISTS _entries)
         get_filename_component(_name "${_entry}" NAME)
         if(_name STREQUAL "." OR _name STREQUAL "..")
