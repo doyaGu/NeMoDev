@@ -67,7 +67,7 @@ class PackageLinks(unittest.TestCase):
                 self.assertTrue(path.is_symlink())
                 self.assertFalse(Path(os.readlink(path)).is_absolute())
                 self.assertEqual(path.read_bytes(), b"Original SDK data\n")
-                self.assertEqual(path.resolve(), moved / "Contents/Resources/runtime" / name)
+                self.assertEqual(path.resolve(), (moved / "Contents/Resources/runtime" / name).resolve())
             self.assertEqual((moved / "Contents/Frameworks/libCK2.dylib").read_bytes(), b"Library unchanged")
 
 
