@@ -906,7 +906,8 @@ void LinkAndExportCommands(CkRuntimeHost &host, const std::vector<CKGUID> &proto
     const EditResult inner = InsertBuildingBlock(document, id, graph.created, withInput, Point(420, 340));
     const EditResult other = InsertBuildingBlock(document, id, graph.created, withInput, Point(500, 340));
     CHECK(inner.ok && other.ok);
-    const BehaviorItem *box = BuildModel(document, id).FindBehavior(graph.created);
+    const SchematicModel model = BuildModel(document, id);
+    const BehaviorItem *box = model.FindBehavior(graph.created);
     CHECK(box);
     const Rect groupBox = box->box;
     const Point outside(groupBox.hPos - 150.0f, groupBox.vPos + 20.0f);
