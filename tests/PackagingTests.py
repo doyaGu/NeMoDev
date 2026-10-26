@@ -1,6 +1,7 @@
 """Distribution symlinks must remain usable after moving the package."""
 
 from pathlib import Path
+import os
 import sys
 import tempfile
 import unittest
@@ -64,7 +65,7 @@ class PackageLinks(unittest.TestCase):
             for name in ("Frameworks/BallancedRuntime.txt", "PlugIns/RenderEngines/CK2_3D.ini"):
                 path = moved / "Contents" / name
                 self.assertTrue(path.is_symlink())
-                self.assertFalse(Path(path.readlink()).is_absolute())
+                self.assertFalse(Path(os.readlink(path)).is_absolute())
                 self.assertEqual(path.read_bytes(), b"Original SDK data\n")
                 self.assertEqual(path.resolve(), moved / "Contents/Resources/runtime" / name)
             self.assertEqual((moved / "Contents/Frameworks/libCK2.dylib").read_bytes(), b"Library unchanged")

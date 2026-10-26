@@ -167,7 +167,7 @@ def move_mac_resources(contents):
     for path in metadata:
         destination = contents / "Resources/runtime" / path.relative_to(contents)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(path, destination)
+        shutil.move(str(path), str(destination))
         path.symlink_to(os.path.relpath(destination, path.parent))
 
 
@@ -179,10 +179,10 @@ def mac_dmg(package, output, name, version, work):
     resources = contents / "Resources"
     shutil.copytree(package / "Bin", frameworks, symlinks=True)
     resources.mkdir()
-    shutil.move(frameworks / "data", resources / "data")
+    shutil.move(str(frameworks / "data"), str(resources / "data"))
     (contents / "MacOS").mkdir()
     executable = contents / "MacOS/NeMoDev"
-    shutil.move(frameworks / "NeMoDev", executable)
+    shutil.move(str(frameworks / "NeMoDev"), str(executable))
     for category in PLUGINS:
         shutil.copytree(package / category, contents / "PlugIns" / category, symlinks=True)
     move_mac_resources(contents)
