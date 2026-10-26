@@ -144,7 +144,7 @@ jobs:
           restore-keys: compiler-${{ matrix.os }}-${{ runner.arch }}-
       - name: Cache the installed SDL library
         id: sdl-cache
-        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: out/sdl
           key: sdl-3.4.18-shared-${{ matrix.os }}-${{ runner.arch }}-v1
@@ -161,6 +161,12 @@ jobs:
           fi
           cmake --build out/sdl-build --config Release --parallel 4
           cmake --install out/sdl-build --config Release --prefix '${{ github.workspace }}/out/sdl'
+      - name: Save the completed SDL installation
+        if: steps.sdl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/sdl
+          key: sdl-3.4.18-shared-${{ matrix.os }}-${{ runner.arch }}-v1
       - name: Configure the editor and self-contained regressions
         run: |
           prefix='${{ github.workspace }}/out/sdl'
