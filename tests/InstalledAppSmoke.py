@@ -78,16 +78,23 @@ def main():
                         time.sleep(.25)
                     if not window:
                         raise RuntimeError(f"Initialized composition window absent; exit={process.poll()}")
-                    time.sleep(2)
-                    image = x.XGetImage(display, window, 20, 80, 500, 300, C.c_ulong(-1).value, 2)
-                    if not image:
-                        raise RuntimeError("Cannot read the initialized application window")
-                    try:
-                        colors = {x.XGetPixel(image, px, py) for py in range(0, 300, 3) for px in range(0, 500, 3)}
-                        if len(colors) <= 24:
-                            raise RuntimeError(f"The editor did not draw its interface: {len(colors)} colors")
-                    finally:
-                        x.XDestroyImage(image)
+                    # The document title is ready before the first GPU frame.
+                    # Cold software Vulkan pipelines can take several seconds.
+                    colors = set()
+                    deadline = time.monotonic() + 60
+                    while time.monotonic() < deadline and process.poll() is None:
+                        image = x.XGetImage(display, window, 20, 80, 500, 300, C.c_ulong(-1).value, 2)
+                        if not image:
+                            raise RuntimeError("Cannot read the initialized application window")
+                        try:
+                            colors = {x.XGetPixel(image, px, py) for py in range(0, 300, 3) for px in range(0, 500, 3)}
+                        finally:
+                            x.XDestroyImage(image)
+                        if len(colors) > 24:
+                            break
+                        time.sleep(.25)
+                    if len(colors) <= 24:
+                        raise RuntimeError(f"The editor did not draw its interface: {len(colors)} colors; exit={process.poll()}")
                     maps = Path(f"/proc/{process.pid}/maps").read_text()
                     for library in ("libCK2.so", "libVxMath.so", "libCK2_3D.so", "libhpdf", "libSDL3"):
                         loaded = [line for line in maps.splitlines() if library in line]
