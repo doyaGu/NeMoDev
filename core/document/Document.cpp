@@ -242,7 +242,7 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
     CKERROR result = CKERR_INVALIDFILE;
     const bool completed = GuardedCall(
         [&] {
-            result = LoadFileChoosingDuplicates(context, file, path, objects, CK_LOAD_DEFAULT, duplicates);
+            result = LoadFileChoosingDuplicates(m_Host, file, path, objects, CK_LOAD_DEFAULT, duplicates);
             if (result == CK_OK) RestoreSpriteTextAlignments(*file, duplicates);
         },
         &m_Host, "CKFile::Load");
@@ -319,7 +319,7 @@ bool Document::Import(const std::string &path, ImportMode mode, std::string *err
         CKFile *file = context->CreateCKFile();
         completed = GuardedCall(
             [&] {
-                result = LoadFileChoosingDuplicates(context, file, path, objects, flags, duplicates);
+                result = LoadFileChoosingDuplicates(m_Host, file, path, objects, flags, duplicates);
                 if (result == CK_OK) RestoreSpriteTextAlignments(*file, duplicates);
             },
             &m_Host, "CKFile::Load");

@@ -10,6 +10,8 @@
 // SDK helpers for the source-built Ballanced runtime.
 namespace vdev {
 
+class CkRuntimeHost;
+
 inline CKInterfaceObjectManager *InterfaceObjectManagerOf(CKObject *object) {
     return object && CKIsChildClassOf(object, CKCID_INTERFACEOBJECTMANAGER)
                ? static_cast<CKInterfaceObjectManager *>(object) : nullptr;
@@ -91,8 +93,10 @@ CKERROR CreateCKContext(CKContext **context, void *window, int renderEngine = 0)
 // CKFile::Load with the Duplicate Names Found choices (none: CKFile::Load).
 // Under CK_LOAD_CHECKDUPLICATES, CKContext::LoadVerifyObjectUnicity asks the
 // load callback about each duplicate (CKLOAD_OK, CKLOAD_RENAME,
-// CKLOAD_USECURRENT).
-CKERROR LoadFileChoosingDuplicates(CKContext *context, CKFile *file, const std::string &path, CKObjectArray *objects,
+// CKLOAD_USECURRENT). Restores the previous callback and data on every exit,
+// including nested calls. Runtime exceptions are logged and return
+// CKERR_INVALIDFILE. CKFile and its Context must belong to host.
+CKERROR LoadFileChoosingDuplicates(CkRuntimeHost &host, CKFile *file, const std::string &path, CKObjectArray *objects,
                                    CK_LOAD_FLAGS flags, const std::vector<DuplicateName> *duplicates);
 
 } // namespace vdev

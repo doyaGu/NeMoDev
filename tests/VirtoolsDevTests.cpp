@@ -170,6 +170,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"CompositionReadCompatibility", [&] { CompositionReadCompatibility(host); }},
             {"ObjectFileOpen", [&] { ObjectFileOpen(host); }},
             {"OpenFailurePreservation", [&] { OpenFailurePreservation(host); }},
+            {"LoadCallbacks", [&] { LoadCallbacks(host); }},
             {"Resources", [] { ResourceChecks(); }},
             {"NewSceneEnvironment", [&] { NewSceneEnvironment(host); }},
             {"Catalogs", [&] { Catalogs(host.Context()); }},

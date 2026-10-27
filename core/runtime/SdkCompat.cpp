@@ -6,6 +6,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "core/runtime/CkRuntimeHost.h"
+
 namespace vdev {
 
 CKSPRITETEXT_ALIGNMENT SpriteTextAlign(CKSpriteText *text) {
@@ -19,6 +21,23 @@ namespace {
 struct DuplicateChoices {
     CKContext *context;
     std::vector<DuplicateName> pending;
+};
+
+// CKFile clears the callback on some exits, but not on every failure. Keep
+// the previous callback pair alive outside the protected runtime call: SEH
+// recovery does not unwind C++ objects created inside GuardedCall.
+class LoadCallbackScope {
+public:
+    explicit LoadCallbackScope(CKContext *context)
+        : m_Context(context), m_Callback(context->m_UserLoadCallBack), m_Data(context->m_UserLoadCallBackArgs) {}
+    ~LoadCallbackScope() { m_Context->SetUserLoadCallback(m_Callback, m_Data); }
+    LoadCallbackScope(const LoadCallbackScope &) = delete;
+    LoadCallbackScope &operator=(const LoadCallbackScope &) = delete;
+
+private:
+    CKContext *m_Context;
+    CK_USERLOADCALLBACK m_Callback;
+    void *m_Data;
 };
 
 // The new name of a renamed duplicate as CK2 2.1 CKContext::GetSecureName
@@ -63,15 +82,20 @@ CKERROR CreateCKContext(CKContext **context, void *window, int renderEngine) {
     return CKCreateContext(context, window, renderEngine, 0);
 }
 
-CKERROR LoadFileChoosingDuplicates(CKContext *context, CKFile *file, const std::string &path, CKObjectArray *objects,
+CKERROR LoadFileChoosingDuplicates(CkRuntimeHost &host, CKFile *file, const std::string &path, CKObjectArray *objects,
                                    CK_LOAD_FLAGS flags, const std::vector<DuplicateName> *duplicates) {
     const std::string native = std::filesystem::u8path(path).string();
-    if (!duplicates) return file->Load(const_cast<CKSTRING>(native.c_str()), objects, flags);
-    DuplicateChoices choices{context, *duplicates};
-    context->SetUserLoadCallback(&AnswerDuplicate, &choices);
-    const CKERROR loaded = file->Load(const_cast<CKSTRING>(native.c_str()), objects,
-                                      static_cast<CK_LOAD_FLAGS>(flags | CK_LOAD_CHECKDUPLICATES));
-    context->SetUserLoadCallback(nullptr, nullptr);
+    CKContext *context = host.Context();
+    DuplicateChoices choices{context, duplicates ? *duplicates : std::vector<DuplicateName>()};
+    LoadCallbackScope callback(context);
+    if (duplicates) {
+        context->SetUserLoadCallback(&AnswerDuplicate, &choices);
+        flags = static_cast<CK_LOAD_FLAGS>(flags | CK_LOAD_CHECKDUPLICATES);
+    }
+    CKERROR loaded = CKERR_INVALIDFILE;
+    if (!GuardedCall([&] { loaded = file->Load(const_cast<CKSTRING>(native.c_str()), objects, flags); },
+                     &host, "CKFile::Load"))
+        return CKERR_INVALIDFILE;
     return loaded;
 }
 
