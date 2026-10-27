@@ -3,6 +3,7 @@
 #include <SDL3/SDL_timer.h>
 #include <memory>
 #include <stdexcept>
+#include "core/runtime/SdkCompat.h"
 
 namespace vdevtest {
 
@@ -13,6 +14,7 @@ public:
     std::string error;
     int saves = 0;
     std::function<void()> afterSave;
+    std::function<void()> beforeWrite;
 #ifdef _WIN32
     HANDLE locked = INVALID_HANDLE_VALUE;
 #else
@@ -26,6 +28,7 @@ public:
     CKStateChunk *SaveData(CKFile *file) override {
         ++saves;
         written = std::filesystem::path(file->m_FileName);
+        if (beforeWrite) beforeWrite();
         if (mode == WriteFailure) {
             std::error_code failure;
             std::filesystem::permissions(written, std::filesystem::perms::owner_read,
@@ -90,6 +93,7 @@ public:
 #endif
         mode = None;
         afterSave = nullptr;
+        beforeWrite = nullptr;
     }
     ~SaveFailureManager() override { Reset(); }
 };
@@ -194,6 +198,156 @@ static std::vector<unsigned char> SavedFileBytes(const std::filesystem::path &pa
     CHECK(file.is_open());
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
+
+static void CheckExportFailures(CkRuntimeHost &host, bool nms) {
+    namespace fs = std::filesystem;
+    Document document(host);
+    CHECK(document.New(nullptr));
+    SaveFailureFolder folder(document.Context(), CKGUID(0x719a3781, nms ? 0x14386321 : 0x24386321));
+    const auto owner = CreateLayoutObject(document, LayoutObject::Frame3D);
+    CHECK(owner.ok);
+    const auto script = CreateScript(document, owner.created, "Export Script");
+    CHECK(script.ok);
+    const auto graph = CreateBehaviorGraph(document, script.created, script.created, "Export Graph", Point(200, 100));
+    CHECK(graph.ok);
+    const auto parameter = AddLocalParameter(document, script.created, graph.created, "Value", CKPGUID_INT, Point(100, 100));
+    CHECK(parameter.ok && SetParameterText(document, script.created, parameter.created, "137").ok);
+    SaveReport report;
+    CHECK(SaveDocumentAs(document, (folder.directory / "source.cmo").u8string(), {}, report));
+    CHECK(!document.Dirty());
+    const auto path = (folder.directory / (nms ? "previous.nms" : "previous.nmo")).u8string();
+    auto save = [&](const std::string &output, bool hidden, std::string *error) {
+        return nms ? SaveBehaviorsAsNms(document, {graph.created, graph.created}, output, error, hidden)
+                   : SaveObjectsAs(document, {owner.created, owner.created}, output, error, hidden);
+    };
+    CKContext *context = document.Context();
+    auto *behavior = CKBehavior::Cast(context->GetObject(graph.created));
+    auto *scriptBehavior = CKBehavior::Cast(context->GetObject(script.created));
+    auto *session = document.Session(script.created);
+    const auto data = Capture(document, script.created);
+    const auto graphFlags = behavior->GetFlags();
+    const auto graphChunk = ChunkBytes(behavior->GetInterfaceChunk());
+    const auto scriptChunk = ChunkBytes(scriptBehavior->GetInterfaceChunk());
+    const auto revision = session->Revision();
+    const auto undo = document.History().UndoCount();
+    const auto writeMode = context->GetFileWriteMode();
+    std::map<CK_ID, CKDWORD> objectFlags;
+    const auto &allObjects = context->GetObjectListByType(CKCID_OBJECT, TRUE);
+    for (int i = 0; i < allObjects.Size(); ++i)
+        objectFlags.emplace(allObjects[i]->GetID(), allObjects[i]->GetObjectFlags());
+    auto &manager = *folder.manager;
+    manager.target = path;
+    {
+        std::ofstream file(manager.target, std::ios::binary);
+        file << "Original file must survive a failed export";
+        CHECK(file.good());
+    }
+    const auto original = SavedFileBytes(manager.target);
+#ifndef _WIN32
+    const auto permissions = fs::perms::owner_read | fs::perms::owner_write;
+    fs::permissions(manager.target, permissions);
+#endif
+    std::string error;
+    auto unchanged = [&] {
+        CHECK(document.Context() == context && !document.Dirty() && session->Revision() == revision);
+        CHECK(document.History().UndoCount() == undo && context->GetFileWriteMode() == writeMode && !context->m_Saving);
+        CHECK(behavior->GetFlags() == graphFlags && ChunkBytes(behavior->GetInterfaceChunk()) == graphChunk);
+        CHECK(ChunkBytes(scriptBehavior->GetInterfaceChunk()) == scriptChunk);
+        for (const auto &entry : objectFlags)
+            CHECK(context->GetObject(entry.first) && context->GetObject(entry.first)->GetObjectFlags() == entry.second);
+        ExpectSame(data, Capture(document, script.created), "export preserves source layout");
+    };
+    const int failureCount =
+#if defined(_WIN32) && defined(_MSC_VER)
+        6;
+#else
+        5;
+#endif
+    for (bool hidden : {false, true})
+    for (int failure = 0; failure < failureCount; ++failure) {
+        manager.error.clear();
+        error.clear();
+        if (failure == 0 || failure == 5) manager.afterSave = [failure] {
+#if defined(_WIN32) && defined(_MSC_VER)
+            if (failure == 5) RaiseException(0xE0421068, 0, 0, nullptr);
+#endif
+            throw std::runtime_error("Injected export PostSave failure");
+        };
+        else if (failure == 4) manager.beforeWrite = [] { throw std::runtime_error("Injected export SaveData failure"); };
+        else manager.mode = failure == 1 ? SaveFailureManager::WriteFailure
+                            : failure == 2 ? SaveFailureManager::VerificationFailure : SaveFailureManager::ReplacementFailure;
+        const bool saved = save(path, hidden, &error);
+        manager.Reset();
+        CHECK(!saved && !error.empty() && manager.error.empty());
+        const char *stage = failure == 1 ? "Native export failed:"
+                            : failure == 2 ? "could not be verified"
+                            : failure == 3 ? "Cannot replace the destination file" : "raised an exception";
+        CHECK(error.find(stage) != std::string::npos);
+        CHECK(SavedFileBytes(manager.target) == original);
+        CHECK(manager.written != manager.target && manager.written.parent_path() == manager.target.parent_path());
+        CHECK(manager.written.extension() == manager.target.extension());
+        unchanged();
+        if (fs::exists(manager.written)) {
+#ifndef _WIN32
+            CHECK(failure == 3 && error.find("Cannot remove temporary save file") != std::string::npos);
+            CHECK(fs::remove(manager.written));
+#else
+            CHECK(false);
+#endif
+        }
+        CHECK(std::distance(fs::directory_iterator(folder.directory), fs::directory_iterator()) == 2);
+    }
+    // A failed export to a new path must not publish even a partial file.
+    const auto absent = (folder.directory / (nms ? "new.nms" : "new.nmo")).u8string();
+    for (bool corrupt : {false, true}) {
+        if (corrupt) manager.mode = SaveFailureManager::VerificationFailure;
+        else manager.afterSave = [] { throw std::runtime_error("Injected new export failure"); };
+        const bool saved = save(absent, true, &error);
+        manager.Reset();
+        CHECK(!saved && !fs::exists(absent) && !fs::exists(manager.written));
+        unchanged();
+    }
+    const int saves = manager.saves;
+    CHECK(!save((folder.directory / "missing" / "file.nmo").u8string(), true, &error));
+    CHECK(manager.saves == saves && SavedFileBytes(manager.target) == original);
+    unchanged();
+    // A subsequent successful export replaces only the output. Reopening it
+    // proves its graph, parameters and hidden-display option survived writing.
+    for (bool hidden : {false, true}) {
+        const bool saved = save(path, hidden, &error);
+        if (!saved) std::cerr << "Export retry failed: " << error << '\n';
+        CHECK(saved);
+        CHECK(!fs::exists(manager.written) && SavedFileBytes(manager.target) != original);
+#ifndef _WIN32
+        CHECK(fs::status(manager.target).permissions() == permissions);
+#endif
+        unchanged();
+        CKContext *loaded = nullptr;
+        CHECK(CreateCKContext(&loaded, nullptr) == CK_OK && loaded);
+        std::unique_ptr<CKContext, void (*)(CKContext *)> close(loaded, [](CKContext *context) {
+            context->SetInterfaceMode(FALSE, nullptr, nullptr);
+            CKCloseContext(context);
+        });
+        loaded->SetInterfaceMode(TRUE, nullptr, nullptr);
+        std::unique_ptr<CKObjectArray, decltype(&DeleteCKObjectArray)> objects(CreateCKObjectArray(), &DeleteCKObjectArray);
+        std::unique_ptr<CKFile> file(loaded->CreateCKFile());
+        CHECK(file->Load(const_cast<CKSTRING>(path.c_str()), objects.get(), CK_LOAD_DEFAULT) == CK_OK);
+        auto *graphCopy = CKBehavior::Cast(loaded->GetObjectByNameAndClass((CKSTRING) "Export Graph", CKCID_BEHAVIOR));
+        auto *scriptCopy = CKBehavior::Cast(loaded->GetObjectByNameAndClass((CKSTRING) "Export Script", CKCID_BEHAVIOR));
+        CHECK(graphCopy && graphCopy->GetLocalParameterCount() == 1);
+        int value = 0;
+        CHECK(graphCopy->GetLocalParameter(0)->GetValue(&value, FALSE) == CK_OK && value == 137);
+        if (hidden) {
+            CKBehavior *display = nms ? graphCopy : scriptCopy;
+            InterfaceData restored;
+            CHECK(display && restored.LoadFromChunk(display, display->GetInterfaceChunk()) == CK_OK);
+            CHECK((restored.rootBehavior.flags & 0x20000) != 0);
+        }
+    }
+}
+
+void ObjectExportFailures(CkRuntimeHost &host) { CheckExportFailures(host, false); }
+void NmsExportFailures(CkRuntimeHost &host) { CheckExportFailures(host, true); }
 
 void SaveScriptSnapshots(CkRuntimeHost &host) {
     Document document(host);
@@ -421,7 +575,7 @@ void SaveFailures(CkRuntimeHost &host) {
         const char *stage = mode == SaveFailureManager::WriteFailure ? "CKFile save failed:"
                             : mode == SaveFailureManager::VerificationFailure
                                 ? "The saved file does not load"
-                                : "Cannot replace the destination composition";
+                                : "Cannot replace the destination file";
         CHECK(report.errors.front().find(stage) == 0);
         CHECK(SavedFileBytes(manager.target) == original);
         CHECK(manager.written != manager.target && manager.written.parent_path() == manager.target.parent_path());
@@ -440,7 +594,7 @@ void SaveFailures(CkRuntimeHost &host) {
 #ifndef _WIN32
             CHECK(mode == SaveFailureManager::ReplacementFailure);
             CHECK(std::any_of(report.notes.begin(), report.notes.end(),
-                              [](const auto &note) { return note.find("Cannot remove temporary composition") == 0; }));
+                              [](const auto &note) { return note.find("Cannot remove temporary save file") == 0; }));
             CHECK(std::filesystem::remove(manager.written));
 #else
             CHECK(false);

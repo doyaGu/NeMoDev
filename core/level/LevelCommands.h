@@ -159,11 +159,12 @@ EditResult DropAttribute(Document &document, const std::vector<CK_ID> &objects, 
 EditResult MoveInGroup(Document &document, CK_ID group, CK_ID object, int step);
 
 // "Save Objects as...", and an entity's "Save as...": the objects (with
-// their dependencies) in a Virtools file (CKContext::Save); their edited
+// their dependencies) in a native Virtools file; their edited
 // Scripts with their current display. hideScripts: documentation "Level
 // Manager Shortcut Menu", "Hide script representation in Schematic view"
 // (their Scripts' display flagged hidden in the file only). The composition
-// is not changed.
+// is not changed. The file is written to a sibling candidate and reloaded
+// independently before publication; failure preserves the destination.
 bool SaveObjectsAs(Document &document, const std::vector<CK_ID> &objects, const std::string &path,
                    std::string *error, bool hideScripts = false);
 

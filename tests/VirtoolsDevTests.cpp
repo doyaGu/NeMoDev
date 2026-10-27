@@ -187,6 +187,8 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"SaveFailures", [&] { SaveFailures(host); }},
             {"SaveCallbacks", [&] { SaveCallbacks(host); }},
             {"SaveScriptSnapshots", [&] { SaveScriptSnapshots(host); }},
+            {"ObjectExportFailures", [&] { ObjectExportFailures(host); }},
+            {"NmsExportFailures", [&] { NmsExportFailures(host); }},
             {"InitialConditionsScenes", [&] { InitialConditionsScenes(host); }},
             {"InitialConditionsFailures", [&] { InitialConditionsFailures(host); }},
             {"ParameterValueFailures", [&] { ParameterValueFailures(host); }},

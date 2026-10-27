@@ -19,15 +19,10 @@ class Document;
 // (Dev.exe dialog 709, sub_514180): the behaviors' InterfaceChunks in the
 // file are flagged hidden (UI flag 0x20000; a graph's own made for it);
 // the composition's are left as they were.
+// Writes beside the destination, reloads independently, then atomically
+// publishes. Failure leaves an existing destination unchanged.
 bool SaveBehaviorsAsNms(Document &document, const std::vector<CK_ID> &behaviors, const std::string &path,
                         std::string *error, bool hideRepresentation = false);
-
-// The display a behavior is saved with: an edited Script's session (kept
-// after, as the composition save does); hidden: its display flagged hidden
-// (UI flag 0x20000), the behavior's own chunk put back by RestoreInterfaces.
-using SavedInterfaces = std::vector<std::pair<CKBehavior *, CKStateChunk *>>;
-void PrepareInterfaceForSave(Document &document, CKBehavior *behavior, bool hidden, SavedInterfaces &own);
-void RestoreInterfaces(SavedInterfaces &own);
 
 // Dev "Import Behavior Graph": the top-level behaviors of an .nms file are
 // pasted into an editable graph at position (one undo step). Their display

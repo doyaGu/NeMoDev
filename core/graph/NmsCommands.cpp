@@ -11,87 +11,16 @@
 #include "core/schematic/LayoutCalculator.h"
 #include "core/graph/RuntimeGraph.h"
 #include "core/document/Document.h"
+#include "core/document/detail/NativeExport.h"
 #include "core/document/Edit.h"
 #include "core/document/ScriptSession.h"
 #include "core/graph/TopologyCommands.h"
 
 namespace vdev {
 
-void PrepareInterfaceForSave(Document &document, CKBehavior *behavior, bool hidden, SavedInterfaces &own) {
-    constexpr CKDWORD UI_FLAG_HIDDEN = 0x20000;
-    if (!behavior) return;
-    const CK_ID id = behavior->GetID();
-    // An edited Script carries its current display (as the composition save does).
-    if (behavior->GetType() & CKBEHAVIORTYPE_SCRIPT)
-        if (ScriptSession *session = document.ExistingSession(id))
-            if (session->Dirty()) {
-                InterfaceData data = session->Data();
-                data.observers.clear();
-                if (CKStateChunk *chunk = GenerateInterfaceChunk(data, behavior)) behavior->SetInterfaceChunk(chunk);
-            }
-    if (hidden && behavior->GetType() != CKBEHAVIORTYPE_BASE) {
-        // A Script's display (its session's), a graph's made from the runtime.
-        InterfaceData data;
-        ScriptSession *session = (behavior->GetType() & CKBEHAVIORTYPE_SCRIPT) ? document.Session(id) : nullptr;
-        if (session) data = session->Data();
-        else ReconstructInterfaceData(data, behavior);
-        data.observers.clear();
-        data.rootBehavior.flags |= UI_FLAG_HIDDEN;
-        CKStateChunk *chunk = behavior->GetInterfaceChunk();
-        own.emplace_back(behavior, chunk ? CreateCKStateChunk(chunk) : nullptr);
-        if (CKStateChunk *made = GenerateInterfaceChunk(data, behavior)) behavior->SetInterfaceChunk(made);
-    }
-}
-
-void RestoreInterfaces(SavedInterfaces &own) {
-    for (const auto &entry : own) entry.first->SetInterfaceChunk(entry.second);
-    own.clear();
-}
-
 bool SaveBehaviorsAsNms(Document &document, const std::vector<CK_ID> &behaviors, const std::string &path,
                         std::string *error, bool hideRepresentation) {
-    // The chunks the file gets in place of the behaviors' own, given back after.
-    SavedInterfaces ownChunks;
-    CKContext *context = document.Context();
-    if (!context || behaviors.empty()) {
-        if (error) *error = "Nothing to save";
-        return false;
-    }
-    CKObjectArray *array = CreateCKObjectArray();
-    // CK writes a behavior as a file object only when flagged
-    // CKBEHAVIOR_TOPMOST ("no other behavior includes this one"): set it for
-    // the save, then restore the flags.
-    std::vector<std::pair<CKBehavior *, CKDWORD>> flags;
-    for (CK_ID id : behaviors) {
-        CKBehavior *behavior = CKBehavior::Cast(context->GetObject(id));
-        if (!behavior) continue;
-        flags.emplace_back(behavior, behavior->GetFlags());
-        behavior->SetFlags(static_cast<CK_BEHAVIOR_FLAGS>(behavior->GetFlags() | CKBEHAVIOR_TOPMOST));
-        PrepareInterfaceForSave(document, behavior, hideRepresentation, ownChunks);
-        array->InsertRear(id);
-    }
-    CKERROR saved = CKERR_INVALIDPARAMETER;
-    // The composition saver's sequence (CKFile::StartSave, SaveObjects with
-    // their dependencies, EndSave).
-    if (array->GetCount() > 0)
-        GuardedCall(
-            [&] {
-                const std::string native = std::filesystem::u8path(path).string();
-                CKFile *file = context->CreateCKFile();
-                saved = file->StartSave(const_cast<CKSTRING>(native.c_str()));
-                if (saved == CK_OK) {
-                    array->Reset();
-                    file->SaveObjects(array);
-                    saved = file->EndSave();
-                }
-                context->DeleteCKFile(file);
-            },
-            &document.Host(), "CKFile save");
-    DeleteCKObjectArray(array);
-    for (const auto &entry : flags) entry.first->SetFlags(static_cast<CK_BEHAVIOR_FLAGS>(entry.second));
-    RestoreInterfaces(ownChunks);
-    if (saved != CK_OK && error) *error = "CKFile save failed: " + std::to_string(saved);
-    return saved == CK_OK;
+    return SaveNativeExport(document, behaviors, path, error, NativeExportKind::Behaviors, hideRepresentation);
 }
 
 EditResult ImportBehaviorGraph(Document &document, CK_ID script, CK_ID graph,

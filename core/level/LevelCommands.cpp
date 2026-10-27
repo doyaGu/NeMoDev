@@ -17,6 +17,7 @@
 #include "core/runtime/GridCompat.h"
 #include "core/graph/RuntimeGraph.h"
 #include "core/document/Document.h"
+#include "core/document/detail/NativeExport.h"
 #include "core/level/detail/LevelCommandsDetail.h"
 #include "core/graph/ScriptCommands.h"
 #include "core/graph/TopologyCommands.h"
@@ -1080,35 +1081,7 @@ EditResult MoveInGroup(Document &document, CK_ID groupId, CK_ID objectId, int st
 
 bool SaveObjectsAs(Document &document, const std::vector<CK_ID> &objects, const std::string &path,
                    std::string *error, bool hideScripts) {
-    CKContext *context = document.Context();
-    CKObjectArray *array = CreateCKObjectArray();
-    // The Scripts saved: those named and those of the objects.
-    std::set<CKBehavior *> scripts;
-    for (CK_ID id : objects) {
-        CKObject *object = context->GetObject(id);
-        if (!object) continue;
-        array->InsertRear(id);
-        if (CKBehavior *behavior = CKBehavior::Cast(object)) {
-            if (behavior->GetType() & CKBEHAVIORTYPE_SCRIPT) scripts.insert(behavior);
-        } else if (CKBeObject *owner = CKBeObject::Cast(object)) {
-            for (int i = 0; i < owner->GetScriptCount(); ++i)
-                if (CKBehavior *script = owner->GetScript(i)) scripts.insert(script);
-        }
-    }
-    if (!array->GetCount()) {
-        DeleteCKObjectArray(array);
-        if (error) *error = "Select objects to save";
-        return false;
-    }
-    SavedInterfaces own;
-    for (CKBehavior *script : scripts) PrepareInterfaceForSave(document, script, hideScripts, own);
-    CKERROR saved = CKERR_INVALIDPARAMETER;
-    GuardedCall([&] { saved = context->Save(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str()), array, 0); }, &document.Host(),
-                "CKContext::Save");
-    RestoreInterfaces(own);
-    DeleteCKObjectArray(array);
-    if (saved != CK_OK && error) *error = "CKContext::Save failed: " + std::to_string(saved);
-    return saved == CK_OK;
+    return SaveNativeExport(document, objects, path, error, NativeExportKind::Objects, hideScripts);
 }
 
 namespace {
