@@ -13,6 +13,13 @@ Loading, saving, importing, merging and exporting files run in the background.
 The window keeps redrawing and shows the current operation; document editing
 and scene playback wait until the operation finishes.
 
+The 3D Layout offers the editor's SDL GPU device to compatible rasterizers. The
+editor creates one ordinary render-target texture, imports it as a CK texture
+handle and binds it as the virtual backbuffer. Stable frames reuse that texture
+directly; snapshots request CPU pixels only when captured. Other rasterizers,
+incompatible devices and failed setup use the generic `DumpToMemory`/upload
+path. The path is selected once per render Context, not negotiated per frame.
+
 - Edit Scripts, Building Blocks, parameters, pins and connections in the Schematic.
 - Organize Levels, Scenes and objects with the Level and Hierarchy Managers.
 - Preview compositions in Player Mode, debug Scripts and capture snapshots.
