@@ -262,12 +262,11 @@ void EditorState::SetObjectPicture(CK_ID object, int slot) {
 
 void EditorState::SetObjectPictureBitmap(CK_ID object, void *bitmap) {
     if (!HasDocument() || !object) return;
-    if (bitmap) document->KeepBitmap(bitmap);
+    const auto afterOwner = document->KeepBitmap(bitmap);
     auto found = objectPictures.find(object);
     if (!bitmap && found == objectPictures.end()) return;
     void *previous = found != objectPictures.end() ? found->second : nullptr;
     const auto beforeOwner = document->BitmapOwner(previous);
-    const auto afterOwner = document->BitmapOwner(bitmap);
     Document *owner = document.get();
     std::map<CK_ID, void *> *pictures = &objectPictures;
     bool *changed = &objectPicturesChanged;

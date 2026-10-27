@@ -511,14 +511,17 @@ void Document::AdoptObjects(const std::vector<CK_ID> &objects) {
     MarkTopologyChanged();
 }
 
-void Document::KeepBitmap(void *bitmap) {
-    if (bitmap && !BitmapOwner(bitmap)) m_Bitmaps.emplace_back(bitmap, [](void *handle) { VxDeleteBitmap(handle); });
+std::shared_ptr<void> Document::KeepBitmap(void *bitmap) {
+    if (!bitmap) return {};
+    auto found = m_Bitmaps.find(bitmap);
+    if (found == m_Bitmaps.end())
+        found = m_Bitmaps.emplace(bitmap, std::shared_ptr<void>(bitmap, VxDeleteBitmap)).first;
+    return found->second;
 }
 
 std::shared_ptr<void> Document::BitmapOwner(void *bitmap) const {
-    for (const auto &owner : m_Bitmaps)
-        if (owner.get() == bitmap) return owner;
-    return {};
+    const auto found = m_Bitmaps.find(bitmap);
+    return found != m_Bitmaps.end() ? found->second : nullptr;
 }
 
 void Document::RetainPictures(const std::map<CK_ID, void *> &pictures) {
@@ -535,8 +538,9 @@ void Document::RetainPicture(CK_ID object, void *bitmap) {
 
 void Document::CollectBitmaps() {
     if (EditOpen() || m_History.m_Running || m_CollectingGraveyard) return;
-    m_Bitmaps.erase(std::remove_if(m_Bitmaps.begin(), m_Bitmaps.end(),
-                                  [](const auto &bitmap) { return bitmap.use_count() == 1; }), m_Bitmaps.end());
+    for (auto it = m_Bitmaps.begin(); it != m_Bitmaps.end();)
+        if (it->second.use_count() == 1) it = m_Bitmaps.erase(it);
+        else ++it;
 }
 
 void Document::Close() {

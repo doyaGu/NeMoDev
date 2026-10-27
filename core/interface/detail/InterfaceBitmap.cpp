@@ -90,7 +90,5 @@ void InterfaceBitmap::Write(CKStateChunk *chunk, void *bitmap,
 
 std::shared_ptr<InterfaceBitmap> InterfaceBitmap::WithoutEncoding(void *bitmap) const {
     if (!bitmap || bitmap != GetHandle()) return nullptr;
-    auto retained = std::make_shared<InterfaceBitmap>();
-    retained->handle = handle;
-    return retained;
+    return Retain(handle);
 }

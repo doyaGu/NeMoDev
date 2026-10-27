@@ -4,6 +4,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "CKAll.h"
@@ -167,9 +168,10 @@ public:
     std::uint64_t TopologyRevision() const { return m_TopologyRevision; }
     bool TopologyDirty() const { return m_TopologyRevision != m_SavedTopologyRevision; }
     void MarkSaved();
-    // Adopt SDK bitmaps. Display data/history and picture owners retain
-    // them; collection drops the document's last unused staging reference.
-    void KeepBitmap(void *bitmap);
+    // Adopt an SDK bitmap and return its shared owner (empty for nullptr).
+    // Repeated adoption shares that owner. Display data/history and pictures
+    // retain it; collection drops the document's unused staging reference.
+    std::shared_ptr<void> KeepBitmap(void *bitmap);
     std::shared_ptr<void> BitmapOwner(void *bitmap) const;
     void RetainPictures(const std::map<CK_ID, void *> &pictures);
     void RetainPicture(CK_ID object, void *bitmap);
@@ -207,7 +209,7 @@ private:
     std::set<CK_ID> m_Graveyard;
     std::set<ObjectReferences *> m_ObjectReferences;
     std::set<CK_ID> m_CreatedObjects;
-    std::vector<std::shared_ptr<void>> m_Bitmaps;
+    std::unordered_map<void *, std::shared_ptr<void>> m_Bitmaps;
     std::map<CK_ID, std::shared_ptr<void>> m_PictureOwners;
     std::uint64_t m_TopologyRevision = 0;
     std::uint64_t m_SavedTopologyRevision = 0;

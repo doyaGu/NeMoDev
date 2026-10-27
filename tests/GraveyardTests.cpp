@@ -332,6 +332,7 @@ void ObjectReferenceLifetimes(CkRuntimeHost &host) {
 void BitmapLifetimes(CkRuntimeHost &host) {
     Document document(host);
     CHECK(document.New(nullptr));
+    CHECK(!document.KeepBitmap(nullptr));
     const auto script = CreateScript(document, document.Context()->GetCurrentLevel()->GetID(), "Snapshot lifetime");
     CHECK(script.ok);
     unsigned char pixel[4] = {20, 40, 60, 255};
@@ -367,8 +368,7 @@ void BitmapLifetimes(CkRuntimeHost &host) {
     // A caller can retain an image independently of its original Script.
     void *third = VxCreateBitmap(image);
     CHECK(third);
-    document.KeepBitmap(third);
-    auto retained = document.BitmapOwner(third);
+    auto retained = document.KeepBitmap(third);
     std::weak_ptr<void> outside = retained;
     CHECK(SetScriptSnapshot(document, script.created, third));
     CHECK(SetScriptSnapshot(document, script.created, nullptr));
