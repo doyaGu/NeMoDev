@@ -1461,7 +1461,7 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
     if (ImGui::MenuItem("Add <This> Parameter", "Alt+T")) AddThisAt(script, local);
     if (ImGui::MenuItem("Add Parameter Operation", "Alt+P")) OpenOperationPicker(script, local);
     if (ImGui::MenuItem("Add Comment", "C")) AddComment(script, local);
-    if (m_State.clipboard.valid) {
+    if (!m_State.clipboard.Empty()) {
         ImGui::Separator();
         if (ImGui::MenuItem("Paste", "Ctrl+V")) {
             m_Doc.mouseScript = script;
@@ -1481,8 +1481,7 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
     }
     if (ImGui::MenuItem("Save As...", "Alt+S")) SaveBehaviorsAs({script}, view.model.script.name + ".nms");
     if (ImGui::MenuItem("Copy", "Ctrl+C")) {
-        m_State.SetScriptClipboard(*m_State.document, {script});
-        m_State.objectsCopied = false;
+        m_State.objectClipboard.SetScripts(*m_State.document, {script});
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Delete", "Delete")) {
@@ -1536,8 +1535,7 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
     if (ImGui::MenuItem("Rename", "F2", false, scripts.size() == 1)) BeginRename();
     if (ImGui::MenuItem("Save As...", "Alt+S")) SaveBehaviorsAs(scripts, view.model.script.name + ".nms");
     if (ImGui::MenuItem("Copy")) {
-        m_State.SetScriptClipboard(*m_State.document, scripts);
-        m_State.objectsCopied = false;
+        m_State.objectClipboard.SetScripts(*m_State.document, scripts);
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Delete")) {

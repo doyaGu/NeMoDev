@@ -1182,17 +1182,11 @@ void SchematicCanvas::Copy() {
                 clipboard.comments.push_back(record->comments[item.index]);
         }
     }
-    clipboard.valid = !clipboard.behaviors.empty() || !clipboard.comments.empty() || !clipboard.parameters.empty() ||
-                      !clipboard.operations.empty();
-    if (!clipboard.valid) {
+    if (clipboard.Empty()) {
         m_State.Log(LogLevel::Info, "Copy: select behaviors, Comments or parameters");
         return;
     }
-    std::vector<CK_ID> objects = clipboard.behaviors;
-    objects.insert(objects.end(), clipboard.parameters.begin(), clipboard.parameters.end());
-    objects.insert(objects.end(), clipboard.operations.begin(), clipboard.operations.end());
-    clipboard.objects = m_State.document->RetainObjects(objects);
-    m_State.clipboard = std::move(clipboard);
+    m_State.clipboard.Set(*m_State.document, std::move(clipboard));
     m_State.Log(LogLevel::Info, "Copied " + std::to_string(m_State.clipboard.behaviors.size()) + " behaviors, " +
                                     std::to_string(m_State.clipboard.comments.size()) + " Comments");
 }
@@ -1201,7 +1195,7 @@ void SchematicCanvas::PasteShortcuts() {
     const Clipboard &clipboard = m_State.clipboard;
     ScriptView *view = ViewFor(m_Doc.mouseScript);
     const CK_ID graph = view ? GraphAt(*view, m_Doc.mouseLocal) : 0;
-    if (!clipboard.valid || clipboard.parameters.empty() || !graph) {
+    if (clipboard.parameters.empty() || !graph) {
         m_State.Log(LogLevel::Info,
                     "Paste shortcut: copy local parameters, outputs or attribute values, then point at an open graph");
         return;
@@ -1256,12 +1250,12 @@ void SchematicCanvas::UngroupSelection() {
 
 void SchematicCanvas::Cut() {
     Copy();
-    if (m_State.clipboard.valid) DeleteSelection();
+    if (!m_State.clipboard.Empty()) DeleteSelection();
 }
 
 void SchematicCanvas::Paste() {
     const Clipboard &clipboard = m_State.clipboard;
-    if (!clipboard.valid || !m_State.HasDocument()) return;
+    if (clipboard.Empty() || !m_State.HasDocument()) return;
     if (clipboard.behaviors.empty() && clipboard.comments.empty()) {
         // Parameters alone (documentation "Local Parameter"): new locals of
         // their name, type and value; operations: new ones of theirs.

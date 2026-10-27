@@ -2058,12 +2058,10 @@ void EditorPanels::CopyOnLevel() {
         else if (script->GetFlags() & CKBEHAVIOR_SCRIPT) scripts.push_back(id);
     }
     if (!objects.empty()) {
-        m_State.SetObjectClipboard(*m_State.document, objects);
-        m_State.objectsCopied = true;
+        m_State.objectClipboard.SetObjects(*m_State.document, objects);
         m_State.Log(LogLevel::Info, "Copied " + std::to_string(objects.size()) + " object(s)");
     } else if (!scripts.empty()) {
-        m_State.SetScriptClipboard(*m_State.document, scripts);
-        m_State.objectsCopied = false;
+        m_State.objectClipboard.SetScripts(*m_State.document, scripts);
         m_State.Log(LogLevel::Info, "Copied " + std::to_string(scripts.size()) + " Script(s)");
     }
 }
@@ -2083,8 +2081,8 @@ void EditorPanels::PasteOnLevel() {
             if (context->GetObject(id)) kept.push_back(id);
         return kept;
     };
-    if (m_State.objectsCopied) {
-        const std::vector<CK_ID> objects = alive(m_State.objectClipboard);
+    if (!m_State.objectClipboard.Objects().empty()) {
+        const std::vector<CK_ID> objects = alive(m_State.objectClipboard.Objects());
         if (objects.empty()) return;
         // The containers selected; another row: its section (a scene, or
         // the level: copies).
@@ -2146,7 +2144,7 @@ void EditorPanels::PasteOnLevel() {
     // Block is not a Script ("Can only paste scripts on objects !").
     std::vector<CK_ID> scripts;
     bool blocks = false;
-    for (CK_ID id : alive(m_State.scriptClipboard)) {
+    for (CK_ID id : alive(m_State.objectClipboard.Scripts())) {
         CKBehavior *behavior = CKBehavior::Cast(context->GetObject(id));
         if (behavior && (behavior->GetFlags() & CKBEHAVIOR_SCRIPT)) scripts.push_back(id);
         else blocks = true;

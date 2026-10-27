@@ -17,6 +17,7 @@
 #include "core/catalog/BuildingBlockCatalog.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include "ui/app/Preferences.h"
+#include "ui/app/Clipboard.h"
 #include "ui/schematic/SchematicStyle.h"
 #include "core/schematic/ElementRef.h"
 #include "core/document/Edit.h"
@@ -165,38 +166,6 @@ struct FocusRequest {
     CK_ID behavior = 0; // fallback: center on this behavior (or its visible ancestor)
 };
 
-// Copied behaviors and Comments. data is the source Script's display data
-// when copying, so pasting still works after the originals are deleted.
-struct Clipboard {
-    std::shared_ptr<ObjectReferences> objects;
-    bool valid = false;
-    InterfaceData data;
-    std::vector<CK_ID> behaviors;
-    std::vector<Comment> comments;
-    // Parameters: the Schematic's locals, shortcut sources and outputs
-    // (Ctrl+Shift+V), the Attribute Manager's and the Setups' attribute
-    // values, the Array Setup's cells. Dev has one clipboard: a Copy of
-    // parameters anywhere takes the place of what was copied before, and
-    // they paste anywhere (Paste As Shortcut, the Parameter Debugger, the
-    // attributes' and the arrays' Paste).
-    std::vector<CK_ID> parameters;
-    // The Schematic's parameter operations copied (pasted as new operations
-    // when no behavior is).
-    std::vector<CK_ID> operations;
-    // Copied from a Setup's Attribute page: each parameter's attribute (by
-    // name, ANSI) for Paste Attributes; empty otherwise.
-    std::vector<std::string> attributes;
-    // The parameters copied (a window's Copy of values).
-    void SetParameters(Document &document, std::vector<CK_ID> ids, std::vector<std::string> names = {}) {
-        Clipboard replacement;
-        replacement.objects = document.RetainObjects(ids);
-        replacement.parameters = std::move(ids);
-        replacement.attributes = std::move(names);
-        replacement.valid = !replacement.parameters.empty();
-        *this = std::move(replacement);
-    }
-};
-
 // Dev Worksets: "an user interface only item" (Dev documentation, Level
 // Manager name column) grouping objects and Scripts to show or hide their
 // Scripts in the Schematic. Kept for the session (Dev's own interface data
@@ -280,21 +249,7 @@ struct DocumentSession {
     // Stack order set by Dev's Sort By ... / Invert Order (view state);
     // empty: Header::scriptIndex.
     std::vector<CK_ID> scriptOrder;
-    // Scripts copied from a header or the Level Manager (pasted on an object
-    // with Ctrl+V in the Level Manager).
-    std::vector<CK_ID> scriptClipboard;
-    std::shared_ptr<ObjectReferences> scriptClipboardObjects;
-    void SetScriptClipboard(Document &document, std::vector<CK_ID> scripts) {
-        auto retained = document.RetainObjects(scripts);
-        scriptClipboard = std::move(scripts);
-        scriptClipboardObjects = std::move(retained);
-        objectClipboard.clear();
-        objectClipboardObjects.reset();
-        objectsCopied = false;
-    }
-    // Dev has one clipboard: what the last Copy took, the objects
-    // (objectClipboard: the 3D Layout's, the Level Manager's) or the Scripts.
-    bool objectsCopied = false;
+    ObjectClipboard objectClipboard;
     Selection selection;
     ObjectSelection objectSelection;
     // Cameras and lights whose cone the 3D Layout draws (Dev: Camera Setup
@@ -317,17 +272,6 @@ struct DocumentSession {
     // table, not object state; Change Representation, 3D Frame Setup): 0
     // none, n the n-th of layoutFrameShapes; frames not listed have 1.
     std::map<CK_ID, int> frameRepresentations;
-    // Objects copied with Ctrl+C in the 3D Layout (pasted as copies with Ctrl+V).
-    std::vector<CK_ID> objectClipboard;
-    std::shared_ptr<ObjectReferences> objectClipboardObjects;
-    void SetObjectClipboard(Document &document, std::vector<CK_ID> objects) {
-        auto retained = document.RetainObjects(objects);
-        objectClipboard = std::move(objects);
-        objectClipboardObjects = std::move(retained);
-        scriptClipboard.clear();
-        scriptClipboardObjects.reset();
-        objectsCopied = true;
-    }
     CurveTool curveTool;
     // The objects' pictures (core ObjectPictures: Snapshot Buffer images
     // dropped on a Setup or a 3D Layout object; bitmap handles the document

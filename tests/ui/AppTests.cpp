@@ -79,7 +79,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             state.selection.Set(script.created, vdev::ElementRef{vdev::ElementKind::Behavior, script.created, graph.created});
             vdev::SchematicCanvas canvas(state);
             canvas.Copy();
-            IM_CHECK(state.clipboard.valid);
+            IM_CHECK(!state.clipboard.Empty());
             IM_CHECK(vdev::DeleteElements(document, script.created, state.selection.items).ok);
             document.History().Clear();
             const auto pasted = vdev::PasteBehaviors(document, state.clipboard.data, state.clipboard.behaviors,
@@ -87,13 +87,21 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             IM_CHECK(pasted.ok && pasted.created);
             state.clipboard = {};
             state.selection.Clear();
-            state.SetScriptClipboard(document, {script.created});
+            state.objectClipboard.SetScripts(document, {script.created});
+            IM_CHECK(state.objectClipboard.Objects().empty());
             IM_CHECK(vdev::DeleteScript(document, script.created).ok);
             document.History().Clear();
             IM_CHECK(document.Context()->GetObject(script.created));
-            state.SetObjectClipboard(document, {document.Context()->GetCurrentLevel()->GetID()});
+            // Re-copying a detached source must retain it before replacing
+            // the old clipboard, even after history no longer owns it.
+            state.objectClipboard.SetScripts(document, state.objectClipboard.Scripts());
+            IM_CHECK(state.objectClipboard.Scripts() == std::vector<CK_ID>{script.created});
+            IM_CHECK(document.Context()->GetObject(script.created));
+            state.objectClipboard.SetObjects(document, {document.Context()->GetCurrentLevel()->GetID()});
+            IM_CHECK(!state.objectClipboard.Objects().empty());
+            IM_CHECK(state.objectClipboard.Scripts().empty());
             IM_CHECK(!document.Context()->GetObject(script.created));
-            state.SetObjectClipboard(document, {});
+            state.objectClipboard.SetObjects(document, {});
             document.MarkSaved();
         });
     };
