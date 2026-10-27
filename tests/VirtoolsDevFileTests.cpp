@@ -1410,6 +1410,7 @@ void OpenFailurePreservation(CkRuntimeHost &host) {
     prepared->Commit();
     CHECK(document.Context() != original && host.Generation() != generation);
     CHECK(document.IsOpen() && document.SourcePath() == valid && !document.Dirty());
+    CHECK(document.CreatedFrom() == Document::Origin::LoadedComposition);
     CHECK(!document.History().CanUndo() && !document.History().CanRedo());
     CHECK(document.Context()->GetObjectByNameAndClass(const_cast<CKSTRING>(name.c_str()), CKCID_3DENTITY));
     CHECK(document.Context()->GetCompressionLevel() == 7);
@@ -1424,6 +1425,7 @@ void OpenFailurePreservation(CkRuntimeHost &host) {
     CHECK(prepared);
     prepared->Commit();
     CHECK(document.SourcePath().empty() && document.Dirty());
+    CHECK(document.CreatedFrom() == Document::Origin::ImportedObjects);
     CHECK(document.Context()->GetTimeManager()->GetTimeScaleFactor() == 0.5f);
     CHECK(document.Context()->GetTimeManager()->GetFrameRateLimit() == 77);
     std::cout << "Failed and abandoned opens preserve objects, revisions and Undo/Redo; commit adopts the loaded context\n";
@@ -1485,13 +1487,16 @@ void ObjectFileOpen(CkRuntimeHost &host) {
         check();
         const size_t imported = document.LoadedObjects().size();
         CHECK(document.Open(input, &error, environment));
+        CHECK(document.CreatedFrom() == Document::Origin::ImportedObjects);
         check();
         CHECK(document.LoadedObjects().size() == imported);
         const std::string saved = (root / "roundtrip.cmo").u8string();
         SaveOptions options;
         options.allowOverwrite = true;
         CHECK(SaveDocumentAs(document, saved, options, report));
+        CHECK(document.CreatedFrom() == Document::Origin::ImportedObjects);
         CHECK(document.Open(saved, &error));
+        CHECK(document.CreatedFrom() == Document::Origin::LoadedComposition);
         CHECK(document.SourcePath() == saved && !document.Dirty());
         CKLevel *level = document.Context()->GetCurrentLevel();
         object = document.Context()->GetObjectByNameAndClass((CKSTRING) "Object file entity", CKCID_3DENTITY);

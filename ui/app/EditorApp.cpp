@@ -404,7 +404,7 @@ bool EditorApp::OpenFile(const std::string &path, std::function<void(bool)> comp
             result->prepared->Commit();
             result->prepared.reset();
             Document &document = *m_State.document;
-            if (!document.SourcePath().empty()) {
+            if (document.CreatedFrom() == Document::Origin::LoadedComposition) {
                 result->layout = ReadLayoutInterfaceData(document.Context());
                 result->pictures = ReadObjectPictures(document);
                 result->invalid = FindInvalidLinks(document, testTypes);
@@ -428,7 +428,7 @@ void EditorApp::CompleteOpen(const std::string &path, const OpenResult &result) 
     RememberRecentFile(path);
     // NMO opens are imports into a new composition. Keep its editor state,
     // just as Import File does, rather than restoring the library's layout.
-    if (!m_State.document->SourcePath().empty()) {
+    if (m_State.document->CreatedFrom() == Document::Origin::LoadedComposition) {
         m_Layout.ApplyLayoutData(result.layout);
         ReopenSetups(result.layout);
         m_State.objectPictures = result.pictures;

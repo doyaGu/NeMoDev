@@ -32,6 +32,11 @@ struct ScriptInfo {
 // Script's display data lives in a lazily created ScriptSession.
 class Document {
 public:
+    enum class Origin {
+        NewComposition,
+        LoadedComposition,
+        ImportedObjects,
+    };
     class PreparedOpen;
     explicit Document(CkRuntimeHost &host) : m_Host(host), m_History(*this) {}
     ~Document();
@@ -79,9 +84,14 @@ public:
     void Close();
     bool IsOpen() const { return m_Open; }
 
+    // SDK access for queries and runtime integration. Persistent changes
+    // belong in commands using Edit (actions, objects and display together),
+    // or in the document's explicit non-undo operations such as Import.
     CKContext *Context() const;
     CkRuntimeHost &Host() const { return m_Host; }
     const std::string &SourcePath() const { return m_SourcePath; }
+    // How this composition was created; independent of its eventual save path.
+    Origin CreatedFrom() const { return m_Origin; }
     const std::vector<CK_ID> &LoadedObjects() const { return m_LoadedObjects; }
     const std::vector<ScriptInfo> &Scripts() const { return m_Scripts; }
     const ScriptInfo *FindScript(CK_ID id) const;
@@ -164,6 +174,7 @@ private:
 
     CkRuntimeHost &m_Host;
     bool m_Open = false;
+    Origin m_Origin = Origin::NewComposition;
     std::string m_SourcePath;
     std::vector<CK_ID> m_LoadedObjects;
     std::vector<ScriptInfo> m_Scripts;

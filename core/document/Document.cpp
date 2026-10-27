@@ -106,6 +106,7 @@ void Document::CommitOpen(PreparedOpen &prepared) {
     m_Host.ExchangeContext(*prepared.m_Host);
     Document &candidate = *prepared.m_Document;
     m_Open = candidate.m_Open;
+    m_Origin = candidate.m_Origin;
     m_SourcePath = std::move(candidate.m_SourcePath);
     m_LoadedObjects = std::move(candidate.m_LoadedObjects);
     m_Scripts = std::move(candidate.m_Scripts);
@@ -129,7 +130,10 @@ bool Document::Open(const std::string &path, std::string *error, const SceneEnvi
     const std::string extension = std::filesystem::u8path(path).extension().u8string();
     if (_stricmp(extension.c_str(), ".nmo") == 0) {
         if (!New(error, environment)) return false;
-        if (Import(path, ImportMode::File, error, nullptr, nullptr, environment)) return true;
+        if (Import(path, ImportMode::File, error, nullptr, nullptr, environment)) {
+            m_Origin = Origin::ImportedObjects;
+            return true;
+        }
         Close();
         return false;
     }
@@ -164,6 +168,7 @@ bool Document::Open(const std::string &path, std::string *error, const SceneEnvi
 
     m_SourcePath = path;
     m_Open = true;
+    m_Origin = Origin::LoadedComposition;
     RefreshScripts();
     m_Host.Log(LogLevel::Info, "Opened " + path + ": " + std::to_string(m_LoadedObjects.size()) + " objects, " +
                                    std::to_string(m_Scripts.size()) + " Scripts");
@@ -435,6 +440,7 @@ void Document::Close() {
     m_TopologyRevision = m_SavedTopologyRevision = 0;
     if (m_Open && Context()) m_Host.ClearAll();
     m_Open = false;
+    m_Origin = Origin::NewComposition;
 }
 
 void Document::RequestGraveyardCollection() {
