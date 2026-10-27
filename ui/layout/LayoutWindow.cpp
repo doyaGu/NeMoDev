@@ -2,6 +2,7 @@
 #include "ui/schematic/Snapshots.h"
 
 #include "ui/render/UiRenderer.h"
+#include "core/layout/SdlGpuInterop.h"
 #include <SDL3/SDL.h>
 
 #include "imgui_internal.h"
@@ -71,14 +72,25 @@ const char *const REFERENTIALS[] = {"Local", "World", "View", "Parent", "Ref. Gu
 LayoutWindow::LayoutWindow(EditorState &state) : m_State(state), m_View(state.host) {}
 
 LayoutWindow::~LayoutWindow() {
-    ReleaseTexture();
+    if (!ReleaseTexture()) {
+        m_View.Stop();
+        ResetViewportAfterContextStop();
+    }
 }
 
 bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
+    if (!ReleaseTexture()) {
+        // Keep the borrowed SDL texture alive until the old Context, and with
+        // it the stale logical handle, has ceased to exist.
+        m_View.Stop();
+        ResetViewportAfterContextStop();
+    }
     m_MainWindow = window;
     ApplyPreferences();
     std::string message;
-    m_Started = m_View.Start(m_State.preferences.Text("3D Layout\\Author Mode\\Device Driver"), &message);
+    m_Started = m_View.Start(m_State.preferences.Text("3D Layout\\Author Mode\\Device Driver"), &message,
+                             MainRenderer().Device());
+    SelectViewportContext();
     if (!m_Started) m_StartError = message;
     if (error) *error = message;
     m_View.windowEvent = [this](const SDL_Event &event) {
@@ -99,8 +111,10 @@ bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
 
 void LayoutWindow::Stop() {
     m_State.objectPick.erase("3D Layout");
-    ReleaseTexture();
+    const bool released = ReleaseTexture();
     m_View.Stop();
+    if (!released)
+        ResetViewportAfterContextStop();
     m_Started = false;
 }
 
@@ -733,9 +747,23 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     m_View.SetRepresentations(m_State.frameRepresentations);
     m_View.SetHiddenCurvePoints(m_State.hiddenCurvePoints);
     dl->PushClipRect(viewAt, visibleMax, true);
-    if (m_View.Render(width, height, m_Pixels) && Upload(m_Pixels, m_View.Width(), m_View.Height()))
-        dl->AddImage(m_Texture->Id(), at,
-                     ImVec2(at.x + static_cast<float>(m_TextureWidth), at.y + static_cast<float>(m_TextureHeight)));
+    const bool resized = width != m_View.Width() || height != m_View.Height();
+    bool targetReleased = true;
+    if (resized && m_ViewportRenderer == &LayoutWindow::RenderGpuViewport) {
+        targetReleased = ReleaseGpuViewport();
+        if (targetReleased)
+            m_ViewportRenderer = &LayoutWindow::RenderUnselectedViewport;
+    }
+    UiTexture *frame = nullptr;
+    if (targetReleased && m_View.PrepareFrame(width, height)) {
+        const bool contextSelected =
+            m_View.RasterizerContext() == m_ViewportContext ||
+            SelectViewportContext();
+        if (contextSelected)
+            frame = (this->*m_ViewportRenderer)();
+    }
+    if (frame)
+        dl->AddImage(frame->Id(), at, ImVec2(at.x + m_View.Width(), at.y + m_View.Height()));
     else
         dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), LEFT_BAR);
     // The selection rectangle being dragged.
@@ -995,12 +1023,117 @@ bool LayoutWindow::Upload(const std::vector<unsigned char> &pixels, int width, i
         if (m_Texture) RetireTexture(m_Texture.release());
         m_Texture = std::move(texture);
         m_TextureWidth = width; m_TextureHeight = height;
+#ifdef VIRTOOLSDEV_UI_TESTS
+        ++m_ViewportUploads;
+#endif
         return true;
     }
-    return MainRenderer().UpdateTexture(*m_Texture, rgba.data());
+    const bool updated = MainRenderer().UpdateTexture(*m_Texture, rgba.data());
+#ifdef VIRTOOLSDEV_UI_TESTS
+    if (updated) ++m_ViewportUploads;
+#endif
+    return updated;
 }
-void LayoutWindow::ReleaseTexture() {
+bool LayoutWindow::SelectViewportContext() {
+    if (!ReleaseGpuViewport())
+        return false;
+    m_ViewportContext = m_View.RasterizerContext();
+#ifdef VIRTOOLSDEV_UI_TESTS
+    ++m_GpuViewportSelections;
+#endif
+    m_ViewportRenderer = m_ViewportContext && MainRenderer().Device()
+        ? &LayoutWindow::RenderUnselectedViewport
+        : &LayoutWindow::RenderReadbackViewport;
+    return true;
+}
+
+bool LayoutWindow::ConfigureGpuViewport(int width, int height) {
+    if (!m_ViewportContext || !MainRenderer().Device() || width <= 0 || height <= 0)
+        return false;
+    auto texture = MainRenderer().CreateRenderTarget(width, height);
+    if (!texture) return false;
+#ifdef VIRTOOLSDEV_UI_TESTS
+    if (m_FailNextGpuViewport) {
+        m_FailNextGpuViewport = false;
+        return false;
+    }
+#endif
+    CKDWORD handle = 0;
+    if (!BindSdlGpuBackBuffer(m_ViewportContext, MainRenderer().Device(),
+                              texture->NativeTexture(), width, height,
+                              &handle))
+        return false;
+    // The selected path owns exactly one persistent viewport image. A CPU
+    // fallback texture may exist when a rebuilt Context becomes eligible for
+    // direct rendering; retire it before adopting the imported target.
+    if (m_Texture)
+        RetireTexture(m_Texture.release());
+    m_TextureWidth = m_TextureHeight = 0;
+    m_GpuTextureHandle = handle;
+    m_GpuTexture = std::move(texture);
+#ifdef VIRTOOLSDEV_UI_TESTS
+    ++m_GpuViewportCreations;
+#endif
+    return true;
+}
+
+bool LayoutWindow::ReleaseGpuViewport() {
+#ifdef VIRTOOLSDEV_UI_TESTS
+    if (m_FailNextGpuViewportRelease) {
+        m_FailNextGpuViewportRelease = false;
+        return false;
+    }
+#endif
+    const bool hadTexture = m_GpuTextureHandle != 0;
+    if (m_GpuTextureHandle &&
+        !ReleaseSdlGpuBackBuffer(m_ViewportContext, &m_GpuTextureHandle))
+        return false;
+    m_GpuTexture.reset();
+#ifdef VIRTOOLSDEV_UI_TESTS
+    if (hadTexture)
+        ++m_GpuViewportReleases;
+#endif
+    return true;
+}
+
+UiTexture *LayoutWindow::RenderUnselectedViewport() {
+    if (ConfigureGpuViewport(m_View.Width(), m_View.Height()))
+        m_ViewportRenderer = &LayoutWindow::RenderGpuViewport;
+    else
+        m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
+    return (this->*m_ViewportRenderer)();
+}
+
+UiTexture *LayoutWindow::RenderReadbackViewport() {
+    if (!m_View.RenderFrame() || !m_View.ReadPixels(m_Pixels) ||
+        !Upload(m_Pixels, m_View.Width(), m_View.Height()))
+        return nullptr;
+    return m_Texture.get();
+}
+
+UiTexture *LayoutWindow::RenderGpuViewport() {
+    return m_View.RenderFrame() ? m_GpuTexture.get() : nullptr;
+}
+
+bool LayoutWindow::ReleaseTexture() {
+    if (!ReleaseGpuViewport())
+        return false;
+    m_ViewportContext = nullptr;
+    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
     if (m_Texture) RetireTexture(m_Texture.release());
+    m_TextureWidth = m_TextureHeight = 0;
+    return true;
+}
+
+void LayoutWindow::ResetViewportAfterContextStop() {
+    // Context shutdown destroys its borrowed logical handles without touching
+    // external resources. Releasing the UI texture is safe only afterwards.
+    m_GpuTextureHandle = 0;
+    m_GpuTexture.reset();
+    m_ViewportContext = nullptr;
+    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
+    if (m_Texture)
+        RetireTexture(m_Texture.release());
     m_TextureWidth = m_TextureHeight = 0;
 }
 

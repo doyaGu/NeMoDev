@@ -15,19 +15,35 @@ void LayoutWindow::ToggleFullScreen() {
     if (!LayoutFullScreenMode(context, driver, wanted, mode)) {
         m_State.Log(LogLevel::Warning, "3D Layout: unavailable fullscreen mode " + wanted); return;
     }
+    // Fullscreen presents the render window normally; remove the editor-owned
+    // virtual backbuffer before the Context changes mode or is recreated.
+    if (!ReleaseGpuViewport()) {
+        m_State.Log(LogLevel::Warning, "3D Layout: cannot release the GPU viewport");
+        return;
+    }
+    m_ViewportContext = nullptr;
+    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
     m_Switching = true;
     const bool full = m_View.GoFullScreen(driver, mode);
     if (full && m_MainWindow && !(SDL_GetWindowFlags(m_MainWindow) & SDL_WINDOW_HIDDEN))
         m_MainHiddenForFullScreen = SDL_HideWindow(m_MainWindow);
     m_Switching = false;
+    SelectViewportContext();
     if (!full) m_State.Log(LogLevel::Warning, "3D Layout: cannot enter fullscreen");
 }
 void LayoutWindow::LeaveFullScreen(FullScreenExit reason) {
     m_PendingToggle = m_PendingDeactivate = false;
     if (!m_View.FullScreen()) return;
+    if (!ReleaseGpuViewport()) {
+        m_State.Log(LogLevel::Warning, "3D Layout: cannot release the GPU viewport");
+        return;
+    }
+    m_ViewportContext = nullptr;
+    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
     m_Switching = true;
     const bool stopped = m_View.StopFullScreen();
     m_Switching = false;
+    SelectViewportContext();
     if (!stopped) { m_State.Log(LogLevel::Error, "3D Layout: cannot leave fullscreen"); return; }
     if (m_MainWindow && m_MainHiddenForFullScreen) {
         // Showing the editor after another application takes focus must not

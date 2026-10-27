@@ -75,6 +75,7 @@ ImTextureID SlotTexture(const SnapshotBuffer &buffer, int slot, unsigned *revisi
 // Take (Dev.exe sub_4A1C70, sub_4C5B20): the whole view stretched into the
 // first empty slot.
 void LayoutWindow::TakeSnapshot() {
+    if (UsesGpuViewport() && !m_View.ReadPixels(m_Pixels)) return;
     if (!m_Started || m_Pixels.empty() || m_View.Width() <= 0 || m_View.Height() <= 0) return;
     std::vector<unsigned char> image = ShrinkImage(m_Pixels.data(), m_View.Width(), m_View.Height(), m_View.Width() * 4,
                                                    SnapshotBuffer::WIDTH, SnapshotBuffer::HEIGHT);
@@ -99,6 +100,7 @@ void LayoutWindow::CaptureInput(const ImVec2 &at) {
         m_Capturing = 0;
     } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         m_Capturing = 0;
+        if (UsesGpuViewport() && !m_View.ReadPixels(m_Pixels)) return;
         if (m_Pixels.empty()) return;
         std::vector<unsigned char> image =
             CaptureArea(m_Pixels.data(), m_View.Width(), m_View.Height(), m_View.Width() * 4,

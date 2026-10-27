@@ -19,6 +19,7 @@ public:
     ImTextureID Id() const;
     int Width() const { return m_Width; }
     int Height() const { return m_Height; }
+    SDL_GPUTexture *NativeTexture() const { return m_Texture; }
 private:
     friend class UiRenderer;
     UiTexture(SDL_GPUDevice *device, SDL_GPUTexture *texture, int width, int height)
@@ -29,8 +30,8 @@ private:
     int m_Height;
 };
 
-// Owns the ImGui device and image transfers. CK renders on a separate device
-// and window; its readback pixels enter this renderer through CreateTexture.
+// Owns the ImGui device and textures. A compatible rasterizer may borrow the
+// device and render directly into an ordinary UI-owned render target.
 class UiRenderer {
 public:
     UiRenderer() = default;
@@ -42,15 +43,21 @@ public:
     bool NewFrame(std::string *error = nullptr);
     bool Render(ImDrawData *data, bool present, std::string *error);
     std::unique_ptr<UiTexture> CreateTexture(int width, int height, const void *rgba);
+    std::unique_ptr<UiTexture> CreateRenderTarget(int width, int height) {
+        return MakeTarget(width, height);
+    }
     // Draw commands hold texture identifiers until submission. Retain their
     // allocations here even if a view or document closes during the frame.
     void RetainTextureForFrame(const std::shared_ptr<UiTexture> &texture);
     bool UpdateTexture(UiTexture &texture, const void *rgba);
 #ifdef VIRTOOLSDEV_UI_TESTS
     bool ReadFrame(std::vector<unsigned char> &rgba, int &width, int &height);
+    // Native RGBA texel bytes.
+    bool ReadTextureForTests(const UiTexture &texture, std::vector<unsigned char> &pixels) { return ReadTexture(texture, pixels); }
 #endif
     bool RenderPage(ImDrawData *data, int width, int height, std::vector<unsigned char> &rgba);
     bool Started() const { return m_Device != nullptr; }
+    SDL_GPUDevice *Device() const { return m_Device; }
 private:
     bool ReadTexture(const UiTexture &texture, std::vector<unsigned char> &rgba);
     bool Draw(ImDrawData *data, UiTexture &texture, bool present, const std::array<float, 4> &clear, std::string *error,

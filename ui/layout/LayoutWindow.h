@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -117,6 +118,25 @@ public:
     bool Busy() const {
         return m_Gesture.Active() || m_TransformGesture.Active() || m_Gesture2D.Active() || m_Selecting;
     }
+    bool UsesGpuViewport() const { return m_GpuTexture != nullptr; }
+#ifdef VIRTOOLSDEV_UI_TESTS
+    UiTexture *GpuViewportTextureForTests() const { return m_GpuTexture.get(); }
+    CKDWORD GpuViewportHandleForTests() const { return m_GpuTextureHandle; }
+    void FailNextGpuViewportForTests() { m_FailNextGpuViewport = true; }
+    void FailNextGpuViewportReleaseForTests() {
+        m_FailNextGpuViewportRelease = true;
+    }
+    bool RecreateGpuViewportForTests() {
+        if (!ReleaseGpuViewport()) return false;
+        m_ViewportRenderer = &LayoutWindow::RenderUnselectedViewport;
+        return true;
+    }
+    bool RetryGpuViewportForTests() { return SelectViewportContext(); }
+    std::uint64_t GpuViewportCreationsForTests() const { return m_GpuViewportCreations; }
+    std::uint64_t GpuViewportSelectionsForTests() const { return m_GpuViewportSelections; }
+    std::uint64_t GpuViewportReleasesForTests() const { return m_GpuViewportReleases; }
+    std::uint64_t ViewportUploadsForTests() const { return m_ViewportUploads; }
+#endif
     // The composition is closed: the objects waiting for a dialog (Copy
     // Options, a dropped Building Block's parameters) go.
     void DocumentClosed();
@@ -173,7 +193,14 @@ private:
     void DebugData(const ImVec2 &at, int x, int y);
     void ViewInput(const ImVec2 &at, bool hovered);
     bool Upload(const std::vector<unsigned char> &pixels, int width, int height);
-    void ReleaseTexture();
+    bool SelectViewportContext();
+    bool ConfigureGpuViewport(int width, int height);
+    bool ReleaseGpuViewport();
+    UiTexture *RenderUnselectedViewport();
+    UiTexture *RenderReadbackViewport();
+    UiTexture *RenderGpuViewport();
+    bool ReleaseTexture();
+    void ResetViewportAfterContextStop();
     // Camera tools.
     CameraSteps Steps() const;
     bool BeginCamera(CameraAction action, int x, int y, ImGuiMouseButton button);
@@ -332,6 +359,20 @@ private:
     // The frame shown.
     std::vector<unsigned char> m_Pixels;
     std::unique_ptr<UiTexture> m_Texture;
+    CKRasterizerContext *m_ViewportContext = nullptr;
+    std::unique_ptr<UiTexture> m_GpuTexture;
+    CKDWORD m_GpuTextureHandle = 0;
+    // Selected once per Context, or latched to CPU after setup failure.
+    UiTexture *(LayoutWindow::*m_ViewportRenderer)() =
+        &LayoutWindow::RenderReadbackViewport;
+#ifdef VIRTOOLSDEV_UI_TESTS
+    bool m_FailNextGpuViewport = false;
+    bool m_FailNextGpuViewportRelease = false;
+    std::uint64_t m_GpuViewportCreations = 0;
+    std::uint64_t m_GpuViewportSelections = 0;
+    std::uint64_t m_GpuViewportReleases = 0;
+    std::uint64_t m_ViewportUploads = 0;
+#endif
     int m_TextureWidth = 0;
     int m_TextureHeight = 0;
     // Tools and their settings.
