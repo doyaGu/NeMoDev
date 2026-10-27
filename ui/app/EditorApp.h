@@ -113,6 +113,7 @@ public:
     // What the UI tests (tests/ui) check the UI's work on.
     const SchematicCanvas &Canvas() const { return m_Canvas; }
     const LayoutWindow &Layout() const { return m_Layout; }
+    LayoutWindow &Layout() { return m_Layout; }
     const EditorPanels &Panels() const { return m_Panels; }
     const SetupWindows &Setups() const { return m_Setups; }
     const ManagerWindows &Managers() const { return m_Managers; }

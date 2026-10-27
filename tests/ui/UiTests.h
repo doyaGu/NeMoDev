@@ -48,6 +48,7 @@ namespace vdevuitest {
 vdev::EditorApp &App();
 
 void RegisterAppTests(ImGuiTestEngine *engine);
+void RegisterGpuViewportTests(ImGuiTestEngine *engine);
 void RegisterFileMenuTests(ImGuiTestEngine *engine);
 void RegisterSchematicTests(ImGuiTestEngine *engine);
 void RegisterLayoutTests(ImGuiTestEngine *engine);

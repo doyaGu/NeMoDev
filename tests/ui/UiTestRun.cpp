@@ -70,6 +70,7 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     }
     ImGuiTestEngine_Start(engine, ImGui::GetCurrentContext());
     vdevuitest::RegisterAppTests(engine);
+    vdevuitest::RegisterGpuViewportTests(engine);
     vdevuitest::RegisterFileMenuTests(engine);
     vdevuitest::RegisterSchematicTests(engine);
     vdevuitest::RegisterLayoutTests(engine);

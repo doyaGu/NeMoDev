@@ -170,6 +170,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.h
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AppTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/GpuViewportTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/FileMenuTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/SchematicTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/LayoutTests.cpp
@@ -195,6 +196,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             VIRTOOLSDEV_DIALOG_DRIVER="${VIRTOOLSDEV_SOURCE_DIR}/tests/NativeDialogDriver.py")
     target_link_libraries(VirtoolsDevUiTests PRIVATE ${CMAKE_DL_LIBS})
     target_compile_definitions(VirtoolsDevUiTests PRIVATE VIRTOOLSDEV_UI_TESTS)
+    target_include_directories(VirtoolsDevUiTests PRIVATE "${VIRTOOLS_SDK_PATH}/Source/RenderEngine/include")
     # A console program with the editor's SDL main and results on stdout.
     set_target_properties(VirtoolsDevUiTests PROPERTIES WIN32_EXECUTABLE FALSE)
 endif ()
