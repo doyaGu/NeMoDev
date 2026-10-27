@@ -6,8 +6,6 @@
 
 #include "imgui.h"
 
-
-
 namespace vdev {
 class UiTexture;
 
@@ -40,12 +38,9 @@ ImTextureID CachedPixelTexture(unsigned long long key);
 // Forgets every texture (a closed document frees its bitmap handles).
 void ReleaseSnapshotTextures();
 
-// The textures of the editor (snapshots, pixel textures, Dev's bitmaps): an
-// immutable RGBA texture's view, null when it cannot be made.
-UiTexture *MakeRgbaTexture(int width, int height, const void *rgba);
 // A view replaced or forgotten during a frame may still be in its draw lists:
 // released once the frame is presented (ReleaseRetiredTextures, Main.cpp).
-void RetireTexture(UiTexture *view);
+void RetireTexture(std::unique_ptr<UiTexture> texture);
 void ReleaseRetiredTextures();
 
 } // namespace vdev

@@ -7,12 +7,13 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace vdev {
 namespace {
 struct Texture {
-    UiTexture *view = nullptr;
+    std::unique_ptr<UiTexture> view;
     ImVec2 size;
     std::weak_ptr<void> owner;
     bool tracked = false;
@@ -70,14 +71,13 @@ void *LoadSnapshotBitmap(const std::wstring &path, int maxWidth, int maxHeight, 
     if (!bitmap && error) *error = "Cannot create the snapshot bitmap";
     return bitmap;
 }
-UiTexture *MakeRgbaTexture(int width, int height, const void *rgba) {
-    return MainRenderer().CreateTexture(width, height, rgba).release();
+void RetireTexture(std::unique_ptr<UiTexture> texture) {
+    if (texture) Retired().push_back(std::move(texture));
 }
-void RetireTexture(UiTexture *texture) { if (texture) Retired().emplace_back(texture); }
 void ReleaseRetiredTextures() {
     for (auto it = Textures().begin(); it != Textures().end();) {
         if (it->second.tracked && it->second.owner.expired()) {
-            RetireTexture(it->second.view);
+            RetireTexture(std::move(it->second.view));
             it = Textures().erase(it);
         } else ++it;
     }
@@ -91,7 +91,7 @@ ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size, const std::shared_ptr<vo
     auto found = Textures().find(bitmap);
     if (found != Textures().end() &&
         (found->second.owner.owner_before(owner) || owner.owner_before(found->second.owner))) {
-        RetireTexture(found->second.view);
+        RetireTexture(std::move(found->second.view));
         Textures().erase(found);
         found = Textures().end();
     }
@@ -103,10 +103,10 @@ ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size, const std::shared_ptr<vo
         int width = 0, height = 0;
         if (PixelsOfBitmap(bitmap, pixels, width, height)) {
             for (size_t i = 0; i < pixels.size(); i += 4) std::swap(pixels[i], pixels[i+2]);
-            texture.view = MakeRgbaTexture(width, height, pixels.data());
+            texture.view = MainRenderer().CreateTexture(width, height, pixels.data());
             if (texture.view) texture.size = ImVec2(float(width), float(height));
         }
-        found = Textures().emplace(bitmap, texture).first;
+        found = Textures().emplace(bitmap, std::move(texture)).first;
     }
     if (size) *size = found->second.size;
     return found->second.view ? found->second.view->Id() : ImTextureID();
@@ -130,8 +130,8 @@ ImTextureID PixelTexture(unsigned long long key, int width, int height, const vo
         }
     }
     Texture &texture = PixelTextures()[key];
-    RetireTexture(texture.view); // the frame may draw it still
-    texture.view = MakeRgbaTexture(width, height, rgba.data());
+    RetireTexture(std::move(texture.view)); // the frame may draw it still
+    texture.view = MainRenderer().CreateTexture(width, height, rgba.data());
     texture.size = ImVec2(static_cast<float>(width), static_cast<float>(height));
     return texture.view ? texture.view->Id() : ImTextureID();
 }
@@ -142,9 +142,9 @@ ImTextureID CachedPixelTexture(unsigned long long key) {
 }
 
 void ReleaseSnapshotTextures() {
-    for (auto &entry : Textures()) RetireTexture(entry.second.view);
+    for (auto &entry : Textures()) RetireTexture(std::move(entry.second.view));
     Textures().clear();
-    for (auto &entry : PixelTextures()) RetireTexture(entry.second.view);
+    for (auto &entry : PixelTextures()) RetireTexture(std::move(entry.second.view));
     PixelTextures().clear();
 }
 

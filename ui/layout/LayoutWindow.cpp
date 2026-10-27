@@ -1020,7 +1020,7 @@ bool LayoutWindow::Upload(const std::vector<unsigned char> &pixels, int width, i
     if (!m_Texture || width != m_TextureWidth || height != m_TextureHeight) {
         auto texture = MainRenderer().CreateTexture(width, height, rgba.data());
         if (!texture) return false;
-        if (m_Texture) RetireTexture(m_Texture.release());
+        if (m_Texture) RetireTexture(std::move(m_Texture));
         m_Texture = std::move(texture);
         m_TextureWidth = width; m_TextureHeight = height;
 #ifdef VIRTOOLSDEV_UI_TESTS
@@ -1067,7 +1067,7 @@ bool LayoutWindow::ConfigureGpuViewport(int width, int height) {
     // fallback texture may exist when a rebuilt Context becomes eligible for
     // direct rendering; retire it before adopting the imported target.
     if (m_Texture)
-        RetireTexture(m_Texture.release());
+        RetireTexture(std::move(m_Texture));
     m_TextureWidth = m_TextureHeight = 0;
     m_GpuTextureHandle = handle;
     m_GpuTexture = std::move(texture);
@@ -1120,7 +1120,7 @@ bool LayoutWindow::ReleaseTexture() {
         return false;
     m_ViewportContext = nullptr;
     m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
-    if (m_Texture) RetireTexture(m_Texture.release());
+    if (m_Texture) RetireTexture(std::move(m_Texture));
     m_TextureWidth = m_TextureHeight = 0;
     return true;
 }
@@ -1133,7 +1133,7 @@ void LayoutWindow::ResetViewportAfterContextStop() {
     m_ViewportContext = nullptr;
     m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
     if (m_Texture)
-        RetireTexture(m_Texture.release());
+        RetireTexture(std::move(m_Texture));
     m_TextureWidth = m_TextureHeight = 0;
 }
 

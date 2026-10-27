@@ -3,13 +3,14 @@
 #include "core/runtime/Resources.h"
 #include "ui/schematic/Snapshots.h"
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 namespace vdev {
 namespace {
-struct Bitmap { UiTexture *view = nullptr; ImVec2 size; bool tried = false; };
+struct Bitmap { std::unique_ptr<UiTexture> view; ImVec2 size; bool tried = false; };
 enum Group { UI, PARAMETER, APP, GROUP_COUNT };
 const char *const GROUP_NAMES[] = {"ui", "parameter", "app"};
 std::map<std::pair<int,int>,Bitmap> g_Bitmaps, g_Icons;
@@ -35,7 +36,7 @@ Bitmap &Load(Group group, const char *kind, int id, int size, bool icon) {
                                 x * image->width / width) * 4 + channel];
         pixels = scaled.data();
     }
-    bitmap.view = MakeRgbaTexture(width, height, pixels);
+    bitmap.view = MainRenderer().CreateTexture(width, height, pixels);
     bitmap.size = ImVec2(float(width), float(height));
     if (!bitmap.view) g_Missing.insert(ResourceName(GROUP_NAMES[group], kind, id));
     return bitmap;
@@ -120,11 +121,7 @@ const std::set<std::string> &MissingResources() {
 }
 
 void ReleaseDevBitmaps() {
-    for (auto &entry : g_Bitmaps)
-        if (entry.second.view) delete entry.second.view;
     g_Bitmaps.clear();
-    for (auto &entry : g_Icons)
-        if (entry.second.view) delete entry.second.view;
     g_Icons.clear();
 }
 
