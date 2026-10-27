@@ -13,6 +13,7 @@
 #include "core/layout/ViewProjection.h"
 
 struct SDL_Window;
+struct SDL_GPUDevice;
 union SDL_Event;
 
 namespace vdev {
@@ -22,8 +23,8 @@ class CkRuntimeHost;
 // Dev's 3D Layout view: the composition rendered by a CK render context,
 // with the 3D Layout's own interface objects drawn over it. Dev renders into
 // the 3D Layout window; here the render context lives on a hidden window of
-// the view and each frame is copied back (DumpToMemory) for the editor to
-// show.
+// the view. A host may provide the SDL GPU device before Context creation so
+// the editor can bind an ordinary UI-owned texture as its virtual backbuffer.
 
 // Dev's default views (Dev.exe sub_4AD910; language pack [3D Layout]
 // <CameraView>): interface cameras the composition does not keep.
@@ -134,10 +135,13 @@ public:
     // name or description is driverName (Author Mode\Device Driver), else the
     // first; it becomes the current level's main render context.
     // The view owns its SDL render window and CK render context.
-    bool Start(const std::string &driverName, std::string *error);
+    // The optional GPU device is borrowed until Stop. Its configuration is
+    // fixed for this view's lifetime.
+    bool Start(const std::string &driverName, std::string *error, SDL_GPUDevice *sdlGpuDevice = nullptr);
     void Stop();
     bool Started() const;
     CKRenderContext *RenderContext() const;
+    CKRasterizerContext *RasterizerContext() const;
     // The composition's context; the view's cameras, interface objects,
     // projection, picking of icons and gestures need no render context.
     CKContext *Context() const;
@@ -163,6 +167,16 @@ public:
     // opaque. False when there is no render context or the copy failed, and
     // in fullscreen.
     bool Render(int width, int height, std::vector<unsigned char> &pixels);
+    // Split resize from drawing so a caller can recreate and bind a target
+    // after Context resize and before any rendering starts.
+    bool PrepareFrame(int width, int height);
+    bool RenderFrame();
+    // Convenience form without a CPU transfer.
+    bool Render(int width, int height);
+    // Explicit synchronous capture of the completed image, opaque BGRA.
+    bool ReadPixels(std::vector<unsigned char> &pixels);
+    // Completed viewport readbacks (explicit captures and compatibility rendering).
+    std::uint64_t ReadbackFrames() const { return m_ReadbackFrames; }
 
     // Player Mode's fullscreen (Dev.exe sub_5C5CB0, Alt+Enter): the render
     // context goes fullscreen on its window, which shows, takes the mouse
@@ -269,6 +283,8 @@ public:
     size_t IconCount() const { return m_IconHits.size(); }
 
 private:
+    std::uint64_t m_ReadbackFrames = 0;
+    SDL_GPUDevice *m_SdlGpuDevice = nullptr;
     static void PostRender(CKRenderContext *context, void *argument);
     static void PostSpriteRender(CKRenderContext *context, void *argument);
     void CreateInterfaceObjects();

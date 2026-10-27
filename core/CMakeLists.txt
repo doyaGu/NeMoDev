@@ -68,6 +68,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         level/HierarchyTree.cpp
         # The 3D Layout.
         layout/LayoutView.cpp
+        layout/SdlGpuInterop.cpp
         layout/ViewProjection.cpp
         layout/GestureMath.cpp
         layout/LayoutOverlay.cpp
@@ -84,6 +85,9 @@ set(VIRTOOLS_DEV_CORE_SOURCES
 add_library(VirtoolsDevCore STATIC ${VIRTOOLS_DEV_CORE_SOURCES})
 add_dependencies(VirtoolsDevCore VirtoolsDevData)
 target_include_directories(VirtoolsDevCore PUBLIC ${VIRTOOLSDEV_SOURCE_DIR})
+target_include_directories(VirtoolsDevCore PRIVATE "${VIRTOOLS_SDK_PATH}/Source/RenderEngine/include")
+set_source_files_properties(layout/SdlGpuInterop.cpp PROPERTIES INCLUDE_DIRECTORIES
+    "${VIRTOOLS_SDK_PATH}/Source/RenderEngine/src/CKRasterizer/CKSdlGpuRasterizer")
 target_link_libraries(VirtoolsDevCore PUBLIC CK2 VxMath)
 target_compile_definitions(VirtoolsDevCore PRIVATE VIRTOOLS_CK2_FILENAME="$<TARGET_FILE_NAME:CK2>")
 if(WIN32)

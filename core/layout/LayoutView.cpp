@@ -1,5 +1,6 @@
 #include <filesystem>
 #include "core/layout/LayoutView.h"
+#include "core/layout/SdlGpuInterop.h"
 
 #include <SDL3/SDL.h>
 
@@ -84,8 +85,14 @@ CKRenderContext *LayoutView::RenderContext() const {
     return context && m_RenderContext ? CKRenderContext::Cast(context->GetObject(m_RenderContext)) : nullptr;
 }
 
-bool LayoutView::Start(const std::string &driverName, std::string *error) {
+CKRasterizerContext *LayoutView::RasterizerContext() const {
+    CKRenderContext *context = RenderContext();
+    return context ? context->GetRasterizerContext() : nullptr;
+}
+
+bool LayoutView::Start(const std::string &driverName, std::string *error, SDL_GPUDevice *sdlGpuDevice) {
     Stop();
+    m_SdlGpuDevice = sdlGpuDevice;
     CKContext *context = m_Host.Context();
     CKRenderManager *renderer = context ? context->GetRenderManager() : nullptr;
     if (!renderer || renderer->GetRenderDriverCount() <= 0) {
@@ -100,6 +107,7 @@ bool LayoutView::Start(const std::string &driverName, std::string *error) {
         return false;
     }
     m_Window = window;
+    OfferSdlGpuDevice(window, m_SdlGpuDevice);
     int driver = 0;
     for (int i = 0; !driverName.empty() && i < renderer->GetRenderDriverCount(); ++i)
         if (VxDriverDesc *desc = renderer->GetRenderDriverDescription(i)) {
@@ -150,6 +158,7 @@ void LayoutView::Stop() {
         SDL_DestroyWindow(m_Window);
     }
     m_Window = nullptr;
+    m_SdlGpuDevice = nullptr;
 }
 
 void LayoutView::CompositionChanged() {
@@ -476,6 +485,10 @@ bool LayoutView::HandleEvent(const SDL_Event &event) {
 }
 
 bool LayoutView::Render(int width, int height, std::vector<unsigned char> &pixels) {
+    return Render(width, height) && ReadPixels(pixels);
+}
+
+bool LayoutView::PrepareFrame(int width, int height) {
     CKRenderContext *rc = RenderContext();
     if (!rc || width <= 0 || height <= 0 || rc->IsFullScreen()) return false;
     if (width != m_Width || height != m_Height) {
@@ -484,14 +497,30 @@ bool LayoutView::Render(int width, int height, std::vector<unsigned char> &pixel
         m_Width = width;
         m_Height = height;
     }
+    return true;
+}
+
+bool LayoutView::RenderFrame() {
+    CKRenderContext *rc = RenderContext();
+    if (!rc || rc->IsFullScreen()) return false;
     AimViewCamera();
-    // BackToFront finishes the rasterizer's GPU submission. The SDL window
-    // stays hidden; its retained back buffer supplies the editor viewport.
+    // BackToFront finishes the rasterizer's GPU submission. With an imported
+    // virtual backbuffer it does not acquire or present the hidden window.
     const CKDWORD options = (rc->GetCurrentRenderOptions() | CK_RENDER_DOBACKTOFRONT) & CK_RENDER_OPTIONSMASK;
     bool rendered = false;
     GuardedCall([&] { rendered = rc->Render(static_cast<CK_RENDER_FLAGS>(options)) == CK_OK; }, &m_Host,
                 "CKRenderContext::Render");
     if (!rendered) return false;
+    return true;
+}
+
+bool LayoutView::Render(int width, int height) {
+    return PrepareFrame(width, height) && RenderFrame();
+}
+
+bool LayoutView::ReadPixels(std::vector<unsigned char> &pixels) {
+    CKRenderContext *rc = RenderContext();
+    if (!rc || rc->IsFullScreen()) return false;
     VxImageDescEx desc;
     int size = 0;
     GuardedCall([&] { size = rc->DumpToMemory(nullptr, VXBUFFER_BACKBUFFER, desc); }, &m_Host,
@@ -503,6 +532,7 @@ bool LayoutView::Render(int width, int height, std::vector<unsigned char> &pixel
                 "CKRenderContext::DumpToMemory");
     if (size <= 0 || desc.Width <= 0 || desc.Height <= 0 || desc.BitsPerPixel < 16) return false;
     ToBgra(desc, pixels);
+    ++m_ReadbackFrames;
     m_Width = desc.Width;
     m_Height = desc.Height;
     return true;
