@@ -208,6 +208,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"SetupManagerCommands", [&] { SetupManagerCommands(host); }},
             {"CreateAndSceneCommands", [&] { CreateAndSceneCommands(host); }},
             {"ScriptDebugger", [&] { ScriptDebugger(host, prototypes); }},
+            {"DebuggerBudget", [&] { DebuggerBudget(host); }},
             {"EditorCommands", [&] { EditorCommands(host, prototypes); }},
             {"BuildingBlockCallbacks", [&] { BuildingBlockCallbacks(host, catalog); }},
             {"GuardedCalls", [&] { GuardedCalls(host); }},

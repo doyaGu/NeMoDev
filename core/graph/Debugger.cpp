@@ -382,6 +382,7 @@ bool Debugger::CheckBreakpoints() {
 void Debugger::Update(double budget) {
     if (m_State != State::Running || !m_Document.Context()) return;
     CKContext *context = m_Document.Context();
+    const auto start = std::chrono::steady_clock::now();
     if (!trace && !m_InFrame) {
         for (int i = 0; i < std::max(1, framesPerUpdate) && m_State == State::Running; ++i) {
             if (!GuardedCall([&] { context->Process(); }, &m_Document.Host(), "CKContext::Process")) {
@@ -394,10 +395,10 @@ void Debugger::Update(double budget) {
                 PauseContext();
                 Note("Stop, CK frame completed");
             }
+            if (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() >= budget) break;
         }
         return;
     }
-    const auto start = std::chrono::steady_clock::now();
     while (m_State == State::Running) {
         if (!m_InFrame) BeginFrame();
         if (!m_InFrame) return;

@@ -3,6 +3,8 @@
 #include <climits>
 // Level Manager, Setups, managers, the Create menu, scenes, the Script debugger, Building Block callbacks, text encoding.
 #include "VirtoolsDevTestSupport.h"
+#include <chrono>
+#include <thread>
 #include <SDL3/SDL.h>
 
 namespace vdevtest {
@@ -1114,6 +1116,32 @@ void ManagersAfterClearAll(CkRuntimeHost &host) {
             }
     }
     std::cout << "Managers after ClearAll passed (" << active.size() << " managers)\n";
+}
+
+void DebuggerBudget(CkRuntimeHost &host) {
+    class SlowFrames : public CKBaseManager {
+    public:
+        int calls = 0;
+        explicit SlowFrames(CKContext *context)
+            : CKBaseManager(context, CKGUID(0x61b23184, 0x72c41652), "Debugger budget regression") {}
+        CKDWORD GetValidFunctionsMask() override { return CKMANAGER_FUNC_PreProcess; }
+        CKERROR PreProcess() override {
+            ++calls;
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            return CK_OK;
+        }
+    };
+    Document document(host);
+    CHECK(document.New(nullptr));
+    auto *frames = new SlowFrames(document.Context());
+    CHECK(document.Context()->RegisterNewManager(frames) == CK_OK);
+    Debugger debugger(document);
+    debugger.framesPerUpdate = 100;
+    debugger.Play();
+    debugger.Update(0.001);
+    debugger.Pause();
+    CHECK(frames->calls == 1 && debugger.Frames() == 1);
+    debugger.Detach();
 }
 
 // Script Debugger: a behavior breakpoint stops a traced run on that behavior.
