@@ -275,10 +275,15 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
     const bool completed = GuardedCall([&] {
         loaded = MergeInPlace(path, asScene, error, &added, duplicates);
         if (loaded) {
+            const std::set<CK_ID> incoming(added.begin(), added.end());
             auto pictures = ReadObjectPictures(*this);
-            for (const auto &picture : m_Pictures) pictures[picture.first] = picture.second;
-            m_Pictures = std::move(pictures);
-            m_PicturesChanged = true;
+            // Existing objects use the document's current data, including
+            // removals not yet reflected in the runtime's saved chunks.
+            for (auto &picture : pictures)
+                if (incoming.count(picture.first)) {
+                    m_Pictures.emplace(picture.first, std::move(picture.second));
+                    m_PicturesChanged = true;
+                }
         }
     },
                                       &m_Host, "Merge composition");

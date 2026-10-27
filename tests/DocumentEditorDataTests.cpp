@@ -122,6 +122,13 @@ void DocumentPictures(CkRuntimeHost &host) {
     Document document(host);
     Folder folder;
     CHECK(document.New(nullptr));
+    const auto incoming = CreateLayoutObject(document, LayoutObject::Frame3D);
+    CHECK(incoming.ok);
+    document.Context()->GetObject(incoming.created)->SetName(const_cast<CKSTRING>("Incoming pictured frame"));
+    CHECK(SetObjectPicture(document, incoming.created, Picture(0xFF112233)).ok);
+    SaveReport incomingReport;
+    CHECK(SaveDocumentAs(document, folder.File("incoming.cmo"), {}, incomingReport));
+    CHECK(document.New(nullptr));
     auto &history = document.History();
     const auto frame = CreateLayoutObject(document, LayoutObject::Frame3D);
     CHECK(frame.ok);
@@ -153,6 +160,16 @@ void DocumentPictures(CkRuntimeHost &host) {
     CHECK(document.Open(folder.File("second.cmo"), nullptr));
     const CK_ID loaded = Named(document, "Pictured Frame");
     CHECK(Pixel(document.Pictures().at(loaded)) == 0xFF6789AB && !document.PicturesPending());
+
+    // Merging must use current document data for existing objects, including
+    // a pending removal whose old pixels still exist in the runtime chunks.
+    CHECK(SetObjectPicture(document, loaded, nullptr).ok);
+    CHECK(document.Merge(folder.File("incoming.cmo"), false, nullptr));
+    CHECK(!document.Pictures().count(loaded));
+    const CK_ID incomingId = Named(document, "Incoming pictured frame");
+    CHECK(Pixel(document.Pictures().at(incomingId)) == 0xFF112233);
+    CHECK(history.Undo() && Pixel(document.Pictures().at(loaded)) == 0xFF6789AB);
+    CHECK(document.Pictures().count(incomingId));
 
     // Native save callbacks may edit the document. A successful publication
     // must not acknowledge the new image or mark that newer document saved.
