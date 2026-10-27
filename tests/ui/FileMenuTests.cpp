@@ -164,8 +164,8 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             const auto script = vdev::CreateScript(document, made.created, "Load rollback selection");
             IM_CHECK_NO_RET(script.ok);
             probe->script = script.created;
-            IM_CHECK_NO_RET(vdev::AddLocalParameter(document, script.created, script.created, "Selection value",
-                                                    CKPGUID_INT, Point(200, 60)).ok);
+            // Keep this Script empty: the following File menu saves must
+            // also accept a composition with no native parameters.
             document.MarkSaved();
             document.History().MarkSavePoint();
             IM_CHECK_NO_RET(vdev::RenameLevelObject(document, made.created, "Undo after failed load").ok);

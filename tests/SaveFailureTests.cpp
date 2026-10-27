@@ -199,6 +199,109 @@ static std::vector<unsigned char> SavedFileBytes(const std::filesystem::path &pa
     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 
+void EmptyScriptSave(CkRuntimeHost &host) {
+    Document document(host);
+    CHECK(document.New(nullptr));
+    SaveFailureFolder folder(document.Context(), CKGUID(0x41627851, 0x71265231));
+    const auto owner = CreateLayoutObject(document, LayoutObject::Frame3D);
+    CHECK(owner.ok);
+    const auto made = CreateScript(document, owner.created, "Empty Script");
+    CHECK(made.ok);
+    auto *script = CKBehavior::Cast(document.Context()->GetObject(made.created));
+    CHECK(script && script->GetSubBehaviorCount() == 0 && script->GetLocalParameterCount() == 0);
+    CHECK(script->GetInputParameterCount() == 0 && script->GetOutputParameterCount() == 0);
+    CHECK(script->GetInputCount() == 1 && std::string(script->GetInput(0)->GetName()) == "Start");
+    const auto undo = document.History().UndoCount();
+    const auto color = document.Session(made.created)->Data().header.color;
+    const auto path = (folder.directory / "empty-script.cmo").u8string();
+    SaveReport report;
+    const bool saved = SaveDocumentAs(document, path, {}, report);
+    for (const auto &error : report.errors) std::cerr << error << '\n';
+    CHECK(saved && report.saved && report.documentSaved && report.errors.empty());
+    CHECK(report.parametersVerified == 0 && !document.Dirty());
+    CHECK(document.History().UndoCount() == undo);
+    CHECK(document.Open(path, nullptr) && document.Scripts().size() == 1);
+    script = CKBehavior::Cast(document.Context()->GetObject(document.Scripts().front().id));
+    CHECK(script && std::string(script->GetName()) == "Empty Script" && script->GetOwner());
+    CHECK(script->GetInputCount() == 1 && std::string(script->GetInput(0)->GetName()) == "Start");
+    CHECK(script->GetSubBehaviorCount() == 0 && script->GetLocalParameterCount() == 0);
+    CHECK(script->GetInputParameterCount() == 0 && script->GetOutputParameterCount() == 0);
+    auto *session = document.Session(script->GetID());
+    CHECK(session && !session->ReadOnly() && session->Data().header.color == color);
+    CHECK(!document.Dirty());
+
+    // Editing only the display still leaves the native parameter set empty,
+    // and exercises generation and verification of an empty InterfaceChunk.
+    CHECK(EditScriptData(document, script->GetID(), "Empty Script color",
+                         [](InterfaceData &data) { data.header.color ^= 0x00FFFFFF; }));
+    const auto displayPath = (folder.directory / "empty-display.cmo").u8string();
+    CHECK(SaveDocumentAs(document, displayPath, {}, report));
+    CHECK(report.parametersVerified == 0 && report.scriptsVerified == 1 && report.chunksWritten == 1);
+    CHECK(document.Open(displayPath, nullptr));
+    script = CKBehavior::Cast(document.Context()->GetObject(document.Scripts().front().id));
+    session = document.Session(script->GetID());
+    CHECK(session && session->Origin() == SessionOrigin::LoadedChunk && session->Data().header.color == (color ^ 0x00FFFFFF));
+
+    // An untouched loaded empty Script also saves without manufacturing a
+    // parameter or rewriting its original display chunk.
+    const auto chunk = ChunkBytes(script->GetInterfaceChunk());
+    SaveOptions options;
+    options.allowOverwrite = true;
+    const auto resaved = (folder.directory / "resaved.cmo").u8string();
+    CHECK(SaveDocumentAs(document, resaved, options, report));
+    CHECK(report.parametersVerified == 0 && report.chunksWritten == 0 && !document.Dirty());
+    CHECK(ChunkBytes(script->GetInterfaceChunk()) == chunk && CompareReloadedChunks(document, resaved) == 1);
+
+    // Zero parameters must still go through independent file verification.
+    auto &manager = *folder.manager;
+    manager.target = resaved;
+    const auto previousFile = SavedFileBytes(manager.target);
+    manager.mode = SaveFailureManager::VerificationFailure;
+    const bool corrupted = SaveDocumentAs(document, resaved, options, report);
+    manager.Reset();
+    CHECK(!corrupted && !report.saved && !document.Dirty());
+    CHECK(!report.errors.empty() && report.errors.front().find("The saved file does not load") == 0);
+    CHECK(SavedFileBytes(manager.target) == previousFile && !std::filesystem::exists(manager.written));
+
+    // A real capture failure can also leave the result empty. It must still
+    // refuse publication and preserve the old file and dirty state.
+    auto *untyped = CKParameterLocal::Cast(document.Context()->CreateObject(CKCID_PARAMETERLOCAL, (CKSTRING) "Untyped value"));
+    CHECK(untyped && !document.Context()->GetParameterManager()->GetParameterTypeDescription(untyped->GetGUID()));
+    document.AdoptObjects({untyped->GetID()});
+    CHECK(!SaveDocumentAs(document, resaved, options, report));
+    CHECK(!report.saved && document.Dirty() && !report.errors.empty());
+    CHECK(report.errors.front().find("Cannot capture saved parameter types: Unregistered parameter type:") == 0);
+    CHECK(SavedFileBytes(manager.target) == previousFile && !std::filesystem::exists(manager.written));
+    CHECK(document.New(nullptr));
+
+    // Multiple empty Scripts, on the level and on an entity, still have no
+    // parameters. The player export follows the same capture contract.
+    const auto frame = CreateLayoutObject(document, LayoutObject::Frame3D);
+    CHECK(frame.ok);
+    CHECK(CreateScript(document, frame.created, "Entity Script").ok);
+    CHECK(CreateScript(document, document.Context()->GetCurrentLevel()->GetID(), "Level Script").ok);
+    const auto emptyScripts = document.Scripts();
+    for (const auto &info : emptyScripts)
+        CHECK(EditScriptData(document, info.id, "Empty Script display",
+                             [](InterfaceData &data) { data.header.color ^= 0x0000FFFF; }));
+    const auto multiple = (folder.directory / "multiple.cmo").u8string();
+    CHECK(SaveDocumentAs(document, multiple, options, report));
+    CHECK(report.documentSaved && report.parametersVerified == 0 && report.scriptsVerified == 2);
+    CHECK(document.Open(multiple, nullptr) && document.Scripts().size() == 2 && !document.Dirty());
+    for (const auto &info : document.Scripts()) {
+        auto *empty = CKBehavior::Cast(document.Context()->GetObject(info.id));
+        CHECK(empty && empty->GetSubBehaviorCount() == 0 && empty->GetLocalParameterCount() == 0);
+        CHECK(empty->GetInputParameterCount() == 0 && empty->GetOutputParameterCount() == 0);
+    }
+    options.markSaved = false;
+    options.writeMode = CKFILE_FORVIEWER | CKFILE_WHOLECOMPRESSED;
+    const auto player = (folder.directory / "empty-scripts.vmo").u8string();
+    CHECK(SaveDocumentAs(document, player, options, report));
+    CHECK(report.saved && !report.documentSaved && report.parametersVerified == 0 && !document.Dirty());
+    CHECK(IsPlayerFile(player) && document.Open(player, nullptr) && document.Scripts().size() == 2);
+    std::cout << "Empty Scripts save and reload without bypassing capture failures or file verification\n";
+}
+
 static void CheckExportFailures(CkRuntimeHost &host, bool nms) {
     namespace fs = std::filesystem;
     Document document(host);

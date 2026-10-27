@@ -484,8 +484,9 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
         report.errors.push_back("CKFile save failed: " + std::to_string(saved));
         return false;
     }
-    // A composition without Scripts (File > New) may have no parameters to compare.
-    if (!captured || (expected.empty() && !document.Scripts().empty())) {
+    // Empty Scripts legitimately contribute no parameters. Capture reports
+    // failure explicitly; collection size is not evidence of a failed read.
+    if (!captured) {
         report.errors.push_back("Cannot capture saved parameter types: " + captureErrors.str());
         return false;
     }

@@ -89,6 +89,7 @@ void ObjectEditCancellation(CkRuntimeHost &host);
 void SaveFailures(CkRuntimeHost &host);
 void SaveCallbacks(CkRuntimeHost &host);
 void SaveScriptSnapshots(CkRuntimeHost &host);
+void EmptyScriptSave(CkRuntimeHost &host);
 void ObjectExportFailures(CkRuntimeHost &host);
 void NmsExportFailures(CkRuntimeHost &host);
 void LoadCallbacks(CkRuntimeHost &host);
