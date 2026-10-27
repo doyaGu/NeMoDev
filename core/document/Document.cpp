@@ -70,6 +70,28 @@ Document::~Document() {
     Close();
 }
 
+ObjectReferences::ObjectReferences(Document &document, std::set<CK_ID> objects)
+    : m_Document(&document), m_Objects(std::move(objects)) {}
+
+ObjectReferences::~ObjectReferences() {
+    if (!m_Document) return;
+    m_Document->m_ObjectReferences.erase(this);
+    m_Document->RequestGraveyardCollection();
+}
+
+std::shared_ptr<ObjectReferences> Document::RetainObjects(const std::vector<CK_ID> &objects) {
+    std::set<CK_ID> retained;
+    for (CK_ID id : objects) {
+        CKObject *object = Context() ? Context()->GetObject(id) : nullptr;
+        for (int depth = 0; object && depth < 256; ++depth, object = HolderOf(object))
+            retained.insert(object->GetID());
+    }
+    if (retained.empty()) return {};
+    auto reference = std::shared_ptr<ObjectReferences>(new ObjectReferences(*this, std::move(retained)));
+    m_ObjectReferences.insert(reference.get());
+    return reference;
+}
+
 CKContext *Document::Context() const {
     return m_Host.Context();
 }
@@ -493,6 +515,8 @@ void Document::KeepBitmap(void *bitmap) {
 }
 
 void Document::Close() {
+    for (ObjectReferences *reference : m_ObjectReferences) reference->m_Document = nullptr;
+    m_ObjectReferences.clear();
     // The edits being built and the steps go before the objects they hold
     // (the graveyard is destroyed below).
     for (Edit *edit = m_OpenEdit; edit;) {
@@ -535,6 +559,8 @@ void Document::CollectGraveyard() {
     // keeps those references too. A retained child also needs its holders;
     // destruction of a graph must not invalidate a retained descendant.
     std::set<CK_ID> retained = m_History.RetainedObjects();
+    for (const ObjectReferences *reference : m_ObjectReferences)
+        retained.insert(reference->m_Objects.begin(), reference->m_Objects.end());
     const auto roots = retained;
     for (CK_ID id : roots) {
         CKObject *object = context->GetObject(id);

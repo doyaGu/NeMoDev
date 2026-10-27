@@ -2058,11 +2058,11 @@ void EditorPanels::CopyOnLevel() {
         else if (script->GetFlags() & CKBEHAVIOR_SCRIPT) scripts.push_back(id);
     }
     if (!objects.empty()) {
-        m_State.objectClipboard = objects;
+        m_State.SetObjectClipboard(*m_State.document, objects);
         m_State.objectsCopied = true;
         m_State.Log(LogLevel::Info, "Copied " + std::to_string(objects.size()) + " object(s)");
     } else if (!scripts.empty()) {
-        m_State.scriptClipboard = scripts;
+        m_State.SetScriptClipboard(*m_State.document, scripts);
         m_State.objectsCopied = false;
         m_State.Log(LogLevel::Info, "Copied " + std::to_string(scripts.size()) + " Script(s)");
     }
@@ -2080,7 +2080,7 @@ void EditorPanels::PasteOnLevel() {
     auto alive = [&](const std::vector<CK_ID> &ids) {
         std::vector<CK_ID> kept;
         for (CK_ID id : ids)
-            if (context->GetObject(id) && !m_State.document->IsDiscarded(id)) kept.push_back(id);
+            if (context->GetObject(id)) kept.push_back(id);
         return kept;
     };
     if (m_State.objectsCopied) {
@@ -2105,11 +2105,24 @@ void EditorPanels::PasteOnLevel() {
             }
         }
         EditGroup group(*m_State.document, "Paste");
-        if (copies) Report(DuplicateObjects(*m_State.document, objects), "Paste");
+        // A clipboard source can be detached and retained only for copying.
+        // Never insert that discarded instance back into a live container.
+        std::vector<CK_ID> detached;
+        for (CK_ID id : objects)
+            if (m_State.document->IsDiscarded(id)) detached.push_back(id);
+        std::vector<std::pair<CK_ID, CK_ID>> pasted;
+        if (copies || !detached.empty())
+            Report(DuplicateObjects(*m_State.document, copies ? objects : detached, &pasted), "Paste");
         for (CK_ID id : containers) {
             CKObject *container = context->GetObject(id);
             std::vector<CK_ID> chosen;
             for (CK_ID object : objects) {
+                if (m_State.document->IsDiscarded(object)) {
+                    const auto copy = std::find_if(pasted.begin(), pasted.end(),
+                                                   [object](const auto &pair) { return pair.first == object; });
+                    if (copy == pasted.end()) continue;
+                    object = copy->second;
+                }
                 CKObject *o = context->GetObject(object);
                 if (CKGroup *g = CKGroup::Cast(container)) {
                     if (CKBeObject::Cast(o) && !CKGroup::Cast(o) && !CKBehavior::Cast(o) && !CKBeObject::Cast(o)->IsInGroup(g))

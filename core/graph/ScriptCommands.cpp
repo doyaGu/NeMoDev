@@ -144,6 +144,10 @@ void CopyScriptDisplay(Document &document, CKBehavior *original, CKBehavior *cop
     if (!original || !copy) return;
     std::map<CK_ID, CK_ID> map;
     ScriptSession *session = document.Session(original->GetID());
+    ScriptSession detached;
+    // A retained clipboard source may already be absent from Scripts(),
+    // without ever having had a Schematic session opened before deletion.
+    if (!session && detached.Open(document.Context(), original->GetID())) session = &detached;
     if (!session || !detail::MapBehaviorCopy(original, copy, map)) return;
     InterfaceData data = session->Data();
     data.observers.clear();

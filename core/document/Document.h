@@ -17,6 +17,21 @@ namespace vdev {
 
 class CkRuntimeHost;
 class Edit;
+class Document;
+
+// Keeps runtime copy sources alive independently of Undo/Redo. Closing the
+// document detaches outstanding references before its context is cleared.
+class ObjectReferences {
+public:
+    ~ObjectReferences();
+    ObjectReferences(const ObjectReferences &) = delete;
+    ObjectReferences &operator=(const ObjectReferences &) = delete;
+private:
+    friend class Document;
+    ObjectReferences(Document &document, std::set<CK_ID> objects);
+    Document *m_Document;
+    std::set<CK_ID> m_Objects;
+};
 
 SceneEnvironment DefaultNewSceneEnvironment();
 
@@ -122,6 +137,7 @@ public:
     bool IsLive(CK_ID id) const;
     // The live objects of a class (derived: and of the classes derived from it).
     std::vector<CKObject *> LiveObjects(CK_CLASSID cid, bool derived = true) const;
+    std::shared_ptr<ObjectReferences> RetainObjects(const std::vector<CK_ID> &objects);
     // The objects made since the composition was opened (by edits, Include):
     // saved with it unless discarded.
     const std::set<CK_ID> &CreatedObjects() const { return m_CreatedObjects; }
@@ -161,6 +177,7 @@ private:
     friend class Edit;
     friend class UndoStep;
     friend class UndoHistory;
+    friend class ObjectReferences;
     friend struct DocumentSaverAccess;
     friend class LoadTransaction;
     bool MergeInPlace(const std::string &path, bool asScene, std::string *error, std::vector<CK_ID> *merged,
@@ -184,6 +201,7 @@ private:
     std::vector<ScriptInfo> m_Scripts;
     std::map<CK_ID, std::unique_ptr<ScriptSession>> m_Sessions;
     std::set<CK_ID> m_Graveyard;
+    std::set<ObjectReferences *> m_ObjectReferences;
     std::set<CK_ID> m_CreatedObjects;
     std::vector<std::shared_ptr<void>> m_Bitmaps;
     std::uint64_t m_TopologyRevision = 0;

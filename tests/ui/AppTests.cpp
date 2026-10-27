@@ -2,6 +2,8 @@
 // the dialogs of the Options and Help menus and their shortcuts.
 
 #include "core/level/LevelCommands.h"
+#include "core/graph/ScriptCommands.h"
+#include "core/graph/TopologyCommands.h"
 #include "imgui_internal.h"
 #include "tests/ui/UiTests.h"
 #include "ui/app/DesktopFiles.h"
@@ -21,6 +23,39 @@ bool WindowShown(ImGuiTestContext *ctx, const char *name) {
 
 void RegisterAppTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "app", "clipboard_survives_history_collection");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &document = *state.document;
+            const auto script = vdev::CreateScript(document, document.Context()->GetCurrentLevel()->GetID(), "Clipboard lifetime");
+            IM_CHECK(script.ok);
+            const auto graph = vdev::CreateBehaviorGraph(document, script.created, script.created, "Copied graph", Point(240, 120));
+            IM_CHECK(graph.ok);
+            state.selection.Set(script.created, vdev::ElementRef{vdev::ElementKind::Behavior, script.created, graph.created});
+            vdev::SchematicCanvas canvas(state);
+            canvas.Copy();
+            IM_CHECK(state.clipboard.valid);
+            IM_CHECK(vdev::DeleteElements(document, script.created, state.selection.items).ok);
+            document.History().Clear();
+            const auto pasted = vdev::PasteBehaviors(document, state.clipboard.data, state.clipboard.behaviors,
+                                                      state.clipboard.comments, script.created, script.created, Point(500, 200));
+            IM_CHECK(pasted.ok && pasted.created);
+            state.clipboard = {};
+            state.selection.Clear();
+            state.SetScriptClipboard(document, {script.created});
+            IM_CHECK(vdev::DeleteScript(document, script.created).ok);
+            document.History().Clear();
+            IM_CHECK(document.Context()->GetObject(script.created));
+            state.SetObjectClipboard(document, {document.Context()->GetCurrentLevel()->GetID()});
+            IM_CHECK(!document.Context()->GetObject(script.created));
+            state.SetObjectClipboard(document, {});
+            document.MarkSaved();
+        });
+    };
 
     t = IM_REGISTER_TEST(engine, "app", "display_scale_rebuilds_theme_sizes");
     t->TestFunc = [](ImGuiTestContext *ctx) {

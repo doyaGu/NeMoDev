@@ -1466,7 +1466,8 @@ bool ParameterBox::ObjectArrayUi(Row &row, CKParameter *work, const ImVec2 &at, 
             row.chosen.clear();
             changed = true;
         }
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false) && !row.chosen.empty()) m_State.objectClipboard = selection();
+        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false) && !row.chosen.empty())
+            m_State.SetObjectClipboard(*m_State.document, selection());
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false)) insert(array->Size(), m_State.objectClipboard);
         // + and -: the first selected item and the one below / above it change places.
         const bool down = ImGui::IsKeyPressed(ImGuiKey_KeypadAdd), up = ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract);
@@ -1492,7 +1493,8 @@ bool ParameterBox::ObjectArrayUi(Row &row, CKParameter *work, const ImVec2 &at, 
     if (ImGui::BeginPopup("##arraymenu")) {
         if (ImGui::MenuItem("Add Object")) choose = true;
         ImGui::Separator();
-        if (ImGui::MenuItem("Copy Object(s)", nullptr, false, !row.chosen.empty())) m_State.objectClipboard = selection();
+        if (ImGui::MenuItem("Copy Object(s)", nullptr, false, !row.chosen.empty()))
+            m_State.SetObjectClipboard(*m_State.document, selection());
         if (ImGui::MenuItem("Paste Object(s)", nullptr, false, !m_State.objectClipboard.empty()))
             insert(std::clamp(row.anchor, 0, array->Size()), m_State.objectClipboard);
         ImGui::EndPopup();

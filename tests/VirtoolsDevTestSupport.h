@@ -85,6 +85,7 @@ namespace vdevtest {
 
 void ObjectEditFailures(CkRuntimeHost &host);
 void GraveyardCollection(CkRuntimeHost &host);
+void ObjectReferenceLifetimes(CkRuntimeHost &host);
 void ObjectEditCancellation(CkRuntimeHost &host);
 void SaveFailures(CkRuntimeHost &host);
 void SaveCallbacks(CkRuntimeHost &host);

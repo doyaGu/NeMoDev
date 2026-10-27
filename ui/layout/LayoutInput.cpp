@@ -457,14 +457,15 @@ void LayoutWindow::Shortcuts() {
         if (pressed(ImGuiKey_I)) SelectAll(true);
         if (pressed(ImGuiKey_C)) {
             m_State.objectsCopied = true;
-            m_State.objectClipboard.clear();
+            std::vector<CK_ID> copied;
             for (CK_ID id : AliveSelection())
-                if (!CKCurvePoint::Cast(m_State.host.Context()->GetObject(id))) m_State.objectClipboard.push_back(id);
+                if (!CKCurvePoint::Cast(m_State.host.Context()->GetObject(id))) copied.push_back(id);
+            m_State.SetObjectClipboard(*m_State.document, std::move(copied));
         }
         if (pressed(ImGuiKey_V) && m_State.HasDocument()) {
             std::vector<CK_ID> alive;
             for (CK_ID id : m_State.objectClipboard)
-                if (m_State.host.Context()->GetObject(id) && !m_State.document->IsDiscarded(id)) alive.push_back(id);
+                if (m_State.host.Context()->GetObject(id)) alive.push_back(id);
             if (!alive.empty()) Duplicate(alive);
         }
         if (pressed(ImGuiKey_G)) m_State.events.Post(ShowGeneralPreferences{3});

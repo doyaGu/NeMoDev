@@ -1481,7 +1481,7 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
     }
     if (ImGui::MenuItem("Save As...", "Alt+S")) SaveBehaviorsAs({script}, view.model.script.name + ".nms");
     if (ImGui::MenuItem("Copy", "Ctrl+C")) {
-        m_State.scriptClipboard = {script};
+        m_State.SetScriptClipboard(*m_State.document, {script});
         m_State.objectsCopied = false;
     }
     ImGui::Separator();
@@ -1536,7 +1536,7 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
     if (ImGui::MenuItem("Rename", "F2", false, scripts.size() == 1)) BeginRename();
     if (ImGui::MenuItem("Save As...", "Alt+S")) SaveBehaviorsAs(scripts, view.model.script.name + ".nms");
     if (ImGui::MenuItem("Copy")) {
-        m_State.scriptClipboard = scripts;
+        m_State.SetScriptClipboard(*m_State.document, scripts);
         m_State.objectsCopied = false;
     }
     ImGui::Separator();

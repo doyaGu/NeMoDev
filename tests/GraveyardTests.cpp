@@ -254,4 +254,79 @@ void GraveyardCollection(CkRuntimeHost &host) {
     CHECK(SaveDocumentAs(document, (root / "after.cmo").u8string(), {}, report));
 }
 
+void ObjectReferenceLifetimes(CkRuntimeHost &host) {
+    Document document(host);
+    CHECK(document.New(nullptr));
+    CKContext *context = document.Context();
+    const CK_ID owner = context->GetCurrentLevel()->GetID();
+    const auto script = CreateScript(document, owner, "Copied Script");
+    CHECK(script.ok);
+    const auto graph = CreateBehaviorGraph(document, script.created, script.created, "Copied graph", Point(100, 100));
+    CHECK(graph.ok);
+    const auto owned = CollectOwnedObjects(context, {script.created});
+    auto references = document.RetainObjects({graph.created});
+    CHECK(references && DeleteScript(document, script.created).ok);
+    document.History().Clear();
+    for (CK_ID id : owned) CHECK(context->GetObject(id));
+    CHECK(document.IsDiscarded(script.created));
+    const auto pasted = PasteScripts(document, {script.created}, owner, true);
+    CHECK(pasted.ok && document.IsLive(pasted.created));
+    auto second = document.RetainObjects({script.created});
+    references.reset();
+    CHECK(context->GetObject(script.created));
+    second.reset();
+    CheckGone(document, owned);
+    CHECK(document.History().Undo() && document.History().Redo());
+    CHECK(document.IsLive(pasted.created));
+
+    // Releasing an old clipboard after Close must not collect objects in
+    // the new composition, even when the runtime recycles object IDs.
+    references = document.RetainObjects({pasted.created});
+    document.Close();
+    CHECK(document.New(nullptr));
+    const auto next = CreateScript(document, context->GetCurrentLevel()->GetID(), "New document");
+    CHECK(next.ok);
+    references.reset();
+    CHECK(document.IsLive(next.created));
+
+    // History eviction and abandoning Redo also honor non-history owners.
+    auto retained = document.RetainObjects({next.created});
+    document.History().SetLimit(0);
+    CHECK(DeleteScript(document, next.created).ok);
+    CHECK(context->GetObject(next.created));
+    retained.reset();
+    CHECK(!context->GetObject(next.created));
+    document.History().SetLimit(50);
+    const auto undone = CreateScript(document, context->GetCurrentLevel()->GetID(), "Undone copy source");
+    CHECK(undone.ok);
+    retained = document.RetainObjects({undone.created});
+    CHECK(document.History().Undo());
+    Advance(document);
+    CHECK(context->GetObject(undone.created));
+    retained.reset();
+    CHECK(!context->GetObject(undone.created));
+
+    // A loaded Script can be copied from the Level Manager without ever
+    // opening its Schematic session. Its retained chunk must still paste.
+    namespace fs = std::filesystem;
+    const auto folder = fs::current_path() / ("clipboard-" + std::to_string(SDL_GetTicksNS()));
+    CHECK(fs::create_directory(folder));
+    struct Cleanup { fs::path folder; ~Cleanup() { std::error_code error; fs::remove_all(folder, error); } } cleanup{folder};
+    CHECK(CreateScript(document, context->GetCurrentLevel()->GetID(), "Unopened Script").ok);
+    SaveReport report;
+    const auto file = (folder / "source.cmo").u8string();
+    CHECK(SaveDocumentAs(document, file, {}, report));
+    CHECK(document.Open(file, nullptr));
+    CHECK(!document.Scripts().empty());
+    const auto loaded = document.Scripts().front().id;
+    CHECK(!document.ExistingSession(loaded));
+    retained = document.RetainObjects({loaded});
+    CHECK(DeleteScript(document, loaded).ok);
+    document.History().Clear();
+    const auto copy = PasteScripts(document, {loaded}, context->GetCurrentLevel()->GetID(), true);
+    CHECK(copy.ok && document.Session(copy.created));
+    retained.reset();
+    CHECK(!context->GetObject(loaded));
+}
+
 } // namespace vdevtest

@@ -1249,7 +1249,7 @@ void SetupWindows::AttributePage(Setup &setup, CKObject *object) {
                 values.push_back(value->GetID());
                 names.push_back(name ? name : "");
             }
-        m_State.clipboard.SetParameters(std::move(values), std::move(names));
+        m_State.clipboard.SetParameters(*m_State.document, std::move(values), std::move(names));
     };
     for (int i : order) {
         const CKAttributeType type = beObject->GetAttributeType(i);

@@ -295,7 +295,7 @@ void ManagerWindows::AttributeManager(bool *open) {
         for (CK_ID id : m_Doc.attributeRows)
             if (CKBeObject *object = CKBeObject::Cast(context->GetObject(id)))
                 if (CKParameterOut *value = object->GetAttributeParameter(m_Selected)) values.push_back(value->GetID());
-        m_State.clipboard.SetParameters(std::move(values));
+        m_State.clipboard.SetParameters(*m_State.document, std::move(values));
     };
     auto paste = [&] {
         std::vector<CK_ID> &copied = m_State.clipboard.parameters;

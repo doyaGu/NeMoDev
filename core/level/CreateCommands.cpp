@@ -348,7 +348,7 @@ EditResult DuplicateObjects(Document &document, const std::vector<CK_ID> &object
     XObjectArray originals;
     for (CK_ID id : objects) {
         CKObject *object = context->GetObject(id);
-        if (!object || document.IsDiscarded(id) || CKCurvePoint::Cast(object) || CKLevel::Cast(object) ||
+        if (!object || CKCurvePoint::Cast(object) || CKLevel::Cast(object) ||
             CKScene::Cast(object))
             continue;
         originals.PushBack(id);

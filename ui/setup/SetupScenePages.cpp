@@ -539,7 +539,7 @@ void SetupWindows::ArrayPage(Setup &setup, CKDataArray *array) {
         for (int row : selected)
             if (CKParameter *parameter = *reinterpret_cast<CKParameter **>(array->GetElement(row, column)))
                 cells.push_back(parameter->GetID());
-        m_State.clipboard.SetParameters(std::move(cells));
+        m_State.clipboard.SetParameters(*m_State.document, std::move(cells));
     };
     auto pasteCells = [&](int column) {
         if (column < 0 || selected.empty()) return;

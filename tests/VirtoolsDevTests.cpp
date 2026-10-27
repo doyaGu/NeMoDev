@@ -177,6 +177,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"Catalogs", [&] { Catalogs(host.Context()); }},
             {"Edits", [&] { Edits(host); }},
             {"GraveyardCollection", [&] { GraveyardCollection(host); }},
+            {"ObjectReferenceLifetimes", [&] { ObjectReferenceLifetimes(host); }},
             {"UndoRoundTrips", [&] { UndoRoundTrips(host, prototypes); }},
             {"ViewProjections", [&] { ViewProjections(host); }},
             {"LayoutGestures", [&] { LayoutGestures(host); }},
