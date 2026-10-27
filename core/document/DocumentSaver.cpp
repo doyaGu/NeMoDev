@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <random>
 #include <set>
 #include <sstream>
@@ -181,12 +182,43 @@ namespace {
 
 namespace fs = std::filesystem;
 
+struct ChunkDeleter {
+    void operator()(CKStateChunk *chunk) const { DeleteCKStateChunk(chunk); }
+};
+using Chunk = std::unique_ptr<CKStateChunk, ChunkDeleter>;
+
 struct Replacement {
     CK_ID id = 0;
     CKBehavior *script = nullptr;
-    CKStateChunk *chunk = nullptr;
+    Chunk chunk;
     size_t behaviorCount = 0;
     size_t linkCount = 0;
+    Chunk restoreChunk;
+};
+
+// Snapshot omission is an output option. Keep the complete chunk available
+// for the next save, including when CK writing or verification fails. This
+// owner lives outside GuardedCall so SEH cannot skip the restoration.
+class RestoreSnapshotChunks {
+public:
+    RestoreSnapshotChunks(Document &document, std::vector<Replacement> &replacements)
+        : m_Document(document), m_Context(document.Context()), m_Generation(document.Host().Generation()),
+          m_Replacements(replacements) {}
+    RestoreSnapshotChunks(const RestoreSnapshotChunks &) = delete;
+    RestoreSnapshotChunks &operator=(const RestoreSnapshotChunks &) = delete;
+    ~RestoreSnapshotChunks() { Restore(); }
+    void Restore() {
+        if (m_Document.Context() != m_Context || m_Document.Host().Generation() != m_Generation) return;
+        for (auto &replacement : m_Replacements)
+            if (replacement.restoreChunk && m_Context->GetObject(replacement.id) == replacement.script)
+                replacement.script->SetInterfaceChunk(replacement.restoreChunk.release());
+    }
+
+private:
+    Document &m_Document;
+    CKContext *m_Context;
+    std::uint64_t m_Generation;
+    std::vector<Replacement> &m_Replacements;
 };
 
 size_t CountLinks(const InterfaceData &data) {
@@ -197,6 +229,34 @@ size_t CountLinks(const InterfaceData &data) {
 
 std::string NameOf(CKObject *object) {
     return object && object->GetName() ? object->GetName() : std::string();
+}
+
+Chunk SerializeScript(InterfaceData &data, CKBehavior *script, bool reconstructed, SaveReport &report) {
+    const std::string name = NameOf(script);
+    const auto issues = ValidateInterfaceData(data, script, InterfaceDataValidationStage::BeforeSaveToChunk);
+    if (!issues.empty()) {
+        for (const auto &issue : issues)
+            report.errors.push_back(name + ": behavior " + std::to_string(issue.behaviorId) + " link " +
+                                    std::to_string(issue.linkIndex) + " " + issue.field + ": " + issue.reason);
+        return {};
+    }
+    Chunk chunk(GenerateInterfaceChunk(data, script));
+    if (!chunk) {
+        report.errors.push_back(name + ": InterfaceChunk generation failed");
+        return {};
+    }
+    InterfaceData reloaded;
+    const CKERROR error = reloaded.LoadFromChunk(script, chunk.get());
+    InterfaceDataDiff::Config config;
+    // Parameter::id of rebuilt shortcuts is not stored in display tables.
+    config.ignoreSyntheticParameterIds = reconstructed;
+    const auto diff = InterfaceDataDiff(config).Compare(data, reloaded);
+    if (error != CK_OK || !diff.identical) {
+        if (std::getenv("SCHEMATIC_SAVE_TRACE")) std::fprintf(stderr, "%s\n", diff.GetDetailedReport().c_str());
+        report.errors.push_back(name + ": generated InterfaceChunk does not reload identically");
+        return {};
+    }
+    return chunk;
 }
 
 } // namespace
@@ -500,10 +560,6 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
 
     // 1. Serialize and reload every edited Script before installing anything.
     std::vector<Replacement> replacements;
-    auto discard = [&] {
-        for (auto &replacement : replacements) DeleteCKStateChunk(replacement.chunk);
-        replacements.clear();
-    };
     // Without Save Script Snapshot every Script with a snapshot is written
     // again without it (its session made now if needed).
     if (!options.saveScriptSnapshots)
@@ -517,41 +573,31 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
         if (!session.Dirty() && !dropSnapshot) continue;
         CKBehavior *script = CKBehavior::Cast(context->GetObject(entry.first));
         if (!script || document.IsDiscarded(entry.first)) continue;
-        const std::string name = NameOf(script);
         InterfaceData written = session.Data();
         if (dropSnapshot) written.header.SetSnapshot(nullptr);
-        const auto issues = ValidateInterfaceData(written, script, InterfaceDataValidationStage::BeforeSaveToChunk);
-        if (!issues.empty()) {
-            for (const auto &issue : issues)
-                report.errors.push_back(name + ": behavior " + std::to_string(issue.behaviorId) + " link " +
-                                        std::to_string(issue.linkIndex) + " " + issue.field + ": " + issue.reason);
-            discard();
-            return false;
+        const bool reconstructed = session.Origin() == SessionOrigin::Reconstructed;
+        Chunk chunk = SerializeScript(written, script, reconstructed, report);
+        if (!chunk) return false;
+        Chunk restoreChunk;
+        if (dropSnapshot) {
+            // Preserve untouched bytes. Edited layouts need a complete new
+            // chunk too, since a successful save will mark the session clean.
+            if (!session.Dirty() && script->GetInterfaceChunk()) {
+                restoreChunk.reset(CreateCKStateChunk(script->GetInterfaceChunk()));
+                if (!restoreChunk) report.errors.push_back(NameOf(script) + ": cannot retain the complete InterfaceChunk");
+            } else {
+                InterfaceData complete = session.Data();
+                restoreChunk = SerializeScript(complete, script, reconstructed, report);
+            }
+            if (!restoreChunk) return false;
         }
-        CKStateChunk *chunk = GenerateInterfaceChunk(written, script);
-        if (!chunk) {
-            report.errors.push_back(name + ": InterfaceChunk generation failed");
-            discard();
-            return false;
-        }
-        InterfaceData reloaded;
-        const CKERROR error = reloaded.LoadFromChunk(script, chunk);
-        InterfaceDataDiff::Config config;
-        // Parameter::id of rebuilt shortcuts is not stored in display tables.
-        config.ignoreSyntheticParameterIds = session.Origin() == SessionOrigin::Reconstructed;
-        const auto diff = InterfaceDataDiff(config).Compare(written, reloaded);
-        if (error != CK_OK || !diff.identical) {
-            if (std::getenv("SCHEMATIC_SAVE_TRACE")) std::fprintf(stderr, "%s\n", diff.GetDetailedReport().c_str());
-            DeleteCKStateChunk(chunk);
-            report.errors.push_back(name + ": generated InterfaceChunk does not reload identically");
-            discard();
-            return false;
-        }
-        replacements.push_back({entry.first, script, chunk, written.behaviors.size(), CountLinks(written)});
+        replacements.push_back({entry.first, script, std::move(chunk), written.behaviors.size(), CountLinks(written),
+                                std::move(restoreChunk)});
     }
 
     // 2. Install. CKBehavior owns installed chunks.
-    for (auto &replacement : replacements) replacement.script->SetInterfaceChunk(replacement.chunk);
+    RestoreSnapshotChunks restoreSnapshots(document, replacements);
+    for (auto &replacement : replacements) replacement.script->SetInterfaceChunk(replacement.chunk.release());
     report.chunksWritten = static_cast<int>(replacements.size());
 
     // 3. Save the loaded and created objects, minus soft-deleted ones.
@@ -604,6 +650,7 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
     const bool closed = GuardedCall([&] { context->DeleteCKFile(file); }, &document.Host(), "CKContext::DeleteCKFile");
     DeleteCKObjectArray(objects);
     context->SetFileWriteMode(writeMode);
+    restoreSnapshots.Restore();
     if (!closed) {
         report.errors.push_back("CKFile cleanup raised an exception; the destination was not replaced");
         return false;

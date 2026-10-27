@@ -30,7 +30,9 @@ struct SaveOptions {
     bool allowOverwrite = false;
     // Dev's Save Script Snapshot (Schematic preference; Dev.exe
     // SaveScriptHeader writes the header's bitmap only with it): without it
-    // the Scripts are saved with no snapshot, the untouched ones too.
+    // the Scripts are saved with no snapshot, the untouched ones too. This
+    // affects the output only; the complete runtime chunks and session
+    // bitmaps remain available for later saves with snapshots enabled.
     bool saveScriptSnapshots = true;
     // CK_FILE_WRITEMODE flags added to the context's for this save: Dev.exe's
     // Export to Player (sub_5C6400) adds CKFILE_FORVIEWER and
@@ -43,7 +45,8 @@ struct SaveOptions {
 
 // Writes a whole composition (tools/InterfaceChunkProjectWriter.cpp flow):
 // every edited Script session is validated, serialized and reloaded before
-// any chunk is installed; untouched Scripts keep their original chunk bytes.
+// any chunk is installed; untouched Scripts keep their original chunk bytes
+// (snapshot omission uses temporary chunks only during CK writing).
 // A temporary file in the destination directory is loaded in a separate CKContext,
 // where parameter types, object references, Sprite Text alignment and every rewritten
 // InterfaceChunk are checked (a player file loads outside interface mode and has no InterfaceChunk).
