@@ -573,7 +573,8 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
     // place for it (bitmap 835).
     const ImVec2 picture(at.x + 23, at.y + 12), pictureMax(picture.x + 52, picture.y + 40);
     auto found = m_State.objectPictures.find(object->GetID());
-    ImTextureID texture = found != m_State.objectPictures.end() ? SnapshotTexture(found->second, nullptr) : DevBitmap(835);
+    ImTextureID texture = found != m_State.objectPictures.end()
+        ? SnapshotTexture(found->second, nullptr, m_State.document->BitmapOwner(found->second)) : DevBitmap(835);
     if (texture) dl->AddImage(texture, picture, pictureMax);
     ImGui::Dummy(ImVec2(98, 64));
     // Its menu (Dev.exe sub_448CA0): Load Snapshot (an image file,

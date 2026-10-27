@@ -34,7 +34,7 @@ std::vector<EditResult> PasteScriptsOn(Document &document, const std::vector<CK_
 void CopyScriptDisplay(Document &document, CKBehavior *original, CKBehavior *copy);
 
 // Dev "Load Snapshot for Script": the header's snapshot bitmap (an SDK bitmap
-// the document keeps, see Document::KeepBitmap; null removes it).
+// adopted with Document::KeepBitmap; display/undo owners retain it; null removes it).
 // Display data only.
 bool SetScriptSnapshot(Document &document, CK_ID script, void *bitmap);
 

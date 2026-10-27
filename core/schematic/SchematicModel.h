@@ -35,6 +35,7 @@ struct ScriptItem {
     CKDWORD color = 0;
     int priority = 0; // the Script's (the header's "Priority = %d" with Show Priorities)
     void *snapshot = nullptr; // header SDK bitmap, borrowed from the session
+    std::shared_ptr<void> snapshotOwner;
     Rect header;          // header column
     Rect bounds;          // whole Script area in Script-local pixels
     float contentHeight = 0.0f; // the height its contents need (open Scripts)

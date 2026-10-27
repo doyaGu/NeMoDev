@@ -39,6 +39,7 @@ std::map<CK_ID, void *> ReadObjectPictures(Document &document) {
             document.KeepBitmap(bitmap);
             pictures[object] = bitmap;
         }
+    document.RetainPictures(pictures);
     return pictures;
 }
 

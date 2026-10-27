@@ -11,7 +11,12 @@
 
 namespace vdev {
 namespace {
-struct Texture { UiTexture *view = nullptr; ImVec2 size; };
+struct Texture {
+    UiTexture *view = nullptr;
+    ImVec2 size;
+    std::weak_ptr<void> owner;
+    bool tracked = false;
+};
 std::vector<std::unique_ptr<UiTexture>> &Retired() { static std::vector<std::unique_ptr<UiTexture>> value; return value; }
 std::map<void *, Texture> &Textures() { static std::map<void *, Texture> value; return value; }
 std::map<unsigned long long, Texture> &PixelTextures() { static std::map<unsigned long long, Texture> value; return value; }
@@ -69,12 +74,31 @@ UiTexture *MakeRgbaTexture(int width, int height, const void *rgba) {
     return MainRenderer().CreateTexture(width, height, rgba).release();
 }
 void RetireTexture(UiTexture *texture) { if (texture) Retired().emplace_back(texture); }
-void ReleaseRetiredTextures() { Retired().clear(); }
-ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size) {
+void ReleaseRetiredTextures() {
+    for (auto it = Textures().begin(); it != Textures().end();) {
+        if (it->second.tracked && it->second.owner.expired()) {
+            RetireTexture(it->second.view);
+            it = Textures().erase(it);
+        } else ++it;
+    }
+    Retired().clear();
+}
+#ifdef VIRTOOLSDEV_UI_TESTS
+size_t SnapshotTextureCountForTests() { return Textures().size(); }
+#endif
+ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size, const std::shared_ptr<void> &owner) {
     if (!bitmap || !MainRenderer().Started()) return ImTextureID();
     auto found = Textures().find(bitmap);
+    if (found != Textures().end() &&
+        (found->second.owner.owner_before(owner) || owner.owner_before(found->second.owner))) {
+        RetireTexture(found->second.view);
+        Textures().erase(found);
+        found = Textures().end();
+    }
     if (found == Textures().end()) {
         Texture texture;
+        texture.owner = owner;
+        texture.tracked = bool(owner);
         std::vector<unsigned char> pixels;
         int width = 0, height = 0;
         if (PixelsOfBitmap(bitmap, pixels, width, height)) {

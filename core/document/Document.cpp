@@ -137,6 +137,7 @@ void Document::CommitOpen(PreparedOpen &prepared) {
     m_Graveyard = std::move(candidate.m_Graveyard);
     m_CreatedObjects = std::move(candidate.m_CreatedObjects);
     m_Bitmaps = std::move(candidate.m_Bitmaps);
+    m_PictureOwners = std::move(candidate.m_PictureOwners);
     m_TopologyRevision = candidate.m_TopologyRevision;
     m_SavedTopologyRevision = candidate.m_SavedTopologyRevision;
     m_ChangesOutsideUndo = candidate.m_ChangesOutsideUndo;
@@ -511,7 +512,31 @@ void Document::AdoptObjects(const std::vector<CK_ID> &objects) {
 }
 
 void Document::KeepBitmap(void *bitmap) {
-    if (bitmap) m_Bitmaps.emplace_back(bitmap, [](void *handle) { VxDeleteBitmap(handle); });
+    if (bitmap && !BitmapOwner(bitmap)) m_Bitmaps.emplace_back(bitmap, [](void *handle) { VxDeleteBitmap(handle); });
+}
+
+std::shared_ptr<void> Document::BitmapOwner(void *bitmap) const {
+    for (const auto &owner : m_Bitmaps)
+        if (owner.get() == bitmap) return owner;
+    return {};
+}
+
+void Document::RetainPictures(const std::map<CK_ID, void *> &pictures) {
+    std::map<CK_ID, std::shared_ptr<void>> owners;
+    for (const auto &picture : pictures)
+        if (auto owner = BitmapOwner(picture.second)) owners.emplace(picture.first, std::move(owner));
+    m_PictureOwners = std::move(owners);
+}
+
+void Document::RetainPicture(CK_ID object, void *bitmap) {
+    if (auto owner = BitmapOwner(bitmap)) m_PictureOwners[object] = std::move(owner);
+    else m_PictureOwners.erase(object);
+}
+
+void Document::CollectBitmaps() {
+    if (EditOpen() || m_History.m_Running || m_CollectingGraveyard) return;
+    m_Bitmaps.erase(std::remove_if(m_Bitmaps.begin(), m_Bitmaps.end(),
+                                  [](const auto &bitmap) { return bitmap.use_count() == 1; }), m_Bitmaps.end());
 }
 
 void Document::Close() {
@@ -530,6 +555,7 @@ void Document::Close() {
     m_History.Clear();
     for (const auto &entry : m_Sessions) m_ChangesOutsideUndo += entry.second->ChangesOutsideUndo();
     m_Sessions.clear();
+    m_PictureOwners.clear();
     m_Bitmaps.clear(); // after the sessions borrowing them
     m_Scripts.clear();
     m_LoadedObjects.clear();
@@ -552,6 +578,7 @@ void Document::CollectGraveyard() {
     CKContext *context = Context();
     if (!m_GraveyardCollectionPending || !context || EditOpen() || m_History.m_Running || m_CollectingGraveyard) return;
     m_GraveyardCollectionPending = false;
+    CollectBitmaps();
     if (m_Graveyard.empty()) return;
 
     // An action's ordinary references are ordered before the step that
@@ -605,6 +632,7 @@ void Document::CollectGraveyard() {
     m_LoadedObjects.erase(std::remove_if(m_LoadedObjects.begin(), m_LoadedObjects.end(),
                                         [&](CK_ID id) { return !context->GetObject(id); }), m_LoadedObjects.end());
     RefreshScripts();
+    CollectBitmaps();
 }
 
 bool Document::IsLive(CK_ID id) const {

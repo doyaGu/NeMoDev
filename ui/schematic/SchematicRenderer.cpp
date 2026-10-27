@@ -205,7 +205,7 @@ void DrawScriptFrame(const Painter &p, const SchematicModel &model) {
         // Printing without Print Bitmaps, the bitmaps are left out (sub_4F9E80).
         if (thumb.Bottom() < header.Bottom() && (!p.o.print || p.o.print->bitmaps)) {
             ImVec2 size;
-            const ImTextureID texture = script.snapshot ? SnapshotTexture(script.snapshot, &size) : ImTextureID();
+            const ImTextureID texture = script.snapshot ? SnapshotTexture(script.snapshot, &size, script.snapshotOwner) : ImTextureID();
             if (texture && size.x > 0 && size.y > 0) {
                 const float scale = std::min({1.0f, thumb.hSize / size.x, thumb.vSize / size.y});
                 const float w = size.x * scale, h = size.y * scale;

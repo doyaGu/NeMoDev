@@ -51,6 +51,13 @@ std::shared_ptr<InterfaceBitmap> InterfaceBitmap::Read(CKStateChunk *chunk) {
     return bitmap;
 }
 
+std::shared_ptr<InterfaceBitmap> InterfaceBitmap::Retain(const std::shared_ptr<void> &bitmap) {
+    if (!bitmap) return {};
+    auto retained = std::make_shared<InterfaceBitmap>();
+    retained->handle = bitmap;
+    return retained;
+}
+
 bool InterfaceBitmap::HasDataForSave(void *bitmap, const std::shared_ptr<InterfaceBitmap> &original) {
     if (bitmap) return true;
     if (!original || bitmap != original->GetHandle()) return false;

@@ -178,6 +178,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"Edits", [&] { Edits(host); }},
             {"GraveyardCollection", [&] { GraveyardCollection(host); }},
             {"ObjectReferenceLifetimes", [&] { ObjectReferenceLifetimes(host); }},
+            {"BitmapLifetimes", [&] { BitmapLifetimes(host); }},
             {"UndoRoundTrips", [&] { UndoRoundTrips(host, prototypes); }},
             {"ViewProjections", [&] { ViewProjections(host); }},
             {"LayoutGestures", [&] { LayoutGestures(host); }},

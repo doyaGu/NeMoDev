@@ -89,7 +89,10 @@ public:
                     );
     void Frame();
     // Called only after rendering and releasing this frame's UI textures.
-    void EndFrame() { m_State.runtimeOperation.Start(); }
+    void EndFrame() {
+        if (!m_State.runtimeOperation.Busy() && m_State.document) m_State.document->CollectBitmaps();
+        m_State.runtimeOperation.Start();
+    }
     void HandleEvent(const SDL_Event &event);
     void Shutdown();
     // Window close request: asks about unsaved changes first.
@@ -183,6 +186,7 @@ private:
     struct CompositionSnapshot {
         LayoutInterfaceData layout;
         std::map<CK_ID, void *> pictures;
+        std::vector<std::shared_ptr<void>> pictureOwners;
         bool writePictures = false;
         CompositionData Data() const { return {&layout, writePictures ? &pictures : nullptr}; }
     };

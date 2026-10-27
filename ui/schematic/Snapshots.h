@@ -1,5 +1,6 @@
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -23,7 +24,10 @@ bool PixelsOfBitmap(void *bitmap, std::vector<unsigned char> &bgra, int &width, 
 
 // The editor texture of a bitmap handle, made on first use; size in pixels.
 // Null when the handle cannot be read.
-ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size);
+ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size, const std::shared_ptr<void> &owner = {});
+#ifdef VIRTOOLSDEV_UI_TESTS
+size_t SnapshotTextureCountForTests();
+#endif
 
 // A texture made from 32-bit BGRA rows (pitch bytes apart) under key,
 // replacing the previous one of that key; alphaAsGray shows the alpha

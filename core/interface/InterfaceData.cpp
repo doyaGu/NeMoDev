@@ -21,9 +21,14 @@ void Header::SetPosition(float h, float v) {
     vStartPos = v;
 }
 
-void Header::SetSnapshot(void *bitmap) {
-    if (snapshotStorage) snapshotStorage = snapshotStorage->WithoutEncoding(bitmap);
+void Header::SetSnapshot(void *bitmap, const std::shared_ptr<void> &owner) {
+    if (owner && owner.get() == bitmap) snapshotStorage = InterfaceBitmap::Retain(owner);
+    else if (snapshotStorage) snapshotStorage = snapshotStorage->WithoutEncoding(bitmap);
     snapshot = bitmap;
+}
+
+std::shared_ptr<void> Header::SnapshotOwner() const {
+    return snapshotStorage && snapshot == snapshotStorage->GetHandle() ? snapshotStorage->GetOwner() : nullptr;
 }
 
 // LinkEndpoint implementations

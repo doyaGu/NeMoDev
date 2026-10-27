@@ -114,6 +114,7 @@ void SchematicModel::Build(const ScriptSession &session, CKContext *context, con
     script.color = data.header.color;
     script.priority = root ? root->GetPriority() : 0;
     script.snapshot = data.header.snapshot;
+    script.snapshotOwner = data.header.SnapshotOwner();
     m_OpenGraphs[script.id] = script.open;
 
     // Records by id with their depth below the Script.

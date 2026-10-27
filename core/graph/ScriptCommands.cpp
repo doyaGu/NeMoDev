@@ -170,7 +170,9 @@ bool SetScriptSnapshot(Document &document, CK_ID script, void *bitmap) {
     ScriptSession *session = document.Session(script);
     if (!session || !(session->Data().rootBehavior.id == script)) return false;
     return EditScriptData(document, script, "Load Snapshot for Script",
-                          [bitmap](InterfaceData &data) { data.header.SetSnapshot(bitmap); });
+                          [bitmap, owner = document.BitmapOwner(bitmap)](InterfaceData &data) {
+                              data.header.SetSnapshot(bitmap, owner);
+                          });
 }
 
 } // namespace vdev

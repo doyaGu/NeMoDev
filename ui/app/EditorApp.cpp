@@ -432,6 +432,7 @@ void EditorApp::CompleteOpen(const std::string &path, const OpenResult &result) 
         m_Layout.ApplyLayoutData(result.layout);
         ReopenSetups(result.layout);
         m_State.objectPictures = result.pictures;
+        m_State.document->RetainPictures(m_State.objectPictures);
         m_State.objectPicturesChanged = false;
         m_State.invalidLinks = result.invalid;
         if (result.removed) m_State.Log(LogLevel::Warning, std::to_string(result.removed) + " invalid link(s) removed after loading");
@@ -507,6 +508,7 @@ void EditorApp::MergeComposition(bool asScene, const std::string &file) {
             std::map<CK_ID, void *> pictures = result->pictures;
             for (const auto &picture : m_State.objectPictures) pictures[picture.first] = picture.second;
             m_State.objectPictures = std::move(pictures);
+            m_State.document->RetainPictures(m_State.objectPictures);
             m_State.objectPicturesChanged = true;
             // Show the first merged Script.
             for (const ScriptInfo &script : m_State.document->Scripts())
@@ -625,7 +627,11 @@ EditorApp::CompositionSnapshot EditorApp::CompositionToSave(const LayoutInterfac
     CompositionSnapshot data;
     data.layout = layout;
     data.writePictures = m_State.objectPicturesChanged;
-    if (data.writePictures) data.pictures = m_State.objectPictures;
+    if (data.writePictures) {
+        data.pictures = m_State.objectPictures;
+        for (const auto &picture : data.pictures)
+            data.pictureOwners.push_back(m_State.document->BitmapOwner(picture.second));
+    }
     return data;
 }
 

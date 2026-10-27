@@ -10,11 +10,13 @@
 class InterfaceBitmap {
 public:
     static std::shared_ptr<InterfaceBitmap> Read(CKStateChunk *chunk);
+    static std::shared_ptr<InterfaceBitmap> Retain(const std::shared_ptr<void> &bitmap);
     static void Write(CKStateChunk *chunk, void *bitmap,
                       const std::shared_ptr<InterfaceBitmap> &original);
     static bool HasDataForSave(void *bitmap, const std::shared_ptr<InterfaceBitmap> &original);
 
     void *GetHandle() const { return handle.get(); }
+    std::shared_ptr<void> GetOwner() const { return handle; }
     std::shared_ptr<InterfaceBitmap> WithoutEncoding(void *bitmap) const;
 
 private:

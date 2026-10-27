@@ -329,4 +329,54 @@ void ObjectReferenceLifetimes(CkRuntimeHost &host) {
     CHECK(!context->GetObject(loaded));
 }
 
+void BitmapLifetimes(CkRuntimeHost &host) {
+    Document document(host);
+    CHECK(document.New(nullptr));
+    const auto script = CreateScript(document, document.Context()->GetCurrentLevel()->GetID(), "Snapshot lifetime");
+    CHECK(script.ok);
+    unsigned char pixel[4] = {20, 40, 60, 255};
+    VxImageDescEx image;
+    VxPixelFormat2ImageDesc(_32_ARGB8888, image);
+    image.Width = image.Height = 1;
+    image.BytesPerLine = 4;
+    image.Image = pixel;
+    void *first = VxCreateBitmap(image);
+    CHECK(first);
+    document.KeepBitmap(first);
+    document.KeepBitmap(first); // adopting the same handle twice shares its owner
+    std::weak_ptr<void> original = document.BitmapOwner(first);
+    CHECK(SetScriptSnapshot(document, script.created, first));
+    document.History().Clear();
+    CHECK(!original.expired());
+    void *second = VxCreateBitmap(image);
+    CHECK(second);
+    document.KeepBitmap(second);
+    std::weak_ptr<void> replacement = document.BitmapOwner(second);
+    CHECK(SetScriptSnapshot(document, script.created, second));
+    CHECK(document.History().Undo());
+    CHECK(document.Session(script.created)->Data().header.snapshot == first);
+    CHECK(document.History().Redo());
+    CHECK(document.Session(script.created)->Data().header.snapshot == second);
+    document.History().Clear();
+    CHECK(original.expired());
+    CHECK(!replacement.expired());
+    CHECK(SetScriptSnapshot(document, script.created, nullptr));
+    document.History().Clear();
+    CHECK(replacement.expired());
+
+    // A caller can retain an image independently of its original Script.
+    void *third = VxCreateBitmap(image);
+    CHECK(third);
+    document.KeepBitmap(third);
+    auto retained = document.BitmapOwner(third);
+    std::weak_ptr<void> outside = retained;
+    CHECK(SetScriptSnapshot(document, script.created, third));
+    CHECK(SetScriptSnapshot(document, script.created, nullptr));
+    document.History().Clear();
+    CHECK(!outside.expired());
+    retained.reset();
+    document.CollectBitmaps();
+    CHECK(outside.expired());
+}
+
 } // namespace vdevtest

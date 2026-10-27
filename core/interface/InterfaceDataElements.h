@@ -137,13 +137,15 @@ struct Header : InterfaceElement {
     float vStartSize = 20.0f;       ///< Reconstruction-only Start height; no InterfaceChunk field
     float vSize = 0.0f;             ///< Script vSize; absent in sectioned versions before 0x0F
     CKDWORD color = InterfaceChunkFormat::DEFAULT_HEADER_COLOR; ///< Script color, stored from inline 0x14; default is library-only
-    void *snapshot = nullptr;       ///< Bitmap handle; loaded handles are owned, caller-assigned handles are borrowed
+    void *snapshot = nullptr;       ///< Bitmap handle; retained when an owner is supplied
 
     Point GetPosition() const;
     void SetPosition(float h, float v);
-    /// Borrow a caller-owned handle, or retain the same loaded handle. Discard
-    /// the previous encoded record; nullptr also clears an undecoded image.
-    void SetSnapshot(void *bitmap);
+    /// Retain owner when supplied, otherwise borrow the handle or retain the
+    /// same loaded handle. Discard the previous encoded record; nullptr also
+    /// clears an undecoded image.
+    void SetSnapshot(void *bitmap, const std::shared_ptr<void> &owner = {});
+    std::shared_ptr<void> SnapshotOwner() const;
 
 private:
     friend class InterfaceData;

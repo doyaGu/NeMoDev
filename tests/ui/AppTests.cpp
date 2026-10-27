@@ -8,6 +8,7 @@
 #include "tests/ui/UiTests.h"
 #include "ui/app/DesktopFiles.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/schematic/Snapshots.h"
 #include <cmath>
 
 namespace vdevuitest {
@@ -23,6 +24,46 @@ bool WindowShown(ImGuiTestContext *ctx, const char *name) {
 
 void RegisterAppTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "app", "replaced_pictures_release_bitmaps_and_textures");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto baseline = Read<size_t>(ctx, [] { return vdev::SnapshotTextureCountForTests(); });
+        std::weak_ptr<void> previous;
+        for (int pass = 0; pass < 12; ++pass) {
+            OnMainThread(ctx, [&] {
+                auto &state = App().State();
+                auto &document = *state.document;
+                const CK_ID object = document.Context()->GetCurrentLevel()->GetID();
+                const unsigned char pixel[4] = {static_cast<unsigned char>(pass), 90, 170, 255};
+                void *bitmap = vdev::BitmapFromPixels(pixel, 1, 1);
+                IM_CHECK(bitmap);
+                state.SetObjectPictureBitmap(object, bitmap);
+                IM_CHECK(vdev::SnapshotTexture(bitmap, nullptr, document.BitmapOwner(bitmap)) != ImTextureID());
+                if (pass) {
+                    IM_CHECK(state.History().Undo());
+                    IM_CHECK(state.History().Redo());
+                    IM_CHECK(state.objectPictures.at(object) == bitmap);
+                }
+                state.History().Clear();
+                IM_CHECK(previous.expired());
+                previous = document.BitmapOwner(bitmap);
+                IM_CHECK(!previous.expired());
+            });
+            ctx->Yield(2);
+            IM_CHECK(Read<size_t>(ctx, [] { return vdev::SnapshotTextureCountForTests(); }) <= baseline + 1);
+        }
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            state.SetObjectPictureBitmap(state.document->Context()->GetCurrentLevel()->GetID(), nullptr);
+            state.History().Clear();
+            IM_CHECK(previous.expired());
+            state.document->MarkSaved();
+        });
+        ctx->Yield(2);
+        IM_CHECK(Read<size_t>(ctx, [] { return vdev::SnapshotTextureCountForTests(); }) <= baseline);
+    };
 
     t = IM_REGISTER_TEST(engine, "app", "clipboard_survives_history_collection");
     t->GuiFunc = MainThreadGui;

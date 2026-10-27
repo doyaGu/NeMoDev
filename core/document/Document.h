@@ -167,9 +167,13 @@ public:
     std::uint64_t TopologyRevision() const { return m_TopologyRevision; }
     bool TopologyDirty() const { return m_TopologyRevision != m_SavedTopologyRevision; }
     void MarkSaved();
-    // SDK bitmap handles that display data borrows, such as loaded
-    // Script snapshots; deleted when the document closes.
+    // Adopt SDK bitmaps. Display data/history and picture owners retain
+    // them; collection drops the document's last unused staging reference.
     void KeepBitmap(void *bitmap);
+    std::shared_ptr<void> BitmapOwner(void *bitmap) const;
+    void RetainPictures(const std::map<CK_ID, void *> &pictures);
+    void RetainPicture(CK_ID object, void *bitmap);
+    void CollectBitmaps();
 
 private:
     // Only edits make and discard objects; the saver reads the sets behind
@@ -204,6 +208,7 @@ private:
     std::set<ObjectReferences *> m_ObjectReferences;
     std::set<CK_ID> m_CreatedObjects;
     std::vector<std::shared_ptr<void>> m_Bitmaps;
+    std::map<CK_ID, std::shared_ptr<void>> m_PictureOwners;
     std::uint64_t m_TopologyRevision = 0;
     std::uint64_t m_SavedTopologyRevision = 0;
     std::uint64_t m_ChangesOutsideUndo = 0; // with those of the sessions gone
