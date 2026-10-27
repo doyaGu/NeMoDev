@@ -938,9 +938,8 @@ int LayoutInterfaceFile(CkRuntimeHost &host, const std::string &path, const std:
         SaveOptions options;
         options.allowOverwrite = true;
         SaveReport report;
-        CompositionData composition;
-        composition.layout = &data;
-        check(SaveComposition(document, saved, composition, options, report), "save the lists");
+        WriteLayoutInterfaceData(document, data);
+        check(SaveDocumentAs(document, saved, options, report), "save the lists");
         check(document.Open(saved, &error), "reopen the lists: " + error);
         auto names = [&](const std::set<CK_ID> &ids) {
             std::set<std::string> named;
@@ -1066,17 +1065,17 @@ int ObjectPicturesFile(CkRuntimeHost &host, const std::string &path, const std::
         SaveOptions options;
         options.allowOverwrite = true;
         SaveReport report;
-        CompositionData data;
-        data.pictures = pictures;
-        check(SaveComposition(document, saved, data, options, report), "save " + file);
+        if (pictures)
+            for (const auto &picture : *pictures) SetObjectPicture(document, picture.first, picture.second);
+        check(SaveDocumentAs(document, saved, options, report), "save " + file);
         for (const auto &message : report.errors) std::cerr << "  " << message << '\n';
         check(document.Open(saved, &error), "reopen " + file + ": " + error);
     };
     auto pictureOf = [&](const std::string &object) -> void * {
-        const std::map<CK_ID, void *> read = ReadObjectPictures(document);
+        const auto &read = document.Pictures();
         for (const auto &entry : read) {
             CKObject *owner = context->GetObject(entry.first);
-            if (owner && owner->GetName() && object == owner->GetName()) return entry.second;
+            if (owner && owner->GetName() && object == owner->GetName()) return entry.second.get();
         }
         return nullptr;
     };

@@ -12,6 +12,8 @@
 #include "core/runtime/FileDuplicates.h"
 #include "core/document/ScriptSession.h"
 #include "core/document/UndoHistory.h"
+#include "core/document/ObjectPictures.h"
+#include "core/layout/LayoutInterface.h"
 #include "core/level/LevelCommands.h"
 
 namespace vdev {
@@ -168,13 +170,18 @@ public:
     std::uint64_t TopologyRevision() const { return m_TopologyRevision; }
     bool TopologyDirty() const { return m_TopologyRevision != m_SavedTopologyRevision; }
     void MarkSaved();
+    // Persistent editor data. Edits use the core's Layout/ObjectPicture commands;
+    // selection, focus and open windows belong to the UI.
+    const LayoutLists &Layout() const { return m_Layout; }
+    const ObjectPictures &Pictures() const { return m_Pictures; }
+    // Changes not yet installed in the runtime's picture chunks. A failed or
+    // rejected save must leave them available to the next attempt.
+    bool PicturesPending() const { return m_PicturesChanged; }
     // Adopt an SDK bitmap and return its shared owner (empty for nullptr).
     // Repeated adoption shares that owner. Display data/history and pictures
     // retain it; collection drops the document's unused staging reference.
     std::shared_ptr<void> KeepBitmap(void *bitmap);
     std::shared_ptr<void> BitmapOwner(void *bitmap) const;
-    void RetainPictures(const std::map<CK_ID, void *> &pictures);
-    void RetainPicture(CK_ID object, void *bitmap);
     void CollectBitmaps();
 
 private:
@@ -186,6 +193,9 @@ private:
     friend class ObjectReferences;
     friend struct DocumentSaverAccess;
     friend class LoadTransaction;
+    friend class LayoutListAction;
+    friend class FrameRepresentationAction;
+    friend class ObjectPictureAction;
     bool MergeInPlace(const std::string &path, bool asScene, std::string *error, std::vector<CK_ID> *merged,
                       const std::vector<DuplicateName> *duplicates);
     bool ImportInPlace(const std::string &path, ImportMode mode, std::string *error, std::vector<CK_ID> *imported,
@@ -198,6 +208,12 @@ private:
     // their actions/state chunks. Live objects never enter this collection.
     void CollectGraveyard();
     void RequestGraveyardCollection();
+    // Creating, discarding or restoring objects changes which editor records
+    // belong in the saved composition, even when their values stay the same.
+    void EditorObjectsChanged() {
+        m_LayoutChanged = true;
+        if (!m_Pictures.empty()) m_PicturesChanged = true;
+    }
 
     CkRuntimeHost &m_Host;
     bool m_Open = false;
@@ -210,7 +226,10 @@ private:
     std::set<ObjectReferences *> m_ObjectReferences;
     std::set<CK_ID> m_CreatedObjects;
     std::unordered_map<void *, std::shared_ptr<void>> m_Bitmaps;
-    std::map<CK_ID, std::shared_ptr<void>> m_PictureOwners;
+    LayoutLists m_Layout;
+    ObjectPictures m_Pictures;
+    bool m_LayoutChanged = false;
+    bool m_PicturesChanged = false;
     std::uint64_t m_TopologyRevision = 0;
     std::uint64_t m_SavedTopologyRevision = 0;
     std::uint64_t m_ChangesOutsideUndo = 0; // with those of the sessions gone

@@ -1,3 +1,4 @@
+#include "core/layout/LayoutCommands.h"
 // The 3D Layout's shortcut menu (Dev.exe sub_4C1BB0) and the commands it
 // runs (sub_4B95C0, WM_COMMAND).
 
@@ -305,7 +306,7 @@ void LayoutWindow::SetRepresentation(int representation) {
             if (entity && (entity->GetFlags() & CK_3DENTITY_FRAME)) frames.push_back(id);
         }
     }
-    m_State.SetFrameRepresentation(frames, representation);
+    SetFrameRepresentation(*m_State.document, frames, representation);
 }
 
 // Dev.exe sub_5BDD60 (mode -1): the "Copy Options" parameter dialog, the
@@ -348,8 +349,6 @@ void LayoutWindow::CopyOptionsDialog() {
     }
     std::vector<CK_ID> made;
     for (const auto &copy : copies) {
-        auto found = m_State.frameRepresentations.find(copy.first);
-        if (found != m_State.frameRepresentations.end()) m_State.frameRepresentations[copy.second] = found->second;
         made.push_back(copy.second);
     }
     m_State.objectSelection.locked = false;

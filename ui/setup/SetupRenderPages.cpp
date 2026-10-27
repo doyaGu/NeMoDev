@@ -1,3 +1,4 @@
+#include "core/layout/LayoutCommands.h"
 #include <filesystem>
 // The Setups of the render objects: 3D entities, cameras, lights, sprites, materials, meshes, textures, grids.
 
@@ -314,12 +315,12 @@ void SetupWindows::CameraPage(CKCamera *camera) {
     // Mode (not the object's visibility); the 3D Layout draws the camera's
     // frustum (its own state, not the camera's).
     page.Line(25, 110, 26, 150);
-    bool shown = m_State.playerShown.count(id) != 0;
+    bool shown = m_State.document->Layout().playerShown.count(id) != 0;
     if (page.Check("Show In Player Mode", 45, 114, shown))
-        m_State.SetInLayoutList(m_State.playerShown, id, shown, "Show In Player Mode");
+        SetLayoutMembership(*m_State.document, LayoutList::PlayerShown, id, shown, "Show In Player Mode");
     page.Label(60, 112, 210, 128, "Show In Player Mode");
-    bool cone = m_State.layoutCones.count(id) != 0;
-    if (page.Check("Show cone", 45, 134, cone)) m_State.SetInLayoutList(m_State.layoutCones, id, cone, "Show cone");
+    bool cone = m_State.document->Layout().cones.count(id) != 0;
+    if (page.Check("Show cone", 45, 134, cone)) SetLayoutMembership(*m_State.document, LayoutList::Cones, id, cone, "Show cone");
     page.Label(60, 132, 200, 148, "Show cone");
     if (CKTargetCamera::Cast(camera)) {
         page.Label(20, 190, 80, 210, "Target");
@@ -440,9 +441,9 @@ void SetupWindows::LightPage(CKLight *light) {
     // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player
     // Mode (not the object's visibility).
     page.Line(25, 110, 26, 170);
-    bool shown = m_State.playerShown.count(id) != 0, specular = properties::LightSpecular.get(light);
+    bool shown = m_State.document->Layout().playerShown.count(id) != 0, specular = properties::LightSpecular.get(light);
     if (page.Check("Show In Player Mode", 45, 114, shown))
-        m_State.SetInLayoutList(m_State.playerShown, id, shown, "Show In Player Mode");
+        SetLayoutMembership(*m_State.document, LayoutList::PlayerShown, id, shown, "Show In Player Mode");
     page.Label(60, 112, 210, 128, "Show In Player Mode");
     if (page.Check("Specular", 45, 134, specular)) LiveSet(id, properties::LightSpecular, specular);
     page.Label(60, 132, 200, 148, "Specular");
@@ -485,9 +486,9 @@ void SetupWindows::LightPage(CKLight *light) {
                         std::max(200.0f, range), "%.1f", 0.5f))
         LiveSet(id, properties::LightRange, range);
     // The 3D Layout draws the light's cone or range (its own state).
-    bool influence = m_State.layoutCones.count(id) != 0;
+    bool influence = m_State.document->Layout().cones.count(id) != 0;
     if (page.Check("Show Influence", 245, 204, influence))
-        m_State.SetInLayoutList(m_State.layoutCones, id, influence, "Show influence");
+        SetLayoutMembership(*m_State.document, LayoutList::Cones, id, influence, "Show influence");
     page.Label(260, 200, 410, 220, "Show Influence");
     ImGui::EndDisabled();
 

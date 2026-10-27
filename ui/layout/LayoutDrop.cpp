@@ -1,3 +1,4 @@
+#include "ui/schematic/Snapshots.h"
 // Building Blocks and Data Resources files dragged onto the 3D Layout
 // (Dev.exe sub_4C0A30 and the functions it calls).
 
@@ -72,7 +73,7 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
         if (payload->IsDelivery()) {
             int slot = -1;
             std::memcpy(&slot, payload->Data, sizeof(slot));
-            if (target) m_State.SetObjectPicture(target, slot);
+            if (target) SetObjectPictureFromSnapshot(*m_State.document, target, m_State.snapshots, slot);
         } else {
             m_View.SetDropTarget(target);
         }

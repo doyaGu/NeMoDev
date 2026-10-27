@@ -1,3 +1,4 @@
+#include "core/layout/LayoutCommands.h"
 // The Setups of curves, characters, sounds, arrays, levels and scenes, 3D frames and sprites, places, 2D entities.
 
 #include "ui/setup/SetupWindows.h"
@@ -73,11 +74,11 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
     // Left: player visibility, type, steps, fitting, length.
     ImGui::SetCursorPos(ImVec2(8, lower));
     ImGui::BeginGroup();
-    bool shown = m_State.playerShown.count(id) != 0;
+    bool shown = m_State.document->Layout().playerShown.count(id) != 0;
     // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player Mode
     // (not the object's visibility).
     if (ImGui::Checkbox("Show In Player Mode", &shown))
-        m_State.SetInLayoutList(m_State.playerShown, id, shown, "Show In Player Mode");
+        SetLayoutMembership(*m_State.document, LayoutList::PlayerShown, id, shown, "Show In Player Mode");
     ImGui::Dummy(ImVec2(1, 6));
     Group("Curve type");
     bool linear = count > 0;
@@ -137,9 +138,9 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
     TypeAheadCombo("##referential", &tool.referential, referentials, 2);
     // Show curve points (Dev.exe sub_4584A0 183): the 3D Layout draws the
     // curve's control points (its list +180).
-    bool showPoints = !m_State.hiddenCurvePoints.count(id);
+    bool showPoints = !m_State.document->Layout().hiddenCurvePoints.count(id);
     if (ImGui::Checkbox("Show curve points", &showPoints))
-        m_State.SetInLayoutList(m_State.hiddenCurvePoints, id, !showPoints, "Show curve points");
+        SetLayoutMembership(*m_State.document, LayoutList::HiddenCurvePoints, id, !showPoints, "Show curve points");
     ImGui::EndGroup();
     // Right: the current control point.
     ImGui::SameLine(560);
@@ -1009,11 +1010,11 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
         ImGui::EndGroup();
         return;
     }
-    bool shown = m_State.playerShown.count(id) != 0;
+    bool shown = m_State.document->Layout().playerShown.count(id) != 0;
     // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player Mode
     // (not the object's visibility).
     if (ImGui::Checkbox("Show In Player Mode", &shown))
-        m_State.SetInLayoutList(m_State.playerShown, id, shown, "Show In Player Mode");
+        SetLayoutMembership(*m_State.document, LayoutList::PlayerShown, id, shown, "Show In Player Mode");
     // Dev keeps the representation in the 3D Layout's own table (Dev.exe
     // sub_4C53C0): "No Representation" or one of its "Virtools_Frame_*"
     // meshes, drawn by the 3D Layout only. It is not object state: the
@@ -1022,16 +1023,16 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(250);
     const std::vector<std::string> &shapes = m_State.layoutFrameShapes;
-    auto found = m_State.frameRepresentations.find(id);
-    const int representation = found != m_State.frameRepresentations.end() ? found->second : 1;
+    auto found = m_State.document->Layout().representations.find(id);
+    const int representation = found != m_State.document->Layout().representations.end() ? found->second : 1;
     const bool known = representation >= 0 && representation <= static_cast<int>(shapes.size());
     const std::string current = representation == 0 ? "No Representation" : known ? shapes[representation - 1] : "";
     if (ImGui::BeginCombo("##representation", current.c_str())) {
         TypeAhead typeAhead;
-        if (typeAhead.Selectable("No Representation", representation == 0)) m_State.SetFrameRepresentation({id}, 0);
+        if (typeAhead.Selectable("No Representation", representation == 0)) SetFrameRepresentation(*m_State.document, {id}, 0);
         for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
             ImGui::PushID(i);
-            if (typeAhead.Selectable(shapes[i].c_str(), representation == i + 1)) m_State.SetFrameRepresentation({id}, i + 1);
+            if (typeAhead.Selectable(shapes[i].c_str(), representation == i + 1)) SetFrameRepresentation(*m_State.document, {id}, i + 1);
             ImGui::PopID();
         }
         ImGui::EndCombo();

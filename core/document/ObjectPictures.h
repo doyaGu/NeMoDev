@@ -1,6 +1,9 @@
 #pragma once
 
 #include <map>
+#include <memory>
+
+#include "core/document/EditResult.h"
 
 #include "CKAll.h"
 
@@ -15,12 +18,16 @@ class Document;
 // ID, the bitmap; read back on load and merge (sub_5D1D60).
 const CKGUID OBJECT_PICTURES_GUID(0x5D567DF5, 0x46CE6366);
 
-// The pictures of the composition's interface objects (bitmap handles the
-// document keeps until it closes).
-std::map<CK_ID, void *> ReadObjectPictures(Document &document);
+using ObjectPictures = std::map<CK_ID, std::shared_ptr<void>>;
+
+// Decodes the pictures stored in the runtime. Returned entries own their bitmaps.
+ObjectPictures ReadObjectPictures(Document &document);
 
 // Writes pictures (of the objects still there) into the composition's
 // pictures object, made when there is none, before a save.
-void WriteObjectPictures(Document &document, const std::map<CK_ID, void *> &pictures);
+void WriteObjectPictures(Document &document, const ObjectPictures &pictures);
+
+// Adopts an SDK bitmap (nullptr removes the picture), as one undoable edit.
+EditResult SetObjectPicture(Document &document, CK_ID object, void *bitmap);
 
 } // namespace vdev

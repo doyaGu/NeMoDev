@@ -70,6 +70,7 @@ bool UndoStep::Run(Document &document, bool undo, bool mark) {
         if (ok && !undo) document.m_Graveyard.insert(id);
         else document.m_Graveyard.erase(id);
     }
+    if (!m_Created.empty() || !m_Buried.empty()) document.EditorObjectsChanged();
     document.RefreshScripts();
     // The display after the runtime: its runtime fields are read from the graph as it is now.
     if (ok) Show(document, undo);
@@ -199,12 +200,14 @@ void Edit::Created(CK_ID id) {
     m_Step->m_Created.insert(id);
     m_Document->m_CreatedObjects.insert(id);
     for (CK_ID owned : CollectOwnedObjects(Context(), {id})) m_Document->m_CreatedObjects.insert(owned);
+    m_Document->EditorObjectsChanged();
 }
 
 void Edit::Bury(CK_ID id) {
     if (!Open() || !id) return;
     m_Step->m_Buried.insert(id);
     m_Document->m_Graveyard.insert(id);
+    m_Document->EditorObjectsChanged();
 }
 
 EditResult Edit::Commit(const std::string &message, CK_ID created) {
@@ -283,6 +286,7 @@ bool Edit::Rollback() {
     }
     // Never part of the composition once taken back: kept out of the saved file.
     for (CK_ID id : step.m_Created) document.m_Graveyard.insert(id);
+    if (!step.m_Created.empty() || !step.m_Buried.empty()) document.EditorObjectsChanged();
     // Shown back as it was (the sessions marked), unmodified as it was.
     if (!m_Parent && m_CleanAtStart && document.ChangesOutsideUndo() == m_OutsideAtStart) document.MarkSaved();
     Finish();

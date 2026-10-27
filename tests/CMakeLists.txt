@@ -96,6 +96,7 @@ add_executable(VirtoolsDevTests
         VirtoolsDevTests.cpp
         GraphTestSupport.cpp
         GraveyardTests.cpp
+        DocumentEditorDataTests.cpp
         ObjectEditFailureTests.cpp
         SaveFailureTests.cpp
         LoadCallbackTests.cpp

@@ -56,10 +56,10 @@ CK_ID CreateInLayout(ImGuiTestContext *ctx, ImGuiKey key, CK_CLASSID cid) {
     return made;
 }
 
-// A 3D Frame's representation (EditorState::frameRepresentations; a frame
+// A 3D Frame's document-owned representation (a frame
 // not listed has the first shape, 1).
 int Representation(CK_ID frame) {
-    const auto &representations = App().State().frameRepresentations;
+    const auto &representations = App().State().document->Layout().representations;
     const auto found = representations.find(frame);
     return found == representations.end() ? 1 : found->second;
 }

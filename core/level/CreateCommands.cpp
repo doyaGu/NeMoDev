@@ -1,3 +1,4 @@
+#include "core/layout/LayoutCommands.h"
 // The Create menu and the 3D Layout's creation tools, Replace Material, Duplicate.
 #include "core/level/LevelCommands.h"
 
@@ -98,7 +99,7 @@ void InFront(CK3dEntity *entity, CKCamera *camera, float distance) {
 } // namespace
 
 EditResult CreateLayoutObject(Document &document, LayoutObject kind, CK_ID selection,
-                              CK_ID view) {
+                              CK_ID view, const LayoutObjectOptions &options) {
     CKContext *context = document.Context();
     CKLevel *level = context->GetCurrentLevel();
     CKScene *scene = context->GetCurrentScene();
@@ -279,7 +280,8 @@ EditResult CreateLayoutObject(Document &document, LayoutObject kind, CK_ID selec
     const CK_ID id = object->GetID(), levelId = level->GetID(), sceneId = scene->GetID();
     const std::vector<CK_ID> added(created.begin(), created.end());
     const bool activate = kind == LayoutObject::Portal;
-    return Apply(
+    Edit edit(document, label);
+    const auto result = Apply(
         document, label,
         [added, levelId, sceneId, activate, id](Document &doc) {
             CKLevel *owner = Get<CKLevel>(doc, levelId);
@@ -306,6 +308,16 @@ EditResult CreateLayoutObject(Document &document, LayoutObject kind, CK_ID selec
             return true;
         },
         created, id);
+    if (!result.ok) return edit.Fail(result.message);
+    if (context->GetObject(id) != object) return edit.Fail("The created object was removed");
+    if (options.showCone && (CKCamera::Cast(object) || CKLight::Cast(object)))
+        SetLayoutMembership(document, LayoutList::Cones, id, true, "Show cone");
+    CK3dEntity *entity = CK3dEntity::Cast(object);
+    const bool helper = CKCamera::Cast(object) || CKLight::Cast(object) || CKCurve::Cast(object) ||
+                        (entity && (entity->GetFlags() & (CK_3DENTITY_FRAME | CK_3DENTITY_PORTAL)));
+    if (options.showInPlayerMode && helper)
+        SetLayoutMembership(document, LayoutList::PlayerShown, id, true, "Show In Player Mode");
+    return edit.Commit({}, id);
 }
 
 EditResult ReplaceMeshMaterial(Document &document, CK_ID meshId, CK_ID from, CK_ID to) {
@@ -421,7 +433,8 @@ EditResult DuplicateObjects(Document &document, const std::vector<CK_ID> &object
         for (int i = 0; i < copies.Size(); ++i) pairs->emplace_back(originals[i], copies[i]);
     }
     const CK_ID levelId = level->GetID();
-    return Apply(
+    Edit edit(document, "Duplicate");
+    const auto result = Apply(
         document, "Duplicate",
         [memberships, levelId](Document &doc) {
             CKLevel *owner = Get<CKLevel>(doc, levelId);
@@ -449,6 +462,13 @@ EditResult DuplicateObjects(Document &document, const std::vector<CK_ID> &object
             return true;
         },
         created, copies[0]);
+    if (!result.ok) return edit.Fail(result.message);
+    for (int i = 0; i < copies.Size(); ++i) {
+        const auto found = document.Layout().representations.find(originals[i]);
+        if (found != document.Layout().representations.end())
+            SetFrameRepresentation(document, {copies[i]}, found->second);
+    }
+    return edit.Commit({}, copies[0]);
 }
 
 } // namespace vdev

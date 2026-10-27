@@ -2,6 +2,7 @@
 // the dialogs of the Options and Help menus and their shortcuts.
 
 #include "core/level/LevelCommands.h"
+#include "core/layout/LayoutCommands.h"
 #include "core/graph/ScriptCommands.h"
 #include "core/graph/TopologyCommands.h"
 #include "imgui_internal.h"
@@ -25,6 +26,30 @@ bool WindowShown(ImGuiTestContext *ctx, const char *name) {
 void RegisterAppTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
 
+    t = IM_REGISTER_TEST(engine, "app", "document_metadata_survives_ui_state_reset");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        OnMainThread(ctx, [] {
+            auto &state = App().State();
+            auto &document = *state.document;
+            const auto frame = vdev::CreateLayoutObject(document, vdev::LayoutObject::Frame3D);
+            IM_CHECK(frame.ok);
+            IM_CHECK(vdev::SetFrameRepresentation(document, {frame.created}, 0).ok);
+            const unsigned char pixel[4] = {11, 22, 33, 255};
+            void *bitmap = vdev::BitmapFromPixels(pixel, 1, 1);
+            IM_CHECK(bitmap && vdev::SetObjectPicture(document, frame.created, bitmap).ok);
+            const auto layout = document.Layout();
+            state.ClearDocumentState();
+            IM_CHECK(document.Layout() == layout && document.Pictures().at(frame.created).get() == bitmap);
+            IM_CHECK(document.History().Undo() && !document.Pictures().count(frame.created));
+            IM_CHECK(document.History().Undo() && !document.Layout().representations.count(frame.created));
+            IM_CHECK(document.History().Undo() && document.IsDiscarded(frame.created));
+            document.History().Clear();
+            document.MarkSaved();
+        });
+    };
+
     t = IM_REGISTER_TEST(engine, "app", "replaced_pictures_release_bitmaps_and_textures");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
@@ -39,12 +64,12 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
                 const unsigned char pixel[4] = {static_cast<unsigned char>(pass), 90, 170, 255};
                 void *bitmap = vdev::BitmapFromPixels(pixel, 1, 1);
                 IM_CHECK(bitmap);
-                state.SetObjectPictureBitmap(object, bitmap);
+                vdev::SetObjectPicture(*state.document, object, bitmap);
                 IM_CHECK(vdev::SnapshotTexture(bitmap, nullptr, document.BitmapOwner(bitmap)) != ImTextureID());
                 if (pass) {
                     IM_CHECK(state.History().Undo());
                     IM_CHECK(state.History().Redo());
-                    IM_CHECK(state.objectPictures.at(object) == bitmap);
+                    IM_CHECK(state.document->Pictures().at(object).get() == bitmap);
                 }
                 state.History().Clear();
                 IM_CHECK(previous.expired());
@@ -56,7 +81,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         }
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            state.SetObjectPictureBitmap(state.document->Context()->GetCurrentLevel()->GetID(), nullptr);
+            vdev::SetObjectPicture(*state.document, state.document->Context()->GetCurrentLevel()->GetID(), nullptr);
             state.History().Clear();
             IM_CHECK(previous.expired());
             state.document->MarkSaved();

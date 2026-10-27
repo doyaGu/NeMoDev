@@ -137,7 +137,10 @@ void Document::CommitOpen(PreparedOpen &prepared) {
     m_Graveyard = std::move(candidate.m_Graveyard);
     m_CreatedObjects = std::move(candidate.m_CreatedObjects);
     m_Bitmaps = std::move(candidate.m_Bitmaps);
-    m_PictureOwners = std::move(candidate.m_PictureOwners);
+    m_Layout = std::move(candidate.m_Layout);
+    m_Pictures = std::move(candidate.m_Pictures);
+    m_LayoutChanged = candidate.m_LayoutChanged;
+    m_PicturesChanged = candidate.m_PicturesChanged;
     m_TopologyRevision = candidate.m_TopologyRevision;
     m_SavedTopologyRevision = candidate.m_SavedTopologyRevision;
     m_ChangesOutsideUndo = candidate.m_ChangesOutsideUndo;
@@ -193,6 +196,14 @@ bool Document::Open(const std::string &path, std::string *error, const SceneEnvi
     m_SourcePath = path;
     m_Open = true;
     m_Origin = Origin::LoadedComposition;
+    if (!GuardedCall([&] {
+        m_Layout = ReadLayoutLists(context, ReadLayoutInterfaceData(context));
+        m_Pictures = ReadObjectPictures(*this);
+    }, &m_Host, "Read document editor data")) {
+        Close();
+        if (error) *error = "Cannot read editor data from " + path;
+        return false;
+    }
     RefreshScripts();
     m_Host.Log(LogLevel::Info, "Opened " + path + ": " + std::to_string(m_LoadedObjects.size()) + " objects, " +
                                    std::to_string(m_Scripts.size()) + " Scripts");
@@ -261,7 +272,15 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
     if (!transaction.Capture(error)) return false;
     std::vector<CK_ID> added;
     bool loaded = false;
-    const bool completed = GuardedCall([&] { loaded = MergeInPlace(path, asScene, error, &added, duplicates); },
+    const bool completed = GuardedCall([&] {
+        loaded = MergeInPlace(path, asScene, error, &added, duplicates);
+        if (loaded) {
+            auto pictures = ReadObjectPictures(*this);
+            for (const auto &picture : m_Pictures) pictures[picture.first] = picture.second;
+            m_Pictures = std::move(pictures);
+            m_PicturesChanged = true;
+        }
+    },
                                       &m_Host, "Merge composition");
     if (!completed || !loaded) {
         if (!completed && error) *error = "Merging " + path + " raised an exception";
@@ -524,18 +543,6 @@ std::shared_ptr<void> Document::BitmapOwner(void *bitmap) const {
     return found != m_Bitmaps.end() ? found->second : nullptr;
 }
 
-void Document::RetainPictures(const std::map<CK_ID, void *> &pictures) {
-    std::map<CK_ID, std::shared_ptr<void>> owners;
-    for (const auto &picture : pictures)
-        if (auto owner = BitmapOwner(picture.second)) owners.emplace(picture.first, std::move(owner));
-    m_PictureOwners = std::move(owners);
-}
-
-void Document::RetainPicture(CK_ID object, void *bitmap) {
-    if (auto owner = BitmapOwner(bitmap)) m_PictureOwners[object] = std::move(owner);
-    else m_PictureOwners.erase(object);
-}
-
 void Document::CollectBitmaps() {
     if (EditOpen() || m_History.m_Running || m_CollectingGraveyard) return;
     for (auto it = m_Bitmaps.begin(); it != m_Bitmaps.end();)
@@ -559,7 +566,9 @@ void Document::Close() {
     m_History.Clear();
     for (const auto &entry : m_Sessions) m_ChangesOutsideUndo += entry.second->ChangesOutsideUndo();
     m_Sessions.clear();
-    m_PictureOwners.clear();
+    m_Layout = {};
+    m_Pictures.clear();
+    m_LayoutChanged = m_PicturesChanged = false;
     m_Bitmaps.clear(); // after the sessions borrowing them
     m_Scripts.clear();
     m_LoadedObjects.clear();
@@ -635,6 +644,22 @@ void Document::CollectGraveyard() {
         else ++it;
     m_LoadedObjects.erase(std::remove_if(m_LoadedObjects.begin(), m_LoadedObjects.end(),
                                         [&](CK_ID id) { return !context->GetObject(id); }), m_LoadedObjects.end());
+    // Reclaimed IDs may be reused. Keep discarded-but-retained objects' data
+    // for Undo, and remove it only once the native object is actually gone.
+    auto prune = [&](auto &entries, auto idOf) {
+        bool changed = false;
+        for (auto it = entries.begin(); it != entries.end();)
+            if (!context->GetObject(idOf(*it))) { it = entries.erase(it); changed = true; }
+            else ++it;
+        return changed;
+    };
+    const auto id = [](CK_ID value) { return value; };
+    const auto key = [](const auto &entry) { return entry.first; };
+    m_LayoutChanged |= prune(m_Layout.cones, id);
+    m_LayoutChanged |= prune(m_Layout.playerShown, id);
+    m_LayoutChanged |= prune(m_Layout.hiddenCurvePoints, id);
+    m_LayoutChanged |= prune(m_Layout.representations, key);
+    m_PicturesChanged |= prune(m_Pictures, key);
     RefreshScripts();
     CollectBitmaps();
 }
@@ -763,6 +788,7 @@ bool Document::Dirty() const {
 }
 
 void Document::MarkTopologyChanged() {
+    EditorObjectsChanged();
     ++m_TopologyRevision;
     ++m_ChangesOutsideUndo;
     RefreshScripts();

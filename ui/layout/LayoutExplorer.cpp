@@ -144,11 +144,6 @@ void LayoutWindow::ApplyLayoutData(const LayoutInterfaceData &data) {
         m_GroupRevision = m_State.objectSelection.revision;
     }
     // The lists (core ReadLayoutLists), the camera.
-    LayoutLists lists = ReadLayoutLists(context, data);
-    m_State.layoutCones = std::move(lists.cones);
-    m_State.playerShown = std::move(lists.playerShown);
-    m_State.frameRepresentations = std::move(lists.representations);
-    m_State.hiddenCurvePoints = std::move(lists.hiddenCurvePoints);
     if (!data.cameras.empty() && CKCamera::Cast(context->GetObject(data.cameras.front())))
         m_View.SetCamera(data.cameras.front());
 }
@@ -160,18 +155,8 @@ LayoutInterfaceData LayoutWindow::LayoutData() const {
     data.group = m_Group;
     data.selection = AliveSelection();
     data.locked = m_State.objectSelection.locked;
-    // The lists, from the editor's state (sub_4B4E50); +180 as read.
-    CKContext *context = m_State.host.Context();
-    auto live = [&](CK_ID id) {
-        return context && context->GetObject(id) && !m_View.IsInterfaceObject(id) &&
-               !(m_State.HasDocument() && m_State.document->IsDiscarded(id));
-    };
-    LayoutLists lists;
-    lists.cones = m_State.layoutCones;
-    lists.playerShown = m_State.playerShown;
-    lists.representations = m_State.frameRepresentations;
-    lists.hiddenCurvePoints = m_State.hiddenCurvePoints;
-    WriteLayoutLists(context, lists, live, data);
+    // The saver supplies the document's per-object lists. This capture only
+    // contributes view state and preserves the file's unedited fields.
     // The camera, unless one of the 3D Layout's own views (not saved).
     CKCamera *camera = m_View.Camera();
     data.cameras.assign(1, camera && !m_View.IsViewCamera(camera->GetID()) ? camera->GetID() : 0);

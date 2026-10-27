@@ -87,6 +87,8 @@ void ObjectEditFailures(CkRuntimeHost &host);
 void GraveyardCollection(CkRuntimeHost &host);
 void ObjectReferenceLifetimes(CkRuntimeHost &host);
 void BitmapLifetimes(CkRuntimeHost &host);
+void DocumentLayoutMetadata(CkRuntimeHost &host);
+void DocumentPictures(CkRuntimeHost &host);
 void ObjectEditCancellation(CkRuntimeHost &host);
 void SaveFailures(CkRuntimeHost &host);
 void SaveCallbacks(CkRuntimeHost &host);

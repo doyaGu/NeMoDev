@@ -103,9 +103,32 @@ Chunk SerializeScript(InterfaceData &data, CKBehavior *script, bool reconstructe
 
 } // namespace
 
-// The sets behind Document's queries, which only the saver reads.
+// Native persistence installs document-owned editor data before CK writing.
+// Keep its access and acknowledgement of those copies local to the saver.
 struct DocumentSaverAccess {
     static const std::set<CK_ID> &Graveyard(const Document &document) { return document.m_Graveyard; }
+    static bool EditorDataCurrent(const Document &document) {
+        return !document.m_LayoutChanged && !document.m_PicturesChanged;
+    }
+    static void WriteEditorData(Document &document, const LayoutInterfaceData *view) {
+        if (view || document.m_LayoutChanged) {
+            auto data = view ? *view : ReadLayoutInterfaceData(document.Context());
+            const auto lists = document.m_Layout;
+            if (view || data.present || !lists.Empty()) {
+                WriteLayoutLists(document.Context(), lists, [&](CK_ID id) {
+                    return document.IsLive(id) &&
+                           !(document.Context()->GetObject(id)->GetObjectFlags() & CK_OBJECT_NOTTOBESAVED);
+                }, data);
+                WriteLayoutInterfaceData(document, data);
+            }
+            if (document.m_Layout == lists) document.m_LayoutChanged = false;
+        }
+        if (document.m_PicturesChanged) {
+            const auto pictures = document.m_Pictures;
+            WriteObjectPictures(document, pictures);
+            if (document.m_Pictures == pictures) document.m_PicturesChanged = false;
+        }
+    }
 };
 
 // Only tracked composition edits participate in its save point. Navigation
@@ -119,7 +142,7 @@ struct DocumentSaveRevisions {
     }
     bool Unchanged(const Document &document) const {
         if (!document.IsOpen() || document.EditOpen() || document.Host().Generation() != generation ||
-            document.TopologyRevision() != topology) return false;
+            document.TopologyRevision() != topology || !DocumentSaverAccess::EditorDataCurrent(document)) return false;
         for (const auto &entry : scripts) {
             const auto found = document.Sessions().find(entry.first);
             if (found == document.Sessions().end() || found->second->Revision() != entry.second) return false;
@@ -338,8 +361,8 @@ bool Verify(Document &document, const std::string &path, const ProjectParameterT
 
 } // namespace
 
-bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptions &options,
-                    SaveReport &report) {
+static bool SaveDocument(Document &document, const std::string &path, const SaveOptions &options,
+                         SaveReport &report, const LayoutInterfaceData *view) {
     report = SaveReport();
     CKContext *context = document.Context();
     if (!document.IsOpen() || !context) {
@@ -348,6 +371,11 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
     }
     if (document.EditOpen()) {
         report.errors.push_back("Finish the current edit before saving the composition");
+        return false;
+    }
+    if (!GuardedCall([&] { DocumentSaverAccess::WriteEditorData(document, view); },
+                     &document.Host(), "Prepare document editor data")) {
+        report.errors.push_back("Cannot prepare document editor data");
         return false;
     }
     std::error_code ec;
@@ -519,9 +547,11 @@ bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptio
 
 bool SaveComposition(Document &document, const std::string &path, const CompositionData &data,
                      const SaveOptions &options, SaveReport &report) {
-    if (data.layout) WriteLayoutInterfaceData(document, *data.layout);
-    if (data.pictures) WriteObjectPictures(document, *data.pictures);
-    return SaveDocumentAs(document, path, options, report);
+    return SaveDocument(document, path, options, report, data.layout);
+}
+
+bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptions &options, SaveReport &report) {
+    return SaveDocument(document, path, options, report, nullptr);
 }
 
 } // namespace vdev

@@ -572,9 +572,9 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
     // The picture (52 x 40, Dev.exe sub_441860 / sub_44CF90), else resvis.dll's
     // place for it (bitmap 835).
     const ImVec2 picture(at.x + 23, at.y + 12), pictureMax(picture.x + 52, picture.y + 40);
-    auto found = m_State.objectPictures.find(object->GetID());
-    ImTextureID texture = found != m_State.objectPictures.end()
-        ? SnapshotTexture(found->second, nullptr, m_State.document->BitmapOwner(found->second)) : DevBitmap(835);
+    auto found = m_State.document->Pictures().find(object->GetID());
+    ImTextureID texture = found != m_State.document->Pictures().end()
+        ? SnapshotTexture(found->second.get(), nullptr, found->second) : DevBitmap(835);
     if (texture) dl->AddImage(texture, picture, pictureMax);
     ImGui::Dummy(ImVec2(98, 64));
     // Its menu (Dev.exe sub_448CA0): Load Snapshot (an image file,
@@ -589,12 +589,12 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
                 if (result.status != FileDialogResult::Status::Selected || m_State.document->IsDiscarded(id)) return;
                 const std::string &path = result.paths.front();
                 if (void *bitmap = CKLoadBitmap(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str())))
-                    m_State.SetObjectPictureBitmap(id, bitmap);
+                    SetObjectPicture(*m_State.document, id, bitmap);
                 else m_State.Log(LogLevel::Warning, "Load Snapshot: cannot read " + path);
             });
         }
-        if (found != m_State.objectPictures.end() && ImGui::MenuItem("Remove Snapshot"))
-            m_State.SetObjectPictureBitmap(object->GetID(), nullptr);
+        if (found != m_State.document->Pictures().end() && ImGui::MenuItem("Remove Snapshot"))
+            SetObjectPicture(*m_State.document, object->GetID(), nullptr);
         ImGui::EndPopup();
     }
     // A Snapshot Buffer image dropped here is the object's picture (sub_448680, "Bitmap").
@@ -602,7 +602,7 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
         if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD)) {
             int slot = -1;
             std::memcpy(&slot, payload->Data, sizeof(slot));
-            m_State.SetObjectPicture(object->GetID(), slot);
+            SetObjectPictureFromSnapshot(*m_State.document, object->GetID(), m_State.snapshots, slot);
         }
         ImGui::EndDragDropTarget();
     }

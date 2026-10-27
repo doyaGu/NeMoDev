@@ -248,10 +248,14 @@ std::vector<EditResult> SetHierarchyParents(Document &document, const std::vecto
 // joins the level and the current scene. A portal is made around selection
 // when it is a 3D entity.
 enum class LayoutObject { Camera, Light, Frame3D, Curve, Grid, Frame2D, Material, Texture, Portal };
+struct LayoutObjectOptions {
+    bool showCone = false;
+    bool showInPlayerMode = false;
+};
 // camera: the 3D Layout's camera, which new objects are placed by (0: the
 // current scene's starting camera, else the level scene's, else the first).
 EditResult CreateLayoutObject(Document &document, LayoutObject kind, CK_ID selection = 0,
-                              CK_ID camera = 0);
+                              CK_ID camera = 0, const LayoutObjectOptions &options = {});
 // options: 1 frames only, 2 the level (not the current scene), 4 portals only.
 std::string NewObjectName(CKContext *context, CK_CLASSID cid, const std::string &base, int options);
 

@@ -5,9 +5,15 @@
 #include <vector>
 
 #include "imgui.h"
+#include "CKTypes.h"
 
 namespace vdev {
 class UiTexture;
+class Document;
+class SnapshotBuffer;
+
+// Convert a session Snapshot Buffer slot to a document picture edit.
+void SetObjectPictureFromSnapshot(Document &document, CK_ID object, const SnapshotBuffer &buffer, int slot);
 
 // Script snapshots (Dev "Load Snapshot for Script"): an image file read with
 // the image reader, scaled down to fit width x height (aspect kept), as a 32-bit DIB

@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "core/document/Document.h"
+#include "core/document/Edit.h"
 #include "core/runtime/SdkCompat.h"
 
 namespace vdev {
@@ -22,8 +23,8 @@ std::vector<CKInterfaceObjectManager *> PictureManagers(CKContext *context) {
 
 } // namespace
 
-std::map<CK_ID, void *> ReadObjectPictures(Document &document) {
-    std::map<CK_ID, void *> pictures;
+ObjectPictures ReadObjectPictures(Document &document) {
+    ObjectPictures pictures;
     CKContext *context = document.Context();
     if (!context) return pictures;
     // sub_5D1D60: each chunk with the identifier, its object and bitmap.
@@ -34,16 +35,15 @@ std::map<CK_ID, void *> ReadObjectPictures(Document &document) {
             chunk->StartRead();
             if (!chunk->SeekIdentifier(PICTURE_IDENTIFIER)) continue;
             const CK_ID object = chunk->ReadObjectID();
+            if (!context->GetObject(object)) continue;
             void *bitmap = chunk->ReadBitmap();
             if (!bitmap) continue;
-            document.KeepBitmap(bitmap);
-            pictures[object] = bitmap;
+            pictures[object] = document.KeepBitmap(bitmap);
         }
-    document.RetainPictures(pictures);
     return pictures;
 }
 
-void WriteObjectPictures(Document &document, const std::map<CK_ID, void *> &pictures) {
+void WriteObjectPictures(Document &document, const ObjectPictures &pictures) {
     CKContext *context = document.Context();
     if (!context) return;
     std::vector<CKInterfaceObjectManager *> managers = PictureManagers(context);
@@ -60,15 +60,50 @@ void WriteObjectPictures(Document &document, const std::map<CK_ID, void *> &pict
         while (manager->GetChunkCount() > 0) manager->RemoveStateChunk(manager->GetChunk(0));
     // sub_5D1C90.
     for (const auto &picture : pictures) {
-        if (!picture.second || !context->GetObject(picture.first)) continue;
+        if (!picture.second || !document.IsLive(picture.first)) continue;
         CKStateChunk *chunk = CreateCKStateChunk(1, nullptr);
         chunk->StartWrite();
         chunk->WriteIdentifier(PICTURE_IDENTIFIER);
         chunk->WriteObjectID(picture.first);
-        chunk->WriteBitmap(picture.second, nullptr);
+        chunk->WriteBitmap(picture.second.get(), nullptr);
         chunk->CloseChunk();
         managers.front()->AddStateChunk(chunk);
     }
+}
+
+class ObjectPictureAction : public Action {
+public:
+    ObjectPictureAction(CK_ID object, std::shared_ptr<void> before, std::shared_ptr<void> after)
+        : m_Object(object), m_Before(std::move(before)), m_After(std::move(after)) {}
+    bool Redo(Document &document) override { return Apply(document, m_After); }
+    bool Undo(Document &document) override { return Apply(document, m_Before); }
+
+private:
+    bool Apply(Document &document, const std::shared_ptr<void> &picture) {
+        if (picture) document.m_Pictures[m_Object] = picture;
+        else document.m_Pictures.erase(m_Object);
+        document.m_PicturesChanged = true;
+        return true;
+    }
+    CK_ID m_Object;
+    std::shared_ptr<void> m_Before, m_After;
+};
+
+EditResult SetObjectPicture(Document &document, CK_ID object, void *bitmap) {
+    // Adopt before checking the target so a transferred bitmap is never leaked.
+    auto after = document.KeepBitmap(bitmap);
+    if (!document.IsOpen() || !document.IsLive(object)) {
+        after.reset();
+        document.CollectBitmaps();
+        return EditResult::Refused("No live object");
+    }
+    const auto found = document.Pictures().find(object);
+    auto before = found != document.Pictures().end() ? found->second : nullptr;
+    if (before == after) return EditResult::NoChange();
+    Edit edit(document, "Object Picture");
+    if (!edit.Do(std::make_unique<ObjectPictureAction>(object, std::move(before), std::move(after))))
+        return edit.Fail("Object Picture failed");
+    return edit.Commit();
 }
 
 } // namespace vdev

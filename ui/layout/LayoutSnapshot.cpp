@@ -250,38 +250,4 @@ void LayoutWindow::SnapshotWindow() {
     }
 }
 
-// Dev.exe sub_5D1E20: the slot's image (52 x 40) is the object's picture. The
-// composition has a change to save and the change is undone (Dev does neither);
-// Current pictures and undo actions retain their bitmap allocations.
-void EditorState::SetObjectPicture(CK_ID object, int slot) {
-    if (!HasDocument() || !object || !snapshots.Has(slot)) return;
-    void *bitmap = BitmapFromPixels(snapshots.Pixels(slot).data(), SnapshotBuffer::WIDTH, SnapshotBuffer::HEIGHT);
-    if (!bitmap) return;
-    SetObjectPictureBitmap(object, bitmap);
-}
-
-void EditorState::SetObjectPictureBitmap(CK_ID object, void *bitmap) {
-    if (!HasDocument() || !object) return;
-    const auto afterOwner = document->KeepBitmap(bitmap);
-    auto found = objectPictures.find(object);
-    if (!bitmap && found == objectPictures.end()) return;
-    void *previous = found != objectPictures.end() ? found->second : nullptr;
-    const auto beforeOwner = document->BitmapOwner(previous);
-    Document *owner = document.get();
-    std::map<CK_ID, void *> *pictures = &objectPictures;
-    bool *changed = &objectPicturesChanged;
-    auto show = [owner, pictures, changed, object, beforeOwner, afterOwner](bool after) {
-        // Captures keep both sides alive until this undo action is evicted.
-        void *picture = (after ? afterOwner : beforeOwner).get();
-        if (picture) (*pictures)[object] = picture;
-        else pictures->erase(object);
-        owner->RetainPicture(object, picture);
-        *changed = true;
-        return true;
-    };
-    Edit edit(*document, "Object Picture");
-    edit.Do([show] { return show(true); }, [show] { return show(false); });
-    edit.Commit();
-}
-
 } // namespace vdev

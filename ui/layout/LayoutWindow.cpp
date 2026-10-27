@@ -143,7 +143,7 @@ void LayoutWindow::ApplyPreferences() {
     // The Setups' Show In Player Mode, and the selection of Play.
     std::vector<CK_ID> shown;
     if (player) {
-        shown.assign(m_State.playerShown.begin(), m_State.playerShown.end());
+        shown.assign(m_State.document->Layout().playerShown.begin(), m_State.document->Layout().playerShown.end());
         shown.insert(shown.end(), m_Doc.playerSelection.begin(), m_Doc.playerSelection.end());
     }
     m_View.SetPlayerShown(shown);
@@ -743,9 +743,9 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     }
     ContextMenuPopup();
     m_View.SetSelection(m_State.objectSelection.objects);
-    m_View.SetCones(std::vector<CK_ID>(m_State.layoutCones.begin(), m_State.layoutCones.end()));
-    m_View.SetRepresentations(m_State.frameRepresentations);
-    m_View.SetHiddenCurvePoints(m_State.hiddenCurvePoints);
+    m_View.SetCones(std::vector<CK_ID>(m_State.document->Layout().cones.begin(), m_State.document->Layout().cones.end()));
+    m_View.SetRepresentations(m_State.document->Layout().representations);
+    m_View.SetHiddenCurvePoints(m_State.document->Layout().hiddenCurvePoints);
     dl->PushClipRect(viewAt, visibleMax, true);
     const bool resized = width != m_View.Width() || height != m_View.Height();
     bool targetReleased = true;

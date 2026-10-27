@@ -252,32 +252,12 @@ struct DocumentSession {
     ObjectClipboard objectClipboard;
     Selection selection;
     ObjectSelection objectSelection;
-    // Cameras and lights whose cone the 3D Layout draws (Dev: Camera Setup
-    // Show cone, Light Setup Show influence; Auto Show Camera / Light Cone
-    // turns it on for new ones).
-    std::set<CK_ID> layoutCones;
-    // Curves whose control points the 3D Layout does not draw (Curve Setup's
-    // Show curve points off; Dev's 3D Layout list +180 lacks them).
-    std::set<CK_ID> hiddenCurvePoints;
-    // The frames, curves, lights and cameras shown in Player Mode although
-    // their type is not (Setups' Show In Player Mode; Dev's 3D Layout lists
-    // +188 to +200, Automatic show entities in player mode adds new ones).
-    std::set<CK_ID> playerShown;
     // The invalid links found after loading and kept (Dev's Links with
     // Errors Explorer; Remove Invalid Link after Loading removes them).
     std::vector<InvalidLink> invalidLinks;
     // A 3D Layout transformation is being dragged (RealTime Notifications).
     bool layoutTransforming = false;
-    // Each 3D Frame's representation in the 3D Layout (Dev.exe: its own
-    // table, not object state; Change Representation, 3D Frame Setup): 0
-    // none, n the n-th of layoutFrameShapes; frames not listed have 1.
-    std::map<CK_ID, int> frameRepresentations;
     CurveTool curveTool;
-    // The objects' pictures (core ObjectPictures: Snapshot Buffer images
-    // dropped on a Setup or a 3D Layout object; bitmap handles the document
-    // keeps), written back when they changed.
-    std::map<CK_ID, void *> objectPictures;
-    bool objectPicturesChanged = false;
     FocusRequest focus;
     Clipboard clipboard;
     // Dev's Duplicate Names Found (CK_LOAD_DODIALOG, Dev.exe sub_59B3A0): a
@@ -353,47 +333,8 @@ public:
         if (!result.ok && !result.Unchanged() && each.empty()) Log(LogLevel::Warning, "Add Attribute: " + AnsiToUtf8(result.message));
         else if (result.ok && !result.message.empty()) Log(LogLevel::Warning, AnsiToUtf8(result.message));
     }
-    void SetInLayoutList(std::set<CK_ID> &list, CK_ID id, bool in, const std::string &label) {
-        if (!HasDocument() || !id || (list.count(id) != 0) == in) return;
-        std::set<CK_ID> *target = &list;
-        auto set = [target, id](bool listed) {
-            if (listed) target->insert(id);
-            else target->erase(id);
-            return true;
-        };
-        Edit edit(*document, label);
-        edit.Do([set, in] { return set(in); }, [set, in] { return set(!in); });
-        edit.Commit();
-    }
-    void SetFrameRepresentation(const std::vector<CK_ID> &frames, int representation) {
-        if (!HasDocument()) return;
-        std::vector<std::pair<CK_ID, int>> before; // -1: not listed (representation 1)
-        for (CK_ID id : frames) {
-            auto found = frameRepresentations.find(id);
-            const int previous = found != frameRepresentations.end() ? found->second : -1;
-            if ((previous < 0 ? 1 : previous) != representation) before.emplace_back(id, previous);
-        }
-        if (before.empty()) return;
-        std::map<CK_ID, int> *table = &frameRepresentations;
-        auto apply = [table, before, representation](bool after) {
-            for (const auto &frame : before) {
-                const int value = after ? representation : frame.second;
-                if (value < 0) table->erase(frame.first);
-                else (*table)[frame.first] = value;
-            }
-            return true;
-        };
-        Edit edit(*document, "Change Representation");
-        edit.Do([apply] { return apply(true); }, [apply] { return apply(false); });
-        edit.Commit();
-    }
     // The 3D Layout's Snapshot Buffer (Dev keeps it for the session).
     SnapshotBuffer snapshots;
-    // An object's picture from Snapshot Buffer slot (Dev.exe sub_5D1E20).
-    void SetObjectPicture(CK_ID object, int slot);
-    // The object's picture becomes bitmap (an SDK bitmap the document keeps;
-    // null: none, Remove Snapshot); one undo step.
-    void SetObjectPictureBitmap(CK_ID object, void *bitmap);
     // Dev's Copy Options (the session's copy dependencies, Dev.exe
     // stru_647D7C): CK's default ones until the dialog changes them.
     CKDependencies copyDependencies;

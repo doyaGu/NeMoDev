@@ -377,7 +377,6 @@ struct EditorApp::OpenResult {
     std::unique_ptr<Document::PreparedOpen> prepared;
     std::string error;
     LayoutInterfaceData layout;
-    std::map<CK_ID, void *> pictures;
     std::vector<InvalidLink> invalid;
     int removed = 0;
 };
@@ -406,7 +405,6 @@ bool EditorApp::OpenFile(const std::string &path, std::function<void(bool)> comp
             Document &document = *m_State.document;
             if (document.CreatedFrom() == Document::Origin::LoadedComposition) {
                 result->layout = ReadLayoutInterfaceData(document.Context());
-                result->pictures = ReadObjectPictures(document);
                 result->invalid = FindInvalidLinks(document, testTypes);
                 if (removeInvalid && !result->invalid.empty()) {
                     result->removed = RemoveInvalidLinks(document, result->invalid);
@@ -431,9 +429,6 @@ void EditorApp::CompleteOpen(const std::string &path, const OpenResult &result) 
     if (m_State.document->CreatedFrom() == Document::Origin::LoadedComposition) {
         m_Layout.ApplyLayoutData(result.layout);
         ReopenSetups(result.layout);
-        m_State.objectPictures = result.pictures;
-        m_State.document->RetainPictures(m_State.objectPictures);
-        m_State.objectPicturesChanged = false;
         m_State.invalidLinks = result.invalid;
         if (result.removed) m_State.Log(LogLevel::Warning, std::to_string(result.removed) + " invalid link(s) removed after loading");
         if (!result.invalid.empty())
@@ -489,13 +484,11 @@ void EditorApp::MergeComposition(bool asScene, const std::string &file) {
             bool loaded = false;
             std::string error;
             std::vector<CK_ID> merged;
-            std::map<CK_ID, void *> pictures;
         };
         auto result = std::make_shared<Result>();
         auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
         m_State.RunRuntime("Merging composition", [this, path, asScene, choices, result] {
             result->loaded = m_State.document->Merge(path, asScene, &result->error, &result->merged, choices.get());
-            if (result->loaded) result->pictures = ReadObjectPictures(*m_State.document);
         }, [this, path, result](bool ok) {
             if (!ok || !result->loaded) {
                 if (!result->error.empty()) m_State.Log(LogLevel::Error, result->error);
@@ -504,12 +497,6 @@ void EditorApp::MergeComposition(bool asScene, const std::string &file) {
             m_State.selection.Clear();
             m_Canvas.Invalidate();
             RememberRecentFile(path);
-            // The merged file's pictures join (Dev.exe sub_5C54C0 -> sub_5D1D60).
-            std::map<CK_ID, void *> pictures = result->pictures;
-            for (const auto &picture : m_State.objectPictures) pictures[picture.first] = picture.second;
-            m_State.objectPictures = std::move(pictures);
-            m_State.document->RetainPictures(m_State.objectPictures);
-            m_State.objectPicturesChanged = true;
             // Show the first merged Script.
             for (const ScriptInfo &script : m_State.document->Scripts())
                 if (std::find(result->merged.begin(), result->merged.end(), script.id) != result->merged.end()) {
@@ -549,14 +536,12 @@ void EditorApp::SaveTo(const std::string &path, bool allowOverwrite, std::functi
     SaveOptions options;
     options.saveScriptSnapshots = m_State.preferences.Bool("Schematic\\Save Script Snapshot");
     options.allowOverwrite = allowOverwrite;
-    struct Result { SaveReport report; bool saved = false; bool snapshotApplied = false; };
+    struct Result { SaveReport report; bool saved = false; };
     auto result = std::make_shared<Result>();
-    const CompositionSnapshot snapshot = CompositionToSave(LayoutDataToSave());
-    m_State.RunRuntime("Saving composition", [this, path, options, snapshot, result] {
-        result->saved = SaveComposition(*m_State.document, path, snapshot.Data(), options, result->report);
-        result->snapshotApplied = true;
-    }, [this, path, snapshot, result, completed = std::move(completed)](bool ok) {
-        if (result->snapshotApplied) AcknowledgeCompositionSnapshot(snapshot);
+    const LayoutInterfaceData layout = LayoutDataToSave();
+    m_State.RunRuntime("Saving composition", [this, path, options, layout, result] {
+        result->saved = SaveComposition(*m_State.document, path, {&layout}, options, result->report);
+    }, [this, path, result, completed = std::move(completed)](bool ok) {
         const SaveReport &report = result->report;
         std::string text = (ok && result->saved ? "Saved " : "Save failed: ") + path;
         text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
@@ -616,31 +601,6 @@ LayoutInterfaceData EditorApp::LayoutDataToSave() const {
         data.setups.push_back(setup);
     }
     return data;
-}
-
-// The objects' pictures go with the composition when they changed (Dev.exe
-// DoSaveObjects -> sub_5D1C90); unchanged, the file's own object is kept.
-// The 3D Layout's data goes with the composition (Dev.exe DoSaveObjects);
-// the pictures only when they changed (else the file's are kept as they are),
-// written into the composition now.
-EditorApp::CompositionSnapshot EditorApp::CompositionToSave(const LayoutInterfaceData &layout) {
-    CompositionSnapshot data;
-    data.layout = layout;
-    data.writePictures = m_State.objectPicturesChanged;
-    if (data.writePictures) {
-        data.pictures = m_State.objectPictures;
-        for (const auto &picture : data.pictures)
-            data.pictureOwners.push_back(m_State.document->BitmapOwner(picture.second));
-    }
-    return data;
-}
-
-void EditorApp::AcknowledgeCompositionSnapshot(const CompositionSnapshot &snapshot) {
-    // Do not acknowledge edits made after the snapshot was taken. This also
-    // keeps the dirty bit when RunRuntime rejects or cancels the request before
-    // its worker can install the picture data in the composition.
-    if (snapshot.writePictures && m_State.objectPictures == snapshot.pictures)
-        m_State.objectPicturesChanged = false;
 }
 
 void EditorApp::SaveAs(std::function<void(bool)> completed) {
@@ -919,8 +879,12 @@ void EditorApp::CreateObject(LayoutObject kind) {
     else if (m_State.objectSelection.objects.size() == 1) selection = m_State.objectSelection.objects.front();
     // Dev places new objects by the 3D Layout's camera.
     CKCamera *view = m_Layout.View().Camera();
+    LayoutObjectOptions options;
+    options.showCone = kind == LayoutObject::Camera ? m_State.preferences.Bool("3D Layout\\Auto Show Camera Cone")
+                                                  : m_State.preferences.Bool("3D Layout\\Auto Show Light Cone");
+    options.showInPlayerMode = m_State.preferences.Bool("3D Layout\\Auto Show Entities In Player Mode");
     const EditResult result =
-        CreateLayoutObject(*m_State.document, kind, selection, view ? view->GetID() : 0);
+        CreateLayoutObject(*m_State.document, kind, selection, view ? view->GetID() : 0, options);
     if (!result.ok) {
         m_State.Log(LogLevel::Warning, "Create: " + AnsiToUtf8(result.message));
         return;
@@ -933,19 +897,7 @@ void EditorApp::CreateObject(LayoutObject kind) {
                                     "' created.");
     // Dev.exe sub_4A9960 / sub_4A9E90: the new camera replaces the view's
     // camera; new cameras and lights show their cone (Auto Show Camera / Light Cone).
-    if (CKCamera::Cast(object)) {
-        m_Layout.View().SetCamera(object->GetID());
-        if (m_State.preferences.Bool("3D Layout\\Auto Show Camera Cone")) m_State.layoutCones.insert(object->GetID());
-    }
-    if (CKLight::Cast(object) && m_State.preferences.Bool("3D Layout\\Auto Show Light Cone"))
-        m_State.layoutCones.insert(object->GetID());
-    // Dev.exe sub_4A9960, sub_4A9E90, sub_4AA200, sub_4AA530: Automatic show
-    // entities in player mode lists new cameras, lights, curves and frames.
-    CK3dEntity *entity = CK3dEntity::Cast(object);
-    const bool helper = CKCamera::Cast(object) || CKLight::Cast(object) || CKCurve::Cast(object) ||
-                        (entity && (entity->GetFlags() & (CK_3DENTITY_FRAME | CK_3DENTITY_PORTAL)));
-    if (helper && m_State.preferences.Bool("3D Layout\\Auto Show Entities In Player Mode"))
-        m_State.playerShown.insert(object->GetID());
+    if (CKCamera::Cast(object)) m_Layout.View().SetCamera(object->GetID());
     if (m_State.preferences.Bool("3D Layout\\Auto Show Setup")) m_State.events.Post(ShowObjectSetup{object->GetID()});
 }
 

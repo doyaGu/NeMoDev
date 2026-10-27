@@ -2,6 +2,8 @@
 #include "ui/render/UiRenderer.h"
 #include "core/runtime/TextEncoding.h"
 #include "CKAll.h"
+#include "core/document/ObjectPictures.h"
+#include "core/layout/SnapshotBuffer.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cstring>
@@ -11,6 +13,12 @@
 #include <vector>
 
 namespace vdev {
+void SetObjectPictureFromSnapshot(Document &document, CK_ID object, const SnapshotBuffer &buffer, int slot) {
+    if (!buffer.Has(slot)) return;
+    if (void *bitmap = BitmapFromPixels(buffer.Pixels(slot).data(), SnapshotBuffer::WIDTH, SnapshotBuffer::HEIGHT))
+        SetObjectPicture(document, object, bitmap);
+}
+
 namespace {
 struct Texture {
     std::unique_ptr<UiTexture> view;

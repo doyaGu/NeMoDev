@@ -78,6 +78,15 @@ struct LayoutLists {
     std::map<CK_ID, int> representations;
     // The curves not in +180: their control points are not drawn.
     std::set<CK_ID> hiddenCurvePoints;
+
+    bool Empty() const {
+        return cones.empty() && playerShown.empty() && representations.empty() && hiddenCurvePoints.empty();
+    }
+
+    bool operator==(const LayoutLists &other) const {
+        return cones == other.cones && playerShown == other.playerShown &&
+               representations == other.representations && hiddenCurvePoints == other.hiddenCurvePoints;
+    }
 };
 
 // The lists of data (+208 lights' and +204 cameras' cones; Player Mode's +192

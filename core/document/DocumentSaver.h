@@ -55,12 +55,10 @@ struct SaveOptions {
 bool SaveDocumentAs(Document &document, const std::string &path, const SaveOptions &options,
                     SaveReport &report);
 
-// The editor's own data saved with the composition (Dev.exe DoSaveObjects):
-// the 3D Layout's interface data (LayoutInterface) and the objects' pictures
-// (ObjectPictures); null: kept as the composition has them.
+// Optional UI view state saved with the composition (selection, camera and
+// open Setups). Per-object Layout metadata and pictures belong to Document.
 struct CompositionData {
     const LayoutInterfaceData *layout = nullptr;
-    const std::map<CK_ID, void *> *pictures = nullptr;
 };
 
 // Save, Save As, the exports: data written into the composition (it stays

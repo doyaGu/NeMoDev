@@ -604,8 +604,8 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                 0x70, 0x80, 0x90, 0xFF, 0xA0, 0xB0, 0xC0, 0xFF};
             void *bitmap = vdev::BitmapFromPixels(pixels, 2, 2);
             IM_CHECK_NO_RET(bitmap != nullptr);
-            state.SetObjectPictureBitmap(pictured, bitmap);
-            IM_CHECK_NO_RET(state.objectPicturesChanged);
+            vdev::SetObjectPicture(*state.document, pictured, bitmap);
+            IM_CHECK_NO_RET(state.document->PicturesPending());
             pending = std::make_unique<vdev::Edit>(*state.document,
                                                     "Pending save blocker");
             IM_CHECK_NO_RET(state.document->EditOpen());
@@ -617,7 +617,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         ctx->MenuClick("//##MainMenuBar/File/Save Version");
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [] {
-            return App().State().objectPicturesChanged;
+            return App().State().document->PicturesPending();
         }));
         ctx->ItemClick("//Save report/OK");
 
@@ -629,16 +629,15 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         ctx->MenuClick("//##MainMenuBar/File/Save Version");
         OnMainThread(ctx, [] {});
         IM_CHECK(Read<bool>(ctx, [] {
-            return !App().State().objectPicturesChanged;
+            return !App().State().document->PicturesPending();
         }));
         ctx->ItemClick("//Save report/OK");
 
         OnMainThread(ctx, [&] {
             auto &state = App().State();
             IM_CHECK_NO_RET(state.History().Undo());
-            IM_CHECK_NO_RET(state.objectPictures.find(pictured) ==
-                            state.objectPictures.end());
-            state.objectPicturesChanged = false;
+            IM_CHECK_NO_RET(state.document->Pictures().find(pictured) ==
+                            state.document->Pictures().end());
         });
     };
     t = IM_REGISTER_TEST(engine, "filemenu", "save_callback_keeps_document_open");
