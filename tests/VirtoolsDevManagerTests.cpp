@@ -1147,7 +1147,8 @@ void ScriptDebugger(CkRuntimeHost &host, const std::vector<CKGUID> &prototypes) 
     CHECK(FindBreakpoint(document.Session(id)->Data(), EXTRA_DATA_BEHAVIOR, block));
     // Saved with the Schematic.
     CKBehavior *runtime = CKBehavior::Cast(context->GetObject(id));
-    CKStateChunk *chunk = GenerateInterfaceChunk(document.Session(id)->Data(), runtime);
+    InterfaceData serializable = document.Session(id)->Data();
+    CKStateChunk *chunk = GenerateInterfaceChunk(serializable, runtime);
     InterfaceData reloaded;
     CHECK(chunk && reloaded.LoadFromChunk(runtime, chunk) == CK_OK && FindBreakpoint(reloaded, EXTRA_DATA_BEHAVIOR, block));
     DeleteCKStateChunk(chunk);

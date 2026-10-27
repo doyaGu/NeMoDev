@@ -132,8 +132,9 @@ void SaveCallbacks(CkRuntimeHost &host) {
         const auto path = folder.directory / (display ? "display.cmo" : "topology.cmo");
         manager.afterSave = [&] {
             if (display) {
-                session->Data().header.color = color ^ 0x00FFFFFF;
-                session->Touch();
+                InterfaceData data = session->Data();
+                data.header.color = color ^ 0x00FFFFFF;
+                CHECK(session->Assign(data));
             } else {
                 scene->SetFogEnd(777);
                 document.MarkTopologyChanged();

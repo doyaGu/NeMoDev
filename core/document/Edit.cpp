@@ -81,8 +81,7 @@ void UndoStep::Show(Document &document, bool undo) const {
     for (const Display &display : m_Displays) {
         ScriptSession *session = document.Session(display.script);
         if (!session) continue; // the Script is not in the composition (the step took it away)
-        session->Assign(undo ? display.before : display.after);
-        session->RefreshRuntimeState(document.Context());
+        session->Restore(undo ? display.before : display.after);
         session->TouchUndoable();
     }
 }
@@ -180,14 +179,14 @@ InterfaceData *Edit::ScriptData(CK_ID script) {
         m_Step->m_Displays.push_back(std::move(display));
     }
     session->TouchUndoable();
-    return &session->Data();
+    return &session->m_Data;
 }
 
 bool Edit::ShowScript(CK_ID script, const InterfaceData &data) {
+    if (data.rootBehavior.id != script) return false;
     if (!ScriptData(script)) return false;
     ScriptSession *session = m_Document->ExistingSession(script);
-    session->Assign(data);
-    session->RefreshRuntimeState(Context());
+    session->Restore(data);
     return true;
 }
 

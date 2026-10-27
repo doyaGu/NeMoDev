@@ -288,7 +288,6 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
             m_LoadedObjects.push_back(id);
             if (merged) merged->push_back(id);
         }
-    RefreshScripts();
     MarkTopologyChanged();
     m_Host.Log(LogLevel::Info, "Merged " + path + (asScene ? " as a new scene: " : ": ") +
                                    std::to_string(loaded.size() - levels.size()) + " objects");
@@ -396,7 +395,6 @@ bool Document::Import(const std::string &path, ImportMode mode, std::string *err
             if (imported) imported->push_back(id);
             ++count;
         }
-    RefreshScripts();
     MarkTopologyChanged();
     static const char *const modes[] = {"", " as a character", " as a place", " as a scene"};
     m_Host.Log(LogLevel::Info, "Imported " + path + modes[static_cast<int>(mode)] + ": " + std::to_string(count) +
@@ -408,7 +406,6 @@ void Document::AdoptObjects(const std::vector<CK_ID> &objects) {
     std::set<CK_ID> listed(m_LoadedObjects.begin(), m_LoadedObjects.end());
     for (CK_ID id : objects)
         if (listed.insert(id).second) m_LoadedObjects.push_back(id);
-    RefreshScripts();
     MarkTopologyChanged();
 }
 
@@ -626,6 +623,14 @@ bool Document::Dirty() const {
     for (const auto &entry : m_Sessions)
         if (entry.second->Dirty()) return true;
     return false;
+}
+
+void Document::MarkTopologyChanged() {
+    ++m_TopologyRevision;
+    ++m_ChangesOutsideUndo;
+    RefreshScripts();
+    if (CKContext *context = Context())
+        for (const auto &entry : m_Sessions) entry.second->RefreshRuntimeState(context);
 }
 
 std::uint64_t Document::ChangesOutsideUndo() const {

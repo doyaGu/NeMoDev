@@ -225,8 +225,6 @@ void Debugger::Reset() {
     m_Disengaged.clear();
     m_ReachedList.clear();
     // Building Blocks may have changed pins while running.
-    for (const auto &entry : m_Document.Sessions())
-        if (entry.second) entry.second->RefreshRuntimeState(context);
     m_Document.MarkTopologyChanged();
     Note("Reset");
 }

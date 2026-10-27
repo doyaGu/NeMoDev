@@ -397,7 +397,8 @@ void ThisParameter(CkRuntimeHost &host) {
             ScriptSession *copied = document.Session(copy->GetID());
             CHECK(copied && copied->Origin() != SessionOrigin::LoadFailed);
             CHECK(RuntimeConsistencyIssues(context, copied->Data(), copy).empty());
-            CHECK(GenerateInterfaceChunk(document.Session(id)->Data(), script));
+            InterfaceData serializable = document.Session(id)->Data();
+            CHECK(GenerateInterfaceChunk(serializable, script));
             EditResult deleted = DeleteScript(document, copy->GetID());
             CHECK(deleted.ok && level->GetScriptCount() == scripts);
             CHECK(undo.Undo() && level->GetScriptCount() == scripts + 1);
@@ -657,7 +658,8 @@ void ExportedParameters(CkRuntimeHost &host, const std::vector<CKGUID> &prototyp
     // Border position of a graph parameter (display only).
     CHECK(MoveGraphParameter(document, id, inner.created, PinKind::ParamOut, 0, 3, true));
     recorder.After(EditResult{true}, "move graph pOut");
-    CHECK(GenerateInterfaceChunk(document.Session(id)->Data(), script));
+    InterfaceData serializable = document.Session(id)->Data();
+    CHECK(GenerateInterfaceChunk(serializable, script));
     recorder.UndoAllRedoAll();
     std::cout << "Exported parameters passed\n";
 }
@@ -766,7 +768,8 @@ void ReplaceBehaviors(CkRuntimeHost &host, const std::vector<CKGUID> &prototypes
 #endif
     document.KeepBitmap(bitmap);
     CHECK(SetScriptSnapshot(document, id, bitmap));
-    CKStateChunk *chunk = GenerateInterfaceChunk(document.Session(id)->Data(), script);
+    InterfaceData serializable = document.Session(id)->Data();
+    CKStateChunk *chunk = GenerateInterfaceChunk(serializable, script);
     CHECK(chunk);
     InterfaceData reloaded;
     CHECK(reloaded.LoadFromChunk(script, chunk) == CK_OK && reloaded.header.snapshot);

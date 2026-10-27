@@ -2,7 +2,12 @@
 // the CK arrays the commands change (core/runtime/CkArrays.h).
 #include "VirtoolsDevTestSupport.h"
 
+#include <type_traits>
+#include <utility>
+
 namespace vdevtest {
+
+static_assert(std::is_same_v<decltype(std::declval<ScriptSession &>().Data()), const InterfaceData &>);
 
 namespace {
 
@@ -221,6 +226,59 @@ void Edits(CkRuntimeHost &host) {
         }
         CHECK(!document.Dirty());
         ExpectSame(folded, Capture(document, id), "gesture taken back");
+
+        // Automatic sizing follows a real edit, without another undo step
+        // or a change outside undo that would hide the saved state.
+        history.MarkSavePoint();
+        ScriptSession *session = document.Session(id);
+        CHECK(EditScriptData(document, id, "Grow contents", [](InterfaceData &data) { data.header.vSize += 20.0f; }));
+        const auto resizeOutside = document.ChangesOutsideUndo();
+        const auto resizeSteps = history.UndoCount();
+        CHECK(session->FitContentHeight(session->Data().header.vSize + 20.0f));
+        CHECK(document.ChangesOutsideUndo() == resizeOutside && history.UndoCount() == resizeSteps);
+        CHECK(history.Undo() && !document.Dirty());
+        ExpectSame(folded, Capture(document, id), "automatic sizing taken back");
+        const auto unchanged = session->Revision();
+        CHECK(!session->FitContentHeight(session->Data().header.vSize));
+        CHECK(!session->FitContentHeight(-1.0f) && session->Revision() == unchanged);
+        InvalidLink stale;
+        stale.script = stale.graph = id;
+        CHECK(RemoveInvalidLinks(document, {stale}) == 0 && session->Revision() == unchanged);
+
+        // Replacing a session outside an edit must participate in dirty and
+        // save-point tracking without a separate notification from its caller.
+        history.MarkSavePoint();
+        const auto revision = session->Revision();
+        const auto outside = document.ChangesOutsideUndo();
+        const size_t steps = history.UndoCount();
+        InterfaceData repaired = session->Data();
+        repaired.header.color ^= 0x00FFFFFF;
+        repaired.rootBehavior.parentId = 12345; // cached runtime fields are refreshed by Assign
+        CHECK(session->Assign(repaired));
+        CHECK(session->Revision() > revision && document.Dirty());
+        CHECK(document.ChangesOutsideUndo() > outside && history.UndoCount() == steps);
+        CHECK(session->Data().rootBehavior.parentId == 0);
+        {
+            Edit edit(document, "Edit after repair", Edit::Marks::Scripts);
+            CHECK(edit.ScriptData(id));
+            edit.ScriptData(id)->header.vSize += 20.0f;
+            CHECK(edit.Commit().ok);
+        }
+        CHECK(history.Undo() && document.Dirty());
+        CHECK(session->Data().header.color == repaired.header.color);
+        const auto current = session->Revision();
+        repaired.rootBehavior.id = 0;
+        CHECK(!session->Assign(repaired) && session->Revision() == current);
+        ScriptSession missing;
+        CHECK(!missing.Open(context, 0) && missing.ReadOnly());
+        CHECK(!missing.Assign(session->Data()) && !missing.Dirty());
+
+        // The document owns refreshes for non-undo runtime changes too.
+        const auto listed = document.ScriptsRevision();
+        script->SetName((CKSTRING) "Renamed outside undo");
+        document.MarkTopologyChanged();
+        CHECK(document.ScriptsRevision() > listed);
+        CHECK(document.FindScript(id)->name == "Renamed outside undo");
     }
 
     // The document closed with an edit open: it ends, with nothing to take back.

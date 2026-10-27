@@ -1132,7 +1132,6 @@ EditResult DestroyObjects(Document &document, const std::vector<CK_ID> &objects,
     attempted = true;
     const bool destroyed = GuardedCall([&] { context->DestroyObjects(doomed.Begin(), count, 0, dependencies); },
                                        &document.Host(), "CKContext::DestroyObjects");
-    document.RefreshScripts();
     document.MarkTopologyChanged();
     if (!destroyed) return EditResult::Error("CKContext::DestroyObjects raised an exception");
     return EditResult::Applied(std::to_string(count) + " object(s)");

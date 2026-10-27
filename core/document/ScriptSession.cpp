@@ -1,5 +1,7 @@
 #include "core/document/ScriptSession.h"
 
+#include <cmath>
+
 #include "core/runtime/CkRuntimeHost.h"
 #include "core/schematic/InterfaceDataReconstruction.h"
 
@@ -17,6 +19,7 @@ void RefreshRecord(CKContext *context, BehaviorData &record) {
 } // namespace
 
 bool ScriptSession::Open(CKContext *context, CK_ID scriptId) {
+    m_Context = context;
     m_ScriptId = scriptId;
     m_LoadMessage.clear();
     m_Data.Clear();
@@ -61,6 +64,7 @@ bool ScriptSession::Open(CKContext *context, CK_ID scriptId) {
 }
 
 bool ScriptSession::Reconstruct(CKContext *context) {
+    m_Context = context;
     CKBehavior *script = CKBehavior::Cast(context->GetObject(m_ScriptId));
     InterfaceDataReconstructionOptions options;
     options.linkRouting = InterfaceDataLinkRouting::Straight;
@@ -77,9 +81,26 @@ bool ScriptSession::Reconstruct(CKContext *context) {
     return true;
 }
 
-void ScriptSession::Assign(const InterfaceData &data) {
-    m_Data = data;
-    m_Data.observers.clear();
+bool ScriptSession::Assign(const InterfaceData &data) {
+    if (!m_Context || ReadOnly() || data.rootBehavior.id != m_ScriptId) return false;
+    Restore(data);
+    Touch();
+    return true;
+}
+
+void ScriptSession::Restore(const InterfaceData &data) {
+    InterfaceData replacement = data;
+    replacement.observers.clear();
+    RefreshRecord(m_Context, replacement.rootBehavior);
+    for (auto &record : replacement.behaviors) RefreshRecord(m_Context, record);
+    m_Data = std::move(replacement);
+}
+
+bool ScriptSession::FitContentHeight(float height) {
+    if (!m_Context || ReadOnly() || !std::isfinite(height) || height <= 0.0f || height == m_Data.header.vSize) return false;
+    m_Data.header.vSize = height;
+    TouchUndoable();
+    return true;
 }
 
 void ScriptSession::RefreshRuntimeState(CKContext *context) {

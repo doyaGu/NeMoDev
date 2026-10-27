@@ -34,29 +34,43 @@ public:
     const std::string &LoadMessage() const { return m_LoadMessage; }
     bool ReadOnly() const { return m_Origin == SessionOrigin::LoadFailed; }
 
-    InterfaceData &Data() { return m_Data; }
+    // Read access only. Undoable writes go through Edit::ScriptData or
+    // EditScriptData; replacements outside undo go through Assign.
     const InterfaceData &Data() const { return m_Data; }
 
-    // Replaces the display data, e.g. from an undo snapshot. Observers are
-    // never copied: snapshots are plain values.
-    void Assign(const InterfaceData &data);
-    // Runtime-only fields (parent ids, port counts, Target state) are not in
-    // the chunk; refresh them after loading or after a CK topology change.
-    void RefreshRuntimeState(CKContext *context);
+    // Replaces display data outside undo, refreshing runtime fields and
+    // recording the change. False for read-only sessions or another Script's
+    // data. Observers are never copied: snapshots are plain values.
+    bool Assign(const InterfaceData &data);
+    // Derived sizing after an edit or replay: it follows the contents, so
+    // it must not prevent undo from reaching the save point. No undo step.
+    bool FitContentHeight(float height);
 
     // Open/closed in the Schematic: view state only. Dev 2.5 shows loaded
     // Scripts open even when the root record carries UI flag 0x200 (2D
     // Text.cmo), so the stored flag is kept unchanged and not interpreted.
     bool IsOpen() const { return m_Open; }
     void SetOpen(bool open) {
+        if (m_Open == open) return;
         m_Open = open;
         ++m_ViewRevision;
     }
     std::uint64_t ViewRevision() const { return m_ViewRevision; }
 
     std::uint64_t Revision() const { return m_Revision; }
-    // A change outside undo (display reconstructed, invalid links removed,
-    // automatic resizing): the Script stays modified until it is saved.
+    std::uint64_t ChangesOutsideUndo() const { return m_ChangesOutsideUndo; }
+    bool Dirty() const { return m_Revision != m_SavedRevision; }
+
+private:
+    friend class Document;
+    friend class Edit;
+    friend class UndoStep;
+    // Snapshot replay and live edits own their notifications and save points.
+    void Restore(const InterfaceData &data);
+    // Runtime-only fields are refreshed together with every replacement.
+    void RefreshRuntimeState(CKContext *context);
+    // A change outside undo (display reconstructed, invalid links removed):
+    // the Script stays modified until it is saved.
     void Touch() {
         ++m_Revision;
         ++m_ChangesOutsideUndo;
@@ -64,11 +78,9 @@ public:
     // A change an undo step makes, or a live edit that ends as one (or is
     // put back): undoing back to the save point leaves it unmodified.
     void TouchUndoable() { ++m_Revision; }
-    std::uint64_t ChangesOutsideUndo() const { return m_ChangesOutsideUndo; }
-    bool Dirty() const { return m_Revision != m_SavedRevision; }
     void MarkSaved() { m_SavedRevision = m_Revision; }
 
-private:
+    CKContext *m_Context = nullptr; // borrowed for this session's lifetime
     CK_ID m_ScriptId = 0;
     SessionOrigin m_Origin = SessionOrigin::LoadedChunk;
     std::string m_LoadMessage;

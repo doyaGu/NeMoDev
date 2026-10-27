@@ -73,19 +73,20 @@ int RemoveInvalidLinks(Document &document, const std::vector<InvalidLink> &links
     for (auto &entry : slots) {
         ScriptSession *session = document.Session(entry.first.first);
         if (!session || session->ReadOnly()) continue;
-        InterfaceData &data = session->Data();
+        InterfaceData data = session->Data();
         BehaviorData *record = data.rootBehavior.id == entry.first.second ? &data.rootBehavior : nullptr;
         for (BehaviorData &candidate : data.behaviors)
             if (!record && candidate.id == entry.first.second) record = &candidate;
         if (!record) continue;
         std::vector<int> &indices = entry.second;
         std::sort(indices.rbegin(), indices.rend());
+        const int before = removed;
         for (int index : indices)
             if (index >= 0 && index < static_cast<int>(record->links.size())) {
                 record->links.erase(record->links.begin() + index);
                 ++removed;
             }
-        session->Touch();
+        if (removed != before) session->Assign(data);
     }
     return removed;
 }

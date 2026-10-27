@@ -27,7 +27,7 @@ CK_ID ParentOf(const InterfaceData &data, CK_ID behavior);
 const char *NameOf(CKObject *object);
 bool IsScriptUi(TopologyEdit &edit, const BehaviorData &record);
 
-template <typename Fn> void ForEachRecord(InterfaceData &data, Fn fn) {
+template <typename Data, typename Fn> void ForEachRecord(Data &data, Fn fn) {
     fn(data.rootBehavior);
     for (auto &record : data.behaviors) fn(record);
 }

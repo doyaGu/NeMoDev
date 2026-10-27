@@ -129,15 +129,10 @@ public:
     // objects a load brought).
     void Include(CK_ID id) { m_CreatedObjects.insert(id); }
     // A change of the composition outside undo (loading into it, Data
-    // Resources, attribute types, the debugger's Reset): it stays modified
-    // until it is saved. The views redraw on either kind.
-    void MarkTopologyChanged() {
-        ++m_TopologyRevision;
-        ++m_ChangesOutsideUndo;
-    }
-    // A change an undo step makes (its edit, undo or redo): undoing back to
-    // the save point (UndoHistory::MarkSavePoint) leaves it unmodified.
-    void MarkUndoableChange() { ++m_TopologyRevision; }
+    // Resources, attribute types, the debugger's Reset): refreshes the Script
+    // list and runtime display fields, then stays modified until saved.
+    // Object ownership still belongs to Edit::Created or AdoptObjects.
+    void MarkTopologyChanged();
     // The changes outside undo so far, the document's and its Scripts'.
     std::uint64_t ChangesOutsideUndo() const;
     // The undo history: empty when a composition is opened,
@@ -165,6 +160,8 @@ private:
     friend class UndoStep;
     friend class UndoHistory;
     friend struct DocumentSaverAccess;
+    // Only an Edit/UndoStep may claim that a change belongs to undo.
+    void MarkUndoableChange() { ++m_TopologyRevision; }
     void ListScripts();
     void CommitOpen(PreparedOpen &prepared);
     // Run only after edits/replay have ended and discarded steps released

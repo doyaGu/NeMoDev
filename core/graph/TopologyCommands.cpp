@@ -120,7 +120,7 @@ EditResult TopologyEdit::Commit(CK_ID created) {
             ScriptSession *other = m_Document.Session(info.id);
             if (!other || other->ReadOnly()) continue;
             bool shows = false;
-            ForEachRecord(other->Data(), [&](BehaviorData &record) {
+            ForEachRecord(other->Data(), [&](const BehaviorData &record) {
                 for (const auto &shared : record.sharedParams) shows = shows || removed.count(shared.sourceId);
             });
             if (!shows) continue;

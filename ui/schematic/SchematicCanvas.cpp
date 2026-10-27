@@ -374,14 +374,13 @@ void SchematicCanvas::SyncViews(ImFont *font) {
             // what they need, and shrinks to it with Auto Resize Scripts. The
             // height belongs to the edit: undo restores the data before it,
             // and the contents then need what they did, so undoing back to
-            // the save point leaves the document unmodified (TouchUndoable).
+            // the save point leaves the document unmodified.
             const float content = view.model.script.contentHeight, stored = session->Data().header.vSize;
             const bool changed = view.revision != ~0ull && view.content > 0.0f && content != view.content;
             view.content = content;
             if (changed && view.model.script.open && stored > 0.0f && !session->ReadOnly() &&
                 (content > stored || (content < stored && m_State.preferences.Bool("Schematic\\Auto Resize Scripts")))) {
-                session->Data().header.vSize = content;
-                session->TouchUndoable();
+                session->FitContentHeight(content);
                 view.model.Build(*session, document.Context(), measure);
             }
             CKBehavior *script = CKBehavior::Cast(document.Context()->GetObject(id));

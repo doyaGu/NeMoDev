@@ -24,8 +24,11 @@ void PrepareInterfaceForSave(Document &document, CKBehavior *behavior, bool hidd
     // An edited Script carries its current display (as the composition save does).
     if (behavior->GetType() & CKBEHAVIORTYPE_SCRIPT)
         if (ScriptSession *session = document.ExistingSession(id))
-            if (session->Dirty())
-                if (CKStateChunk *chunk = GenerateInterfaceChunk(session->Data(), behavior)) behavior->SetInterfaceChunk(chunk);
+            if (session->Dirty()) {
+                InterfaceData data = session->Data();
+                data.observers.clear();
+                if (CKStateChunk *chunk = GenerateInterfaceChunk(data, behavior)) behavior->SetInterfaceChunk(chunk);
+            }
     if (hidden && behavior->GetType() != CKBEHAVIORTYPE_BASE) {
         // A Script's display (its session's), a graph's made from the runtime.
         InterfaceData data;

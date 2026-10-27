@@ -109,7 +109,9 @@ void SyntheticScriptModel(CKContext *context) {
     assert(CountPins(model, block->GetID(), PinKind::ParamIn) == 2);
 
     // Expanding the graph shows its contents inside the expanded frame.
-    session.Data().FindBehavior(graph->GetID())->folded = false;
+    InterfaceData expanded = session.Data();
+    expanded.FindBehavior(graph->GetID())->folded = false;
+    assert(session.Assign(expanded));
     model.Build(session, context);
     assert(model.FindBehavior(inner->GetID()) && model.IsOpenGraph(graph->GetID()));
     assert(model.FindBehavior(inner->GetID())->depth == 2);
@@ -140,7 +142,9 @@ void ExplorerSearch(CkRuntimeHost &host) {
     assert(session);
     Comment note;
     note.text = "Remember the alpha path";
-    session->Data().rootBehavior.AddComment(note);
+    InterfaceData annotated = session->Data();
+    annotated.rootBehavior.AddComment(note);
+    assert(session->Assign(annotated));
 
     auto run = [&](const std::string &text, CK_ID id = 0, unsigned kinds = SearchAll) {
         SearchQuery query;
@@ -329,8 +333,11 @@ int SampleListModels(CkRuntimeHost &host, const std::string &listPath) {
                 for (auto &record : copy.behaviors) route(record);
             }
             // Open every graph so all stored links are resolved.
-            session->Data().rootBehavior.folded = false;
-            for (auto &record : session->Data().behaviors) record.folded = false;
+            InterfaceData expanded = session->Data();
+            expanded.rootBehavior.folded = false;
+            for (auto &record : expanded.behaviors) record.folded = false;
+            const bool assigned = session->Assign(expanded);
+            if (!assigned) ++inconsistentScripts;
             SchematicModel model;
             model.Build(*session, host.Context());
             // Shown parameter input pins are enabled; hidden links end at a

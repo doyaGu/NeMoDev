@@ -1548,8 +1548,8 @@ void CompositionReadCompatibility(CkRuntimeHost &host) {
         CKStateChunk *chunk = GenerateInterfaceChunk(data, script);
         CHECK(chunk);
         script->SetInterfaceChunk(chunk);
-        document.Session(made.created)->Assign(data);
-        document.Session(made.created)->MarkSaved();
+        CHECK(document.Session(made.created)->Assign(data));
+        document.MarkSaved();
         const fs::path source = root / (std::to_string(format.version) + "-source.cmo");
         const fs::path saved = root / (std::to_string(format.version) + "-saved.cmo");
         SaveOptions options;
