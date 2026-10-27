@@ -12,6 +12,7 @@
 #include "core/runtime/CkArrays.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include "core/runtime/SdkCompat.h"
+#include "core/document/detail/LoadTransaction.h"
 
 namespace vdev {
 
@@ -229,6 +230,28 @@ bool Document::New(std::string *error, const SceneEnvironment &environment) {
 
 bool Document::Merge(const std::string &path, bool asScene, std::string *error, std::vector<CK_ID> *merged,
                      const std::vector<DuplicateName> *duplicates) {
+    if (!IsOpen() || !Context() || !Context()->GetCurrentLevel()) {
+        if (error) *error = "No composition is open";
+        return false;
+    }
+    LoadTransaction transaction(*this);
+    if (!transaction.Capture(error)) return false;
+    std::vector<CK_ID> added;
+    bool loaded = false;
+    const bool completed = GuardedCall([&] { loaded = MergeInPlace(path, asScene, error, &added, duplicates); },
+                                      &m_Host, "Merge composition");
+    if (!completed || !loaded) {
+        if (!completed && error) *error = "Merging " + path + " raised an exception";
+        transaction.Rollback(error);
+        return false;
+    }
+    if (merged) merged->insert(merged->end(), added.begin(), added.end());
+    transaction.Commit();
+    return true;
+}
+
+bool Document::MergeInPlace(const std::string &path, bool asScene, std::string *error, std::vector<CK_ID> *merged,
+                            const std::vector<DuplicateName> *duplicates) {
     CKContext *context = Context();
     CKLevel *current = context ? context->GetCurrentLevel() : nullptr;
     if (!m_Open || !current) {
@@ -270,7 +293,12 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
         CKScene *scene = asScene ? level->GetLevelScene() : nullptr;
         for (int i = 0; scene && i < level->GetScriptCount(); ++i)
             if (CKBehavior *script = level->GetScript(i)) scripts.push_back(script->GetID());
-        GuardedCall([&] { current->Merge(level, asScene); }, &m_Host, "CKLevel::Merge");
+        CKERROR mergedLevel = CKERR_INVALIDPARAMETER;
+        if (!GuardedCall([&] { mergedLevel = current->Merge(level, asScene); }, &m_Host, "CKLevel::Merge") ||
+            mergedLevel != CK_OK) {
+            if (error) *error = "Cannot merge the loaded level";
+            return false;
+        }
         CKScene *levelScene = current->GetLevelScene();
         for (CK_ID scriptId : scripts) {
             CKBehavior *script = CKBehavior::Cast(context->GetObject(scriptId));
@@ -282,7 +310,10 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
     }
     for (CK_ID id : levels)
         if (CKObject *level = context->GetObject(id))
-            GuardedCall([&] { context->DestroyObject(level); }, &m_Host, "CKContext::DestroyObject");
+            if (!GuardedCall([&] { context->DestroyObject(level); }, &m_Host, "CKContext::DestroyObject") || context->GetObject(id)) {
+                if (error) *error = "Cannot remove the merged level";
+                return false;
+            }
     for (CK_ID id : loaded)
         if (context->GetObject(id)) {
             m_LoadedObjects.push_back(id);
@@ -297,6 +328,29 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
 bool Document::Import(const std::string &path, ImportMode mode, std::string *error,
                       std::vector<CK_ID> *imported, const std::vector<DuplicateName> *duplicates,
                       const SceneEnvironment &environment) {
+    if (!IsOpen() || !Context() || !Context()->GetCurrentLevel()) {
+        if (error) *error = "No composition is open";
+        return false;
+    }
+    LoadTransaction transaction(*this);
+    if (!transaction.Capture(error)) return false;
+    std::vector<CK_ID> added;
+    bool loaded = false;
+    const bool completed = GuardedCall([&] { loaded = ImportInPlace(path, mode, error, &added, duplicates, environment); },
+                                      &m_Host, "Import objects");
+    if (!completed || !loaded) {
+        if (!completed && error) *error = "Importing " + path + " raised an exception";
+        transaction.Rollback(error);
+        return false;
+    }
+    if (imported) imported->insert(imported->end(), added.begin(), added.end());
+    transaction.Commit();
+    return true;
+}
+
+bool Document::ImportInPlace(const std::string &path, ImportMode mode, std::string *error,
+                            std::vector<CK_ID> *imported, const std::vector<DuplicateName> *duplicates,
+                            const SceneEnvironment &environment) {
     CKContext *context = Context();
     CKLevel *current = context ? context->GetCurrentLevel() : nullptr;
     if (!m_Open || !current) {
@@ -354,13 +408,24 @@ bool Document::Import(const std::string &path, ImportMode mode, std::string *err
         // (CK3dEntity::AddChildren keeps their own hierarchy).
         CKPlace *place = CKPlace::Cast(context->CreateObject(CKCID_PLACE, const_cast<CKSTRING>(title.c_str())));
         if (place) {
-            current->AddPlace(place);
+            if (current->AddPlace(place) != CK_OK) {
+                if (error) *error = "Cannot add the imported place";
+                return false;
+            }
             XObjectPointerArray entities;
             for (CK_ID id : array)
                 if (CKObject *object = context->GetObject(id))
                     if (CKIsChildClassOf(object, CKCID_3DENTITY)) entities.PushBack(object);
-            GuardedCall([&] { place->AddChildren(entities, TRUE); }, &m_Host, "CK3dEntity::AddChildren");
+            CKBOOL grouped = entities.Size() == 0;
+            if (!GuardedCall([&] { if (entities.Size()) grouped = place->AddChildren(entities, TRUE); },
+                             &m_Host, "CK3dEntity::AddChildren") || !grouped) {
+                if (error) *error = "Cannot group the imported objects in a place";
+                return false;
+            }
             loaded.push_back(place->GetID());
+        } else {
+            if (error) *error = "Cannot create the imported place";
+            return false;
         }
     } else if (mode == ImportMode::Scene) {
         // A scene named after the file with Dev's new-scene environment,
@@ -368,10 +433,16 @@ bool Document::Import(const std::string &path, ImportMode mode, std::string *err
         CKScene *scene = CKScene::Cast(context->CreateObject(CKCID_SCENE, const_cast<CKSTRING>(title.c_str())));
         if (scene) {
             ApplyNewSceneEnvironment(scene, m_Host, environment, false);
-            current->AddScene(scene);
+            if (current->AddScene(scene) != CK_OK) {
+                if (error) *error = "Cannot add the imported scene";
+                return false;
+            }
             for (CK_ID id : array)
                 if (CKSceneObject *object = CKSceneObject::Cast(context->GetObject(id))) scene->AddObjectToScene(object, TRUE);
             loaded.push_back(scene->GetID());
+        } else {
+            if (error) *error = "Cannot create the imported scene";
+            return false;
         }
     }
     // Every loaded scene, place, object and animation joins the level.
@@ -379,15 +450,23 @@ bool Document::Import(const std::string &path, ImportMode mode, std::string *err
     for (CK_ID id : array) {
         CKObject *object = context->GetObject(id);
         if (!object || object == current || CKIsChildClassOf(object, CKCID_LEVEL)) continue;
-        if (CKScene *scene = CKScene::Cast(object)) current->AddScene(scene);
-        else if (CKPlace *place = CKPlace::Cast(object)) current->AddPlace(place);
+        CKERROR added = CK_OK;
+        if (CKScene *scene = CKScene::Cast(object)) added = current->AddScene(scene);
+        else if (CKPlace *place = CKPlace::Cast(object)) added = current->AddPlace(place);
         else if (CKIsChildClassOf(object, CKCID_BEOBJECT) || CKIsChildClassOf(object, CKCID_ANIMATION))
-            current->AddObject(object);
+            added = current->AddObject(object);
+        if (added != CK_OK) {
+            if (error) *error = "Cannot add the imported objects to the level";
+            return false;
+        }
     }
     current->BeginAddSequence(FALSE);
     for (CK_ID id : levels)
         if (CKObject *level = context->GetObject(id))
-            GuardedCall([&] { context->DestroyObject(level); }, &m_Host, "CKContext::DestroyObject");
+            if (!GuardedCall([&] { context->DestroyObject(level); }, &m_Host, "CKContext::DestroyObject") || context->GetObject(id)) {
+                if (error) *error = "Cannot remove the imported level";
+                return false;
+            }
     int count = 0;
     for (CK_ID id : loaded)
         if (context->GetObject(id)) {

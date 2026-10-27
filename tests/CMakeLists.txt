@@ -99,6 +99,7 @@ add_executable(VirtoolsDevTests
         ObjectEditFailureTests.cpp
         SaveFailureTests.cpp
         LoadCallbackTests.cpp
+        LoadFailureTests.cpp
         InitialConditionsTests.cpp
         ParameterValueFailureTests.cpp
         VirtoolsDevEditTests.cpp

@@ -1,4 +1,4 @@
-// Create Web Page through the File menu, including invalid runtime metadata.
+// File operations, including runtime failures and invalid saved metadata.
 
 #include <filesystem>
 #include <fstream>
@@ -7,10 +7,13 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <stdexcept>
 
 #include "tests/ui/UiTests.h"
 #include "core/document/Edit.h"
 #include "core/document/FileCommands.h"
+#include "core/graph/ScriptCommands.h"
+#include "core/graph/TopologyCommands.h"
 #include "core/level/LevelCommands.h"
 #include "core/runtime/SdkCompat.h"
 #include "ui/schematic/Snapshots.h"
@@ -62,6 +65,22 @@ public:
     }
 };
 
+class FileMenuLoadFailureManager : public CKBaseManager {
+public:
+    bool armed = false, fired = false;
+    explicit FileMenuLoadFailureManager(CKContext *context)
+        : CKBaseManager(context, CKGUID(0x75e82741, 0x369bc451), "UI load rollback regression") {}
+    CKDWORD GetValidFunctionsMask() override { return CKMANAGER_FUNC_PostLoad; }
+    CKERROR PostLoad() override {
+        if (armed) {
+            armed = false;
+            fired = true;
+            throw std::runtime_error("Injected UI load failure");
+        }
+        return CK_OK;
+    }
+};
+
 struct SlowSaveProbe {
     std::mutex mutex;
     std::condition_variable changed;
@@ -108,7 +127,94 @@ public:
 };
 
 void RegisterFileMenuTests(ImGuiTestEngine *engine) {
-    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "slow_save_keeps_ui_responsive");
+    ImGuiTest *t = IM_REGISTER_TEST(engine, "filemenu", "failed_import_merge_preserve_selection_and_history");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        namespace fs = std::filesystem;
+        Settle(ctx);
+        const auto root = fs::current_path() / ("ui-load-failure-" + std::to_string(SDL_GetTicksNS()));
+        IM_CHECK(fs::create_directory(root));
+        struct Cleanup {
+            fs::path root;
+            ~Cleanup() { std::error_code error; fs::remove_all(root, error); }
+        } cleanup{root};
+        const auto nmo = (root / "objects.nmo").u8string();
+        const auto cmo = (root / "composition.cmo").u8string();
+        struct Probe {
+            CK_ID frame = 0, script = 0;
+            CKContext *context = nullptr;
+            FileMenuLoadFailureManager *manager = nullptr;
+            vdev::Selection selection;
+            vdev::ObjectSelection objects;
+            size_t undo = 0;
+            std::string undoLabel, redoLabel;
+            bool completed = false, loaded = true;
+        };
+        auto probe = std::make_shared<Probe>();
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &document = *state.document;
+            const auto made = vdev::CreateLayoutObject(document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            probe->frame = made.created;
+            std::string error;
+            IM_CHECK_NO_RET(vdev::SaveObjectsAs(document, {made.created}, nmo, &error));
+            vdev::SaveReport report;
+            IM_CHECK_NO_RET(vdev::SaveDocumentAs(document, cmo, {}, report));
+            const auto script = vdev::CreateScript(document, made.created, "Load rollback selection");
+            IM_CHECK_NO_RET(script.ok);
+            probe->script = script.created;
+            IM_CHECK_NO_RET(vdev::AddLocalParameter(document, script.created, script.created, "Selection value",
+                                                    CKPGUID_INT, Point(200, 60)).ok);
+            document.MarkSaved();
+            document.History().MarkSavePoint();
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, made.created, "Undo after failed load").ok);
+            IM_CHECK_NO_RET(document.History().Undo() && !document.Dirty());
+            state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
+            state.objectSelection.Set({made.created});
+            probe->context = document.Context();
+            probe->manager = new FileMenuLoadFailureManager(document.Context());
+            IM_CHECK_NO_RET(document.Context()->RegisterNewManager(probe->manager) == CK_OK);
+        });
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            probe->selection = state.selection;
+            probe->objects = state.objectSelection;
+            probe->undo = state.History().UndoCount();
+            probe->undoLabel = state.History().UndoLabel();
+            probe->redoLabel = state.History().RedoLabel();
+        });
+        for (bool merge : {false, true}) {
+            OnMainThread(ctx, [&, merge] {
+                auto &state = App().State();
+                probe->manager->armed = true;
+                probe->manager->fired = false;
+                probe->completed = false;
+                state.RunRuntime("Load failure selection regression", [&, merge] {
+                    std::string error;
+                    probe->loaded = merge ? state.document->Merge(cmo, false, &error)
+                                          : state.document->Import(nmo, vdev::Document::ImportMode::File, &error);
+                }, [probe](bool ok) { probe->completed = ok; });
+            });
+            OnMainThread(ctx, [&] {
+                auto &state = App().State();
+                IM_CHECK_NO_RET(probe->completed && !probe->loaded && probe->manager->fired);
+                IM_CHECK_NO_RET(state.document->Context() == probe->context && !state.document->Dirty());
+                IM_CHECK_NO_RET(state.selection.script == probe->selection.script && state.selection.items == probe->selection.items &&
+                                state.selection.headers == probe->selection.headers);
+                IM_CHECK_NO_RET(state.objectSelection.objects == probe->objects.objects && state.objectSelection.revision == probe->objects.revision);
+                IM_CHECK_NO_RET(state.History().UndoCount() == probe->undo && state.History().CanRedo());
+                IM_CHECK_NO_RET(state.History().UndoLabel() == probe->undoLabel && state.History().RedoLabel() == probe->redoLabel);
+            });
+        }
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.History().Redo());
+            IM_CHECK_NO_RET(state.History().Undo() && !state.document->Dirty());
+        });
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "slow_save_keeps_ui_responsive");
     t->GuiFunc = SlowRuntimeGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         namespace fs = std::filesystem;

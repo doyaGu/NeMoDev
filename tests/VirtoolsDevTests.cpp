@@ -171,6 +171,7 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"ObjectFileOpen", [&] { ObjectFileOpen(host); }},
             {"OpenFailurePreservation", [&] { OpenFailurePreservation(host); }},
             {"LoadCallbacks", [&] { LoadCallbacks(host); }},
+            {"LoadFailurePreservation", [&] { LoadFailurePreservation(host); }},
             {"Resources", [] { ResourceChecks(); }},
             {"NewSceneEnvironment", [&] { NewSceneEnvironment(host); }},
             {"Catalogs", [&] { Catalogs(host.Context()); }},

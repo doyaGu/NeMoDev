@@ -58,7 +58,8 @@ public:
     // File > Merge Composition (Dev.exe sub_5C54C0): loads a file into the
     // context and merges its level into the current one (CKLevel::Merge;
     // asScene: Merge Composition as New Scene), then destroys the loaded level.
-    // Not undoable. merged: the objects added to the composition.
+    // Not undoable. Failure restores the same objects, sessions and undo
+    // history; merged is appended only on success.
     // duplicates: the Duplicate Names Found choices (FindDuplicateNames);
     // without them the duplicates are loaded as CK does (Ignore).
     bool Merge(const std::string &path, bool asScene, std::string *error, std::vector<CK_ID> *merged = nullptr,
@@ -68,7 +69,8 @@ public:
     // current level. Character: loaded with CK_LOAD_ASCHARACTER; Place: a new
     // place named after the file becomes the parent of the loaded 3D
     // entities; Scene: a new scene named after the file holds the loaded
-    // objects. Not undoable (as Merge). imported: the objects added.
+    // objects. Not undoable (as Merge); failure leaves the current document
+    // and imported unchanged. imported: the objects added.
     enum class ImportMode { File, Character, Place, Scene };
     bool Import(const std::string &path, ImportMode mode, std::string *error, std::vector<CK_ID> *imported = nullptr,
                 const std::vector<DuplicateName> *duplicates = nullptr,
@@ -160,6 +162,11 @@ private:
     friend class UndoStep;
     friend class UndoHistory;
     friend struct DocumentSaverAccess;
+    friend class LoadTransaction;
+    bool MergeInPlace(const std::string &path, bool asScene, std::string *error, std::vector<CK_ID> *merged,
+                      const std::vector<DuplicateName> *duplicates);
+    bool ImportInPlace(const std::string &path, ImportMode mode, std::string *error, std::vector<CK_ID> *imported,
+                       const std::vector<DuplicateName> *duplicates, const SceneEnvironment &environment);
     // Only an Edit/UndoStep may claim that a change belongs to undo.
     void MarkUndoableChange() { ++m_TopologyRevision; }
     void ListScripts();

@@ -89,6 +89,7 @@ void ObjectEditCancellation(CkRuntimeHost &host);
 void SaveFailures(CkRuntimeHost &host);
 void SaveCallbacks(CkRuntimeHost &host);
 void LoadCallbacks(CkRuntimeHost &host);
+void LoadFailurePreservation(CkRuntimeHost &host);
 void InitialConditionsScenes(CkRuntimeHost &host);
 void InitialConditionsFailures(CkRuntimeHost &host);
 void ParameterValueFailures(CkRuntimeHost &host);
