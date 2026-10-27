@@ -9,9 +9,11 @@
 #include <mutex>
 
 #include "tests/ui/UiTests.h"
+#include "core/document/Edit.h"
 #include "core/document/FileCommands.h"
 #include "core/level/LevelCommands.h"
 #include "core/runtime/SdkCompat.h"
+#include "ui/schematic/Snapshots.h"
 
 namespace vdevuitest {
 
@@ -459,6 +461,79 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         ctx->MenuClick("//##MainMenuBar/File/New Composition");
         ctx->Yield(4);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().document->SourcePath().empty(); }));
+    };
+    t = IM_REGISTER_TEST(engine, "filemenu", "rejected_save_keeps_pending_object_pictures");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        namespace fs = std::filesystem;
+        Settle(ctx);
+        const auto root = fs::current_path() /
+                          ("rejected-save-" + std::to_string(SDL_GetTicksNS()));
+        IM_CHECK(fs::create_directory(root));
+        struct Cleanup {
+            fs::path root;
+            ~Cleanup() {
+                std::error_code error;
+                fs::remove_all(root, error);
+            }
+        } cleanup{root};
+        const auto source = root / "source.cmo";
+        OnMainThread(ctx, [&] {
+            vdev::SaveReport report;
+            IM_CHECK_NO_RET(vdev::SaveDocumentAs(
+                *App().State().document, source.u8string(), {}, report));
+            App().DropFiles({vdev::Utf8ToWide(source.u8string())}, 0, 0);
+        });
+        ctx->Yield(5);
+
+        std::unique_ptr<vdev::Edit> pending;
+        CK_ID pictured = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            CKLevel *level = state.document->Context()->GetCurrentLevel();
+            IM_CHECK_NO_RET(level != nullptr);
+            pictured = level->GetID();
+            const unsigned char pixels[16] = {
+                0x10, 0x20, 0x30, 0xFF, 0x40, 0x50, 0x60, 0xFF,
+                0x70, 0x80, 0x90, 0xFF, 0xA0, 0xB0, 0xC0, 0xFF};
+            void *bitmap = vdev::BitmapFromPixels(pixels, 2, 2);
+            IM_CHECK_NO_RET(bitmap != nullptr);
+            state.SetObjectPictureBitmap(pictured, bitmap);
+            IM_CHECK_NO_RET(state.objectPicturesChanged);
+            pending = std::make_unique<vdev::Edit>(*state.document,
+                                                    "Pending save blocker");
+            IM_CHECK_NO_RET(state.document->EditOpen());
+        });
+
+        // RunRuntime rejects saves while an edit is open. Preparing that
+        // rejected request must not acknowledge picture data that the runtime
+        // worker never received.
+        ctx->MenuClick("//##MainMenuBar/File/Save Version");
+        ctx->Yield(3);
+        IM_CHECK(Read<bool>(ctx, [] {
+            return App().State().objectPicturesChanged;
+        }));
+        ctx->ItemClick("//Save report/OK");
+
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            pending.reset();
+            IM_CHECK_NO_RET(!state.document->EditOpen());
+        });
+        ctx->MenuClick("//##MainMenuBar/File/Save Version");
+        OnMainThread(ctx, [] {});
+        IM_CHECK(Read<bool>(ctx, [] {
+            return !App().State().objectPicturesChanged;
+        }));
+        ctx->ItemClick("//Save report/OK");
+
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.History().Undo());
+            IM_CHECK_NO_RET(state.objectPictures.find(pictured) ==
+                            state.objectPictures.end());
+            state.objectPicturesChanged = false;
+        });
     };
     t = IM_REGISTER_TEST(engine, "filemenu", "save_callback_keeps_document_open");
     t->GuiFunc = MainThreadGui;

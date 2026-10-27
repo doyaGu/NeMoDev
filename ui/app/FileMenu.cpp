@@ -107,11 +107,13 @@ void EditorApp::ExportTo(const std::string &path, unsigned int writeMode, std::f
     options.writeMode = writeMode;
     options.markSaved = false;
     const CompositionSnapshot snapshot = CompositionToSave(LayoutDataToSave());
-    struct Result { SaveReport report; bool saved = false; };
+    struct Result { SaveReport report; bool saved = false; bool snapshotApplied = false; };
     auto result = std::make_shared<Result>();
     m_State.RunRuntime("Exporting composition", [this, path, options, snapshot, result] {
         result->saved = SaveComposition(*m_State.document, path, snapshot.Data(), options, result->report);
-    }, [this, path, result, completed = std::move(completed)](bool ok) {
+        result->snapshotApplied = true;
+    }, [this, path, snapshot, result, completed = std::move(completed)](bool ok) {
+        if (result->snapshotApplied) AcknowledgeCompositionSnapshot(snapshot);
         const SaveReport &report = result->report;
         const bool saved = ok && result->saved;
         std::string text = (saved ? "Exported " : "Export failed: ") + path;

@@ -178,8 +178,8 @@ private:
     void SaveAs(std::function<void(bool)> completed = {});
     void Save(std::function<void(bool)> completed = {});
     void SaveTo(const std::string &path, bool allowOverwrite, std::function<void(bool)> completed = {});
-    // What Save and the exports write with the composition (the pictures
-    // are then written: not changed any longer).
+    // What Save and the exports write with the composition. Picture changes
+    // are acknowledged only after the runtime worker applies this snapshot.
     struct CompositionSnapshot {
         LayoutInterfaceData layout;
         std::map<CK_ID, void *> pictures;
@@ -187,6 +187,7 @@ private:
         CompositionData Data() const { return {&layout, writePictures ? &pictures : nullptr}; }
     };
     CompositionSnapshot CompositionToSave(const LayoutInterfaceData &layout);
+    void AcknowledgeCompositionSnapshot(const CompositionSnapshot &snapshot);
     void ReopenSetups(const LayoutInterfaceData &data);
     LayoutInterfaceData LayoutDataToSave() const;
     // The File menu's other commands (FileMenu.cpp): Save Version, Revert to

@@ -547,12 +547,14 @@ void EditorApp::SaveTo(const std::string &path, bool allowOverwrite, std::functi
     SaveOptions options;
     options.saveScriptSnapshots = m_State.preferences.Bool("Schematic\\Save Script Snapshot");
     options.allowOverwrite = allowOverwrite;
-    struct Result { SaveReport report; bool saved = false; };
+    struct Result { SaveReport report; bool saved = false; bool snapshotApplied = false; };
     auto result = std::make_shared<Result>();
     const CompositionSnapshot snapshot = CompositionToSave(LayoutDataToSave());
     m_State.RunRuntime("Saving composition", [this, path, options, snapshot, result] {
         result->saved = SaveComposition(*m_State.document, path, snapshot.Data(), options, result->report);
-    }, [this, path, result, completed = std::move(completed)](bool ok) {
+        result->snapshotApplied = true;
+    }, [this, path, snapshot, result, completed = std::move(completed)](bool ok) {
+        if (result->snapshotApplied) AcknowledgeCompositionSnapshot(snapshot);
         const SaveReport &report = result->report;
         std::string text = (ok && result->saved ? "Saved " : "Save failed: ") + path;
         text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
@@ -624,8 +626,15 @@ EditorApp::CompositionSnapshot EditorApp::CompositionToSave(const LayoutInterfac
     data.layout = layout;
     data.writePictures = m_State.objectPicturesChanged;
     if (data.writePictures) data.pictures = m_State.objectPictures;
-    m_State.objectPicturesChanged = false;
     return data;
+}
+
+void EditorApp::AcknowledgeCompositionSnapshot(const CompositionSnapshot &snapshot) {
+    // Do not acknowledge edits made after the snapshot was taken. This also
+    // keeps the dirty bit when RunRuntime rejects or cancels the request before
+    // its worker can install the picture data in the composition.
+    if (snapshot.writePictures && m_State.objectPictures == snapshot.pictures)
+        m_State.objectPicturesChanged = false;
 }
 
 void EditorApp::SaveAs(std::function<void(bool)> completed) {
