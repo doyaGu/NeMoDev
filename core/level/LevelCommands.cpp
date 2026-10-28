@@ -1,6 +1,7 @@
 #include <filesystem>
 #include "core/level/LevelCommands.h"
 #include "core/level/HierarchyTree.h"
+#include "core/level/LevelActionRecord.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,6 +34,12 @@ using namespace level;
 // Curve points: CurveCommands.cpp; Create, Replace Material, Duplicate: CreateCommands.cpp.
 
 namespace {
+
+ActionObject RecordedObject(CKObject *object) {
+    return object ? ActionObject{object->GetID(), object->GetClassID()} : ActionObject{};
+}
+
+template <typename T> LevelActionRecord NewRecord(Document &document) { return {document.InstanceId(), document.Host().Generation(), std::vector<T>{}}; }
 
 // Scripts are in the scenes of their owner. CKBeObject::AddScript adds them
 // (AddToSelfScenes, CK2) and RemoveScript removes them; any scene still
@@ -657,15 +664,9 @@ EditResult RenameLevelObject(Document &document, CK_ID id, const std::string &na
     if (!object) return EditResult::Refused("Select an object");
     const std::string before = object->GetName() ? object->GetName() : "";
     if (before == name) return EditResult::NoChange("The name is unchanged");
-    auto rename = [id](const std::string &text) {
-        return [id, text](Document &doc) {
-            CKObject *target = doc.Context()->GetObject(id);
-            if (!target) return false;
-            target->SetName(const_cast<CKSTRING>(text.c_str()));
-            return true;
-        };
-    };
-    return Apply(document, "Rename", rename(name), rename(before));
+    auto record = NewRecord<ObjectNameChange>(document);
+    record.Changes<ObjectNameChange>().emplace_back(ObjectNameChange{RecordedObject(object), before, name});
+    return ApplyLevelActionRecord(document, "Rename", std::move(record));
 }
 
 EditResult CreateArray(Document &document, const std::string &name) {
@@ -731,23 +732,14 @@ EditResult ShowObjects(Document &document, const std::vector<CK_ID> &objects, bo
 }
 
 EditResult ShowObjectsAs(Document &document, const std::vector<CK_ID> &objects, CK_OBJECT_SHOWOPTION option) {
-    std::vector<std::pair<CK_ID, CK_OBJECT_SHOWOPTION>> before;
+    auto record = NewRecord<ObjectIntegerChange>(document);
     for (CK_ID id : objects)
-        if (CKRenderObject *object = Get<CKRenderObject>(document, id)) before.emplace_back(id, ShowStateOf(object));
-    if (before.empty()) return EditResult::Refused("Select 2D or 3D objects");
+        if (auto *object = Get<CKRenderObject>(document, id))
+            record.Changes<ObjectIntegerChange>().emplace_back(ObjectIntegerChange{RecordedObject(object), ObjectIntegerProperty::Visibility,
+                                                            ShowStateOf(object), option});
+    if (record.Changes<ObjectIntegerChange>().empty()) return EditResult::Refused("Select 2D or 3D objects");
     const char *label = option == CKSHOW ? "Show in 3D Layout" : option == CKHIDE ? "Hide in 3D Layout" : "Hierarchical Hide";
-    return Apply(
-        document, label,
-        [before, option](Document &doc) {
-            for (const auto &entry : before)
-                if (CKObject *object = doc.Context()->GetObject(entry.first)) object->Show(option);
-            return true;
-        },
-        [before](Document &doc) {
-            for (const auto &entry : before)
-                if (CKObject *object = doc.Context()->GetObject(entry.first)) object->Show(entry.second);
-            return true;
-        });
+    return ApplyLevelActionRecord(document, label, std::move(record));
 }
 
 EditResult SetActiveNow(Document &document, const std::vector<CK_ID> &objects, CK_ID sceneId, bool active) {
@@ -789,29 +781,14 @@ EditResult SetPriorities(Document &document, const std::vector<CK_ID> &objects, 
         if (CKBehavior *behavior = CKBehavior::Cast(object)) return behavior->GetPriority();
         return CKBeObject::Cast(object)->GetPriority();
     };
-    std::vector<std::pair<CK_ID, int>> before;
+    auto record = NewRecord<ObjectIntegerChange>(document);
     for (CK_ID id : objects)
         if (CKObject *object = Get<CKBeObject>(document, id) ? document.Context()->GetObject(id) : Get<CKBehavior>(document, id))
-            if (priorityOf(object) != priority) before.emplace_back(id, priorityOf(object));
-    if (before.empty()) return EditResult::NoChange("The priority is unchanged");
-    auto set = [](Document &doc, CK_ID id, int value) {
-        CKObject *object = doc.Context()->GetObject(id);
-        if (CKBehavior *behavior = CKBehavior::Cast(object)) behavior->SetPriority(value);
-        else if (CKBeObject *beObject = CKBeObject::Cast(object)) beObject->SetPriority(value);
-        else return false;
-        return true;
-    };
-    return Apply(
-        document, "Set Priority",
-        [before, priority, set](Document &doc) {
-            for (const auto &entry : before)
-                if (!set(doc, entry.first, priority)) return false;
-            return true;
-        },
-        [before, set](Document &doc) {
-            for (const auto &entry : before) set(doc, entry.first, entry.second);
-            return true;
-        });
+            if (priorityOf(object) != priority)
+                record.Changes<ObjectIntegerChange>().emplace_back(ObjectIntegerChange{RecordedObject(object), ObjectIntegerProperty::Priority,
+                                                                priorityOf(object), priority});
+    if (record.Changes<ObjectIntegerChange>().empty()) return EditResult::NoChange("The priority is unchanged");
+    return ApplyLevelActionRecord(document, "Set Priority", std::move(record));
 }
 
 int SaveOptionOf(CKObject *object) {
@@ -821,35 +798,17 @@ int SaveOptionOf(CKObject *object) {
     return -1;
 }
 
-namespace {
-
-void ApplySaveOption(CKObject *object, int option) {
-    if (CKTexture *texture = CKTexture::Cast(object)) texture->SetSaveOptions(static_cast<CK_BITMAP_SAVEOPTIONS>(option));
-    else if (CKSprite *sprite = CKSprite::Cast(object)) sprite->SetSaveOptions(static_cast<CK_BITMAP_SAVEOPTIONS>(option));
-    else if (CKSound *sound = CKSound::Cast(object)) sound->SetSaveOptions(static_cast<CK_SOUND_SAVEOPTIONS>(option));
-}
-
-} // namespace
-
 EditResult SetSaveOptions(Document &document, const std::vector<CK_ID> &objects,
                           int option) {
-    std::vector<std::pair<CK_ID, int>> before;
+    auto record = NewRecord<ObjectIntegerChange>(document);
     for (CK_ID id : objects) {
-        CKObject *object = document.Context()->GetObject(id);
+        auto *object = document.Context()->GetObject(id);
         const int current = SaveOptionOf(object);
-        if (current >= 0 && current != option) before.emplace_back(id, current);
+        if (current >= 0 && current != option)
+            record.Changes<ObjectIntegerChange>().emplace_back(ObjectIntegerChange{RecordedObject(object), ObjectIntegerProperty::SaveOptions, current, option});
     }
-    if (before.empty()) return EditResult::Refused("Select textures, sprites or sounds with another save option");
-    return Apply(
-        document, "Set Save Options",
-        [before, option](Document &doc) {
-            for (const auto &entry : before) ApplySaveOption(doc.Context()->GetObject(entry.first), option);
-            return true;
-        },
-        [before](Document &doc) {
-            for (const auto &entry : before) ApplySaveOption(doc.Context()->GetObject(entry.first), entry.second);
-            return true;
-        });
+    if (record.Changes<ObjectIntegerChange>().empty()) return EditResult::Refused("Select textures, sprites or sounds with another save option");
+    return ApplyLevelActionRecord(document, "Set Save Options", std::move(record));
 }
 
 namespace {
@@ -1122,26 +1081,14 @@ EditResult DestroyLevelObjects(Document &document, const std::vector<CK_ID> &obj
 }
 
 EditResult SetRenderPriority(Document &document, const std::vector<CK_ID> &objects, int priority) {
-    using Priorities = std::vector<std::pair<CK_ID, int>>;
-    Priorities before, after;
+    auto record = NewRecord<ObjectIntegerChange>(document);
     for (CK_ID id : objects)
-        if (CKRenderObject *object = CKRenderObject::Cast(document.Context()->GetObject(id)))
-            if (object->GetZOrder() != priority) {
-                before.emplace_back(id, object->GetZOrder());
-                after.emplace_back(id, priority);
-            }
-    if (before.empty()) return EditResult::NoChange();
-    auto set = [](const Priorities &values) {
-        return [values](Document &doc) {
-            for (const auto &value : values) {
-                CKRenderObject *object = CKRenderObject::Cast(doc.Context()->GetObject(value.first));
-                if (!object) return false;
-                object->SetZOrder(value.second);
-            }
-            return true;
-        };
-    };
-    return Apply(document, "Edit Render Priority", set(after), set(before));
+        if (auto *object = Get<CKRenderObject>(document, id))
+            if (object->GetZOrder() != priority)
+                record.Changes<ObjectIntegerChange>().emplace_back(ObjectIntegerChange{RecordedObject(object), ObjectIntegerProperty::RenderPriority,
+                                                                object->GetZOrder(), priority});
+    if (record.Changes<ObjectIntegerChange>().empty()) return EditResult::NoChange();
+    return ApplyLevelActionRecord(document, "Edit Render Priority", std::move(record));
 }
 
 // ---------------------------------------------------------------- Attribute Manager
@@ -1289,13 +1236,10 @@ EditResult SetHierarchyParent(Document &document, CK_ID id, CK_ID parentId, int 
             if (up == entity) return EditResult::Refused("An object cannot be the child of its own child");
         const CK_ID former = entity->GetParent() ? entity->GetParent()->GetID() : 0;
         if (former == parentId) return EditResult::NoChange("The parent is unchanged");
-        auto set = [id](CK_ID to) {
-            return [id, to](Document &doc) {
-                CK3dEntity *target = Get<CK3dEntity>(doc, id);
-                return target && target->SetParent(to ? Get<CK3dEntity>(doc, to) : nullptr, TRUE) != FALSE;
-            };
-        };
-        return Apply(document, "Set Parent", set(parentId), set(former));
+        auto record = NewRecord<ObjectParentChange>(document);
+        record.Changes<ObjectParentChange>().emplace_back(ObjectParentChange{RecordedObject(object), {RecordedObject(entity->GetParent()), false},
+                                                       {RecordedObject(parent), false}});
+        return ApplyLevelActionRecord(document, "Set Parent", std::move(record));
     }
     if (CK2dEntity *entity = CK2dEntity::Cast(object)) {
         CK2dEntity *parent = parentId ? Get<CK2dEntity>(document, parentId) : nullptr;
@@ -1306,16 +1250,10 @@ EditResult SetHierarchyParent(Document &document, CK_ID id, CK_ID parentId, int 
         const bool wasBackground = entity->IsBackground() != FALSE;
         const bool toBackground = parent ? parent->IsBackground() != FALSE : background < 0 ? wasBackground : background != 0;
         if (former == parentId && wasBackground == toBackground) return EditResult::NoChange("The parent is unchanged");
-        auto set = [id](CK_ID to, bool back) {
-            return [id, to, back](Document &doc) {
-                CK2dEntity *target = Get<CK2dEntity>(doc, id);
-                if (!target) return false;
-                if (!target->SetParent(to ? Get<CK2dEntity>(doc, to) : nullptr)) return false;
-                target->SetBackground(back);
-                return true;
-            };
-        };
-        return Apply(document, "Set Parent", set(parentId, toBackground), set(former, wasBackground));
+        auto record = NewRecord<ObjectParentChange>(document);
+        record.Changes<ObjectParentChange>().emplace_back(ObjectParentChange{RecordedObject(object), {RecordedObject(entity->GetParent()), wasBackground},
+                                                       {RecordedObject(parent), toBackground}});
+        return ApplyLevelActionRecord(document, "Set Parent", std::move(record));
     }
     return EditResult::Refused("Only 2D and 3D entities have a hierarchy");
 }
@@ -1364,18 +1302,11 @@ EditResult CommitSceneEnvironment(Document &document, CK_ID sceneId,
     if (!scene) return EditResult::Refused("The scene is gone");
     const SceneEnvironment after = ReadSceneEnvironment(scene);
     if (after == before) return EditResult::NoChange("No change");
-    auto set = [sceneId](const SceneEnvironment &environment) {
-        return [sceneId, environment](Document &doc) {
-            CKScene *target = Get<CKScene>(doc, sceneId);
-            if (!target) return false;
-            ApplySceneEnvironment(doc.Context(), target, environment);
-            return true;
-        };
-    };
-    // Already applied: recorded as done.
+    auto record = NewRecord<SceneEnvironmentChange>(document);
+    record.Changes<SceneEnvironmentChange>().emplace_back(SceneEnvironmentChange{RecordedObject(scene), before, after});
+    // The gesture has already applied these settings.
     Edit edit(document, label);
-    edit.Done([&document, redo = set(after)] { return redo(document); },
-              [&document, undoAction = set(before)] { return undoAction(document); });
+    edit.Done(RestoreLevelAction(std::move(record)));
     return edit.Commit();
 }
 
