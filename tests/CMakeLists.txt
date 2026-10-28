@@ -26,6 +26,16 @@ endif()
 add_test(NAME NeMoDevProductionIsolation COMMAND ${_production_check})
 add_test(NAME NeMoDevCTestResults COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/CTestResultsTests.py")
+add_test(NAME NeMoDevArchitectureChecker COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/ArchitectureTests.py")
+set(_architecture_check ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/CheckArchitecture.py"
+        --source "${VIRTOOLSDEV_SOURCE_DIR}"
+        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/architecture/coverage.json"
+        --build "${PROJECT_BINARY_DIR}" --config "$<CONFIG>" --ctest "${CMAKE_CTEST_COMMAND}")
+if(VIRTOOLSDEV_BUILD_UI_TESTS)
+    list(APPEND _architecture_check --ui-tests)
+endif()
+add_test(NAME NeMoDevArchitecture COMMAND ${_architecture_check})
 if(UNIX)
     add_test(NAME NeMoDevPackaging COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/PackagingTests.py")
