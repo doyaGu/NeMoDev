@@ -106,14 +106,9 @@ void EditorApp::ExportTo(const std::string &path, unsigned int writeMode, std::f
     options.allowOverwrite = true; // asked before
     options.writeMode = writeMode;
     options.markSaved = false;
-    const LayoutInterfaceData layout = LayoutDataToSave();
-    struct Result { SaveReport report; bool saved = false; };
-    auto result = std::make_shared<Result>();
-    m_State.RunRuntime("Exporting composition", [this, path, options, layout, result] {
-        result->saved = SaveComposition(*m_State.document, path, {&layout}, options, result->report);
-    }, [this, path, result, completed = std::move(completed)](bool ok) {
-        const SaveReport &report = result->report;
-        const bool saved = ok && result->saved;
+    m_State.files.Save(path, LayoutDataToSave(), options, [this, path, completed = std::move(completed)](const DocumentFiles::SaveResult &result) {
+        const SaveReport &report = result.report;
+        const bool saved = result.saved;
         std::string text = (saved ? "Exported " : "Export failed: ") + path;
         text += "\nParameters verified: " + std::to_string(report.parametersVerified);
         for (const auto &message : report.errors) text += "\nError: " + AnsiToUtf8(message);

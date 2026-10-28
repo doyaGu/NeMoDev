@@ -151,8 +151,7 @@ private:
     void BeginAction(PendingAction action);
     void RunAction(PendingAction action);
     bool OpenFile(const std::string &path, std::function<void(bool)> completed = {});
-    struct OpenResult;
-    void CompleteOpen(const std::string &path, const OpenResult &result);
+    void CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result);
     void RuntimeOperationFrame();
     // File > New Composition, Merge Composition (as New Scene), Revert to Saved.
     void NewComposition(bool background = true);
@@ -177,7 +176,8 @@ private:
     void OpenStartupDialog(const std::string &name);
     void StartupFrame(bool settled);
 #endif
-    void CloseDocument(bool closeRuntime = true);
+    // Detach windows and render resources on the UI thread before native replacement/close.
+    void CloseDocumentViews();
     void SaveAs(std::function<void(bool)> completed = {});
     void Save(std::function<void(bool)> completed = {});
     void SaveTo(const std::string &path, bool allowOverwrite, std::function<void(bool)> completed = {});
@@ -244,7 +244,7 @@ private:
     void StatusBar();
     void TimeSettingsDialog();
     // Dev's Duplicate Names Found (DuplicateNames.cpp): the first load of
-    // EditorState::duplicateNames waiting for its choices.
+    // DocumentFiles::PendingDuplicates waiting for its choices.
     void DuplicateNamesDialog();
     void ApplyPreferences();
     std::string PreferencesPath() const;

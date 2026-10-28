@@ -1176,7 +1176,7 @@ void EditorPanels::DropOnLevel(const LevelDrop &drop) {
                 if (result->ok) m_Canvas.Invalidate();
             });
         };
-        if (!behaviors && ResourceFileIsImported(cid)) m_State.LoadAskingDuplicates(path, load);
+        if (!behaviors && ResourceFileIsImported(cid)) m_State.files.WithDuplicates(path, load);
         else load(nullptr);
     }
 }

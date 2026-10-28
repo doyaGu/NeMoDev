@@ -3,13 +3,11 @@
 #include "core/graph/Debugger.h"
 #include <algorithm>
 #include <cstring>
-#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <thread>
-#include <stdexcept>
 #include <string>
 #include <set>
 #include <vector>
@@ -28,6 +26,7 @@
 #include "core/level/LevelCommands.h"
 #include "ui/app/EditorEvents.h"
 #include "ui/app/RuntimeOperation.h"
+#include "ui/app/DocumentFiles.h"
 #include "core/runtime/TextEncoding.h"
 #include "ui/controls/FileDialogs.h"
 
@@ -260,41 +259,18 @@ struct DocumentSession {
     CurveTool curveTool;
     FocusRequest focus;
     Clipboard clipboard;
-    // Dev's Duplicate Names Found (CK_LOAD_DODIALOG, Dev.exe sub_59B3A0): a
-    // load of a file bringing objects named as existing ones waits for the
-    // choices; the dialog (EditorApp) runs it with them on OK and drops it
-    // on Cancel (CK's CKERR_CANCELLED: nothing is loaded).
-    struct DuplicateNamesRequest {
-        std::string path;
-        std::vector<DuplicateName> duplicates;
-        std::function<void(const std::vector<DuplicateName> *)> load;
-        unsigned serial = 0; // which request the dialog's tree was made for
-    };
-    std::vector<DuplicateNamesRequest> duplicateNames; // the first one is asked
-    unsigned duplicateNamesAsked = 0;
+
 };
 
 struct EditorState : DocumentSession {
-private:
-    std::shared_ptr<int> m_DocumentIdentity = std::make_shared<int>(0);
-public:
-    ~EditorState() { FinishRuntimeOperations(); ClearDocumentState(); }
+    EditorState();
+    ~EditorState();
 
     CkRuntimeHost host;
     std::unique_ptr<Document> document;
     FileDialogs fileDialogs;
-    void DispatchFileRequests() {
-        if (!document || !document->EditOpen()) fileDialogs.Dispatch();
-    }
-    void RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion, bool multiple = false) {
-        const std::weak_ptr<int> documentIdentity = m_DocumentIdentity;
-        fileDialogs.Request(options, [this, documentIdentity, completion = std::move(completion)](const FileDialogResult &result) {
-            if (documentIdentity.expired()) return;
-            if (result.status == FileDialogResult::Status::Error)
-                Log(LogLevel::Error, result.error.empty() ? "File selection failed" : result.error);
-            completion(result);
-        }, multiple);
-    }
+    void DispatchFileRequests();
+    void RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion, bool multiple = false);
     BuildingBlockCatalog catalog;
     std::vector<LogEntry> log;
     // The windows answering the parameter UIs' target button (CK2UI sends
@@ -309,8 +285,6 @@ public:
     bool showAttributeManager = false;
     bool showHierarchy = false;
     std::vector<std::string> layoutFrameShapes; // Virtools_Frame_ meshes less the prefix
-    // Edits of these lists (the Setups' check boxes, Change Representation):
-    // one undo step each, the composition modified (they are saved with it).
     // Dev's lines for Add Attribute (Dev.exe sub_594BA0), each object's.
     void LogAttributeAdds(const char *attribute, const std::vector<std::pair<std::string, bool>> &each, bool ok) {
         const std::string name = AnsiToUtf8(attribute ? attribute : "");
@@ -411,75 +385,23 @@ public:
         }
         for (const auto &entry : entries) Log(entry.level, entry.text);
     }
-    bool RunRuntime(const std::string &label, std::function<void()> work, std::function<void(bool)> completed = {}) {
-        if (runtimeOperation.Busy()) {
-            std::weak_ptr<int> identity = m_DocumentIdentity;
-            m_RuntimeRequests.push_back([this, identity, label, work = std::move(work), completed = std::move(completed)] {
-                if (!identity.expired()) RunRuntime(label, work, completed);
-                else if (completed) completed(false);
-            });
-            return true;
-        }
-        if (document && document->EditOpen()) {
-            Log(LogLevel::Warning, "Finish the current operation before " + label);
-            if (completed) completed(false);
-            return false;
-        }
-        return runtimeOperation.Queue(label, [this, label, work = std::move(work)] {
-            if (!GuardedCall(work, &host, label.c_str())) throw std::runtime_error(label + " failed");
-        }, [this, completed = std::move(completed)](const std::string &error) {
-            DrainRuntimeLog();
-            if (!error.empty()) Log(LogLevel::Error, error);
-            if (completed) completed(error.empty());
-        });
-    }
-    void PollRuntimeOperations() {
-        runtimeOperation.Poll();
-        while (!runtimeOperation.Busy() && !m_RuntimeRequests.empty()) {
-            auto next = std::move(m_RuntimeRequests.front());
-            m_RuntimeRequests.pop_front();
-            next();
-        }
-        DrainRuntimeLog();
-    }
-    void FinishRuntimeOperations() {
-        do {
-            runtimeOperation.Finish();
-            PollRuntimeOperations();
-        } while (runtimeOperation.Busy());
-    }
+    bool RunRuntime(const std::string &label, std::function<void()> work, std::function<void(bool)> completed = {});
+    void PollRuntimeOperations();
+    void FinishRuntimeOperations();
     bool HasDocument() const { return document && document->IsOpen(); }
     // The document's undo history (the document is made at startup and lives until shutdown).
     UndoHistory &History() { return document->History(); }
     // The document's state made anew (it is closed); the selection's
     // revision goes on so that the windows showing it update.
-    void ClearDocumentState() {
-        m_DocumentIdentity = std::make_shared<int>(0);
-        const unsigned revision = objectSelection.revision;
-        static_cast<DocumentSession &>(*this) = DocumentSession();
-        objectSelection.revision = revision + 1;
-    }
-
-    // Runs load at once (no choices) when the file brings no duplicate name,
-    // else once the dialog has the choices.
-    void LoadAskingDuplicates(const std::string &path, std::function<void(const std::vector<DuplicateName> *)> load) {
-        auto found = std::make_shared<std::vector<DuplicateName>>();
-        RunRuntime("Checking duplicate names", [this, path, found] {
-            if (HasDocument()) *found = document->FindDuplicateNames(path);
-        }, [this, path, found, load = std::move(load)](bool ok) mutable {
-            if (!ok) return;
-            if (found->empty()) load(nullptr);
-            else duplicateNames.push_back({path, std::move(*found), std::move(load), ++duplicateNamesAsked});
-        });
-    }
+    void ClearDocumentState();
 
 private:
     const std::thread::id m_UiThread = std::this_thread::get_id();
     std::mutex m_RuntimeLogMutex;
     std::vector<LogEntry> m_RuntimeLog;
-    std::deque<std::function<void()>> m_RuntimeRequests;
 public:
-    // Declared last so its worker and captures go before the document/host.
+    DocumentFiles files{*this};
+    // Declared last so its worker and captures go before files/document/host.
     RuntimeOperation runtimeOperation;
 };
 

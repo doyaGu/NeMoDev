@@ -65,15 +65,21 @@ add_test(NAME VirtoolsDevFontDeployment COMMAND ${CMAKE_COMMAND}
         "-DFONT_MANIFEST=${VIRTOOLS_SDK_PATH}/Source/VxMath/fonts/sources.json"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/CheckFontDeployment.cmake")
 
-add_executable(VirtoolsDevFileDialogTests VirtoolsDevFileDialogTests.cpp
-    ../ui/controls/FileDialogs.cpp ../ui/app/Preferences.cpp ../ui/app/RuntimeOperation.cpp)
-target_link_libraries(VirtoolsDevFileDialogTests PRIVATE VirtoolsDevCore Threads::Threads)
-if(WIN32)
-    target_link_libraries(VirtoolsDevFileDialogTests PRIVATE ole32)
-endif()
-target_include_directories(VirtoolsDevFileDialogTests PRIVATE ${VIRTOOLSDEV_IMGUI_DIR})
-target_compile_definitions(VirtoolsDevFileDialogTests PRIVATE SDL_STATIC_LIB)
+set(_application_test_sources
+    ../ui/controls/FileDialogs.cpp ../ui/app/Preferences.cpp ../ui/app/RuntimeOperation.cpp
+    ../ui/app/EditorState.cpp ../ui/app/DocumentFiles.cpp)
+foreach(_test IN ITEMS FileDialog DocumentFiles)
+    add_executable(VirtoolsDev${_test}Tests VirtoolsDev${_test}Tests.cpp ${_application_test_sources})
+    target_link_libraries(VirtoolsDev${_test}Tests PRIVATE VirtoolsDevCore Threads::Threads)
+    if(WIN32)
+        target_link_libraries(VirtoolsDev${_test}Tests PRIVATE ole32)
+    endif()
+    target_include_directories(VirtoolsDev${_test}Tests PRIVATE ${VIRTOOLSDEV_IMGUI_DIR})
+    target_compile_definitions(VirtoolsDev${_test}Tests PRIVATE SDL_STATIC_LIB)
+endforeach()
 virtoolsdev_add_test(VirtoolsDevFileDialogs VirtoolsDevFileDialogTests)
+virtoolsdev_add_test(VirtoolsDevDocumentFiles VirtoolsDevDocumentFilesTests)
+set_tests_properties(VirtoolsDevDocumentFiles PROPERTIES SKIP_RETURN_CODE 77)
 
 add_executable(VirtoolsDevPortableTests VirtoolsDevPortableTests.cpp)
 target_link_libraries(VirtoolsDevPortableTests PRIVATE VirtoolsDevCore)

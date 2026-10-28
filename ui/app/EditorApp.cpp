@@ -286,29 +286,16 @@ void EditorApp::ImportFile(Document::ImportMode mode, const std::string &file) {
         return;
     }
     if (path.empty()) return;
-    // Dev loads with CK_LOAD_DODIALOG: Duplicate Names Found first.
-    m_State.LoadAskingDuplicates(path, [this, mode, path](const std::vector<DuplicateName> *duplicates) {
-        if (!m_State.HasDocument()) return;
-        struct Result { bool loaded = false; std::string error; std::vector<CK_ID> imported; };
-        auto result = std::make_shared<Result>();
-        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
-        const SceneEnvironment environment = m_State.preferences.NewSceneEnvironment();
-        m_State.RunRuntime("Importing file", [this, path, mode, environment, choices, result] {
-            result->loaded = m_State.document->Import(path, mode, &result->error, &result->imported, choices.get(), environment);
-        }, [this, result](bool ok) {
-            if (!ok || !result->loaded) {
-                if (!result->error.empty()) m_State.Log(LogLevel::Error, result->error);
-                return;
+    m_State.files.Import(path, mode, m_State.preferences.NewSceneEnvironment(), [this](const DocumentFiles::LoadResult &result) {
+        if (!result.loaded) return;
+        m_State.selection.Clear();
+        m_Canvas.Invalidate();
+        for (const ScriptInfo &script : m_State.document->Scripts())
+            if (std::find(result.objects.begin(), result.objects.end(), script.id) != result.objects.end()) {
+                m_Panels.ShowScript(script.id, ElementRef(), 0, false);
+                break;
             }
-            m_State.selection.Clear();
-            m_Canvas.Invalidate();
-            for (const ScriptInfo &script : m_State.document->Scripts())
-                if (std::find(result->imported.begin(), result->imported.end(), script.id) != result->imported.end()) {
-                    m_Panels.ShowScript(script.id, ElementRef(), 0, false);
-                    break;
-                }
-            UpdateTitle();
-        });
+        UpdateTitle();
     });
 }
 
@@ -356,7 +343,11 @@ void EditorApp::Shutdown() {
     p.showPriorities = m_State.view.showPriorities;
     p.showScriptLeftPart = m_State.view.showHeaders;
     SavePreferences();
-    if (m_State.document) CloseDocument();
+    if (m_State.document) {
+        CloseDocumentViews();
+        m_State.files.Close({});
+        m_State.FinishRuntimeOperations();
+    }
     m_State.debugger.reset();
     m_Layout.Stop();
     m_State.document.reset();
@@ -373,53 +364,21 @@ void EditorApp::RequestQuit() {
     BeginAction(PendingAction::Quit);
 }
 
-struct EditorApp::OpenResult {
-    std::unique_ptr<Document::PreparedOpen> prepared;
-    std::string error;
-    LayoutInterfaceData layout;
-    std::vector<InvalidLink> invalid;
-    int removed = 0;
-};
-
 bool EditorApp::OpenFile(const std::string &path, std::function<void(bool)> completed) {
-    auto result = std::make_shared<OpenResult>();
-    const SceneEnvironment environment = m_State.preferences.NewSceneEnvironment();
-    const bool testTypes = m_State.preferences.Bool("Schematic\\Test Parameter Link after Loading");
-    const bool removeInvalid = m_State.preferences.Bool("Schematic\\Remove Invalid Link after Loading");
-    return m_State.RunRuntime("Opening composition", [this, path, environment, result] {
-        result->prepared = m_State.document->PrepareOpen(path, &result->error, environment);
-    }, [this, path, testTypes, removeInvalid, result, completed = std::move(completed)](bool ok) {
-        if (!ok || !result->prepared) {
-            if (!result->error.empty()) m_State.Log(LogLevel::Error, result->error);
-            if (completed) completed(false);
-            return;
-        }
-        // Only a successfully loaded candidate releases the old UI. Window
-        // and render-context teardown stays on the main thread; potentially
-        // expensive object/context teardown stays in the runtime lane.
-        CloseDocument(false);
+    DocumentFiles::OpenOptions options;
+    options.environment = m_State.preferences.NewSceneEnvironment();
+    options.testLinkTypes = m_State.preferences.Bool("Schematic\\Test Parameter Link after Loading");
+    options.removeInvalidLinks = m_State.preferences.Bool("Schematic\\Remove Invalid Link after Loading");
+    return m_State.files.Open(path, options, [this] {
+        CloseDocumentViews();
         m_Layout.Stop();
-        m_State.RunRuntime("Finishing composition load", [this, result, testTypes, removeInvalid] {
-            result->prepared->Commit();
-            result->prepared.reset();
-            Document &document = *m_State.document;
-            if (document.CreatedFrom() == Document::Origin::LoadedComposition) {
-                result->layout = ReadLayoutInterfaceData(document.Context());
-                result->invalid = FindInvalidLinks(document, testTypes);
-                if (removeInvalid && !result->invalid.empty()) {
-                    result->removed = RemoveInvalidLinks(document, result->invalid);
-                    result->invalid.clear();
-                }
-            }
-            if (!document.Scripts().empty()) document.Session(document.Scripts().front().id);
-        }, [this, path, result, completed](bool committed) {
-            if (committed) CompleteOpen(path, *result);
-            if (completed) completed(committed);
-        });
+    }, [this, path, completed = std::move(completed)](const DocumentFiles::OpenResult &result) {
+        if (result.opened) CompleteOpen(path, result);
+        if (completed) completed(result.opened);
     });
 }
 
-void EditorApp::CompleteOpen(const std::string &path, const OpenResult &result) {
+void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result) {
     std::string layoutError;
     if (!m_Layout.Start(m_Window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     m_LastSavedPath.clear();
@@ -442,28 +401,14 @@ void EditorApp::CompleteOpen(const std::string &path, const OpenResult &result) 
         m_State.Log(LogLevel::Warning, "A file for the player: the Scripts' Schematic is rebuilt from their graphs "
                                        "(no comments, colors or saved layout)");
     if (!m_State.document->Scripts().empty()) m_Panels.ShowScript(m_State.document->Scripts().front().id, ElementRef(), 0, false);
-    m_State.History().MarkSavePoint(); // NMO's imported objects still mark the new composition modified.
     UpdateTitle();
 }
 
 void EditorApp::NewComposition(bool background) {
-    if (!background) {
-        CloseDocument();
-        std::string error;
-        if (!m_State.document->New(&error, m_State.preferences.NewSceneEnvironment())) m_State.Log(LogLevel::Error, error);
-        else m_State.History().MarkSavePoint();
-        UpdateTitle();
-        return;
-    }
-    CloseDocument(false);
-    const auto environment = m_State.preferences.NewSceneEnvironment();
-    auto error = std::make_shared<std::string>();
-    m_State.RunRuntime("Creating composition", [this, error, environment] {
-        if (m_State.document->New(error.get(), environment)) m_State.History().MarkSavePoint();
-    }, [this, error](bool) {
-        if (!error->empty()) m_State.Log(LogLevel::Error, *error);
-        UpdateTitle();
-    });
+    CloseDocumentViews();
+    m_State.files.New(m_State.preferences.NewSceneEnvironment(), [this](bool) { UpdateTitle(); });
+    // Startup has no frame loop yet, but uses the same file workflow.
+    if (!background) m_State.FinishRuntimeOperations();
 }
 
 // Dev (sub_5C54C0) asks for the file, merges it and keeps the composition's
@@ -477,34 +422,17 @@ void EditorApp::MergeComposition(bool asScene, const std::string &file) {
         return;
     }
     const std::string path = file;
-    // Dev loads with CK_LOAD_DODIALOG: Duplicate Names Found first.
-    m_State.LoadAskingDuplicates(path, [this, asScene, path](const std::vector<DuplicateName> *duplicates) {
-        if (!m_State.HasDocument()) return;
-        struct Result {
-            bool loaded = false;
-            std::string error;
-            std::vector<CK_ID> merged;
-        };
-        auto result = std::make_shared<Result>();
-        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
-        m_State.RunRuntime("Merging composition", [this, path, asScene, choices, result] {
-            result->loaded = m_State.document->Merge(path, asScene, &result->error, &result->merged, choices.get());
-        }, [this, path, result](bool ok) {
-            if (!ok || !result->loaded) {
-                if (!result->error.empty()) m_State.Log(LogLevel::Error, result->error);
-                return;
+    m_State.files.Merge(path, asScene, [this, path](const DocumentFiles::LoadResult &result) {
+        if (!result.loaded) return;
+        m_State.selection.Clear();
+        m_Canvas.Invalidate();
+        RememberRecentFile(path);
+        for (const ScriptInfo &script : m_State.document->Scripts())
+            if (std::find(result.objects.begin(), result.objects.end(), script.id) != result.objects.end()) {
+                m_Panels.ShowScript(script.id, ElementRef(), 0, false);
+                break;
             }
-            m_State.selection.Clear();
-            m_Canvas.Invalidate();
-            RememberRecentFile(path);
-            // Show the first merged Script.
-            for (const ScriptInfo &script : m_State.document->Scripts())
-                if (std::find(result->merged.begin(), result->merged.end(), script.id) != result->merged.end()) {
-                    m_Panels.ShowScript(script.id, ElementRef(), 0, false);
-                    break;
-                }
-            UpdateTitle();
-        });
+        UpdateTitle();
     });
 }
 
@@ -515,7 +443,7 @@ void EditorApp::RememberRecentFile(const std::string &path) {
     SavePreferences();
 }
 
-void EditorApp::CloseDocument(bool closeRuntime) {
+void EditorApp::CloseDocumentViews() {
     EndPrint();
     m_Setups.CloseAll();
     m_Tools.DocumentClosed();
@@ -523,11 +451,9 @@ void EditorApp::CloseDocument(bool closeRuntime) {
     m_Managers.DocumentClosed();
     m_Layout.DocumentClosed(); // its working copies while they still exist
     m_Layout.ApplyLayoutData(LayoutInterfaceData());
-    m_State.ClearDocumentState();
     m_Canvas.DocumentClosed();
     ReleaseSnapshotTextures(); // the document frees its bitmaps
     if (m_State.debugger) m_State.debugger->Detach();
-    if (closeRuntime && m_State.document) m_State.document->Close();
     m_LastSavedPath.clear();
     UpdateTitle();
 }
@@ -536,14 +462,9 @@ void EditorApp::SaveTo(const std::string &path, bool allowOverwrite, std::functi
     SaveOptions options;
     options.saveScriptSnapshots = m_State.preferences.Bool("Schematic\\Save Script Snapshot");
     options.allowOverwrite = allowOverwrite;
-    struct Result { SaveReport report; bool saved = false; };
-    auto result = std::make_shared<Result>();
-    const LayoutInterfaceData layout = LayoutDataToSave();
-    m_State.RunRuntime("Saving composition", [this, path, options, layout, result] {
-        result->saved = SaveComposition(*m_State.document, path, {&layout}, options, result->report);
-    }, [this, path, result, completed = std::move(completed)](bool ok) {
-        const SaveReport &report = result->report;
-        std::string text = (ok && result->saved ? "Saved " : "Save failed: ") + path;
+    m_State.files.Save(path, LayoutDataToSave(), options, [this, path, completed = std::move(completed)](const DocumentFiles::SaveResult &result) {
+        const SaveReport &report = result.report;
+        std::string text = (result.saved ? "Saved " : "Save failed: ") + path;
         text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
                 "\nScripts verified in a new context: " + std::to_string(report.scriptsVerified) +
                 "\nParameters verified: " + std::to_string(report.parametersVerified);
@@ -551,13 +472,13 @@ void EditorApp::SaveTo(const std::string &path, bool allowOverwrite, std::functi
         for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
         m_SaveReportText = std::move(text);
         m_OpenSaveReport = true;
-        m_State.Log(ok && result->saved ? LogLevel::Info : LogLevel::Error, m_SaveReportText);
+        m_State.Log(result.saved ? LogLevel::Info : LogLevel::Error, m_SaveReportText);
         if (report.documentSaved) {
             m_LastSavedPath = path;
             RememberRecentFile(path);
         }
         UpdateTitle();
-        if (completed) completed(ok && report.documentSaved && !m_State.document->Dirty());
+        if (completed) completed(result.clean);
     });
 }
 
@@ -687,8 +608,8 @@ void EditorApp::RunAction(PendingAction action) {
         m_PendingPath.clear();
         break;
     case PendingAction::Close:
-        CloseDocument(false);
-        m_State.RunRuntime("Closing composition", [this] { m_State.document->Close(); }, [this](bool) { UpdateTitle(); });
+        CloseDocumentViews();
+        m_State.files.Close([this](bool) { UpdateTitle(); });
         break;
     case PendingAction::Quit:
         m_Quit = true;

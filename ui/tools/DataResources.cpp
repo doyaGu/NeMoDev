@@ -89,13 +89,13 @@ void ToolWindows::LoadResource(const std::string &path, CK_CLASSID cid) {
         });
     };
     // The imported files ask about duplicate names (Dev.exe sub_56BC90).
-    if (ResourceFileIsImported(cid)) m_State.LoadAskingDuplicates(path, load);
+    if (ResourceFileIsImported(cid)) m_State.files.WithDuplicates(path, load);
     else load(nullptr);
 }
 
 void ToolWindows::ImportResource(const std::string &path, Document::ImportMode mode) {
     if (!m_State.HasDocument()) return;
-    m_State.LoadAskingDuplicates(path, [this, path, mode](const std::vector<DuplicateName> *duplicates) {
+    m_State.files.WithDuplicates(path, [this, path, mode](const std::vector<DuplicateName> *duplicates) {
         auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
         auto result = std::make_shared<std::pair<bool, std::string>>();
         const auto environment = m_State.preferences.NewSceneEnvironment();

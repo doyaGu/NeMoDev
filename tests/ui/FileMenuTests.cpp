@@ -260,7 +260,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        struct Probe { int order = 0, completed = 0; bool staleRan = false, staleCancelled = false, mainCompletion = true; };
+        struct Probe { int order = 0, completed = 0; bool staleRan = false, staleCompleted = false, mainCompletion = true; };
         auto probe = std::make_shared<Probe>();
         OnMainThread(ctx, [probe] {
             auto &state = App().State();
@@ -280,11 +280,11 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                     });
             });
             state.RunRuntime("Old document operation", [probe] { probe->staleRan = true; },
-                [probe](bool ok) { probe->staleCancelled = !ok; });
+                [probe](bool) { probe->staleCompleted = true; });
         });
         OnMainThread(ctx, [] {});
         IM_CHECK(probe->order == 2 && probe->completed == 2 && probe->mainCompletion);
-        IM_CHECK(!probe->staleRan && probe->staleCancelled);
+        IM_CHECK(!probe->staleRan && !probe->staleCompleted);
         IM_CHECK(Read<bool>(ctx, [] {
             const auto &log = App().State().log;
             return std::any_of(log.begin(), log.end(), [](const auto &entry) { return entry.text == "Background runtime log regression"; });

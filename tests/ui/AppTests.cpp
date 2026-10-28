@@ -11,6 +11,8 @@
 #include "ui/controls/DevTheme.h"
 #include "ui/schematic/Snapshots.h"
 #include <cmath>
+#include <filesystem>
+#include "core/document/FileCommands.h"
 
 namespace vdevuitest {
 
@@ -280,6 +282,12 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         auto loaded = std::make_shared<bool>(false);
+        const auto file = std::filesystem::temp_directory_path() /
+            ("duplicate-cancel-" + std::to_string(SDL_GetTicksNS()) + ".nmo");
+        struct RemoveFile {
+            std::filesystem::path path;
+            ~RemoveFile() { std::error_code error; std::filesystem::remove(path, error); }
+        } cleanup{file};
         CK_ID object = 0;
         size_t historyCount = 0, scriptCount = 0;
         std::set<CK_ID> created;
@@ -297,18 +305,16 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             scriptCount = state.document->Scripts().size();
             sourcePath = state.document->SourcePath();
             dirty = state.document->Dirty();
-            vdev::EditorState::DuplicateNamesRequest request;
-            request.path = "cancelled.cmo";
-            request.serial = ++state.duplicateNamesAsked;
-            request.duplicates.push_back({0, CKCID_3DENTITY, "Existing object", vdev::DuplicateAction::Ignore});
-            request.load = [loaded](const std::vector<vdev::DuplicateName> *) { *loaded = true; };
-            state.duplicateNames.push_back(std::move(request));
+            std::string error;
+            IM_CHECK_NO_RET(vdev::SaveObjectsAs(*state.document, {object}, file.u8string(), &error));
+            state.files.WithDuplicates(file.u8string(), [loaded](const std::vector<vdev::DuplicateName> *) { *loaded = true; });
         });
+        OnMainThread(ctx, [] {});
         ctx->Yield(3);
         IM_CHECK(WindowShown(ctx, "//###DuplicateNames"));
         ctx->ItemClick("//###DuplicateNames/Cancel/##dialogbutton");
         ctx->Yield(3);
-        IM_CHECK(!*loaded && App().State().duplicateNames.empty());
+        IM_CHECK(!*loaded && Read<bool>(ctx, [] { return !App().State().files.PendingDuplicates(); }));
         IM_CHECK(!WindowShown(ctx, "//###DuplicateNames"));
         OnMainThread(ctx, [&] {
             auto &state = App().State();

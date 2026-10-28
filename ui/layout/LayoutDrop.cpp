@@ -250,7 +250,7 @@ void LayoutWindow::DropResource(int x, int y, const ResourceFilePayload &file) {
         });
     };
     // The imported files ask about duplicate names (Dev.exe sub_4AC330, CK_LOAD_DODIALOG).
-    if (ResourceFileIsImported(cid)) m_State.LoadAskingDuplicates(path, load);
+    if (ResourceFileIsImported(cid)) m_State.files.WithDuplicates(path, load);
     else load(nullptr);
 }
 

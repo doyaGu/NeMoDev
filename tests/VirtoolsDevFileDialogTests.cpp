@@ -42,6 +42,25 @@ int main() {
         editor.document = std::make_unique<vdev::Document>(editor.host);
         { vdev::Edit input(*editor.document, "Other input"); editor.DispatchFileRequests(); Require(!called, "completion waits for existing Edit"); Require(input.Cancel(), "input cancelled"); }
         editor.DispatchFileRequests(); Require(called, "queued result delivered");
+        // A native dialog can finish while CK is executing. Neither its
+        // completion nor a document/Edit query belongs in that interval.
+        bool duringRuntime = false;
+        editor.RequestFile({}, [&](const vdev::FileDialogResult &) { duringRuntime = true; });
+        request = Take();
+        std::promise<void> entered, release;
+        auto running = entered.get_future();
+        auto gate = release.get_future();
+        editor.RunRuntime("Dialog waits for runtime", [&] { entered.set_value(); gate.wait(); });
+        editor.runtimeOperation.Start();
+        running.wait();
+        const char *runtimeFiles[] = {"runtime.cmo", nullptr};
+        request.callback(request.userdata, runtimeFiles, 0);
+        editor.DispatchFileRequests();
+        const bool deferred = !duringRuntime;
+        release.set_value();
+        editor.FinishRuntimeOperations();
+        Require(deferred && !duringRuntime, "dialog completion waits for exclusive runtime work");
+        editor.DispatchFileRequests(); Require(duringRuntime, "dialog delivered after runtime work");
         bool cancelled = false;
         editor.RequestFile({}, [&](const vdev::FileDialogResult &result) { cancelled = result.status == vdev::FileDialogResult::Status::Cancelled && result.paths.empty(); });
         request = Take(); const char *empty[] = {nullptr}; request.callback(request.userdata, empty, -1); editor.DispatchFileRequests(); Require(cancelled, "cancellation stays distinct");

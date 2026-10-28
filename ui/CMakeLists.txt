@@ -21,6 +21,8 @@ set(_editor_sources
         app/Main.cpp
         app/CommandLine.cpp
         app/EditorApp.cpp
+        app/EditorState.cpp
+        app/DocumentFiles.cpp
         app/RuntimeOperation.cpp
         app/FileMenu.cpp
         app/StatusBar.cpp

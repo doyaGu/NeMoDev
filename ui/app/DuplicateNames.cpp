@@ -48,7 +48,7 @@ struct Node {
     bool open = true; // sub_59BC50 opens every item
 };
 struct Tree {
-    unsigned request = 0; // the request the tree shows (DuplicateNamesRequest::serial)
+    unsigned request = 0; // the request the tree shows (DuplicatePrompt::serial)
     std::vector<Node> nodes;
     std::set<int> selected;
     int anchor = -1;
@@ -105,11 +105,12 @@ void OpenAll(Tree &tree, int node) {
 
 void EditorApp::DuplicateNamesDialog() {
     const char *id = "###DuplicateNames";
-    if (m_State.duplicateNames.empty()) {
+    auto *pending = m_State.files.PendingDuplicates();
+    if (!pending) {
         g_Tree = Tree();
         return;
     }
-    EditorState::DuplicateNamesRequest &request = m_State.duplicateNames.front();
+    auto &request = *pending;
     std::vector<DuplicateName> &duplicates = request.duplicates;
     if (g_Tree.request != request.serial) Build(g_Tree, duplicates, request.serial);
     // Open until answered (the startup's window focus would close it).
@@ -262,11 +263,8 @@ void EditorApp::DuplicateNamesDialog() {
     }
     if (!closed) return;
     // The load runs after the dialog (OK), or not at all (Cancel).
-    EditorState::DuplicateNamesRequest done = std::move(request);
-    m_State.duplicateNames.erase(m_State.duplicateNames.begin());
     g_Tree = Tree();
-    if (closed == 1 && done.load) done.load(&done.duplicates);
-    else m_State.Log(LogLevel::Info, "Load cancelled: " + done.path);
+    m_State.files.ResolveDuplicates(closed == 1);
 }
 
 } // namespace vdev
