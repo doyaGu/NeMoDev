@@ -14,6 +14,7 @@ MARKERS = ENGINE_MARKERS + (
     "TopologyFingerprint", "ShownLevelRows", "ShownHierarchyRows",
     "ShownBehaviors", "ShownPins", "ShownScripts",
     "UiRenderer9ReadFrame",
+    "NEMODEV_VIEWPORT_BASELINE",
     "HelpWindow12CurrentTopic", "HelpWindow9ShownText", "HelpWindow11ShownImages",
     "HelpWindow10PageLayout",
     "HelpWindow9PagePaint", "HelpWindow12PageDocument",

@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
             tests->PreSwap(); tests->PostSwap();
             if (tests->Finished()) { exitCode = tests->ExitCode(); break; }
         }
-        if (!capture) SDL_Delay(1);
+        if (!capture && (!tests || !tests->MaxSpeed())) SDL_Delay(1);
 #else
         SDL_Delay(1);
 #endif

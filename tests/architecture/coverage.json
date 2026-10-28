@@ -1855,7 +1855,8 @@
         "VirtoolsDevLicenseDeployment",
         "VirtoolsDevFontDeployment",
         "NeMoDevArchitecture",
-        "NeMoDevArchitectureChecker"
+        "NeMoDevArchitectureChecker",
+        "NeMoDevViewportMeasurement"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",

@@ -96,3 +96,69 @@ and replacement tests stay explicit in the feature gaps.
 | Values, pickers, live controls and confirmation/cancel | `ui/controls/ValueEditor.cpp`, `ParameterBox.cpp`, `DevControls.cpp`, `TypeAhead.cpp`, `ui/setup/` | F13/F14/F15 |
 | File prompts, native dialogs, external drop and clipboard | `ui/app/EditorApp.cpp`, `FileMenu.cpp`, `ui/controls/FileDialogs.cpp`, `ui/app/Main.cpp` | F01/F02/F03/F04/F23/F28 |
 | Resources, diagnostics, Help and their local search | `ui/tools/`, `ui/panels/DebuggerPanel.cpp`, `ui/help/HelpWindow.cpp` | F19/F20/F21/F26 |
+
+## Native viewport performance baseline
+
+The benchmark runs the real editor with isolated preferences, a 1280 by 800
+window and 64 instances of a shared 12-triangle cube. It validates actual draw
+statistics and opaque pixels. The viewport dimensions, framebuffer dimensions,
+GPU and driver information are recorded, rather than assuming display scale.
+It uses the existing imported texture path and ordinary UI submission.
+
+There are at least fifteen seconds of warmup, then at least 11 groups, each lasting
+at least one second. `--warmup` and `--frames` set minimum frame counts, not a
+replacement for those durations. The test driver respects Test Engine's
+maximum-speed request only in this dedicated timing category; existing functional
+tests retain their original frame delay and the production loop is unchanged. GPU idle waits occur
+at group boundaries only. One verification readback occurs after measurement.
+
+The measured quantity is complete editor-frame throughput including GPU drain,
+not a GPU-only timestamp or an isolated texture-transfer timer. Viewport image
+readbacks, CPU image uploads, target creations, path selections and releases
+must remain zero, and the same UiTexture remains bound. Application allocation,
+GPU copy/pass/submit counts, capability queries and resource retain/release are
+not instrumented; reports list these explicitly as unmeasured.
+
+Run timing separately from builds and regression suites:
+
+```sh
+python3 tools/MeasureViewport.py --build out/macos-arm64 \
+  --binary out/macos-arm64/runtime/NeMoDev.app/Contents/MacOS/VirtoolsDevUiTests \
+  --output out/macos-arm64/architecture/viewport.json
+```
+
+Windows and Linux use their built `VirtoolsDevUiTests` executable. Alternatively,
+configure `VIRTOOLSDEV_TEST_PERFORMANCE=ON` and run `ctest -L performance`; its
+test runs serially. Timing is excluded by default from shared hosted CI.
+
+Before accepting a reference on a new machine, repeat the same command with a
+different output path and `--compare` pointing at the first report. Both runs
+must pass their variation limit and the same-binary control limit. Preserve both
+raw captures; do not record a faster control run as an architecture improvement.
+
+Reports retain all raw groups, median, linearly interpolated p10/p90, median
+absolute deviation (MAD) and MAD/median. MAD/median above 3% is an unstable run.
+`--compare REFERENCE.json` requires matching scene, dimensions, timing protocol,
+GPU/driver, OS/hardware, compiler flags, SDL, SDK revisions and harness. A changed
+SDK working tree or an unstable reference is rejected. A median regression over
+3% fails. A comparison of the same binary is a control: a median shift of more
+than 3% in either direction fails, rather than being counted as an improvement.
+Binary hashes and the source revision identify each measurement;
+different editor binaries are expected when comparing architecture changes.
+
+The machine-specific reference in `baselines/` is evidence for its recorded
+environment, not a portable timing limit for other devices. Keep references
+unchanged; write candidate measurements to a different output path. The Python
+statistics/comparison tests run without a GPU as `NeMoDevViewportMeasurement`.
+
+The recorded macOS ARM64 / Metal reference includes both 11-group captures,
+their same-binary control result and the discarded five-second warmup protocol.
+Its median is 0.251198 ms per complete editor frame, p10/p90 are
+0.249723/0.256822 ms and MAD is 0.001132 ms (0.451%). The control median is
+0.244323 ms, a -2.737% shift, within the symmetric 3% control limit. These are
+observed baseline timings, not an architecture performance improvement.
+
+The functional record preserves the initial 82 passes and 15 sample skips, and
+the stage-zero 86 passes and the same 15 skips. Original sample and other-platform
+acceptance remain explicit limitations. The production render path and SDK
+sources are unchanged.

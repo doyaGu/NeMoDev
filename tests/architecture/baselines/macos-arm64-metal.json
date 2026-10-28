@@ -1,0 +1,280 @@
+{
+  "environment": {
+    "source_revision": "029f2c9a6d2b062e031357224f6115a96ebac6cc",
+    "source_dirty": true,
+    "binary_sha256": "43982e25f4ab6f9dc005de99fc0958aa7e5a52eb681f6430c11575e6484df383",
+    "harness_sha256": "cc188178589f73193bef2f47fbb46d479cf97b0aaf5a376e14488d1c8956d46b",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "hardware": "Apple M5 Pro",
+    "logical_cpus": 18,
+    "build_type": "Release",
+    "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+    "compiler_flags": {
+      "CMAKE_CXX_FLAGS": "",
+      "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+      "CMAKE_OSX_ARCHITECTURES": "arm64"
+    },
+    "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+    "sdk_revisions": {
+      "root": "8f71a939ad6f4afeeb92f41f18840c33227a8a7d",
+      "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+      "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+      "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+      "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+      "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+      "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+      "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+      "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+      "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+      "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+      "Source/RenderEngine": "ea4771863127a1e6e7f0d1f217040dadddaf7b05",
+      "Source/VxMath": "fa84d037e8bcec4252c54a18ea66f185ed665be1",
+      "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+      "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+      "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+    },
+    "sdk_dirty": false
+  },
+  "measurement": {
+    "version": 1,
+    "scenario": "cubes64-v1",
+    "scope": "editor_frame_gpu_drained",
+    "driver": "metal",
+    "gpu_device": "Apple M5 Pro",
+    "gpu_driver_info": "",
+    "window_pixels": [
+      2560,
+      1600
+    ],
+    "sdl_version": 3004018,
+    "viewport": [
+      556,
+      435
+    ],
+    "window": [
+      1280,
+      800
+    ],
+    "ui_scale": 1.0,
+    "warmup_frames": 480,
+    "requested_frames": 240,
+    "minimum_warmup_ms": 15000,
+    "minimum_group_ms": 1000,
+    "verification_readbacks": 1,
+    "stable_readbacks": 0,
+    "stable_uploads": 0,
+    "stable_target_creations": 0,
+    "stable_path_selections": 0,
+    "stable_target_releases": 0,
+    "samples": [
+      {
+        "frames": 4081,
+        "elapsed_ms": 1048.090875
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1018.198291667
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1025.139541667
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1020.519916667
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1029.914291667
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1019.12025
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1025.501625
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1022.8115
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1023.102583333
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1028.233666667
+      },
+      {
+        "frames": 4081,
+        "elapsed_ms": 1048.617791667
+      }
+    ]
+  },
+  "statistics": {
+    "median_ms": 0.2511981234175447,
+    "p10_ms": 0.24972316834109287,
+    "p90_ms": 0.2568220717961284,
+    "mad_ms": 0.0011319835824553093,
+    "mad_percent": 0.4506337734751751
+  },
+  "unmeasured": [
+    "GPU-only timestamps",
+    "application allocations",
+    "GPU preserve copies",
+    "extra GPU passes/submissions",
+    "native capability queries",
+    "resource retain/release"
+  ],
+  "passed": true,
+  "recorded_utc": "2026-10-28T06:38:49.059713+00:00",
+  "functional_baseline": {
+    "initial": {
+      "total": 97,
+      "passed": 82,
+      "skipped": [
+        "VirtoolsDevUi.schematic",
+        "VirtoolsDevUi.debugger",
+        "VirtoolsDevUi.layout",
+        "VirtoolsDevUi.level",
+        "VirtoolsDevUi.setup",
+        "VirtoolsDevUi.propertyedits",
+        "VirtoolsDevUi.hierarchy",
+        "VirtoolsDevUi.blocks",
+        "VirtoolsDevUi.attributes",
+        "VirtoolsDevUi.create",
+        "VirtoolsDevUi.tools",
+        "VirtoolsDevUi.sound",
+        "VirtoolsDevUi.character",
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ]
+    },
+    "stage_zero": {
+      "total": 101,
+      "passed": 86,
+      "skipped": [
+        "VirtoolsDevUi.schematic",
+        "VirtoolsDevUi.debugger",
+        "VirtoolsDevUi.layout",
+        "VirtoolsDevUi.level",
+        "VirtoolsDevUi.setup",
+        "VirtoolsDevUi.propertyedits",
+        "VirtoolsDevUi.hierarchy",
+        "VirtoolsDevUi.blocks",
+        "VirtoolsDevUi.attributes",
+        "VirtoolsDevUi.create",
+        "VirtoolsDevUi.tools",
+        "VirtoolsDevUi.sound",
+        "VirtoolsDevUi.character",
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ]
+    },
+    "portable_ui_registrations": 143,
+    "core_cases": 61,
+    "scope": "Local macOS ARM64; other platforms are wired into CI but not executed here."
+  },
+  "calibration": {
+    "comparison": {
+      "median_change_percent": -2.737018591638385,
+      "same_binary_control": true,
+      "passed": true
+    },
+    "control_measurement": {
+      "version": 1,
+      "scenario": "cubes64-v1",
+      "scope": "editor_frame_gpu_drained",
+      "driver": "metal",
+      "gpu_device": "Apple M5 Pro",
+      "gpu_driver_info": "",
+      "window_pixels": [
+        2560,
+        1600
+      ],
+      "sdl_version": 3004018,
+      "viewport": [
+        556,
+        435
+      ],
+      "window": [
+        1280,
+        800
+      ],
+      "ui_scale": 1.0,
+      "warmup_frames": 480,
+      "requested_frames": 240,
+      "minimum_warmup_ms": 15000,
+      "minimum_group_ms": 1000,
+      "verification_readbacks": 1,
+      "stable_readbacks": 0,
+      "stable_uploads": 0,
+      "stable_target_creations": 0,
+      "stable_path_selections": 0,
+      "stable_target_releases": 0,
+      "samples": [
+        {
+          "frames": 4321,
+          "elapsed_ms": 1042.107958333
+        },
+        {
+          "frames": 4321,
+          "elapsed_ms": 1032.867458333
+        },
+        {
+          "frames": 4321,
+          "elapsed_ms": 1060.942208333
+        },
+        {
+          "frames": 4321,
+          "elapsed_ms": 1055.71875
+        },
+        {
+          "frames": 4081,
+          "elapsed_ms": 1012.6255
+        },
+        {
+          "frames": 4081,
+          "elapsed_ms": 1024.847958333
+        },
+        {
+          "frames": 4081,
+          "elapsed_ms": 1013.847833333
+        },
+        {
+          "frames": 4081,
+          "elapsed_ms": 1003.986041667
+        },
+        {
+          "frames": 4321,
+          "elapsed_ms": 1013.058125
+        },
+        {
+          "frames": 4321,
+          "elapsed_ms": 1017.400416667
+        },
+        {
+          "frames": 4321,
+          "elapsed_ms": 1029.468666667
+        }
+      ]
+    },
+    "control_statistics": {
+      "median_ms": 0.24432278407775979,
+      "p10_ms": 0.23545485227192778,
+      "p90_ms": 0.24843122600661605,
+      "mad_ms": 0.00410844192885626,
+      "mad_percent": 1.6815631601302807
+    },
+    "control_binary_sha256": "43982e25f4ab6f9dc005de99fc0958aa7e5a52eb681f6430c11575e6484df383",
+    "rejected_short_warmup": {
+      "minimum_warmup_ms": 5000,
+      "same_binary_median_change_percent": -18.760881752795587,
+      "accepted": false,
+      "reason": "The same binary drifted beyond 3 percent across launches despite passing each run MAD threshold."
+    }
+  }
+}

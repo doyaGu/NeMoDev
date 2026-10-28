@@ -187,6 +187,11 @@ It packages and checks the installed program without copying the build tree.
 
 ## Development and tests
 
+The [stage zero architecture checks](tests/architecture/README.md) track source
+ownership, dependency constraints, feature/state coverage and the existing
+core/UI baseline. Native viewport timing runs separately and preserves raw
+samples and build conditions for later architecture comparisons.
+
 Use a preset without `-release` to build the tests. To run core tests without
 ImGui Test Engine, configure it with `VIRTOOLSDEV_BUILD_UI_TESTS=OFF`:
 

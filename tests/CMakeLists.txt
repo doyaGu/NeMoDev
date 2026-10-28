@@ -28,6 +28,8 @@ add_test(NAME NeMoDevCTestResults COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/CTestResultsTests.py")
 add_test(NAME NeMoDevArchitectureChecker COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/ArchitectureTests.py")
+add_test(NAME NeMoDevViewportMeasurement COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/ViewportMeasurementTests.py")
 set(_architecture_check ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/CheckArchitecture.py"
         --source "${VIRTOOLSDEV_SOURCE_DIR}"
         --manifest "${CMAKE_CURRENT_SOURCE_DIR}/architecture/coverage.json"
@@ -221,6 +223,14 @@ endif ()
 # substring of a test's name or category otherwise: "level" would take
 # "open_from_level_manager" of "setup").
 if (VIRTOOLSDEV_BUILD_UI_TESTS)
+    option(VIRTOOLSDEV_TEST_PERFORMANCE "Register serial native viewport performance measurements" OFF)
+    if(VIRTOOLSDEV_TEST_PERFORMANCE)
+        add_test(NAME NeMoDevViewportBaseline COMMAND ${Python3_EXECUTABLE}
+                "${VIRTOOLSDEV_SOURCE_DIR}/tools/MeasureViewport.py"
+                --build "${PROJECT_BINARY_DIR}" --binary "$<TARGET_FILE:VirtoolsDevUiTests>"
+                --config "$<CONFIG>" --output "${PROJECT_BINARY_DIR}/architecture/viewport.json")
+        set_tests_properties(NeMoDevViewportBaseline PROPERTIES RUN_SERIAL TRUE LABELS performance TIMEOUT 240)
+    endif()
     set(_dev_ui_results "${PROJECT_BINARY_DIR}/virtoolsdev-ui")
     virtoolsdev_add_test(VirtoolsDevUi.html VirtoolsDevUiTests --ui-tests "^html$"
             --ui-results "${_dev_ui_results}/html.xml")

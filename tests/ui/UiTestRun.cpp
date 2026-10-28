@@ -46,6 +46,7 @@ struct UiTestRun::Engine {
     std::string results; // UTF-8, kept while the engine may export
     bool queued = false;
     bool stopped = false;
+    bool timing = false;
 };
 
 UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstring &results, bool show)
@@ -53,6 +54,9 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     vdevuitest::g_App = &app;
     ImGuiTestEngine *engine = ImGuiTestEngine_CreateContext();
     m_Engine->engine = engine;
+    // Keep existing functional-test pacing. Only the dedicated timing run
+    // removes the application's one-millisecond frame delay.
+    m_Engine->timing = filter == "^viewportbaseline$";
     ImGuiTestEngineIO &io = ImGuiTestEngine_GetIO(engine);
     io.ConfigVerboseLevel = ImGuiTestVerboseLevel_Info;
     io.ConfigVerboseLevelOnError = ImGuiTestVerboseLevel_Debug;
@@ -72,6 +76,7 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     vdevuitest::RegisterAppTests(engine);
     vdevuitest::RegisterArchitectureBaselineTests(engine);
     vdevuitest::RegisterGpuViewportTests(engine);
+    vdevuitest::RegisterViewportBaselineTests(engine);
     vdevuitest::RegisterFileMenuTests(engine);
     vdevuitest::RegisterSchematicTests(engine);
     vdevuitest::RegisterLayoutTests(engine);
@@ -110,7 +115,8 @@ void UiTestRun::PostSwap() {
 }
 
 bool UiTestRun::MaxSpeed() const {
-    return m_Engine->engine && ImGuiTestEngine_GetIO(m_Engine->engine).IsRequestingMaxAppSpeed;
+    return m_Engine->timing && m_Engine->engine &&
+           ImGuiTestEngine_GetIO(m_Engine->engine).IsRequestingMaxAppSpeed;
 }
 
 bool UiTestRun::Finished() const {
