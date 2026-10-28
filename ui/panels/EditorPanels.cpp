@@ -41,6 +41,11 @@ std::string LowerCopy(std::string text) {
 void EditorPanels::DocumentClosed() {
     m_ExplorerBox.Clear();
     m_Doc = DocumentState();
+    m_PickRows.clear();
+    m_PickFrame = -1;
+#ifdef VIRTOOLSDEV_UI_TESTS
+    m_ShownRows.clear();
+#endif
 }
 
 void EditorPanels::FindNext(int direction) {

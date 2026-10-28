@@ -14,6 +14,7 @@
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
 #include "core/level/HierarchyTree.h"
+#include "core/level/ObjectQueries.h"
 #include "core/level/LevelCommands.h"
 #include "core/level/ObjectEditCommands.h"
 #include "core/level/SceneCommands.h"
@@ -75,8 +76,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
         if (ImGui::GetFrameCount() - m_HierarchyPickFrame > 2 || !m_State.HasDocument()) return 0;
         for (const PickRow &row : m_HierarchyPickRows) {
             if (x < row.x0 || y < row.y0 || x >= row.x1 || y >= row.y1) continue;
-            CKObject *object = m_State.document->Context()->GetObject(row.object);
-            return object && CKIsChildClassOf(object, cid) ? row.object : 0;
+            return FilterObjects(*m_State.document, {row.object}, cid).empty() ? 0 : row.object;
         }
         return 0;
     };
@@ -86,7 +86,6 @@ void ManagerWindows::HierarchyManager(bool *open) {
     }
     DevTabClose(open);
     m_HierarchyPickFrame = ImGui::GetFrameCount();
-    CKContext *context = m_State.document->Context();
     const float s = ImGui::GetFontSize() / 13.0f;
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     const ImVec2 available = ImGui::GetContentRegionAvail();
@@ -129,8 +128,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
         *open = false;
 
     // ---------------------------------------------------------------- tree
-    const std::vector<HierarchyItem> roots = BuildHierarchy(
-        context, m_HierarchyOptions, [this](CK_ID id) { return m_State.document->IsDiscarded(id); });
+    const auto roots = BuildHierarchy(*m_State.document, m_HierarchyOptions);
     auto startRename = [this](CK_ID id, const std::string &name) {
         m_Doc.hierarchyRename = id;
         std::strncpy(m_HierarchyRenameBuffer, AnsiToUtf8(name).c_str(), sizeof(m_HierarchyRenameBuffer) - 1);
@@ -221,11 +219,11 @@ void ManagerWindows::HierarchyManager(bool *open) {
             DrawVIText(tl, text, selected ? LINE : INK, AnsiToUtf8(item.name).c_str(), false, s, &clip);
         }
         // The Render Priority, centered (Dev.exe sub_567250).
-        CKRenderObject *render = item.renderObject ? CKRenderObject::Cast(context->GetObject(item.object)) : nullptr;
+        const bool render = item.renderObject;
         const bool editingPriority = render && m_Doc.zEditObject == item.object;
         if (render && !editingPriority) {
             char value[16];
-            std::snprintf(value, sizeof(value), "%d", render->GetZOrder());
+            std::snprintf(value, sizeof(value), "%d", item.renderPriority);
             const float w = VITextWidth(value, false, s);
             DrawVIText(tl, ImVec2(IM_ROUND(nameRightX + (priorityWidth - w) * 0.5f), text.y), selected ? LINE : INK, value,
                        false, s);
@@ -292,7 +290,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
         if (item.object && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && !toggled) {
             if (onPriority && render) {
                 m_Doc.zEditObject = item.object;
-                m_ZEditValue = render->GetZOrder();
+                m_ZEditValue = item.renderPriority;
                 m_ZEditFocus = true;
             } else {
                 startRename(item.object, item.name);
@@ -308,23 +306,8 @@ void ManagerWindows::HierarchyManager(bool *open) {
                 dragged.assign(m_Doc.hierarchySelection.begin(), m_Doc.hierarchySelection.end());
             else
                 dragged.push_back(item.object);
-            const char *refusal = nullptr;
-            int depth = -1;
-            for (CK_ID id : dragged) {
-                CKObject *object = context->GetObject(id);
-                if (CKBodyPart::Cast(object)) {
-                    refusal = "Cannot modify character hierarchy!";
-                    break;
-                }
-                int d = 0;
-                if (CK3dEntity *entity = CK3dEntity::Cast(object))
-                    for (CK3dEntity *up = entity->GetParent(); up; up = up->GetParent()) ++d;
-                else if (CK2dEntity *entity2d = CK2dEntity::Cast(object))
-                    for (CK2dEntity *up = entity2d->GetParent(); up; up = up->GetParent()) ++d;
-                if (depth >= 0 && d != depth) refusal = "Cannot move multiple entities with different depths!";
-                depth = d;
-            }
-            if (refusal) {
+            const auto refusal = HierarchyDragError(*m_State.document, dragged);
+            if (!refusal.empty()) {
                 draggable = false;
                 if (!m_HierarchyDragRefused) m_State.Log(LogLevel::Warning, refusal);
                 m_HierarchyDragRefused = true;
@@ -453,12 +436,12 @@ void ManagerWindows::HierarchyManager(bool *open) {
     ImGui::PopStyleColor();
 
     // The selection reaches the 3D Layout (its render objects; not while locked).
-    m_Doc.hierarchyFollower.Push(objects, m_Doc.hierarchySelection, context);
+    m_Doc.hierarchyFollower.Push(objects, m_Doc.hierarchySelection, m_State.document.get());
     // F2 renames the item selected.
     if (focused && !m_Doc.hierarchyRename && m_Doc.hierarchySelection.size() == 1 && ImGui::IsKeyPressed(ImGuiKey_F2)) {
         const CK_ID id = *m_Doc.hierarchySelection.begin();
-        CKObject *object = context->GetObject(id);
-        if (object) startRename(id, object->GetName() ? object->GetName() : "");
+        const auto object = DescribeObject(*m_State.document, id);
+        if (object.id) startRename(id, object.name);
     }
 
     // The shortcut menu (documentation "Popup menu"): Setup and Rename for
@@ -471,20 +454,19 @@ void ManagerWindows::HierarchyManager(bool *open) {
         const CK_ID first = m_Doc.hierarchySelection.empty() ? 0 : *m_Doc.hierarchySelection.begin();
         if (ImGui::MenuItem("Setup", nullptr, false, single)) m_State.events.Post(ShowObjectSetup{first});
         if (ImGui::MenuItem("Rename", "F2", false, single)) {
-            CKObject *object = context->GetObject(first);
-            startRename(first, object && object->GetName() ? object->GetName() : "");
+            startRename(first, DescribeObject(*m_State.document, first).name);
         }
-        CKRenderObject *render = CKRenderObject::Cast(context->GetObject(first));
-        if (ImGui::MenuItem("Edit Render Priority", nullptr, false, render != nullptr)) {
+        const auto object = DescribeObject(*m_State.document, first);
+        if (ImGui::MenuItem("Edit Render Priority", nullptr, false, object.renderObject)) {
             m_Doc.zEditObject = first;
-            m_ZEditValue = render->GetZOrder();
+            m_ZEditValue = object.renderPriority;
             m_ZEditFocus = true;
         }
         ImGui::Separator();
         auto initialConditions = [&](InitialConditions action, const char *label) {
             std::vector<CK_ID> targets;
             for (CK_ID id : m_Doc.hierarchySelection)
-                for (CK_ID object : HierarchyOf(context, id))
+                for (CK_ID object : HierarchyOf(*m_State.document, id))
                     if (std::find(targets.begin(), targets.end(), object) == targets.end()) targets.push_back(object);
             const EditResult result = ApplyInitialConditions(*m_State.document, targets, action);
             if (!result.ok && !result.message.empty()) m_State.Log(LogLevel::Warning, std::string(label) + ": " + AnsiToUtf8(result.message));

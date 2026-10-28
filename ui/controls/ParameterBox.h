@@ -36,6 +36,8 @@ public:
     // type when target takes another one before Apply (Edit Parameter's
     // type), the target's otherwise. False without a CK context.
     bool Add(CKParameter *target, const std::string &label, const CKGUID &type = CKGUID());
+    // Resolve a live parameter only when opening its native value editor.
+    bool Add(CK_ID target, const std::string &label, const CKGUID &type = CKGUID());
     // Dev.exe sub_582930's rows for a Building Block (its Target first) or
     // a parameter operation: each input whose value holder is a local
     // parameter (not <This>, the input not disabled), named after the local.

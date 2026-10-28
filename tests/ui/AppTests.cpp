@@ -13,6 +13,8 @@
 #include <cmath>
 #include <filesystem>
 #include "core/document/FileCommands.h"
+#include "core/level/AttributeQueries.h"
+#include "core/level/ObjectQueries.h"
 
 namespace vdevuitest {
 
@@ -27,6 +29,137 @@ bool WindowShown(ImGuiTestContext *ctx, const char *name) {
 
 void RegisterAppTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "app", "hierarchy_projection_priority_and_selection_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        CK_ID object = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            object = made.created;
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(*state.document, object, "Projection UI Frame").ok);
+            state.History().Clear();
+            state.document->MarkSaved();
+            state.History().MarkSavePoint();
+            state.showHierarchy = true;
+        });
+        ctx->Yield(3);
+        ctx->WindowFocus("//Hierarchy Manager");
+        ctx->Yield(3);
+        const auto rows = App().Managers().ShownHierarchyRows();
+        const auto row = std::find_if(rows.begin(), rows.end(), [&](const auto &item) { return item.object == object; });
+        IM_CHECK(row != rows.end() && row->priorityMax.x > row->priorityMin.x);
+        ctx->MouseMoveToPos(Center(row->priorityMin, row->priorityMax));
+        ctx->MouseDoubleClick(0);
+        ctx->Yield(2);
+        IM_CHECK(ctx->UiContext->ActiveId != 0);
+        ctx->KeyCharsReplaceEnter("37");
+        ctx->Yield(3);
+        IM_CHECK(Read<int>(ctx, [&] { return vdev::DescribeObject(*App().State().document, object).renderPriority; }) == 37);
+        IM_CHECK(Read<bool>(ctx, [&] { return App().State().objectSelection.Contains(object); }));
+        Undo(ctx);
+        IM_CHECK(Read<int>(ctx, [&] { return vdev::DescribeObject(*App().State().document, object).renderPriority; }) == 0);
+        IM_CHECK(!Read<bool>(ctx, [] { return App().State().document->Dirty(); }));
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            // The shared follower consumes document queries and excludes
+            // graveyard objects while a clipboard can still retain them.
+            vdev::SelectionFollower follower;
+            vdev::ObjectSelection selected;
+            std::set<CK_ID> own;
+            follower.Pull(selected, own);
+            own = {object};
+            selected.locked = true;
+            follower.Push(selected, own, state.document.get());
+            IM_CHECK_NO_RET(selected.objects.empty());
+            selected.locked = false;
+            own.clear(); follower.Push(selected, own, state.document.get());
+            own.insert(object); follower.Push(selected, own, state.document.get());
+            IM_CHECK_NO_RET(selected.objects == std::vector<CK_ID>{object});
+            state.objectSelection.Set({});
+            IM_CHECK_NO_RET(vdev::DestroyLevelObjects(*state.document, {object}).ok);
+            state.showHierarchy = false;
+            state.document->MarkSaved();
+        });
+    };
+
+    t = IM_REGISTER_TEST(engine, "app", "attribute_projection_edit_copy_and_retained_source");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        CK_ID source = 0, target = 0;
+        CKAttributeType type = -1;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &document = *state.document;
+            IM_CHECK_NO_RET(vdev::CreateAttributeCategory(document, "Projection UI").ok);
+            const auto created = vdev::CreateAttributeType(document, "Projection Value", CKPGUID_INT, "Projection UI");
+            IM_CHECK_NO_RET(created.ok);
+            type = static_cast<CKAttributeType>(created.created);
+            const auto a = vdev::CreateLayoutObject(document, vdev::LayoutObject::Frame3D);
+            const auto b = vdev::CreateLayoutObject(document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(a.ok && b.ok);
+            source = a.created; target = b.created;
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, source, "Projection Source").ok);
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, target, "Projection Target").ok);
+            IM_CHECK_NO_RET(vdev::AddAttribute(document, {source, target}, type).ok);
+            state.History().Clear();
+            document.MarkSaved(); state.History().MarkSavePoint();
+            state.showAttributeManager = true;
+        });
+        ctx->Yield(3);
+        ctx->WindowFocus("//Attribute Manager");
+        ctx->SetRef("//Attribute Manager");
+        ctx->Yield(2);
+        ctx->ItemOpen("**/Projection UI");
+        ctx->ItemClick("**/Projection Value");
+        ctx->Yield(2);
+        const auto valuePath = "**/$$" + std::to_string(source) + "/##value";
+        ctx->ItemInputValue(valuePath.c_str(), "42");
+        ctx->Yield(3);
+        IM_CHECK(Read<std::string>(ctx, [&] { return vdev::ReadAttributeObjects(*App().State().document, {type}, {source}).front().value; }) == "42");
+        Undo(ctx);
+        IM_CHECK(Read<std::string>(ctx, [&] { return vdev::ReadAttributeObjects(*App().State().document, {type}, {source}).front().value; }) == "0");
+        Redo(ctx);
+        const auto beforeDialog = Read<size_t>(ctx, [] { return App().State().History().UndoCount(); });
+        ctx->MouseMove(valuePath.c_str());
+        ctx->MouseDoubleClick(0);
+        ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, "//###AttributeManagerValue"));
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(!WindowShown(ctx, "//###AttributeManagerValue"));
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == beforeDialog);
+        ctx->ItemClick(("**/$$" + std::to_string(source) + "/###row").c_str());
+        ctx->ItemClick("copy/##bitmap");
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.clipboard.parameters.size() == 1);
+            vdev::Edit edit(*state.document, "Remove copied owner");
+            edit.Bury(source);
+            IM_CHECK_NO_RET(edit.Commit().ok);
+        });
+        ctx->Yield(3);
+        ctx->ItemClick(("**/$$" + std::to_string(target) + "/###row").c_str());
+        ctx->ItemClick("paste/##bitmap");
+        ctx->Yield(3);
+        IM_CHECK(Read<std::string>(ctx, [&] { return vdev::ReadAttributeObjects(*App().State().document, {type}, {target}).front().value; }) == "42");
+        Undo(ctx);
+        IM_CHECK(Read<std::string>(ctx, [&] { return vdev::ReadAttributeObjects(*App().State().document, {type}, {target}).front().value; }) == "0");
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.History().Undo()); // restore source owner
+            state.clipboard = {};
+            IM_CHECK_NO_RET(vdev::DestroyLevelObjects(*state.document, {source, target}).ok);
+            IM_CHECK_NO_RET(vdev::DeleteAttributeType(*state.document, type).ok);
+            IM_CHECK_NO_RET(vdev::DeleteAttributeCategory(*state.document, "Projection UI").ok);
+            state.showAttributeManager = false;
+            state.document->MarkSaved();
+        });
+    };
 
     t = IM_REGISTER_TEST(engine, "app", "document_metadata_survives_ui_state_reset");
     t->GuiFunc = MainThreadGui;

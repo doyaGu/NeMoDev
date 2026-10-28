@@ -18,58 +18,31 @@
 #include "ui/controls/DevTheme.h"
 #include "core/level/LevelCommands.h"
 #include "core/level/ObjectEditCommands.h"
-#include "ui/controls/ObjectText.h"
+#include "core/level/AttributeQueries.h"
+#include "core/level/ObjectQueries.h"
+#include "core/catalog/ParameterCatalog.h"
 #include "ui/controls/TypeAhead.h"
 #include "core/runtime/TextEncoding.h"
 
 namespace vdev {
 
-namespace {
-
-std::string NameOf(CKObject *object) { return DisplayName(object, "-- None --"); }
-
-std::string ParameterTypeName(CKContext *context, CKParameterType type) {
-    CKParameterManager *parameters = context->GetParameterManager();
-    CKParameterTypeDesc *description = parameters && type >= 0 ? parameters->GetParameterTypeDescription(type) : nullptr;
-    return description ? AnsiToUtf8(description->TypeName.CStr()) : std::string();
-}
-
-std::string ValueText(CKParameter *parameter) { return ParameterValueText(parameter); }
-
-// Attribute types by category name ("" for none), hidden ones left out;
-// with targets, the types one of them accepts.
-std::map<std::string, std::vector<CKAttributeType>> Categories(CKContext *context, const std::vector<CK_ID> &targets) {
-    std::map<std::string, std::vector<CKAttributeType>> categories;
-    CKAttributeManager *attributes = context->GetAttributeManager();
-    if (!attributes) return categories;
-    for (int c = 0; c < attributes->GetCategoriesCount(); ++c)
-        if (attributes->IsCategoryIndexValid(c))
-            if (const char *name = attributes->GetCategoryName(c)) categories[name];
-    for (CKAttributeType type = 0; type < attributes->GetAttributeCount(); ++type) {
-        if (!attributes->IsAttributeIndexValid(type) || (attributes->GetAttributeFlags(type) & CK_ATTRIBUT_HIDDEN)) continue;
-        if (!targets.empty()) {
-            const CK_CLASSID compatible = attributes->GetAttributeCompatibleClassId(type);
-            bool accepted = false;
-            for (CK_ID id : targets)
-                if (CKBeObject *object = CKBeObject::Cast(context->GetObject(id)))
-                    accepted = accepted || !compatible || CKIsChildClassOf(object, compatible);
-            if (!accepted) continue;
-        }
-        const char *category = attributes->GetAttributeCategory(type);
-        categories[category ? category : ""].push_back(type);
-    }
-    for (auto &entry : categories)
-        std::sort(entry.second.begin(), entry.second.end(), [attributes](CKAttributeType a, CKAttributeType b) {
-            const char *na = attributes->GetAttributeNameByType(a), *nb = attributes->GetAttributeNameByType(b);
-            return _stricmp(na ? na : "", nb ? nb : "") < 0;
-        });
-    return categories;
-}
-
-} // namespace
 
 void ManagerWindows::DocumentClosed() {
+    m_ValueBox.Clear();
     m_Doc = DocumentState();
+    m_Selected = -1;
+    m_MoreTypes.clear();
+    m_Chosen.clear();
+    m_TypeCategory.clear();
+    m_RenameType = -1;
+    m_RenameCategory.clear();
+    m_DeleteCategory.clear();
+    m_OpenValue = m_ConfirmRemoveUser = false;
+    m_HierarchyPickRows.clear();
+    m_HierarchyPickFrame = -1;
+#ifdef VIRTOOLSDEV_UI_TESTS
+    m_HierarchyShownRows.clear();
+#endif
 }
 
 void ManagerWindows::Draw(ImGuiID dock, bool openDialog) {
@@ -92,27 +65,27 @@ void ManagerWindows::Draw(ImGuiID dock, bool openDialog) {
 // The category tree: categories open, attributes selectable (Ctrl adds to
 // the selection when multiple).
 void ManagerWindows::AttributeTree(const char *id, const std::vector<CK_ID> &targets, bool multiple, float height) {
-    CKContext *context = m_State.document->Context();
-    CKAttributeManager *attributes = context->GetAttributeManager();
-    if (!attributes) return;
+    const auto catalog = ReadAttributeCatalog(*m_State.document, targets);
+    if (!catalog.available) return;
     if (ImGui::BeginChild(id, ImVec2(300, height), ImGuiChildFlags_Borders)) {
-        for (const auto &category : Categories(context, targets)) {
-            if (category.second.empty() && !targets.empty()) continue;
-            const std::string label = category.first.empty() ? std::string("(No category)") : AnsiToUtf8(category.first);
+        for (const auto &category : catalog.categories) {
+            if (category.types.empty() && !targets.empty()) continue;
+            const std::string label = category.name.empty() ? std::string("(No category)") : AnsiToUtf8(category.name);
             if (!ImGui::TreeNodeEx(label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth)) continue;
-            for (CKAttributeType type : category.second) {
-                const char *name = attributes->GetAttributeNameByType(type);
+            for (CKAttributeType type : category.types) {
+                const auto &attribute = *catalog.Find(type);
+                const auto &name = attribute.name;
                 ImGui::PushID(type);
                 const bool chosen = m_Chosen.count(type) != 0;
-                if (ImGui::Selectable(AnsiToUtf8(name ? name : "?").c_str(), chosen, ImGuiSelectableFlags_AllowDoubleClick)) {
+                if (ImGui::Selectable(AnsiToUtf8(name).c_str(), chosen, ImGuiSelectableFlags_AllowDoubleClick)) {
                     if (!multiple || !ImGui::GetIO().KeyCtrl) m_Chosen.clear();
                     if (chosen && multiple && ImGui::GetIO().KeyCtrl) m_Chosen.erase(type);
                     else m_Chosen.insert(type);
                 }
                 if (ImGui::IsItemHovered()) {
-                    const std::string parameter = ParameterTypeName(context, attributes->GetAttributeParameterType(type));
-                    const char *cls = CKClassIDToString(attributes->GetAttributeCompatibleClassId(type));
-                    ImGui::SetTooltip("Type: %s\nApply to: %s", parameter.empty() ? "None" : parameter.c_str(), cls ? cls : "?");
+                    const auto parameter = AnsiToUtf8(attribute.parameterName);
+                    const auto cls = AnsiToUtf8(attribute.compatibleName);
+                    ImGui::SetTooltip("Type: %s\nApply to: %s", parameter.empty() ? "None" : parameter.c_str(), cls.c_str());
                 }
                 ImGui::PopID();
             }
@@ -124,10 +97,10 @@ void ManagerWindows::AttributeTree(const char *id, const std::vector<CK_ID> &tar
 
 // Dev "More>>": Create New Category / Create New Attribute Type.
 void ManagerWindows::CreatePanel() {
-    CKContext *context = m_State.document->Context();
-    CKAttributeManager *attributes = context->GetAttributeManager();
-    CKParameterManager *parameters = context->GetParameterManager();
-    if (!attributes || !parameters) return;
+    const auto catalog = ReadAttributeCatalog(*m_State.document);
+    if (!catalog.available) return;
+    auto types = ListParameterTypes(*m_State.document);
+    std::stable_sort(types.begin(), types.end(), [](const auto &a, const auto &b) { return _stricmp(a.name.c_str(), b.name.c_str()) < 0; });
     ImGui::BeginGroup();
     ImGui::TextUnformatted("Create New Category");
     ImGui::Separator();
@@ -156,22 +129,14 @@ void ManagerWindows::CreatePanel() {
     ImGui::TextUnformatted("Parameter Type");
     ImGui::SameLine(130);
     ImGui::SetNextItemWidth(240);
-    const std::string shown = m_TypeParameter < 0 ? std::string("None") : ParameterTypeName(context, m_TypeParameter);
+    const auto selected = std::find_if(types.begin(), types.end(), [&](const auto &type) { return type.guid == m_TypeParameter; });
+    if (selected == types.end()) m_TypeParameter = CKGUID(0, 0);
+    const auto shown = selected == types.end() ? std::string("None") : AnsiToUtf8(selected->name);
     if (ImGui::BeginCombo("##typeparameter", shown.c_str(), ImGuiComboFlags_HeightLarge)) {
         TypeAhead typeAhead;
-        if (typeAhead.Selectable("None", m_TypeParameter < 0)) m_TypeParameter = -1;
-        std::vector<std::pair<std::string, CKParameterType>> types;
-        for (int t = 0; t < parameters->GetParameterTypesCount(); ++t) {
-            CKParameterTypeDesc *description = parameters->GetParameterTypeDescription(t);
-            if (!description || !description->Valid || (description->dwFlags & CKPARAMETERTYPE_HIDDEN)) continue;
-            types.emplace_back(AnsiToUtf8(description->TypeName.CStr()), t);
-        }
-        std::sort(types.begin(), types.end(),
-                  [](const auto &a, const auto &b) { return _stricmp(a.first.c_str(), b.first.c_str()) < 0; });
+        if (typeAhead.Selectable("None", m_TypeParameter == CKGUID(0, 0))) m_TypeParameter = CKGUID(0, 0);
         for (const auto &type : types) {
-            ImGui::PushID(type.second);
-            if (typeAhead.Selectable(type.first.c_str(), m_TypeParameter == type.second)) m_TypeParameter = type.second;
-            ImGui::PopID();
+            if (typeAhead.Selectable(AnsiToUtf8(type.name).c_str(), m_TypeParameter == type.guid)) m_TypeParameter = type.guid;
         }
         ImGui::EndCombo();
     }
@@ -181,19 +146,15 @@ void ManagerWindows::CreatePanel() {
     if (ImGui::BeginCombo("##typecategory", m_TypeCategory.empty() ? "(No category)" : AnsiToUtf8(m_TypeCategory).c_str())) {
         TypeAhead typeAhead;
         if (typeAhead.Selectable("(No category)", m_TypeCategory.empty())) m_TypeCategory.clear();
-        for (int c = 0; c < attributes->GetCategoriesCount(); ++c) {
-            const char *name = attributes->IsCategoryIndexValid(c) ? attributes->GetCategoryName(c) : nullptr;
-            if (!name) continue;
-            ImGui::PushID(c);
-            if (typeAhead.Selectable(AnsiToUtf8(name).c_str(), m_TypeCategory == name)) m_TypeCategory = name;
-            ImGui::PopID();
+        for (const auto &category : catalog.categories) {
+            if (category.name.empty()) continue;
+            if (typeAhead.Selectable(AnsiToUtf8(category.name).c_str(), m_TypeCategory == category.name)) m_TypeCategory = category.name;
         }
         ImGui::EndCombo();
     }
     if (ImGui::Button("Create##type", ImVec2(80, 0))) {
-        CKParameterTypeDesc *description = m_TypeParameter >= 0 ? parameters->GetParameterTypeDescription(m_TypeParameter) : nullptr;
         const EditResult result = CreateAttributeType(*m_State.document, Utf8ToAnsi(m_TypeName),
-                                                      description ? description->Guid : CKGUID(0, 0), m_TypeCategory);
+                                                      m_TypeParameter, m_TypeCategory);
         if (result.ok) {
             m_State.Log(LogLevel::Info, std::string("Created attribute type ") + m_TypeName);
             m_Chosen = {static_cast<CKAttributeType>(result.created)};
@@ -223,11 +184,12 @@ void ManagerWindows::AddAttributeDialog() {
     ImGui::BeginDisabled(targets.empty() || m_Chosen.empty());
     if (ImGui::Button("Add Selected", ImVec2(120, 0))) {
         int added = 0;
+        const auto catalog = ReadAttributeCatalog(*m_State.document);
         for (CKAttributeType type : m_Chosen) {
             std::vector<std::pair<std::string, bool>> each;
             const EditResult result = AddAttribute(*m_State.document, targets, type, &each);
-            CKAttributeManager *manager = m_State.document->Context()->GetAttributeManager();
-            m_State.LogAttributeAdds(manager ? manager->GetAttributeNameByType(type) : "", each, result.ok);
+            const auto *attribute = catalog.Find(type);
+            m_State.LogAttributeAdds(attribute ? attribute->name.c_str() : "", each, result.ok);
             if (result.ok) ++added;
             else if (each.empty()) m_State.Log(LogLevel::Warning, "Add Attribute: " + AnsiToUtf8(result.message));
         }
@@ -266,15 +228,16 @@ void ManagerWindows::AttributeManager(bool *open) {
         return;
     }
     DevTabClose(open);
-    CKContext *context = m_State.document->Context();
-    CKAttributeManager *attributes = context->GetAttributeManager();
-    if (!attributes) {
+    const auto catalog = ReadAttributeCatalog(*m_State.document);
+    if (!catalog.available) {
         ImGui::End();
         return;
     }
-    if (m_Selected >= 0 && !attributes->IsAttributeIndexValid(m_Selected)) m_Selected = -1;
+    const auto liveRows = FilterObjects(*m_State.document, {m_Doc.attributeRows.begin(), m_Doc.attributeRows.end()}, CKCID_BEOBJECT);
+    if (liveRows.size() != m_Doc.attributeRows.size()) m_Doc.attributeRows = {liveRows.begin(), liveRows.end()};
+    if (m_Selected >= 0 && !catalog.Find(m_Selected)) m_Selected = -1;
     for (auto it = m_MoreTypes.begin(); it != m_MoreTypes.end();)
-        it = attributes->IsAttributeIndexValid(*it) && *it != m_Selected ? std::next(it) : m_MoreTypes.erase(it);
+        it = catalog.Find(*it) && *it != m_Selected ? std::next(it) : m_MoreTypes.erase(it);
     if (m_Selected < 0) m_MoreTypes.clear();
     // The types whose objects are listed: the one clicked last first.
     std::vector<CKAttributeType> listed;
@@ -292,15 +255,13 @@ void ManagerWindows::AttributeManager(bool *open) {
     auto copy = [&] {
         if (m_Doc.attributeRows.empty() || m_Selected < 0) return;
         std::vector<CK_ID> values;
-        for (CK_ID id : m_Doc.attributeRows)
-            if (CKBeObject *object = CKBeObject::Cast(context->GetObject(id)))
-                if (CKParameterOut *value = object->GetAttributeParameter(m_Selected)) values.push_back(value->GetID());
+        for (const auto &row : ReadAttributeObjects(*m_State.document, {m_Selected}, {m_Doc.attributeRows.begin(), m_Doc.attributeRows.end()}))
+            if (row.parameter && m_Doc.attributeRows.count(row.object)) values.push_back(row.parameter);
         m_State.clipboard.SetParameters(*m_State.document, std::move(values));
     };
     auto paste = [&] {
         std::vector<CK_ID> &copied = m_State.clipboard.parameters;
-        copied.erase(std::remove_if(copied.begin(), copied.end(), [&](CK_ID id) { return !context->GetObject(id); }),
-                     copied.end());
+        copied = FilterObjects(*m_State.document, copied, CKCID_PARAMETER, ObjectQueryScope::Existing);
         if (copied.empty()) {
             m_State.Log(LogLevel::Warning, "Nothing to paste!");
             return;
@@ -409,47 +370,47 @@ void ManagerWindows::AttributeManager(bool *open) {
             std::snprintf(m_RenameBuffer, sizeof(m_RenameBuffer), "%s", AnsiToUtf8(text).c_str());
             m_RenameFocus = true;
         };
-        for (const auto &category : Categories(context, {})) {
+        for (const auto &category : catalog.categories) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            const std::string label = category.first.empty() ? std::string("(No category)") : AnsiToUtf8(category.first);
-            const bool renaming = !category.first.empty() && m_RenameCategory == category.first;
+            const std::string label = category.name.empty() ? std::string("(No category)") : AnsiToUtf8(category.name);
+            const bool renaming = !category.name.empty() && m_RenameCategory == category.name;
             ImGui::PushID(label.c_str());
             const bool openNode =
                 ImGui::TreeNodeEx("##category", ImGuiTreeNodeFlags_SpanFullWidth, "%s", renaming ? "" : label.c_str());
             // A category's menu (Dev.exe sub_55D200): Rename and Delete when
             // its flags allow them.
-            const int index = category.first.empty() ? -1 : attributes->GetCategoryByName(const_cast<CKSTRING>(category.first.c_str()));
-            const CKDWORD categoryFlags = index >= 0 ? attributes->GetCategoryFlags(index) : 0;
-            if (index >= 0 && (categoryFlags & (CK_ATTRIBUT_CAN_MODIFY | CK_ATTRIBUT_CAN_DELETE)) &&
+            const CKDWORD categoryFlags = category.flags;
+            if (!category.name.empty() && (categoryFlags & (CK_ATTRIBUT_CAN_MODIFY | CK_ATTRIBUT_CAN_DELETE)) &&
                 ImGui::BeginPopupContextItem("categorymenu")) {
                 if ((categoryFlags & CK_ATTRIBUT_CAN_MODIFY) && ImGui::MenuItem("Rename")) {
-                    m_RenameCategory = category.first;
-                    startRename(category.first);
+                    m_RenameCategory = category.name;
+                    startRename(category.name);
                 }
                 if ((categoryFlags & CK_ATTRIBUT_CAN_DELETE) && ImGui::MenuItem("Delete")) {
-                    if (category.second.empty()) {
-                        const EditResult result = DeleteAttributeCategory(*m_State.document, category.first);
+                    if (category.types.empty()) {
+                        const EditResult result = DeleteAttributeCategory(*m_State.document, category.name);
                         if (!result.ok) m_State.Log(LogLevel::Warning, AnsiToUtf8(result.message));
                     } else {
-                        m_DeleteCategory = category.first;
+                        m_DeleteCategory = category.name;
                     }
                 }
                 ImGui::EndPopup();
             }
             if (renaming) {
                 ImGui::SameLine();
-                const std::string old = category.first;
+                const std::string old = category.name;
                 renameField([&](const std::string &name) { return RenameAttributeCategory(*m_State.document, old, name); });
             }
             ImGui::PopID();
             if (!openNode) continue;
-            for (CKAttributeType type : category.second) {
+            for (CKAttributeType type : category.types) {
                 ImGui::PushID(type);
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                const char *name = attributes->GetAttributeNameByType(type);
-                const CKDWORD typeFlags = attributes->GetAttributeFlags(type);
+                const auto &attribute = *catalog.Find(type);
+                const auto &name = attribute.name;
+                const CKDWORD typeFlags = attribute.flags;
                 const bool user = (typeFlags & CK_ATTRIBUT_USER) != 0;
                 if (m_RenameType == type) {
                     renameField([&](const std::string &text) { return RenameAttributeType(*m_State.document, type, text); });
@@ -458,13 +419,13 @@ void ManagerWindows::AttributeManager(bool *open) {
                     ImGui::TreeNodeEx("##attr", ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen |
                                                     ImGuiTreeNodeFlags_SpanFullWidth |
                                                     (m_Selected == type || m_MoreTypes.count(type) ? ImGuiTreeNodeFlags_Selected : 0),
-                                      "%s", AnsiToUtf8(name ? name : "?").c_str());
+                                      "%s", AnsiToUtf8(name).c_str());
                     if (user) ImGui::PopStyleColor();
                     // Dragged onto objects (3D Layout, Level Manager, Setups).
                     if (ImGui::BeginDragDropSource()) {
                         const AttributePayload payload{type, 0};
                         ImGui::SetDragDropPayload(ATTRIBUTE_PAYLOAD, &payload, sizeof(payload));
-                        ImGui::TextUnformatted(AnsiToUtf8(name ? name : "?").c_str());
+                        ImGui::TextUnformatted(AnsiToUtf8(name).c_str());
                         ImGui::EndDragDropSource();
                     }
                     if (ImGui::IsItemClicked() && ImGui::GetIO().KeyCtrl && m_Selected >= 0) {
@@ -491,7 +452,7 @@ void ManagerWindows::AttributeManager(bool *open) {
                     if ((typeFlags & (CK_ATTRIBUT_CAN_MODIFY | CK_ATTRIBUT_CAN_DELETE)) && ImGui::BeginPopupContextItem("typemenu")) {
                         if ((typeFlags & CK_ATTRIBUT_CAN_MODIFY) && ImGui::MenuItem("Rename")) {
                             m_RenameType = type;
-                            startRename(name ? name : "");
+                            startRename(name);
                         }
                         if ((typeFlags & CK_ATTRIBUT_CAN_DELETE) && ImGui::MenuItem("Delete")) {
                             const EditResult result = DeleteAttributeType(*m_State.document, type);
@@ -503,11 +464,10 @@ void ManagerWindows::AttributeManager(bool *open) {
                     }
                 }
                 ImGui::TableNextColumn();
-                const std::string parameter = ParameterTypeName(context, attributes->GetAttributeParameterType(type));
+                const auto parameter = AnsiToUtf8(attribute.parameterName);
                 ImGui::TextUnformatted(parameter.empty() ? "" : parameter.c_str());
                 ImGui::TableNextColumn();
-                const char *cls = CKClassIDToString(attributes->GetAttributeCompatibleClassId(type));
-                ImGui::TextUnformatted(cls ? cls : "");
+                ImGui::TextUnformatted(AnsiToUtf8(attribute.compatibleName).c_str());
                 ImGui::PopID();
             }
             ImGui::TreePop();
@@ -539,9 +499,8 @@ void ManagerWindows::AttributeManager(bool *open) {
         EditGroup group(*m_State.document, "Remove Attribute from Objects");
         for (CKAttributeType type : listed) {
             std::vector<CK_ID> having;
-            for (CK_ID id : chosen)
-                if (CKBeObject *object = CKBeObject::Cast(context->GetObject(id)))
-                    if (object->HasAttribute(type)) having.push_back(id);
+            for (const auto &row : ReadAttributeObjects(*m_State.document, {type}, chosen))
+                if (std::find(chosen.begin(), chosen.end(), row.object) != chosen.end()) having.push_back(row.object);
             if (having.empty()) continue;
             const EditResult result = RemoveAttributeFromObjects(*m_State.document, having, type);
             if (!result.ok && !result.Unchanged()) m_State.Log(LogLevel::Warning, AnsiToUtf8(result.message));
@@ -562,83 +521,78 @@ void ManagerWindows::AttributeManager(bool *open) {
         ImGui::TableSetupColumn("Attribute Name", ImGuiTableColumnFlags_WidthFixed, 200.0f * s);
         ImGui::TableSetupColumn("Attribute Value", ImGuiTableColumnFlags_WidthFixed, 350.0f * s);
         ImGui::TableHeadersRow();
-        for (CKAttributeType listedType : listed) {
-            const CKAttributeType shownType = listedType;
-            const char *attributeName = attributes->GetAttributeNameByType(shownType);
-            const XObjectPointerArray &list = attributes->GetGlobalAttributeListPtr(shownType);
+        const auto rows = ReadAttributeObjects(*m_State.document, listed);
+        for (const auto &row : rows) {
+            const CKAttributeType shownType = row.type;
+            const auto *attribute = catalog.Find(shownType);
+            if (!attribute) continue;
+            const auto &attributeName = attribute->name;
+            const CK_ID id = row.object;
             ImGui::PushID(shownType);
-            for (int i = 0; i < list.Size(); ++i) {
-                CKBeObject *object = CKBeObject::Cast(list[i]);
-                if (!object || object->IsDynamic()) continue;
-                const CK_ID id = object->GetID();
-                ImGui::PushID(static_cast<int>(id));
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                const bool selected = m_Doc.attributeRows.count(id) != 0;
-                if (ImGui::Selectable((NameOf(object) + "###row").c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick)) {
-                    if (!ImGui::GetIO().KeyCtrl) m_Doc.attributeRows = {id};
-                    else if (selected) m_Doc.attributeRows.erase(id);
-                    else m_Doc.attributeRows.insert(id);
-                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{id});
-                }
-                if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) {
-                    m_Doc.attributeRows = {id};
-                    chosen = {id};
-                }
-                // Dragged with this object's value.
-                if (ImGui::BeginDragDropSource()) {
-                    CKParameterOut *value = object->GetAttributeParameter(shownType);
-                    const AttributePayload payload{shownType, value ? value->GetID() : 0};
-                    ImGui::SetDragDropPayload(ATTRIBUTE_PAYLOAD, &payload, sizeof(payload));
-                    ImGui::Text("%s (%s)", AnsiToUtf8(attributeName ? attributeName : "?").c_str(), NameOf(object).c_str());
-                    ImGui::EndDragDropSource();
-                }
-                if (ImGui::BeginPopupContextItem("objectmenu")) {
-                    if (ImGui::MenuItem("Copy Attribute Parameter Value", "Ctrl+C")) copy();
-                    if (ImGui::MenuItem("Paste Attribute Parameter Value", "Ctrl+V")) paste();
-                    if (ImGui::MenuItem("Remove Attribute from Objects", "Del")) removeFromObjects();
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Show Setup", "Enter")) showSetup();
-                    if (ImGui::MenuItem("Show Object In Level Manager", "(double-click on object name)"))
-                        m_State.events.Post(ShowInLevelManager{chosen.empty() ? id : chosen.front()});
-                    ImGui::EndPopup();
-                }
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(AnsiToUtf8(attributeName ? attributeName : "?").c_str());
-                ImGui::TableNextColumn();
-                if (CKParameterOut *value = object->GetAttributeParameter(shownType)) {
-                    const bool editing = m_Doc.valueObject == id && m_Doc.valueType == shownType;
-                    const std::string shown = editing ? m_ValueText : ValueText(value);
-                    char buffer[512];
-                    strncpy(buffer, shown.c_str(), sizeof(buffer) - 1);
-                    buffer[sizeof(buffer) - 1] = 0;
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::InputText("##value", buffer, sizeof(buffer))) {
-                        m_Doc.valueObject = id;
-                        m_Doc.valueType = shownType;
-                        m_ValueText = buffer;
-                    }
-                    if (ImGui::IsItemDeactivatedAfterEdit()) {
-                        const EditResult result =
-                            SetAttributeText(*m_State.document, id, shownType, Utf8ToAnsi(m_ValueText));
-                        if (!result.ok && !result.Unchanged())
-                            m_State.Log(LogLevel::Warning, "Edit Attribute: " + AnsiToUtf8(result.message));
-                        m_Doc.valueObject = 0;
-                    }
-                    // Documentation: "Double-clicking on the attribute value
-                    // will open the edit dialog box".
-                    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                        ImGui::ClearActiveID();
-                        m_Doc.valueObject = 0;
-                        CKParameterManager *manager = context->GetParameterManager();
-                        const char *typeName = manager->ParameterTypeToName(value->GetType());
-                        m_ValueType = typeName ? typeName : "";
-                        m_ValueBox.Clear();
-                        if (m_ValueBox.Add(value, attributeName ? attributeName : "")) m_OpenValue = true;
-                    }
-                }
-                ImGui::PopID();
+            ImGui::PushID(static_cast<int>(id));
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            const bool selected = m_Doc.attributeRows.count(id) != 0;
+            if (ImGui::Selectable(((row.name.empty() ? std::string("<Unnamed>") : AnsiToUtf8(row.name)) + "###row").c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick)) {
+                if (!ImGui::GetIO().KeyCtrl) m_Doc.attributeRows = {id};
+                else if (selected) m_Doc.attributeRows.erase(id);
+                else m_Doc.attributeRows.insert(id);
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{id});
             }
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) {
+                m_Doc.attributeRows = {id};
+                chosen = {id};
+            }
+            // Dragged with this object's value.
+            if (ImGui::BeginDragDropSource()) {
+                const AttributePayload payload{shownType, row.parameter};
+                ImGui::SetDragDropPayload(ATTRIBUTE_PAYLOAD, &payload, sizeof(payload));
+                ImGui::Text("%s (%s)", AnsiToUtf8(attributeName).c_str(), (row.name.empty() ? std::string("<Unnamed>") : AnsiToUtf8(row.name)).c_str());
+                ImGui::EndDragDropSource();
+            }
+            if (ImGui::BeginPopupContextItem("objectmenu")) {
+                if (ImGui::MenuItem("Copy Attribute Parameter Value", "Ctrl+C")) copy();
+                if (ImGui::MenuItem("Paste Attribute Parameter Value", "Ctrl+V")) paste();
+                if (ImGui::MenuItem("Remove Attribute from Objects", "Del")) removeFromObjects();
+                ImGui::Separator();
+                if (ImGui::MenuItem("Show Setup", "Enter")) showSetup();
+                if (ImGui::MenuItem("Show Object In Level Manager", "(double-click on object name)"))
+                    m_State.events.Post(ShowInLevelManager{chosen.empty() ? id : chosen.front()});
+                ImGui::EndPopup();
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(AnsiToUtf8(attributeName).c_str());
+            ImGui::TableNextColumn();
+            if (row.parameter) {
+                const bool editing = m_Doc.valueObject == id && m_Doc.valueType == shownType;
+                const std::string shown = editing ? m_ValueText : AnsiToUtf8(row.value);
+                char buffer[512];
+                strncpy(buffer, shown.c_str(), sizeof(buffer) - 1);
+                buffer[sizeof(buffer) - 1] = 0;
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::InputText("##value", buffer, sizeof(buffer))) {
+                    m_Doc.valueObject = id;
+                    m_Doc.valueType = shownType;
+                    m_ValueText = buffer;
+                }
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    const EditResult result =
+                        SetAttributeText(*m_State.document, id, shownType, Utf8ToAnsi(m_ValueText));
+                    if (!result.ok && !result.Unchanged())
+                        m_State.Log(LogLevel::Warning, "Edit Attribute: " + AnsiToUtf8(result.message));
+                    m_Doc.valueObject = 0;
+                }
+                // Documentation: "Double-clicking on the attribute value
+                // will open the edit dialog box".
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    ImGui::ClearActiveID();
+                    m_Doc.valueObject = 0;
+                    m_ValueType = row.parameterName;
+                    m_ValueBox.Clear();
+                    if (m_ValueBox.Add(row.parameter, attributeName)) m_OpenValue = true;
+                }
+            }
+            ImGui::PopID();
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -650,12 +604,7 @@ void ManagerWindows::AttributeManager(bool *open) {
         // Ctrl+A: every object listed.
         if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A, false) && m_Selected >= 0) {
             m_Doc.attributeRows.clear();
-            for (CKAttributeType type : listed) {
-                const XObjectPointerArray &list = attributes->GetGlobalAttributeListPtr(type);
-                for (int i = 0; i < list.Size(); ++i)
-                    if (CKBeObject *object = CKBeObject::Cast(list[i]))
-                        if (!object->IsDynamic()) m_Doc.attributeRows.insert(object->GetID());
-            }
+            for (const auto &row : ReadAttributeObjects(*m_State.document, listed)) m_Doc.attributeRows.insert(row.object);
         }
     }
     // Edit Parameter on a value (OK: the box's undo steps, one "Edit Attribute").

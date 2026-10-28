@@ -96,7 +96,7 @@ private:
     bool m_More = false;
     char m_CategoryName[128] = "";
     char m_TypeName[128] = "";
-    int m_TypeParameter = -1; // CKParameterType, -1: none
+    CKGUID m_TypeParameter = CKGUID(0, 0); // stable parameter type identity; zero: none
     std::string m_TypeCategory;
     // Attribute Manager
     CKAttributeType m_Selected = -1;

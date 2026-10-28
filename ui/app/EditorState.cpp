@@ -1,8 +1,31 @@
 #include "ui/app/EditorState.h"
 
 #include <stdexcept>
+#include "core/level/ObjectQueries.h"
+#include "core/level/AttributeQueries.h"
 
 namespace vdev {
+
+void SelectionFollower::Push(ObjectSelection &objects, const std::set<CK_ID> &selection, const Document *document) {
+    if (selection == m_Pushed) return;
+    m_Pushed = selection;
+    if (objects.locked || !document) return;
+    auto rendered = FilterObjects(*document, {selection.begin(), selection.end()}, CKCID_RENDEROBJECT);
+    if (rendered != objects.objects) objects.Set(std::move(rendered));
+    m_Seen = objects.revision;
+}
+
+void EditorState::DropAttributeOn(const std::vector<CK_ID> &objects, const AttributePayload &attribute) {
+    if (!HasDocument()) return;
+    const auto catalog = ReadAttributeCatalog(*document);
+    const auto *type = catalog.Find(attribute.type);
+    const auto name = type ? type->name : std::string();
+    std::vector<std::pair<std::string, bool>> each;
+    const auto result = DropAttribute(*document, objects, attribute.type, attribute.value, &each);
+    LogAttributeAdds(name.c_str(), each, result.ok);
+    if (!result.ok && !result.Unchanged() && each.empty()) Log(LogLevel::Warning, "Add Attribute: " + AnsiToUtf8(result.message));
+    else if (result.ok && !result.message.empty()) Log(LogLevel::Warning, AnsiToUtf8(result.message));
+}
 
 EditorState::EditorState() : runtimeOperation([this](const std::string &label) {
     return document && document->EditOpen() ? "Finish the current operation before " + label : std::string();

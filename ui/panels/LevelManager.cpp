@@ -26,6 +26,7 @@
 #include "ui/controls/FileDialogs.h"
 #include "core/level/LevelCommands.h"
 #include "core/level/LevelTree.h"
+#include "core/level/ObjectQueries.h"
 #include "core/level/SceneCommands.h"
 #include "ui/schematic/SchematicCanvas.h"
 #include "core/graph/ScriptCommands.h"
@@ -110,9 +111,8 @@ FileDialogOptions ScriptFileDialog() {
 // Layout (unless its selection is locked).
 void EditorPanels::SyncObjectSelection() {
     ObjectSelection &objects = m_State.objectSelection;
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
     if (!m_Doc.levelFollower.Pull(objects, m_Doc.levelSelection))
-        m_Doc.levelFollower.Push(objects, m_Doc.levelSelection, context);
+        m_Doc.levelFollower.Push(objects, m_Doc.levelSelection, m_State.document.get());
 }
 
 #ifdef VIRTOOLSDEV_UI_TESTS
@@ -132,8 +132,7 @@ void EditorPanels::ScriptsPanel(bool *open) {
         if (ImGui::GetFrameCount() - m_PickFrame > 2 || !m_State.HasDocument()) return 0;
         for (const PickRow &row : m_PickRows) {
             if (x < row.x0 || y < row.y0 || x >= row.x1 || y >= row.y1) continue;
-            CKObject *object = m_State.document->Context()->GetObject(row.object);
-            return object && CKIsChildClassOf(object, cid) ? row.object : 0;
+            return FilterObjects(*m_State.document, {row.object}, cid).empty() ? 0 : row.object;
         }
         return 0;
     };
@@ -252,7 +251,7 @@ void EditorPanels::ScriptsPanel(bool *open) {
             if (objects.locked) {
                 objects.locked = false;
             } else if (!m_Doc.levelSelection.empty()) {
-                m_Doc.levelFollower.Push(objects, m_Doc.levelSelection, context);
+                m_Doc.levelFollower.Push(objects, m_Doc.levelSelection, m_State.document.get());
                 if (!objects.objects.empty()) objects.locked = true;
             }
         }

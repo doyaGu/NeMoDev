@@ -216,16 +216,7 @@ public:
         m_Pushed = selection;
         return true;
     }
-    void Push(ObjectSelection &objects, const std::set<CK_ID> &selection, CKContext *context) {
-        if (selection == m_Pushed) return;
-        m_Pushed = selection;
-        if (objects.locked || !context) return;
-        std::vector<CK_ID> rendered;
-        for (CK_ID id : selection)
-            if (CKRenderObject::Cast(context->GetObject(id))) rendered.push_back(id);
-        if (rendered != objects.objects) objects.Set(std::move(rendered));
-        m_Seen = objects.revision;
-    }
+    void Push(ObjectSelection &objects, const std::set<CK_ID> &selection, const Document *document);
 
 private:
     unsigned m_Seen = ~0u;
@@ -297,16 +288,7 @@ struct EditorState : DocumentSession {
     }
     // An attribute dropped on objects (the 3D Layout, a Level Manager row, a
     // Setup): DropAttribute, its lines logged.
-    void DropAttributeOn(const std::vector<CK_ID> &objects, const AttributePayload &attribute) {
-        if (!HasDocument()) return;
-        CKAttributeManager *manager = document->Context()->GetAttributeManager();
-        const char *name = manager ? manager->GetAttributeNameByType(attribute.type) : nullptr;
-        std::vector<std::pair<std::string, bool>> each;
-        const EditResult result = DropAttribute(*document, objects, attribute.type, attribute.value, &each);
-        LogAttributeAdds(name, each, result.ok);
-        if (!result.ok && !result.Unchanged() && each.empty()) Log(LogLevel::Warning, "Add Attribute: " + AnsiToUtf8(result.message));
-        else if (result.ok && !result.message.empty()) Log(LogLevel::Warning, AnsiToUtf8(result.message));
-    }
+    void DropAttributeOn(const std::vector<CK_ID> &objects, const AttributePayload &attribute);
     // The 3D Layout's Snapshot Buffer (Dev keeps it for the session).
     SnapshotBuffer snapshots;
     // Dev's Copy Options (the session's copy dependencies, Dev.exe
