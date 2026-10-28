@@ -104,6 +104,7 @@ void DebuggerBudget(CkRuntimeHost &host);
 void ObjectExportFailures(CkRuntimeHost &host);
 void NmsExportFailures(CkRuntimeHost &host);
 void LoadCallbacks(CkRuntimeHost &host);
+void NativeObjectLifecycles(CkRuntimeHost &host);
 void LoadFailurePreservation(CkRuntimeHost &host);
 void InitialConditionsScenes(CkRuntimeHost &host);
 void InitialConditionsFailures(CkRuntimeHost &host);
