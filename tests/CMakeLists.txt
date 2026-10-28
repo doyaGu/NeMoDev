@@ -103,6 +103,7 @@ add_executable(VirtoolsDevTests
         GraphTestSupport.cpp
         GraveyardTests.cpp
         DocumentEditorDataTests.cpp
+        QueryProjectionTests.cpp
         ObjectEditFailureTests.cpp
         SaveFailureTests.cpp
         LoadCallbackTests.cpp

@@ -7,6 +7,7 @@
 #include "CKAll.h"
 
 namespace vdev {
+class Document;
 
 // An item of Dev's Hierarchy Manager (Dev.exe sub_565180 fills the tree,
 // sub_565520 adds an object and what it holds).
@@ -18,6 +19,7 @@ struct HierarchyItem {
     int root = NONE;           // the root this item is
     bool resource = false;     // a mesh, material or texture (Dev's Show/Hide buttons)
     bool renderObject = false; // has a Render Priority (CKRenderObject::GetZOrder)
+    int renderPriority = 0;
     std::vector<HierarchyItem> children;
 };
 
@@ -40,9 +42,14 @@ struct HierarchyOptions {
 // case-insensitive, the unnamed last (Dev.exe sub_5778A0).
 std::vector<HierarchyItem> BuildHierarchy(CKContext *context, const HierarchyOptions &options,
                                           const std::function<bool(CK_ID)> &skip = std::function<bool(CK_ID)>());
+std::vector<HierarchyItem> BuildHierarchy(const Document &document, const HierarchyOptions &options);
 
 // The object and every entity below it (Dev's "... Initial Conditions on
 // Hierarchy"): 3D or 2D children, depth first.
 std::vector<CK_ID> HierarchyOf(CKContext *context, CK_ID object);
+std::vector<CK_ID> HierarchyOf(const Document &document, CK_ID object);
+// Empty when a selection can be dragged. Shared by the preview and command
+// so a refused drag cannot become a partially applied hierarchy edit.
+std::string HierarchyDragError(const Document &document, const std::vector<CK_ID> &objects);
 
 } // namespace vdev

@@ -6,6 +6,7 @@
 #include "CKAll.h"
 
 namespace vdev {
+class Document;
 
 // Parameter types and parameter operations registered with the
 // CKParameterManager, for the local parameter and operation pickers.
@@ -31,6 +32,7 @@ struct OperationEntry {
 
 // Valid types not flagged CKPARAMETERTYPE_HIDDEN, sorted by name.
 std::vector<ParameterTypeEntry> ListParameterTypes(CKContext *context);
+std::vector<ParameterTypeEntry> ListParameterTypes(const Document &document);
 // Registered operations, sorted by name.
 std::vector<OperationEntry> ListParameterOperations(CKContext *context);
 // Type combinations registered for one operation.

@@ -1,6 +1,7 @@
 #include "core/catalog/ParameterCatalog.h"
 
 #include <algorithm>
+#include "core/document/Document.h"
 
 namespace vdev {
 
@@ -28,6 +29,10 @@ std::vector<ParameterTypeEntry> ListParameterTypes(CKContext *context) {
     std::sort(types.begin(), types.end(),
               [](const ParameterTypeEntry &a, const ParameterTypeEntry &b) { return a.name < b.name; });
     return types;
+}
+
+std::vector<ParameterTypeEntry> ListParameterTypes(const Document &document) {
+    return ListParameterTypes(document.IsOpen() ? document.Context() : nullptr);
 }
 
 std::vector<OperationEntry> ListParameterOperations(CKContext *context) {

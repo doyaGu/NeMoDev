@@ -68,6 +68,8 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         level/SetupCommands.cpp
         level/LevelTree.cpp
         level/HierarchyTree.cpp
+        level/ObjectQueries.cpp
+        level/AttributeQueries.cpp
         # The 3D Layout.
         layout/LayoutView.cpp
         layout/SdlGpuInterop.cpp

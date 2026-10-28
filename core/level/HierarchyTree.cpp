@@ -1,6 +1,9 @@
 #include "core/level/HierarchyTree.h"
 
 #include <algorithm>
+#include <set>
+
+#include "core/document/Document.h"
 
 namespace vdev {
 
@@ -17,6 +20,7 @@ HierarchyItem ItemOf(CKObject *object) {
     item.cid = object->GetClassID();
     item.name = object->GetName() ? object->GetName() : "";
     item.renderObject = CKIsChildClassOf(object, CKCID_RENDEROBJECT) != FALSE;
+    if (auto *render = CKRenderObject::Cast(object)) item.renderPriority = render->GetZOrder();
     item.resource = CKIsChildClassOf(object, CKCID_MESH) || CKIsChildClassOf(object, CKCID_MATERIAL) ||
                     CKIsChildClassOf(object, CKCID_TEXTURE);
     return item;
@@ -115,9 +119,11 @@ std::vector<CK_ID> HierarchyOf(CKContext *context, CK_ID id) {
     CKObject *object = context ? context->GetObject(id) : nullptr;
     if (!object) return objects;
     std::vector<CKObject *> pending(1, object);
+    std::set<CK_ID> seen;
     while (!pending.empty()) {
         CKObject *current = pending.back();
         pending.pop_back();
+        if (!seen.insert(current->GetID()).second) continue;
         objects.push_back(current->GetID());
         std::vector<CKObject *> children;
         if (CK3dEntity *entity = CK3dEntity::Cast(current))
@@ -128,6 +134,35 @@ std::vector<CK_ID> HierarchyOf(CKContext *context, CK_ID id) {
             if (*it) pending.push_back(*it);
     }
     return objects;
+}
+
+std::vector<HierarchyItem> BuildHierarchy(const Document &document, const HierarchyOptions &options) {
+    return BuildHierarchy(document.IsOpen() ? document.Context() : nullptr, options,
+                          [&document](CK_ID id) { return document.IsDiscarded(id); });
+}
+
+std::vector<CK_ID> HierarchyOf(const Document &document, CK_ID id) {
+    if (!document.IsOpen() || !document.IsLive(id)) return {};
+    auto objects = HierarchyOf(document.Context(), id);
+    objects.erase(std::remove_if(objects.begin(), objects.end(), [&document](CK_ID object) { return !document.IsLive(object); }), objects.end());
+    return objects;
+}
+
+std::string HierarchyDragError(const Document &document, const std::vector<CK_ID> &objects) {
+    int depth = -1;
+    for (CK_ID id : objects) {
+        if (!document.IsLive(id)) return "The object no longer exists";
+        CKObject *object = document.Context()->GetObject(id);
+        if (CKBodyPart::Cast(object)) return "Cannot modify character hierarchy!";
+        int current = 0;
+        if (auto *entity = CK3dEntity::Cast(object))
+            for (auto *up = entity->GetParent(); up; up = up->GetParent()) ++current;
+        else if (auto *entity = CK2dEntity::Cast(object))
+            for (auto *up = entity->GetParent(); up; up = up->GetParent()) ++current;
+        if (depth >= 0 && current != depth) return "Cannot move multiple entities with different depths!";
+        depth = current;
+    }
+    return {};
 }
 
 } // namespace vdev

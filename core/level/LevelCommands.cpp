@@ -1,5 +1,6 @@
 #include <filesystem>
 #include "core/level/LevelCommands.h"
+#include "core/level/HierarchyTree.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1261,27 +1262,10 @@ EditResult DeleteAttributeCategory(Document &document, const std::string &catego
 
 // ---------------------------------------------------------------- Hierarchy Manager
 
-namespace {
-
-// An entity's depth in its hierarchy (0: no parent).
-int HierarchyDepth(CKObject *object) {
-    int depth = 0;
-    if (CK3dEntity *entity = CK3dEntity::Cast(object))
-        for (CK3dEntity *up = entity->GetParent(); up; up = up->GetParent()) ++depth;
-    else if (CK2dEntity *entity2d = CK2dEntity::Cast(object))
-        for (CK2dEntity *up = entity2d->GetParent(); up; up = up->GetParent()) ++depth;
-    return depth;
-}
-
-} // namespace
-
 std::vector<EditResult> SetHierarchyParents(Document &document, const std::vector<CK_ID> &objects, CK_ID parent,
                                             int background) {
-    CKContext *context = document.Context();
-    for (size_t i = 1; i < objects.size(); ++i)
-        if (HierarchyDepth(context->GetObject(objects[i])) != HierarchyDepth(context->GetObject(objects[0])))
-            return std::vector<EditResult>(objects.size(),
-                                           EditResult::Refused("Cannot move multiple entities with different depths!"));
+    const auto error = HierarchyDragError(document, objects);
+    if (!error.empty()) return std::vector<EditResult>(objects.size(), EditResult::Refused(error));
     EditGroup group(document, "Set Parent");
     std::vector<EditResult> results;
     for (CK_ID object : objects) results.push_back(SetHierarchyParent(document, object, parent, background));
