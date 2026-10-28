@@ -60,6 +60,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         graph/Debugger.cpp
         # The level: Level Manager, objects, curves, scenes, hierarchy.
         level/LevelCommands.cpp
+        level/LevelActionRecord.cpp
         level/CurveCommands.cpp
         level/CreateCommands.cpp
         level/SceneCommands.cpp

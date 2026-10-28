@@ -34,6 +34,7 @@ public:
     bool Undo(Document &document) override { return step->Undo(document); }
     // Taken back with the edit it is in: as Undo, marking nothing (the edit changed nothing).
     bool TakeBack(Document &document) { return step->Run(document, true, false); }
+    void RetainObjects(std::set<CK_ID> &objects) const override { step->RetainObjects(objects); }
     std::unique_ptr<UndoStep> step;
 };
 
@@ -108,8 +109,7 @@ void UndoStep::RetainObjects(std::set<CK_ID> &objects) const {
     objects.insert(m_Buried.begin(), m_Buried.end());
     objects.insert(m_Touched.begin(), m_Touched.end());
     for (const Display &display : m_Displays) objects.insert(display.script);
-    for (const auto &action : m_Actions)
-        if (const auto *nested = dynamic_cast<const NestedStep *>(action.get())) nested->step->RetainObjects(objects);
+    for (const auto &action : m_Actions) action->RetainObjects(objects);
 }
 
 // ---------------------------------------------------------------------------

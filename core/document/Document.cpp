@@ -2,6 +2,7 @@
 #include "core/document/Document.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -68,6 +69,11 @@ SceneEnvironment DefaultNewSceneEnvironment() {
 
 Document::~Document() {
     Close();
+}
+
+std::uint64_t Document::NextInstanceId() {
+    static std::atomic<std::uint64_t> next{1};
+    return next.fetch_add(1, std::memory_order_relaxed);
 }
 
 ObjectReferences::ObjectReferences(Document &document, std::set<CK_ID> objects)
@@ -599,9 +605,8 @@ void Document::CollectGraveyard() {
     CollectBitmaps();
     if (m_Graveyard.empty()) return;
 
-    // An action's ordinary references are ordered before the step that
-    // buries their objects. Keeping creations/deletions in both stacks thus
-    // keeps those references too. A retained child also needs its holders;
+    // Keep explicit action dependencies as well as creations/deletions in
+    // both stacks. A retained child also needs its holders;
     // destruction of a graph must not invalidate a retained descendant.
     std::set<CK_ID> retained = m_History.RetainedObjects();
     for (const ObjectReferences *reference : m_ObjectReferences)

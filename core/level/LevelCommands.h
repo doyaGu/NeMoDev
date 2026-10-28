@@ -285,6 +285,7 @@ struct SceneEnvironment {
     CK_ID backgroundTexture = 0, startingCamera = 0;
     bool useAtStart = false;
 };
+bool operator==(const SceneEnvironment &a, const SceneEnvironment &b);
 SceneEnvironment ReadSceneEnvironment(CKScene *scene);
 void ApplySceneEnvironment(CKContext *context, CKScene *scene, const SceneEnvironment &environment);
 // Records the change from before to the scene's current settings (one undo

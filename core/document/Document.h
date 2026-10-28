@@ -58,6 +58,9 @@ public:
     class PreparedOpen;
     explicit Document(CkRuntimeHost &host) : m_Host(host), m_History(*this) {}
     ~Document();
+    // Process-local identity for data records. Closing/reopening preserves
+    // the Document instance; Host::Generation distinguishes its contexts.
+    std::uint64_t InstanceId() const { return m_InstanceId; }
 
     // Immediate load into this context; interactive replacement uses PrepareOpen.
     // Opening .nmo is New + Import: an unsaved, modified composition using
@@ -215,6 +218,8 @@ private:
         if (!m_Pictures.empty()) m_PicturesChanged = true;
     }
 
+    static std::uint64_t NextInstanceId();
+    const std::uint64_t m_InstanceId = NextInstanceId();
     CkRuntimeHost &m_Host;
     bool m_Open = false;
     Origin m_Origin = Origin::NewComposition;

@@ -104,6 +104,7 @@ add_executable(VirtoolsDevTests
         GraveyardTests.cpp
         DocumentEditorDataTests.cpp
         QueryProjectionTests.cpp
+        LevelActionRecordTests.cpp
         ObjectEditFailureTests.cpp
         SaveFailureTests.cpp
         LoadCallbackTests.cpp

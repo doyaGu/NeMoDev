@@ -25,6 +25,10 @@ public:
     virtual ~Action() = default;
     virtual bool Redo(Document &document) = 0;
     virtual bool Undo(Document &document) = 0;
+    // Replay dependencies, including objects referenced by before/after data.
+    // The history keeps these IDs alive in the graveyard until the action is
+    // evicted or discarded. Legacy actions can migrate incrementally.
+    virtual void RetainObjects(std::set<CK_ID> &objects) const {}
 };
 
 // An undo step being built. Its actions are done as they
