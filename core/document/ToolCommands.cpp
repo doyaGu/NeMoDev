@@ -50,28 +50,45 @@ bool WriteMarker(const fs::path &folder, CK_CLASSID cid, const char *name) {
     return true;
 }
 
-void ReadFolder(DataResourceFolder &folder) {
+bool ReadFolder(DataResourceFolder &folder, std::set<fs::path> &ancestors, std::string *error) {
     folder.cid = DataResourceFolderClass(folder.path);
     std::error_code ec;
+    const auto canonical = fs::weakly_canonical(fs::u8path(folder.path), ec);
+    if (ec || ancestors.size() >= 256 || !ancestors.insert(canonical).second) {
+        if (error) *error = "Cannot read the Data Resource folder " + folder.path + (ec ? ": " + ec.message() : ": recursive folder path");
+        return false;
+    }
+    struct Leave {
+        std::set<fs::path> &ancestors;
+        fs::path path;
+        ~Leave() { ancestors.erase(path); }
+    } leave{ancestors, canonical};
     for (fs::directory_iterator it(fs::u8path(folder.path), ec), end; !ec && it != end; it.increment(ec)) {
         const std::string name = it->path().filename().u8string();
         if (name == "_marker_" || name == "_nemo.dir") continue;
+        const bool directory = it->is_directory(ec);
+        if (ec) break;
         // The behavior files' descriptions (Dev.exe sub_561DD0).
-        if (!it->is_directory(ec) && _stricmp(it->path().extension().u8string().c_str(), ".dsc") == 0) continue;
-        if (it->is_directory(ec)) {
+        if (!directory && _stricmp(it->path().extension().u8string().c_str(), ".dsc") == 0) continue;
+        if (directory) {
             DataResourceFolder child;
             child.name = name;
             child.path = it->path().u8string();
-            ReadFolder(child);
+            if (!ReadFolder(child, ancestors, error)) return false;
             folder.folders.push_back(std::move(child));
         } else {
             folder.files.push_back(name);
         }
     }
+    if (ec) {
+        if (error) *error = "Cannot read the Data Resource folder " + folder.path + ": " + ec.message();
+        return false;
+    }
     auto byName = [](const std::string &a, const std::string &b) { return _stricmp(a.c_str(), b.c_str()) < 0; };
     std::sort(folder.files.begin(), folder.files.end(), byName);
     std::sort(folder.folders.begin(), folder.folders.end(),
               [&](const DataResourceFolder &a, const DataResourceFolder &b) { return byName(a.name, b.name); });
+    return true;
 }
 
 int AddFolderPaths(CKPathManager *paths, const DataResourceFolder &folder) {
@@ -185,8 +202,8 @@ bool ReadDataResource(const std::string &file, DataResource &resource, std::stri
     resource.file = file;
     resource.root.name = root.filename().u8string();
     resource.root.path = root.u8string();
-    ReadFolder(resource.root);
-    return true;
+    std::set<fs::path> ancestors;
+    return ReadFolder(resource.root, ancestors, error);
 }
 
 int AddDataResourcePaths(CKContext *context, const DataResource &resource) {

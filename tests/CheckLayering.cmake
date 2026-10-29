@@ -83,10 +83,13 @@ foreach (_source IN LISTS _sources)
                  (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme|TypeAhead)\\.h$")))
             list(APPEND _errors "${_source}: scene view includes native or legacy editor state ${_path}")
         endif()
+        if(_source MATCHES "^features/defaults/" AND _path MATCHES "^(core/|ui/|CK|Vx|SDL)")
+            list(APPEND _errors "${_source}: default workspace includes native or legacy editor state ${_path}")
+        endif()
         if(_source MATCHES "^tests/modules/" AND _path MATCHES "^(core/|ui/|application/|workspace/|features/|CK|Vx|SDL|imgui_internal)")
             list(APPEND _errors "${_source}: external module includes private editor code ${_path}")
         endif()
-        if(_source MATCHES "^features/resources/" AND NOT _source MATCHES "^features/resources/BuildingBlockQueries\\.(h|cpp)$" AND
+        if(_source MATCHES "^features/resources/" AND NOT _source MATCHES "^features/resources/(BuildingBlockQueries|DataResourceCommands)\\.(h|cpp)$" AND
                 (_path MATCHES "^(core/|CK|Vx|SDL)" OR
                  (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme|TypeAhead)\\.h$")))
             list(APPEND _errors "${_source}: resource view includes native or legacy editor state ${_path}")

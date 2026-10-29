@@ -371,6 +371,13 @@
         "!features/resources/BuildingBlockQueries.*",
         "!features/resources/DataResourceCommands.*"
       ]
+    },
+    {
+      "id": "S42",
+      "name": "资源库查询与命令",
+      "patterns": [
+        "features/resources/DataResourceCommands.*"
+      ]
     }
   ],
   "dependencies": {
@@ -660,7 +667,9 @@
       "S36",
       "S37",
       "S38",
-      "S40"
+      "S40",
+      "S41",
+      "S42"
     ],
     "S33": [],
     "S34": [
@@ -707,6 +716,13 @@
     "S41": [
       "S27",
       "S33",
+      "S34",
+      "S35"
+    ],
+    "S42": [
+      "S02",
+      "S03",
+      "S13",
       "S34",
       "S35"
     ]
@@ -1691,7 +1707,8 @@
         "S20",
         "S24",
         "S35",
-        "S41"
+        "S41",
+        "S42"
       ],
       "tests": [
         "VirtoolsDev.Resources",

@@ -32,23 +32,27 @@ struct FileInputs {
     SDL_Window *window;
     const EditorHost *host;
     EditorView view;
+    bool resource;
     FileDialogs dialogs;
     uint64_t shown = 0, answered = 0, exportInput = 0;
     Fields exportFields;
     BehaviorInfoFields behavior;
-    FileInputs(SDL_Window *window, const EditorHost *host, EditorView view) : window(window), host(host), view(view) {}
+    FileInputs(SDL_Window *window, const EditorHost *host, EditorView view, bool resource = false)
+        : window(window), host(host), view(view), resource(resource) {}
     ~FileInputs() { dialogs.Close(); }
     void Respond(uint64_t id, const char *choice, const std::string &path = {}, const std::string &message = {}, bool exportOptions = false) {
-        const EditorValue values[] = {{EditorLiteral("input"), EDITOR_INTEGER_VALUE, {}, {}, id},
+        std::vector<EditorValue> values = {{EditorLiteral("input"), EDITOR_INTEGER_VALUE, {}, {}, id},
                                       {EditorLiteral("choice"), EDITOR_TEXT_VALUE, {}, EditorLiteral(choice)},
                                       {EditorLiteral("path"), EDITOR_TEXT_VALUE, {}, EditorText(path)},
-                                      {EditorLiteral("message"), EDITOR_TEXT_VALUE, {}, EditorText(message)},
-                                      {EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, {}, {}, behavior.hide ? 1u : 0u},
-                                      {EDITOR_TEXT("author"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.author)},
-                                      {EDITOR_TEXT("version"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.version)},
-                                      {EDITOR_TEXT("description"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.description)}};
-        const EditorRequest request{host->scope(host->data, view), values, exportOptions ? 8u : 4u};
-        host->execute(host->data, EditorLiteral("document.respond"), &request, {});
+                                      {EditorLiteral("message"), EDITOR_TEXT_VALUE, {}, EditorText(message)}};
+        if (exportOptions) {
+            if (!resource) values.push_back({EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, {}, {}, behavior.hide ? 1u : 0u});
+            values.push_back({EDITOR_TEXT("author"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.author)});
+            values.push_back({EDITOR_TEXT("version"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.version)});
+            values.push_back({EDITOR_TEXT("description"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.description)});
+        }
+        const EditorRequest request{host->scope(host->data, view), values.data(), uint32_t(values.size())};
+        host->execute(host->data, EditorLiteral(resource ? "resource.respond" : "document.respond"), &request, {});
         answered = id;
     }
     EditorStatus Query(const char *id, Fields &fields, const EditorValue *values = nullptr, uint32_t count = 0) {
@@ -58,7 +62,7 @@ struct FileInputs {
     void Draw() {
         dialogs.Dispatch();
         Fields fields;
-        if (Query("document.input", fields) != EDITOR_OK) return;
+        if (Query(resource ? "resource.input" : "document.input", fields) != EDITOR_OK) return;
         const auto id = fields.number["input"];
         if (answered == id) return;
         if (fields.number["kind"] == EDITOR_FILE_INPUT) {
@@ -73,7 +77,7 @@ struct FileInputs {
                 const EditorValue values[] = {{EditorLiteral("input"), EDITOR_INTEGER_VALUE, {}, {}, id},
                                               {EditorLiteral("index"), EDITOR_INTEGER_VALUE, {}, {}, i}};
                 Fields item;
-                if (Query("document.file-filter", item, values, 2) != EDITOR_OK) {
+                if (Query(resource ? "resource.file-filter" : "document.file-filter", item, values, 2) != EDITOR_OK) {
                     Respond(id, "error");
                     return;
                 }
@@ -99,13 +103,15 @@ struct FileInputs {
             });
             return;
         }
-        if (fields.number["kind"] == EDITOR_OBJECT_EXPORT_INPUT || fields.number["kind"] == EDITOR_BEHAVIOR_EXPORT_INPUT) {
-            const bool behaviorExport = fields.number["kind"] == EDITOR_BEHAVIOR_EXPORT_INPUT;
+        if (fields.number["kind"] == EDITOR_OBJECT_EXPORT_INPUT || fields.number["kind"] == EDITOR_BEHAVIOR_EXPORT_INPUT ||
+            fields.number["kind"] == EDITOR_BEHAVIOR_INFORMATION_INPUT) {
+            const bool information = fields.number["kind"] == EDITOR_BEHAVIOR_INFORMATION_INPUT;
+            const bool behaviorExport = fields.number["kind"] != EDITOR_OBJECT_EXPORT_INPUT;
             const char *popup = behaviorExport ? "Behavior Information###behaviorinfo" : "Save as###LevelSaveAs";
             if (exportInput != id) {
                 const EditorValue argument{EDITOR_TEXT("input"), EDITOR_INTEGER_VALUE, {}, {}, id};
                 exportFields = {};
-                if (Query("document.export-options", exportFields, &argument, 1) != EDITOR_OK) { Respond(id, "error"); return; }
+                if (Query(resource ? "resource.export-options" : "document.export-options", exportFields, &argument, 1) != EDITOR_OK) { Respond(id, "error"); return; }
                 exportInput = id;
                 behavior.hide = exportFields.number["hide"] != 0;
                 behavior.name = exportFields.text["name"];
@@ -116,7 +122,7 @@ struct FileInputs {
                 ImGui::OpenPopup(popup);
             }
             if (!ImGui::BeginPopupModal(popup, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-            const bool valid = !behaviorExport || DrawBehaviorInfoFields(behavior, true);
+            const bool valid = !behaviorExport || DrawBehaviorInfoFields(behavior, !information);
             if (!behaviorExport) {
                 ImGui::Text("%d object(s) saved as a Virtools file (.nmo)", int(exportFields.number["objects"]));
                 ImGui::Checkbox("Hide script representation in Schematic view", &behavior.hide);
@@ -168,7 +174,8 @@ struct FileInputs {
 };
 } // namespace
 
-bool RegisterFileInputs(EditorApplication &editor, SDL_Window *window, std::string &error) {
+namespace {
+bool RegisterInputs(EditorApplication &editor, SDL_Window *window, bool resource, std::string &error) {
     EditorViewDesc view{sizeof(view),
                         EDITOR_IMGUI_VERSION,
                         EDITOR_TEXT("document.file-dialogs"),
@@ -191,6 +198,24 @@ bool RegisterFileInputs(EditorApplication &editor, SDL_Window *window, std::stri
     module.dependencyCount = 1;
     module.views = &view;
     module.viewCount = 1;
+    const EditorString resourceDependency = EDITOR_TEXT("resources.libraries");
+    if (resource) {
+        view.id = EDITOR_TEXT("resource.file-dialogs");
+        view.provider = EDITOR_TEXT("builtin.resource-dialogs");
+        view.title = EDITOR_TEXT("Resource dialogs");
+        view.create = [](void *data, const EditorHost *host, EditorView id) -> void * {
+            return new FileInputs(static_cast<SDL_Window *>(data), host, id, true);
+        };
+        module.id = EDITOR_TEXT("resources.dialogs");
+        module.dependencies = &resourceDependency;
+    }
     return editor.Register(module, error);
+}
+} // namespace
+bool RegisterFileInputs(EditorApplication &editor, SDL_Window *window, std::string &error) {
+    return RegisterInputs(editor, window, false, error);
+}
+bool RegisterResourceInputs(EditorApplication &editor, SDL_Window *window, std::string &error) {
+    return RegisterInputs(editor, window, true, error);
 }
 } // namespace vdev

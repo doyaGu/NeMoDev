@@ -44,6 +44,7 @@ set(_editor_sources
         controls/ParameterBox.cpp
         controls/TypeAhead.cpp
         controls/BehaviorInfoDialog.cpp
+        controls/BehaviorInfoFields.cpp
         # The Schematic.
         schematic/SchematicCanvas.cpp
         schematic/SchematicInput.cpp
@@ -68,6 +69,7 @@ set(_editor_sources
         ../features/scene/SceneTreeView.cpp
         ../features/scene/AttributeView.cpp
         ../features/resources/BuildingBlockViews.cpp
+        ../features/resources/DataResourceViews.cpp
         panels/DebuggerPanel.cpp
         # The Setups.
         setup/SetupWindows.cpp
@@ -235,7 +237,7 @@ if(WIN32)
     endif()
 endif()
 if(VIRTOOLSDEV_BUILD_TESTS)
-    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp ../tests/BuildingBlockQueryTests.cpp ../tests/DataResourceTests.cpp)
+    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp ../tests/BuildingBlockQueryTests.cpp ../tests/DataResourceTests.cpp ../features/resources/DataResourceViews.cpp)
     target_link_libraries(NeMoDevEditorTests PRIVATE VirtoolsDevWorkspace NeMoDevObjectCommands VirtoolsDevCore NeMoDevEditorApplication "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
     set_target_properties(NeMoDevEditorTests PROPERTIES ENABLE_EXPORTS TRUE)
     function(nemodev_example_module target host)
