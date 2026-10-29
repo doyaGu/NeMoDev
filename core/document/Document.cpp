@@ -148,35 +148,46 @@ CK_ID Document::NativeId(ObjectRef reference, ObjectScope scope) const {
     return object ? object->GetID() : 0;
 }
 
-Document::PreparedOpen::PreparedOpen(Document &target) : m_Target(target) {}
-Document::PreparedOpen::~PreparedOpen() = default;
+Document::PreparedDocument::PreparedDocument(Document &target) : m_Target(target) {}
+Document::PreparedDocument::~PreparedDocument() = default;
 
-void Document::PreparedOpen::Commit() {
-    if (m_Document) m_Target.CommitOpen(*this);
+void Document::PreparedDocument::Commit() {
+    if (m_Document) m_Target.CommitPrepared(*this);
 }
 
-std::unique_ptr<Document::PreparedOpen> Document::PrepareOpen(const std::string &path, std::string *error,
+std::unique_ptr<Document::PreparedDocument> Document::PrepareOpen(const std::string &path, std::string *error,
                                                             const SceneEnvironment &environment) {
+    return PrepareDocument(&path, error, environment);
+}
+
+std::unique_ptr<Document::PreparedDocument> Document::PrepareNew(std::string *error,
+                                                               const SceneEnvironment &environment) {
+    return PrepareDocument(nullptr, error, environment);
+}
+
+std::unique_ptr<Document::PreparedDocument> Document::PrepareDocument(const std::string *path, std::string *error,
+                                                                    const SceneEnvironment &environment) {
     if (EditOpen()) {
         if (error) *error = "Finish the current edit before opening a composition";
         return {};
     }
-    auto prepared = std::unique_ptr<PreparedOpen>(new PreparedOpen(*this));
+    auto prepared = std::unique_ptr<PreparedDocument>(new PreparedDocument(*this));
     prepared->m_Host = m_Host.CreateDocumentHost(error);
     if (!prepared->m_Host) return {};
     prepared->m_Document = std::make_unique<Document>(*prepared->m_Host);
     bool loaded = false;
     const bool completed = GuardedCall([&] {
-        loaded = prepared->m_Document->Open(path, error, environment);
+        loaded = path ? prepared->m_Document->Open(*path, error, environment)
+                      : prepared->m_Document->New(error, environment);
     }, &m_Host, "Prepare composition");
     if (!completed || !loaded) {
-        if (!completed && error) *error = "Cannot prepare " + path + ": the runtime raised an exception";
+        if (!completed && error) *error = "Cannot prepare " + (path ? *path : std::string("a new composition")) + ": the runtime raised an exception";
         return {};
     }
     return prepared;
 }
 
-void Document::CommitOpen(PreparedOpen &prepared) {
+void Document::CommitPrepared(PreparedDocument &prepared) {
     Close();
     m_Host.ExchangeContext(*prepared.m_Host);
     Document &candidate = *prepared.m_Document;
@@ -203,6 +214,10 @@ void Document::CommitOpen(PreparedOpen &prepared) {
     m_SavedTopologyRevision = candidate.m_SavedTopologyRevision;
     m_ChangesOutsideUndo = candidate.m_ChangesOutsideUndo;
     ++m_ScriptsRevision;
+    // The candidate's history belongs to its temporary Document. The adopted
+    // document has an empty history and must establish its own saved position.
+    // An imported/modified candidate remains modified at that position.
+    m_History.MarkSavePoint();
     candidate.m_Open = false; // Its context now belongs to this document.
     prepared.m_Document.reset();
 }

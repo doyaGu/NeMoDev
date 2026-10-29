@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "CKAll.h"
+#include "core/document/BehaviorDescription.h"
 #include "core/document/Document.h"
 #include "core/document/EditResult.h"
 
@@ -49,23 +50,6 @@ CK_CLASSID DataResourceFolderClass(const std::string &folder);
 // texture and 3D sprite folders (28, 31, 37) to the bitmap paths, the other
 // marked folders to the data paths. Returns the number of paths added.
 int AddDataResourcePaths(CKContext *context, const DataResource &resource);
-
-// ------------------------------------------------------- Behavior Information
-// A behavior file's description (Dev's Behavior Information, Dev.exe
-// sub_581A40, sub_581CB0, sub_581D30): beside the .nms, its name without
-// the last 3 letters and "dsc"; the class the behavior applies to (int32)
-// and the version (float, -1 without one), then the behavior's name and
-// the author each on a line, the description the rest of the file (Dev
-// writes a newline after it and drops the last byte when reading; its
-// lines end with "\r\n", here with "\n"). Texts ANSI.
-struct BehaviorDescription {
-    CK_CLASSID cid = 0;
-    float version = -1.0f;
-    std::string name, author, description;
-};
-std::string BehaviorDescriptionPath(const std::string &nms);
-bool ReadBehaviorDescription(const std::string &nms, BehaviorDescription &description);
-bool WriteBehaviorDescription(const std::string &nms, const BehaviorDescription &description);
 
 // A file of a Data Resource folder of class cid loaded into the composition,
 // as Dev does when one is dropped on the level (Dev.exe sub_56B380):

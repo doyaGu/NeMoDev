@@ -1,11 +1,13 @@
 #include "core/document/detail/NativeExport.h"
 
 #include <map>
+#include <algorithm>
 #include <set>
 #include <sstream>
 
 #include "core/document/Document.h"
-#include "core/document/detail/PendingSaveFile.h"
+#include "core/document/BehaviorDescription.h"
+#include "core/document/OutputFiles.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include "core/runtime/SdkCompat.h"
 #include "core/schematic/InterfaceDataReconstruction.h"
@@ -176,8 +178,7 @@ bool VerifyExport(Document &document, const std::string &path, const std::map<CK
     return completed && loaded == CK_OK && verified && fileClosed && contextClosed;
 }
 
-bool WriteExport(Document &document, CKObjectArray *objects, PendingSaveFile &pending, SaveReport &report) {
-    const std::string native = pending.Path().string();
+bool WriteExport(Document &document, CKObjectArray *objects, const std::string &native, SaveReport &report) {
     CKContext *context = document.Context();
     std::map<CK_ID, CK_CLASSID> expected;
     for (objects->Reset(); !objects->EndOfList(); objects->Next())
@@ -205,41 +206,74 @@ bool WriteExport(Document &document, CKObjectArray *objects, PendingSaveFile &pe
         report.errors.push_back("Native export failed: " + std::to_string(saved));
         return false;
     }
-    return VerifyExport(document, native, expected, report) && pending.Publish(true);
+    return VerifyExport(document, native, expected, report);
 }
 
 } // namespace
 
-bool SaveNativeExport(Document &document, const std::vector<CK_ID> &objects, const std::string &path,
-                      std::string *error, NativeExportKind kind, bool hideRepresentation) {
-    if (!document.Context()) {
-        if (error) *error = "The runtime is not started";
-        return false;
+void ExportNativeObjects(Document &document, const std::vector<CK_ID> &objects, const std::string &path,
+                         NativeExportKind kind, bool hideRepresentation, const BehaviorDescription *description,
+                         NativeExportResult &result) {
+    result = {};
+    auto &report = result.report;
+    if (!document.Context() || (description && kind != NativeExportKind::Behaviors)) {
+        report.errors.push_back("Invalid native export");
+        return;
     }
     ExportSelection selection(document);
     bool prepared = false;
-    if (!GuardedCall([&] { prepared = selection.Prepare(objects, kind, hideRepresentation, error); },
+    std::string error;
+    if (!GuardedCall([&] { prepared = selection.Prepare(objects, kind, hideRepresentation, &error); },
                      &document.Host(), "Prepare native export")) {
-        if (error) *error = "Preparing the export raised an exception";
-        return false;
+        report.errors.push_back("Preparing the export raised an exception");
+        return;
     }
-    if (!prepared) return false;
-    SaveReport report;
-    bool saved = false;
+    if (!prepared) {
+        report.errors.push_back(error);
+        return;
+    }
     try {
-        PendingSaveFile pending(std::filesystem::u8path(path), report);
-        if (pending.Create()) saved = WriteExport(document, selection.Objects(), pending, report);
+        OutputFiles outputs(report);
+        std::string stagedDescription;
+        const auto descriptionName = description ? BehaviorDescriptionPath(path) : std::string();
+        if (description) {
+            stagedDescription = outputs.Add(descriptionName);
+            if (stagedDescription.empty()) return;
+        }
+        const auto stagedNative = outputs.Add(path);
+        if (stagedNative.empty() || !WriteExport(document, selection.Objects(), stagedNative, report)) return;
+        if (description) {
+            BehaviorDescription verified;
+            if (!WriteBehaviorDescription(stagedDescription, *description) ||
+                !ReadBehaviorDescription(stagedDescription, verified) ||
+                verified.cid != description->cid || verified.version != description->version ||
+                verified.name != description->name || verified.author != description->author ||
+                verified.description != description->description) {
+                report.errors.push_back("Cannot write and verify the behavior description");
+                return;
+            }
+        }
+        report.saved = outputs.Publish(result.written);
+        // Keep the native-file-first result order while publishing its optional
+        // description before the native file, as the existing export did.
+        if (report.saved && description) std::reverse(result.written.begin(), result.written.end());
     } catch (const std::system_error &failure) {
         report.errors.push_back("Cannot prepare the export path: " + std::string(failure.what()));
     }
-    if (error && !saved) {
+}
+
+bool SaveNativeExport(Document &document, const std::vector<CK_ID> &objects, const std::string &path,
+                      std::string *error, NativeExportKind kind, bool hideRepresentation) {
+    NativeExportResult result;
+    ExportNativeObjects(document, objects, path, kind, hideRepresentation, nullptr, result);
+    if (error && !result.report.saved) {
         std::ostringstream message;
-        for (const auto &item : report.errors) { if (message.tellp() > 0) message << "; "; message << item; }
-        for (const auto &item : report.notes) { if (message.tellp() > 0) message << "; "; message << item; }
+        for (const auto &item : result.report.errors) { if (message.tellp() > 0) message << "; "; message << item; }
+        for (const auto &item : result.report.notes) { if (message.tellp() > 0) message << "; "; message << item; }
         *error = message.str();
     }
-    for (const auto &note : report.notes) document.Host().Log(LogLevel::Warning, note);
-    return saved;
+    for (const auto &note : result.report.notes) document.Host().Log(LogLevel::Warning, note);
+    return result.report.saved;
 }
 
 } // namespace vdev

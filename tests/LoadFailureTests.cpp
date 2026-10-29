@@ -1,4 +1,6 @@
 #include "VirtoolsDevTestSupport.h"
+#include "core/document/ObjectPictures.h"
+#include "core/layout/LayoutCommands.h"
 
 #include <stdexcept>
 #include <SDL3/SDL_timer.h>
@@ -16,6 +18,7 @@ public:
     int persistent = 137;
     bool structured = false;
     CK_ID original = 0, parameter = 0, scene = 0;
+    Document *document = nullptr;
     explicit FailingLoadManager(CKContext *context)
         : CKBaseManager(context, CKGUID(0x514aa687, 0x237da852), "Load rollback regression") {}
     CKDWORD GetValidFunctionsMask() override {
@@ -75,6 +78,14 @@ public:
         CKScene::Cast(m_Context->GetObject(scene))->SetFogEnd(777);
         int value = 999;
         CKParameter::Cast(m_Context->GetObject(parameter))->SetValue(&value, sizeof(value));
+        if (document) {
+            auto layout = document->Layout();
+            layout.representations[original] = 1;
+            auto data = ReadLayoutInterfaceData(m_Context);
+            WriteLayoutLists(m_Context, layout, {}, data);
+            WriteLayoutInterfaceData(*document, data);
+            WriteObjectPictures(*document, {});
+        }
 #if defined(_WIN32) && defined(_MSC_VER)
         if (structured) RaiseException(0xE0421067, 0, 0, nullptr);
 #endif
@@ -152,6 +163,18 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
     CHECK(deleted.ok);
     ScriptSession *deletedSession = document.Session(deleted.created);
     CHECK(DeleteScript(document, deleted.created).ok);
+    CHECK(SetFrameRepresentation(document, {original->GetID()}, 3).ok);
+    CKDWORD pixel = 0xFF123456;
+    VxImageDescEx image;
+    image.Width = image.Height = 1; image.BitsPerPixel = 32; image.BytesPerLine = 4;
+    image.RedMask = 0x00FF0000; image.GreenMask = 0x0000FF00; image.BlueMask = 0x000000FF; image.AlphaMask = 0xFF000000;
+    image.Image = reinterpret_cast<XBYTE *>(&pixel);
+    void *picture = VxCreateBitmap(image);
+    CHECK(picture && SetObjectPicture(document, original->GetID(), picture).ok);
+    LayoutInterfaceData layoutData;
+    WriteLayoutLists(context, document.Layout(), {}, layoutData);
+    WriteLayoutInterfaceData(document, layoutData);
+    WriteObjectPictures(document, document.Pictures());
     document.MarkSaved();
     document.History().MarkSavePoint();
     CHECK(RenameLevelObject(document, document.Reference(original->GetID()), "Redo name").ok);
@@ -160,6 +183,7 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
     const auto undoLabel = document.History().UndoLabel(), redoLabel = document.History().RedoLabel();
     const auto revision = document.TopologyRevision(), scriptsRevision = document.ScriptsRevision();
     manager->original = original->GetID();
+    manager->document = &document;
     manager->parameter = value->GetID();
     manager->scene = context->GetCurrentLevel()->GetLevelScene()->GetID();
     CKScene *scene = context->GetCurrentLevel()->GetLevelScene();
@@ -170,6 +194,10 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
     const auto created = document.CreatedObjects();
     const auto sessionRevision = session->Revision();
     const auto outside = document.ChangesOutsideUndo();
+    const auto layout = document.Layout();
+    const auto pictures = document.Pictures();
+    const auto picturesPending = document.PicturesPending();
+    const auto nativeLayout = ReadLayoutLists(context, ReadLayoutInterfaceData(context));
     VxVector position;
     auto *entity = CK3dEntity::Cast(original);
     entity->GetPosition(&position);
@@ -203,6 +231,14 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
         CHECK(!ok && !manager->armed && !manager->waitingForSequence && !manager->waitingForDeletion && !error.empty());
         CHECK(document.Context() == context && host.Generation() == generation);
         CHECK(document.Token() == token && document.Resolve(originalRef) == original && document.Resolve(scriptRef) == behavior);
+        CHECK(document.Layout() == layout && document.Pictures() == pictures && document.PicturesPending() == picturesPending);
+        CHECK(ReadLayoutLists(context, ReadLayoutInterfaceData(context)) == nativeLayout);
+        const auto nativePictures = ReadObjectPictures(document);
+        CHECK(nativePictures.size() == pictures.size() && nativePictures.count(original->GetID()));
+        VxImageDescEx restoredImage;
+        std::unique_ptr<XBYTE[]> restoredPixels(VxConvertBitmap(nativePictures.at(original->GetID()).get(), restoredImage));
+        CHECK(restoredPixels && restoredImage.Width == 1 && restoredImage.Height == 1 &&
+              *reinterpret_cast<const CKDWORD *>(restoredPixels.get()) == pixel);
         CHECK(!context->m_InLoad && !context->m_ObjectManager->m_InLoadSession);
         CHECK(Instances(context) == instances);
         CHECK(std::string(original->GetName()) == "Original frame" && scene->GetFogEnd() == fog && scene->GetFogMode() == VXFOG_EXP);

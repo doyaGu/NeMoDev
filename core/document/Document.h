@@ -59,7 +59,7 @@ public:
         LoadedComposition,
         ImportedObjects,
     };
-    class PreparedOpen;
+    class PreparedDocument;
     explicit Document(CkRuntimeHost &host);
     ~Document();
     // Construction attaches an editing scope to the host's current context.
@@ -78,11 +78,12 @@ public:
     // the caller's new-scene environment. Other compositions load as saved.
     bool Open(const std::string &path, std::string *error,
               const SceneEnvironment &environment = DefaultNewSceneEnvironment());
-    // Load in an independent context. Failure or discarding the candidate
+    // Prepare in an independent context. Failure or discarding the candidate
     // leaves this document, its objects and undo history unchanged. Callers
     // release old UI/render state only once preparation succeeds, then Commit.
-    std::unique_ptr<PreparedOpen> PrepareOpen(const std::string &path, std::string *error,
+    std::unique_ptr<PreparedDocument> PrepareOpen(const std::string &path, std::string *error,
                                             const SceneEnvironment &environment = DefaultNewSceneEnvironment());
+    std::unique_ptr<PreparedDocument> PrepareNew(std::string *error, const SceneEnvironment &environment);
     // File > New Composition (Dev.exe sub_5C3BC0, sub_5CB640): an empty level
     // named "Level" as the current level, its level scene with Dev's default
     // environment supplied for the new composition.
@@ -217,7 +218,9 @@ private:
     // Only an Edit/UndoStep may claim that a change belongs to undo.
     void MarkUndoableChange() { ++m_TopologyRevision; }
     void ListScripts();
-    void CommitOpen(PreparedOpen &prepared);
+    std::unique_ptr<PreparedDocument> PrepareDocument(const std::string *path, std::string *error,
+                                                      const SceneEnvironment &environment);
+    void CommitPrepared(PreparedDocument &prepared);
     // Run only after edits/replay have ended and discarded steps released
     // their actions/state chunks. Live objects never enter this collection.
     void CollectGraveyard();
@@ -262,16 +265,17 @@ private:
     bool m_GraveyardCollectionPending = false;
 };
 
-class Document::PreparedOpen {
+class Document::PreparedDocument {
 public:
-    ~PreparedOpen();
-    // Consumes the loaded candidate. Context/object pointers from the old
+    ~PreparedDocument();
+    // Consumes the prepared composition. Context/object pointers from the old
     // document must not be used after this call; the Document itself stays.
     void Commit();
+    Document &Candidate() { return *m_Document; }
 
 private:
     friend class Document;
-    explicit PreparedOpen(Document &target);
+    explicit PreparedDocument(Document &target);
     Document &m_Target;
     std::unique_ptr<CkRuntimeHost> m_Host;
     std::unique_ptr<Document> m_Document;

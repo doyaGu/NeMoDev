@@ -27,11 +27,13 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         # The composition: opening, Scripts, undo, saving and the file tools.
         document/Document.cpp
         document/detail/LoadTransaction.cpp
+        document/BehaviorDescription.cpp
         document/detail/NativeExport.cpp
         document/ScriptSession.cpp
         document/UndoHistory.cpp
         document/Edit.cpp
         document/DocumentSaver.cpp
+        document/OutputFiles.cpp
         document/LinkValidation.cpp
         document/ObjectPictures.cpp
         document/SpriteTextPersistence.cpp

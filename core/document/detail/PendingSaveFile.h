@@ -96,6 +96,12 @@ public:
         return false;
     }
     const std::filesystem::path &Path() const { return m_Path; }
+    const std::filesystem::path &Destination() const { return m_Destination; }
+    std::filesystem::path LeaveForRecovery() {
+        auto path = std::move(m_Path);
+        m_Path.clear();
+        return path;
+    }
     bool Publish(bool allowOverwrite) {
         if (allowOverwrite && !PreservePermissions())
             return false;

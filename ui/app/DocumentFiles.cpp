@@ -7,7 +7,7 @@ namespace vdev {
 bool DocumentFiles::Open(const std::string &path, const OpenOptions &options,
                          std::function<void()> beforeCommit, std::function<void(const OpenResult &)> completed) {
     struct Candidate {
-        std::unique_ptr<Document::PreparedOpen> prepared;
+        std::unique_ptr<Document::PreparedDocument> prepared;
         std::string error;
         OpenResult result;
     };
