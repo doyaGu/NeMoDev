@@ -20,7 +20,6 @@ class EditorPanels {
 public:
     EditorPanels(EditorState &state, SchematicCanvas &canvas) : m_State(state), m_Canvas(canvas) {}
 
-    void BuildingBlocksPanel(bool *open);
     void ExplorerPanel(bool *open);
     // Dev Script Debugger (DebuggerPanel.cpp).
     void DebuggerPanel(bool *open);
@@ -43,11 +42,6 @@ public:
     void DocumentClosed();
 private:
     void Report(const EditResult &result, const char *what);
-    // Dev's Building Blocks Resource: the category tree on the left (path:
-    // the category's, "Logics/Calculator"), the Building Blocks of the one
-    // selected (and its sub-categories) in columns on the right.
-    void DrawCategory(const std::string &name, const std::string &path, const BuildingBlockCategory &node);
-    void BuildingBlockItem(size_t index);
     void RunSearch();
     // The Schematic Explorer's parts: the rows chosen made the Schematic's
     // selection; the tree view; the parameters of the Parameter Filter.
@@ -97,12 +91,6 @@ private:
     ParameterBox m_ExplorerBox{m_State};
     bool m_ExplorerEditReplace = false;
     bool m_OpenExplorerValue = false;
-    // Building Blocks
-    std::string m_BlockFilter;
-    std::set<size_t> m_BlockSelection; // the Building Blocks selected (catalog indices)
-    std::string m_BlockCategory;       // the category listed ("": none)
-    std::vector<size_t> m_BlockShown;  // the list's rows in their order (Shift + click: a range)
-    size_t m_BlockAnchor = SIZE_MAX;
     // Script Debugger: the Debug Log shown, the edits' text, the reached
     // breakpoints (blinking since, Goto's last one).
     bool m_DebugLogShown = true;

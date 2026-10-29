@@ -118,6 +118,7 @@ public:
     bool SceneViewOpen(const std::string &type) const;
     void CloseSceneView(const std::string &type);
     std::string SceneWindow(const std::string &type) const;
+    std::string BuildingBlocksWindow() const { return m_Workspace.WindowName(m_Workspace.Role("main.building-blocks")); }
     bool ShouldQuit() const { return m_Quit; }
     // The 3D Layout is fullscreen: the editor's window, hidden, keeps its frames going.
     bool LayoutFullScreen() const { return m_Layout.FullScreen(); }

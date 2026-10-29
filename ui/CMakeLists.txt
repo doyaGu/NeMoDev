@@ -67,6 +67,7 @@ set(_editor_sources
         ../features/scene/SceneViewData.cpp
         ../features/scene/SceneTreeView.cpp
         ../features/scene/AttributeView.cpp
+        ../features/resources/BuildingBlockViews.cpp
         panels/DebuggerPanel.cpp
         # The Setups.
         setup/SetupWindows.cpp
@@ -234,7 +235,7 @@ if(WIN32)
     endif()
 endif()
 if(VIRTOOLSDEV_BUILD_TESTS)
-    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp)
+    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp ../tests/BuildingBlockQueryTests.cpp)
     target_link_libraries(NeMoDevEditorTests PRIVATE VirtoolsDevWorkspace NeMoDevObjectCommands VirtoolsDevCore NeMoDevEditorApplication "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
     set_target_properties(NeMoDevEditorTests PROPERTIES ENABLE_EXPORTS TRUE)
     function(nemodev_example_module target host)

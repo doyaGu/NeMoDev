@@ -4,6 +4,8 @@
 #include "ui/panels/EventLogView.h"
 #include <stdexcept>
 #include "features/objects/ObjectViews.h"
+#include "features/resources/BuildingBlockQueries.h"
+#include "features/resources/BuildingBlockViews.h"
 #include "features/scene/SceneViewData.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/level/SetupCommands.h"
@@ -132,7 +134,9 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NeMoDev", ("Cannot start the Virtools runtime:\n" + error).c_str(), window);
         return false;
     }
-    if (!m_Workspace.Register(error) || !m_State.eventLog.Register(m_Editor, error) ||
+    m_State.catalog.Refresh();
+    if (!RegisterBuildingBlockQueries(m_Editor, m_State.catalog, error) || !RegisterBuildingBlockViews(m_Editor, error) ||
+        !m_Workspace.Register(error) || !m_State.eventLog.Register(m_Editor, error) ||
         !RegisterEventLogView(m_Editor, error) || !RegisterHelpViews(m_Editor, m_HtmlFonts, error) ||
         !m_FileCommands.Register(error) || !RegisterFileInputs(m_Editor, window, error) ||
         !m_ObjectCommands.Register(m_Editor, error) || !m_SelectionCommands.Register(m_Editor, error) ||
@@ -154,10 +158,10 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         return false;
     }
     if (!m_Workspace.Open("document.file-dialogs") || !m_Workspace.Open("document.output-dialogs")) return false;
-    m_State.catalog.Refresh();
     m_State.document = std::make_unique<Document>(m_State.host);
     m_Editor.Attach({}, 0, true, false);
     OpenSceneView("level");
+    m_Workspace.Open("resource.building-blocks", "main.building-blocks", true);
     m_State.debugger = m_Execution.Bind(*m_State.document);
     // Dev's paths (HKCU\Software\Virtools\Data Paths, read-only) until the
     // editor has its own.
@@ -832,13 +836,14 @@ void EditorApp::BuildDefaultLayout(ImGuiID dockspace, bool closeSeparated) {
             continue;
         const std::string name = window->Name;
         const bool resource = name.find("###resource") != std::string::npos;
-        const bool withBlocks = resource || name == SceneWindow("hierarchy") || name == "Parameter Debugger";
-        const bool withSchematic = name.find("###setup") != std::string::npos || name == SceneWindow("attributes");
+        const bool withBlocks = resource || name == "Parameter Debugger";
+        const bool withSchematic = name.find("###setup") != std::string::npos;
         if (!withBlocks && !withSchematic) continue;
         if (closeSeparated && !resource && !window->DockIsActive) separated.push_back(window->ID);
         else redocked.push_back({name, withBlocks});
     }
     if (!separated.empty()) DevCloseSeparated(separated);
+    if (closeSeparated) m_Workspace.CloseFloatingViews();
     ImGui::DockBuilderRemoveNode(dockspace);
     ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
@@ -851,12 +856,12 @@ void EditorApp::BuildDefaultLayout(ImGuiID dockspace, bool closeSeparated) {
     ImGuiID top = ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Up, 0.5f, nullptr, &bottom);
     ImGuiID topRight = ImGui::DockBuilderSplitNode(top, ImGuiDir_Right, 0.5f, nullptr, &top);
     ImGui::DockBuilderDockWindow("3D Layout", top);
-    ImGui::DockBuilderDockWindow("Building Blocks", topRight);
-    if (auto name = SceneWindow("hierarchy"); !name.empty()) ImGui::DockBuilderDockWindow(name.c_str(), topRight);
+    m_Workspace.DefaultDock("resource.building-blocks", topRight);
     m_Workspace.DefaultDock("scene.hierarchy", topRight);
     m_Workspace.DefaultDock("scene.attributes", bottom);
     ImGui::DockBuilderDockWindow(SCHEMATIC_WINDOW, bottom);
-    ImGui::DockBuilderDockWindow(SceneWindow("level").c_str(), bottom);
+    m_Workspace.DefaultDock("scene.level", bottom);
+    m_Workspace.DockViews();
     for (const Redocked &window : redocked) ImGui::DockBuilderDockWindow(window.name.c_str(), window.withBlocks ? topRight : bottom);
     ImGui::DockBuilderFinish(dockspace);
 }
@@ -1070,19 +1075,21 @@ void EditorApp::Frame() {
         } else if (input.status == EDITOR_NO_CHANGE) m_PrintPagesOperation = 0;
     }
 #endif
-    m_Panels.BuildingBlocksPanel(nullptr);
     if (m_ShowExplorer) m_Panels.ExplorerPanel(&m_ShowExplorer);
     {
         m_Layout.Draw(0, m_FocusSchematic <= 0);
         // Setup tabs dock with the Schematic (Dev's tab row).
         ImGuiWindow *schematic = ImGui::FindWindowByName(SCHEMATIC_WINDOW);
         m_Setups.Draw(schematic ? schematic->DockId : 0);
-        ImGuiWindow *blocks = ImGui::FindWindowByName("Building Blocks");
+        ImGuiWindow *blocks = ImGui::FindWindowByName(BuildingBlocksWindow().c_str());
         if (schematic && schematic->DockId) {
             m_Workspace.DefaultDock("scene.level", schematic->DockId);
             m_Workspace.DefaultDock("scene.attributes", schematic->DockId);
         }
-        if (blocks && blocks->DockId) m_Workspace.DefaultDock("scene.hierarchy", blocks->DockId);
+        if (blocks && blocks->DockId) {
+            m_Workspace.DefaultDock("scene.hierarchy", blocks->DockId);
+            m_Workspace.DefaultDock("resource.building-blocks", blocks->DockId);
+        }
         // The Parameter Debugger and Data Resources join the Building Blocks (Dev's top tab row).
         m_Tools.Draw(blocks ? blocks->DockId : 0, m_FocusSchematic <= 0);
     }
@@ -1099,7 +1106,7 @@ void EditorApp::Frame() {
         // Schematic, focused last); repeated because windows appearing later
         // take the focus.
         ImGui::SetWindowFocus("3D Layout");
-        ImGui::SetWindowFocus("Building Blocks");
+        m_Workspace.Focus(m_Workspace.Role("main.building-blocks"));
         m_Workspace.Focus(m_Workspace.Role("main.level"));
 #ifdef VIRTOOLSDEV_UI_TESTS
         // Several windows (names separated by '|'): one a frame, the window
@@ -1113,7 +1120,8 @@ void EditorApp::Frame() {
         }
         if (!names.empty()) {
             auto name=names[m_FocusSchematic % names.size()];
-            if(name=="Level Manager")m_Workspace.Focus(m_Workspace.Role("main.level"));
+            if(name=="Building Blocks")m_Workspace.Focus(m_Workspace.Role("main.building-blocks"));
+            else if(name=="Level Manager")m_Workspace.Focus(m_Workspace.Role("main.level"));
             else if(name=="Hierarchy Manager")m_Workspace.Focus(m_Workspace.Role("main.hierarchy"));
             else if(name=="Attribute Manager")m_Workspace.Focus(m_Workspace.Role("main.attributes"));
             else ImGui::SetWindowFocus(name.c_str());

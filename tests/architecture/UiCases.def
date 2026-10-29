@@ -146,3 +146,5 @@ VIRTOOLSDEV_UI_CASE("tools", "version_test")
 
 VIRTOOLSDEV_UI_CASE("modules", "scene_view_instances_queries_and_commands")
 
+VIRTOOLSDEV_UI_CASE("modules", "building_block_view_instances_and_navigation")
+VIRTOOLSDEV_UI_CASE("modules", "registered_views_reset_docking")

@@ -1,6 +1,7 @@
 #include "features/scene/SceneViews.h"
 #include "features/scene/SceneViewData.h"
 #include "editor/ImGuiDrawing.h"
+#include "workspace/BuildingBlockDrag.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
@@ -664,14 +665,15 @@ void SceneTreeView::Drop(const EditorClient &client, size_t index) {
                                                  ObjectArgument("scene", row.section)});
             }
         }
-        if (const auto *payload = ImGui::AcceptDragDropPayload("SCHEMATIC_BB")) {
-            if (payload->DataSize == 8) {
-                uint32_t guid[2];
-                std::memcpy(guid, payload->Data, sizeof(guid));
+        if (const auto *payload = ImGui::AcceptDragDropPayload(EDITOR_BUILDING_BLOCK_PAYLOAD)) {
+            EditorBuildingBlock source{};
+            std::vector<EditorBuildingBlock> blocks;
+            if (ReadBuildingBlockDrag(payload->Data, size_t(payload->DataSize), source, blocks)) {
                 const auto objects = Targets(row);
-                client.Command("scene.drop-behavior",
-                               {ObjectsArgument("objects", objects),
-                                IntegerArgument("prototype", (uint64_t(guid[0]) << 32) | guid[1])});
+                for (const auto &block : blocks)
+                    client.Command("scene.drop-behavior",
+                                   {ObjectsArgument("objects", objects),
+                                    IntegerArgument("prototype", (uint64_t(block.first) << 32) | block.second)});
             }
         }
     }

@@ -125,23 +125,20 @@
         "ui/app/EditorApp.*",
         "ui/app/EditorState.*",
         "ui/app/StatusBar.cpp",
-        "ui/app/Clipboard.h",
         "ui/app/EditorEvents.h",
         "ui/app/UiTestRun.h"
       ]
     },
     {
       "id": "S15",
-      "name": "文件操作与调度",
+      "name": "文件操作与运行调度",
       "patterns": [
-        "ui/app/DocumentFiles.*",
-        "ui/app/RuntimeOperation.*",
-        "ui/app/FileMenu.cpp",
-        "ui/app/DuplicateNames.cpp",
         "application/DocumentFiles.*",
         "application/RuntimeOperation.*",
         "application/DocumentCommands.*",
         "ui/app/FileInputs.*",
+        "ui/app/FileMenu.cpp",
+        "ui/app/DuplicateNames.cpp",
         "application/ExecutionCommands.*",
         "application/OutputCommands.*",
         "application/Printing.h",
@@ -358,6 +355,21 @@
         "!features/scene/SceneCommands.*",
         "!features/scene/SceneQueries.*"
       ]
+    },
+    {
+      "id": "S40",
+      "name": "Building Block 目录查询",
+      "patterns": [
+        "features/resources/BuildingBlockQueries.*"
+      ]
+    },
+    {
+      "id": "S41",
+      "name": "资源浏览视图",
+      "patterns": [
+        "features/resources/**",
+        "!features/resources/BuildingBlockQueries.*"
+      ]
     }
   ],
   "dependencies": {
@@ -465,7 +477,9 @@
       "S36",
       "S37",
       "S38",
-      "S39"
+      "S39",
+      "S40",
+      "S41"
     ],
     "S15": [
       "S01",
@@ -548,7 +562,8 @@
       "S20",
       "S23",
       "S27",
-      "S28"
+      "S28",
+      "S35"
     ],
     "S22": [
       "S01",
@@ -564,7 +579,8 @@
       "S23",
       "S26",
       "S27",
-      "S28"
+      "S28",
+      "S35"
     ],
     "S23": [
       "S01",
@@ -641,7 +657,8 @@
       "S35",
       "S36",
       "S37",
-      "S38"
+      "S38",
+      "S40"
     ],
     "S33": [],
     "S34": [
@@ -675,6 +692,17 @@
       "S39"
     ],
     "S39": [
+      "S27",
+      "S33",
+      "S34",
+      "S35"
+    ],
+    "S40": [
+      "S12",
+      "S13",
+      "S34"
+    ],
+    "S41": [
       "S27",
       "S33",
       "S34",
@@ -1710,7 +1738,9 @@
         "S20",
         "S33",
         "S34",
-        "S35"
+        "S35",
+        "S40",
+        "S41"
       ],
       "tests": [
         "VirtoolsDev.Catalogs",

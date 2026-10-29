@@ -288,10 +288,19 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, BlocksRef().c_str());
         ctx->ItemInputValue(BlocksRef("/##filter").c_str(), "Rotate");
-        for (int action = 0; action < 3; ++action) {
+        const auto initial = Read<vdev::EditorConfiguration>(ctx, [] { return App().State().workspace->Application().Configuration(); });
+        for (int action = 0; action < 4; ++action) {
+            if (action == 3) OnMainThread(ctx, [&] {
+                auto configuration = initial;
+                configuration.bindings.emplace_back("help.open", "Alt+H");
+                std::string error;
+                IM_CHECK_NO_RET(App().State().workspace->Configure(configuration, error));
+            });
             ctx->WindowFocus(BlocksRef().c_str());
             ctx->MouseMove(BlocksRef("/**/Rotate").c_str());
-            if (action == 0)
+            if (action == 3)
+                ctx->KeyPress(ImGuiMod_Alt | ImGuiKey_H);
+            else if (action == 0)
                 ctx->KeyPress(ImGuiKey_F1);
             else if (action == 1)
                 ctx->ItemDoubleClick(BlocksRef("/**/Rotate").c_str());
@@ -306,7 +315,11 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             ctx->ItemClick(HelpRef("/Home").c_str());
             ctx->Yield(3);
         }
-        OnMainThread(ctx, [] { OpenHelp("missing-source.html"); });
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().State().workspace->Configure(initial, error));
+            OpenHelp("missing-source.html");
+        });
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "missing-source.html");
         ctx->ItemClick(HelpRef("/Back").c_str());

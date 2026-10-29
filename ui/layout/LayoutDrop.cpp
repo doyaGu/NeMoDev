@@ -1,4 +1,5 @@
 #include "ui/schematic/Snapshots.h"
+#include "workspace/BuildingBlockDrag.h"
 // Building Blocks and Data Resources files dragged onto the 3D Layout
 // (Dev.exe sub_4C0A30 and the functions it calls).
 
@@ -26,23 +27,30 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
     const int x = static_cast<int>(io.MousePos.x - at.x), y = static_cast<int>(io.MousePos.y - at.y);
     CKContext *context = m_State.host.Context();
     if (const ImGuiPayload *payload =
-            ImGui::AcceptDragDropPayload(BUILDING_BLOCK_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-        CKGUID guid;
-        std::memcpy(&guid, payload->Data, sizeof(guid));
-        if (payload->IsDelivery()) {
-            // Several Building Blocks dragged: each dropped (the last asks for its inputs).
-            for (const CKGUID &each : m_State.DraggedBlocks(guid)) DropBuildingBlock(x, y, each);
-        } else {
-            // Dev's <Action Info>: "Drop Behavior on %s", "Drop Behavior on Multi-Selection".
-            const LayoutPickInfo info = m_View.PickInfo(x, y);
-            CKObjectDeclaration *declaration = CKGetObjectDeclarationFromGuid(guid);
-            const CK_CLASSID cid = declaration ? declaration->GetCompatibleClassId() : CKCID_BEOBJECT;
-            const bool multiple = m_State.objectSelection.Objects().size() > 1 &&
-                                  (m_State.objectSelection.Contains(info.entity3d) || m_State.objectSelection.Contains(info.character));
-            const CK_ID target = BlockTarget(info, cid, io.KeyCtrl);
-            if (multiple) m_DropText = "Drop Behavior on Multi-Selection";
-            else if (CKObject *object = context->GetObject(target)) m_DropText = "Drop Behavior on " + DevObjectName(object);
-            m_View.SetDropTarget(multiple ? info.entity3d : target);
+            ImGui::AcceptDragDropPayload(EDITOR_BUILDING_BLOCK_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+        EditorBuildingBlock source{};
+        std::vector<EditorBuildingBlock> blocks;
+        if (ReadBuildingBlockDrag(payload->Data, size_t(payload->DataSize), source, blocks)) {
+            const CKGUID guid(source.first, source.second);
+            if (payload->IsDelivery()) {
+                // Several Building Blocks dragged: each dropped (the last asks for its inputs).
+                for (const auto &each : blocks)
+                    DropBuildingBlock(x, y, CKGUID(each.first, each.second));
+            } else {
+                // Dev's <Action Info>: "Drop Behavior on %s", "Drop Behavior on Multi-Selection".
+                const LayoutPickInfo info = m_View.PickInfo(x, y);
+                CKObjectDeclaration *declaration = CKGetObjectDeclarationFromGuid(guid);
+                const CK_CLASSID cid = declaration ? declaration->GetCompatibleClassId() : CKCID_BEOBJECT;
+                const bool multiple =
+                    m_State.objectSelection.Objects().size() > 1 && (m_State.objectSelection.Contains(info.entity3d) ||
+                                                                     m_State.objectSelection.Contains(info.character));
+                const CK_ID target = BlockTarget(info, cid, io.KeyCtrl);
+                if (multiple)
+                    m_DropText = "Drop Behavior on Multi-Selection";
+                else if (CKObject *object = context->GetObject(target))
+                    m_DropText = "Drop Behavior on " + DevObjectName(object);
+                m_View.SetDropTarget(multiple ? info.entity3d : target);
+            }
         }
     }
     if (const ImGuiPayload *payload =

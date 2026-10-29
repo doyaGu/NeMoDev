@@ -35,7 +35,6 @@
 namespace vdev {
 
 // Drag-and-drop payload: the CKGUID of a Building Block prototype.
-constexpr const char *BUILDING_BLOCK_PAYLOAD = "SCHEMATIC_BB";
 // Drag-and-drop payload of the Snapshot Buffer: the slot (an int) of
 // EditorState::snapshots.
 constexpr const char *SNAPSHOT_PAYLOAD = "SCHEMATIC_SNAPSHOT";
@@ -264,20 +263,13 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
     SchematicStyle style;
     std::string runtimeDirectory;
 
-    // The Building Blocks dragged together (Ctrl or Shift + click in the
-    // Building Blocks); the drops take them all when the payload's is one.
-    std::vector<CKGUID> draggedBlocks;
-    // The Data Resources files dragged together (Ctrl or Shift + click).
     std::vector<EditorResourceFile> draggedResources;
     std::vector<EditorResourceFile> DraggedResources(const EditorResourceFile &file) const {
         for (const EditorResourceFile &each : draggedResources)
             if (std::strcmp(each.path, file.path) == 0) return draggedResources;
         return {file};
     }
-    std::vector<CKGUID> DraggedBlocks(const CKGUID &guid) const {
-        if (std::find(draggedBlocks.begin(), draggedBlocks.end(), guid) != draggedBlocks.end()) return draggedBlocks;
-        return {guid};
-    }
+
 
     void RememberBlock(const CKGUID &guid) {
         recentBlocks.erase(std::remove(recentBlocks.begin(), recentBlocks.end(), guid), recentBlocks.end());

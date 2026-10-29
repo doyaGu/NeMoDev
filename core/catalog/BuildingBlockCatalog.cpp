@@ -49,6 +49,7 @@ void BuildingBlockCatalog::Refresh() {
         }
         node->entries.insert(node->entries.end(), category.second.begin(), category.second.end());
     }
+    ++m_Revision;
 }
 
 const BuildingBlockEntry *BuildingBlockCatalog::Find(const CKGUID &guid) const {

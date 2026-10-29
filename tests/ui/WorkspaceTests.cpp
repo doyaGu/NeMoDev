@@ -267,6 +267,12 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(workspace.Inspect(hierarchy).status==EDITOR_OK);
             IM_CHECK_NO_RET(Command("scene.priority",{vdev::ObjectsArgument("objects",{}),vdev::IntegerArgument("value",1)}).status==EDITOR_REFUSED);
             IM_CHECK_NO_RET(workspace.Close(hierarchy));
+            const auto blocks = workspace.Open("resource.building-blocks");
+            IM_CHECK_NO_RET(blocks);
+            IM_CHECK_NO_RET(Command("example.blocks.navigate", {vdev::IntegerArgument("view", blocks),
+                vdev::TextArgument("filter", std::string("Rotate"))}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(Integer(workspace.Inspect(blocks), "rows") > 0);
+            IM_CHECK_NO_RET(workspace.Close(blocks));
 
             const auto entries = workspace.Application().Query("log.entries", {workspace.Application().Scope(), nullptr, 0});
             IM_CHECK_NO_RET(entries.status == EDITOR_OK);
@@ -288,6 +294,124 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [] { return App().Layout().UsesGpuViewport(); }));
     };
+    test = IM_REGISTER_TEST(engine, "modules", "registered_views_reset_docking");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        EditorView hierarchy = 0, blocks = 0;
+        OnMainThread(ctx, [&] {
+            hierarchy = App().State().workspace->Open("scene.hierarchy");
+            blocks = App().State().workspace->Open("resource.building-blocks");
+            IM_CHECK_NO_RET(hierarchy && blocks);
+        });
+        ctx->Yield(4);
+        ctx->MenuClick("//##MainMenuBar/Options/Reset Interface"); ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            IM_CHECK_NO_RET(workspace.Application().Scope(hierarchy).view && workspace.Application().Scope(blocks).view);
+            auto *tree = ImGui::FindWindowByName(workspace.WindowName(hierarchy).c_str());
+            auto *browser = ImGui::FindWindowByName(workspace.WindowName(blocks).c_str());
+            IM_CHECK_NO_RET(tree && browser && tree->DockId && tree->DockId == browser->DockId);
+            ImGui::SetWindowDock(browser, 0, ImGuiCond_Always);
+        });
+        ctx->Yield(3);
+        ctx->MenuClick("//##MainMenuBar/Options/Reset Interface"); ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            IM_CHECK_NO_RET(!workspace.Application().Scope(blocks).view);
+            IM_CHECK_NO_RET(workspace.Application().Scope(hierarchy).view);
+            IM_CHECK_NO_RET(workspace.Role("main.building-blocks") && workspace.Role("main.level"));
+            IM_CHECK_NO_RET(workspace.Close(hierarchy));
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "building_block_view_instances_and_navigation");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        HelpSample help(true);
+        vdev::EditorConfiguration configuration;
+        EditorView first = 0, second = 0;
+        vdev::DocumentToken token{};
+        size_t undo = 0;
+        uint64_t selection = 0;
+        bool dirty = false;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            configuration = state.workspace->Application().Configuration();
+            token = state.document->Token(); undo = state.History().UndoCount();
+            selection = state.objectSelection.Revision(); dirty = state.document->Dirty();
+            first = Integer(Command("workspace.open-view", {vdev::TextArgument("type", std::string("resource.building-blocks"))}), "view");
+            second = Integer(Command("workspace.open-view", {vdev::TextArgument("type", std::string("resource.building-blocks"))}), "view");
+            IM_CHECK_NO_RET(first && second && first != second);
+            IM_CHECK_NO_RET(Command("example.blocks.navigate", {vdev::IntegerArgument("view", first),
+                vdev::TextArgument("filter", std::string("Rotate"))}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(Command("example.blocks.navigate", {vdev::IntegerArgument("view", second),
+                vdev::TextArgument("filter", std::string("Delayer"))}).status == EDITOR_OK);
+        });
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            for (auto id : {first, second}) {
+                const auto name = App().State().workspace->WindowName(id);
+                if (auto *window = ImGui::FindWindowByName(name.c_str())) ImGui::SetWindowDock(window, 0, ImGuiCond_Always);
+                ImGui::SetWindowSize(name.c_str(), {650, 400});
+            }
+            auto &workspace = *App().State().workspace;
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(workspace.Inspect(first), "filter") == "Rotate");
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(workspace.Inspect(second), "filter") == "Delayer");
+            IM_CHECK_NO_RET(Integer(workspace.Inspect(first), "rows") > 1 && Integer(workspace.Inspect(second), "rows") > 0);
+            IM_CHECK_NO_RET(Command("example.blocks.navigate", {vdev::IntegerArgument("view", first),
+                vdev::TextArgument("filter", std::string("bad state")),
+                vdev::TextArgument("category", std::string("missing/category"))}).status == EDITOR_INVALID);
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(workspace.Inspect(first), "filter") == "Rotate");
+            const uint64_t invalid = UINT64_MAX;
+            IM_CHECK_NO_RET(Command("example.blocks.navigate", {vdev::IntegerArgument("view", first),
+                {EDITOR_TEXT("selection"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {&invalid, 1}}}).status == EDITOR_INVALID);
+        });
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            IM_CHECK_NO_RET(workspace.Focus(second) && workspace.Focus(first));
+        });
+        ctx->Yield(3);
+        IM_CHECK(Read<EditorView>(ctx, [] { return App().State().workspace->Focused(); }) == first);
+        ctx->WindowFocus(Window(first).c_str()); ctx->Yield(3);
+        ctx->ItemClick((Window(first) + "/**/Rotate").c_str()); ctx->Yield(2);
+        OnMainThread(ctx, [&] {
+            auto next = configuration;
+            next.bindings.emplace_back("help.open", "Alt+H");
+            std::string error;
+            IM_CHECK_NO_RET(App().State().workspace->Configure(next, error));
+        });
+        ctx->MouseMove((Window(first) + "/**/Rotate").c_str());
+        ctx->KeyPress(ImGuiMod_Alt | ImGuiKey_H); ctx->Yield(4);
+        IM_CHECK(App().Help().CurrentTopic() == "behaviors/3D Transformations/Rotate.html");
+        IM_CHECK(App().Help().ShownText().find("Building Block help") != std::string::npos);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(configuration, error));
+            for (auto id : Views("help.reference")) IM_CHECK_NO_RET(workspace.Close(id));
+            const auto *chosen = vdev::EditorClient::Find(workspace.Inspect(first), "selection");
+            IM_CHECK_NO_RET(chosen && chosen->integers.size() == 1);
+            const auto selected = chosen->integers[0];
+            const auto *other = vdev::EditorClient::Find(workspace.Inspect(second), "selection");
+            IM_CHECK_NO_RET(other && other->integers.empty());
+            IM_CHECK_NO_RET(Command("example.blocks.navigate", {vdev::IntegerArgument("view", second),
+                vdev::TextArgument("category", std::string("3D Transformations/Basic")),
+                {EDITOR_TEXT("selection"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {&selected, 1}}}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(!workspace.Close(workspace.Role("main.building-blocks")));
+            const auto closed = workspace.Application().Scope(first);
+            IM_CHECK_NO_RET(workspace.Close(first));
+            IM_CHECK_NO_RET(Command("example.blocks.navigate", {vdev::IntegerArgument("view", first),
+                vdev::TextArgument("filter", std::string("Rotate"))}).status == EDITOR_STALE);
+            IM_CHECK_NO_RET(workspace.Application().Host()->queryView(workspace.Application().Host()->data, closed.view, {}) == EDITOR_STALE);
+            IM_CHECK_NO_RET(workspace.Close(second));
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.document->Token() == token && state.History().UndoCount() == undo &&
+                state.objectSelection.Revision() == selection && state.document->Dirty() == dirty);
+        });
+    };
+
     test = IM_REGISTER_TEST(engine,"modules","scene_view_instances_queries_and_commands");
     test->GuiFunc=MainThreadGui;
     test->TestFunc=[](ImGuiTestContext *ctx){

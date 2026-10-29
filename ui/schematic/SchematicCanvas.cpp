@@ -1,3 +1,4 @@
+#include "workspace/BuildingBlockDrag.h"
 #include "ui/schematic/SchematicCanvas.h"
 
 #include <algorithm>
@@ -1048,30 +1049,34 @@ void SchematicCanvas::RouteNewLink(CK_ID scriptId, const LinkEndpoint &a, const 
 }
 
 void SchematicCanvas::AcceptBuildingBlockDrop() {
-    if (!ImGui::BeginDragDropTarget()) return;
-    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(BUILDING_BLOCK_PAYLOAD)) {
-        CKGUID guid;
-        memcpy(&guid, payload->Data, sizeof(guid));
-        const Hit hit = HitAt(ImGui::GetIO().MousePos);
-        const CK_ID graph = hit.view ? GraphAt(*hit.view, hit.local) : 0;
-        if (IsBuildingBlockAt(hit)) {
-            // Dev: a Building Block dropped on another replaces it.
-            OpenReplaceBlock(hit.view->id, hit.ref.object, guid);
-        } else if (!graph) {
-            m_State.Log(LogLevel::Info, "Drop Building Blocks into an open Script or an expanded graph");
-        } else {
-            const CK_ID script = hit.view->id;
-            // Several Building Blocks dragged: one under the other, all selected.
-            const std::vector<CKGUID> blocks = m_State.DraggedBlocks(guid);
-            m_State.selection.Clear();
-            for (size_t i = 0; i < blocks.size(); ++i) {
-                Point at = hit.local;
-                at.v += 60.0f * static_cast<float>(i);
-                const EditResult result = InsertBuildingBlock(*m_State.document, script, graph, blocks[i], at);
-                Report(result, "Insert Building Block");
-                if (result.ok) {
-                    m_State.RememberBlock(blocks[i]);
-                    m_State.selection.Add(script, ElementRef{ElementKind::Behavior, graph, result.created});
+    if (!ImGui::BeginDragDropTarget())
+        return;
+    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_BUILDING_BLOCK_PAYLOAD)) {
+        EditorBuildingBlock source{};
+        std::vector<EditorBuildingBlock> blocks;
+        if (ReadBuildingBlockDrag(payload->Data, size_t(payload->DataSize), source, blocks)) {
+            const CKGUID guid(source.first, source.second);
+            const Hit hit = HitAt(ImGui::GetIO().MousePos);
+            const CK_ID graph = hit.view ? GraphAt(*hit.view, hit.local) : 0;
+            if (IsBuildingBlockAt(hit)) {
+                // Dev: a Building Block dropped on another replaces it.
+                OpenReplaceBlock(hit.view->id, hit.ref.object, guid);
+            } else if (!graph) {
+                m_State.Log(LogLevel::Info, "Drop Building Blocks into an open Script or an expanded graph");
+            } else {
+                const CK_ID script = hit.view->id;
+                // Several Building Blocks dragged: one under the other, all selected.
+                m_State.selection.Clear();
+                for (size_t i = 0; i < blocks.size(); ++i) {
+                    Point at = hit.local;
+                    at.v += 60.0f * static_cast<float>(i);
+                    const EditResult result = InsertBuildingBlock(*m_State.document, script, graph,
+                                                                  CKGUID(blocks[i].first, blocks[i].second), at);
+                    Report(result, "Insert Building Block");
+                    if (result.ok) {
+                        m_State.RememberBlock(CKGUID(blocks[i].first, blocks[i].second));
+                        m_State.selection.Add(script, ElementRef{ElementKind::Behavior, graph, result.created});
+                    }
                 }
             }
         }

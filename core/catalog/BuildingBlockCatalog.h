@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -32,6 +33,7 @@ struct BuildingBlockCategory {
 class BuildingBlockCatalog {
 public:
     void Refresh();
+    uint64_t Revision() const { return m_Revision; }
     const std::vector<BuildingBlockEntry> &Entries() const { return m_Entries; }
     // Category path -> entry indices, both sorted by name.
     const std::map<std::string, std::vector<size_t>> &Categories() const { return m_Categories; }
@@ -40,6 +42,7 @@ public:
     const BuildingBlockEntry *Find(const CKGUID &guid) const;
 
 private:
+    uint64_t m_Revision = 1;
     std::vector<BuildingBlockEntry> m_Entries;
     std::map<std::string, std::vector<size_t>> m_Categories;
     BuildingBlockCategory m_Tree;
