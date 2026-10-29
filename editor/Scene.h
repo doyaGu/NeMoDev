@@ -1,0 +1,57 @@
+#ifndef NEMODEV_EDITOR_SCENE_H
+#define NEMODEV_EDITOR_SCENE_H
+#include "editor/Editor.h"
+
+typedef enum EditorSceneRowKind {
+    EDITOR_SCENE_OBJECT,
+    EDITOR_SCENE_FOLDER,
+    EDITOR_SCENE_LEVEL,
+    EDITOR_SCENE_SCENE,
+    EDITOR_SCENE_SCRIPT,
+    EDITOR_SCENE_WORKSET,
+    EDITOR_SCENE_ROOT
+} EditorSceneRowKind;
+typedef enum EditorSceneObjectKind {
+    EDITOR_OBJECT_BEHAVIORAL = 1u,
+    EDITOR_OBJECT_RENDER = 2u,
+    EDITOR_OBJECT_ENTITY3D = 4u,
+    EDITOR_OBJECT_ENTITY2D = 8u,
+    EDITOR_OBJECT_GROUP = 16u,
+    EDITOR_OBJECT_PLACE = 32u,
+    EDITOR_OBJECT_CHARACTER = 64u,
+    EDITOR_OBJECT_SCRIPT = 128u,
+    EDITOR_OBJECT_SCENE = 256u,
+    EDITOR_OBJECT_LEVEL = 512u,
+    EDITOR_OBJECT_SOUND = 1024u,
+    EDITOR_OBJECT_BITMAP = 2048u
+} EditorSceneObjectKind;
+typedef enum EditorSceneCell {
+    EDITOR_CELL_HIDEABLE = 1u,
+    EDITOR_CELL_VISIBLE = 2u,
+    EDITOR_CELL_HIERARCHY_HIDDEN = 4u,
+    EDITOR_CELL_PARENT_HIDDEN = 8u,
+    EDITOR_CELL_INITIAL = 16u,
+    EDITOR_CELL_SCENE_FLAGS = 32u,
+    EDITOR_CELL_START_ACTIVATE = 64u,
+    EDITOR_CELL_START_DEACTIVATE = 128u,
+    EDITOR_CELL_START_LEAVE = 256u,
+    EDITOR_CELL_START_RESET = 512u,
+    EDITOR_CELL_ACTIVE = 1024u,
+    EDITOR_CELL_SCRIPT_SHOWN = 2048u,
+    EDITOR_CELL_CURRENT_SCENE = 4096u
+} EditorSceneCell;
+// Drag data is a session/lifetime checked object reference, never a native ID.
+#define EDITOR_ATTRIBUTE_PAYLOAD "SCHEMATIC_ATTRIBUTE"
+#define EDITOR_RESOURCE_FILE_PAYLOAD "SCHEMATIC_RESOURCE_FILE"
+#define EDITOR_OBJECT_PAYLOAD "EDITOR_SCENE_OBJECT"
+#define EDITOR_HIERARCHY_PAYLOAD "EDITOR_SCENE_HIERARCHY"
+typedef struct EditorAttributePayload {
+    int32_t type;
+    EditorObject value;
+    uint64_t catalog;
+} EditorAttributePayload;
+typedef struct EditorResourceFile {
+    char path[1024];
+    int32_t cid;
+} EditorResourceFile;
+#endif

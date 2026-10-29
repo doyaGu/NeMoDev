@@ -29,7 +29,7 @@ def matches(path, patterns):
             and not any(fnmatch.fnmatchcase(path, pattern[1:]) for pattern in patterns if pattern.startswith("!")))
 
 
-def include_graph(source, files, contents=None):
+def include_graph(source, files, contents=None, all_access=False):
     code = {path for path in files if Path(path).suffix in CODE_SUFFIXES}
     graph, access = {}, {}
     for path in sorted(code):
@@ -56,7 +56,7 @@ def include_graph(source, files, contents=None):
                 access[path].update(access[dependency])
             changed |= len(access[path]) != before
     return graph, {path: sorted(values) for path, values in access.items()
-                   if path.startswith("ui/") and values}
+                   if (all_access or path.startswith("ui/")) and values}
 
 
 def baseline_exposures(source, revision):
@@ -106,7 +106,12 @@ def check(source, manifest, inventory=None, ui_tests=False):
         if identity not in owners.values():
             errors.append(f"empty source group: {identity}")
 
-    graph, exposures = include_graph(source, files)
+    graph, all_exposures = include_graph(source, files, all_access=True)
+    exposures = {path: access for path, access in all_exposures.items() if path.startswith("ui/")}
+    for path, access in all_exposures.items():
+        if path.startswith(("workspace/", "features/scene/", "features/resources/")) and not re.match(
+                r"features/(?:scene/Scene(?:Commands|Queries)|resources/BuildingBlockQueries)\.(?:h|cpp)$", path):
+            errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
     observed = set()
     for path, dependencies in graph.items():
         for dependency in dependencies:

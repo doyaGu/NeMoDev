@@ -306,6 +306,41 @@
       "patterns": [
         "editor/**"
       ]
+    },
+    {
+      "id": "S34",
+      "name": "编辑器命令和属性编辑",
+      "patterns": [
+        "application/**",
+        "!application/DocumentFiles.*",
+        "!application/RuntimeOperation.*",
+        "!application/DocumentCommands.*",
+        "!application/ExecutionCommands.*",
+        "!application/OutputCommands.*",
+        "!application/Printing.h"
+      ]
+    },
+    {
+      "id": "S35",
+      "name": "视图和输入",
+      "patterns": [
+        "workspace/**"
+      ]
+    },
+    {
+      "id": "S36",
+      "name": "对象原生编辑",
+      "patterns": [
+        "features/objects/ObjectCommands.*",
+        "features/objects/SelectionCommands.*"
+      ]
+    },
+    {
+      "id": "S37",
+      "name": "对象属性视图",
+      "patterns": [
+        "features/objects/ObjectViews.*"
+      ]
     }
   ],
   "dependencies": {
@@ -564,9 +599,34 @@
       "S25",
       "S26",
       "S27",
-      "S29"
+      "S29",
+      "S33",
+      "S34",
+      "S35",
+      "S36"
     ],
-    "S33": []
+    "S33": [],
+    "S34": [
+      "S01",
+      "S13",
+      "S33"
+    ],
+    "S35": [
+      "S33",
+      "S34"
+    ],
+    "S36": [
+      "S01",
+      "S05",
+      "S08",
+      "S13",
+      "S33",
+      "S34"
+    ],
+    "S37": [
+      "S33",
+      "S34"
+    ]
   },
   "legacy_exposures": [
     {
@@ -1310,12 +1370,16 @@
         "S01",
         "S08",
         "S10",
-        "S18"
+        "S18",
+        "S36",
+        "S37",
+        "S35"
       ],
       "tests": [
         "VirtoolsDev.LevelManagerCommands",
         "VirtoolsDev.CreateAndSceneCommands",
-        "VirtoolsDev.BatchCommands"
+        "VirtoolsDev.BatchCommands",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1335,7 +1399,8 @@
       "owner": "Workspace",
       "source_groups": [
         "S08",
-        "S18"
+        "S18",
+        "S35"
       ],
       "tests": [
         "VirtoolsDev.ObjectQueryProjections",
@@ -1359,7 +1424,8 @@
       "source_groups": [
         "S08",
         "S18",
-        "S20"
+        "S20",
+        "S35"
       ],
       "tests": [
         "VirtoolsDev.AttributeQueryProjections",
@@ -1657,7 +1723,9 @@
         "S12",
         "S18",
         "S20",
-        "S33"
+        "S33",
+        "S34",
+        "S35"
       ],
       "tests": [
         "VirtoolsDev.Catalogs",
@@ -1737,10 +1805,13 @@
         "S14",
         "S17",
         "S27",
-        "S31"
+        "S31",
+        "S34",
+        "S35"
       ],
       "tests": [
-        "VirtoolsDevPortable"
+        "VirtoolsDevPortable",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app"
@@ -1761,7 +1832,9 @@
         "S25",
         "S26",
         "S31",
-        "S33"
+        "S33",
+        "S34",
+        "S35"
       ],
       "tests": [
         "NeMoDevHelpContent"
@@ -1784,7 +1857,9 @@
         "S13",
         "S14",
         "S18",
-        "S24"
+        "S24",
+        "S34",
+        "S35"
       ],
       "tests": [
         "VirtoolsDev.TextEncoding"
@@ -1819,6 +1894,7 @@
         "NeMoDevRuntimeOperation",
         "VirtoolsDevFileDialogs",
         "VirtoolsDev.NativeObjectLifecycles",
+        "NeMoDevIdentityHeaders",
         "NeMoDevSdkObjectBehavior",
         "VirtoolsDev.ObjectIdentities",
         "VirtoolsDev.SilentObjectDestruction",
@@ -1848,9 +1924,13 @@
         "S21",
         "S22",
         "S24",
-        "S25"
+        "S25",
+        "S35",
+        "S37"
       ],
-      "tests": [],
+      "tests": [
+        "NeMoDevEditor"
+      ],
       "ui_tests": [
         "VirtoolsDevUi.app"
       ],
@@ -1897,9 +1977,15 @@
       "name": "新增扩展目标",
       "owner": "Application",
       "source_groups": [
-        "S33"
+        "S33",
+        "S34",
+        "S35",
+        "S36",
+        "S37"
       ],
       "tests": [
+        "NeMoDevEditor",
+        "NeMoDevIdentityHeaders",
         "NeMoDevSdkObjectBehavior",
         "VirtoolsDev.ObjectIdentityReplay",
         "VirtoolsDev.ObjectIdentityResources"

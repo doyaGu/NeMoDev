@@ -1,0 +1,249 @@
+#include "workspace/EditorWorkspace.h"
+#include "editor/ImGuiDrawing.h"
+#include "core/document/Document.h"
+#include <map>
+#include <stdexcept>
+#include <thread>
+
+using namespace vdev;
+namespace {
+void Check(bool ok, const char *message) { if (!ok) throw std::runtime_error(message); }
+std::string Text(EditorString value) { return {value.data ? value.data : "", value.size}; }
+struct Browser;
+struct Provider {
+    std::map<EditorView, Browser *> views;
+    unsigned created = 0, destroyed = 0;
+    bool failCreate = false, failRestore = false, failSave = false, saveObject = false;
+    EditorStatus mutation = EDITOR_OK;
+    EditorStatus inspectionMutation = EDITOR_OK;
+    unsigned inspections = 0;
+};
+struct Browser { Provider &provider; EditorView id; std::string topic; };
+void *Create(void *data, const EditorHost *host, EditorView id) {
+    auto &provider = *static_cast<Provider *>(data);
+    const EditorValue type{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("test.browser")};
+    const EditorRequest request{host->scope(host->data, id), &type, 1};
+    provider.mutation = host->execute(host->data, EditorString EDITOR_TEXT("workspace.open-view"), &request, {});
+    if (provider.failCreate) return nullptr;
+    auto *view = new Browser{provider, id, {}};
+    provider.views.emplace(id, view);
+    ++provider.created;
+    return view;
+}
+void Destroy(void *data) {
+    auto *view = static_cast<Browser *>(data);
+    ++view->provider.destroyed;
+    view->provider.views.erase(view->id);
+    delete view;
+}
+EditorStatus Navigate(void *data, const EditorHost *, const EditorRequest *request) {
+    auto &view = *static_cast<Browser *>(data);
+    const auto topic = Text(request->values[0].text);
+    if (topic == "fail") return EDITOR_ERROR;
+    if (topic == "throw") throw std::runtime_error("navigation failure");
+    view.topic = topic;
+    return EDITOR_OK;
+}
+EditorStatus Save(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+    auto &view = *static_cast<Browser *>(data);
+    if (view.provider.failSave) throw std::runtime_error("save state failure");
+    const EditorValue field{EDITOR_TEXT("topic"), view.provider.saveObject ? EDITOR_OBJECT : EDITOR_TEXT_VALUE,
+        {}, EditorText(view.topic)};
+    return sink.write(sink.data, &field, 1);
+}
+EditorStatus Restore(void *data, const EditorHost *, const EditorRequest *request) {
+    auto &view = *static_cast<Browser *>(data);
+    if (view.provider.failRestore) return EDITOR_ERROR;
+    return Navigate(data, nullptr, request);
+}
+EditorStatus Open(void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    EditorValue topic{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE};
+    EditorView view = 0;
+    for (uint32_t i = 0; i < request->count; ++i) {
+        if (Text(request->values[i].key) == "topic") topic.text = request->values[i].text;
+        if (Text(request->values[i].key) == "view") view = request->values[i].integer;
+    }
+    const EditorRequest navigation{request->scope, &topic, 1};
+    return host->navigateView(host->data, EditorString EDITOR_TEXT("test.browser"), view, &navigation, sink);
+}
+EditorView Id(const EditorResponse &result) {
+    Check(result.status == EDITOR_OK, "view command failed");
+    for (const auto &field : result.fields) if (field.key == "view") return field.integer;
+    throw std::runtime_error("view command lost its instance");
+}
+EditorViewDesc Description(Provider &provider, const char *name, const char *type = "test.browser") {
+    static const EditorParameter topic{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, 1};
+    auto desc = EditorViewDesc{sizeof(EditorViewDesc), EDITOR_IMGUI_VERSION, EditorLiteral(type), EditorLiteral(name),
+        EDITOR_TEXT("Browser"), Create, Destroy,
+        [](void *, const EditorHost *, EditorView, EditorViewFrame *frame) { EditorImGuiWindow window(*frame); },
+        &provider, EDITOR_WINDOW_VIEW, 1, EDITOR_WORKSPACE, &topic, 1, Navigate, 1, Save, Restore};
+    static const EditorParameter fields{EDITOR_TEXT("topic"),EDITOR_TEXT_VALUE};
+    desc.fields=&fields;desc.fieldCount=1;
+    desc.inspect=[](void*data,const EditorHost*host,const EditorRequest*request,EditorSink sink){
+        auto&view=*static_cast<Browser*>(data);++view.provider.inspections;
+        const EditorValue type{EDITOR_TEXT("type"),EDITOR_TEXT_VALUE,{},EDITOR_TEXT("test.browser")};
+        const EditorRequest mutate{request->scope,&type,1};
+        view.provider.inspectionMutation=host->execute(host->data,EditorString EDITOR_TEXT("workspace.open-view"),&mutate,{});
+        const EditorValue value{EDITOR_TEXT("topic"),EDITOR_TEXT_VALUE,{},EditorText(view.topic)};
+        return sink.write(sink.data,&value,1);
+    };
+    desc.inspectRevision=[](void*data,const EditorHost*){uint64_t version=0;for(auto c:static_cast<Browser*>(data)->topic)version=version*131+uint8_t(c);return version;};
+    return desc;
+}
+}
+void TestWorkspace(CkRuntimeHost &runtime) {
+    Document document(runtime);
+    std::string documentError;
+    Check(document.New(&documentError), documentError.c_str());
+    Provider first, second, third, fourth, incompatible;
+    bool native = true;
+    EditorApplication app([&] { return &document; }, [&] { return native; });
+    EditorWorkspace workspace(app);
+    std::string error;
+    Check(workspace.Register(error), error.c_str());
+    auto a = Description(first, "test.first"), b = Description(second, "test.second");
+    auto c = Description(third, "test.third", "test.other");
+    c.singleInstance = 0;
+    auto d = c;
+    d.id = EditorLiteral("test.native");
+    d.area = EDITOR_DOCUMENT;
+    auto e = c;
+    e.provider = EditorLiteral("test.fourth");
+    e.data = &fourth;
+    auto f = b;
+    f.provider = EditorLiteral("test.incompatible");
+    f.data = &incompatible;
+    f.stateVersion = 2;
+    const EditorViewDesc views[] = {a, b, c, d, e, f};
+    const EditorParameter arguments[] = {{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, 1},
+        {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("test.navigate"),
+        EDITOR_TEXT("test.commands"), EDITOR_TEXT("Navigate"), arguments, 2, Open, nullptr,
+        EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE};
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("test.browser-module");
+    module.views = views; module.viewCount = 6;
+    auto mixed = command;
+    mixed.id = EditorLiteral("test.mixed-navigation");
+    mixed.count = 0;
+    mixed.parameters = nullptr;
+    mixed.area = EDITOR_DOCUMENT;
+    mixed.effect = EDITOR_DOCUMENT_EDIT;
+    mixed.run = [](void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+        const EditorRequest navigation{request->scope, nullptr, 0};
+        return host->navigateView(host->data, EditorString EDITOR_TEXT("test.browser"), 0, &navigation, sink);
+    };
+    const EditorCommandDesc commands[] = {command, mixed};
+    module.commands = commands; module.commandCount = 2;
+    Check(app.Register(module, error), error.c_str());
+    EditorConfiguration config;
+    config.providers.push_back({"view", "test.browser", "test.first"});
+    config.providers.push_back({"view", "test.other", "test.third"});
+    Check(app.Activate(EDITOR_IMGUI_VERSION, error, config), error.c_str());
+    app.Attach(document.Token(), document.TopologyRevision(), true, true);
+    const auto open = [&](const char *topic, EditorView target = 0) {
+        const EditorValue values[] = {{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, {}, EditorLiteral(topic)},
+            {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, target}};
+        return app.Execute("test.navigate", {app.Scope(), values, 2});
+    };
+    auto id = Id(open("first topic"));
+    Check(first.views.at(id)->topic == "first topic" && workspace.ViewCount() == 1, "navigation did not reach its view");
+    Check(first.mutation == EDITOR_REFUSED, "creation callback mutated the workspace");
+    const auto inspected=workspace.Inspect(id);
+    Check(inspected.status==EDITOR_OK&&inspected.fields.front().text=="first topic","instance query missed its data");
+    Check(first.inspectionMutation==EDITOR_REFUSED,"instance query modified workspace");
+    const auto reads=first.inspections;
+    Check(workspace.Inspect(id).status==EDITOR_OK&&first.inspections==reads,"unchanged instance query was repeated");
+    EditorStatus inspectionThreadStatus=EDITOR_OK;
+    std::thread inspectionThread([&]{inspectionThreadStatus=app.Host()->queryView(app.Host()->data,id,{});});inspectionThread.join();
+    Check(inspectionThreadStatus!=EDITOR_OK,"instance query crossed threads");
+    Check(app.Host()->pickRegions(app.Host()->data,id,nullptr,0)==EDITOR_REFUSED,"pick publication escaped drawing");
+
+    Check(Id(open("second topic")) == id && first.created == 1, "single view was recreated");
+    Check(open("fail").status == EDITOR_ERROR && first.views.at(id)->topic == "second topic", "failed navigation changed view");
+    Check(open("throw").status == EDITOR_ERROR && first.views.at(id)->topic == "second topic", "throwing navigation changed view");
+    const auto name = workspace.WindowName(id);
+    Check(name.find("###editor-view-") != std::string::npos, "window has no instance identity");
+    const EditorRequest direct{app.Scope(), nullptr, 0};
+    Check(app.Host()->navigateView(app.Host()->data, EDITOR_TEXT("test.browser"), id, &direct, {}) == EDITOR_REFUSED,
+          "navigation escaped registered commands");
+    const auto other = workspace.Open("test.other"), another = workspace.Open("test.other");
+    Check(other && another && other != another && workspace.WindowName(other) != workspace.WindowName(another),
+          "independent view instances share identity");
+    Check(open("wrong target", other).status == EDITOR_INVALID, "navigation accepted another view type");
+    const EditorValue invalid{EDITOR_TEXT("topic"), EDITOR_INTEGER_VALUE, {}, {}, 1};
+    Check(app.Execute("test.navigate", {app.Scope(), &invalid, 1}).status == EDITOR_INVALID, "invalid navigation type accepted");
+    const auto list = app.Query("workspace.views", direct);
+    Check(list.status == EDITOR_OK && list.fields[0].integers.size() == 3, "workspace query lost views");
+    auto replacement = config;
+    replacement.providers[0].provider = "test.second";
+    second.failCreate = true;
+    Check(!workspace.Configure(replacement, error) && first.views.count(id) && app.Configuration().providers[0].provider == "test.first",
+          "failed creation replaced old view or configuration");
+    second.failCreate = false;
+    second.failRestore = true;
+    Check(!workspace.Configure(replacement, error) && first.views.at(id)->topic == "second topic" && second.views.empty(),
+          "failed state restoration lost old view or staged view");
+    second.failRestore = false;
+    auto multiple = replacement;
+    multiple.providers[1].provider = "test.fourth";
+    fourth.failCreate = true;
+    Check(!workspace.Configure(multiple, error) && first.views.count(id) && third.views.count(other) &&
+          third.views.count(another) && second.views.empty() && app.Configuration().providers[0].provider == "test.first",
+          "later replacement failure did not roll back the entire view set");
+    auto badVersion = config;
+    badVersion.providers[0].provider = "test.incompatible";
+    Check(!workspace.Configure(badVersion, error) && first.views.count(id) && incompatible.created == 0,
+          "incompatible state version destroyed an open view");
+    first.saveObject = true;
+    Check(!workspace.Configure(replacement, error) && first.views.count(id), "native references escaped in saved view state");
+    first.saveObject = false;
+    Check(workspace.Configure(replacement, error), error.c_str());
+    Check(first.views.empty() && second.views.size() == 1 && second.views.begin()->second->topic == "second topic",
+          "provider replacement lost navigation");
+    const auto old = id;
+    id = second.views.begin()->first;
+    Check(id != old && !app.Scope(old).view && open("stale", old).status == EDITOR_STALE, "replaced instance scope survived");
+    second.failSave = true;
+    Check(!workspace.Close(id) && second.views.count(id), "failed state capture closed a view");
+    second.failSave = false;
+    Check(workspace.Close(id) && !app.Scope(id).view, "view close retained its scope");
+    Check(!workspace.Configure(badVersion, error), "incompatible closed-view state was accepted");
+    Check(open("throw").status == EDITOR_ERROR && second.views.empty(), "failed reopening retained a new view");
+    const auto reopened = workspace.Open("test.browser");
+    Check(reopened && second.views.at(reopened)->topic == "second topic", "close/reopen lost state");
+    const auto nativeView = workspace.Open("test.native");
+    Check(nativeView != 0, "document view did not open");
+    native = false;
+    app.NativeAvailable(false);
+    Check(!workspace.Open("test.native") && !workspace.Close(nativeView), "native view lifecycle ran during native work");
+    Check(app.Query("workspace.views", {app.Scope(), nullptr, 0}).status == EDITOR_OK &&
+          open("while busy").status == EDITOR_OK, "workspace navigation was blocked by native work");
+    EditorStatus wrongThread = EDITOR_OK;
+    std::thread thread([&] { wrongThread = app.Execute("test.navigate", direct).status; });
+    thread.join();
+    Check(wrongThread == EDITOR_REFUSED, "worker accessed view navigation");
+    native = true;
+    app.NativeAvailable(true);
+    workspace.CloseAll();
+    Check(first.created == first.destroyed && second.created == second.destroyed && third.created == third.destroyed && fourth.created == fourth.destroyed,
+          "view cleanup leaked instances");
+    Check(open("throw").status == EDITOR_ERROR && workspace.ViewCount() == 0, "new failed navigation left a view");
+    const auto count = document.History().UndoCount();
+    Check(app.Execute("test.mixed-navigation", {app.Scope(), nullptr, 0}).status == EDITOR_REFUSED &&
+          workspace.ViewCount() == 0 && document.History().UndoCount() == count,
+          "document edit callback left an untracked workspace mutation");
+    app.Attach({}, document.TopologyRevision(), true, false);
+    const EditorValue type{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("test.native")};
+    Check(app.Execute("workspace.open-view", {app.Scope(), &type, 1}).status == EDITOR_OK && workspace.ViewCount() == 1,
+          "an empty document prevented opening its view window");
+    app.Attach(document.Token(), document.TopologyRevision(), true, true);
+    const auto primary=workspace.Open("test.other","test.primary",true);
+    Check(primary&&workspace.Role("test.primary")==primary,"workspace role was not assigned");
+    Check(workspace.Open("test.other","test.primary",true)==primary,"workspace role created a duplicate instance");
+    Check(!workspace.Open("test.native","test.primary"),"workspace role changed view type");
+    Check(!workspace.Close(primary),"pinned primary view was closed");
+    workspace.CloseAll();
+}

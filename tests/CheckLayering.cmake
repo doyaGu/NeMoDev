@@ -57,15 +57,39 @@ foreach (_source IN LISTS _sources)
         endif()
         if(_source MATCHES "^application/" AND _path MATCHES "^(core/|ui/|features/|workspace/|CK|Vx|SDL|imgui|backends/)" AND
                 NOT (_source STREQUAL "application/EditorApplication.cpp" AND
-                     _path MATCHES "^core/(document/(Document|Edit)|runtime/TextEncoding)\\.h$"))
+                     _path MATCHES "^core/(document/(Document|Edit)|runtime/TextEncoding)\\.h$") AND
+                NOT (_source STREQUAL "application/ObjectSelection.cpp" AND
+                     _path STREQUAL "core/document/Document.h") AND
+                NOT (_source STREQUAL "application/EventLog.h" AND
+                     _path STREQUAL "core/runtime/Log.h") AND
+                NOT (_source STREQUAL "application/DocumentFiles.h" AND
+                     _path MATCHES "^core/(document/(Document|DocumentSaver|LinkValidation)|runtime/CkRuntimeHost)\\.h$") AND
+                NOT (_source STREQUAL "application/DocumentFiles.cpp" AND
+                     _path MATCHES "^core/(document/(ToolCommands|ExportCommands|FileCommands|OutputFiles)|runtime/TextEncoding)\\.h$") AND
+                NOT (_source STREQUAL "application/OutputCommands.cpp" AND
+                     _path STREQUAL "core/document/FileCommands.h") AND
+                NOT (_source STREQUAL "application/ExecutionCommands.cpp" AND
+                     _path MATCHES "^core/(document/Document|graph/Debugger|runtime/TextEncoding)\\.h$") AND
+                NOT (_source STREQUAL "application/DocumentCommands.cpp" AND
+                     _path MATCHES "^core/(document/FileCommands|runtime/TextEncoding)\\.h$"))
             list(APPEND _errors "${_source}: editor commands include ${_path}")
         endif()
         if((_source MATCHES "^workspace/" OR _source MATCHES "^features/objects/ObjectViews") AND
                 _path MATCHES "^(core/|ui/|CK|Vx|SDL)")
             list(APPEND _errors "${_source}: object views include native or legacy editor state ${_path}")
         endif()
+        if(_source MATCHES "^features/scene/" AND NOT _source MATCHES "^features/scene/Scene(Commands|Queries)\\.(h|cpp)$" AND
+                (_path MATCHES "^(core/|CK|Vx|SDL)" OR
+                 (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme|TypeAhead)\\.h$")))
+            list(APPEND _errors "${_source}: scene view includes native or legacy editor state ${_path}")
+        endif()
         if(_source MATCHES "^tests/modules/" AND _path MATCHES "^(core/|ui/|application/|workspace/|features/|CK|Vx|SDL|imgui_internal)")
             list(APPEND _errors "${_source}: external module includes private editor code ${_path}")
+        endif()
+        if(_source MATCHES "^features/resources/" AND NOT _source MATCHES "^features/resources/BuildingBlockQueries\\.(h|cpp)$" AND
+                (_path MATCHES "^(core/|CK|Vx|SDL)" OR
+                 (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme|TypeAhead)\\.h$")))
+            list(APPEND _errors "${_source}: resource view includes native or legacy editor state ${_path}")
         endif()
         if (_source MATCHES "^core/")
             if (_path MATCHES "^ui/" OR _path MATCHES "^html/" OR _path MATCHES "^imgui" OR _path MATCHES "^backends/"

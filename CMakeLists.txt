@@ -166,6 +166,7 @@ function(virtoolsdev_add_resources target)
     endif()
 endfunction()
 add_subdirectory(core)
+add_subdirectory(application)
 set(NEMODEV_HTML_BUILD_TESTS "${VIRTOOLSDEV_BUILD_TESTS}")
 add_subdirectory(html)
 
