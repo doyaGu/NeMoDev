@@ -30,6 +30,15 @@ add_test(NAME NeMoDevArchitectureChecker COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/ArchitectureTests.py")
 add_test(NAME NeMoDevViewportMeasurement COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/ViewportMeasurementTests.py")
+add_executable(NeMoDevSdkObjectBehaviorProbe
+        "${VIRTOOLS_SDK_PATH}/Source/CK2/tests/CKObjectBehaviorProbe.cpp")
+target_link_libraries(NeMoDevSdkObjectBehaviorProbe PRIVATE CK2 VxMath)
+target_compile_features(NeMoDevSdkObjectBehaviorProbe PRIVATE cxx_std_17)
+add_test(NAME NeMoDevSdkObjectBehavior COMMAND ${CMAKE_COMMAND}
+        -DPROBE=$<TARGET_FILE:NeMoDevSdkObjectBehaviorProbe>
+        -DFIXTURES=${VIRTOOLS_SDK_PATH}/Source/CK2/tests/fixtures/object-identity
+        -DOUTPUT=${CMAKE_CURRENT_BINARY_DIR}
+        -P ${VIRTOOLS_SDK_PATH}/Source/CK2/tests/CKObjectBehaviorDifferentialTest.cmake)
 set(_architecture_check ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/CheckArchitecture.py"
         --source "${VIRTOOLSDEV_SOURCE_DIR}"
         --manifest "${CMAKE_CURRENT_SOURCE_DIR}/architecture/coverage.json"
@@ -121,6 +130,7 @@ add_executable(VirtoolsDevTests
         SaveFailureTests.cpp
         LoadCallbackTests.cpp
         NativeObjectLifecycleTests.cpp
+        ObjectIdentityTests.cpp
         LoadFailureTests.cpp
         InitialConditionsTests.cpp
         ParameterValueFailureTests.cpp

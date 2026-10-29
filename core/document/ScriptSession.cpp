@@ -20,10 +20,10 @@ void RefreshRecord(CKContext *context, BehaviorData &record) {
 
 bool ScriptSession::Open(CKContext *context, CK_ID scriptId) {
     m_Context = context;
-    m_ScriptId = scriptId;
+    m_Script = context ? context->GetObjectHandle(scriptId) : CKObjectHandle{};
     m_LoadMessage.clear();
     m_Data.Clear();
-    CKBehavior *script = CKBehavior::Cast(context->GetObject(scriptId));
+    CKBehavior *script = CKBehavior::Cast(context ? context->GetObjectByHandle(m_Script) : nullptr);
     if (!script) {
         m_Origin = SessionOrigin::LoadFailed;
         m_LoadMessage = "Script object not found";
@@ -65,7 +65,12 @@ bool ScriptSession::Open(CKContext *context, CK_ID scriptId) {
 
 bool ScriptSession::Reconstruct(CKContext *context) {
     m_Context = context;
-    CKBehavior *script = CKBehavior::Cast(context->GetObject(m_ScriptId));
+    CKBehavior *script = CKBehavior::Cast(context ? context->GetObjectByHandle(m_Script) : nullptr);
+    if (!script) {
+        m_Origin = SessionOrigin::LoadFailed;
+        m_LoadMessage = "Script object not found";
+        return false;
+    }
     InterfaceDataReconstructionOptions options;
     options.linkRouting = InterfaceDataLinkRouting::Straight;
     if (!GuardedCall([&] { ReconstructInterfaceData(m_Data, script, options); }, nullptr, "ReconstructInterfaceData")) {
@@ -81,14 +86,19 @@ bool ScriptSession::Reconstruct(CKContext *context) {
     return true;
 }
 
+bool ScriptSession::IsCurrent() const {
+    return m_Context && m_Context->GetObjectByHandle(m_Script) != nullptr;
+}
+
 bool ScriptSession::Assign(const InterfaceData &data) {
-    if (!m_Context || ReadOnly() || data.rootBehavior.id != m_ScriptId) return false;
+    if (!IsCurrent() || ReadOnly() || data.rootBehavior.id != m_Script.Id) return false;
     Restore(data);
     Touch();
     return true;
 }
 
 void ScriptSession::Restore(const InterfaceData &data) {
+    if (!IsCurrent()) return;
     InterfaceData replacement = data;
     replacement.observers.clear();
     RefreshRecord(m_Context, replacement.rootBehavior);
@@ -97,13 +107,14 @@ void ScriptSession::Restore(const InterfaceData &data) {
 }
 
 bool ScriptSession::FitContentHeight(float height) {
-    if (!m_Context || ReadOnly() || !std::isfinite(height) || height <= 0.0f || height == m_Data.header.vSize) return false;
+    if (!IsCurrent() || ReadOnly() || !std::isfinite(height) || height <= 0.0f || height == m_Data.header.vSize) return false;
     m_Data.header.vSize = height;
     TouchUndoable();
     return true;
 }
 
 void ScriptSession::RefreshRuntimeState(CKContext *context) {
+    if (context != m_Context || !IsCurrent()) return;
     RefreshRecord(context, m_Data.rootBehavior);
     for (auto &record : m_Data.behaviors) RefreshRecord(context, record);
 }

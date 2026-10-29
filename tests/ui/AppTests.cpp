@@ -40,7 +40,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
             IM_CHECK_NO_RET(made.ok);
             object = made.created;
-            IM_CHECK_NO_RET(vdev::RenameLevelObject(*state.document, object, "Projection UI Frame").ok);
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(*state.document, state.document->Reference(object), "Projection UI Frame").ok);
             state.History().Clear();
             state.document->MarkSaved();
             state.History().MarkSavePoint();
@@ -103,8 +103,8 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             const auto b = vdev::CreateLayoutObject(document, vdev::LayoutObject::Frame3D);
             IM_CHECK_NO_RET(a.ok && b.ok);
             source = a.created; target = b.created;
-            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, source, "Projection Source").ok);
-            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, target, "Projection Target").ok);
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, document.Reference(source), "Projection Source").ok);
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, document.Reference(target), "Projection Target").ok);
             IM_CHECK_NO_RET(vdev::AddAttribute(document, {source, target}, type).ok);
             state.History().Clear();
             document.MarkSaved(); state.History().MarkSavePoint();

@@ -18,7 +18,8 @@
         "core/document/EditResult.h",
         "core/document/UndoHistory.*",
         "core/document/ObjectPictures.*",
-        "core/document/SpriteTextPersistence.*"
+        "core/document/SpriteTextPersistence.*",
+        "core/document/Clipboard.h"
       ]
     },
     {
@@ -28,7 +29,10 @@
         "core/document/DocumentSaver.*",
         "core/document/FileCommands.*",
         "core/document/LinkValidation.*",
-        "core/document/detail/**"
+        "core/document/detail/**",
+        "core/document/BehaviorDescription.*",
+        "core/document/ExportCommands.h",
+        "core/document/OutputFiles.*"
       ]
     },
     {
@@ -133,7 +137,15 @@
         "ui/app/DocumentFiles.*",
         "ui/app/RuntimeOperation.*",
         "ui/app/FileMenu.cpp",
-        "ui/app/DuplicateNames.cpp"
+        "ui/app/DuplicateNames.cpp",
+        "application/DocumentFiles.*",
+        "application/RuntimeOperation.*",
+        "application/DocumentCommands.*",
+        "ui/app/FileInputs.*",
+        "application/ExecutionCommands.*",
+        "application/OutputCommands.*",
+        "application/Printing.h",
+        "ui/app/OutputInputs.*"
       ]
     },
     {
@@ -287,6 +299,13 @@
         "tests/**",
         "html/tests/**"
       ]
+    },
+    {
+      "id": "S33",
+      "name": "编辑器公开接口",
+      "patterns": [
+        "editor/**"
+      ]
     }
   ],
   "dependencies": {
@@ -297,7 +316,8 @@
       "S07",
       "S08",
       "S10",
-      "S13"
+      "S13",
+      "S33"
     ],
     "S02": [
       "S01",
@@ -344,7 +364,8 @@
       "S05",
       "S07",
       "S10",
-      "S13"
+      "S13",
+      "S33"
     ],
     "S09": [
       "S01",
@@ -355,9 +376,11 @@
       "S01",
       "S13"
     ],
+    "S11": [],
     "S12": [
       "S01"
     ],
+    "S13": [],
     "S14": [
       "S01",
       "S02",
@@ -518,6 +541,7 @@
     "S30": [
       "S13"
     ],
+    "S31": [],
     "S32": [
       "S01",
       "S02",
@@ -541,7 +565,8 @@
       "S26",
       "S27",
       "S29"
-    ]
+    ],
+    "S33": []
   },
   "legacy_exposures": [
     {
@@ -1216,7 +1241,8 @@
         "S02",
         "S05",
         "S20",
-        "S24"
+        "S24",
+        "S15"
       ],
       "tests": [
         "VirtoolsDev.ObjectExportFailures",
@@ -1239,7 +1265,8 @@
       "source_groups": [
         "S15",
         "S26",
-        "S29"
+        "S29",
+        "S02"
       ],
       "tests": [],
       "ui_tests": [
@@ -1259,7 +1286,9 @@
       "source_groups": [
         "S21",
         "S26",
-        "S29"
+        "S29",
+        "S02",
+        "S15"
       ],
       "tests": [],
       "ui_tests": [
@@ -1296,11 +1325,7 @@
       "gaps": [
         {
           "due_phase": 3,
-          "reason": "迁移后通过正式契约复验本项行为与生命周期"
-        },
-        {
-          "due_phase": 1,
-          "reason": "阶段一的重命名必须统一属性输入、F2、菜单、事务、Undo 与变更刷新"
+          "reason": "迁移后通过正式接口复验本项行为与生命周期"
         }
       ]
     },
@@ -1450,7 +1475,7 @@
       "gaps": [
         {
           "due_phase": 4,
-          "reason": "迁移后通过正式契约复验本项行为与生命周期"
+          "reason": "迁移后通过正式接口复验本项行为与生命周期"
         }
       ]
     },
@@ -1509,7 +1534,8 @@
       "source_groups": [
         "S04",
         "S19",
-        "S22"
+        "S22",
+        "S15"
       ],
       "tests": [
         "VirtoolsDev.ScriptDebugger",
@@ -1583,7 +1609,8 @@
         "S03",
         "S15",
         "S20",
-        "S24"
+        "S24",
+        "S02"
       ],
       "tests": [
         "VirtoolsDev.Resources",
@@ -1629,7 +1656,8 @@
       "source_groups": [
         "S12",
         "S18",
-        "S20"
+        "S20",
+        "S33"
       ],
       "tests": [
         "VirtoolsDev.Catalogs",
@@ -1721,10 +1749,6 @@
         {
           "due_phase": 6,
           "reason": "补配置冲突、一次迁移、延期生效"
-        },
-        {
-          "due_phase": 1,
-          "reason": "阶段一配置可替换名字编辑器、重绑 F2 和移动菜单，不修改宿主分支"
         }
       ]
     },
@@ -1736,7 +1760,8 @@
         "S16",
         "S25",
         "S26",
-        "S31"
+        "S31",
+        "S33"
       ],
       "tests": [
         "NeMoDevHelpContent"
@@ -1747,7 +1772,7 @@
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "迁移后通过正式契约复验本项行为与生命周期"
+          "reason": "迁移后通过正式接口复验本项行为与生命周期"
         }
       ]
     },
@@ -1793,7 +1818,13 @@
         "VirtoolsDev.SaveCallbacks",
         "NeMoDevRuntimeOperation",
         "VirtoolsDevFileDialogs",
-        "VirtoolsDev.NativeObjectLifecycles"
+        "VirtoolsDev.NativeObjectLifecycles",
+        "NeMoDevSdkObjectBehavior",
+        "VirtoolsDev.ObjectIdentities",
+        "VirtoolsDev.SilentObjectDestruction",
+        "VirtoolsDev.ObjectIdentityResources",
+        "VirtoolsDev.ObjectIdentityReplay",
+        "VirtoolsDev.ScriptIdentitySessions"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app"
@@ -1802,10 +1833,6 @@
         {
           "due_phase": 5,
           "reason": "补跨阶段组合故障"
-        },
-        {
-          "due_phase": 1,
-          "reason": "CK_DESTROY_NONOTIFY 仍允许 ID 复用；ObjectRef 启用前须验证受控销毁和原生执行边界的身份策略，不能只依赖删除通知"
         }
       ]
     },
@@ -1831,10 +1858,6 @@
         {
           "due_phase": 6,
           "reason": "补移除/替换模块、主视图角色和提供者私有状态恢复"
-        },
-        {
-          "due_phase": 1,
-          "reason": "阶段一通过正式视图契约创建第二个只读对象视图并校验作用域"
         }
       ]
     },
@@ -1865,7 +1888,7 @@
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "迁移后通过正式契约复验本项行为与生命周期"
+          "reason": "迁移后通过正式接口复验本项行为与生命周期"
         }
       ]
     },
@@ -1873,17 +1896,19 @@
       "id": "F31",
       "name": "新增扩展目标",
       "owner": "Application",
-      "source_groups": [],
-      "tests": [],
+      "source_groups": [
+        "S33"
+      ],
+      "tests": [
+        "NeMoDevSdkObjectBehavior",
+        "VirtoolsDev.ObjectIdentityReplay",
+        "VirtoolsDev.ObjectIdentityResources"
+      ],
       "ui_tests": [],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "不冒充现有支持"
-        },
-        {
-          "due_phase": 1,
-          "reason": "阶段一独立编译模块通过同一入口执行命令、查询和最小视图，验证回调及内存归属"
+          "reason": "生产模块发现与打包、移除替换和私有状态恢复尚未迁移"
         }
       ]
     },
@@ -2172,6 +2197,59 @@
       "features": [
         "F28"
       ]
+    },
+    {
+      "id": "editor-modules",
+      "name": "模块及命令、查询、属性、编辑器和视图登记",
+      "owner": "EditorApplication",
+      "lifetime": "启动登记、选择实现、关闭时逆依赖顺序停止并卸载",
+      "persistence": "本阶段只复制模块描述；生产发现与打包在阶段六完成",
+      "features": [
+        "F31"
+      ]
+    },
+    {
+      "id": "property-drafts",
+      "name": "属性草稿、目标对象和等待执行的命令",
+      "owner": "EditorApplication",
+      "lifetime": "目标文档和视图；确认后帧末执行，取消、关闭或对象失效时清除",
+      "persistence": "临时输入；成功修改复用 Document 的 Edit 和 UndoHistory",
+      "features": [
+        "F08",
+        "F31"
+      ]
+    },
+    {
+      "id": "editor-queries",
+      "name": "查询结果及文档变更订阅",
+      "owner": "EditorApplication",
+      "lifetime": "文档版本或视图；结果按值复制，关闭视图取消订阅",
+      "persistence": "不保存",
+      "features": [
+        "F29",
+        "F31"
+      ]
+    },
+    {
+      "id": "registered-views",
+      "name": "已登记视图的实例和输入",
+      "owner": "EditorWorkspace",
+      "lifetime": "打开至关闭；模块私有数据由模块创建和销毁",
+      "persistence": "实例保存与恢复留在阶段六；旧窗口保留现有保存方式",
+      "features": [
+        "F29",
+        "F31"
+      ]
+    },
+    {
+      "id": "editor-configuration",
+      "name": "命令与编辑器选择、快捷键和菜单位置",
+      "owner": "EditorApplication",
+      "lifetime": "当前应用；错误设置保留原设置，编辑中禁止切换",
+      "persistence": "当前为内存配置；用户配置保存和旧格式迁移在阶段六完成",
+      "features": [
+        "F25"
+      ]
     }
   ],
   "required_core_cases": [
@@ -2235,6 +2313,11 @@
     "BuildingBlockCallbacks",
     "GuardedCalls",
     "InputViewport",
-    "ManagersAfterClearAll"
+    "ManagersAfterClearAll",
+    "ObjectIdentities",
+    "SilentObjectDestruction",
+    "ObjectIdentityResources",
+    "ObjectIdentityReplay",
+    "ScriptIdentitySessions"
   ]
 }

@@ -10,6 +10,7 @@
 #include "CKAll.h"
 
 #include "core/runtime/FileDuplicates.h"
+#include "editor/Identity.h"
 #include "core/document/ScriptSession.h"
 #include "core/document/UndoHistory.h"
 #include "core/document/ObjectPictures.h"
@@ -29,16 +30,19 @@ public:
     ~ObjectReferences();
     ObjectReferences(const ObjectReferences &) = delete;
     ObjectReferences &operator=(const ObjectReferences &) = delete;
+    bool IsValid() const;
+    bool BelongsTo(const Document &document) const;
 private:
     friend class Document;
-    ObjectReferences(Document &document, std::set<CK_ID> objects);
+    ObjectReferences(Document &document, std::set<ObjectRef> objects);
     Document *m_Document;
-    std::set<CK_ID> m_Objects;
+    std::set<ObjectRef> m_Objects;
 };
 
 SceneEnvironment DefaultNewSceneEnvironment();
 
 struct ScriptInfo {
+    ObjectRef reference{}, ownerReference{};
     CK_ID id = 0;
     std::string name;
     CK_ID ownerId = 0;
@@ -56,11 +60,18 @@ public:
         ImportedObjects,
     };
     class PreparedOpen;
-    explicit Document(CkRuntimeHost &host) : m_Host(host), m_History(*this) {}
+    explicit Document(CkRuntimeHost &host);
     ~Document();
-    // Process-local identity for data records. Closing/reopening preserves
-    // the Document instance; Host::Generation distinguishes its contexts.
-    std::uint64_t InstanceId() const { return m_InstanceId; }
+    // Construction attaches an editing scope to the host's current context.
+    // Successful New/Open replaces it; failed candidates do not. Close ends
+    // the scope. Viewport recreation is independent of this identity.
+    DocumentToken Token() const;
+    enum class ObjectScope { Live, Existing };
+    ObjectRef Reference(CK_ID id) const;
+    std::vector<ObjectRef> References(const std::vector<CK_ID> &ids) const;
+    CKObject *Resolve(ObjectRef reference, CK_CLASSID cid = CKCID_OBJECT,
+                      ObjectScope scope = ObjectScope::Live) const;
+    CK_ID NativeId(ObjectRef reference, ObjectScope scope = ObjectScope::Live) const;
 
     // Immediate load into this context; interactive replacement uses PrepareOpen.
     // Opening .nmo is New + Import: an unsaved, modified composition using
@@ -115,7 +126,7 @@ public:
     const std::string &SourcePath() const { return m_SourcePath; }
     // How this composition was created; independent of its eventual save path.
     Origin CreatedFrom() const { return m_Origin; }
-    const std::vector<CK_ID> &LoadedObjects() const { return m_LoadedObjects; }
+    std::vector<CK_ID> LoadedObjects() const;
     const std::vector<ScriptInfo> &Scripts() const { return m_Scripts; }
     const ScriptInfo *FindScript(CK_ID id) const;
 
@@ -146,12 +157,12 @@ public:
     std::shared_ptr<ObjectReferences> RetainObjects(const std::vector<CK_ID> &objects);
     // The objects made since the composition was opened (by edits, Include):
     // saved with it unless discarded.
-    const std::set<CK_ID> &CreatedObjects() const { return m_CreatedObjects; }
+    std::set<CK_ID> CreatedObjects() const;
     // An object made outside an edit that is part of the composition from now
     // on (saved with it): the editor's own data objects, what a Building
     // Block's callback or an attribute makes. Marks nothing (AdoptObjects for
     // objects a load brought).
-    void Include(CK_ID id) { m_CreatedObjects.insert(id); }
+    void Include(CK_ID id);
     // A change of the composition outside undo (loading into it, Data
     // Resources, attribute types, the debugger's Reset): refreshes the Script
     // list and runtime display fields, then stays modified until saved.
@@ -211,6 +222,7 @@ private:
     // their actions/state chunks. Live objects never enter this collection.
     void CollectGraveyard();
     void RequestGraveyardCollection();
+    void SetDiscarded(ObjectRef object, bool discarded);
     // Creating, discarding or restoring objects changes which editor records
     // belong in the saved composition, even when their values stay the same.
     void EditorObjectsChanged() {
@@ -218,18 +230,21 @@ private:
         if (!m_Pictures.empty()) m_PicturesChanged = true;
     }
 
-    static std::uint64_t NextInstanceId();
-    const std::uint64_t m_InstanceId = NextInstanceId();
+    static std::uint64_t NextToken();
+    DocumentToken m_Token{};
+    std::uint64_t m_ContextGeneration = 0;
     CkRuntimeHost &m_Host;
     bool m_Open = false;
     Origin m_Origin = Origin::NewComposition;
     std::string m_SourcePath;
-    std::vector<CK_ID> m_LoadedObjects;
+    std::vector<CKObjectHandle> m_LoadedObjects;
     std::vector<ScriptInfo> m_Scripts;
     std::map<CK_ID, std::unique_ptr<ScriptSession>> m_Sessions;
-    std::set<CK_ID> m_Graveyard;
+    // Membership records carry SDK lifetimes. Reused IDs cannot inherit the
+    // former object's ownership or discarded status.
+    std::map<CK_ID, CKQWORD> m_Graveyard;
     std::set<ObjectReferences *> m_ObjectReferences;
-    std::set<CK_ID> m_CreatedObjects;
+    std::map<CK_ID, CKQWORD> m_CreatedObjects;
     std::unordered_map<void *, std::shared_ptr<void>> m_Bitmaps;
     LayoutLists m_Layout;
     ObjectPictures m_Pictures;

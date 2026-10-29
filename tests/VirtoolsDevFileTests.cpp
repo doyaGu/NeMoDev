@@ -1288,7 +1288,7 @@ void NativePathChecks(CkRuntimeHost &host) {
         Document document(host);
         CHECK(document.New(&error));
         const EditResult made = CreateLayoutObject(document, LayoutObject::Frame3D);
-        CHECK(made.ok && RenameLevelObject(document, made.created, rawName).ok);
+        CHECK(made.ok && RenameLevelObject(document, document.Reference(made.created), rawName).ok);
         const fs::path imageFile = directory / fs::u8path(std::string(name) + ".bmp");
         CKDWORD colors[] = {0xFF123456, 0xFFABCDEF, 0xFF765432, 0xFF010203};
         SDL_Surface *surface = SDL_CreateSurfaceFrom(2, 2, SDL_PIXELFORMAT_ARGB8888, colors, 8);
@@ -1362,16 +1362,19 @@ void OpenFailurePreservation(CkRuntimeHost &host) {
     const float savedRate = document.Context()->GetTimeManager()->GetFrameRateLimit();
     SaveReport report;
     CHECK(SaveDocumentAs(document, valid, {}, report));
-    CHECK(RenameLevelObject(document, made.created, "Pending rename").ok);
+    CHECK(RenameLevelObject(document, document.Reference(made.created), "Pending rename").ok);
     CHECK(document.History().Undo() && !document.Dirty());
     CKContext *original = document.Context();
     original->GetTimeManager()->SetTimeScaleFactor(0.5f);
     original->GetTimeManager()->SetFrameRateLimit(77);
     const auto generation = host.Generation(), revision = document.TopologyRevision();
+    const auto token = document.Token();
+    const auto reference = document.Reference(made.created);
     const auto undo = document.History().UndoLabel(), redo = document.History().RedoLabel();
     const auto loaded = document.LoadedObjects();
     auto check = [&] {
         CHECK(document.IsOpen() && document.Context() == original && host.Generation() == generation);
+        CHECK(document.Token() == token && document.Resolve(reference) == original->GetObject(made.created));
         CHECK(document.TopologyRevision() == revision && document.LoadedObjects() == loaded);
         CHECK(document.IsLive(made.created) && !document.Dirty());
         CHECK(document.History().UndoLabel() == undo && document.History().RedoLabel() == redo);
@@ -1408,6 +1411,7 @@ void OpenFailurePreservation(CkRuntimeHost &host) {
     CHECK(fs::remove(fs::u8path(valid))); // Commit must not reopen the source file.
     prepared->Commit();
     CHECK(document.Context() != original && host.Generation() != generation);
+    CHECK(document.Token() != token && !document.Resolve(reference));
     CHECK(document.IsOpen() && document.SourcePath() == valid && !document.Dirty());
     CHECK(document.CreatedFrom() == Document::Origin::LoadedComposition);
     CHECK(!document.History().CanUndo() && !document.History().CanRedo());

@@ -21,8 +21,7 @@ struct ObjectState {
 };
 
 struct ObjectStateEntry {
-    CK_ID id = 0;
-    CKObject *instance = nullptr;
+    CKObjectHandle object{};
     ObjectState before, after;
     bool changed = false;
 };
@@ -57,20 +56,20 @@ static void RefreshObject(CKObject *object) {
     }
 }
 
-static bool CaptureState(CKContext *context, CK_ID id, CKObject *instance, ObjectState &state,
+static bool CaptureState(CKContext *context, CKObjectHandle handle, ObjectState &state,
                          const CkRuntimeHost *host) {
     bool captured = false;
     return GuardedCall([&] {
-        CKObject *object = context ? context->GetObject(id) : nullptr;
-        if (!object || object != instance) return;
+        CKObject *object = context ? context->GetObjectByHandle(handle) : nullptr;
+        if (!object) return;
         state.chunk.reset(CKSaveObjectState(object));
-        if (!state.chunk || context->GetObject(id) != instance) return;
+        if (!state.chunk || context->GetObjectByHandle(handle) != object) return;
         state.slots = SlotCountOf(object);
         state.unkept = ReadUnkeptValues(object);
         for (const auto &property : ObjectPropertyChecks())
             if (CKIsChildClassOf(object, property.cid))
                 state.properties.emplace_back(property, property.text(object));
-        captured = context->GetObject(id) == instance;
+        captured = context->GetObjectByHandle(handle) == object;
     }, host, "Capture object state") && captured;
 }
 
@@ -95,16 +94,16 @@ static bool CompareStates(ObjectState &a, ObjectState &b, bool &same, const CkRu
 static bool ReadState(CKContext *context, ObjectStateEntry &entry, ObjectState &state, const CkRuntimeHost *host) {
     bool read = false;
     return GuardedCall([&] {
-        CKObject *object = context ? context->GetObject(entry.id) : nullptr;
-        if (!object || object != entry.instance || !state.chunk) return;
+        CKObject *object = context ? context->GetObjectByHandle(entry.object) : nullptr;
+        if (!object || !state.chunk) return;
         const CKERROR error = CKReadObjectState(object, state.chunk.get());
-        if (context->GetObject(entry.id) != entry.instance) return;
+        if (context->GetObjectByHandle(entry.object) != object) return;
         for (const auto &restore : state.unkept.restore) {
             restore(object);
-            if (context->GetObject(entry.id) != entry.instance) return;
+            if (context->GetObjectByHandle(entry.object) != object) return;
         }
         const bool slots = RestoreSlotCount(object, state.slots);
-        read = error == CK_OK && slots && context->GetObject(entry.id) == entry.instance;
+        read = error == CK_OK && slots && context->GetObjectByHandle(entry.object) == object;
     }, host, "Restore object state") && read;
 }
 
@@ -115,23 +114,23 @@ static bool RefreshAndCheck(CKContext *context, std::vector<ObjectStateEntry> &e
     for (ObjectStateEntry &entry : entries) {
         bool refreshed = false;
         const bool called = GuardedCall([&] {
-            CKObject *object = context ? context->GetObject(entry.id) : nullptr;
-            if (!object || object != entry.instance) return;
+            CKObject *object = context ? context->GetObjectByHandle(entry.object) : nullptr;
+            if (!object) return;
             RefreshObject(object);
-            refreshed = context->GetObject(entry.id) == entry.instance;
+            refreshed = context->GetObjectByHandle(entry.object) == object;
         }, host, "Refresh object state");
         ok = called && refreshed && ok;
     }
     for (ObjectStateEntry &entry : entries) {
         bool checked = false;
         const bool called = GuardedCall([&] {
-            CKObject *object = context ? context->GetObject(entry.id) : nullptr;
-            if (!object || object != entry.instance) return;
+            CKObject *object = context ? context->GetObjectByHandle(entry.object) : nullptr;
+            if (!object) return;
             const ObjectState &expected = before ? entry.before : entry.after;
             if (SlotCountOf(object) != expected.slots) return;
             for (const auto &property : expected.properties)
                 if (!property.first.same(property.second, property.first.text(object))) return;
-            checked = context->GetObject(entry.id) == entry.instance;
+            checked = context->GetObjectByHandle(entry.object) == object;
         }, host, "Check restored object properties");
         ok = called && checked && ok;
     }
@@ -140,6 +139,9 @@ static bool RefreshAndCheck(CKContext *context, std::vector<ObjectStateEntry> &e
 
 static bool RestoreStates(CKContext *context, std::vector<ObjectStateEntry> &entries, bool before,
                           const CkRuntimeHost *host) {
+    if (!context || std::any_of(entries.begin(), entries.end(), [&](const ObjectStateEntry &entry) {
+            return !context->GetObjectByHandle(entry.object);
+        })) return false;
     bool ok = true;
     for (size_t i = entries.size(); i-- > 0;) {
         ObjectStateEntry &entry = entries[i];
@@ -153,6 +155,10 @@ public:
     explicit ObjectStateAction(std::vector<ObjectStateEntry> entries) : m_Entries(std::move(entries)) {}
     bool Redo(Document &document) override { return Read(document, false); }
     bool Undo(Document &document) override { return Read(document, true); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        for (const auto &entry : m_Entries)
+            if (document.Context()->GetObjectByHandle(entry.object)) objects.insert(entry.object.Id);
+    }
 
 private:
     bool Read(Document &document, bool undo) {
@@ -168,14 +174,11 @@ private:
 
 struct ObjectsGesture::State {
     CKContext *context = nullptr;
-    const Document *document = nullptr; // identity only; never dereferenced
-    const CkRuntimeHost *host = nullptr;
-    std::uint64_t generation = 0;
+    DocumentToken document{};
     std::vector<ObjectStateEntry> entries;
 
     bool BelongsTo(Document &owner) const {
-        return context == owner.Context() && (!document ||
-               (document == &owner && host == &owner.Host() && generation == owner.Host().Generation()));
+        return context == owner.Context() && (!document.value || document == owner.Token());
     }
 };
 
@@ -192,11 +195,10 @@ bool ObjectsGesture::Begin(CKContext *context, const std::vector<CK_ID> &objects
     state->context = context;
     for (CK_ID id : objects) {
         if (!id || std::any_of(state->entries.begin(), state->entries.end(),
-                              [id](const ObjectStateEntry &entry) { return entry.id == id; })) continue;
+                              [id](const ObjectStateEntry &entry) { return entry.object.Id == id; })) continue;
         ObjectStateEntry entry;
-        entry.id = id;
-        entry.instance = context->GetObject(id);
-        if (!CaptureState(context, id, entry.instance, entry.before, nullptr)) return false;
+        entry.object = context->GetObjectHandle(id);
+        if (!CaptureState(context, entry.object, entry.before, nullptr)) return false;
         state->entries.push_back(std::move(entry));
     }
     if (state->entries.empty()) return false;
@@ -206,15 +208,13 @@ bool ObjectsGesture::Begin(CKContext *context, const std::vector<CK_ID> &objects
 
 bool ObjectsGesture::Begin(Document &document, const std::vector<CK_ID> &objects) {
     if (!Begin(document.Context(), objects)) return false;
-    m_State->document = &document;
-    m_State->host = &document.Host();
-    m_State->generation = document.Host().Generation();
+    m_State->document = document.Token();
     return true;
 }
 
 std::vector<CK_ID> ObjectsGesture::Objects() const {
     std::vector<CK_ID> objects;
-    if (m_State) for (const auto &entry : m_State->entries) objects.push_back(entry.id);
+    if (m_State) for (const auto &entry : m_State->entries) objects.push_back(entry.object.Id);
     return objects;
 }
 
@@ -243,7 +243,7 @@ EditResult ObjectsGesture::Commit(Document &document, const std::string &label, 
     bool same = true;
     std::string error;
     for (ObjectStateEntry &entry : m_State->entries) {
-        if (!CaptureState(document.Context(), entry.id, entry.instance, entry.after, &document.Host())) {
+        if (!CaptureState(document.Context(), entry.object, entry.after, &document.Host())) {
             error = "Cannot capture the object's state after editing";
             break;
         }

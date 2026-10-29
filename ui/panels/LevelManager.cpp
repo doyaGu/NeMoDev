@@ -1676,7 +1676,7 @@ void EditorPanels::RenameDialog() {
                 if (workset.id == m_Doc.renameWorkset) workset.name = m_RenameText;
             m_Doc.renameWorkset = 0;
         } else {
-            Report(RenameLevelObject(*m_State.document, m_Doc.renameObject, Utf8ToAnsi(m_RenameText)), "Rename");
+            Report(RenameLevelObject(*m_State.document, m_State.document->Reference(m_Doc.renameObject), Utf8ToAnsi(m_RenameText)), "Rename");
         }
         ImGui::CloseCurrentPopup();
     }

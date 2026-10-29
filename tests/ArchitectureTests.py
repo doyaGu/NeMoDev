@@ -73,6 +73,18 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("new dependency: ui -> core", result.stderr)
 
+    def test_objective_cpp_imports_are_checked(self):
+        self.add_ui('// Platform-independent view.\n')
+        self.write("ui/view.mm", '#import "core/model.h"\n')
+        self.write("core/model.h", '#import "CKAll.h"\n')
+        result = self.run_check()
+        self.assertIn("new dependency: ui -> core", result.stderr)
+        self.assertIn("unrecorded native/state exposure: ui/view.mm: native-sdk", result.stderr)
+        self.manifest["dependencies"] = {"ui": ["core"]}
+        self.manifest["legacy_exposures"] = [
+            {"file": "ui/view.mm", "access": ["native-sdk"], "remove_by": 5}]
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_indirect_state_exposure_is_rejected(self):
         self.write("core/document/Document.h", "#pragma once\n")
         self.write("core/model.h", '#include "core/document/Document.h"\n')
@@ -113,7 +125,7 @@ class ArchitectureTests(unittest.TestCase):
         result = self.run_check()
         self.assertIn("legacy exposure exceeds fixed baseline", result.stderr)
 
-    def test_evidence_and_owners_cannot_disappear(self):
+    def test_checks_and_owners_cannot_disappear(self):
         self.inventory["tests"].clear()
         self.assertIn("missing registered test: edit: EditTest", self.run_check().stderr)
         self.manifest["states"][0]["owner"] = ""

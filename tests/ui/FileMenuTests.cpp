@@ -168,7 +168,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             // also accept a composition with no native parameters.
             document.MarkSaved();
             document.History().MarkSavePoint();
-            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, made.created, "Undo after failed load").ok);
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, document.Reference(made.created), "Undo after failed load").ok);
             IM_CHECK_NO_RET(document.History().Undo() && !document.Dirty());
             state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
             state.objectSelection.Set({made.created});
@@ -345,7 +345,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(madeScript.ok);
             script = madeScript.created;
             session = document.Session(script);
-            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, object, "Renamed frame").ok);
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(document, document.Reference(object), "Renamed frame").ok);
             IM_CHECK_NO_RET(document.History().Undo());
             document.MarkSaved();
             document.History().MarkSavePoint();

@@ -106,7 +106,12 @@ Chunk SerializeScript(InterfaceData &data, CKBehavior *script, bool reconstructe
 // Native persistence installs document-owned editor data before CK writing.
 // Keep its access and acknowledgement of those copies local to the saver.
 struct DocumentSaverAccess {
-    static const std::set<CK_ID> &Graveyard(const Document &document) { return document.m_Graveyard; }
+    static std::set<CK_ID> Graveyard(const Document &document) {
+        std::set<CK_ID> objects;
+        for (const auto &entry : document.m_Graveyard)
+            if (document.Context()->GetObjectByHandle({entry.first, entry.second})) objects.insert(entry.first);
+        return objects;
+    }
     static bool EditorDataCurrent(const Document &document) {
         return !document.m_LayoutChanged && !document.m_PicturesChanged;
     }
@@ -200,8 +205,10 @@ std::set<CK_ID> ExcludedObjects(CKContext *context, const std::set<CK_ID> &grave
 constexpr CK_ID RUNTIME_ONLY_OBJECT = 0xFFFFFFFF;
 
 void MarkRuntimeOnlyReferences(Document &document, ProjectParameterTypes::Snapshot &snapshot) {
-    std::set<CK_ID> documentObjects(document.LoadedObjects().begin(), document.LoadedObjects().end());
-    documentObjects.insert(document.CreatedObjects().begin(), document.CreatedObjects().end());
+    const auto loaded = document.LoadedObjects();
+    const auto created = document.CreatedObjects();
+    std::set<CK_ID> documentObjects(loaded.begin(), loaded.end());
+    documentObjects.insert(created.begin(), created.end());
     CKContext *context = document.Context();
     for (auto &entry : snapshot) {
         ProjectParameterTypes::State &state = entry.second;

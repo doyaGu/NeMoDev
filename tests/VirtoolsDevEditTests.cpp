@@ -351,7 +351,7 @@ void UndoRoundTrips(CkRuntimeHost &host, const std::vector<CKGUID> &prototypes) 
     // Level objects (level::Apply).
     const EditResult array = ExpectUndoRoundTrip(document, "CreateArray", [&] { return CreateArray(document, "Round Trip Array"); });
     ExpectUndoRoundTrip(document, "RenameLevelObject",
-                        [&] { return RenameLevelObject(document, array.created, "Round Trip Renamed"); });
+                        [&] { return RenameLevelObject(document, document.Reference(array.created), "Round Trip Renamed"); });
     // An object's state (ObjectStateCommand). Its position, not its state's
     // bytes: moving a 3D entity sets the engine's moveable flags
     // (VX_MOVEABLE_HASMOVED, INVERSEWORLDMATVALID) and clears the

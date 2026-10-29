@@ -120,7 +120,7 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
 
     CHECK(document.New(&error));
     made = CreateLayoutObject(document, LayoutObject::Frame3D);
-    CHECK(made.ok && RenameLevelObject(document, made.created, "Original frame").ok);
+    CHECK(made.ok && RenameLevelObject(document, document.Reference(made.created), "Original frame").ok);
     const auto child = CreateLayoutObject(document, LayoutObject::Frame3D);
     CHECK(child.ok);
     document.Context()->GetObject(child.created)->SetName((CKSTRING) "Incoming frame");
@@ -145,13 +145,16 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
     CHECK(session);
     const auto before = Capture(document, scriptId);
     const auto generation = host.Generation();
+    const auto token = document.Token();
+    const auto originalRef = document.Reference(original->GetID());
+    const auto scriptRef = document.Reference(scriptId);
     const auto deleted = CreateScript(document, original->GetID(), "Retained for undo");
     CHECK(deleted.ok);
     ScriptSession *deletedSession = document.Session(deleted.created);
     CHECK(DeleteScript(document, deleted.created).ok);
     document.MarkSaved();
     document.History().MarkSavePoint();
-    CHECK(RenameLevelObject(document, original->GetID(), "Redo name").ok);
+    CHECK(RenameLevelObject(document, document.Reference(original->GetID()), "Redo name").ok);
     CHECK(document.History().Undo() && !document.Dirty());
     const size_t undo = document.History().UndoCount();
     const auto undoLabel = document.History().UndoLabel(), redoLabel = document.History().RedoLabel();
@@ -199,6 +202,7 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
         } else ok = document.Merge(cmo, operation == 5, &error, &output);
         CHECK(!ok && !manager->armed && !manager->waitingForSequence && !manager->waitingForDeletion && !error.empty());
         CHECK(document.Context() == context && host.Generation() == generation);
+        CHECK(document.Token() == token && document.Resolve(originalRef) == original && document.Resolve(scriptRef) == behavior);
         CHECK(!context->m_InLoad && !context->m_ObjectManager->m_InLoadSession);
         CHECK(Instances(context) == instances);
         CHECK(std::string(original->GetName()) == "Original frame" && scene->GetFogEnd() == fog && scene->GetFogMode() == VXFOG_EXP);

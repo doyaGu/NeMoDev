@@ -30,8 +30,10 @@ void WriteSpriteTextAlignments(Document &document) {
         auto *manager = InterfaceObjectManagerOf(object);
         if (manager->GetGuid() == ALIGNMENTS_GUID) managers.push_back(manager);
     }
-    std::set<CK_ID> included(document.LoadedObjects().begin(), document.LoadedObjects().end());
-    included.insert(document.CreatedObjects().begin(), document.CreatedObjects().end());
+    const auto loaded = document.LoadedObjects();
+    const auto created = document.CreatedObjects();
+    std::set<CK_ID> included(loaded.begin(), loaded.end());
+    included.insert(created.begin(), created.end());
     std::vector<CKSpriteText *> sprites;
     for (CKObject *object : document.LiveObjects(CKCID_SPRITETEXT))
         if (included.count(object->GetID()) && !(object->GetObjectFlags() & CK_OBJECT_NOTTOBESAVED))

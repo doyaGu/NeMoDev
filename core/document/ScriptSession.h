@@ -27,7 +27,8 @@ public:
     // session read-only) when the reconstruction raised.
     bool Reconstruct(CKContext *context);
 
-    CK_ID ScriptId() const { return m_ScriptId; }
+    CK_ID ScriptId() const { return m_Script.Id; }
+    bool IsCurrent() const;
     SessionOrigin Origin() const { return m_Origin; }
     // Why the saved layout was not used (cleared, unreadable) or why the
     // session is read-only; empty otherwise.
@@ -81,7 +82,7 @@ private:
     void MarkSaved() { m_SavedRevision = m_Revision; }
 
     CKContext *m_Context = nullptr; // borrowed for this session's lifetime
-    CK_ID m_ScriptId = 0;
+    CKObjectHandle m_Script{};
     SessionOrigin m_Origin = SessionOrigin::LoadedChunk;
     std::string m_LoadMessage;
     InterfaceData m_Data;

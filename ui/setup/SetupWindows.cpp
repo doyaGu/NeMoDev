@@ -483,7 +483,7 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
         const bool entered = ImGui::InputText("##name", &m_Doc.renameText, ImGuiInputTextFlags_EnterReturnsTrue);
         if (ImGui::Button("OK", ImVec2(80, 0)) || entered) {
             FlushPending();
-            Report(RenameLevelObject(*m_State.document, m_Doc.renameObject, Utf8ToAnsi(m_Doc.renameText)), "Rename");
+            Report(RenameLevelObject(*m_State.document, m_State.document->Reference(m_Doc.renameObject), Utf8ToAnsi(m_Doc.renameText)), "Rename");
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();

@@ -337,7 +337,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
                                                   ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
             if (entered) {
                 const EditResult result =
-                    RenameLevelObject(*m_State.document, item.object, Utf8ToAnsi(m_HierarchyRenameBuffer));
+                    RenameLevelObject(*m_State.document, m_State.document->Reference(item.object), Utf8ToAnsi(m_HierarchyRenameBuffer));
                 if (!result.ok && !result.message.empty())
                     m_State.Log(LogLevel::Warning, "Hierarchy Manager: " + AnsiToUtf8(result.message));
                 m_Doc.hierarchyRename = 0;

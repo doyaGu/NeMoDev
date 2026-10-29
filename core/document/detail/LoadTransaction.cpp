@@ -29,7 +29,7 @@ struct SceneSequences : CKScene {
 struct LoadTransaction::State {
     using Chunk = std::unique_ptr<CKStateChunk, decltype(&DeleteCKStateChunk)>;
     struct Object {
-        CKObject *instance = nullptr;
+        CKObjectHandle handle{};
         std::string name;
         CKDWORD flags = 0;
         CKDWORD behaviorFlags = 0;
@@ -147,8 +147,8 @@ struct LoadTransaction::State {
             for (auto &path : category.second) pathManager->AddPath(index, path);
         }
     }
-    std::vector<CK_ID> loaded;
-    std::set<CK_ID> created, graveyard;
+    std::vector<CKObjectHandle> loaded;
+    std::map<CK_ID, CKQWORD> created, graveyard;
     std::map<CK_ID, std::pair<ScriptSession *, ScriptSession>> sessions;
     std::uint64_t topology = 0, savedTopology = 0, outside = 0, scriptsRevision = 0;
     std::vector<ScriptInfo> scripts;
@@ -209,7 +209,7 @@ bool LoadTransaction::Capture(std::string *error) {
             CKObject *object = all[i];
             if (!object) continue;
             State::Object saved;
-            saved.instance = object;
+            saved.handle = state.context->GetObjectHandle(object->GetID());
             saved.name = object->GetName() ? object->GetName() : "";
             saved.flags = object->GetObjectFlags();
             if (saved.flags & CK_OBJECT_NAMESHARED) saved.sharedName = object->GetName();
@@ -274,8 +274,12 @@ bool LoadTransaction::Rollback(std::string *error) {
         // Deletion callbacks run after removal from per-class lists. A load
         // failing there still leaves those instances in the object table.
         auto *objects = state.context->m_ObjectManager;
-        for (int i = 1; i <= objects->m_ObjectCount; ++i)
-            if (objects->m_Objects[i] && !state.objects.count(i)) added.push_back(i);
+        for (int i = 1; i <= objects->GetObjectsCount(); ++i) {
+            const auto handle = objects->GetObjectHandle(i);
+            const auto original = state.objects.find(i);
+            if (handle.Lifetime && (original == state.objects.end() || original->second.handle.Lifetime != handle.Lifetime))
+                added.push_back(i);
+        }
         if (!added.empty()) {
             // Delete exactly the new objects, without a dependency walk that
             // could pull shared original resources into the deletion set.
@@ -285,8 +289,9 @@ bool LoadTransaction::Rollback(std::string *error) {
         for (auto &manager : state.managers)
             if (manager.chunk && manager.instance->LoadData(manager.chunk.get(), state.file.get()) != CK_OK) restored = false;
         for (const auto &saved : state.objects) {
-            if (state.context->GetObject(saved.first) != saved.second.instance) { restored = false; continue; }
-            if (auto *scene = CKScene::Cast(saved.second.instance)) {
+            auto *original = state.context->GetObjectByHandle(saved.second.handle);
+            if (!original) { restored = false; continue; }
+            if (auto *scene = CKScene::Cast(original)) {
                 // A failure can interrupt BeginAdd/RemoveSequence before its
                 // matching end, or leave the notification list uncleared.
                 scene->*SceneSequences::AddCount() = 0;
@@ -301,17 +306,21 @@ bool LoadTransaction::Rollback(std::string *error) {
         std::vector<int> order;
         for (int i = 0; i < state.file->m_FileObjects.Size(); ++i) order.push_back(i);
         auto rank = [&](int i) {
-            CKObject *object = state.file->m_FileObjects[i].ObjPtr;
-            if (CKLevel::Cast(object)) return 4;
-            if (CKScene::Cast(object)) return 3;
-            if (CKBeObject::Cast(object)) return 2;
-            if (CKBehavior::Cast(object)) return 1;
+            const auto cid = state.file->m_FileObjects[i].ObjectCid;
+            if (CKIsChildClassOf(cid, CKCID_LEVEL)) return 4;
+            if (CKIsChildClassOf(cid, CKCID_SCENE)) return 3;
+            if (CKIsChildClassOf(cid, CKCID_BEOBJECT)) return 2;
+            if (CKIsChildClassOf(cid, CKCID_BEHAVIOR)) return 1;
             return 0;
         };
         std::stable_sort(order.begin(), order.end(), [&](int a, int b) { return rank(a) < rank(b); });
         for (int i : order) {
             auto &record = state.file->m_FileObjects[i];
-            if (state.context->GetObject(record.Object) != record.ObjPtr) { restored = false; continue; }
+            const auto original = state.objects.find(record.Object);
+            if (original == state.objects.end() || state.context->GetObjectByHandle(original->second.handle) != record.ObjPtr) {
+                restored = false;
+                continue;
+            }
             // A load checkpoint includes the editor's runtime objects too.
             // Do not replay an unchanged texture or viewport hierarchy: file
             // readers initialize new objects and need not be idempotent on
@@ -342,8 +351,8 @@ bool LoadTransaction::Rollback(std::string *error) {
             if (record.Data && record.ObjPtr->Load(record.Data, state.file.get()) != CK_OK) restored = false;
         }
         for (const auto &saved : state.objects) {
-            CKObject *object = state.context->GetObject(saved.first);
-            if (object != saved.second.instance) { restored = false; continue; }
+            CKObject *object = state.context->GetObjectByHandle(saved.second.handle);
+            if (!object) { restored = false; continue; }
             object->SetName(saved.second.sharedName ? saved.second.sharedName : const_cast<CKSTRING>(saved.second.name.c_str()),
                             saved.second.sharedName ? TRUE : FALSE);
             object->ModifyObjectFlags(saved.second.flags, ~saved.second.flags);

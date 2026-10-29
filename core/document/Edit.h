@@ -12,6 +12,7 @@
 
 #include "core/document/EditResult.h"
 #include "core/document/UndoHistory.h"
+#include "editor/Identity.h"
 
 namespace vdev {
 
@@ -28,7 +29,7 @@ public:
     // Replay dependencies, including objects referenced by before/after data.
     // The history keeps these IDs alive in the graveyard until the action is
     // evicted or discarded. Legacy actions can migrate incrementally.
-    virtual void RetainObjects(std::set<CK_ID> &objects) const {}
+    virtual void RetainObjects(const Document &document, std::set<CK_ID> &objects) const {}
 };
 
 // An undo step being built. Its actions are done as they
@@ -162,10 +163,10 @@ private:
     friend class NestedStep;
     friend class UndoHistory;
     // Objects required to replay this step, including its nested edits.
-    void RetainObjects(std::set<CK_ID> &objects) const;
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const;
     // A Script's display before and after the step.
     struct Display {
-        CK_ID script = 0;
+        ObjectRef script{};
         InterfaceData before, after;
     };
     bool Run(Document &document, bool undo, bool mark = true);
@@ -182,9 +183,9 @@ private:
     Edit::Marks m_Marks;
     std::vector<std::unique_ptr<Action>> m_Actions;
     std::vector<Display> m_Displays;
-    std::set<CK_ID> m_Touched;
-    std::set<CK_ID> m_Created;
-    std::set<CK_ID> m_Buried;
+    std::set<ObjectRef> m_Touched;
+    std::set<ObjectRef> m_Created;
+    std::set<ObjectRef> m_Buried;
 };
 
 // Applies mutate to a copy of the Script's display data and records the

@@ -67,16 +67,23 @@ SceneEnvironment DefaultNewSceneEnvironment() {
     return environment;
 }
 
+Document::Document(CkRuntimeHost &host) : m_Host(host), m_History(*this) {
+    if (Context()) {
+        m_Token = {NextToken()};
+        m_ContextGeneration = m_Host.Generation();
+    }
+}
+
 Document::~Document() {
     Close();
 }
 
-std::uint64_t Document::NextInstanceId() {
+std::uint64_t Document::NextToken() {
     static std::atomic<std::uint64_t> next{1};
     return next.fetch_add(1, std::memory_order_relaxed);
 }
 
-ObjectReferences::ObjectReferences(Document &document, std::set<CK_ID> objects)
+ObjectReferences::ObjectReferences(Document &document, std::set<ObjectRef> objects)
     : m_Document(&document), m_Objects(std::move(objects)) {}
 
 ObjectReferences::~ObjectReferences() {
@@ -85,12 +92,22 @@ ObjectReferences::~ObjectReferences() {
     m_Document->RequestGraveyardCollection();
 }
 
+bool ObjectReferences::IsValid() const {
+    return m_Document && std::all_of(m_Objects.begin(), m_Objects.end(), [&](ObjectRef reference) {
+        return m_Document->Resolve(reference, CKCID_OBJECT, Document::ObjectScope::Existing) != nullptr;
+    });
+}
+
+bool ObjectReferences::BelongsTo(const Document &document) const {
+    return m_Document == &document && IsValid();
+}
+
 std::shared_ptr<ObjectReferences> Document::RetainObjects(const std::vector<CK_ID> &objects) {
-    std::set<CK_ID> retained;
+    std::set<ObjectRef> retained;
     for (CK_ID id : objects) {
         CKObject *object = Context() ? Context()->GetObject(id) : nullptr;
         for (int depth = 0; object && depth < 256; ++depth, object = HolderOf(object))
-            retained.insert(object->GetID());
+            if (const auto reference = Reference(object->GetID()); reference.object) retained.insert(reference);
     }
     if (retained.empty()) return {};
     auto reference = std::shared_ptr<ObjectReferences>(new ObjectReferences(*this, std::move(retained)));
@@ -100,6 +117,35 @@ std::shared_ptr<ObjectReferences> Document::RetainObjects(const std::vector<CK_I
 
 CKContext *Document::Context() const {
     return m_Host.Context();
+}
+
+DocumentToken Document::Token() const {
+    return m_ContextGeneration == m_Host.Generation() ? m_Token : DocumentToken{};
+}
+
+ObjectRef Document::Reference(CK_ID id) const {
+    const auto token = Token();
+    const auto handle = token.value && Context() ? Context()->GetObjectHandle(id) : CKObjectHandle{};
+    return handle.Lifetime ? ObjectRef{token, handle.Id, handle.Lifetime} : ObjectRef{};
+}
+
+std::vector<ObjectRef> Document::References(const std::vector<CK_ID> &ids) const {
+    std::vector<ObjectRef> references;
+    references.reserve(ids.size());
+    for (auto id : ids) references.push_back(Reference(id));
+    return references;
+}
+
+CKObject *Document::Resolve(ObjectRef reference, CK_CLASSID cid, ObjectScope scope) const {
+    if (!reference || reference.document != Token() || !Context()) return nullptr;
+    auto *object = Context()->GetObjectByHandle({reference.object, reference.lifetime});
+    return object && CKIsChildClassOf(object, cid) &&
+           (scope == ObjectScope::Existing || !IsDiscarded(object->GetID())) ? object : nullptr;
+}
+
+CK_ID Document::NativeId(ObjectRef reference, ObjectScope scope) const {
+    auto *object = Resolve(reference, CKCID_OBJECT, scope);
+    return object ? object->GetID() : 0;
 }
 
 Document::PreparedOpen::PreparedOpen(Document &target) : m_Target(target) {}
@@ -135,10 +181,16 @@ void Document::CommitOpen(PreparedOpen &prepared) {
     m_Host.ExchangeContext(*prepared.m_Host);
     Document &candidate = *prepared.m_Document;
     m_Open = candidate.m_Open;
+    m_Token = {NextToken()};
+    m_ContextGeneration = m_Host.Generation();
     m_Origin = candidate.m_Origin;
     m_SourcePath = std::move(candidate.m_SourcePath);
     m_LoadedObjects = std::move(candidate.m_LoadedObjects);
     m_Scripts = std::move(candidate.m_Scripts);
+    for (auto &script : m_Scripts) {
+        script.reference = Reference(script.id);
+        script.ownerReference = Reference(script.ownerId);
+    }
     m_Sessions = std::move(candidate.m_Sessions);
     m_Graveyard = std::move(candidate.m_Graveyard);
     m_CreatedObjects = std::move(candidate.m_CreatedObjects);
@@ -195,12 +247,16 @@ bool Document::Open(const std::string &path, std::string *error, const SceneEnvi
     }
     // Every object of the file (CollectLoaded).
     std::set<CK_ID> listed;
-    CollectLoaded(file, objects, listed, m_LoadedObjects);
+    std::vector<CK_ID> loaded;
+    CollectLoaded(file, objects, listed, loaded);
+    for (CK_ID id : loaded) m_LoadedObjects.push_back(context->GetObjectHandle(id));
     context->DeleteCKFile(file);
     DeleteCKObjectArray(objects);
 
     m_SourcePath = path;
     m_Open = true;
+    m_Token = {NextToken()};
+    m_ContextGeneration = m_Host.Generation();
     m_Origin = Origin::LoadedComposition;
     if (!GuardedCall([&] {
         m_Layout = ReadLayoutLists(context, ReadLayoutInterfaceData(context));
@@ -261,8 +317,10 @@ bool Document::New(std::string *error, const SceneEnvironment &environment) {
     CKRenderManager *renderer = context->GetRenderManager();
     if (renderer && renderer->GetRenderContextCount() > 0) level->AddRenderContext(renderer->GetRenderContext(0), TRUE);
     if (CKScene *scene = level->GetLevelScene()) ApplyNewSceneEnvironment(scene, m_Host, environment);
-    m_LoadedObjects.push_back(level->GetID());
+    m_LoadedObjects.push_back(context->GetObjectHandle(level->GetID()));
     m_Open = true;
+    m_Token = {NextToken()};
+    m_ContextGeneration = m_Host.Generation();
     RefreshScripts();
     m_Host.Log(LogLevel::Info, "New composition");
     return true;
@@ -323,7 +381,8 @@ bool Document::MergeInPlace(const std::string &path, bool asScene, std::string *
         },
         &m_Host, "CKFile::Load");
     std::vector<CK_ID> loaded;
-    std::set<CK_ID> listed(m_LoadedObjects.begin(), m_LoadedObjects.end());
+    const auto existing = LoadedObjects();
+    std::set<CK_ID> listed(existing.begin(), existing.end());
     if (completed && result == CK_OK) CollectLoaded(file, objects, listed, loaded);
     context->DeleteCKFile(file);
     DeleteCKObjectArray(objects);
@@ -369,7 +428,7 @@ bool Document::MergeInPlace(const std::string &path, bool asScene, std::string *
             }
     for (CK_ID id : loaded)
         if (context->GetObject(id)) {
-            m_LoadedObjects.push_back(id);
+            m_LoadedObjects.push_back(Context()->GetObjectHandle(id));
             if (merged) merged->push_back(id);
         }
     MarkTopologyChanged();
@@ -418,7 +477,8 @@ bool Document::ImportInPlace(const std::string &path, ImportMode mode, std::stri
     CKObjectArray *objects = CreateCKObjectArray();
     CKERROR result = CKERR_INVALIDFILE;
     std::vector<CK_ID> loaded;
-    std::set<CK_ID> listed(m_LoadedObjects.begin(), m_LoadedObjects.end());
+    const auto existing = LoadedObjects();
+    std::set<CK_ID> listed(existing.begin(), existing.end());
     bool completed = false;
     if (IsVirtoolsFile(path)) {
         // As Open and Merge: the file's object list also has the objects the
@@ -523,7 +583,7 @@ bool Document::ImportInPlace(const std::string &path, ImportMode mode, std::stri
     int count = 0;
     for (CK_ID id : loaded)
         if (context->GetObject(id)) {
-            m_LoadedObjects.push_back(id);
+            m_LoadedObjects.push_back(Context()->GetObjectHandle(id));
             if (imported) imported->push_back(id);
             ++count;
         }
@@ -534,10 +594,30 @@ bool Document::ImportInPlace(const std::string &path, ImportMode mode, std::stri
     return true;
 }
 
+std::vector<CK_ID> Document::LoadedObjects() const {
+    std::vector<CK_ID> objects;
+    for (CKObjectHandle handle : m_LoadedObjects)
+        if (Context() && Context()->GetObjectByHandle(handle)) objects.push_back(handle.Id);
+    return objects;
+}
+
+std::set<CK_ID> Document::CreatedObjects() const {
+    std::set<CK_ID> objects;
+    for (const auto &entry : m_CreatedObjects)
+        if (Context() && Context()->GetObjectByHandle({entry.first, entry.second})) objects.insert(entry.first);
+    return objects;
+}
+
+void Document::Include(CK_ID id) {
+    const auto handle = Context() ? Context()->GetObjectHandle(id) : CKObjectHandle{};
+    if (handle.Lifetime) m_CreatedObjects[id] = handle.Lifetime;
+}
+
 void Document::AdoptObjects(const std::vector<CK_ID> &objects) {
-    std::set<CK_ID> listed(m_LoadedObjects.begin(), m_LoadedObjects.end());
+    const auto existing = LoadedObjects();
+    std::set<CK_ID> listed(existing.begin(), existing.end());
     for (CK_ID id : objects)
-        if (listed.insert(id).second) m_LoadedObjects.push_back(id);
+        if (listed.insert(id).second) m_LoadedObjects.push_back(Context()->GetObjectHandle(id));
     MarkTopologyChanged();
 }
 
@@ -590,7 +670,18 @@ void Document::Close() {
     m_TopologyRevision = m_SavedTopologyRevision = 0;
     if (m_Open && Context()) m_Host.ClearAll();
     m_Open = false;
+    m_Token = {};
     m_Origin = Origin::NewComposition;
+}
+
+void Document::SetDiscarded(ObjectRef object, bool discarded) {
+    if (object.document != Token()) return;
+    if (discarded) {
+        if (NativeId(object, ObjectScope::Existing)) m_Graveyard[object.object] = object.lifetime;
+    } else {
+        const auto found = m_Graveyard.find(object.object);
+        if (found != m_Graveyard.end() && found->second == object.lifetime) m_Graveyard.erase(found);
+    }
 }
 
 void Document::RequestGraveyardCollection() {
@@ -610,7 +701,8 @@ void Document::CollectGraveyard() {
     // destruction of a graph must not invalidate a retained descendant.
     std::set<CK_ID> retained = m_History.RetainedObjects();
     for (const ObjectReferences *reference : m_ObjectReferences)
-        retained.insert(reference->m_Objects.begin(), reference->m_Objects.end());
+        for (ObjectRef object : reference->m_Objects)
+            if (const auto id = NativeId(object, ObjectScope::Existing)) retained.insert(id);
     const auto roots = retained;
     for (CK_ID id : roots) {
         CKObject *object = context->GetObject(id);
@@ -620,8 +712,9 @@ void Document::CollectGraveyard() {
     retained = CollectOwnedObjects(context, retained);
 
     std::vector<CK_ID> doomed;
-    for (CK_ID id : m_Graveyard) {
-        if (!context->GetObject(id) || retained.count(id)) continue;
+    for (const auto &entry : m_Graveyard) {
+        const auto id = entry.first;
+        if (!context->GetObjectByHandle({id, entry.second}) || retained.count(id)) continue;
         const auto owned = CollectOwnedObjects(context, {id});
         if (std::none_of(owned.begin(), owned.end(), [&](CK_ID child) { return retained.count(child); }))
             doomed.push_back(id);
@@ -647,13 +740,13 @@ void Document::CollectGraveyard() {
     // Include descendants destroyed by CK, not just the graveyard roots.
     // Stale tracking would misidentify an object if its ID is reused.
     for (auto it = m_Graveyard.begin(); it != m_Graveyard.end();)
-        if (!context->GetObject(*it)) it = m_Graveyard.erase(it);
+        if (!context->GetObjectByHandle({it->first, it->second})) it = m_Graveyard.erase(it);
         else ++it;
     for (auto it = m_CreatedObjects.begin(); it != m_CreatedObjects.end();)
-        if (!context->GetObject(*it)) it = m_CreatedObjects.erase(it);
+        if (!context->GetObjectByHandle({it->first, it->second})) it = m_CreatedObjects.erase(it);
         else ++it;
     m_LoadedObjects.erase(std::remove_if(m_LoadedObjects.begin(), m_LoadedObjects.end(),
-                                        [&](CK_ID id) { return !context->GetObject(id); }), m_LoadedObjects.end());
+                                        [&](CKObjectHandle handle) { return !context->GetObjectByHandle(handle); }), m_LoadedObjects.end());
     // Reclaimed IDs may be reused. Keep discarded-but-retained objects' data
     // for Undo, and remove it only once the native object is actually gone.
     auto prune = [&](auto &entries, auto idOf) {
@@ -691,12 +784,13 @@ std::vector<CKObject *> Document::LiveObjects(CK_CLASSID cid, bool derived) cons
 }
 
 bool Document::IsDiscarded(CK_ID id) const {
-    if (m_Graveyard.count(id)) return true;
     if (m_Graveyard.empty()) return false;
     CKContext *context = Context();
     CKObject *object = context ? context->GetObject(id) : nullptr;
-    for (int depth = 0; object && depth < 256; ++depth, object = HolderOf(object))
-        if (m_Graveyard.count(object->GetID())) return true;
+    for (int depth = 0; object && depth < 256; ++depth, object = HolderOf(object)) {
+        const auto found = m_Graveyard.find(object->GetID());
+        if (found != m_Graveyard.end() && context->GetObjectByHandle({found->first, found->second}) == object) return true;
+    }
     return false;
 }
 
@@ -712,7 +806,7 @@ void Document::RefreshScripts() {
     m_Scripts.clear();
     ListScripts();
     auto same = [](const ScriptInfo &a, const ScriptInfo &b) {
-        return a.id == b.id && a.ownerId == b.ownerId && a.name == b.name && a.ownerName == b.ownerName;
+        return a.reference == b.reference && a.ownerReference == b.ownerReference && a.name == b.name && a.ownerName == b.ownerName;
     };
     if (!std::equal(before.begin(), before.end(), m_Scripts.begin(), m_Scripts.end(), same)) ++m_ScriptsRevision;
 }
@@ -722,7 +816,7 @@ void Document::ListScripts() {
     if (!context) return;
     // Destroyed Scripts (Level Manager Delete) leave with their sessions.
     for (auto it = m_Sessions.begin(); it != m_Sessions.end();) {
-        if (context->GetObject(it->first)) {
+        if (it->second->IsCurrent()) {
             ++it;
             continue;
         }
@@ -738,7 +832,7 @@ void Document::ListScripts() {
     for (int i = 0; i < count; ++i) {
         CKBehavior *behavior = CKBehavior::Cast(context->GetObject(ids[i]));
         if (!behavior || !(behavior->GetType() & CKBEHAVIORTYPE_SCRIPT)) continue;
-        if (m_Graveyard.count(behavior->GetID())) continue;
+        if (IsDiscarded(behavior->GetID())) continue;
         CKBeObject *owner = behavior->GetOwner();
         if (!owner) {
             orphanScripts.push_back(behavior->GetID());
@@ -749,8 +843,10 @@ void Document::ListScripts() {
     auto add = [&](CKBehavior *script, CKBeObject *owner) {
         ScriptInfo info;
         info.id = script->GetID();
+        info.reference = Reference(info.id);
         info.name = NameOf(script);
         info.ownerId = owner ? owner->GetID() : 0;
+        info.ownerReference = Reference(info.ownerId);
         info.ownerName = NameOf(owner);
         info.hasInterfaceChunk = script->GetInterfaceChunk() != nullptr;
         m_Scripts.push_back(info);
@@ -759,7 +855,7 @@ void Document::ListScripts() {
         CKBeObject *owner = CKBeObject::Cast(context->GetObject(ownerId));
         for (int i = 0; owner && i < owner->GetScriptCount(); ++i) {
             CKBehavior *script = owner->GetScript(i);
-            if (script && !m_Graveyard.count(script->GetID())) add(script, owner);
+            if (script && !IsDiscarded(script->GetID())) add(script, owner);
         }
     }
     for (CK_ID id : orphanScripts) add(CKBehavior::Cast(context->GetObject(id)), nullptr);
@@ -767,13 +863,17 @@ void Document::ListScripts() {
 
 const ScriptInfo *Document::FindScript(CK_ID id) const {
     for (const auto &script : m_Scripts)
-        if (script.id == id) return &script;
+        if (script.id == id && Resolve(script.reference, CKCID_BEHAVIOR)) return &script;
     return nullptr;
 }
 
 ScriptSession *Document::ExistingSession(CK_ID scriptId) {
     auto found = m_Sessions.find(scriptId);
-    return found != m_Sessions.end() ? found->second.get() : nullptr;
+    if (found == m_Sessions.end()) return nullptr;
+    if (found->second->IsCurrent()) return found->second.get();
+    m_ChangesOutsideUndo += found->second->ChangesOutsideUndo();
+    m_Sessions.erase(found);
+    return nullptr;
 }
 
 ScriptSession *Document::Session(CK_ID scriptId) {

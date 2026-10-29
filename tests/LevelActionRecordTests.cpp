@@ -5,8 +5,8 @@
 
 namespace vdevtest {
 namespace {
-ActionObject Ref(CKObject *object) { return {object->GetID(), object->GetClassID()}; }
-template <typename T = ObjectNameChange> LevelActionRecord Record(Document &document) { return {document.InstanceId(), document.Host().Generation(), std::vector<T>{}}; }
+ObjectRef Ref(Document &document, CKObject *object) { return document.Reference(object->GetID()); }
+template <typename T = ObjectNameChange> LevelActionRecord Record(Document &document) { return {document.Token(), std::vector<T>{}}; }
 std::string Name(CKObject *object) { return object->GetName() ? object->GetName() : ""; }
 int Visibility(CKObject *object) { return object->IsHierarchicallyHide() ? CKHIERARCHICALHIDE : object->IsVisible() ? CKSHOW : CKHIDE; }
 
@@ -29,7 +29,7 @@ public:
 LevelActionRecord VisibilityRecord(Document &document, CKObject *a, CKObject *b) {
     auto record = Record<ObjectIntegerChange>(document);
     for (auto *object : {a, b})
-        record.Changes<ObjectIntegerChange>().emplace_back(ObjectIntegerChange{Ref(object), ObjectIntegerProperty::Visibility, CKSHOW, CKHIDE});
+        record.Changes<ObjectIntegerChange>().emplace_back(ObjectIntegerChange{Ref(document, object), ObjectIntegerProperty::Visibility, CKSHOW, CKHIDE});
     return record;
 }
 void Bury(Document &document, const std::vector<CK_ID> &objects) {
@@ -50,7 +50,7 @@ void LevelActionRecordReplay(CkRuntimeHost &host) {
     const auto texture = CreateLayoutObject(document, LayoutObject::Texture);
     CHECK(frame.ok && parent.ok && child2d.ok && parent2d.ok && texture.ok);
     auto *object = context->GetObject(frame.created);
-    ExpectUndoRoundTrip(document, "Recorded rename", [&] { return RenameLevelObject(document, frame.created, "Recorded Frame"); });
+    ExpectUndoRoundTrip(document, "Recorded rename", [&] { return RenameLevelObject(document, document.Reference(frame.created), "Recorded Frame"); });
     ExpectUndoRoundTrip(document, "Recorded visibility", [&] { return ShowObjectsAs(document, {frame.created}, CKHIERARCHICALHIDE); });
     ExpectUndoRoundTrip(document, "Recorded priority", [&] { return SetPriorities(document, {frame.created}, 17); });
     ExpectUndoRoundTrip(document, "Recorded render priority", [&] { return SetRenderPriority(document, {frame.created}, -18); });
@@ -69,24 +69,24 @@ void LevelActionRecordReplay(CkRuntimeHost &host) {
     // record gone. The interpreter has no closures pointing at either.
     auto payload = Record(document);
     const auto current = Name(object);
-    payload.Changes<ObjectNameChange>().emplace_back(ObjectNameChange{Ref(object), current, "Recovered record"});
+    payload.Changes<ObjectNameChange>().emplace_back(ObjectNameChange{Ref(document, object), current, "Recovered record"});
     const auto saved = payload;
     auto restored = RestoreLevelAction(payload);
     payload.Changes<ObjectNameChange>().clear();
     CHECK(restored->Redo(document) && Name(object) == "Recovered record");
     CHECK(restored->Undo(document) && Name(object) == current);
     auto invalid = saved;
-    invalid.Changes<ObjectNameChange>().insert(invalid.Changes<ObjectNameChange>().begin(), ObjectNameChange{Ref(scene), Name(scene), "Must not be written"});
-    invalid.Changes<ObjectNameChange>().back().object.id = 0xFFFFFFFF;
+    invalid.Changes<ObjectNameChange>().insert(invalid.Changes<ObjectNameChange>().begin(), ObjectNameChange{Ref(document, scene), Name(scene), "Must not be written"});
+    invalid.Changes<ObjectNameChange>().back().object.lifetime = UINT64_MAX;
     const auto sceneName = Name(scene);
     CHECK(!RestoreLevelAction(invalid)->Redo(document) && Name(scene) == sceneName);
-    invalid.Changes<ObjectNameChange>().back().object = {frame.created, CKCID_TEXTURE};
+    invalid.Changes<ObjectNameChange>().back().object = {DocumentToken{UINT64_MAX}, 1};
     CHECK(!RestoreLevelAction(invalid)->Redo(document) && Name(scene) == sceneName);
     auto badProperty = Record<ObjectIntegerChange>(document);
-    badProperty.Changes<ObjectIntegerChange>().emplace_back(ObjectIntegerChange{Ref(object), static_cast<ObjectIntegerProperty>(-1), 0, 1});
+    badProperty.Changes<ObjectIntegerChange>().emplace_back(ObjectIntegerChange{Ref(document, object), static_cast<ObjectIntegerProperty>(-1), 0, 1});
     CHECK(!RestoreLevelAction(badProperty)->Redo(document));
     auto missingParent = Record<ObjectParentChange>(document);
-    missingParent.Changes<ObjectParentChange>().emplace_back(ObjectParentChange{Ref(object), {Ref(context->GetObject(parent.created)), false}, {{0xFFFFFFFF, CKCID_3DENTITY}, false}});
+    missingParent.Changes<ObjectParentChange>().emplace_back(ObjectParentChange{Ref(document, object), {Ref(document, context->GetObject(parent.created)), false}, {{document.Token(), UINT32_MAX, UINT64_MAX}, false}});
     CHECK(!RestoreLevelAction(missingParent)->Redo(document));
     CHECK(ApplyLevelActionRecord(document, "Recovered data", saved).ok);
     CHECK(document.History().Undo() && Name(object) == current);
@@ -99,7 +99,7 @@ void LevelActionRecordReplay(CkRuntimeHost &host) {
         auto foreign = saved;
         foreign.Changes<ObjectNameChange>().front().after = "Wrong document";
         const auto originalName = Name(object);
-        CHECK(document.InstanceId() != other.InstanceId());
+        CHECK(document.Token() != other.Token());
         CHECK(!RestoreLevelAction(foreign)->Redo(other));
         CHECK(Name(object) == originalName && !other.History().CanUndo());
         document.Close(); // Release the owning document before the wrapper.
@@ -108,9 +108,9 @@ void LevelActionRecordReplay(CkRuntimeHost &host) {
     const auto newName = Name(document.Context()->GetCurrentLevel());
     CHECK(!restored->Redo(document));
     auto stale = saved;
-    stale.Changes<ObjectNameChange>().front().object = Ref(document.Context()->GetCurrentLevel());
+    stale.Changes<ObjectNameChange>().front().object = Ref(document, document.Context()->GetCurrentLevel());
     stale.Changes<ObjectNameChange>().front().after = "Wrong context";
-    CHECK(stale.contextGeneration != document.Host().Generation());
+    CHECK(stale.document != document.Token());
     CHECK(!RestoreLevelAction(stale)->Redo(document));
     CHECK(Name(document.Context()->GetCurrentLevel()) == newName && !document.History().CanUndo());
     CHECK(saved.Changes<ObjectNameChange>().front().after == "Recovered record");
@@ -128,7 +128,7 @@ void LevelActionRecordFailures(CkRuntimeHost &host) {
         history.Clear(); a->Reset(); b->Reset();
         document.MarkSaved(); history.MarkSavePoint();
         auto *level = document.Context()->GetCurrentLevel();
-        CHECK(RenameLevelObject(document, level->GetID(), Name(level) + " seed").ok);
+        CHECK(RenameLevelObject(document, document.Reference(level->GetID()), Name(level) + " seed").ok);
         CHECK(history.Undo() && !document.Dirty() && history.CanRedo());
     };
     seed();
@@ -174,7 +174,7 @@ void LevelActionRecordDependencies(CkRuntimeHost &host) {
         CHECK(frame.ok);
         auto *object = document.Context()->GetObject(frame.created);
         auto payload = Record(document);
-        payload.Changes<ObjectNameChange>().emplace_back(ObjectNameChange{Ref(object), Name(object), "Retained by record"});
+        payload.Changes<ObjectNameChange>().emplace_back(ObjectNameChange{Ref(document, object), Name(object), "Retained by record"});
         CHECK(history.Undo() && document.IsDiscarded(frame.created));
         {
             Edit outer(document, "Nested recovered record");
@@ -189,7 +189,7 @@ void LevelActionRecordDependencies(CkRuntimeHost &host) {
         if (release == 2) {
             CHECK(history.Undo());
             auto *level = document.Context()->GetCurrentLevel();
-            CHECK(RenameLevelObject(document, level->GetID(), "Replace record Redo").ok);
+            CHECK(RenameLevelObject(document, document.Reference(level->GetID()), "Replace record Redo").ok);
         }
         CHECK(!document.Context()->GetObject(frame.created));
     }
@@ -205,7 +205,7 @@ void LevelActionRecordDependencies(CkRuntimeHost &host) {
     auto after = before;
     after.backgroundTexture = after.startingCamera = 0;
     auto payload = Record<SceneEnvironmentChange>(document);
-    payload.Changes<SceneEnvironmentChange>().emplace_back(SceneEnvironmentChange{Ref(scene), before, after});
+    payload.Changes<SceneEnvironmentChange>().emplace_back(SceneEnvironmentChange{Ref(document, scene), RecordSceneEnvironment(document, before), RecordSceneEnvironment(document, after)});
     Bury(document, {camera.created, texture.created});
     CHECK(ApplyLevelActionRecord(document, "Referenced environment", payload).ok);
     history.SetLimit(1); // Evicts creation, deletion and older environment steps.
@@ -223,8 +223,8 @@ void LevelActionRecordDependencies(CkRuntimeHost &host) {
     CHECK(a.ok && b.ok && child.ok && SetHierarchyParent(document, child.created, a.created).ok);
     auto parentRecord = Record<ObjectParentChange>(document);
     parentRecord.Changes<ObjectParentChange>().emplace_back(ObjectParentChange{
-        Ref(document.Context()->GetObject(child.created)), {Ref(document.Context()->GetObject(a.created)), false},
-        {Ref(document.Context()->GetObject(b.created)), false}});
+        Ref(document, document.Context()->GetObject(child.created)), {Ref(document, document.Context()->GetObject(a.created)), false},
+        {Ref(document, document.Context()->GetObject(b.created)), false}});
     Bury(document, {a.created, b.created});
     CHECK(ApplyLevelActionRecord(document, "Retained parent references", parentRecord).ok);
     history.SetLimit(1);

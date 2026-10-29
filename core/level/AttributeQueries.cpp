@@ -75,10 +75,12 @@ std::vector<AttributeObjectInfo> ReadAttributeObjects(const Document &document, 
             if (!object || object->IsDynamic() || !document.IsLive(object->GetID()) || !object->HasAttribute(type)) return;
             AttributeObjectInfo info;
             info.object = object->GetID();
+            info.reference = document.Reference(info.object);
             info.type = type;
             info.name = object->GetName() ? object->GetName() : "";
             if (auto *value = object->GetAttributeParameter(type)) {
                 info.parameter = value->GetID();
+                info.parameterReference = document.Reference(info.parameter);
                 info.value = ParameterText(value);
                 if (const char *name = parameters->ParameterTypeToName(value->GetType())) info.parameterName = name;
             }

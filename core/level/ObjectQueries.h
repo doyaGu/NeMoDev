@@ -4,14 +4,17 @@
 #include <vector>
 
 #include "CKAll.h"
+#include "editor/Identity.h"
 
 namespace vdev {
 class Document;
 
 // Owned query values, with no native object lifetime. Names use CK encoding.
 // Visible-object queries exclude the document's graveyard. Read again after an
-// edit; a retained value describes the old state and is never an edit target.
+// edit; retained values describe the old state. Commands validate reference
+// again rather than interpreting the numeric ID as a lifetime.
 struct ObjectSummary {
+    ObjectRef reference{};
     CK_ID id = 0;
     CK_CLASSID cid = 0;
     std::string name;

@@ -15,7 +15,9 @@ endif ()
 get_filename_component(VIRTOOLSDEV_SOURCE_DIR "${VIRTOOLSDEV_SOURCE_DIR}" ABSOLUTE)
 
 file(GLOB_RECURSE _headers RELATIVE "${VIRTOOLSDEV_SOURCE_DIR}"
-        "${VIRTOOLSDEV_SOURCE_DIR}/core/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/html/*.h")
+        "${VIRTOOLSDEV_SOURCE_DIR}/core/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/html/*.h"
+        "${VIRTOOLSDEV_SOURCE_DIR}/editor/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/application/*.h"
+        "${VIRTOOLSDEV_SOURCE_DIR}/workspace/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/features/*.h")
 set(_header_names "")
 foreach (_header IN LISTS _headers)
     get_filename_component(_name "${_header}" NAME)
@@ -26,13 +28,21 @@ file(GLOB_RECURSE _sources RELATIVE "${VIRTOOLSDEV_SOURCE_DIR}"
         "${VIRTOOLSDEV_SOURCE_DIR}/core/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/core/*.cpp"
         "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.cpp"
         "${VIRTOOLSDEV_SOURCE_DIR}/html/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/html/*.cpp"
-        "${VIRTOOLSDEV_SOURCE_DIR}/tests/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/tests/*.cpp")
+        "${VIRTOOLSDEV_SOURCE_DIR}/tests/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/tests/*.cpp" "${VIRTOOLSDEV_SOURCE_DIR}/tests/*.c"
+        "${VIRTOOLSDEV_SOURCE_DIR}/editor/*.h"
+        "${VIRTOOLSDEV_SOURCE_DIR}/application/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/application/*.cpp"
+        "${VIRTOOLSDEV_SOURCE_DIR}/workspace/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/workspace/*.cpp"
+        "${VIRTOOLSDEV_SOURCE_DIR}/features/*.h" "${VIRTOOLSDEV_SOURCE_DIR}/features/*.cpp"
+        "${VIRTOOLSDEV_SOURCE_DIR}/core/*.mm" "${VIRTOOLSDEV_SOURCE_DIR}/ui/*.mm"
+        "${VIRTOOLSDEV_SOURCE_DIR}/html/*.mm" "${VIRTOOLSDEV_SOURCE_DIR}/tests/*.mm"
+        "${VIRTOOLSDEV_SOURCE_DIR}/application/*.mm" "${VIRTOOLSDEV_SOURCE_DIR}/workspace/*.mm"
+        "${VIRTOOLSDEV_SOURCE_DIR}/features/*.mm")
 
 set(_errors "")
 foreach (_source IN LISTS _sources)
-    file(STRINGS "${VIRTOOLSDEV_SOURCE_DIR}/${_source}" _lines REGEX "^[ \t]*#[ \t]*include[ \t]*[\"<]")
+    file(STRINGS "${VIRTOOLSDEV_SOURCE_DIR}/${_source}" _lines REGEX "^[ \t]*#[ \t]*(include|import)[ \t]*[\"<]")
     foreach (_line IN LISTS _lines)
-        string(REGEX REPLACE "^[ \t]*#[ \t]*include[ \t]*[\"<]([^\">]+)[\">].*$" "\\1" _path "${_line}")
+        string(REGEX REPLACE "^[ \t]*#[ \t]*(include|import)[ \t]*[\"<]([^\">]+)[\">].*$" "\\2" _path "${_line}")
         get_filename_component(_name "${_path}" NAME)
         if (_path STREQUAL _name)
             list(FIND _header_names "${_name}" _found)
@@ -40,6 +50,23 @@ foreach (_source IN LISTS _sources)
                 list(APPEND _errors "${_source}: #include \"${_path}\" without its path")
             endif ()
         endif ()
+        if(_source MATCHES "^editor/" AND NOT _source STREQUAL "editor/ImGuiDrawing.h")
+            if(NOT _path MATCHES "^(stdint\\.h|editor/(Identity|Editor)\\.h)$")
+                list(APPEND _errors "${_source}: public editor interface includes ${_path}")
+            endif()
+        endif()
+        if(_source MATCHES "^application/" AND _path MATCHES "^(core/|ui/|features/|workspace/|CK|Vx|SDL|imgui|backends/)" AND
+                NOT (_source STREQUAL "application/EditorApplication.cpp" AND
+                     _path MATCHES "^core/(document/(Document|Edit)|runtime/TextEncoding)\\.h$"))
+            list(APPEND _errors "${_source}: editor commands include ${_path}")
+        endif()
+        if((_source MATCHES "^workspace/" OR _source MATCHES "^features/objects/ObjectViews") AND
+                _path MATCHES "^(core/|ui/|CK|Vx|SDL)")
+            list(APPEND _errors "${_source}: object views include native or legacy editor state ${_path}")
+        endif()
+        if(_source MATCHES "^tests/modules/" AND _path MATCHES "^(core/|ui/|application/|workspace/|features/|CK|Vx|SDL|imgui_internal)")
+            list(APPEND _errors "${_source}: external module includes private editor code ${_path}")
+        endif()
         if (_source MATCHES "^core/")
             if (_path MATCHES "^ui/" OR _path MATCHES "^html/" OR _path MATCHES "^imgui" OR _path MATCHES "^backends/"
                     OR _path MATCHES "^misc/cpp/" OR _path MATCHES "^d3d")

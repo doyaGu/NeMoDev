@@ -11,7 +11,8 @@ void CheckGone(Document &document, const std::set<CK_ID> &ids) {
         CHECK(!document.IsDiscarded(id));
         CHECK(!document.CreatedObjects().count(id));
         CHECK(!document.ExistingSession(id));
-        CHECK(std::find(document.LoadedObjects().begin(), document.LoadedObjects().end(), id) == document.LoadedObjects().end());
+        const auto loaded = document.LoadedObjects();
+        CHECK(std::find(loaded.begin(), loaded.end(), id) == loaded.end());
     }
 }
 

@@ -48,8 +48,8 @@ bool UndoHistory::Evict() {
 
 std::set<CK_ID> UndoHistory::RetainedObjects() const {
     std::set<CK_ID> objects;
-    for (const auto &step : m_Undo) step->RetainObjects(objects);
-    for (const auto &step : m_Redo) step->RetainObjects(objects);
+    for (const auto &step : m_Undo) step->RetainObjects(m_Document, objects);
+    for (const auto &step : m_Redo) step->RetainObjects(m_Document, objects);
     return objects;
 }
 

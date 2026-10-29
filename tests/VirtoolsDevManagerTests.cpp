@@ -302,16 +302,16 @@ void LevelManagerCommands(CkRuntimeHost &host) {
     check(undo.Undo() && entity->GetParent() == context->GetObject(place.created), "undo remove from place");
     check(undo.Undo() && !entity->GetParent(), "undo create place");
     // Rename.
-    check(RenameLevelObject(document, other->GetID(), "Renamed").ok &&
+    check(RenameLevelObject(document, document.Reference(other->GetID()), "Renamed").ok &&
               std::string(other->GetName()) == "Renamed",
           "rename");
     check(undo.Undo() && std::string(other->GetName()) == "Other Entity", "undo rename");
     {
         const size_t steps = undo.UndoCount();
-        const EditResult same = RenameLevelObject(document, other->GetID(), "Other Entity");
+        const EditResult same = RenameLevelObject(document, document.Reference(other->GetID()), "Other Entity");
         check(same.Unchanged() && same.Status() == EditStatus::NoChange && (undo.UndoCount() - steps) == 0,
               "the same name: nothing to do, not refused");
-        check(RenameLevelObject(document, 0, "Nobody").Status() == EditStatus::Refused, "no object: refused");
+        check(RenameLevelObject(document, document.Reference(0), "Nobody").Status() == EditStatus::Refused, "no object: refused");
     }
     // Arrays, 3D Layout visibility, positions.
     EditResult array = CreateArray(document, "");

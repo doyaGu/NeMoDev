@@ -26,8 +26,7 @@ struct InitialConditionChunk {
 };
 
 struct InitialConditionEntry {
-    CK_ID object = 0;
-    CKObject *instance = nullptr;
+    ObjectRef object{};
     std::unique_ptr<InitialConditionChunk> before; // initial value (Set/Remove) or object state (Restore) before
     std::unique_ptr<InitialConditionChunk> after;
 };
@@ -43,22 +42,23 @@ class InitialConditionsAction : public Action {
 public:
     InitialConditionsAction(Document &document, CKScene *scene, InitialConditions action,
                             std::vector<InitialConditionEntry> entries)
-        : m_Scene(scene->GetID()), m_SceneInstance(scene), m_Generation(document.Host().Generation()),
-          m_Action(action), m_Entries(std::move(entries)) {}
+        : m_Scene(document.Reference(scene->GetID())), m_Action(action), m_Entries(std::move(entries)) {}
     bool Redo(Document &document) override { return Apply(document, false); }
     bool Undo(Document &document) override { return Apply(document, true); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        if (auto id = document.NativeId(m_Scene, Document::ObjectScope::Existing)) objects.insert(id);
+        for (const auto &entry : m_Entries)
+            if (auto id = document.NativeId(entry.object, Document::ObjectScope::Existing)) objects.insert(id);
+    }
 
 private:
     CKScene *Scene(Document &document) const {
-        if (document.Host().Generation() != m_Generation) return nullptr;
-        CKContext *context = document.Context();
-        CKScene *scene = context ? CKScene::Cast(context->GetObject(m_Scene)) : nullptr;
-        return scene == m_SceneInstance ? scene : nullptr;
+        return CKScene::Cast(document.Resolve(m_Scene, CKCID_SCENE, Document::ObjectScope::Existing));
     }
     bool Valid(Document &document, const InitialConditionEntry &entry) const {
         CKScene *scene = Scene(document);
-        return scene && document.IsLive(entry.object) && document.Context()->GetObject(entry.object) == entry.instance &&
-               scene->IsObjectHere(entry.instance);
+        auto *object = document.Resolve(entry.object, CKCID_SCENEOBJECT);
+        return scene && object && scene->IsObjectHere(object);
     }
     bool Write(Document &document, InitialConditionEntry &entry, bool undo) {
         bool written = false;
@@ -66,17 +66,18 @@ private:
         return GuardedCall([&] {
             if (!Valid(document, entry)) return;
             CKScene *scene = Scene(document);
+            auto *object = static_cast<CKSceneObject *>(document.Resolve(entry.object, CKCID_SCENEOBJECT));
             const InitialConditionChunk &state = undo ? *entry.before : *entry.after;
             if (m_Action == InitialConditions::Restore) {
-                written = state.chunk && CKReadObjectState(entry.instance, state.chunk) == CK_OK;
+                written = state.chunk && CKReadObjectState(object, state.chunk) == CK_OK;
             } else {
                 copy.reset(state.Copy());
                 if (state.chunk && !copy) return;
                 CKStateChunk *expected = copy.get();
-                if (!scene->SetObjectInitialValue(static_cast<CKSceneObject *>(entry.instance), expected)) return;
+                if (!scene->SetObjectInitialValue(object, expected)) return;
                 copy.release(); // The scene owns the installed copy, including a null initial value.
                 if (!Valid(document, entry)) return;
-                written = scene->GetObjectInitialValue(static_cast<CKSceneObject *>(entry.instance)) == expected;
+                written = scene->GetObjectInitialValue(object) == expected;
             }
             written = written && Valid(document, entry);
         }, &document.Host(), "Apply initial conditions") && written;
@@ -94,39 +95,44 @@ private:
                     restored = Write(document, m_Entries[j], !undo) && restored;
                 if (!restored) {
                     document.Host().Log(LogLevel::Error, "Initial condition recovery was incomplete: the undo history is cleared");
-                    if (document.Host().Generation() == m_Generation) document.InvalidateHistory();
+                    if (document.Token() == m_Scene.document) document.InvalidateHistory();
                 }
                 return false;
             }
         return true;
     }
-    CK_ID m_Scene;
-    CKScene *m_SceneInstance;
-    std::uint64_t m_Generation;
+    ObjectRef m_Scene;
     InitialConditions m_Action;
     std::vector<InitialConditionEntry> m_Entries;
 };
 
 class SceneFlagsAction : public Action {
 public:
-    SceneFlagsAction(CK_ID scene, std::vector<std::pair<CK_ID, CKDWORD>> before, CKDWORD add, CKDWORD remove)
+    SceneFlagsAction(ObjectRef scene, std::vector<std::pair<ObjectRef, CKDWORD>> before, CKDWORD add, CKDWORD remove)
         : m_Scene(scene), m_Before(std::move(before)), m_Add(add), m_Remove(remove) {}
     bool Redo(Document &document) override { return Apply(document, false); }
     bool Undo(Document &document) override { return Apply(document, true); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        if (auto id = document.NativeId(m_Scene, Document::ObjectScope::Existing)) objects.insert(id);
+        for (const auto &entry : m_Before)
+            if (auto id = document.NativeId(entry.first, Document::ObjectScope::Existing)) objects.insert(id);
+    }
 
 private:
     bool Apply(Document &document, bool undo) {
-        CKScene *scene = CKScene::Cast(document.Context()->GetObject(m_Scene));
+        CKScene *scene = CKScene::Cast(document.Resolve(m_Scene, CKCID_SCENE, Document::ObjectScope::Existing));
         if (!scene) return false;
         for (const auto &entry : m_Before)
-            if (CKSceneObject *object = CKSceneObject::Cast(document.Context()->GetObject(entry.first))) {
+            if (!document.Resolve(entry.first, CKCID_SCENEOBJECT, Document::ObjectScope::Existing)) return false;
+        for (const auto &entry : m_Before)
+            if (CKSceneObject *object = CKSceneObject::Cast(document.Resolve(entry.first, CKCID_SCENEOBJECT, Document::ObjectScope::Existing))) {
                 if (undo) scene->SetObjectFlags(object, static_cast<CK_SCENEOBJECT_FLAGS>(entry.second));
                 else scene->ModifyObjectFlags(object, m_Add, m_Remove);
             }
         return true;
     }
-    CK_ID m_Scene;
-    std::vector<std::pair<CK_ID, CKDWORD>> m_Before;
+    ObjectRef m_Scene;
+    std::vector<std::pair<ObjectRef, CKDWORD>> m_Before;
     CKDWORD m_Add, m_Remove;
 };
 
@@ -137,20 +143,20 @@ EditResult ModifySceneFlags(Document &document, const std::vector<CK_ID> &object
     if (!scene) {
         return EditResult::Refused("No level scene");
     }
-    std::vector<std::pair<CK_ID, CKDWORD>> before;
+    std::vector<std::pair<ObjectRef, CKDWORD>> before;
     for (CK_ID id : objects) {
         CKObject *object = context->GetObject(id);
         CKSceneObject *sceneObject = CKSceneObject::Cast(object);
         if (!sceneObject || !scene->IsObjectHere(object)) continue;
         const CKDWORD flags = scene->GetObjectFlags(sceneObject);
         if (((flags | add) & ~remove) == flags) continue;
-        before.emplace_back(id, flags);
+        before.emplace_back(document.Reference(id), flags);
     }
     if (before.empty()) {
         return EditResult::NoChange("Nothing to change in the scene");
     }
     Edit edit(document, label);
-    if (!edit.Do(std::make_unique<SceneFlagsAction>(scene->GetID(), std::move(before), add, remove)))
+    if (!edit.Do(std::make_unique<SceneFlagsAction>(document.Reference(scene->GetID()), std::move(before), add, remove)))
         return edit.Fail("The scene could not be changed");
     return edit.Commit();
 }
@@ -171,15 +177,13 @@ EditResult ApplyInitialConditions(Document &document, const std::vector<CK_ID> &
     }
     std::vector<InitialConditionEntry> entries;
     std::set<CK_ID> seen;
-    const auto generation = document.Host().Generation();
-    const CK_ID sceneId = scene->GetID();
+    const auto sceneRef = document.Reference(scene->GetID());
     for (CK_ID id : objects) {
         CKObject *object = context->GetObject(id);
         CKSceneObject *sceneObject = CKSceneObject::Cast(object);
         if (!sceneObject || !document.IsLive(id) || !scene->IsObjectHere(object) || !seen.insert(id).second) continue;
         InitialConditionEntry entry;
-        entry.object = id;
-        entry.instance = object;
+        entry.object = document.Reference(id);
         bool captured = false, skipped = false;
         std::unique_ptr<CKStateChunk, decltype(&DeleteCKStateChunk)> state(nullptr, &DeleteCKStateChunk);
         const bool called = GuardedCall([&] {
@@ -200,8 +204,8 @@ EditResult ApplyInitialConditions(Document &document, const std::vector<CK_ID> &
                 entry.before = action == InitialConditions::Restore ? std::move(current) : std::move(previous);
                 entry.after = action == InitialConditions::Restore ? std::move(previous) : std::move(current);
             }
-            captured = document.Host().Generation() == generation && context->GetObject(id) == object &&
-                       context->GetObject(sceneId) == scene && scene->IsObjectHere(object);
+            captured = document.Resolve(entry.object) == object &&
+                       document.Resolve(sceneRef, CKCID_SCENE, Document::ObjectScope::Existing) == scene && scene->IsObjectHere(object);
         }, &document.Host(), "Capture initial conditions");
         if (called && skipped) continue;
         if (!called || !captured) return EditResult::Error("Cannot capture the objects' initial conditions");

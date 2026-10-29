@@ -8,6 +8,7 @@ ObjectSummary DescribeObject(const Document &document, CK_ID id) {
     if (!document.IsOpen() || !document.IsLive(id)) return result;
     CKObject *object = document.Context()->GetObject(id);
     result.id = id;
+    result.reference = document.Reference(id);
     result.cid = object->GetClassID();
     result.name = object->GetName() ? object->GetName() : "";
     if (auto *render = CKRenderObject::Cast(object)) {

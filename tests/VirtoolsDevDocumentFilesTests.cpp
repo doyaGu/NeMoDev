@@ -74,7 +74,7 @@ void Workflows() {
     }));
     Drain(state);
     CHECK(saved && !document.Dirty());
-    CHECK(vdev::RenameLevelObject(document, frame.created, "Undo then redo after failed file operation").ok);
+    CHECK(vdev::RenameLevelObject(document, document.Reference(frame.created), "Undo then redo after failed file operation").ok);
     CHECK(document.History().Undo());
     state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
     state.objectSelection.Set({frame.created});

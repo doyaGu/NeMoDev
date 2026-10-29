@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "CKAll.h"
+#include "editor/Identity.h"
 
 namespace vdev {
 class Document;
@@ -33,6 +34,7 @@ struct AttributeCatalog {
 AttributeCatalog ReadAttributeCatalog(const Document &document, const std::vector<CK_ID> &targets = {});
 
 struct AttributeObjectInfo {
+    ObjectRef reference{}, parameterReference{};
     CKAttributeType type = -1;
     CK_ID object = 0, parameter = 0;
     std::string name, value, parameterName;

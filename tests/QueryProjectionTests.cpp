@@ -31,7 +31,7 @@ void ObjectQueryProjections(CkRuntimeHost &host) {
     auto created = CreateLayoutObject(document, LayoutObject::Frame3D);
     CHECK(created.ok);
     const auto id = created.created;
-    CHECK(RenameLevelObject(document, id, "Read query fixture").ok);
+    CHECK(RenameLevelObject(document, document.Reference(id), "Read query fixture").ok);
     CHECK(SetRenderPriority(document, {id}, 31).ok);
     document.MarkSaved();
     document.History().MarkSavePoint();
@@ -39,10 +39,11 @@ void ObjectQueryProjections(CkRuntimeHost &host) {
     const auto outside = document.ChangesOutsideUndo();
     const auto before = DescribeObject(document, id);
     CHECK(before.id == id && before.name == "Read query fixture" && before.renderObject && before.renderPriority == 31);
+    CHECK(before.reference == document.Reference(id));
     CHECK(FilterObjects(document, {0, id, 0xFFFFFFFF}, CKCID_RENDEROBJECT) == std::vector<CK_ID>{id});
     CHECK(FilterObjects(document, {id}, CKCID_TEXTURE).empty());
     CHECK(!document.Dirty() && count == document.History().UndoCount() && outside == document.ChangesOutsideUndo());
-    CHECK(RenameLevelObject(document, id, "Changed name").ok && SetRenderPriority(document, {id}, -8).ok);
+    CHECK(RenameLevelObject(document, document.Reference(id), "Changed name").ok && SetRenderPriority(document, {id}, -8).ok);
     CHECK(DescribeObject(document, id).renderPriority == -8 && DescribeObject(document, id).name == "Changed name");
     CHECK(before.name == "Read query fixture" && before.renderPriority == 31);
     CHECK(document.History().Undo() && document.History().Undo());
@@ -55,6 +56,7 @@ void ObjectQueryProjections(CkRuntimeHost &host) {
     CHECK(document.History().Redo() && FilterObjects(document, {id}).empty());
     document.History().Clear();
     CHECK(!document.Context()->GetObject(id));
+    CHECK(!document.Resolve(before.reference, CKCID_OBJECT, Document::ObjectScope::Existing));
     CHECK(FilterObjects(document, {id}, CKCID_RENDEROBJECT, ObjectQueryScope::Existing).empty());
     document.Close();
     CHECK(!DescribeObject(document, id).id && before.name == "Read query fixture" && before.renderPriority == 31);
@@ -126,6 +128,8 @@ void AttributeQueryProjections(CkRuntimeHost &host) {
     CHECK(!Listed(ReadAttributeCatalog(document, {0xFFFFFFFF}), type));
     const auto rows = ReadAttributeObjects(document, {type, static_cast<CKAttributeType>(marker.created)}, {a.created});
     CHECK(rows.size() == 2 && rows[0].object == a.created && rows[0].parameter && rows[0].value == "42");
+    CHECK(rows[0].reference == document.Reference(a.created));
+    CHECK(rows[0].parameterReference == document.Reference(rows[0].parameter));
     CHECK(rows[1].object == a.created && !rows[1].parameter);
     const auto ordered = ReadAttributeObjects(document, {type}, {b.created, a.created});
     CHECK(ordered.size() == 2 && ordered[0].object == b.created && ordered[1].object == a.created);

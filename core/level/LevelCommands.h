@@ -6,6 +6,7 @@
 
 #include "CKAll.h"
 #include "core/document/EditResult.h"
+#include "editor/Identity.h"
 
 namespace vdev {
 
@@ -185,7 +186,7 @@ EditResult DestroyLevelObjects(Document &document, const std::vector<CK_ID> &obj
 EditResult SetRenderPriority(Document &document, const std::vector<CK_ID> &objects, int priority);
 
 // Any object of the composition (Level Manager F2).
-EditResult RenameLevelObject(Document &document, CK_ID object, const std::string &name);
+EditResult RenameLevelObject(Document &document, ObjectRef object, const std::string &name);
 
 // Attribute Manager ("Create New Category", "Create New Attribute Type",
 // "Remove All User Attributes"). Attribute types are not objects: these are
@@ -317,7 +318,7 @@ EditResult CreateAutomaticPortal(Document &document, CK_ID place, CK_ID other);
 // for each two places of the level that touch (ComputeBestFitBBox finds
 // their shared vertices) and have no portal yet, a portal "Portal A-B"
 // (CreateAutomaticPortal); one undo step. Refused when none touch.
-EditResult CreateAutomaticPortals(Document &document);
+EditResult CreateAutomaticPortals(Document &document, std::vector<CK_ID> *created = nullptr);
 
 // Sprite Text font settings stored by Ballanced: face, size, weight, italic,
 // underline. Positive sizes are points; negative sizes are pixel heights.

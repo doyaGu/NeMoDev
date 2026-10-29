@@ -1,4 +1,4 @@
-"""Check source ownership, dependency growth and architecture coverage evidence."""
+"""Check source ownership, dependency growth and architecture test coverage."""
 import argparse
 import fnmatch
 import io
@@ -38,7 +38,7 @@ def include_graph(source, files, contents=None):
         dependencies, capabilities = set(), set()
         if path in RESTRICTED:
             capabilities.add(RESTRICTED[path])
-        for name in re.findall(r'^\s*#\s*include\s*[<"]([^>"\n]+)[>"]', text, flags=re.M):
+        for name in re.findall(r'^\s*#\s*(?:include|import)\s*[<"]([^>"\n]+)[>"]', text, flags=re.M):
             if re.match(r"^(CK|Vx)[^/]*\.h$", name):
                 capabilities.add("native-sdk")
             relative = posixpath.normpath(posixpath.join(posixpath.dirname(path), name))
@@ -152,7 +152,7 @@ def check(source, manifest, inventory=None, ui_tests=False):
                 errors.append(f"unknown source group: {identity}: {group}")
         anchors = feature["tests"] + (feature["ui_tests"] if ui_tests else [])
         if not feature["tests"] and not feature["ui_tests"] and not feature["gaps"]:
-            errors.append(f"feature has no test evidence or declared gap: {identity}")
+            errors.append(f"feature has no tests or declared gap: {identity}")
         for gap in feature["gaps"]:
             if not gap.get("reason", "").strip() or not isinstance(gap.get("due_phase"), int):
                 errors.append(f"invalid verification gap: {identity}")

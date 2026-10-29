@@ -1,5 +1,7 @@
 #include "core/document/Edit.h"
 
+#include <algorithm>
+
 #include "core/document/Document.h"
 #include "core/graph/RuntimeGraph.h"
 #include "core/runtime/CkRuntimeHost.h"
@@ -34,7 +36,7 @@ public:
     bool Undo(Document &document) override { return step->Undo(document); }
     // Taken back with the edit it is in: as Undo, marking nothing (the edit changed nothing).
     bool TakeBack(Document &document) { return step->Run(document, true, false); }
-    void RetainObjects(std::set<CK_ID> &objects) const override { step->RetainObjects(objects); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override { step->RetainObjects(document, objects); }
     std::unique_ptr<UndoStep> step;
 };
 
@@ -59,18 +61,16 @@ bool UndoStep::RunActions(Document &document, bool undo) {
 }
 
 bool UndoStep::Run(Document &document, bool undo, bool mark) {
-    const bool ok = RunActions(document, undo);
+    const auto valid = [&](ObjectRef ref) { return document.Resolve(ref, CKCID_OBJECT, Document::ObjectScope::Existing) != nullptr; };
+    const bool validTargets = std::all_of(m_Created.begin(), m_Created.end(), valid) &&
+        std::all_of(m_Buried.begin(), m_Buried.end(), valid) && std::all_of(m_Touched.begin(), m_Touched.end(), valid) &&
+        std::all_of(m_Displays.begin(), m_Displays.end(), [&](const Display &display) { return valid(display.script); });
+    const bool ok = validTargets && RunActions(document, undo);
     // A step that failed may have left its objects where they were: they
     // stay out of the graveyard (listed and saved) rather than vanish while
     // still in the composition.
-    for (CK_ID id : m_Created) {
-        if (ok && undo) document.m_Graveyard.insert(id);
-        else document.m_Graveyard.erase(id);
-    }
-    for (CK_ID id : m_Buried) {
-        if (ok && !undo) document.m_Graveyard.insert(id);
-        else document.m_Graveyard.erase(id);
-    }
+    for (ObjectRef object : m_Created) document.SetDiscarded(object, ok && undo);
+    for (ObjectRef object : m_Buried) document.SetDiscarded(object, ok && !undo);
     if (!m_Created.empty() || !m_Buried.empty()) document.EditorObjectsChanged();
     document.RefreshScripts();
     // The display after the runtime: its runtime fields are read from the graph as it is now.
@@ -81,7 +81,7 @@ bool UndoStep::Run(Document &document, bool undo, bool mark) {
 
 void UndoStep::Show(Document &document, bool undo) const {
     for (const Display &display : m_Displays) {
-        ScriptSession *session = document.Session(display.script);
+        ScriptSession *session = document.Session(document.NativeId(display.script, Document::ObjectScope::Existing));
         if (!session) continue; // the Script is not in the composition (the step took it away)
         session->Restore(undo ? display.before : display.after);
         session->TouchUndoable();
@@ -90,8 +90,8 @@ void UndoStep::Show(Document &document, bool undo) const {
 
 void UndoStep::Mark(Document &document) const {
     if (m_Marks == Edit::Marks::Composition) document.MarkUndoableChange();
-    for (CK_ID script : m_Touched)
-        if (ScriptSession *session = document.ExistingSession(script)) session->TouchUndoable();
+    for (ObjectRef script : m_Touched)
+        if (ScriptSession *session = document.ExistingSession(document.NativeId(script, Document::ObjectScope::Existing))) session->TouchUndoable();
 }
 
 void UndoStep::MarkAll(Document &document) const {
@@ -104,12 +104,15 @@ bool UndoStep::Empty() const {
     return m_Actions.empty() && m_Displays.empty() && m_Touched.empty() && m_Created.empty() && m_Buried.empty();
 }
 
-void UndoStep::RetainObjects(std::set<CK_ID> &objects) const {
-    objects.insert(m_Created.begin(), m_Created.end());
-    objects.insert(m_Buried.begin(), m_Buried.end());
-    objects.insert(m_Touched.begin(), m_Touched.end());
-    for (const Display &display : m_Displays) objects.insert(display.script);
-    for (const auto &action : m_Actions) action->RetainObjects(objects);
+void UndoStep::RetainObjects(const Document &document, std::set<CK_ID> &objects) const {
+    const auto keep = [&](ObjectRef ref) {
+        if (const auto id = document.NativeId(ref, Document::ObjectScope::Existing)) objects.insert(id);
+    };
+    for (ObjectRef ref : m_Created) keep(ref);
+    for (ObjectRef ref : m_Buried) keep(ref);
+    for (ObjectRef ref : m_Touched) keep(ref);
+    for (const Display &display : m_Displays) keep(display.script);
+    for (const auto &action : m_Actions) action->RetainObjects(document, objects);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +176,7 @@ InterfaceData *Edit::ScriptData(CK_ID script) {
     if (!session || session->ReadOnly()) return nullptr;
     if (!m_Shown.count(script)) {
         UndoStep::Display display;
-        display.script = script;
+        display.script = m_Document->Reference(script);
         display.before = session->Data();
         display.before.observers.clear();
         m_Shown[script] = m_Step->m_Displays.size();
@@ -192,21 +195,26 @@ bool Edit::ShowScript(CK_ID script, const InterfaceData &data) {
 }
 
 void Edit::Touches(CK_ID script) {
-    if (Open()) m_Step->m_Touched.insert(script);
+    if (Open())
+        if (const auto ref = m_Document->Reference(script)) m_Step->m_Touched.insert(ref);
 }
 
 void Edit::Created(CK_ID id) {
     if (!Open() || !id) return;
-    m_Step->m_Created.insert(id);
-    m_Document->m_CreatedObjects.insert(id);
-    for (CK_ID owned : CollectOwnedObjects(Context(), {id})) m_Document->m_CreatedObjects.insert(owned);
+    const auto ref = m_Document->Reference(id);
+    if (!ref) return;
+    m_Step->m_Created.insert(ref);
+    m_Document->Include(id);
+    for (CK_ID owned : CollectOwnedObjects(Context(), {id})) m_Document->Include(owned);
     m_Document->EditorObjectsChanged();
 }
 
 void Edit::Bury(CK_ID id) {
     if (!Open() || !id) return;
-    m_Step->m_Buried.insert(id);
-    m_Document->m_Graveyard.insert(id);
+    const auto ref = m_Document->Reference(id);
+    if (!ref) return;
+    m_Step->m_Buried.insert(ref);
+    m_Document->SetDiscarded(ref, true);
     m_Document->EditorObjectsChanged();
 }
 
@@ -225,7 +233,7 @@ EditResult Edit::Commit(const std::string &message, CK_ID created) {
     }
     Document &document = *m_Document;
     for (UndoStep::Display &display : m_Step->m_Displays) {
-        const ScriptSession *session = document.ExistingSession(display.script);
+        const ScriptSession *session = document.ExistingSession(document.NativeId(display.script, Document::ObjectScope::Existing));
         display.after = session ? session->Data() : display.before;
         display.after.observers.clear();
     }
@@ -268,7 +276,7 @@ bool Edit::Rollback() {
         auto *nested = dynamic_cast<NestedStep *>(&action);
         if (!(nested ? nested->TakeBack(document) : action.Undo(document))) restored = false;
     }
-    for (CK_ID id : step.m_Buried) document.m_Graveyard.erase(id);
+    for (ObjectRef ref : step.m_Buried) document.SetDiscarded(ref, false);
     document.RefreshScripts();
     step.Show(document, true);
     if (!restored) {
@@ -285,7 +293,7 @@ bool Edit::Rollback() {
         return false;
     }
     // Never part of the composition once taken back: kept out of the saved file.
-    for (CK_ID id : step.m_Created) document.m_Graveyard.insert(id);
+    for (ObjectRef ref : step.m_Created) document.SetDiscarded(ref, true);
     if (!step.m_Created.empty() || !step.m_Buried.empty()) document.EditorObjectsChanged();
     // Shown back as it was (the sessions marked), unmodified as it was.
     if (!m_Parent && m_CleanAtStart && document.ChangesOutsideUndo() == m_OutsideAtStart) document.MarkSaved();
