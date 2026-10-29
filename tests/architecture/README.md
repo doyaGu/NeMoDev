@@ -1,7 +1,7 @@
 # Stage zero architecture checks
 
-`coverage.json` lists the 41 source groups,
-32 feature/extension targets and 36 state families. It records CTest results,
+`coverage.json` lists the 43 source groups,
+32 feature/extension targets and 40 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
 
@@ -674,3 +674,92 @@ Full samples, checks and diagnostics:
 [building-block-views-macos-arm64-metal.json](baselines/building-block-views-macos-arm64-metal.json).
 Data Resources and default contribution configuration remain in phase three, so
 completed_phase stays 2.
+
+
+## Phase three: Data Resources and default workspace configuration
+
+Data Resources uses registered resource.data instances. DataResourceCommands owns
+library contents, copied directory/file descriptions, file inputs and the list of
+open libraries. Each view owns its folder, selection, anchor and expanded nodes.
+Closing one view retains a shared library; closing its final view collects the
+catalog and updates the existing preferences list. Catalogs and views survive
+composition replacement. The old ToolWindows resource collection, drawing branch,
+file-dialog callbacks and EditorState draggedResources list are removed.
+
+resource.open-library, resource.create-library, resource.refresh-library,
+resource.browse and resource.behavior-information use the same command registration
+as independent modules. resource.library, resource.folders and resource.files
+publish versioned data in pages of at most 64 rows; drawing does not access CKContext
+or inspect the filesystem. Loading and importing continue through the existing
+resource.load and document import commands. Loading uses the primary Level view's
+actual selection, preserving Script and other non-rendering targets.
+
+The resource.file-dialogs overlay uses the same file picker and behavior form as
+document inputs. The application owns continuations and completion results. Cancel,
+closed origins, malformed responses and background work retain the required state;
+accepted inputs wait until native work is available. File operations share the
+existing admission rule, preventing simultaneous resource and composition forms.
+Description writes reuse OutputFiles and the existing DSC format. Failure reports
+retain the destination path. Failed directory refresh, including recursive folder
+links, keeps the previous catalog. Multi-output RSC creation recovery and large
+folder scanning outside the UI thread remain explicit F20 work.
+
+Resource drags contain their source row and complete file list inside ImGui-owned
+bytes. Public C headers describe length-prefixed UTF-8 paths rather than a fixed
+path buffer. Schematic, Level, Layout and bitmap Setup decode the same bounded
+payload; malformed payloads leave previous outputs intact. No resource-drag query
+or parallel EditorState list remains.
+
+DefaultWorkspaceConfiguration declares provider choices, primary roles, startup
+views, split regions, anchors and reset behavior. Defaults and custom layouts use
+the same EditorWorkspace configuration path. Validation and instance preparation
+precede publication; invalid splits, roles, regions, repeated legacy names or
+creation failure keep the previous views and layout. Full layout changes are refused while
+operations/dialogs are active; provider-only replacement retains its existing
+path. Runtime changes apply at the next layout update, without a separate Reset.
+The workspace also owns first-use layout checks. Default seed order preserves the
+existing primary window identities; startup retains an existing dock layout.
+Only the remaining Schematic/Layout/Setup/Parameter Debugger windows use the named
+legacy placements listed in this configuration.
+
+The old DefaultObjectConfiguration helper and per-type default docking map are
+removed. Registered menu queries retain Manager check marks. Public interface
+version nine adds that optional query name and resource drag descriptions, with
+no STL, SDK or SDL dependency. Query and command inputs are located by key; caller
+order is preserved. Pending window focus is deferred while a modal is open, so a
+module opening a library and its description in the same frame cannot dismiss it.
+
+Regressions exercise real window positions, applying/restoring a custom layout,
+multiple independent resource views, provider replacement and failed replacement,
+closed tree restoration, multi-file drags, Script loading targets, directory
+paging/failure, malformed and long drag paths, DSC replacement, input replacement,
+closed origins and browsing during native work. The independent module includes
+an alternate resource view and resource input implementation. Architecture checks
+reject indirect native access from both resource views and default configuration.
+
+The final macOS arm64 Release run passes all 124 CTests with no skips, including
+20 module UI cases and the existing original-sample manager, Setup, Layout and
+file suites. Direct Intro.nmo capture retains populated Level contents and scripts;
+the generated resource tab shows its folder, file and description in the default
+dock. SDK revisions, patch hashes and runtime hashes equal the preceding batch.
+No SDK source or viewport render/transfer implementation changed.
+
+| Run | Median (ms) | p10 (ms) | p90 (ms) | MAD (ms) | MAD / median |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Frozen reference | 0.246939 | 0.243728 | 0.251458 | 0.002264 | 0.9168% |
+| Resource views and workspace configuration | 0.209801 | 0.205999 | 0.211575 | 0.001530 | 0.7293% |
+| Following same-program reference | 0.206894 | 0.204996 | 0.225065 | 0.002258 | 1.0913% |
+| Following same-program candidate | 0.206318 | 0.203865 | 0.215840 | 0.002275 | 1.1027% |
+
+Both pairs pass the unchanged 3% limits. The cumulative comparison with the frozen
+phase-one program changes the median by -15.0396%; the subsequent same-program
+control changes it by -0.2782%. Neither number isolates a resource-browser speedup.
+Each pair has 11 alternating groups, at least 15 seconds of warmup per program
+and at least one second/240 frames per group. Stable readback, upload, target
+creation/release and path-selection counts are zero; explicit verification reads
+back once outside timed groups. Other GPU/allocator counters remain unmeasured.
+Earlier implementation measurements and corrected UI failures are retained in
+[resource-views-macos-arm64-metal.json](baselines/resource-views-macos-arm64-metal.json).
+The manifest now records completed_phase 3, 43 source groups, 40 state families
+and 55 remaining legacy exposures. Later-stage work stays assigned to its existing
+feature entries; this does not mark the complex editor migrations complete.

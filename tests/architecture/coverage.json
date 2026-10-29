@@ -1,7 +1,7 @@
 {
   "version": 1,
   "baseline_revision": "029f2c9a6d2b062e031357224f6115a96ebac6cc",
-  "completed_phase": 2,
+  "completed_phase": 3,
   "external_submodules": [
     "external/imgui",
     "external/imgui_test_engine",
@@ -1704,7 +1704,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "资源批量加载及异步目标校验已覆盖；RSC 多产物失败和旧资源树刷新仍待补验"
+          "reason": "RSC 新建的多产物失败回滚及大型目录后台扫描仍待实施；目录刷新失败、说明原子替换、输入取消、多视图回收、Script 载入目标和后台浏览已覆盖"
         }
       ]
     },
@@ -1966,7 +1966,7 @@
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "补移除/替换模块、主视图角色和提供者私有状态恢复"
+          "reason": "复杂视图、多 Schematic/3D 视口和跨启动布局、视图状态迁移仍待后续阶段"
         }
       ]
     },
@@ -2148,7 +2148,7 @@
       "name": "BB/资源/属性/对象/Snapshot 拖拽 payload",
       "owner": "Workspace 输入交互，源数据归原所有者",
       "lifetime": "drop/cancel、源视图/会话结束、来源数据版本变化",
-      "persistence": "Building Blocks 拖拽由 ImGui 持有源行及完整有序 GUID 列表；对象携带完整身份，属性携带目录版本和源参数身份；接收时重新解析，再执行统一命令",
+      "persistence": "Building Blocks 和资源文件拖拽均由 ImGui 持有源行及完整有序数据；资源路径使用带长度的 UTF-8，不截断、不依赖 EditorState；对象和属性仍携带完整身份，接收后执行原有命令",
       "features": [
         "F23"
       ]
@@ -2442,6 +2442,49 @@
       "features": [
         "F08",
         "F25"
+      ]
+    },
+    {
+      "id": "resource-libraries",
+      "name": "资源库目录和文件说明",
+      "owner": "DataResourceCommands",
+      "lifetime": "应用会话；多个视图共享按版本发布的目录，最后一个视图关闭后回收",
+      "persistence": "打开库的路径沿用应用偏好；刷新失败保留已发布目录，路径登记使用原 CK 路径管理",
+      "features": [
+        "F20"
+      ]
+    },
+    {
+      "id": "resource-view-navigation",
+      "name": "资源库视图的文件夹、多选、展开和锚点",
+      "owner": "对应资源视图实例",
+      "lifetime": "独立于文档；关闭实例或成功替换提供者时按统一工作区处理",
+      "persistence": "版本一状态仅含路径与选区值；替换失败保留旧实例和布局，跨启动状态留待阶段六",
+      "features": [
+        "F20",
+        "F29"
+      ]
+    },
+    {
+      "id": "resource-input",
+      "name": "资源库文件选择和行为说明编辑输入",
+      "owner": "DataResourceCommands",
+      "lifetime": "操作结束或来源视图关闭；后台工作期间保留已接受的输入，空闲后继续",
+      "persistence": "说明使用原格式和原子替换；取消及失败保留已有文件、文档、选区和历史",
+      "features": [
+        "F20"
+      ]
+    },
+    {
+      "id": "workspace-layout",
+      "name": "默认视图角色、停靠区域、分割和重置规则",
+      "owner": "EditorWorkspace",
+      "lifetime": "已生效的工作区配置；先校验并准备全部视图，成功后共同替换",
+      "persistence": "默认配置与自定义配置使用相同应用入口；当前为内存配置，旧窗口仅保留已列明的名称适配",
+      "features": [
+        "F25",
+        "F29",
+        "F31"
       ]
     }
   ],
