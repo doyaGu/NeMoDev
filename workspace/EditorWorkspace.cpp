@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <set>
+#include <iterator>
 #include "editor/ImGuiDrawing.h"
 #include "imgui_internal.h"
 
@@ -40,6 +41,13 @@ bool EditorWorkspace::Register(std::string &error) {
          nullptr, 0, ListQuery, this, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, fields, 5},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("workspace.view"), EDITOR_TEXT("builtin.workspace"),
          &instance, 1, ViewQuery, this, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, viewFields, 4}};
+    const EditorParameter instanceFields[] = {{EDITOR_TEXT("views"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("types"), EDITOR_TEXT_LIST},
+        {EDITOR_TEXT("providers"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("titles"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("roles"), EDITOR_TEXT_LIST}};
+    const EditorQueryDesc instances{sizeof(EditorQueryDesc), EDITOR_TEXT("workspace.instances"), EDITOR_TEXT("builtin.workspace"),
+        nullptr, 0, InstanceQuery, this, EDITOR_QUERY_VERSIONED, EDITOR_WORKSPACE, instanceFields, 5,
+        [](void *data, const EditorHost *) { return static_cast<EditorWorkspace *>(data)->m_ViewsRevision; }};
+    std::vector<EditorQueryDesc> allQueries(std::begin(queries), std::end(queries));
+    allQueries.push_back(instances);
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
@@ -48,8 +56,8 @@ bool EditorWorkspace::Register(std::string &error) {
     module.locationCount = 1;
     module.commands = commands;
     module.commandCount = 3;
-    module.queries = queries;
-    module.queryCount = 2;
+    module.queries = allQueries.data();
+    module.queryCount = uint32_t(allQueries.size());
     return m_Application.Register(module, error);
 }
 EditorWorkspace::~EditorWorkspace() {
@@ -118,6 +126,23 @@ EditorStatus EditorWorkspace::ViewQuery(void *data, const EditorHost *, const Ed
         {EDITOR_TEXT("window"), EDITOR_TEXT_VALUE, {}, EditorText(name)},
         {EDITOR_TEXT("focused"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(self.Focused() == id)}};
     return sink.write ? sink.write(sink.data, fields, 4) : EDITOR_INVALID;
+}
+EditorStatus EditorWorkspace::InstanceQuery(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+    const auto &self = *static_cast<EditorWorkspace *>(data);
+    std::vector<uint64_t> ids;
+    std::vector<EditorString> types, providers, titles, roles;
+    for (const auto &entry : self.m_Views) {
+        ids.push_back(entry.first); types.push_back(entry.second.desc.id);
+        providers.push_back(entry.second.desc.provider); titles.push_back(entry.second.desc.title);
+        roles.push_back(EditorText(entry.second.role));
+    }
+    const EditorValue fields[] = {
+        {EDITOR_TEXT("views"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {ids.data(), uint32_t(ids.size())}},
+        {EDITOR_TEXT("types"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {types.data(), uint32_t(types.size())}},
+        {EDITOR_TEXT("providers"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {providers.data(), uint32_t(providers.size())}},
+        {EDITOR_TEXT("titles"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {titles.data(), uint32_t(titles.size())}},
+        {EDITOR_TEXT("roles"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {roles.data(), uint32_t(roles.size())}}};
+    return sink.write ? sink.write(sink.data, fields, 5) : EDITOR_INVALID;
 }
 bool EditorWorkspace::Begin(const char *property, ObjectRef object, EditorEdit &edit, EditorView &owner) {
     if (edit)
@@ -274,7 +299,8 @@ EditorView EditorWorkspace::Open(const std::string &type, const std::string &rol
         return 0;
     if (d->area == EDITOR_DOCUMENT && !m_Application.NativeAvailable()) return 0;
     if (d->singleInstance)
-        for (const auto &view : m_Views) if (Text(view.second.desc.id) == type) {
+        for (auto &view : m_Views) if (Text(view.second.desc.id) == type) {
+            if (!role.empty()) { view.second.role = role; view.second.pinned = pinned; ++m_ViewsRevision; }
             Focus(view.first);
             return view.first;
         }
@@ -304,6 +330,7 @@ EditorView EditorWorkspace::Create(const EditorViewDesc &desc) {
     }
     const auto placement = desc.singleInstance && saved != m_ClosedStates.end() ? saved->second.placement : View::Placement{};
     m_Views.emplace(id, View{id, desc, data, true, placement});
+    ++m_ViewsRevision;
     m_LastFocusRequest = id;
     return id;
 }
@@ -332,6 +359,7 @@ EditorStatus EditorWorkspace::Navigate(const EditorViewDesc &desc, EditorView id
         return status;
     }
     Focus(id);
+    ++m_ViewsRevision;
     const EditorValue value{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, id};
     if (sink.write) {
         try { sink.write(sink.data, &value, 1); } catch (...) {}
@@ -465,6 +493,7 @@ void EditorWorkspace::Destroy(EditorView id) {
         m_Error = "View could not be closed";
     }
     m_Views.erase(found);
+    ++m_ViewsRevision;
 }
 void EditorWorkspace::CloseAll() {
     while (!m_Views.empty())
@@ -478,9 +507,10 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
     for (auto &v : m_Views) {
         auto &view = v.second;
         if (!nativeAvailable && view.desc.area == EDITOR_DOCUMENT) continue;
-        if (view.id == focus) focusDrawn = true;
+        const bool grantFocus = (view.focus || view.id == focus) && !ImGui::GetTopMostPopupModal();
+        if (view.id == focus && grantFocus) focusDrawn = true;
         const auto name = WindowName(view.id);
-        EditorViewFrame frame{EditorText(name), uint32_t(view.focus), 0, uint32_t(view.placement.apply),
+        EditorViewFrame frame{EditorText(name), uint32_t(grantFocus), 0, uint32_t(view.placement.apply),
             view.placement.dock, view.placement.x, view.placement.y, view.placement.width, view.placement.height,
             uint32_t(!view.pinned), 0};
         if (const auto dock = m_DefaultDocks.find(Text(view.desc.id)); dock != m_DefaultDocks.end()) frame.initialDock = dock->second;
@@ -490,7 +520,7 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
         } catch (...) {
             m_Error = "View raised an exception";
         }
-        view.focus = false;
+        if (grantFocus) view.focus = false;
         view.active = frame.active != 0;
         view.placement.apply = false;
         if (frame.close)
@@ -500,7 +530,7 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
         Close(id);
     // Each request also selects that view's dock tab. Drawing order must not
     // replace the final focus request with the highest-numbered instance.
-    if (focusDrawn) {
+    if (focusDrawn && !ImGui::GetTopMostPopupModal()) {
         const auto name = WindowName(focus);
         if (!name.empty()) ImGui::SetWindowFocus(name.c_str());
         if (m_LastFocusRequest == focus) m_LastFocusRequest = 0;
@@ -578,6 +608,7 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, std::s
             replacementFocus = replacement.next.id;
         Destroy(replacement.old);
         m_Views.emplace(replacement.next.id, std::move(replacement.next));
+        ++m_ViewsRevision;
     }
     if (replacementFocus) m_LastFocusRequest = replacementFocus;
     return true;

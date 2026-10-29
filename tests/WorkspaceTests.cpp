@@ -177,6 +177,13 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     Check(app.Execute("test.navigate", {app.Scope(), &invalid, 1}).status == EDITOR_INVALID, "invalid navigation type accepted");
     const auto list = app.Query("workspace.views", direct);
     Check(list.status == EDITOR_OK && list.fields[0].integers.size() == 3, "workspace query lost views");
+    const auto instances = app.Query("workspace.instances", direct);
+    Check(instances.status == EDITOR_OK && instances.fields[0].integers.size() == 3 && instances.fields[4].texts.size() == 3,
+          "workspace instances lost membership or roles");
+    uint64_t membership = 0, stableMembership = 0;
+    Check(app.QueryRevision("workspace.instances", membership) == EDITOR_OK &&
+          app.QueryRevision("workspace.instances", stableMembership) == EDITOR_OK && membership == stableMembership,
+          "stable workspace membership changed revision");
     auto replacement = config;
     replacement.providers[0].provider = "test.second";
     second.failCreate = true;
