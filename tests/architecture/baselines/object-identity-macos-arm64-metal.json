@@ -1,0 +1,1846 @@
+{
+  "version": 1,
+  "recorded_utc": "2026-10-28T08:55:34.434820+00:00",
+  "scope": "Native SDK object-slot lifetimes and Dev editing-session references; existing imported-texture viewport and file formats retained.",
+  "provenance": {
+    "editor_before": "f321c4f: exact git archive, configured separately against the original SDK before production SDK changes; existing dependency sources were symlinked.",
+    "sdk_before": "CK2 9473e3c3944ecc64f3f33af89030d8ea91b36ada; RenderEngine 258221cdf31bdd4a7f0d85625d6c354cd0aaf457.",
+    "native_behavior": "Frozen existing-API trace and uncompressed fixtures captured using the original CK2 before any production SDK edits. Native behavior, ID allocation/list order, callbacks and exact file bytes match.",
+    "old_reader_new_writer": "Preserved old probe/runtime successfully read candidate NMO/CMO/NMS files after 17 preexisting allocations; current probe likewise read old fixtures.",
+    "old_reader_probe_sha256": "f98eb1b8ea1c47eecbd57c219bff39732ea6aaed9340e026639d24e7aedf8d47",
+    "fixtures_sha256": {
+      "identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+      "identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+      "identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+      "object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+    },
+    "measurement": "Release cubes64-v1, 15 seconds warmup, 11 groups of at least one second. Builds and suites were idle during timing. Before and candidate runtime/binary/patch fingerprints are retained in each capture.",
+    "final_test_script_note": "Only CRLF normalization of the SDK trace fixture comparison was added after timing; timed production binaries were not changed."
+  },
+  "functional": {
+    "dev": {
+      "total": 108,
+      "passed": 93,
+      "failed": [],
+      "skipped": [
+        "VirtoolsDevUi.schematic",
+        "VirtoolsDevUi.debugger",
+        "VirtoolsDevUi.layout",
+        "VirtoolsDevUi.level",
+        "VirtoolsDevUi.setup",
+        "VirtoolsDevUi.propertyedits",
+        "VirtoolsDevUi.hierarchy",
+        "VirtoolsDevUi.blocks",
+        "VirtoolsDevUi.attributes",
+        "VirtoolsDevUi.create",
+        "VirtoolsDevUi.tools",
+        "VirtoolsDevUi.sound",
+        "VirtoolsDevUi.character",
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ]
+    },
+    "dev_core_cases": 66,
+    "sdk_full_run": {
+      "total": 966,
+      "passed": 928,
+      "failed": [
+        "StageLayout",
+        "Paletted32ReferenceTest",
+        "PackedPaletteReferenceTest",
+        "GenericBlitReferenceTest",
+        "ByteLayoutBlitReferenceTest",
+        "Packed16BlitReferenceTest",
+        "SameFormatBlitReferenceTest",
+        "PaletteDispatchReferenceTest",
+        "PackedPaletteCrossByteReferenceTest",
+        "DXTPayloadReferenceTest",
+        "IndexedLifecycleReferenceTest",
+        "BlitClosureReferenceTest",
+        "ImageDescriptorReferenceTest",
+        "ColorReferenceTest",
+        "RayReferenceTest",
+        "FontTest",
+        "FontSearchTest",
+        "SIMDDispatchTest",
+        "SIMDDispatchTest_none",
+        "SIMDDispatchTest_sse2",
+        "SIMDDispatchTest_ssse3",
+        "SIMDDispatchTest_sse4_1",
+        "SIMDDispatchTest_avx",
+        "SIMDDispatchTest_avx2",
+        "SIMDDispatchTest_auto",
+        "ProjectBoxZExtentsReferenceTest",
+        "BestFitBBoxReferenceTest",
+        "FreeVectorNormalizationReferenceTest",
+        "FreeVectorNormalizationScalarReferenceTest",
+        "CompressedVectorReferenceTest",
+        "CompressedVectorScalarReferenceTest",
+        "serialization_tests",
+        "MorphPackedAngleTest"
+      ],
+      "skipped": [
+        "SdlGpuPixelTests",
+        "scene_capture_jit",
+        "scene_capture_golden",
+        "scene_capture_multiframe",
+        "sdl_gpu_ffp_pixel_tests"
+      ]
+    },
+    "sdk_final_identity_and_render_targets": {
+      "total": 3,
+      "passed": 3,
+      "failed": [],
+      "skipped": []
+    },
+    "sdk_identity_gtest_cases": 13,
+    "sdk_failure_control": {
+      "method": "Re-run the 32 failing math/serialization targets with the preserved old CK2 only; keep the current VxMath and test executables.",
+      "matched_failed_targets": [
+        "BestFitBBoxReferenceTest",
+        "BlitClosureReferenceTest",
+        "ByteLayoutBlitReferenceTest",
+        "ColorReferenceTest",
+        "CompressedVectorReferenceTest",
+        "CompressedVectorScalarReferenceTest",
+        "DXTPayloadReferenceTest",
+        "FontSearchTest",
+        "FontTest",
+        "FreeVectorNormalizationReferenceTest",
+        "FreeVectorNormalizationScalarReferenceTest",
+        "GenericBlitReferenceTest",
+        "ImageDescriptorReferenceTest",
+        "IndexedLifecycleReferenceTest",
+        "MorphPackedAngleTest",
+        "Packed16BlitReferenceTest",
+        "PackedPaletteCrossByteReferenceTest",
+        "PackedPaletteReferenceTest",
+        "PaletteDispatchReferenceTest",
+        "Paletted32ReferenceTest",
+        "ProjectBoxZExtentsReferenceTest",
+        "RayReferenceTest",
+        "SIMDDispatchTest",
+        "SIMDDispatchTest_auto",
+        "SIMDDispatchTest_avx",
+        "SIMDDispatchTest_avx2",
+        "SIMDDispatchTest_none",
+        "SIMDDispatchTest_sse2",
+        "SIMDDispatchTest_sse4_1",
+        "SIMDDispatchTest_ssse3",
+        "SameFormatBlitReferenceTest",
+        "serialization_tests"
+      ],
+      "same_failed_subcase_signatures": true,
+      "subcase_signatures": {
+        "Paletted32ReferenceTest": [
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/12, where GetParam() = 12 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/13, where GetParam() = 13 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/14, where GetParam() = 14 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/15, where GetParam() = 15 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/16, where GetParam() = 16 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/17, where GetParam() = 17 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.ReadsOnlyDeclaredPaletteEntries/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.UndeclaredIndicesBecomeZeroWithoutReadingExtraColors/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.WidthsCoverVectorChunksAndScalarTails/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.PaletteMutationAtSameAddressIsVisible/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.ZeroSourceMasksKeepExistingBgrPaletteContract/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.SignedPitchesPreserveLogicalRows/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.QuantizedSolidImageDecodesWithoutColorLoss/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] 13 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/12, where GetParam() = 12",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/13, where GetParam() = 13",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/14, where GetParam() = 14",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/15, where GetParam() = 15",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/16, where GetParam() = 16",
+          "[  FAILED  ] ScalarSSE2AVX2/PaletteNativeLayoutsTest.NativePaletteChannelsAndTargetMasks/17, where GetParam() = 17",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.ReadsOnlyDeclaredPaletteEntries/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.UndeclaredIndicesBecomeZeroWithoutReadingExtraColors/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.WidthsCoverVectorChunksAndScalarTails/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.PaletteMutationAtSameAddressIsVisible/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.ZeroSourceMasksKeepExistingBgrPaletteContract/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.SignedPitchesPreserveLogicalRows/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/Paletted32ReferenceTest.QuantizedSolidImageDecodesWithoutColorLoss/2, where GetParam() = 6"
+        ],
+        "PackedPaletteReferenceTest": [
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.NativePaletteLayoutsAndRowDirection/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.NativePaletteLayoutsAndRowDirection/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.LiteralBytesEstablishHighBitAndHighNibbleOrder/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.LiteralBytesEstablishHighBitAndHighNibbleOrder/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.OddWidthsDoNotDecodePaddingOrCarryToNextRow/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.OddWidthsDoNotDecodePaddingOrCarryToNextRow/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.SignedSourceAndDestinationPitches/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.SignedSourceAndDestinationPitches/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.UndeclaredIndicesBecomeZero/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.UndeclaredIndicesBecomeZero/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.PaletteChangesAtSameAddressAreVisible/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.PaletteChangesAtSameAddressAreVisible/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.ZeroSourceMasksPreserveBgrPaletteContract/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.ZeroSourceMasksPreserveBgrPaletteContract/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.UnconfirmedPaletteEntrySizesAndDestinationDepthsStayUnsupported/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.UnconfirmedPaletteEntrySizesAndDestinationDepthsStayUnsupported/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.ReadsOnlyPackedRowAndDeclaredPaletteAtProtectedPages/4, where GetParam() = 4 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.ReadsOnlyPackedRowAndDeclaredPaletteAtProtectedPages/5, where GetParam() = 5 (0 ms)",
+          "[  FAILED  ] 18 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.NativePaletteLayoutsAndRowDirection/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.NativePaletteLayoutsAndRowDirection/5, where GetParam() = 5",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.LiteralBytesEstablishHighBitAndHighNibbleOrder/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.LiteralBytesEstablishHighBitAndHighNibbleOrder/5, where GetParam() = 5",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.OddWidthsDoNotDecodePaddingOrCarryToNextRow/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.OddWidthsDoNotDecodePaddingOrCarryToNextRow/5, where GetParam() = 5",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.SignedSourceAndDestinationPitches/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.SignedSourceAndDestinationPitches/5, where GetParam() = 5",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.UndeclaredIndicesBecomeZero/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.UndeclaredIndicesBecomeZero/5, where GetParam() = 5",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.PaletteChangesAtSameAddressAreVisible/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.PaletteChangesAtSameAddressAreVisible/5, where GetParam() = 5",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.ZeroSourceMasksPreserveBgrPaletteContract/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.ZeroSourceMasksPreserveBgrPaletteContract/5, where GetParam() = 5",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.UnconfirmedPaletteEntrySizesAndDestinationDepthsStayUnsupported/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.UnconfirmedPaletteEntrySizesAndDestinationDepthsStayUnsupported/5, where GetParam() = 5",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.ReadsOnlyPackedRowAndDeclaredPaletteAtProtectedPages/4, where GetParam() = 4",
+          "[  FAILED  ] ScalarSSE2AVX2/PackedPaletteReferenceTest.ReadsOnlyPackedRowAndDeclaredPaletteAtProtectedPages/5, where GetParam() = 5"
+        ],
+        "GenericBlitReferenceTest": [
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/32, where GetParam() = 32 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/33, where GetParam() = 33 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/34, where GetParam() = 34 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/35, where GetParam() = 35 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/36, where GetParam() = 36 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/37, where GetParam() = 37 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/38, where GetParam() = 38 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/39, where GetParam() = 39 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/40, where GetParam() = 40 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/41, where GetParam() = 41 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/42, where GetParam() = 42 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/43, where GetParam() = 43 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/44, where GetParam() = 44 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/45, where GetParam() = 45 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/46, where GetParam() = 46 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/47, where GetParam() = 47 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.Rgb332ExpandsAll256ColorsWithOpaqueAlpha/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.Argb2222ExpandsEveryColorAndAlphaLevel/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.OneBitAlphaMeansTransparentOrFullyOpaque/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.MissingAlphaIsOpaqueForEveryStoragePairThatHasTargetAlpha/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.AllOneToEightBitWidthsRepeatOrTruncateTheSourcePattern/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.WideChannelsRepeatAndTruncateThroughTheWhole32BitRange/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.FullWidthAlphaPreservesOpaqueDefaultAndOneBitEndpoints/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.SignedPitchesAndIndependentRowPadding/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.ExistingFiveAndSixBitExpansionRetainsBitReplication/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.SourceAndTargetRowsEndAtProtectedPages/2, where GetParam() = 6 (0 ms)",
+          "[  FAILED  ] 26 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/32, where GetParam() = 32",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/33, where GetParam() = 33",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/34, where GetParam() = 34",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/35, where GetParam() = 35",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/36, where GetParam() = 36",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/37, where GetParam() = 37",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/38, where GetParam() = 38",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/39, where GetParam() = 39",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/40, where GetParam() = 40",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/41, where GetParam() = 41",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/42, where GetParam() = 42",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/43, where GetParam() = 43",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/44, where GetParam() = 44",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/45, where GetParam() = 45",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/46, where GetParam() = 46",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBytePairTest.AllStoragePairsConvertMasksAndPreservePadding/47, where GetParam() = 47",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.Rgb332ExpandsAll256ColorsWithOpaqueAlpha/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.Argb2222ExpandsEveryColorAndAlphaLevel/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.OneBitAlphaMeansTransparentOrFullyOpaque/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.MissingAlphaIsOpaqueForEveryStoragePairThatHasTargetAlpha/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.AllOneToEightBitWidthsRepeatOrTruncateTheSourcePattern/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.WideChannelsRepeatAndTruncateThroughTheWhole32BitRange/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.FullWidthAlphaPreservesOpaqueDefaultAndOneBitEndpoints/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.SignedPitchesAndIndependentRowPadding/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.ExistingFiveAndSixBitExpansionRetainsBitReplication/2, where GetParam() = 6",
+          "[  FAILED  ] ScalarSSE2AVX2/GenericBlitReferenceTest.SourceAndTargetRowsEndAtProtectedPages/2, where GetParam() = 6"
+        ],
+        "ByteLayoutBlitReferenceTest": [
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/32, where GetParam() = 32 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/33, where GetParam() = 33 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/34, where GetParam() = 34 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/35, where GetParam() = 35 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/36, where GetParam() = 36 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/37, where GetParam() = 37 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/38, where GetParam() = 38 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/39, where GetParam() = 39 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/32, where GetParam() = 32 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/33, where GetParam() = 33 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/34, where GetParam() = 34 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/35, where GetParam() = 35 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/36, where GetParam() = 36 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/37, where GetParam() = 37 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/38, where GetParam() = 38 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/39, where GetParam() = 39 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/32, where GetParam() = 32 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/33, where GetParam() = 33 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/34, where GetParam() = 34 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/35, where GetParam() = 35 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/36, where GetParam() = 36 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/37, where GetParam() = 37 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/38, where GetParam() = 38 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/39, where GetParam() = 39 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/32, where GetParam() = 32 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/33, where GetParam() = 33 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/34, where GetParam() = 34 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/35, where GetParam() = 35 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/36, where GetParam() = 36 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/37, where GetParam() = 37 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/38, where GetParam() = 38 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/39, where GetParam() = 39 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/32, where GetParam() = 32 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/33, where GetParam() = 33 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/34, where GetParam() = 34 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/35, where GetParam() = 35 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/36, where GetParam() = 36 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/37, where GetParam() = 37 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/38, where GetParam() = 38 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/39, where GetParam() = 39 (0 ms)",
+          "[  FAILED  ] 100 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/32, where GetParam() = 32",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/33, where GetParam() = 33",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/34, where GetParam() = 34",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/35, where GetParam() = 35",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/36, where GetParam() = 36",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/37, where GetParam() = 37",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/38, where GetParam() = 38",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.LiteralPixelsAndEveryByteChannelValue/39, where GetParam() = 39",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/32, where GetParam() = 32",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/33, where GetParam() = 33",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/34, where GetParam() = 34",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/35, where GetParam() = 35",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/36, where GetParam() = 36",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/37, where GetParam() = 37",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/38, where GetParam() = 38",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/39, where GetParam() = 39",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/32, where GetParam() = 32",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/33, where GetParam() = 33",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/34, where GetParam() = 34",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/35, where GetParam() = 35",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/36, where GetParam() = 36",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/37, where GetParam() = 37",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/38, where GetParam() = 38",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/39, where GetParam() = 39",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/32, where GetParam() = 32",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/33, where GetParam() = 33",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/34, where GetParam() = 34",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/35, where GetParam() = 35",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/36, where GetParam() = 36",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/37, where GetParam() = 37",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/38, where GetParam() = 38",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/39, where GetParam() = 39",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/32, where GetParam() = 32",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/33, where GetParam() = 33",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/34, where GetParam() = 34",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/35, where GetParam() = 35",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/36, where GetParam() = 36",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/37, where GetParam() = 37",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/38, where GetParam() = 38",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/ByteLayoutBlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/39, where GetParam() = 39"
+        ],
+        "Packed16BlitReferenceTest": [
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/16, where GetParam() = 16 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/17, where GetParam() = 17 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/18, where GetParam() = 18 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/19, where GetParam() = 19 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/16, where GetParam() = 16 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/17, where GetParam() = 17 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/18, where GetParam() = 18 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/19, where GetParam() = 19 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/16, where GetParam() = 16 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/17, where GetParam() = 17 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/18, where GetParam() = 18 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/19, where GetParam() = 19 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/16, where GetParam() = 16 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/17, where GetParam() = 17 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/18, where GetParam() = 18 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/19, where GetParam() = 19 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/16, where GetParam() = 16 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/17, where GetParam() = 17 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/18, where GetParam() = 18 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/19, where GetParam() = 19 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/20, where GetParam() = 20 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/21, where GetParam() = 21 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/22, where GetParam() = 22 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/23, where GetParam() = 23 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/24, where GetParam() = 24 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/25, where GetParam() = 25 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/26, where GetParam() = 26 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/27, where GetParam() = 27 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/28, where GetParam() = 28 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/29, where GetParam() = 29 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/30, where GetParam() = 30 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/31, where GetParam() = 31 (0 ms)",
+          "[  FAILED  ] 80 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/16, where GetParam() = 16",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/17, where GetParam() = 17",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/18, where GetParam() = 18",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/19, where GetParam() = 19",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.LiteralPixelsAndExhaustivePackedOrChannelValues/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/16, where GetParam() = 16",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/17, where GetParam() = 17",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/18, where GetParam() = 18",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/19, where GetParam() = 19",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.VectorChunksTailsAndIndependentUnalignedRows/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/16, where GetParam() = 16",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/17, where GetParam() = 17",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/18, where GetParam() = 18",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/19, where GetParam() = 19",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.SignedPitchesAndUpsideDownPreserveEachRow/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/16, where GetParam() = 16",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/17, where GetParam() = 17",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/18, where GetParam() = 18",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/19, where GetParam() = 19",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ChangedPixelsAtSameAddressesAreObserved/31, where GetParam() = 31",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/16, where GetParam() = 16",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/17, where GetParam() = 17",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/18, where GetParam() = 18",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/19, where GetParam() = 19",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/20, where GetParam() = 20",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/21, where GetParam() = 21",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/22, where GetParam() = 22",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/23, where GetParam() = 23",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/24, where GetParam() = 24",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/25, where GetParam() = 25",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/26, where GetParam() = 26",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/27, where GetParam() = 27",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/28, where GetParam() = 28",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/29, where GetParam() = 29",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/30, where GetParam() = 30",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/Packed16BlitReferenceTest.ExactSourceAndTargetRowsEndAtProtectedPages/31, where GetParam() = 31"
+        ],
+        "SameFormatBlitReferenceTest": [
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.AllKnownLayoutsPreserveEveryStorageBit/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.AllKnownLayoutsPreserveEveryStorageBit/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.WidthsAndIndependentOffsetsPreservePadding/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.WidthsAndIndependentOffsetsPreservePadding/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.SignedIndependentPitchesAndUpsideDown/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.SignedIndependentPitchesAndUpsideDown/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.ConcreteLayoutsTakePriorityOverSpecialFlags/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.ConcreteLayoutsTakePriorityOverSpecialFlags/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.EqualUnknownLayoutsUseMaskedConversion/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.EqualUnknownLayoutsUseMaskedConversion/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.DifferentDXTFormatsAndLinearConversionsRemainUnsupported/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.DifferentDXTFormatsAndLinearConversionsRemainUnsupported/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.ExactVisibleRowEndsAtProtectedPages/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.ExactVisibleRowEndsAtProtectedPages/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] 14 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.AllKnownLayoutsPreserveEveryStorageBit/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.AllKnownLayoutsPreserveEveryStorageBit/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.WidthsAndIndependentOffsetsPreservePadding/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.WidthsAndIndependentOffsetsPreservePadding/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.SignedIndependentPitchesAndUpsideDown/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.SignedIndependentPitchesAndUpsideDown/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.ConcreteLayoutsTakePriorityOverSpecialFlags/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.ConcreteLayoutsTakePriorityOverSpecialFlags/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.EqualUnknownLayoutsUseMaskedConversion/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.EqualUnknownLayoutsUseMaskedConversion/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.DifferentDXTFormatsAndLinearConversionsRemainUnsupported/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.DifferentDXTFormatsAndLinearConversionsRemainUnsupported/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.ExactVisibleRowEndsAtProtectedPages/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/SameFormatBlitReferenceTest.ExactVisibleRowEndsAtProtectedPages/3, where GetParam() = 3"
+        ],
+        "PaletteDispatchReferenceTest": [
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitAllPackedBytesAndOriginal32BitLayouts/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitAllPackedBytesAndOriginal32BitLayouts/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitWidthsPitchesAndIndependentOffsets/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitWidthsPitchesAndIndependentOffsets/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.Existing32BitTargetsIncludeWideColorAndAlphaFields/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.Existing32BitTargetsIncludeWideColorAndAlphaFields/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TargetMasksQuantizeOrRepeatEveryChannelWidth/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TargetMasksQuantizeOrRepeatEveryChannelWidth/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.SameConcreteFormatPrecedesPaletteEntryValidation/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.SameConcreteFormatPrecedesPaletteEntryValidation/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ZeroEntryStrideKeepsOrdinaryMaskedColorConversion/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ZeroEntryStrideKeepsOrdinaryMaskedColorConversion/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.UnsupportedPaletteEntryWidthsDoNotDecode/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.UnsupportedPaletteEntryWidthsDoNotDecode/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.PaletteCannotBypassCompressedFormatRejection/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.PaletteCannotBypassCompressedFormatRejection/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ConcreteDestinationMasksOverrideStaleSpecialFlags/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ConcreteDestinationMasksOverrideStaleSpecialFlags/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitShortPaletteAndSameAddressChanges/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitShortPaletteAndSameAddressChanges/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ExactPackedRowsAndShortPalettesEndAtProtectedPages/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ExactPackedRowsAndShortPalettesEndAtProtectedPages/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] 22 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitAllPackedBytesAndOriginal32BitLayouts/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitAllPackedBytesAndOriginal32BitLayouts/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitWidthsPitchesAndIndependentOffsets/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitWidthsPitchesAndIndependentOffsets/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.Existing32BitTargetsIncludeWideColorAndAlphaFields/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.Existing32BitTargetsIncludeWideColorAndAlphaFields/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TargetMasksQuantizeOrRepeatEveryChannelWidth/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TargetMasksQuantizeOrRepeatEveryChannelWidth/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.SameConcreteFormatPrecedesPaletteEntryValidation/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.SameConcreteFormatPrecedesPaletteEntryValidation/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ZeroEntryStrideKeepsOrdinaryMaskedColorConversion/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ZeroEntryStrideKeepsOrdinaryMaskedColorConversion/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.UnsupportedPaletteEntryWidthsDoNotDecode/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.UnsupportedPaletteEntryWidthsDoNotDecode/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.PaletteCannotBypassCompressedFormatRejection/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.PaletteCannotBypassCompressedFormatRejection/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ConcreteDestinationMasksOverrideStaleSpecialFlags/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ConcreteDestinationMasksOverrideStaleSpecialFlags/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitShortPaletteAndSameAddressChanges/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.TwoBitShortPaletteAndSameAddressChanges/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ExactPackedRowsAndShortPalettesEndAtProtectedPages/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PaletteDispatchReferenceTest.ExactPackedRowsAndShortPalettesEndAtProtectedPages/3, where GetParam() = 3"
+        ],
+        "PackedPaletteCrossByteReferenceTest": [
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.LiteralPackedVectorsCrossEveryByteBoundary/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.LiteralPackedVectorsCrossEveryByteBoundary/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.EveryIndexAtEveryBitPhaseAndOriginalTargetLayout/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.EveryIndexAtEveryBitPhaseAndOriginalTargetLayout/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.AllTwoBytePatternsInOneContiguousBitstream/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.AllTwoBytePatternsInOneContiguousBitstream/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.RowsResetBitCursorAcrossSignedPitchesOffsetsAndFlips/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.RowsResetBitCursorAcrossSignedPitchesOffsetsAndFlips/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.UnusedTailBitsDoNotBecomePixels/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.UnusedTailBitsDoNotBecomePixels/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ShortPalettesAndSameAddressPaletteOrIndexChanges/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ShortPalettesAndSameAddressPaletteOrIndexChanges/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ChannelWidthsStillQuantizeAndRepeatCorrectly/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ChannelWidthsStillQuantizeAndRepeatCorrectly/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ExactSourcePaletteAndTargetEndAtProtectedPages/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ExactSourcePaletteAndTargetEndAtProtectedPages/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] 16 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.LiteralPackedVectorsCrossEveryByteBoundary/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.LiteralPackedVectorsCrossEveryByteBoundary/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.EveryIndexAtEveryBitPhaseAndOriginalTargetLayout/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.EveryIndexAtEveryBitPhaseAndOriginalTargetLayout/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.AllTwoBytePatternsInOneContiguousBitstream/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.AllTwoBytePatternsInOneContiguousBitstream/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.RowsResetBitCursorAcrossSignedPitchesOffsetsAndFlips/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.RowsResetBitCursorAcrossSignedPitchesOffsetsAndFlips/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.UnusedTailBitsDoNotBecomePixels/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.UnusedTailBitsDoNotBecomePixels/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ShortPalettesAndSameAddressPaletteOrIndexChanges/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ShortPalettesAndSameAddressPaletteOrIndexChanges/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ChannelWidthsStillQuantizeAndRepeatCorrectly/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ChannelWidthsStillQuantizeAndRepeatCorrectly/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ExactSourcePaletteAndTargetEndAtProtectedPages/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/PackedPaletteCrossByteReferenceTest.ExactSourcePaletteAndTargetEndAtProtectedPages/3, where GetParam() = 3"
+        ],
+        "DXTPayloadReferenceTest": [
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.AllFiveFormatsCopyOnePayloadWithIndependentOffsets/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.AllFiveFormatsCopyOnePayloadWithIndependentOffsets/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.DeclaredOpaqueLengthIncludesByteTailsAndPreservesSpareCapacity/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.DeclaredOpaqueLengthIncludesByteTailsAndPreservesSpareCapacity/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.SingleRowUpsideDownIsAnIdenticalPayloadCopy/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.SingleRowUpsideDownIsAnIdenticalPayloadCopy/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.MultirowCompressedVerticalFlipRemainsUnsupported/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.MultirowCompressedVerticalFlipRemainsUnsupported/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ShortCapacityAndNonpositiveLengthsDoNotPartiallyWrite/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ShortCapacityAndNonpositiveLengthsDoNotPartiallyWrite/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ConcreteColorMasksRetainPriorityOverStaleDXTFlags/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ConcreteColorMasksRetainPriorityOverStaleDXTFlags/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.CrossFormatAndResizeDoNotDecodeOrReinterpretPayload/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.CrossFormatAndResizeDoNotDecodeOrReinterpretPayload/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ExactPayloadBuffersEndAtProtectedPages/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ExactPayloadBuffersEndAtProtectedPages/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] 16 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.AllFiveFormatsCopyOnePayloadWithIndependentOffsets/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.AllFiveFormatsCopyOnePayloadWithIndependentOffsets/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.DeclaredOpaqueLengthIncludesByteTailsAndPreservesSpareCapacity/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.DeclaredOpaqueLengthIncludesByteTailsAndPreservesSpareCapacity/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.SingleRowUpsideDownIsAnIdenticalPayloadCopy/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.SingleRowUpsideDownIsAnIdenticalPayloadCopy/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.MultirowCompressedVerticalFlipRemainsUnsupported/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.MultirowCompressedVerticalFlipRemainsUnsupported/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ShortCapacityAndNonpositiveLengthsDoNotPartiallyWrite/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ShortCapacityAndNonpositiveLengthsDoNotPartiallyWrite/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ConcreteColorMasksRetainPriorityOverStaleDXTFlags/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ConcreteColorMasksRetainPriorityOverStaleDXTFlags/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.CrossFormatAndResizeDoNotDecodeOrReinterpretPayload/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.CrossFormatAndResizeDoNotDecodeOrReinterpretPayload/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ExactPayloadBuffersEndAtProtectedPages/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/DXTPayloadReferenceTest.ExactPayloadBuffersEndAtProtectedPages/3, where GetParam() = 3"
+        ],
+        "IndexedLifecycleReferenceTest": [
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.ResizeTrainsOriginalSourceThenMapsResampledColors/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.ResizeTrainsOriginalSourceThenMapsResampledColors/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.SignedPitchesWorkForResizeAndInversion/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.SignedPitchesWorkForResizeAndInversion/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.InversionKeepsTrainingPaletteAndReversesOnlyIndices/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.InversionKeepsTrainingPaletteAndReversesOnlyIndices/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.UnusedSourcePaletteCountDoesNotSuppressTruecolorTraining/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.UnusedSourcePaletteCountDoesNotSuppressTruecolorTraining/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.RepeatedCallsAndTinySourceKeepTheirOwnNetworkAndStorage/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.RepeatedCallsAndTinySourceKeepTheirOwnNetworkAndStorage/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.InvalidTargetsFailBeforeChangingPaletteOrIndices/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.InvalidTargetsFailBeforeChangingPaletteOrIndices/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.Existing24BitConversionRemainsButUnsupportedResizesDoNotTrain/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.Existing24BitConversionRemainsButUnsupportedResizesDoNotTrain/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.ExactStorageEndsAtProtectedPagesAndOverflowDoesNotReadSource/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.ExactStorageEndsAtProtectedPagesAndOverflowDoesNotReadSource/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] 16 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.ResizeTrainsOriginalSourceThenMapsResampledColors/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.ResizeTrainsOriginalSourceThenMapsResampledColors/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.SignedPitchesWorkForResizeAndInversion/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.SignedPitchesWorkForResizeAndInversion/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.InversionKeepsTrainingPaletteAndReversesOnlyIndices/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.InversionKeepsTrainingPaletteAndReversesOnlyIndices/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.UnusedSourcePaletteCountDoesNotSuppressTruecolorTraining/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.UnusedSourcePaletteCountDoesNotSuppressTruecolorTraining/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.RepeatedCallsAndTinySourceKeepTheirOwnNetworkAndStorage/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.RepeatedCallsAndTinySourceKeepTheirOwnNetworkAndStorage/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.InvalidTargetsFailBeforeChangingPaletteOrIndices/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.InvalidTargetsFailBeforeChangingPaletteOrIndices/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.Existing24BitConversionRemainsButUnsupportedResizesDoNotTrain/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.Existing24BitConversionRemainsButUnsupportedResizesDoNotTrain/3, where GetParam() = 3",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.ExactStorageEndsAtProtectedPagesAndOverflowDoesNotReadSource/2, where GetParam() = 2",
+          "[  FAILED  ] ScalarSSE2SSSE3AVX2/IndexedLifecycleReferenceTest.ExactStorageEndsAtProtectedPagesAndOverflowDoesNotReadSource/3, where GetParam() = 3"
+        ],
+        "BlitClosureReferenceTest": [
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.AllNineOriginalResizeDirectionsPreserveChannelsAndPadding/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.AllNineOriginalResizeDirectionsPreserveChannelsAndPadding/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.ObjectResizeAndBlitUseSameOriginalDirectionContracts/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.ObjectResizeAndBlitUseSameOriginalDirectionContracts/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.DispatchRebuildAndModeTransitionsKeepPixelBehavior/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.DispatchRebuildAndModeTransitionsKeepPixelBehavior/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.RepeatedConstructionOwnsResizeAndDispatchState/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.RepeatedConstructionOwnsResizeAndDispatchState/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.SharedEngineRebuildSerializesWithIndependentImageOperations/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.SharedEngineRebuildSerializesWithIndependentImageOperations/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] 10 tests, listed below:",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.AllNineOriginalResizeDirectionsPreserveChannelsAndPadding/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.AllNineOriginalResizeDirectionsPreserveChannelsAndPadding/3, where GetParam() = 3",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.ObjectResizeAndBlitUseSameOriginalDirectionContracts/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.ObjectResizeAndBlitUseSameOriginalDirectionContracts/3, where GetParam() = 3",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.DispatchRebuildAndModeTransitionsKeepPixelBehavior/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.DispatchRebuildAndModeTransitionsKeepPixelBehavior/3, where GetParam() = 3",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.RepeatedConstructionOwnsResizeAndDispatchState/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.RepeatedConstructionOwnsResizeAndDispatchState/3, where GetParam() = 3",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.SharedEngineRebuildSerializesWithIndependentImageOperations/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/BlitClosureReferenceTest.SharedEngineRebuildSerializesWithIndependentImageOperations/3, where GetParam() = 3"
+        ],
+        "ImageDescriptorReferenceTest": [
+          "[  FAILED  ] DispatchModes/ImageDescriptorRuntimeTest.CopiedDescriptorKeepsBothPitchesAndImagePointersForBlit/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/ImageDescriptorRuntimeTest.CopiedDescriptorKeepsBothPitchesAndImagePointersForBlit/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] DispatchModes/ImageDescriptorRuntimeTest.CopiedDescriptorCarriesTheAlphaMaskToItsBorrowedImage/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/ImageDescriptorRuntimeTest.CopiedDescriptorCarriesTheAlphaMaskToItsBorrowedImage/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] 4 tests, listed below:",
+          "[  FAILED  ] DispatchModes/ImageDescriptorRuntimeTest.CopiedDescriptorKeepsBothPitchesAndImagePointersForBlit/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/ImageDescriptorRuntimeTest.CopiedDescriptorKeepsBothPitchesAndImagePointersForBlit/3, where GetParam() = 3",
+          "[  FAILED  ] DispatchModes/ImageDescriptorRuntimeTest.CopiedDescriptorCarriesTheAlphaMaskToItsBorrowedImage/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/ImageDescriptorRuntimeTest.CopiedDescriptorCarriesTheAlphaMaskToItsBorrowedImage/3, where GetParam() = 3"
+        ],
+        "ColorReferenceTest": [
+          "[  FAILED  ] DispatchModes/ColorRuntimeReferenceTest.AllByteBinsUseTheSameTruncationAcrossPackingEntryPoints/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/ColorRuntimeReferenceTest.AllByteBinsUseTheSameTruncationAcrossPackingEntryPoints/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] DispatchModes/ColorRuntimeReferenceTest.PackedColorsFeedTheRuntimeBlitterInTheOriginalChannelOrder/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] DispatchModes/ColorRuntimeReferenceTest.PackedColorsFeedTheRuntimeBlitterInTheOriginalChannelOrder/3, where GetParam() = 3 (0 ms)",
+          "[  FAILED  ] 4 tests, listed below:",
+          "[  FAILED  ] DispatchModes/ColorRuntimeReferenceTest.AllByteBinsUseTheSameTruncationAcrossPackingEntryPoints/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/ColorRuntimeReferenceTest.AllByteBinsUseTheSameTruncationAcrossPackingEntryPoints/3, where GetParam() = 3",
+          "[  FAILED  ] DispatchModes/ColorRuntimeReferenceTest.PackedColorsFeedTheRuntimeBlitterInTheOriginalChannelOrder/2, where GetParam() = 2",
+          "[  FAILED  ] DispatchModes/ColorRuntimeReferenceTest.PackedColorsFeedTheRuntimeBlitterInTheOriginalChannelOrder/3, where GetParam() = 3"
+        ],
+        "RayReferenceTest": [
+          "[  FAILED  ] RayReferenceTest.DistanceRemainsFiniteWhenItsFloatSquareOverflows (0 ms)",
+          "[  FAILED  ] RayReferenceTest.DistanceRemainsNonZeroWhenItsFloatSquareUnderflows (0 ms)",
+          "[  FAILED  ] RayReferenceTest.DirectionRescalingAndPointScalePreserveTheSameLineGeometry (0 ms)",
+          "[  FAILED  ] 3 tests, listed below:",
+          "[  FAILED  ] RayReferenceTest.DistanceRemainsFiniteWhenItsFloatSquareOverflows",
+          "[  FAILED  ] RayReferenceTest.DistanceRemainsNonZeroWhenItsFloatSquareUnderflows",
+          "[  FAILED  ] RayReferenceTest.DirectionRescalingAndPointScalePreserveTheSameLineGeometry"
+        ],
+        "FontTest": [
+          "[  FAILED  ] FontTest.InvalidNativeTextAndMissingGlyphLeaveTheBitmapUntouched (3 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] FontTest.InvalidNativeTextAndMissingGlyphLeaveTheBitmapUntouched"
+        ],
+        "FontSearchTest": [
+          "[  FAILED  ] FontSearchTest.AnsiNamesRoundTripWithoutChangingInputOrReplacingFailures (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] FontSearchTest.AnsiNamesRoundTripWithoutChangingInputOrReplacingFailures"
+        ],
+        "SIMDDispatchTest": [
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference"
+        ],
+        "SIMDDispatchTest_none": [
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference"
+        ],
+        "SIMDDispatchTest_sse2": [
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference"
+        ],
+        "SIMDDispatchTest_ssse3": [
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference"
+        ],
+        "SIMDDispatchTest_sse4_1": [
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference"
+        ],
+        "SIMDDispatchTest_avx": [
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference"
+        ],
+        "SIMDDispatchTest_avx2": [
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference"
+        ],
+        "SIMDDispatchTest_auto": [
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] SIMDDispatchTest.PlaneSIMDMatchesScalarReference"
+        ],
+        "ProjectBoxZExtentsReferenceTest": [
+          "[  FAILED  ] ScalarSSE2AndRaw/ProjectBoxZExtentsReference.PreserveLiteralWAndSentinelRules/1, where GetParam() = 1 (0 ms)",
+          "[  FAILED  ] ScalarSSE2AndRaw/ProjectBoxZExtentsReference.PreserveLiteralWAndSentinelRules/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] 2 tests, listed below:",
+          "[  FAILED  ] ScalarSSE2AndRaw/ProjectBoxZExtentsReference.PreserveLiteralWAndSentinelRules/1, where GetParam() = 1",
+          "[  FAILED  ] ScalarSSE2AndRaw/ProjectBoxZExtentsReference.PreserveLiteralWAndSentinelRules/2, where GetParam() = 2"
+        ],
+        "BestFitBBoxReferenceTest": [
+          "[  FAILED  ] ScalarAndSSE2/BestFitBBoxReference.LeaveOutputUntouchedForEmptyInput/0, where GetParam() = 1 (0 ms)",
+          "[  FAILED  ] ScalarAndSSE2/BestFitBBoxReference.LeaveOutputUntouchedForEmptyInput/1, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] 2 tests, listed below:",
+          "[  FAILED  ] ScalarAndSSE2/BestFitBBoxReference.LeaveOutputUntouchedForEmptyInput/0, where GetParam() = 1",
+          "[  FAILED  ] ScalarAndSSE2/BestFitBBoxReference.LeaveOutputUntouchedForEmptyInput/1, where GetParam() = 2"
+        ],
+        "FreeVectorNormalizationReferenceTest": [
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/0, where GetParam() = 0 (0 ms)",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/1, where GetParam() = 1 (0 ms)",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/0, where GetParam() = 0 (0 ms)",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/1, where GetParam() = 1 (0 ms)",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/2, where GetParam() = 2 (0 ms)",
+          "[  FAILED  ] 6 tests, listed below:",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/0, where GetParam() = 0",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/1, where GetParam() = 1",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/2, where GetParam() = 2",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/0, where GetParam() = 0",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/1, where GetParam() = 1",
+          "[  FAILED  ] ReferencePointerRegister/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/2, where GetParam() = 2"
+        ],
+        "FreeVectorNormalizationScalarReferenceTest": [
+          "[  FAILED  ] ReferencePointer/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/0, where GetParam() = 0 (0 ms)",
+          "[  FAILED  ] ReferencePointer/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/1, where GetParam() = 1 (0 ms)",
+          "[  FAILED  ] ReferencePointer/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/0, where GetParam() = 0 (0 ms)",
+          "[  FAILED  ] ReferencePointer/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/1, where GetParam() = 1 (0 ms)",
+          "[  FAILED  ] 4 tests, listed below:",
+          "[  FAILED  ] ReferencePointer/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/0, where GetParam() = 0",
+          "[  FAILED  ] ReferencePointer/FreeVectorNormalizationReference.ExactInPlaceTwelveByteBoundary/1, where GetParam() = 1",
+          "[  FAILED  ] ReferencePointer/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/0, where GetParam() = 0",
+          "[  FAILED  ] ReferencePointer/FreeVectorNormalizationReference.ReadOnlySourceAndSeparateDestinationExactBoundaries/1, where GetParam() = 1"
+        ],
+        "CompressedVectorReferenceTest": [
+          "[  FAILED  ] CompressedVectorReferenceTest.ConstructorsSetAndVectorAssignmentUsePolarAngles (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] CompressedVectorReferenceTest.ConstructorsSetAndVectorAssignmentUsePolarAngles"
+        ],
+        "CompressedVectorScalarReferenceTest": [
+          "[  FAILED  ] CompressedVectorReferenceTest.ConstructorsSetAndVectorAssignmentUsePolarAngles (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] CompressedVectorReferenceTest.ConstructorsSetAndVectorAssignmentUsePolarAngles"
+        ],
+        "serialization_tests": [
+          "FAIL: ObjectAnimation Copy original controller fixtures: Morph packed normal output differs from original runtime",
+          "FAIL: Morph packed normal interpolation: Morph packed normal output differs from original runtime",
+          "FAIL: Morph vertex strides and subsets: Morph packed normal output differs from original runtime",
+          "FAIL: Morph optional outputs: Morph packed normal output differs from original runtime",
+          "FAIL: Merged Morph both normal sources: Merged Morph normal output differs from original behavior"
+        ],
+        "MorphPackedAngleTest": [
+          "[  FAILED  ] MorphPackedAngleTest.EncodingUnitAxesProducesTheNativePackedAngleUnits (0 ms)",
+          "[  FAILED  ] 1 test, listed below:",
+          "[  FAILED  ] MorphPackedAngleTest.EncodingUnitAxesProducesTheNativePackedAngleUnits"
+        ]
+      },
+      "stage_layout": "The remaining failure rejects the local Homebrew SDL absolute install name /opt/homebrew/opt/sdl3/lib/libSDL3.0.dylib instead of @rpath/libSDL3.0.dylib. Repeated with the old CK2 environment; unchanged packaging source. SDK is not reported fully green."
+    }
+  },
+  "viewport": {
+    "rejected_initial_capture": {
+      "environment": {
+        "source_revision": "f321c4f6c5e696d9f10035526fc1d09658bb26ad",
+        "source_dirty": true,
+        "binary_sha256": "8a6bdac47677906197b17f27f54e214239f33ae32cfcd7e5b7150a4223f46feb",
+        "harness_sha256": "0b735d0290bc5526b8b6669cab56c29af9112a4358d07c52232ca8f42e4b603c",
+        "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "hardware": "Apple M5 Pro",
+        "logical_cpus": 18,
+        "build_type": "Release",
+        "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+        "compiler_flags": {
+          "CMAKE_CXX_FLAGS": "",
+          "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_OSX_ARCHITECTURES": "arm64"
+        },
+        "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+        "sdk_revisions": {
+          "root": "d15c6f8edd52c588a3df8147695b5f802ad6a3d3",
+          "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+          "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+          "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+          "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+          "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+          "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+          "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+          "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+          "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+          "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+          "Source/RenderEngine": "258221cdf31bdd4a7f0d85625d6c354cd0aaf457",
+          "Source/VxMath": "8db7b203c21871c0cc0c5a0ecea8eae9cee8c700",
+          "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+          "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+          "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+        },
+        "sdk_patches": {
+          "root": {
+            "diff_sha256": "d049018c1bb6015d90cecf2fb0ec3e9ac8a04524c374337202179d0ad834fa04",
+            "untracked_sha256": {}
+          },
+          "Source/CK2": {
+            "diff_sha256": "4b1f5a4dede9753014261cfee374e95e9b8761e32540ce12b9f8d0d3ec322c4d",
+            "untracked_sha256": {
+              "tests/CKObjectBehaviorDifferentialTest.cmake": "a5c464a4a5521c5e3f53423b457ba4fb1d80759488cdf284b5cc4fe82acf164d",
+              "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+              "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+              "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+            }
+          }
+        },
+        "sdk_runtime_sha256": {
+          "CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "libCK2.0.1.0.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2.0.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2_3D.0.1.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec"
+        },
+        "build_source_directory": "/Users/touyou/Work/NeMoDev/out/identity-before/dev-source",
+        "sdk_dirty": true
+      },
+      "measurement": {
+        "version": 1,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 4081,
+            "elapsed_ms": 1037.824458333
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1001.334875
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1046.616208333
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1049.405916667
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1006.245708333
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1061.41925
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1056.477666667
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1010.5195
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1002.828791667
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1010.369458333
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1012.649416667
+          }
+        ]
+      },
+      "statistics": {
+        "median_ms": 0.2606964006769071,
+        "p10_ms": 0.2564607224535653,
+        "p90_ms": 0.26308760739390785,
+        "mad_ms": 0.002352143538922158,
+        "mad_percent": 0.9022539370757467
+      },
+      "unmeasured": [
+        "GPU-only timestamps",
+        "application allocations",
+        "GPU preserve copies",
+        "extra GPU passes/submissions",
+        "native capability queries",
+        "resource retain/release"
+      ],
+      "sdk_change": true,
+      "passed": true
+    },
+    "calibration_peer": {
+      "environment": {
+        "source_revision": "f321c4f6c5e696d9f10035526fc1d09658bb26ad",
+        "source_dirty": true,
+        "binary_sha256": "8a6bdac47677906197b17f27f54e214239f33ae32cfcd7e5b7150a4223f46feb",
+        "harness_sha256": "0b735d0290bc5526b8b6669cab56c29af9112a4358d07c52232ca8f42e4b603c",
+        "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "hardware": "Apple M5 Pro",
+        "logical_cpus": 18,
+        "build_type": "Release",
+        "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+        "compiler_flags": {
+          "CMAKE_CXX_FLAGS": "",
+          "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_OSX_ARCHITECTURES": "arm64"
+        },
+        "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+        "sdk_revisions": {
+          "root": "79ea288e74524d1947f10d293fc1e435dae6223a",
+          "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+          "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+          "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+          "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+          "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+          "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+          "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+          "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+          "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+          "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+          "Source/RenderEngine": "2ee93060b82784ec05786bc7669ca2991f793b55",
+          "Source/VxMath": "8db7b203c21871c0cc0c5a0ecea8eae9cee8c700",
+          "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+          "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+          "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+        },
+        "sdk_patches": {
+          "root": {
+            "diff_sha256": "d049018c1bb6015d90cecf2fb0ec3e9ac8a04524c374337202179d0ad834fa04",
+            "untracked_sha256": {}
+          },
+          "Source/CK2": {
+            "diff_sha256": "4b1f5a4dede9753014261cfee374e95e9b8761e32540ce12b9f8d0d3ec322c4d",
+            "untracked_sha256": {
+              "tests/CKObjectBehaviorDifferentialTest.cmake": "a5c464a4a5521c5e3f53423b457ba4fb1d80759488cdf284b5cc4fe82acf164d",
+              "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+              "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+              "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+            }
+          }
+        },
+        "sdk_runtime_sha256": {
+          "CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "libCK2.0.1.0.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2.0.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2_3D.0.1.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec"
+        },
+        "build_source_directory": "/Users/touyou/Work/NeMoDev/out/identity-before/dev-source",
+        "sdk_dirty": true
+      },
+      "measurement": {
+        "version": 1,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 3841,
+            "elapsed_ms": 1008.254458333
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1006.235083333
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1009.011875
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1020.672833333
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1028.59125
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1046.750083333
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1028.489375
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1048.277375
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1049.414666667
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1005.193375
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1003.939458333
+          }
+        ]
+      },
+      "statistics": {
+        "median_ms": 0.2460032978027444,
+        "p10_ms": 0.2380447234436473,
+        "p90_ms": 0.2619721643668316,
+        "mad_ms": 0.003756113509062381,
+        "mad_percent": 1.5268549416252897
+      },
+      "unmeasured": [
+        "GPU-only timestamps",
+        "application allocations",
+        "GPU preserve copies",
+        "extra GPU passes/submissions",
+        "native capability queries",
+        "resource retain/release"
+      ],
+      "sdk_change": true,
+      "comparison": {
+        "median_change_percent": -5.636097328544443,
+        "sdk_change": true,
+        "same_binary_control": true,
+        "passed": false
+      },
+      "passed": false
+    },
+    "accepted_reference": {
+      "environment": {
+        "source_revision": "f321c4f6c5e696d9f10035526fc1d09658bb26ad",
+        "source_dirty": true,
+        "binary_sha256": "8a6bdac47677906197b17f27f54e214239f33ae32cfcd7e5b7150a4223f46feb",
+        "harness_sha256": "0b735d0290bc5526b8b6669cab56c29af9112a4358d07c52232ca8f42e4b603c",
+        "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "hardware": "Apple M5 Pro",
+        "logical_cpus": 18,
+        "build_type": "Release",
+        "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+        "compiler_flags": {
+          "CMAKE_CXX_FLAGS": "",
+          "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_OSX_ARCHITECTURES": "arm64"
+        },
+        "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+        "sdk_revisions": {
+          "root": "79ea288e74524d1947f10d293fc1e435dae6223a",
+          "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+          "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+          "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+          "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+          "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+          "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+          "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+          "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+          "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+          "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+          "Source/RenderEngine": "2ee93060b82784ec05786bc7669ca2991f793b55",
+          "Source/VxMath": "8db7b203c21871c0cc0c5a0ecea8eae9cee8c700",
+          "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+          "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+          "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+        },
+        "sdk_patches": {
+          "root": {
+            "diff_sha256": "d049018c1bb6015d90cecf2fb0ec3e9ac8a04524c374337202179d0ad834fa04",
+            "untracked_sha256": {}
+          },
+          "Source/CK2": {
+            "diff_sha256": "4b1f5a4dede9753014261cfee374e95e9b8761e32540ce12b9f8d0d3ec322c4d",
+            "untracked_sha256": {
+              "tests/CKObjectBehaviorDifferentialTest.cmake": "a5c464a4a5521c5e3f53423b457ba4fb1d80759488cdf284b5cc4fe82acf164d",
+              "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+              "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+              "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+            }
+          }
+        },
+        "sdk_runtime_sha256": {
+          "CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "libCK2.0.1.0.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2.0.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2.dylib": "5b66c003e1eefeb5b36367cd157b4497e271e17806ef1d61a500928257640c4f",
+          "libCK2_3D.0.1.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec"
+        },
+        "build_source_directory": "/Users/touyou/Work/NeMoDev/out/identity-before/dev-source",
+        "sdk_dirty": true
+      },
+      "measurement": {
+        "version": 1,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 4081,
+            "elapsed_ms": 1034.402416667
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1026.12175
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1012.668875
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1016.093708333
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1044.96575
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1014.746
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1018.137
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1028.87725
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1048.437958333
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1014.420458333
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1021.586666667
+          }
+        ]
+      },
+      "statistics": {
+        "median_ms": 0.2503275341012007,
+        "p10_ms": 0.24857154088042147,
+        "p90_ms": 0.2560562974761088,
+        "mad_ms": 0.0017559932207792117,
+        "mad_percent": 0.701478256111176
+      },
+      "unmeasured": [
+        "GPU-only timestamps",
+        "application allocations",
+        "GPU preserve copies",
+        "extra GPU passes/submissions",
+        "native capability queries",
+        "resource retain/release"
+      ],
+      "sdk_change": true,
+      "comparison": {
+        "median_change_percent": 1.7577960690281502,
+        "sdk_change": true,
+        "same_binary_control": true,
+        "passed": true
+      },
+      "passed": true
+    },
+    "candidate": {
+      "environment": {
+        "source_revision": "f321c4f6c5e696d9f10035526fc1d09658bb26ad",
+        "source_dirty": true,
+        "binary_sha256": "73216b519c73809a7307291c32f2fa95583e8387cbede226c9a7460dda16a668",
+        "harness_sha256": "0b735d0290bc5526b8b6669cab56c29af9112a4358d07c52232ca8f42e4b603c",
+        "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "hardware": "Apple M5 Pro",
+        "logical_cpus": 18,
+        "build_type": "Release",
+        "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+        "compiler_flags": {
+          "CMAKE_CXX_FLAGS": "",
+          "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_OSX_ARCHITECTURES": "arm64"
+        },
+        "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+        "sdk_revisions": {
+          "root": "79ea288e74524d1947f10d293fc1e435dae6223a",
+          "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+          "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+          "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+          "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+          "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+          "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+          "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+          "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+          "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+          "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+          "Source/RenderEngine": "2ee93060b82784ec05786bc7669ca2991f793b55",
+          "Source/VxMath": "8db7b203c21871c0cc0c5a0ecea8eae9cee8c700",
+          "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+          "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+          "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+        },
+        "sdk_patches": {
+          "root": {
+            "diff_sha256": "20852ae27631ecc8df252e819553cbd4aac11e51264a7bb398461f55a3146d01",
+            "untracked_sha256": {}
+          },
+          "Source/CK2": {
+            "diff_sha256": "8b47ed2177e9dfa748622e5a31758ebf92923061737396e5923d6d18d3066de4",
+            "untracked_sha256": {
+              "tests/CKObjectBehaviorDifferentialTest.cmake": "a5c464a4a5521c5e3f53423b457ba4fb1d80759488cdf284b5cc4fe82acf164d",
+              "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+              "tests/CKObjectIdentityTest.cpp": "d12b700cdecc7e50572f4ca6b7090fcffe752a22bb073cf3c6ce0a898e710063",
+              "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+              "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+            }
+          },
+          "Source/RenderEngine": {
+            "diff_sha256": "84d8c3cf7dff56f788b304d78d70aae1d42dafa61e9912019e3f773f46e32a04",
+            "untracked_sha256": {}
+          }
+        },
+        "sdk_runtime_sha256": {
+          "CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "libCK2_3D.0.1.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec"
+        },
+        "build_source_directory": "/Users/touyou/Work/NeMoDev",
+        "sdk_dirty": true
+      },
+      "measurement": {
+        "version": 1,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 4561,
+            "elapsed_ms": 1052.120041667
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1012.277958333
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1039.528625
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1007.298791667
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1016.70675
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1027.241125
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1032.355666667
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1039.914416667
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1002.57775
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1003.019083333
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1001.175958333
+          }
+        ]
+      },
+      "statistics": {
+        "median_ms": 0.2389159145260356,
+        "p10_ms": 0.2320244735015043,
+        "p90_ms": 0.24577777097108552,
+        "mad_ms": 0.00464654208146259,
+        "mad_percent": 1.9448441057936465
+      },
+      "unmeasured": [
+        "GPU-only timestamps",
+        "application allocations",
+        "GPU preserve copies",
+        "extra GPU passes/submissions",
+        "native capability queries",
+        "resource retain/release"
+      ],
+      "sdk_change": true,
+      "comparison": {
+        "median_change_percent": -4.5586753435407745,
+        "sdk_change": true,
+        "same_binary_control": false,
+        "passed": true
+      },
+      "passed": true
+    },
+    "candidate_control": {
+      "environment": {
+        "source_revision": "f321c4f6c5e696d9f10035526fc1d09658bb26ad",
+        "source_dirty": true,
+        "binary_sha256": "73216b519c73809a7307291c32f2fa95583e8387cbede226c9a7460dda16a668",
+        "harness_sha256": "0b735d0290bc5526b8b6669cab56c29af9112a4358d07c52232ca8f42e4b603c",
+        "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "hardware": "Apple M5 Pro",
+        "logical_cpus": 18,
+        "build_type": "Release",
+        "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+        "compiler_flags": {
+          "CMAKE_CXX_FLAGS": "",
+          "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_OSX_ARCHITECTURES": "arm64"
+        },
+        "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+        "sdk_revisions": {
+          "root": "79ea288e74524d1947f10d293fc1e435dae6223a",
+          "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+          "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+          "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+          "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+          "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+          "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+          "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+          "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+          "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+          "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+          "Source/RenderEngine": "2ee93060b82784ec05786bc7669ca2991f793b55",
+          "Source/VxMath": "8db7b203c21871c0cc0c5a0ecea8eae9cee8c700",
+          "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+          "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+          "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+        },
+        "sdk_patches": {
+          "root": {
+            "diff_sha256": "20852ae27631ecc8df252e819553cbd4aac11e51264a7bb398461f55a3146d01",
+            "untracked_sha256": {}
+          },
+          "Source/CK2": {
+            "diff_sha256": "8b47ed2177e9dfa748622e5a31758ebf92923061737396e5923d6d18d3066de4",
+            "untracked_sha256": {
+              "tests/CKObjectBehaviorDifferentialTest.cmake": "a5c464a4a5521c5e3f53423b457ba4fb1d80759488cdf284b5cc4fe82acf164d",
+              "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+              "tests/CKObjectIdentityTest.cpp": "d12b700cdecc7e50572f4ca6b7090fcffe752a22bb073cf3c6ce0a898e710063",
+              "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+              "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+            }
+          },
+          "Source/RenderEngine": {
+            "diff_sha256": "84d8c3cf7dff56f788b304d78d70aae1d42dafa61e9912019e3f773f46e32a04",
+            "untracked_sha256": {}
+          }
+        },
+        "sdk_runtime_sha256": {
+          "CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "libCK2_3D.0.1.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.0.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libCK2_3D.dylib": "e38d1a68c96138f46f967bce2f4edf1a8531d7dc0a1175f78b9cd25c185aedb7",
+          "libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec"
+        },
+        "build_source_directory": "/Users/touyou/Work/NeMoDev",
+        "sdk_dirty": true
+      },
+      "measurement": {
+        "version": 1,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 4321,
+            "elapsed_ms": 1040.582375
+          },
+          {
+            "frames": 4561,
+            "elapsed_ms": 1055.17125
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1038.985
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1025.932625
+          },
+          {
+            "frames": 4561,
+            "elapsed_ms": 1034.064958333
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1040.520875
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1027.388
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1017.714875
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1008.888458333
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1057.181166667
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1047.044958333
+          }
+        ]
+      },
+      "statistics": {
+        "median_ms": 0.23776625781069194,
+        "p10_ms": 0.23134647007235257,
+        "p90_ms": 0.24231542659870403,
+        "mad_ms": 0.003053546632723919,
+        "mad_percent": 1.284264075500206
+      },
+      "unmeasured": [
+        "GPU-only timestamps",
+        "application allocations",
+        "GPU preserve copies",
+        "extra GPU passes/submissions",
+        "native capability queries",
+        "resource retain/release"
+      ],
+      "sdk_change": true,
+      "comparison": {
+        "median_change_percent": -0.48119721016675054,
+        "sdk_change": true,
+        "same_binary_control": true,
+        "passed": true
+      },
+      "passed": true
+    },
+    "calibration_note": "The first same-binary pair drifted -5.6% and was rejected. The next identical-binary pair passed (+1.758%). The candidate and its control both pass MAD <= 3%; the candidate control is within the symmetric 3% limit. The observed faster candidate is not claimed as a speedup."
+  },
+  "limitations": [
+    "Local macOS ARM64 / Metal only; Windows and Linux execution remains for CI.",
+    "15 original-sample UI suites remain skipped. Self-contained NMO direct-open and failure-preservation regressions pass; unavailable original game samples were not substituted or counted as passes.",
+    "No GPU-only timestamps, application allocation, GPU copy/pass/submit, capability-query or retain/release instrumentation. Existing instrumented stable counters remain zero; the same UI target texture is retained.",
+    "Object handles and ObjectRef are non-owning transient values. Native access is still confined to the existing owning-thread/exclusive native access.",
+    "Only phase-one identity foundations are complete; extension registration, unified rename providers and second-view registration remain explicit architecture gaps."
+  ]
+}

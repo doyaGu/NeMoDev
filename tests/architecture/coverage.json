@@ -2009,10 +2009,7 @@
       ],
       "tests": [
         "NeMoDevEditor",
-        "NeMoDevIdentityHeaders",
-        "NeMoDevSdkObjectBehavior",
-        "VirtoolsDev.ObjectIdentityReplay",
-        "VirtoolsDev.ObjectIdentityResources"
+        "NeMoDevIdentityHeaders"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules"
