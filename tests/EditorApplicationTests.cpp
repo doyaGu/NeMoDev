@@ -12,6 +12,7 @@
 
 using namespace vdev;
 void TestWorkspace(vdev::CkRuntimeHost &host);
+void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestObjectCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 namespace {
 void Check(bool ok, const char *message) {
@@ -368,6 +369,7 @@ int main(int argc, char **argv) {
         Edits(runtime, argv[1]);
         TestWorkspace(runtime);
         TestObjectCommands(runtime, argv[1]);
+        TestExecutionCommands(runtime, argv[1]);
         std::cout << "Module registration, object editing, undo and view lifetime checks passed\n";
         return 0;
     } catch (const std::exception &e) {

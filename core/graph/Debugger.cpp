@@ -148,14 +148,16 @@ std::vector<Debugger::Breakpoint> Debugger::Breakpoints() const {
 }
 
 void Debugger::Note(const std::string &text, CK_ID script, CK_ID behavior) {
-    m_Log.push_back({text, script, behavior});
+    ++m_LogRevision;
+    m_Log.push_back({text, m_Document.Reference(script), m_Document.Reference(behavior)});
     if (m_Log.size() > 2000) m_Log.erase(m_Log.begin(), m_Log.begin() + 500);
 }
 
 void Debugger::Stop(const std::string &why) {
+    ++m_Faults;
     m_State = State::Paused;
     PauseContext();
-    Note(why, m_CurrentScript, m_CurrentBehavior);
+    Note(why, CurrentScript(), CurrentBehavior());
 }
 
 // Dev pauses the context when it stops playing (Dev.exe sub_5CD3D0) and
@@ -164,15 +166,19 @@ void Debugger::Stop(const std::string &why) {
 void Debugger::PauseContext() {
     CKContext *context = m_Document.Context();
     if (context && !m_InFrame && context->IsPlaying())
-        GuardedCall([&] { context->Pause(); }, &m_Document.Host(), "CKContext::Pause");
+        if (!GuardedCall([&] { context->Pause(); }, &m_Document.Host(), "CKContext::Pause")) ++m_Faults;
 }
+
+CK_ID Debugger::CurrentObject() const { return m_Document.NativeId(m_CurrentObject); }
+CK_ID Debugger::CurrentScript() const { return m_Document.NativeId(m_CurrentScript); }
+CK_ID Debugger::CurrentBehavior() const { return m_Document.NativeId(m_CurrentBehavior); }
 
 void Debugger::ReadContext() {
     CKDebugContext *debug = m_Document.Context() ? m_Document.Context()->GetDebugContext() : nullptr;
     if (!debug) return;
-    m_CurrentObject = debug->CurrentObject ? debug->CurrentObject->GetID() : 0;
-    m_CurrentScript = debug->CurrentScript ? debug->CurrentScript->GetID() : 0;
-    m_CurrentBehavior = debug->CurrentBehavior ? debug->CurrentBehavior->GetID() : 0;
+    m_CurrentObject = m_Document.Reference(debug->CurrentObject ? debug->CurrentObject->GetID() : 0);
+    m_CurrentScript = m_Document.Reference(debug->CurrentScript ? debug->CurrentScript->GetID() : 0);
+    m_CurrentBehavior = m_Document.Reference(debug->CurrentBehavior ? debug->CurrentBehavior->GetID() : 0);
     // CurrentBehaviorAction (CKDebugContext::DebugStep, CK2 0x2400629F,
     // writes this[21]).
     m_Action = DebugCurrentAction(debug);
@@ -189,11 +195,12 @@ void Debugger::Play() {
     CKBehaviorManager *behaviors = context->GetBehaviorManager();
     if (m_State == State::Stopped && level && behaviors && behaviors->GetObjectsCount() == 0) {
         CKScene *scene = level->GetCurrentScene() ? level->GetCurrentScene() : level->GetLevelScene();
-        GuardedCall([&] { level->LaunchScene(scene); }, &m_Document.Host(), "CKLevel::LaunchScene");
+        if (!GuardedCall([&] { level->LaunchScene(scene); }, &m_Document.Host(), "CKLevel::LaunchScene")) ++m_Faults;
         Note(std::string("Launched scene <") + NameOf(scene) + ">");
     }
     if (!context->IsPlaying() &&
         !GuardedCall([&] { context->Play(); }, &m_Document.Host(), "CKContext::Play")) {
+        ++m_Faults;
         Note("Play raised an exception");
         return;
     }
@@ -214,12 +221,12 @@ void Debugger::Pause() {
 void Debugger::Reset() {
     CKContext *context = m_Document.Context();
     if (!context) return;
-    if (m_InFrame) GuardedCall([&] { context->ProcessDebugEnd(); }, &m_Document.Host(), "ProcessDebugEnd");
+    if (m_InFrame && !GuardedCall([&] { context->ProcessDebugEnd(); }, &m_Document.Host(), "ProcessDebugEnd")) ++m_Faults;
     m_InFrame = false;
-    GuardedCall([&] { context->Reset(); }, &m_Document.Host(), "CKContext::Reset");
+    if (!GuardedCall([&] { context->Reset(); }, &m_Document.Host(), "CKContext::Reset")) ++m_Faults;
     m_State = State::Stopped;
     m_Frames = 0;
-    m_CurrentObject = m_CurrentScript = m_CurrentBehavior = 0;
+    m_CurrentObject = m_CurrentScript = m_CurrentBehavior = {};
     m_ParameterValues.clear();
     m_LinkActive.clear();
     m_Disengaged.clear();
@@ -232,12 +239,12 @@ void Debugger::Reset() {
 void Debugger::Detach() {
     if (m_State != State::Stopped && m_Document.Context()) Reset();
     m_State = State::Stopped;
-    m_Log.clear();
+    ClearLog();
 }
 
 void Debugger::BeginFrame() {
     CKContext *context = m_Document.Context();
-    if (!context->IsPlaying()) GuardedCall([&] { context->Play(); }, &m_Document.Host(), "CKContext::Play");
+    if (!context->IsPlaying() && !GuardedCall([&] { context->Play(); }, &m_Document.Host(), "CKContext::Play")) ++m_Faults;
     const float delta = 1000.0f / std::max(1.0f, simulatedFps);
     if (!GuardedCall([&] { context->ProcessDebugStart(delta); }, &m_Document.Host(), "ProcessDebugStart")) {
         Stop("Debug frame start raised an exception");
@@ -252,11 +259,11 @@ void Debugger::BeginFrame() {
 
 void Debugger::EndFrame() {
     CKContext *context = m_Document.Context();
-    GuardedCall([&] { context->ProcessDebugEnd(); }, &m_Document.Host(), "ProcessDebugEnd");
+    if (!GuardedCall([&] { context->ProcessDebugEnd(); }, &m_Document.Host(), "ProcessDebugEnd")) ++m_Faults;
     m_InFrame = false;
     ++m_Frames;
     ++m_RunFrames;
-    m_CurrentObject = m_CurrentScript = m_CurrentBehavior = 0;
+    m_CurrentObject = m_CurrentScript = m_CurrentBehavior = {};
     if (maxFrames > 0 && m_RunFrames >= maxFrames && m_State == State::Running) {
         m_State = State::Paused;
         PauseContext();
@@ -269,13 +276,13 @@ bool Debugger::Step() {
     bool more = false;
     if (!GuardedCall([&] { more = context->ProcessDebugStep() != 0; }, &m_Document.Host(), "ProcessDebugStep")) {
         ReadContext();
-        Stop(std::string("Behavior <") + NameOf(context->GetObject(m_CurrentBehavior)) + "> raised an exception");
+        Stop(std::string("Behavior <") + NameOf(context->GetObject(CurrentBehavior())) + "> raised an exception");
         return false;
     }
     ReadContext();
     if (std::getenv("SCHEMATIC_DEBUG_STEPS"))
-        Note("step object " + std::to_string(m_CurrentObject) + " script " + std::to_string(m_CurrentScript) +
-             " behavior " + std::to_string(m_CurrentBehavior) + " action " + std::to_string(m_Action) +
+        Note("step object " + std::to_string(CurrentObject()) + " script " + std::to_string(CurrentScript()) +
+             " behavior " + std::to_string(CurrentBehavior()) + " action " + std::to_string(m_Action) +
              (more ? "" : " (frame end)"));
     return more;
 }
@@ -325,7 +332,7 @@ bool Debugger::CheckBreakpoints() {
         bool hit = false;
         std::string text;
         if (data.type == EXTRA_DATA_BEHAVIOR) {
-            hit = m_CurrentBehavior == data.id1 && m_Action == CKDEBUG_BEHEXECUTE;
+            hit = CurrentBehavior() == data.id1 && m_Action == CKDEBUG_BEHEXECUTE;
             text = std::string("Breakpoint on behavior <") + NameOf(object) + ">";
         } else if (data.type == EXTRA_DATA_CONNECTION) {
             CKBehaviorLink *link = CKBehaviorLink::Cast(object);
@@ -346,7 +353,7 @@ bool Debugger::CheckBreakpoints() {
         if (hit && m_Disengaged.count({static_cast<int>(data.type), data.id1})) hit = false;
         if (hit && ConditionsHold(data)) {
             Note(text + " --> reached", breakpoint.script,
-                 data.type == EXTRA_DATA_BEHAVIOR ? data.id1 : m_CurrentBehavior);
+                 data.type == EXTRA_DATA_BEHAVIOR ? data.id1 : CurrentBehavior());
             reached = true;
             m_ReachedList.push_back(breakpoint);
             const bool reengage = data.type == EXTRA_DATA_BEHAVIOR   ? reengageBehavior
@@ -357,7 +364,7 @@ bool Debugger::CheckBreakpoints() {
     }
     // Message breakpoints: a sender about to execute with that message.
     if (!messageBreakpoints.empty() && m_Action == CKDEBUG_BEHEXECUTE) {
-        CKBehavior *behavior = CKBehavior::Cast(context->GetObject(m_CurrentBehavior));
+        CKBehavior *behavior = CKBehavior::Cast(context->GetObject(CurrentBehavior()));
         CKParameterManager *manager = context->GetParameterManager();
         CKMessageManager *messages = context->GetMessageManager();
         const CKParameterType messageType = manager ? manager->ParameterGuidToType(CKPGUID_MESSAGE) : -1;
@@ -369,8 +376,8 @@ bool Debugger::CheckBreakpoints() {
                 if (source) source->GetValue(&message);
                 if (source && messageBreakpoints.count(message)) {
                     const char *name = messages ? messages->GetMessageTypeName(message) : nullptr;
-                    Note(std::string("Breakpoint on message <") + (name ? name : "?") + "> --> reached", m_CurrentScript,
-                         m_CurrentBehavior);
+                    Note(std::string("Breakpoint on message <") + (name ? name : "?") + "> --> reached", CurrentScript(),
+                         CurrentBehavior());
                     reached = true;
                 }
             }
@@ -427,7 +434,7 @@ void Debugger::Update(double budget) {
 
 // The debug context is where the lock wants it (no lock: anywhere).
 bool Debugger::LockHolds() const {
-    return (!lockedObject || m_CurrentObject == lockedObject) && (!lockedScript || m_CurrentScript == lockedScript);
+    return (!lockedObject || CurrentObject() == lockedObject) && (!lockedScript || CurrentScript() == lockedScript);
 }
 
 void Debugger::DebugStep() {
@@ -473,14 +480,14 @@ void Debugger::DebugStep() {
 
 void Debugger::LeaveBehavior() {
     if (!m_Document.Context()) return;
-    const CK_ID leaving = m_CurrentBehavior;
+    const ObjectRef leaving = m_CurrentBehavior;
     if (!leaving || !m_InFrame) {
         DebugStep();
         return;
     }
     m_State = State::Paused;
     m_ReachedList.clear();
-    CKObject *behavior = m_Document.Context()->GetObject(leaving);
+    CKObject *behavior = m_Document.Resolve(leaving);
     const std::string name = NameOf(behavior);
     for (int i = 0; i < 100000; ++i) {
         const bool more = Step();
@@ -503,7 +510,7 @@ void Debugger::StepFrame() {
     if (!context) return;
     m_State = State::Paused;
     if (!trace && !m_InFrame) {
-        if (!context->IsPlaying()) GuardedCall([&] { context->Play(); }, &m_Document.Host(), "CKContext::Play");
+        if (!context->IsPlaying() && !GuardedCall([&] { context->Play(); }, &m_Document.Host(), "CKContext::Play")) ++m_Faults;
         if (!GuardedCall([&] { context->Process(); }, &m_Document.Host(), "CKContext::Process"))
             Stop("A CK frame raised an exception");
         ++m_Frames;
@@ -535,6 +542,7 @@ void Debugger::ExecuteScripts(const std::vector<CK_ID> &scripts) {
                 script->Execute(delta);
             },
             &m_Document.Host(), "Execute Script");
+        if (!ok) ++m_Faults;
         Note(std::string(ok ? "Executed Script <" : "Execute Script raised an exception: <") + NameOf(script) + ">", id);
     }
 }

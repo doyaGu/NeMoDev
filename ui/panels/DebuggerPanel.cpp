@@ -212,7 +212,7 @@ void EditorPanels::DebuggerPanel(bool *open) {
         const int row = vi::ListView("##debuglog", l.Min(5, 125), l.Max(5, 125, 398, 93), s, COLUMNS,
                                      static_cast<int>(log.size()),
                                      [&](int r, int) { return AnsiToUtf8(log[r].text); }, nullptr, &twice, nullptr, true);
-        if (row >= 0 && twice && log[row].script) ShowScript(log[row].script, ElementRef(), log[row].behavior);
+        if (row >= 0 && twice && log[row].script) ShowScript(m_State.document->NativeId(log[row].script), ElementRef(), m_State.document->NativeId(log[row].behavior));
     }
 
     if (vi::DialogButton("Close", ImVec2(l.right - 60.0f * s, l.buttonsY), s)) *open = false;

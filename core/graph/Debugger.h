@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "CKAll.h"
+#include "editor/Identity.h"
 #include "core/interface/InterfaceData.h"
 
 namespace vdev {
@@ -45,7 +46,7 @@ public:
     enum class State { Stopped, Running, Paused };
     struct Entry {
         std::string text;
-        CK_ID script = 0, behavior = 0;
+        ObjectRef script{}, behavior{};
     };
 
     explicit Debugger(Document &document) : m_Document(document) {}
@@ -98,12 +99,14 @@ public:
     // the Script executed once (behaviors after frame 0 do not run); not traced.
     void ExecuteScripts(const std::vector<CK_ID> &scripts);
 
-    CK_ID CurrentObject() const { return m_CurrentObject; }
-    CK_ID CurrentScript() const { return m_CurrentScript; }
-    CK_ID CurrentBehavior() const { return m_CurrentBehavior; }
+    CK_ID CurrentObject() const;
+    CK_ID CurrentScript() const;
+    CK_ID CurrentBehavior() const;
+    uint64_t Faults() const { return m_Faults; }
     int Frames() const { return m_Frames; }
     const std::vector<Entry> &Log() const { return m_Log; }
-    void ClearLog() { m_Log.clear(); }
+    uint64_t LogRevision() const { return m_LogRevision; }
+    void ClearLog() { m_Log.clear(); ++m_LogRevision; }
     // Every breakpoint of the open Scripts.
     struct Breakpoint {
         CK_ID script = 0;
@@ -129,13 +132,14 @@ private:
     bool m_InFrame = false;
     int m_Frames = 0;
     int m_RunFrames = 0;
-    CK_ID m_CurrentObject = 0, m_CurrentScript = 0, m_CurrentBehavior = 0;
+    ObjectRef m_CurrentObject{}, m_CurrentScript{}, m_CurrentBehavior{};
+    uint64_t m_Faults = 0;
     CKDWORD m_Action = 0;
     std::vector<Entry> m_Log;
+    uint64_t m_LogRevision = 0;
     // Parameter and link breakpoints fire on a change.
     std::map<CK_ID, std::vector<CKBYTE>> m_ParameterValues;
     std::map<CK_ID, bool> m_LinkActive;
-    CK_ID m_Leaving = 0;
     std::set<std::pair<int, CK_ID>> m_Disengaged; // (type, object) reached and not re-engaged
     int m_Reached = 0;
     std::vector<Breakpoint> m_ReachedList;
