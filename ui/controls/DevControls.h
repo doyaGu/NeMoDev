@@ -122,6 +122,7 @@ void TemplatePanel(const TemplateLayout &layout);
 // A dialog's custom button (VIDialogButton, 60 x 18): white outline and
 // bold text; Enter / Escape press OK / Cancel when key is set.
 bool DialogButton(const char *label, const ImVec2 &min, float scale, ImGuiKey key = ImGuiKey_None);
+int MessageDialog(const char *id, const std::string &title, const std::string &text, int icon, bool cancel);
 // While a parameter UI's target button holds the mouse (CK2UI's capture),
 // the dialog buttons and their keys do nothing.
 void BlockDialogButtons(bool blocked);

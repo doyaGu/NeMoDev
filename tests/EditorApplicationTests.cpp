@@ -12,7 +12,10 @@
 
 using namespace vdev;
 void TestWorkspace(vdev::CkRuntimeHost &host);
+void TestDocumentCommands(vdev::CkRuntimeHost &host);
+void TestDocumentTransitions(vdev::CkRuntimeHost &host);
 void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
+void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestObjectCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 namespace {
 void Check(bool ok, const char *message) {
@@ -367,8 +370,11 @@ int main(int argc, char **argv) {
         const auto *path = std::getenv("VIRTOOLS_PATH");
         Check(runtime.Start(path ? path : ".", {}, &error), error.c_str());
         Edits(runtime, argv[1]);
+        TestDocumentCommands(runtime);
+        TestDocumentTransitions(runtime);
         TestWorkspace(runtime);
         TestObjectCommands(runtime, argv[1]);
+        TestResourceCommands(runtime, argv[1]);
         TestExecutionCommands(runtime, argv[1]);
         std::cout << "Module registration, object editing, undo and view lifetime checks passed\n";
         return 0;

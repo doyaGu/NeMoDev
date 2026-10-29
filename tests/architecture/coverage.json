@@ -450,12 +450,14 @@
     "S15": [
       "S01",
       "S02",
+      "S03",
       "S04",
       "S13",
       "S14",
       "S16",
       "S27",
       "S28",
+      "S33",
       "S34"
     ],
     "S16": [
@@ -803,13 +805,6 @@
     },
     {
       "file": "ui/controls/DevBitmaps.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/DevBitmaps.h",
       "access": [
         "native-sdk"
       ],

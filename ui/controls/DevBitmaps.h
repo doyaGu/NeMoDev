@@ -5,8 +5,6 @@
 
 #include "imgui.h"
 
-#include "CKAll.h"
-
 namespace vdev {
 
 // The ui group: Dev's interface bitmaps, those of resvis.dll (Dev.exe
@@ -29,7 +27,7 @@ ImTextureID DevExeIcon(int id);
 ImTextureID DevMessageIcon(int id);
 // The ui icon of a class in Dev's lists (Dev.exe sub_5D1F80, the
 // index in LoadIcons' list).
-int DevClassIconId(CK_CLASSID cid);
+int DevClassIconId(int cid);
 // The bitmaps and icons asked for that the program does not have (named as
 // in resources/resources.rc): ones resources/images.txt should list.
 const std::set<std::string> &MissingResources();

@@ -1,4 +1,5 @@
 #include "ui/controls/DevBitmaps.h"
+#include "CKAll.h"
 #include "ui/render/UiRenderer.h"
 #include "core/runtime/Resources.h"
 #include "ui/schematic/Snapshots.h"
