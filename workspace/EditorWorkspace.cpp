@@ -204,7 +204,7 @@ bool EditorWorkspace::EditMenu(const char *location, ObjectRef target, EditorEdi
             const auto label = m.label + "###" + m.id;
             if (m_Application.IsCommand(m.action)) {
                 const EditorRequest request{m_Application.Scope(owner), nullptr, 0};
-                if (ImGui::MenuItem(m.label.c_str(), ShortcutLabel(m.action.c_str()), false,
+                if (ImGui::MenuItem(m.label.c_str(), ShortcutLabel(m.action.c_str()), Checked(m, request.scope),
                                     m_Application.CommandState(m.action, request) == EDITOR_OK)) {
                     const auto result = m_Application.Execute(m.action, request);
                     if (!result.message.empty()) m_Error = result.message;
@@ -222,6 +222,11 @@ EditorStatus EditorWorkspace::Menu(const std::string &location, EditorScope scop
 }
 void EditorWorkspace::CommandMenu(const char *location) {
     if (EditMenu(location, m_Application.Selection(), m_MenuEdit, m_MenuOwner)) m_OpenMenuEdit = true;
+}
+bool EditorWorkspace::Checked(const MenuEntry &menu, EditorScope scope) {
+    if (menu.checked.empty()) return false;
+    const auto &state = m_Application.ReadQuery(menu.checked, {scope, nullptr, 0});
+    return state.status == EDITOR_OK && state.fields.size() == 1 && state.fields[0].integer == 1;
 }
 void EditorWorkspace::CommandShortcuts() {
     for (const auto &binding : m_Application.Shortcuts())

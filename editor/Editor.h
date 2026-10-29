@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 8u
+#define EDITOR_VERSION 9u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -76,6 +76,8 @@ typedef struct EditorScope {
 } EditorScope;
 typedef struct EditorRequest {
     EditorScope scope;
+    // Values are identified by key. Their order follows the caller; omitted
+    // optional values are appended by the host with their declared type.
     const EditorValue *values;
     uint32_t count;
     EditorString handler; // empty selects the configured command/query
@@ -187,7 +189,7 @@ typedef EditorStatus(EDITOR_CALL *EditorNavigateView)(void *, const EditorHost *
 typedef enum EditorViewKind { EDITOR_WINDOW_VIEW, EDITOR_OVERLAY_VIEW } EditorViewKind;
 typedef enum EditorInputKind { EDITOR_FILE_INPUT, EDITOR_SAVE_CHANGES_INPUT, EDITOR_CONFIRM_INPUT,
     EDITOR_OBJECT_EXPORT_INPUT, EDITOR_BEHAVIOR_EXPORT_INPUT,
-    EDITOR_WEB_PAGE_INPUT, EDITOR_PRINT_INPUT } EditorInputKind;
+    EDITOR_WEB_PAGE_INPUT, EDITOR_PRINT_INPUT, EDITOR_BEHAVIOR_INFORMATION_INPUT } EditorInputKind;
 // Drawing uses the separately versioned ImGui adapter. Implementations share
 // the host's ImGui binary/context; editor interfaces include no ImGui headers.
 typedef struct EditorDrawingVersion {
@@ -232,6 +234,7 @@ typedef struct EditorViewDesc {
 typedef struct EditorMenuDesc {
     EditorString id, action, location, label;
     int32_t order;
+    EditorString checked; // optional no-argument query returning integer "checked"
 } EditorMenuDesc;
 typedef struct EditorMenuLocation {
     EditorString id, title;

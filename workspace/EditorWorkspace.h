@@ -73,6 +73,7 @@ class EditorWorkspace : private EditorViewNavigation {
     static EditorStatus CloseCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus ViewQuery(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus ListQuery(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    bool Checked(const MenuEntry &, EditorScope);
     EditorApplication &m_Application;
     std::map<EditorView, View> m_Views;
     EditorView m_LastFocusRequest = 0;

@@ -44,6 +44,35 @@ EditorModuleDesc TextModule() {
     return module;
 }
 EditorStatus NoChange(void *, const EditorHost *, const EditorRequest *, EditorSink) { return EDITOR_NO_CHANGE; }
+void MenuChecks() {
+    for (int invalid = 0; invalid < 4; ++invalid) {
+        EditorApplication app({});
+        const EditorParameter field{EDITOR_TEXT("checked"), invalid == 2 ? EDITOR_TEXT_VALUE : EDITOR_INTEGER_VALUE};
+        const EditorParameter argument{EDITOR_TEXT("required"), EDITOR_INTEGER_VALUE};
+        const EditorQueryDesc query{sizeof(EditorQueryDesc), EDITOR_TEXT("test.checked"), EDITOR_TEXT("test.menus"),
+            invalid == 3 ? &argument : nullptr, invalid == 3 ? 1u : 0u,
+            [](void *, const EditorHost *, const EditorRequest *, EditorSink sink) {
+                const EditorValue value{EDITOR_TEXT("checked"), EDITOR_INTEGER_VALUE, {}, {}, 1};
+                return sink.write(sink.data, &value, 1);
+            }, nullptr, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, &field, 1};
+        const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("test.toggle"), EDITOR_TEXT("test.menus"), EDITOR_TEXT("Toggle"),
+            nullptr, 0, [](void *, const EditorHost *, const EditorRequest *, EditorSink) { return EDITOR_OK; }, nullptr, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE};
+        const EditorMenuLocation location{EDITOR_TEXT("test.menu"), EDITOR_TEXT("Menu")};
+        const EditorMenuDesc menu{EDITOR_TEXT("test.toggle.menu"), EDITOR_TEXT("test.toggle"), EDITOR_TEXT("test.menu"), EDITOR_TEXT("Toggle"), 0,
+            invalid == 1 ? EditorString EDITOR_TEXT("test.missing") : EditorString EDITOR_TEXT("test.checked")};
+        EditorModuleDesc module{};
+        module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("test.menus");
+        module.commands = &command; module.commandCount = 1; module.queries = &query; module.queryCount = 1;
+        module.locations = &location; module.locationCount = 1; module.menus = &menu; module.menuCount = 1;
+        std::string error;
+        Check(app.Register(module, error), error.c_str());
+        Check(app.Activate(EDITOR_IMGUI_VERSION, error) == (invalid == 0), "invalid menu check query was accepted");
+        if (!invalid) {
+            Check(app.Menus().front().checked == "test.checked" && app.Query("test.checked", {app.Scope(), nullptr, 0}).status == EDITOR_OK,
+                "menu lost its registered check query");
+        }
+    }
+}
 void VersionedQueries() {
     struct Values {
         uint64_t revision = 1, value = 7;
@@ -369,6 +398,7 @@ int main(int argc, char **argv) {
         Check(argc == 2, "module path is required");
         Registration();
         VersionedQueries();
+        MenuChecks();
         CkRuntimeHost runtime;
         std::string error;
         const auto *path = std::getenv("VIRTOOLS_PATH");

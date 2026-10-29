@@ -50,6 +50,7 @@ struct PropertyBinding {
 struct MenuEntry {
     std::string id, action, location, label;
     int order = 0;
+    std::string checked;
 };
 
 class EditorViewNavigation {

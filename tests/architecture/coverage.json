@@ -368,7 +368,8 @@
       "name": "资源浏览视图",
       "patterns": [
         "features/resources/**",
-        "!features/resources/BuildingBlockQueries.*"
+        "!features/resources/BuildingBlockQueries.*",
+        "!features/resources/DataResourceCommands.*"
       ]
     }
   ],
@@ -1687,7 +1688,9 @@
         "S03",
         "S15",
         "S20",
-        "S24"
+        "S24",
+        "S35",
+        "S41"
       ],
       "tests": [
         "VirtoolsDev.Resources",

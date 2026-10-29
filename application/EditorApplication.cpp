@@ -304,6 +304,7 @@ struct Module {
             d.id = Text(d.id, true);
             d.action = Text(d.action, true);
             d.location = Text(d.location, true);
+            d.checked = Text(d.checked, d.checked.size != 0);
             d.label = Text(d.label);
             menus.push_back(d);
         }
@@ -1233,7 +1234,13 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
             for (auto &d : m->menus) {
                 if (!actionExists(String(d.action)) || !s.locations.count(String(d.location)))
                     throw std::invalid_argument("Unknown menu action or location");
-                menus.push_back({String(d.id), String(d.action), String(d.location), String(d.label), d.order});
+                if (d.checked.size) {
+                    const auto query = queries.find(String(d.checked));
+                    if (query == queries.end() || query->second->count || query->second->fieldCount != 1 ||
+                        String(query->second->fields[0].key) != "checked" || query->second->fields[0].type != EDITOR_INTEGER_VALUE)
+                        throw std::invalid_argument("Menu check query must return an integer checked field without arguments");
+                }
+                menus.push_back({String(d.id), String(d.action), String(d.location), String(d.label), d.order, String(d.checked)});
             }
             for (auto &d : m->bindings) {
                 if (!actionExists(String(d.action))) throw std::invalid_argument("Unknown binding action");
