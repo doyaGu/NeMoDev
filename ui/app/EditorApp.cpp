@@ -1,5 +1,10 @@
 #include "ui/app/EditorApp.h"
+#include "ui/app/FileInputs.h"
+#include "ui/app/OutputInputs.h"
+#include "ui/panels/EventLogView.h"
+#include <stdexcept>
 #include "features/objects/ObjectViews.h"
+#include "features/scene/SceneViewData.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/level/SetupCommands.h"
 #include "ui/schematic/Snapshots.h"
@@ -29,10 +34,13 @@
 namespace vdev {
 
 EditorApp::EditorApp(HtmlFonts fonts)
-    : m_Editor([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }),
+    : m_Editor([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
+               [this] { return !m_State.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy(); }),
       m_ObjectCommands([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }),
-      m_Canvas(m_State), m_Panels(m_State, m_Canvas), m_Tools(m_State, m_Canvas), m_Help(fonts) {
+      m_Canvas(m_State), m_Panels(m_State, m_Canvas), m_Tools(m_State, m_Canvas), m_HtmlFonts(fonts) {
     m_State.workspace = &m_Workspace;
+    m_State.documentViews = this;
+    m_State.files.Execution(&m_Execution);
     m_Editor.report = [this](const EditorResponse &result) {
         if (!result.message.empty() && result.status != EDITOR_NO_CHANGE)
             m_State.Log(result.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, result.message);
@@ -46,7 +54,7 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
     if (!m_Window || event.type != SDL_EVENT_WINDOW_FOCUS_LOST ||
         event.window.windowID != SDL_GetWindowID(m_Window) || m_Layout.FullScreen()) return;
     if (m_State.debugger && m_State.debugger->GetState() == Debugger::State::Running)
-        m_State.debugger->Pause();
+        Command("runtime.pause");
 }
 
 namespace {
@@ -67,40 +75,6 @@ FileDialogOptions FileDialog(SDL_Window * owner, bool save, const std::string &i
     return options;
 }
 
-// Import File filter (Dev.exe sub_5D55F0 with the model readers): "All Known
-// Types (*.a;*.b)" then each reader, Virtools compositions, scripts and
-// player files left out.
-std::wstring ImportFilter() {
-    std::vector<std::pair<std::string, std::string>> readers; // description, extension
-    if (CKPluginManager *plugins = CKGetPluginManager())
-        for (int i = 0; i < plugins->GetPluginCount(CKPLUGIN_MODEL_READER); ++i) {
-            CKPluginEntry *entry = plugins->GetPluginInfo(CKPLUGIN_MODEL_READER, i);
-            if (!entry) continue;
-            std::string extension = entry->m_PluginInfo.m_Extension.m_Data;
-            for (char &c : extension) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
-            if (extension.empty() || extension == "vmo" || extension == "nms" || extension == "cmo") continue;
-            readers.emplace_back(entry->m_PluginInfo.m_Description.CStr() ? entry->m_PluginInfo.m_Description.CStr() : "",
-                                 extension);
-        }
-    std::string all;
-    for (const auto &reader : readers) all += (all.empty() ? "*." : ";*.") + reader.second;
-    std::string filter = "All Known Types (" + all + ")";
-    filter.push_back('\0');
-    filter += all;
-    filter.push_back('\0');
-    for (const auto &reader : readers) {
-        filter += reader.first + " (*." + reader.second + ")";
-        filter.push_back('\0');
-        filter += "*." + reader.second;
-        filter.push_back('\0');
-    }
-    filter += "All files (*.*)";
-    filter.push_back('\0');
-    filter += "*.*";
-    filter.push_back('\0');
-    return AnsiToWide(filter);
-}
-
 const wchar_t *RESOURCE_FILTER = L"Virtools Resources (*.rsc)\0*.rsc\0";
 
 } // namespace
@@ -119,7 +93,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
 #endif
     // The Event Log's first line (Dev.exe sub_4229D0, language pack 141).
     m_State.Log(LogLevel::Info, "Virtools Started.");
-    m_State.log.back().status = false;
+    m_State.eventLog.HideStatus();
     // CK text retains its native bytes; file paths remain UTF-8.
     SetLossyTextHandler([this](const std::string &text) {
         m_State.RuntimeLog(LogLevel::Warning, "Text conversion failed; original CK bytes kept: " + text);
@@ -147,7 +121,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         SavePreferences();
     };
     m_Tools.levelTarget = [this]() -> CK_ID {
-        return m_Panels.LevelSelection().size() == 1 ? *m_Panels.LevelSelection().begin() : 0;
+        return LevelSelection().size() == 1 ? *LevelSelection().begin() : 0;
     };
     std::string error;
     m_State.host.SetRenderEngine(preferences.Text("CK2 Settings\\Render Engine"));
@@ -158,19 +132,33 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NeMoDev", ("Cannot start the Virtools runtime:\n" + error).c_str(), window);
         return false;
     }
-    if (!m_Workspace.Register(error) || !m_ObjectCommands.Register(m_Editor, error) || !RegisterObjectViews(m_Editor, error)) {
+    if (!m_Workspace.Register(error) || !m_State.eventLog.Register(m_Editor, error) ||
+        !RegisterEventLogView(m_Editor, error) || !RegisterHelpViews(m_Editor, m_HtmlFonts, error) ||
+        !m_FileCommands.Register(error) || !RegisterFileInputs(m_Editor, window, error) ||
+        !m_ObjectCommands.Register(m_Editor, error) || !m_SelectionCommands.Register(m_Editor, error) ||
+        !m_Execution.Register(error) || !m_Outputs.Register(error) || !RegisterOutputInputs(m_Editor, window, error) ||
+        !RegisterObjectViews(m_Editor, error) || !m_SceneCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
+        !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }
     for (const auto &module : modules)
         if (!m_Editor.Load(module, error)) { m_State.Log(LogLevel::Error, error); return false; }
-    if (!m_Editor.Activate(EDITOR_IMGUI_VERSION, error, DefaultObjectConfiguration())) {
+    auto configuration = DefaultObjectConfiguration();
+    configuration.providers.push_back({"view", "document.file-dialogs", "builtin.file-dialogs"});
+    configuration.providers.push_back({"view", "document.output-dialogs", "builtin.output-dialogs"});
+    configuration.providers.push_back({"view", "application.event-log", "builtin.log"});
+    configuration.providers.push_back({"command", "runtime.play", "builtin.execution"});
+    if (!m_Editor.Activate(EDITOR_IMGUI_VERSION, error, configuration)) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }
+    if (!m_Workspace.Open("document.file-dialogs") || !m_Workspace.Open("document.output-dialogs")) return false;
     m_State.catalog.Refresh();
     m_State.document = std::make_unique<Document>(m_State.host);
-    m_State.debugger = std::make_unique<Debugger>(*m_State.document);
+    m_Editor.Attach({}, 0, true, false);
+    OpenSceneView("level");
+    m_State.debugger = m_Execution.Bind(*m_State.document);
     // Dev's paths (HKCU\Software\Virtools\Data Paths, read-only) until the
     // editor has its own.
     if (!isolated && !preferences.pathsSaved && preferences.ImportDevPaths())
@@ -179,22 +167,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     m_HideFps = m_State.preferences.Bool("Time Settings\\Hide Fps");
     // The 3D Layout's render context (Dev makes it with its main window).
     m_Layout.createObject = [this](LayoutObject kind) { CreateObject(kind); };
-    m_Layout.play = [this](LayoutWindow::PlayCommand command) {
-        Debugger *debugger = m_State.debugger.get();
-        if (!m_State.HasDocument() || !debugger) return;
-        switch (command) {
-        case LayoutWindow::PlayCommand::PlayStop:
-            if (debugger->GetState() == Debugger::State::Running) debugger->Pause();
-            else debugger->Play();
-            break;
-        case LayoutWindow::PlayCommand::Step: debugger->StepFrame(); break;
-        case LayoutWindow::PlayCommand::Reset: debugger->Reset(); break;
-        case LayoutWindow::PlayCommand::Pause:
-            if (debugger->GetState() == Debugger::State::Running) debugger->Pause();
-            break;
-        }
-    };
-    m_Panels.dropAsking = [this](const std::function<std::pair<CK_ID, CK_ID>()> &drop) { return m_Layout.DropAsking(drop); };
+
     std::string layoutError;
     if (!m_Layout.Start(window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     for (const std::string &resource : std::vector<std::string>(preferences.dataResources))
@@ -207,13 +180,12 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     // Dev starts on a new composition (its 3D Layout shows the new scene's
     // gray), saying nothing on the status bar.
     if (!m_State.HasDocument()) {
-        const size_t logged = m_State.log.size();
         NewComposition(false);
-        for (size_t i = logged; i < m_State.log.size(); ++i) m_State.log[i].status = false;
+        m_State.eventLog.HideStatus();
     }
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (fileToOpen.empty()) RunStartupActions(false);
-    else OpenFile(fileToOpen, [this](bool opened) { RunStartupActions(opened); });
+    else { m_RunStartupAfterOpen = true; OpenFile(fileToOpen); }
 #else
     if (!fileToOpen.empty()) OpenFile(fileToOpen);
 #endif
@@ -247,6 +219,13 @@ void EditorApp::SavePreferences() {
 
 void EditorApp::ApplyPreferences() {
     const Preferences &p = m_State.preferences;
+    DocumentCommands::Settings files;
+    files.open.environment = p.NewSceneEnvironment();
+    files.open.testLinkTypes = p.Bool("Schematic\\Test Parameter Link after Loading");
+    files.open.removeInvalidLinks = p.Bool("Schematic\\Remove Invalid Link after Loading");
+    files.saveScriptSnapshots = p.Bool("Schematic\\Save Script Snapshot");
+    m_FileCommands.Configure(files);
+    m_Outputs.SaveScriptSnapshots(files.saveScriptSnapshots);
     ViewOptions &view = m_State.view;
     view.autoLink = p.automaticLink;
     view.showControlPoints = p.showControlPoints;
@@ -262,6 +241,13 @@ void EditorApp::ApplyRuntimeSettings() {
     CKContext *context = m_State.host.Context();
     if (!context) return;
     const Preferences &p = m_State.preferences;
+    const EditorValue reengage[] = {
+        {EDITOR_TEXT("behavior"), EDITOR_INTEGER_VALUE, {}, {}, p.behaviorBreakpointReengage ? 1u : 0u},
+        {EDITOR_TEXT("link"), EDITOR_INTEGER_VALUE, {}, {}, p.linkBreakpointReengage ? 1u : 0u},
+        {EDITOR_TEXT("parameter"), EDITOR_INTEGER_VALUE, {}, {}, p.parameterBreakpointReengage ? 1u : 0u}};
+    m_Editor.Execute("runtime.set-breakpoint-reengagement", {m_Editor.Scope(), reengage, 3});
+    const EditorValue redraw{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, p.redrawOnlyAtBreakpoint ? 1u : 0u};
+    m_Editor.Execute("runtime.set-redraw-at-breakpoint", {m_Editor.Scope(), &redraw, 1});
     // File saving (Miscellaneous Controls): whole-file compression and its
     // level, texture/sprite and sound save options, the image format.
     CK_FILE_WRITEMODE mode = context->GetFileWriteMode();
@@ -297,30 +283,9 @@ void EditorApp::ApplyRuntimeSettings() {
     }
 }
 
-void EditorApp::ImportFile(Document::ImportMode mode, const std::string &file) {
-    if (!m_State.HasDocument()) return;
-    static const wchar_t *const titles[] = {L"Import File", L"Import as Character", L"Import as Place", L"Import as Scene"};
-    std::string path = file;
-    if (path.empty()) {
-        const std::wstring filter = ImportFilter();
-        m_State.RequestFile(FileDialog(m_Window, false, {}, filter.c_str(), nullptr, titles[static_cast<int>(mode)]),
-            [this, mode](const FileDialogResult &result) {
-                if (result.status == FileDialogResult::Status::Selected) ImportFile(mode, result.paths.front());
-            });
-        return;
-    }
-    if (path.empty()) return;
-    m_State.files.Import(path, mode, m_State.preferences.NewSceneEnvironment(), [this](const DocumentFiles::LoadResult &result) {
-        if (!result.loaded) return;
-        m_State.selection.Clear();
-        m_Canvas.Invalidate();
-        for (const ScriptInfo &script : m_State.document->Scripts())
-            if (std::find(result.objects.begin(), result.objects.end(), script.id) != result.objects.end()) {
-                m_Panels.ShowScript(script.id, ElementRef(), 0, false);
-                break;
-            }
-        UpdateTitle();
-    });
+void EditorApp::ImportFile(Document::ImportMode mode, const std::string &path) {
+    static const char *ids[] = {"document.import", "document.import-character", "document.import-place", "document.import-scene"};
+    Command(ids[static_cast<unsigned>(mode)], path);
 }
 
 void EditorApp::OpenDataResourceDialog() {
@@ -339,25 +304,25 @@ void EditorApp::CreateDataResourceDialog() {
         });
 }
 
-void EditorApp::OpenOnlineReference() {
-    if (!HelpAvailable()) return;
-    m_Help.Open();
-}
-
 // Dev keeps its default windows (3D Layout, Building Blocks, Level Manager,
 // Schematic, Data Resources).
 void EditorApp::CloseSetupsAndManagers() {
     m_Setups.CloseAll();
-    m_State.showAttributeManager = false;
-    m_State.showHierarchy = false;
+    CloseSceneView("attributes");
+    CloseSceneView("hierarchy");
     m_State.showDebugger = false;
     m_Tools.CloseManagers();
 }
 
+EditorApp::~EditorApp() { Shutdown(); }
+
 void EditorApp::Shutdown() {
+    if (m_Shutdown) return;
+    m_Shutdown = true;
     m_State.FinishRuntimeOperations();
+    m_FileCommands.Stop();
+    m_Outputs.Stop();
     m_State.DrainRuntimeLog();
-    m_Help.Close();
     m_State.fileDialogs.Close();
     // Toolbar toggles are preferences too.
     Preferences &p = m_State.preferences;
@@ -372,10 +337,16 @@ void EditorApp::Shutdown() {
         m_State.files.Close({});
         m_State.FinishRuntimeOperations();
     }
-    m_State.debugger.reset();
+    m_State.debugger = nullptr;
+    m_Execution.Stop();
+    m_State.files.Execution(nullptr);
+    m_State.documentViews = nullptr;
     m_Layout.Stop();
+    m_Workspace.CloseAll();
+    m_SceneCommands.Stop();
     m_State.document.reset();
     m_State.host.Stop();
+    m_State.documentViews = nullptr;
     m_Workspace.CloseAll();
     m_Editor.Stop();
     // The textures every window draws with, before the device goes (Main.cpp).
@@ -385,29 +356,94 @@ void EditorApp::Shutdown() {
     SetLossyTextHandler(nullptr);
 }
 
-void EditorApp::RequestQuit() {
-    if (m_State.runtimeOperation.Busy()) { m_QuitAfterOperation = true; return; }
-    BeginAction(PendingAction::Quit);
+bool EditorApp::OpenOutput(const std::string &path, std::string &error) {
+    return OpenDesktopFile(path, &error);
+}
+void EditorApp::OutputFinished(const OutputCommands::Result &result) {
+    if (!result.message.empty()) m_State.Log(result.status == EDITOR_ERROR ? LogLevel::Error : LogLevel::Info, result.message);
+    if (!result.print && result.status == EDITOR_OK) m_State.Log(LogLevel::Info, "Web page written: " + result.path);
+    if (!result.print && result.webFailure == DocumentFiles::WebResult::Failure::Composition && !m_Shutdown) {
+        DevMessage message; message.text = "Unable to save CMO file !"; ShowMessage(std::move(message));
+    }
 }
 
-bool EditorApp::OpenFile(const std::string &path, std::function<void(bool)> completed) {
-    DocumentFiles::OpenOptions options;
-    options.environment = m_State.preferences.NewSceneEnvironment();
-    options.testLinkTypes = m_State.preferences.Bool("Schematic\\Test Parameter Link after Loading");
-    options.removeInvalidLinks = m_State.preferences.Bool("Schematic\\Remove Invalid Link after Loading");
-    return m_State.files.Open(path, options, [this] {
-        CloseDocumentViews();
-        m_Layout.Stop();
-    }, [this, path, completed = std::move(completed)](const DocumentFiles::OpenResult &result) {
-        if (result.opened) CompleteOpen(path, result);
-        if (completed) completed(result.opened);
-    });
+void EditorApp::RequestQuit() { Command("application.quit"); }
+
+
+
+
+
+void EditorApp::FileFinished(const DocumentCommands::Result &result) {
+    if (m_Shutdown) return;
+    m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
+                    m_State.document ? m_State.document->TopologyRevision() : 0, true, m_State.HasDocument());
+    m_Execution.Synchronize();
+    using A = DocumentCommands::Action;
+    if (result.action == A::New && result.status == EDITOR_OK) {
+        std::string error;
+        if (!m_Layout.Start(m_Window, &error)) m_State.Log(LogLevel::Warning, "3D Layout: " + error);
+    }
+    if (!result.message.empty())
+        m_State.Log(result.status == EDITOR_ERROR ? LogLevel::Error : LogLevel::Info, result.message);
+    if ((result.action == A::Open || result.action == A::Revert) && result.opened.opened)
+        CompleteOpen(result.path, result.opened);
+    if (result.loaded.loaded) {
+        m_State.selection.Clear();
+        m_Canvas.Invalidate();
+        if (result.action == A::Merge || result.action == A::MergeScene) RememberRecentFile(result.path);
+        for (const auto &script : m_State.document->Scripts())
+            if (std::find(result.loaded.objects.begin(), result.loaded.objects.end(), script.id) != result.loaded.objects.end()) {
+                m_Panels.ShowScript(script.id, ElementRef(), 0, false);
+                break;
+            }
+    }
+    for (const auto &item : result.resources.items) {
+        m_State.Log(item.loaded ? LogLevel::Info : LogLevel::Warning,
+                    std::string(item.loaded ? "Loaded: " : "Load failed: ") + item.message + " (" + item.path + ")");
+        if (item.loaded) {
+            m_Canvas.Invalidate();
+            if (result.action == A::LoadScripts && item.created && m_State.document->Resolve(item.created))
+                m_Panels.ShowScript(item.created.object);
+        }
+    }
+    if ((result.action == A::ExportObjects || result.action == A::ExportBehaviors) && result.exported.saved)
+        m_State.Log(LogLevel::Info, "Saved " + result.path);
+    if (result.status != EDITOR_CANCELLED && (result.saved.report.saved || !result.saved.report.errors.empty() ||
+        result.action == A::Save || result.action == A::SaveAs || result.action == A::SaveVersion || result.action == A::Player)) {
+        const auto &report = result.saved.report;
+        const auto path = result.written.empty() ? result.path : result.written.front();
+        std::string text = (result.saved.saved ? "Saved " : "Save failed: ") + path;
+        text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
+                "\nScripts verified in a new context: " + std::to_string(report.scriptsVerified) +
+                "\nParameters verified: " + std::to_string(report.parametersVerified);
+        for (const auto &error : report.errors) text += "\nError: " + AnsiToUtf8(error);
+        for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
+        m_State.Log(result.saved.saved ? LogLevel::Info : LogLevel::Error, text);
+        if (result.action == A::Player) {
+            if (!result.saved.saved) {
+                DevMessage message;
+                message.text = "Save Level Error: " + (report.errors.empty() ? std::string() : AnsiToUtf8(report.errors.front()));
+                ShowMessage(std::move(message));
+            }
+        } else { m_SaveReportText = std::move(text); m_OpenSaveReport = true; }
+        if (report.documentSaved) RememberRecentFile(path);
+    }
+#ifdef VIRTOOLSDEV_UI_TESTS
+    if (m_RunStartupAfterOpen && result.action == A::Open) {
+        m_RunStartupAfterOpen = false;
+        RunStartupActions(result.opened.opened);
+    }
+#endif
+    UpdateTitle();
+}
+
+bool EditorApp::OpenFile(const std::string &path) {
+    return Command("document.open", path).status == EDITOR_QUEUED;
 }
 
 void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result) {
     std::string layoutError;
     if (!m_Layout.Start(m_Window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
-    m_LastSavedPath.clear();
     RememberRecentFile(path);
     // NMO opens are imports into a new composition. Keep its editor state,
     // just as Import File does, rather than restoring the library's layout.
@@ -431,35 +467,18 @@ void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenR
 }
 
 void EditorApp::NewComposition(bool background) {
-    CloseDocumentViews();
-    m_State.files.New(m_State.preferences.NewSceneEnvironment(), [this](bool) { UpdateTitle(); });
-    // Startup has no frame loop yet, but uses the same file workflow.
-    if (!background) m_State.FinishRuntimeOperations();
+    Command("document.new");
+    if (!background) {
+        m_State.FinishRuntimeOperations();
+        m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
+                        m_State.document ? m_State.document->TopologyRevision() : 0, true, m_State.HasDocument());
+    }
 }
 
 // Dev (sub_5C54C0) asks for the file, merges it and keeps the composition's
 // undo history; the merge itself is not an undo step.
-void EditorApp::MergeComposition(bool asScene, const std::string &file) {
-    if (!m_State.HasDocument()) return;
-    if (file.empty()) {
-        m_State.RequestFile(FileDialog(m_Window, false, {}), [this, asScene](const FileDialogResult &result) {
-            if (result.status == FileDialogResult::Status::Selected) MergeComposition(asScene, result.paths.front());
-        });
-        return;
-    }
-    const std::string path = file;
-    m_State.files.Merge(path, asScene, [this, path](const DocumentFiles::LoadResult &result) {
-        if (!result.loaded) return;
-        m_State.selection.Clear();
-        m_Canvas.Invalidate();
-        RememberRecentFile(path);
-        for (const ScriptInfo &script : m_State.document->Scripts())
-            if (std::find(result.objects.begin(), result.objects.end(), script.id) != result.objects.end()) {
-                m_Panels.ShowScript(script.id, ElementRef(), 0, false);
-                break;
-            }
-        UpdateTitle();
-    });
+void EditorApp::MergeComposition(bool asScene, const std::string &path) {
+    Command(asScene ? "document.merge-scene" : "document.merge", path);
 }
 
 void EditorApp::RememberRecentFile(const std::string &path) {
@@ -470,44 +489,45 @@ void EditorApp::RememberRecentFile(const std::string &path) {
 }
 
 void EditorApp::CloseDocumentViews() {
-    m_Editor.Attach({}, 0, false, false);
-    EndPrint();
+    m_Workspace.DocumentChanging();
+    m_Editor.NativeAvailable(false);
+    m_Outputs.Stop();
     m_Setups.CloseAll();
     m_Tools.DocumentClosed();
     m_Panels.DocumentClosed();
-    m_Managers.DocumentClosed();
     m_Layout.DocumentClosed(); // its working copies while they still exist
     m_Layout.ApplyLayoutData(LayoutInterfaceData());
     m_Canvas.DocumentClosed();
     ReleaseSnapshotTextures(); // the document frees its bitmaps
-    if (m_State.debugger) m_State.debugger->Detach();
-    m_LastSavedPath.clear();
     UpdateTitle();
 }
 
-void EditorApp::SaveTo(const std::string &path, bool allowOverwrite, std::function<void(bool)> completed) {
-    SaveOptions options;
-    options.saveScriptSnapshots = m_State.preferences.Bool("Schematic\\Save Script Snapshot");
-    options.allowOverwrite = allowOverwrite;
-    m_State.files.Save(path, LayoutDataToSave(), options, [this, path, completed = std::move(completed)](const DocumentFiles::SaveResult &result) {
-        const SaveReport &report = result.report;
-        std::string text = (result.saved ? "Saved " : "Save failed: ") + path;
-        text += "\nInterfaceChunks rewritten: " + std::to_string(report.chunksWritten) +
-                "\nScripts verified in a new context: " + std::to_string(report.scriptsVerified) +
-                "\nParameters verified: " + std::to_string(report.parametersVerified);
-        for (const auto &error : report.errors) text += "\nError: " + AnsiToUtf8(error);
-        for (const auto &note : report.notes) text += "\nNote: " + AnsiToUtf8(note);
-        m_SaveReportText = std::move(text);
-        m_OpenSaveReport = true;
-        m_State.Log(result.saved ? LogLevel::Info : LogLevel::Error, m_SaveReportText);
-        if (report.documentSaved) {
-            m_LastSavedPath = path;
-            RememberRecentFile(path);
-        }
-        UpdateTitle();
-        if (completed) completed(result.clean);
-    });
+void EditorApp::DetachDocument(bool replaceContext) {
+    if (DocumentInteractionActive()) throw std::runtime_error("Finish the current document interaction");
+    m_DetachedLayout = LayoutDataToSave();
+    m_DetachedDocument = m_State.document->Token();
+    CloseDocumentViews();
+    if (replaceContext) m_Layout.Stop();
 }
+
+void EditorApp::RestoreDocument() {
+    if (!m_DetachedDocument.value || m_State.document->Token() != m_DetachedDocument) return;
+    m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
+                    m_State.document->TopologyRevision(), true, m_State.HasDocument());
+    std::string error;
+    if (!m_Layout.Start(m_Window, &error)) throw std::runtime_error("3D Layout: " + error);
+    m_Layout.ApplyLayoutData(m_DetachedLayout, false);
+    ReopenSetups(m_DetachedLayout);
+    m_Canvas.Invalidate();
+    UpdateTitle();
+    m_DetachedDocument = {};
+}
+
+bool EditorApp::DocumentInteractionActive() const {
+    return m_Canvas.Busy() || m_Layout.Busy() || m_Setups.HasPendingEdits() || m_Workspace.Interacting();
+}
+
+
 
 // The Setups of the 3D Layout's data open again (Dev.exe sub_4B46C0 ->
 // sub_5CB9E0), in their order, the one in front last; a Curve Setup on its
@@ -551,42 +571,13 @@ LayoutInterfaceData EditorApp::LayoutDataToSave() const {
     return data;
 }
 
-void EditorApp::SaveAs(std::function<void(bool)> completed) {
-    if (!m_State.HasDocument()) { if (completed) completed(false); return; }
-    std::filesystem::path suggestion = std::filesystem::u8path(m_State.document->SourcePath());
-    if (suggestion.empty()) suggestion = "New Composition.cmo";
-    else suggestion.replace_filename(suggestion.stem().u8string() + "-edited" + suggestion.extension().u8string());
-    const auto options = FileDialog(m_Window, true, m_LastSavedPath.empty() ? suggestion.u8string() : m_LastSavedPath);
-    m_State.RequestFile(options, [this, completed = std::move(completed)](const FileDialogResult &result) {
-        if (result.status == FileDialogResult::Status::Selected && m_State.HasDocument())
-            SaveTo(result.paths.front(), true, completed);
-        else if (completed) completed(false);
-    });
-}
 
-void EditorApp::Save(std::function<void(bool)> completed) {
-    if (!m_State.HasDocument()) { if (completed) completed(false); return; }
-    if (m_LastSavedPath.empty()) { SaveAs(std::move(completed)); return; }
-    SaveTo(m_LastSavedPath, true, std::move(completed));
-}
 
-void EditorApp::Undo() {
-    if (!m_State.HasDocument() || !m_State.History().CanUndo()) return;
-    const std::string label = m_State.History().UndoLabel();
-    if (!m_State.History().Undo())
-        m_State.Log(LogLevel::Warning, "Undo " + label + " failed: the undo history is cleared");
-    m_State.selection.Clear();
-    UpdateTitle();
-}
 
-void EditorApp::Redo() {
-    if (!m_State.HasDocument() || !m_State.History().CanRedo()) return;
-    const std::string label = m_State.History().RedoLabel();
-    if (!m_State.History().Redo())
-        m_State.Log(LogLevel::Warning, "Redo " + label + " failed: the undo history is cleared");
-    m_State.selection.Clear();
-    UpdateTitle();
-}
+
+
+
+
 
 void EditorApp::DropFiles(const std::vector<std::wstring> &paths, float x, float y) {
     if (Busy()) {
@@ -598,8 +589,7 @@ void EditorApp::DropFiles(const std::vector<std::wstring> &paths, float x, float
         std::wstring extension = Utf8ToWide(std::filesystem::u8path(path).extension().u8string());
         for (auto &c : extension) c = static_cast<wchar_t>(towlower(c));
         if (extension == L".cmo" || extension == L".nmo" || extension == L".vmo") {
-            m_PendingPath = path;
-            BeginAction(PendingAction::OpenPath);
+            Command("document.open", path);
             return;
         }
         if (!m_State.HasDocument() || !m_Canvas.DropFile(wide, path, ImVec2(x, y)))
@@ -608,50 +598,24 @@ void EditorApp::DropFiles(const std::vector<std::wstring> &paths, float x, float
     }
 }
 
-void EditorApp::BeginAction(PendingAction action) {
-    if (m_State.HasDocument() && m_State.document->Dirty()) {
-        m_Pending = action;
-        m_OpenUnsavedDialog = true;
-        return;
-    }
-    RunAction(action);
+EditorResponse EditorApp::Command(const char *id, const std::string &path) {
+    const EditorValue value{EditorLiteral("path"), EDITOR_TEXT_VALUE, {}, EditorText(path)};
+    const EditorRequest request{m_Editor.Scope(), path.empty() ? nullptr : &value, path.empty() ? 0u : 1u};
+    auto result = m_Editor.Execute(id, request);
+    if (!result.message.empty()) m_State.Log(LogLevel::Warning, result.message);
+    return result;
 }
 
-void EditorApp::RunAction(PendingAction action) {
-    switch (action) {
-    case PendingAction::New:
-        NewComposition();
-        break;
-    case PendingAction::Open: {
-        m_State.RequestFile(FileDialog(m_Window, false, {}), [this](const FileDialogResult &result) {
-            if (result.status != FileDialogResult::Status::Selected) return;
-            m_PendingPath = result.paths.front();
-            BeginAction(PendingAction::OpenPath);
-        });
-        break;
-    }
-    case PendingAction::OpenPath:
-        if (!m_PendingPath.empty()) OpenFile(m_PendingPath);
-        m_PendingPath.clear();
-        break;
-    case PendingAction::Close:
-        CloseDocumentViews();
-        m_State.files.Close([this](bool) { UpdateTitle(); });
-        break;
-    case PendingAction::Quit:
-        m_Quit = true;
-        break;
-    default:
-        break;
-    }
-}
+
+
+
 
 void EditorApp::UpdateTitle() {
     // Documentation "Menu Bar": the level and scene current in the title
     // bar, and the path of the composition loaded.
     std::wstring title = L"NeMoDev";
     if (m_State.HasDocument()) {
-        const std::string &file = m_LastSavedPath.empty() ? m_State.document->SourcePath() : m_LastSavedPath;
+        const std::string file = CurrentFilePath();
         const std::wstring name = file.empty() ? L"New Composition" : Utf8ToWide(file);
         std::wstring where;
         if (CKLevel *level = m_State.document->Context()->GetCurrentLevel()) {
@@ -681,14 +645,9 @@ void EditorApp::MainMenu() {
     };
     // Dev's File menu (labels and shortcuts of Dev 2.5).
     if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New Composition")) BeginAction(PendingAction::New);
+        m_Workspace.CommandMenu("file.new");
         ImGui::Separator();
-        if (ImGui::MenuItem("Load Composition...", "Ctrl+L")) BeginAction(PendingAction::Open);
-        if (ImGui::MenuItem("Save Composition", "Ctrl+S", false, hasDocument)) Save();
-        if (ImGui::MenuItem("Save As...", nullptr, false, hasDocument)) SaveAs();
-        if (ImGui::MenuItem("Save Version", "Ctrl+Shift+S", false, hasDocument)) SaveVersion();
-        const bool revertible = hasDocument && !CurrentFilePath().empty();
-        if (ImGui::MenuItem("Revert to Saved", "Ctrl+Shift+Z", false, revertible)) RevertToSaved();
+        m_Workspace.CommandMenu("file.document");
         // Source Control (Dev.exe menu 10, commands 0x8063..0x8068): without a
         // version control plugin Dev says the function is not available
         // (sub_5C9220 ...); this editor has none.
@@ -710,32 +669,26 @@ void EditorApp::MainMenu() {
             ImGui::EndMenu();
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Undo (3d Layout/Schematic only)", "Ctrl+Z", false, m_State.History().CanUndo())) Undo();
-        if (ImGui::MenuItem("Redo (3d Layout/Schematic only)", "Ctrl+Y", false, m_State.History().CanRedo())) Redo();
-        if (ImGui::MenuItem("Purge Undo", nullptr, false, m_State.History().CanUndo() || m_State.History().CanRedo()))
-            m_State.History().Clear();
+        m_Workspace.CommandMenu("file.history");
         ImGui::Separator();
-        if (ImGui::MenuItem("Merge Composition...", nullptr, false, hasDocument)) MergeComposition(false);
-        if (ImGui::MenuItem("Merge Composition as New Scene...", nullptr, false, hasDocument)) MergeComposition(true);
+        m_Workspace.CommandMenu("file.merge");
         ImGui::Separator();
-        if (ImGui::MenuItem("Export to Virtools Player...", nullptr, false, hasDocument)) ExportToPlayer();
-        if (ImGui::MenuItem("Create Web Page...", nullptr, false, hasDocument)) m_OpenWebPage = true;
+        m_Workspace.CommandMenu("file.export");
+        m_Workspace.CommandMenu("file.web");
         ImGui::Separator();
-        if (ImGui::MenuItem("Print Schematic...", nullptr, false, hasDocument)) PrintSchematic();
+        m_Workspace.CommandMenu("file.print");
         if (!m_State.preferences.recentFiles.empty()) {
             ImGui::Separator();
             const std::vector<std::string> recent = m_State.preferences.recentFiles; // opening reorders the list
             for (size_t i = 0; i < recent.size(); ++i) {
                 const std::string label = std::to_string(i + 1) + ") " + AnsiToUtf8(recent[i]);
                 if (ImGui::MenuItem(label.c_str())) {
-                    m_PendingPath = recent[i];
-                    BeginAction(PendingAction::OpenPath);
+                    Command("document.open", recent[i]);
                 }
             }
         }
         ImGui::Separator();
-        if (ImGui::MenuItem("Close", nullptr, false, hasDocument)) BeginAction(PendingAction::Close);
-        if (ImGui::MenuItem("Exit")) BeginAction(PendingAction::Quit);
+        m_Workspace.CommandMenu("file.close");
         ImGui::EndMenu();
     }
     // Dev's Resources menu (screenshot).
@@ -744,19 +697,17 @@ void EditorApp::MainMenu() {
         ImGui::Separator();
         if (ImGui::MenuItem("Create New Data Resource")) CreateDataResourceDialog();
         ImGui::Separator();
-        if (ImGui::MenuItem("Import File", nullptr, false, hasDocument)) ImportFile(Document::ImportMode::File);
+        m_Workspace.CommandMenu("resources.import");
         if (ImGui::BeginMenu("Import File As", hasDocument)) {
-            if (ImGui::MenuItem("Character")) ImportFile(Document::ImportMode::Character);
-            if (ImGui::MenuItem("Place")) ImportFile(Document::ImportMode::Place);
-            if (ImGui::MenuItem("Scene")) ImportFile(Document::ImportMode::Scene);
+            m_Workspace.CommandMenu("resources.import-as");
             ImGui::EndMenu();
         }
         ImGui::EndMenu();
     }
     // Dev's Editors menu.
     if (ImGui::BeginMenu("Editors")) {
-        ImGui::MenuItem("Attributes Manager", nullptr, &m_State.showAttributeManager, hasDocument);
-        ImGui::MenuItem("Hierarchy Manager", nullptr, &m_State.showHierarchy, hasDocument);
+        if (ImGui::MenuItem("Attributes Manager", nullptr, SceneViewOpen("attributes"), hasDocument)) OpenSceneView("attributes");
+        if (ImGui::MenuItem("Hierarchy Manager", nullptr, SceneViewOpen("hierarchy"), hasDocument)) OpenSceneView("hierarchy");
         if (ImGui::MenuItem("Path Manager")) m_Tools.OpenPathManager();
         ImGui::MenuItem("Parameter Debugger", nullptr, &m_Tools.showParameterDebugger);
         ImGui::Separator();
@@ -767,10 +718,10 @@ void EditorApp::MainMenu() {
     if (ImGui::BeginMenu("Options")) {
         if (ImGui::MenuItem("General Preferences", "Ctrl+P")) m_Tools.OpenGeneralPreferences();
         ImGui::Separator();
-        Debugger *debugger = m_State.debugger.get();
-        if (ImGui::MenuItem(debugger && debugger->trace ? "Deactivate Trace Mode" : "Activate Trace Mode", "Ctrl+T", false,
-                            debugger != nullptr))
-            debugger->trace = !debugger->trace;
+        const Debugger *debugger = m_State.debugger;
+        if (ImGui::MenuItem(debugger && debugger->trace ? "Deactivate Trace Mode" : "Activate Trace Mode", m_Workspace.ShortcutLabel("runtime.toggle-trace"), false,
+                            m_Editor.CommandState("runtime.toggle-trace", {m_Editor.Scope(), nullptr, 0}) == EDITOR_OK))
+            Command("runtime.toggle-trace");
         // Hide/Show Dynamic Objects (documentation "Options Menu"): the
         // objects and Scripts Building Blocks create, in the Level Manager,
         // the Schematic and the Profiler (General Preferences' "Show Dynamic Objects").
@@ -804,7 +755,7 @@ void EditorApp::MainMenu() {
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Help")) {
-        if (ImGui::MenuItem("Online Reference", "F1", false, HelpAvailable())) OpenOnlineReference();
+        m_Workspace.CommandMenu("help.reference");
         if (ImGui::MenuItem("About Virtools...")) m_Tools.OpenAbout();
         ImGui::EndMenu();
     }
@@ -824,7 +775,7 @@ void EditorApp::CreateObject(LayoutObject kind) {
     if (!m_State.HasDocument()) return;
     // Create Portal: around the object selected (the 3D Layout's selection is the Level Manager's).
     CK_ID selection = 0;
-    if (m_Panels.LevelSelection().size() == 1) selection = *m_Panels.LevelSelection().begin();
+    if (LevelSelection().size() == 1) selection = *LevelSelection().begin();
     else if (m_State.objectSelection.Objects().size() == 1) selection = m_State.objectSelection.Objects().front();
     // Dev places new objects by the 3D Layout's camera.
     CKCamera *view = m_Layout.View().Camera();
@@ -832,22 +783,37 @@ void EditorApp::CreateObject(LayoutObject kind) {
     options.showCone = kind == LayoutObject::Camera ? m_State.preferences.Bool("3D Layout\\Auto Show Camera Cone")
                                                   : m_State.preferences.Bool("3D Layout\\Auto Show Light Cone");
     options.showInPlayerMode = m_State.preferences.Bool("3D Layout\\Auto Show Entities In Player Mode");
-    const EditResult result =
-        CreateLayoutObject(*m_State.document, kind, selection, view ? view->GetID() : 0, options);
-    if (!result.ok) {
-        m_State.Log(LogLevel::Warning, "Create: " + AnsiToUtf8(result.message));
+    static const char *commands[] = {"object.create-camera", "object.create-light", "object.create-frame3d",
+                                     "object.create-curve", "object.create-grid", "object.create-frame2d",
+                                     "object.create-material", "object.create-texture", "object.create-portal"};
+    const auto index = static_cast<size_t>(kind);
+    if (index >= sizeof(commands) / sizeof(commands[0])) return;
+    const EditorValue values[] = {
+        {EditorLiteral("target"), EDITOR_OBJECT, m_State.document->Reference(selection)},
+        {EditorLiteral("camera"), EDITOR_OBJECT, m_State.document->Reference(view ? view->GetID() : 0)},
+        {EditorLiteral("show-cone"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(options.showCone)},
+        {EditorLiteral("show-in-player"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(options.showInPlayerMode)}};
+    const auto result = m_Editor.Execute(commands[index], {m_Editor.Scope(), values, 4});
+    if (result.status != EDITOR_OK) {
+        if (result.status != EDITOR_NO_CHANGE && result.status != EDITOR_QUEUED)
+            m_State.Log(LogLevel::Warning, "Create: " + result.message);
         return;
     }
-    CKObject *object = m_State.document->Context()->GetObject(result.created);
-    if (!object) return;
-    // Dev status line "%s '%s' created."; Automatic Show Setup.
-    const char *cls = CKClassIDToString(object->GetClassID());
-    m_State.Log(LogLevel::Info, std::string(cls ? cls : "Object") + " '" + AnsiToUtf8(object->GetName() ? object->GetName() : "") +
-                                    "' created.");
-    // Dev.exe sub_4A9960 / sub_4A9E90: the new camera replaces the view's
-    // camera; new cameras and lights show their cone (Auto Show Camera / Light Cone).
-    if (CKCamera::Cast(object)) m_Layout.View().SetCamera(object->GetID());
-    if (m_State.preferences.Bool("3D Layout\\Auto Show Setup")) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
+    ObjectRef created{};
+    for (const auto &field : result.fields) if (field.key == "created") created = field.object;
+    if (!created) return;
+    const EditorValue target{EditorLiteral("target"), EDITOR_OBJECT, created};
+    const auto details = m_Editor.Query("object.details", {m_Editor.Scope(), &target, 1});
+    if (details.status != EDITOR_OK) return;
+    std::string name, type;
+    for (const auto &field : details.fields) {
+        if (field.key == "name") name = field.text;
+        if (field.key == "class") type = field.text;
+    }
+    m_State.Log(LogLevel::Info, type + " '" + name + "' created.");
+    for (const auto &field : result.fields)
+        if (field.key == "camera" && field.integer) m_Layout.View().SetCamera(created.object);
+    if (m_State.preferences.Bool("3D Layout\\Auto Show Setup")) m_State.events.Post(ShowObjectSetup{created});
 }
 
 void EditorApp::BuildDefaultLayout(ImGuiID dockspace, bool closeSeparated) {
@@ -866,8 +832,8 @@ void EditorApp::BuildDefaultLayout(ImGuiID dockspace, bool closeSeparated) {
             continue;
         const std::string name = window->Name;
         const bool resource = name.find("###resource") != std::string::npos;
-        const bool withBlocks = resource || name == "Hierarchy Manager" || name == "Parameter Debugger";
-        const bool withSchematic = name.find("###setup") != std::string::npos || name == "Attribute Manager";
+        const bool withBlocks = resource || name == SceneWindow("hierarchy") || name == "Parameter Debugger";
+        const bool withSchematic = name.find("###setup") != std::string::npos || name == SceneWindow("attributes");
         if (!withBlocks && !withSchematic) continue;
         if (closeSeparated && !resource && !window->DockIsActive) separated.push_back(window->ID);
         else redocked.push_back({name, withBlocks});
@@ -886,9 +852,11 @@ void EditorApp::BuildDefaultLayout(ImGuiID dockspace, bool closeSeparated) {
     ImGuiID topRight = ImGui::DockBuilderSplitNode(top, ImGuiDir_Right, 0.5f, nullptr, &top);
     ImGui::DockBuilderDockWindow("3D Layout", top);
     ImGui::DockBuilderDockWindow("Building Blocks", topRight);
-    ImGui::DockBuilderDockWindow("Hierarchy Manager", topRight);
+    if (auto name = SceneWindow("hierarchy"); !name.empty()) ImGui::DockBuilderDockWindow(name.c_str(), topRight);
+    m_Workspace.DefaultDock("scene.hierarchy", topRight);
+    m_Workspace.DefaultDock("scene.attributes", bottom);
     ImGui::DockBuilderDockWindow(SCHEMATIC_WINDOW, bottom);
-    ImGui::DockBuilderDockWindow("Level Manager", bottom);
+    ImGui::DockBuilderDockWindow(SceneWindow("level").c_str(), bottom);
     for (const Redocked &window : redocked) ImGui::DockBuilderDockWindow(window.name.c_str(), window.withBlocks ? topRight : bottom);
     ImGui::DockBuilderFinish(dockspace);
 }
@@ -904,9 +872,7 @@ void EditorApp::GlobalShortcuts() {
     // The Schematic takes F1 (a Building Block's help) and Ctrl+T itself;
     // the Level Manager F3 (its Find Item).
     const ImGuiWindow *focused = ImGui::GetCurrentContext()->NavWindow;
-    if (focused && focused->RootWindow && std::strcmp(focused->RootWindow->Name, "Help") == 0 &&
-        io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_F, false)) return;
-    const bool levelManager = focused && focused->RootWindow && std::strcmp(focused->RootWindow->Name, "Level Manager") == 0;
+    const bool levelManager = focused && focused->RootWindow && m_Workspace.Focused() == m_Workspace.Role("main.level");
     const bool schematic = focused && focused->RootWindow && std::strcmp(focused->RootWindow->Name, SCHEMATIC_WINDOW) == 0;
     // F3 / Shift+F3: the Schematic's Find (once a text was asked), else the
     // Explorer's results;
@@ -916,34 +882,14 @@ void EditorApp::GlobalShortcuts() {
         else if (schematic && m_Canvas.Finding()) m_Canvas.FindNext(io.KeyShift);
         else if (!io.KeyCtrl) m_Panels.FindNext(io.KeyShift ? -1 : 1);
     }
-    const bool behaviorHelp = schematic && m_State.selection.items.size() == 1 &&
-                              m_State.selection.items[0].kind == ElementKind::Behavior;
-    if (!io.KeyCtrl && !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_F1, false) && !behaviorHelp) OpenOnlineReference();
-    // Dev's accelerators, whichever window has the focus: Ctrl+Space Play /
-    // Pause, Alt+Space and Ctrl+Alt+Space one step, Ctrl+Backspace,
-    // Alt+Backspace and Ctrl+Shift+Backspace the initial conditions back.
-    if (m_Layout.play) {
-        if (!io.KeyShift && (io.KeyCtrl || io.KeyAlt) && ImGui::IsKeyPressed(ImGuiKey_Space, false))
-            m_Layout.play(io.KeyAlt ? LayoutWindow::PlayCommand::Step : LayoutWindow::PlayCommand::PlayStop);
-        if ((io.KeyCtrl || (io.KeyAlt && !io.KeyShift)) && ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
-            m_Layout.play(LayoutWindow::PlayCommand::Reset);
-    }
+    m_Workspace.CommandShortcuts();
     if (!io.KeyCtrl) return;
     // Ctrl+Alt+F12: All CK Object In Memory.
     if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_F12, false)) m_Tools.OpenAllObjects();
     // Dev: Ctrl+P General Preferences, Ctrl+T Trace Mode.
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) m_Tools.OpenGeneralPreferences();
-    if (ImGui::IsKeyPressed(ImGuiKey_T, false) && !schematic && m_State.debugger)
-        m_State.debugger->trace = !m_State.debugger->trace;
     // Dev: Ctrl+L Load Composition (Ctrl+O kept), Ctrl+Shift+S Save Version,
     // Ctrl+Shift+Z Revert to Saved.
-    if (ImGui::IsKeyPressed(ImGuiKey_O, false) || ImGui::IsKeyPressed(ImGuiKey_L, false)) BeginAction(PendingAction::Open);
-    if (ImGui::IsKeyPressed(ImGuiKey_S, false)) io.KeyShift ? SaveVersion() : (void)Save();
-    if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
-        if (!io.KeyShift) Undo();
-        else if (m_State.HasDocument()) RevertToSaved();
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) Redo();
     // Ctrl+Shift+F the Schematic Explorer; Ctrl+F the Schematic's Find (the
     // Level Manager's own there), else the Explorer.
     if (ImGui::IsKeyPressed(ImGuiKey_F, false) && !levelManager) {
@@ -952,40 +898,7 @@ void EditorApp::GlobalShortcuts() {
     }
 }
 
-void EditorApp::UnsavedChangesDialog() {
-    if (m_OpenUnsavedDialog) {
-        ImGui::OpenPopup("Unsaved changes");
-        m_OpenUnsavedDialog = false;
-    }
-    if (!ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    // Documentation "File Menu": "You will be prompted to save your work":
-    // Save (the file saved last, else Save As), Save As, Discard, Cancel.
-    ImGui::TextUnformatted("Save changes to the composition?");
-    const PendingAction pending = m_Pending;
-    if (ImGui::Button(m_LastSavedPath.empty() ? "Save..." : "Save", ImVec2(110, 0))) {
-        ImGui::CloseCurrentPopup();
-        Save([this, pending](bool saved) { if (saved) RunAction(pending); });
-        m_Pending = PendingAction::None;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Save As...", ImVec2(110, 0))) {
-        ImGui::CloseCurrentPopup();
-        SaveAs([this, pending](bool saved) { if (saved) RunAction(pending); });
-        m_Pending = PendingAction::None;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Discard", ImVec2(110, 0))) {
-        ImGui::CloseCurrentPopup();
-        m_Pending = PendingAction::None;
-        RunAction(pending);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(110, 0))) {
-        ImGui::CloseCurrentPopup();
-        m_Pending = PendingAction::None;
-    }
-    ImGui::EndPopup();
-}
+
 
 void EditorApp::SaveReportDialog() {
     if (m_OpenSaveReport) {
@@ -1019,13 +932,16 @@ void EditorApp::DispatchEvents() {
         } else if (const ShowInLevelManager *row = std::get_if<ShowInLevelManager>(&event)) {
             if (m_State.HasDocument())
                 if (const auto id = m_State.document->NativeId(row->object)) {
-                    m_Panels.FocusLevelRow(id);
-                    m_ToFront = "Level Manager";
+                    const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, row->object};
+                    m_Editor.Execute("scene.show-object", {m_Editor.Scope(), &target, 1});
                 }
         } else if (const OpenAddAttribute *add = std::get_if<OpenAddAttribute>(&event)) {
-            m_Managers.RequestAddAttribute(add->targets, add->more);
+            const auto refs = m_State.document->References(add->targets);
+            const EditorValue args[] = {ObjectsArgument("objects", refs), IntegerArgument("more", add->more)};
+            m_Editor.Execute("attribute.choose", {m_Editor.Scope(), args, 2});
         } else if (const ConfirmDeleteObjects *remove = std::get_if<ConfirmDeleteObjects>(&event)) {
-            m_Panels.RequestDeleteObjects(remove->objects);
+            const auto objects = ObjectsArgument("objects", remove->objects);
+            m_Editor.Execute("object.confirm-delete", {m_Editor.Scope(), &objects, 1});
         } else if (const ShowGeneralPreferences *preferences = std::get_if<ShowGeneralPreferences>(&event)) {
             m_Tools.OpenGeneralPreferences(preferences->page);
         } else if (std::holds_alternative<FocusSchematic>(event)) {
@@ -1036,8 +952,6 @@ void EditorApp::DispatchEvents() {
             m_Tools.OpenLinkProperties();
         } else if (std::holds_alternative<RefreshScriptStack>(event)) {
             refresh = true;
-        } else if (const ShowHelpTopic *help = std::get_if<ShowHelpTopic>(&event)) {
-            m_Help.Open(help->topic);
         }
     }
     if (refresh) {
@@ -1058,6 +972,9 @@ void EditorApp::RuntimeOperationFrame() {
     // suspended. This frame touches ImGui only, never the CK document.
     const ImGuiID dockspace = ImGui::GetID("SchematicEditorDockSpace");
     ImGui::DockSpaceOverViewport(dockspace, ImGui::GetMainViewport(), ImGuiDockNodeFlags_KeepAliveOnly);
+    m_Editor.NativeAvailable(false);
+    m_Workspace.Draw(false);
+    m_Workspace.CommandShortcuts();
     const ImGuiViewport *viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(360, 95));
@@ -1080,21 +997,19 @@ void EditorApp::Frame() {
         RunStartupActions(opened);
     }
 #endif
-    if (m_QuitAfterOperation && !m_State.runtimeOperation.Busy()) {
-        m_QuitAfterOperation = false;
-        BeginAction(PendingAction::Quit);
-    }
+    m_FileCommands.Poll();
+    m_Outputs.Poll();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     if (m_State.HasDocument()) m_State.objectSelection.Validate(*m_State.document);
     m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
                     m_State.HasDocument() ? m_State.document->TopologyRevision() : 0, true,
-                    m_State.HasDocument() && !m_State.document->EditOpen());
+                    m_State.HasDocument());
     ObjectRef selected{};
     if (!m_State.objectSelection.References().empty()) selected = m_State.objectSelection.References().front();
-    else if (m_State.HasDocument() && m_Panels.LevelSelection().size() == 1)
-        selected = m_State.document->Reference(*m_Panels.LevelSelection().begin());
+    else if (m_State.HasDocument() && LevelSelection().size() == 1)
+        selected = m_State.document->Reference(*LevelSelection().begin());
     m_Editor.SetSelection(selected);
     // The current scene and the changes show in the title (cheap: set only when it changes).
     UpdateTitle();
@@ -1121,11 +1036,7 @@ void EditorApp::Frame() {
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (m_FitFrames > 0 && --m_FitFrames == 0) m_Canvas.FitAll();
 #endif
-    m_Panels.ScriptsPanel(nullptr);
-    m_Panels.DeleteObjectsDialog(); // the Level Manager's and the 3D Layout's
     DuplicateNamesDialog();
-    WebPageDialog();
-    PrintParametersDialog();
     MessageDialog();
 #ifdef VIRTOOLSDEV_UI_TESTS
     // --tool print:DIR (the dialog, pages to DIR on OK), once the Schematic has its Scripts.
@@ -1134,53 +1045,52 @@ void EditorApp::Frame() {
         m_PendingStartupDialog.clear();
     }
     if (!m_PendingPrintDialog.empty() && m_FocusSchematic <= 0 && ++m_PrintPagesFrames > 5) {
-        PrintSchematic(m_PendingPrintDialog);
+        Command("document.print", m_PendingPrintDialog);
         m_PendingPrintDialog.clear();
     }
     // --tool printpages:DIR, once the Schematic has its Scripts.
     if (!m_PendingPrintPages.empty() && m_FocusSchematic <= 0 && ++m_PrintPagesFrames > 5) {
-        PrintSchematic(m_PendingPrintPages);
-        if (m_Print.open) PrintPages();
-        EndPrint();
+        const auto print = Command("document.print", m_PendingPrintPages);
+        m_PrintPagesOperation = print.status == EDITOR_QUEUED ? print.operation : 0;
         m_PendingPrintPages.clear();
+    }
+    if (m_PrintPagesOperation) {
+        const auto input = m_Editor.Query("output.input", {m_Editor.Scope(), nullptr, 0});
+        uint64_t id = 0, operation = 0, kind = 0;
+        for (const auto &field : input.fields) {
+            if (field.key == "input") id = field.integer;
+            if (field.key == "operation") operation = field.integer;
+            if (field.key == "kind") kind = field.integer;
+        }
+        if (operation == m_PrintPagesOperation && kind == EDITOR_PRINT_INPUT) {
+            const EditorValue values[] = {{EDITOR_TEXT("input"), EDITOR_INTEGER_VALUE, {}, {}, id},
+                {EDITOR_TEXT("choice"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("accept")}};
+            m_Editor.Execute("output.respond", {m_Editor.Scope(), values, 2});
+            m_PrintPagesOperation = 0;
+        } else if (input.status == EDITOR_NO_CHANGE) m_PrintPagesOperation = 0;
     }
 #endif
     m_Panels.BuildingBlocksPanel(nullptr);
     if (m_ShowExplorer) m_Panels.ExplorerPanel(&m_ShowExplorer);
-    if (m_ShowLog) m_Panels.LogPanel(&m_ShowLog);
     {
         m_Layout.Draw(0, m_FocusSchematic <= 0);
         // Setup tabs dock with the Schematic (Dev's tab row).
         ImGuiWindow *schematic = ImGui::FindWindowByName(SCHEMATIC_WINDOW);
         m_Setups.Draw(schematic ? schematic->DockId : 0);
-        // The managers dock there too when they open for the first time, but
-        // the Hierarchy Manager, which Dev docks with the Building Blocks.
         ImGuiWindow *blocks = ImGui::FindWindowByName("Building Blocks");
-        m_Managers.hierarchyDock = blocks ? blocks->DockId : 0;
-        m_Managers.Draw(schematic ? schematic->DockId : 0, m_FocusSchematic <= 0);
+        if (schematic && schematic->DockId) {
+            m_Workspace.DefaultDock("scene.level", schematic->DockId);
+            m_Workspace.DefaultDock("scene.attributes", schematic->DockId);
+        }
+        if (blocks && blocks->DockId) m_Workspace.DefaultDock("scene.hierarchy", blocks->DockId);
         // The Parameter Debugger and Data Resources join the Building Blocks (Dev's top tab row).
         m_Tools.Draw(blocks ? blocks->DockId : 0, m_FocusSchematic <= 0);
     }
-    m_Help.Draw();
+    const auto &execution = m_Execution.State();
+    m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"));
     m_Workspace.Draw();
     if (m_State.showDebugger) m_Panels.DebuggerPanel(&m_State.showDebugger);
-    // The Script Debugger advances with the UI; shown values follow the run.
-    if (m_State.debugger && m_State.HasDocument()) {
-        Debugger &debugger = *m_State.debugger;
-        debugger.reengageBehavior = m_State.preferences.behaviorBreakpointReengage;
-        debugger.reengageLink = m_State.preferences.linkBreakpointReengage;
-        debugger.reengageParameter = m_State.preferences.parameterBreakpointReengage;
-        const int frames = debugger.Frames(), reached = debugger.Reached();
-        const Debugger::State before = debugger.GetState();
-        debugger.Update(0.010);
-        const bool active = before != Debugger::State::Stopped || debugger.GetState() != Debugger::State::Stopped;
-        // "Redraw Schematic Only When Breakpoint Reached": values refresh at breakpoints only.
-        const bool refresh = m_State.preferences.redrawOnlyAtBreakpoint
-                                 ? reached != debugger.Reached() || (before == Debugger::State::Running &&
-                                                                     debugger.GetState() != Debugger::State::Running)
-                                 : frames != debugger.Frames() || ++m_DebugRefresh % 10 == 0;
-        if (active && refresh) m_Canvas.RefreshValues();
-    }
+    if (m_Execution.Update(0.010)) m_Canvas.RefreshValues();
 #ifdef VIRTOOLSDEV_UI_TESTS
     const bool settled = m_FocusSchematic <= 0;
 #endif
@@ -1190,7 +1100,7 @@ void EditorApp::Frame() {
         // take the focus.
         ImGui::SetWindowFocus("3D Layout");
         ImGui::SetWindowFocus("Building Blocks");
-        ImGui::SetWindowFocus("Level Manager");
+        m_Workspace.Focus(m_Workspace.Role("main.level"));
 #ifdef VIRTOOLSDEV_UI_TESTS
         // Several windows (names separated by '|'): one a frame, the window
         // focused at the end of a frame being the one whose tab shows.
@@ -1201,7 +1111,13 @@ void EditorApp::Frame() {
             names.push_back(m_Startup.focusWindow.substr(at, end - at));
             at = end + 1;
         }
-        if (!names.empty()) ImGui::SetWindowFocus(names[m_FocusSchematic % names.size()].c_str());
+        if (!names.empty()) {
+            auto name=names[m_FocusSchematic % names.size()];
+            if(name=="Level Manager")m_Workspace.Focus(m_Workspace.Role("main.level"));
+            else if(name=="Hierarchy Manager")m_Workspace.Focus(m_Workspace.Role("main.hierarchy"));
+            else if(name=="Attribute Manager")m_Workspace.Focus(m_Workspace.Role("main.attributes"));
+            else ImGui::SetWindowFocus(name.c_str());
+        }
 #endif
         --m_FocusSchematic;
     }
@@ -1210,9 +1126,67 @@ void EditorApp::Frame() {
 #endif
 
     GlobalShortcuts();
-    UnsavedChangesDialog();
     SaveReportDialog();
     UpdateTitle();
 }
 
+} // namespace vdev
+
+namespace vdev {
+EditorView EditorApp::OpenSceneView(const std::string &type) { return m_Workspace.Open("scene."+type,"main."+type,type=="level"); }
+bool EditorApp::SceneViewOpen(const std::string &type) const { return m_Workspace.Role("main."+type)!=0; }
+void EditorApp::CloseSceneView(const std::string &type) { m_Workspace.Close(m_Workspace.Role("main."+type)); }
+std::string EditorApp::SceneWindow(const std::string &type) const { return m_Workspace.WindowName(m_Workspace.Role("main."+type)); }
+std::set<CK_ID> EditorApp::LevelSelection() {
+    std::set<CK_ID> selection;
+    const auto &result=m_Workspace.Inspect(m_Workspace.Role("main.level"));
+    if(m_State.HasDocument())for(const auto &field:result.fields)if(field.key=="selection")for(auto ref:field.objects)if(auto id=m_State.document->NativeId(ref))selection.insert(id);
+    return selection;
+}
+bool EditorApp::RegisterSceneNavigation(std::string &error){
+    const EditorParameter target{EDITOR_TEXT("target"),EDITOR_OBJECT};
+    const EditorParameter show[]={target,{EDITOR_TEXT("focus"),EDITOR_INTEGER_VALUE,1}};
+    const EditorParameter drop[]={{EDITOR_TEXT("objects"),EDITOR_OBJECT_LIST},{EDITOR_TEXT("prototype"),EDITOR_INTEGER_VALUE}};
+    const EditorParameter expand{EDITOR_TEXT("expand"),EDITOR_INTEGER_VALUE};
+    EditorCommandDesc commands[]={
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("object.open-setup"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Setup"),&target,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.show-object"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Show in Level Manager"),&target,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("script.show"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Show Script"),show,2,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("script.refresh"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Refresh Scripts"),nullptr,0,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.drop-behavior"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Drop Behavior"),drop,2,nullptr,this,EDITOR_DOCUMENT,EDITOR_DOCUMENT_CHANGE},
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.expand-level"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Expand Level Manager"),&expand,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE}};
+    commands[0].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
+        auto &app=*static_cast<EditorApp*>(data);const auto id=app.m_State.document->NativeId(request->values[0].object);if(!id)return EDITOR_STALE;app.m_Setups.Open(id);return EDITOR_OK;};
+    commands[1].run=[](void*data,const EditorHost*host,const EditorRequest*request,EditorSink sink){
+        auto &app=*static_cast<EditorApp*>(data);return host->navigateView(host->data,EditorString EDITOR_TEXT("scene.level"),app.OpenSceneView("level"),request,sink);};
+    commands[2].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
+        auto &app=*static_cast<EditorApp*>(data);const auto id=app.m_State.document->NativeId(request->values[0].object);if(!id)return EDITOR_STALE;
+        const bool focus=request->values[1].integer!=0;app.m_Panels.ShowScript(id,{},0,focus);if(focus)app.m_ToFront=SCHEMATIC_WINDOW;return EDITOR_OK;};
+    commands[3].run=[](void*data,const EditorHost*,const EditorRequest*,EditorSink){static_cast<EditorApp*>(data)->m_Panels.RefreshStack();return EDITOR_OK;};
+    commands[4].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
+        auto &app=*static_cast<EditorApp*>(data);auto &state=app.m_State;std::vector<ObjectRef> targets;
+        const auto &objects=request->values[0].objects;for(uint32_t i=0;i<objects.count;++i){if(!state.document->Resolve(objects.data[i]))return EDITOR_STALE;targets.push_back(objects.data[i]);}
+        const auto prototype=request->values[1].integer;const CKGUID guid(CKDWORD(prototype>>32),CKDWORD(prototype));
+        auto create=[&]()->std::pair<CK_ID,CK_ID>{CK_ID script=0,block=0;
+            for(auto ref:targets){auto*object=state.document->Resolve(ref);EditResult result=EditResult::NoChange();
+                if(auto*behavior=CKBehavior::Cast(object)){if(state.hiddenScripts.count(behavior->GetID())){state.Log(LogLevel::Warning,"Cannot drop on script with hidden graph!");continue;}script=behavior->GetID();result=DropBuildingBlockInto(*state.document,script,guid);}
+                else if(object)result=DropBuildingBlockOn(*state.document,object->GetID(),guid,state.hiddenScripts,&script);
+                if(result.ok)block=result.created;else if(!result.message.empty())state.Log(LogLevel::Warning,AnsiToUtf8(result.message));}
+            return {script,block};};
+        std::pair<CK_ID,CK_ID> made;
+        if(targets.size()==1)made=app.m_Layout.DropAsking(create);else{EditGroup group(*state.document,"Drop Behavior");made=create();}
+        if(!made.second)return EDITOR_REFUSED;state.RememberBlock(guid);state.events.Post(ShowElement{made.first,ElementRef{ElementKind::Behavior,made.first,made.second},made.second});return EDITOR_OK;};
+    commands[5].run=[](void*data,const EditorHost*host,const EditorRequest*request,EditorSink sink){auto&app=*static_cast<EditorApp*>(data);return host->navigateView(host->data,EditorString EDITOR_TEXT("scene.level"),app.OpenSceneView("level"),request,sink);};
+    const EditorParameter args[]={{EDITOR_TEXT("path"),EDITOR_TEXT_VALUE},{EDITOR_TEXT("class"),EDITOR_INTEGER_VALUE}};
+    const EditorParameter fields[]={{EDITOR_TEXT("paths"),EDITOR_TEXT_LIST},{EDITOR_TEXT("classes"),EDITOR_INTEGER_LIST}};
+    EditorQueryDesc dragged{sizeof(dragged),EDITOR_TEXT("resource.dragged"),EDITOR_TEXT("builtin.navigation"),args,2,nullptr,this,EDITOR_QUERY_EACH_READ,EDITOR_DOCUMENT,fields,2};
+    dragged.read=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink sink){
+        auto &app=*static_cast<EditorApp*>(data);EditorResourceFile file{};const auto &path=request->values[0].text;
+        if(path.size>=sizeof(file.path)||request->values[1].integer>INT32_MAX)return EDITOR_INVALID;
+        std::memcpy(file.path,path.data,path.size);file.cid=CK_CLASSID(request->values[1].integer);const auto files=app.m_State.DraggedResources(file);
+        std::vector<EditorString>paths;std::vector<uint64_t>classes;for(const auto&file:files){paths.push_back(EditorLiteral(file.path));classes.push_back(uint64_t(file.cid));}
+        const EditorValue values[]={{EDITOR_TEXT("paths"),EDITOR_TEXT_LIST,{},{},0,{},{},{paths.data(),uint32_t(paths.size())}},
+            {EDITOR_TEXT("classes"),EDITOR_INTEGER_LIST,{},{},0,{}, {classes.data(),uint32_t(classes.size())}}};return sink.write?sink.write(sink.data,values,2):EDITOR_INVALID;};
+    EditorModuleDesc module{};module.size=sizeof(module);module.version=EDITOR_VERSION;module.id=EDITOR_TEXT("scene.navigation");module.commands=commands;module.commandCount=6;module.queries=&dragged;module.queryCount=1;return m_Editor.Register(module,error);
+}
 } // namespace vdev

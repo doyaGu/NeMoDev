@@ -1,24 +1,23 @@
 #include "ui/help/HelpWindow.h"
+#include "application/EditorApplication.h"
+#include "editor/ImGuiDrawing.h"
 #include "core/runtime/Resources.h"
 #include "imgui_internal.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cmath>
+#include <filesystem>
+#ifdef VIRTOOLSDEV_UI_TESTS
+#include <map>
+#endif
 
 namespace vdev {
 void HelpWindow::Open(const std::string &topic) {
-    m_Open = m_Focus = true;
     if (!m_Loaded)
         m_Loaded = m_Book.Load(DataFilePath("help"), m_Error);
     if (m_Loaded)
         m_Pending = topic.empty() ? m_Book.Home() : topic;
-}
-void HelpWindow::Close() {
-    if (m_Document && !m_History.empty())
-        m_History[m_Visit].position = ReadingPosition();
-    m_Open = false;
-    m_Document.reset();
-    m_LayoutTopic = nullptr;
 }
 ImVec2 HelpWindow::ScrollPosition() const {
     const ImGuiWindow *article = ImGui::FindWindowByID(m_ArticleId);
@@ -226,24 +225,14 @@ size_t HelpWindow::ShownImages() const {
                          [](const auto &drawing) { return drawing.kind == HtmlRenderer::Drawing::Image; });
 }
 #endif
-void HelpWindow::Draw() {
-    if (!m_Open) {
-        Close();
-        return;
-    }
+void HelpWindow::Draw(EditorViewFrame &frame) {
     if (!m_Pending.empty()) {
         Navigate(m_Pending);
         m_Pending.clear();
     }
     ImGui::SetNextWindowSize(ImVec2(1000, 700), ImGuiCond_FirstUseEver);
-    if (m_Focus) {
-        ImGui::SetNextWindowFocus();
-        m_Focus = false;
-    }
-    if (!ImGui::Begin("Help", &m_Open)) {
-        ImGui::End();
-        return;
-    }
+    EditorImGuiWindow window(frame);
+    if (!window) return;
     ImGui::BeginDisabled(m_History.empty() || m_Visit == 0);
     if (ImGui::Button("Back"))
         History(-1);
@@ -266,8 +255,10 @@ void HelpWindow::Draw() {
         ImGui::TableSetupColumn("Topic", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableNextColumn();
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyCtrl &&
-            ImGui::IsKeyPressed(ImGuiKey_F, false))
+            ImGui::IsKeyPressed(ImGuiKey_F, false)) {
             ImGui::SetKeyboardFocusHere();
+            ImGui::SetKeyOwner(ImGuiKey_F, ImGui::GetCurrentWindow()->ID, ImGuiInputFlags_LockThisFrame);
+        }
         ImGui::SetNextItemWidth(-1);
         if (ImGui::InputTextWithHint("##search", "Search all help topics", &m_Query))
             m_Results = m_Book.Search(m_Query);
@@ -315,6 +306,165 @@ void HelpWindow::Draw() {
         ImGui::PopStyleColor();
         ImGui::EndTable();
     }
-    ImGui::End();
 }
+EditorStatus HelpWindow::SaveState(EditorSink sink) const {
+    std::vector<EditorString> topics, visits, visited;
+    std::vector<std::string> positions;
+    positions.reserve(m_History.size());
+    for (size_t i = 0; i < m_History.size(); ++i) {
+        topics.push_back(EditorText(m_History[i].topic));
+        positions.push_back(i == m_Visit && m_Document && m_LayoutTopic == m_Book.Find(m_Current) ?
+                            ReadingPosition().Save() : m_History[i].position.Save());
+    }
+    for (const auto &position : positions) visits.push_back(EditorText(position));
+    for (const auto &url : m_Visited) visited.push_back(EditorText(url));
+    const EditorValue fields[] = {{EDITOR_TEXT("current"), EDITOR_TEXT_VALUE, {}, EditorText(m_Current)},
+        {EDITOR_TEXT("pending"), EDITOR_TEXT_VALUE, {}, EditorText(m_Pending)},
+        {EDITOR_TEXT("query"), EDITOR_TEXT_VALUE, {}, EditorText(m_Query)},
+        {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_Zoom},
+        {EDITOR_TEXT("visit"), EDITOR_INTEGER_VALUE, {}, {}, m_Visit},
+        {EDITOR_TEXT("topics"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {topics.data(), uint32_t(topics.size())}},
+        {EDITOR_TEXT("positions"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {visits.data(), uint32_t(visits.size())}},
+        {EDITOR_TEXT("visited"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {visited.data(), uint32_t(visited.size())}}};
+    return sink.write ? sink.write(sink.data, fields, 8) : EDITOR_INVALID;
+}
+EditorStatus HelpWindow::RestoreState(const EditorRequest &request) {
+    std::string current, pending, query;
+    std::vector<Visit> history;
+    std::vector<std::string> topics, positions;
+    std::set<std::string> visited;
+    size_t visit = 0;
+    double zoom = 1;
+    const auto texts = [](EditorStrings values) {
+        std::vector<std::string> result;
+        for (uint32_t i = 0; i < values.count; ++i) result.emplace_back(values.data[i].data, values.data[i].size);
+        return result;
+    };
+    if (request.count != 8) return EDITOR_INVALID;
+    for (uint32_t i = 0; i < request.count; ++i) {
+        const auto &field = request.values[i];
+        const std::string key(field.key.data, field.key.size);
+        if (key == "current" && field.type == EDITOR_TEXT_VALUE) current.assign(field.text.data, field.text.size);
+        else if (key == "pending" && field.type == EDITOR_TEXT_VALUE) pending.assign(field.text.data, field.text.size);
+        else if (key == "query" && field.type == EDITOR_TEXT_VALUE) query.assign(field.text.data, field.text.size);
+        else if (key == "zoom" && field.type == EDITOR_REAL_VALUE) zoom = field.real;
+        else if (key == "visit" && field.type == EDITOR_INTEGER_VALUE) visit = field.integer;
+        else if (key == "topics" && field.type == EDITOR_TEXT_LIST) topics = texts(field.texts);
+        else if (key == "positions" && field.type == EDITOR_TEXT_LIST) positions = texts(field.texts);
+        else if (key == "visited" && field.type == EDITOR_TEXT_LIST) {
+            const auto urls = texts(field.texts);
+            visited.insert(urls.begin(), urls.end());
+        } else return EDITOR_INVALID;
+    }
+    if (topics.size() != positions.size() || topics.size() > 128 ||
+        visit >= std::max(size_t(1), topics.size()) || !std::isfinite(zoom) || zoom < 0.75 || zoom > 2) return EDITOR_INVALID;
+    for (size_t i = 0; i < topics.size(); ++i) {
+        HtmlReadingPosition position;
+        if (!position.Load(positions[i])) return EDITOR_INVALID;
+        history.push_back({topics[i], std::move(position)});
+    }
+    m_Current = std::move(current);
+    m_Pending = std::move(pending);
+    m_Query = std::move(query);
+    m_Zoom = float(zoom);
+    m_Visit = visit;
+    m_History = std::move(history);
+    m_Visited = std::move(visited);
+    m_Results = m_Book.Search(m_Query);
+    m_Anchor.clear();
+    m_RestoreScroll = ImVec2(-1, -1);
+    if (!m_History.empty()) m_RestorePosition = m_History[m_Visit].position;
+    m_Error = m_Current.empty() || m_Book.Find(m_Current) ? std::string() : "This topic is missing from the source help archive: " + m_Current;
+    return EDITOR_OK;
+}
+namespace {
+#ifdef VIRTOOLSDEV_UI_TESTS
+std::map<EditorView, HelpWindow *> shownHelp;
+#endif
+EditorStatus OpenHelp(void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    EditorView id = 0;
+    EditorValue topic{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE};
+    for (uint32_t i = 0; i < request->count; ++i) {
+        const auto &value = request->values[i];
+        const std::string key(value.key.data, value.key.size);
+        if (key == "topic") topic.text = value.text;
+        if (key == "view") id = value.integer;
+    }
+    const EditorRequest navigation{request->scope, &topic, 1};
+    return host->navigateView(host->data, EditorString EDITOR_TEXT("help.reference"), id, &navigation, sink);
+}
+} // namespace
+bool RegisterHelpViews(EditorApplication &editor, HtmlFonts fonts, std::string &error) {
+    const EditorParameter topic{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, 1};
+    const EditorParameter arguments[] = {topic, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("help.open"), EDITOR_TEXT("builtin.help"),
+        EDITOR_TEXT("Online Reference"), arguments, 2, OpenHelp, nullptr, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE,
+        [](void *, const EditorHost *, const EditorRequest *) {
+            std::error_code error;
+            return std::filesystem::is_regular_file(std::filesystem::u8path(DataFilePath("help/help.ndh")), error) ?
+                EDITOR_OK : EDITOR_REFUSED;
+        }};
+    auto *data = new HtmlFonts(fonts);
+    const EditorViewDesc view{sizeof(EditorViewDesc), EDITOR_IMGUI_VERSION,
+        EDITOR_TEXT("help.reference"), EDITOR_TEXT("builtin.help"), EDITOR_TEXT("Help"),
+        [](void *data, const EditorHost *, EditorView id) -> void * {
+            auto view = std::make_unique<HelpWindow>(*static_cast<HtmlFonts *>(data));
+            view->Open();
+#ifdef VIRTOOLSDEV_UI_TESTS
+            shownHelp.emplace(id, view.get());
+#endif
+            return view.release();
+        },
+        [](void *data) {
+#ifdef VIRTOOLSDEV_UI_TESTS
+            for (auto it = shownHelp.begin(); it != shownHelp.end();)
+                if (it->second == data) it = shownHelp.erase(it); else ++it;
+#endif
+            delete static_cast<HelpWindow *>(data);
+        },
+        [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+            static_cast<HelpWindow *>(data)->Draw(*frame);
+        }, data, EDITOR_WINDOW_VIEW, 1, EDITOR_WORKSPACE, &topic, 1,
+        [](void *data, const EditorHost *, const EditorRequest *request) {
+            const auto &topic = request->values[0].text;
+            static_cast<HelpWindow *>(data)->Open(std::string(topic.data ? topic.data : "", topic.size));
+            return EDITOR_OK;
+        }, 1,
+        [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            return static_cast<HelpWindow *>(data)->SaveState(sink);
+        },
+        [](void *data, const EditorHost *, const EditorRequest *request) {
+            return static_cast<HelpWindow *>(data)->RestoreState(*request);
+        }};
+    const EditorBindingDesc binding{EDITOR_TEXT("help.open"), EDITOR_TEXT("F1")};
+    const EditorMenuLocation location{EDITOR_TEXT("help.reference"), EDITOR_TEXT("Help menu")};
+    const EditorMenuDesc menu{EDITOR_TEXT("help.reference"), EDITOR_TEXT("help.open"),
+        EDITOR_TEXT("help.reference"), EDITOR_TEXT("Online Reference"), 0};
+    const EditorString dependency = EDITOR_TEXT("workspace.views");
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("help.reference");
+    module.dependencies = &dependency;
+    module.dependencyCount = 1;
+    module.views = &view;
+    module.viewCount = 1;
+    module.commands = &command;
+    module.commandCount = 1;
+    module.menus = &menu;
+    module.menuCount = 1;
+    module.bindings = &binding;
+    module.bindingCount = 1;
+    module.locations = &location;
+    module.locationCount = 1;
+    module.data = data;
+    module.stop = [](void *data) { delete static_cast<HtmlFonts *>(data); };
+    if (editor.Register(module, error)) return true;
+    delete data;
+    return false;
+}
+#ifdef VIRTOOLSDEV_UI_TESTS
+const HelpWindow &HelpForTests() { return *shownHelp.at(HelpViewForTests()); }
+EditorView HelpViewForTests() { return shownHelp.empty() ? 0 : shownHelp.begin()->first; }
+#endif
 } // namespace vdev

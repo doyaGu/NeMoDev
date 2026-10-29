@@ -2,13 +2,12 @@
 
 #include "core/graph/Debugger.h"
 #include "workspace/EditorWorkspace.h"
+#include "editor/Scene.h"
 #include <algorithm>
 #include <cstring>
 #include <functional>
 #include <map>
 #include <memory>
-#include <mutex>
-#include <thread>
 #include <string>
 #include <set>
 #include <vector>
@@ -16,7 +15,7 @@
 #include "core/catalog/BuildingBlockCatalog.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include "ui/app/Preferences.h"
-#include "ui/app/Clipboard.h"
+#include "core/document/Clipboard.h"
 #include "ui/schematic/SchematicStyle.h"
 #include "core/schematic/ElementRef.h"
 #include "core/document/Edit.h"
@@ -24,10 +23,12 @@
 #include "core/document/LinkValidation.h"
 #include "core/layout/SnapshotBuffer.h"
 #include "core/document/UndoHistory.h"
+#include "application/ObjectSelection.h"
+#include "application/EventLog.h"
 #include "core/level/LevelCommands.h"
 #include "ui/app/EditorEvents.h"
-#include "ui/app/RuntimeOperation.h"
-#include "ui/app/DocumentFiles.h"
+#include "application/RuntimeOperation.h"
+#include "application/DocumentFiles.h"
 #include "core/runtime/TextEncoding.h"
 #include "ui/controls/FileDialogs.h"
 
@@ -35,34 +36,9 @@ namespace vdev {
 
 // Drag-and-drop payload: the CKGUID of a Building Block prototype.
 constexpr const char *BUILDING_BLOCK_PAYLOAD = "SCHEMATIC_BB";
-// Drag-and-drop payload of a Data Resources file (ResourceFilePayload).
-constexpr const char *RESOURCE_FILE_PAYLOAD = "SCHEMATIC_RESOURCE_FILE";
-struct ResourceFilePayload {
-    char path[1024]; // UTF-8
-    CK_CLASSID cid;  // class of its folder
-};
 // Drag-and-drop payload of the Snapshot Buffer: the slot (an int) of
 // EditorState::snapshots.
 constexpr const char *SNAPSHOT_PAYLOAD = "SCHEMATIC_SNAPSHOT";
-// Drag-and-drop payload of a Level Manager object: its CK_ID.
-constexpr const char *LEVEL_OBJECT_PAYLOAD = "SCHEMATIC_LEVEL_OBJECT";
-// Drag-and-drop payload of the Attribute Manager: an attribute type, with
-// the value (an object's attribute parameter) dragged from its object list.
-constexpr const char *ATTRIBUTE_PAYLOAD = "SCHEMATIC_ATTRIBUTE";
-struct AttributePayload {
-    CKAttributeType type;
-    CK_ID value; // 0: the attribute's default value
-};
-
-struct LogEntry {
-    LogLevel level = LogLevel::Info;
-    std::string text; // UTF-8
-    int repeats = 1;  // the same message logged again in a row (a running composition repeats its errors)
-    // Shown on the status bar too (Dev's StatusBarOutput); the Event Log's
-    // own lines of the start are not.
-    bool status = true;
-};
-
 // Selection is confined to one Script at a time, but Script headers: with
 // a header selected, Ctrl or Shift and a click on others' select them too
 // (headers; Dev acts on "one or several scripts": Expand, Hide Selected,
@@ -170,12 +146,6 @@ struct FocusRequest {
 // Manager name column) grouping objects and Scripts to show or hide their
 // Scripts in the Schematic. Kept for the session (Dev's own interface data
 // that would store them is not written by this editor).
-struct Workset {
-    int id = 0;
-    int parent = 0; // 0: top level
-    std::string name;
-    std::vector<CK_ID> members;
-};
 
 // The Curve Setup's Add / Insert / Edit / Delete Points: the 3D Layout's
 // curve tool (Dev.exe tools 128..131; 0: none) on curve; referential: the
@@ -184,23 +154,6 @@ struct CurveTool {
     CK_ID curve = 0;
     int tool = 0;
     int referential = 0;
-};
-
-// The 3D Layout's selection (Dev.exe: the view's CKObjectArray at +680), the
-// render objects the Level Manager shows selected too; revision counts its
-// changes. Lock Selection keeps other editors from changing it.
-class ObjectSelection {
-public:
-    bool locked = false;
-    unsigned revision = 0;
-    const std::vector<CK_ID> &Objects() const { return m_Ids; }
-    const std::vector<ObjectRef> &References() const { return m_References; }
-    bool Contains(CK_ID id) const { return std::find(m_Ids.begin(), m_Ids.end(), id) != m_Ids.end(); }
-    void Set(const Document &document, std::vector<CK_ID> ids);
-    void Validate(const Document &document);
-private:
-    std::vector<ObjectRef> m_References;
-    std::vector<CK_ID> m_Ids; // derived view for existing render/input consumers
 };
 
 // A window's own selection kept with the shared one (Dev keeps one selection
@@ -212,38 +165,33 @@ private:
 class SelectionFollower {
 public:
     bool Pull(const ObjectSelection &objects, std::set<CK_ID> &selection) {
-        if (objects.revision == m_Seen) return false;
+        if (objects.Revision() == m_Seen) return false;
         selection = std::set<CK_ID>(objects.Objects().begin(), objects.Objects().end());
-        m_Seen = objects.revision;
+        m_Seen = objects.Revision();
         m_Pushed = selection;
         return true;
     }
-    void Push(ObjectSelection &objects, const std::set<CK_ID> &selection, const Document *document);
+    void Push(ObjectSelection &objects, const std::set<CK_ID> &selection, const Document *document, EditorApplication &editor);
 
 private:
     unsigned m_Seen = ~0u;
     std::set<CK_ID> m_Pushed;
 };
 
-// The open document's state: everything naming its objects (CK gives their
-// ids to the next document's objects), made anew when it is closed
-// (EditorState::ClearDocumentState). The rest of EditorState is the
-// session's (preferences, the Snapshot Buffer, the log, the Copy and Delete
-// Options, the windows' requests).
+// Window state for the open document, reset on replacement. Application-owned
+// object selection is reset alongside it. Preferences, the Snapshot Buffer,
+// the log and Copy Options keep their application lifetime.
 struct DocumentSession {
     EditorEvents events; // what windows ask of each other (EditorApp::DispatchEvents)
     std::vector<CK_ID> visibleScripts; // stacked in the Schematic, top to bottom
     CK_ID stackScript = 0;             // the Script the stack was made for (EditorPanels::ShowScript)
     // Hidden with Dev's Hide All / Hide Selected / Hide Other (view state).
     std::set<CK_ID> hiddenScripts;
-    std::vector<Workset> worksets;
-    int nextWorkset = 1;
     // Stack order set by Dev's Sort By ... / Invert Order (view state);
     // empty: Header::scriptIndex.
     std::vector<CK_ID> scriptOrder;
     ObjectClipboard objectClipboard;
     Selection selection;
-    ObjectSelection objectSelection;
     // The invalid links found after loading and kept (Dev's Links with
     // Errors Explorer; Remove Invalid Link after Loading removes them).
     std::vector<InvalidLink> invalidLinks;
@@ -255,18 +203,23 @@ struct DocumentSession {
 
 };
 
-struct EditorState : DocumentSession {
+struct EditorState : DocumentSession, DocumentFiles::Observer {
     EditorWorkspace *workspace = nullptr; // attached by the editor; outlives its windows
+    DocumentFiles::Views *documentViews = nullptr;
+    void ReplacingDocument(bool replaceContext) override;
+    void ReplacementCancelled() override;
+    void DocumentReplaced() override;
     EditorState();
     ~EditorState();
 
     CkRuntimeHost host;
     std::unique_ptr<Document> document;
+    ObjectSelection objectSelection;
     FileDialogs fileDialogs;
     void DispatchFileRequests();
     void RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion, bool multiple = false);
     BuildingBlockCatalog catalog;
-    std::vector<LogEntry> log;
+    EventLog eventLog;
     // The windows answering the parameter UIs' target button (CK2UI sends
     // message 0x607 with a class to the window under the mouse; Dev.exe's
     // 3D Layout sub_4C18A0, Schematic sub_51E0C0, the Level and Hierarchy
@@ -274,10 +227,8 @@ struct EditorState : DocumentSession {
     // object of the class at a screen point, 0 for none (or where the window
     // did not draw).
     std::map<std::string, std::function<CK_ID(float x, float y, CK_CLASSID cid)>> objectPick;
-    std::unique_ptr<Debugger> debugger; // Script Debugger on the document
+    const Debugger *debugger = nullptr; // read-only until the breakpoint views migrate; owned by ExecutionCommands
     bool showDebugger = false;
-    bool showAttributeManager = false;
-    bool showHierarchy = false;
     std::vector<std::string> layoutFrameShapes; // Virtools_Frame_ meshes less the prefix
     // Dev's lines for Add Attribute (Dev.exe sub_594BA0), each object's.
     void LogAttributeAdds(const char *attribute, const std::vector<std::pair<std::string, bool>> &each, bool ok) {
@@ -291,7 +242,7 @@ struct EditorState : DocumentSession {
     }
     // An attribute dropped on objects (the 3D Layout, a Level Manager row, a
     // Setup): DropAttribute, its lines logged.
-    void DropAttributeOn(const std::vector<CK_ID> &objects, const AttributePayload &attribute);
+    void DropAttributeOn(const std::vector<CK_ID> &objects, const EditorAttributePayload &attribute);
     // The 3D Layout's Snapshot Buffer (Dev keeps it for the session).
     SnapshotBuffer snapshots;
     // Dev's Copy Options (the session's copy dependencies, Dev.exe
@@ -306,17 +257,6 @@ struct EditorState : DocumentSession {
         }
         return copyDependencies;
     }
-    // Dev's Delete Options (Dev.exe sub_5BF7B0, "Select Delete Options"), the same way.
-    CKDependencies deleteDependencies;
-    bool deleteDependenciesSet = false;
-    CKDependencies &DeleteDependencies() {
-        if (!deleteDependenciesSet) {
-            if (CKDependencies *defaults = CKGetDefaultClassDependencies(CK_DEPENDENCIES_DELETE)) deleteDependencies = *defaults;
-            else deleteDependencies.m_Flags = CK_DEPENDENCIES_CUSTOM;
-            deleteDependenciesSet = true;
-        }
-        return deleteDependencies;
-    }
     ViewOptions view;
     // Building Blocks inserted recently, newest first (Dev Shift+right-click menu).
     std::vector<CKGUID> recentBlocks;
@@ -328,9 +268,9 @@ struct EditorState : DocumentSession {
     // Building Blocks); the drops take them all when the payload's is one.
     std::vector<CKGUID> draggedBlocks;
     // The Data Resources files dragged together (Ctrl or Shift + click).
-    std::vector<ResourceFilePayload> draggedResources;
-    std::vector<ResourceFilePayload> DraggedResources(const ResourceFilePayload &file) const {
-        for (const ResourceFilePayload &each : draggedResources)
+    std::vector<EditorResourceFile> draggedResources;
+    std::vector<EditorResourceFile> DraggedResources(const EditorResourceFile &file) const {
+        for (const EditorResourceFile &each : draggedResources)
             if (std::strcmp(each.path, file.path) == 0) return draggedResources;
         return {file};
     }
@@ -346,30 +286,9 @@ struct EditorState : DocumentSession {
         if (recentBlocks.size() > limit) recentBlocks.resize(limit);
     }
 
-    void Log(LogLevel level, const std::string &text) {
-        if (!log.empty() && log.back().level == level && log.back().text == text) {
-            ++log.back().repeats;
-            log.back().status = true;
-            return;
-        }
-        log.push_back({level, text});
-        if (log.size() > 5000) log.erase(log.begin(), log.begin() + 1000);
-    }
-    // Runtime and text-conversion callbacks can log from the worker. Only
-    // the UI thread appends to the log read by panels and the status bar.
-    void RuntimeLog(LogLevel level, const std::string &text) {
-        if (std::this_thread::get_id() == m_UiThread) { Log(level, text); return; }
-        std::lock_guard<std::mutex> lock(m_RuntimeLogMutex);
-        m_RuntimeLog.push_back({level, text});
-    }
-    void DrainRuntimeLog() {
-        std::vector<LogEntry> entries;
-        {
-            std::lock_guard<std::mutex> lock(m_RuntimeLogMutex);
-            entries.swap(m_RuntimeLog);
-        }
-        for (const auto &entry : entries) Log(entry.level, entry.text);
-    }
+    void Log(LogLevel level, const std::string &text) override { eventLog.Append(level, text); }
+    void RuntimeLog(LogLevel level, const std::string &text) { eventLog.Post(level, text); }
+    void DrainRuntimeLog() { eventLog.Drain(); }
     bool RunRuntime(const std::string &label, std::function<void()> work, std::function<void(bool)> completed = {});
     void PollRuntimeOperations();
     void FinishRuntimeOperations();
@@ -380,12 +299,7 @@ struct EditorState : DocumentSession {
     // revision goes on so that the windows showing it update.
     void ClearDocumentState();
 
-private:
-    const std::thread::id m_UiThread = std::this_thread::get_id();
-    std::mutex m_RuntimeLogMutex;
-    std::vector<LogEntry> m_RuntimeLog;
-public:
-    DocumentFiles files{*this};
+    DocumentFiles files{[this] { return document.get(); }, runtimeOperation, *this};
     // Declared last so its worker and captures go before files/document/host.
     RuntimeOperation runtimeOperation;
 };

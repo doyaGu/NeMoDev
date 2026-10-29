@@ -53,7 +53,7 @@ bool SetupShown(ImGuiTestContext *ctx) {
 
 // The Level Manager in front, a 3D object's row clicked and Enter: its Setup.
 std::optional<LevelRow> OpenSetup(ImGuiTestContext *ctx) {
-    Settle(ctx, "//Level Manager");
+    Settle(ctx, SceneRef("level", "").c_str());
     std::optional<LevelRow> row = ClickLevelRow(ctx, CKCID_3DOBJECT, true);
     if (!row) return row;
     ctx->KeyPress(ImGuiKey_Enter);
@@ -473,15 +473,16 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             CK3dObject *made = CK3dObject::Cast(context->CreateObject(CKCID_3DOBJECT, (CKSTRING) "Setup Pick Target"));
             if (CKLevel *level = context->GetCurrentLevel()) level->AddObject(made);
             target = made->GetID();
+            App().State().document->MarkTopologyChanged();
         });
         ctx->Yield(3);
         // The target's row shown first (its folders opened: a click on an
         // object's arrow while picking would pick that object).
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         IM_CHECK_SILENT(FindLevelRow(ctx, CKCID_3DOBJECT).has_value());
         auto targetRow = [&] {
             std::optional<LevelRow> found;
-            for (const LevelRow &shown : App().Panels().ShownLevelRows())
+            for (const LevelRow &shown : App().LevelRows())
                 if (shown.object == target) found = shown;
             return found;
         };
@@ -489,7 +490,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         Settle(ctx, SETUP);
         ctx->ItemClick((std::string(SETUP) + "/picker/##bitmap").c_str());
         ctx->Yield(2);
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         ctx->Yield(2);
         const std::optional<LevelRow> row = targetRow();
         IM_CHECK_SILENT(row.has_value());
@@ -503,7 +504,11 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             kept = kept || setup.object == entity;
         }
         IM_CHECK(shown && !kept);
-        OnMainThread(ctx, [&] { App().State().host.Context()->DestroyObject(target); });
+        OnMainThread(ctx, [&] {
+            auto&document=*App().State().document;
+            IM_CHECK_NO_RET(vdev::DestroyLevelObjects(document,{target}).ok);
+            document.MarkSaved();document.History().MarkSavePoint();
+        });
         ctx->Yield(3);
     };
 

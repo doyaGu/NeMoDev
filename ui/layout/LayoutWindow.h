@@ -100,11 +100,6 @@ public:
 
     // A creation tool (the Create menu's commands).
     std::function<void(LayoutObject kind)> createObject;
-    // Dev's Player/Author Mode keys: Ctrl+Space Play / Stop, Alt+Space Do One
-    // Step, Ctrl+Backspace or Alt+Backspace Restore Initial Conditions.
-    // Pause: the application left in fullscreen (Dev.exe sub_5CD3D0).
-    enum class PlayCommand { PlayStop, Step, Reset, Pause };
-    std::function<void(PlayCommand command)> play;
     // A Building Block dropped elsewhere (a Level Manager row, Dev.exe
     // sub_578C30) asks for its inputs as a drop here does: drop makes it
     // (its Script and block; 0 when refused) in one undo step, committed
@@ -144,7 +139,7 @@ public:
     // The composition's 3D Layout data (Dev.exe sub_4B46C0 on opening, sub_4B4E50
     // on saving): the selection group shown, the selection, the lock; the
     // rest is kept as the file had it.
-    void ApplyLayoutData(const LayoutInterfaceData &data);
+    void ApplyLayoutData(const LayoutInterfaceData &data, bool restoreSelection = true);
     LayoutInterfaceData LayoutData() const;
 
 private:
@@ -212,7 +207,9 @@ private:
     void ClearSelection();
     void ApplyClick(CK_ID picked);
     void ApplyRect(const VxRect &rect);
-    void SetSelection(std::vector<CK_ID> objects);
+    void SetSelection(std::vector<CK_ID> objects, bool invert = false);
+    void RestoreSelection(const std::vector<ObjectRef> &objects, bool locked);
+    void LockSelection(bool locked);
     void ValidateSelection();
     std::vector<CK_ID> AliveSelection() const;
     // Transformations.
@@ -272,7 +269,7 @@ private:
     CK_ID BlockTarget(const LayoutPickInfo &info, CK_CLASSID cid, bool ctrl) const;
     void DropBuildingBlock(int x, int y, const CKGUID &guid);
     bool DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, CK_ID &block);
-    void DropResource(int x, int y, const ResourceFilePayload &file);
+    void DropResources(int x, int y, const std::vector<EditorResourceFile> &files);
     // Dev's "%s - Edit Parameters" after the drop (Dev.exe sub_4BFD20,
     // dialog 714): OK keeps the Building Block with the values set, Cancel
     // takes it out again.
@@ -319,7 +316,7 @@ private:
         // selection (the 3D Layout's again at each change of it, sub_59EC90,
         // with the count shown; a click or a key makes it the 3D Layout's).
         bool explorerOpen = false;
-        std::vector<CK_ID> explorerSaved;
+        std::vector<ObjectRef> explorerSaved;
         bool explorerSavedLock = false;
         CK_ID explorerAnchor = 0;
         bool explorerRefused = false;
@@ -343,7 +340,7 @@ private:
     bool m_Switching = false; // its messages are not handled meanwhile (Dev.exe dword_648138)
     bool m_PendingToggle = false;
     bool m_PendingDeactivate = false;
-    std::vector<PlayCommand> m_PendingPlay;
+    std::vector<std::string> m_PendingPlay;
     // The next click picks the referent (Pivot Axis Object, Referential Pick Obj.).
     bool m_PickingReferent = false;
     // The Selection tool's hover (documentation "Selection Tool": "The cursor

@@ -70,7 +70,11 @@ void EditorApp::RunStartupActions(bool opened) {
                 if (zoom.first == name) m_Canvas.SetScriptZoom(script.id, zoom.second);
         }
         if (m_Startup.messages) m_Canvas.ShowMessageExplorer();
-        if (m_Startup.expandLevel) m_Panels.ExpandLevelTree();
+        if (m_Startup.expandLevel) {
+            const EditorValue expand{EDITOR_TEXT("expand"), EDITOR_INTEGER_VALUE, {}, {}, 2};
+            const EditorRequest request{m_Editor.Scope(), &expand, 1};
+            m_Editor.Execute("scene.expand-level", request);
+        }
         for (const auto &name : m_Startup.creates) {
             static const std::map<std::string, LayoutObject> kinds = {
                 {"camera", LayoutObject::Camera}, {"light", LayoutObject::Light}, {"frame", LayoutObject::Frame3D},
@@ -87,11 +91,11 @@ void EditorApp::RunStartupActions(bool opened) {
             CKContext *context = m_State.document->Context();
             // "@attributes", "@hierarchy", "@addattribute": the managers.
             if (name == "@attributes") {
-                m_State.showAttributeManager = true;
+                OpenSceneView("attributes");
                 continue;
             }
             if (name == "@hierarchy") {
-                m_State.showHierarchy = true;
+                OpenSceneView("hierarchy");
                 continue;
             }
             // "@attributepage": the Setups after it open on their Attribute page.
@@ -100,7 +104,8 @@ void EditorApp::RunStartupActions(bool opened) {
                 continue;
             }
             if (name == "@addattribute") {
-                m_Managers.RequestAddAttribute({}, true);
+                const EditorValue more{EDITOR_TEXT("more"), EDITOR_INTEGER_VALUE, {}, {}, 1};
+                m_Editor.Execute("attribute.choose", {m_Editor.Scope(), &more, 1});
                 continue;
             }
             CKObject *object = context->GetObjectByName(const_cast<CKSTRING>(name.c_str()));
@@ -137,9 +142,11 @@ void EditorApp::RunStartupActions(bool opened) {
         }
         if (m_Startup.playFrames > 0 && m_State.debugger) {
             m_State.showDebugger = true;
-            m_State.debugger->trace = true;
-            m_State.debugger->maxFrames = m_Startup.playFrames;
-            m_State.debugger->Play();
+            const EditorValue trace{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, 1};
+            m_Editor.Execute("runtime.set-trace", {m_Editor.Scope(), &trace, 1});
+            const EditorValue frames{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_Startup.playFrames)};
+            m_Editor.Execute("runtime.set-max-frames", {m_Editor.Scope(), &frames, 1});
+            Command("runtime.play");
         }
         if (m_Startup.menuAt) m_Canvas.RequestMenuAt(ImVec2(m_Startup.menuX, m_Startup.menuY));
         if (!m_Startup.editParameters.empty()) {
@@ -230,7 +237,7 @@ void EditorApp::OpenStartupTool(const std::string &name) {
     } else if (name == "profiler") {
         m_Tools.showProfiler = true;
     } else if (name == "eventlog") {
-        m_ShowLog = true;
+        Command("log.open");
     } else if (name == "watch") {
         // The Script locals of the first Script, as Paste after a copy would add them.
         std::vector<CK_ID> locals;
@@ -257,11 +264,11 @@ void EditorApp::OpenStartupTool(const std::string &name) {
         m_State.events.Post(FocusSchematic{});
         m_PendingStartupDialog = name;
     } else if (name == "webpage") {
-        m_OpenWebPage = true;
+        Command("document.export-web");
     } else if (name == "saveversion") {
-        SaveVersion();
+        Command("document.save-version");
     } else if (name == "revert") {
-        RevertToSaved();
+        Command("document.revert");
     } else if (name.compare(0, 11, "printpages:") == 0) {
         m_PendingPrintPages = name.substr(11);
     } else if (name.compare(0, 6, "print:") == 0) {

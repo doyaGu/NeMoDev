@@ -2,12 +2,14 @@
 #include "ui/render/UiRenderer.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 
 namespace vdevuitest {
 namespace {
 std::filesystem::path Output(const char *name) {
-    return std::filesystem::u8path(SDL_GetBasePath()) / name;
+    const auto *root=std::getenv("NEMODEV_TEST_PRINT_ROOT");
+    return std::filesystem::u8path(root ? root : SDL_GetBasePath()) / name;
 }
 void ClearPages(const std::filesystem::path &folder) {
     // These four files belong to this test. Never remove a directory tree.
@@ -22,6 +24,7 @@ bool DialogShown(ImGuiTestContext *ctx) {
 
 void RegisterPrintTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = IM_REGISTER_TEST(engine, "printing", "cancel_pages");
+    t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         IM_CHECK(DialogShown(ctx));
@@ -36,10 +39,11 @@ void RegisterPrintTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(App().State().History().UndoCount(), steps);
         IM_CHECK(!std::filesystem::exists(folder / "page1.png"));
         bool cancelled = false;
-        for (const auto &entry : App().State().log) cancelled |= entry.text == "Print cancelled";
+        for (const auto &entry : App().State().eventLog.Entries()) cancelled |= entry.text == "Print cancelled";
         IM_CHECK(cancelled);
     };
     t = IM_REGISTER_TEST(engine, "printing", "four_pages");
+    t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         IM_CHECK(DialogShown(ctx));
@@ -54,6 +58,9 @@ void RegisterPrintTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//###PrintParameters/OK/##dialogbutton");
         ctx->Yield(3);
         IM_CHECK(!DialogShown(ctx));
+        // Native output is asynchronous. Read waits for the editor thread to
+        // publish completion before checking the owned files and document.
+        IM_CHECK(Read<bool>(ctx, [] { return !App().State().runtimeOperation.Busy(); }));
         int visiblePages = 0;
         int pageWidth = 0, pageHeight = 0;
         for (int page = 1; page <= 4; ++page) {

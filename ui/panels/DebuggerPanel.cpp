@@ -56,7 +56,15 @@ void EditorPanels::DebuggerPanel(bool *open) {
     }
     const vi::TemplateLayout l = vi::LayoutTemplate(o, units, s, PAD);
     vi::TemplatePanel(l);
-    Debugger *debugger = m_State.debugger.get();
+    const Debugger *debugger = m_State.debugger;
+    auto &editor = m_State.workspace->Application();
+    const auto execute = [&](const char *id, const EditorValue *values = nullptr, uint32_t count = 0) {
+        return editor.Execute(id, {editor.Scope(), values, count});
+    };
+    const auto boolean = [&](const char *id, bool enabled) {
+        const EditorValue value{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, enabled ? 1u : 0u};
+        execute(id, &value, 1);
+    };
     CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
     const bool usable = debugger && context;
     auto text = [&](float x, float y, float w, float h, const char *label, bool bold = false) {
@@ -69,14 +77,13 @@ void EditorPanels::DebuggerPanel(bool *open) {
     // Debug Inside Frames: the full debug mode (it needs Trace Mode, turned on with it).
     bool inside = usable && debugger->insideFrames;
     if (vi::CheckButton("Debug Inside Frames", l.Min(8, 18), l.Max(8, 18, 83, 10), inside, "Debug Inside Frames", usable)) {
-        debugger->insideFrames = inside;
-        if (inside) debugger->trace = true;
+        boolean("runtime.set-inside-frames", inside);
     }
     Preferences &preferences = m_State.preferences;
     if (vi::CheckButton("Redraw Schematic Only When Breakpoint Reached", l.Min(8, 32), l.Max(8, 32, 177, 8),
                         preferences.redrawOnlyAtBreakpoint, "Redraw Schematic Only When Breakpoint Reached") &&
         debugger)
-        debugger->redrawOnlyAtBreakpoint = preferences.redrawOnlyAtBreakpoint;
+        boolean("runtime.set-redraw-at-breakpoint", preferences.redrawOnlyAtBreakpoint);
 
     // Debug Context: the combos show where the debugger is; a box locks it
     // to the object or the Script chosen (the object's combo then fixed;
@@ -87,15 +94,15 @@ void EditorPanels::DebuggerPanel(bool *open) {
     text(9, 80, 57, 8, "Current Script");
     text(9, 95, 57, 8, "Current Behavior");
     if (usable) {
-        if (!debugger->lockedObject) m_Doc.debugObject = debugger->CurrentObject();
-        if (!debugger->lockedScript) m_Doc.debugScript = debugger->CurrentScript();
+        if (!debugger->lockedObject) m_Doc.debugObject = m_State.document->Reference(debugger->CurrentObject());
+        if (!debugger->lockedScript) m_Doc.debugScript = m_State.document->Reference(debugger->CurrentScript());
     }
     std::vector<CK_ID> owners, scripts;
     if (usable)
         for (const ScriptInfo &script : m_State.document->Scripts()) {
             if (script.ownerId && std::find(owners.begin(), owners.end(), script.ownerId) == owners.end())
                 owners.push_back(script.ownerId);
-            if (!m_Doc.debugObject || script.ownerId == m_Doc.debugObject) scripts.push_back(script.id);
+            if (!m_Doc.debugObject || script.ownerId == m_Doc.debugObject.object) scripts.push_back(script.id);
         }
     auto names = [&](const std::vector<CK_ID> &ids) {
         std::vector<std::string> list{"none"};
@@ -105,38 +112,34 @@ void EditorPanels::DebuggerPanel(bool *open) {
     const bool objectLocked = usable && debugger->lockedObject != 0;
     const bool scriptLocked = usable && debugger->lockedScript != 0;
     if (!objectLocked && !scriptLocked) {
-        const int chosen = vi::Combo("##object", l.Min(73, 65), l.Max(73, 65, 94, 12), NameOf(context, m_Doc.debugObject),
+        const int chosen = vi::Combo("##object", l.Min(73, 65), l.Max(73, 65, 94, 12), NameOf(context, m_State.document->NativeId(m_Doc.debugObject)),
                                      [&] { return names(owners); }, 0);
-        if (chosen >= 0) m_Doc.debugObject = chosen == 0 ? 0 : owners[chosen - 1];
+        if (chosen >= 0) m_Doc.debugObject = m_State.document->Reference(chosen == 0 ? 0 : owners[chosen - 1]);
     } else {
         vi::Text(ImVec2(l.Min(73, 65).x + 3.0f * s, l.Min(73, 65).y + 2.0f * s), l.Max(73, 65, 94, 12),
-                 NameOf(context, m_Doc.debugObject).c_str());
+                 NameOf(context, m_State.document->NativeId(m_Doc.debugObject)).c_str());
         ImGui::GetWindowDrawList()->AddLine(ImVec2(l.Min(73, 65).x, l.Max(73, 65, 94, 12).y - 1.5f),
                                             ImVec2(l.Max(73, 65, 94, 12).x, l.Max(73, 65, 94, 12).y - 1.5f), vi::Color(4));
     }
     bool lockObject = objectLocked;
     if (vi::CheckButton("##lockobject", l.Min(175, 65), l.Max(175, 65, 8, 8), lockObject, nullptr, usable && !scriptLocked)) {
-        debugger->lockedObject = lockObject ? m_Doc.debugObject : 0;
-        if (lockObject && !m_Doc.debugObject) debugger->lockedObject = 0;
+        const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, lockObject ? m_Doc.debugObject : ObjectRef{}};
+        execute("runtime.lock-object", &target, 1);
     }
     if (!scriptLocked) {
-        const int chosen = vi::Combo("##script", l.Min(73, 80), l.Max(73, 80, 94, 12), NameOf(context, m_Doc.debugScript),
+        const int chosen = vi::Combo("##script", l.Min(73, 80), l.Max(73, 80, 94, 12), NameOf(context, m_State.document->NativeId(m_Doc.debugScript)),
                                      [&] { return names(scripts); }, 0);
-        if (chosen >= 0) m_Doc.debugScript = chosen == 0 ? 0 : scripts[chosen - 1];
+        if (chosen >= 0) m_Doc.debugScript = m_State.document->Reference(chosen == 0 ? 0 : scripts[chosen - 1]);
     } else {
         vi::Text(ImVec2(l.Min(73, 80).x + 3.0f * s, l.Min(73, 80).y + 2.0f * s), l.Max(73, 80, 94, 12),
-                 NameOf(context, m_Doc.debugScript).c_str());
+                 NameOf(context, m_State.document->NativeId(m_Doc.debugScript)).c_str());
     }
     bool lockScript = scriptLocked;
     if (vi::CheckButton("##lockscript", l.Min(175, 80), l.Max(175, 80, 8, 8), lockScript, nullptr, usable)) {
-        CKBehavior *script = lockScript ? CKBehavior::Cast(context->GetObject(m_Doc.debugScript)) : nullptr;
-        debugger->lockedScript = script ? script->GetID() : 0;
-        if (script && script->GetOwner()) {
-            m_Doc.debugObject = script->GetOwner()->GetID();
-            debugger->lockedObject = m_Doc.debugObject;
-        } else if (!lockScript) {
-            debugger->lockedObject = 0;
-        }
+        const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, lockScript ? m_Doc.debugScript : ObjectRef{}};
+        const auto result = execute("runtime.lock-script", &target, 1);
+        if (result.status == EDITOR_OK && debugger->lockedObject)
+            m_Doc.debugObject = m_State.document->Reference(debugger->lockedObject);
     }
     text(73, 95, 94, 12, usable ? NameOf(context, debugger->CurrentBehavior()).c_str() : "none");
 
@@ -144,9 +147,9 @@ void EditorPanels::DebuggerPanel(bool *open) {
     text(192, 4, 82, 8, "Trace Tools", true);
     vi::Frame(l.Min(192, 14), l.Max(192, 14, 99, 94));
     const bool stepping = usable && debugger->trace && debugger->insideFrames;
-    if (vi::Button("Debug Step", l.Min(196, 18), l.Max(196, 18, 57, 10), "Debug Step", stepping)) debugger->DebugStep();
+    if (vi::Button("Debug Step", l.Min(196, 18), l.Max(196, 18, 57, 10), "Debug Step", stepping)) execute("runtime.debug-step");
     if (vi::Button("Leave Behavior", l.Min(196, 32), l.Max(196, 32, 57, 10), "Leave Behavior", stepping))
-        debugger->LeaveBehavior();
+        execute("runtime.leave-behavior");
     text(196, 50, 50, 8, "Max CK Frames");
     text(196, 65, 50, 8, "Simulated FPS");
     if (usable) {
@@ -155,11 +158,17 @@ void EditorPanels::DebuggerPanel(bool *open) {
         if (m_FpsText.empty()) m_FpsText = std::to_string(static_cast<int>(debugger->simulatedFps + 0.5f));
         bool done = false;
         vi::Edit("##maxframes", l.Min(253, 50), l.Max(253, 50, 33, 12), m_MaxFramesText, vi::CENTER, &done);
-        if (done) debugger->maxFrames = std::max(0, std::atoi(m_MaxFramesText.c_str()));
+        if (done) {
+            const EditorValue value{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(std::max(0, std::atoi(m_MaxFramesText.c_str())))};
+            execute("runtime.set-max-frames", &value, 1);
+        }
         if (!ImGui::IsItemActive()) m_MaxFramesText = std::to_string(debugger->maxFrames);
         done = false;
         vi::Edit("##fps", l.Min(253, 65), l.Max(253, 65, 33, 12), m_FpsText, vi::CENTER, &done);
-        if (done) debugger->simulatedFps = std::max(1.0f, static_cast<float>(std::atof(m_FpsText.c_str())));
+        if (done) {
+            const EditorValue value{EDITOR_TEXT("value"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, std::max(1.0, std::atof(m_FpsText.c_str()))};
+            execute("runtime.set-simulated-fps", &value, 1);
+        }
         if (!ImGui::IsItemActive()) m_FpsText = std::to_string(static_cast<int>(debugger->simulatedFps + 0.5f));
     }
 
@@ -204,7 +213,7 @@ void EditorPanels::DebuggerPanel(bool *open) {
                  ImVec2(at.x + 66.0f * 1.5f * s, at.y + size.y * s), "Debug Log");
     }
     if (m_DebugLogShown) {
-        if (vi::Button("Clear", l.Min(82, 113), l.Max(82, 113, 50, 10), "Clear", usable)) debugger->ClearLog();
+        if (vi::Button("Clear", l.Min(82, 113), l.Max(82, 113, 50, 10), "Clear", usable)) execute("runtime.clear-log");
         static const std::vector<vi::ListColumn> COLUMNS{{"Debugging Message List", 0.0f}};
         const std::vector<Debugger::Entry> empty;
         const std::vector<Debugger::Entry> &log = usable ? debugger->Log() : empty;
@@ -212,7 +221,8 @@ void EditorPanels::DebuggerPanel(bool *open) {
         const int row = vi::ListView("##debuglog", l.Min(5, 125), l.Max(5, 125, 398, 93), s, COLUMNS,
                                      static_cast<int>(log.size()),
                                      [&](int r, int) { return AnsiToUtf8(log[r].text); }, nullptr, &twice, nullptr, true);
-        if (row >= 0 && twice && log[row].script) ShowScript(m_State.document->NativeId(log[row].script), ElementRef(), m_State.document->NativeId(log[row].behavior));
+        if (row >= 0 && twice && m_State.document->Resolve(log[row].script))
+            ShowScript(log[row].script.object, ElementRef(), m_State.document->NativeId(log[row].behavior));
     }
 
     if (vi::DialogButton("Close", ImVec2(l.right - 60.0f * s, l.buttonsY), s)) *open = false;

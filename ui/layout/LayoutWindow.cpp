@@ -437,7 +437,7 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     static const Button lock = {58, 30, 25, 51, 46, {692, 694, 693, 693, 692}, "Lock Selection (Spacebar)"};
     static const Button mode = {61, 52, 24, 73, 45, {1152, 1153, 1151, 1150, 1151}, "Selection Mode"};
     if (ToolbarButton(select, m_Tool == LayoutTool::Select)) Command(select.command);
-    if (ToolbarButton(lock, m_State.objectSelection.locked)) Command(lock.command);
+    if (ToolbarButton(lock, m_State.objectSelection.Locked())) Command(lock.command);
     if (ToolbarButton(mode, m_State.preferences.Bool("3D Layout\\Strict Selection"))) Command(mode.command);
     line(49);
     // Transformations.
@@ -568,8 +568,8 @@ void LayoutWindow::Command(int command) {
         break;
     case 58:
         // Dev locks a non-empty selection only.
-        if (m_State.objectSelection.locked || !m_State.objectSelection.Objects().empty())
-            m_State.objectSelection.locked = !m_State.objectSelection.locked;
+        if (m_State.objectSelection.Locked() || !m_State.objectSelection.Objects().empty())
+            LockSelection(!m_State.objectSelection.Locked());
         break;
     case 61:
         // Selection Mode: Dev's "Strict Selection" (+540), RectPick's Intersect.
@@ -611,8 +611,10 @@ void LayoutWindow::Command(int command) {
         // Automatic Portals (documentation "Automatic Portals"): a portal
         // between each two contiguous places.
         if (m_State.HasDocument()) {
-            const EditResult made = CreateAutomaticPortals(*m_State.document);
-            m_State.Log(made.ok ? LogLevel::Info : LogLevel::Warning, "Automatic Portals: " + AnsiToUtf8(made.message));
+            auto &editor = m_State.workspace->Application();
+            const auto made = editor.Execute("object.create-automatic-portals", {editor.Scope(), nullptr, 0});
+            if (made.status != EDITOR_QUEUED)
+                m_State.Log(made.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, "Automatic Portals: " + made.message);
         }
         break;
     case 23: m_Tool = LayoutTool::Dolly; break;
@@ -777,7 +779,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     }
     dl->PopClipRect();
     // Lock Selection: "a thin green border around the preview pane".
-    if (m_State.objectSelection.locked) dl->AddRect(viewAt, visibleMax, IM_COL32(0, 255, 0, 255), 0.0f, 0, 2.0f);
+    if (m_State.objectSelection.Locked()) dl->AddRect(viewAt, visibleMax, IM_COL32(0, 255, 0, 255), 0.0f, 0, 2.0f);
 }
 
 // Dev.exe sub_4A01F0: the mouse (and the frame rate while playing), then

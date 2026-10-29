@@ -46,12 +46,11 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
         }
     }
     if (const ImGuiPayload *payload =
-            ImGui::AcceptDragDropPayload(RESOURCE_FILE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-        ResourceFilePayload file;
+            ImGui::AcceptDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+        EditorResourceFile file;
         std::memcpy(&file, payload->Data, sizeof(file));
         if (payload->IsDelivery()) {
-            // Several files dragged: each dropped.
-            for (const ResourceFilePayload &each : m_State.DraggedResources(file)) DropResource(x, y, each);
+            DropResources(x, y, m_State.DraggedResources(file));
         } else {
             const LayoutPickInfo info = m_View.PickInfo(x, y);
             m_View.SetDropTarget(info.character ? info.character : info.entity3d);
@@ -80,12 +79,12 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
     }
     // An attribute from the Attribute Manager: on the object under the mouse,
     // or the selection it is in.
-    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(ATTRIBUTE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_ATTRIBUTE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
         const LayoutPickInfo info = m_View.PickInfo(x, y);
         const CK_ID target = info.entity2d ? info.entity2d : info.character ? info.character : info.entity3d;
         const bool multiple = target && m_State.objectSelection.Objects().size() > 1 && m_State.objectSelection.Contains(target);
         if (payload->IsDelivery()) {
-            AttributePayload attribute;
+            EditorAttributePayload attribute;
             std::memcpy(&attribute, payload->Data, sizeof(attribute));
             if (target) m_State.DropAttributeOn(multiple ? AliveSelection() : std::vector<CK_ID>{target}, attribute);
         } else {
@@ -98,8 +97,9 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
     // entity's mesh it replaces the material of the face under the mouse.
     const ImGuiPayload *dragged = ImGui::GetDragDropPayload();
     CK_ID material = 0;
-    if (dragged && dragged->IsDataType(LEVEL_OBJECT_PAYLOAD) && dragged->DataSize == sizeof(CK_ID)) {
-        std::memcpy(&material, dragged->Data, sizeof(material));
+    if (dragged && dragged->IsDataType(EDITOR_OBJECT_PAYLOAD) && dragged->DataSize == sizeof(ObjectRef)) {
+        ObjectRef reference{}; std::memcpy(&reference, dragged->Data, sizeof(reference));
+        material = m_State.document->NativeId(reference);
         if (!CKMaterial::Cast(context->GetObject(material))) material = 0;
     }
     if (material) {
@@ -108,7 +108,7 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
         CKMesh *mesh = entity ? entity->GetCurrentMesh() : nullptr;
         if (mesh && info.material)
             if (const ImGuiPayload *payload =
-                    ImGui::AcceptDragDropPayload(LEVEL_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+                    ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
                 if (!payload->IsDelivery()) {
                     m_View.SetDropTarget(entity->GetID());
                 } else if (m_State.HasDocument()) {
@@ -225,33 +225,27 @@ bool LayoutWindow::DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, 
 // A Data Resources file (Dev.exe sub_4C0A30): loaded as on the level, its
 // Scripts and animations given to the object under the mouse; images are a
 // texture, Shift a 3D sprite, Ctrl a 2D sprite, both a 2D Entity (sub_4BF320).
-void LayoutWindow::DropResource(int x, int y, const ResourceFilePayload &file) {
+void LayoutWindow::DropResources(int x, int y, const std::vector<EditorResourceFile> &files) {
     if (!m_State.HasDocument()) return;
     const LayoutPickInfo info = m_View.PickInfo(x, y);
     const ImGuiIO &io = ImGui::GetIO();
-    CK_CLASSID cid = file.cid;
-    if (cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D)
-        cid = io.KeyShift && io.KeyCtrl ? CKCID_2DENTITY
-              : io.KeyShift             ? CKCID_SPRITE3D
-              : io.KeyCtrl              ? CKCID_SPRITE
-                                        : CKCID_TEXTURE;
-    const CK_ID target = info.character ? info.character : info.entity3d ? info.entity3d : info.entity2d;
-    const std::string path = file.path;
-    auto load = [this, path, cid, target](const std::vector<DuplicateName> *duplicates) {
-        if (!m_State.HasDocument()) return;
-        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
-        auto result = std::make_shared<EditResult>(EditResult::NoChange());
-        m_State.RunRuntime("Loading resource", [this, path, cid, target, choices, result] {
-            *result = LoadResourceFile(*m_State.document, path, cid, target, nullptr, choices.get());
-        }, [this, path, result](bool ok) {
-            if (!ok) return;
-            m_State.Log(result->ok ? LogLevel::Info : LogLevel::Warning,
-                        (result->ok ? std::string("Loaded: ") : std::string("Load failed: ")) + AnsiToUtf8(result->message) + " (" + path + ")");
-        });
-    };
-    // The imported files ask about duplicate names (Dev.exe sub_4AC330, CK_LOAD_DODIALOG).
-    if (ResourceFileIsImported(cid)) m_State.files.WithDuplicates(path, load);
-    else load(nullptr);
+    std::vector<EditorString> paths;
+    std::vector<uint64_t> classes;
+    for (const auto &file : files) {
+        CK_CLASSID cid = file.cid;
+        if (cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D)
+            cid = io.KeyShift && io.KeyCtrl ? CKCID_2DENTITY : io.KeyShift ? CKCID_SPRITE3D
+                  : io.KeyCtrl ? CKCID_SPRITE : CKCID_TEXTURE;
+        paths.push_back(EditorLiteral(file.path));
+        classes.push_back(uint64_t(cid));
+    }
+    const auto target = m_State.document->Reference(info.character ? info.character : info.entity3d ? info.entity3d : info.entity2d);
+    const EditorValue values[] = {
+        {EDITOR_TEXT("paths"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {paths.data(), uint32_t(paths.size())}},
+        {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {classes.data(), uint32_t(classes.size())}},
+        {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST, {}, {}, 0, {&target, target ? 1u : 0u}}};
+    auto &editor = m_State.workspace->Application();
+    editor.Execute("resource.load", {editor.Scope(), values, 3});
 }
 
 void LayoutWindow::DocumentClosed() {

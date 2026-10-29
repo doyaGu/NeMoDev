@@ -211,9 +211,10 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
     ImGui::EndChild();
     // A mesh dragged from the Level Manager (documentation "3D Object Setup").
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(LEVEL_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-            CK_ID dragged = 0;
-            std::memcpy(&dragged, payload->Data, sizeof(dragged));
+        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+            ObjectRef reference{};
+            if (payload->DataSize == sizeof(reference)) std::memcpy(&reference, payload->Data, sizeof(reference));
+            const CK_ID dragged = m_State.document->NativeId(reference);
             CKMesh *mesh = Get<CKMesh>(m_State, dragged);
             bool held = false;
             for (int i = 0; mesh && i < entity->GetMeshCount(); ++i) held = held || entity->GetMesh(i) == mesh;
@@ -825,8 +826,8 @@ void SetupWindows::SlotPreview(Setup &setup, CKObject *bitmap, unsigned long lon
         const bool texture = CKTexture::Cast(bitmap) != nullptr;
         const ImGuiIO &io = ImGui::GetIO();
         const bool more = io.KeyCtrl || io.KeyShift;
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(RESOURCE_FILE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-            ResourceFilePayload file;
+        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+            EditorResourceFile file;
             std::memcpy(&file, payload->Data, sizeof(file));
             const char *what = texture ? "texture" : "sprite";
             if (!payload->IsDelivery()) {
@@ -1716,9 +1717,10 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
     // A material dragged onto the channels: a new channel of it ("Add a new
     // channel").
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(LEVEL_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-            CK_ID dropped = 0;
-            std::memcpy(&dropped, payload->Data, sizeof(dropped));
+        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+            ObjectRef reference{};
+            if (payload->DataSize == sizeof(reference)) std::memcpy(&reference, payload->Data, sizeof(reference));
+            const CK_ID dropped = m_State.document->NativeId(reference);
             if (Get<CKMaterial>(m_State, dropped)) {
                 if (!payload->IsDelivery())
                     ImGui::SetTooltip("%s", mesh->GetChannelCount() >= MAX_CHANNELS ? "Cannot add more than 10 channels!" : "Add a new channel");
@@ -1757,9 +1759,10 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
     ImGui::BeginGroup();
     Group("Materials Used");
     auto droppedMaterial = [this](const ImGuiPayload *payload) -> CKMaterial * {
-        CK_ID dropped = 0;
-        std::memcpy(&dropped, payload->Data, sizeof(dropped));
-        return Get<CKMaterial>(m_State, dropped);
+        ObjectRef reference{};
+        if (payload->DataSize != sizeof(reference)) return nullptr;
+        std::memcpy(&reference, payload->Data, sizeof(reference));
+        return Get<CKMaterial>(m_State, m_State.document->NativeId(reference));
     };
     if (ImGui::BeginChild("Materials Used", ImVec2(280, 220), ImGuiChildFlags_Borders)) {
         TypeAhead typeAhead;
@@ -1775,7 +1778,7 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
                 ImGui::EndPopup();
             }
             if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(LEVEL_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery))
+                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery))
                     if (CKMaterial *with = droppedMaterial(payload)) {
                         if (!payload->IsDelivery())
                             ImGui::SetTooltip("Replace '%s' with '%s'", NameOf(material).c_str(), NameOf(with).c_str());
@@ -1789,7 +1792,7 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
     }
     ImGui::EndChild();
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(LEVEL_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery))
+        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery))
             if (CKMaterial *with = droppedMaterial(payload)) {
                 if (!payload->IsDelivery()) {
                     ImGui::SetTooltip("Add material or replace existing material");

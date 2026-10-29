@@ -33,6 +33,22 @@ void Drain(vdev::EditorState &state) {
     throw std::runtime_error("file workflow did not finish");
 }
 
+class FileViews : public vdev::DocumentFiles::Views {
+public:
+    vdev::Document &document;
+    CKContext *expected = nullptr;
+    bool detached = false;
+    const std::thread::id thread = std::this_thread::get_id();
+    explicit FileViews(vdev::Document &document) : document(document) {}
+    void DetachDocument(bool) override {
+        CHECK(std::this_thread::get_id() == thread);
+        CHECK(!expected || document.Context() == expected);
+        detached = true;
+    }
+    void RestoreDocument() override { detached = false; }
+    bool DocumentInteractionActive() const override { return false; }
+};
+
 class LoadFailure : public CKBaseManager {
 public:
     bool armed = false, fired = false;
@@ -77,8 +93,12 @@ void Workflows() {
     CHECK(vdev::RenameLevelObject(document, document.Reference(frame.created), "Undo then redo after failed file operation").ok);
     CHECK(document.History().Undo());
     state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
-    state.objectSelection.Set(*state.document, {frame.created});
+    state.objectSelection.Restore(*state.document, {frame.created});
     const auto context = document.Context();
+    FileViews views(document);
+    views.expected = context;
+    state.documentViews = &views;
+    bool &detached = views.detached;
     const auto selection = state.selection;
     const auto objects = state.objectSelection;
     const auto undo = document.History().UndoCount();
@@ -87,7 +107,7 @@ void Workflows() {
     const auto preserved = [&] {
         CHECK(document.Context() == context && document.Dirty() == dirty);
         CHECK(state.selection.script == selection.script && state.selection.items == selection.items);
-        CHECK(state.objectSelection.Objects() == objects.Objects() && state.objectSelection.revision == objects.revision);
+        CHECK(state.objectSelection.Objects() == objects.Objects() && state.objectSelection.Revision() == objects.Revision());
         CHECK(document.History().UndoCount() == undo && document.History().CanRedo() && document.History().RedoLabel() == redo);
     };
     // Replacing/closing requires already-detached views. Reject attempts
@@ -113,8 +133,8 @@ void Workflows() {
         CHECK(gesture.Cancel());
     }
     preserved();
-    bool detached = false, failed = false;
-    CHECK(state.files.Open(folder.File("missing.cmo"), {}, [&] { detached = true; },
+    bool failed = false;
+    CHECK(state.files.Open(folder.File("missing.cmo"), {},
         [&](const vdev::DocumentFiles::OpenResult &result) { failed = !result.opened; }));
     Drain(state);
     CHECK(failed && !detached);
@@ -185,10 +205,7 @@ void Workflows() {
     // commits before any unrelated work; old-document work/results expire.
     bool opened = false, staleWork = false, staleCompletion = false;
     detached = false;
-    CHECK(state.files.Open(cmo, {}, [&] {
-        CHECK(std::this_thread::get_id() == mainThread && document.Context() == context);
-        detached = true;
-    }, [&](const vdev::DocumentFiles::OpenResult &result) {
+    CHECK(state.files.Open(cmo, {}, [&](const vdev::DocumentFiles::OpenResult &result) {
         CHECK(std::this_thread::get_id() == mainThread);
         opened = result.opened;
     }));
@@ -200,7 +217,8 @@ void Workflows() {
     CHECK(!document.History().CanUndo() && !document.History().CanRedo());
 
     opened = false;
-    CHECK(state.files.Open(nmo, {}, {}, [&](const vdev::DocumentFiles::OpenResult &result) { opened = result.opened; }));
+    views.expected = nullptr;
+    CHECK(state.files.Open(nmo, {}, [&](const vdev::DocumentFiles::OpenResult &result) { opened = result.opened; }));
     Drain(state);
     CHECK(opened && document.CreatedFrom() == vdev::Document::Origin::ImportedObjects && document.Dirty());
     CHECK(document.Context()->GetCurrentLevel() && !document.Scripts().empty());

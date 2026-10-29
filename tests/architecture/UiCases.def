@@ -143,3 +143,6 @@ VIRTOOLSDEV_UI_CASE("tools", "parameter_debugger")
 VIRTOOLSDEV_UI_CASE("tools", "path_manager")
 VIRTOOLSDEV_UI_CASE("tools", "unused_objects_delete")
 VIRTOOLSDEV_UI_CASE("tools", "version_test")
+
+VIRTOOLSDEV_UI_CASE("modules", "scene_view_instances_queries_and_commands")
+

@@ -75,38 +75,24 @@ void ToolWindows::LoadResource(const std::string &path, CK_CLASSID cid) {
     }
     // The object the Level Manager shows selected receives Scripts and animations.
     const CK_ID target = levelTarget ? levelTarget() : 0;
-    auto load = [this, path, cid, target](const std::vector<DuplicateName> *duplicates) {
-        if (!m_State.HasDocument()) return;
-        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
-        auto result = std::make_shared<EditResult>(EditResult::NoChange());
-        m_State.RunRuntime("Loading resource", [this, path, cid, target, choices, result] {
-            *result = LoadResourceFile(*m_State.document, path, cid, target, nullptr, choices.get());
-        }, [this, path, result](bool ok) {
-            if (!ok) return;
-            m_State.Log(result->ok ? LogLevel::Info : LogLevel::Warning,
-                        (result->ok ? std::string("Loaded: ") : std::string("Load failed: ")) + AnsiToUtf8(result->message) + " (" + path + ")");
-            if (result->ok) m_Canvas.Invalidate();
-        });
-    };
-    // The imported files ask about duplicate names (Dev.exe sub_56BC90).
-    if (ResourceFileIsImported(cid)) m_State.files.WithDuplicates(path, load);
-    else load(nullptr);
+    auto &editor = m_State.workspace->Application();
+    const EditorString file = EditorText(path);
+    const uint64_t kind = uint64_t(cid);
+    const auto object = m_State.document->Reference(target);
+    const EditorValue values[] = {
+        {EDITOR_TEXT("paths"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {&file, 1}},
+        {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {&kind, 1}},
+        {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST, {}, {}, 0, {&object, object ? 1u : 0u}}};
+    editor.Execute("resource.load", {editor.Scope(), values, 3});
 }
 
 void ToolWindows::ImportResource(const std::string &path, Document::ImportMode mode) {
-    if (!m_State.HasDocument()) return;
-    m_State.files.WithDuplicates(path, [this, path, mode](const std::vector<DuplicateName> *duplicates) {
-        auto choices = duplicates ? std::make_shared<std::vector<DuplicateName>>(*duplicates) : nullptr;
-        auto result = std::make_shared<std::pair<bool, std::string>>();
-        const auto environment = m_State.preferences.NewSceneEnvironment();
-        m_State.RunRuntime("Importing resource", [this, path, mode, choices, environment, result] {
-            result->first = m_State.document->Import(path, mode, &result->second, nullptr, choices.get(), environment);
-        }, [this, result](bool ok) {
-            if (!ok) return;
-            if (!result->first) m_State.Log(LogLevel::Warning, result->second);
-            m_Canvas.Invalidate();
-        });
-    });
+    auto &editor = m_State.workspace->Application();
+    const char *command = mode == Document::ImportMode::Place ? "document.import-place"
+                        : mode == Document::ImportMode::Scene ? "document.import-scene"
+                        : mode == Document::ImportMode::Character ? "document.import-character" : "document.import";
+    const EditorValue value{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, {}, EditorText(path)};
+    editor.Execute(command, {editor.Scope(), &value, 1});
 }
 
 void ToolWindows::SelectResourceFolder(const std::string &relative) {
@@ -233,23 +219,23 @@ void ToolWindows::DataResources(ImGuiID dock) {
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) LoadResource(path, resource.selectedClass);
             }
             if (ImGui::BeginDragDropSource()) {
-                ResourceFilePayload payload = {};
+                EditorResourceFile payload = {};
                 std::snprintf(payload.path, sizeof(payload.path), "%s", path.c_str());
                 payload.cid = resource.selectedClass;
                 // The files selected go together when this one is.
-                if (!ImGui::GetDragDropPayload() || !ImGui::GetDragDropPayload()->IsDataType(RESOURCE_FILE_PAYLOAD)) {
+                if (!ImGui::GetDragDropPayload() || !ImGui::GetDragDropPayload()->IsDataType(EDITOR_RESOURCE_FILE_PAYLOAD)) {
                     m_State.draggedResources.clear();
                     std::vector<std::string> names{name};
                     if (fileSelected) names.assign(resource.selectedFiles.begin(), resource.selectedFiles.end());
                     for (const std::string &each : names) {
-                        ResourceFilePayload one = {};
+                        EditorResourceFile one = {};
                         const auto selectedPath = (std::filesystem::u8path(resource.selectedFolder) / std::filesystem::u8path(each)).u8string();
                         std::snprintf(one.path, sizeof(one.path), "%s", selectedPath.c_str());
                         one.cid = resource.selectedClass;
                         m_State.draggedResources.push_back(one);
                     }
                 }
-                ImGui::SetDragDropPayload(RESOURCE_FILE_PAYLOAD, &payload, sizeof(payload));
+                ImGui::SetDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD, &payload, sizeof(payload));
                 if (m_State.draggedResources.size() > 1) ImGui::Text("%d files", static_cast<int>(m_State.draggedResources.size()));
                 else ImGui::TextUnformatted(name.c_str());
                 ImGui::EndDragDropSource();

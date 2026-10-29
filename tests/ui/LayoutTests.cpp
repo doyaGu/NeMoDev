@@ -249,7 +249,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         vdev::EditorState &state = App().State();
         IM_CHECK_EQ(state.objectSelection.Objects().size(), 1u);
         IM_CHECK(state.objectSelection.Contains(found.entity));
-        IM_CHECK(App().Panels().LevelSelection().count(found.entity) == 1);
+        IM_CHECK(Read<bool>(ctx, [&] { return App().LevelSelection().count(found.entity) == 1; }));
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_D);
         ctx->Yield(2);
         IM_CHECK(state.objectSelection.Objects().empty());
@@ -489,7 +489,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         });
         IM_CHECK_SILENT(script != 0);
         // The Level Manager in front of the Schematic (their shared tab bar).
-        ctx->WindowFocus("//Level Manager");
+        ctx->WindowFocus(SceneRef("level", "").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Canvas().ShownScripts().empty());
         menu = OpenMenuOn(ctx, found);
@@ -562,7 +562,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(SelectEntity(ctx, found));
         vdev::EditorState &state = App().State();
         IM_CHECK_EQ(state.objectSelection.Objects().size(), 1u);
-        const size_t logged = state.log.size();
+        const size_t logged = state.eventLog.Entries().size();
         ctx->KeyPress(ImGuiKey_Delete);
         ctx->Yield(3);
         ImGuiWindow *dialog = ctx->GetWindowByRef("//###DeleteOptions");

@@ -21,7 +21,6 @@ constexpr const char *TYPE_NAME = "UI Test Attribute";
 constexpr const char *CATEGORY = "UI Tests"; // its category, its alone (its row shown at once)
 constexpr const char *CATEGORY_ITEM = "**/UI Tests";
 constexpr const char *DIALOG = "//Add Attribute";
-constexpr const char *MANAGER = "//Attribute Manager";
 
 CKAttributeType TestType(ImGuiTestContext *ctx) {
     return Read<CKAttributeType>(ctx, [] {
@@ -50,9 +49,9 @@ float AttributeValue(ImGuiTestContext *ctx, CK_ID id, CKAttributeType type) {
 // The Attribute Manager shown (Editors > Attributes Manager, a toggle) and in front.
 void ShowManager(ImGuiTestContext *ctx) {
     Settle(ctx);
-    if (!App().State().showAttributeManager) ctx->MenuClick("//##MainMenuBar/Editors/Attributes Manager");
+    if (!App().SceneViewOpen("attributes")) ctx->MenuClick("//##MainMenuBar/Editors/Attributes Manager");
     ctx->Yield(2);
-    ctx->WindowFocus(MANAGER);
+    ctx->WindowFocus(SceneRef("attributes").c_str());
     ctx->Yield(2);
 }
 
@@ -60,7 +59,7 @@ void ShowManager(ImGuiTestContext *ctx) {
 // Add Attributes > Add Attribute...: the test type chosen (its category
 // opened), Add Selected. The object.
 CK_ID AddTestAttribute(ImGuiTestContext *ctx) {
-    Settle(ctx, "//Level Manager");
+    Settle(ctx, SceneRef("level", "").c_str());
     const std::optional<LevelRow> row = ClickLevelRow(ctx, CKCID_3DOBJECT, true);
     if (!row) return 0;
     ctx->MouseClick(1);
@@ -89,7 +88,7 @@ void RegisterAttributesTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         ShowManager(ctx);
         IM_CHECK_SILENT(TestType(ctx) < 0);
-        ctx->ItemClick("//Attribute Manager/create");
+        ctx->ItemClick(SceneRef("attributes", "/create").c_str());
         ctx->Yield(3);
         ctx->SetRef(DIALOG);
         ctx->ItemInputValue("##categoryname", CATEGORY);
@@ -143,7 +142,7 @@ void RegisterAttributesTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(object != 0 && HasAttribute(ctx, object, type));
         const float before = AttributeValue(ctx, object, type);
         ShowManager(ctx);
-        ctx->SetRef(MANAGER);
+        ctx->SetRef(SceneRef("attributes").c_str());
         ctx->ItemOpen(CATEGORY_ITEM);
         // The type's row: "##attr" under its type, the wildcard matches the
         // label the row shows.
@@ -178,7 +177,7 @@ void RegisterAttributesTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(other != 0 && HasAttribute(ctx, other, type));
         const float before = AttributeValue(ctx, other, type);
         ShowManager(ctx);
-        ctx->SetRef(MANAGER);
+        ctx->SetRef(SceneRef("attributes").c_str());
         ctx->ItemOpen(CATEGORY_ITEM);
         ctx->ItemClick((std::string("**/") + TYPE_NAME).c_str());
         ctx->Yield(2);
@@ -214,7 +213,7 @@ void RegisterAttributesTests(ImGuiTestEngine *engine) {
             OnMainThread(ctx, [&] { vdev::RemoveAttribute(*App().State().document, found.entity, type); });
         IM_CHECK_SILENT(!HasAttribute(ctx, found.entity, type));
         ShowManager(ctx);
-        ctx->SetRef(MANAGER);
+        ctx->SetRef(SceneRef("attributes").c_str());
         ctx->ItemOpen(CATEGORY_ITEM);
         ctx->MouseMove((std::string("**/") + TYPE_NAME).c_str());
         ctx->MouseDown(0);
@@ -237,7 +236,7 @@ void RegisterAttributesTests(ImGuiTestEngine *engine) {
         const CKAttributeType type = TestType(ctx);
         IM_CHECK_SILENT(type >= 0);
         ShowManager(ctx);
-        ctx->ItemClick("//Attribute Manager/removeuser");
+        ctx->ItemClick(SceneRef("attributes", "/removeuser").c_str());
         ctx->Yield(3);
         ctx->ItemClick("//Remove All User Attributes/OK");
         ctx->Yield(3);

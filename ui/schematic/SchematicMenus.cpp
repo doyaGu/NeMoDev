@@ -89,53 +89,13 @@ FileDialogOptions BehaviorFileDialog(bool save, const std::string &suggestion) {
 
 void SchematicCanvas::SaveBehaviorsAs(const std::vector<CK_ID> &behaviors, const std::string &suggestion) {
     if (!m_State.HasDocument() || behaviors.empty()) return;
-    m_State.RequestFile(BehaviorFileDialog(true, suggestion), [this, behaviors](const FileDialogResult &selection) {
-        if (selection.status != FileDialogResult::Status::Selected) return;
-        const std::string &path = selection.paths.front();
-    CKBehavior *first = nullptr;
-    for (CK_ID id : behaviors)
-        if (!first) first = CKBehavior::Cast(m_State.document->Context()->GetObject(id));
-    m_SaveBehaviors = behaviors;
-    m_SavePath = path;
-    if (!first) {
-        // Dev asks for a behavior's only.
-        m_SaveInfo = BehaviorInfoDialog();
-        SaveBehaviorInfo();
-        return;
-    }
-    m_SaveInfo.Open(path, first->GetName() ? first->GetName() : "", first->GetCompatibleClassID(), true);
-    });
-}
-
-void SchematicCanvas::SaveBehaviorInfo() {
-    const bool asked = !m_SavePath.empty() && m_SaveInfo.Path() == m_SavePath;
-    if (asked) {
-        const DialogAction action = m_SaveInfo.Draw();
-        if (action == DialogAction::None) return;
-        if (action == DialogAction::Cancel) {
-            m_SaveBehaviors.clear();
-            m_SavePath.clear();
-            return;
-        }
-        if (!m_SaveInfo.Written())
-            m_State.Log(LogLevel::Warning, "Behavior Information: cannot write " + BehaviorDescriptionPath(m_SavePath));
-    }
-    if (m_SavePath.empty() || !m_State.HasDocument()) return;
-    const std::vector<CK_ID> behaviors = m_SaveBehaviors;
-    const std::string path = m_SavePath;
-    m_SaveBehaviors.clear();
-    m_SavePath.clear();
-    auto result = std::make_shared<std::pair<bool, std::string>>();
-    const bool hide = asked && m_SaveInfo.HideRepresentation();
-    m_State.RunRuntime("Saving behavior graphs", [this, behaviors, path, hide, result] {
-        result->first = SaveBehaviorsAsNms(*m_State.document, behaviors, path, &result->second, hide);
-    }, [this, behaviors, path, result](bool ok) {
-        if (!ok) return;
-        if (result->first)
-            m_State.Log(LogLevel::Info, "Saved " + std::to_string(behaviors.size()) + " behavior(s) to " + path);
-        else
-            m_State.Log(LogLevel::Error, "Save As: " + result->second);
-    });
+    const auto objects = m_State.document->References(behaviors);
+    const EditorValue values[] = {
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}},
+        {EDITOR_TEXT("initial"), EDITOR_TEXT_VALUE, {}, EditorText(suggestion)},
+        {EDITOR_TEXT("ask-description"), EDITOR_INTEGER_VALUE, {}, {}, 1}};
+    auto &editor = m_State.workspace->Application();
+    editor.Execute("script.export", {editor.Scope(), values, 3});
 }
 
 void SchematicCanvas::SaveSelectionAsNms() {
@@ -146,7 +106,7 @@ void SchematicCanvas::SaveSelectionAsNms() {
     for (CK_ID header : m_State.selection.headers) behaviors.push_back(header);
     if (behaviors.empty() && m_Doc.currentScript) behaviors.push_back(m_Doc.currentScript);
     CKObject *first = behaviors.empty() ? nullptr : m_State.document->Context()->GetObject(behaviors.front());
-    SaveBehaviorsAs(behaviors, first && first->GetName() ? std::string(first->GetName()) + ".nms" : std::string());
+    SaveBehaviorsAs(behaviors, first && first->GetName() ? AnsiToUtf8(first->GetName()) + ".nms" : std::string());
 }
 
 void SchematicCanvas::ImportBehaviorFile(CK_ID script, const Point &local) {
@@ -869,7 +829,10 @@ void SchematicCanvas::ExecuteSelectedScripts() {
     if (!m_State.debugger || !m_State.HasDocument()) return;
     std::vector<CK_ID> scripts = m_State.selection.Scripts();
     if (scripts.empty() && m_Doc.currentScript) scripts.push_back(m_Doc.currentScript);
-    m_State.debugger->ExecuteScripts(scripts);
+    const auto objects = m_State.document->References(scripts);
+    const EditorValue value{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}};
+    auto &editor = m_State.workspace->Application();
+    editor.Execute("runtime.execute-scripts", {editor.Scope(), &value, 1});
     RefreshValues();
     m_State.showDebugger = true;
 }
@@ -1253,7 +1216,11 @@ void SchematicCanvas::OpenHtmlHelpOf(const BuildingBlockEntry &bb) {
     // documentation.chm (resources/data): behaviors/<top category>/<name>.html.
     const std::string category = entry->category.substr(0, entry->category.find('/'));
     const std::string topic = "behaviors/" + AnsiToUtf8(category) + "/" + AnsiToUtf8(entry->name) + ".html";
-    m_State.events.Post(ShowHelpTopic{topic});
+    if (m_State.workspace) {
+        auto &editor = m_State.workspace->Application();
+        const EditorValue value{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, {}, EditorText(topic)};
+        editor.Execute("help.open", {editor.Scope(), &value, 1});
+    }
 }
 
 // Dev's Script header sorts (documentation): the order of the stack.

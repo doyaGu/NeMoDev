@@ -24,7 +24,7 @@ namespace vdev {
 
 bool LayoutWindow::BeginCamera(CameraAction action, int x, int y, ImGuiMouseButton button) {
     const ImGuiIO &io = ImGui::GetIO();
-    if (!m_Gesture.Begin(m_View, action, Steps(), x, y, m_State.objectSelection.Objects(), m_State.objectSelection.locked,
+    if (!m_Gesture.Begin(m_View, action, Steps(), x, y, m_State.objectSelection.Objects(), m_State.objectSelection.Locked(),
                          io.KeyShift, io.KeyCtrl))
         return false;
     m_GestureButton = button;
@@ -259,10 +259,28 @@ void LayoutWindow::StartupDrop(const CKGUID &guid, float x, float y) {
 }
 #endif
 
-void LayoutWindow::SetSelection(std::vector<CK_ID> objects) {
+void LayoutWindow::SetSelection(std::vector<CK_ID> objects, bool invert) {
     if (!m_State.HasDocument()) return;
-    if (m_State.objectSelection.locked || objects == m_State.objectSelection.Objects()) return;
-    m_State.objectSelection.Set(*m_State.document, std::move(objects));
+    if (m_State.objectSelection.Locked() || (!invert && objects == m_State.objectSelection.Objects())) return;
+    auto references = m_State.document->References(objects);
+    const EditorValue value{EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0,
+                             {references.data(), static_cast<uint32_t>(references.size())}};
+    auto &editor = m_State.workspace->Application();
+    editor.Execute(invert ? "selection.invert" : "selection.replace", {editor.Scope(), &value, 1});
+}
+
+void LayoutWindow::RestoreSelection(const std::vector<ObjectRef> &objects, bool locked) {
+    auto &editor = m_State.workspace->Application();
+    const EditorValue values[] = {
+        {EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), static_cast<uint32_t>(objects.size())}},
+        {EditorLiteral("locked"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(locked)}};
+    editor.Execute("selection.restore", {editor.Scope(), values, 2});
+}
+
+void LayoutWindow::LockSelection(bool locked) {
+    auto &editor = m_State.workspace->Application();
+    const EditorValue value{EditorLiteral("locked"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(locked)};
+    editor.Execute("selection.lock", {editor.Scope(), &value, 1});
 }
 
 // Undone creations and deleted objects leave the selection.
@@ -288,7 +306,7 @@ void LayoutWindow::ClearSelection() {
 void LayoutWindow::SelectAll(bool invert) {
     CKContext *context = m_State.host.Context();
     CKScene *scene = m_View.Scene();
-    if (!scene || m_State.objectSelection.locked) return;
+    if (!scene || m_State.objectSelection.Locked()) return;
     std::vector<CK_ID> objects;
     for (CK_CLASSID cid : {CKCID_3DENTITY, CKCID_2DENTITY}) {
         CKObjectArray *array = CreateCKObjectArray();
@@ -297,19 +315,18 @@ void LayoutWindow::SelectAll(bool invert) {
             CKObject *object = array->GetData(context);
             if (!object || CKBodyPart::Cast(object) || object->IsPrivate() || m_View.IsInterfaceObject(object->GetID()))
                 continue;
-            if (invert && m_State.objectSelection.Contains(object->GetID())) continue;
             objects.push_back(object->GetID());
         }
         DeleteCKObjectArray(array);
     }
-    SetSelection(objects);
+    SetSelection(objects, invert);
 }
 
 // Dev.exe sub_499870: a click on a selected object keeps only it (or, alone
 // or with Ctrl, deselects it); on another object selects it (Ctrl adds it);
 // on nothing clears the selection (unless Ctrl).
 void LayoutWindow::ApplyClick(CK_ID picked) {
-    if (m_State.objectSelection.locked) return;
+    if (m_State.objectSelection.Locked()) return;
     const bool ctrl = ImGui::GetIO().KeyCtrl;
     std::vector<CK_ID> objects = m_State.objectSelection.Objects();
     if (!picked) {
@@ -326,7 +343,7 @@ void LayoutWindow::ApplyClick(CK_ID picked) {
 
 // A rectangle replaces the selection (Ctrl adds to it).
 void LayoutWindow::ApplyRect(const VxRect &rect) {
-    if (m_State.objectSelection.locked) return;
+    if (m_State.objectSelection.Locked()) return;
     std::vector<CK_ID> objects;
     if (ImGui::GetIO().KeyCtrl) objects = m_State.objectSelection.Objects();
     for (CK_ID id : m_View.RectPick(rect, m_State.preferences.Bool("3D Layout\\Strict Selection")))
@@ -364,7 +381,7 @@ bool LayoutWindow::BeginTransform(int x, int y) {
     const ImGuiIO &io = ImGui::GetIO();
     VxVector point;
     const CK_ID picked = m_View.Pick(x, y, io.KeyShift, &point);
-    const bool locked = m_State.objectSelection.locked;
+    const bool locked = m_State.objectSelection.Locked();
     if (!locked) {
         if (!picked) return false;
         if (!m_State.objectSelection.Contains(picked)) ApplyClick(picked);

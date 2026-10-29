@@ -48,6 +48,7 @@ namespace vdevuitest {
 vdev::EditorApp &App();
 
 void RegisterModuleTests(ImGuiTestEngine *engine);
+void RegisterWorkspaceTests(ImGuiTestEngine *engine);
 void RegisterAppTests(ImGuiTestEngine *engine);
 void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine);
 void RegisterGpuViewportTests(ImGuiTestEngine *engine);
@@ -128,7 +129,7 @@ inline ImVec2 Center(const ImVec2 &min, const ImVec2 &max) {
 // The editor's Event Log from line from on, into the test's log (what a
 // command refused said).
 inline void LogEditor(ImGuiTestContext *ctx, size_t from) {
-    const std::vector<vdev::LogEntry> &log = App().State().log;
+    const std::vector<vdev::LogEntry> &log = App().State().eventLog.Entries();
     for (size_t i = from; i < log.size(); ++i) ctx->LogInfo("editor: %s", log[i].text.c_str());
 }
 
@@ -151,7 +152,9 @@ std::optional<std::pair<CK_ID, ImVec2>> EmptySchematicPoint(CK_ID in = 0, const 
 // that class, not a derived one), the closed rows opened with their arrows
 // (the shallowest first) until one shows; ClickLevelRow clicks it on its
 // name too. The Level Manager must be in front.
-using LevelRow = vdev::EditorPanels::ShownRow;
+inline std::string BlocksRef(const char *suffix = "") { return std::string("//Building Blocks") + suffix; }
+inline std::string SceneRef(const char *type, const char *suffix = "") { return "//" + App().SceneWindow(type) + suffix; }
+using LevelRow = vdev::SceneShownRow;
 std::optional<LevelRow> FindLevelRow(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact = false);
 std::optional<LevelRow> ClickLevelRow(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact = false);
 

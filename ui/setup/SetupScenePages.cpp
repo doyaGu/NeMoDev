@@ -1144,7 +1144,7 @@ void SetupWindows::PlaceLinks(CKPlace *place) {
         }
         // Automatic Portal (Dev.exe sub_471C10 203): the next click picks the
         // other place (SetupWindows::PortalPick).
-        if (ImGui::MenuItem("Automatic Portal")) m_PortalPlace = place->GetID();
+        if (ImGui::MenuItem("Automatic Portal")) m_PortalPlace = m_State.document->Reference(place->GetID());
         if (ImGui::MenuItem("Attach New Place", nullptr, false, next != 0)) relink("Attach New Place", 0, 0, next, 0);
         if (ImGui::MenuItem("Remove Place", nullptr, false, row.place != 0)) relink("Remove Place", row.place, row.portal, 0, 0);
         ImGui::Separator();

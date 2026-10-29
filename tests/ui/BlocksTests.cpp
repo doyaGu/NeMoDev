@@ -24,14 +24,14 @@ using Shown = vdev::SchematicCanvas::ShownBehavior;
 
 // The panel's filter set to text (typed in, then Enter).
 void Filter(ImGuiTestContext *ctx, const char *text) {
-    ctx->ItemInputValue("//Building Blocks/##filter", text);
+    ctx->ItemInputValue(BlocksRef("/##filter").c_str(), text);
     ctx->Yield(2);
 }
 
 // The filtered list's item of BLOCK pressed and dragged to the point, then
 // released there.
 void DragBlockTo(ImGuiTestContext *ctx, const ImVec2 &to) {
-    ctx->SetRef("//Building Blocks");
+    ctx->SetRef(BlocksRef().c_str());
     ctx->MouseMove(BLOCK_ITEM);
     ctx->MouseDown(0);
     const ImVec2 from = ctx->UiContext->IO.MousePos;
@@ -93,7 +93,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "blocks", "filter");
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        ctx->SetRef("//Building Blocks");
+        ctx->SetRef(BlocksRef().c_str());
         IM_CHECK(!ctx->ItemExists(BLOCK_ITEM));
         Filter(ctx, BLOCK);
         IM_CHECK(ctx->ItemExists(BLOCK_ITEM));
@@ -144,7 +144,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(names.size() == 2);
         ctx->LogInfo("dragging '%s' and '%s'", names[0].c_str(), names[1].c_str());
         const int before0 = ShownNamed(script, names[0]), before1 = ShownNamed(script, names[1]);
-        ctx->SetRef("//Building Blocks");
+        ctx->SetRef(BlocksRef().c_str());
         ctx->ItemClick(("**/" + names[0]).c_str());
         ctx->KeyDown(ImGuiMod_Ctrl);
         ctx->ItemClick(("**/" + names[1]).c_str());
@@ -167,7 +167,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(ShownNamed(script, names[1]), before1);
         IM_CHECK(!state.document->Dirty());
         // One selected again (the next drags take only it).
-        ctx->SetRef("//Building Blocks");
+        ctx->SetRef(BlocksRef().c_str());
         ctx->ItemClick(("**/" + names[0]).c_str());
         ctx->Yield(2);
     };

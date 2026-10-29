@@ -49,7 +49,7 @@ struct OpenAddAttribute {
 // The Level Manager's Select Delete Options for the objects (the 3D
 // Layout's Delete).
 struct ConfirmDeleteObjects {
-    std::vector<CK_ID> objects;
+    std::vector<ObjectRef> objects;
 };
 
 // General Preferences at a page (0 Rendering ... 4 Snap & Align; -1 the
@@ -73,14 +73,10 @@ struct OpenLinkProperties {};
 // posted): Document::ScriptsRevision tells the Scripts' changes.
 struct RefreshScriptStack {};
 
-// A local reference topic requested by the Building Blocks or Schematic.
-// It contains no CK object and the help window owns the reading history.
-struct ShowHelpTopic { std::string topic; };
-
 using EditorEvent =
     std::variant<ShowElement, ShowObjectSetup, ShowInLevelManager, OpenAddAttribute, ConfirmDeleteObjects,
                  ShowGeneralPreferences, FocusSchematic, OpenSchematicExplorer, OpenLinkProperties,
-                 RefreshScriptStack, ShowHelpTopic>;
+                 RefreshScriptStack>;
 
 class EditorEvents {
 public:

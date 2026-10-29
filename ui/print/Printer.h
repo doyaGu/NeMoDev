@@ -1,16 +1,11 @@
 #pragma once
 #include <memory>
+#include "application/Printing.h"
 #include <string>
 struct SDL_Window;
 namespace vdev {
-struct PrinterSettings {
-    int paper[2] = {2100, 2970}; // tenths of a millimetre, orientation applied
-    int dpi[2] = {600, 600};
-};
-enum class PrinterSelectionStatus { Selected, Cancelled, Failed };
-enum class PrinterStartStatus { Started, Cancelled, Failed };
 struct PrinterSelection;
-class Printer {
+class Printer : public PrintDestination {
 public:
     ~Printer();
     static PrinterSelection Select(SDL_Window *owner);

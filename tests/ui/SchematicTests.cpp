@@ -343,10 +343,10 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         ctx->ItemClick("//$FOCUSED/Show Object In Level Manager");
         ctx->Yield(3);
-        IM_CHECK(InFront(ctx, "//Level Manager"));
-        ImGuiWindow *level = ctx->GetWindowByRef("//Level Manager");
+        IM_CHECK(InFront(ctx, SceneRef("level", "").c_str()));
+        ImGuiWindow *level = ctx->GetWindowByRef(SceneRef("level", "").c_str());
         bool shown = false;
-        for (const LevelRow &row : App().Panels().ShownLevelRows())
+        for (const LevelRow &row : App().LevelRows())
             shown |= row.object == owner && level && row.min.y >= level->InnerClipRect.Min.y &&
                      row.max.y <= level->InnerClipRect.Max.y;
         IM_CHECK(shown);
@@ -373,7 +373,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint(found->script);
         IM_CHECK_SILENT(point.has_value());
         vdev::EditorState &state = App().State();
-        const size_t steps = state.History().UndoCount(), logged = state.log.size();
+        const size_t steps = state.History().UndoCount(), logged = state.eventLog.Entries().size();
         ctx->KeyDown(ImGuiMod_Shift);
         ctx->MouseMoveToPos(found->center);
         ctx->MouseDown(0);
@@ -383,8 +383,8 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->KeyUp(ImGuiMod_Shift);
         ctx->Yield(3);
         bool told = false;
-        for (size_t i = logged; i < state.log.size(); ++i)
-            told |= state.log[i].text.find("outside its behavior graph") != std::string::npos;
+        for (size_t i = logged; i < state.eventLog.Entries().size(); ++i)
+            told |= state.eventLog.Entries()[i].text.find("outside its behavior graph") != std::string::npos;
         LogEditor(ctx, logged);
         IM_CHECK(told);
         IM_CHECK_EQ(state.History().UndoCount(), steps);

@@ -6,65 +6,47 @@
 
 namespace vdev {
 
-void ObjectSelection::Set(const Document &document, std::vector<CK_ID> ids) {
-    std::vector<ObjectRef> references;
-    std::vector<CK_ID> live;
-    references.reserve(ids.size()); live.reserve(ids.size());
-    for (CK_ID id : ids) {
-        const auto ref = document.Reference(id);
-        if (!document.Resolve(ref)) continue;
-        references.push_back(ref); live.push_back(id);
-    }
-    m_References = std::move(references);
-    m_Ids = std::move(live);
-    if (m_Ids.empty()) locked = false;
-    ++revision;
-}
-
-void ObjectSelection::Validate(const Document &document) {
-    std::size_t live = 0;
-    for (ObjectRef ref : m_References) {
-        const auto id = document.NativeId(ref);
-        if (!id) continue;
-        m_References[live] = ref; m_Ids[live++] = id;
-    }
-    if (live == m_References.size()) return;
-    m_References.resize(live); m_Ids.resize(live);
-    if (m_Ids.empty()) locked = false;
-    ++revision;
-}
-
-void SelectionFollower::Push(ObjectSelection &objects, const std::set<CK_ID> &selection, const Document *document) {
+void SelectionFollower::Push(ObjectSelection &objects, const std::set<CK_ID> &selection, const Document *document,
+                             EditorApplication &editor) {
     if (selection == m_Pushed) return;
-    m_Pushed = selection;
-    if (objects.locked || !document) return;
-    auto rendered = FilterObjects(*document, {selection.begin(), selection.end()}, CKCID_RENDEROBJECT);
-    if (rendered != objects.Objects()) objects.Set(*document, std::move(rendered));
-    m_Seen = objects.revision;
+    if (objects.Locked()) { m_Pushed = selection; return; }
+    if (!document) return;
+    std::vector<ObjectRef> targets;
+    for (auto id : selection) targets.push_back(document->Reference(id));
+    const EditorValue values[] = {
+        {EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0,
+         {targets.data(), static_cast<uint32_t>(targets.size())}},
+        {EditorLiteral("render-only"), EDITOR_INTEGER_VALUE, {}, {}, 1}};
+    const auto result = editor.Execute("selection.replace", {editor.Scope(), values, 2});
+    if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE || result.status == EDITOR_QUEUED) {
+        m_Pushed = selection;
+        m_Seen = objects.Revision();
+    }
 }
 
-void EditorState::DropAttributeOn(const std::vector<CK_ID> &objects, const AttributePayload &attribute) {
+void EditorState::DropAttributeOn(const std::vector<CK_ID> &objects, const EditorAttributePayload &attribute) {
     if (!HasDocument()) return;
-    const auto catalog = ReadAttributeCatalog(*document);
-    const auto *type = catalog.Find(attribute.type);
-    const auto name = type ? type->name : std::string();
-    std::vector<std::pair<std::string, bool>> each;
-    const auto result = DropAttribute(*document, objects, attribute.type, attribute.value, &each);
-    LogAttributeAdds(name.c_str(), each, result.ok);
-    if (!result.ok && !result.Unchanged() && each.empty()) Log(LogLevel::Warning, "Add Attribute: " + AnsiToUtf8(result.message));
-    else if (result.ok && !result.message.empty()) Log(LogLevel::Warning, AnsiToUtf8(result.message));
+    const auto refs = document->References(objects);
+    const EditorValue values[] = {{EDITOR_TEXT("objects"),EDITOR_OBJECT_LIST,{},{},0,{refs.data(),uint32_t(refs.size())}},
+        {EDITOR_TEXT("type"),EDITOR_INTEGER_VALUE,{},{},uint64_t(attribute.type)},
+        {EDITOR_TEXT("catalog"),EDITOR_INTEGER_VALUE,{},{},attribute.catalog},
+        {EDITOR_TEXT("source"),EDITOR_OBJECT,attribute.value}};
+    auto &editor=workspace->Application();editor.Execute("attribute.add",{editor.Scope(),values,4});
 }
 
 EditorState::EditorState() : runtimeOperation([this](const std::string &label) {
-    return (document && document->EditOpen()) || (workspace && workspace->Application().HasEdits())
+    return (document && document->EditOpen()) || (workspace && workspace->Application().HasEdits()) ||
+                   (documentViews && documentViews->DocumentInteractionActive())
             ? "Finish the current operation before " + label : std::string();
+}, [this](const std::string &label, const std::function<void()> &work) {
+    if (!GuardedCall(work, &host, label.c_str())) throw std::runtime_error(label + " failed");
 }) {}
 
 EditorState::~EditorState() {
     FinishRuntimeOperations();
     fileDialogs.Close();
     ClearDocumentState();
-    debugger.reset();
+    debugger = nullptr;
     document.reset();
     // Native teardown can still invoke the runtime log sink. Keep the
     // log and its synchronization alive until the context has gone.
@@ -86,9 +68,7 @@ void EditorState::RequestFile(const FileDialogOptions &options, FileDialogs::Com
 }
 
 bool EditorState::RunRuntime(const std::string &label, std::function<void()> work, std::function<void(bool)> completed) {
-    return runtimeOperation.Queue(label, [this, label, work = std::move(work)] {
-        if (!GuardedCall(work, &host, label.c_str())) throw std::runtime_error(label + " failed");
-    }, [this, completed = std::move(completed)](const std::string &error) {
+    return runtimeOperation.Queue(label, std::move(work), [this, completed = std::move(completed)](const std::string &error) {
         DrainRuntimeLog();
         if (!error.empty()) Log(LogLevel::Error, error);
         if (completed) completed(error.empty());
@@ -108,9 +88,21 @@ void EditorState::FinishRuntimeOperations() {
 void EditorState::ClearDocumentState() {
     runtimeOperation.DocumentChanged();
     files.DocumentChanged();
-    const unsigned revision = objectSelection.revision;
+    objectSelection.Reset();
     static_cast<DocumentSession &>(*this) = DocumentSession();
-    objectSelection.revision = revision + 1;
+}
+
+void EditorState::ReplacingDocument(bool replaceContext) {
+    if (documentViews) documentViews->DetachDocument(replaceContext);
+}
+
+void EditorState::ReplacementCancelled() {
+    if (documentViews) documentViews->RestoreDocument();
+}
+
+void EditorState::DocumentReplaced() {
+    objectSelection.Reset();
+    static_cast<DocumentSession &>(*this) = DocumentSession();
 }
 
 } // namespace vdev

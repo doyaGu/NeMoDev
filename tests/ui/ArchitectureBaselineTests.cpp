@@ -18,9 +18,9 @@ void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine) {
         ctx->MenuClick("//##MainMenuBar/Options/Reset Interface");
         Settle(ctx, "//3D Layout");
         ImGuiWindow *layout = ctx->GetWindowByRef("//3D Layout");
-        ImGuiWindow *blocks = ctx->GetWindowByRef("//Building Blocks");
+        ImGuiWindow *blocks = ctx->GetWindowByRef(BlocksRef().c_str());
         ImGuiWindow *schematic = ctx->GetWindowByRef("//Schematic");
-        ImGuiWindow *level = ctx->GetWindowByRef("//Level Manager");
+        ImGuiWindow *level = ctx->GetWindowByRef(SceneRef("level", "").c_str());
         IM_CHECK(layout && blocks && schematic && level);
         IM_CHECK(layout->DockId && blocks->DockId && level->DockId);
         IM_CHECK(layout->DockId != blocks->DockId && layout->DockId != level->DockId);

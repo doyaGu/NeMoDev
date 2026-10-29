@@ -289,53 +289,6 @@ std::vector<SchematicCanvas::ShownScript> SchematicCanvas::ShownScripts() const 
 
 #endif
 
-bool SchematicCanvas::PrintSize(float &width, float &height) const {
-    if (m_Views.empty()) return false;
-    // Dev: the open Scripts' widths less 100, at least 140; the height of
-    // the stack down to the last Script's bottom.
-    width = 0.0f;
-    for (const ScriptView &view : m_Views)
-        if (view.model.script.open) width = std::max(width, view.model.script.bounds.hSize - 100.0f);
-    if (width < 140.0f) width = 140.0f;
-    height = m_Views.back().stackTop + m_Views.back().model.script.bounds.vSize - m_Views.front().stackTop;
-    return true;
-}
-
-void SchematicCanvas::DrawPrintPage(ImDrawList *drawList, float x, float y, const ImVec2 &size, float scale,
-                                    const SchematicPrint &print) const {
-    const ImVec2 max(size.x * scale, size.y * scale);
-    drawList->AddRectFilled(ImVec2(0.0f, 0.0f), max,
-                            print.fillBody ? m_State.style.canvas : IM_COL32(255, 255, 255, 255));
-    if (!m_Font || m_Views.empty()) return;
-    DrawOptions draw;
-    draw.style = &m_State.style;
-    draw.font = m_Font;
-    draw.boldFont = BoldFont();
-    draw.fontSize = WORLD_FONT_SIZE;
-    draw.showLocalParams = m_State.view.showLocalParams;
-    draw.showLinkInfo = m_State.view.showLinkInfo;
-    draw.showControlPoints = m_State.view.showControlPoints;
-    draw.showPriorities = m_State.view.showPriorities;
-    draw.showHeaders = m_State.view.showHeaders;
-    draw.clipMin = ImVec2(0.0f, 0.0f);
-    draw.clipMax = max;
-    draw.print = &print;
-    // UpdateTransforms at 100%, the stack's top at the page's y, unscrolled.
-    ViewTransform page;
-    page.origin = ImVec2(-x * scale, -y * scale);
-    page.zoom = scale;
-    page.panY = m_Views.front().stackTop;
-    for (const ScriptView &view : m_Views) {
-        ViewTransform body;
-        body.origin = page.ToScreen(view.anchor.h, view.anchor.v + view.offsetY);
-        body.zoom = scale * view.scale;
-        body.panX = view.anchor.h;
-        body.panY = view.anchor.v + view.offsetY;
-        draw.scriptZoom = view.scale;
-        DrawScript(drawList, view.model, view.offsetY, page, body, draw);
-    }
-}
-
 SchematicCanvas::ScriptView *SchematicCanvas::BoundaryAt(const ImVec2 &screen) {
     for (auto &view : m_Views) {
         if (!view.model.script.open) continue;
@@ -1125,10 +1078,10 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
     }
     // A Data Resources file: as a file dropped from Explorer (behavior graph
     // files on graphs or bodies, images on Script headers).
-    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(RESOURCE_FILE_PAYLOAD)) {
-        ResourceFilePayload file;
+    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD)) {
+        EditorResourceFile file;
         memcpy(&file, payload->Data, sizeof(file));
-        for (const ResourceFilePayload &each : m_State.DraggedResources(file))
+        for (const EditorResourceFile &each : m_State.DraggedResources(file))
             if (!DropFile(Utf8ToWide(each.path), each.path, ImGui::GetIO().MousePos))
                 m_State.Log(LogLevel::Info, "Drop behavior graph files on a graph or a Script, images on a Script header");
     }
@@ -1986,7 +1939,7 @@ void SchematicCanvas::Toolbar() {
     if (icon("debugger", DEBUGGER, m_State.showDebugger, true, "Script Debugger"))
         m_State.showDebugger = !m_State.showDebugger;
     if (m_State.debugger && pill("trace", "Trace", m_State.debugger->trace, true, "Trace Mode (Ctrl+T)", 66.0f))
-        m_State.debugger->trace = !m_State.debugger->trace;
+        m_State.workspace->Application().Execute("runtime.toggle-trace", {m_State.workspace->Application().Scope(), nullptr, 0});
     // Dev: right of Trace, the Invalid Link Explorer's icon, shown only when
     // the composition has invalid links kept after loading.
     if (!m_State.invalidLinks.empty() &&
@@ -2002,7 +1955,6 @@ void SchematicCanvas::Toolbar() {
 
 void SchematicCanvas::Draw(const char *title, bool *open) {
     // Asked whether the Schematic shows or not (a Level Manager Script saved).
-    SaveBehaviorInfo();
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     const bool visible = BeginDevWindow(title, open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();

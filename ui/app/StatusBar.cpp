@@ -123,9 +123,15 @@ void EditorApp::StatusBar() {
         // (sub_422830: ZC 10, 250 ms); a click opens the log, a right click
         // clears it (sub_59C5C0).
         const double now = ImGui::GetTime();
-        for (size_t i = std::min(m_LogSeen, m_State.log.size()); i < m_State.log.size(); ++i)
-            if (m_State.log[i].level == LogLevel::Error) m_BombFlashUntil = now + 4.0;
-        m_LogSeen = m_State.log.size();
+        const auto &log = m_Editor.ReadQuery("log.summary", {m_Editor.Scope(), nullptr, 0});
+        std::string status;
+        for (const auto &field : log.fields) {
+            if (field.key == "status") status = field.text;
+            if (field.key == "error-revision") {
+                if (field.integer != m_LogErrorsSeen) m_BombFlashUntil = now + 4.0;
+                m_LogErrorsSeen = field.integer;
+            }
+        }
         {
             static const int BOMB[5] = {608, 1341, 1342, 1342, 608};
             const ImVec2 a = fromRight(427.0f, 2.0f);
@@ -133,33 +139,29 @@ void EditorApp::StatusBar() {
                 dl->AddRectFilled(a, ImVec2(a.x + 19.0f * s, a.y + 19.0f * s), IM_COL32(255, 0, 0, 255));
             bool right = false;
             if (DevBitmapButton("eventlog", a, BOMB, false, true, s, "Event Log", &right)) {
-                m_ShowLog = true;
-                ImGui::SetWindowFocus("Event Log");
+                Command("log.open");
                 m_BombFlashUntil = 0.0;
             }
             if (right) {
-                m_State.log.clear();
-                m_State.Log(LogLevel::Info, "Event Log Cleared");
-                m_LogSeen = m_State.log.size();
+                const auto result = Command("log.clear");
+                if (result.status == EDITOR_OK) status = "Event Log Cleared";
                 m_BombFlashUntil = 0.0;
             }
         }
         BarText(dl, fromRight(407.0f, 6.0f), fromRight(207.0f, 18.0f),
-                m_State.log.empty() || !m_State.log.back().status ? std::string() : m_State.log.back().text, false, true);
+                status, false, true);
         separator(206.0f);
         static const int PROFILER[5] = {961, 1343, 1344, 1344, 961};
         if (DevBitmapButton("profiler", fromRight(203.0f, 2.0f), PROFILER, m_Tools.showProfiler, true, s, "Profiler"))
             m_Tools.showProfiler = !m_Tools.showProfiler;
         // The frame rate: NA when not playing (Dev hides it with Hide Fps).
-        Debugger *debugger = m_State.debugger.get();
+        const Debugger *debugger = m_State.debugger;
         const bool running = debugger && debugger->GetState() == Debugger::State::Running;
         if (!m_HideFps) {
             std::string fps = "NA";
-            CKStats stats = {};
-            if (running && m_State.HasDocument()) m_State.document->Context()->GetProfileStats(&stats);
-            if (running && stats.TotalFrameTime > 0.0f) {
+            if (running && m_Execution.State().measuredFps > 0) {
                 char text[32];
-                std::snprintf(text, sizeof(text), "%.1f", 1000.0f / stats.TotalFrameTime);
+                std::snprintf(text, sizeof(text), "%.1f", m_Execution.State().measuredFps);
                 fps = text;
             }
             BarText(dl, fromRight(185.0f, 7.0f), fromRight(155.0f, 19.0f), fps, false);
@@ -174,16 +176,15 @@ void EditorApp::StatusBar() {
         static const int STEP[5] = {914, 915, 916, 916, 914};
         if (DevBitmapButton("rewind", fromRight(120.0f, 2.0f), REWIND, false, usable, s,
                             "Restore Initial Conditions (Ctrl+Backspace)"))
-            debugger->Reset();
+            Command("runtime.reset");
         bool timeSettings = false;
         if (DevBitmapButton("play", fromRight(81.0f, 2.0f), PLAY, running, usable, s, "Play/Pause (Ctrl+Spacebar)",
                             &timeSettings)) {
-            if (running) debugger->Pause();
-            else debugger->Play();
+            Command("runtime.play-pause");
         }
         if (timeSettings) m_OpenTimeSettings = true;
         if (DevBitmapButton("step", fromRight(42.0f, 2.0f), STEP, false, usable, s, "Step One Frame (Alt+Spacebar)"))
-            debugger->StepFrame();
+            Command("runtime.step-frame");
     }
     ImGui::End();
     PopDarkChrome();
@@ -198,21 +199,23 @@ void EditorApp::StatusBar() {
 // bounds (CKTimeManager), Hide Fps.
 void EditorApp::TimeSettingsDialog() {
     const char *id = "###TimeSettings";
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : m_State.host.Context();
-    CKTimeManager *time = context ? context->GetTimeManager() : nullptr;
-    if (m_OpenTimeSettings && time) {
-        const CKDWORD options = time->GetLimitOptions();
-        m_TimeFrame = options & CK_FRAMERATE_LIMIT ? 2 : options & CK_FRAMERATE_SYNC ? 1 : 0;
-        m_TimeBehavior = options & CK_BEHRATE_LIMIT ? 1 : 0;
-        m_TimeFrameLimit = time->GetFrameRateLimit();
-        m_TimeBehaviorLimit = time->GetBehavioralRateLimit();
-        m_TimeScale = time->GetTimeScaleFactor();
-        m_TimeMin = time->GetMinimumDeltaTime();
-        m_TimeMax = time->GetMaximumDeltaTime();
+    const bool ready = m_State.debugger != nullptr;
+    if (m_OpenTimeSettings && ready) {
+        const auto settings = m_Editor.Query("runtime.time", {m_Editor.Scope(), nullptr, 0});
+        if (settings.status != EDITOR_OK) { m_OpenTimeSettings = false; return; }
+        for (const auto &field : settings.fields) {
+            if (field.key == "frame-mode") m_TimeFrame = int(field.integer);
+            if (field.key == "behavior-mode") m_TimeBehavior = int(field.integer);
+            if (field.key == "frame-limit") m_TimeFrameLimit = float(field.real);
+            if (field.key == "behavior-limit") m_TimeBehaviorLimit = float(field.real);
+            if (field.key == "scale") m_TimeScale = float(field.real);
+            if (field.key == "minimum") m_TimeMin = float(field.real);
+            if (field.key == "maximum") m_TimeMax = float(field.real);
+        }
         ImGui::OpenPopup(id);
     }
     m_OpenTimeSettings = false;
-    if (!time || !ImGui::IsPopupOpen(id)) return;
+    if (!ready || !ImGui::IsPopupOpen(id)) return;
     const float s = ImGui::GetFontSize() / 13.0f;
     const ImVec2 client(231.0f * 1.5f * s, 95.0f * 1.625f * s + 26.0f * s);
     ImVec2 o;
@@ -260,13 +263,16 @@ void EditorApp::TimeSettingsDialog() {
     const bool cancel = vi::DialogButton("Cancel", ImVec2(o.x + client.x - 70.0f * s, by), s, ImGuiKey_Escape);
     const bool ok = vi::DialogButton("OK", ImVec2(o.x + client.x - 140.0f * s, by), s, ImGuiKey_Enter);
     if (ok) {
-        static const CK_FRAMERATE_LIMITS FRAME[3] = {CK_FRAMERATE_FREE, CK_FRAMERATE_SYNC, CK_FRAMERATE_LIMIT};
-        time->ChangeLimitOptions(FRAME[std::clamp(m_TimeFrame, 0, 2)], m_TimeBehavior ? CK_BEHRATE_LIMIT : CK_BEHRATE_SYNC);
-        time->SetFrameRateLimit(m_TimeFrameLimit);
-        time->SetBehavioralRateLimit(m_TimeBehaviorLimit);
-        time->SetTimeScaleFactor(m_TimeScale);
-        time->SetMinimumDeltaTime(m_TimeMin);
-        time->SetMaximumDeltaTime(m_TimeMax);
+        const EditorValue settings[] = {
+            {EDITOR_TEXT("frame-mode"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_TimeFrame)},
+            {EDITOR_TEXT("behavior-mode"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_TimeBehavior)},
+            {EDITOR_TEXT("frame-limit"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeFrameLimit},
+            {EDITOR_TEXT("behavior-limit"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeBehaviorLimit},
+            {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeScale},
+            {EDITOR_TEXT("minimum"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeMin},
+            {EDITOR_TEXT("maximum"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeMax}};
+        const auto result = m_Editor.Execute("runtime.set-time", {m_Editor.Scope(), settings, 7});
+        if (result.status != EDITOR_OK && result.status != EDITOR_QUEUED) { vi::EndDialog(); return; }
         m_State.preferences.SetBool("Time Settings\\Hide Fps", m_HideFps);
     }
     if (cancel) m_HideFps = m_State.preferences.Bool("Time Settings\\Hide Fps");

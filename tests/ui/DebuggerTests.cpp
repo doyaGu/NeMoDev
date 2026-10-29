@@ -21,7 +21,7 @@ constexpr const char *PLAY = "//##StatusBar/play/##bitmap";
 constexpr const char *STEP = "//##StatusBar/step/##bitmap";
 constexpr const char *REWIND = "//##StatusBar/rewind/##bitmap";
 
-vdev::Debugger &TheDebugger() { return *App().State().debugger; }
+const vdev::Debugger &TheDebugger() { return *App().State().debugger; }
 
 // The Schematic in front, its toolbar's Dbg: the Script Debugger shown.
 bool OpenDebugger(ImGuiTestContext *ctx) {
@@ -55,9 +55,10 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     // no frame more, Author Mode; Step One Frame: one frame; Restore Initial
     // Conditions: stopped, no frame counted.
     t = IM_REGISTER_TEST(engine, "debugger", "play_pause_step_reset");
+    t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         IM_CHECK_SILENT(OpenDebugger(ctx));
-        vdev::Debugger &debugger = TheDebugger();
+        const vdev::Debugger &debugger = TheDebugger();
         ctx->ItemClick(PLAY);
         IM_CHECK(WaitFor(ctx, 60, [&] { return debugger.Frames() > 3; }));
         IM_CHECK(debugger.GetState() == vdev::Debugger::State::Running);
@@ -83,9 +84,10 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     // (paused, the Debug Context on it, Goto enabled). Restore, F9 again: the
     // breakpoint taken off.
     t = IM_REGISTER_TEST(engine, "debugger", "breakpoint_trace");
+    t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         IM_CHECK_SILENT(OpenDebugger(ctx));
-        vdev::Debugger &debugger = TheDebugger();
+        const vdev::Debugger &debugger = TheDebugger();
         const size_t before = debugger.Breakpoints().size();
         Settle(ctx, "//Schematic");
         const std::optional<vdev::SchematicCanvas::ShownBehavior> block = FirstBlock();
@@ -110,7 +112,11 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//Script Debugger/Debug Inside Frames");
         ctx->Yield(2);
         IM_CHECK(!debugger.insideFrames);
-        debugger.trace = false;
+        OnMainThread(ctx, [] {
+            auto &editor = App().State().workspace->Application();
+            const EditorValue value{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, 0};
+            editor.Execute("runtime.set-trace", {editor.Scope(), &value, 1});
+        });
         Settle(ctx, "//Schematic");
         ctx->MouseMoveToPos(at);
         ctx->MouseClick(0);
@@ -125,9 +131,10 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     // Breakpoint, Ok: none left (one undo step); Ctrl+Z gives it back, Ctrl+Z
     // again takes it off, the composition unmodified.
     t = IM_REGISTER_TEST(engine, "debugger", "add_breakpoint_and_list");
+    t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         IM_CHECK_SILENT(OpenDebugger(ctx));
-        vdev::Debugger &debugger = TheDebugger();
+        const vdev::Debugger &debugger = TheDebugger();
         IM_CHECK_SILENT(debugger.Breakpoints().empty());
         const bool dirty = App().State().document->Dirty();
         const std::optional<vdev::SchematicCanvas::ShownBehavior> block = FirstBlock();

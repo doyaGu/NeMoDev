@@ -14,7 +14,6 @@
 #include "core/catalog/ParameterCatalog.h"
 #include "core/graph/TopologyCommands.h"
 #include "ui/controls/ParameterBox.h"
-#include "ui/controls/BehaviorInfoDialog.h"
 #include "ui/controls/ValueEditor.h"
 #include "core/schematic/SchematicModel.h"
 #include "ui/schematic/SchematicRenderer.h"
@@ -170,11 +169,7 @@ public:
     // the top at 100% (each with its own zoom). PrintSize: Dev's width (the
     // widest open Script less 100 pixels, at least 140) and the stack's
     // height; false without a Script shown.
-    bool PrintSize(float &width, float &height) const;
-    // A page: the stack's pixels from (x, y), size of them, drawn scale times
-    // into drawList from (0, 0) in Dev's print mode.
-    void DrawPrintPage(ImDrawList *drawList, float x, float y, const ImVec2 &size, float scale,
-                       const SchematicPrint &print) const;
+    std::unique_ptr<SchematicPrintContent> CapturePrint() const;
 
 private:
     struct ScriptView {
@@ -308,11 +303,6 @@ private:
     void ConvertToShortcutSource(CK_ID source, const std::vector<CK_ID> &scripts = {});
     // .nms behavior files (Dev Save As... Alt+S, Import Behavior Graph).
     void SaveSelectionAsNms();          // selected behaviors, else the current Script
-    // Dev.exe sub_5C01E0: the file chosen, Behavior Information for the
-    // first behavior; saved with OK (the .dsc written beside), not with
-    // Cancel.
-    void SaveBehaviorInfo();
-    BehaviorInfoDialog m_SaveInfo;
     void FindDialog();
     int m_MessagePick = -1;  // Message Explorer: the message chosen
     CK_ID m_MessageUse = 0;  // its sender or receiver chosen
@@ -320,8 +310,6 @@ private:
     std::string m_FindText;
     CK_ID m_FoundScript = 0;
     ElementRef m_FoundRef;
-    std::vector<CK_ID> m_SaveBehaviors;
-    std::string m_SavePath;
     void ImportBehaviorFile(CK_ID script, const Point &local);
     void ConfirmScriptDeletion();
     // Dev "Replacing BBs and BGs" (SchematicMenus.cpp).

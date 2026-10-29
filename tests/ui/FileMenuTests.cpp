@@ -171,7 +171,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::RenameLevelObject(document, document.Reference(made.created), "Undo after failed load").ok);
             IM_CHECK_NO_RET(document.History().Undo() && !document.Dirty());
             state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
-            state.objectSelection.Set(*state.document, {made.created});
+            state.objectSelection.Restore(*state.document, {made.created});
             probe->context = document.Context();
             probe->manager = new FileMenuLoadFailureManager(document.Context());
             IM_CHECK_NO_RET(document.Context()->RegisterNewManager(probe->manager) == CK_OK);
@@ -203,7 +203,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                 IM_CHECK_NO_RET(state.document->Context() == probe->context && !state.document->Dirty());
                 IM_CHECK_NO_RET(state.selection.script == probe->selection.script && state.selection.items == probe->selection.items &&
                                 state.selection.headers == probe->selection.headers);
-                IM_CHECK_NO_RET(state.objectSelection.Objects() == probe->objects.Objects() && state.objectSelection.revision == probe->objects.revision);
+                IM_CHECK_NO_RET(state.objectSelection.Objects() == probe->objects.Objects() && state.objectSelection.Revision() == probe->objects.Revision());
                 IM_CHECK_NO_RET(state.History().UndoCount() == probe->undo && state.History().CanRedo());
                 IM_CHECK_NO_RET(state.History().UndoLabel() == probe->undoLabel && state.History().RedoLabel() == probe->redoLabel);
             });
@@ -286,7 +286,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         IM_CHECK(probe->order == 2 && probe->completed == 2 && probe->mainCompletion);
         IM_CHECK(!probe->staleRan && !probe->staleCompleted);
         IM_CHECK(Read<bool>(ctx, [] {
-            const auto &log = App().State().log;
+            const auto &log = App().State().eventLog.Entries();
             return std::any_of(log.begin(), log.end(), [](const auto &entry) { return entry.text == "Background runtime log regression"; });
         }));
     };
@@ -353,8 +353,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             render = App().Layout().View().RenderContext();
             undo = document.History().UndoLabel();
             redo = document.History().RedoLabel();
-            state.objectSelection.Set(*state.document, {object});
-            state.objectSelection.locked = true;
+            state.objectSelection.Restore(*state.document, {object}, true);
         });
         ctx->Yield(5);
         OnMainThread(ctx, [&] { App().State().selection.Set(script, vdev::Selection::HeaderOf(script)); });
@@ -365,10 +364,10 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                 return document.IsOpen() && document.Context() == original && document.IsLive(object) &&
                        document.SourcePath() == source && document.ExistingSession(script) == session &&
                        !document.Dirty() && document.History().UndoLabel() == undo &&
-                       document.History().RedoLabel() == redo && state.objectSelection.locked &&
+                       document.History().RedoLabel() == redo && state.objectSelection.Locked() &&
                        state.objectSelection.Objects() == std::vector<CK_ID>{object} &&
                        state.selection.Contains(script, vdev::Selection::HeaderOf(script)) &&
-                       App().Panels().LevelSelection() == std::set<CK_ID>{object} &&
+                       App().LevelSelection() == std::set<CK_ID>{object} &&
                        App().Layout().View().RenderContext() == render;
             }));
         };
@@ -396,7 +395,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             auto &state = App().State();
             return state.document->Context() == original && state.document->Dirty() &&
                    state.document->IsLive(object) && state.document->History().CanUndo() &&
-                   state.objectSelection.Objects() == std::vector<CK_ID>{object} && state.objectSelection.locked;
+                   state.objectSelection.Objects() == std::vector<CK_ID>{object} && state.objectSelection.Locked();
         }));
         OnMainThread(ctx, [&] {
             auto &document = *App().State().document;
@@ -433,7 +432,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             return document.Context()->GetCurrentLevel() && document.SourcePath().empty() && document.Dirty() &&
                    !document.History().CanUndo();
         }));
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const auto row = FindLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK(row.has_value());
         IM_CHECK(Read<bool>(ctx, [&] {
@@ -459,7 +458,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             auto &state = App().State();
             return state.document->SourcePath().empty() && state.document->Dirty() &&
                    vdev::ReadLayoutInterfaceData(state.document->Context()).locked &&
-                   !state.objectSelection.locked;
+                   !state.objectSelection.Locked();
         }));
     };
     t = IM_REGISTER_TEST(engine, "filemenu", "save_failure_keeps_previous_file_and_save_point");
@@ -511,7 +510,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         IM_CHECK(PageFileBytes(version) == original);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().document->Dirty(); }));
         IM_CHECK(Read<bool>(ctx, [] {
-            const auto &log = App().State().log;
+            const auto &log = App().State().eventLog.Entries();
             return std::any_of(log.begin(), log.end(), [](const auto &entry) {
                 return entry.level == vdev::LogLevel::Error && entry.text.find("Save failed: ") == 0;
             });
@@ -611,16 +610,19 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(state.document->EditOpen());
         });
 
-        // RunRuntime rejects saves while an edit is open. Preparing that
-        // rejected request must not acknowledge picture data that the runtime
-        // worker never received.
-        ctx->MenuClick("//##MainMenuBar/File/Save Version");
+        // Menu state and direct invocation use the same admission. A rejected
+        // request must not acknowledge pictures the worker never received.
+        OnMainThread(ctx, [] {
+            auto &editor = App().State().workspace->Application();
+            const EditorRequest request{editor.Scope(), nullptr, 0};
+            IM_CHECK_NO_RET(editor.CommandState("document.save-version", request) == EDITOR_REFUSED);
+            IM_CHECK_NO_RET(editor.Execute("document.save-version", request).status == EDITOR_REFUSED);
+            IM_CHECK_NO_RET(!App().State().runtimeOperation.Busy());
+        });
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [] {
             return App().State().document->PicturesPending();
         }));
-        ctx->ItemClick("//Save report/OK");
-
         OnMainThread(ctx, [&] {
             auto &state = App().State();
             pending.reset();
@@ -775,7 +777,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                 IM_CHECK(WritePageFile(html, "existing HTML"));
                 IM_CHECK(WritePageFile(player, "existing composition"));
             }
-            const size_t logFrom = App().State().log.size();
+            const size_t logFrom = App().State().eventLog.Entries().size();
             SubmitWebPage(ctx, false, existing);
             if (existing) {
                 IM_CHECK(PageFileBytes(html) == "existing HTML");
@@ -785,9 +787,9 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             }
             bool reported = false;
             // Repeated failures may be coalesced into the last log entry.
-            const auto &log = App().State().log;
+            const auto &log = App().State().eventLog.Entries();
             for (size_t at = logFrom ? logFrom - 1 : 0; at < log.size(); ++at)
-                if (log[at].level == vdev::LogLevel::Error && log[at].text.find("invalid Ballanced runtime metadata") != std::string::npos)
+                if (log[at].level == vdev::LogLevel::Error && log[at].text.find("invalid runtime metadata") != std::string::npos)
                     reported = true;
             IM_CHECK(reported);
         }

@@ -1,4 +1,4 @@
-#include "ui/app/RuntimeOperation.h"
+#include "application/RuntimeOperation.h"
 
 #include <atomic>
 #include <chrono>
@@ -85,6 +85,26 @@ int main() {
         operation.DocumentChanged();
         operation.Finish();
         CHECK(!staleWork && !staleCompletion && !operation.Busy());
+
+        // Application-owned work must record whether it ran, even if the
+        // initiating document/view expired before completion was delivered.
+        int owned = 0;
+        CHECK(operation.Queue("Owned but not started", [&] { staleWork = true; }, [&](const std::string &error) {
+            CHECK(!error.empty()); ++owned;
+        }, vdev::RuntimeOperation::Delivery::Always));
+        operation.Poll();
+        operation.DocumentChanged();
+        operation.Finish();
+        CHECK(owned == 1 && !staleWork);
+        std::promise<void> written;
+        CHECK(operation.Queue("Owned output", [&] { written.set_value(); }, [&](const std::string &error) {
+            CHECK(error.empty() && std::this_thread::get_id() == mainThread); ++owned;
+        }, vdev::RuntimeOperation::Delivery::Always));
+        operation.Start();
+        written.get_future().wait();
+        operation.DocumentChanged();
+        operation.Finish();
+        CHECK(owned == 2);
 
         // Readiness is checked again after earlier work and before dispatch.
         bool editOpen = false, rejectedWork = false;

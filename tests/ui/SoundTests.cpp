@@ -35,6 +35,14 @@ void RegisterSoundTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         const CK_ID sound = OpenSetupOf(ctx, CKCID_WAVESOUND, "//###setupsound");
         IM_CHECK_SILENT(sound != 0);
+        OnMainThread(ctx, [&] {
+            auto *window=ctx->GetWindowByRef("//###setupsound");
+            IM_CHECK_NO_RET(window);
+            ImGui::SetWindowDock(window,0,ImGuiCond_Always);
+            ImGui::SetWindowPos(window,{40,40});
+            ImGui::SetWindowSize(window,{1100,650});
+        });
+        ctx->Yield(3);
         auto loop = [sound] { return Object<CKWaveSound>(sound)->GetLoopMode() != 0; };
         auto gain = [sound] { return Object<CKWaveSound>(sound)->GetGain(); };
         auto point = [sound] { return Object<CKWaveSound>(sound)->GetType() == CK_WAVESOUND_POINT; };

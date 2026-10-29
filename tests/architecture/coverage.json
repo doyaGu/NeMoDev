@@ -1,7 +1,7 @@
 {
   "version": 1,
   "baseline_revision": "029f2c9a6d2b062e031357224f6115a96ebac6cc",
-  "completed_phase": 1,
+  "completed_phase": 2,
   "external_submodules": [
     "external/imgui",
     "external/imgui_test_engine",
@@ -341,6 +341,23 @@
       "patterns": [
         "features/objects/ObjectViews.*"
       ]
+    },
+    {
+      "id": "S38",
+      "name": "场景原生查询与命令",
+      "patterns": [
+        "features/scene/SceneCommands.*",
+        "features/scene/SceneQueries.*"
+      ]
+    },
+    {
+      "id": "S39",
+      "name": "场景视图与只读数据",
+      "patterns": [
+        "features/scene/**",
+        "!features/scene/SceneCommands.*",
+        "!features/scene/SceneQueries.*"
+      ]
     }
   ],
   "dependencies": {
@@ -443,9 +460,12 @@
       "S28",
       "S29",
       "S33",
+      "S34",
       "S35",
       "S36",
-      "S37"
+      "S37",
+      "S38",
+      "S39"
     ],
     "S15": [
       "S01",
@@ -454,7 +474,6 @@
       "S04",
       "S13",
       "S14",
-      "S16",
       "S27",
       "S28",
       "S33",
@@ -482,15 +501,12 @@
       "S03",
       "S05",
       "S07",
-      "S08",
-      "S12",
       "S13",
       "S14",
       "S16",
       "S20",
       "S21",
       "S27",
-      "S28",
       "S33",
       "S34"
     ],
@@ -504,7 +520,7 @@
       "S27"
     ],
     "S20": [
-      "S03",
+      "S02",
       "S05",
       "S08",
       "S10",
@@ -513,7 +529,9 @@
       "S14",
       "S23",
       "S27",
-      "S28"
+      "S28",
+      "S33",
+      "S35"
     ],
     "S21": [
       "S02",
@@ -525,6 +543,7 @@
       "S12",
       "S13",
       "S14",
+      "S15",
       "S16",
       "S20",
       "S23",
@@ -566,7 +585,9 @@
     ],
     "S25": [
       "S13",
-      "S26"
+      "S26",
+      "S33",
+      "S34"
     ],
     "S26": [
       "S25"
@@ -580,8 +601,11 @@
       "S13"
     ],
     "S29": [
+      "S02",
       "S13",
       "S14",
+      "S15",
+      "S23",
       "S26",
       "S27"
     ],
@@ -616,7 +640,8 @@
       "S34",
       "S35",
       "S36",
-      "S37"
+      "S37",
+      "S38"
     ],
     "S33": [],
     "S34": [
@@ -639,17 +664,24 @@
     "S37": [
       "S33",
       "S34"
+    ],
+    "S38": [
+      "S01",
+      "S05",
+      "S08",
+      "S12",
+      "S13",
+      "S34",
+      "S39"
+    ],
+    "S39": [
+      "S27",
+      "S33",
+      "S34",
+      "S35"
     ]
   },
   "legacy_exposures": [
-    {
-      "file": "ui/app/Clipboard.h",
-      "access": [
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
     {
       "file": "ui/app/CommandLine.cpp",
       "access": [
@@ -667,23 +699,6 @@
         "native-sdk"
       ],
       "remove_by": 5
-    },
-    {
-      "file": "ui/app/DocumentFiles.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 2
-    },
-    {
-      "file": "ui/app/DocumentFiles.h",
-      "access": [
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 2
     },
     {
       "file": "ui/app/DuplicateNames.cpp",
@@ -969,42 +984,6 @@
       "remove_by": 5
     },
     {
-      "file": "ui/panels/HierarchyManager.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/panels/LevelManager.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/panels/ManagerWindows.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/panels/ManagerWindows.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
       "file": "ui/schematic/SchematicCanvas.cpp",
       "access": [
         "editor-state",
@@ -1238,17 +1217,13 @@
       "tests": [
         "VirtoolsDev.OpenFailurePreservation",
         "VirtoolsDev.ObjectFileOpen",
-        "VirtoolsDevDocumentFiles"
+        "VirtoolsDevDocumentFiles",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.filemenu"
       ],
-      "gaps": [
-        {
-          "due_phase": 2,
-          "reason": "补 Quiesce 失败与附着视图失败"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F03",
@@ -1262,17 +1237,13 @@
       "tests": [
         "VirtoolsDev.LoadFailurePreservation",
         "VirtoolsDev.LoadCallbacks",
-        "VirtoolsDevDocumentFiles"
+        "VirtoolsDevDocumentFiles",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.filemenu"
       ],
-      "gaps": [
-        {
-          "due_phase": 2,
-          "reason": "补对象身份与编辑元数据一起回滚"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F04",
@@ -1287,17 +1258,13 @@
         "VirtoolsDev.SaveFailures",
         "VirtoolsDev.SaveCallbacks",
         "VirtoolsDev.EmptyScriptSave",
-        "VirtoolsDev.SaveScriptSnapshots"
+        "VirtoolsDev.SaveScriptSnapshots",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.filemenu"
       ],
-      "gaps": [
-        {
-          "due_phase": 2,
-          "reason": "补版本文件失败及旧接收者失效"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F05",
@@ -1312,43 +1279,49 @@
       ],
       "tests": [
         "VirtoolsDev.ObjectExportFailures",
-        "VirtoolsDev.NmsExportFailures"
+        "VirtoolsDev.NmsExportFailures",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.schematic"
+        "VirtoolsDevUi.schematic",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
           "due_phase": 4,
-          "reason": "补 DSC 或伴随文件失败"
+          "reason": "NMS/DSC 准备失败、NMS 发布失败后的恢复、清理说明保留已覆盖；恢复本身失败的故障注入仍待补验"
         }
       ]
     },
     {
       "id": "F06",
       "name": "网页与图像输出",
-      "owner": "Application",
+      "owner": "OutputCommands",
       "source_groups": [
         "S15",
         "S26",
         "S29",
         "S02"
       ],
-      "tests": [],
+      "tests": [
+        "NeMoDevEditor",
+        "NeMoDevIdentityHeaders"
+      ],
       "ui_tests": [
-        "VirtoolsDevUi.filemenu"
+        "VirtoolsDevUi.filemenu",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "补部分发布、补偿失败及失败时不启动预览"
+          "reason": "网页双产物发布失败、旧文件恢复及失败不预览已覆盖；仍待补恢复本身失败和外部写入竞争的故障注入"
         }
       ]
     },
     {
       "id": "F07",
       "name": "打印",
-      "owner": "Application",
+      "owner": "OutputCommands",
       "source_groups": [
         "S21",
         "S26",
@@ -1356,15 +1329,19 @@
         "S02",
         "S15"
       ],
-      "tests": [],
+      "tests": [
+        "NeMoDevEditor",
+        "NeMoDevIdentityHeaders"
+      ],
       "ui_tests": [
         "VirtoolsDevUi.printCancel",
-        "VirtoolsDevUi.printPages"
+        "VirtoolsDevUi.printPages",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "补关闭源视图、取消及提交后的真实状态"
+          "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
         }
       ]
     },
@@ -1377,9 +1354,11 @@
         "S08",
         "S10",
         "S18",
+        "S35",
         "S36",
         "S37",
-        "S35"
+        "S38",
+        "S39"
       ],
       "tests": [
         "VirtoolsDev.LevelManagerCommands",
@@ -1393,12 +1372,7 @@
         "VirtoolsDevUi.create",
         "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 3,
-          "reason": "迁移后通过正式接口复验本项行为与生命周期"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F09",
@@ -1407,22 +1381,21 @@
       "source_groups": [
         "S08",
         "S18",
-        "S35"
+        "S35",
+        "S38",
+        "S39"
       ],
       "tests": [
         "VirtoolsDev.ObjectQueryProjections",
-        "VirtoolsDev.HierarchyQueryCommands"
+        "VirtoolsDev.HierarchyQueryCommands",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
-        "VirtoolsDevUi.hierarchy"
+        "VirtoolsDevUi.hierarchy",
+        "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 3,
-          "reason": "补双实例过滤、输入与选择锁"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F10",
@@ -1432,22 +1405,21 @@
         "S08",
         "S18",
         "S20",
-        "S35"
+        "S35",
+        "S38",
+        "S39"
       ],
       "tests": [
         "VirtoolsDev.AttributeQueryProjections",
-        "VirtoolsDev.SetupManagerCommands"
+        "VirtoolsDev.SetupManagerCommands",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
-        "VirtoolsDevUi.attributes"
+        "VirtoolsDevUi.attributes",
+        "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 4,
-          "reason": "补目录版本改变后的旧对话提交"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F11",
@@ -1603,7 +1575,7 @@
     {
       "id": "F17",
       "name": "运行控制",
-      "owner": "Runtime control",
+      "owner": "ExecutionCommands",
       "source_groups": [
         "S04",
         "S19",
@@ -1612,15 +1584,18 @@
       ],
       "tests": [
         "VirtoolsDev.ScriptDebugger",
-        "VirtoolsDev.DebuggerBudget"
+        "VirtoolsDev.DebuggerBudget",
+        "NeMoDevEditor",
+        "NeMoDevIdentityHeaders"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.debugger"
+        "VirtoolsDevUi.debugger",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "保留原生单次调用不能强制中断的限制"
+          "reason": "控制、参数、时间设置、忙时只读数据及锁定目标失效已覆盖；进程隔离另行实施，原生单次调用仍不能强制中断"
         }
       ]
     },
@@ -1638,7 +1613,8 @@
       ],
       "tests": [
         "VirtoolsDev.InitialConditionsScenes",
-        "VirtoolsDev.InitialConditionsFailures"
+        "VirtoolsDev.InitialConditionsFailures",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.debugger",
@@ -1679,23 +1655,25 @@
       "name": "Data Resources",
       "owner": "Application",
       "source_groups": [
+        "S02",
         "S03",
         "S15",
         "S20",
-        "S24",
-        "S02"
+        "S24"
       ],
       "tests": [
         "VirtoolsDev.Resources",
-        "VirtoolsDev.EditorCommands"
+        "VirtoolsDev.EditorCommands",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.tools"
+        "VirtoolsDevUi.tools",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "补多产物失败、旧资源树刷新与异步目标校验"
+          "reason": "资源批量加载及异步目标校验已覆盖；RSC 多产物失败和旧资源树刷新仍待补验"
         }
       ]
     },
@@ -1736,10 +1714,12 @@
       ],
       "tests": [
         "VirtoolsDev.Catalogs",
-        "VirtoolsDev.BuildingBlockCallbacks"
+        "VirtoolsDev.BuildingBlockCallbacks",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.blocks"
+        "VirtoolsDevUi.blocks",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
@@ -1834,7 +1814,7 @@
     {
       "id": "F26",
       "name": "Help 与 HTML",
-      "owner": "Help",
+      "owner": "Workspace / Help view",
       "source_groups": [
         "S16",
         "S25",
@@ -1845,15 +1825,18 @@
         "S35"
       ],
       "tests": [
-        "NeMoDevHelpContent"
+        "NeMoDevHelpContent",
+        "NeMoDevHtml",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.html"
+        "VirtoolsDevUi.html",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "迁移后通过正式接口复验本项行为与生命周期"
+          "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
         }
       ]
     },
@@ -1870,15 +1853,17 @@
         "S35"
       ],
       "tests": [
-        "VirtoolsDev.TextEncoding"
+        "VirtoolsDev.TextEncoding",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.app"
+        "VirtoolsDevUi.app",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "补失效视图后的错误可见性与 worker 不触碰 UI"
+          "reason": "EventLog 的 worker 与关闭视图后日志保留已覆盖；剩余原生消息框与旧面板错误呈现随阶段五迁移"
         }
       ]
     },
@@ -2050,14 +2035,13 @@
     },
     {
       "id": "selection",
-      "name": "selection、headers、objectSelection、lock/revision",
-      "owner": "DocumentSession 选择通道",
+      "name": "Schematic 元素、Script headers 和图内选区",
+      "owner": "DocumentSession 中的 Schematic 选区；随图视图迁移",
       "lifetime": "对象失效、成功替换；失败保持",
       "persistence": "活动选择不制造创作 Undo；旧文件字段只捕获恢复快照",
       "features": [
-        "F08",
-        "F09",
         "F11",
+        "F12",
         "F29"
       ]
     },
@@ -2074,7 +2058,7 @@
     {
       "id": "worksets",
       "name": "Worksets、nextWorkset",
-      "owner": "DocumentSession 的分组状态",
+      "owner": "SceneCommands 的当前文档分组状态",
       "lifetime": "成功替换、成员引用失效",
       "persistence": "保留当前会话行为，不在迁移中自动增加文档存储或创作 Undo",
       "features": [
@@ -2106,9 +2090,9 @@
     },
     {
       "id": "view_targets",
-      "name": "各窗口 m_Doc 中 object IDs、对话目标、行选择及 rename",
+      "name": "视图实例的对象引用、行选区、筛选、展开与编辑草稿",
       "owner": "对应视图或交互实例",
-      "lifetime": "关闭、目标销毁、版本失效",
+      "lifetime": "关闭实例、目标失效或成功替换文档；失败的文件操作保留原状态",
       "persistence": "目标用受控引用；草稿与共享选择区分",
       "features": [
         "F09",
@@ -2131,7 +2115,7 @@
       "name": "BB/资源/属性/对象/Snapshot 拖拽 payload",
       "owner": "Workspace 输入交互，源数据归原所有者",
       "lifetime": "drop/cancel、源视图/会话结束、来源数据版本变化",
-      "persistence": "拥有数据与版本；接受才执行命令",
+      "persistence": "Building Blocks 拖拽由 ImGui 持有源行及完整有序 GUID 列表；对象携带完整身份，属性携带目录版本和源参数身份；接收时重新解析，再执行统一命令",
       "features": [
         "F23"
       ]
@@ -2149,9 +2133,9 @@
     {
       "id": "runtime_debug",
       "name": "debugger、trace/lock、message breakpoints、命中与 native debug frame",
-      "owner": "DocumentSession 运行控制",
-      "lifetime": "Pause/Reset/Detach、对象消失、关闭前结束 native frame",
-      "persistence": "运行状态无创作 Undo；保存的断点定义仍归 Document",
+      "owner": "ExecutionCommands；Debugger 实现原生执行与断点推进",
+      "lifetime": "Pause/Reset/Detach、对象失效、文档切换及应用退出；所有权先于 Document 结束",
+      "persistence": "运行状态不入创作 Undo；Reset 继续原有拓扑刷新/Dirty 行为；锁定、当前目标和日志使用对象引用，断点定义仍归 Document",
       "features": [
         "F17",
         "F18"
@@ -2179,8 +2163,8 @@
     },
     {
       "id": "copy_options",
-      "name": "copyDependencies、deleteDependencies、recent BB",
-      "owner": "应用会话/已有偏好",
+      "name": "copyDependencies、recent BB",
+      "owner": "应用会话和既有偏好；删除选项已迁出",
       "lifetime": "配置及目录变化；无长期原生容器指针",
       "persistence": "保留当前跨文档默认值和用户选择",
       "features": [
@@ -2222,23 +2206,24 @@
     },
     {
       "id": "file_operations",
-      "name": "files、duplicate prompts、file dialog queue、pending actions",
-      "owner": "Application 操作",
-      "lifetime": "操作终结及所属作用域；原生对话晚回调安全丢弃",
-      "persistence": "等待输入无 native 写入；结果含实际副作用",
+      "name": "文档与资源文件操作、对象/NMS 导出、输入请求及最近保存路径",
+      "owner": "DocumentCommands",
+      "lifetime": "操作完成或取消；旧输入按操作和文档编号拒绝；退出时原生任务返回后结束",
+      "persistence": "临时流程不保存；等待输入无原生写入；最终结果登记到 EditorApplication",
       "features": [
         "F02",
         "F03",
         "F04",
-        "F05"
+        "F05",
+        "F20"
       ]
     },
     {
       "id": "output_jobs",
-      "name": "print job、webpage fields、DSC/Save drafts",
-      "owner": "Application 操作及其交互视图",
+      "name": "print job 与 webpage fields",
+      "owner": "OutputCommands；输出对话视图仅持有显示草稿",
       "lifetime": "Cancel/完成；视图消失仍做任务清理与结果登记",
-      "persistence": "显式文档输入、暂存产物/已提交外部状态",
+      "persistence": "网页与 composition、多页图像共用暂存和恢复；打印持有独立脚本图/位图，提交后登记打印任务标识；旧回复及失效文档拒绝执行",
       "features": [
         "F06",
         "F07"
@@ -2246,9 +2231,9 @@
     },
     {
       "id": "log",
-      "name": "log、status repeats、queued runtime logs",
-      "owner": "应用操作记录",
-      "lifetime": "现有有界容量策略；worker 入队、主线程呈现",
+      "name": "EventLog entries、status repeats、queued runtime logs",
+      "owner": "EventLog；工作区视图通过只读查询呈现",
+      "lifetime": "应用会话；worker 有界入队，主线程发布；清除不复活已排队消息",
       "persistence": "应用会话，不跟随文档 Clear",
       "features": [
         "F27"
@@ -2256,7 +2241,7 @@
     },
     {
       "id": "view_layout",
-      "name": "show*、dock/尺寸、Help history、各 manager filter/open rows",
+      "name": "show*、dock/尺寸、Help history、各 manager filter/open rows、Building Blocks 过滤/分类/多选/展开/排序",
       "owner": "Workspace/ViewInstance",
       "lifetime": "实例销毁；重建按 provider schema 恢复",
       "persistence": "保存到声明的工作区状态；不复制全局选择",
@@ -2307,7 +2292,7 @@
     },
     {
       "id": "property-drafts",
-      "name": "属性草稿、目标对象和等待执行的命令",
+      "name": "属性草稿、固定目标对象及编辑器选择",
       "owner": "EditorApplication",
       "lifetime": "目标文档和视图；确认后帧末执行，取消、关闭或对象失效时清除",
       "persistence": "临时输入；成功修改复用 Document 的 Edit 和 UndoHistory",
@@ -2331,8 +2316,8 @@
       "id": "registered-views",
       "name": "已登记视图的实例和输入",
       "owner": "EditorWorkspace",
-      "lifetime": "打开至关闭；模块私有数据由模块创建和销毁",
-      "persistence": "实例保存与恢复留在阶段六；旧窗口保留现有保存方式",
+      "lifetime": "工作区拥有实例、窗口身份、焦点和导航；创建/状态恢复失败保留旧实例和配置",
+      "persistence": "带版本的提供者状态；单实例关闭重开和活动提供者替换时恢复；跨启动保存仍在阶段六",
       "features": [
         "F29",
         "F31"
@@ -2340,11 +2325,89 @@
     },
     {
       "id": "editor-configuration",
-      "name": "命令与编辑器选择、快捷键和菜单位置",
+      "name": "命令、查询、编辑器与视图提供者选择、快捷键和菜单位置",
       "owner": "EditorApplication",
       "lifetime": "当前应用；错误设置保留原设置，编辑中禁止切换",
       "persistence": "当前为内存配置；用户配置保存和旧格式迁移在阶段六完成",
       "features": [
+        "F25"
+      ]
+    },
+    {
+      "id": "command-results",
+      "name": "等待执行的命令、操作编号及最终结果",
+      "owner": "EditorApplication",
+      "lifetime": "等待执行最多 256 项；完成结果保留最近 256 项；关闭视图取消未执行请求，已执行文件任务仍登记实际写出",
+      "persistence": "应用会话；document edit 由提交结束，其余异步命令由提供者在编辑器线程结束",
+      "features": [
+        "F02",
+        "F04",
+        "F27",
+        "F31"
+      ]
+    },
+    {
+      "id": "runtime-operations",
+      "name": "原生任务队列、在途 worker、完成通知和文档作用域",
+      "owner": "RuntimeOperation",
+      "lifetime": "队列至完成；文档替换丢弃尚未执行的旧任务；在途原生调用返回后完成清理",
+      "persistence": "不保存；应用文件任务总是登记完成，原有仅面向当前文档的回调在作用域结束时失效",
+      "features": [
+        "F02",
+        "F03",
+        "F04",
+        "F28"
+      ]
+    },
+    {
+      "id": "native-dialogs",
+      "name": "原生文件对话框队列、过滤器和平台晚回调",
+      "owner": "FileDialogs；已迁移文件输入由 document.file-dialogs 视图持有",
+      "lifetime": "回复或关闭所属视图；关闭后晚回调只释放数据，不调用已销毁视图",
+      "persistence": "临时 UI 状态；流程和文档输入编号仍由 DocumentCommands 拥有，旧输出窗口待后续迁移",
+      "features": [
+        "F02",
+        "F04",
+        "F05",
+        "F28",
+        "F29"
+      ]
+    },
+    {
+      "id": "file-candidates",
+      "name": "文件候选、资源批次、重复名提示和原生导出报告",
+      "owner": "DocumentFiles",
+      "lifetime": "准备至提交或丢弃；重复名取消、文档作用域失效及异常都结束候选",
+      "persistence": "候选成功后才切换文档；批次持有文件路径及对象引用；实际写出结果交给 DocumentCommands 登记，不依赖发起视图",
+      "features": [
+        "F02",
+        "F03",
+        "F04",
+        "F05",
+        "F20"
+      ]
+    },
+    {
+      "id": "object-selection",
+      "name": "共享对象引用、派生原生编号、锁定和选区版本",
+      "owner": "ObjectSelection",
+      "lifetime": "文档挂接至替换或关闭；对象失效时清理；取消 Explorer 按原引用恢复",
+      "persistence": "保留既有 Layout 选区快照；选择命令不改文档 Dirty 和 Undo；动作通过 SelectionCommands",
+      "features": [
+        "F08",
+        "F09",
+        "F16",
+        "F29"
+      ]
+    },
+    {
+      "id": "object-delete-options",
+      "name": "删除依赖选项与默认 flags",
+      "owner": "ObjectCommands",
+      "lifetime": "应用会话；读取默认值，确认有效选项后替换，失败输入保留原值",
+      "persistence": "保留原有跨文档会话行为，不新增文件写入；对话视图只持有草稿与对象引用",
+      "features": [
+        "F08",
         "F25"
       ]
     }

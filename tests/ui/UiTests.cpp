@@ -80,7 +80,7 @@ std::optional<std::pair<CK_ID, ImVec2>> EmptySchematicPoint(CK_ID in, const ImVe
 
 std::optional<LevelRow> FindLevelRow(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact) {
     for (int pass = 0; pass < 12; ++pass) {
-        const std::vector<LevelRow> rows = App().Panels().ShownLevelRows();
+        const std::vector<LevelRow> rows = App().LevelRows();
         const LevelRow *found = nullptr;
         OnMainThread(ctx, [&] {
             for (const LevelRow &row : rows)

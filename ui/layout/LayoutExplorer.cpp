@@ -39,8 +39,8 @@ void LayoutWindow::SyncGroup() {
         if (!CKGroup::Cast(group) || (m_State.HasDocument() && m_State.document->IsDiscarded(m_Group)))
             m_Group = 0;
     }
-    if (m_GroupRevision == m_State.objectSelection.revision) return;
-    m_GroupRevision = m_State.objectSelection.revision;
+    if (m_GroupRevision == m_State.objectSelection.Revision()) return;
+    m_GroupRevision = m_State.objectSelection.Revision();
     m_Group = m_State.HasDocument() ? MatchingGroup(context, SceneGroups(context, m_View.Scene()), AliveSelection()) : 0;
 }
 
@@ -103,7 +103,7 @@ void LayoutWindow::EnterGroup(const std::string &name) {
         CreateSelectionGroup(*m_State.document, scene->GetID(), Utf8ToAnsi(name), selection);
     if (result.ok) {
         m_Group = result.created;
-        m_GroupRevision = m_State.objectSelection.revision;
+        m_GroupRevision = m_State.objectSelection.Revision();
     } else {
         m_State.Log(LogLevel::Warning, "Selection Groups: " + AnsiToUtf8(result.message));
     }
@@ -112,7 +112,7 @@ void LayoutWindow::EnterGroup(const std::string &name) {
 // Dev.exe sub_4B95C0 (id 18, CBN_SELCHANGE): not while the selection is
 // locked; the group's 3D and 2D entities replace the selection.
 void LayoutWindow::ChooseGroup(CK_ID id) {
-    if (m_State.objectSelection.locked) return;
+    if (m_State.objectSelection.Locked()) return;
     const std::vector<CK_ID> objects = GroupSelection(m_State.host.Context(), id);
     if (objects.empty()) return;
     m_Group = id;
@@ -122,7 +122,7 @@ void LayoutWindow::ChooseGroup(CK_ID id) {
 
 // Dev.exe sub_4B46C0: a group that exists is shown and its objects are
 // selected, else the objects saved are; then the lock.
-void LayoutWindow::ApplyLayoutData(const LayoutInterfaceData &data) {
+void LayoutWindow::ApplyLayoutData(const LayoutInterfaceData &data, bool restoreSelection) {
     m_Interface = data;
     m_Group = 0;
     m_GroupRevision = ~0u;
@@ -136,12 +136,10 @@ void LayoutWindow::ApplyLayoutData(const LayoutInterfaceData &data) {
         for (CK_ID id : data.selection)
             if (context->GetObject(id)) objects.push_back(id);
     }
-    m_State.objectSelection.locked = false;
-    m_State.objectSelection.Set(*m_State.document, objects); // a new revision
-    m_State.objectSelection.locked = data.locked && !objects.empty();
+    if (restoreSelection) m_State.objectSelection.Restore(*m_State.document, objects, data.locked);
     if (context->GetObject(data.group)) {
         m_Group = data.group;
-        m_GroupRevision = m_State.objectSelection.revision;
+        m_GroupRevision = m_State.objectSelection.Revision();
     }
     // The lists (core ReadLayoutLists), the camera.
     if (!data.cameras.empty() && CKCamera::Cast(context->GetObject(data.cameras.front())))
@@ -154,7 +152,7 @@ LayoutInterfaceData LayoutWindow::LayoutData() const {
     data.present = true;
     data.group = m_Group;
     data.selection = AliveSelection();
-    data.locked = m_State.objectSelection.locked;
+    data.locked = m_State.objectSelection.Locked();
     // The saver supplies the document's per-object lists. This capture only
     // contributes view state and preserves the file's unedited fields.
     // The camera, unless one of the 3D Layout's own views (not saved).
@@ -172,8 +170,8 @@ void LayoutWindow::OpenExplorer() {
     }
     if (!m_State.HasDocument() || !m_View.Scene()) return;
     m_Doc.explorerOpen = true;
-    m_Doc.explorerSaved = AliveSelection();
-    m_Doc.explorerSavedLock = m_State.objectSelection.locked;
+    m_Doc.explorerSaved = m_State.objectSelection.References();
+    m_Doc.explorerSavedLock = m_State.objectSelection.Locked();
     m_Doc.explorerAnchor = m_Doc.explorerFocus = 0;
     m_Doc.explorerListRevision = ~0u; // OnInitDialog: the 3D Layout's selection (sub_59EC90)
     m_ExplorerTyped.clear();
@@ -183,12 +181,10 @@ void LayoutWindow::OpenExplorer() {
 // of the opening (Dev.exe sub_59E270, IDCANCEL). Both keep the types shown.
 void LayoutWindow::CloseExplorer(bool cancel) {
     if (cancel && m_State.HasDocument()) {
-        std::vector<CK_ID> saved;
-        CKContext *context = m_State.host.Context();
-        for (CK_ID id : m_Doc.explorerSaved)
-            if (context->GetObject(id) && !m_State.document->IsDiscarded(id)) saved.push_back(id);
-        if (saved != m_State.objectSelection.Objects()) m_State.objectSelection.Set(*m_State.document, saved);
-        m_State.objectSelection.locked = m_Doc.explorerSavedLock && !saved.empty();
+        std::vector<ObjectRef> saved;
+        for (auto object : m_Doc.explorerSaved)
+            if (m_State.document->Resolve(object)) saved.push_back(object);
+        RestoreSelection(saved, m_Doc.explorerSavedLock);
     }
     m_Doc.explorerOpen = false;
 }
@@ -221,7 +217,7 @@ void LayoutWindow::ExplorerWindow() {
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     auto place = [&](float x, float y) { ImGui::SetCursorScreenPos(ImVec2(origin.x + x * dx, origin.y + y * dy)); };
     ObjectSelection &selection = m_State.objectSelection;
-    const bool locked = selection.locked;
+    const bool locked = selection.Locked();
 
     // The list: the scene's objects of the types shown whose name holds the
     // filter, sorted by name.
@@ -253,9 +249,9 @@ void LayoutWindow::ExplorerWindow() {
         for (const Row &row : rows)
             if (selection.Contains(row.id)) m_Doc.explorerList.push_back(row.id);
         m_Doc.explorerCount = static_cast<int>(m_Doc.explorerList.size());
-        m_Doc.explorerListRevision = selection.revision;
+        m_Doc.explorerListRevision = selection.Revision();
     };
-    if (m_Doc.explorerListRevision != selection.revision) restore();
+    if (m_Doc.explorerListRevision != selection.Revision()) restore();
     // The list in its order.
     auto ordered = [&](const std::vector<CK_ID> &ids) {
         std::vector<CK_ID> result;

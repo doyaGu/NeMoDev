@@ -15,7 +15,7 @@ namespace {
 using Row = LevelRow;
 
 std::optional<Row> RowOf(CK_ID object) {
-    for (const Row &row : App().Panels().ShownLevelRows())
+    for (const Row &row : App().LevelRows())
         if (row.object == object) return row;
     return std::nullopt;
 }
@@ -37,10 +37,10 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "level", "select_row");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<Row> row = ClickLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK_SILENT(row.has_value());
-        const std::set<CK_ID> &selection = App().Panels().LevelSelection();
+        std::set<CK_ID> selection = Read<std::set<CK_ID>>(ctx, [] { return App().LevelSelection(); });
         IM_CHECK_EQ(selection.size(), 1u);
         IM_CHECK(selection.count(row->object) == 1);
         const std::optional<Row> shown = RowOf(row->object);
@@ -56,10 +56,10 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "level", "enter_script_shows_schematic");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<Row> row = ClickLevelRow(ctx, CKCID_BEHAVIOR, true);
         IM_CHECK_SILENT(row.has_value());
-        IM_CHECK_SILENT(InFront(ctx, "//Level Manager"));
+        IM_CHECK_SILENT(InFront(ctx, SceneRef("level", "").c_str()));
         ctx->KeyPress(ImGuiKey_Enter);
         ctx->Yield(3);
         IM_CHECK(InFront(ctx, "//Schematic"));
@@ -75,7 +75,7 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "level", "visible_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<Row> row = FindLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK_SILENT(row.has_value());
         IM_CHECK_SILENT(row->eyeMax.x > row->eyeMin.x);
@@ -96,7 +96,7 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "level", "rename_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<Row> row = ClickLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK_SILENT(row.has_value());
         const std::string before = ObjectName(ctx, row->object);
@@ -118,10 +118,10 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "level", "keys_move_lock");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<Row> row = ClickLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK_SILENT(row.has_value());
-        const std::vector<Row> rows = App().Panels().ShownLevelRows();
+        const std::vector<Row> rows = App().LevelRows();
         size_t at = rows.size();
         for (size_t i = 0; i < rows.size(); ++i)
             if (rows[i].object == row->object && at == rows.size()) at = i;
@@ -129,7 +129,7 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
         const CK_ID below = rows[at + 1].object;
         ctx->KeyPress(ImGuiKey_DownArrow);
         ctx->Yield(3);
-        const std::set<CK_ID> &selection = App().Panels().LevelSelection();
+        std::set<CK_ID> selection = Read<std::set<CK_ID>>(ctx, [] { return App().LevelSelection(); });
         if (below) {
             IM_CHECK_EQ(selection.size(), 1u);
             IM_CHECK(selection.count(below) == 1);
@@ -138,18 +138,19 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
         }
         ctx->KeyPress(ImGuiKey_UpArrow);
         ctx->Yield(3);
+        selection = Read<std::set<CK_ID>>(ctx, [] { return App().LevelSelection(); });
         IM_CHECK_EQ(selection.size(), 1u);
         IM_CHECK(selection.count(row->object) == 1);
         ctx->Yield(2);
         vdev::ObjectSelection &objects = App().State().objectSelection;
-        IM_CHECK(!objects.locked);
+        IM_CHECK(!objects.Locked());
         ctx->KeyPress(ImGuiKey_Space);
         ctx->Yield(3);
-        IM_CHECK(objects.locked);
+        IM_CHECK(objects.Locked());
         IM_CHECK(objects.Contains(row->object));
         ctx->KeyPress(ImGuiKey_Space);
         ctx->Yield(3);
-        IM_CHECK(!objects.locked);
+        IM_CHECK(!objects.Locked());
     };
 
     // The Activate At Scene Start cell goes A, D, Leave and A again (Dev.exe
@@ -158,7 +159,7 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "level", "flag_cells_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<Row> row = FindLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK_SILENT(row.has_value() && row->activateMax.x > row->activateMin.x);
         const CK_ID id = row->object;
@@ -203,11 +204,11 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "level", "delete");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<Row> row = ClickLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK_SILENT(row.has_value());
         vdev::EditorState &state = App().State();
-        const size_t logged = state.log.size();
+        const size_t logged = state.eventLog.Entries().size();
         ctx->KeyPress(ImGuiKey_Delete);
         ctx->Yield(3);
         ImGuiWindow *dialog = ctx->GetWindowByRef("//###DeleteOptions");

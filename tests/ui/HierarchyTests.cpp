@@ -15,23 +15,23 @@ namespace vdevuitest {
 
 namespace {
 
-using Row = vdev::ManagerWindows::ShownRow;
+using Row = vdev::SceneShownRow;
 
 // The Hierarchy Manager shown (its Editors menu item checks it) and in front.
 bool ShowHierarchy(ImGuiTestContext *ctx) {
     Settle(ctx);
-    if (!App().State().showHierarchy) ctx->MenuClick("//##MainMenuBar/Editors/Hierarchy Manager");
+    if (!App().SceneViewOpen("hierarchy")) ctx->MenuClick("//##MainMenuBar/Editors/Hierarchy Manager");
     ctx->Yield(2);
-    ctx->WindowFocus("//Hierarchy Manager");
+    ctx->WindowFocus(SceneRef("hierarchy", "").c_str());
     ctx->Yield(3);
-    return !App().Managers().ShownHierarchyRows().empty();
+    return !App().HierarchyRows().empty();
 }
 
 // Every row opened (the closed ones' arrows, the shallowest first), then
 // the rows of objects of class cid (exact: of that class), in their order.
 std::vector<Row> RowsOf(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact) {
     for (int pass = 0; pass < 20; ++pass) {
-        const std::vector<Row> rows = App().Managers().ShownHierarchyRows();
+        const std::vector<Row> rows = App().HierarchyRows();
         const Row *closed = nullptr;
         for (const Row &row : rows)
             if (row.children && !row.open && (!closed || row.depth < closed->depth)) closed = &row;
@@ -40,7 +40,7 @@ std::vector<Row> RowsOf(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact) {
         ctx->MouseClick(0);
         ctx->Yield(2);
     }
-    const std::vector<Row> rows = App().Managers().ShownHierarchyRows();
+    const std::vector<Row> rows = App().HierarchyRows();
     std::vector<Row> found;
     OnMainThread(ctx, [&] {
         for (const Row &row : rows)
@@ -50,7 +50,7 @@ std::vector<Row> RowsOf(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact) {
 }
 
 std::optional<Row> RowOf(CK_ID object) {
-    for (const Row &row : App().Managers().ShownHierarchyRows())
+    for (const Row &row : App().HierarchyRows())
         if (row.object == object) return row;
     return std::nullopt;
 }
@@ -109,7 +109,7 @@ void RegisterHierarchyTests(ImGuiTestEngine *engine) {
         std::optional<Row> shown = RowOf(row.object);
         IM_CHECK(shown && shown->selected);
         // The next row with an object (the roots are passed over).
-        const std::vector<Row> rows = App().Managers().ShownHierarchyRows();
+        const std::vector<Row> rows = App().HierarchyRows();
         CK_ID next = 0;
         for (size_t i = 0; i < rows.size() && !next; ++i)
             if (rows[i].object == row.object)
@@ -217,15 +217,15 @@ void RegisterHierarchyTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         IM_CHECK_SILENT(ShowHierarchy(ctx));
         IM_CHECK(RowsOf(ctx, CKCID_MESH, false).empty());
-        ctx->ItemClick("//Hierarchy Manager/meshes/##bitmap");
+        ctx->ItemClick(SceneRef("hierarchy", "/meshes/##bitmap").c_str());
         ctx->Yield(2);
         IM_CHECK(!RowsOf(ctx, CKCID_MESH, false).empty());
         IM_CHECK(RowsOf(ctx, CKCID_MATERIAL, false).empty());
-        ctx->ItemClick("//Hierarchy Manager/materials/##bitmap");
+        ctx->ItemClick(SceneRef("hierarchy", "/materials/##bitmap").c_str());
         ctx->Yield(2);
         IM_CHECK(!RowsOf(ctx, CKCID_MATERIAL, false).empty());
-        ctx->ItemClick("//Hierarchy Manager/materials/##bitmap");
-        ctx->ItemClick("//Hierarchy Manager/meshes/##bitmap");
+        ctx->ItemClick(SceneRef("hierarchy", "/materials/##bitmap").c_str());
+        ctx->ItemClick(SceneRef("hierarchy", "/meshes/##bitmap").c_str());
         ctx->Yield(2);
         IM_CHECK(RowsOf(ctx, CKCID_MESH, false).empty());
         IM_CHECK(RowsOf(ctx, CKCID_MATERIAL, false).empty());
@@ -283,9 +283,9 @@ void RegisterHierarchyTests(ImGuiTestEngine *engine) {
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         IM_CHECK_SILENT(ShowHierarchy(ctx));
-        const char *const buttons[] = {"//Hierarchy Manager/meshes/##bitmap", "//Hierarchy Manager/materials/##bitmap",
-                                       "//Hierarchy Manager/textures/##bitmap"};
-        for (const char *button : buttons) ctx->ItemClick(button);
+        const std::string buttons[] = {SceneRef("hierarchy", "/meshes/##bitmap"), SceneRef("hierarchy", "/materials/##bitmap"),
+                                       SceneRef("hierarchy", "/textures/##bitmap")};
+        for (const auto &button : buttons) ctx->ItemClick(button.c_str());
         ctx->Yield(2);
         IM_CHECK(!RowsOf(ctx, CKCID_TEXTURE, false).empty());
         // An entity whose row holds its mesh.
@@ -295,16 +295,16 @@ void RegisterHierarchyTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(entity.has_value());
         ctx->LogInfo("row '%s'", entity->name.c_str());
         ClickRow(ctx, *entity);
-        const size_t shown = App().Managers().ShownHierarchyRows().size();
-        ctx->ItemClick("//Hierarchy Manager/collapse/##bitmap");
+        const size_t shown = App().HierarchyRows().size();
+        ctx->ItemClick(SceneRef("hierarchy", "/collapse/##bitmap").c_str());
         ctx->Yield(2);
         IM_CHECK(RowOf(entity->object) && !RowOf(entity->object)->open);
-        IM_CHECK_LT(App().Managers().ShownHierarchyRows().size(), shown);
-        ctx->ItemClick("//Hierarchy Manager/expand/##bitmap");
+        IM_CHECK_LT(App().HierarchyRows().size(), shown);
+        ctx->ItemClick(SceneRef("hierarchy", "/expand/##bitmap").c_str());
         ctx->Yield(2);
         IM_CHECK(RowOf(entity->object) && RowOf(entity->object)->open);
-        IM_CHECK_EQ(App().Managers().ShownHierarchyRows().size(), shown);
-        for (const char *button : buttons) ctx->ItemClick(button);
+        IM_CHECK_EQ(App().HierarchyRows().size(), shown);
+        for (const auto &button : buttons) ctx->ItemClick(button.c_str());
         ctx->Yield(2);
         IM_CHECK(RowsOf(ctx, CKCID_MESH, false).empty());
     };

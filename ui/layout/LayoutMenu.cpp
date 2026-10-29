@@ -250,12 +250,18 @@ void LayoutWindow::InitialConditionsOn(int action) {
 // Dev (commands 160..165): a Script on the object, shown in the Schematic.
 void LayoutWindow::CreateScriptOn(CK_ID object) {
     if (!m_State.HasDocument() || !m_State.host.Context()->GetObject(object)) return;
-    const EditResult result = CreateScript(*m_State.document, object, "");
-    if (!result.ok) {
-        m_State.Log(LogLevel::Warning, "Create Script: " + AnsiToUtf8(result.message));
+    const auto references = m_State.document->References({object});
+    const EditorValue targets{EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0,
+                               {references.data(), static_cast<uint32_t>(references.size())}};
+    auto &editor = m_State.workspace->Application();
+    const auto result = editor.Execute("script.create", {editor.Scope(), &targets, 1});
+    if (result.status != EDITOR_OK) {
+        if (result.status != EDITOR_QUEUED && result.status != EDITOR_NO_CHANGE)
+            m_State.Log(LogLevel::Warning, "Create Script: " + result.message);
         return;
     }
-    if (result.created) ShowScriptInSchematic(result.created);
+    for (const auto &field : result.fields)
+        if (field.key == "created" && field.object) ShowScriptInSchematic(field.object.object);
 }
 
 // Dev (command 172): a Script on each selected object; "%d scripts added to selection.".
@@ -264,9 +270,14 @@ void LayoutWindow::CreateScriptsOnSelection() {
     std::vector<CK_ID> owners;
     for (CK_ID id : AliveSelection())
         if (CKBeObject::Cast(m_State.host.Context()->GetObject(id))) owners.push_back(id);
+    const auto references = m_State.document->References(owners);
+    const EditorValue targets{EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0,
+                               {references.data(), static_cast<uint32_t>(references.size())}};
+    auto &editor = m_State.workspace->Application();
+    const auto result = editor.Execute("script.create", {editor.Scope(), &targets, 1});
     size_t steps = 0;
-    for (const EditResult &result : CreateScriptsOn(*m_State.document, owners))
-        if (result.ok) ++steps;
+    if (result.status == EDITOR_OK)
+        for (const auto &field : result.fields) if (field.key == "objects") steps = field.objects.size();
     if (steps) m_State.Log(LogLevel::Info, std::to_string(steps) + " scripts added to selection.");
 }
 
@@ -351,14 +362,14 @@ void LayoutWindow::CopyOptionsDialog() {
     for (const auto &copy : copies) {
         made.push_back(copy.second);
     }
-    m_State.objectSelection.locked = false;
+    LockSelection(false);
     SetSelection(made);
 }
 
 void LayoutWindow::DeleteSelection() {
     const std::vector<CK_ID> objects = AliveSelection();
     // The Level Manager's Delete dialog.
-    if (!objects.empty()) m_State.events.Post(ConfirmDeleteObjects{objects});
+    if (!objects.empty()) m_State.events.Post(ConfirmDeleteObjects{m_State.document->References(objects)});
 }
 
 } // namespace vdev

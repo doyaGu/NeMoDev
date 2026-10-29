@@ -561,8 +561,6 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_Q)) InitialConditionsOfScripts(2);  // Restore
         if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_S)) SaveSelectionAsNms();          // Dev: Save As...
         if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_X)) ExecuteSelectedScripts();      // Dev: Execute Script(s)
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_T) && m_State.debugger)           // Dev: Trace Mode
-            m_State.debugger->trace = !m_State.debugger->trace;
         // Dev Ctrl+B: select/deselect the highlighted Script.
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_B) && m_Doc.currentScript) {
             ScriptView *current = ViewFor(m_Doc.currentScript);
@@ -605,7 +603,10 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         const Selection &selection = m_State.selection;
         if (selection.items.size() == 1) {
             const ElementRef &item = selection.items[0];
-            if (ImGui::IsKeyPressed(ImGuiKey_F1) && item.kind == ElementKind::Behavior) OpenHtmlHelp(item.object);
+            if (ImGui::IsKeyPressed(ImGuiKey_F1) && item.kind == ElementKind::Behavior) {
+                OpenHtmlHelp(item.object);
+                ImGui::SetKeyOwner(ImGuiKey_F1, ImGui::GetCurrentWindow()->ID, ImGuiInputFlags_LockThisFrame);
+            }
             if (ImGui::IsKeyPressed(ImGuiKey_K) &&
                 (item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut)) {
                 m_Doc.ckPropertiesObject = item.object;

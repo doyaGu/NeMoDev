@@ -39,11 +39,11 @@ bool PrintParameters(ImGuiTestContext *ctx) {
     return window && window->WasActive;
 }
 struct LogStart {
-    size_t entries = App().State().log.size();
-    int repeats = entries ? App().State().log.back().repeats : 0;
+    size_t entries = App().State().eventLog.Entries().size();
+    int repeats = entries ? App().State().eventLog.Entries().back().repeats : 0;
 };
 bool Logged(const LogStart &from, const std::string &text, vdev::LogLevel level = vdev::LogLevel::Info) {
-    const auto &log = App().State().log;
+    const auto &log = App().State().eventLog.Entries();
     // Consecutive identical messages increment the existing entry. A cancel
     // must emit a new message or increment that entry during this operation.
     for (size_t i = from.entries ? from.entries - 1 : 0; i < log.size(); ++i) {
@@ -208,9 +208,9 @@ void RegisterWindowsDialogTests(ImGuiTestEngine *engine) {
             }
             IM_CHECK(!PrintParameters(ctx));
             LogEditor(ctx, log.entries);
-            if (log.entries && App().State().log[log.entries-1].repeats > log.repeats)
-                ctx->LogInfo("editor: %s (repeats %d -> %d)", App().State().log[log.entries-1].text.c_str(),
-                    log.repeats, App().State().log[log.entries-1].repeats);
+            if (log.entries && App().State().eventLog.Entries()[log.entries-1].repeats > log.repeats)
+                ctx->LogInfo("editor: %s (repeats %d -> %d)", App().State().eventLog.Entries()[log.entries-1].text.c_str(),
+                    log.repeats, App().State().eventLog.Entries()[log.entries-1].repeats);
             if (std::string(action) == "pdf_pagination") {
                 IM_CHECK(Until(ctx, [&] { return fs::is_regular_file(output); }));
                 IM_CHECK_GT(fs::file_size(output), 1000u);

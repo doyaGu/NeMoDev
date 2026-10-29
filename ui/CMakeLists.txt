@@ -22,11 +22,8 @@ set(_editor_sources
         app/CommandLine.cpp
         app/EditorApp.cpp
         app/EditorState.cpp
-        panels/EventLogView.cpp
-        app/OutputInputs.cpp
         app/FileInputs.cpp
-        app/DocumentFiles.cpp
-        app/RuntimeOperation.cpp
+        app/OutputInputs.cpp
         app/FileMenu.cpp
         app/StatusBar.cpp
         app/DuplicateNames.cpp
@@ -66,10 +63,11 @@ set(_editor_sources
         layout/LayoutFullScreen.cpp
         # Docked panels and managers.
         panels/EditorPanels.cpp
-        panels/LevelManager.cpp
+        panels/EventLogView.cpp
+        ../features/scene/SceneViewData.cpp
+        ../features/scene/SceneTreeView.cpp
+        ../features/scene/AttributeView.cpp
         panels/DebuggerPanel.cpp
-        panels/ManagerWindows.cpp
-        panels/HierarchyManager.cpp
         # The Setups.
         setup/SetupWindows.cpp
         setup/SetupRenderPages.cpp
@@ -182,6 +180,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AppTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ModuleTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WorkspaceTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArchitectureBaselineTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/GpuViewportTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ViewportBaselineTests.cpp
@@ -235,7 +234,7 @@ if(WIN32)
     endif()
 endif()
 if(VIRTOOLSDEV_BUILD_TESTS)
-    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/ObjectCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/ResourceCommandTests.cpp ../tests/OutputCommandTests.cpp ../tests/EventLogTests.cpp)
+    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp)
     target_link_libraries(NeMoDevEditorTests PRIVATE VirtoolsDevWorkspace NeMoDevObjectCommands VirtoolsDevCore NeMoDevEditorApplication "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
     set_target_properties(NeMoDevEditorTests PROPERTIES ENABLE_EXPORTS TRUE)
     function(nemodev_example_module target host)

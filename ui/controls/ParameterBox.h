@@ -162,3 +162,7 @@ DialogAction EditParameterValueDialog(const char *id, const std::string &title, 
                                       const char *typeName = nullptr);
 
 } // namespace vdev
+
+namespace vdev {
+bool RegisterParameterDialogs(EditorApplication &, EditorState &, std::string &error);
+}

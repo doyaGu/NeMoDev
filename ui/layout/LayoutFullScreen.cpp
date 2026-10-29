@@ -66,13 +66,22 @@ void LayoutWindow::FullScreenEvent(const SDL_Event &event) {
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT && m_PlayerMode)
         LayoutSendClick(m_State.host.Context(), m_View.PickInfo(int(event.button.x), int(event.button.y)), event.button.clicks >= 2);
     if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
-        const bool alt = (event.key.mod & SDL_KMOD_ALT) != 0, ctrl = (event.key.mod & SDL_KMOD_CTRL) != 0;
-        const bool shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
-        if (!shift) {
-            if (event.key.key == SDLK_RETURN && alt && !ctrl) m_PendingToggle = true;
-            else if (event.key.key == SDLK_SPACE && ctrl && !alt) m_PendingPlay.push_back(PlayCommand::PlayStop);
-            else if (event.key.key == SDLK_SPACE && alt && !ctrl) m_PendingPlay.push_back(PlayCommand::Step);
-            else if (event.key.key == SDLK_BACKSPACE && (ctrl || alt)) m_PendingPlay.push_back(PlayCommand::Reset);
+        const auto modifiers = event.key.mod;
+        const bool alt = (modifiers & SDL_KMOD_ALT) != 0, ctrl = (modifiers & SDL_KMOD_CTRL) != 0;
+        const bool shift = (modifiers & SDL_KMOD_SHIFT) != 0;
+        if (!shift && event.key.key == SDLK_RETURN && alt && !ctrl) m_PendingToggle = true;
+        else {
+            const std::string name = event.key.key == SDLK_RETURN ? "Enter" : SDL_GetKeyName(event.key.key);
+            const std::string chord = std::string(ctrl ? "Ctrl+" : "") + (alt ? "Alt+" : "") +
+                (shift ? "Shift+" : "") + (modifiers & SDL_KMOD_GUI ? "Super+" : "") + name;
+            EditorKey key;
+            if (ReadEditorKey(chord, key))
+                for (const auto &binding : m_State.workspace->Application().Shortcuts()) {
+                    if (binding.first != "runtime.play-pause" && binding.first != "runtime.step-frame" &&
+                        binding.first != "runtime.reset" && binding.first != "runtime.pause") continue;
+                    if (std::find(binding.second.begin(), binding.second.end(), key) != binding.second.end())
+                        m_PendingPlay.push_back(binding.first);
+                }
         }
     }
     if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
@@ -81,20 +90,22 @@ void LayoutWindow::FullScreenEvent(const SDL_Event &event) {
 
 void LayoutWindow::FullScreenCommands() {
     const bool toggle = m_PendingToggle, deactivate = m_PendingDeactivate;
-    std::vector<PlayCommand> commands;
+    std::vector<std::string> commands;
     commands.swap(m_PendingPlay);
     m_PendingToggle = m_PendingDeactivate = false;
     // Dev.exe sub_4B95C0 (WM_ACTIVATEAPP): another application taking over
     // pauses the composition, which leaves fullscreen.
     if (deactivate && m_View.FullScreen()) {
-        if (play) play(PlayCommand::Pause);
+        auto &editor = m_State.workspace->Application();
+        editor.Execute("runtime.pause", {editor.Scope(), nullptr, 0});
         LeaveFullScreen(FullScreenExit::Deactivated);
     }
     if (toggle) ToggleFullScreen();
-    for (PlayCommand command : commands) {
+    for (const auto &command : commands) {
         // Play / Stop and Reset leave fullscreen first (Dev.exe sub_5C5F50, sub_5CD680).
-        if (command != PlayCommand::Step) LeaveFullScreen();
-        if (play) play(command);
+        if (command != "runtime.step-frame") LeaveFullScreen();
+        auto &editor = m_State.workspace->Application();
+        editor.Execute(command, {editor.Scope(), nullptr, 0});
     }
 }
 

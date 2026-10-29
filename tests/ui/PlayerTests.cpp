@@ -41,7 +41,7 @@ template<class F> bool Until(ImGuiTestContext *ctx, F done) {
             static_cast<unsigned long long>(SDL_GetWindowFlags(EditorWindow())),
             static_cast<unsigned long long>(SDL_GetWindowFlags(RenderWindow())),
             SDL_GetKeyboardFocus() ? SDL_GetWindowTitle(SDL_GetKeyboardFocus()) : "none");
-        const auto &log = App().State().log;
+        const auto &log = App().State().eventLog.Entries();
         for (size_t i = log.size() > 6 ? log.size()-6 : 0; i < log.size(); ++i)
             ctx->LogInfo("editor: %s", log[i].text.c_str());
     });
@@ -87,7 +87,8 @@ struct Session {
     }
     ~Session() {
         OnMainThread(ctx, [&] {
-            App().State().debugger->Reset();
+            auto &editor = App().State().workspace->Application();
+            editor.Execute("runtime.reset", {editor.Scope(), nullptr, 0});
             auto &p = App().State().preferences;
             p.Set("3D Layout\\Player Mode\\Render Mode", mode);
             p.SetBool("3D Layout\\Player Mode\\Auto FullScreen", automatic);
@@ -336,7 +337,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         });
         IM_CHECK(Start(ctx));
         NativeWindowInput nativeInput(ctx);
-        const size_t logged = App().State().log.size();
+        const size_t logged = App().State().eventLog.Entries().size();
         AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return EditorWindow(); }));
         if (available) {
             IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && SDL_GetKeyboardFocus() == RenderWindow(); }));
@@ -354,8 +355,8 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         } else {
             IM_CHECK(!App().Layout().FullScreen());
             bool warned = false;
-            for (size_t i = logged; i < App().State().log.size(); ++i)
-                warned |= App().State().log[i].text.find("unavailable fullscreen mode") != std::string::npos;
+            for (size_t i = logged; i < App().State().eventLog.Entries().size(); ++i)
+                warned |= App().State().eventLog.Entries()[i].text.find("unavailable fullscreen mode") != std::string::npos;
             IM_CHECK(warned);
             IM_CHECK(Read<bool>(ctx, [] { return !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN); }));
         }

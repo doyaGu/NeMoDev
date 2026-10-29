@@ -39,6 +39,7 @@ public:
     // dock: where a Setup opened for the first time docks (the Schematic's node).
     void Draw(ImGuiID dock);
     void CloseAll();
+    bool HasPendingEdits() const { return m_Pending.Active() || m_PendingSceneActive; }
     // The Setups open, in their order (the 3D Layout's data saves them, Dev.exe
     // sub_4B4E50): the object, the Curve Setup's control point, the one in front.
     struct OpenSetup {
@@ -288,7 +289,7 @@ private:
     // Place Setup's Automatic Portal: the place whose portal waits for the
     // other place to be picked (a click in a window that answers, Escape or
     // a right click gives up).
-    CK_ID m_PortalPlace = 0;
+    ObjectRef m_PortalPlace{};
     void PortalPick();
     // The header's picker (Dev.exe sub_4436E0 20): the Setup of this object
     // takes the next object of its class clicked (Escape, a right click or

@@ -10,6 +10,16 @@
 #include <stdexcept>
 
 namespace vdevuitest {
+static void OpenHelp(const char *topic) {
+    auto &editor = App().State().workspace->Application();
+    const EditorValue value{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, {}, vdev::EditorLiteral(topic)};
+    const auto result = editor.Execute("help.open", {editor.Scope(), &value, 1});
+    IM_CHECK_NO_RET(result.status == EDITOR_OK || result.status == EDITOR_QUEUED);
+}
+static std::string HelpRef(const char *suffix = "") {
+    const auto id = vdev::HelpViewForTests();
+    return id ? "//" + App().State().workspace->WindowName(id) + suffix : "//##closed-help";
+}
 struct HelpScaleLifetime {
     ImGuiStyle style = ImGui::GetStyle();
     ~HelpScaleLifetime() { ImGui::GetStyle() = style; }
@@ -71,7 +81,7 @@ public:
     }
 };
 static ImGuiWindow *HelpArticle(ImGuiTestContext *ctx) {
-    for (ImGuiWindow *child : ctx->GetWindowByRef("//Help")->DC.ChildWindows)
+    for (ImGuiWindow *child : ctx->GetWindowByRef(HelpRef("").c_str())->DC.ChildWindows)
         if (std::strstr(child->Name, "/article_"))
             return child;
     return nullptr;
@@ -99,30 +109,30 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = IM_REGISTER_TEST(engine, "help", "contents_search_history");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const bool dirty = App().State().document->Dirty();
         const int history = App().State().History().UndoCount();
         ctx->MenuClick("//##MainMenuBar/Help/Online Reference");
         ctx->Yield(4);
-        IM_CHECK(InFront(ctx, "//Help"));
+        IM_CHECK(InFront(ctx, HelpRef("").c_str()));
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
-        ctx->ItemClick("//Help/**/Interface");
+        ctx->ItemClick(HelpRef("/**/Interface").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "ui/0_interface_index.html");
-        ctx->ItemOpen("//Help/**/Interface", ImGuiTestOpFlags_MoveToEdgeL);
-        ctx->ItemClick("//Help/**/Building Blocks Resource");
+        ctx->ItemOpen(HelpRef("/**/Interface").c_str(), ImGuiTestOpFlags_MoveToEdgeL);
+        ctx->ItemClick(HelpRef("/**/Building Blocks Resource").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "ui/4_building_blocks_resource.html");
-        ctx->ItemClick("//Help/Home");
+        ctx->ItemClick(HelpRef("/Home").c_str());
         ctx->Yield(3);
-        ctx->ItemInputValue("//Help/**/##search", "Key Event");
-        ctx->ItemClick("//Help/**/Key Event BB");
+        ctx->ItemInputValue(HelpRef("/**/##search").c_str(), "Key Event");
+        ctx->ItemClick(HelpRef("/**/Key Event BB").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "behaviors/Controllers/Key Event.html");
         IM_CHECK(App().Help().ShownText().find("Activates one output") != std::string::npos);
         IM_CHECK(App().Help().ShownText().find("Key State:") != std::string::npos);
         IM_CHECK_GT(App().Help().ShownImages(), size_t(0));
-        const ImRect copy = ctx->ItemInfo("//Help/**/Copy text").RectFull;
+        const ImRect copy = ctx->ItemInfo(HelpRef("/**/Copy text").c_str()).RectFull;
         const bool headerVisible = Read<bool>(ctx, [copy] {
             std::vector<unsigned char> pixels;
             int width = 0, height = 0;
@@ -140,7 +150,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             return ink > 10;
         });
         IM_CHECK(headerVisible);
-        ctx->ItemClick("//Help/**/Copy text");
+        ctx->ItemClick(HelpRef("/**/Copy text").c_str());
         IM_CHECK(Read<std::string>(ctx, [] {
                      char *text = SDL_GetClipboardText();
                      std::string copy = text ? text : "";
@@ -169,25 +179,25 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         if (!clipboardFailure.empty())
             ctx->LogError("%s", clipboardFailure.c_str());
         IM_CHECK(clipboardFailure.empty());
-        ctx->ItemClick("//Help/**/BEOBJECT##help-link");
+        ctx->ItemClick(HelpRef("/**/BEOBJECT##help-link").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "concepts/class_hierarchy.html");
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "behaviors/Controllers/Key Event.html");
-        ctx->ItemNavActivate("//Help/**/BEOBJECT##help-link");
+        ctx->ItemNavActivate(HelpRef("/**/BEOBJECT##help-link").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "concepts/class_hierarchy.html");
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "behaviors/Controllers/Key Event.html");
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
-        ctx->ItemClick("//Help/Forward");
+        ctx->ItemClick(HelpRef("/Forward").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "behaviors/Controllers/Key Event.html");
-        ctx->ItemClick("//Help/Home");
+        ctx->ItemClick(HelpRef("/Home").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
         IM_CHECK(App().State().document->Dirty() == dirty);
@@ -196,10 +206,10 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "help", "tables_anchors_scroll_and_close");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"concepts/8_parameters.html#top"}); });
+        Settle(ctx, SceneRef("level", "").c_str());
+        OnMainThread(ctx, [] { OpenHelp("concepts/8_parameters.html#top"); });
         ctx->Yield(4);
-        IM_CHECK(InFront(ctx, "//Help"));
+        IM_CHECK(InFront(ctx, HelpRef("").c_str()));
         IM_CHECK_GT(App().Help().ShownImages(), size_t(3));
         IM_CHECK(App().Help().ShownText().find("Parameter Output, pOut") != std::string::npos);
         ImGuiWindow *article = HelpArticle(ctx);
@@ -210,32 +220,33 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         const float scroll = article->Scroll.y;
         IM_CHECK_GT(scroll, start + 100.0f);
-        ctx->ItemClick("//Help/Home");
+        ctx->ItemClick(HelpRef("/Home").c_str());
         ctx->Yield(3);
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(4);
         IM_CHECK(std::fabs(article->Scroll.y - scroll) < 2.0f);
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_F);
         ctx->Yield(2);
-        IM_CHECK_EQ(ImGui::GetActiveID(), ctx->ItemInfo("//Help/**/##search").ID);
+        IM_CHECK_EQ(ImGui::GetActiveID(), ctx->ItemInfo(HelpRef("/**/##search").c_str()).ID);
         ctx->KeyPress(ImGuiKey_Escape);
-        ctx->WindowClose("//Help");
+        ctx->WindowClose(HelpRef("").c_str());
         ctx->Yield(3);
-        IM_CHECK(!InFront(ctx, "//Help"));
+        IM_CHECK(!InFront(ctx, HelpRef("").c_str()));
         ctx->MenuClick("//##MainMenuBar/Help/Online Reference");
         ctx->Yield(4);
-        IM_CHECK(InFront(ctx, "//Help"));
+        IM_CHECK(InFront(ctx, HelpRef("").c_str()));
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(4);
         IM_CHECK(App().Help().CurrentTopic() == "concepts/8_parameters.html#top");
+        article = HelpArticle(ctx);
         IM_CHECK(std::fabs(article->Scroll.y - scroll) < 2.0f);
     };
     t = IM_REGISTER_TEST(engine, "help", "anchor_revisit_and_horizontal_history");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"concepts/8_parameters.html#top"}); });
+        Settle(ctx, SceneRef("level", "").c_str());
+        OnMainThread(ctx, [] { OpenHelp("concepts/8_parameters.html#top"); });
         ctx->Yield(4);
         ImGuiWindow *article = HelpArticle(ctx);
         IM_CHECK(article);
@@ -244,27 +255,27 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         ctx->MouseWheelY(-8);
         ctx->Yield(4);
         IM_CHECK_GT(article->Scroll.y, top + 100);
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"concepts/8_parameters.html#top"}); });
+        OnMainThread(ctx, [] { OpenHelp("concepts/8_parameters.html#top"); });
         ctx->Yield(4);
         IM_CHECK(std::fabs(article->Scroll.y - top) < 2);
         OnMainThread(ctx,
-                     [] { App().State().events.Post(vdev::ShowHelpTopic{"vsl/CoreLanguageFeatures/1_Types.html"}); });
+                     [] { OpenHelp("vsl/CoreLanguageFeatures/1_Types.html"); });
         ctx->Yield(4);
-        ctx->WindowResize("//Help", ImVec2(760, 620));
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(760, 620));
         ctx->Yield(4);
         ctx->ScrollTo(article->ID, ImGuiAxis_X, 120, ImGuiTestOpFlags_NoFocusWindow);
         ctx->ScrollTo(article->ID, ImGuiAxis_Y, 300, ImGuiTestOpFlags_NoFocusWindow);
         ctx->Yield(3);
         const ImVec2 scroll = article->Scroll;
         IM_CHECK_GT(scroll.x, 100);
-        ctx->ItemClick("//Help/Home");
+        ctx->ItemClick(HelpRef("/Home").c_str());
         ctx->Yield(4);
         IM_CHECK_LT(article->Scroll.x, 1);
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(4);
         IM_CHECK(std::fabs(article->Scroll.x - scroll.x) < 2 && std::fabs(article->Scroll.y - scroll.y) < 2);
         OnMainThread(ctx, [] {
-            App().State().events.Post(vdev::ShowHelpTopic{"scripts/script_body/behavior_building_block.html#editbb"});
+            OpenHelp("scripts/script_body/behavior_building_block.html#editbb");
         });
         ctx->Yield(4);
         HtmlPoint anchor;
@@ -275,39 +286,39 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "help", "building_block_entry_points");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Building Blocks");
-        ctx->ItemInputValue("//Building Blocks/##filter", "Rotate");
+        Settle(ctx, BlocksRef().c_str());
+        ctx->ItemInputValue(BlocksRef("/##filter").c_str(), "Rotate");
         for (int action = 0; action < 3; ++action) {
-            ctx->WindowFocus("//Building Blocks");
-            ctx->MouseMove("//Building Blocks/**/Rotate");
+            ctx->WindowFocus(BlocksRef().c_str());
+            ctx->MouseMove(BlocksRef("/**/Rotate").c_str());
             if (action == 0)
                 ctx->KeyPress(ImGuiKey_F1);
             else if (action == 1)
-                ctx->ItemDoubleClick("//Building Blocks/**/Rotate");
+                ctx->ItemDoubleClick(BlocksRef("/**/Rotate").c_str());
             else {
-                ctx->ItemClick("//Building Blocks/**/Rotate", ImGuiMouseButton_Right);
+                ctx->ItemClick(BlocksRef("/**/Rotate").c_str(), ImGuiMouseButton_Right);
                 ctx->ItemClick("//$FOCUSED/Html Help");
             }
             ctx->Yield(4);
-            IM_CHECK(InFront(ctx, "//Help"));
+            IM_CHECK(InFront(ctx, HelpRef("").c_str()));
             IM_CHECK(App().Help().CurrentTopic() == "behaviors/3D Transformations/Rotate.html");
             IM_CHECK(App().Help().ShownText().find("Rotate") != std::string::npos);
-            ctx->ItemClick("//Help/Home");
+            ctx->ItemClick(HelpRef("/Home").c_str());
             ctx->Yield(3);
         }
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"missing-source.html"}); });
+        OnMainThread(ctx, [] { OpenHelp("missing-source.html"); });
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "missing-source.html");
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
     };
     t = IM_REGISTER_TEST(engine, "help", "source_styles_and_table_geometry");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         OnMainThread(ctx,
-                     [] { App().State().events.Post(vdev::ShowHelpTopic{"behaviors/Controllers/Key Event.html"}); });
+                     [] { OpenHelp("behaviors/Controllers/Key Event.html"); });
         ctx->Yield(4);
         bool heading = false, input = false;
         for (const auto &item : App().Help().PagePaint().drawings) {
@@ -328,7 +339,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         }
         IM_CHECK(heading && input);
         IM_CHECK(HelpFrame(ctx, "building-block.png", true));
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"ui/0_interface_index.html"}); });
+        OnMainThread(ctx, [] { OpenHelp("ui/0_interface_index.html"); });
         ctx->Yield(4);
         const vdev::HtmlRenderer::Drawing *first = nullptr, *last = nullptr, *map = nullptr;
         for (const auto &item : App().Help().PagePaint().drawings) {
@@ -345,7 +356,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK(std::fabs(last->position.y + last->size.y - map->position.y - map->size.y) < 2.0f);
         IM_CHECK(HelpFrame(ctx, "interface-table.png"));
         OnMainThread(ctx,
-                     [] { App().State().events.Post(vdev::ShowHelpTopic{"vsl/CoreLanguageFeatures/1_Types.html"}); });
+                     [] { OpenHelp("vsl/CoreLanguageFeatures/1_Types.html"); });
         ctx->Yield(4);
         bool codeBackground = false, mono = false, scalable = false;
         float codeY = -1.0f, tableY = -1.0f;
@@ -373,14 +384,14 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, codeY - 100.0f), ImGuiTestOpFlags_NoFocusWindow);
         ctx->Yield(4);
         IM_CHECK(HelpFrame(ctx, "code.png"));
-        ctx->WindowResize("//Help", ImVec2(760, 620));
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(760, 620));
         ctx->Yield(4);
         IM_CHECK_GT(article->ScrollMax.x, 20.0f);
         ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, tableY - 80.0f), ImGuiTestOpFlags_NoFocusWindow);
         ctx->Yield(4);
         IM_CHECK(HelpFrame(ctx, "narrow-table.png"));
         OnMainThread(ctx,
-                     [] { App().State().events.Post(vdev::ShowHelpTopic{"behaviors/Visuals/Volumetric Fog.html"}); });
+                     [] { OpenHelp("behaviors/Visuals/Volumetric Fog.html"); });
         ctx->Yield(4);
         const vdev::HtmlRenderer::Drawing *sample = nullptr, *texture = nullptr, *cloud = nullptr;
         for (const auto &item : App().Help().PagePaint().drawings) {
@@ -395,7 +406,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         IM_CHECK_LE(sample->position.x + sample->size.x, texture->position.x);
         IM_CHECK_LE(texture->position.x + texture->size.x, cloud->position.x);
         const float sampleY = sample->position.y;
-        ctx->WindowResize("//Help", ImVec2(1280, 760));
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(1280, 760));
         ctx->Yield(4);
         ctx->ScrollTo(article->ID, ImGuiAxis_Y, std::max(0.0f, sampleY - 120.0f), ImGuiTestOpFlags_NoFocusWindow);
         ctx->Yield(4);
@@ -404,11 +415,11 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "help", "image_map_navigation_and_scaling");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"concepts/class_hierarchy.html"}); });
+        Settle(ctx, SceneRef("level", "").c_str());
+        OnMainThread(ctx, [] { OpenHelp("concepts/class_hierarchy.html"); });
         ctx->Yield(4);
         for (float zoom : {0.75f, 2.0f}) {
-            ctx->ItemInputValue("//Help/Zoom", zoom);
+            ctx->ItemInputValue(HelpRef("/Zoom").c_str(), zoom);
             ctx->Yield(5);
             float imageWidth = 0, imageLeft = 0, imageTop = 0;
             for (const auto &item : App().Help().PagePaint().drawings)
@@ -429,7 +440,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
                           std::max(0.0f, article->Scroll.y + imageY - article->InnerRect.Min.y - 100),
                           ImGuiTestOpFlags_NoFocusWindow);
             ctx->Yield(3);
-            const auto area = ctx->ItemInfo("//Help/**/book:\\/\\/help\\/beobjects\\/1_ckbeobject.html##help-link");
+            const auto area = ctx->ItemInfo(HelpRef("/**/book:\\/\\/help\\/beobjects\\/1_ckbeobject.html##help-link").c_str());
             IM_CHECK(std::fabs(area.RectFull.GetWidth() / imageWidth - 95.0f / 697.0f) < 0.001f);
             if (zoom < 1)
                 ctx->ItemClick(area.ID);
@@ -437,7 +448,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
                 ctx->ItemNavActivate(area.ID);
             ctx->Yield(4);
             IM_CHECK(App().Help().CurrentTopic() == "beobjects/1_ckbeobject.html");
-            ctx->ItemClick("//Help/Back");
+            ctx->ItemClick(HelpRef("/Back").c_str());
             ctx->Yield(4);
             IM_CHECK(App().Help().CurrentTopic() == "concepts/class_hierarchy.html");
         }
@@ -447,12 +458,12 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t->SetVarsDataType<HelpScaleLifetime>();
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         OnMainThread(ctx,
-                     [] { App().State().events.Post(vdev::ShowHelpTopic{"vsl/CoreLanguageFeatures/1_Types.html"}); });
+                     [] { OpenHelp("vsl/CoreLanguageFeatures/1_Types.html"); });
         ctx->Yield(4);
-        ctx->WindowResize("//Help", ImVec2(1280, 760));
-        ctx->ItemInputValue("//Help/Zoom", 1.0f);
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(1280, 760));
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), 1.0f);
         ctx->Yield(5);
         ImGuiWindow *article = HelpArticle(ctx);
         IM_CHECK(article);
@@ -485,25 +496,25 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             IM_CHECK(std::fabs(codeWidth() - originalWidth * scale) < 2);
             IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12 * scale);
         }
-        ctx->ItemInputValue("//Help/Zoom", 2.0f);
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), 2.0f);
         ctx->Yield(5);
         IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);
-        ctx->WindowResize("//Help", ImVec2(900, 680));
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(900, 680));
         ctx->Yield(5);
         IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);
-        ctx->ItemClick("//Help/Home");
+        ctx->ItemClick(HelpRef("/Home").c_str());
         ctx->Yield(4);
-        ctx->ItemInputValue("//Help/Zoom", .75f);
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), .75f);
         ctx->Yield(5);
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(5);
         IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);
-        ctx->ItemClick("//Help/Forward");
+        ctx->ItemClick(HelpRef("/Forward").c_str());
         ctx->Yield(4);
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
-        ctx->ItemInputValue("//Help/Zoom", 1.5f);
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), 1.5f);
         ctx->Yield(5);
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(5);
         IM_CHECK(std::fabs(codeY() - article->InnerRect.Min.y) < 12);
         IM_CHECK(HelpFrame(ctx, "zoom-reading-position.png"));
@@ -511,33 +522,33 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "help", "zoom_limits_and_scrollbar");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"concepts/class_hierarchy.html"}); });
+        Settle(ctx, SceneRef("level", "").c_str());
+        OnMainThread(ctx, [] { OpenHelp("concepts/class_hierarchy.html"); });
         ctx->Yield(4);
-        ctx->WindowResize("//Help", ImVec2(1280, 760));
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(1280, 760));
         const auto imageWidth = [] {
             for (const auto &item : App().Help().PagePaint().drawings)
                 if (item.image.find("class_hierarchy") != std::string::npos)
                     return item.size.x;
             return 0.0f;
         };
-        ctx->ItemInputValue("//Help/Zoom", 2.0f);
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), 2.0f);
         ctx->Yield(5);
         const float maximum = imageWidth();
         IM_CHECK_GT(maximum, 100);
-        ctx->ItemInputValue("//Help/Zoom", 3.0f);
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), 3.0f);
         ctx->Yield(5);
         IM_CHECK(std::fabs(imageWidth() - maximum) < 1);
-        ctx->ItemInputValue("//Help/Zoom", .75f);
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), .75f);
         ctx->Yield(5);
         const float minimum = imageWidth();
-        ctx->ItemInputValue("//Help/Zoom", -1.0f);
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), -1.0f);
         ctx->Yield(5);
         IM_CHECK(std::fabs(imageWidth() - minimum) < 1);
         ImGuiWindow *article = HelpArticle(ctx);
         IM_CHECK(article);
         const float extraWidth = std::max(0.0f, imageWidth() - article->InnerRect.GetWidth());
-        ctx->WindowResize("//Help", ImVec2(1280 + extraWidth + 64, 760));
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(1280 + extraWidth + 64, 760));
         ctx->Yield(5);
         IM_CHECK_LT(imageWidth(), article->InnerRect.GetWidth());
         IM_CHECK_LT(article->ScrollMax.x, 1);
@@ -546,13 +557,13 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "help", "recovered_script_image_does_not_cover_text");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         OnMainThread(ctx, [] {
-            App().State().events.Post(vdev::ShowHelpTopic{"ui/7_schematic/toolbar/2_schematic_explorer.html"});
+            OpenHelp("ui/7_schematic/toolbar/2_schematic_explorer.html");
         });
         ctx->Yield(4);
-        ctx->WindowResize("//Help", ImVec2(1280, 760));
-        ctx->ItemInputValue("//Help/Zoom", 1.0f);
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(1280, 760));
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), 1.0f);
         ctx->Yield(5);
         const vdev::HtmlRenderer::Drawing *script = nullptr;
         for (const auto &item : App().Help().PagePaint().drawings)
@@ -610,11 +621,11 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "help", "recovered_source_links_and_hotspots");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"beobjects/1_ckgroup.html"}); });
+        Settle(ctx, SceneRef("level", "").c_str());
+        OnMainThread(ctx, [] { OpenHelp("beobjects/1_ckgroup.html"); });
         ctx->Yield(4);
-        ctx->WindowResize("//Help", ImVec2(1280, 760));
-        ctx->ItemInputValue("//Help/Zoom", 1.0f);
+        ctx->WindowResize(HelpRef("").c_str(), ImVec2(1280, 760));
+        ctx->ItemInputValue(HelpRef("/Zoom").c_str(), 1.0f);
         ctx->Yield(4);
         ImGuiWindow *article = HelpArticle(ctx);
         IM_CHECK(article);
@@ -631,7 +642,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             std::clamp(article->Scroll.y + linkY - article->InnerRect.Min.y - 120, 0.0f, article->ScrollMax.y),
             ImGuiTestOpFlags_NoFocusWindow);
         ctx->Yield(4);
-        ctx->MouseMove("//Help/**/Level\\/Groups##help-link");
+        ctx->MouseMove(HelpRef("/**/Level\\/Groups##help-link").c_str());
         const float scroll = article->Scroll.y;
         ctx->MouseClick();
         ctx->Yield(4);
@@ -648,15 +659,15 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
             }
         IM_CHECK(heading);
         IM_CHECK(HelpFrame(ctx, "recovered-groups-anchor.png"));
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(4);
         IM_CHECK(App().Help().CurrentTopic() == "beobjects/1_ckgroup.html");
         IM_CHECK(std::fabs(article->Scroll.y - scroll) < 2);
-        ctx->ItemClick("//Help/Forward");
+        ctx->ItemClick(HelpRef("/Forward").c_str());
         ctx->Yield(4);
         IM_CHECK(App().Help().CurrentTopic() == "behaviors/Logics/_Cat_Logics.html#groups");
         OnMainThread(ctx,
-                     [] { App().State().events.Post(vdev::ShowHelpTopic{"ui/7_schematic/0_schematic_index.html"}); });
+                     [] { OpenHelp("ui/7_schematic/0_schematic_index.html"); });
         ctx->Yield(4);
         // Three ordinary links and the original 35 valid hotspots. The broken
         // four-coordinate polygon must not become a clickable rectangle.
@@ -676,7 +687,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         ctx->ScrollTo(article->ID, ImGuiAxis_Y, article->Scroll.y + diagramY - article->InnerRect.Min.y - 80,
                       ImGuiTestOpFlags_NoFocusWindow);
         ctx->Yield(4);
-        const auto hotspot = ctx->ItemInfo("//Help/**/Show\\/Hide Link Information##help-link");
+        const auto hotspot = ctx->ItemInfo(HelpRef("/**/Show\\/Hide Link Information##help-link").c_str());
         ctx->ItemNavActivate(hotspot.ID);
         ctx->Yield(4);
         IM_CHECK(App().Help().CurrentTopic() == "ui/7_schematic/toolbar/9_sh_links_informations.html");
@@ -685,20 +696,20 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "help", "local_resource_attachments");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"import/3dsmax/0_3dsmax_index.html"}); });
+        Settle(ctx, SceneRef("level", "").c_str());
+        OnMainThread(ctx, [] { OpenHelp("import/3dsmax/0_3dsmax_index.html"); });
         ctx->Yield(4);
-        ctx->ItemClick("//Help/**/Readme.txt for Exporter Plugin##help-link");
+        ctx->ItemClick(HelpRef("/**/Readme.txt for Exporter Plugin##help-link").c_str());
         ctx->Yield(4);
         IM_CHECK(App().Help().CurrentTopic() == "import/3dsmax/Max2Virtools.txt");
         IM_CHECK(App().Help().ShownText().find("Virtools Exporter for 3DS Max") != std::string::npos);
-        ctx->ItemClick("//Help/Back");
+        ctx->ItemClick(HelpRef("/Back").c_str());
         ctx->Yield(4);
         IM_CHECK(App().Help().CurrentTopic() == "import/3dsmax/0_3dsmax_index.html");
-        ctx->ItemClick("//Help/Forward");
+        ctx->ItemClick(HelpRef("/Forward").c_str());
         ctx->Yield(4);
         IM_CHECK(App().Help().CurrentTopic() == "import/3dsmax/Max2Virtools.txt");
-        OnMainThread(ctx, [] { App().State().events.Post(vdev::ShowHelpTopic{"images/vsl_display_instances.png"}); });
+        OnMainThread(ctx, [] { OpenHelp("images/vsl_display_instances.png"); });
         ctx->Yield(4);
         IM_CHECK_EQ(App().Help().ShownImages(), size_t(1));
         IM_CHECK(App().Help().PageDocument().Diagnostics().empty());
@@ -707,7 +718,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "help", "reference_layout_at_multiple_widths");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::string failure = Read<std::string>(ctx, [] {
             vdev::HelpBook book;
             std::string error;

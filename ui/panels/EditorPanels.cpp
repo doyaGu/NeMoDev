@@ -40,13 +40,8 @@ std::string LowerCopy(std::string text) {
 
 void EditorPanels::DocumentClosed() {
     m_ExplorerBox.Clear();
-    if (m_State.workspace) m_State.workspace->CloseOwner(m_NameOwner);
     m_Doc = DocumentState();
-    m_PickRows.clear();
-    m_PickFrame = -1;
-#ifdef VIRTOOLSDEV_UI_TESTS
-    m_ShownRows.clear();
-#endif
+
 }
 
 void EditorPanels::FindNext(int direction) {
@@ -138,7 +133,7 @@ void EditorPanels::RefreshStack() {
     }
 }
 
-// ScriptsPanel (Dev's Level Manager): LevelManager.cpp.
+
 
 void EditorPanels::BuildingBlockItem(size_t index) {
     const BuildingBlockEntry &entry = m_State.catalog.Entries()[index];
@@ -775,86 +770,9 @@ void EditorPanels::ExplorerPanel(bool *open) {
     vi::EndWindow();
 }
 
-// Dev's Event Log (dialog 572, Dev.exe sub_59BEB0, sub_59C350, sub_59C570):
-// a floating window made with the status bar, its bottom-right corner on the
-// status bar's top-right one (sub_4229D0); 354 x 286 dialog units, resizable;
-// the text of the lines over its whole client but the buttons Clear (empties
-// it, "Event Log Cleared") and Close.
-void EditorPanels::LogPanel(bool *open) {
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const float title = vi::TitleHeight(s);
-    if (!m_LogPlaced) {
-        const ImGuiViewport *viewport = ImGui::GetMainViewport();
-        ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x, viewport->WorkPos.y + viewport->WorkSize.y),
-                                ImGuiCond_Always, ImVec2(1.0f, 1.0f));
-        ImGui::SetNextWindowSize(ImVec2(354.0f * 1.5f * s + 2.0f, 286.0f * 1.625f * s + title + 2.0f), ImGuiCond_Always);
-        // The status bar takes its room from the work area a frame after it shows.
-        m_LogPlaced = ImGui::GetFrameCount() > 2;
-    }
-    ImGui::SetNextWindowSizeConstraints(ImVec2(200.0f * s, title + 80.0f * s), ImVec2(FLT_MAX, FLT_MAX));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f * s);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, vi::Color(4));
-    ImGui::PushStyleColor(ImGuiCol_Border, vi::Color(0));
-    const bool visible = ImGui::Begin("Event Log", nullptr,
-                                      ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse |
-                                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                          ImGuiWindowFlags_NoSavedSettings);
-    ImGui::PopStyleColor(2);
-    ImGui::PopStyleVar(3);
-    if (!visible) {
-        ImGui::End();
-        return;
-    }
-    // The dark title bar, as Dev's dialogs; moved by it.
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    const ImVec2 at = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
-    dl->AddRectFilled(ImVec2(at.x + 1.0f, at.y + 1.0f), ImVec2(at.x + size.x - 1.0f, at.y + 1.0f + title), vi::Color(2),
-                      6.0f * s, ImDrawFlags_RoundCornersTop);
-    dl->AddLine(ImVec2(at.x + 1.0f, at.y + 1.0f + title), ImVec2(at.x + size.x - 1.0f, at.y + 1.0f + title),
-                IM_COL32(188, 188, 188, 255));
-    vi::Text(ImVec2(at.x + 9.0f * s, at.y + 1.0f + (title - ImGui::GetFontSize()) * 0.5f),
-             ImVec2(at.x + size.x - 6.0f * s, at.y + title), "Event Log", true, vi::LEFT, vi::Color(9));
-    ImGui::SetCursorScreenPos(at);
-    ImGui::InvisibleButton("##caption", ImVec2(size.x, title + 1.0f));
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
-        const ImVec2 delta = ImGui::GetIO().MouseDelta;
-        ImGui::SetWindowPos(ImVec2(at.x + delta.x, at.y + delta.y));
-    }
-    // The text (a read-only VIEdit, one line per entry), the buttons below.
-    const ImVec2 client(at.x + 1.0f, at.y + 2.0f + title);
-    const ImVec2 clientMax(at.x + size.x - 1.0f, at.y + size.y - 1.0f);
-    const float buttons = clientMax.y - 25.0f * s;
-    ImGui::SetCursorScreenPos(ImVec2(client.x + 1.0f, client.y + 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, vi::Color(7));
-    ImGui::PushStyleColor(ImGuiCol_Text, vi::Color(0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(3.0f * s, 2.0f * s));
-    ImGui::BeginChild("lines", ImVec2(clientMax.x - client.x - 2.0f, buttons - client.y - 3.0f * s),
-                      ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_HorizontalScrollbar);
-    ImGuiListClipper clipper;
-    clipper.Begin(static_cast<int>(m_State.log.size()));
-    while (clipper.Step()) {
-        for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
-            const LogEntry &entry = m_State.log[i];
-            if (entry.repeats > 1) ImGui::Text("%s  (x%d)", entry.text.c_str(), entry.repeats);
-            else ImGui::TextUnformatted(entry.text.c_str());
-        }
-    }
-    if (m_LastLogSize != m_State.log.size()) ImGui::SetScrollHereY(1.0f);
-    m_LastLogSize = m_State.log.size();
-    ImGui::EndChild();
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor(2);
-    const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-    const float by = clientMax.y - 22.0f * s;
-    if (vi::DialogButton("Close", ImVec2(clientMax.x - 70.0f * s, by), s, focused ? ImGuiKey_Escape : ImGuiKey_None))
-        *open = false;
-    if (vi::DialogButton("Clear", ImVec2(clientMax.x - 140.0f * s, by), s)) {
-        m_State.log.clear();
-        m_State.Log(LogLevel::Info, "Event Log Cleared");
-    }
-    ImGui::End();
+void EditorPanels::Report(const EditResult &result, const char *what) {
+    if (!result.Unchanged()) m_State.Log(result.ok ? LogLevel::Info : LogLevel::Warning,
+        std::string(what) + ": " + AnsiToUtf8(result.message));
 }
 
 } // namespace vdev

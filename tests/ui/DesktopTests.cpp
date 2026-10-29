@@ -36,7 +36,7 @@ bool PrintParameters(ImGuiTestContext *ctx) {
     return window && window->WasActive;
 }
 bool Logged(size_t from, const std::string &text) {
-    const auto &log = App().State().log;
+    const auto &log = App().State().eventLog.Entries();
     for (size_t i = from; i < log.size(); ++i)
         if (log[i].text.find(text) != std::string::npos) return true;
     return false;
@@ -211,16 +211,16 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "desktophelp", "building_block_f1");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        SettleDesktop(ctx, "//Building Blocks");
-        ctx->ItemInputValue("//Building Blocks/##filter", "Rotate");
-        ctx->MouseMove("//Building Blocks/**/Rotate");
+        SettleDesktop(ctx, BlocksRef().c_str());
+        ctx->ItemInputValue(BlocksRef("/##filter").c_str(), "Rotate");
+        ctx->MouseMove(BlocksRef("/**/Rotate").c_str());
         for (int action = 0; action < 3; ++action) {
-            ctx->WindowFocus("//Building Blocks");
-            ctx->MouseMove("//Building Blocks/**/Rotate");
+            ctx->WindowFocus(BlocksRef().c_str());
+            ctx->MouseMove(BlocksRef("/**/Rotate").c_str());
             if (action == 0) ctx->KeyPress(ImGuiKey_F1);
-            else if (action == 1) ctx->ItemDoubleClick("//Building Blocks/**/Rotate");
+            else if (action == 1) ctx->ItemDoubleClick(BlocksRef("/**/Rotate").c_str());
             else {
-                ctx->ItemClick("//Building Blocks/**/Rotate", ImGuiMouseButton_Right);
+                ctx->ItemClick(BlocksRef("/**/Rotate").c_str(), ImGuiMouseButton_Right);
                 ctx->ItemClick("//$FOCUSED/Html Help");
             }
             ctx->Yield(3);
@@ -230,7 +230,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
         }
         ctx->MenuClick("//##MainMenuBar/Help/Online Reference"); ctx->Yield(3);
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
-        ctx->WindowFocus("//Level Manager"); ctx->MouseMoveToPos(ImVec2(10, 10));
+        ctx->WindowFocus(SceneRef("level", "").c_str()); ctx->MouseMoveToPos(ImVec2(10, 10));
         ctx->KeyPress(ImGuiKey_F1); ctx->Yield(3);
         IM_CHECK(InFront(ctx, "//Help"));
         IM_CHECK(App().Help().CurrentTopic() == "welcome/0_welcome.html");
@@ -273,7 +273,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         SettleDesktop(ctx, "//Schematic");
-        const size_t log = App().State().log.size();
+        const size_t log = App().State().eventLog.Entries().size();
         PrintResponse response;
         ctx->MenuClick("//##MainMenuBar/File/Print Schematic...");
         ctx->Yield(3);
@@ -291,7 +291,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
         fs::remove(output);
         const bool dirty = App().State().document->Dirty();
         const auto changes = App().State().document->ChangesOutsideUndo();
-        const size_t steps = App().State().History().UndoCount(), log = App().State().log.size();
+        const size_t steps = App().State().History().UndoCount(), log = App().State().eventLog.Entries().size();
         PrintResponse response(output.u8string());
         ctx->MenuClick("//##MainMenuBar/File/Print Schematic...");
         ctx->Yield(3);
@@ -315,7 +315,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
         const auto output = Output("cancelled.pdf");
         fs::remove(output);
         const auto temporary = TemporaryPdfs();
-        const size_t log = App().State().log.size();
+        const size_t log = App().State().eventLog.Entries().size();
         PrintResponse response(output.u8string());
         ctx->MenuClick("//##MainMenuBar/File/Print Schematic..."); ctx->Yield(3);
         IM_CHECK(response.answered && PrintParameters(ctx));
@@ -332,15 +332,15 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
         const auto output = Output("blocked.pdf");
         fs::remove(output);
         const auto temporary = TemporaryPdfs();
-        const size_t log = App().State().log.size();
+        const size_t log = App().State().eventLog.Entries().size();
         PrintResponse response(output.u8string());
         ctx->MenuClick("//##MainMenuBar/File/Print Schematic..."); ctx->Yield(3);
         IM_CHECK(response.answered && PrintParameters(ctx));
         fs::create_directory(output); // becomes unwritable after destination selection
         FourPages(ctx);
         bool failed = false;
-        for (size_t i = log; i < App().State().log.size(); ++i)
-            failed |= App().State().log[i].level == vdev::LogLevel::Error;
+        for (size_t i = log; i < App().State().eventLog.Entries().size(); ++i)
+            failed |= App().State().eventLog.Entries()[i].level == vdev::LogLevel::Error;
         LogEditor(ctx, log);
         IM_CHECK(failed); IM_CHECK(!Logged(log, "Printer job submitted"));
         IM_CHECK(fs::is_directory(output)); IM_CHECK(TemporaryPdfs() == temporary);
@@ -357,7 +357,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
         const auto count = [&] { return std::distance(fs::directory_iterator(directory), fs::directory_iterator()); };
         const auto before = count();
         const auto temporary = TemporaryPdfs();
-        const size_t log = App().State().log.size();
+        const size_t log = App().State().eventLog.Entries().size();
         PrintResponse response(Output("cups.pdf").u8string());
         response.printerName = "VirtoolsDev-test";
         ctx->MenuClick("//##MainMenuBar/File/Print Schematic..."); ctx->Yield(3);

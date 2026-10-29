@@ -1614,7 +1614,14 @@ ParameterBox::Row *ParameterBox::RowAt(std::vector<Row> &rows, const ImVec2 &mou
 CK_ID ParameterBox::ObjectAt(const ImVec2 &mouse, CK_CLASSID cid) const { return ObjectUnderMouse(m_State, mouse, cid); }
 
 CK_ID ObjectUnderMouse(const EditorState &state, const ImVec2 &mouse, CK_CLASSID cid) {
-    if (!cid || state.objectPick.empty()) return 0;
+    if (!cid) return 0;
+    if (state.workspace && state.HasDocument()) {
+        bool handled=false;
+        const auto ref = state.workspace->Pick(mouse.x, mouse.y, &handled);
+        if (auto *object = state.document->Resolve(ref))
+            return CKIsChildClassOf(object->GetClassID(), cid) ? object->GetID() : 0;
+        if(handled)return 0;
+    }
     ImGuiContext &g = *GImGui;
     for (int i = g.Windows.Size - 1; i >= 0; --i) {
         ImGuiWindow *window = g.Windows[i];
@@ -1928,4 +1935,98 @@ size_t ParameterBox::Apply(CK_ID script) {
     return steps;
 }
 
+} // namespace vdev
+
+// Parameter values and dependency options share the native value editor. Its
+// working parameters live only as long as this workspace overlay is open.
+#include "workspace/EditorClient.h"
+#include "editor/ImGuiDrawing.h"
+namespace vdev {
+namespace {
+struct ParameterDialog {
+    EditorState &state;
+    std::unique_ptr<ParameterBox> box;
+    EditorView view=0;
+    EditorScope scope{};
+    ObjectRef target{};
+    std::vector<ObjectRef> objects;
+    int kind=0;
+    bool open=false,shown=false;
+    ParameterDialog(EditorState &s):state(s),box(std::make_unique<ParameterBox>(s)){}
+    void Clear(){box->Clear();objects.clear();target={};scope={};open=shown=false;view=0;}
+    static EditorStatus Navigate(void *data,const EditorHost *host,const EditorRequest *request){
+        auto &d=*static_cast<ParameterDialog*>(data);if(!d.state.document||d.state.document->Token()!=request->scope.document)return EDITOR_STALE;
+        ObjectRef target{};std::vector<ObjectRef> objects;int kind=0;
+        for(uint32_t i=0;i<request->count;++i){const auto&v=request->values[i];const std::string key(v.key.data,v.key.size);
+            if(key=="target")target=v.object;else if(key=="objects"&&v.objects.count)objects.assign(v.objects.data,v.objects.data+v.objects.count);else if(key=="kind")kind=int(v.integer);}
+        if(kind<0||kind>2)return EDITOR_INVALID;
+        for(auto object:objects)if(!d.state.document->Resolve(object))return EDITOR_STALE;
+        auto *parameter=CKParameter::Cast(d.state.document->Resolve(target));
+        if(kind==0&&!parameter)return EDITOR_STALE;
+        if(kind==1&&!d.state.document->Resolve(target))return EDITOR_STALE;
+        auto next=std::make_unique<ParameterBox>(d.state);
+        bool added=false;
+        if(kind==0)added=next->Add(parameter,parameter->GetName()?parameter->GetName():"");
+        else {
+            CKDependencies options;
+            if(kind==1)options=d.state.CopyDependencies();
+            else{
+                EditorClient client(host,d.view);const auto result=client.Query("object.delete-options");if(result.status!=EDITOR_OK)return result.status;
+                for(const auto&f:result.fields){if(f.key=="flags")options.m_Flags=CK_DEPENDENCIES_FLAGS(f.integer);else if(f.key=="options"){options.Resize(int(f.integers.size()));for(size_t i=0;i<f.integers.size();++i)options[int(i)]=CKDWORD(f.integers[i]);}}
+            }
+            added=next->AddDependencies(kind==1?"Copy options":"Delete Options",kind==1?CKPGUID_COPYDEPENDENCIES:CKPGUID_DELETEDEPENDENCIES,options);
+        }
+        if(!added)return EDITOR_ERROR;
+        d.box=std::move(next);d.objects=std::move(objects);d.target=target;d.kind=kind;d.scope=request->scope;
+        d.open=true;d.shown=false;return EDITOR_OK;
+    }
+    static EditorStatus Open(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink){
+        const int kind=*static_cast<const int*>(data);std::vector<EditorValue> values(request->values,request->values+request->count);
+        values.push_back({EDITOR_TEXT("kind"),EDITOR_INTEGER_VALUE,{},{},uint64_t(kind)});
+        const EditorRequest forwarded{request->scope,values.data(),uint32_t(values.size()),{},request->operation};
+        return host->navigateView(host->data,EditorString EDITOR_TEXT("parameter.dialog"),0,&forwarded,sink);
+    }
+    static EditorStatus Accept(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink){
+        auto&d=*static_cast<ParameterDialog*>(data);if(!d.open||!d.state.document||d.state.document->Token()!=d.scope.document||request->scope.view!=d.view)return EDITOR_STALE;
+        if(d.kind==0){if(!d.state.document->Resolve(d.target)){d.box->Clear();d.open=false;return EDITOR_STALE;}d.box->Apply(0);d.box->Clear();d.open=false;return EDITOR_OK;}
+        CKDependencies options;if(!d.box->Dependencies(0,options))return EDITOR_INVALID;
+        std::vector<uint64_t> flags;for(int i=0;i<options.Size();++i)flags.push_back(options[i]);
+        const EditorValue values[]={ObjectsArgument("objects",d.objects),ObjectArgument("target",d.target),IntegerArgument("custom",1),IntegerArgument("flags",uint64_t(options.m_Flags)),
+            {EDITOR_TEXT("options"),EDITOR_INTEGER_LIST,{},{},0,{}, {flags.data(),uint32_t(flags.size())}}};
+        std::vector<EditorValue> arguments(values,values+5);if(d.kind==2)arguments.erase(arguments.begin()+1);
+        const EditorRequest forwarded{request->scope,arguments.data(),uint32_t(arguments.size()),{},request->operation};
+        const auto status=host->execute(host->data,d.kind==1?EditorString EDITOR_TEXT("scene.duplicate"):EditorString EDITOR_TEXT("object.destroy"),&forwarded,sink);
+        if((status==EDITOR_OK||status==EDITOR_NO_CHANGE)&&d.kind==2)d.state.selection.Clear();
+        d.box->Clear();d.open=false;
+        return status;
+    }
+    void Draw(const EditorHost *host,EditorViewFrame &frame){
+        if(!open){frame.close=1;return;}
+        const char*id=kind==0?"Edit Parameter###AttributeManagerValue":kind==1?"Edit Parameter###LevelCopyOptions":"Select Delete Options###DeleteOptions";
+        if(!shown){ImGui::OpenPopup(id);shown=true;}
+        const auto action=EditParameterValueDialog(id,kind==2?"Select Delete Options":"Edit Parameter",*box);
+        if(action==DialogAction::Cancel){box->Clear();open=false;frame.close=1;}
+        else if(action==DialogAction::Ok){EditorClient client(host,view);client.Command("parameter.accept");}
+        frame.active=open;
+    }
+};
+}
+bool RegisterParameterDialogs(EditorApplication &editor,EditorState &state,std::string &error){
+    auto *data=new ParameterDialog(state);
+    const EditorParameter parameter{EDITOR_TEXT("target"),EDITOR_OBJECT};
+    const EditorParameter objects{EDITOR_TEXT("objects"),EDITOR_OBJECT_LIST};
+    const EditorParameter copy[]={objects,parameter};
+    static int parameterKind=0,copyKind=1,deleteKind=2;
+    const EditorCommandDesc commands[]={
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("parameter.edit"),EDITOR_TEXT("builtin.parameters"),EDITOR_TEXT("Edit Parameter"),&parameter,1,ParameterDialog::Open,&parameterKind,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.copy-options"),EDITOR_TEXT("builtin.parameters"),EDITOR_TEXT("Copy Options"),copy,2,ParameterDialog::Open,&copyKind,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("object.confirm-delete"),EDITOR_TEXT("builtin.parameters"),EDITOR_TEXT("Select Delete Options"),&objects,1,ParameterDialog::Open,&deleteKind,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc),EDITOR_TEXT("parameter.accept"),EDITOR_TEXT("builtin.parameters"),EDITOR_TEXT("Edit Parameter"),nullptr,0,ParameterDialog::Accept,data,EDITOR_DOCUMENT,EDITOR_DOCUMENT_CHANGE}};
+    const EditorParameter args[]={{EDITOR_TEXT("target"),EDITOR_OBJECT,1},{EDITOR_TEXT("objects"),EDITOR_OBJECT_LIST,1},{EDITOR_TEXT("kind"),EDITOR_INTEGER_VALUE}};
+    EditorViewDesc view{};view.size=sizeof(view);view.imguiVersion=EDITOR_IMGUI_VERSION;view.id=EDITOR_TEXT("parameter.dialog");view.provider=EDITOR_TEXT("builtin.parameters");view.title=EDITOR_TEXT("Edit Parameter");view.kind=EDITOR_OVERLAY_VIEW;view.singleInstance=1;view.area=EDITOR_DOCUMENT;
+    view.data=data;view.create=[](void*data,const EditorHost*,EditorView id)->void*{auto*d=static_cast<ParameterDialog*>(data);d->view=id;return d;};view.destroy=[](void*data){static_cast<ParameterDialog*>(data)->Clear();};
+    view.draw=[](void*data,const EditorHost*host,EditorView,EditorViewFrame*frame){static_cast<ParameterDialog*>(data)->Draw(host,*frame);};view.parameters=args;view.count=3;view.navigate=ParameterDialog::Navigate;
+    EditorModuleDesc module{};module.size=sizeof(module);module.version=EDITOR_VERSION;module.id=EDITOR_TEXT("parameters.dialogs");module.data=data;module.stop=[](void*data){delete static_cast<ParameterDialog*>(data);};module.commands=commands;module.commandCount=4;module.views=&view;module.viewCount=1;
+    if(editor.Register(module,error))return true;delete data;return false;
+}
 } // namespace vdev

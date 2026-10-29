@@ -3,6 +3,7 @@
 #include <set>
 
 #include "imgui.h"
+#include "application/Printing.h"
 
 #include "core/schematic/SchematicModel.h"
 #include "ui/schematic/SchematicStyle.h"
@@ -22,16 +23,6 @@ struct ViewTransform {
     Point ToWorld(const ImVec2 &screen) const {
         return Point((screen.x - origin.x) / zoom + panX, (screen.y - origin.y) / zoom + panY);
     }
-};
-
-// Print Schematic's options (Dev.exe's Schematic Print Parameters, dialog
-// 702, sub_5990C0): without them the print is black outlines on white.
-struct SchematicPrint {
-    bool fillHeader = false; // Fill Script Header
-    bool fillBody = false;   // Fill Script Body (else white, the band lines black)
-    bool fillShapes = false; // Fill Shapes (Building Blocks, operations, comments, Start)
-    bool bitmaps = false;    // Print Bitmaps (the Script snapshots)
-    bool colorLinks = false; // Use Color for Links (else black)
 };
 
 struct DrawOptions {

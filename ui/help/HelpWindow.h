@@ -1,6 +1,7 @@
 #pragma once
 #include "ui/help/HelpBook.h"
 #include "ui/render/HtmlRenderer.h"
+#include "editor/Editor.h"
 #include <optional>
 #include <set>
 
@@ -9,8 +10,9 @@ class HelpWindow {
 public:
     explicit HelpWindow(HtmlFonts fonts) : m_Renderer(fonts) {}
     void Open(const std::string &topic = std::string());
-    void Draw();
-    void Close();
+    void Draw(EditorViewFrame &frame);
+    EditorStatus SaveState(EditorSink sink) const;
+    EditorStatus RestoreState(const EditorRequest &request);
 #ifdef VIRTOOLSDEV_UI_TESTS
     const std::string &CurrentTopic() const { return m_Current; }
     const std::string &ShownText() const { return m_Document->Text(); }
@@ -39,7 +41,7 @@ private:
     std::unique_ptr<HtmlDocument> m_Document;
     const HelpTopic *m_LayoutTopic = nullptr;
     float m_LayoutWidth = 0, m_LayoutHeight = 0, m_LayoutScale = 0;
-    bool m_Open = false, m_Focus = false, m_Loaded = false;
+    bool m_Loaded = false;
     std::string m_Current, m_Pending, m_Error, m_Notice, m_Query;
     std::vector<const HelpTopic *> m_Results;
     std::vector<Visit> m_History;
@@ -54,4 +56,10 @@ private:
     PagePainting m_PagePaint;
 #endif
 };
+class EditorApplication;
+bool RegisterHelpViews(EditorApplication &editor, HtmlFonts fonts, std::string &error);
+#ifdef VIRTOOLSDEV_UI_TESTS
+const HelpWindow &HelpForTests();
+EditorView HelpViewForTests();
+#endif
 } // namespace vdev

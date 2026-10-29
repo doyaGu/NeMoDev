@@ -292,26 +292,30 @@ void SetupWindows::SetupPick() {
 
 void SetupWindows::PortalPick() {
     if (!m_PortalPlace) return;
-    if (!Get<CKPlace>(m_State, m_PortalPlace) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+    if (!m_State.document->Resolve(m_PortalPlace, CKCID_PLACE) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
         ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-        m_PortalPlace = 0;
+        m_PortalPlace = {};
         return;
     }
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     ImGui::SetTooltip("Pick a place");
     if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
-    const CK_ID place = m_PortalPlace;
-    m_PortalPlace = 0;
+    const ObjectRef place = m_PortalPlace;
+    m_PortalPlace = {};
     const CK_ID other = ObjectUnderMouse(m_State, ImGui::GetMousePos(), CKCID_PLACE);
     if (!other) {
         m_State.Log(LogLevel::Info, "Automatic Portal: no place picked");
         return;
     }
     FlushPending();
-    const EditResult result = CreateAutomaticPortal(*m_State.document, place, other);
-    Report(result, "Automatic Portal");
-    if (result.ok) {
-        CKObject *portal = m_State.document->Context()->GetObject(result.created);
+    auto &editor = m_State.workspace->Application();
+    const EditorValue values[] = {{EditorLiteral("place"), EDITOR_OBJECT, place},
+        {EditorLiteral("other"), EDITOR_OBJECT, m_State.document->Reference(other)}};
+    const auto result = editor.Execute("object.create-automatic-portal", {editor.Scope(), values, 2});
+    if (result.status != EDITOR_QUEUED && !result.message.empty())
+        m_State.Log(result.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, "Automatic Portal: " + result.message);
+    for (const auto &field : result.fields) if (result.status == EDITOR_OK && field.key == "created") {
+        CKObject *portal = m_State.document->Resolve(field.object);
         m_State.Log(LogLevel::Info, std::string("Automatic Portal: ") + AnsiToUtf8(portal && portal->GetName() ? portal->GetName() : ""));
     }
 }
@@ -411,8 +415,8 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
     if (CKBeObject::Cast(object) && !CKBehavior::Cast(object)) {
         ImGuiWindow *window = ImGui::GetCurrentWindow();
         if (ImGui::BeginDragDropTargetCustom(window->Rect(), window->ID)) {
-            if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(ATTRIBUTE_PAYLOAD)) {
-                AttributePayload attribute;
+            if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_ATTRIBUTE_PAYLOAD)) {
+                EditorAttributePayload attribute;
                 std::memcpy(&attribute, payload->Data, sizeof(attribute));
                 FlushPending();
                 m_State.DropAttributeOn({setup.object}, attribute);

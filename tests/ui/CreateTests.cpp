@@ -233,7 +233,7 @@ void RegisterCreateTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "create", "array_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::set<CK_ID> before = ObjectsOf(ctx, CKCID_DATAARRAY);
         ctx->KeyPress(ImGuiKey_R);
         ctx->Yield(3);
@@ -279,7 +279,7 @@ void RegisterCreateTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "create", "group_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Level Manager");
+        Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<LevelRow> row = ClickLevelRow(ctx, CKCID_3DOBJECT, true);
         IM_CHECK_SILENT(row.has_value());
         const std::set<CK_ID> before = ObjectsOf(ctx, CKCID_GROUP);

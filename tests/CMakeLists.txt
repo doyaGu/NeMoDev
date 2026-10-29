@@ -1,6 +1,6 @@
 # Virtools Dev's tests: they link the core only.
 find_package(Threads REQUIRED)
-add_executable(NeMoDevRuntimeOperationTests RuntimeOperationTests.cpp ../ui/app/RuntimeOperation.cpp)
+add_executable(NeMoDevRuntimeOperationTests RuntimeOperationTests.cpp ../application/RuntimeOperation.cpp)
 target_include_directories(NeMoDevRuntimeOperationTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(NeMoDevRuntimeOperationTests PRIVATE cxx_std_17)
 target_link_libraries(NeMoDevRuntimeOperationTests PRIVATE Threads::Threads)
@@ -91,8 +91,8 @@ add_test(NAME VirtoolsDevFontDeployment COMMAND ${CMAKE_COMMAND}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/CheckFontDeployment.cmake")
 
 set(_application_test_sources
-    ../ui/controls/FileDialogs.cpp ../ui/app/Preferences.cpp ../ui/app/RuntimeOperation.cpp
-    ../ui/app/EditorState.cpp ../ui/app/DocumentFiles.cpp)
+    ../ui/controls/FileDialogs.cpp ../ui/app/Preferences.cpp ../application/RuntimeOperation.cpp
+    ../ui/app/EditorState.cpp ../application/DocumentFiles.cpp)
 foreach(_test IN ITEMS FileDialog DocumentFiles)
     add_executable(VirtoolsDev${_test}Tests VirtoolsDev${_test}Tests.cpp ${_application_test_sources})
     target_link_libraries(VirtoolsDev${_test}Tests PRIVATE VirtoolsDevCore NeMoDevEditorApplication Threads::Threads)
@@ -298,6 +298,8 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             --tool "print:$<TARGET_FILE_DIR:VirtoolsDevUiTests>/test-print-cancel" "${_dev_utf8_sample}")
     virtoolsdev_add_test(VirtoolsDevUi.printPages VirtoolsDevUiTests --ui-tests "four_pages" --open-scripts
             --tool "print:$<TARGET_FILE_DIR:VirtoolsDevUiTests>/test-print-pages" "${_dev_command_sample}")
+    set_property(TEST VirtoolsDevUi.printCancel VirtoolsDevUi.printPages APPEND PROPERTY
+        ENVIRONMENT "NEMODEV_TEST_PRINT_ROOT=$<TARGET_FILE_DIR:VirtoolsDevUiTests>")
 endif ()
 # Skipped, not failed, without the runtime or a sample (every test above).
 get_property(_dev_tests DIRECTORY PROPERTY TESTS)

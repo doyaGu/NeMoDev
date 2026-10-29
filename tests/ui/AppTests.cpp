@@ -44,12 +44,12 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             state.History().Clear();
             state.document->MarkSaved();
             state.History().MarkSavePoint();
-            state.showHierarchy = true;
+            App().OpenSceneView("hierarchy");
         });
         ctx->Yield(3);
-        ctx->WindowFocus("//Hierarchy Manager");
+        ctx->WindowFocus(SceneRef("hierarchy", "").c_str());
         ctx->Yield(3);
-        const auto rows = App().Managers().ShownHierarchyRows();
+        const auto rows = App().HierarchyRows();
         const auto row = std::find_if(rows.begin(), rows.end(), [&](const auto &item) { return item.object == object; });
         IM_CHECK(row != rows.end() && row->priorityMax.x > row->priorityMin.x);
         ctx->MouseMoveToPos(Center(row->priorityMin, row->priorityMax));
@@ -68,20 +68,33 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             // The shared follower consumes document queries and excludes
             // graveyard objects while a clipboard can still retain them.
             vdev::SelectionFollower follower;
-            vdev::ObjectSelection selected;
+            auto &selected = state.objectSelection;
+            auto &editor = state.workspace->Application();
+            selected.Restore(*state.document, {object}, true);
             std::set<CK_ID> own;
             follower.Pull(selected, own);
-            own = {object};
-            selected.locked = true;
-            follower.Push(selected, own, state.document.get());
-            IM_CHECK_NO_RET(selected.Objects().empty());
-            selected.locked = false;
-            own.clear(); follower.Push(selected, own, state.document.get());
-            own.insert(object); follower.Push(selected, own, state.document.get());
+            own.clear();
+            follower.Push(selected, own, state.document.get(), editor);
             IM_CHECK_NO_RET(selected.Objects() == std::vector<CK_ID>{object});
-            state.objectSelection.Set(*state.document, {});
+            selected.Restore(*state.document, {});
+            own.clear(); follower.Push(selected, own, state.document.get(), editor);
+            own.insert(object); follower.Push(selected, own, state.document.get(), editor);
+            IM_CHECK_NO_RET(selected.Objects() == std::vector<CK_ID>{object});
+            selected.Restore(*state.document, {});
+            follower.Pull(selected, own);
+            own.insert(object);
+            EditorEdit draft = 0;
+            EditorView owner = 0;
+            IM_CHECK_NO_RET(state.workspace->Begin("object.name", state.document->Reference(object), draft, owner));
+            follower.Push(selected, own, state.document.get(), editor);
+            IM_CHECK_NO_RET(selected.Objects().empty());
+            state.workspace->Finish(draft, false);
+            state.workspace->CloseOwner(owner);
+            follower.Push(selected, own, state.document.get(), editor);
+            IM_CHECK_NO_RET(selected.Objects() == std::vector<CK_ID>{object});
+            state.objectSelection.Restore(*state.document, {});
             IM_CHECK_NO_RET(vdev::DestroyLevelObjects(*state.document, {object}).ok);
-            state.showHierarchy = false;
+            App().CloseSceneView("hierarchy");
             state.document->MarkSaved();
         });
     };
@@ -108,11 +121,11 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::AddAttribute(document, {source, target}, type).ok);
             state.History().Clear();
             document.MarkSaved(); state.History().MarkSavePoint();
-            state.showAttributeManager = true;
+            App().OpenSceneView("attributes");
         });
         ctx->Yield(3);
-        ctx->WindowFocus("//Attribute Manager");
-        ctx->SetRef("//Attribute Manager");
+        ctx->WindowFocus(SceneRef("attributes", "").c_str());
+        ctx->SetRef(SceneRef("attributes", "").c_str());
         ctx->Yield(2);
         ctx->ItemOpen("**/Projection UI");
         ctx->ItemClick("**/Projection Value");
@@ -156,7 +169,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::DestroyLevelObjects(*state.document, {source, target}).ok);
             IM_CHECK_NO_RET(vdev::DeleteAttributeType(*state.document, type).ok);
             IM_CHECK_NO_RET(vdev::DeleteAttributeCategory(*state.document, "Projection UI").ok);
-            state.showAttributeManager = false;
+            App().CloseSceneView("attributes");
             state.document->MarkSaved();
         });
     };
@@ -237,8 +250,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             auto *object = document.Context()->CreateObject(CKCID_3DENTITY, "Identity UI target");
             IM_CHECK_NO_RET(object != nullptr);
             id = object->GetID(); original = document.Reference(id);
-            state.objectSelection.Set(document, {id});
-            state.objectSelection.locked = true;
+            state.objectSelection.Restore(document, {id}, true);
             state.objectClipboard.SetObjects(document, {id});
             state.events.Post(vdev::ShowObjectSetup{original});
         });
@@ -259,13 +271,13 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [&] {
             auto &state = App().State();
-            return state.objectSelection.Objects().empty() && !state.objectSelection.locked && !ShowsObject(id);
+            return state.objectSelection.Objects().empty() && !state.objectSelection.Locked() && !ShowsObject(id);
         }));
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            state.objectSelection.Set(*state.document, {id});
+            state.objectSelection.Restore(*state.document, {id});
             IM_CHECK_NO_RET(!state.objectSelection.Objects().empty());
-            state.objectSelection.Set(*state.document, {});
+            state.objectSelection.Restore(*state.document, {});
             state.objectClipboard.SetObjects(*state.document, {});
             IM_CHECK_NO_RET(state.document->Context()->DestroyObject(id) == CK_OK);
         });
@@ -395,8 +407,8 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         IM_CHECK(App().State().HasDocument());
-        for (const char *name : {"//3D Layout", "//Schematic", "//Level Manager", "//Building Blocks"})
-            IM_CHECK_NO_RET(ctx->GetWindowByRef(name) != nullptr);
+        for (const std::string &name : {std::string("//3D Layout"), std::string("//Schematic"), SceneRef("level"), BlocksRef()})
+            IM_CHECK_NO_RET(ctx->GetWindowByRef(name.c_str()) != nullptr);
     };
 
     // File > New Composition: a new, unmodified composition without Scripts
@@ -515,30 +527,30 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
     // the reference and Building Block shortcuts quiet.
     t = IM_REGISTER_TEST(engine, "app", "optional_help");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Building Blocks");
+        Settle(ctx, BlocksRef().c_str());
         const bool available = vdev::HelpAvailable();
         ctx->LogInfo("Local help: %s", available ? "installed" : "absent");
         ctx->MenuClick("//##MainMenuBar/Help");
         IM_CHECK(((ctx->ItemInfo("//$FOCUSED/Online Reference").ItemFlags & ImGuiItemFlags_Disabled) == 0) == available);
         ctx->KeyPress(ImGuiKey_Escape);
-        ctx->ItemInputValue("//Building Blocks/##filter", "Rotate");
-        ctx->ItemClick("//Building Blocks/**/Rotate", ImGuiMouseButton_Right);
+        ctx->ItemInputValue(BlocksRef("/##filter").c_str(), "Rotate");
+        ctx->ItemClick(BlocksRef("/**/Rotate").c_str(), ImGuiMouseButton_Right);
         IM_CHECK(((ctx->ItemInfo("//$FOCUSED/Html Help").ItemFlags & ImGuiItemFlags_Disabled) == 0) == available);
         ctx->KeyPress(ImGuiKey_Escape);
         if (!available) {
             const auto &state = App().State();
-            const size_t logCount = state.log.size();
-            const int repeats = logCount ? state.log.back().repeats : 0;
+            const size_t logCount = state.eventLog.Entries().size();
+            const int repeats = logCount ? state.eventLog.Entries().back().repeats : 0;
             const bool dirty = state.document->Dirty();
-            ctx->WindowFocus("//Level Manager");
+            ctx->WindowFocus(SceneRef("level", "").c_str());
             ctx->MouseMoveToPos(ImVec2(10, 10));
             ctx->KeyPress(ImGuiKey_F1);
-            ctx->MouseMove("//Building Blocks/**/Rotate");
+            ctx->MouseMove(BlocksRef("/**/Rotate").c_str());
             ctx->KeyPress(ImGuiKey_F1);
-            ctx->ItemDoubleClick("//Building Blocks/**/Rotate");
+            ctx->ItemDoubleClick(BlocksRef("/**/Rotate").c_str());
             ctx->Yield(3);
-            IM_CHECK_EQ(state.log.size(), logCount);
-            if (logCount) IM_CHECK_EQ(state.log.back().repeats, repeats);
+            IM_CHECK_EQ(state.eventLog.Entries().size(), logCount);
+            if (logCount) IM_CHECK_EQ(state.eventLog.Entries().back().repeats, repeats);
             IM_CHECK(state.document->Dirty() == dirty);
         }
     };
