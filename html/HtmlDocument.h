@@ -100,6 +100,9 @@ public:
     ~HtmlReadingPosition();
     HtmlReadingPosition(const HtmlReadingPosition &);
     HtmlReadingPosition &operator=(const HtmlReadingPosition &);
+    // UTF-8 navigation state, independent of renderer objects and images.
+    std::string Save() const;
+    bool Load(const std::string &state);
 
 private:
     struct Data;

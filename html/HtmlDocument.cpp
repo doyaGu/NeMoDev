@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstdlib>
 #include <limits>
+#include <iomanip>
+#include <locale>
 #include <litehtml.h>
 #include <litehtml/el_body.h>
 #include <litehtml/el_div.h>
@@ -134,6 +136,7 @@ static void HtmlPlainText(const litehtml::element::ptr &node, std::string &text)
 
 struct HtmlReadingPosition::Data {
     std::shared_ptr<const std::string> source;
+    uint64_t sourceHash = 0;
     std::string base;
     std::vector<size_t> path;
     HtmlPoint offset;
@@ -142,6 +145,42 @@ HtmlReadingPosition::HtmlReadingPosition() = default;
 HtmlReadingPosition::~HtmlReadingPosition() = default;
 HtmlReadingPosition::HtmlReadingPosition(const HtmlReadingPosition &) = default;
 HtmlReadingPosition &HtmlReadingPosition::operator=(const HtmlReadingPosition &) = default;
+namespace {
+uint64_t ReadingSourceHash(const std::string &source) {
+    uint64_t hash = 14695981039346656037ULL;
+    for (unsigned char byte : source) { hash ^= byte; hash *= 1099511628211ULL; }
+    return hash;
+}
+}
+std::string HtmlReadingPosition::Save() const {
+    if (!m_Data) return {};
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << 1 << ' ' << (m_Data->source ? ReadingSourceHash(*m_Data->source) : m_Data->sourceHash)
+        << ' ' << std::quoted(m_Data->base) << ' ' << std::setprecision(std::numeric_limits<float>::max_digits10)
+        << m_Data->offset.x << ' ' << m_Data->offset.y << ' ' << m_Data->path.size();
+    for (auto index : m_Data->path) out << ' ' << index;
+    return out.str();
+}
+bool HtmlReadingPosition::Load(const std::string &state) {
+    if (state.empty()) { m_Data.reset(); return true; }
+    if (state.size() > 65536) return false;
+    std::istringstream in(state);
+    in.imbue(std::locale::classic());
+    auto data = std::make_shared<Data>();
+    unsigned version = 0;
+    size_t count = 0;
+    if (!(in >> version >> data->sourceHash >> std::quoted(data->base) >> data->offset.x >> data->offset.y >> count) ||
+        version != 1 || count > 1024 || !std::isfinite(data->offset.x) || !std::isfinite(data->offset.y)) return false;
+    for (size_t i = 0, index; i < count; ++i) {
+        if (!(in >> index)) return false;
+        data->path.push_back(index);
+    }
+    in >> std::ws;
+    if (!in.eof()) return false;
+    m_Data = std::move(data);
+    return true;
+}
 
 struct HtmlDocument::Impl : litehtml::document_container {
     HtmlResources &resources;
@@ -995,7 +1034,8 @@ HtmlReadingPosition HtmlDocument::CapturePosition(HtmlPoint point) const {
 }
 bool HtmlDocument::RestorePosition(const HtmlReadingPosition &position, HtmlPoint &point) const {
     if (!position.m_Data || !m_Impl->laidOut || position.m_Data->base != m_Impl->base ||
-        *position.m_Data->source != *m_Impl->source)
+        (position.m_Data->source ? *position.m_Data->source != *m_Impl->source :
+         position.m_Data->sourceHash != ReadingSourceHash(*m_Impl->source)))
         return false;
     auto node = m_Impl->document->root();
     for (size_t index : position.m_Data->path) {

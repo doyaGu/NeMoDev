@@ -293,10 +293,19 @@ static void TablesAndReflow() {
     Check(b.x > a.x && c.x == b.x && c.y > b.y, "Rowspan changed the table's column occupancy");
     const auto before = document.ContentSize();
     const auto bookmark = document.CapturePosition({10, before.height - 10});
+    HtmlReadingPosition savedBookmark;
+    Check(savedBookmark.Load(bookmark.Save()), "Could not restore saved reading state");
+    const auto savedText = savedBookmark.Save();
+    Check(!savedText.empty() && !savedBookmark.Load("1 0 broken") && savedBookmark.Save() == savedText,
+          "Invalid saved state replaced a reading position");
     std::string error;
     Check(document.Layout({200, 300}, 2, error), error.c_str());
     HtmlPoint restored;
     Check(document.RestorePosition(bookmark, restored), "Reflow invalidated the reading position");
+    HtmlPoint savedRestored;
+    Check(document.RestorePosition(savedBookmark, savedRestored) && std::fabs(savedRestored.x - restored.x) < .01f &&
+              std::fabs(savedRestored.y - restored.y) < .01f,
+          "Saved reading state changed reflow restoration");
     Check(document.ContentSize().height > before.height && std::isfinite(restored.y),
           "Zoom did not reflow the document");
     Check(document.Load(html, "book://manual/topics/page.html", error), error.c_str());
@@ -304,6 +313,10 @@ static void TablesAndReflow() {
           "Reloading the same source lost its reading position");
     Check(document.Load("<p>Different</p>", "book://manual/topics/page.html", error), error.c_str());
     Check(!document.RestorePosition(bookmark, restored), "A different document accepted a stale reading position");
+    Check(!document.RestorePosition(savedBookmark, restored), "A different source accepted saved reading state");
+    Check(!savedBookmark.Load("2 0 \"base\" 0 0 0") &&
+          !savedBookmark.Load("1 0 \"base\" nan 0 0") && !savedBookmark.Load("1 0 \"base\" 0 0 1025"),
+          "Invalid version, geometry or path count was accepted");
 }
 static void FailuresKeepTheDocument() {
     TestHtmlResources resources;

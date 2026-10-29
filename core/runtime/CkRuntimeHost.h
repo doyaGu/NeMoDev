@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "CKAll.h"
+#include "core/runtime/Log.h"
 
 struct SDL_Window;
 
@@ -16,8 +17,6 @@ namespace vdev {
 // The runtime's Virtools compatibility version, recorded from the source SDK
 // alongside its libraries. False for absent or incompatible runtime metadata.
 bool RuntimeVersion(const std::string &runtimeDirectory, int &major, int &minor);
-
-enum class LogLevel { Info, Warning, Error };
 
 using LogSink = std::function<void(LogLevel, const std::string &)>;
 

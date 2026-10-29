@@ -22,6 +22,7 @@ set(_editor_sources
         app/CommandLine.cpp
         app/EditorApp.cpp
         app/EditorState.cpp
+        panels/EventLogView.cpp
         app/OutputInputs.cpp
         app/FileInputs.cpp
         app/DocumentFiles.cpp
@@ -234,7 +235,7 @@ if(WIN32)
     endif()
 endif()
 if(VIRTOOLSDEV_BUILD_TESTS)
-    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/ObjectCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/ResourceCommandTests.cpp ../tests/OutputCommandTests.cpp)
+    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/ObjectCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/ResourceCommandTests.cpp ../tests/OutputCommandTests.cpp ../tests/EventLogTests.cpp)
     target_link_libraries(NeMoDevEditorTests PRIVATE VirtoolsDevWorkspace NeMoDevObjectCommands VirtoolsDevCore NeMoDevEditorApplication "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
     set_target_properties(NeMoDevEditorTests PROPERTIES ENABLE_EXPORTS TRUE)
     function(nemodev_example_module target host)
