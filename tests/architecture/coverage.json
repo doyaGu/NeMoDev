@@ -215,8 +215,7 @@
       "id": "S24",
       "name": "工具和资源视图",
       "patterns": [
-        "ui/tools/ToolWindows.*",
-        "ui/tools/DataResources.cpp"
+        "ui/tools/ToolWindows.*"
       ]
     },
     {
@@ -378,6 +377,13 @@
       "patterns": [
         "features/resources/DataResourceCommands.*"
       ]
+    },
+    {
+      "id": "S43",
+      "name": "默认工作区配置",
+      "patterns": [
+        "features/defaults/**"
+      ]
     }
   ],
   "dependencies": {
@@ -487,7 +493,9 @@
       "S38",
       "S39",
       "S40",
-      "S41"
+      "S41",
+      "S42",
+      "S43"
     ],
     "S15": [
       "S01",
@@ -542,7 +550,6 @@
       "S27"
     ],
     "S20": [
-      "S02",
       "S05",
       "S08",
       "S10",
@@ -605,8 +612,7 @@
       "S20",
       "S21",
       "S27",
-      "S28",
-      "S35"
+      "S28"
     ],
     "S25": [
       "S13",
@@ -725,6 +731,9 @@
       "S13",
       "S34",
       "S35"
+    ],
+    "S43": [
+      "S35"
     ]
   },
   "legacy_exposures": [
@@ -841,24 +850,6 @@
     },
     {
       "file": "ui/app/StatusBar.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/BehaviorInfoDialog.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/BehaviorInfoDialog.h",
       "access": [
         "editor-state",
         "mutable-document",
@@ -1181,15 +1172,6 @@
     },
     {
       "file": "ui/setup/SetupWindowsDetail.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/tools/DataResources.cpp",
       "access": [
         "editor-state",
         "mutable-document",
@@ -1845,7 +1827,8 @@
         "S27",
         "S31",
         "S34",
-        "S35"
+        "S35",
+        "S43"
       ],
       "tests": [
         "VirtoolsDevPortable",
@@ -1970,7 +1953,8 @@
         "S24",
         "S25",
         "S35",
-        "S37"
+        "S37",
+        "S43"
       ],
       "tests": [
         "NeMoDevEditor"
@@ -2026,7 +2010,8 @@
         "S34",
         "S35",
         "S36",
-        "S37"
+        "S37",
+        "S43"
       ],
       "tests": [
         "NeMoDevEditor",

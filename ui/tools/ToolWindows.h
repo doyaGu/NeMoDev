@@ -11,7 +11,6 @@
 #include "ui/app/EditorState.h"
 #include "core/document/ToolCommands.h"
 #include "ui/controls/ParameterBox.h"
-#include "ui/controls/BehaviorInfoDialog.h"
 #include "ui/controls/ValueEditor.h"
 
 namespace vdev {
@@ -21,20 +20,17 @@ class SchematicCanvas;
 // Dev's windows of the Resources, Editors, Options and Help menus and the
 // status bar (layouts after the Dev 2.5 screenshots the user gave):
 // General Preferences, Installed Plugins, Path Manager, Unused Object
-// Explorer, Building Block Version Test, Profiler, Parameter Debugger, Data
-// Resources, Behavior Link Properties and About.
+// Explorer, Building Block Version Test, Profiler, Parameter Debugger,
+// Behavior Link Properties and About.
 class ToolWindows {
 public:
     ToolWindows(EditorState &state, SchematicCanvas &canvas) : m_State(state), m_Canvas(canvas) {}
 
-    // topDock: the dock node of the Building Blocks (Parameter Debugger and
-    // Data Resources tabs open there); applyPreferences: called after the
-    // General Preferences are accepted; preferencesPath: where they are saved.
+    // topDock: the dock node for the Parameter Debugger; applyPreferences:
+    // called after the General Preferences are accepted.
     // openPopups: false while the application moves the focus (it would close them).
     void Draw(ImGuiID topDock, bool openPopups = true);
     std::function<void()> applyPreferences;
-    // The one object selected in the Level Manager, else 0.
-    std::function<CK_ID()> levelTarget;
 
     // Opens a window.
     void OpenGeneralPreferences(int page = -1);
@@ -49,14 +45,6 @@ public:
     void OpenLinkProperties();
     bool showProfiler = false;
     bool showParameterDebugger = false;
-    // Data Resources: open (Resources > Open Data Resource) and create.
-    bool OpenDataResource(const std::string &file, bool remember = true);
-    // Shows the files of the last Data Resource's folder whose path ends
-    // with relative (capture mode).
-    void SelectResourceFolder(const std::string &relative);
-    bool CreateNewDataResource(const std::string &file);
-    void CloseAllResources();
-    bool HasResources() const { return !m_Resources.empty(); }
     // Parameter Debugger: adds parameters (locals and outputs only).
     int WatchParameters(const std::vector<CK_ID> &parameters);
     void ClearWatches() { m_Doc.watches.clear(); }
@@ -89,14 +77,6 @@ private:
     void ParameterDebugger(ImGuiID dock);
     void AboutDialog();
     void LinkPropertiesDialog();
-    // DataResources.cpp
-    void DataResources(ImGuiID dock);
-    struct Resource;
-    void ResourceFolder(Resource &resource, const DataResourceFolder &folder);
-    void LoadResource(const std::string &path, CK_CLASSID cid);
-    // Import as Place / Scene, after Duplicate Names Found.
-    void ImportResource(const std::string &path, Document::ImportMode mode);
-
     // What names the open composition's objects (CK gives their ids to the
     // next document's objects): made anew when it is closed; a field naming
     // an object goes here.
@@ -167,22 +147,7 @@ private:
     // Behavior Link Properties: its three rows (Edit Parameters).
     bool m_OpenLinkProperties = false;
     ParameterBox m_LinkBox{m_State};
-    // Data Resources
-    struct Resource {
-        DataResource data;
-        bool open = true;
-        std::string selectedFolder; // path
-        CK_CLASSID selectedClass = 0;
-        std::vector<std::string> files;
-        std::string selectedFile;            // the one clicked last
-        std::set<std::string> selectedFiles; // with Ctrl or Shift + click, several
-        // The behavior files' descriptions (their .dsc; Dev.exe sub_561DD0).
-        std::map<std::string, BehaviorDescription> descriptions;
-    };
-    void ShowFiles(Resource &resource, const DataResourceFolder &folder);
-    // Behavior Information of a behavior file (Dev.exe sub_560990).
-    BehaviorInfoDialog m_BehaviorInfo;
-    std::vector<Resource> m_Resources;
+
 };
 
 } // namespace vdev

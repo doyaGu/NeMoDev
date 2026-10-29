@@ -43,7 +43,6 @@ set(_editor_sources
         controls/ValueEditor.cpp
         controls/ParameterBox.cpp
         controls/TypeAhead.cpp
-        controls/BehaviorInfoDialog.cpp
         controls/BehaviorInfoFields.cpp
         # The Schematic.
         schematic/SchematicCanvas.cpp
@@ -70,6 +69,7 @@ set(_editor_sources
         ../features/scene/AttributeView.cpp
         ../features/resources/BuildingBlockViews.cpp
         ../features/resources/DataResourceViews.cpp
+        ../features/defaults/DefaultWorkspace.cpp
         panels/DebuggerPanel.cpp
         # The Setups.
         setup/SetupWindows.cpp
@@ -78,8 +78,7 @@ set(_editor_sources
         setup/SetupObjectPages.cpp
         # The Resources, Editors, Options and Help windows.
         tools/ToolWindows.cpp
-        tools/GeneralPreferences.cpp
-        tools/DataResources.cpp)
+        tools/GeneralPreferences.cpp)
 
 if(WIN32)
     list(APPEND _editor_sources print/PrinterWindows.cpp)

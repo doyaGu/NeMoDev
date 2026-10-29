@@ -2,6 +2,7 @@
 
 #include <functional>
 #include "features/objects/ObjectCommands.h"
+#include "features/resources/DataResourceCommands.h"
 #include "features/objects/SelectionCommands.h"
 #include "application/DocumentCommands.h"
 #include "application/ExecutionCommands.h"
@@ -145,12 +146,6 @@ private:
     // What the windows asked of each other the frame before (EditorState::events).
     void DispatchEvents();
     void ShowSchematicExplorer();
-    // Dev's arrangement. The windows docked before go back to their tab
-    // rows (Setups and the Attribute Manager with the Schematic, the
-    // Hierarchy Manager, Parameter Debugger and Data Resources with the
-    // Building Blocks); closeSeparated (Reset Interface): the floating ones
-    // close, but Data Resources, which dock again.
-    void BuildDefaultLayout(unsigned int dockspace, bool closeSeparated = false);
     bool m_CloseSeparated = false;
     void GlobalShortcuts();
     // A dialog, popup or menu open, a control held or a drag going on: what
@@ -175,8 +170,6 @@ private:
     void RememberRecentFile(const std::string &path);
     // Resources menu: Import File (As), Open / Create New Data Resource.
     void ImportFile(Document::ImportMode mode, const std::string &path = std::string());
-    void OpenDataResourceDialog();
-    void CreateDataResourceDialog();
     // Editors > Close All Setups and Managers.
     void CloseSetupsAndManagers();
     bool RegisterSceneNavigation(std::string &);
@@ -235,6 +228,9 @@ private:
     // DocumentFiles::PendingDuplicates waiting for its choices.
     void DuplicateNamesDialog();
     void ApplyPreferences();
+    bool FileOperationAvailable() const {
+        return !m_State.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy();
+    }
     std::string PreferencesPath() const;
     void SavePreferences(); // not when isolated
 
@@ -245,8 +241,9 @@ private:
     OutputCommands m_Outputs{m_Editor, m_State.files, m_State.runtimeOperation,
                               [this] { return m_State.document.get(); }, *this};
     ExecutionCommands m_Execution{m_Editor, [this] { return m_State.document.get(); },
-                                  [this] { return !m_State.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy(); }};
+                                  [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }};
     EditorWorkspace m_Workspace{m_Editor};
+    DataResourceCommands m_ResourceCommands{m_Editor, m_State.host, [this] { return FileOperationAvailable(); }};
     ObjectCommands m_ObjectCommands;
     SelectionCommands m_SelectionCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                                           m_State.objectSelection};
@@ -265,7 +262,6 @@ private:
     SDL_Window * m_Window = nullptr;
     bool m_Quit = false;
     bool m_Shutdown = false;
-    bool m_LayoutChecked = false;
     bool m_OpenSaveReport = false;
     std::string m_SaveReportText;
     std::vector<DevMessage> m_Messages; // the first one shown

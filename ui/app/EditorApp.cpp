@@ -6,6 +6,8 @@
 #include "features/objects/ObjectViews.h"
 #include "features/resources/BuildingBlockQueries.h"
 #include "features/resources/BuildingBlockViews.h"
+#include "features/resources/DataResourceViews.h"
+#include "features/defaults/DefaultWorkspace.h"
 #include "features/scene/SceneViewData.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/level/SetupCommands.h"
@@ -37,7 +39,7 @@ namespace vdev {
 
 EditorApp::EditorApp(HtmlFonts fonts)
     : m_Editor([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
-               [this] { return !m_State.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy(); }),
+               [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }),
       m_ObjectCommands([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }),
       m_Canvas(m_State), m_Panels(m_State, m_Canvas), m_Tools(m_State, m_Canvas), m_HtmlFonts(fonts) {
     m_State.workspace = &m_Workspace;
@@ -62,22 +64,6 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
 namespace {
 
 const char *SCHEMATIC_WINDOW = "Schematic";
-
-const wchar_t *FILE_FILTER = L"Virtools compositions (*.cmo;*.nmo;*.vmo)\0*.cmo;*.nmo;*.vmo\0All files (*.*)\0*.*\0";
-
-FileDialogOptions FileDialog(SDL_Window * owner, bool save, const std::string &initial, const wchar_t *filter = FILE_FILTER,
-                       const wchar_t *extension = L"cmo", const wchar_t *title = nullptr) {
-    FileDialogOptions options;
-    options.save = save;
-    options.owner = owner;
-    options.filter = filter;
-    options.extension = extension;
-    options.title = title;
-    options.initial = Utf8ToWide(initial);
-    return options;
-}
-
-const wchar_t *RESOURCE_FILTER = L"Virtools Resources (*.rsc)\0*.rsc\0";
 
 } // namespace
 
@@ -122,9 +108,6 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         ApplyRuntimeSettings();
         SavePreferences();
     };
-    m_Tools.levelTarget = [this]() -> CK_ID {
-        return LevelSelection().size() == 1 ? *LevelSelection().begin() : 0;
-    };
     std::string error;
     m_State.host.SetRenderEngine(preferences.Text("CK2 Settings\\Render Engine"));
     const bool started = m_State.host.Start(runtimeDirectory, [this](LogLevel level, const std::string &message) {
@@ -136,7 +119,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     }
     m_State.catalog.Refresh();
     if (!RegisterBuildingBlockQueries(m_Editor, m_State.catalog, error) || !RegisterBuildingBlockViews(m_Editor, error) ||
-        !m_Workspace.Register(error) || !m_State.eventLog.Register(m_Editor, error) ||
+        !m_ResourceCommands.Register(error) || !RegisterDataResourceViews(m_Editor, error) || !RegisterResourceInputs(m_Editor, window, error) ||
+        !RegisterDefaultWorkspace(m_Editor, error) || !m_Workspace.Register(error) || !m_State.eventLog.Register(m_Editor, error) ||
         !RegisterEventLogView(m_Editor, error) || !RegisterHelpViews(m_Editor, m_HtmlFonts, error) ||
         !m_FileCommands.Register(error) || !RegisterFileInputs(m_Editor, window, error) ||
         !m_ObjectCommands.Register(m_Editor, error) || !m_SelectionCommands.Register(m_Editor, error) ||
@@ -148,20 +132,18 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     }
     for (const auto &module : modules)
         if (!m_Editor.Load(module, error)) { m_State.Log(LogLevel::Error, error); return false; }
-    auto configuration = DefaultObjectConfiguration();
-    configuration.providers.push_back({"view", "document.file-dialogs", "builtin.file-dialogs"});
-    configuration.providers.push_back({"view", "document.output-dialogs", "builtin.output-dialogs"});
-    configuration.providers.push_back({"view", "application.event-log", "builtin.log"});
-    configuration.providers.push_back({"command", "runtime.play", "builtin.execution"});
-    if (!m_Editor.Activate(EDITOR_IMGUI_VERSION, error, configuration)) {
+    auto configuration = DefaultWorkspaceConfiguration();
+    if (!m_Editor.Activate(EDITOR_IMGUI_VERSION, error, configuration.contributions)) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }
-    if (!m_Workspace.Open("document.file-dialogs") || !m_Workspace.Open("document.output-dialogs")) return false;
     m_State.document = std::make_unique<Document>(m_State.host);
     m_Editor.Attach({}, 0, true, false);
+    if (!m_Workspace.Configure(configuration, error)) {
+        m_State.Log(LogLevel::Error, error);
+        return false;
+    }
     OpenSceneView("level");
-    m_Workspace.Open("resource.building-blocks", "main.building-blocks", true);
     m_State.debugger = m_Execution.Bind(*m_State.document);
     // Dev's paths (HKCU\Software\Virtools\Data Paths, read-only) until the
     // editor has its own.
@@ -174,11 +156,19 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
 
     std::string layoutError;
     if (!m_Layout.Start(window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
-    for (const std::string &resource : std::vector<std::string>(preferences.dataResources))
-        m_Tools.OpenDataResource(resource, false);
+    EditorView lastResource = 0;
+    const auto openResource = [&](const std::string &resource) {
+        const auto result = Command("resource.open-library", resource);
+        for (const auto &field : result.fields) if (field.key == "view") lastResource = field.integer;
+    };
+    for (const std::string &resource : std::vector<std::string>(preferences.dataResources)) openResource(resource);
 #ifdef VIRTOOLSDEV_UI_TESTS
-    for (const std::string &resource : m_Startup.resources) m_Tools.OpenDataResource(resource, false);
-    if (!m_Startup.resourceFolder.empty()) m_Tools.SelectResourceFolder(m_Startup.resourceFolder);
+    for (const std::string &resource : m_Startup.resources) openResource(resource);
+    if (lastResource && !m_Startup.resourceFolder.empty()) {
+        const EditorValue values[] = {{EDITOR_TEXT("folder"), EDITOR_TEXT_VALUE, {}, EditorText(m_Startup.resourceFolder)},
+            {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, lastResource}};
+        m_Editor.Execute("resource.browse", {m_Editor.Scope(), values, 2});
+    }
     if (m_Startup.newComposition) NewComposition(false);
 #endif
     // Dev starts on a new composition (its 3D Layout shows the new scene's
@@ -193,6 +183,11 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
 #else
     if (!fileToOpen.empty()) OpenFile(fileToOpen);
 #endif
+    m_ResourceCommands.Poll();
+    m_ResourceCommands.changed = [this] {
+        m_State.preferences.dataResources = m_ResourceCommands.OpenLibraries();
+        SavePreferences();
+    };
     UpdateTitle();
     return true;
 }
@@ -292,22 +287,6 @@ void EditorApp::ImportFile(Document::ImportMode mode, const std::string &path) {
     Command(ids[static_cast<unsigned>(mode)], path);
 }
 
-void EditorApp::OpenDataResourceDialog() {
-    m_State.fileDialogs.Request(FileDialog(m_Window, false, {}, RESOURCE_FILTER, L"rsc", L"Open Data Resource..."),
-        [this](const FileDialogResult &result) {
-            if (result.status == FileDialogResult::Status::Selected) m_Tools.OpenDataResource(result.paths.front());
-            else if (result.status == FileDialogResult::Status::Error) m_State.Log(LogLevel::Error, result.error);
-        });
-}
-
-void EditorApp::CreateDataResourceDialog() {
-    m_State.fileDialogs.Request(FileDialog(m_Window, true, {}, RESOURCE_FILTER, L"rsc", L"Create Data Resource..."),
-        [this](const FileDialogResult &result) {
-            if (result.status == FileDialogResult::Status::Selected) m_Tools.CreateNewDataResource(result.paths.front());
-            else if (result.status == FileDialogResult::Status::Error) m_State.Log(LogLevel::Error, result.error);
-        });
-}
-
 // Dev keeps its default windows (3D Layout, Building Blocks, Level Manager,
 // Schematic, Data Resources).
 void EditorApp::CloseSetupsAndManagers() {
@@ -335,6 +314,7 @@ void EditorApp::Shutdown() {
     p.showLinkDelay = m_State.view.showLinkInfo;
     p.showPriorities = m_State.view.showPriorities;
     p.showScriptLeftPart = m_State.view.showHeaders;
+    m_ResourceCommands.Poll();
     SavePreferences();
     if (m_State.document) {
         CloseDocumentViews();
@@ -347,6 +327,7 @@ void EditorApp::Shutdown() {
     m_State.documentViews = nullptr;
     m_Layout.Stop();
     m_Workspace.CloseAll();
+    m_ResourceCommands.Stop();
     m_SceneCommands.Stop();
     m_State.document.reset();
     m_State.host.Stop();
@@ -606,7 +587,7 @@ EditorResponse EditorApp::Command(const char *id, const std::string &path) {
     const EditorValue value{EditorLiteral("path"), EDITOR_TEXT_VALUE, {}, EditorText(path)};
     const EditorRequest request{m_Editor.Scope(), path.empty() ? nullptr : &value, path.empty() ? 0u : 1u};
     auto result = m_Editor.Execute(id, request);
-    if (!result.message.empty()) m_State.Log(LogLevel::Warning, result.message);
+    if (!result.message.empty()) m_State.Log(result.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, result.message);
     return result;
 }
 
@@ -697,9 +678,7 @@ void EditorApp::MainMenu() {
     }
     // Dev's Resources menu (screenshot).
     if (ImGui::BeginMenu("Resources")) {
-        if (ImGui::MenuItem("Open Data Resource")) OpenDataResourceDialog();
-        ImGui::Separator();
-        if (ImGui::MenuItem("Create New Data Resource")) CreateDataResourceDialog();
+        m_Workspace.CommandMenu("resources.library");
         ImGui::Separator();
         m_Workspace.CommandMenu("resources.import");
         if (ImGui::BeginMenu("Import File As", hasDocument)) {
@@ -710,8 +689,7 @@ void EditorApp::MainMenu() {
     }
     // Dev's Editors menu.
     if (ImGui::BeginMenu("Editors")) {
-        if (ImGui::MenuItem("Attributes Manager", nullptr, SceneViewOpen("attributes"), hasDocument)) OpenSceneView("attributes");
-        if (ImGui::MenuItem("Hierarchy Manager", nullptr, SceneViewOpen("hierarchy"), hasDocument)) OpenSceneView("hierarchy");
+        m_Workspace.CommandMenu("editors.managers");
         if (ImGui::MenuItem("Path Manager")) m_Tools.OpenPathManager();
         ImGui::MenuItem("Parameter Debugger", nullptr, &m_Tools.showParameterDebugger);
         ImGui::Separator();
@@ -818,52 +796,6 @@ void EditorApp::CreateObject(LayoutObject kind) {
     for (const auto &field : result.fields)
         if (field.key == "camera" && field.integer) m_Layout.View().SetCamera(created.object);
     if (m_State.preferences.Bool("3D Layout\\Auto Show Setup")) m_State.events.Post(ShowObjectSetup{created});
-}
-
-void EditorApp::BuildDefaultLayout(ImGuiID dockspace, bool closeSeparated) {
-    // The other windows open, before their nodes go: docked again after, or
-    // (separated, Reset Interface) closed.
-    struct Redocked {
-        std::string name;
-        bool withBlocks;
-    };
-    std::vector<Redocked> redocked;
-    std::vector<unsigned int> separated;
-    for (ImGuiWindow *window : ImGui::GetCurrentContext()->Windows) {
-        if (!window->WasActive || window->ParentWindow ||
-            (window->Flags & (ImGuiWindowFlags_ChildWindow | ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip |
-                              ImGuiWindowFlags_NoDocking)))
-            continue;
-        const std::string name = window->Name;
-        const bool resource = name.find("###resource") != std::string::npos;
-        const bool withBlocks = resource || name == "Parameter Debugger";
-        const bool withSchematic = name.find("###setup") != std::string::npos;
-        if (!withBlocks && !withSchematic) continue;
-        if (closeSeparated && !resource && !window->DockIsActive) separated.push_back(window->ID);
-        else redocked.push_back({name, withBlocks});
-    }
-    if (!separated.empty()) DevCloseSeparated(separated);
-    if (closeSeparated) m_Workspace.CloseFloatingViews();
-    ImGui::DockBuilderRemoveNode(dockspace);
-    ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
-    ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
-    // Dev 2.5 as it starts (screenshot): the 3D Layout top-left and the
-    // Building Blocks top-right, each half of the width; the Schematic and
-    // Level Manager tabs below (the Level Manager in front). The Hierarchy
-    // Manager and Parameter Debugger join the Building Blocks when they open
-    // (the Schematic Explorer is a dialog of its own, as Dev's).
-    ImGuiID bottom = dockspace;
-    ImGuiID top = ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Up, 0.5f, nullptr, &bottom);
-    ImGuiID topRight = ImGui::DockBuilderSplitNode(top, ImGuiDir_Right, 0.5f, nullptr, &top);
-    ImGui::DockBuilderDockWindow("3D Layout", top);
-    m_Workspace.DefaultDock("resource.building-blocks", topRight);
-    m_Workspace.DefaultDock("scene.hierarchy", topRight);
-    m_Workspace.DefaultDock("scene.attributes", bottom);
-    ImGui::DockBuilderDockWindow(SCHEMATIC_WINDOW, bottom);
-    m_Workspace.DefaultDock("scene.level", bottom);
-    m_Workspace.DockViews();
-    for (const Redocked &window : redocked) ImGui::DockBuilderDockWindow(window.name.c_str(), window.withBlocks ? topRight : bottom);
-    ImGui::DockBuilderFinish(dockspace);
 }
 
 bool EditorApp::Busy() const {
@@ -1004,6 +936,7 @@ void EditorApp::Frame() {
 #endif
     m_FileCommands.Poll();
     m_Outputs.Poll();
+    m_ResourceCommands.Poll();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
@@ -1023,15 +956,11 @@ void EditorApp::Frame() {
     // The editor's former name: the saved window layouts know this ID.
     const ImGuiID dockspace = ImGui::GetID("SchematicEditorDockSpace");
     StatusBar();
-    if (!m_LayoutChecked || m_ResetLayout) {
-        // First run (no saved layout) or View > Reset Layout: Dev arrangement.
-        ImGuiDockNode *node = ImGui::DockBuilderGetNode(dockspace);
-        if (m_ResetLayout || !node || node->IsLeafNode()) BuildDefaultLayout(dockspace, m_CloseSeparated);
-        m_CloseSeparated = false;
-        m_LayoutChecked = true;
-        m_ResetLayout = false;
-        m_FocusSchematic = 3;
-    }
+    const auto layout = m_Workspace.UpdateLayout(dockspace, m_ResetLayout, m_CloseSeparated);
+    if (!layout.closeLegacy.empty()) DevCloseSeparated(layout.closeLegacy);
+    if (layout.changed) m_FocusSchematic = 3;
+    m_CloseSeparated = false;
+    m_ResetLayout = false;
     ImGui::DockSpaceOverViewport(dockspace, ImGui::GetMainViewport());
 
     DispatchEvents();
@@ -1081,17 +1010,7 @@ void EditorApp::Frame() {
         // Setup tabs dock with the Schematic (Dev's tab row).
         ImGuiWindow *schematic = ImGui::FindWindowByName(SCHEMATIC_WINDOW);
         m_Setups.Draw(schematic ? schematic->DockId : 0);
-        ImGuiWindow *blocks = ImGui::FindWindowByName(BuildingBlocksWindow().c_str());
-        if (schematic && schematic->DockId) {
-            m_Workspace.DefaultDock("scene.level", schematic->DockId);
-            m_Workspace.DefaultDock("scene.attributes", schematic->DockId);
-        }
-        if (blocks && blocks->DockId) {
-            m_Workspace.DefaultDock("scene.hierarchy", blocks->DockId);
-            m_Workspace.DefaultDock("resource.building-blocks", blocks->DockId);
-        }
-        // The Parameter Debugger and Data Resources join the Building Blocks (Dev's top tab row).
-        m_Tools.Draw(blocks ? blocks->DockId : 0, m_FocusSchematic <= 0);
+        m_Tools.Draw(m_Workspace.RegionDock("resources"), m_FocusSchematic <= 0);
     }
     const auto &execution = m_Execution.State();
     m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"));
@@ -1141,7 +1060,7 @@ void EditorApp::Frame() {
 } // namespace vdev
 
 namespace vdev {
-EditorView EditorApp::OpenSceneView(const std::string &type) { return m_Workspace.Open("scene."+type,"main."+type,type=="level"); }
+EditorView EditorApp::OpenSceneView(const std::string &type) { return m_Workspace.OpenRole("main."+type); }
 bool EditorApp::SceneViewOpen(const std::string &type) const { return m_Workspace.Role("main."+type)!=0; }
 void EditorApp::CloseSceneView(const std::string &type) { m_Workspace.Close(m_Workspace.Role("main."+type)); }
 std::string EditorApp::SceneWindow(const std::string &type) const { return m_Workspace.WindowName(m_Workspace.Role("main."+type)); }

@@ -748,9 +748,7 @@ const WorkspaceViewPlacement *EditorWorkspace::Placement(const View &view) const
 }
 unsigned EditorWorkspace::ViewDock(const View &view) const {
     const auto *placement = Placement(view);
-    if (placement) return RegionDock(placement->region);
-    const auto legacy = m_DefaultDocks.find(Text(view.desc.id));
-    return legacy == m_DefaultDocks.end() ? 0 : legacy->second;
+    return placement ? RegionDock(placement->region) : 0;
 }
 void EditorWorkspace::UpdateRegionDocks() {
     for (const auto &region : m_Configuration.regions) {

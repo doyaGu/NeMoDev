@@ -101,16 +101,6 @@ void Draw(void *data, const EditorHost *host, EditorView id, EditorViewFrame *fr
     }
 }
 } // namespace
-EditorConfiguration DefaultObjectConfiguration() {
-    EditorConfiguration config;
-    config.providers.push_back({"editor", "text.single-line", "builtin.text"});
-    config.providers.push_back({"command", "object.rename", "builtin.objects"});
-    config.providers.push_back({"command", "object.create-frame3d", "builtin.objects"});
-    config.providers.push_back({"query", "object.details", "builtin.objects"});
-    config.providers.push_back({"view", "object.properties", "builtin.properties"});
-    config.providers.push_back({"view", "object.summary", "builtin.summary"});
-    return config;
-}
 bool RegisterObjectViews(EditorApplication &editor, std::string &error) {
     static const EditorString dependencies[] = {EDITOR_TEXT("objects.editing")};
     static bool clearButton = true, editableView = true;

@@ -78,7 +78,6 @@ void ToolWindows::Draw(ImGuiID topDock, bool openPopups) {
     VersionTestDialog();
     Profiler();
     ParameterDebugger(topDock);
-    DataResources(topDock);
     AboutDialog();
     AllObjectsDialog();
     LinkPropertiesDialog();

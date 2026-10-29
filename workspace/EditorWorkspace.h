@@ -28,7 +28,6 @@ class EditorWorkspace : private EditorViewNavigation {
     void Menu();
     EditorStatus Menu(const std::string &, EditorScope, ObjectRef, EditorEdit &) override;
     EditorView Open(const std::string &type, const std::string &role = {}, bool pinned = false);
-    void DefaultDock(const std::string &type, unsigned dock) { m_DefaultDocks[type] = dock; }
     EditorView OpenRole(const std::string &role);
     bool Configure(const WorkspaceConfiguration &, std::string &error);
     WorkspaceConfiguration Configuration() const;
@@ -93,7 +92,6 @@ class EditorWorkspace : private EditorViewNavigation {
     EditorApplication &m_Application;
     std::map<EditorView, View> m_Views;
     EditorView m_LastFocusRequest = 0;
-    std::map<std::string, unsigned> m_DefaultDocks;
     WorkspaceConfiguration m_Configuration;
     std::map<std::string, unsigned> m_RegionDocks;
     uint64_t m_ViewsRevision = 1;
