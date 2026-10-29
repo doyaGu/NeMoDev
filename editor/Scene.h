@@ -42,7 +42,6 @@ typedef enum EditorSceneCell {
 } EditorSceneCell;
 // Drag data is a session/lifetime checked object reference, never a native ID.
 #define EDITOR_ATTRIBUTE_PAYLOAD "SCHEMATIC_ATTRIBUTE"
-#define EDITOR_RESOURCE_FILE_PAYLOAD "SCHEMATIC_RESOURCE_FILE"
 #define EDITOR_OBJECT_PAYLOAD "EDITOR_SCENE_OBJECT"
 #define EDITOR_HIERARCHY_PAYLOAD "EDITOR_SCENE_HIERARCHY"
 typedef struct EditorAttributePayload {
@@ -50,8 +49,4 @@ typedef struct EditorAttributePayload {
     EditorObject value;
     uint64_t catalog;
 } EditorAttributePayload;
-typedef struct EditorResourceFile {
-    char path[1024];
-    int32_t cid;
-} EditorResourceFile;
 #endif

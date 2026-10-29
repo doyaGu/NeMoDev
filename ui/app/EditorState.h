@@ -263,14 +263,6 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
     SchematicStyle style;
     std::string runtimeDirectory;
 
-    std::vector<EditorResourceFile> draggedResources;
-    std::vector<EditorResourceFile> DraggedResources(const EditorResourceFile &file) const {
-        for (const EditorResourceFile &each : draggedResources)
-            if (std::strcmp(each.path, file.path) == 0) return draggedResources;
-        return {file};
-    }
-
-
     void RememberBlock(const CKGUID &guid) {
         recentBlocks.erase(std::remove(recentBlocks.begin(), recentBlocks.end(), guid), recentBlocks.end());
         recentBlocks.insert(recentBlocks.begin(), guid);

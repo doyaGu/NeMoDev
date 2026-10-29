@@ -1185,16 +1185,6 @@ bool EditorApp::RegisterSceneNavigation(std::string &error){
         if(targets.size()==1)made=app.m_Layout.DropAsking(create);else{EditGroup group(*state.document,"Drop Behavior");made=create();}
         if(!made.second)return EDITOR_REFUSED;state.RememberBlock(guid);state.events.Post(ShowElement{made.first,ElementRef{ElementKind::Behavior,made.first,made.second},made.second});return EDITOR_OK;};
     commands[5].run=[](void*data,const EditorHost*host,const EditorRequest*request,EditorSink sink){auto&app=*static_cast<EditorApp*>(data);return host->navigateView(host->data,EditorString EDITOR_TEXT("scene.level"),app.OpenSceneView("level"),request,sink);};
-    const EditorParameter args[]={{EDITOR_TEXT("path"),EDITOR_TEXT_VALUE},{EDITOR_TEXT("class"),EDITOR_INTEGER_VALUE}};
-    const EditorParameter fields[]={{EDITOR_TEXT("paths"),EDITOR_TEXT_LIST},{EDITOR_TEXT("classes"),EDITOR_INTEGER_LIST}};
-    EditorQueryDesc dragged{sizeof(dragged),EDITOR_TEXT("resource.dragged"),EDITOR_TEXT("builtin.navigation"),args,2,nullptr,this,EDITOR_QUERY_EACH_READ,EDITOR_DOCUMENT,fields,2};
-    dragged.read=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink sink){
-        auto &app=*static_cast<EditorApp*>(data);EditorResourceFile file{};const auto &path=request->values[0].text;
-        if(path.size>=sizeof(file.path)||request->values[1].integer>INT32_MAX)return EDITOR_INVALID;
-        std::memcpy(file.path,path.data,path.size);file.cid=CK_CLASSID(request->values[1].integer);const auto files=app.m_State.DraggedResources(file);
-        std::vector<EditorString>paths;std::vector<uint64_t>classes;for(const auto&file:files){paths.push_back(EditorLiteral(file.path));classes.push_back(uint64_t(file.cid));}
-        const EditorValue values[]={{EDITOR_TEXT("paths"),EDITOR_TEXT_LIST,{},{},0,{},{},{paths.data(),uint32_t(paths.size())}},
-            {EDITOR_TEXT("classes"),EDITOR_INTEGER_LIST,{},{},0,{}, {classes.data(),uint32_t(classes.size())}}};return sink.write?sink.write(sink.data,values,2):EDITOR_INVALID;};
-    EditorModuleDesc module{};module.size=sizeof(module);module.version=EDITOR_VERSION;module.id=EDITOR_TEXT("scene.navigation");module.commands=commands;module.commandCount=6;module.queries=&dragged;module.queryCount=1;return m_Editor.Register(module,error);
+    EditorModuleDesc module{};module.size=sizeof(module);module.version=EDITOR_VERSION;module.id=EDITOR_TEXT("scene.navigation");module.commands=commands;module.commandCount=6;return m_Editor.Register(module,error);
 }
 } // namespace vdev

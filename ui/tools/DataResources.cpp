@@ -1,3 +1,4 @@
+#include "workspace/ResourceDrag.h"
 // Dev's Data Resources tabs (Resources > Open / Create New Data Resource):
 // the resource's folder tree beside the files of the selected folder. A
 // double click loads a file into the composition, as Dev does when one is
@@ -219,24 +220,17 @@ void ToolWindows::DataResources(ImGuiID dock) {
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) LoadResource(path, resource.selectedClass);
             }
             if (ImGui::BeginDragDropSource()) {
-                EditorResourceFile payload = {};
-                std::snprintf(payload.path, sizeof(payload.path), "%s", path.c_str());
-                payload.cid = resource.selectedClass;
-                // The files selected go together when this one is.
-                if (!ImGui::GetDragDropPayload() || !ImGui::GetDragDropPayload()->IsDataType(EDITOR_RESOURCE_FILE_PAYLOAD)) {
-                    m_State.draggedResources.clear();
-                    std::vector<std::string> names{name};
-                    if (fileSelected) names.assign(resource.selectedFiles.begin(), resource.selectedFiles.end());
-                    for (const std::string &each : names) {
-                        EditorResourceFile one = {};
-                        const auto selectedPath = (std::filesystem::u8path(resource.selectedFolder) / std::filesystem::u8path(each)).u8string();
-                        std::snprintf(one.path, sizeof(one.path), "%s", selectedPath.c_str());
-                        one.cid = resource.selectedClass;
-                        m_State.draggedResources.push_back(one);
-                    }
+                std::vector<std::string> names{name};
+                if (fileSelected) names.assign(resource.selectedFiles.begin(), resource.selectedFiles.end());
+                std::vector<ResourceFile> files;
+                uint32_t source = 0;
+                for (const auto &each : names) {
+                    if (each == name) source = uint32_t(files.size());
+                    files.push_back({(std::filesystem::u8path(resource.selectedFolder) / std::filesystem::u8path(each)).u8string(), uint32_t(resource.selectedClass)});
                 }
-                ImGui::SetDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD, &payload, sizeof(payload));
-                if (m_State.draggedResources.size() > 1) ImGui::Text("%d files", static_cast<int>(m_State.draggedResources.size()));
+                const auto payload = WriteResourceDrag(source, files);
+                if (!payload.empty()) ImGui::SetDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD, payload.data(), payload.size(), ImGuiCond_Once);
+                if (files.size() > 1) ImGui::Text("%d files", static_cast<int>(files.size()));
                 else ImGui::TextUnformatted(name.c_str());
                 ImGui::EndDragDropSource();
             }

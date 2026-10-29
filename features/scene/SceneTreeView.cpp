@@ -2,6 +2,7 @@
 #include "features/scene/SceneViewData.h"
 #include "editor/ImGuiDrawing.h"
 #include "workspace/BuildingBlockDrag.h"
+#include "workspace/ResourceDrag.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
@@ -626,17 +627,14 @@ void SceneTreeView::Drop(const EditorClient &client, size_t index) {
             }
         }
         if (const auto *payload = ImGui::AcceptDragDropPayload("SCHEMATIC_RESOURCE_FILE")) {
-            if (payload->DataSize == sizeof(EditorResourceFile)) {
-                EditorResourceFile file{};
-                std::memcpy(&file, payload->Data, sizeof(file));
-                file.path[sizeof(file.path) - 1] = 0;
-                const auto files = client.Query("resource.dragged", {TextArgument("path", std::string(file.path)),
-                                                                     IntegerArgument("class", uint64_t(file.cid))});
-                const auto names = SceneTexts(files, "paths");
-                const auto classes = SceneIntegers(files, "classes");
+            uint32_t source = 0;
+            std::vector<ResourceFile> files;
+            if (ReadResourceDrag(payload->Data, size_t(payload->DataSize), source, files)) {
                 std::vector<EditorString> paths;
-                for (const auto &path : names) {
-                    paths.push_back(EditorText(path));
+                std::vector<uint64_t> classes;
+                for (const auto &file : files) {
+                    paths.push_back(EditorText(file.path));
+                    classes.push_back(file.cid);
                 }
                 const auto objects = Targets(row);
                 std::vector<ObjectRef> above;

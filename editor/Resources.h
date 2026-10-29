@@ -16,4 +16,14 @@ typedef struct EditorBuildingBlockDragHeader {
     uint32_t count;
 } EditorBuildingBlockDragHeader;
 
+#define EDITOR_RESOURCE_FILE_PAYLOAD "SCHEMATIC_RESOURCE_FILE"
+// Followed by count records, each containing EditorResourceFileHeader and
+// pathSize UTF-8 bytes (without a terminator). source is the dragged row.
+typedef struct EditorResourceDragHeader {
+    uint32_t source, count;
+} EditorResourceDragHeader;
+typedef struct EditorResourceFileHeader {
+    uint32_t classId, pathSize;
+} EditorResourceFileHeader;
+
 #endif

@@ -55,10 +55,15 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
     }
     if (const ImGuiPayload *payload =
             ImGui::AcceptDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-        EditorResourceFile file;
-        std::memcpy(&file, payload->Data, sizeof(file));
+        uint32_t source = 0;
+        std::vector<ResourceFile> files;
+        if (!ReadResourceDrag(payload->Data, size_t(payload->DataSize), source, files)) {
+            ImGui::EndDragDropTarget();
+            return;
+        }
+        const auto &file = files[source];
         if (payload->IsDelivery()) {
-            DropResources(x, y, m_State.DraggedResources(file));
+            DropResources(x, y, files);
         } else {
             const LayoutPickInfo info = m_View.PickInfo(x, y);
             m_View.SetDropTarget(info.character ? info.character : info.entity3d);
@@ -233,7 +238,7 @@ bool LayoutWindow::DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, 
 // A Data Resources file (Dev.exe sub_4C0A30): loaded as on the level, its
 // Scripts and animations given to the object under the mouse; images are a
 // texture, Shift a 3D sprite, Ctrl a 2D sprite, both a 2D Entity (sub_4BF320).
-void LayoutWindow::DropResources(int x, int y, const std::vector<EditorResourceFile> &files) {
+void LayoutWindow::DropResources(int x, int y, const std::vector<ResourceFile> &files) {
     if (!m_State.HasDocument()) return;
     const LayoutPickInfo info = m_View.PickInfo(x, y);
     const ImGuiIO &io = ImGui::GetIO();
@@ -244,7 +249,7 @@ void LayoutWindow::DropResources(int x, int y, const std::vector<EditorResourceF
         if (cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D)
             cid = io.KeyShift && io.KeyCtrl ? CKCID_2DENTITY : io.KeyShift ? CKCID_SPRITE3D
                   : io.KeyCtrl ? CKCID_SPRITE : CKCID_TEXTURE;
-        paths.push_back(EditorLiteral(file.path));
+        paths.push_back(EditorText(file.path));
         classes.push_back(uint64_t(cid));
     }
     const auto target = m_State.document->Reference(info.character ? info.character : info.entity3d ? info.entity3d : info.entity2d);

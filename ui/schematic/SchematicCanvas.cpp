@@ -1,4 +1,5 @@
 #include "workspace/BuildingBlockDrag.h"
+#include "workspace/ResourceDrag.h"
 #include "ui/schematic/SchematicCanvas.h"
 
 #include <algorithm>
@@ -1084,9 +1085,10 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
     // A Data Resources file: as a file dropped from Explorer (behavior graph
     // files on graphs or bodies, images on Script headers).
     if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD)) {
-        EditorResourceFile file;
-        memcpy(&file, payload->Data, sizeof(file));
-        for (const EditorResourceFile &each : m_State.DraggedResources(file))
+        uint32_t source = 0;
+        std::vector<ResourceFile> files;
+        if (ReadResourceDrag(payload->Data, size_t(payload->DataSize), source, files))
+        for (const ResourceFile &each : files)
             if (!DropFile(Utf8ToWide(each.path), each.path, ImGui::GetIO().MousePos))
                 m_State.Log(LogLevel::Info, "Drop behavior graph files on a graph or a Script, images on a Script header");
     }

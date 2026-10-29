@@ -17,6 +17,7 @@
 #include "core/level/LevelCommands.h"
 #include "ui/controls/ParameterBox.h"
 #include "ui/controls/ValueEditor.h"
+#include "workspace/ResourceDrag.h"
 
 
 
@@ -269,7 +270,7 @@ private:
     CK_ID BlockTarget(const LayoutPickInfo &info, CK_CLASSID cid, bool ctrl) const;
     void DropBuildingBlock(int x, int y, const CKGUID &guid);
     bool DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, CK_ID &block);
-    void DropResources(int x, int y, const std::vector<EditorResourceFile> &files);
+    void DropResources(int x, int y, const std::vector<ResourceFile> &files);
     // Dev's "%s - Edit Parameters" after the drop (Dev.exe sub_4BFD20,
     // dialog 714): OK keeps the Building Block with the values set, Cancel
     // takes it out again.

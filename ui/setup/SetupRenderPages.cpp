@@ -1,3 +1,4 @@
+#include "workspace/ResourceDrag.h"
 #include "core/layout/LayoutCommands.h"
 #include <filesystem>
 // The Setups of the render objects: 3D entities, cameras, lights, sprites, materials, meshes, textures, grids.
@@ -827,8 +828,13 @@ void SetupWindows::SlotPreview(Setup &setup, CKObject *bitmap, unsigned long lon
         const ImGuiIO &io = ImGui::GetIO();
         const bool more = io.KeyCtrl || io.KeyShift;
         if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-            EditorResourceFile file;
-            std::memcpy(&file, payload->Data, sizeof(file));
+            uint32_t source = 0;
+            std::vector<ResourceFile> files;
+            if (!ReadResourceDrag(payload->Data, size_t(payload->DataSize), source, files)) {
+                ImGui::EndDragDropTarget();
+                return;
+            }
+            const auto &file = files[source];
             const char *what = texture ? "texture" : "sprite";
             if (!payload->IsDelivery()) {
                 if (alpha) ImGui::SetTooltip(more ? "Extended replace texture alpha channel with image" : "Replace texture alpha channel with image");

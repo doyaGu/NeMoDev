@@ -1,6 +1,7 @@
 #include "editor/Scene.h"
 #include "editor/Resources.h"
 typedef char BuildingBlockDragLayout[(sizeof(EditorBuildingBlock) == 8 && sizeof(EditorBuildingBlockDragHeader) == 12) ? 1 : -1];
+typedef char ResourceDragLayout[(sizeof(EditorResourceDragHeader) == 8 && sizeof(EditorResourceFileHeader) == 8) ? 1 : -1];
 
 ObjectRef IdentityFromC(DocumentToken document, uint32_t object, uint64_t lifetime) {
     ObjectRef reference = {document, object, lifetime};
