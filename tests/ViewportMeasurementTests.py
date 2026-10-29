@@ -1,11 +1,14 @@
 """Check viewport statistics and comparison gates without a graphics device."""
 import copy
+import json
 from pathlib import Path
 import sys
+import tempfile
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
-from MeasureViewport import compare, parse_measurement, summarize
+from MeasureViewport import ViewportProcess, compare, parse_measurement, summarize
 
 
 def measurement(median=100):
@@ -59,9 +62,23 @@ class ViewportMeasurementTests(unittest.TestCase):
         self.assertTrue(result["same_binary_control"])
         self.assertFalse(result["passed"])
 
+    def test_intentional_sdk_change_retains_other_comparison_gates(self):
+        baseline, candidate = report(), report(102)
+        candidate["environment"]["sdk_dirty"] = True
+        candidate["environment"]["sdk_revisions"] = {"root": "changed"}
+        with self.assertRaises(ValueError): compare(candidate, baseline)
+        self.assertTrue(compare(candidate, baseline, sdk_change=True)["passed"])
+        candidate["measurement"]["viewport"] = [800, 600]
+        with self.assertRaises(ValueError): compare(candidate, baseline, sdk_change=True)
+
+    def test_changed_sdk_binary_is_not_a_same_binary_control(self):
+        baseline, candidate = report(), report()
+        candidate["environment"]["sdk_runtime_sha256"] = {"CK2": "changed"}
+        self.assertFalse(compare(candidate, baseline, sdk_change=True)["same_binary_control"])
+
     def test_other_measurement_conditions_cannot_be_compared(self):
         baseline = report()
-        for kind in ("driver", "viewport", "sdk", "dirty", "harness", "hardware"):
+        for kind in ("driver", "viewport", "sdk", "dirty", "harness", "hardware", "launch_policy"):
             with self.subTest(kind=kind):
                 candidate = copy.deepcopy(baseline)
                 if kind in ("driver", "viewport"): candidate["measurement"][kind] = "other"
@@ -69,7 +86,73 @@ class ViewportMeasurementTests(unittest.TestCase):
                 if kind == "dirty": candidate["environment"]["sdk_dirty"] = True
                 if kind == "harness": candidate["environment"]["harness_sha256"] = "other"
                 if kind == "hardware": candidate["environment"]["hardware"] = "other"
+                if kind == "launch_policy": candidate["environment"]["launch_policy"] = "other"
                 with self.assertRaises(ValueError): compare(candidate, baseline)
+
+    def test_paired_and_continuous_groups_are_distinct(self):
+        baseline, candidate = report(), report()
+        for value in (baseline, candidate):
+            value["measurement"].update(version=2, group_control="paired", cpu_policy="system-default")
+        self.assertTrue(compare(candidate, baseline)["passed"])
+        candidate["measurement"]["group_control"] = "continuous"
+        with self.assertRaises(ValueError): compare(candidate, baseline)
+
+    def test_unknown_group_control_is_rejected(self):
+        value = measurement()
+        value.update(version=2, group_control="unknown")
+        with self.assertRaises(ValueError): summarize(value)
+
+    def test_different_cpu_policies_cannot_be_compared(self):
+        baseline, candidate = report(), report()
+        for value in (baseline, candidate):
+            value["measurement"].update(version=2, group_control="paired", cpu_policy="user-initiated-activity")
+        candidate["measurement"]["cpu_policy"] = "system-default"
+        with self.assertRaises(ValueError): compare(candidate, baseline)
+
+    def test_viewport_waits_between_groups_and_keeps_its_result(self):
+        value = measurement()
+        value.update(version=2, group_control="paired", cpu_policy="system-default")
+        script = '''import json, sys
+for group in range(2):
+    print("\\x1b[0mNEMODEV_VIEWPORT_READY " + str(group), flush=True)
+    if sys.stdin.readline() != "\\n": sys.exit(1)
+print("NEMODEV_VIEWPORT_BASELINE " + sys.argv[1], flush=True)
+'''
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "viewport.json"
+            process = ViewportProcess([sys.executable, "-u", "-c", script, json.dumps(value)], output, None)
+            try:
+                deadline = time.monotonic() + 10
+                process.ready(0, deadline)
+                self.assertIsNone(process.process.poll())
+                process.render_group()
+                process.ready(1, deadline)
+                process.render_group()
+                self.assertEqual(process.finish(deadline), value)
+            finally:
+                process.close()
+            self.assertIn("NEMODEV_VIEWPORT_BASELINE", output.with_suffix(".log").read_text())
+
+    def test_bad_group_or_timeout_stops_the_waiting_viewport(self):
+        for marker in ("NEMODEV_VIEWPORT_READY 9", "Still starting"):
+            with self.subTest(marker=marker), tempfile.TemporaryDirectory() as folder:
+                script = 'import sys; print(sys.argv[1], flush=True); sys.stdin.read()'
+                process = ViewportProcess([sys.executable, "-u", "-c", script, marker],
+                                          Path(folder) / "viewport.json", None)
+                try:
+                    with self.assertRaises(ValueError): process.ready(0, time.monotonic() + 0.2)
+                finally:
+                    process.close()
+                self.assertIsNotNone(process.process.poll())
+
+    def test_early_exit_does_not_become_a_partial_measurement(self):
+        with tempfile.TemporaryDirectory() as folder:
+            process = ViewportProcess([sys.executable, "-c", 'print("Native initialization failed")'],
+                                      Path(folder) / "viewport.json", None)
+            try:
+                with self.assertRaises(ValueError): process.ready(0, time.monotonic() + 10)
+            finally:
+                process.close()
 
 
 if __name__ == "__main__":

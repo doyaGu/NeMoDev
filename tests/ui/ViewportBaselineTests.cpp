@@ -1,4 +1,5 @@
 #include "tests/ui/UiTests.h"
+#include "tests/ui/ViewportScheduling.h"
 
 #include "ui/render/UiRenderer.h"
 
@@ -108,7 +109,9 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
         const int samples = Setting("NEMODEV_BASELINE_SAMPLES", 11, 11, 101);
         const int frames = Setting("NEMODEV_BASELINE_FRAMES", 240, 30, 10000);
         const int warmup = Setting("NEMODEV_BASELINE_WARMUP", 480, 60, 10000);
+        const bool paired = Setting("NEMODEV_BASELINE_PAIRED", 0, 0, 1) == 1;
         IM_CHECK(samples && frames && warmup);
+        ViewportScheduling scheduling;
         Settle(ctx, "//3D Layout");
         OnMainThread(ctx, [&] {
             auto *viewport = ImGui::GetMainViewport();
@@ -116,6 +119,7 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
                 reinterpret_cast<uintptr_t>(viewport->PlatformHandle)));
             IM_CHECK(window && SDL_SetWindowSize(window, 1280, 800));
             IM_CHECK(MakeScene());
+            IM_CHECK(scheduling.Start());
         });
         const Uint64 warmupStart = SDL_GetTicksNS();
         ctx->Yield(warmup);
@@ -139,6 +143,13 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
             Counters before{};
             OnMainThread(ctx, [&] {
                 IM_CHECK(SDL_WaitForGPUIdle(vdev::MainRenderer().Device()));
+                if (paired) {
+                    // Pause while the other program renders its group. The
+                    // GPU is idle and time/frame counting has not started.
+                    std::printf("NEMODEV_VIEWPORT_READY %d\n", sample);
+                    std::fflush(stdout);
+                    IM_CHECK(std::getchar() == '\n');
+                }
                 before = Counts();
                 firstFrame = ImGui::GetFrameCount();
                 start = SDL_GetPerformanceCounter();
@@ -184,8 +195,10 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
                 reinterpret_cast<uintptr_t>(viewport->PlatformHandle)));
             int pixelWidth = 0, pixelHeight = 0;
             IM_CHECK(window && SDL_GetWindowSizeInPixels(window, &pixelWidth, &pixelHeight));
-            std::printf("NEMODEV_VIEWPORT_BASELINE {\"version\":1,\"scenario\":\"cubes64-v1\","
+            std::printf("NEMODEV_VIEWPORT_BASELINE {\"version\":2,\"scenario\":\"cubes64-v1\","
                         "\"scope\":\"editor_frame_gpu_drained\",\"driver\":\"%s\","
+                        "\"group_control\":\"%s\","
+                        "\"cpu_policy\":\"%s\","
                         "\"gpu_device\":%s,\"gpu_driver_info\":%s,\"window_pixels\":[%d,%d],"
                         "\"sdl_version\":%d,\"viewport\":[%d,%d],\"window\":[1280,800],"
                         "\"ui_scale\":%.6f,\"warmup_frames\":%d,\"requested_frames\":%d,"
@@ -193,13 +206,15 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
                         "\"verification_readbacks\":1,\"stable_readbacks\":0,\"stable_uploads\":0,"
                         "\"stable_target_creations\":0,\"stable_path_selections\":0,"
                         "\"stable_target_releases\":0,\"samples\":[",
-                        SDL_GetGPUDeviceDriver(device), name.c_str(), driverInfo.c_str(), pixelWidth, pixelHeight,
-                        SDL_GetVersion(), width, height,
+                        SDL_GetGPUDeviceDriver(device), paired ? "paired" : "continuous", scheduling.Name(),
+                        name.c_str(), driverInfo.c_str(),
+                        pixelWidth, pixelHeight, SDL_GetVersion(), width, height,
                         ImGui::GetStyle().FontScaleDpi, warmup, frames);
             for (size_t i = 0; i < measured.size(); ++i)
                 std::printf("%s{\"frames\":%d,\"elapsed_ms\":%.9f}", i ? "," : "",
                             measured[i].frames, measured[i].milliseconds);
             std::puts("]}");
+            IM_CHECK(scheduling.Restore());
         });
     };
 }
