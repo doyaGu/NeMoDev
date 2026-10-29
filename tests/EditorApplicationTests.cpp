@@ -14,6 +14,7 @@ using namespace vdev;
 void TestWorkspace(vdev::CkRuntimeHost &host);
 void TestDocumentCommands(vdev::CkRuntimeHost &host);
 void TestDocumentTransitions(vdev::CkRuntimeHost &host);
+void TestOutputCommands(vdev::CkRuntimeHost &host);
 void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestObjectCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
@@ -372,6 +373,7 @@ int main(int argc, char **argv) {
         Edits(runtime, argv[1]);
         TestDocumentCommands(runtime);
         TestDocumentTransitions(runtime);
+        TestOutputCommands(runtime);
         TestWorkspace(runtime);
         TestObjectCommands(runtime, argv[1]);
         TestResourceCommands(runtime, argv[1]);
