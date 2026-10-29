@@ -1,9 +1,12 @@
 #include "tests/ui/UiTests.h"
 #include "core/runtime/Resources.h"
+#include "core/document/ToolCommands.h"
+#include "workspace/ResourceDrag.h"
 #include "ui/help/HelpWindow.h"
 #include "workspace/EditorClient.h"
 #include "core/level/LevelCommands.h"
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -107,6 +110,29 @@ class HelpSample {
     bool existed = false, directoryExisted = false;
     std::string original;
 };
+class ResourceSample {
+  public:
+    std::filesystem::path root;
+    std::string library, graphs, first, second;
+    ResourceSample() {
+        namespace fs = std::filesystem;
+        root = fs::temp_directory_path() / ("resource-workspace-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        fs::create_directories(root);
+        library = (root / "Library.rsc").u8string();
+        std::string error;
+        if (!vdev::CreateDataResource(library, &error)) throw std::runtime_error(error);
+        graphs = (root / "Library/Behavior Graphs").u8string();
+        first = (fs::u8path(graphs) / "One.nms").u8string();
+        second = (fs::u8path(graphs) / "Two.nms").u8string();
+        std::ofstream(fs::u8path(first)) << "Description fixture";
+        std::ofstream(fs::u8path(second)) << "Description fixture";
+        vdev::BehaviorDescription info;
+        info.name = "One"; info.author = "Initial"; info.version = 1.5f; info.cid = CKCID_3DENTITY;
+        if (!vdev::WriteBehaviorDescription(first, info)) throw std::runtime_error("write resource description fixture");
+    }
+    ~ResourceSample() { std::error_code ec; std::filesystem::remove_all(root, ec); }
+};
+
 }
 void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
     auto *test = IM_REGISTER_TEST(engine, "modules", "workspace_focus_replacement_and_event_log");
@@ -323,6 +349,288 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(workspace.Role("main.building-blocks") && workspace.Role("main.level"));
             IM_CHECK_NO_RET(workspace.Close(hierarchy));
         });
+    };
+
+
+
+    test = IM_REGISTER_TEST(engine, "modules", "workspace_layout_configuration_applies_and_rolls_back");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        vdev::WorkspaceConfiguration original;
+        vdev::DocumentToken token{};
+        size_t undo = 0;
+        uint64_t selection = 0;
+        EditorView extra = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); auto &workspace = *state.workspace;
+            original = workspace.Configuration();
+            token = state.document->Token(); undo = state.History().UndoCount(); selection = state.objectSelection.Revision();
+            auto layout = original;
+            layout.splits[0].fraction = .6f;
+            layout.splits[1].fraction = .35f;
+            for (auto &view : layout.views) if (view.role == "main.level") view.region = "resources";
+            layout.views.push_back({"object.summary", "test.summary", "editing", true});
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(layout, error));
+            extra = workspace.Role("test.summary");
+            IM_CHECK_NO_RET(extra);
+        });
+        ctx->Yield(6);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); auto &workspace = *state.workspace;
+            const auto *level = ImGui::FindWindowByName(workspace.WindowName(workspace.Role("main.level")).c_str());
+            const auto *summary = ImGui::FindWindowByName(workspace.WindowName(extra).c_str());
+            IM_CHECK_NO_RET(level && summary && level->DockId == workspace.RegionDock("resources") && summary->DockId == workspace.RegionDock("editing"));
+            const auto *layout = ImGui::FindWindowByName("3D Layout");
+            const auto *resources = ImGui::DockBuilderGetNode(workspace.RegionDock("resources"));
+            IM_CHECK_NO_RET(layout && resources && resources->Size.x < layout->Size.x);
+            auto bad = workspace.Configuration(); bad.legacyWindows.push_back(bad.legacyWindows.front());
+            const auto primary = workspace.Role("main.level");
+            const auto dock = level->DockId;
+            std::string error;
+            IM_CHECK_NO_RET(!workspace.Configure(bad, error) && workspace.Role("main.level") == primary && level->DockId == dock);
+            IM_CHECK_NO_RET(workspace.Configure(original, error) && workspace.Close(extra));
+            IM_CHECK_NO_RET(state.document->Token() == token && state.History().UndoCount() == undo && state.objectSelection.Revision() == selection);
+        });
+        ctx->Yield(6);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            const auto *level = ImGui::FindWindowByName(workspace.WindowName(workspace.Role("main.level")).c_str());
+            IM_CHECK_NO_RET(level && level->DockId == workspace.RegionDock("editing"));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport());
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "resource_views_navigation_drag_and_reset");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        ResourceSample sample;
+        EditorView first = 0, second = 0;
+        vdev::DocumentToken token{};
+        size_t undo = 0;
+        uint64_t selection = 0;
+        bool dirty = false;
+        vdev::EditorResponse closedRootState;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            token = state.document->Token(); undo = state.History().UndoCount(); selection = state.objectSelection.Revision(); dirty = state.document->Dirty();
+            first = Integer(Command("example.library.open", {vdev::TextArgument("path", sample.library)}), "view");
+            second = state.workspace->Open("resource.data");
+            IM_CHECK_NO_RET(first && second && second != first);
+            IM_CHECK_NO_RET(Command("example.library.open", {vdev::IntegerArgument("view", second), vdev::TextArgument("path", sample.library)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(Command("example.library.browse", {vdev::IntegerArgument("view", first), vdev::TextArgument("folder", sample.graphs)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(Command("example.library.browse", {vdev::IntegerArgument("view", second), vdev::TextArgument("folder", std::string("Textures"))}).status == EDITOR_OK);
+        });
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(workspace.Inspect(first), "folder") == sample.graphs);
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(workspace.Inspect(second), "folder") != sample.graphs);
+            IM_CHECK_NO_RET(Command("example.library.browse", {vdev::IntegerArgument("view", first), vdev::TextArgument("folder", std::string("missing"))}).status == EDITOR_INVALID);
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(workspace.Inspect(first), "folder") == sample.graphs);
+            ImGui::SetWindowDock(ImGui::FindWindowByName(workspace.WindowName(first).c_str()), 0, ImGuiCond_Always);
+        });
+        ctx->Yield(2);
+        ctx->MenuClick("//##MainMenuBar/Options/Reset Interface"); ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            const auto *window = ImGui::FindWindowByName(workspace.WindowName(first).c_str());
+            IM_CHECK_NO_RET(window && window->DockId && window->DockId == workspace.RegionDock("resources"));
+            IM_CHECK_NO_RET(workspace.Focus(first));
+        });
+        ctx->Yield(3);
+        ctx->ItemClick((Window(first) + "/**/One.nms").c_str());
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        ctx->ItemClick((Window(first) + "/**/Two.nms").c_str());
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ctx->Yield(2);
+        OnMainThread(ctx, [&] {
+            const auto &view = App().State().workspace->Inspect(first);
+            const auto *chosen = vdev::EditorClient::Find(view, "selection");
+            IM_CHECK_NO_RET(chosen && chosen->texts.size() == 2);
+        });
+        ctx->MouseMove((Window(first) + "/**/One.nms").c_str());
+        const auto from = ImGui::GetIO().MousePos;
+        ctx->MouseDown(0); ctx->MouseMoveToPos({from.x - 20, from.y + 10}); ctx->Yield(2);
+        OnMainThread(ctx, [&] {
+            const auto *payload = ImGui::GetDragDropPayload();
+            uint32_t source = 9; std::vector<vdev::ResourceFile> files;
+            IM_CHECK_NO_RET(payload && payload->IsDataType(EDITOR_RESOURCE_FILE_PAYLOAD) &&
+                vdev::ReadResourceDrag(payload->Data, size_t(payload->DataSize), source, files));
+            IM_CHECK_NO_RET(files.size() == 2 && files[source].path == sample.first && files[0].path == sample.first && files[1].path == sample.second);
+        });
+        ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(3);
+        ctx->ItemClose((Window(first) + "/**/Library").c_str());
+        ctx->Yield(2);
+        OnMainThread(ctx, [&] { closedRootState = App().State().workspace->Inspect(first); });
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            const auto previous = workspace.Application().Configuration();
+            auto alternative = previous;
+            for (auto &choice : alternative.providers) if (choice.kind == "view" && choice.id == "resource.data") choice.provider = "example.resources";
+            std::string error;
+            IM_CHECK_NO_RET(Command("example.file-view-state", {vdev::IntegerArgument("refuse", 1)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(!workspace.Configure(alternative, error) && workspace.Application().Scope(first).view && workspace.Application().Scope(second).view);
+            IM_CHECK_NO_RET(Command("example.file-view-state", {vdev::IntegerArgument("refuse", 0)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(workspace.Configure(alternative, error));
+            IM_CHECK_NO_RET(!workspace.Application().Scope(first).view && !workspace.Application().Scope(second).view);
+            for (auto id : Views("resource.data")) {
+                const auto &view = workspace.Inspect(id);
+                if (vdev::EditorClient::Text(view, "folder") == vdev::EditorClient::Text(closedRootState, "folder")) {
+                    const auto *chosen = vdev::EditorClient::Find(view, "selection");
+                    IM_CHECK_NO_RET(chosen && chosen->texts == vdev::EditorClient::Find(closedRootState, "selection")->texts);
+                }
+            }
+            IM_CHECK_NO_RET(workspace.Configure(previous, error));
+            first = second = 0;
+            for (auto id : Views("resource.data")) {
+                if (vdev::EditorClient::Text(workspace.Inspect(id), "folder") == vdev::EditorClient::Text(closedRootState, "folder")) first = id;
+                else second = id;
+            }
+            IM_CHECK_NO_RET(first && second && first != second);
+        });
+        ctx->Yield(4);
+        IM_CHECK(ctx->ItemExists((Window(first) + "/**/Library").c_str()));
+        IM_CHECK((ctx->ItemInfo((Window(first) + "/**/Library").c_str()).StatusFlags & ImGuiItemStatusFlags_Opened) == 0);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.workspace->Close(first) && state.workspace->Close(second));
+            IM_CHECK_NO_RET(state.document->Token() == token && state.History().UndoCount() == undo && state.objectSelection.Revision() == selection && state.document->Dirty() == dirty);
+        });
+        ctx->Yield(3);
+        IM_CHECK(Read<bool>(ctx, [&] { const auto &paths = App().State().preferences.dataResources; return std::find(paths.begin(), paths.end(), sample.library) == paths.end(); }));
+    };
+
+
+    test = IM_REGISTER_TEST(engine, "modules", "resource_load_uses_primary_level_selection");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        ResourceSample sample;
+        EditorView view = 0;
+        CK_ID owner = 0;
+        EditorObject script{};
+        vdev::EditorConfiguration original;
+        size_t undo = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const auto frame = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(frame.ok); owner = frame.created;
+            const auto created = vdev::CreateScript(*state.document, owner, "Resource Target");
+            IM_CHECK_NO_RET(created.ok); script = state.document->Reference(created.created);
+            state.objectSelection.Reset();
+        });
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            original = workspace.Application().Configuration();
+            auto configuration = original;
+            for (auto &choice : configuration.providers) if (choice.kind == "command" && choice.id == "resource.load") choice.provider = "example.resource-spy";
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(configuration, error));
+            view = Integer(Command("example.library.open", {vdev::TextArgument("path", sample.library)}), "view");
+            IM_CHECK_NO_RET(view && Command("example.library.browse", {vdev::IntegerArgument("view", view), vdev::TextArgument("folder", sample.graphs)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(Command("example.scene.navigate", {vdev::TextArgument("type", std::string("scene.level")),
+                vdev::IntegerArgument("view", workspace.Role("main.level")), vdev::ObjectArgument("target", script)}).status == EDITOR_OK);
+            undo = App().State().History().UndoCount();
+        });
+        ctx->Yield(4);
+        ctx->WindowFocus(Window(view).c_str());
+        ctx->ItemDoubleClick((Window(view) + "/**/One.nms").c_str()); ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); auto &workspace = *state.workspace;
+            const auto result = workspace.Application().Query("example.resource-target", {workspace.Application().Scope(), nullptr, 0});
+            const auto *target = vdev::EditorClient::Find(result, "target");
+            IM_CHECK_NO_RET(result.status == EDITOR_OK && target && target->object == script);
+            IM_CHECK_NO_RET(state.objectSelection.References().empty() && state.History().UndoCount() == undo);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(original, error) && workspace.Close(view));
+            state.objectSelection.Reset();
+            IM_CHECK_NO_RET(vdev::DestroyLevelObjects(*state.document, {owner}).ok);
+            state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "resource_behavior_information_uses_registered_input");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        ResourceSample sample;
+        EditorView view = 0;
+        vdev::DocumentToken token{};
+        size_t undo = 0;
+        EditorOperation cancelled = 0;
+        vdev::EditorConfiguration inputConfiguration;
+        OnMainThread(ctx, [&] {
+            view = Integer(Command("example.library.open", {vdev::TextArgument("path", sample.library)}), "view");
+            token = App().State().document->Token(); undo = App().State().History().UndoCount();
+            IM_CHECK_NO_RET(view && Command("resource.behavior-information", {vdev::TextArgument("path", sample.first)}).status == EDITOR_QUEUED);
+            IM_CHECK_NO_RET(Command("document.save-as").status == EDITOR_REFUSED);
+        });
+        ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            std::string error;
+            IM_CHECK_NO_RET(!workspace.Configure(workspace.Configuration(), error));
+        });
+        IM_CHECK(ctx->ItemExists("//###behaviorinfo/##author"));
+        IM_CHECK(!ctx->ItemExists("//###behaviorinfo/Hide script representation in schematic view"));
+        ctx->ItemInputValue("//###behaviorinfo/##author", "Resource UI Author");
+        ctx->ItemInputValue("//###behaviorinfo/##version", "4.5");
+        ctx->ItemClick("//###behaviorinfo/OK"); ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            vdev::BehaviorDescription info;
+            IM_CHECK_NO_RET(vdev::ReadBehaviorDescription(sample.first, info) && info.author == "Resource UI Author" && info.version == 4.5f);
+            IM_CHECK_NO_RET(App().State().document->Token() == token && App().State().History().UndoCount() == undo);
+            auto &workspace = *App().State().workspace;
+            inputConfiguration = workspace.Application().Configuration();
+            auto alternative = inputConfiguration;
+            for (auto &choice : alternative.providers) if (choice.kind == "view" && choice.id == "resource.file-dialogs") choice.provider = "example.resource-inputs";
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(alternative, error));
+            const auto result = Command("resource.behavior-information", {vdev::TextArgument("path", sample.first)});
+            IM_CHECK_NO_RET(result.status == EDITOR_QUEUED); cancelled = result.operation;
+        });
+        ctx->Yield(6);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            vdev::EditorClient client(workspace.Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Completion(cancelled).status == EDITOR_CANCELLED);
+            vdev::BehaviorDescription info;
+            IM_CHECK_NO_RET(vdev::ReadBehaviorDescription(sample.first, info) && info.author == "Resource UI Author");
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(inputConfiguration, error));
+            IM_CHECK_NO_RET(workspace.Close(view));
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "resource_browsing_during_native_work");
+    test->GuiFunc = WorkspaceGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        ResourceSample sample;
+        EditorView view = 0;
+        auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
+        OnMainThread(ctx, [&] {
+            view = Integer(Command("example.library.open", {vdev::TextArgument("path", sample.library)}), "view");
+            IM_CHECK_NO_RET(view && App().State().runtimeOperation.Queue("Resource browsing regression", [gate] {
+                std::unique_lock<std::mutex> lock(gate->mutex); gate->entered = true; gate->changed.wait(lock, [&] { return gate->released; });
+            }, [](const std::string &) {}));
+        });
+        for (int i = 0; !gate->entered && i < 100; ++i) ctx->Yield();
+        IM_CHECK(gate->entered.load());
+        OnWorkspaceThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            IM_CHECK_NO_RET(Command("example.library.browse", {vdev::IntegerArgument("view", view), vdev::TextArgument("folder", sample.graphs)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(workspace.Inspect(view), "folder") == sample.graphs);
+            IM_CHECK_NO_RET(Command("example.library.open", {vdev::TextArgument("path", sample.library)}).status == EDITOR_REFUSED);
+            std::string error;
+            IM_CHECK_NO_RET(!workspace.Configure(workspace.Configuration(), error));
+            IM_CHECK_NO_RET(workspace.Close(view));
+        });
+        gate->Release(); ctx->Yield(5); Settle(ctx);
     };
 
     test = IM_REGISTER_TEST(engine, "modules", "building_block_view_instances_and_navigation");

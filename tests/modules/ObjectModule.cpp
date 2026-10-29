@@ -11,6 +11,7 @@ const EditorString RenameId = EDITOR_TEXT("object.rename");
 struct Module {
     int views = 0, playCalls = 0;
     bool refuseFileView = false;
+    EditorObject resourceTarget{};
 };
 struct FileView {
     uint64_t answered = 0;
@@ -136,6 +137,10 @@ EditorStatus FileCommand(void *data, const EditorHost *host, const EditorRequest
     const auto *command = static_cast<const char *>(data);
     return host->execute(host->data, {command, uint32_t(std::char_traits<char>::length(command))}, &nested, sink);
 }
+EditorStatus ResourceCommand(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    const auto *command = static_cast<const char *>(data);
+    return host->execute(host->data, {command, uint32_t(std::char_traits<char>::length(command))}, request, sink);
+}
 EditorStatus OutputCommand(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
     auto nested = *request;
     nested.handler = EditorString EDITOR_TEXT("builtin.outputs");
@@ -233,6 +238,51 @@ uint32_t DrawName(void *, const EditorHost *host, const EditorTextInput *input) 
                ? EDITOR_INPUT_CANCEL
                : (accepted ? EDITOR_INPUT_ACCEPT : 0u) | (ImGui::IsItemActive() ? EDITOR_INPUT_ACTIVE : 0u);
 }
+
+struct ResourceBrowser {
+    std::string library, folder, anchor;
+    std::vector<std::string> selection, expanded;
+};
+EditorStatus ResourceState(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+    const auto &view = *static_cast<ResourceBrowser *>(data);
+    std::vector<EditorString> selection, expanded;
+    for (const auto &path : view.selection) selection.push_back({path.data(), uint32_t(path.size())});
+    for (const auto &path : view.expanded) expanded.push_back({path.data(), uint32_t(path.size())});
+    const EditorValue values[] = {
+        {EDITOR_TEXT("library"), EDITOR_TEXT_VALUE, {}, {view.library.data(), uint32_t(view.library.size())}},
+        {EDITOR_TEXT("folder"), EDITOR_TEXT_VALUE, {}, {view.folder.data(), uint32_t(view.folder.size())}},
+        {EDITOR_TEXT("anchor"), EDITOR_TEXT_VALUE, {}, {view.anchor.data(), uint32_t(view.anchor.size())}},
+        {EDITOR_TEXT("selection"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {selection.data(), uint32_t(selection.size())}},
+        {EDITOR_TEXT("expanded"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {expanded.data(), uint32_t(expanded.size())}}};
+    return sink.write ? sink.write(sink.data, values, 5) : EDITOR_INVALID;
+}
+EditorStatus RestoreResource(void *data, const EditorHost *, const EditorRequest *request) {
+    ResourceBrowser next;
+    for (uint32_t i = 0; i < request->count; ++i) {
+        const auto &value = request->values[i];
+        const std::string key(value.key.data, value.key.size);
+        if (value.type == EDITOR_TEXT_VALUE && (key == "library" || key == "folder" || key == "anchor")) {
+            auto &text = key == "library" ? next.library : key == "folder" ? next.folder : next.anchor;
+            text.assign(value.text.data, value.text.size);
+        } else if (value.type == EDITOR_TEXT_LIST && (key == "selection" || key == "expanded")) {
+            auto &texts = key == "selection" ? next.selection : next.expanded;
+            for (uint32_t j = 0; j < value.texts.count; ++j) texts.emplace_back(value.texts.data[j].data, value.texts.data[j].size);
+        } else return EDITOR_INVALID;
+    }
+    *static_cast<ResourceBrowser *>(data) = std::move(next);
+    return EDITOR_OK;
+}
+EditorStatus InspectResource(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+    const auto &view = *static_cast<ResourceBrowser *>(data);
+    std::vector<EditorString> selected;
+    for (const auto &path : view.selection) selected.push_back({path.data(), uint32_t(path.size())});
+    const EditorValue values[] = {
+        {EDITOR_TEXT("library"), EDITOR_TEXT_VALUE, {}, {view.library.data(), uint32_t(view.library.size())}},
+        {EDITOR_TEXT("folder"), EDITOR_TEXT_VALUE, {}, {view.folder.data(), uint32_t(view.folder.size())}},
+        {EDITOR_TEXT("selection"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {selected.data(), uint32_t(selected.size())}},
+        {EDITOR_TEXT("entries"), EDITOR_TEXT_LIST}};
+    return sink.write ? sink.write(sink.data, values, 4) : EDITOR_INVALID;
+}
 void Stop(void *data) { delete static_cast<Module *>(data); }
 } // namespace
 extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const EditorHost *host, EditorModuleDesc *out) {
@@ -249,6 +299,9 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     static const EditorParameter owners{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST};
     static const EditorParameter resources[] = {{EDITOR_TEXT("paths"), EDITOR_TEXT_LIST},
         {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST, 1}};
+    static const EditorParameter library[] = {{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
+    static const EditorParameter browse[] = {{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("folder"), EDITOR_TEXT_VALUE, 1},
+        {EDITOR_TEXT("files"), EDITOR_TEXT_LIST, 1}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
     static const EditorParameter objects[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},
         {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("initial"), EDITOR_TEXT_VALUE, 1},
         {EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("ask-options"), EDITOR_INTEGER_VALUE, 1}};
@@ -264,6 +317,19 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
         {EDITOR_TEXT("filter"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("category"), EDITOR_TEXT_VALUE, 1},
         {EDITOR_TEXT("selection"), EDITOR_INTEGER_LIST, 1}};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("resource.load"), EDITOR_TEXT("example.resource-spy"), EDITOR_TEXT("Record resource target"),
+         resources, 3, [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+             auto &target = static_cast<Module *>(data)->resourceTarget; target = {};
+             for (uint32_t i = 0; i < request->count; ++i) {
+                 const auto &field = request->values[i];
+                 if (std::string(field.key.data, field.key.size) == "targets" && field.objects.count == 1) target = field.objects.data[0];
+             }
+             return EDITOR_OK;
+         }, data, EDITOR_DOCUMENT, EDITOR_FILE_OPERATION},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("example.library.open"), EDITOR_TEXT("example.resources"), EDITOR_TEXT("Open Library"),
+         library, 2, ResourceCommand, const_cast<char *>("resource.open-library"), EDITOR_WORKSPACE, EDITOR_FILE_OPERATION},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("example.library.browse"), EDITOR_TEXT("example.resources"), EDITOR_TEXT("Browse Library"),
+         browse, 4, ResourceCommand, const_cast<char *>("resource.browse"), EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("example.blocks.navigate"), EDITOR_TEXT("example.objects"),
          EDITOR_TEXT("Navigate Building Blocks"), blockNavigation, 4, NavigateBlocks, nullptr, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("example.scene.navigate"),EDITOR_TEXT("example.objects"),EDITOR_TEXT("Navigate Scene View"),sceneNavigation,4,NavigateScene,nullptr,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
@@ -344,6 +410,35 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     logView.title = EditorString EDITOR_TEXT("External Event Log");
     logView.kind = EDITOR_WINDOW_VIEW;
     logView.draw = DrawLog;
+
+    static const EditorParameter resourceNavigation[] = {{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1},
+        {EDITOR_TEXT("folder"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("files"), EDITOR_TEXT_LIST, 1}};
+    static const EditorParameter resourceFields[] = {{EDITOR_TEXT("library"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("folder"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("selection"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("entries"), EDITOR_TEXT_LIST}};
+    EditorViewDesc resourceView{};
+    resourceView.size = sizeof(resourceView); resourceView.imguiVersion = EDITOR_IMGUI_VERSION;
+    resourceView.id = EDITOR_TEXT("resource.data"); resourceView.provider = EDITOR_TEXT("example.resources"); resourceView.title = EDITOR_TEXT("External Data Resource");
+    resourceView.create = [](void *data, const EditorHost *, EditorView) -> void * {
+        return static_cast<Module *>(data)->refuseFileView ? nullptr : new ResourceBrowser;
+    };
+    resourceView.destroy = [](void *data) { delete static_cast<ResourceBrowser *>(data); };
+    resourceView.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        EditorImGuiWindow window(*frame); if (!window) return;
+        const auto &view = *static_cast<ResourceBrowser *>(data);
+        ImGui::TextUnformatted("External Data Resource"); ImGui::TextUnformatted(view.library.c_str()); ImGui::TextUnformatted(view.folder.c_str());
+    };
+    resourceView.data = data; resourceView.area = EDITOR_WORKSPACE;
+    resourceView.parameters = resourceNavigation; resourceView.count = 3;
+    resourceView.navigate = [](void *, const EditorHost *, const EditorRequest *) { return EDITOR_REFUSED; };
+    resourceView.stateVersion = 1; resourceView.saveState = ResourceState; resourceView.restoreState = RestoreResource;
+    resourceView.inspect = InspectResource;
+    resourceView.fields = resourceFields; resourceView.fieldCount = 4;
+    auto resourceInputs = fileView;
+    resourceInputs.id = EDITOR_TEXT("resource.file-dialogs"); resourceInputs.provider = EDITOR_TEXT("example.resource-inputs");
+    resourceInputs.title = EDITOR_TEXT("External Resource dialogs");
+    resourceInputs.draw = [](void *data, const EditorHost *host, EditorView id, EditorViewFrame *) {
+        DrawInput(data, host, id, EditorString EDITOR_TEXT("resource.input"), EditorString EDITOR_TEXT("resource.respond"));
+    };
     const EditorTextEditorDesc editor{sizeof(editor),
                                       EDITOR_IMGUI_VERSION,
                                       EDITOR_TEXT("text.single-line"),
@@ -355,17 +450,23 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     // its own allocations at stop; the host copies strings and arrays.
     struct Descriptors {
         std::vector<EditorCommandDesc> commands;
-        EditorQueryDesc queries[2];
-        EditorViewDesc views[4];
+        EditorQueryDesc queries[3];
+        EditorViewDesc views[6];
         EditorTextEditorDesc editor;
         Module *data;
     };
     static const EditorParameter playCountField{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE};
     const EditorQueryDesc playCount{sizeof(EditorQueryDesc), EDITOR_TEXT("example.play-count"), EDITOR_TEXT("example.execution"),
         nullptr, 0, PlayCount, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, &playCountField, 1};
+    static const EditorParameter resourceTargetField{EDITOR_TEXT("target"), EDITOR_OBJECT};
+    const EditorQueryDesc resourceTarget{sizeof(EditorQueryDesc), EDITOR_TEXT("example.resource-target"), EDITOR_TEXT("example.resources"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const EditorValue value{EDITOR_TEXT("target"), EDITOR_OBJECT, static_cast<Module *>(data)->resourceTarget};
+            return sink.write ? sink.write(sink.data, &value, 1) : EDITOR_INVALID;
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &resourceTargetField, 1};
     auto *descriptors = new Descriptors{std::vector<EditorCommandDesc>(std::begin(commands), std::end(commands)),
-                                        {query, playCount},
-                                        {view, fileView, outputView, logView},
+                                        {query, playCount, resourceTarget},
+                                        {view, fileView, outputView, logView, resourceView, resourceInputs},
                                         editor,
                                         data};
     *out = {};
@@ -377,9 +478,9 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->commands = descriptors->commands.data();
     out->commandCount = static_cast<uint32_t>(descriptors->commands.size());
     out->queries = descriptors->queries;
-    out->queryCount = 2;
+    out->queryCount = 3;
     out->views = descriptors->views;
-    out->viewCount = 4;
+    out->viewCount = 6;
     out->editors = &descriptors->editor;
     out->editorCount = 1;
     out->data = descriptors;

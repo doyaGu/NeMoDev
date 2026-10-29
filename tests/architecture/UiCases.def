@@ -148,3 +148,11 @@ VIRTOOLSDEV_UI_CASE("modules", "scene_view_instances_queries_and_commands")
 
 VIRTOOLSDEV_UI_CASE("modules", "building_block_view_instances_and_navigation")
 VIRTOOLSDEV_UI_CASE("modules", "registered_views_reset_docking")
+
+VIRTOOLSDEV_UI_CASE("modules", "resource_views_navigation_drag_and_reset")
+VIRTOOLSDEV_UI_CASE("modules", "resource_behavior_information_uses_registered_input")
+VIRTOOLSDEV_UI_CASE("modules", "resource_browsing_during_native_work")
+
+VIRTOOLSDEV_UI_CASE("modules", "workspace_layout_configuration_applies_and_rolls_back")
+
+VIRTOOLSDEV_UI_CASE("modules", "resource_load_uses_primary_level_selection")

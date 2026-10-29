@@ -76,6 +76,7 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     EditorConfiguration configuration;
     configuration.providers = {{"command", "object.rename", "builtin.objects"},
                                {"command", "object.create-frame3d", "builtin.objects"}};
+    configuration.providers.push_back({"command", "resource.load", "builtin.documents"});
     Check(editor.Activate(EDITOR_IMGUI_VERSION, error, configuration), error.c_str());
     const auto attach = [&] { editor.Attach(document.Token(), document.TopologyRevision(), true, true); };
     const auto drain = [&] { editor.EndFrame(); runtime.Finish(); attach(); commands.Poll(); };
