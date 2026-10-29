@@ -181,7 +181,7 @@ bool ShowsObject(CK_ID object) {
 }
 
 bool ShowSetup(ImGuiTestContext *ctx, CK_ID id, const char *ref) {
-    OnMainThread(ctx, [id] { App().State().events.Post(vdev::ShowObjectSetup{id}); });
+    OnMainThread(ctx, [id] { App().State().events.Post(vdev::ShowObjectSetup{App().State().document->Reference(id)}); });
     ctx->Yield(3);
     ImGuiWindow *window = ctx->GetWindowByRef(ref);
     if (!window || !window->WasActive || !ShowsObject(id)) return false;

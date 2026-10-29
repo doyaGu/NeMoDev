@@ -22,6 +22,12 @@ int main() {
         regression.Parse({L"NeMoDev", option, L"argument"});
         check(regression.badOption == option, "Production must reject regression options");
     }
+    vdev::CommandLine module;
+    module.Parse({L"NeMoDev", L"--editor-module", L"Extensions/objects"});
+    check(module.badOption.empty() && module.editorModules.size() == 1, "Editor module path must be accepted");
+    vdev::CommandLine missingModule;
+    missingModule.Parse({L"NeMoDev", L"--editor-module"});
+    check(missingModule.badOption == L"--editor-module", "Missing module argument must fail");
     vdev::CommandLine missing;
     missing.Parse({L"NeMoDev", L"--runtime"});
     check(missing.badOption == L"--runtime", "A missing runtime argument must fail");

@@ -47,6 +47,7 @@ namespace vdevuitest {
 // The editor the tests drive (UiTestRun).
 vdev::EditorApp &App();
 
+void RegisterModuleTests(ImGuiTestEngine *engine);
 void RegisterAppTests(ImGuiTestEngine *engine);
 void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine);
 void RegisterGpuViewportTests(ImGuiTestEngine *engine);

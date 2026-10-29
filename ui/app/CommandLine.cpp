@@ -24,7 +24,9 @@ std::wstring AbsolutePath(const std::wstring &path) {
 
 void CommandLine::Parse(const std::vector<std::wstring> &args) {
     for (size_t i = 1; i < args.size(); ++i) {
-        if (args[i] == L"--runtime") {
+        if (args[i] == L"--editor-module" && i + 1 < args.size()) {
+            editorModules.push_back(WideToUtf8(AbsolutePath(args[++i])));
+        } else if (args[i] == L"--runtime") {
             if (i + 1 < args.size()) ++i;
             else badOption = args[i];
 #ifdef VIRTOOLSDEV_UI_TESTS

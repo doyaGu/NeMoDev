@@ -883,7 +883,7 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
             bool setup = false;
             for (CK_CLASSID setupClass : SETUPS) setup = setup || (object && CKIsChildClassOf(object, setupClass));
             if (vi::Button("##showsetup", P(170, 30), P(215, 40), "Show Setup", setup))
-                m_State.events.Post(ShowObjectSetup{current});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(current)});
         }
         break;
     }
@@ -1419,7 +1419,7 @@ bool ParameterBox::ObjectArrayUi(Row &row, CKParameter *work, const ImVec2 &at, 
             ImGui::SetKeyboardFocusHere(-1);
         }
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && object)
-            m_State.events.Post(ShowObjectSetup{object->GetID()});
+            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) menuAt = i;
         ImGui::PopID();
         const bool selected = row.chosen.count(i) != 0;
@@ -1473,7 +1473,7 @@ bool ParameterBox::ObjectArrayUi(Row &row, CKParameter *work, const ImVec2 &at, 
         }
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false) && !row.chosen.empty())
             m_State.objectClipboard.SetObjects(*m_State.document, selection());
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false)) insert(array->Size(), m_State.objectClipboard.Objects());
+        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false)) insert(array->Size(), m_State.objectClipboard.Objects(*m_State.document));
         // + and -: the first selected item and the one below / above it change places.
         const bool down = ImGui::IsKeyPressed(ImGuiKey_KeypadAdd), up = ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract);
         if ((down || up) && !row.chosen.empty()) {
@@ -1500,8 +1500,8 @@ bool ParameterBox::ObjectArrayUi(Row &row, CKParameter *work, const ImVec2 &at, 
         ImGui::Separator();
         if (ImGui::MenuItem("Copy Object(s)", nullptr, false, !row.chosen.empty()))
             m_State.objectClipboard.SetObjects(*m_State.document, selection());
-        if (ImGui::MenuItem("Paste Object(s)", nullptr, false, !m_State.objectClipboard.Objects().empty()))
-            insert(std::clamp(row.anchor, 0, array->Size()), m_State.objectClipboard.Objects());
+        if (ImGui::MenuItem("Paste Object(s)", nullptr, false, !m_State.objectClipboard.Objects(*m_State.document).empty()))
+            insert(std::clamp(row.anchor, 0, array->Size()), m_State.objectClipboard.Objects(*m_State.document));
         ImGui::EndPopup();
     }
     PopDevMenuStyle();

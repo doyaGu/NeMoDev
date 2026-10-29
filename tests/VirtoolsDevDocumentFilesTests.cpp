@@ -77,7 +77,7 @@ void Workflows() {
     CHECK(vdev::RenameLevelObject(document, document.Reference(frame.created), "Undo then redo after failed file operation").ok);
     CHECK(document.History().Undo());
     state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
-    state.objectSelection.Set({frame.created});
+    state.objectSelection.Set(*state.document, {frame.created});
     const auto context = document.Context();
     const auto selection = state.selection;
     const auto objects = state.objectSelection;
@@ -87,7 +87,7 @@ void Workflows() {
     const auto preserved = [&] {
         CHECK(document.Context() == context && document.Dirty() == dirty);
         CHECK(state.selection.script == selection.script && state.selection.items == selection.items);
-        CHECK(state.objectSelection.objects == objects.objects && state.objectSelection.revision == objects.revision);
+        CHECK(state.objectSelection.Objects() == objects.Objects() && state.objectSelection.revision == objects.revision);
         CHECK(document.History().UndoCount() == undo && document.History().CanRedo() && document.History().RedoLabel() == redo);
     };
     // Replacing/closing requires already-detached views. Reject attempts
@@ -195,7 +195,7 @@ void Workflows() {
     CHECK(state.RunRuntime("Old document request", [&] { staleWork = true; }, [&](bool) { staleCompletion = true; }));
     Drain(state);
     CHECK(detached && opened && !staleWork && !staleCompletion);
-    CHECK(document.Context() != context && state.selection.Empty() && state.objectSelection.objects.empty());
+    CHECK(document.Context() != context && state.selection.Empty() && state.objectSelection.Objects().empty());
     CHECK(document.CreatedFrom() == vdev::Document::Origin::LoadedComposition && !document.Dirty());
     CHECK(!document.History().CanUndo() && !document.History().CanRedo());
 

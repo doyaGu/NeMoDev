@@ -179,6 +179,7 @@ void SetupWindows::Open(CK_ID id) {
         }
     if (shown) {
         shown->object = id;
+        shown->reference = m_State.document->Reference(id);
         shown->open = true;
         shown->focus = true;
         if (point >= 0) shown->point = point;
@@ -187,6 +188,7 @@ void SetupWindows::Open(CK_ID id) {
     Setup setup;
     setup.kind = kind;
     setup.object = id;
+    setup.reference = m_State.document->Reference(id);
     setup.slot = slot;
     setup.focus = true;
     setup.attributes = attributesFirst;
@@ -199,7 +201,7 @@ std::vector<SetupWindows::OpenSetup> SetupWindows::OpenSetups() const {
     if (!m_State.HasDocument()) return result;
     CKContext *context = m_State.document->Context();
     for (const Setup &setup : m_Doc.setups) {
-        if (!setup.open || !context->GetObject(setup.object)) continue;
+        if (!setup.open || !m_State.document->Resolve(setup.reference)) continue;
         OpenSetup open;
         open.object = setup.object;
         if (CKCurve *curve = CKCurve::Cast(context->GetObject(setup.object)))
@@ -213,6 +215,8 @@ std::vector<SetupWindows::OpenSetup> SetupWindows::OpenSetups() const {
 
 void SetupWindows::CloseAll() {
     FlushPending();
+    if (m_State.workspace)
+        for (auto &setup : m_Doc.setups) m_State.workspace->CloseOwner(setup.nameOwner);
     m_Doc = DocumentState();
 }
 
@@ -250,12 +254,14 @@ void SetupWindows::Draw(ImGuiID dock) {
     if (!m_State.HasDocument()) {
         m_Pending.Begin(nullptr, {});
         m_PendingSceneActive = false;
-        m_Doc.setups.clear();
+        CloseAll();
         return;
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) CancelPending();
     for (Setup &setup : m_Doc.setups)
         if (setup.open) DrawSetup(setup, dock);
+    for (Setup &setup : m_Doc.setups)
+        if (!setup.open) m_State.workspace->CloseOwner(setup.nameOwner);
     m_Doc.setups.erase(std::remove_if(m_Doc.setups.begin(), m_Doc.setups.end(), [](const Setup &s) { return !s.open; }),
                    m_Doc.setups.end());
     // A gesture ends when no control is held any more.
@@ -311,7 +317,7 @@ void SetupWindows::PortalPick() {
 }
 
 void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
-    CKObject *object = m_State.document->Context()->GetObject(setup.object);
+    CKObject *object = m_State.document->Resolve(setup.reference);
     if (!object) {
         setup.open = false;
         return;
@@ -462,32 +468,34 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
         for (CKObject *other : ObjectsOf(*m_State.document, object->GetClassID(), false)) {
             CKSceneObject *candidate = CKSceneObject::Cast(other);
             if (scoped && scene && other != object && candidate && !candidate->IsInScene(scene)) continue;
-            if (typeAhead.Selectable(NameOf(other).c_str(), other == object)) setup.object = other->GetID();
+            if (typeAhead.Selectable(NameOf(other).c_str(), other == object)) {
+                setup.object = other->GetID();
+                setup.reference = m_State.document->Reference(setup.object);
+            }
         }
         ImGui::EndCombo();
     }
     // F2: the object renamed (the setup's window focused).
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
-        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
-        m_Doc.renameObject = setup.object;
-        m_Doc.renameText = NameOf(object);
-        m_Doc.openRename = true;
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && m_State.workspace->Shortcut("object.name")) {
+        setup.openRename = m_State.workspace->Begin("object.name", setup.reference, setup.renameEdit, setup.nameOwner);
     }
-    if (m_Doc.openRename && m_Doc.renameObject == setup.object) {
-        m_Doc.openRename = false;
+    if (setup.openRename) {
+        setup.openRename = false;
         ImGui::OpenPopup("Rename###setuprename");
     }
     if (ImGui::BeginPopupModal("Rename###setuprename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
         ImGui::SetNextItemWidth(260);
-        const bool entered = ImGui::InputText("##name", &m_Doc.renameText, ImGuiInputTextFlags_EnterReturnsTrue);
+        const bool entered = m_State.workspace->DrawInput(setup.renameEdit, "##name", ImGui::IsWindowAppearing());
         if (ImGui::Button("OK", ImVec2(80, 0)) || entered) {
             FlushPending();
-            Report(RenameLevelObject(*m_State.document, m_State.document->Reference(m_Doc.renameObject), Utf8ToAnsi(m_Doc.renameText)), "Rename");
-            ImGui::CloseCurrentPopup();
+            if (m_State.workspace->Finish(setup.renameEdit, true)) ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !setup.renameEdit) {
+            m_State.workspace->Finish(setup.renameEdit, false);
+            ImGui::CloseCurrentPopup();
+        }
         ImGui::EndPopup();
     }
     // The file (documentation: "The object can be replaced by clicking on
@@ -738,10 +746,10 @@ void SetupWindows::UsedByList(const char *id, const std::vector<CKObject *> &use
             ImGui::PushID(static_cast<int>(user->GetID()));
             if (typeAhead.Selectable(text.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{user->GetID()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(user->GetID())});
             // Its menu (documentation: "right-click and select Show Setup").
             if (ImGui::BeginPopupContextItem("usermenu")) {
-                if (ImGui::MenuItem("Show Setup")) m_State.events.Post(ShowObjectSetup{user->GetID()});
+                if (ImGui::MenuItem("Show Setup")) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(user->GetID())});
                 ImGui::EndPopup();
             }
             ImGui::PopID();

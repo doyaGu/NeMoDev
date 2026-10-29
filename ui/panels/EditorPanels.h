@@ -106,7 +106,8 @@ private:
     void SaveObjectsDialog();
     void AttributeMenu(const std::vector<CK_ID> &targets); // inside a menu
     CKDependencies m_DeleteOptions; // the dialog's copy of the Delete Options
-    std::string m_RenameText;
+    std::string m_RenameText; // workset names only
+    EditorView m_NameOwner = 0;
     void Report(const EditResult &result, const char *what);
     int m_LevelTreeOpen = -1; // Level Manager expand (1) / collapse (0) request
     // Expand / Collapse Selected (Dev: "the selected branch"): the rows
@@ -287,7 +288,7 @@ private:
         bool openDeleteObjects = false;
         std::vector<CK_ID> deleteObjects;
         bool openRename = false;
-        CK_ID renameObject = 0;
+        EditorEdit renameEdit = 0;
         int renameWorkset = 0;
         // The Schematic Explorer's results (made again when the query or
         // the composition changes), the rows chosen (Shift's anchor), the

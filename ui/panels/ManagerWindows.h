@@ -80,7 +80,7 @@ private:
         CK_ID hierarchyAnchor = 0;
         std::set<CK_ID> hierarchyOpen;
         bool hierarchyStarted = false;
-        CK_ID hierarchyRename = 0;
+        EditorEdit hierarchyRename = 0;
         CK_ID zEditObject = 0;
         // Add Attribute: the objects receiving the attributes, the dialog to
         // open (with More>>).
@@ -124,7 +124,7 @@ private:
     // revision seen), the Shift anchor, the items open (roots by key), the
     // resources shown, the edits in place (the name, the Render Priority).
     HierarchyOptions m_HierarchyOptions;
-    char m_HierarchyRenameBuffer[256] = "";
+    EditorView m_NameOwner = 0;
     bool m_HierarchyRenameFocus = false;
     ImGuiID m_Dock = 0;
     int m_ZEditValue = 0;

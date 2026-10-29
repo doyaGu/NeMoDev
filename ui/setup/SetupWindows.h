@@ -55,6 +55,10 @@ private:
     struct Setup {
         Kind kind = Kind::Other;
         CK_ID object = 0;
+        ObjectRef reference{};
+        EditorView nameOwner = 0;
+        EditorEdit renameEdit = 0;
+        bool openRename = false;
         bool attributes = false; // Attribute page shown
         // The header's Level / Current Scene filter (pressed: the current
         // scene's objects in the Name combo, Dev.exe sub_44DD30).
@@ -251,10 +255,6 @@ private:
         CK_ID front = 0;                       // the object of the Setup focused last
         std::map<CK_ID, ShownTransform> shown; // refreshed when m_Notify
         CK_ID gridLayer = 0;   // a layer whose Grid Setup opens on it (Layer Setup)
-        // F2 in a Setup (documentation "Setups": "Press F2 to edit the name").
-        CK_ID renameObject = 0;
-        std::string renameText;
-        bool openRename = false;
         CK_ID valueScript = 0; // the Script of the parameter edited (Parameter Setups)
     };
 

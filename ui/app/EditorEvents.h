@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "core/schematic/ElementRef.h"
+#include "editor/Identity.h"
 
 namespace vdev {
 
@@ -29,13 +30,13 @@ struct ShowElement {
 // The object's Setup shown (SetupWindows::Open: that of its curve for a
 // curve point, of its camera or light for a target), in front.
 struct ShowObjectSetup {
-    CK_ID object = 0;
+    ObjectRef object{};
 };
 
 // The object's row shown in the Level Manager, in front (once no popup is
 // open): the tree opened to it, scrolled to it, highlighted (not selected).
 struct ShowInLevelManager {
-    CK_ID object = 0;
+    ObjectRef object{};
 };
 
 // Dev's Add Attribute dialog for the objects (none: it only creates types);

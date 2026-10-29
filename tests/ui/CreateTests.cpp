@@ -178,10 +178,10 @@ void RegisterCreateTests(ImGuiTestEngine *engine) {
         ctx->KeyPress(ImGuiKey_A);
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_D);
         ctx->Yield(2);
-        IM_CHECK_SILENT(App().State().objectSelection.objects.empty());
+        IM_CHECK_SILENT(App().State().objectSelection.Objects().empty());
         noRepresentation();
         IM_CHECK_EQ(Representation(frame), 0);
-        IM_CHECK(App().State().objectSelection.objects.empty());
+        IM_CHECK(App().State().objectSelection.Objects().empty());
         Undo(ctx);
         IM_CHECK_EQ(Representation(frame), 1);
         // Selected (a click on its icon): the selection's frames change.

@@ -73,7 +73,7 @@ void SetupWindows::SetupLink(const char *label, CKObject *object) {
     ImGui::TextUnformatted(label);
     ImGui::SameLine(110);
     ImGui::BeginDisabled(!object);
-    if (ImGui::SmallButton(">") && object) m_State.events.Post(ShowObjectSetup{object->GetID()});
+    if (ImGui::SmallButton(">") && object) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
     ImGui::EndDisabled();
     if (object && ImGui::IsItemHovered()) ImGui::SetTooltip("Setup");
     ImGui::SameLine();
@@ -202,13 +202,13 @@ void SetupWindows::AnimationPage(CKAnimation *animation) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             CK3dEntity *entity = part->Get3dEntity();
-            if (ImGui::SmallButton(">") && entity) m_State.events.Post(ShowObjectSetup{entity->GetID()});
+            if (ImGui::SmallButton(">") && entity) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(entity->GetID())});
             ImGui::SameLine();
             ImGui::TextUnformatted(NameOf(entity).c_str());
             ImGui::TableNextColumn();
             if (typeAhead.Selectable(NameOf(part).c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{part->GetID()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(part->GetID())});
             ImGui::TableNextColumn();
             ImGui::Text("%.1f", part->GetLength());
             ImGui::TableNextColumn();
@@ -544,7 +544,7 @@ void SetupWindows::ParameterUsers(CKObject *object) {
         if (typeAhead.Selectable(NameOf(user.behavior).c_str(), false,
                               ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
             ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && user.behavior)
-            m_State.events.Post(ShowObjectSetup{user.behavior->GetID()});
+            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(user.behavior->GetID())});
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(NameOf(user.parameter, "<Unnamed>").c_str());
         ImGui::TableNextColumn();
@@ -595,7 +595,7 @@ void SetupWindows::KinematicChainPage(CKKinematicChain *chain) {
     ImGui::SameLine();
     ImGui::BeginDisabled(!chain->GetStartEffector());
     if (ImGui::SmallButton(">##startsetup") && chain->GetStartEffector())
-        m_State.events.Post(ShowObjectSetup{chain->GetStartEffector()->GetID()});
+        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(chain->GetStartEffector()->GetID())});
     ImGui::EndDisabled();
     ImGui::TextUnformatted("End Effector");
     ImGui::SameLine(110);
@@ -608,7 +608,7 @@ void SetupWindows::KinematicChainPage(CKKinematicChain *chain) {
     ImGui::SameLine();
     ImGui::BeginDisabled(!chain->GetEndEffector());
     if (ImGui::SmallButton(">##endsetup") && chain->GetEndEffector())
-        m_State.events.Post(ShowObjectSetup{chain->GetEndEffector()->GetID()});
+        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(chain->GetEndEffector()->GetID())});
     ImGui::EndDisabled();
     const bool complete = chain->GetStartEffector() && chain->GetEndEffector();
     const int bodies = complete ? chain->GetChainBodyCount() : 0;
@@ -636,7 +636,7 @@ void SetupWindows::KinematicChainPage(CKKinematicChain *chain) {
             ImGui::TableNextColumn();
             if (typeAhead.Selectable(NameOf(part).c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && part &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{part->GetID()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(part->GetID())});
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -662,7 +662,7 @@ void SetupWindows::LayerPage(CKLayer *layer) {
     ImGui::SameLine(110);
     ImGui::BeginDisabled(!grid);
     if (ImGui::SmallButton(">") && grid) {
-        m_State.events.Post(ShowObjectSetup{grid->GetID()});
+        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(grid->GetID())});
         m_Doc.gridLayer = layer->GetID();
     }
     ImGui::EndDisabled();
@@ -782,7 +782,7 @@ void SetupWindows::ParameterPage(CKParameter *parameter) {
                 if (typeAhead.Selectable(NameOf(destination).c_str(), false,
                                       ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                     ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    m_State.events.Post(ShowObjectSetup{destination->GetID()});
+                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(destination->GetID())});
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(NameOf(destination->GetOwner()).c_str());
                 ImGui::PopID();
@@ -863,7 +863,7 @@ void SetupWindows::OperationPage(CKParameterOperation *operation) {
             if (typeAhead.Selectable(NameOf(pin).c_str(), false,
                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                 pin && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{pin->GetID()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(pin->GetID())});
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(pin ? TypeName(context, type).c_str() : "");
             ImGui::TableNextColumn();
@@ -1000,7 +1000,7 @@ void SetupWindows::BehaviorPage(CKBehavior *behavior) {
                 if (typeAhead.Selectable(NameOf(child).c_str(), false,
                                       ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                     ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    m_State.events.Post(ShowObjectSetup{child->GetID()});
+                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(child->GetID())});
                 ImGui::TableNextColumn();
                 ImGui::TextUnformatted(child->GetType() == CKBEHAVIORTYPE_BASE ? "Building Block" : "Behavior Graph");
                 ImGui::TableNextColumn();
@@ -1057,7 +1057,7 @@ void SetupWindows::BehaviorIOPage(CKBehaviorIO *io) {
             if (typeAhead.Selectable(OwnedName(from, from ? from->GetOwner() : nullptr).c_str(), false,
                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{link->GetID()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(link->GetID())});
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(OwnedName(to, to ? to->GetOwner() : nullptr).c_str());
             ImGui::TableNextColumn();
@@ -1134,7 +1134,7 @@ void SetupWindows::SynchroPage(CKSynchroObject *synchro) {
             ImGui::PushID(i);
             if (typeAhead.Selectable(NameOf(object).c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && object &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{object->GetID()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
             ImGui::PopID();
         }
     }

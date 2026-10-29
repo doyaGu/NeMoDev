@@ -227,7 +227,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         std::vector<CK_ID> entities;
         OnMainThread(ctx, [&] {
             CKContext *context = App().State().host.Context();
-            for (CK_ID id : App().State().objectSelection.objects)
+            for (CK_ID id : App().State().objectSelection.Objects())
                 if (CK3dEntity::Cast(context->GetObject(id))) entities.push_back(id);
         });
         IM_CHECK_SILENT(entities.size() > 1);

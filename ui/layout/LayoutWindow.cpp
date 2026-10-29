@@ -136,7 +136,7 @@ void LayoutWindow::ApplyPreferences() {
     if (changed) {
         m_PlayerMode = player;
         const bool autoShow = player && p.Bool("3D Layout\\Player Mode\\Auto Show Selection");
-        m_Doc.playerSelection = autoShow ? m_State.objectSelection.objects : std::vector<CK_ID>();
+        m_Doc.playerSelection = autoShow ? m_State.objectSelection.Objects() : std::vector<CK_ID>();
         // Author Mode is windowed.
         if (!player) LeaveFullScreen();
     }
@@ -568,7 +568,7 @@ void LayoutWindow::Command(int command) {
         break;
     case 58:
         // Dev locks a non-empty selection only.
-        if (m_State.objectSelection.locked || !m_State.objectSelection.objects.empty())
+        if (m_State.objectSelection.locked || !m_State.objectSelection.Objects().empty())
             m_State.objectSelection.locked = !m_State.objectSelection.locked;
         break;
     case 61:
@@ -742,7 +742,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
         return;
     }
     ContextMenuPopup();
-    m_View.SetSelection(m_State.objectSelection.objects);
+    m_View.SetSelection(m_State.objectSelection.Objects());
     m_View.SetCones(std::vector<CK_ID>(m_State.document->Layout().cones.begin(), m_State.document->Layout().cones.end()));
     m_View.SetRepresentations(m_State.document->Layout().representations);
     m_View.SetHiddenCurvePoints(m_State.document->Layout().hiddenCurvePoints);
@@ -973,7 +973,7 @@ void LayoutWindow::UpdateCoordinates() {
 }
 
 std::string LayoutWindow::SelectionText() const {
-    const std::vector<CK_ID> &objects = m_State.objectSelection.objects;
+    const std::vector<CK_ID> &objects = m_State.objectSelection.Objects();
     if (objects.empty()) return "Nothing selected";
     if (objects.size() > 1) return std::to_string(objects.size()) + " objects selected";
     CKObject *object = m_State.host.Context() ? m_State.host.Context()->GetObject(objects.front()) : nullptr;

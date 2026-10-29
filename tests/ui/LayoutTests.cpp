@@ -127,7 +127,7 @@ void SelectCamera(ImGuiTestContext *ctx, const ImVec2 &at, CK_ID camera) {
 // The selected 3D entities other than entity: the copies Duplicate selects.
 std::vector<CK_ID> OthersSelected(CK_ID entity) {
     std::vector<CK_ID> others;
-    for (CK_ID id : App().State().objectSelection.objects)
+    for (CK_ID id : App().State().objectSelection.Objects())
         if (id != entity) others.push_back(id);
     return others;
 }
@@ -247,16 +247,16 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK_SILENT(SelectEntity(ctx, found));
         vdev::EditorState &state = App().State();
-        IM_CHECK_EQ(state.objectSelection.objects.size(), 1u);
+        IM_CHECK_EQ(state.objectSelection.Objects().size(), 1u);
         IM_CHECK(state.objectSelection.Contains(found.entity));
         IM_CHECK(App().Panels().LevelSelection().count(found.entity) == 1);
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_D);
         ctx->Yield(2);
-        IM_CHECK(state.objectSelection.objects.empty());
+        IM_CHECK(state.objectSelection.Objects().empty());
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
         ctx->Yield(2);
         IM_CHECK(state.objectSelection.Contains(found.entity));
-        IM_CHECK_GT(state.objectSelection.objects.size(), 0u);
+        IM_CHECK_GT(state.objectSelection.Objects().size(), 0u);
     };
 
     // Translate (X): the entity dragged 50 pixels moves, one undo step, the
@@ -442,7 +442,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(SelectEntity(ctx, found));
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
         ctx->Yield(2);
-        const std::vector<CK_ID> selected = App().State().objectSelection.objects;
+        const std::vector<CK_ID> selected = App().State().objectSelection.Objects();
         IM_CHECK_SILENT(selected.size() > 1);
         auto scripts = [&] {
             std::vector<int> counts;
@@ -540,7 +540,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         const std::vector<CK_ID> copies = OthersSelected(found.entity);
         IM_CHECK_EQ(copies.size(), 1u);
-        IM_CHECK_EQ(App().State().objectSelection.objects.size(), 1u);
+        IM_CHECK_EQ(App().State().objectSelection.Objects().size(), 1u);
         IM_CHECK_SILENT(!copies.empty());
         const CK_ID copy = copies.front();
         // CK's copies are named after their original ("Ground.Copy").
@@ -561,7 +561,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK_SILENT(SelectEntity(ctx, found));
         vdev::EditorState &state = App().State();
-        IM_CHECK_EQ(state.objectSelection.objects.size(), 1u);
+        IM_CHECK_EQ(state.objectSelection.Objects().size(), 1u);
         const size_t logged = state.log.size();
         ctx->KeyPress(ImGuiKey_Delete);
         ctx->Yield(3);

@@ -24,7 +24,7 @@ namespace vdev {
 
 bool LayoutWindow::BeginCamera(CameraAction action, int x, int y, ImGuiMouseButton button) {
     const ImGuiIO &io = ImGui::GetIO();
-    if (!m_Gesture.Begin(m_View, action, Steps(), x, y, m_State.objectSelection.objects, m_State.objectSelection.locked,
+    if (!m_Gesture.Begin(m_View, action, Steps(), x, y, m_State.objectSelection.Objects(), m_State.objectSelection.locked,
                          io.KeyShift, io.KeyCtrl))
         return false;
     m_GestureButton = button;
@@ -260,23 +260,22 @@ void LayoutWindow::StartupDrop(const CKGUID &guid, float x, float y) {
 #endif
 
 void LayoutWindow::SetSelection(std::vector<CK_ID> objects) {
-    if (m_State.objectSelection.locked || objects == m_State.objectSelection.objects) return;
-    m_State.objectSelection.Set(std::move(objects));
+    if (!m_State.HasDocument()) return;
+    if (m_State.objectSelection.locked || objects == m_State.objectSelection.Objects()) return;
+    m_State.objectSelection.Set(*m_State.document, std::move(objects));
 }
 
 // Undone creations and deleted objects leave the selection.
 void LayoutWindow::ValidateSelection() {
-    const std::vector<CK_ID> alive = AliveSelection();
-    if (alive.size() != m_State.objectSelection.objects.size()) m_State.objectSelection.Set(alive);
+    if (m_State.document) m_State.objectSelection.Validate(*m_State.document);
 }
 
 // The selected objects still in the composition (not in the graveyard).
 std::vector<CK_ID> LayoutWindow::AliveSelection() const {
     std::vector<CK_ID> alive;
-    CKContext *context = m_State.host.Context();
-    for (CK_ID id : m_State.objectSelection.objects)
-        if (context && context->GetObject(id) && (!m_State.HasDocument() || !m_State.document->IsDiscarded(id)))
-            alive.push_back(id);
+    if (!m_State.document) return alive;
+    for (ObjectRef ref : m_State.objectSelection.References())
+        if (const auto id = m_State.document->NativeId(ref)) alive.push_back(id);
     return alive;
 }
 
@@ -312,7 +311,7 @@ void LayoutWindow::SelectAll(bool invert) {
 void LayoutWindow::ApplyClick(CK_ID picked) {
     if (m_State.objectSelection.locked) return;
     const bool ctrl = ImGui::GetIO().KeyCtrl;
-    std::vector<CK_ID> objects = m_State.objectSelection.objects;
+    std::vector<CK_ID> objects = m_State.objectSelection.Objects();
     if (!picked) {
         if (!ctrl) objects.clear();
     } else if (std::find(objects.begin(), objects.end(), picked) != objects.end()) {
@@ -329,7 +328,7 @@ void LayoutWindow::ApplyClick(CK_ID picked) {
 void LayoutWindow::ApplyRect(const VxRect &rect) {
     if (m_State.objectSelection.locked) return;
     std::vector<CK_ID> objects;
-    if (ImGui::GetIO().KeyCtrl) objects = m_State.objectSelection.objects;
+    if (ImGui::GetIO().KeyCtrl) objects = m_State.objectSelection.Objects();
     for (CK_ID id : m_View.RectPick(rect, m_State.preferences.Bool("3D Layout\\Strict Selection")))
         if (std::find(objects.begin(), objects.end(), id) == objects.end()) objects.push_back(id);
     SetSelection(objects);
@@ -384,7 +383,7 @@ bool LayoutWindow::BeginTransform(int x, int y) {
                                                               : (settings.axes & 3);
         if (!axes) return false;
         return m_Gesture2D.Begin(m_View, action, axes, settings.snap, Snap2DOf(), TransformStepsOf().snapScale,
-                                 m_State.objectSelection.objects, picked, x, y);
+                                 m_State.objectSelection.Objects(), picked, x, y);
     }
     const bool grabbed = picked && m_State.objectSelection.Contains(picked) && CK3dEntity::Cast(object);
     // Translate in a Top, Front or Right view: the axes of its plane only.
@@ -394,7 +393,7 @@ bool LayoutWindow::BeginTransform(int x, int y) {
         settings.axes = (settings.axes & allowed) ? (settings.axes & allowed) : allowed;
     }
     return m_TransformGesture.Begin(m_View, action, settings, TransformStepsOf(), m_ScaleMode,
-                                    m_State.objectSelection.objects, x, y, grabbed ? &point : nullptr);
+                                    m_State.objectSelection.Objects(), x, y, grabbed ? &point : nullptr);
 }
 
 // Dev.exe sub_4B5C60: the 2D entity under the mouse when it is selected and
@@ -419,7 +418,7 @@ bool LayoutWindow::BeginHandle(int x, int y) {
     const int axes = handle == 3 ? 2 : handle == 4 ? 1 : 3;
     const TransformSettings &settings = handle == 1 ? m_Transform[0] : m_Transform[2];
     return m_Gesture2D.Begin(m_View, action, axes, settings.snap, Snap2DOf(), TransformStepsOf().snapScale,
-                             m_State.objectSelection.objects, entity, x, y);
+                             m_State.objectSelection.Objects(), entity, x, y);
 }
 
 // N / Shift+N: the next or previous camera of the combo.
@@ -435,7 +434,7 @@ void LayoutWindow::NextCamera(bool previous) {
 }
 
 void LayoutWindow::ZoomOn(bool scene) {
-    if (!ZoomOnObjects(m_View, m_State.objectSelection.objects, scene, &m_ZoomExtent) && !scene)
+    if (!ZoomOnObjects(m_View, m_State.objectSelection.Objects(), scene, &m_ZoomExtent) && !scene)
         m_State.Log(LogLevel::Info, "Nothing selected");
 }
 
@@ -463,7 +462,7 @@ void LayoutWindow::Shortcuts() {
         }
         if (pressed(ImGuiKey_V) && m_State.HasDocument()) {
             std::vector<CK_ID> alive;
-            for (CK_ID id : m_State.objectClipboard.Objects())
+            for (CK_ID id : m_State.objectClipboard.Objects(*m_State.document))
                 if (m_State.host.Context()->GetObject(id)) alive.push_back(id);
             if (!alive.empty()) Duplicate(alive);
         }

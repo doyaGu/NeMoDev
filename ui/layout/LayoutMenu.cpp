@@ -130,7 +130,7 @@ void LayoutWindow::ContextMenuPopup() {
         std::snprintf(text, sizeof(text), "%s Setup (%s)##setup%d", objects[i].cls.c_str(), objects[i].name.c_str(),
                       static_cast<int>(i));
         if (ImGui::MenuItem(text) && context->GetObject(objects[i].object))
-            m_State.events.Post(ShowObjectSetup{objects[i].object});
+            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(objects[i].object)});
     }
     if (m_Menu.frame && ImGui::BeginMenu("Change Representation")) {
         if (ImGui::MenuItem("No Representation")) SetRepresentation(0);

@@ -40,6 +40,7 @@ std::string LowerCopy(std::string text) {
 
 void EditorPanels::DocumentClosed() {
     m_ExplorerBox.Clear();
+    if (m_State.workspace) m_State.workspace->CloseOwner(m_NameOwner);
     m_Doc = DocumentState();
     m_PickRows.clear();
     m_PickFrame = -1;

@@ -1505,10 +1505,10 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
     CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(script));
     if (ImGui::MenuItem("Show Object In Level Manager", "(double-click on object name)") && behavior &&
         behavior->GetOwner())
-        m_State.events.Post(ShowInLevelManager{behavior->GetOwner()->GetID()});
-    if (ImGui::MenuItem("Show Script In Level Manager")) m_State.events.Post(ShowInLevelManager{script});
+        m_State.events.Post(ShowInLevelManager{m_State.document->Reference(behavior->GetOwner()->GetID())});
+    if (ImGui::MenuItem("Show Script In Level Manager")) m_State.events.Post(ShowInLevelManager{m_State.document->Reference(script)});
     if (ImGui::MenuItem("Setup") && behavior && behavior->GetOwner())
-        m_State.events.Post(ShowObjectSetup{behavior->GetOwner()->GetID()});
+        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(behavior->GetOwner()->GetID())});
     ImGui::Separator();
     if (ImGui::MenuItem("Load Snapshot for Script")) LoadSnapshotFor(script);
     if (view.model.script.snapshot && ImGui::MenuItem("Remove Script's Snapshot"))

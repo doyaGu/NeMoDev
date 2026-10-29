@@ -14,6 +14,7 @@ namespace vdev {
 // is destroyed before the runtime objects it may refer to.
 class Clipboard {
     std::shared_ptr<ObjectReferences> m_Objects;
+    DocumentToken m_Source{};
 
 public:
     InterfaceData data;
@@ -25,7 +26,12 @@ public:
     std::vector<std::string> attributes;
 
     bool Empty() const {
+        if (m_Objects && !m_Objects->IsValid()) return true;
         return behaviors.empty() && comments.empty() && parameters.empty() && operations.empty();
+    }
+
+    bool BelongsTo(const Document &document) const {
+        return m_Source.value && m_Source == document.Token() && (!m_Objects || m_Objects->BelongsTo(document));
     }
 
     void Set(Document &document, Clipboard &&replacement) {
@@ -33,6 +39,7 @@ public:
         sources.insert(sources.end(), replacement.parameters.begin(), replacement.parameters.end());
         sources.insert(sources.end(), replacement.operations.begin(), replacement.operations.end());
         replacement.m_Objects = document.RetainObjects(sources);
+        replacement.m_Source = document.Token();
         auto previousSources = std::move(m_Objects);
         *this = std::move(replacement);
     }
@@ -55,8 +62,8 @@ public:
     void SetScripts(Document &document, std::vector<CK_ID> scripts) {
         Set(document, Kind::Scripts, std::move(scripts));
     }
-    const std::vector<CK_ID> &Objects() const { return Get(Kind::Objects); }
-    const std::vector<CK_ID> &Scripts() const { return Get(Kind::Scripts); }
+    const std::vector<CK_ID> &Objects(const Document &document) const { return Get(document, Kind::Objects); }
+    const std::vector<CK_ID> &Scripts(const Document &document) const { return Get(document, Kind::Scripts); }
 
 private:
     enum class Kind { Scripts, Objects };
@@ -67,9 +74,9 @@ private:
         m_Kind = kind;
         m_Retained = std::move(retained);
     }
-    const std::vector<CK_ID> &Get(Kind kind) const {
+    const std::vector<CK_ID> &Get(const Document &document, Kind kind) const {
         static const std::vector<CK_ID> empty;
-        return m_Kind == kind ? m_Objects : empty;
+        return m_Kind == kind && m_Retained && m_Retained->BelongsTo(document) ? m_Objects : empty;
     }
 
     std::shared_ptr<ObjectReferences> m_Retained;

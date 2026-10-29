@@ -1,6 +1,8 @@
 #pragma once
 
 #include <functional>
+#include "features/objects/ObjectCommands.h"
+#include "workspace/EditorWorkspace.h"
 #include <string>
 #include <vector>
 
@@ -78,11 +80,11 @@ struct StartupOptions {
 
 class EditorApp {
 public:
-    explicit EditorApp(HtmlFonts fonts) : m_Canvas(m_State), m_Panels(m_State, m_Canvas), m_Tools(m_State, m_Canvas), m_Help(fonts) {}
+    explicit EditorApp(HtmlFonts fonts);
 
     // Starts the CK runtime; runtimeDirectory must already be on the DLL
     // search path (CK2.dll and VxMath.dll are delay-loaded).
-    bool Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen
+    bool Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules = {}
 #ifdef VIRTOOLSDEV_UI_TESTS
                     , const StartupOptions &startup = StartupOptions()
 #endif
@@ -90,6 +92,8 @@ public:
     void Frame();
     // Called only after rendering and releasing this frame's UI textures.
     void EndFrame() {
+        m_Editor.NativeAvailable(!m_State.runtimeOperation.Busy());
+        m_Editor.EndFrame();
         if (!m_State.runtimeOperation.Busy() && m_State.document) m_State.document->CollectBitmaps();
         m_State.runtimeOperation.Start();
     }
@@ -251,6 +255,9 @@ private:
     void SavePreferences(); // not when isolated
 
     EditorState m_State;
+    EditorApplication m_Editor;
+    EditorWorkspace m_Workspace{m_Editor};
+    ObjectCommands m_ObjectCommands;
     SchematicCanvas m_Canvas;
     EditorPanels m_Panels;
     SetupWindows m_Setups{m_State};

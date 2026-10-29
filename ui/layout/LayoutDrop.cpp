@@ -37,7 +37,7 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
             const LayoutPickInfo info = m_View.PickInfo(x, y);
             CKObjectDeclaration *declaration = CKGetObjectDeclarationFromGuid(guid);
             const CK_CLASSID cid = declaration ? declaration->GetCompatibleClassId() : CKCID_BEOBJECT;
-            const bool multiple = m_State.objectSelection.objects.size() > 1 &&
+            const bool multiple = m_State.objectSelection.Objects().size() > 1 &&
                                   (m_State.objectSelection.Contains(info.entity3d) || m_State.objectSelection.Contains(info.character));
             const CK_ID target = BlockTarget(info, cid, io.KeyCtrl);
             if (multiple) m_DropText = "Drop Behavior on Multi-Selection";
@@ -83,7 +83,7 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
     if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(ATTRIBUTE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
         const LayoutPickInfo info = m_View.PickInfo(x, y);
         const CK_ID target = info.entity2d ? info.entity2d : info.character ? info.character : info.entity3d;
-        const bool multiple = target && m_State.objectSelection.objects.size() > 1 && m_State.objectSelection.Contains(target);
+        const bool multiple = target && m_State.objectSelection.Objects().size() > 1 && m_State.objectSelection.Contains(target);
         if (payload->IsDelivery()) {
             AttributePayload attribute;
             std::memcpy(&attribute, payload->Data, sizeof(attribute));
@@ -162,7 +162,7 @@ void LayoutWindow::DropBuildingBlock(int x, int y, const CKGUID &guid) {
     const CK_CLASSID cid = declaration->GetCompatibleClassId();
     const LayoutPickInfo info = m_View.PickInfo(x, y);
     std::vector<CK_ID> targets;
-    const bool multiple = m_State.objectSelection.objects.size() > 1 &&
+    const bool multiple = m_State.objectSelection.Objects().size() > 1 &&
                           (m_State.objectSelection.Contains(info.entity3d) || m_State.objectSelection.Contains(info.character));
     if (multiple) {
         for (CK_ID id : AliveSelection())

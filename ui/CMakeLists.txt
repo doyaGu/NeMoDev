@@ -178,6 +178,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.h
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AppTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ModuleTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArchitectureBaselineTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/GpuViewportTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ViewportBaselineTests.cpp
@@ -250,5 +251,8 @@ if(VIRTOOLSDEV_BUILD_TESTS)
         nemodev_example_module(NeMoDevUiObjectModule VirtoolsDevUiTests)
         target_include_directories(NeMoDevUiObjectModule PRIVATE "${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR}/imgui_test_engine")
         target_compile_definitions(NeMoDevUiObjectModule PRIVATE IMGUI_USER_CONFIG="imgui_te_imconfig.h")
+        add_test(NAME VirtoolsDevUi.modules COMMAND VirtoolsDevUiTests --ui-tests "^modules$"
+                --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>" --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/modules.xml")
+        set_tests_properties(VirtoolsDevUi.modules PROPERTIES LABELS self-contained)
     endif()
 endif()

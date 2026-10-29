@@ -62,6 +62,8 @@ void ManagerWindows::HierarchyDrop(CK_ID parent, int background) {
 // Hierarchy column and the Render Priority column 70 wide; the indent 13,
 // the arrow (resvis.dll icons 217 / 218), the class icon, the name.
 void ManagerWindows::HierarchyManager(bool *open) {
+    if (m_Doc.hierarchyRename && !m_State.workspace->Application().EditTarget(m_Doc.hierarchyRename))
+        m_Doc.hierarchyRename = 0;
     const ImGuiID dock = hierarchyDock ? hierarchyDock : m_Dock;
     if (dock) ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -130,9 +132,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
     // ---------------------------------------------------------------- tree
     const auto roots = BuildHierarchy(*m_State.document, m_HierarchyOptions);
     auto startRename = [this](CK_ID id, const std::string &name) {
-        m_Doc.hierarchyRename = id;
-        std::strncpy(m_HierarchyRenameBuffer, AnsiToUtf8(name).c_str(), sizeof(m_HierarchyRenameBuffer) - 1);
-        m_HierarchyRenameBuffer[sizeof(m_HierarchyRenameBuffer) - 1] = 0;
+        if (!m_State.workspace->Begin("object.name", m_State.document->Reference(id), m_Doc.hierarchyRename, m_NameOwner)) return;
         m_HierarchyRenameFocus = true;
     };
     // The roots start open (Dev.exe sub_565180 expands the first level).
@@ -213,7 +213,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
             tl->AddImage(texture, icon, ImVec2(icon.x + 11.0f * s, icon.y + 11.0f * s));
         // The tree's texts are in VI font 0 (Arial 12, narrowed), as the Level Manager's.
         const ImVec2 text(IM_ROUND(rowMin.x + 32.0f * s + indent), IM_ROUND(y + (rowHeight - 12.0f * s) * 0.5f));
-        const bool renaming = m_Doc.hierarchyRename && m_Doc.hierarchyRename == item.object;
+        const bool renaming = m_Doc.hierarchyRename && m_State.workspace->Application().EditTarget(m_Doc.hierarchyRename) == m_State.document->Reference(item.object);
         if (!renaming) {
             const ImVec2 clip(nameRightX, rowMax.y);
             DrawVIText(tl, text, selected ? LINE : INK, AnsiToUtf8(item.name).c_str(), false, s, &clip);
@@ -329,22 +329,11 @@ void ManagerWindows::HierarchyManager(bool *open) {
         if (renaming) {
             ImGui::SetCursorScreenPos(ImVec2(text.x - 2.0f * s, y + 1.0f * s));
             ImGui::SetNextItemWidth(std::max(40.0f * s, nameRightX - text.x - 4.0f * s));
-            if (m_HierarchyRenameFocus) {
-                ImGui::SetKeyboardFocusHere();
-                m_HierarchyRenameFocus = false;
-            }
-            const bool entered = ImGui::InputText("##rename", m_HierarchyRenameBuffer, sizeof(m_HierarchyRenameBuffer),
-                                                  ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-            if (entered) {
-                const EditResult result =
-                    RenameLevelObject(*m_State.document, m_State.document->Reference(item.object), Utf8ToAnsi(m_HierarchyRenameBuffer));
-                if (!result.ok && !result.message.empty())
-                    m_State.Log(LogLevel::Warning, "Hierarchy Manager: " + AnsiToUtf8(result.message));
-                m_Doc.hierarchyRename = 0;
-            } else if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (!ImGui::IsItemActive() && !ImGui::IsItemActivated() &&
-                                                                 !m_HierarchyRenameFocus && ImGui::IsMouseClicked(0))) {
-                m_Doc.hierarchyRename = 0;
-            }
+            bool active = false;
+            const bool entered = m_State.workspace->DrawInput(m_Doc.hierarchyRename, "##rename", m_HierarchyRenameFocus, &active);
+            m_HierarchyRenameFocus = false;
+            if (entered) m_State.workspace->Finish(m_Doc.hierarchyRename, true);
+            else if (!active && ImGui::IsMouseClicked(0)) m_State.workspace->Finish(m_Doc.hierarchyRename, false);
         }
         if (editingPriority) {
             ImGui::SetCursorScreenPos(ImVec2(nameRightX + 4.0f * s, y + 1.0f * s));
@@ -438,7 +427,7 @@ void ManagerWindows::HierarchyManager(bool *open) {
     // The selection reaches the 3D Layout (its render objects; not while locked).
     m_Doc.hierarchyFollower.Push(objects, m_Doc.hierarchySelection, m_State.document.get());
     // F2 renames the item selected.
-    if (focused && !m_Doc.hierarchyRename && m_Doc.hierarchySelection.size() == 1 && ImGui::IsKeyPressed(ImGuiKey_F2)) {
+    if (focused && !m_Doc.hierarchyRename && m_Doc.hierarchySelection.size() == 1 && m_State.workspace->Shortcut("object.name")) {
         const CK_ID id = *m_Doc.hierarchySelection.begin();
         const auto object = DescribeObject(*m_State.document, id);
         if (object.id) startRename(id, object.name);
@@ -452,10 +441,9 @@ void ManagerWindows::HierarchyManager(bool *open) {
     if (ImGui::BeginPopup("##hierarchymenu")) {
         const bool single = m_Doc.hierarchySelection.size() == 1;
         const CK_ID first = m_Doc.hierarchySelection.empty() ? 0 : *m_Doc.hierarchySelection.begin();
-        if (ImGui::MenuItem("Setup", nullptr, false, single)) m_State.events.Post(ShowObjectSetup{first});
-        if (ImGui::MenuItem("Rename", "F2", false, single)) {
-            startRename(first, DescribeObject(*m_State.document, first).name);
-        }
+        if (ImGui::MenuItem("Setup", nullptr, false, single)) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(first)});
+        if (m_State.workspace->EditMenu("hierarchy.context", single ? m_State.document->Reference(first) : ObjectRef{}, m_Doc.hierarchyRename, m_NameOwner))
+            m_HierarchyRenameFocus = true;
         const auto object = DescribeObject(*m_State.document, first);
         if (ImGui::MenuItem("Edit Render Priority", nullptr, false, object.renderObject)) {
             m_Doc.zEditObject = first;

@@ -74,12 +74,12 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             own = {object};
             selected.locked = true;
             follower.Push(selected, own, state.document.get());
-            IM_CHECK_NO_RET(selected.objects.empty());
+            IM_CHECK_NO_RET(selected.Objects().empty());
             selected.locked = false;
             own.clear(); follower.Push(selected, own, state.document.get());
             own.insert(object); follower.Push(selected, own, state.document.get());
-            IM_CHECK_NO_RET(selected.objects == std::vector<CK_ID>{object});
-            state.objectSelection.Set({});
+            IM_CHECK_NO_RET(selected.Objects() == std::vector<CK_ID>{object});
+            state.objectSelection.Set(*state.document, {});
             IM_CHECK_NO_RET(vdev::DestroyLevelObjects(*state.document, {object}).ok);
             state.showHierarchy = false;
             state.document->MarkSaved();
@@ -225,6 +225,52 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         IM_CHECK(Read<size_t>(ctx, [] { return vdev::SnapshotTextureCountForTests(); }) <= baseline);
     };
 
+    t = IM_REGISTER_TEST(engine, "app", "native_identity_selection_clipboard_and_setup");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        CK_ID id = 0;
+        vdev::ObjectRef original{};
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &document = *state.document;
+            auto *object = document.Context()->CreateObject(CKCID_3DENTITY, "Identity UI target");
+            IM_CHECK_NO_RET(object != nullptr);
+            id = object->GetID(); original = document.Reference(id);
+            state.objectSelection.Set(document, {id});
+            state.objectSelection.locked = true;
+            state.objectClipboard.SetObjects(document, {id});
+            state.events.Post(vdev::ShowObjectSetup{original});
+        });
+        ctx->Yield(3);
+        IM_CHECK(Read<bool>(ctx, [id] { return ShowsObject(id); }));
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &document = *state.document;
+            // A queued request must retain its original target, even when the
+            // native ID names a different class before the next UI frame.
+            state.events.Post(vdev::ShowObjectSetup{original});
+            IM_CHECK_NO_RET(document.Context()->DestroyObject(id, CK_DESTROY_NONOTIFY | CK_DESTROY_FREEID) == CK_OK);
+            auto *replacement = document.Context()->CreateObject(CKCID_2DENTITY, "Replacement UI target");
+            IM_CHECK_NO_RET(replacement && replacement->GetID() == id);
+            IM_CHECK_NO_RET(!document.Resolve(original));
+            IM_CHECK_NO_RET(state.objectClipboard.Objects(document).empty());
+        });
+        ctx->Yield(3);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            auto &state = App().State();
+            return state.objectSelection.Objects().empty() && !state.objectSelection.locked && !ShowsObject(id);
+        }));
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            state.objectSelection.Set(*state.document, {id});
+            IM_CHECK_NO_RET(!state.objectSelection.Objects().empty());
+            state.objectSelection.Set(*state.document, {});
+            state.objectClipboard.SetObjects(*state.document, {});
+            IM_CHECK_NO_RET(state.document->Context()->DestroyObject(id) == CK_OK);
+        });
+    };
+
     t = IM_REGISTER_TEST(engine, "app", "clipboard_survives_history_collection");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
@@ -248,18 +294,18 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             state.clipboard = {};
             state.selection.Clear();
             state.objectClipboard.SetScripts(document, {script.created});
-            IM_CHECK(state.objectClipboard.Objects().empty());
+            IM_CHECK(state.objectClipboard.Objects(*state.document).empty());
             IM_CHECK(vdev::DeleteScript(document, script.created).ok);
             document.History().Clear();
             IM_CHECK(document.Context()->GetObject(script.created));
             // Re-copying a detached source must retain it before replacing
             // the old clipboard, even after history no longer owns it.
-            state.objectClipboard.SetScripts(document, state.objectClipboard.Scripts());
-            IM_CHECK(state.objectClipboard.Scripts() == std::vector<CK_ID>{script.created});
+            state.objectClipboard.SetScripts(document, state.objectClipboard.Scripts(*state.document));
+            IM_CHECK(state.objectClipboard.Scripts(*state.document) == std::vector<CK_ID>{script.created});
             IM_CHECK(document.Context()->GetObject(script.created));
             state.objectClipboard.SetObjects(document, {document.Context()->GetCurrentLevel()->GetID()});
-            IM_CHECK(!state.objectClipboard.Objects().empty());
-            IM_CHECK(state.objectClipboard.Scripts().empty());
+            IM_CHECK(!state.objectClipboard.Objects(*state.document).empty());
+            IM_CHECK(state.objectClipboard.Scripts(*state.document).empty());
             IM_CHECK(!document.Context()->GetObject(script.created));
             state.objectClipboard.SetObjects(document, {});
             document.MarkSaved();

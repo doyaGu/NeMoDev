@@ -95,7 +95,7 @@ set(_application_test_sources
     ../ui/app/EditorState.cpp ../ui/app/DocumentFiles.cpp)
 foreach(_test IN ITEMS FileDialog DocumentFiles)
     add_executable(VirtoolsDev${_test}Tests VirtoolsDev${_test}Tests.cpp ${_application_test_sources})
-    target_link_libraries(VirtoolsDev${_test}Tests PRIVATE VirtoolsDevCore Threads::Threads)
+    target_link_libraries(VirtoolsDev${_test}Tests PRIVATE VirtoolsDevCore NeMoDevEditorApplication Threads::Threads)
     if(WIN32)
         target_link_libraries(VirtoolsDev${_test}Tests PRIVATE ole32)
     endif()

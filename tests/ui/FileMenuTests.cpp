@@ -171,7 +171,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::RenameLevelObject(document, document.Reference(made.created), "Undo after failed load").ok);
             IM_CHECK_NO_RET(document.History().Undo() && !document.Dirty());
             state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
-            state.objectSelection.Set({made.created});
+            state.objectSelection.Set(*state.document, {made.created});
             probe->context = document.Context();
             probe->manager = new FileMenuLoadFailureManager(document.Context());
             IM_CHECK_NO_RET(document.Context()->RegisterNewManager(probe->manager) == CK_OK);
@@ -203,7 +203,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                 IM_CHECK_NO_RET(state.document->Context() == probe->context && !state.document->Dirty());
                 IM_CHECK_NO_RET(state.selection.script == probe->selection.script && state.selection.items == probe->selection.items &&
                                 state.selection.headers == probe->selection.headers);
-                IM_CHECK_NO_RET(state.objectSelection.objects == probe->objects.objects && state.objectSelection.revision == probe->objects.revision);
+                IM_CHECK_NO_RET(state.objectSelection.Objects() == probe->objects.Objects() && state.objectSelection.revision == probe->objects.revision);
                 IM_CHECK_NO_RET(state.History().UndoCount() == probe->undo && state.History().CanRedo());
                 IM_CHECK_NO_RET(state.History().UndoLabel() == probe->undoLabel && state.History().RedoLabel() == probe->redoLabel);
             });
@@ -353,7 +353,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             render = App().Layout().View().RenderContext();
             undo = document.History().UndoLabel();
             redo = document.History().RedoLabel();
-            state.objectSelection.Set({object});
+            state.objectSelection.Set(*state.document, {object});
             state.objectSelection.locked = true;
         });
         ctx->Yield(5);
@@ -366,7 +366,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                        document.SourcePath() == source && document.ExistingSession(script) == session &&
                        !document.Dirty() && document.History().UndoLabel() == undo &&
                        document.History().RedoLabel() == redo && state.objectSelection.locked &&
-                       state.objectSelection.objects == std::vector<CK_ID>{object} &&
+                       state.objectSelection.Objects() == std::vector<CK_ID>{object} &&
                        state.selection.Contains(script, vdev::Selection::HeaderOf(script)) &&
                        App().Panels().LevelSelection() == std::set<CK_ID>{object} &&
                        App().Layout().View().RenderContext() == render;
@@ -396,7 +396,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             auto &state = App().State();
             return state.document->Context() == original && state.document->Dirty() &&
                    state.document->IsLive(object) && state.document->History().CanUndo() &&
-                   state.objectSelection.objects == std::vector<CK_ID>{object} && state.objectSelection.locked;
+                   state.objectSelection.Objects() == std::vector<CK_ID>{object} && state.objectSelection.locked;
         }));
         OnMainThread(ctx, [&] {
             auto &document = *App().State().document;

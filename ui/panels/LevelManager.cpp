@@ -235,7 +235,16 @@ void EditorPanels::ScriptsPanel(bool *open) {
                     if (group->GetObject(i)) m_Doc.levelSelection.insert(group->GetObject(i)->GetID());
         }
     }
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
+    bool renameStarted = false;
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && m_State.workspace->Shortcut("object.name")) {
+        const auto targets = LevelTargets();
+        if (targets.size() == 1) {
+            m_Doc.renameWorkset = 0;
+            renameStarted = m_State.workspace->Begin("object.name", m_State.document->Reference(targets.front()), m_Doc.renameEdit, m_NameOwner);
+            m_Doc.openRename = renameStarted;
+        }
+    }
+    if (!renameStarted && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
         !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyAlt) {
         const std::vector<CK_ID> targets = LevelTargets();
         if (!targets.empty() && ImGui::IsKeyPressed(ImGuiKey_P)) CreatePlaceOf(targets, "Place Selected in New Place");
@@ -252,7 +261,7 @@ void EditorPanels::ScriptsPanel(bool *open) {
                 objects.locked = false;
             } else if (!m_Doc.levelSelection.empty()) {
                 m_Doc.levelFollower.Push(objects, m_Doc.levelSelection, m_State.document.get());
-                if (!objects.objects.empty()) objects.locked = true;
+                if (!objects.Objects().empty()) objects.locked = true;
             }
         }
         // 1 / 2: set / remove the Show/Hide Layer flag of the selected items.
@@ -268,7 +277,7 @@ void EditorPanels::ScriptsPanel(bool *open) {
                 ShowScript(targets.front());
                 m_State.events.Post(FocusSchematic{});
             } else {
-                m_State.events.Post(ShowObjectSetup{targets.front()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(targets.front())});
             }
         }
         if (!targets.empty() && (ImGui::IsKeyPressed(ImGuiKey_V) || ImGui::IsKeyPressed(ImGuiKey_H)))
@@ -282,13 +291,7 @@ void EditorPanels::ScriptsPanel(bool *open) {
                                ImGui::IsKeyPressed(ImGuiKey_KeypadAdd) || ImGui::IsKeyPressed(ImGuiKey_Equal) ? -1 : 1),
                    "Move");
         if (!targets.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete)) DeleteLevelRows(targets);
-        if (ImGui::IsKeyPressed(ImGuiKey_F2) && targets.size() == 1) {
-            m_Doc.renameObject = targets.front();
-            m_Doc.renameWorkset = 0;
-            CKObject *object = context->GetObject(m_Doc.renameObject);
-            m_RenameText = object && object->GetName() ? AnsiToUtf8(object->GetName()) : std::string();
-            m_Doc.openRename = true;
-        }
+
         // A / D: activate / deactivate in their context scene.
         if (!targets.empty() && (ImGui::IsKeyPressed(ImGuiKey_A) || ImGui::IsKeyPressed(ImGuiKey_D))) {
             const bool activate = ImGui::IsKeyPressed(ImGuiKey_A);
@@ -790,14 +793,14 @@ void EditorPanels::ScriptsPanel(bool *open) {
         // Dev.exe sub_4C0A30).
         dragSource(object);
         focusOn(object->GetID());
-        if (doubleClicked() && !children) m_State.events.Post(ShowObjectSetup{object->GetID()});
+        if (doubleClicked() && !children) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
         if (ImGui::IsItemClicked()) {
             selectRow(object->GetID());
             m_Doc.selectionGroup = inGroup ? inGroup->GetID() : 0;
             if (scripts) ShowScript(beObject->GetScript(0)->GetID());
         }
         // Return or middle button on an entity shows its Setup.
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) m_State.events.Post(ShowObjectSetup{object->GetID()});
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
         RowMenu(object->GetID(), scripts ? beObject->GetScript(0)->GetID() : 0, inGroup ? inGroup->GetID() : 0);
         if (expanded) {
             // Its Scripts in their order, or by priority.
@@ -855,8 +858,8 @@ void EditorPanels::ScriptsPanel(bool *open) {
                                            selected, cells);
             dragSource(object);
             if (ImGui::IsItemClicked()) selectRow(object->GetID());
-            if (doubleClicked() && !children) m_State.events.Post(ShowObjectSetup{object->GetID()});
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) m_State.events.Post(ShowObjectSetup{object->GetID()});
+            if (doubleClicked() && !children) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
             RowMenu(object->GetID(), object->GetScriptCount() ? object->GetScript(0)->GetID() : 0);
             focusOn(object->GetID());
             if (expanded) {
@@ -1256,7 +1259,7 @@ void EditorPanels::RowMenu(CK_ID id, CK_ID script, CK_ID group) {
             ShowScript(script);
             m_State.events.Post(FocusSchematic{});
         }
-        if (ImGui::MenuItem("Setup", nullptr, false, object != nullptr)) m_State.events.Post(ShowObjectSetup{id});
+        if (ImGui::MenuItem("Setup", nullptr, false, object != nullptr)) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(id)});
         if (CKScene *scene = CKScene::Cast(object)) {
             CKLevel *level = context->GetCurrentLevel();
             if (ImGui::MenuItem("Launch Scene", nullptr, false, level && scene != level->GetCurrentScene())) {
@@ -1390,10 +1393,8 @@ void EditorPanels::RowMenu(CK_ID id, CK_ID script, CK_ID group) {
         ImGui::Separator();
         if (ImGui::MenuItem("Create Script", nullptr, false, beObject)) CreateScripts();
         if (ImGui::MenuItem("Load Script...", nullptr, false, beObject)) LoadScriptOn(id);
-        if (ImGui::MenuItem("Rename", "F2", false, object != nullptr)) {
-            m_Doc.renameObject = id;
+        if (m_State.workspace->EditMenu("level.context", m_State.document->Reference(id), m_Doc.renameEdit, m_NameOwner)) {
             m_Doc.renameWorkset = 0;
-            m_RenameText = NameOf(object, "");
             m_Doc.openRename = true;
         }
         // Dev.exe sub_573250: the selection becomes the children of the items
@@ -1470,7 +1471,7 @@ void EditorPanels::WorksetMenu(int id) {
                                           workset.members.end());
         if (ImGui::MenuItem("Rename", "F2")) {
             m_Doc.renameWorkset = id;
-            m_Doc.renameObject = 0;
+            m_State.workspace->Finish(m_Doc.renameEdit, false);
             for (const Workset &workset : m_State.worksets)
                 if (workset.id == id) m_RenameText = workset.name;
             m_Doc.openRename = true;
@@ -1664,24 +1665,31 @@ void EditorPanels::RenameDialog() {
         m_Doc.openRename = false;
     }
     if (!ImGui::BeginPopupModal("Rename##level", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    char buffer[256];
-    strncpy(buffer, m_RenameText.c_str(), sizeof(buffer) - 1);
-    buffer[sizeof(buffer) - 1] = 0;
-    const bool enter = ImGui::InputText("##name", buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue);
-    m_RenameText = buffer;
+    bool enter = false;
+    if (m_Doc.renameWorkset) {
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        char buffer[256];
+        strncpy(buffer, m_RenameText.c_str(), sizeof(buffer) - 1);
+        buffer[sizeof(buffer) - 1] = 0;
+        enter = ImGui::InputText("##name", buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue);
+        m_RenameText = buffer;
+    } else {
+        enter = m_State.workspace->DrawInput(m_Doc.renameEdit, "##name", ImGui::IsWindowAppearing());
+    }
     if (enter || ImGui::Button("OK", ImVec2(100, 0))) {
         if (m_Doc.renameWorkset) {
             for (Workset &workset : m_State.worksets)
                 if (workset.id == m_Doc.renameWorkset) workset.name = m_RenameText;
             m_Doc.renameWorkset = 0;
-        } else {
-            Report(RenameLevelObject(*m_State.document, m_State.document->Reference(m_Doc.renameObject), Utf8ToAnsi(m_RenameText)), "Rename");
-        }
-        ImGui::CloseCurrentPopup();
+            ImGui::CloseCurrentPopup();
+        } else if (m_State.workspace->Finish(m_Doc.renameEdit, true)) ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+        (!m_Doc.renameWorkset && !m_Doc.renameEdit)) {
+        m_State.workspace->Finish(m_Doc.renameEdit, false);
+        ImGui::CloseCurrentPopup();
+    }
     ImGui::EndPopup();
 }
 
@@ -2080,8 +2088,8 @@ void EditorPanels::PasteOnLevel() {
             if (context->GetObject(id)) kept.push_back(id);
         return kept;
     };
-    if (!m_State.objectClipboard.Objects().empty()) {
-        const std::vector<CK_ID> objects = alive(m_State.objectClipboard.Objects());
+    if (!m_State.objectClipboard.Objects(*m_State.document).empty()) {
+        const std::vector<CK_ID> objects = alive(m_State.objectClipboard.Objects(*m_State.document));
         if (objects.empty()) return;
         // The containers selected; another row: its section (a scene, or
         // the level: copies).
@@ -2143,7 +2151,7 @@ void EditorPanels::PasteOnLevel() {
     // Block is not a Script ("Can only paste scripts on objects !").
     std::vector<CK_ID> scripts;
     bool blocks = false;
-    for (CK_ID id : alive(m_State.objectClipboard.Scripts())) {
+    for (CK_ID id : alive(m_State.objectClipboard.Scripts(*m_State.document))) {
         CKBehavior *behavior = CKBehavior::Cast(context->GetObject(id));
         if (behavior && (behavior->GetFlags() & CKBEHAVIOR_SCRIPT)) scripts.push_back(id);
         else blocks = true;

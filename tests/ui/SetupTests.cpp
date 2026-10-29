@@ -303,7 +303,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
                 }
                 if (other) {
                     window = cls.second;
-                    App().State().events.Post(vdev::ShowObjectSetup{first});
+                    App().State().events.Post(vdev::ShowObjectSetup{App().State().document->Reference(first)});
                     return;
                 }
             }

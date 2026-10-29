@@ -137,7 +137,7 @@ void LayoutWindow::ApplyLayoutData(const LayoutInterfaceData &data) {
             if (context->GetObject(id)) objects.push_back(id);
     }
     m_State.objectSelection.locked = false;
-    m_State.objectSelection.Set(objects); // a new revision
+    m_State.objectSelection.Set(*m_State.document, objects); // a new revision
     m_State.objectSelection.locked = data.locked && !objects.empty();
     if (context->GetObject(data.group)) {
         m_Group = data.group;
@@ -187,7 +187,7 @@ void LayoutWindow::CloseExplorer(bool cancel) {
         CKContext *context = m_State.host.Context();
         for (CK_ID id : m_Doc.explorerSaved)
             if (context->GetObject(id) && !m_State.document->IsDiscarded(id)) saved.push_back(id);
-        if (saved != m_State.objectSelection.objects) m_State.objectSelection.Set(saved);
+        if (saved != m_State.objectSelection.Objects()) m_State.objectSelection.Set(*m_State.document, saved);
         m_State.objectSelection.locked = m_Doc.explorerSavedLock && !saved.empty();
     }
     m_Doc.explorerOpen = false;
@@ -412,11 +412,11 @@ void LayoutWindow::ExplorerWindow() {
     if (clicked) apply();
     std::vector<CK_ID> listedSelected = ordered(m_Doc.explorerList);
     // NM_DBLCLK, NM_RCLICK: Show Setup with one item selected.
-    if (doubleClicked && listedSelected.size() == 1) m_State.events.Post(ShowObjectSetup{listedSelected.front()});
+    if (doubleClicked && listedSelected.size() == 1) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(listedSelected.front())});
     if (rightClicked && listedSelected.size() == 1) ImGui::OpenPopup("##explorermenu");
     if (ImGui::BeginPopup("##explorermenu")) {
         if (ImGui::MenuItem("Show Setup") && listedSelected.size() == 1)
-            m_State.events.Post(ShowObjectSetup{listedSelected.front()});
+            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(listedSelected.front())});
         ImGui::EndPopup();
     }
     ImGui::EndChild();

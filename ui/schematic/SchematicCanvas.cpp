@@ -1193,6 +1193,7 @@ void SchematicCanvas::Copy() {
 
 void SchematicCanvas::PasteShortcuts() {
     const Clipboard &clipboard = m_State.clipboard;
+    if (!m_State.HasDocument() || !clipboard.BelongsTo(*m_State.document)) return;
     ScriptView *view = ViewFor(m_Doc.mouseScript);
     const CK_ID graph = view ? GraphAt(*view, m_Doc.mouseLocal) : 0;
     if (clipboard.parameters.empty() || !graph) {
@@ -1255,7 +1256,7 @@ void SchematicCanvas::Cut() {
 
 void SchematicCanvas::Paste() {
     const Clipboard &clipboard = m_State.clipboard;
-    if (clipboard.Empty() || !m_State.HasDocument()) return;
+    if (clipboard.Empty() || !m_State.HasDocument() || !clipboard.BelongsTo(*m_State.document)) return;
     if (clipboard.behaviors.empty() && clipboard.comments.empty()) {
         // Parameters alone (documentation "Local Parameter"): new locals of
         // their name, type and value; operations: new ones of theirs.
@@ -1282,6 +1283,7 @@ void SchematicCanvas::Paste() {
 
 void SchematicCanvas::PasteParameters() {
     const Clipboard &clipboard = m_State.clipboard;
+    if (!m_State.HasDocument() || !clipboard.BelongsTo(*m_State.document)) return;
     ScriptView *view = ViewFor(m_Doc.mouseScript);
     const CK_ID graph = view ? GraphAt(*view, m_Doc.mouseLocal) : 0;
     if (!graph) {
@@ -1599,7 +1601,7 @@ void SchematicCanvas::DoubleClick(const Hit &hit) {
         hit.local.v < hit.view->model.script.header.vPos + 36.0f) {
         // Dev: double-click on the Script owner shows it in the Level Manager.
         CKBehavior *script = CKBehavior::Cast(m_State.document->Context()->GetObject(hit.view->id));
-        if (script && script->GetOwner()) m_State.events.Post(ShowInLevelManager{script->GetOwner()->GetID()});
+        if (script && script->GetOwner()) m_State.events.Post(ShowInLevelManager{m_State.document->Reference(script->GetOwner()->GetID())});
     } else if (hit.ref.kind == ElementKind::Script) {
         // The second click of a double-click on the header row toggles again
         // (every click there toggles); elsewhere on the header it toggles once.

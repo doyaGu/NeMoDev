@@ -1,4 +1,6 @@
 #include "ui/app/EditorApp.h"
+#include "features/objects/ObjectViews.h"
+#include "editor/ImGuiDrawing.h"
 #include "core/level/SetupCommands.h"
 #include "ui/schematic/Snapshots.h"
 
@@ -25,6 +27,18 @@
 #include "core/graph/TopologyCommands.h"
 
 namespace vdev {
+
+EditorApp::EditorApp(HtmlFonts fonts)
+    : m_Editor([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }),
+      m_ObjectCommands([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }),
+      m_Canvas(m_State), m_Panels(m_State, m_Canvas), m_Tools(m_State, m_Canvas), m_Help(fonts) {
+    m_State.workspace = &m_Workspace;
+    m_Editor.report = [this](const EditorResponse &result) {
+        if (!result.message.empty() && result.status != EDITOR_NO_CHANGE)
+            m_State.Log(result.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, result.message);
+    };
+
+}
 
 void EditorApp::HandleEvent(const SDL_Event &event) {
     if (m_State.runtimeOperation.Busy()) return;
@@ -91,7 +105,7 @@ const wchar_t *RESOURCE_FILTER = L"Virtools Resources (*.rsc)\0*.rsc\0";
 
 } // namespace
 
-bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen
+bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules
 #ifdef VIRTOOLSDEV_UI_TESTS
                            , const StartupOptions &startup
 #endif
@@ -142,6 +156,16 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     }, &error, window);
     if (!started) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NeMoDev", ("Cannot start the Virtools runtime:\n" + error).c_str(), window);
+        return false;
+    }
+    if (!m_Workspace.Register(error) || !m_ObjectCommands.Register(m_Editor, error) || !RegisterObjectViews(m_Editor, error)) {
+        m_State.Log(LogLevel::Error, error);
+        return false;
+    }
+    for (const auto &module : modules)
+        if (!m_Editor.Load(module, error)) { m_State.Log(LogLevel::Error, error); return false; }
+    if (!m_Editor.Activate(EDITOR_IMGUI_VERSION, error, DefaultObjectConfiguration())) {
+        m_State.Log(LogLevel::Error, error);
         return false;
     }
     m_State.catalog.Refresh();
@@ -352,6 +376,8 @@ void EditorApp::Shutdown() {
     m_Layout.Stop();
     m_State.document.reset();
     m_State.host.Stop();
+    m_Workspace.CloseAll();
+    m_Editor.Stop();
     // The textures every window draws with, before the device goes (Main.cpp).
     ReleaseDevBitmaps();
     ReleaseSnapshotTextures();
@@ -444,6 +470,7 @@ void EditorApp::RememberRecentFile(const std::string &path) {
 }
 
 void EditorApp::CloseDocumentViews() {
+    m_Editor.Attach({}, 0, false, false);
     EndPrint();
     m_Setups.CloseAll();
     m_Tools.DocumentClosed();
@@ -781,6 +808,7 @@ void EditorApp::MainMenu() {
         if (ImGui::MenuItem("About Virtools...")) m_Tools.OpenAbout();
         ImGui::EndMenu();
     }
+    m_Workspace.Menu();
     ImGui::EndMainMenuBar();
     PopDarkChrome();
 }
@@ -797,7 +825,7 @@ void EditorApp::CreateObject(LayoutObject kind) {
     // Create Portal: around the object selected (the 3D Layout's selection is the Level Manager's).
     CK_ID selection = 0;
     if (m_Panels.LevelSelection().size() == 1) selection = *m_Panels.LevelSelection().begin();
-    else if (m_State.objectSelection.objects.size() == 1) selection = m_State.objectSelection.objects.front();
+    else if (m_State.objectSelection.Objects().size() == 1) selection = m_State.objectSelection.Objects().front();
     // Dev places new objects by the 3D Layout's camera.
     CKCamera *view = m_Layout.View().Camera();
     LayoutObjectOptions options;
@@ -819,7 +847,7 @@ void EditorApp::CreateObject(LayoutObject kind) {
     // Dev.exe sub_4A9960 / sub_4A9E90: the new camera replaces the view's
     // camera; new cameras and lights show their cone (Auto Show Camera / Light Cone).
     if (CKCamera::Cast(object)) m_Layout.View().SetCamera(object->GetID());
-    if (m_State.preferences.Bool("3D Layout\\Auto Show Setup")) m_State.events.Post(ShowObjectSetup{object->GetID()});
+    if (m_State.preferences.Bool("3D Layout\\Auto Show Setup")) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
 }
 
 void EditorApp::BuildDefaultLayout(ImGuiID dockspace, bool closeSeparated) {
@@ -986,10 +1014,14 @@ void EditorApp::DispatchEvents() {
             m_Panels.ShowScript(show->script, show->ref, show->focusBehavior);
             m_ToFront = SCHEMATIC_WINDOW;
         } else if (const ShowObjectSetup *setup = std::get_if<ShowObjectSetup>(&event)) {
-            m_Setups.Open(setup->object);
+            if (m_State.HasDocument())
+                if (const auto id = m_State.document->NativeId(setup->object)) m_Setups.Open(id);
         } else if (const ShowInLevelManager *row = std::get_if<ShowInLevelManager>(&event)) {
-            m_Panels.FocusLevelRow(row->object);
-            m_ToFront = "Level Manager";
+            if (m_State.HasDocument())
+                if (const auto id = m_State.document->NativeId(row->object)) {
+                    m_Panels.FocusLevelRow(id);
+                    m_ToFront = "Level Manager";
+                }
         } else if (const OpenAddAttribute *add = std::get_if<OpenAddAttribute>(&event)) {
             m_Managers.RequestAddAttribute(add->targets, add->more);
         } else if (const ConfirmDeleteObjects *remove = std::get_if<ConfirmDeleteObjects>(&event)) {
@@ -1055,6 +1087,15 @@ void EditorApp::Frame() {
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
+    if (m_State.HasDocument()) m_State.objectSelection.Validate(*m_State.document);
+    m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
+                    m_State.HasDocument() ? m_State.document->TopologyRevision() : 0, true,
+                    m_State.HasDocument() && !m_State.document->EditOpen());
+    ObjectRef selected{};
+    if (!m_State.objectSelection.References().empty()) selected = m_State.objectSelection.References().front();
+    else if (m_State.HasDocument() && m_Panels.LevelSelection().size() == 1)
+        selected = m_State.document->Reference(*m_Panels.LevelSelection().begin());
+    m_Editor.SetSelection(selected);
     // The current scene and the changes show in the title (cheap: set only when it changes).
     UpdateTitle();
     MainMenu();
@@ -1121,6 +1162,7 @@ void EditorApp::Frame() {
         m_Tools.Draw(blocks ? blocks->DockId : 0, m_FocusSchematic <= 0);
     }
     m_Help.Draw();
+    m_Workspace.Draw();
     if (m_State.showDebugger) m_Panels.DebuggerPanel(&m_State.showDebugger);
     // The Script Debugger advances with the UI; shown values follow the run.
     if (m_State.debugger && m_State.HasDocument()) {

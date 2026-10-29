@@ -6,12 +6,40 @@
 
 namespace vdev {
 
+void ObjectSelection::Set(const Document &document, std::vector<CK_ID> ids) {
+    std::vector<ObjectRef> references;
+    std::vector<CK_ID> live;
+    references.reserve(ids.size()); live.reserve(ids.size());
+    for (CK_ID id : ids) {
+        const auto ref = document.Reference(id);
+        if (!document.Resolve(ref)) continue;
+        references.push_back(ref); live.push_back(id);
+    }
+    m_References = std::move(references);
+    m_Ids = std::move(live);
+    if (m_Ids.empty()) locked = false;
+    ++revision;
+}
+
+void ObjectSelection::Validate(const Document &document) {
+    std::size_t live = 0;
+    for (ObjectRef ref : m_References) {
+        const auto id = document.NativeId(ref);
+        if (!id) continue;
+        m_References[live] = ref; m_Ids[live++] = id;
+    }
+    if (live == m_References.size()) return;
+    m_References.resize(live); m_Ids.resize(live);
+    if (m_Ids.empty()) locked = false;
+    ++revision;
+}
+
 void SelectionFollower::Push(ObjectSelection &objects, const std::set<CK_ID> &selection, const Document *document) {
     if (selection == m_Pushed) return;
     m_Pushed = selection;
     if (objects.locked || !document) return;
     auto rendered = FilterObjects(*document, {selection.begin(), selection.end()}, CKCID_RENDEROBJECT);
-    if (rendered != objects.objects) objects.Set(std::move(rendered));
+    if (rendered != objects.Objects()) objects.Set(*document, std::move(rendered));
     m_Seen = objects.revision;
 }
 
@@ -28,7 +56,8 @@ void EditorState::DropAttributeOn(const std::vector<CK_ID> &objects, const Attri
 }
 
 EditorState::EditorState() : runtimeOperation([this](const std::string &label) {
-    return document && document->EditOpen() ? "Finish the current operation before " + label : std::string();
+    return (document && document->EditOpen()) || (workspace && workspace->Application().HasEdits())
+            ? "Finish the current operation before " + label : std::string();
 }) {}
 
 EditorState::~EditorState() {

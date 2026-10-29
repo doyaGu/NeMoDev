@@ -29,6 +29,7 @@ namespace vdev {
 
 void ManagerWindows::DocumentClosed() {
     m_ValueBox.Clear();
+    if (m_State.workspace) m_State.workspace->CloseOwner(m_NameOwner);
     m_Doc = DocumentState();
     m_Selected = -1;
     m_MoreTypes.clear();
@@ -57,6 +58,10 @@ void ManagerWindows::Draw(ImGuiID dock, bool openDialog) {
     }
     if (m_State.showAttributeManager) AttributeManager(&m_State.showAttributeManager);
     if (m_State.showHierarchy) HierarchyManager(&m_State.showHierarchy);
+    if (!m_State.showHierarchy && m_NameOwner && m_State.workspace) {
+        m_State.workspace->CloseOwner(m_NameOwner);
+        m_Doc.hierarchyRename = 0;
+    }
     if (openDialog || !m_Doc.openAddAttribute) AddAttributeDialog();
 }
 
@@ -260,8 +265,8 @@ void ManagerWindows::AttributeManager(bool *open) {
         m_State.clipboard.SetParameters(*m_State.document, std::move(values));
     };
     auto paste = [&] {
-        std::vector<CK_ID> &copied = m_State.clipboard.parameters;
-        copied = FilterObjects(*m_State.document, copied, CKCID_PARAMETER, ObjectQueryScope::Existing);
+        if (!m_State.clipboard.BelongsTo(*m_State.document)) return;
+        const auto copied = FilterObjects(*m_State.document, m_State.clipboard.parameters, CKCID_PARAMETER, ObjectQueryScope::Existing);
         if (copied.empty()) {
             m_State.Log(LogLevel::Warning, "Nothing to paste!");
             return;
@@ -508,7 +513,7 @@ void ManagerWindows::AttributeManager(bool *open) {
         m_Doc.attributeRows.clear();
     };
     auto showSetup = [&] {
-        if (!chosen.empty()) m_State.events.Post(ShowObjectSetup{chosen.front()});
+        if (!chosen.empty()) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(chosen.front())});
     };
     // Right: the objects with the selected attribute, selected with a click
     // (Ctrl: added or taken off); values are editable.
@@ -537,7 +542,7 @@ void ManagerWindows::AttributeManager(bool *open) {
                 if (!ImGui::GetIO().KeyCtrl) m_Doc.attributeRows = {id};
                 else if (selected) m_Doc.attributeRows.erase(id);
                 else m_Doc.attributeRows.insert(id);
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{id});
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(id)});
             }
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) {
                 m_Doc.attributeRows = {id};
@@ -557,7 +562,7 @@ void ManagerWindows::AttributeManager(bool *open) {
                 ImGui::Separator();
                 if (ImGui::MenuItem("Show Setup", "Enter")) showSetup();
                 if (ImGui::MenuItem("Show Object In Level Manager", "(double-click on object name)"))
-                    m_State.events.Post(ShowInLevelManager{chosen.empty() ? id : chosen.front()});
+                    m_State.events.Post(ShowInLevelManager{m_State.document->Reference(chosen.empty() ? id : chosen.front())});
                 ImGui::EndPopup();
             }
             ImGui::TableNextColumn();

@@ -216,7 +216,7 @@ void SetupWindows::CharacterPage(Setup &setup, CKCharacter *character) {
             const bool selected = rows.count(partId) != 0;
             const std::string name = NameOf(part) + (part == root ? "  (Root)" : "");
             if (typeAhead.Selectable(name.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{partId});
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(partId)});
                 else if (!ImGui::GetIO().KeyCtrl) rows = {partId};
                 else if (selected) rows.erase(partId);
                 else rows.insert(partId);
@@ -224,7 +224,7 @@ void SetupWindows::CharacterPage(Setup &setup, CKCharacter *character) {
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) rows = {partId};
             if (ImGui::BeginPopupContextItem("bodypartmenu")) {
                 if (ImGui::MenuItem("Show Body Part Setup", nullptr, false, rows.size() == 1))
-                    m_State.events.Post(ShowObjectSetup{*rows.begin()});
+                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(*rows.begin())});
                 ImGui::Separator();
                 if (ImGui::MenuItem("Remove Body Part", "Delete", false, !rows.empty())) removeParts();
                 ImGui::EndPopup();
@@ -1149,9 +1149,9 @@ void SetupWindows::PlaceLinks(CKPlace *place) {
         if (ImGui::MenuItem("Remove Place", nullptr, false, row.place != 0)) relink("Remove Place", row.place, row.portal, 0, 0);
         ImGui::Separator();
         if (ImGui::MenuItem("Place Setup", nullptr, false, row.place != 0))
-            m_State.events.Post(ShowObjectSetup{row.place});
+            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(row.place)});
         if (ImGui::MenuItem("Portal Setup", nullptr, false, row.portal != 0))
-            m_State.events.Post(ShowObjectSetup{row.portal});
+            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(row.portal)});
         ImGui::EndPopup();
     }
     PopDevMenuStyle();
@@ -1290,7 +1290,7 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
     ImGui::SameLine();
     CKMaterial *material = sprite->GetMaterial();
     ImGui::BeginDisabled(!material);
-    if (ImGui::SmallButton(">") && material) m_State.events.Post(ShowObjectSetup{material->GetID()});
+    if (ImGui::SmallButton(">") && material) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(material->GetID())});
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Material Setup");
     ImGui::SameLine();

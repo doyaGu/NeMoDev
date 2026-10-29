@@ -173,7 +173,7 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
             const bool selected = rows.count(meshId) != 0;
             const std::string text = NameOf(mesh) + " (Mesh)";
             if (typeAhead.Selectable(text.c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick)) {
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{meshId});
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(meshId)});
                 else if (!ImGui::GetIO().KeyCtrl) rows = {meshId};
                 else if (selected) rows.erase(meshId);
                 else rows.insert(meshId);
@@ -182,7 +182,7 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
             if (ImGui::BeginPopupContextItem("meshmenu")) {
                 const bool single = rows.size() == 1;
                 if (ImGui::MenuItem("Show Mesh Setup", nullptr, false, single))
-                    m_State.events.Post(ShowObjectSetup{*rows.begin()});
+                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(*rows.begin())});
                 ImGui::Separator();
                 if (ImGui::MenuItem("Set As Current", nullptr, false, single)) {
                     const CK_ID chosen = *rows.begin();
@@ -270,7 +270,7 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
         if (DevBitmapButton("charactersetup", page.At(500, 110), SETUP_BUTTON, false, character != nullptr, page.s,
                             "Show Character Setup") &&
             character)
-            m_State.events.Post(ShowObjectSetup{character->GetID()});
+            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(character->GetID())});
         page.Label(520, 111, 620, 132, NameOf(character).c_str());
     } else if (CK3dEntity *parent = entity->GetParent()) {
         page.Label(420, 108, 500, 130, "Parent:");
@@ -605,7 +605,7 @@ void SetupWindows::Entity2DPage(CK2dEntity *entity, bool sprite) {
         ImGui::SameLine();
         ImGui::BeginDisabled(!entity->GetMaterial());
         if (ImGui::SmallButton(">##materialsetup") && entity->GetMaterial())
-            m_State.events.Post(ShowObjectSetup{entity->GetMaterial()->GetID()});
+            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(entity->GetMaterial()->GetID())});
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Show Material Setup");
         ImGui::Dummy(ImVec2(1, 50));
@@ -633,7 +633,7 @@ void SetupWindows::Entity2DPage(CK2dEntity *entity, bool sprite) {
     ImGui::SameLine();
     ImGui::BeginDisabled(!entity->GetParent());
     if (ImGui::SmallButton(">##parentsetup") && entity->GetParent())
-        m_State.events.Post(ShowObjectSetup{entity->GetParent()->GetID()});
+        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(entity->GetParent()->GetID())});
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Show Parent Setup");
     flag(properties::Entity2DClipToParent);
@@ -1368,7 +1368,7 @@ void SetupWindows::MaterialPage(Setup &setup, CKMaterial *material) {
     page.Label(220, 140, 280, 160, "Texture");
     CKTexture *texture = material->GetTexture(0);
     if (texture && DevBitmapButton("texturesetup", page.At(280, 142), SETUP, false, true, page.s, "Show Texture Setup"))
-        m_State.events.Post(ShowObjectSetup{texture->GetID()});
+        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(texture->GetID())});
     CK_ID chosen = 0;
     if (ObjectCombo("##texture", CKCID_TEXTURE, texture, &chosen, page.Place(300, 140, 445, 160)))
         Live(id, "Texture", [this, chosen](CKObject *o) { CKMaterial::Cast(o)->SetTexture0(Get<CKTexture>(m_State, chosen)); });
@@ -1438,7 +1438,7 @@ void SetupWindows::MaterialPage(Setup &setup, CKMaterial *material) {
             ImGui::PushID(i);
             CKTexture *extra = material->GetTexture(i + 1);
             if (extra && DevBitmapButton("effecttexturesetup", page.At(810, y + 2), SETUP, false, true, page.s, "Show Texture Setup"))
-                m_State.events.Post(ShowObjectSetup{extra->GetID()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(extra->GetID())});
             CK_ID picked = 0;
             if (ObjectCombo("##effecttexture", CKCID_TEXTURE, extra, &picked, page.Place(830, y, 930, y + 20))) {
                 Live(id, "Effect Texture", [this, i, picked](CKObject *o) {
@@ -1669,7 +1669,7 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
             const bool selected = setup.channelRows.count(i) != 0;
             if (ImGui::Selectable(NameOf(mesh->GetChannelMaterial(i)).c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick)) {
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && mesh->GetChannelMaterial(i))
-                    m_State.events.Post(ShowObjectSetup{mesh->GetChannelMaterial(i)->GetID()});
+                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(mesh->GetChannelMaterial(i)->GetID())});
                 else if (!ImGui::GetIO().KeyCtrl) setup.channelRows = {i};
                 else if (selected) setup.channelRows.erase(i);
                 else setup.channelRows.insert(i);
@@ -1678,7 +1678,7 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
             if (ImGui::BeginPopupContextItem("channelmenu")) {
                 CKMaterial *material = setup.channelRows.size() == 1 ? mesh->GetChannelMaterial(*setup.channelRows.begin()) : nullptr;
                 if (ImGui::MenuItem("Show Material Setup", nullptr, false, material != nullptr))
-                    m_State.events.Post(ShowObjectSetup{material->GetID()});
+                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(material->GetID())});
                 ImGui::Separator();
                 if (ImGui::MenuItem("Add Channel")) addChannel();
                 if (ImGui::MenuItem("Remove Channel(s)", "Delete", false, !setup.channelRows.empty())) removeChannels();
@@ -1768,10 +1768,10 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
             const std::string text = NameOf(material) + " (Material)";
             if (typeAhead.Selectable(text.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{material->GetID()});
+                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(material->GetID())});
             // Its menu (documentation: "right-click and select Show Setup").
             if (ImGui::BeginPopupContextItem("usedmenu")) {
-                if (ImGui::MenuItem("Show Setup")) m_State.events.Post(ShowObjectSetup{material->GetID()});
+                if (ImGui::MenuItem("Show Setup")) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(material->GetID())});
                 ImGui::EndPopup();
             }
             if (ImGui::BeginDragDropTarget()) {

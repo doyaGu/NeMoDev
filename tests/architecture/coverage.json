@@ -1,7 +1,7 @@
 {
   "version": 1,
   "baseline_revision": "029f2c9a6d2b062e031357224f6115a96ebac6cc",
-  "completed_phase": 0,
+  "completed_phase": 1,
   "external_submodules": [
     "external/imgui",
     "external/imgui_test_engine",
@@ -439,7 +439,11 @@
       "S26",
       "S27",
       "S28",
-      "S29"
+      "S29",
+      "S33",
+      "S35",
+      "S36",
+      "S37"
     ],
     "S15": [
       "S01",
@@ -603,7 +607,8 @@
       "S33",
       "S34",
       "S35",
-      "S36"
+      "S36",
+      "S37"
     ],
     "S33": [],
     "S34": [
@@ -1384,7 +1389,8 @@
       "ui_tests": [
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.level",
-        "VirtoolsDevUi.create"
+        "VirtoolsDevUi.create",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
@@ -1814,7 +1820,8 @@
         "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.app"
+        "VirtoolsDevUi.app",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
@@ -1932,7 +1939,8 @@
         "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.app"
+        "VirtoolsDevUi.app",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
@@ -1990,7 +1998,9 @@
         "VirtoolsDev.ObjectIdentityReplay",
         "VirtoolsDev.ObjectIdentityResources"
       ],
-      "ui_tests": [],
+      "ui_tests": [
+        "VirtoolsDevUi.modules"
+      ],
       "gaps": [
         {
           "due_phase": 6,

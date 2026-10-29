@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/graph/Debugger.h"
+#include "workspace/EditorWorkspace.h"
 #include <algorithm>
 #include <cstring>
 #include <functional>
@@ -188,17 +189,18 @@ struct CurveTool {
 // The 3D Layout's selection (Dev.exe: the view's CKObjectArray at +680), the
 // render objects the Level Manager shows selected too; revision counts its
 // changes. Lock Selection keeps other editors from changing it.
-struct ObjectSelection {
-    std::vector<CK_ID> objects;
+class ObjectSelection {
+public:
     bool locked = false;
     unsigned revision = 0;
-
-    bool Contains(CK_ID id) const { return std::find(objects.begin(), objects.end(), id) != objects.end(); }
-    void Set(std::vector<CK_ID> ids) {
-        objects = std::move(ids);
-        if (objects.empty()) locked = false;
-        ++revision;
-    }
+    const std::vector<CK_ID> &Objects() const { return m_Ids; }
+    const std::vector<ObjectRef> &References() const { return m_References; }
+    bool Contains(CK_ID id) const { return std::find(m_Ids.begin(), m_Ids.end(), id) != m_Ids.end(); }
+    void Set(const Document &document, std::vector<CK_ID> ids);
+    void Validate(const Document &document);
+private:
+    std::vector<ObjectRef> m_References;
+    std::vector<CK_ID> m_Ids; // derived view for existing render/input consumers
 };
 
 // A window's own selection kept with the shared one (Dev keeps one selection
@@ -211,7 +213,7 @@ class SelectionFollower {
 public:
     bool Pull(const ObjectSelection &objects, std::set<CK_ID> &selection) {
         if (objects.revision == m_Seen) return false;
-        selection = std::set<CK_ID>(objects.objects.begin(), objects.objects.end());
+        selection = std::set<CK_ID>(objects.Objects().begin(), objects.Objects().end());
         m_Seen = objects.revision;
         m_Pushed = selection;
         return true;
@@ -254,6 +256,7 @@ struct DocumentSession {
 };
 
 struct EditorState : DocumentSession {
+    EditorWorkspace *workspace = nullptr; // attached by the editor; outlives its windows
     EditorState();
     ~EditorState();
 

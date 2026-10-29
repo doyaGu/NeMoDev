@@ -47,7 +47,7 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
         IM_CHECK(shown && shown->selected);
         ctx->Yield(2);
         const vdev::ObjectSelection &objects = App().State().objectSelection;
-        IM_CHECK_EQ(objects.objects.size(), 1u);
+        IM_CHECK_EQ(objects.Objects().size(), 1u);
         IM_CHECK(objects.Contains(row->object));
     };
 

@@ -73,6 +73,7 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
         io.ExportResultsFormat = ImGuiTestEngineExportFormat_JUnitXml;
     }
     ImGuiTestEngine_Start(engine, ImGui::GetCurrentContext());
+    vdevuitest::RegisterModuleTests(engine);
     vdevuitest::RegisterAppTests(engine);
     vdevuitest::RegisterArchitectureBaselineTests(engine);
     vdevuitest::RegisterGpuViewportTests(engine);
