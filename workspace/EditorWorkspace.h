@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "application/EditorApplication.h"
+#include "workspace/WorkspaceConfiguration.h"
 
 namespace vdev {
 // Windows keep only their input's ID. Drafts, chosen editors and native target
@@ -28,6 +29,15 @@ class EditorWorkspace : private EditorViewNavigation {
     EditorStatus Menu(const std::string &, EditorScope, ObjectRef, EditorEdit &) override;
     EditorView Open(const std::string &type, const std::string &role = {}, bool pinned = false);
     void DefaultDock(const std::string &type, unsigned dock) { m_DefaultDocks[type] = dock; }
+    EditorView OpenRole(const std::string &role);
+    bool Configure(const WorkspaceConfiguration &, std::string &error);
+    WorkspaceConfiguration Configuration() const;
+    struct LayoutUpdate {
+        bool changed = false;
+        std::vector<unsigned> closeLegacy;
+    };
+    LayoutUpdate UpdateLayout(unsigned dockspace, bool reset = false, bool closeSeparated = false);
+    unsigned RegionDock(const std::string &region) const;
     void CloseFloatingViews();
     void DockViews();
     EditorView Role(const std::string &role) const;
@@ -74,12 +84,21 @@ class EditorWorkspace : private EditorViewNavigation {
     static EditorStatus ViewQuery(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus ListQuery(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus InstanceQuery(void *, const EditorHost *, const EditorRequest *, EditorSink);
-    uint64_t m_ViewsRevision = 1;
+    bool Configure(const EditorConfiguration &, const WorkspaceConfiguration *, std::string &error);
+    void UpdateRegionDocks();
+    unsigned ViewDock(const View &) const;
+    const WorkspaceViewPlacement *Placement(const View &) const;
+    std::vector<unsigned> BuildLayout(unsigned dockspace, bool closeSeparated);
     bool Checked(const MenuEntry &, EditorScope);
     EditorApplication &m_Application;
     std::map<EditorView, View> m_Views;
     EditorView m_LastFocusRequest = 0;
     std::map<std::string, unsigned> m_DefaultDocks;
+    WorkspaceConfiguration m_Configuration;
+    std::map<std::string, unsigned> m_RegionDocks;
+    uint64_t m_ViewsRevision = 1;
+    unsigned m_Dockspace = 0;
+    bool m_LayoutPrepared = false, m_LayoutChanged = false;
     struct SavedView {
         uint32_t version;
         std::vector<EditorField> fields;

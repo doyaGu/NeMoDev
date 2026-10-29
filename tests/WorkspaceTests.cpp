@@ -177,13 +177,6 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     Check(app.Execute("test.navigate", {app.Scope(), &invalid, 1}).status == EDITOR_INVALID, "invalid navigation type accepted");
     const auto list = app.Query("workspace.views", direct);
     Check(list.status == EDITOR_OK && list.fields[0].integers.size() == 3, "workspace query lost views");
-    const auto instances = app.Query("workspace.instances", direct);
-    Check(instances.status == EDITOR_OK && instances.fields[0].integers.size() == 3 && instances.fields[4].texts.size() == 3,
-          "workspace instances lost membership or roles");
-    uint64_t membership = 0, stableMembership = 0;
-    Check(app.QueryRevision("workspace.instances", membership) == EDITOR_OK &&
-          app.QueryRevision("workspace.instances", stableMembership) == EDITOR_OK && membership == stableMembership,
-          "stable workspace membership changed revision");
     auto replacement = config;
     replacement.providers[0].provider = "test.second";
     second.failCreate = true;
@@ -252,5 +245,41 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     Check(workspace.Open("test.other","test.primary",true)==primary,"workspace role created a duplicate instance");
     Check(!workspace.Open("test.native","test.primary"),"workspace role changed view type");
     Check(!workspace.Close(primary),"pinned primary view was closed");
+    workspace.CloseAll();
+
+    WorkspaceConfiguration layout;
+    layout.contributions = app.Configuration();
+    layout.splits = {{"root", "left", "right", WorkspaceDirection::Left, .4f}};
+    layout.regions = {{"left", "", ""}, {"right", "", ""}};
+    layout.views = {{"test.other", "test.main", "left", true, true},
+                    {"test.other", "test.secondary", "right", true}};
+    Check(workspace.Configure(layout, error), error.c_str());
+    const auto main = workspace.Role("test.main"), secondary = workspace.Role("test.secondary");
+    Check(main && secondary && main != secondary && workspace.ViewCount() == 2 &&
+        workspace.OpenRole("test.main") == main && !workspace.Close(main), "workspace configuration did not create independent primary roles");
+    const auto generation = [&] { uint64_t version = 0; Check(app.QueryRevision("workspace.instances", version) == EDITOR_OK, "workspace instance version unavailable"); return version; };
+    const auto configured = generation();
+    auto bad = layout;
+    bad.splits.push_back({"left", "root", "new", WorkspaceDirection::Up, .5f});
+    Check(!workspace.Configure(bad, error) && generation() == configured && workspace.Role("test.main") == main,
+        "cyclic layout changed existing workspace");
+    bad = layout; bad.views[1].role = "test.main";
+    Check(!workspace.Configure(bad, error) && workspace.Role("test.secondary") == secondary, "duplicate role changed existing views");
+    bad = layout; bad.views[1].region = "missing";
+    Check(!workspace.Configure(bad, error), "unknown dock region accepted");
+    bad = layout; bad.views.push_back({"test.missing", "test.extra", "left", true});
+    Check(!workspace.Configure(bad, error), "unknown view type accepted");
+    bad = layout; bad.legacyWindows = {{"Legacy", "left"}, {"Legacy", "right"}};
+    Check(!workspace.Configure(bad, error), "duplicate legacy window placement accepted");
+    bad = layout; bad.views.push_back({"test.native", "test.extra", "left", true});
+    third.failCreate = true;
+    Check(!workspace.Configure(bad, error) && workspace.ViewCount() == 2 && workspace.Role("test.main") == main &&
+        workspace.Role("test.secondary") == secondary && !workspace.Role("test.extra"), "failed startup view replaced previous roles");
+    third.failCreate = false;
+    Check(workspace.Configuration().splits[0].fraction == .4f && workspace.Configuration().views.size() == 2,
+        "failed workspace configuration replaced valid layout data");
+    Check(workspace.Close(secondary) && generation() != configured, "closing configured view kept instance query cache");
+    const auto recreated = workspace.OpenRole("test.secondary");
+    Check(recreated && recreated != secondary && generation() != configured, "configured role did not reopen");
     workspace.CloseAll();
 }

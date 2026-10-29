@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <set>
+#include <cmath>
 #include <iterator>
 #include "editor/ImGuiDrawing.h"
 #include "imgui_internal.h"
@@ -23,13 +24,22 @@ bool EditorWorkspace::Register(std::string &error) {
     const EditorParameter type[] = {{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE},
         {EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("pinned"), EDITOR_INTEGER_VALUE, 1}};
     const EditorParameter instance{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1};
+    const EditorParameter role{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE};
     const EditorCommandDesc commands[] = {
         {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.open-view"), EDITOR_TEXT("builtin.workspace"),
          EDITOR_TEXT("Open View"), type, 3, OpenCommand, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.focus-view"), EDITOR_TEXT("builtin.workspace"),
          EDITOR_TEXT("Focus View"), &instance, 1, FocusCommand, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.close-view"), EDITOR_TEXT("builtin.workspace"),
-         EDITOR_TEXT("Close View"), &instance, 1, CloseCommand, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
+         EDITOR_TEXT("Close View"), &instance, 1, CloseCommand, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.open-role"), EDITOR_TEXT("builtin.workspace"), EDITOR_TEXT("Open Primary View"),
+         &role, 1, [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+             const auto id = static_cast<EditorWorkspace *>(data)->OpenRole(Text(request->values[0].text));
+             if (!id) return EDITOR_INVALID;
+             const EditorValue field{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, id};
+             if (sink.write) sink.write(sink.data, &field, 1);
+             return EDITOR_OK;
+         }, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
     const EditorParameter fields[] = {{EDITOR_TEXT("views"), EDITOR_INTEGER_LIST},
         {EDITOR_TEXT("types"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("providers"), EDITOR_TEXT_LIST},
         {EDITOR_TEXT("titles"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("focused"), EDITOR_INTEGER_VALUE}};
@@ -55,7 +65,7 @@ bool EditorWorkspace::Register(std::string &error) {
     module.locations = &location;
     module.locationCount = 1;
     module.commands = commands;
-    module.commandCount = 3;
+    module.commandCount = 4;
     module.queries = allQueries.data();
     module.queryCount = uint32_t(allQueries.size());
     return m_Application.Register(module, error);
@@ -268,11 +278,13 @@ void EditorWorkspace::CloseFloatingViews() {
     std::vector<EditorView> closed;
     for (const auto &entry : m_Views) {
         const auto &view = entry.second;
-        const auto dock = m_DefaultDocks.find(Text(view.desc.id));
-        if (view.desc.kind != EDITOR_WINDOW_VIEW || dock == m_DefaultDocks.end() || !dock->second) continue;
+        const auto dock = ViewDock(view);
+        if (view.desc.kind != EDITOR_WINDOW_VIEW || !dock) continue;
         const auto name = WindowName(view.id);
         const auto *window = ImGui::FindWindowByName(name.c_str());
-        if (!view.pinned && window && window->WasActive && !window->DockIsActive)
+        const auto *placement = Placement(view);
+        const bool keep = placement && placement->keepOnReset;
+        if (!view.pinned && !keep && window && window->WasActive && !window->DockIsActive)
             closed.push_back(view.id);
     }
     for (auto id : closed) Close(id);
@@ -280,9 +292,9 @@ void EditorWorkspace::CloseFloatingViews() {
 void EditorWorkspace::DockViews() {
     for (const auto &entry : m_Views) {
         const auto &view = entry.second;
-        const auto dock = m_DefaultDocks.find(Text(view.desc.id));
-        if (view.desc.kind != EDITOR_WINDOW_VIEW || dock == m_DefaultDocks.end() || !dock->second) continue;
-        ImGui::DockBuilderDockWindow(WindowName(view.id).c_str(), dock->second);
+        const auto dock = ViewDock(view);
+        if (view.desc.kind != EDITOR_WINDOW_VIEW || !dock) continue;
+        ImGui::DockBuilderDockWindow(WindowName(view.id).c_str(), dock);
     }
 }
 EditorView EditorWorkspace::Open(const std::string &type, const std::string &role, bool pinned) {
@@ -501,6 +513,7 @@ void EditorWorkspace::CloseAll() {
     m_ClosedStates.clear();
 }
 void EditorWorkspace::Draw(bool nativeAvailable) {
+    UpdateRegionDocks();
     const auto focus = m_LastFocusRequest;
     bool focusDrawn = false;
     std::vector<EditorView> closed;
@@ -513,7 +526,7 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
         EditorViewFrame frame{EditorText(name), uint32_t(grantFocus), 0, uint32_t(view.placement.apply),
             view.placement.dock, view.placement.x, view.placement.y, view.placement.width, view.placement.height,
             uint32_t(!view.pinned), 0};
-        if (const auto dock = m_DefaultDocks.find(Text(view.desc.id)); dock != m_DefaultDocks.end()) frame.initialDock = dock->second;
+        frame.initialDock = ViewDock(view);
         try {
             Drawing drawing(m_Application);
             view.desc.draw(view.data, m_Application.Host(), view.id, &frame);
@@ -554,10 +567,14 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
     }
 }
 bool EditorWorkspace::Configure(const EditorConfiguration &configuration, std::string &error) {
+    return Configure(configuration, nullptr, error);
+}
+bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const WorkspaceConfiguration *workspace, std::string &error) {
     const auto previous = m_Application.Configuration();
     if (!m_Application.Configure(configuration, error)) return false;
     struct Replacement { EditorView old; View next; };
     std::vector<Replacement> replacements;
+    std::vector<std::pair<EditorView, const WorkspaceViewPlacement *>> assigned;
     const auto rollback = [&] {
         for (auto &replacement : replacements) {
             m_Application.CloseScope(replacement.next.id);
@@ -601,17 +618,192 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, std::s
                 return rollback();
         }
     }
+    if (workspace) {
+        for (const auto &placement : workspace->views) {
+            if (!placement.startup || (!placement.role.empty() && Role(placement.role))) continue;
+            const auto descriptions = m_Application.Views();
+            const auto desc = std::find_if(descriptions.begin(), descriptions.end(), [&](const auto &item) { return Text(item.id) == placement.type; });
+            if (desc == descriptions.end()) return rollback();
+            if (desc->area == EDITOR_DOCUMENT && !m_Application.NativeAvailable()) return rollback();
+            if (desc->singleInstance) {
+                const auto existing = std::find_if(m_Views.begin(), m_Views.end(), [&](const auto &view) { return Text(view.second.desc.id) == placement.type; });
+                if (existing != m_Views.end()) { assigned.push_back({existing->first, &placement}); continue; }
+            }
+            const auto id = m_Application.OpenScope();
+            void *data = m_Application.CreateView(*desc, id);
+            if (!data) { m_Application.CloseScope(id); return rollback(); }
+            View next{id, *desc, data, true, {}};
+            next.role = placement.role; next.pinned = placement.pinned;
+            replacements.push_back({0, std::move(next)});
+            const auto saved = m_ClosedStates.find(placement.type);
+            if (desc->singleInstance && saved != m_ClosedStates.end()) {
+                replacements.back().next.placement = saved->second.placement;
+                if (saved->second.version && m_Application.RestoreViewState(*desc, data, m_Application.Scope(id), saved->second.fields) != EDITOR_OK) return rollback();
+            }
+        }
+    }
     const auto pendingFocus = m_LastFocusRequest, focused = Focused();
     EditorView replacementFocus = 0;
     for (auto &replacement : replacements) {
         if (replacement.old == pendingFocus || (!pendingFocus && replacement.old == focused))
             replacementFocus = replacement.next.id;
-        Destroy(replacement.old);
+        if (replacement.old) Destroy(replacement.old);
         m_Views.emplace(replacement.next.id, std::move(replacement.next));
+        ++m_ViewsRevision;
+        for (auto &assignment : assigned) if (assignment.first == replacement.old) assignment.first = replacement.next.id;
+    }
+    for (const auto &assignment : assigned) {
+        auto &view = m_Views.at(assignment.first);
+        view.role = assignment.second->role; view.pinned = assignment.second->pinned;
         ++m_ViewsRevision;
     }
     if (replacementFocus) m_LastFocusRequest = replacementFocus;
     return true;
+}
+WorkspaceConfiguration EditorWorkspace::Configuration() const {
+    auto result = m_Configuration;
+    result.contributions = m_Application.Configuration();
+    return result;
+}
+bool EditorWorkspace::Configure(const WorkspaceConfiguration &configuration, std::string &error) {
+    if (!m_Application.NativeAvailable()) {
+        error = "Finish the current operation before applying a workspace layout";
+        return false;
+    }
+    if (ImGui::GetCurrentContext() && ImGui::GetTopMostPopupModal()) {
+        error = "Finish the active dialog before applying a workspace layout";
+        return false;
+    }
+    // Validate and copy before selecting providers or creating any instances.
+    auto next = configuration;
+    next.contributions = {};
+    std::set<std::string> nodes{"root"}, leaves{"root"}, regions, roles, defaultTypes, startupSingletons;
+    const auto descriptions = m_Application.Views(true);
+    auto invalid = [&] { error = "Invalid workspace layout or view placement"; return false; };
+    for (const auto &split : next.splits) {
+        if (!leaves.erase(split.source) || split.first.empty() || split.remainder.empty() ||
+            !nodes.insert(split.first).second || !nodes.insert(split.remainder).second ||
+            !std::isfinite(split.fraction) || split.fraction <= 0 || split.fraction >= 1 ||
+            split.direction < WorkspaceDirection::Left || split.direction > WorkspaceDirection::Down) return invalid();
+        leaves.insert(split.first); leaves.insert(split.remainder);
+    }
+    for (const auto &region : next.regions)
+        if (!leaves.count(region.id) || !regions.insert(region.id).second ||
+            (!region.anchorRole.empty() && !region.anchorWindow.empty())) return invalid();
+    for (const auto &view : next.views) {
+        if ((view.role.empty() && !defaultTypes.insert(view.type).second) || (!view.region.empty() && !regions.count(view.region)) ||
+            (!view.role.empty() && !roles.insert(view.role).second) ||
+            std::none_of(descriptions.begin(), descriptions.end(), [&](const auto &desc) { return Text(desc.id) == view.type; })) return invalid();
+        if (auto id = Role(view.role); !view.role.empty() && id && Text(m_Views.at(id).desc.id) != view.type) return invalid();
+        if (view.startup)
+            for (const auto &desc : descriptions)
+                if (Text(desc.id) == view.type && desc.singleInstance && !startupSingletons.insert(view.type).second) {
+                    // Multiple providers of the same singleton share one declaration.
+                    if (std::count_if(next.views.begin(), next.views.end(), [&](const auto &item) { return item.startup && item.type == view.type; }) > 1) return invalid();
+                }
+    }
+    for (const auto &region : next.regions) if (!region.anchorRole.empty() && !roles.count(region.anchorRole)) return invalid();
+    std::set<std::string> legacyNames;
+    for (const auto &window : next.legacyWindows)
+        if (window.name.empty() || !regions.count(window.region) || !legacyNames.insert(window.name).second) return invalid();
+    if (!Configure(configuration.contributions, &next, error)) return false;
+    for (auto &entry : m_Views) {
+        auto &view = entry.second;
+        const auto placement = std::find_if(next.views.begin(), next.views.end(), [&](const auto &item) { return item.role == view.role && item.type == Text(view.desc.id); });
+        if (placement != next.views.end()) view.pinned = placement->pinned;
+    }
+    m_Configuration = std::move(next);
+    m_RegionDocks.clear();
+    m_LayoutChanged = m_LayoutPrepared;
+    for (auto &entry : m_Views) entry.second.placement.apply = false;
+    ++m_ViewsRevision;
+    return true;
+}
+EditorView EditorWorkspace::OpenRole(const std::string &role) {
+    for (const auto &placement : m_Configuration.views)
+        if (placement.role == role && !role.empty()) return Open(placement.type, role, placement.pinned);
+    return 0;
+}
+unsigned EditorWorkspace::RegionDock(const std::string &region) const {
+    const auto found = m_RegionDocks.find(region);
+    if (found != m_RegionDocks.end()) return found->second;
+    if (!ImGui::GetCurrentContext()) return 0;
+    for (const auto &entry : m_Configuration.regions) if (entry.id == region) {
+        const auto name = entry.anchorRole.empty() ? entry.anchorWindow : WindowName(Role(entry.anchorRole));
+        const auto *window = name.empty() ? nullptr : ImGui::FindWindowByName(name.c_str());
+        return window ? window->DockId : 0;
+    }
+    return 0;
+}
+const WorkspaceViewPlacement *EditorWorkspace::Placement(const View &view) const {
+    const WorkspaceViewPlacement *first = nullptr, *defaultPlacement = nullptr;
+    for (const auto &placement : m_Configuration.views) {
+        if (placement.type.size() != view.desc.id.size ||
+            placement.type.compare(0, placement.type.size(), view.desc.id.data, view.desc.id.size)) continue;
+        if (!view.role.empty() && placement.role == view.role) return &placement;
+        if (!first) first = &placement;
+        if (placement.role.empty()) defaultPlacement = &placement;
+    }
+    return defaultPlacement ? defaultPlacement : first;
+}
+unsigned EditorWorkspace::ViewDock(const View &view) const {
+    const auto *placement = Placement(view);
+    if (placement) return RegionDock(placement->region);
+    const auto legacy = m_DefaultDocks.find(Text(view.desc.id));
+    return legacy == m_DefaultDocks.end() ? 0 : legacy->second;
+}
+void EditorWorkspace::UpdateRegionDocks() {
+    for (const auto &region : m_Configuration.regions) {
+        const auto name = region.anchorRole.empty() ? region.anchorWindow : WindowName(Role(region.anchorRole));
+        const auto *window = name.empty() ? nullptr : ImGui::FindWindowByName(name.c_str());
+        if (window && window->DockId) m_RegionDocks[region.id] = window->DockId;
+    }
+}
+std::vector<unsigned> EditorWorkspace::BuildLayout(unsigned dockspace, bool closeSeparated) {
+    struct Window { std::string name, region; };
+    std::vector<Window> redocked;
+    std::vector<unsigned> separated;
+    for (const auto *window : ImGui::GetCurrentContext()->Windows) {
+        if (!window->WasActive || window->ParentWindow ||
+            (window->Flags & (ImGuiWindowFlags_ChildWindow | ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip | ImGuiWindowFlags_NoDocking))) continue;
+        const std::string name = window->Name;
+        for (const auto &rule : m_Configuration.legacyWindows)
+            if ((!rule.contains && name == rule.name) || (rule.contains && name.find(rule.name) != std::string::npos)) {
+                if (closeSeparated && !rule.keepOnReset && !window->DockIsActive) separated.push_back(window->ID);
+                else redocked.push_back({name, rule.region});
+                break;
+            }
+    }
+    if (closeSeparated) CloseFloatingViews();
+    ImGui::DockBuilderRemoveNode(dockspace);
+    ImGui::DockBuilderAddNode(dockspace, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspace, ImGui::GetMainViewport()->WorkSize);
+    std::map<std::string, unsigned> nodes{{"root", dockspace}};
+    for (const auto &split : m_Configuration.splits) {
+        const ImGuiDir directions[] = {ImGuiDir_Left, ImGuiDir_Right, ImGuiDir_Up, ImGuiDir_Down};
+        unsigned remainder = 0;
+        nodes[split.first] = ImGui::DockBuilderSplitNode(nodes.at(split.source), directions[int(split.direction)], split.fraction, nullptr, &remainder);
+        nodes[split.remainder] = remainder;
+    }
+    for (const auto &region : m_Configuration.regions) m_RegionDocks[region.id] = nodes.at(region.id);
+    for (const auto &rule : m_Configuration.legacyWindows)
+        if (!rule.contains) ImGui::DockBuilderDockWindow(rule.name.c_str(), RegionDock(rule.region));
+    DockViews();
+    for (const auto &window : redocked) ImGui::DockBuilderDockWindow(window.name.c_str(), RegionDock(window.region));
+    ImGui::DockBuilderFinish(dockspace);
+    return separated;
+}
+EditorWorkspace::LayoutUpdate EditorWorkspace::UpdateLayout(unsigned dockspace, bool reset, bool closeSeparated) {
+    if (dockspace != m_Dockspace) { m_Dockspace = dockspace; m_LayoutPrepared = false; }
+    LayoutUpdate result;
+    if (m_LayoutPrepared && !reset && !m_LayoutChanged) return result;
+    auto *node = ImGui::DockBuilderGetNode(dockspace);
+    if (reset || m_LayoutChanged || !node || node->IsLeafNode()) result.closeLegacy = BuildLayout(dockspace, closeSeparated);
+    else UpdateRegionDocks();
+    m_LayoutPrepared = true;
+    m_LayoutChanged = false;
+    result.changed = true;
+    return result;
 }
 void EditorWorkspace::Menu() {
     if (!ImGui::BeginMenu("Views"))
