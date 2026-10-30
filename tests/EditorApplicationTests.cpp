@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
+#include <limits>
 #include <thread>
 
 using namespace vdev;
@@ -102,6 +103,47 @@ void CommandStateReads() {
           counts.mutation == EDITOR_REFUSED && counts.writes == 0, "command state rejected nested reads or allowed a write");
     Check(app.Execute("test.state-outer", request).status == EDITOR_OK && counts.writes == 1,
           "read-only state checks blocked normal nested execution");
+}
+void RealArrays() {
+    double components[] = {1.25, -2, 3};
+    EditorValue value{}; value.key = EDITOR_TEXT("value"); value.type = EDITOR_REAL_LIST; value.reals = {components, 3};
+    value.real = std::numeric_limits<double>::quiet_NaN();
+    std::vector<EditorField> copied;
+    Check(CopyEditorFields(copied, &value, 1) == EDITOR_OK && copied.front().reals == std::vector<double>({1.25, -2, 3}),
+          "real array copy read an inactive field or lost components");
+    components[0] = 9;
+    Check(copied.front().reals.front() == 1.25, "real array borrowed producer memory after copying");
+    const auto borrowed = BorrowEditorFields(copied);
+    Check(borrowed.size() == 1 && borrowed.values.front().reals.count == 3 && borrowed.values.front().reals.data[1] == -2,
+          "real array was not delivered through the common field view");
+    copied.clear(); value.reals = {nullptr, 1};
+    Check(CopyEditorFields(copied, &value, 1) == EDITOR_INVALID, "null real array accepted");
+    copied.clear(); value.reals = {components, UINT32_MAX};
+    Check(CopyEditorFields(copied, &value, 1) == EDITOR_INVALID, "oversized real array accepted");
+    copied.clear(); components[0] = std::numeric_limits<double>::infinity(); value.reals = {components, 3};
+    Check(CopyEditorFields(copied, &value, 1) == EDITOR_INVALID, "non-finite real array accepted");
+    components[0] = 1.25;
+    EditorApplication app({});
+    const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("test.real-output"), EDITOR_TEXT("test.reals"),
+        EDITOR_TEXT("Real output"), nullptr, 0,
+        [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            EditorValue value{}; value.key = EDITOR_TEXT("components"); value.type = EDITOR_REAL_LIST;
+            value.reals = {static_cast<double *>(data), 3};
+            return sink.write(sink.data, &value, 1);
+        }, components, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE};
+    EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("test.reals");
+    module.commands = &command; module.commandCount = 1;
+    std::string error;
+    Check(app.Register(module, error) && app.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
+    const auto result = app.Execute("test.real-output", {app.Scope(), nullptr, 0});
+    Check(result.status == EDITOR_OK && result.fields.front().reals.front() == 1.25, "command did not own its real-array output");
+    components[0] = 90;
+    const EditorValue arguments[] = {{EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE, {}, {}, result.operation},
+        {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE, {}, {}, 0}};
+    const auto output = app.Query("application.operation-output", {app.Scope(), arguments, 2});
+    const auto reals = std::find_if(output.fields.begin(), output.fields.end(), [](const auto &field) { return field.key == "reals"; });
+    Check(output.status == EDITOR_OK && reals != output.fields.end() && reals->reals == std::vector<double>({1.25, -2, 3}),
+          "completed operation lost its copied real array");
 }
 void VersionedQueries() {
     struct Values {
@@ -430,6 +472,7 @@ int main(int argc, char **argv) {
         VersionedQueries();
         MenuChecks();
         CommandStateReads();
+        RealArrays();
         CkRuntimeHost runtime;
         std::string error;
         const auto *path = std::getenv("VIRTOOLS_PATH");

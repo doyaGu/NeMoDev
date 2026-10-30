@@ -54,3 +54,9 @@ uint32_t EditorPickRegionSizeFromC(void) { return (uint32_t)sizeof(EditorPickReg
 
 uint32_t EditorValueInputSizeFromC(void) { return (uint32_t)sizeof(EditorValueInput); }
 uint32_t EditorValueEditorSizeFromC(void) { return (uint32_t)sizeof(EditorValueEditorDesc); }
+
+EditorValue RealsFromC(const double *data, uint32_t count) {
+    EditorValue result = {0};
+    result.type = EDITOR_REAL_LIST; result.reals.data = data; result.reals.count = count;
+    return result;
+}

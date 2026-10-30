@@ -70,6 +70,7 @@ class EditorClient {
             if (const auto *v = Find(field, "real")) {
                 value.real = v->real;
             }
+            if (const auto *v = Find(field, "reals")) value.reals = v->reals;
             result.fields.push_back(std::move(value));
         }
         return result;

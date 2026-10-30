@@ -23,7 +23,21 @@ struct EditorField {
     std::vector<uint64_t> integers;
     std::vector<std::string> texts;
     double real = 0;
+    std::vector<double> reals;
 };
+// Borrowed C views of owned fields; the fields must outlive this value.
+struct EditorFieldValues {
+    EditorFieldValues() = default;
+    EditorFieldValues(const EditorFieldValues &) = delete;
+    EditorFieldValues &operator=(const EditorFieldValues &) = delete;
+    EditorFieldValues(EditorFieldValues &&) = default;
+    EditorFieldValues &operator=(EditorFieldValues &&) = default;
+    std::vector<EditorString> texts;
+    std::vector<EditorValue> values;
+    const EditorValue *data() const { return values.data(); }
+    size_t size() const { return values.size(); }
+};
+EditorFieldValues BorrowEditorFields(const std::vector<EditorField> &);
 struct EditorResponse {
     EditorStatus status = EDITOR_ERROR;
     std::string message;

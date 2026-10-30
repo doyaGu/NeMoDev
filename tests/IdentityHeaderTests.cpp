@@ -25,6 +25,8 @@ static_assert(__is_standard_layout(EditorViewFrame), "C window drawing values");
 static_assert(__is_trivially_copyable(EditorViewDesc), "Borrowed view callbacks");
 extern "C" EditorValue IntegerFromC(uint64_t);
 extern "C" EditorValue RealFromC(double);
+extern "C" EditorValue RealsFromC(const double *, uint32_t);
+static_assert(__is_standard_layout(EditorReals), "C numeric component array");
 extern "C" EditorValue TextsFromC(const EditorString *, uint32_t);
 extern "C" EditorValue ObjectsFromC(const EditorObject *, uint32_t);
 
@@ -45,6 +47,9 @@ int main() {
     if (sizeof(EditorRequest) != EditorRequestSizeFromC() || sizeof(EditorHost) != EditorHostSizeFromC()) return 1;
     if (sizeof(EditorViewFrame) != EditorViewFrameSizeFromC() || sizeof(EditorViewDesc) != EditorViewDescSizeFromC()) return 1;
     if (sizeof(EditorQueryDesc) != EditorQueryDescSizeFromC()) return 1;
+    const double components[] = {1, 2, 3};
+    const auto array = RealsFromC(components, 3);
+    if (array.type != EDITOR_REAL_LIST || array.reals.data != components || array.reals.count != 3) return 1;
     const auto real = RealFromC(0.125);
     if (real.type != EDITOR_REAL_VALUE || real.real != 0.125) return 1;
     const EditorString item = EDITOR_TEXT("file.nms");

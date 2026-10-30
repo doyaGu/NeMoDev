@@ -23,7 +23,7 @@ namespace {
 constexpr uint32_t Limit = 1024 * 1024;
 constexpr uint64_t ArrayLimit = uint64_t(64) * Limit;
 bool ValueType(EditorValueType type) {
-    return type >= EDITOR_OBJECT && type <= EDITOR_REAL_VALUE;
+    return type >= EDITOR_OBJECT && type <= EDITOR_REAL_LIST;
 }
 std::string String(EditorString value) {
     if (value.size > Limit || (value.size && !value.data))
@@ -71,13 +71,14 @@ EditorStatus EDITOR_CALL Collect(void *data, const EditorValue *values, uint32_t
             bytes += field.key.size() + field.text.size();
             for (const auto &text : field.texts) bytes += text.size();
             arrayBytes += field.texts.size() * sizeof(EditorString);
-            arrayBytes += field.objects.size() * sizeof(ObjectRef) + field.integers.size() * sizeof(uint64_t);
+            arrayBytes += field.objects.size() * sizeof(ObjectRef) + field.integers.size() * sizeof(uint64_t) + field.reals.size() * sizeof(double);
         }
         for (uint32_t i = 0; i < count; ++i) {
             const auto &v = values[i];
             bytes += uint64_t(v.key.size) + (v.type == EDITOR_TEXT_VALUE ? v.text.size : 0);
             if (v.type == EDITOR_OBJECT_LIST) arrayBytes += uint64_t(v.objects.count) * sizeof(EditorObject);
             if (v.type == EDITOR_INTEGER_LIST) arrayBytes += uint64_t(v.integers.count) * sizeof(uint64_t);
+            if (v.type == EDITOR_REAL_LIST) arrayBytes += uint64_t(v.reals.count) * sizeof(double);
             if (v.type == EDITOR_TEXT_LIST) arrayBytes += uint64_t(v.texts.count) * sizeof(EditorString);
             if (bytes > Limit || arrayBytes > ArrayLimit)
                 return EDITOR_INVALID;
@@ -85,7 +86,8 @@ EditorStatus EDITOR_CALL Collect(void *data, const EditorValue *values, uint32_t
                 return EDITOR_INVALID;
             if ((v.type == EDITOR_OBJECT_LIST && v.objects.count && !v.objects.data) ||
                 (v.type == EDITOR_INTEGER_LIST && v.integers.count && !v.integers.data) ||
-                (v.type == EDITOR_TEXT_LIST && v.texts.count && !v.texts.data)) return EDITOR_INVALID;
+                (v.type == EDITOR_TEXT_LIST && v.texts.count && !v.texts.data) ||
+                (v.type == EDITOR_REAL_LIST && v.reals.count && !v.reals.data)) return EDITOR_INVALID;
             auto key = String(v.key);
             if (key.empty() ||
                 std::any_of(fields.begin(), fields.end(), [&](const EditorField &f) { return f.key == key; }))
@@ -99,6 +101,11 @@ EditorStatus EDITOR_CALL Collect(void *data, const EditorValue *values, uint32_t
             if (v.type == EDITOR_REAL_VALUE) {
                 if (!std::isfinite(v.real)) return EDITOR_INVALID;
                 field.real = v.real;
+            }
+            if (v.type == EDITOR_REAL_LIST) {
+                for (uint32_t j = 0; j < v.reals.count; ++j)
+                    if (!std::isfinite(v.reals.data[j])) return EDITOR_INVALID;
+                if (v.reals.count) field.reals.assign(v.reals.data, v.reals.data + v.reals.count);
             }
             if (v.type == EDITOR_TEXT_LIST) {
                 for (uint32_t j = 0; j < v.texts.count; ++j) {
@@ -132,28 +139,6 @@ struct Output {
     }
     EditorSink Sink() { return {this, Write}; }
 };
-struct BorrowedValues {
-    std::vector<EditorString> texts;
-    std::vector<EditorValue> values;
-    const EditorValue *data() const { return values.data(); }
-    size_t size() const { return values.size(); }
-};
-BorrowedValues Borrow(const std::vector<EditorField> &fields) {
-    BorrowedValues result;
-    size_t count = 0;
-    for (const auto &field : fields) count += field.texts.size();
-    result.texts.reserve(count);
-    result.values.reserve(fields.size());
-    for (const auto &f : fields) {
-        const auto offset = result.texts.size();
-        for (const auto &text : f.texts) result.texts.push_back(EditorText(text));
-        result.values.push_back({EditorText(f.key), f.type, f.object, EditorText(f.text), f.integer,
-                          {f.objects.data(), static_cast<uint32_t>(f.objects.size())},
-                          {f.integers.data(), static_cast<uint32_t>(f.integers.size())},
-                          {f.texts.empty() ? nullptr : result.texts.data() + offset, static_cast<uint32_t>(f.texts.size())}, f.real});
-    }
-    return result;
-}
 EditorStatus Send(const EditorResponse &response, EditorSink sink, bool query = true) {
     if (sink.write) {
         auto fields = response.fields;
@@ -161,7 +146,7 @@ EditorStatus Send(const EditorResponse &response, EditorSink sink, bool query = 
             fields.push_back({"message", EDITOR_TEXT_VALUE, {}, response.message});
         if (response.operation)
             fields.push_back({"operation", EDITOR_INTEGER_VALUE, {}, {}, response.operation});
-        auto borrowed = Borrow(fields);
+        auto borrowed = BorrowEditorFields(fields);
         try {
             if (sink.write(sink.data, borrowed.data(), static_cast<uint32_t>(borrowed.size())) != EDITOR_OK && query)
                 return EDITOR_ERROR;
@@ -278,7 +263,7 @@ struct Module {
         for (uint32_t i = 0; i < source.editorCount; ++i) {
             auto d = source.editors[i];
             if (d.size != sizeof(d) || !d.draw || (d.type != EDITOR_TEXT_VALUE && d.type != EDITOR_INTEGER_VALUE &&
-                d.type != EDITOR_REAL_VALUE && d.type != EDITOR_OBJECT))
+                d.type != EDITOR_REAL_VALUE && d.type != EDITOR_REAL_LIST && d.type != EDITOR_OBJECT))
                 throw std::invalid_argument("Invalid editor descriptor");
             d.id = Text(d.id, true);
             d.provider = Text(d.provider, true);
@@ -335,6 +320,23 @@ template <class T> bool Schema(const T &a, const T &b) {
     return true;
 }
 } // namespace
+
+EditorFieldValues BorrowEditorFields(const std::vector<EditorField> &fields) {
+    EditorFieldValues result;
+    size_t count = 0;
+    for (const auto &field : fields) count += field.texts.size();
+    result.texts.reserve(count);
+    result.values.reserve(fields.size());
+    for (const auto &f : fields) {
+        const auto offset = result.texts.size();
+        for (const auto &text : f.texts) result.texts.push_back(EditorText(text));
+        result.values.push_back({EditorText(f.key), f.type, f.object, EditorText(f.text), f.integer,
+                          {f.objects.data(), static_cast<uint32_t>(f.objects.size())},
+                          {f.integers.data(), static_cast<uint32_t>(f.integers.size())},
+                          {f.texts.empty() ? nullptr : result.texts.data() + offset, static_cast<uint32_t>(f.texts.size())}, f.real, {f.reals.data(), static_cast<uint32_t>(f.reals.size())}});
+    }
+    return result;
+}
 
 EditorStatus CopyEditorFields(std::vector<EditorField> &fields, const EditorValue *values, uint32_t count) {
     return Collect(&fields, values, count);
@@ -497,7 +499,7 @@ struct EditorApplication::State {
             (doc && !editing && doc->EditOpen()) || executing >= 16) return EDITOR_REFUSED;
         if (!command.state) return EDITOR_OK;
         if (querying >= 16) return EDITOR_REFUSED;
-        const auto values = Borrow(fields);
+        const auto values = BorrowEditorFields(fields);
         const EditorRequest request{scope, values.data(), static_cast<uint32_t>(values.size())};
         ++querying; ++checking;
         EditorStatus status;
@@ -534,7 +536,7 @@ struct EditorApplication::State {
                     return result;
                 }
         auto *doc = NativeReady() ? CurrentDocument() : nullptr;
-        auto values = Borrow(fields);
+        auto values = BorrowEditorFields(fields);
         EditorRequest request{scope, values.data(), static_cast<uint32_t>(values.size()), {}, operation};
         struct Active {
             EditorOperation &value, previous;
@@ -732,7 +734,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
             std::vector<EditorField> fields;
             const auto status = s.Arguments(desc.parameters, desc.count, *request, fields, desc.area);
             if (status != EDITOR_OK) return status;
-            const auto values = Borrow(fields);
+            const auto values = BorrowEditorFields(fields);
             const EditorRequest validated{request->scope, values.data(), uint32_t(values.size()), {}, request->operation};
             return s.navigation->Navigate(desc, instance, validated, sink);
         } catch (...) { return EDITOR_ERROR; }
@@ -803,9 +805,10 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("object"), EDITOR_OBJECT},
         {EDITOR_TEXT("text"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("integer"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("integers"), EDITOR_INTEGER_LIST},
-        {EDITOR_TEXT("texts"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("real"), EDITOR_REAL_VALUE}};
+        {EDITOR_TEXT("texts"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("real"), EDITOR_REAL_VALUE},
+        {EDITOR_TEXT("reals"), EDITOR_REAL_LIST}};
     EditorQueryDesc output{sizeof(output), EDITOR_TEXT("application.operation-output"), EDITOR_TEXT("builtin.application"),
-        outputArgs, 2, nullptr, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, outputFields, 9};
+        outputArgs, 2, nullptr, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, outputFields, 10};
     output.read = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) -> EditorStatus {
         const auto &state = *static_cast<State *>(data);
         uint64_t operation = 0, index = 0;
@@ -831,8 +834,10 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
              {field.integers.data(), static_cast<uint32_t>(field.integers.size())}},
             {EDITOR_TEXT("texts"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {},
              {texts.data(), static_cast<uint32_t>(texts.size())}},
-            {EDITOR_TEXT("real"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, field.real}};
-        return sink.write ? sink.write(sink.data, values, 9) : EDITOR_INVALID;
+            {EDITOR_TEXT("real"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, field.real},
+            {EDITOR_TEXT("reals"), EDITOR_REAL_LIST, {}, {}, 0, {}, {}, {}, 0,
+             {field.reals.data(), static_cast<uint32_t>(field.reals.size())}}};
+        return sink.write ? sink.write(sink.data, values, 10) : EDITOR_INVALID;
     };
     const EditorQueryDesc queries[] = {query, output};
     EditorModuleDesc module{};
@@ -897,7 +902,7 @@ EditorStatus EditorApplication::RestoreViewState(const EditorViewDesc &desc, voi
     auto &s = *m_State;
     if (!s.Thread() || !s.Valid(scope, desc.area) || (desc.area == EDITOR_DOCUMENT && !s.NativeReady())) return EDITOR_STALE;
     if (!desc.restoreState) return EDITOR_INVALID;
-    const auto values = Borrow(state);
+    const auto values = BorrowEditorFields(state);
     const EditorRequest request{scope, values.data(), uint32_t(values.size())};
     ++s.drawing;
     ++s.readOnlyCallbacks;
@@ -1469,7 +1474,7 @@ const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const 
             if (c.arguments[i].key != fields[i].key || c.arguments[i].type != fields[i].type ||
                 c.arguments[i].object != fields[i].object || c.arguments[i].text != fields[i].text ||
                 c.arguments[i].integer != fields[i].integer || c.arguments[i].objects != fields[i].objects ||
-                c.arguments[i].integers != fields[i].integers || c.arguments[i].texts != fields[i].texts || c.arguments[i].real != fields[i].real)
+                c.arguments[i].integers != fields[i].integers || c.arguments[i].texts != fields[i].texts || c.arguments[i].real != fields[i].real || c.arguments[i].reals != fields[i].reals)
                 return false;
         return true;
     };
@@ -1714,7 +1719,7 @@ EditorResponse EditorApplication::ApplyEdit(const PropertyBinding &property, Edi
     fields.front().key = property.argument;
     fields.insert(fields.begin(), {"target", EDITOR_OBJECT, target});
     fields.insert(fields.end(), context.begin(), context.end());
-    const auto values = Borrow(fields);
+    const auto values = BorrowEditorFields(fields);
     std::vector<EditorField> checked;
     result.status = s.Arguments(command->parameters, command->count, {scope, values.data(), uint32_t(values.values.size())}, checked);
     if (result.status != EDITOR_OK) return result;
@@ -1733,9 +1738,9 @@ uint32_t EditorApplication::DrawEdit(EditorEdit edit, EditorString label, uint32
     if (found == s.drafts.end() || !s.Valid(found->second.scope)) return EDITOR_INPUT_CANCEL;
     const auto property = found->second.property;
     const std::vector<EditorField> ownedValue{found->second.value};
-    const auto value = Borrow(ownedValue);
+    const auto value = BorrowEditorFields(ownedValue);
     const auto ownedFields = found->second.fields;
-    const auto fields = Borrow(ownedFields);
+    const auto fields = BorrowEditorFields(ownedFields);
     struct Update { EditorApplication *app; EditorEdit edit; } update{this, edit};
     const auto write = [](void *data, const EditorValue *value, uint32_t count) {
         const auto &update = *static_cast<Update *>(data);
@@ -1770,7 +1775,7 @@ uint32_t EditorApplication::DrawProperty(const std::string &property, EditorScop
         current = *value;
     }
     const std::vector<EditorField> ownedValue{current};
-    const auto value = Borrow(ownedValue), fields = Borrow(projection.fields);
+    const auto value = BorrowEditorFields(ownedValue), fields = BorrowEditorFields(projection.fields);
     struct Update { EditorApplication *app; const std::string *property; EditorScope scope; ObjectRef target; EditorEdit *edit; } update{this, &property, scope, target, &edit};
     const auto write = [](void *data, const EditorValue *value, uint32_t count) {
         auto &update = *static_cast<Update *>(data);

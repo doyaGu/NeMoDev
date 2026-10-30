@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 10u
+#define EDITOR_VERSION 11u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -42,7 +42,7 @@ typedef enum EditorStatus {
 } EditorStatus;
 typedef enum EditorValueType {
     EDITOR_OBJECT = 1, EDITOR_TEXT_VALUE = 2, EDITOR_INTEGER_VALUE = 3,
-    EDITOR_OBJECT_LIST = 4, EDITOR_INTEGER_LIST = 5, EDITOR_TEXT_LIST = 6, EDITOR_REAL_VALUE = 7
+    EDITOR_OBJECT_LIST = 4, EDITOR_INTEGER_LIST = 5, EDITOR_TEXT_LIST = 6, EDITOR_REAL_VALUE = 7, EDITOR_REAL_LIST = 8
 } EditorValueType;
 typedef struct EditorObjects {
     const EditorObject *data;
@@ -56,6 +56,10 @@ typedef struct EditorStrings {
     const EditorString *data;
     uint32_t count;
 } EditorStrings;
+typedef struct EditorReals {
+    const double *data;
+    uint32_t count;
+} EditorReals;
 // Only the field matching type is read. Text and arrays are borrowed during a
 // callback and copied on submission or sink delivery. Each request/result is
 // limited to 1 MiB of text and 64 MiB of arrays. Object arrays do not retain objects.
@@ -69,6 +73,7 @@ typedef struct EditorValue {
     EditorIntegers integers;
     EditorStrings texts;
     double real; // finite only
+    EditorReals reals; // finite components, in the property's declared order
 } EditorValue;
 typedef struct EditorScope {
     EditorDocument document;
