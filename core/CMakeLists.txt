@@ -57,6 +57,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         graph/ShortcutCommands.cpp
         graph/BehaviorCommands.cpp
         graph/ValueCommands.cpp
+        graph/ParameterValues.cpp
         graph/ScriptCommands.cpp
         graph/NmsCommands.cpp
         graph/Debugger.cpp
