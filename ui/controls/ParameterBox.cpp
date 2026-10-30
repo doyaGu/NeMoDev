@@ -421,6 +421,7 @@ ImVec2 ParameterBox::Size(float s, bool minimum) const {
 }
 
 bool ParameterBox::Draw(const ImVec2 &at, float s, bool minimum) {
+    m_InputActive = false;
     if (Stale()) return false;
     ImGui::PushID(this);
     bool changed = false;
@@ -607,7 +608,8 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         const auto max = row.info.ui == ParameterUI::Enum ? P(210, 12) : P(70, 12);
         ImGui::SetCursorScreenPos(min);
         const auto action = ParameterDraftEditor(m_State, work, id, max.x - min.x,
-            boolean ? 8 * DLU_X * s : max.y - min.y, 0, true, {}, nullptr, &row.property, &row.editor, 0);
+            boolean ? 8 * DLU_X * s : max.y - min.y, 0, true, {}, nullptr, &row.property, &row.editor, 0, &row.beforeInteraction);
+        m_InputActive |= (action & EDITOR_INPUT_ACTIVE) != 0;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
         if (action & EDITOR_INPUT_INVALID) row.invalid = true;
         else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
@@ -627,7 +629,8 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         const unsigned representation = row.info.ui == ParameterUI::Matrix ? unsigned(row.collapsed) :
             row.info.ui == ParameterUI::Rect ? row.representation : 0;
         const auto action = ParameterDraftEditor(m_State, work, "##components", size.x, size.y,
-            0, true, {}, nullptr, &row.property, &row.editor, representation);
+            0, true, {}, nullptr, &row.property, &row.editor, representation, &row.beforeInteraction);
+        m_InputActive |= (action & EDITOR_INPUT_ACTIVE) != 0;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
         if (action & EDITOR_INPUT_INVALID) row.invalid = true;
         else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
@@ -694,7 +697,8 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         const CK_CLASSID cid = row.extended ? row.filterClass : row.info.pickClass;
         ImGui::SetCursorScreenPos(P(19, 0));
         const auto action = ParameterDraftEditor(m_State, work, "##object", 195 * DLU_X * s, 12 * DLU_Y * s,
-            cid, row.extended ? row.derived : true, row.extended ? row.filter : "", &row.valueReference, &row.property, &row.editor, 0);
+            cid, row.extended ? row.derived : true, row.extended ? row.filter : "", &row.valueReference, &row.property, &row.editor, 0, &row.beforeInteraction);
+        m_InputActive |= (action & EDITOR_INPUT_ACTIVE) != 0;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
         if (action & EDITOR_INPUT_INVALID) row.invalid = true;
         else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
@@ -1726,14 +1730,14 @@ DialogAction EditParametersDialog(const char *id, const std::string &title, Para
     float x = o.x + width - 10.0f * s - 60.0f * s;
     const float y = o.y + panelBottom + 4.0f * s;
     DialogAction action = DialogAction::None;
-    if (vi::DialogButton("Cancel", ImVec2(x, y), s, ImGuiKey_Escape)) action = DialogAction::Cancel;
+    if (vi::DialogButton("Cancel", ImVec2(x, y), s, ImGuiKey_Escape) && !box.InputActive()) action = DialogAction::Cancel;
     ImGui::BeginDisabled(!box.Valid());
     if (apply) {
         x -= 70.0f * s;
-        if (vi::DialogButton("Apply", ImVec2(x, y), s) && box.Valid()) action = DialogAction::Apply;
+        if (vi::DialogButton("Apply", ImVec2(x, y), s) && box.Valid() && !box.InputActive()) action = DialogAction::Apply;
     }
     x -= 70.0f * s;
-    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter) && box.Valid()) action = DialogAction::Ok;
+    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter) && box.Valid() && !box.InputActive()) action = DialogAction::Ok;
     ImGui::EndDisabled();
     if (action == DialogAction::Ok || action == DialogAction::Cancel) ImGui::CloseCurrentPopup();
     vi::EndDialog();
@@ -1765,10 +1769,10 @@ DialogAction EditParameterValueDialog(const char *id, const std::string &title, 
     float x = o.x + width - 10.0f * s - 60.0f * s;
     const float y = o.y + panelBottom + 4.0f * s;
     DialogAction action = DialogAction::None;
-    if (vi::DialogButton("Cancel", ImVec2(x, y), s, ImGuiKey_Escape)) action = DialogAction::Cancel;
+    if (vi::DialogButton("Cancel", ImVec2(x, y), s, ImGuiKey_Escape) && !box.InputActive()) action = DialogAction::Cancel;
     x -= 70.0f * s;
     ImGui::BeginDisabled(!box.Valid());
-    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter) && box.Valid()) action = DialogAction::Ok;
+    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter) && box.Valid() && !box.InputActive()) action = DialogAction::Ok;
     ImGui::EndDisabled();
     if (action != DialogAction::None) ImGui::CloseCurrentPopup();
     vi::EndDialog();
@@ -1795,7 +1799,7 @@ size_t ParameterBox::Apply(CK_ID script) {
     const auto result = edit.Commit();
     if (!result.ok) return 0;
     const auto accepted = [&](const auto &self, Row &row) -> void {
-        row.created.clear(); row.usersSet = false;
+        row.created.clear(); row.usersSet = false; row.beforeInteraction = {};
         for (auto &member : row.members) self(self, member);
     };
     for (auto &row : m_Rows) accepted(accepted, row);

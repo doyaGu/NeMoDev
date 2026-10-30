@@ -161,3 +161,6 @@ VIRTOOLSDEV_UI_CASE("modules", "primitive_parameter_dialog_one_undo_and_cancel")
 VIRTOOLSDEV_UI_CASE("modules", "parameter_batch_failure_preserves_history_and_values")
 VIRTOOLSDEV_UI_CASE("modules", "external_integer_editor_shared_by_inline_and_dialog")
 VIRTOOLSDEV_UI_CASE("modules", "object_parameter_choices_apply_cancel_and_undo")
+
+// Compound parameter cancellation.
+VIRTOOLSDEV_UI_CASE("modules", "angle_dial_escape_stops_writes")

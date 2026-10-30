@@ -43,6 +43,7 @@ void Cleanup(ImGuiTestContext *ctx) {
         if (editing.edit) app.FinishEdit(editing.edit, false);
         if (editing.owner) app.CloseScope(editing.owner);
         editing.box.reset();
+        ImGui::ClosePopupToLevel(0, false);
         if (editing.configuration) { std::string error; state.workspace->Configure(*editing.configuration, error); }
         state.History().Clear();
         for (auto id : editing.parameters) if (state.host.Context()->GetObject(id)) state.host.Context()->DestroyObject(id);
@@ -53,6 +54,22 @@ void Cleanup(ImGuiTestContext *ctx) {
 struct Clean { ImGuiTestContext *ctx; ~Clean() { Cleanup(ctx); } };
 int IntegerValue(ImGuiTestContext *ctx, CK_ID id) {
     return Read<int>(ctx, [=] { int value = -99; if (auto *p = Object<CKParameter>(id)) p->GetValue(&value, FALSE); return value; });
+}
+std::vector<float> Components(ImGuiTestContext *ctx, CK_ID id) {
+    return Read<std::vector<float>>(ctx, [=] {
+        auto *parameter = Object<CKParameter>(id);
+        std::vector<float> values(parameter ? size_t(parameter->GetDataSize()) / sizeof(float) : 0);
+        if (parameter) parameter->GetValue(values.data(), FALSE);
+        return values;
+    });
+}
+std::vector<float> WorkingComponents(ImGuiTestContext *ctx, size_t row) {
+    return Read<std::vector<float>>(ctx, [=] {
+        auto *parameter = editing.box ? editing.box->Work(row) : nullptr;
+        std::vector<float> values(parameter ? size_t(parameter->GetDataSize()) / sizeof(float) : 0);
+        if (parameter) parameter->GetValue(values.data(), FALSE);
+        return values;
+    });
 }
 void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
     ctx->ItemClick(path);
@@ -243,6 +260,31 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(IntegerValue(ctx, editing.parameters[0]) == 0);
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "angle_dial_escape_stops_writes");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] {
+            auto &state = App().State();
+            auto *parameter = state.host.Context()->CreateCKParameterLocal("Dial cancel", CKPGUID_ANGLE);
+            const float value = 7.853981634f; parameter->SetValue(&value, sizeof(value));
+            editing.parameters = {parameter->GetID()};
+            editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(parameter, "Angle"));
+            state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint(); editing.open = true;
+        });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto before = WorkingComponents(ctx, 0);
+        const auto dial = ctx->ItemInfo("**/##dial").RectFull.GetCenter();
+        ctx->MouseMoveToPos(dial); ctx->MouseDown(0); ctx->MouseMoveToPos(ImVec2(dial.x - 5, dial.y - 8)); ctx->Yield(2);
+        IM_CHECK(WorkingComponents(ctx, 0) != before);
+        ctx->KeyPress(ImGuiKey_Escape);
+        IM_CHECK(Read<bool>(ctx, [] { return editing.open; }));
+        ctx->MouseMoveToPos(ImVec2(dial.x + 8, dial.y - 4)); ctx->Yield(2); ctx->MouseUp(0); ctx->Yield(2);
+        IM_CHECK(WorkingComponents(ctx, 0) == before);
+        IM_CHECK(Components(ctx, editing.parameters[0]) == before);
+        IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && !App().State().document->Dirty(); }));
     };
 
 }

@@ -8,7 +8,7 @@
 #include "imgui.h"
 
 #include "ui/app/EditorState.h"
-#include "core/catalog/ParameterUIs.h"
+#include "core/graph/ParameterValues.h"
 #include "application/EditorApplication.h"
 
 namespace vdev {
@@ -64,6 +64,7 @@ public:
     // True when a working copy differs from its parameter.
     bool Changed() const;
     bool Valid() const;
+    bool InputActive() const { return m_InputActive; }
     // Writes the working copies that differ (script: the Script edited;
     // its session follows the values). The undo steps made.
     size_t Apply(CK_ID script);
@@ -75,6 +76,7 @@ private:
     struct Row {
         ObjectRef targetReference{}, workReference{}, valueReference{};
         bool invalid = false, typed = false;
+        ParameterValue beforeInteraction;
         PropertyBinding property;
         EditorValueEditorDesc editor{};
         CK_ID target = 0; // the parameter Apply writes (0: a member of a structure's copy)
@@ -148,6 +150,7 @@ private:
     std::vector<Row> m_Rows;
     std::uint64_t m_Generation = 0; // the host's when the rows were made
     bool m_ApplyFailed = false;
+    bool m_InputActive = false;
     CK_ID m_PickWork = 0;    // the row whose target button is picking
     bool m_PickClick = false; // clicked: until the next click (else until the button is released)
     bool m_PickToggle = false;

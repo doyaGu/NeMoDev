@@ -390,9 +390,9 @@ void SchematicCanvas::ValueDialog() {
     }
     float bx = o.x + width - 10.0f * s - 60.0f * s;
     const float by = o.y + panelBottom + 4.0f * s;
-    bool cancel = !edited || (vi::DialogButton("Cancel", ImVec2(bx, by), s, ImGuiKey_Escape) && m_Doc.invalidLinks.empty());
+    bool cancel = !edited || (vi::DialogButton("Cancel", ImVec2(bx, by), s, ImGuiKey_Escape) && m_Doc.invalidLinks.empty() && !m_ParameterBox.InputActive());
     bx -= 70.0f * s;
-    bool ok = vi::DialogButton("OK", ImVec2(bx, by), s, ImGuiKey_Enter) && m_ParameterBox.Valid() && edited;
+    bool ok = vi::DialogButton("OK", ImVec2(bx, by), s, ImGuiKey_Enter) && m_ParameterBox.Valid() && !m_ParameterBox.InputActive() && edited;
     // A new type some links would not fit: asked first (Dev's "Invalid
     // Parameter Link"), the dialog kept open meanwhile.
     bool apply = ok && edited && m_Doc.invalidLinks.empty(); // not while the question waits

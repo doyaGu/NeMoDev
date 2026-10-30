@@ -26,7 +26,7 @@ namespace {
 uint32_t DrawParameterDraft(EditorState &state, CKParameter *work, const ParameterValueDescription &description,
                             const char *label, float width, float height, CK_CLASSID cid, bool derived,
                             const std::string &filter, ObjectRef *remembered, const PropertyBinding *capturedProperty,
-                            const EditorValueEditorDesc *capturedEditor, unsigned representation) {
+                            const EditorValueEditorDesc *capturedEditor, unsigned representation, ParameterValue *beforeInteraction) {
     if (!state.workspace) return EDITOR_INPUT_INVALID;
     auto &app = state.workspace->Application();
     const auto *property = capturedProperty && !capturedProperty->id.empty() ? capturedProperty : app.Property(ParameterProperty(description.value.kind));
@@ -45,11 +45,15 @@ uint32_t DrawParameterDraft(EditorState &state, CKParameter *work, const Paramet
     const auto value = *std::find_if(fields.values.begin(), fields.values.end(), [&](const auto &field) {
         return std::string(field.key.data, field.key.size) == property->field;
     });
-    struct Draft { EditorState *state; CKParameter *work; ParameterValueKind kind; ObjectRef *remembered; } draft{&state, work, description.value.kind, remembered};
+    struct Draft { EditorState *state; CKParameter *work; ParameterValue original; ObjectRef *remembered; ParameterValue *before; };
+    auto original = description.value;
+    if (remembered && original.kind == ParameterValueKind::Object) original.object = value.object;
+    Draft draft{&state, work, std::move(original), remembered, beforeInteraction};
     const auto update = [](void *data, const EditorValue *value, uint32_t count) {
         auto &draft = *static_cast<Draft *>(data);
         ParameterValue parsed;
-        if (!value || count != 1 || !ParameterValueFromEditor(draft.kind, *value, parsed)) return EDITOR_INVALID;
+        if (!value || count != 1 || !ParameterValueFromEditor(draft.original.kind, *value, parsed)) return EDITOR_INVALID;
+        if (draft.before && draft.before->kind == ParameterValueKind::None) *draft.before = draft.original;
         if (!WriteParameterDraft(*draft.state->document, draft.work, parsed)) return EDITOR_REFUSED;
         if (draft.remembered && parsed.kind == ParameterValueKind::Object) *draft.remembered = parsed.object;
         return EDITOR_OK;
@@ -63,15 +67,29 @@ uint32_t DrawParameterDraft(EditorState &state, CKParameter *work, const Paramet
         {app.Scope(), choices, 4, EditorText(property->choicesProvider)}};
     ImGui::SetNextItemWidth(width);
     auto action = capturedEditor && capturedEditor->draw ? app.DrawValue(*capturedEditor, input) : app.DrawValue(property->editor, input);
+    if (beforeInteraction && beforeInteraction->kind == ParameterValueKind::None && (action & EDITOR_INPUT_ACTIVE))
+        *beforeInteraction = draft.original;
+    if (beforeInteraction && beforeInteraction->kind != ParameterValueKind::None) {
+        if (action & EDITOR_INPUT_CANCEL) {
+            // Escape belongs to this interaction even when ImGui already ended
+            // the active widget. The containing dialog must stay open.
+            action |= EDITOR_INPUT_ACTIVE;
+            if (!WriteParameterDraft(*state.document, work, *beforeInteraction)) action |= EDITOR_INPUT_INVALID | EDITOR_INPUT_CHANGED;
+            else if (remembered && beforeInteraction->kind == ParameterValueKind::Object) *remembered = beforeInteraction->object;
+            *beforeInteraction = {};
+        } else if (!(action & EDITOR_INPUT_INVALID) &&
+                   ((action & (EDITOR_INPUT_ACCEPT | EDITOR_INPUT_DEACTIVATED)) ||
+                    !(action & (EDITOR_INPUT_ACTIVE | EDITOR_INPUT_CHANGED)))) *beforeInteraction = {};
+    }
     return action;
 }
 } // namespace
 uint32_t ParameterDraftEditor(EditorState &state, CKParameter *work, const char *label, float width, float height,
                               CK_CLASSID cid, bool derived, const std::string &filter, ObjectRef *remembered,
-                              const PropertyBinding *property, const EditorValueEditorDesc *editor, unsigned representation) {
+                              const PropertyBinding *property, const EditorValueEditorDesc *editor, unsigned representation, ParameterValue *beforeInteraction) {
     ParameterValueDescription description;
     if (!state.document || !DescribeParameterValue(*state.document, work, description)) return EDITOR_INPUT_INVALID;
-    return DrawParameterDraft(state, work, description, label, width, height, cid, derived, filter, remembered, property, editor, representation);
+    return DrawParameterDraft(state, work, description, label, width, height, cid, derived, filter, remembered, property, editor, representation, beforeInteraction);
 }
 void CancelParameterValueEdit(EditorState &state, ValueEditState &edit) {
     if (state.workspace) {
