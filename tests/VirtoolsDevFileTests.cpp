@@ -580,13 +580,14 @@ int ToolsFile(CkRuntimeHost &host, const std::string &path, const std::string &o
     }
     // Unused Object Explorer: a new material nothing uses is listed.
     CKMaterial *unused = CKMaterial::Cast(context->CreateObject(CKCID_MATERIAL, (CKSTRING) "Unused Material"));
+    const CK_ID unusedId = unused->GetID();
     level->AddObject(unused);
-    document.AdoptObjects({unused->GetID()});
+    document.AdoptObjects({unusedId});
     bool listed = false;
     std::string walk;
-    for (const UnusedObject &object : UnusedObjects(document, &walk)) listed = listed || object.id == unused->GetID();
+    for (const UnusedObject &object : UnusedObjects(document, &walk)) listed = listed || object.id == unusedId;
     check(walk.empty() && listed, "the unused material is listed: " + walk);
-    check(DestroyLevelObjects(document, {unused->GetID()}).ok && !context->GetObject(unused->GetID()),
+    check(DestroyLevelObjects(document, {unusedId}).ok && !context->GetObject(unusedId),
           "Delete destroys it");
     // Building Block Version Test compares the file with the loaded prototypes.
     const VersionTestResult test = TestBuildingBlockVersions(document);
