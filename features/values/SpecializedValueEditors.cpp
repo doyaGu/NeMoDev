@@ -1,4 +1,5 @@
 #include "features/values/SpecializedValueEditors.h"
+#include "features/values/ValueEditors.h"
 #include "application/EditorApplication.h"
 #include "core/catalog/ValueText.h"
 #include "ui/controls/DevBitmaps.h"
@@ -79,24 +80,6 @@ struct Drawing {
     Drawing(const EditorValueInput &input) { ImGui::PushID(Text(input.label).c_str()); ImGui::BeginGroup(); }
     ~Drawing() { ImGui::EndGroup(); ImGui::PopID(); }
 };
-bool NewControl(const EditorValueInput &input) {
-    // Keep presentation state in the ImGui window, with fixed keys per control.
-    // A reopened control or a different full object reference starts fresh.
-    const auto *target = Field(input.choicesRequest.values, input.choicesRequest.count, "target", EDITOR_OBJECT);
-    const auto object = target ? target->object : EditorObject{input.choicesRequest.scope.document, 0, input.choicesRequest.scope.view};
-    const uint32_t identity[] = {uint32_t(object.document.value), uint32_t(object.document.value >> 32),
-        object.object, uint32_t(object.lifetime), uint32_t(object.lifetime >> 32)};
-    auto *storage = ImGui::GetStateStorage(); const auto frameKey = ImGui::GetID("last-frame");
-    const int frame = ImGui::GetFrameCount(), previous = storage->GetInt(frameKey, -2);
-    // Dialog working copies keep their presentation while native work pauses
-    // drawing. A new working copy has a different full object reference.
-    bool fresh = input.style == EDITOR_VALUE_INLINE && previous != frame && previous != frame - 1;
-    for (unsigned i = 0; i < 5; ++i) {
-        char name[24]; std::snprintf(name, sizeof(name), "value-owner-%u", i); const auto key = ImGui::GetID(name);
-        fresh |= uint32_t(storage->GetInt(key)) != identity[i]; storage->SetInt(key, int(identity[i]));
-    }
-    storage->SetInt(frameKey, frame); return fresh;
-}
 bool Preview(const EditorHost *host, const EditorValueInput &input, const std::vector<EditorField> &value,
              std::vector<double> &samples, std::vector<double> &tangents) {
     const auto borrowed = BorrowEditorFields(value); auto argument = borrowed.values.front(); argument.key = EDITOR_TEXT("value");
@@ -119,7 +102,7 @@ uint32_t DrawCurve2DValue(void *, const EditorHost *host, const EditorValueInput
     if (!ui.valid || !coordinates || !masks || coordinates->reals.size() != masks->integers.size() * 9 || masks->integers.size() > 4096) return EDITOR_INPUT_INVALID;
     auto &points = coordinates->reals; auto &flags = masks->integers;
     Drawing group(*input);
-    const bool fresh = NewControl(*input);
+    const bool fresh = ValueTargetChanged(*input);
     auto *storage = ImGui::GetStateStorage(); const auto chosenKey = ImGui::GetID("chosen"), gridKey = ImGui::GetID("grid"), tangentKey = ImGui::GetID("tangents");
     int selected = fresh ? 0 : std::clamp(storage->GetInt(chosenKey), 0, std::max(0, int(flags.size()) - 1));
     bool hideGrid = !fresh && storage->GetBool(gridKey), hideTangents = !fresh && storage->GetBool(tangentKey);
@@ -202,7 +185,7 @@ uint32_t DrawDependenciesValue(void *, const EditorHost *, const EditorValueInpu
     auto *mode = ui.Value("mode", EDITOR_INTEGER_VALUE), *options = ui.Value("options", EDITOR_INTEGER_LIST);
     const auto *schema = Field(input->fields, input->count, "schema", EDITOR_RECORD);
     if (!ui.valid || !mode || !options || !schema) return EDITOR_INPUT_INVALID;
-    Drawing group(*input); const bool fresh = NewControl(*input); auto *storage = ImGui::GetStateStorage();
+    Drawing group(*input); const bool fresh = ValueTargetChanged(*input); auto *storage = ImGui::GetStateStorage();
     const auto selectedKey = ImGui::GetID("class"); int selected = fresh ? -1 : storage->GetInt(selectedKey, -1);
     const char *names[] = {"No Dependencies", "Full Dependencies", "Custom Dependencies"}; const unsigned modes[] = {1, 2, 0};
     for (unsigned i = 0; i < 3; ++i) {

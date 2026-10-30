@@ -527,6 +527,26 @@ uint32_t DrawComponents(void *data, const EditorHost *, const EditorValueInput *
         (cancel ? EDITOR_INPUT_CANCEL : 0u);
 }
 } // namespace
+bool ValueTargetChanged(const EditorValueInput &input) {
+    // Keep presentation state in the ImGui window, with fixed keys per control.
+    // A reopened control or a different full object reference starts fresh.
+    const EditorValue *target = nullptr;
+    for (uint32_t i = 0; i < input.choicesRequest.count; ++i)
+        if (Text(input.choicesRequest.values[i].key) == "target" && input.choicesRequest.values[i].type == EDITOR_OBJECT) target = &input.choicesRequest.values[i];
+    const auto object = target ? target->object : EditorObject{input.choicesRequest.scope.document, 0, input.choicesRequest.scope.view};
+    const uint32_t identity[] = {uint32_t(object.document.value), uint32_t(object.document.value >> 32),
+        object.object, uint32_t(object.lifetime), uint32_t(object.lifetime >> 32)};
+    auto *storage = ImGui::GetStateStorage(); const auto frameKey = ImGui::GetID("last-frame");
+    const int frame = ImGui::GetFrameCount(), previous = storage->GetInt(frameKey, -2);
+    // Dialog working copies keep their presentation while native work pauses
+    // drawing. A new working copy has a different full object reference.
+    bool fresh = input.style == EDITOR_VALUE_INLINE && previous != frame && previous != frame - 1;
+    for (unsigned i = 0; i < 5; ++i) {
+        char name[24]; std::snprintf(name, sizeof(name), "value-owner-%u", i); const auto key = ImGui::GetID(name);
+        fresh |= uint32_t(storage->GetInt(key)) != identity[i]; storage->SetInt(key, int(identity[i]));
+    }
+    storage->SetInt(frameKey, frame); return fresh;
+}
 bool RegisterValueEditors(EditorApplication &editor, std::string &error) {
     static bool clear = true;
     static const Kind kinds[] = {Kind::Boolean, Kind::Integer, Kind::Real, Kind::Enumeration, Kind::Object};

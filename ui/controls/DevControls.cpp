@@ -137,12 +137,13 @@ int Combo(const char *id, const ImVec2 &min, const ImVec2 &max, const std::strin
 }
 
 bool EditCombo(const char *id, const ImVec2 &min, const ImVec2 &max, std::string &text,
-               const std::function<std::vector<std::string>()> &items) {
+               const std::function<std::vector<std::string>()> &items, bool *active) {
     ImGui::PushID(id);
     const float s = ImGui::GetFontSize() / 13.0f;
     const float arrowLeft = max.x - 13.0f * s;
     bool done = false;
     Edit("##text", min, ImVec2(arrowLeft, max.y), text, LEFT, &done);
+    if (active) *active = ImGui::IsItemActive() || ImGui::IsItemActivated();
     ImDrawList *dl = ImGui::GetWindowDrawList();
     ImGui::SetCursorScreenPos(ImVec2(arrowLeft, min.y));
     if (ImGui::InvisibleButton("##arrow", ImVec2(std::max(1.0f, max.x - arrowLeft), std::max(1.0f, max.y - min.y))))
@@ -160,6 +161,7 @@ bool EditCombo(const char *id, const ImVec2 &min, const ImVec2 &max, std::string
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f * s, 2.0f * s));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
     if (ImGui::BeginPopup("##list")) {
+        if (active) *active = true;
         TypeAhead typeAhead;
         const std::vector<std::string> list = items();
         for (int i = 0; i < static_cast<int>(list.size()); ++i) {

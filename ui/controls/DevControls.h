@@ -39,7 +39,7 @@ int Combo(const char *id, const ImVec2 &min, const ImVec2 &max, const std::strin
 // the list shown by the arrow. True when text is given (an item chosen, or
 // the edit left after a change).
 bool EditCombo(const char *id, const ImVec2 &min, const ImVec2 &max, std::string &text,
-               const std::function<std::vector<std::string>()> &items);
+               const std::function<std::vector<std::string>()> &items, bool *active = nullptr);
 
 // A VICheckButton of size pixels; true when toggled.
 bool Check(const char *id, const ImVec2 &min, float size, bool &on);
