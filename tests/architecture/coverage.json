@@ -386,6 +386,13 @@
       ]
     },
     {
+      "id": "S44",
+      "name": "参数原生值查询与修改",
+      "patterns": [
+        "features/values/ParameterCommands.*"
+      ]
+    },
+    {
       "id": "S45",
       "name": "通用值编辑器",
       "patterns": [
@@ -503,6 +510,7 @@
       "S41",
       "S42",
       "S43",
+      "S44",
       "S45"
     ],
     "S15": [
@@ -683,7 +691,8 @@
       "S38",
       "S40",
       "S41",
-      "S42"
+      "S42",
+      "S44"
     ],
     "S33": [],
     "S34": [
@@ -742,6 +751,11 @@
     ],
     "S43": [
       "S35"
+    ],
+    "S44": [
+      "S05",
+      "S13",
+      "S34"
     ],
     "S45": [
       "S12",
@@ -1450,6 +1464,7 @@
         "S35",
         "S38",
         "S39",
+        "S44",
         "S45"
       ],
       "tests": [
@@ -1523,12 +1538,14 @@
         "S05",
         "S12",
         "S20",
+        "S44",
         "S45"
       ],
       "tests": [
         "VirtoolsDev.ParameterValueFailures",
         "VirtoolsDev.CkArrays",
-        "VirtoolsDev.ThisParameter"
+        "VirtoolsDev.ThisParameter",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.attributes",
@@ -1548,6 +1565,7 @@
       "source_groups": [
         "S08",
         "S20",
+        "S44",
         "S45"
       ],
       "tests": [
@@ -1626,6 +1644,7 @@
         "S19",
         "S22",
         "S15",
+        "S44",
         "S45"
       ],
       "tests": [
@@ -2030,6 +2049,7 @@
         "S36",
         "S37",
         "S43",
+        "S44",
         "S45"
       ],
       "tests": [

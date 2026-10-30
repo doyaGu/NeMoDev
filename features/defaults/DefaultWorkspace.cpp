@@ -9,6 +9,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"editor", "value.real", "builtin.values"},
                                       {"editor", "value.enumeration", "builtin.values"},
                                       {"editor", "value.object", "builtin.values"},
+                                      {"command", "parameter.integer-set", "builtin.parameters"},
                                       {"command", "object.rename", "builtin.objects"},
                                       {"command", "object.create-frame3d", "builtin.objects"},
                                       {"command", "resource.load", "builtin.documents"},
