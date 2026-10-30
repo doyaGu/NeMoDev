@@ -5,7 +5,8 @@
 namespace vdev {
 enum class ParameterValueKind {
     None, Boolean, Integer, Real, Enumeration, Object,
-    Angle, Vector2, Vector3, Quaternion, EulerAngles, Matrix, Color, Box, Rect
+    Angle, Vector2, Vector3, Quaternion, EulerAngles, Matrix, Color, Box, Rect,
+    Text, Structure, ObjectArray
 };
 unsigned ParameterComponentCount(ParameterValueKind);
 struct ParameterValue {
@@ -14,6 +15,9 @@ struct ParameterValue {
     double real = 0;
     ObjectRef object{};
     std::vector<double> components;
+    std::string text;
+    std::vector<ObjectRef> objects;
+    std::vector<ParameterValue> members;
 };
 bool operator==(const ParameterValue &, const ParameterValue &);
 inline bool operator!=(const ParameterValue &a, const ParameterValue &b) { return !(a == b); }
@@ -26,7 +30,17 @@ struct ParameterValueDescription {
     double displayScale = 1;
     unsigned rows = 1, columns = 1;
     std::vector<std::string> componentLabels, rowLabels;
+    ObjectRef parameter{};
+    std::string name;
+    std::vector<ParameterValueDescription> members;
 };
+struct ParameterMember {
+    ObjectRef parameter;
+    CKGUID type;
+    std::string name;
+};
+bool ParameterMembers(const Document &, CKParameter *, std::vector<ParameterMember> &);
+ParameterValue RememberParameterReferences(ParameterValue, const ParameterValue &);
 // The same type selection and validation serve inline values and dialog copies.
 // Native data stays in the core; public editors receive typed values and metadata.
 bool DescribeParameterValue(const Document &, CKParameter *, ParameterValueDescription &);
@@ -36,4 +50,5 @@ bool ValidateParameterValue(const Document &, const ParameterValueDescription &,
 bool WriteParameterDraft(const Document &, CKParameter *, const ParameterValue &);
 EditResult SetParameterValue(Document &, ObjectRef target, const CKGUID &type, const ParameterValue &,
                               CK_ID script = 0);
+EditResult CopyParameterValue(Document &, ObjectRef target, ObjectRef source, CK_ID script = 0);
 } // namespace vdev
