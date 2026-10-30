@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 12u
+#define EDITOR_VERSION 13u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -108,6 +108,7 @@ typedef struct EditorParameter {
     EditorString key;
     EditorValueType type;
     uint32_t optional; // omitted arguments use an empty value of their declared type
+    uint32_t nullable; // OBJECT only: accepts an explicit null while remaining required
 } EditorParameter;
 typedef struct EditorHost EditorHost;
 typedef EditorStatus(EDITOR_CALL *EditorCommand)(void *, const EditorHost *, const EditorRequest *, EditorSink);

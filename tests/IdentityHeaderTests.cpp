@@ -40,7 +40,12 @@ extern "C" uint32_t EditorValueInputSizeFromC(void);
 extern "C" uint32_t EditorValueEditorSizeFromC(void);
 static_assert(__is_standard_layout(EditorValueInput), "C value input");
 static_assert(__is_trivially_copyable(EditorValueEditorDesc), "Borrowed typed editor");
+extern "C" EditorParameter NullableObjectFromC(void);
+extern "C" uint32_t EditorParameterSizeFromC(void);
+static_assert(EDITOR_VERSION == 13, "Editor parameter nullability version");
 int main() {
+    const auto nullable = NullableObjectFromC();
+    if (nullable.type != EDITOR_OBJECT || nullable.optional || nullable.nullable != 1 || sizeof(EditorParameter) != EditorParameterSizeFromC()) return 1;
     if (sizeof(EditorValueInput) != EditorValueInputSizeFromC() || sizeof(EditorValueEditorDesc) != EditorValueEditorSizeFromC()) return 1;
     const auto attribute = AttributeFromC({{3}, 7, 11}, 17);
     if(attribute.type != 7 || attribute.value.lifetime != 11 || attribute.catalog != 17 ||

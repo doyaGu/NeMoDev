@@ -219,7 +219,7 @@ struct Module {
         for (uint32_t i = 0; i < count; ++i) {
             auto p = source[i];
             const auto key = String(p.key);
-            if (key.empty() || !keys.insert(key).second || (!ValueType(p.type) || p.optional > 1))
+            if (key.empty() || !keys.insert(key).second || (!ValueType(p.type) || p.optional > 1 || p.nullable > 1 || (p.nullable && p.type != EDITOR_OBJECT)))
                 throw std::invalid_argument("Invalid parameter schema");
             p.key = Text(p.key);
             parameters.back().push_back(p);
@@ -337,7 +337,7 @@ template <class T> bool Schema(const T &a, const T &b) {
     if (a.count != b.count)
         return false;
     for (uint32_t i = 0; i < a.count; ++i)
-        if (a.parameters[i].type != b.parameters[i].type || a.parameters[i].optional != b.parameters[i].optional ||
+        if (a.parameters[i].type != b.parameters[i].type || a.parameters[i].optional != b.parameters[i].optional || a.parameters[i].nullable != b.parameters[i].nullable ||
             String(a.parameters[i].key) != String(b.parameters[i].key))
             return false;
     return true;
@@ -537,7 +537,7 @@ struct EditorApplication::State {
                 continue;
             }
             if (f->type == EDITOR_OBJECT &&
-                ((!f->object && !parameter.optional) || (f->object &&
+                ((!f->object && !parameter.optional && !parameter.nullable) || (f->object &&
                 (f->object.document != document || (NativeReady() && !Current(f->object))))))
                 return EDITOR_STALE;
         }

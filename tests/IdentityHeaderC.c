@@ -65,3 +65,12 @@ EditorValue RecordFromC(const EditorValue *fields, uint32_t count) {
     EditorValue result = {0}; result.type = EDITOR_RECORD;
     result.fields.data = fields; result.fields.count = count; return result;
 }
+
+EditorParameter NullableObjectFromC(void) {
+    EditorParameter parameter = {0};
+    parameter.key = (EditorString)EDITOR_TEXT("value");
+    parameter.type = EDITOR_OBJECT;
+    parameter.nullable = 1;
+    return parameter;
+}
+uint32_t EditorParameterSizeFromC(void) { return (uint32_t)sizeof(EditorParameter); }

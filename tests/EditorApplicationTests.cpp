@@ -329,6 +329,23 @@ void Registration() {
     inconsistent.commandCount = 2;
     Check(!schema.Register(inconsistent, error), "inconsistent command arguments accepted");
 
+    EditorApplication nullability({});
+    auto nullableModule = TextModule();
+    EditorParameter nullableArgument{EDITOR_TEXT("value"), EDITOR_OBJECT, 0, 1};
+    auto nullableCommand = commands[0]; nullableCommand.parameters = &nullableArgument; nullableCommand.count = 1;
+    nullableModule.commands = &nullableCommand; nullableModule.commandCount = 1;
+    nullableArgument.type = EDITOR_INTEGER_VALUE;
+    Check(!nullability.Register(nullableModule, error), "non-object nullable argument was accepted");
+    nullableArgument.type = EDITOR_OBJECT; nullableArgument.nullable = 2;
+    Check(!nullability.Register(nullableModule, error), "unknown nullable value was accepted");
+    nullableArgument.nullable = 1;
+    Check(nullability.Register(nullableModule, error), "required nullable object was refused");
+    EditorApplication inconsistentNullability({});
+    EditorParameter strictArgument = nullableArgument; strictArgument.nullable = 0;
+    commands[0].parameters = &nullableArgument; commands[0].count = 1;
+    commands[1].parameters = &strictArgument; commands[1].count = 1;
+    Check(!inconsistentNullability.Register(inconsistent, error), "providers disagreeing on nullability were accepted");
+
     std::vector<int> stopped;
     struct ModuleData {
         std::vector<int> *stopped;
