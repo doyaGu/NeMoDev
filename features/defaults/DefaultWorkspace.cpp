@@ -19,6 +19,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"editor", "value.box", "builtin.values"},
                                       {"editor", "value.rect", "builtin.values"},
                                       {"command", "parameter.integer-set", "builtin.parameters"},
+                                      {"command", "parameter.vector3-set", "builtin.parameters"},
+                                      {"query", "parameter.vector3-value", "builtin.parameters"},
                                       {"command", "object.rename", "builtin.objects"},
                                       {"command", "object.create-frame3d", "builtin.objects"},
                                       {"command", "resource.load", "builtin.documents"},
