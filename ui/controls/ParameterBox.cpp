@@ -396,14 +396,17 @@ ImVec2 ParameterBox::UiSize(const Row &row, float s) const {
         // A check box per flag of one bit, at its bit's place (sub_24E6C460),
         // down to the last one; small: the value's text (static 2006).
         if (row.collapsed) return ImVec2(56 * DLU_X * s + 5.0f * s, 11 * DLU_Y * s + 5.0f * s);
-        CKParameterManager *manager = m_State.host.Context()->GetParameterManager();
-        CKParameter *work = CKParameter::Cast(m_State.host.Context()->GetObject(row.work));
-        CKFlagsStruct *flags = work ? manager->GetFlagsDescByType(work->GetType()) : nullptr;
-        int last = 0;
-        for (int i = 0; flags && i < flags->GetNumFlags(); ++i)
-            for (int bit = 0; bit < 32; ++bit)
-                if (flags->GetFlagValue(i) == (1 << bit)) last = std::max(last, bit);
-        return ImVec2(169 * DLU_X * s + 5.0f * s, (12.0f + 10.0f * (last / 2)) * DLU_Y * s + 5.0f * s);
+        unsigned rows = 1;
+        if (m_State.workspace && !row.property.id.empty()) {
+            auto &app = m_State.workspace->Application();
+            const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, row.workReference};
+            const auto result = app.Query(row.property.query, {app.Scope(), &target, 1, EditorText(row.property.queryProvider)});
+            if (result.status == EDITOR_OK)
+                for (const auto &field : result.fields)
+                    if (field.key == "rows" && field.type == EDITOR_INTEGER_VALUE && field.integer >= 1 && field.integer <= 16)
+                        rows = unsigned(field.integer);
+        }
+        return ImVec2(169 * DLU_X * s + 5.0f * s, (2.0f + 10.0f * rows) * DLU_Y * s + 5.0f * s);
     }
     // Dialog 156 less 260 pixels unless Custom Dependencies (sub_24E6B180).
     case ParameterUI::Dependencies: {
@@ -921,33 +924,14 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         break;
     }
     case ParameterUI::Flags: {
-        // Dialog 2007 (sub_24E6C200): the check box of bit b at its place,
-        // two columns (5 and 91) 10 apart, for the flags of one bit; small,
-        // the value's text.
-        if (row.collapsed) {
-            vi::Text(P(5, 3), P(56, 11), TextOf(work).c_str());
-            break;
-        }
-        CKFlagsStruct *flags = manager->GetFlagsDescByType(work->GetType());
-        int value = ValueOf<int>(work);
-        for (int i = 0; flags && i < flags->GetNumFlags(); ++i) {
-            const int bit = flags->GetFlagValue(i);
-            int place = -1;
-            for (int b = 0; b < 32; ++b)
-                if (bit == (1 << b)) place = b;
-            if (place < 0) continue;
-            bool on = (value & bit) != 0;
-            const float x = (place % 2) ? 91.0f : 5.0f, y = place == 0 ? 3.0f : 2.0f + 10.0f * (place / 2);
-            ImGui::PushID(i);
-            if (vi::Check("##flag", P(x, y), 8.0f * DLU_X * s, on)) {
-                value = on ? (value | bit) : (value & ~bit);
-                SetValueOf(work, value);
-                changed = true;
-            }
-            const char *name = flags->GetFlagDescription(i);
-            vi::Text(P(x + 11.0f, y), P(x + 82.0f, y + 10.0f), AnsiToUtf8(name ? name : "").c_str(), false, vi::LEFT);
-            ImGui::PopID();
-        }
+        ImGui::SetCursorScreenPos(at);
+        const auto size = UiSize(row, s);
+        const auto action = ParameterDraftEditor(m_State, work, "##flags", size.x, size.y, 0, true, {},
+            row.References(), &row.property, &m_Editors, unsigned(row.collapsed), &row.beforeInteraction);
+        m_InputAction |= action;
+        if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
+        if (action & EDITOR_INPUT_INVALID) row.invalid = true;
+        else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
         break;
     }
     case ParameterUI::Curve2D: Curve2DUi(row, pen); break;

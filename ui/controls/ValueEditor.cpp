@@ -119,33 +119,15 @@ void ParameterValueEditor(EditorState &state, ValueEditState &edit, CK_ID script
             state.workspace->Application().Scope(edit.owner), state.document->Reference(id), edit.draft, EditorLiteral("##value"));
         state.workspace->Application().LeaveDraw();
     } else {
-        // Specialized types keep their existing text/flags presentation.
-        auto *manager = state.document->Context()->GetParameterManager();
-        auto *type = manager->GetParameterTypeDescription(parameter->GetType());
-        auto *flags = type && (type->dwFlags & CKPARAMETERTYPE_FLAGS) ? manager->GetFlagsDescByType(parameter->GetType()) : nullptr;
-        if (flags && parameter->GetDataSize() == sizeof(int)) {
-            int integer = 0; parameter->GetValue(&integer, FALSE);
-            for (int i = 0; i < flags->GetNumFlags(); ++i) {
-                const int bit = flags->GetFlagValue(i);
-                bool on = bit && (integer & bit) == bit;
-                const auto *text = flags->GetFlagDescription(i);
-                if (ImGui::Checkbox(text ? AnsiToUtf8(text).c_str() : "?", &on)) {
-                    integer = on ? integer | bit : integer & ~bit;
-                    std::vector<unsigned char> bytes(sizeof(integer)); std::memcpy(bytes.data(), &integer, sizeof(integer));
-                    const auto result = SetParameterBytes(*state.document, script, id, bytes);
-                    if (!result.ok && !result.Unchanged()) state.Log(LogLevel::Warning, "Set value: " + AnsiToUtf8(result.message));
-                }
-            }
-        } else {
-            if (edit.editing != id) edit.text = ParameterValueText(parameter);
-            const bool accept = ImGui::InputText("##value", &edit.text, ImGuiInputTextFlags_EnterReturnsTrue);
-            if (ImGui::IsItemActivated()) edit.editing = id;
-            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) edit.editing = 0;
-            else if (accept || ImGui::IsItemDeactivatedAfterEdit()) {
-                const auto result = SetParameterText(*state.document, script, id, Utf8ToAnsi(edit.text));
-                if (!result.ok && !result.Unchanged()) state.Log(LogLevel::Warning, AnsiToUtf8(result.message));
-                edit.editing = 0;
-            }
+        // Specialized types keep their existing text presentation.
+        if (edit.editing != id) edit.text = ParameterValueText(parameter);
+        const bool accept = ImGui::InputText("##value", &edit.text, ImGuiInputTextFlags_EnterReturnsTrue);
+        if (ImGui::IsItemActivated()) edit.editing = id;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) edit.editing = 0;
+        else if (accept || ImGui::IsItemDeactivatedAfterEdit()) {
+            const auto result = SetParameterText(*state.document, script, id, Utf8ToAnsi(edit.text));
+            if (!result.ok && !result.Unchanged()) state.Log(LogLevel::Warning, AnsiToUtf8(result.message));
+            edit.editing = 0;
         }
     }
     ImGui::PopID();
