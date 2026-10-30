@@ -1,7 +1,7 @@
 # Stage zero architecture checks
 
 `coverage.json` lists the 45 source groups,
-32 feature/extension targets and 41 state families. It records CTest results,
+32 feature/extension targets and 42 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
 
@@ -1028,3 +1028,72 @@ twenty-two runtime hashes are equal. Stable transfer/target/path counters remain
 zero; additional GPU/allocator counters and remaining phase-four migration stay
 open. Earlier rejected measurements and native crashes remain in their original
 records.
+
+
+## Phase four: specialized values
+
+2D curves, Copy/Delete/Save/Replace dependencies and LOD options now use the same
+parameter descriptions, registered editors and modification commands as other
+values. Public C interface version 12 is unchanged: owned records and numeric
+lists carry these values without SDK, STL, SDL or ImGui types.
+
+Curve values retain fitting, point flags, TCB data and explicit tangents. Core
+batch updates use owned SDK subclasses through protected value storage; they do
+not downcast SDK objects or reimplement their file format. The undo record keeps
+derived curve data as well, so Undo/Redo restore exact evaluation data without
+recomputing or rounding it again. Native copies preserve existing data, including
+empty legacy curves. Preview evaluation uses the SDK through a registered query
+and the existing bounded query cache.
+
+Dependencies retain every stored class and option bit, including hidden values;
+mode changes do not discard them. LOD retains hidden proportions and unlisted
+flag bits. The old native curve/dependency/LOD drawing and writing paths, row
+value copies, and unused duplicate dependency editor are removed. A failing or
+throwing held-value copier also restores and destroys its temporary carrier.
+
+The five new native UI cases exercise dialog and nested one-step undo, curve
+drag/cancel/add/remove/reopen, held dependency option cancellation, and independent
+query/editor/modifier replacements captured across configuration changes.
+Presentation state belongs to the control's ImGui window and resets against the
+full target identity; it does not allocate keys for each new working copy.
+Other native selectors and the remaining Setup/Schematic/Layout work keep phase
+four open, with completed_phase still 3. Validation and performance results are
+recorded in
+[specialized-values-macos-arm64-metal.json](baselines/specialized-values-macos-arm64-metal.json).
+
+
+The final macOS Release run passes all 124 CTests without skips; the module suite
+executes 43 of 197 registered UI cases. Editing Y also preserves an untouched
+legacy X outside 0..1. SDK state and twenty-two paired runtime
+hashes are unchanged. No viewport rendering or transfer code changed.
+
+| Release capture | median ms | p10 ms | p90 ms | MAD ms | MAD % |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Frozen reference | 0.257796 | 0.237904 | 0.341253 | 0.013253 | 5.1410% |
+| Current | 0.245962 | 0.222612 | 0.296396 | 0.008720 | 3.5453% |
+| Same-program reference | 0.216889 | 0.212463 | 0.217984 | 0.001043 | 0.4809% |
+| Same-program candidate | 0.215983 | 0.213483 | 0.222039 | 0.002499 | 1.1572% |
+
+That initial source capture has a lower observed paired median, but fails the
+original 3% MAD limit; it is not used for acceptance. The same-program control passes with a
+-0.4177% change. Both complete captures are retained. Stable transfer, target and
+path-selection counts are zero; the explicitly listed unmeasured counters remain
+open. The previous native cleanup crashes did not occur here, and are not marked
+fixed.
+
+A follow-up pair after that control passed. The final boundary-coordinate fix
+then required another capture of the final binary; it and its subsequent
+same-program control both pass the original limits. Earlier source captures
+remain in the record.
+
+| Final Release capture | median ms | p10 ms | p90 ms | MAD ms | MAD % |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Frozen reference | 0.207886 | 0.203326 | 0.210179 | 0.002293 | 1.1031% |
+| Current | 0.206808 | 0.200925 | 0.227580 | 0.003304 | 1.5976% |
+| Same-program reference | 0.211389 | 0.209548 | 0.223840 | 0.001451 | 0.6864% |
+| Same-program candidate | 0.213784 | 0.209101 | 0.221016 | 0.004061 | 1.8995% |
+
+The final paired median change is -0.5187%;
+the final same-program change is +1.1329%.
+Stable transfer/target/path counts remain zero. The other named GPU/allocator
+counters remain unmeasured, and completed_phase remains 3.
