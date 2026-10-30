@@ -184,6 +184,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AppTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ModuleTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WorkspaceTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ValueEditTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArchitectureBaselineTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/GpuViewportTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ViewportBaselineTests.cpp

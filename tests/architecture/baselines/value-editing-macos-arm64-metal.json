@@ -1,0 +1,1062 @@
+{
+  "version": 1,
+  "recorded_utc": "2026-10-29T23:53:34.200011+00:00",
+  "scope": "Phase four first batch: names, booleans, enumerations, integer/real values and object references",
+  "status": "Implemented and behavior regressions passed; performance acceptance pending",
+  "implemented": [
+    "Typed query/property/value-editor/command flow shared by built-ins and independent modules; public C interface version 10 contains no STL, SDK, SDL or ImGui dependency.",
+    "EditorApplication owns inline drafts and copied type/choice metadata; renderers update a typed value sink and submit once on accept or deactivation.",
+    "Native parameter dialogs retain owned working copies and their selected editor, modifier and lazy choice provider; all rows commit in one Edit or roll back together.",
+    "ParameterValues owns basic native type resolution, finite and range checks, conversion and undo data records with complete target and referenced-object identities.",
+    "Attribute values, native ParameterBox, debugger basic values, Schematic names and simple parameter values use the common path. Existing complex and specialized editors remain available.",
+    "Schematic name/type/link/value editing is grouped once; a disconnected shared input does not modify its former shared value.",
+    "Unchanged acceptance and cancellation preserve Redo. Busy/stale targets, same-ID reuse and type changes cannot redirect a draft.",
+    "Delegating commands reuse the enclosing operation ID; 300 successive native edits do not exhaust the pending-operation window."
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "log": "out/phase-four-values/build-21.log"
+    },
+    "full_ctest": {
+      "total": 124,
+      "passed": 124,
+      "skipped": 0,
+      "failed": 0,
+      "elapsed_seconds": 78.7,
+      "log": "out/phase-four-values/full-2.log"
+    },
+    "ui": {
+      "modules": {
+        "xml": "out/macos-arm64/virtoolsdev-ui/modules.xml",
+        "registered": 178,
+        "executed": 24,
+        "failed": 0,
+        "errors": 0
+      },
+      "app": {
+        "xml": "out/macos-arm64/virtoolsdev-ui/app.xml",
+        "registered": 178,
+        "executed": 24,
+        "failed": 0,
+        "errors": 0
+      },
+      "schematic": {
+        "xml": "out/macos-arm64/virtoolsdev-ui/schematic.xml",
+        "registered": 178,
+        "executed": 15,
+        "failed": 0,
+        "errors": 0
+      },
+      "attributes": {
+        "xml": "out/macos-arm64/virtoolsdev-ui/attributes.xml",
+        "registered": 178,
+        "executed": 6,
+        "failed": 0,
+        "errors": 0
+      },
+      "setup": {
+        "xml": "out/macos-arm64/virtoolsdev-ui/setup.xml",
+        "registered": 178,
+        "executed": 17,
+        "failed": 0,
+        "errors": 0
+      },
+      "debugger": {
+        "xml": "out/macos-arm64/virtoolsdev-ui/debugger.xml",
+        "registered": 178,
+        "executed": 3,
+        "failed": 0,
+        "errors": 0
+      },
+      "layout": {
+        "xml": "out/macos-arm64/virtoolsdev-ui/layout.xml",
+        "registered": 178,
+        "executed": 17,
+        "failed": 0,
+        "errors": 0
+      }
+    },
+    "new_ui_cases": [
+      "modules/primitive_parameter_dialog_one_undo_and_cancel",
+      "modules/parameter_batch_failure_preserves_history_and_values",
+      "modules/external_integer_editor_shared_by_inline_and_dialog",
+      "modules/object_parameter_choices_apply_cancel_and_undo"
+    ],
+    "targeted_after_final_code_change": {
+      "passed": 3,
+      "failed": 0,
+      "log": "out/phase-four-values/targeted-6.log"
+    },
+    "sdk": {
+      "source_edits_by_this_task": false,
+      "parallel_changes_observed": true,
+      "initial_snapshot": "out/phase-four-values/sdk-before.json",
+      "reference_build_log": "out/phase-four-values/reference-build.log",
+      "reference_source_commit": "fea3eef",
+      "reference_source_sha256": "0312b7dc41eaf9647806b6047f50f6c7ccf5ffee14200d21d05769611e497614",
+      "reference_preparation": "The existing validation checkout has the exact fea3eef index/source tree and was rebuilt against the current SDK. It is a dedicated build copy, not a new Git worktree.",
+      "paired_sdk_revisions_equal": true,
+      "paired_sdk_patches_equal": true,
+      "paired_runtime_hashes_equal": true,
+      "paired_runtime_files": 22,
+      "note": "Concurrent SDK work changed build inputs during this task. No SDK file was edited, reverted or committed by this task. The reference and candidate were rebuilt and measured with identical runtime files."
+    },
+    "architecture": {
+      "files": 874,
+      "groups": 45,
+      "features": 32,
+      "states": 41,
+      "legacy_exposures": 55,
+      "completed_phase": 3,
+      "test_registration_checked": true
+    },
+    "final_fingerprints_verified": {
+      "source": "2d3d4439e33c71c86b4edff3dda544307a8c300d53a7d2c6c460223190d94a52",
+      "binary": "8ba94deacb82fe00f0242671af9617260d3869f6f5a9936f07cf8f2f5a3d79b5",
+      "runtime_files": 22,
+      "source_equals_measured": true,
+      "binary_equals_measured": true,
+      "runtime_equals_measured": true,
+      "sdk_revisions_equal_measured": true,
+      "sdk_patches_equal_measured": true,
+      "sdk_revisions_now": {
+        "root": "024c10e53a5fb53559daf4d1ef814f747445a010",
+        "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+        "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+        "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+        "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+        "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+        "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+        "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+        "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+        "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+        "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+        "Source/RenderEngine": "049c78b3daa81b4a47d68932c6123d03ab3b3bdd",
+        "Source/VxMath": "bf724f712d3173d0551cdee237c950daf380e6fb",
+        "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+        "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+        "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+      },
+      "sdk_patches_now": {
+        "root": {
+          "diff_sha256": "97a3a0e90d9cabc52c0acd2b15b51f9b3bad4b3eb83cac0734f7bac0de312883",
+          "untracked_sha256": {}
+        },
+        "Source/CK2": {
+          "diff_sha256": "8b47ed2177e9dfa748622e5a31758ebf92923061737396e5923d6d18d3066de4",
+          "untracked_sha256": {
+            "tests/CKObjectBehaviorDifferentialTest.cmake": "86c26fe5ccc4a8aa6d90bbdfe759ca91cb78ca52f8810d7c9dd877cc8248792b",
+            "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+            "tests/CKObjectIdentityTest.cpp": "d12b700cdecc7e50572f4ca6b7090fcffe752a22bb073cf3c6ce0a898e710063",
+            "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+            "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+            "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+            "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+            "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+          }
+        },
+        "Source/RenderEngine": {
+          "diff_sha256": "84d8c3cf7dff56f788b304d78d70aae1d42dafa61e9912019e3f773f46e32a04",
+          "untracked_sha256": {}
+        }
+      }
+    },
+    "final_headers_and_architecture": {
+      "passed": 5,
+      "failed": 0,
+      "log": "out/phase-four-values/checks-final-native.log",
+      "inventory": "out/phase-four-values/architecture-final.log"
+    }
+  },
+  "performance": {
+    "accepted": false,
+    "limits": {
+      "maximum_median_regression_percent": 3,
+      "maximum_mad_percent": 3,
+      "minimum_groups": 11
+    },
+    "comparison_file": "out/macos-arm64/architecture/phase-four-values/comparison-final.json",
+    "control_file": "out/macos-arm64/architecture/phase-four-values/control-1.json",
+    "comparison": {
+      "environment": {
+        "source_revision": "fea3eef80cc34c331574aba97ab1adadb3d1d7ed",
+        "source_dirty": true,
+        "binary_sha256": "8ba94deacb82fe00f0242671af9617260d3869f6f5a9936f07cf8f2f5a3d79b5",
+        "harness_sha256": "da77295bfb11db5ac6964a2442a5bf47f683434bc8556b68bc2aa74fb3e31f8e",
+        "build_source_sha256": "2d3d4439e33c71c86b4edff3dda544307a8c300d53a7d2c6c460223190d94a52",
+        "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "hardware": "Apple M5 Pro",
+        "launch_policy": "foreground-on-launch",
+        "logical_cpus": 18,
+        "build_type": "Release",
+        "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+        "compiler_flags": {
+          "CMAKE_CXX_FLAGS": "",
+          "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_OSX_ARCHITECTURES": "arm64"
+        },
+        "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+        "sdk_revisions": {
+          "root": "024c10e53a5fb53559daf4d1ef814f747445a010",
+          "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+          "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+          "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+          "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+          "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+          "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+          "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+          "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+          "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+          "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+          "Source/RenderEngine": "049c78b3daa81b4a47d68932c6123d03ab3b3bdd",
+          "Source/VxMath": "bf724f712d3173d0551cdee237c950daf380e6fb",
+          "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+          "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+          "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+        },
+        "sdk_patches": {
+          "root": {
+            "diff_sha256": "97a3a0e90d9cabc52c0acd2b15b51f9b3bad4b3eb83cac0734f7bac0de312883",
+            "untracked_sha256": {}
+          },
+          "Source/CK2": {
+            "diff_sha256": "8b47ed2177e9dfa748622e5a31758ebf92923061737396e5923d6d18d3066de4",
+            "untracked_sha256": {
+              "tests/CKObjectBehaviorDifferentialTest.cmake": "86c26fe5ccc4a8aa6d90bbdfe759ca91cb78ca52f8810d7c9dd877cc8248792b",
+              "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+              "tests/CKObjectIdentityTest.cpp": "d12b700cdecc7e50572f4ca6b7090fcffe752a22bb073cf3c6ce0a898e710063",
+              "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+              "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+            }
+          },
+          "Source/RenderEngine": {
+            "diff_sha256": "84d8c3cf7dff56f788b304d78d70aae1d42dafa61e9912019e3f773f46e32a04",
+            "untracked_sha256": {}
+          }
+        },
+        "sdk_runtime_sha256": {
+          "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "lib/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "lib/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "lib/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "lib/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "lib/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "lib/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "lib/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a",
+          "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "runtime/Bin/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "runtime/Bin/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "runtime/Bin/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "runtime/RenderEngines/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "runtime/RenderEngines/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a"
+        },
+        "build_source_directory": "/Users/touyou/Work/NeMoDev",
+        "sdk_dirty": true
+      },
+      "measurement": {
+        "version": 2,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "group_control": "paired",
+        "cpu_policy": "user-initiated-activity",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 4081,
+            "elapsed_ms": 1022.810375
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1032.535416667
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1026.513291667
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1051.670166667
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1004.454125
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1015.207791667
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1027.534208333
+          },
+          {
+            "frames": 4321,
+            "elapsed_ms": 1043.209083333
+          },
+          {
+            "frames": 4081,
+            "elapsed_ms": 1036.308875
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1033.674333333
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1045.44925
+          }
+        ]
+      },
+      "statistics": {
+        "median_ms": 0.2530103936944376,
+        "p10_ms": 0.2414276980636427,
+        "p90_ms": 0.2738011368568081,
+        "mad_ms": 0.01158269563079492,
+        "mad_percent": 4.5779524950201935
+      },
+      "unmeasured": [
+        "GPU-only timestamps",
+        "application allocations",
+        "GPU preserve copies",
+        "extra GPU passes/submissions",
+        "native capability queries",
+        "resource retain/release"
+      ],
+      "sdk_change": true,
+      "reference": {
+        "environment": {
+          "source_revision": "fea3eef80cc34c331574aba97ab1adadb3d1d7ed",
+          "source_dirty": true,
+          "binary_sha256": "283b0b53d2fa81669d5569dc25b260ca2d7d833906f486e47058b109527de671",
+          "harness_sha256": "da77295bfb11db5ac6964a2442a5bf47f683434bc8556b68bc2aa74fb3e31f8e",
+          "build_source_sha256": "0312b7dc41eaf9647806b6047f50f6c7ccf5ffee14200d21d05769611e497614",
+          "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+          "machine": "arm64",
+          "hardware": "Apple M5 Pro",
+          "launch_policy": "foreground-on-launch",
+          "logical_cpus": 18,
+          "build_type": "Release",
+          "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "compiler_flags": {
+            "CMAKE_CXX_FLAGS": "",
+            "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+            "CMAKE_OSX_ARCHITECTURES": "arm64"
+          },
+          "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+          "sdk_revisions": {
+            "root": "024c10e53a5fb53559daf4d1ef814f747445a010",
+            "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+            "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+            "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+            "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+            "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+            "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+            "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+            "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+            "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+            "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+            "Source/RenderEngine": "049c78b3daa81b4a47d68932c6123d03ab3b3bdd",
+            "Source/VxMath": "bf724f712d3173d0551cdee237c950daf380e6fb",
+            "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+            "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+            "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+          },
+          "sdk_patches": {
+            "root": {
+              "diff_sha256": "97a3a0e90d9cabc52c0acd2b15b51f9b3bad4b3eb83cac0734f7bac0de312883",
+              "untracked_sha256": {}
+            },
+            "Source/CK2": {
+              "diff_sha256": "8b47ed2177e9dfa748622e5a31758ebf92923061737396e5923d6d18d3066de4",
+              "untracked_sha256": {
+                "tests/CKObjectBehaviorDifferentialTest.cmake": "86c26fe5ccc4a8aa6d90bbdfe759ca91cb78ca52f8810d7c9dd877cc8248792b",
+                "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+                "tests/CKObjectIdentityTest.cpp": "d12b700cdecc7e50572f4ca6b7090fcffe752a22bb073cf3c6ce0a898e710063",
+                "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+                "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+                "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+                "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+                "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+              }
+            },
+            "Source/RenderEngine": {
+              "diff_sha256": "84d8c3cf7dff56f788b304d78d70aae1d42dafa61e9912019e3f773f46e32a04",
+              "untracked_sha256": {}
+            }
+          },
+          "sdk_runtime_sha256": {
+            "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+            "lib/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "lib/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "lib/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "lib/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "lib/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "lib/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "lib/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a",
+            "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "runtime/Bin/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "runtime/Bin/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "runtime/Bin/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+            "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "runtime/RenderEngines/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "runtime/RenderEngines/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a"
+          },
+          "build_source_directory": "/Users/touyou/Work/NeMoDev/out/granular-commits-20261029/validation-source",
+          "sdk_dirty": true
+        },
+        "measurement": {
+          "version": 2,
+          "scenario": "cubes64-v1",
+          "scope": "editor_frame_gpu_drained",
+          "driver": "metal",
+          "group_control": "paired",
+          "cpu_policy": "user-initiated-activity",
+          "gpu_device": "Apple M5 Pro",
+          "gpu_driver_info": "",
+          "window_pixels": [
+            2560,
+            1600
+          ],
+          "sdl_version": 3004018,
+          "viewport": [
+            556,
+            435
+          ],
+          "window": [
+            1280,
+            800
+          ],
+          "ui_scale": 1.0,
+          "warmup_frames": 480,
+          "requested_frames": 240,
+          "minimum_warmup_ms": 15000,
+          "minimum_group_ms": 1000,
+          "verification_readbacks": 1,
+          "stable_readbacks": 0,
+          "stable_uploads": 0,
+          "stable_target_creations": 0,
+          "stable_path_selections": 0,
+          "stable_target_releases": 0,
+          "samples": [
+            {
+              "frames": 3841,
+              "elapsed_ms": 1040.3445
+            },
+            {
+              "frames": 3841,
+              "elapsed_ms": 1017.689458333
+            },
+            {
+              "frames": 3841,
+              "elapsed_ms": 1057.811083333
+            },
+            {
+              "frames": 4081,
+              "elapsed_ms": 1024.14775
+            },
+            {
+              "frames": 4081,
+              "elapsed_ms": 1006.150083333
+            },
+            {
+              "frames": 4081,
+              "elapsed_ms": 1052.6735
+            },
+            {
+              "frames": 4081,
+              "elapsed_ms": 1009.510666667
+            },
+            {
+              "frames": 4081,
+              "elapsed_ms": 1025.510291667
+            },
+            {
+              "frames": 4081,
+              "elapsed_ms": 1025.424833333
+            },
+            {
+              "frames": 3841,
+              "elapsed_ms": 1063.6815
+            },
+            {
+              "frames": 3841,
+              "elapsed_ms": 1064.375458333
+            }
+          ]
+        },
+        "statistics": {
+          "median_ms": 0.2579449889732909,
+          "p10_ms": 0.24736845544400882,
+          "p90_ms": 0.2769282738870086,
+          "mad_ms": 0.010576533529282062,
+          "mad_percent": 4.100305871953658
+        }
+      },
+      "comparison": {
+        "passed": false,
+        "reason": "baseline variation exceeds 3 percent"
+      },
+      "passed": false
+    },
+    "control": {
+      "environment": {
+        "source_revision": "fea3eef80cc34c331574aba97ab1adadb3d1d7ed",
+        "source_dirty": true,
+        "binary_sha256": "8ba94deacb82fe00f0242671af9617260d3869f6f5a9936f07cf8f2f5a3d79b5",
+        "harness_sha256": "da77295bfb11db5ac6964a2442a5bf47f683434bc8556b68bc2aa74fb3e31f8e",
+        "build_source_sha256": "2d3d4439e33c71c86b4edff3dda544307a8c300d53a7d2c6c460223190d94a52",
+        "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+        "machine": "arm64",
+        "hardware": "Apple M5 Pro",
+        "launch_policy": "foreground-on-launch",
+        "logical_cpus": 18,
+        "build_type": "Release",
+        "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+        "compiler_flags": {
+          "CMAKE_CXX_FLAGS": "",
+          "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_OSX_ARCHITECTURES": "arm64"
+        },
+        "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+        "sdk_revisions": {
+          "root": "024c10e53a5fb53559daf4d1ef814f747445a010",
+          "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+          "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+          "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+          "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+          "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+          "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+          "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+          "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+          "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+          "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+          "Source/RenderEngine": "049c78b3daa81b4a47d68932c6123d03ab3b3bdd",
+          "Source/VxMath": "bf724f712d3173d0551cdee237c950daf380e6fb",
+          "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+          "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+          "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+        },
+        "sdk_patches": {
+          "root": {
+            "diff_sha256": "97a3a0e90d9cabc52c0acd2b15b51f9b3bad4b3eb83cac0734f7bac0de312883",
+            "untracked_sha256": {}
+          },
+          "Source/CK2": {
+            "diff_sha256": "8b47ed2177e9dfa748622e5a31758ebf92923061737396e5923d6d18d3066de4",
+            "untracked_sha256": {
+              "tests/CKObjectBehaviorDifferentialTest.cmake": "86c26fe5ccc4a8aa6d90bbdfe759ca91cb78ca52f8810d7c9dd877cc8248792b",
+              "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+              "tests/CKObjectIdentityTest.cpp": "d12b700cdecc7e50572f4ca6b7090fcffe752a22bb073cf3c6ce0a898e710063",
+              "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+              "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+              "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+            }
+          },
+          "Source/RenderEngine": {
+            "diff_sha256": "84d8c3cf7dff56f788b304d78d70aae1d42dafa61e9912019e3f773f46e32a04",
+            "untracked_sha256": {}
+          }
+        },
+        "sdk_runtime_sha256": {
+          "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "lib/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "lib/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "lib/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "lib/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "lib/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "lib/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "lib/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a",
+          "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "runtime/Bin/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "runtime/Bin/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "runtime/Bin/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+          "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+          "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+          "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "runtime/RenderEngines/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "runtime/RenderEngines/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+          "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a"
+        },
+        "build_source_directory": "/Users/touyou/Work/NeMoDev",
+        "sdk_dirty": true
+      },
+      "measurement": {
+        "version": 2,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "group_control": "paired",
+        "cpu_policy": "user-initiated-activity",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 3601,
+            "elapsed_ms": 1042.333041667
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1059.753833333
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1043.868833333
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1038.938041667
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1066.464083333
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1062.9
+          },
+          {
+            "frames": 3121,
+            "elapsed_ms": 1001.642958333
+          },
+          {
+            "frames": 3361,
+            "elapsed_ms": 1057.738333333
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1046.420708333
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1055.198958333
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1061.280125
+          }
+        ]
+      },
+      "statistics": {
+        "median_ms": 0.29429431639350184,
+        "p10_ms": 0.2894565514209942,
+        "p90_ms": 0.3147094118812853,
+        "mad_ms": 0.003702617328519897,
+        "mad_percent": 1.2581341610312027
+      },
+      "unmeasured": [
+        "GPU-only timestamps",
+        "application allocations",
+        "GPU preserve copies",
+        "extra GPU passes/submissions",
+        "native capability queries",
+        "resource retain/release"
+      ],
+      "sdk_change": true,
+      "reference": {
+        "environment": {
+          "source_revision": "fea3eef80cc34c331574aba97ab1adadb3d1d7ed",
+          "source_dirty": true,
+          "binary_sha256": "8ba94deacb82fe00f0242671af9617260d3869f6f5a9936f07cf8f2f5a3d79b5",
+          "harness_sha256": "da77295bfb11db5ac6964a2442a5bf47f683434bc8556b68bc2aa74fb3e31f8e",
+          "build_source_sha256": "2d3d4439e33c71c86b4edff3dda544307a8c300d53a7d2c6c460223190d94a52",
+          "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+          "machine": "arm64",
+          "hardware": "Apple M5 Pro",
+          "launch_policy": "foreground-on-launch",
+          "logical_cpus": 18,
+          "build_type": "Release",
+          "compiler": "Apple clang version 21.0.0 (clang-2100.3.34.2)",
+          "compiler_flags": {
+            "CMAKE_CXX_FLAGS": "",
+            "CMAKE_CXX_FLAGS_RELEASE": "-O3 -DNDEBUG",
+            "CMAKE_OSX_ARCHITECTURES": "arm64"
+          },
+          "ui_dependencies": "b916186e66aa3c02b72c6ca17455516512ed8049 external/imgui (v1.93.0-docking)\n 16b6efbb393fdef0dcac9b0794a8ee476606a152 external/imgui_test_engine (v1.93.0)\n 09e2ba71766e25d88053a2173936c9d1043bae42 external/imgui_test_engine/imgui_test_suite/thirdparty/implot (v1.0-9-g09e2ba7)\n 9bc84b8b8d15a4e50f18b327aa30955048b441c2 external/litehtml (v0.10)",
+          "sdk_revisions": {
+            "root": "024c10e53a5fb53559daf4d1ef814f747445a010",
+            "Source/BuildingBlocks": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+            "Source/BuildingBlocks/3DTrans/qhull": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+            "Source/BuildingBlocks/physics_RT/ivp": "7579664996e68040dd0158081b04f612e6a2d515",
+            "Source/CK2": "9473e3c3944ecc64f3f33af89030d8ea91b36ada",
+            "Source/CK2/deps/miniz": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+            "Source/Managers/ParameterOperations": "85767adbdf70c327fcb9da9d179285a390bd6756",
+            "Source/Managers/SdlInputManager": "368d414378410ddeb4a0e42e523f86c90b842a68",
+            "Source/Managers/SdlSoundManager": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+            "Source/Player": "e507329544c8d0000b8449371caca203b77b7225",
+            "Source/Plugins": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+            "Source/RenderEngine": "049c78b3daa81b4a47d68932c6123d03ab3b3bdd",
+            "Source/VxMath": "bf724f712d3173d0551cdee237c950daf380e6fb",
+            "Source/VxMath/deps/simde": "2e5224981e9123b8fe89a9833a978556d636a565",
+            "Source/VxMath/deps/simde/test/munit": "da8f73412998e4f1adf1100dc187533a51af77fd",
+            "Source/VxMath/deps/stb": "31c1ad37456438565541f4919958214b6e762fb4"
+          },
+          "sdk_patches": {
+            "root": {
+              "diff_sha256": "97a3a0e90d9cabc52c0acd2b15b51f9b3bad4b3eb83cac0734f7bac0de312883",
+              "untracked_sha256": {}
+            },
+            "Source/CK2": {
+              "diff_sha256": "8b47ed2177e9dfa748622e5a31758ebf92923061737396e5923d6d18d3066de4",
+              "untracked_sha256": {
+                "tests/CKObjectBehaviorDifferentialTest.cmake": "86c26fe5ccc4a8aa6d90bbdfe759ca91cb78ca52f8810d7c9dd877cc8248792b",
+                "tests/CKObjectBehaviorProbe.cpp": "8bcf0811dfb032c95e466dcc1e0428d65373abe3da59bea8c597f6a3f3e16166",
+                "tests/CKObjectIdentityTest.cpp": "d12b700cdecc7e50572f4ca6b7090fcffe752a22bb073cf3c6ce0a898e710063",
+                "tests/fixtures/object-identity/README.md": "501bbcf37e96b9c98f785a7347400a74c9fb141b6ebca1f45025fa820c6b2e38",
+                "tests/fixtures/object-identity/identity.cmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+                "tests/fixtures/object-identity/identity.nmo": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+                "tests/fixtures/object-identity/identity.nms": "2538b0905f0cbc04f0738b21b10eb9c7f79d601e31651077ead87f1a96fe8e16",
+                "tests/fixtures/object-identity/object-behavior-9473e3c.txt": "aaa5867f4ab770c61ce29f51642835c8ddf6be55f591ae7e38f0ab581d0ea905"
+              }
+            },
+            "Source/RenderEngine": {
+              "diff_sha256": "84d8c3cf7dff56f788b304d78d70aae1d42dafa61e9912019e3f773f46e32a04",
+              "untracked_sha256": {}
+            }
+          },
+          "sdk_runtime_sha256": {
+            "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+            "lib/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "lib/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "lib/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "lib/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "lib/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "lib/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "lib/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a",
+            "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "runtime/Bin/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "runtime/Bin/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "runtime/Bin/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+            "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+            "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+            "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "runtime/RenderEngines/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "runtime/RenderEngines/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+            "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a"
+          },
+          "build_source_directory": "/Users/touyou/Work/NeMoDev",
+          "sdk_dirty": true
+        },
+        "measurement": {
+          "version": 2,
+          "scenario": "cubes64-v1",
+          "scope": "editor_frame_gpu_drained",
+          "driver": "metal",
+          "group_control": "paired",
+          "cpu_policy": "user-initiated-activity",
+          "gpu_device": "Apple M5 Pro",
+          "gpu_driver_info": "",
+          "window_pixels": [
+            2560,
+            1600
+          ],
+          "sdl_version": 3004018,
+          "viewport": [
+            556,
+            435
+          ],
+          "window": [
+            1280,
+            800
+          ],
+          "ui_scale": 1.0,
+          "warmup_frames": 480,
+          "requested_frames": 240,
+          "minimum_warmup_ms": 15000,
+          "minimum_group_ms": 1000,
+          "verification_readbacks": 1,
+          "stable_readbacks": 0,
+          "stable_uploads": 0,
+          "stable_target_creations": 0,
+          "stable_path_selections": 0,
+          "stable_target_releases": 0,
+          "samples": [
+            {
+              "frames": 3121,
+              "elapsed_ms": 1002.460958333
+            },
+            {
+              "frames": 3601,
+              "elapsed_ms": 1044.196875
+            },
+            {
+              "frames": 3601,
+              "elapsed_ms": 1020.445541667
+            },
+            {
+              "frames": 3601,
+              "elapsed_ms": 1033.403791667
+            },
+            {
+              "frames": 3361,
+              "elapsed_ms": 1001.753208333
+            },
+            {
+              "frames": 3361,
+              "elapsed_ms": 1043.585833333
+            },
+            {
+              "frames": 3121,
+              "elapsed_ms": 1011.318083333
+            },
+            {
+              "frames": 3361,
+              "elapsed_ms": 1004.44
+            },
+            {
+              "frames": 3361,
+              "elapsed_ms": 1045.281666667
+            },
+            {
+              "frames": 3841,
+              "elapsed_ms": 1044.0675
+            },
+            {
+              "frames": 3601,
+              "elapsed_ms": 1068.228125
+            }
+          ]
+        },
+        "statistics": {
+          "median_ms": 0.2980521298223743,
+          "p10_ms": 0.2833783786911969,
+          "p90_ms": 0.3211986409269465,
+          "mad_ms": 0.012446481701874457,
+          "mad_percent": 4.175941205081139
+        }
+      },
+      "comparison": {
+        "passed": false,
+        "reason": "baseline variation exceeds 3 percent"
+      },
+      "passed": false
+    },
+    "long_attempt": {
+      "accepted": false,
+      "requested_frames_per_group": 10000,
+      "warmup_frames": 10000,
+      "groups": 11,
+      "reference_log": "out/macos-arm64/architecture/phase-four-values/comparison-long-reference.log",
+      "candidate_log": "out/macos-arm64/architecture/phase-four-values/comparison-long.log",
+      "driver_log": "out/phase-four-values/performance-comparison-long.log",
+      "reason": "The unchanged native Test Engine watchdog rejected the reference after 60 seconds. No performance report was accepted; the candidate log stops before emitting its final measurement.",
+      "reference_measurement": {
+        "version": 2,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "group_control": "paired",
+        "cpu_policy": "user-initiated-activity",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 10000,
+        "requested_frames": 10000,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 10001,
+            "elapsed_ms": 3612.507416667
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 3038.306875
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 4266.914583333
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 4018.249416667
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 4092.888875
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 3471.148625
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 3656.905083333
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 4152.800875
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 4149.765833333
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 4594.264541667
+          },
+          {
+            "frames": 10001,
+            "elapsed_ms": 4646.88775
+          }
+        ]
+      },
+      "reference_statistics": {
+        "median_ms": 0.40924796270372965,
+        "p10_ms": 0.34708015448455154,
+        "p90_ms": 0.4593805161150885,
+        "mad_ms": 0.043594019764723546,
+        "mad_percent": 10.652226458677069
+      }
+    },
+    "interpretation": "The paired baseline and same-program control both exceeded the original 3% MAD limit. Concurrent CPU load was observed, but it is not a demonstrated cause. The extended attempt exceeded the native watchdog. No report proves the 3% performance requirement; no threshold, benchmark source or GPU implementation was changed.",
+    "stable_counters": "All complete captures recorded zero stable readbacks, uploads, target creations/releases and path selections; one explicit verification readback occurred outside timing. Other counters remain unmeasured as listed in each report.",
+    "sdk_flag": "--sdk-change only permits measurement with the existing parallel SDK changes; exact SDK revisions, patch hashes and runtime hashes match between the paired builds."
+  },
+  "retained_diagnostics": [
+    {
+      "file": "out/phase-four-values/targeted-2.log",
+      "report": "~/Library/Logs/DiagnosticReports/VirtoolsDevUiTests-2026-10-29-185821.ips",
+      "result": "One module-suite run crashed during the existing web/print document.new transition before the new value cases. The native stack is retained below. Current modules, targeted regressions and both full runs subsequently passed; the phase-three reference module suite passed three repetitions with the same SDK. The cause is not established and is not claimed fixed.",
+      "stack": [
+        "CKIsChildClassOf(CKObject*, int)",
+        "RCKRenderObject::RemoveFromRenderContext",
+        "CKRenderedScene::DetachAll",
+        "RCKRenderContext::PreDelete",
+        "CKObjectManager::DeleteObjects",
+        "CKContext::FinishDestroyObjects",
+        "CKContext::DestroyObject",
+        "RCKRenderManager::DestroyRenderContext",
+        "vdev::GuardedCall",
+        "LayoutView::Stop",
+        "LayoutWindow::Stop",
+        "EditorApp::DetachDocument",
+        "DocumentFiles::Replace",
+        "RuntimeOperation::Finish"
+      ],
+      "reference_repetitions": "out/phase-four-values/reference-modules.log"
+    },
+    {
+      "file": "out/phase-four-values/targeted-4.log",
+      "result": "State checks initially rejected nested read-only command-state queries, blocking runtime toggles. A separate state-check counter permits those reads while rejecting mutation; the final full run and CommandStateReads regression pass."
+    },
+    {
+      "file": "out/phase-four-values/targeted-5.log",
+      "result": "Changing a shared input type exposed an absent or replaced value holder. Final Schematic code retargets an actual replacement and preserves the original disconnected-input behavior when none remains; the existing type/link regression passes."
+    },
+    {
+      "file": "out/phase-four-values/full-1.log",
+      "result": "Earlier full run passed 124/124 before the last tagged-value, menu-selection and operation-window regressions. full-2.log is the final code validation."
+    },
+    {
+      "file": "out/phase-four-values/checks-final.log",
+      "result": "The first final-check invocation used the restricted environment and omitted the established native runtime configuration. Four static checks passed; NeMoDevEditor aborted in macOS _RegisterApplication/NSApplication initialization before running tests. Repeating all five checks with native permissions and SDL_AUDIO_DRIVER=dummy passed. This startup rejection is distinct from the earlier render-context teardown crash.",
+      "native_rerun": "out/phase-four-values/checks-final-native.log"
+    }
+  ],
+  "remaining": [
+    "Repeat the unchanged paired performance comparison and following same-program control in a sufficiently stable environment. Performance acceptance for this first batch remains open.",
+    "Investigate the single native Context teardown crash if it recurs; these changes do not establish its cause or repair.",
+    "Colors, vectors, matrices, structures, arrays, nested drafts and the remaining Setup/Schematic/Layout view migrations remain in phase four. completed_phase stays 3.",
+    "Application allocations, GPU-only timestamps, preserve copies, extra GPU passes/submissions, native capability queries and retain/release remain unmeasured.",
+    "Windows/Linux execution and the original complete help archive were not exercised here."
+  ]
+}

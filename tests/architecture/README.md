@@ -1,7 +1,7 @@
 # Stage zero architecture checks
 
-`coverage.json` lists the 43 source groups,
-32 feature/extension targets and 40 state families. It records CTest results,
+`coverage.json` lists the 45 source groups,
+32 feature/extension targets and 41 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
 
@@ -763,3 +763,70 @@ Earlier implementation measurements and corrected UI failures are retained in
 The manifest now records completed_phase 3, 43 source groups, 40 state families
 and 55 remaining legacy exposures. Later-stage work stays assigned to its existing
 feature entries; this does not mark the complex editor migrations complete.
+
+## Phase four: names and basic parameter values
+
+Names, booleans, integers, real numbers, enumerations and object references use
+typed property values. A property joins a query field, a registered value editor
+and a registered modification command. EditorApplication owns inline drafts and
+copied metadata; renderers receive values and an update sink. Native parameter
+dialogs retain their existing owned working parameters and submit through the
+same selected commands. Public interface version ten replaces the text-only
+editor description with EditorValueEditorDesc. Its C/C++ consumers include no
+STL, SDK, SDL or ImGui headers.
+
+ParameterValues owns basic native type resolution, validation, conversion and
+the undo data record. ParameterCommands publishes read-only descriptions and
+object choices, and registers modifications. ValueEditors renders only copied
+data. Object options are queried when the chooser opens. An open dialog retains
+its selected editor, command and choice provider even if the workspace selects a
+different provider. The Views menu selects built-in or independently compiled
+editors through the same configuration path.
+
+Inline editing starts a draft on the first change and submits once on acceptance
+or deactivation. Escape, owner closure and document replacement discard the
+draft. Dialog Apply/OK groups all rows into one Edit; a refused row rolls back
+the whole batch. No-change acceptance preserves Redo. Schematic renames and
+parameter names use the existing object.name property. Its combined name, type,
+link and value changes are one edit. Removing an incompatible shared input link
+keeps the existing disconnected-input behavior and leaves its former shared
+value untouched.
+
+Regressions cover repeated updates, cancellation, invalid and sparse enum
+values, non-finite and out-of-range numbers, percentage units, stale parameter
+types, same-ID object reuse, busy native work, batch rollback, and more than 256
+successive native interactions through a delegating command. Four native UI
+cases exercise the real dialogs, an independent integer editor and modifier,
+provider changes during an open dialog, object choices and single-step undo.
+Complex values, nested drafts and the remaining Setup/Schematic/Layout view
+migrations retain their assigned later work. completed_phase stays 3.
+
+The final macOS arm64 Release run passes all 124 CTests without skips. The module
+suite executes 24 of its 178 registered cases, including the four new cases;
+unselected cases are not counted as passes. Existing Setup, Schematic, debugger,
+Layout, original-sample file and direct-NMO regressions also pass. This task did
+not edit SDK source or the viewport rendering/transfer implementation. Concurrent
+SDK work changed the build inputs, so the phase-three reference was rebuilt; all
+22 measured runtime files, revisions and patch hashes match between the pair.
+
+Performance acceptance remains open. Both the first 11-group pair and the
+following same-program control exceeded the original 3% MAD limit. Observed
+concurrent CPU load does not establish a cause. An extended 10,000-frame attempt
+exceeded the unchanged native test watchdog. No thresholds or benchmark sources
+were changed, and no rejected run is treated as an accepted baseline.
+
+| Run | Median (ms) | p10 (ms) | p90 (ms) | MAD (ms) | MAD / median |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Phase-three reference, remeasured | 0.257945 | 0.247368 | 0.276928 | 0.010577 | 4.1003% |
+| Basic value editing | 0.253010 | 0.241428 | 0.273801 | 0.011583 | 4.5780% |
+| Same-program reference | 0.298052 | 0.283378 | 0.321199 | 0.012446 | 4.1759% |
+| Same-program candidate | 0.294294 | 0.289457 | 0.314709 | 0.003703 | 1.2581% |
+
+Complete captures retain zero stable readback, upload, target creation/release
+and path-selection counts, and one explicit verification readback outside
+timing. Other GPU/allocator counters remain unmeasured. One earlier module run
+crashed in native render-context cleanup during document replacement. Subsequent
+targeted/full runs and three reference module repetitions passed; the cause is
+unresolved and is not claimed fixed. Raw measurements, failed iterations, the
+bounded native stack, fingerprints and remaining work are preserved in
+[value-editing-macos-arm64-metal.json](baselines/value-editing-macos-arm64-metal.json).

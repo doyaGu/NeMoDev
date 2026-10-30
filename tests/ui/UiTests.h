@@ -49,6 +49,7 @@ vdev::EditorApp &App();
 
 void RegisterModuleTests(ImGuiTestEngine *engine);
 void RegisterWorkspaceTests(ImGuiTestEngine *engine);
+void RegisterValueEditTests(ImGuiTestEngine *engine);
 void RegisterAppTests(ImGuiTestEngine *engine);
 void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine);
 void RegisterGpuViewportTests(ImGuiTestEngine *engine);

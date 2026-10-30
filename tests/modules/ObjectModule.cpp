@@ -9,7 +9,7 @@
 namespace {
 const EditorString RenameId = EDITOR_TEXT("object.rename");
 struct Module {
-    int views = 0, playCalls = 0;
+    int views = 0, playCalls = 0, integerCalls = 0;
     bool refuseFileView = false;
     EditorObject resourceTarget{};
 };
@@ -226,6 +226,22 @@ void Draw(void *data, const EditorHost *host, EditorView id, EditorViewFrame *fr
     ImGui::TextUnformatted("External object view");
     ImGui::TextUnformatted(view.name.c_str());
 }
+uint32_t DrawInteger(void *, const EditorHost *, const EditorValueInput *input) {
+    std::string label(input->label.data, input->label.size);
+    if (input->width > 0) ImGui::SetNextItemWidth(input->width > 108 ? input->width - 76 : 32);
+    int integer = int(int64_t(input->value.integer));
+    bool changed = ImGui::InputInt(label.c_str(), &integer);
+    const bool active = ImGui::IsItemActive();
+    bool accept = ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Increment")) { integer += 7; changed = accept = true; }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) return EDITOR_INPUT_CANCEL;
+    if (changed) {
+        auto value = input->value; value.integer = uint64_t(int64_t(integer));
+        if (input->update.write(input->update.data, &value, 1) != EDITOR_OK) return EDITOR_INPUT_INVALID;
+    }
+    return (changed ? EDITOR_INPUT_CHANGED : 0u) | (accept ? EDITOR_INPUT_ACCEPT : 0u) | (active ? EDITOR_INPUT_ACTIVE : 0u);
+}
 uint32_t DrawName(void *, const EditorHost *host, const EditorValueInput *input) {
     std::string text(input->value.text.data, input->value.text.size), label(input->label.data, input->label.size);
     if (input->focus)
@@ -317,7 +333,14 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     static const EditorParameter blockNavigation[] = {{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("filter"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("category"), EDITOR_TEXT_VALUE, 1},
         {EDITOR_TEXT("selection"), EDITOR_INTEGER_LIST, 1}};
+    static const EditorParameter integerArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.integer-set"), EDITOR_TEXT("example.integer"), EDITOR_TEXT("Set External Integer"),
+         integerArgs, 3, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->integerCalls;
+             auto next = *request; next.handler = EDITOR_TEXT("builtin.parameters");
+             return host->execute(host->data, EditorString EDITOR_TEXT("parameter.integer-set"), &next, sink);
+         }, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("resource.load"), EDITOR_TEXT("example.resource-spy"), EDITOR_TEXT("Record resource target"),
          resources, 3, [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
              auto &target = static_cast<Module *>(data)->resourceTarget; target = {};
@@ -451,9 +474,9 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     // its own allocations at stop; the host copies strings and arrays.
     struct Descriptors {
         std::vector<EditorCommandDesc> commands;
-        EditorQueryDesc queries[3];
+        EditorQueryDesc queries[4];
         EditorViewDesc views[6];
-        EditorValueEditorDesc editor;
+        EditorValueEditorDesc editors[2];
         Module *data;
     };
     static const EditorParameter playCountField{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE};
@@ -465,10 +488,16 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
             const EditorValue value{EDITOR_TEXT("target"), EDITOR_OBJECT, static_cast<Module *>(data)->resourceTarget};
             return sink.write ? sink.write(sink.data, &value, 1) : EDITOR_INVALID;
         }, data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &resourceTargetField, 1};
+    const EditorQueryDesc integerCalls{sizeof(EditorQueryDesc), EDITOR_TEXT("example.integer-count"), EDITOR_TEXT("example.integer"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const EditorValue value{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(static_cast<Module *>(data)->integerCalls)};
+            return sink.write(sink.data, &value, 1);
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, &playCountField, 1};
     auto *descriptors = new Descriptors{std::vector<EditorCommandDesc>(std::begin(commands), std::end(commands)),
-                                        {query, playCount, resourceTarget},
+                                        {query, playCount, resourceTarget, integerCalls},
                                         {view, fileView, outputView, logView, resourceView, resourceInputs},
-                                        editor,
+                                        {editor, {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.integer"),
+                                            EDITOR_TEXT("example.integer"), EDITOR_TEXT("External integer"), DrawInteger, data, EDITOR_INTEGER_VALUE}},
                                         data};
     *out = {};
     out->size = sizeof(*out);
@@ -479,11 +508,11 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->commands = descriptors->commands.data();
     out->commandCount = static_cast<uint32_t>(descriptors->commands.size());
     out->queries = descriptors->queries;
-    out->queryCount = 3;
+    out->queryCount = 4;
     out->views = descriptors->views;
     out->viewCount = 6;
-    out->editors = &descriptors->editor;
-    out->editorCount = 1;
+    out->editors = descriptors->editors;
+    out->editorCount = 2;
     out->data = descriptors;
     out->stop = [](void *p) {
         auto *d = static_cast<Descriptors *>(p);

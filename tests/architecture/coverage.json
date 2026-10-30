@@ -1552,7 +1552,8 @@
       ],
       "ui_tests": [
         "VirtoolsDevUi.attributes",
-        "VirtoolsDevUi.sound"
+        "VirtoolsDevUi.sound",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {

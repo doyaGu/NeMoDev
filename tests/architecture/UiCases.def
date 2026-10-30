@@ -156,3 +156,8 @@ VIRTOOLSDEV_UI_CASE("modules", "resource_browsing_during_native_work")
 VIRTOOLSDEV_UI_CASE("modules", "workspace_layout_configuration_applies_and_rolls_back")
 
 VIRTOOLSDEV_UI_CASE("modules", "resource_load_uses_primary_level_selection")
+
+VIRTOOLSDEV_UI_CASE("modules", "primitive_parameter_dialog_one_undo_and_cancel")
+VIRTOOLSDEV_UI_CASE("modules", "parameter_batch_failure_preserves_history_and_values")
+VIRTOOLSDEV_UI_CASE("modules", "external_integer_editor_shared_by_inline_and_dialog")
+VIRTOOLSDEV_UI_CASE("modules", "object_parameter_choices_apply_cancel_and_undo")
