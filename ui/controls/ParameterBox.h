@@ -9,6 +9,7 @@
 
 #include "ui/app/EditorState.h"
 #include "core/catalog/ParameterUIs.h"
+#include "application/EditorApplication.h"
 
 namespace vdev {
 
@@ -37,6 +38,7 @@ public:
     // type), the target's otherwise. False without a CK context.
     bool Add(CKParameter *target, const std::string &label, const CKGUID &type = CKGUID());
     // Resolve a live parameter only when opening its native value editor.
+    bool Retarget(size_t row, CKParameter *target);
     bool Add(CK_ID target, const std::string &label, const CKGUID &type = CKGUID());
     // Dev.exe sub_582930's rows for a Building Block (its Target first) or
     // a parameter operation: each input whose value holder is a local
@@ -61,6 +63,7 @@ public:
     bool Draw(const ImVec2 &at, float scale, bool minimum);
     // True when a working copy differs from its parameter.
     bool Changed() const;
+    bool Valid() const;
     // Writes the working copies that differ (script: the Script edited;
     // its session follows the values). The undo steps made.
     size_t Apply(CK_ID script);
@@ -70,6 +73,10 @@ public:
 
 private:
     struct Row {
+        ObjectRef targetReference{}, workReference{}, valueReference{};
+        bool invalid = false, scalar = false;
+        PropertyBinding property;
+        EditorValueEditorDesc editor{};
         CK_ID target = 0; // the parameter Apply writes (0: a member of a structure's copy)
         CK_ID work = 0;   // the working copy (or a member of the structure's)
         bool owned = false;
@@ -139,6 +146,7 @@ private:
     EditorState &m_State;
     std::vector<Row> m_Rows;
     std::uint64_t m_Generation = 0; // the host's when the rows were made
+    bool m_ApplyFailed = false;
     CK_ID m_PickWork = 0;    // the row whose target button is picking
     bool m_PickClick = false; // clicked: until the next click (else until the button is released)
     bool m_PickToggle = false;

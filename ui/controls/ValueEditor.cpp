@@ -11,6 +11,9 @@
 #include "core/graph/RuntimeGraph.h"
 #include "core/runtime/TextEncoding.h"
 #include "core/graph/ValueCommands.h"
+#include "core/graph/ParameterValues.h"
+#include "features/values/ParameterCommands.h"
+#include "workspace/EditorWorkspace.h"
 
 namespace vdev {
 
@@ -18,97 +21,112 @@ std::string ParameterValueText(CKParameter *parameter) {
     return AnsiToUtf8(ParameterText(parameter));
 }
 
-void ParameterValueEditor(EditorState &state, ValueEditState &edit, CK_ID script, CKParameter *parameter,
-                          bool editable) {
-    if (!parameter) {
-        ImGui::TextDisabled("(no value)");
-        return;
-    }
-    if (!editable) {
-        ImGui::TextWrapped("%s", ParameterValueText(parameter).c_str());
-        return;
-    }
-    CKContext *context = state.document->Context();
-    CKParameterManager *manager = context->GetParameterManager();
-    const CK_ID id = parameter->GetID();
-    const CKParameterType type = parameter->GetType();
-    CKParameterTypeDesc *description = manager->GetParameterTypeDescription(type);
-    const CKGUID guid = parameter->GetGUID();
-    const std::vector<unsigned char> bytes = ParameterBytes(parameter);
-    const bool word = bytes.size() == sizeof(int);
-    int integer = 0;
-    if (word) std::memcpy(&integer, bytes.data(), sizeof(int));
-    auto report = [&](const EditResult &result) {
-        if (!result.ok && !result.Unchanged())
-            state.Log(LogLevel::Warning, "Set value: " + AnsiToUtf8(result.message));
-    };
-    auto commit = [&](const std::vector<unsigned char> &value) {
-        report(SetParameterBytes(*state.document, script, id, value));
-    };
-    auto commitInt = [&](int value) {
-        std::vector<unsigned char> raw(sizeof(int));
-        std::memcpy(raw.data(), &value, sizeof(int));
-        commit(raw);
-    };
-    // Drag and text widgets: load from CK unless being edited; commit once.
-    auto track = [&](bool commitNow, const std::function<void()> &apply) {
-        if (ImGui::IsItemActivated()) edit.editing = id;
-        if (commitNow) {
-            apply();
-            edit.editing = 0;
-        } else if (!ImGui::IsItemActive() && edit.editing == id) {
-            edit.editing = 0;
+namespace {
+uint32_t DrawScalarDraft(EditorState &state, CKParameter *work, ParameterValueDescription &description,
+                        const char *label, float width, float height, CK_CLASSID cid, bool derived,
+                        const std::string &filter, ObjectRef *remembered, const PropertyBinding *capturedProperty, const EditorValueEditorDesc *capturedEditor) {
+    if (!state.workspace) return EDITOR_INPUT_INVALID;
+    const auto *property = capturedProperty && !capturedProperty->id.empty() ? capturedProperty : state.workspace->Application().Property(ParameterProperty(description.value.kind));
+    if (!property) return EDITOR_INPUT_INVALID;
+    std::vector<ObjectRef> objects;
+    std::vector<EditorString> labels;
+    std::vector<uint64_t> values;
+    if (description.value.kind == ParameterValueKind::Object) {
+        if (remembered && remembered->object == description.value.object.object && *remembered != description.value.object) {
+            description.value.object = *remembered;
+            description.display = "<deleted object>";
         }
+    } else for (const auto &choice : description.choices) {
+        labels.push_back(EditorText(choice.second)); values.push_back(uint64_t(int64_t(choice.first)));
+    }
+    const auto type = description.value.kind == ParameterValueKind::Object ? EDITOR_OBJECT :
+        description.value.kind == ParameterValueKind::Real ? EDITOR_REAL_VALUE : EDITOR_INTEGER_VALUE;
+    const EditorValue value{EDITOR_TEXT("value"), type, description.value.object, {},
+        uint64_t(int64_t(description.value.integer)), {}, {}, {}, description.value.real};
+    const EditorValue fields[] = {
+        {EDITOR_TEXT("display"), EDITOR_TEXT_VALUE, {}, EditorText(description.display)},
+        {EDITOR_TEXT("labels"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {labels.data(), uint32_t(labels.size())}},
+        {EDITOR_TEXT("values"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {values.data(), uint32_t(values.size())}},
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}},
+        {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, description.displayScale}};
+    struct Draft { EditorState *state; CKParameter *work; ParameterValueKind kind; ObjectRef *remembered; } draft{&state, work, description.value.kind, remembered};
+    const auto update = [](void *data, const EditorValue *value, uint32_t count) {
+        auto &draft = *static_cast<Draft *>(data);
+        ParameterScalar scalar;
+        if (!value || count != 1 || !ParameterScalarFromEditor(draft.kind, *value, scalar)) return EDITOR_INVALID;
+        if (!WriteParameterDraft(*draft.state->document, draft.work, scalar)) return EDITOR_REFUSED;
+        if (draft.remembered && scalar.kind == ParameterValueKind::Object) *draft.remembered = scalar.object;
+        return EDITOR_OK;
     };
-    ImGui::PushID(static_cast<int>(id));
+    const EditorValue choices[] = {
+        {EDITOR_TEXT("target"), EDITOR_OBJECT, state.document->Reference(work->GetID())},
+        {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(cid)},
+        {EDITOR_TEXT("derived"), EDITOR_INTEGER_VALUE, {}, {}, derived ? 1u : 2u},
+        {EDITOR_TEXT("filter"), EDITOR_TEXT_VALUE, {}, EditorText(filter)}};
+    const EditorValueInput input{sizeof(input), 0, EditorLiteral(label), value, fields, 5, 0,
+        {&draft, update}, EDITOR_VALUE_DIALOG, width, height, EditorText(property->choices),
+        {state.workspace->Application().Scope(), choices, 4, EditorText(property->choicesProvider)}};
+    ImGui::SetNextItemWidth(width);
+    return capturedEditor && capturedEditor->draw ? state.workspace->Application().DrawValue(*capturedEditor, input) :
+        state.workspace->Application().DrawValue(property->editor, input);
+}
+} // namespace
+uint32_t ParameterDraftEditor(EditorState &state, CKParameter *work, const char *label, float width, float height,
+                              CK_CLASSID cid, bool derived, const std::string &filter, ObjectRef *remembered,
+                              const PropertyBinding *property, const EditorValueEditorDesc *editor) {
+    ParameterValueDescription description;
+    if (!state.document || !DescribeParameterValue(*state.document, work, description)) return EDITOR_INPUT_INVALID;
+    return DrawScalarDraft(state, work, description, label, width, height, cid, derived, filter, remembered, property, editor);
+}
+void CancelParameterValueEdit(EditorState &state, ValueEditState &edit) {
+    if (state.workspace) {
+        if (edit.draft) state.workspace->Application().FinishEdit(edit.draft, false);
+        state.workspace->CloseOwner(edit.owner);
+    }
+    edit.draft = 0; edit.editing = 0;
+}
+void ParameterValueEditor(EditorState &state, ValueEditState &edit, CK_ID script, CKParameter *parameter, bool editable) {
+    if (!parameter) { ImGui::TextDisabled("(no value)"); return; }
+    if (!editable) { ImGui::TextWrapped("%s", ParameterValueText(parameter).c_str()); return; }
+    const auto id = parameter->GetID();
+    ImGui::PushID(int(id));
     ImGui::SetNextItemWidth(-FLT_MIN);
-    const bool enums = description && (description->dwFlags & CKPARAMETERTYPE_ENUMS);
-    const bool flags = description && (description->dwFlags & CKPARAMETERTYPE_FLAGS);
-    if (guid == CKPGUID_BOOL && word) {
-        bool value = integer != 0;
-        if (ImGui::Checkbox("##value", &value)) commitInt(value ? TRUE : FALSE);
-    } else if (enums && word && manager->GetEnumDescByType(type)) {
-        CKEnumStruct *enumeration = manager->GetEnumDescByType(type);
-        if (ImGui::BeginCombo("##value", ParameterValueText(parameter).c_str())) {
-            TypeAhead typeAhead;
-            for (int i = 0; i < enumeration->GetNumEnums(); ++i) {
-                const char *text = enumeration->GetEnumDescription(i);
-                const bool selected = enumeration->GetEnumValue(i) == integer;
-                if (typeAhead.Selectable(text ? AnsiToUtf8(text).c_str() : "?", selected))
-                    commitInt(enumeration->GetEnumValue(i));
-            }
-            ImGui::EndCombo();
-        }
-    } else if (flags && word && manager->GetFlagsDescByType(type)) {
-        CKFlagsStruct *flagSet = manager->GetFlagsDescByType(type);
-        for (int i = 0; i < flagSet->GetNumFlags(); ++i) {
-            const int bit = flagSet->GetFlagValue(i);
-            bool on = bit != 0 && (integer & bit) == bit;
-            const char *text = flagSet->GetFlagDescription(i);
-            if (ImGui::Checkbox(text ? AnsiToUtf8(text).c_str() : "?", &on))
-                commitInt(on ? (integer | bit) : (integer & ~bit));
-        }
-    } else if (guid == CKPGUID_INT && word) {
-        if (edit.editing != id) edit.integer = integer;
-        ImGui::DragInt("##value", &edit.integer);
-        track(ImGui::IsItemDeactivatedAfterEdit(), [&] { commitInt(edit.integer); });
-    } else if (guid == CKPGUID_FLOAT && bytes.size() == sizeof(float)) {
-        float current = 0.0f;
-        std::memcpy(&current, bytes.data(), sizeof(float));
-        if (edit.editing != id) edit.real = current;
-        ImGui::DragFloat("##value", &edit.real, 0.01f, 0.0f, 0.0f, "%.4g");
-        track(ImGui::IsItemDeactivatedAfterEdit(), [&] {
-            std::vector<unsigned char> raw(sizeof(float));
-            std::memcpy(raw.data(), &edit.real, sizeof(float));
-            commit(raw);
-        });
+    ParameterValueDescription description;
+    if (state.workspace && DescribeParameterValue(*state.document, parameter, description)) {
+        if (!edit.owner) edit.owner = state.workspace->Application().OpenScope();
+        state.workspace->Application().EnterDraw();
+        state.workspace->Application().DrawProperty(ParameterProperty(description.value.kind),
+            state.workspace->Application().Scope(edit.owner), state.document->Reference(id), edit.draft, EditorLiteral("##value"));
+        state.workspace->Application().LeaveDraw();
     } else {
-        // Any other type: the type's own string conversion (Dev's text form).
-        if (edit.editing != id) edit.text = ParameterValueText(parameter);
-        const bool entered = ImGui::InputText("##value", &edit.text, ImGuiInputTextFlags_EnterReturnsTrue);
-        track(entered || ImGui::IsItemDeactivatedAfterEdit(), [&] {
-            report(SetParameterText(*state.document, script, id, Utf8ToAnsi(edit.text)));
-        });
+        // Specialized types keep their existing text/flags presentation.
+        auto *manager = state.document->Context()->GetParameterManager();
+        auto *type = manager->GetParameterTypeDescription(parameter->GetType());
+        auto *flags = type && (type->dwFlags & CKPARAMETERTYPE_FLAGS) ? manager->GetFlagsDescByType(parameter->GetType()) : nullptr;
+        if (flags && parameter->GetDataSize() == sizeof(int)) {
+            int integer = 0; parameter->GetValue(&integer, FALSE);
+            for (int i = 0; i < flags->GetNumFlags(); ++i) {
+                const int bit = flags->GetFlagValue(i);
+                bool on = bit && (integer & bit) == bit;
+                const auto *text = flags->GetFlagDescription(i);
+                if (ImGui::Checkbox(text ? AnsiToUtf8(text).c_str() : "?", &on)) {
+                    integer = on ? integer | bit : integer & ~bit;
+                    std::vector<unsigned char> bytes(sizeof(integer)); std::memcpy(bytes.data(), &integer, sizeof(integer));
+                    const auto result = SetParameterBytes(*state.document, script, id, bytes);
+                    if (!result.ok && !result.Unchanged()) state.Log(LogLevel::Warning, "Set value: " + AnsiToUtf8(result.message));
+                }
+            }
+        } else {
+            if (edit.editing != id) edit.text = ParameterValueText(parameter);
+            const bool accept = ImGui::InputText("##value", &edit.text, ImGuiInputTextFlags_EnterReturnsTrue);
+            if (ImGui::IsItemActivated()) edit.editing = id;
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape)) edit.editing = 0;
+            else if (accept || ImGui::IsItemDeactivatedAfterEdit()) {
+                const auto result = SetParameterText(*state.document, script, id, Utf8ToAnsi(edit.text));
+                if (!result.ok && !result.Unchanged()) state.Log(LogLevel::Warning, AnsiToUtf8(result.message));
+                edit.editing = 0;
+            }
+        }
     }
     ImGui::PopID();
 }

@@ -5,11 +5,14 @@
 #include "ui/app/EditorState.h"
 
 namespace vdev {
+struct PropertyBinding;
 
 // State of the value widget being edited. Drag and text widgets commit one
 // undoable edit when they are deactivated, not on every change.
 struct ValueEditState {
     CK_ID editing = 0;
+    EditorEdit draft = 0;
+    EditorView owner = 0;
     std::string text;
     int integer = 0;
     float real = 0.0f;
@@ -23,6 +26,12 @@ std::string ParameterValueText(CKParameter *parameter);
 // own string conversion otherwise) committing through ValueCommands.
 void ParameterValueEditor(EditorState &state, ValueEditState &edit, CK_ID script, CKParameter *parameter,
                           bool editable);
+
+void CancelParameterValueEdit(EditorState &, ValueEditState &);
+uint32_t ParameterDraftEditor(EditorState &, CKParameter *, const char *label, float width, float height,
+                              CK_CLASSID filterClass = 0, bool derived = true, const std::string &filter = {},
+                              ObjectRef *object = nullptr, const PropertyBinding *property = nullptr,
+                              const EditorValueEditorDesc *editor = nullptr);
 
 // A Copy / Delete Dependencies value (CKPGUID_COPYDEPENDENCIES ...; Dev's
 // Copy Options of Duplicate and Paste, Dev.exe sub_5BDD60): the mode (Custom,

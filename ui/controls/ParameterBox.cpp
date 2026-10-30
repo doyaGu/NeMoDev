@@ -22,6 +22,12 @@
 #include "core/graph/RuntimeGraph.h"
 #include "core/runtime/TextEncoding.h"
 #include "core/graph/ValueCommands.h"
+#include "core/graph/ParameterValues.h"
+#include "core/catalog/ValueText.h"
+#include "core/document/Edit.h"
+#include "ui/controls/ValueEditor.h"
+#include "features/values/ParameterCommands.h"
+#include "workspace/EditorWorkspace.h"
 
 namespace vdev {
 
@@ -44,22 +50,9 @@ std::string Format(float value) {
 }
 
 bool ParseFloat(const std::string &text, float &value) {
-    const char *begin = text.c_str();
-    char *end = nullptr;
-    value = std::strtof(begin, &end);
-    if (end == begin) return false;
-    while (*end == ' ') ++end;
-    return *end == 0;
+    double real = 0; if (!ParseRealValue(text, real)) return false; value = float(real); return true;
 }
-
-bool ParseInt(const std::string &text, int &value) {
-    const char *begin = text.c_str();
-    char *end = nullptr;
-    value = static_cast<int>(std::strtol(begin, &end, 10));
-    if (end == begin) return false;
-    while (*end == ' ') ++end;
-    return *end == 0;
-}
+bool ParseInt(const std::string &text, int &value) { int32_t integer = 0; if (!ParseIntegerValue(text, integer)) return false; value = integer; return true; }
 
 std::string TextOf(CKParameter *parameter) { return AnsiToUtf8(ParameterText(parameter)); }
 
@@ -186,7 +179,7 @@ void ParameterBox::Clear() {
     // The working copies of an earlier generation went with ClearAll; their ids may be another object's now.
     const bool alive = m_Generation == m_State.host.Generation();
     for (const Row &row : m_Rows)
-        if (alive && row.owned && context && context->GetObject(row.work)) context->DestroyObject(row.work);
+        if (alive && row.owned && context && m_State.document && m_State.document->Resolve(row.workReference, CKCID_PARAMETER, Document::ObjectScope::Existing)) context->DestroyObject(row.work);
     m_Rows.clear();
     if (m_PickWork) vi::BlockDialogButtons(false);
     m_PickWork = 0;
@@ -218,13 +211,24 @@ bool ParameterBox::Dependencies(size_t row, CKDependencies &value) const {
 
 CKParameter *ParameterBox::Work(size_t row) const {
     CKContext *context = m_State.host.Context();
-    return row < m_Rows.size() && context ? CKParameter::Cast(context->GetObject(m_Rows[row].work)) : nullptr;
+    return row < m_Rows.size() && context && m_State.document ? CKParameter::Cast(m_State.document->Resolve(m_Rows[row].workReference, CKCID_PARAMETER, Document::ObjectScope::Existing)) : nullptr;
 }
 
 void ParameterBox::InitRow(Row &row, CKParameter *work) {
     CKContext *context = m_State.host.Context();
     CKParameterManager *manager = context->GetParameterManager();
     row.work = work->GetID();
+    row.workReference = m_State.document ? m_State.document->Reference(row.work) : ObjectRef{};
+    ParameterValueDescription scalar;
+    row.scalar = m_State.document && DescribeParameterValue(*m_State.document, work, scalar);
+    if (row.scalar && scalar.value.kind == ParameterValueKind::Object) row.valueReference = scalar.value.object;
+    if (row.scalar && m_State.workspace) {
+        auto &app = m_State.workspace->Application();
+        if (const auto *property = app.Property(ParameterProperty(scalar.value.kind))) {
+            row.property = *property;
+            app.ValueEditor(property->editor, row.editor);
+        }
+    }
     row.info = ParameterUIOf(manager, work->GetType());
     switch (row.info.ui) {
     case ParameterUI::Object:
@@ -272,6 +276,16 @@ void ParameterBox::InitRow(Row &row, CKParameter *work) {
     }
 }
 
+bool ParameterBox::Retarget(size_t index, CKParameter *target) {
+    if (!m_State.HasDocument() || index >= m_Rows.size() || !target) return false;
+    auto *work = Work(index);
+    if (!work || work->GetGUID() != target->GetGUID()) return false;
+    auto &row = m_Rows[index];
+    row.target = target->GetID();
+    row.targetReference = m_State.document->Reference(row.target);
+    return bool(row.targetReference);
+}
+
 bool ParameterBox::Add(CK_ID target, const std::string &label, const CKGUID &type) {
     if (!m_State.HasDocument() || !m_State.document->IsLive(target)) return false;
     return Add(CKParameter::Cast(m_State.document->Context()->GetObject(target)), label, type);
@@ -288,6 +302,7 @@ bool ParameterBox::Add(CKParameter *target, const std::string &label, const CKGU
     if (!other) work->CopyValue(target, FALSE);
     Row row;
     row.target = target->GetID();
+    row.targetReference = m_State.document->Reference(row.target);
     row.owned = true;
     row.label = AnsiToUtf8(label);
     InitRow(row, work);
@@ -632,21 +647,18 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
     auto textEdit = [&](float x, float w, vi::Align align) { pen.TextEdit(x, w, align); };
 
     switch (row.info.ui) {
-    case ParameterUI::Number: {
-        // CK2UI sub_24E61A20: a Float is the number typed, an Integer too;
-        // anything else goes through the type's own text.
-        const CKGUID guid = work->GetGUID();
-        std::string text = TextOf(work);
-        bool done = false;
-        if (vi::Edit("##number", P(15, 0), P(70, 12), text, vi::CENTER, &done)) {
-            float real = 0.0f;
-            int whole = 0;
-            if (guid == CKPGUID_FLOAT && ParseFloat(text, real)) SetValueOf(work, real);
-            else if (guid == CKPGUID_INT && ParseInt(text, whole)) SetValueOf(work, whole);
-            else if (guid != CKPGUID_FLOAT && guid != CKPGUID_INT && ParseFloat(text, real)) SetText(work, text);
-            changed = true;
-        }
-        if (done) SetText(work, text);
+    case ParameterUI::Number:
+    case ParameterUI::Bool:
+    case ParameterUI::Enum: {
+        const bool boolean = row.info.ui == ParameterUI::Bool;
+        const char *id = boolean ? "##bool" : row.info.ui == ParameterUI::Enum ? "##enum" : "##number";
+        const auto min = boolean ? P(5, 2) : P(15, 0);
+        const auto max = row.info.ui == ParameterUI::Enum ? P(210, 12) : P(70, 12);
+        ImGui::SetCursorScreenPos(min);
+        const auto action = ParameterDraftEditor(m_State, work, id, max.x - min.x,
+            boolean ? 8 * DLU_X * s : max.y - min.y, 0, true, {}, nullptr, &row.property, &row.editor);
+        if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
+        if (action & EDITOR_INPUT_CHANGED) { row.invalid = (action & EDITOR_INPUT_INVALID) != 0; changed = !row.invalid; }
         break;
     }
     case ParameterUI::Angle: {
@@ -699,14 +711,6 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
                 }
                 break;
             }
-        }
-        break;
-    }
-    case ParameterUI::Bool: {
-        bool on = ValueOf<CKBOOL>(work) != FALSE;
-        if (vi::Check("##bool", P(5, 2), 8.0f * DLU_X * s, on)) {
-            SetValueOf<CKBOOL>(work, on ? TRUE : FALSE);
-            changed = true;
         }
         break;
     }
@@ -853,9 +857,11 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         // class; with its filter: Class, Derived, Text Filter, Show Setup.
         const CK_ID current = ValueOf<CK_ID>(work);
         const CK_CLASSID cid = row.extended ? row.filterClass : row.info.pickClass;
-        objectCombo("##object", 19, 0, 195, current,
-                    [&] { return ObjectsOfClass(*m_State.document, cid, row.extended ? row.derived : true, row.extended ? Utf8ToAnsi(row.filter) : ""); },
-                    [&](CK_ID id) { SetValueOf(work, id); });
+        ImGui::SetCursorScreenPos(P(19, 0));
+        const auto action = ParameterDraftEditor(m_State, work, "##object", 195 * DLU_X * s, 12 * DLU_Y * s,
+            cid, row.extended ? row.derived : true, row.extended ? row.filter : "", &row.valueReference, &row.property, &row.editor);
+        if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
+        if (action & EDITOR_INPUT_CHANGED) { row.invalid = (action & EDITOR_INPUT_INVALID) != 0; changed = !row.invalid; }
         if (row.extended) {
             label(15, 15, 28, 10, "Class", true, vi::LEFT);
             const auto classes = DerivedClasses(row.info.pickClass);
@@ -1021,29 +1027,6 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         label(15, 15, 140, 8, "Number Of Users:", true, vi::RIGHT);
         if (vi::Edit("##users", P(155, 15), P(210, 27), row.users, vi::CENTER)) {
             row.usersSet = true;
-            changed = true;
-        }
-        break;
-    }
-    case ParameterUI::Enum: {
-        CKEnumStruct *enumeration = manager->GetEnumDescByType(work->GetType());
-        const int current = ValueOf<int>(work);
-        int index = -1;
-        for (int i = 0; enumeration && i < enumeration->GetNumEnums(); ++i)
-            if (enumeration->GetEnumValue(i) == current) index = i;
-        const char *name = index >= 0 ? enumeration->GetEnumDescription(index) : nullptr;
-        const int chosen = vi::Combo("##enum", P(15, 0), P(210, 12), AnsiToUtf8(name ? name : ""),
-                                     [&] {
-                                         std::vector<std::string> names;
-                                         for (int i = 0; enumeration && i < enumeration->GetNumEnums(); ++i) {
-                                             const char *n = enumeration->GetEnumDescription(i);
-                                             names.push_back(AnsiToUtf8(n ? n : ""));
-                                         }
-                                         return names;
-                                     },
-                                     index);
-        if (chosen >= 0) {
-            SetValueOf(work, enumeration->GetEnumValue(chosen));
             changed = true;
         }
         break;
@@ -1683,7 +1666,12 @@ bool ParameterBox::PickResult(Row &row, CK_ID pickedId) {
                                                  row.extended ? Utf8ToAnsi(row.filter) : ""))
             if (choice.first == pickedId) chosen = pickedId;
         if (ValueOf<CK_ID>(work) == chosen) return false;
-        SetValueOf(work, chosen);
+        ParameterValueDescription description;
+        if (!DescribeParameterValue(*m_State.document, work, description)) return false;
+        description.value.object = m_State.document->Reference(chosen);
+        if (!WriteParameterDraft(*m_State.document, work, description.value)) return false;
+        row.valueReference = description.value.object;
+        row.invalid = false;
         return true;
     }
     case ParameterUI::Script: {
@@ -1796,7 +1784,12 @@ size_t ParameterBox::ApplyRow(const Row &row, CK_ID targetId, CK_ID script) {
     CKContext *context = m_State.host.Context();
     CKParameter *work = CKParameter::Cast(context->GetObject(row.work));
     CKParameter *target = CKParameter::Cast(context->GetObject(targetId));
-    if (!work || !target || work->GetType() != target->GetType()) return 0;
+    if (!work || !target || work->GetType() != target->GetType() || row.invalid ||
+        (row.targetReference && !m_State.document->Resolve(row.targetReference)) ||
+        !m_State.document->Resolve(row.workReference, CKCID_PARAMETER, Document::ObjectScope::Existing)) {
+        m_ApplyFailed = true;
+        return 0;
+    }
     if (row.info.ui == ParameterUI::Struct) {
         size_t steps = 0;
         const std::vector<CK_ID> members = MembersOf(context, target);
@@ -1827,6 +1820,24 @@ size_t ParameterBox::ApplyRow(const Row &row, CK_ID targetId, CK_ID script) {
             if (set.ok) ++steps;
         }
     }
+    ParameterValueDescription scalar;
+    const bool described = DescribeParameterValue(*m_State.document, work, scalar);
+    if (row.scalar && !described) { m_ApplyFailed = true; return 0; }
+    if (described) {
+        if (scalar.value.kind == ParameterValueKind::Object && row.valueReference.object == scalar.value.object.object)
+            scalar.value.object = row.valueReference;
+        if (!m_State.workspace || row.property.id.empty()) { m_ApplyFailed = true; return 0; }
+        const auto type = scalar.value.kind == ParameterValueKind::Object ? EDITOR_OBJECT : scalar.value.kind == ParameterValueKind::Real ? EDITOR_REAL_VALUE : EDITOR_INTEGER_VALUE;
+        const EditorValue value{EDITOR_TEXT("value"), type, scalar.value.object, {}, uint64_t(int64_t(scalar.value.integer)), {}, {}, {}, scalar.value.real};
+        auto &app = m_State.workspace->Application();
+        const auto result = app.ApplyEdit(row.property, app.Scope(), m_State.document->Reference(targetId), value,
+            {{"type", EDITOR_INTEGER_VALUE, {}, {}, (uint64_t(scalar.type.d1) << 32) | scalar.type.d2}});
+        if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) {
+            m_ApplyFailed = true;
+            m_State.Log(LogLevel::Warning, "Edit Parameters: " + result.message);
+        }
+        return steps + (result.status == EDITOR_OK ? 1 : 0);
+    }
     EditResult result = EditResult::Refused(std::string());
     const bool held = (row.info.ui == ParameterUI::Curve2D && CurveOf(work)) ||
                       (row.info.ui == ParameterUI::Dependencies && HeldOf<CKDependencies>(work)) ||
@@ -1850,8 +1861,10 @@ size_t ParameterBox::ApplyRow(const Row &row, CK_ID targetId, CK_ID script) {
         if (bytes == ParameterBytes(target)) return steps;
         result = SetParameterBytes(*m_State.document, script, targetId, bytes);
     }
-    if (!result.ok && !result.Unchanged())
+    if (!result.ok && !result.Unchanged()) {
+        m_ApplyFailed = true;
         m_State.Log(LogLevel::Warning, "Edit Parameters: " + AnsiToUtf8(result.message));
+    }
     return steps + (result.ok ? 1 : 0);
 }
 
@@ -1879,12 +1892,14 @@ DialogAction EditParametersDialog(const char *id, const std::string &title, Para
     const float y = o.y + panelBottom + 4.0f * s;
     DialogAction action = DialogAction::None;
     if (vi::DialogButton("Cancel", ImVec2(x, y), s, ImGuiKey_Escape)) action = DialogAction::Cancel;
+    ImGui::BeginDisabled(!box.Valid());
     if (apply) {
         x -= 70.0f * s;
-        if (vi::DialogButton("Apply", ImVec2(x, y), s)) action = DialogAction::Apply;
+        if (vi::DialogButton("Apply", ImVec2(x, y), s) && box.Valid()) action = DialogAction::Apply;
     }
     x -= 70.0f * s;
-    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter)) action = DialogAction::Ok;
+    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter) && box.Valid()) action = DialogAction::Ok;
+    ImGui::EndDisabled();
     if (action == DialogAction::Ok || action == DialogAction::Cancel) ImGui::CloseCurrentPopup();
     vi::EndDialog();
     return action;
@@ -1917,21 +1932,34 @@ DialogAction EditParameterValueDialog(const char *id, const std::string &title, 
     DialogAction action = DialogAction::None;
     if (vi::DialogButton("Cancel", ImVec2(x, y), s, ImGuiKey_Escape)) action = DialogAction::Cancel;
     x -= 70.0f * s;
-    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter)) action = DialogAction::Ok;
+    ImGui::BeginDisabled(!box.Valid());
+    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter) && box.Valid()) action = DialogAction::Ok;
+    ImGui::EndDisabled();
     if (action != DialogAction::None) ImGui::CloseCurrentPopup();
     vi::EndDialog();
     return action;
 }
 
+bool ParameterBox::Valid() const {
+    const auto valid = [&](const auto &self, const Row &row) -> bool {
+        return !row.invalid && std::all_of(row.members.begin(), row.members.end(), [&](const Row &member) { return self(self, member); });
+    };
+    return std::all_of(m_Rows.begin(), m_Rows.end(), [&](const Row &row) { return valid(valid, row); });
+}
 size_t ParameterBox::Apply(CK_ID script) {
-    if (!m_State.HasDocument() || Stale()) return 0;
+    if (!m_State.HasDocument() || Stale() || !Valid()) return 0;
+    Edit edit(*m_State.document, "Edit Parameters");
+    m_ApplyFailed = false;
     size_t steps = 0;
-    for (Row &row : m_Rows) {
+    for (const auto &row : m_Rows) {
         steps += ApplyRow(row, row.target, script);
-        // Made once (Apply then OK).
-        row.created.clear();
-        row.usersSet = false;
+        if (m_ApplyFailed) break;
     }
+    if (m_ApplyFailed) { edit.Cancel(); return 0; }
+    if (steps) edit.Touches(script);
+    const auto result = edit.Commit();
+    if (!result.ok) return 0;
+    for (auto &row : m_Rows) { row.created.clear(); row.usersSet = false; }
     return steps;
 }
 
@@ -1988,7 +2016,7 @@ struct ParameterDialog {
     }
     static EditorStatus Accept(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink){
         auto&d=*static_cast<ParameterDialog*>(data);if(!d.open||!d.state.document||d.state.document->Token()!=d.scope.document||request->scope.view!=d.view)return EDITOR_STALE;
-        if(d.kind==0){if(!d.state.document->Resolve(d.target)){d.box->Clear();d.open=false;return EDITOR_STALE;}d.box->Apply(0);d.box->Clear();d.open=false;return EDITOR_OK;}
+        if(d.kind==0){if(!d.state.document->Resolve(d.target)){d.box->Clear();d.open=false;return EDITOR_STALE;}if(!d.box->Valid())return EDITOR_INVALID;const bool changed=d.box->Changed();if(!d.box->Apply(0)&&changed)return EDITOR_ERROR;d.box->Clear();d.open=false;return EDITOR_OK;}
         CKDependencies options;if(!d.box->Dependencies(0,options))return EDITOR_INVALID;
         std::vector<uint64_t> flags;for(int i=0;i<options.Size();++i)flags.push_back(options[i]);
         const EditorValue values[]={ObjectsArgument("objects",d.objects),ObjectArgument("target",d.target),IntegerArgument("custom",1),IntegerArgument("flags",uint64_t(options.m_Flags)),

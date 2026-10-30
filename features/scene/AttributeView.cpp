@@ -38,6 +38,7 @@ class AttributeView {
     std::string categoryName, typeName, typeCategory, renameText, renameCategory, deleteCategory, valueText;
     int64_t renameType = -1;
     bool renameFocus = false, removeUser = false;
+    EditorEdit valueEdit = 0;
     ObjectRef valueObject{};
     uint64_t valueType = 0;
     float split = 0;
@@ -63,6 +64,7 @@ void AttributeView::Read(const EditorClient &client) {
         selected = -1;
         selectedRows.clear();
         rows.clear();
+        client.CancelEdit(valueEdit);
         valueObject = {};
         renameType = -1;
         renameCategory.clear();
@@ -459,6 +461,18 @@ void AttributeView::Values(const EditorClient &client, float width, float height
         }
         ImGui::TableSetColumnIndex(2);
         if (row.parameter) {
+            const auto description = client.Query("parameter.description", {ObjectArgument("target", row.parameter)});
+            const auto property = EditorClient::Text(description, "property");
+            if (!property.empty()) {
+                ImGui::SetNextItemWidth(-1);
+                const auto action = client.DrawProperty(property, row.parameter, valueEdit, "##value");
+                if (action & EDITOR_INPUT_ACCEPT) rowsTypes.clear();
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+                    client.CancelEdit(valueEdit);
+                    ImGui::ClearActiveID();
+                    client.Command("parameter.edit", {ObjectArgument("target", row.parameter)});
+                }
+            } else {
             std::string text = valueObject == row.object && valueType == row.type ? valueText : row.value;
             ImGui::SetNextItemWidth(-1);
             const bool accept = ImGui::InputText("##value", &text, ImGuiInputTextFlags_EnterReturnsTrue);
@@ -481,6 +495,7 @@ void AttributeView::Values(const EditorClient &client, float width, float height
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
                 valueObject = {};
+            }
             }
         }
         ImGui::PopID();
@@ -651,7 +666,7 @@ void AttributeView::Manager(const EditorClient &client, EditorViewFrame &frame) 
             frame.active = 1;
             ImGui::EndPopup();
         }
-        if (valueObject || renameType >= 0) {
+        if (valueEdit || valueObject || renameType >= 0) {
             frame.active = 1;
         }
     }

@@ -78,6 +78,7 @@ void ToolWindows::Draw(ImGuiID topDock, bool openPopups) {
     VersionTestDialog();
     Profiler();
     ParameterDebugger(topDock);
+    if (!showParameterDebugger) CancelParameterValueEdit(m_State, m_WatchEdit);
     AboutDialog();
     AllObjectsDialog();
     LinkPropertiesDialog();
@@ -91,6 +92,7 @@ void ToolWindows::CloseManagers() {
 }
 
 void ToolWindows::DocumentClosed() {
+    CancelParameterValueEdit(m_State, m_WatchEdit);
     m_Doc = DocumentState();
 }
 
