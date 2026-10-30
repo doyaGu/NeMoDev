@@ -12,7 +12,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <thread>
-namespace vdev { void TestSpecializedParameterEdits(Document &, EditorApplication &, EditorScope); }
+namespace vdev { void TestSpecializedParameterEdits(Document &, EditorApplication &, EditorScope); void TestSelectionParameterEdits(Document &, EditorApplication &, EditorScope); }
 
 namespace {
 using namespace vdev;
@@ -500,6 +500,7 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
         manager->UnRegisterParameterType(recordType); manager->UnRegisterParameterType(flagsType);
     }
     TestSpecializedParameterEdits(document, app, scope);
+    TestSelectionParameterEdits(document, app, scope);
     const CKGUID derivedVectorType(0x6e76616c, 0x00000411);
     auto *manager = context->GetParameterManager();
     auto derived = *manager->GetParameterTypeDescription(manager->ParameterGuidToType(CKPGUID_VECTOR));

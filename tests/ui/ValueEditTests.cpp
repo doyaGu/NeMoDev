@@ -1,5 +1,6 @@
 #include "tests/ui/UiTests.h"
 #include "core/graph/ParameterValues.h"
+#include "core/level/LevelCommands.h"
 #include "ui/controls/ParameterBox.h"
 #include "workspace/EditorClient.h"
 #include <memory>
@@ -9,12 +10,13 @@ namespace vdevuitest {
 namespace {
 struct Editing {
     std::unique_ptr<vdev::ParameterBox> box;
-    std::vector<CK_ID> parameters;
+    std::vector<CK_ID> parameters, objects;
+    std::vector<int> attributes;
     std::unique_ptr<vdev::EditorConfiguration> configuration;
     CKGUID enumType{0, 0};
     CKGUID flagsType{0, 0};
     std::vector<CKGUID> structures;
-    bool open = false, popup = false, inlineValue = false;
+    bool open = false, popup = false, inlineValue = false, focusWindow = false;
     float inlineHeight = 180;
     const char *property = "parameter.integer";
     vdev::ObjectRef target{};
@@ -41,6 +43,11 @@ void Gui(ImGuiTestContext *ctx) {
         app.LeaveDraw();
         ImGui::End();
     }
+    if (editing.focusWindow) {
+        ImGui::SetNextWindowPos(ImVec2(700,100),ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(180,100),ImGuiCond_Always);
+        ImGui::Begin("Capture focus"); ImGui::Button("Other input"); ImGui::End();
+    }
 }
 void Cleanup(ImGuiTestContext *ctx) {
     OnMainThread(ctx, [] {
@@ -53,6 +60,9 @@ void Cleanup(ImGuiTestContext *ctx) {
         if (editing.configuration) { std::string error; state.workspace->Configure(*editing.configuration, error); }
         state.History().Clear();
         for (auto id : editing.parameters) if (state.host.Context()->GetObject(id)) state.host.Context()->DestroyObject(id);
+        for (auto id = editing.objects.rbegin(); id != editing.objects.rend(); ++id) if (state.host.Context()->GetObject(*id)) state.host.Context()->DestroyObject(*id);
+        for (auto id : editing.attributes) state.host.Context()->GetAttributeManager()->UnRegisterAttribute(id);
+        for (const auto *category : {"Selector A", "Selector B"}) state.host.Context()->GetAttributeManager()->RemoveCategory(category);
         for (auto type = editing.structures.rbegin(); type != editing.structures.rend(); ++type) state.host.Context()->GetParameterManager()->UnRegisterParameterType(*type);
         if (editing.enumType.d1 || editing.enumType.d2) state.host.Context()->GetParameterManager()->UnRegisterParameterType(editing.enumType);
         if (editing.flagsType.d1 || editing.flagsType.d2) state.host.Context()->GetParameterManager()->UnRegisterParameterType(editing.flagsType);
@@ -185,6 +195,56 @@ void SpecializedFixture(bool dialog, bool nested = false, bool curveOnly = false
         editing.property = nested ? "parameter.structure" : "parameter.curve2d";
         editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true; editing.inlineHeight = 400;
     }
+    state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
+}
+void SelectorFixture(bool dialog = true, bool nested = false, bool compact = false) {
+    auto &state = App().State(); auto *context = state.host.Context(); auto *manager = context->GetParameterManager();
+    const CKGUID types[] = {CKPGUID_TIME, CKPGUID_KEY, CKPGUID_SCRIPT, CKPGUID_ANIMATION, CKPGUID_MESSAGE, CKPGUID_ATTRIBUTE, CKPGUID_SYNCHRO};
+    std::vector<CKParameter *> values;
+    if (nested) {
+        const CKGUID type(0x6e76616c, 0x00000462); XArray<CKGUID> members;
+        for (auto child : {CKPGUID_TIME,CKPGUID_KEY,CKPGUID_MESSAGE,CKPGUID_SYNCHRO}) members.PushBack(child);
+        IM_CHECK_NO_RET(manager->RegisterNewStructure(type,"UI selector record","Time,Key,Message,Synchro",members)==CK_OK);
+        editing.structures.push_back(type); auto *parameter=context->CreateCKParameterLocal("Selector record",type); IM_CHECK_NO_RET(parameter);
+        editing.parameters.push_back(parameter->GetID()); std::vector<vdev::ParameterMember> children;
+        IM_CHECK_NO_RET(vdev::ParameterMembers(*state.document,parameter,children));
+        for (const auto &child:children) values.push_back(CKParameter::Cast(state.document->Resolve(child.parameter,CKCID_PARAMETER)));
+    } else for (unsigned i=0;i<(compact?2u:7u);++i) {
+        auto *parameter=context->CreateCKParameterLocal("Selector value",types[i]); IM_CHECK_NO_RET(parameter);
+        values.push_back(parameter); editing.parameters.push_back(parameter->GetID());
+    }
+    float time=61345.5f; int key=0x1e; values[0]->SetValue(&time,4); values[1]->SetValue(&key,4);
+    const auto object=[&](CK_CLASSID cid,const char *name) {
+        const auto result=vdev::CreateNamedObject(*state.document,cid,name); IM_CHECK_NO_RET(result.ok);
+        editing.objects.push_back(result.created); return result.created;
+    };
+    if (!compact) {
+        if (!nested) {
+            const auto owner=object(CKCID_3DOBJECT,"UI selector owner A"); const auto other=object(CKCID_3DOBJECT,"UI selector owner B");
+            for (auto entry: {std::make_pair(owner,"UI selector script A"),std::make_pair(other,"UI selector script B")}) {
+                const auto result=vdev::CreateScript(*state.document,entry.first,entry.second); IM_CHECK_NO_RET(result.ok); editing.objects.push_back(result.created);
+                if (entry.first==owner) { auto id=result.created; values[2]->SetValue(&id,4); }
+            }
+            const auto animation=object(CKCID_ANIMATION,"UI selector animation A"); object(CKCID_ANIMATION,"UI selector animation B"); auto id=animation; values[3]->SetValue(&id,4);
+            auto *attributes=context->GetAttributeManager();
+            for (const auto *category:{"Selector A","Selector B"}) attributes->AddCategory(category);
+            for (auto entry:{std::make_pair("UI selector attribute A","Selector A"),std::make_pair("UI selector attribute B","Selector B")}) {
+                const auto id=attributes->RegisterNewAttributeType(entry.first,CKPGUID_INT,CKCID_BEOBJECT,CK_ATTRIBUT_USER); IM_CHECK_NO_RET(id>=0);
+                editing.attributes.push_back(id); attributes->SetAttributeCategory(id,entry.second);
+            }
+            auto attribute=editing.attributes[0]; values[5]->SetValue(&attribute,4);
+        }
+        auto message=context->GetMessageManager()->AddMessageType("UI selector existing message"); values[nested?2:4]->SetValue(&message,4);
+        auto synchro=object(CKCID_SYNCHRO,"UI selector existing synchro"); values[nested?3:6]->SetValue(&synchro,4);
+        CKSynchroObject::Cast(context->GetObject(synchro))->SetRendezVousNumberOfWaiters(3);
+    }
+    editing.target=state.document->Reference(editing.parameters.front());
+    if (dialog) {
+        editing.box=std::make_unique<vdev::ParameterBox>(state);
+        if (nested) IM_CHECK_NO_RET(editing.box->Add(Object<CKParameter>(editing.parameters.front()),"Selectors"));
+        else for (unsigned i=0;i<values.size();++i) IM_CHECK_NO_RET(editing.box->Add(values[i],i==0?"Time":i==1?"Key":i==2?"Script":i==3?"Animation":i==4?"Message":i==5?"Attribute":"Synchro"));
+        editing.open=true;
+    } else { editing.property=nested?"parameter.structure":"parameter.time"; editing.owner=state.workspace->Application().OpenScope(); editing.inlineValue=true; editing.inlineHeight=600; }
     state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
 void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
@@ -964,6 +1024,148 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx, editing.parameters[0]) == curve);
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[0]).curve.points[0].values[1] == 0 && Read<bool>(ctx, [] { return !App().State().document->Dirty(); }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "time_and_key_dialog_one_undo_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(true,false,true); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        Input(ctx,"**/##min","2"); ctx->KeyPress(ImGuiKey_Tab); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx).real==121345.5);
+        Input(ctx,"**/##ms","876.25"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx).real==121345.5 && Read<bool>(ctx, [] { return editing.open; }));
+        ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_KeypadEnter); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx,1).integer==0x9c && IntegerValue(ctx,editing.parameters[1])==0x1e);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Value(ctx,editing.parameters[0]).real==121345.5 && IntegerValue(ctx,editing.parameters[1])==0x9c &&
+            Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
+        ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2); ctx->KeyPress(ImGuiKey_B); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx,1).integer==0x9c && Read<bool>(ctx, [] { return editing.open; }));
+        ctx->ItemClick("**/##key"); ctx->Yield(2);
+        ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Read<bool>(ctx, [] { return !editing.open; }));
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx,editing.parameters[0]).real==61345.5 && IntegerValue(ctx,editing.parameters[1])==0x1e &&
+            Read<bool>(ctx, [] { return !App().State().document->Dirty(); }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "time_inline_and_key_capture_lifecycle");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(false,false,true); });
+        ctx->Yield(3); ctx->SetRef("//Typed inline"); Input(ctx,"**/##ms","700.25"); ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(3);
+        IM_CHECK(Value(ctx,editing.parameters[0]).real==61700.25 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
+        Input(ctx,"**/##s","4"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(Value(ctx,editing.parameters[0]).real==61700.25 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
+        OnMainThread(ctx, [] { auto &app=App().State().workspace->Application(); if(editing.edit)app.FinishEdit(editing.edit,false); editing.edit=0;
+            editing.target=App().State().document->Reference(editing.parameters[1]); editing.property="parameter.key"; });
+        ctx->Yield(3); ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_B); ctx->Yield(3);
+        IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==2);
+        ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_Escape); ctx->KeyPress(ImGuiKey_C); ctx->Yield(3);
+        IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==2);
+        ctx->ItemClick("**/##key"); ctx->Yield(2);
+        OnMainThread(ctx, [] { editing.focusWindow=true; }); ctx->Yield(2); ctx->SetRef("//Capture focus"); ctx->ItemClick("Other input");
+        ctx->KeyPress(ImGuiKey_E); ctx->Yield(2); IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30);
+        ctx->SetRef("//Typed inline"); ctx->ItemClick("**/##key"); ctx->Yield(2);
+        OnMainThread(ctx, [] { editing.inlineValue=false; editing.focusWindow=false; }); ctx->Yield(3);
+        OnMainThread(ctx, [] { editing.inlineValue=true; }); ctx->Yield(3); ctx->KeyPress(ImGuiKey_D); ctx->Yield(2);
+        IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30);
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "message_and_synchro_defer_creation_and_restore_users");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto messages=Read<int>(ctx, [] { return App().State().host.Context()->GetMessageManager()->GetMessageTypeCount(); });
+        Input(ctx,"**/##message/##text","UI selector accepted message"); ctx->KeyPress(ImGuiKey_Tab); ctx->Yield(2);
+        Input(ctx,"**/##synchro/##text","UI selector accepted synchro"); Input(ctx,"**/##users","7"); ctx->KeyPress(ImGuiKey_Tab); ctx->Yield(2);
+        IM_CHECK(Read<int>(ctx, [] { return App().State().host.Context()->GetMessageManager()->GetMessageTypeCount(); })==messages);
+        IM_CHECK(Value(ctx,editing.parameters[6]).waiters==3 && Read<bool>(ctx, [] { return !App().State().host.Context()->GetObjectByNameAndClass("UI selector accepted synchro",CKCID_SYNCHRO); }));
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto synchro=Value(ctx,editing.parameters[6]);
+        IM_CHECK(synchro.object && synchro.waiters==7 && Value(ctx,editing.parameters[4]).text=="UI selector accepted message" &&
+            Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
+        OnMainThread(ctx, [&] { editing.objects.push_back(synchro.object.object); });
+        Input(ctx,"**/##users","11"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx,6).waiters==7 && Value(ctx,editing.parameters[6]).waiters==7);
+        Input(ctx,"**/##users","7"); ctx->KeyPress(ImGuiKey_Tab); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Read<bool>(ctx, [] { return !editing.box->Changed(); }) && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
+        Input(ctx,"**/##message/##text","UI selector cancelled message"); ctx->KeyPress(ImGuiKey_Tab);
+        Input(ctx,"**/##synchro/##text","UI selector cancelled synchro"); ctx->KeyPress(ImGuiKey_Tab);
+        ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Value(ctx,editing.parameters[6])==synchro && Read<int>(ctx, [] { return App().State().host.Context()->GetMessageManager()->GetMessageTypeCount(); })==messages+1);
+        IM_CHECK(Read<bool>(ctx, [] { return !App().State().host.Context()->GetObjectByNameAndClass("UI selector cancelled synchro",CKCID_SYNCHRO); }));
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx,editing.parameters[6]).waiters==3 && Value(ctx,editing.parameters[4]).text=="UI selector existing message");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); }); IM_CHECK(Value(ctx,editing.parameters[6])==synchro);
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "script_animation_and_attribute_selectors");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues"); const auto script=Value(ctx,editing.parameters[2]);
+        const auto animation=Value(ctx,editing.parameters[3]); const auto attribute=Value(ctx,editing.parameters[5]);
+        ctx->ItemClick("**/##owner/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector owner B");
+        ctx->SetRef("//Value editing###PrimitiveValues");
+        ctx->ItemClick("**/##objects/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector animation B");
+        ctx->SetRef("//Value editing###PrimitiveValues");
+        ctx->ItemClick("**/##category/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/Selector B");
+        ctx->SetRef("//Value editing###PrimitiveValues"); ctx->Yield(2);
+        ctx->ItemClick("**/##attribute/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector attribute B");
+        ctx->SetRef("//Value editing###PrimitiveValues");
+        IM_CHECK(Value(ctx,editing.parameters[2])==script && Value(ctx,editing.parameters[3])==animation && Value(ctx,editing.parameters[5])==attribute);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Value(ctx,editing.parameters[2])!=script && Value(ctx,editing.parameters[3])!=animation && Value(ctx,editing.parameters[5])!=attribute &&
+            Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
+        ctx->ItemClick("**/Cancel/##dialogbutton"); OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx,editing.parameters[2])==script && Value(ctx,editing.parameters[3])==animation && Value(ctx,editing.parameters[5])==attribute);
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "nested_remaining_selectors_one_undo_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(true,true); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues"); const auto before=Value(ctx,editing.parameters[0]);
+        Input(ctx,"**/##s","8"); ctx->KeyPress(ImGuiKey_Tab); ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_F4);
+        Input(ctx,"**/##users","9"); ctx->KeyPress(ImGuiKey_Tab); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto applied=Value(ctx,editing.parameters[0]);
+        IM_CHECK(applied.members[0].real==68345.5 && applied.members[1].integer==0x3e && applied.members[3].waiters==9 &&
+            Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
+        Input(ctx,"**/##message/##text","UI selector nested cancelled"); ctx->KeyPress(ImGuiKey_Tab);
+        Input(ctx,"**/##users","14"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx).members[3].waiters==9);
+        ctx->ItemClick("**/Cancel/##dialogbutton"); OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx,editing.parameters[0])==before);
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "external_remaining_value_providers_are_captured");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
+        OnMainThread(ctx,[&]{auto &state=App().State(); previous=state.workspace->Application().Configuration(); editing.configuration=std::make_unique<vdev::EditorConfiguration>(previous);
+            auto selected=previous;
+            for(auto &entry:selected.providers) {
+                if(entry.id=="parameter.selection-choices")entry.provider="example.selectors";
+                for(const auto *name:{"time","key","script","animation","message","attribute","synchro"})
+                    if(entry.id==std::string("value.")+name || entry.id.find(std::string("parameter.")+name+"-")==0)entry.provider="example.selectors";
+            }
+            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(selected,error)); SelectorFixture(); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto counts=[&]{return Read<std::vector<vdev::EditorField>>(ctx,[]{auto &app=App().State().workspace->Application();return app.Query("example.selector-count",{app.Scope(),nullptr,0}).fields;});};
+        const auto before=counts(); IM_CHECK(before.size()==3 && before[0].integers.size()==7);
+        OnMainThread(ctx,[&]{std::string error;IM_CHECK_NO_RET(App().State().workspace->Configure(previous,error));}); ctx->Yield(2);
+        const auto retained=counts(); for(unsigned i=0;i<7;++i)IM_CHECK(retained[1].integers[i]>before[1].integers[i]);
+        IM_CHECK(retained[2].integer>before[2].integer);
+        for(const auto *name:{"time","key","script","animation","message","attribute","synchro"})ctx->ItemClick((std::string("**/Change external ")+name).c_str());
+        IM_CHECK(!WorkingValue(ctx,2).object && !WorkingValue(ctx,3).object);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto written=counts();
+        for(unsigned i=0;i<7;++i) {
+            ctx->LogInfo("selector %u writes: %llu -> %llu",i,(unsigned long long)before[0].integers[i],(unsigned long long)written[0].integers[i]);
+            IM_CHECK(written[0].integers[i]==before[0].integers[i]+1);
+        }
+        IM_CHECK(Read<size_t>(ctx,[]{return App().State().History().UndoCount();})==1);
+        const auto synchro=Value(ctx,editing.parameters[6]);OnMainThread(ctx,[&]{editing.objects.push_back(synchro.object.object);});
+        ctx->ItemClick("**/Change external time"); ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx,[]{IM_CHECK_NO_RET(App().State().History().Undo());});
+        IM_CHECK(Value(ctx,editing.parameters[0]).real==61345.5 && Read<bool>(ctx,[]{return !App().State().document->Dirty();}));
     };
     test = IM_REGISTER_TEST(engine, "modules", "nested_member_reuse_is_rejected");
     test->GuiFunc = Gui;

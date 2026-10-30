@@ -13,6 +13,8 @@ struct Module {
     int views = 0, playCalls = 0, integerCalls = 0, vectorCalls = 0, vectorReads = 0, structureCalls = 0, structureReads = 0, flagCalls = 0, flagReads = 0;
     bool refuseFileView = false;
     uint64_t specializedCalls[3]{}, specializedReads[3]{};
+    uint64_t selectorCalls[7]{}, selectorReads[7]{}, selectorChoices=0;
+    struct Selector { Module *owner = nullptr; unsigned index = 0; } selectors[7];
     EditorObject resourceTarget{};
 };
 struct FileView {
@@ -291,6 +293,56 @@ uint32_t DrawSpecialized(void *, const EditorHost *, const EditorValueInput *inp
         return ImGui::IsItemActive() ? EDITOR_INPUT_ACTIVE : 0u;
     }
     return EDITOR_INPUT_INVALID;
+}
+const char *selectorNames[] = {"time","key","script","animation","message","attribute","synchro"};
+const char *selectorCommandIds[] = {"parameter.time-set","parameter.key-set","parameter.script-set","parameter.animation-set","parameter.message-set","parameter.attribute-set","parameter.synchro-set"};
+const char *selectorQueryIds[] = {"parameter.time-value","parameter.key-value","parameter.script-value","parameter.animation-value","parameter.message-value","parameter.attribute-value","parameter.synchro-value"};
+const char *selectorEditorIds[] = {"value.time","value.key","value.script","value.animation","value.message","value.attribute","value.synchro"};
+EditorString SelectorId(const char *text) { return {text,uint32_t(std::char_traits<char>::length(text))}; }
+EditorStatus ModifySelector(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink) {
+    auto &selector=*static_cast<Module::Selector *>(data); ++selector.owner->selectorCalls[selector.index];
+    auto next=*request; next.handler=EDITOR_TEXT("builtin.parameters");
+    return host->execute(host->data,SelectorId(selectorCommandIds[selector.index]),&next,sink);
+}
+EditorStatus ReadSelector(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink) {
+    auto &selector=*static_cast<Module::Selector *>(data); ++selector.owner->selectorReads[selector.index];
+    auto next=*request; next.handler=EDITOR_TEXT("builtin.parameters");
+    return host->query(host->data,SelectorId(selectorQueryIds[selector.index]),&next,sink);
+}
+EditorStatus SelectorChoices(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink) {
+    ++static_cast<Module *>(data)->selectorChoices; auto next=*request; next.handler=EDITOR_TEXT("builtin.parameters");
+    return host->query(host->data,EditorString EDITOR_TEXT("parameter.selection-choices"),&next,sink);
+}
+uint32_t DrawSelector(void *data,const EditorHost *host,const EditorValueInput *input) {
+    const auto &selector=*static_cast<Module::Selector *>(data);
+    if (input->choicesQuery.size) {
+        EditorValue target{};
+        for(uint32_t i=0;i<input->choicesRequest.count;++i)
+            if(std::string(input->choicesRequest.values[i].key.data,input->choicesRequest.values[i].key.size)=="target")target=input->choicesRequest.values[i];
+        const EditorRequest request{input->choicesRequest.scope,&target,1,input->choicesRequest.handler};
+        const EditorSink discard{nullptr,[](void*,const EditorValue*,uint32_t){return EDITOR_OK;}};
+        if(host->query(host->data,input->choicesQuery,&request,discard)!=EDITOR_OK)return EDITOR_INPUT_INVALID;
+    }
+    if(ImGui::IsKeyPressed(ImGuiKey_Escape))return EDITOR_INPUT_CANCEL;
+    const std::string label=std::string("Change external ")+selectorNames[selector.index];
+    if(ImGui::Button(label.c_str())) {
+        auto value=input->value; std::vector<EditorValue> fields;
+        if(value.type==EDITOR_REAL_VALUE)value.real+=1000;
+        else if(value.type==EDITOR_INTEGER_VALUE)value.integer=selector.index==5?uint64_t(int64_t(-1)):value.integer+1;
+        else if(value.type==EDITOR_OBJECT)value.object={};
+        else if(value.type==EDITOR_RECORD) {
+            fields.assign(value.fields.data,value.fields.data+value.fields.count);
+            for(auto &field:fields) {
+                const std::string key(field.key.data,field.key.size);
+                if(key=="id")field.integer=uint64_t(int64_t(-1));
+                if(key=="object")field.object={};
+                if(key=="name")field.text=selector.index==4?EditorString EDITOR_TEXT("External selector message"):EditorString EDITOR_TEXT("External selector synchro");
+            }
+            value.fields={fields.data(),uint32_t(fields.size())};
+        } else return EDITOR_INPUT_INVALID;
+        return input->update.write(input->update.data,&value,1)==EDITOR_OK?EDITOR_INPUT_CHANGED|EDITOR_INPUT_ACCEPT:EDITOR_INPUT_INVALID;
+    }
+    return ImGui::IsItemActive()?EDITOR_INPUT_ACTIVE:0u;
 }
 uint32_t DrawVector(void *, const EditorHost *, const EditorValueInput *input) {
     if (input->value.type != EDITOR_REAL_LIST || input->value.reals.count != 3 || !input->value.reals.data) return EDITOR_INPUT_INVALID;
@@ -708,6 +760,28 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                 {EDITOR_TEXT("reads"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {module.specializedReads, 3}}};
             return sink.write(sink.data, fields, 2);
         }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, specializedCounts, 2});
+    static EditorParameter selectorArgs[7][3]{}, selectorFields[7][10]{};
+    const EditorValueType selectorTypes[]={EDITOR_REAL_VALUE,EDITOR_INTEGER_VALUE,EDITOR_OBJECT,EDITOR_OBJECT,EDITOR_RECORD,EDITOR_INTEGER_VALUE,EDITOR_RECORD};
+    for(unsigned i=0;i<7;++i) {
+        data->selectors[i]={data,i};
+        selectorArgs[i][0]={EDITOR_TEXT("target"),EDITOR_OBJECT}; selectorArgs[i][1]={EDITOR_TEXT("value"),selectorTypes[i],0,selectorTypes[i]==EDITOR_OBJECT?1u:0u}; selectorArgs[i][2]={EDITOR_TEXT("type"),EDITOR_INTEGER_VALUE};
+        for(unsigned j=0;j<10;++j)selectorFields[i][j]=specializedFields[j];
+        selectorFields[i][0]=selectorArgs[i][1];
+        descriptors->commands.push_back({sizeof(EditorCommandDesc),SelectorId(selectorCommandIds[i]),EDITOR_TEXT("example.selectors"),EDITOR_TEXT("Set selector"),selectorArgs[i],3,ModifySelector,&data->selectors[i],EDITOR_DOCUMENT,EDITOR_DOCUMENT_EDIT});
+        descriptors->queries.push_back({sizeof(EditorQueryDesc),SelectorId(selectorQueryIds[i]),EDITOR_TEXT("example.selectors"),selectorArgs[i],1,ReadSelector,&data->selectors[i],EDITOR_QUERY_EACH_READ,EDITOR_DOCUMENT,selectorFields[i],10});
+        descriptors->editors.push_back({sizeof(EditorValueEditorDesc),EDITOR_IMGUI_VERSION,SelectorId(selectorEditorIds[i]),EDITOR_TEXT("example.selectors"),EDITOR_TEXT("External selector"),DrawSelector,&data->selectors[i],selectorTypes[i]});
+    }
+    static const EditorParameter selectorChoiceArgs[]={{EDITOR_TEXT("target"),EDITOR_OBJECT},{EDITOR_TEXT("filters"),EDITOR_RECORD,1}};
+    static const EditorParameter selectorChoiceFields[]={{EDITOR_TEXT("labels"),EDITOR_TEXT_LIST},{EDITOR_TEXT("objects"),EDITOR_OBJECT_LIST},{EDITOR_TEXT("values"),EDITOR_INTEGER_LIST},
+        {EDITOR_TEXT("categories"),EDITOR_TEXT_LIST},{EDITOR_TEXT("classes"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("class-labels"),EDITOR_TEXT_LIST},{EDITOR_TEXT("owners"),EDITOR_OBJECT_LIST},
+        {EDITOR_TEXT("owner-labels"),EDITOR_TEXT_LIST},{EDITOR_TEXT("owner"),EDITOR_OBJECT},{EDITOR_TEXT("class"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("category"),EDITOR_TEXT_VALUE},{EDITOR_TEXT("users"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("has-users"),EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc),EDITOR_TEXT("parameter.selection-choices"),EDITOR_TEXT("example.selectors"),selectorChoiceArgs,2,SelectorChoices,data,EDITOR_QUERY_EACH_READ,EDITOR_DOCUMENT,selectorChoiceFields,13});
+    static const EditorParameter selectorCounts[]={{EDITOR_TEXT("count"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("reads"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("choices"),EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc),EDITOR_TEXT("example.selector-count"),EDITOR_TEXT("example.selectors"),nullptr,0,
+        [](void *data,const EditorHost*,const EditorRequest*,EditorSink sink){const auto &module=*static_cast<Module*>(data);
+            const EditorValue fields[]={{EDITOR_TEXT("count"),EDITOR_INTEGER_LIST,{},{},0,{},{module.selectorCalls,7}},
+                {EDITOR_TEXT("reads"),EDITOR_INTEGER_LIST,{},{},0,{},{module.selectorReads,7}},{EDITOR_TEXT("choices"),EDITOR_INTEGER_VALUE,{},{},module.selectorChoices}};
+            return sink.write(sink.data,fields,3);},data,EDITOR_QUERY_EACH_READ,EDITOR_APPLICATION,selectorCounts,3});
     *out = {};
     out->size = sizeof(*out);
     out->version = EDITOR_VERSION;
