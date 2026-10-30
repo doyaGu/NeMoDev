@@ -37,6 +37,7 @@ public:
     bool Busy() const { return m_Tool != Tool::Idle; }
     // The composition is closed: Set Shortcut Source's next click no longer picks.
     void DocumentClosed() {
+        CloseValueInputs();
         Invalidate();
         m_Doc = DocumentState(); // a gesture going on is taken back (none is: Busy)
     }
@@ -567,7 +568,10 @@ private:
     // Shift+drag export
     // Shift+drag copy
     // Dialogs: target Script, graph and Script-local position.
-    std::string m_RenameText;
+    void CloseValueInputs();
+    ObjectRef m_RenameTarget{};
+    EditorEdit m_RenameEdit = 0;
+    EditorView m_RenameOwner = 0;
     int m_DelayValue = 0;
     std::string m_PickerFilter;
     std::string m_LocalName;
@@ -592,6 +596,9 @@ private:
     ParameterBox m_ParameterBox{m_State};
     std::string m_ParametersTitle;
     bool m_ParametersApply = false;
+    ObjectRef m_ValueReference{};
+    PropertyBinding m_ValueNameProperty;
+    EditorValueEditorDesc m_ValueNameEditor{};
     std::string m_ValueName;
     CKGUID m_ValueType;
     bool m_ValueNameEditable = false;

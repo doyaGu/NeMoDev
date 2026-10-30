@@ -4,6 +4,7 @@
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/TypeAhead.h"
+#include "workspace/EditorWorkspace.h"
 
 #include <algorithm>
 #include <cctype>
@@ -43,21 +44,28 @@ void SchematicCanvas::CommentEditor() {
     ImGui::EndPopup();
 }
 
+void SchematicCanvas::CloseValueInputs() {
+    if (m_State.workspace) {
+        m_State.workspace->Finish(m_RenameEdit, false);
+        m_State.workspace->CloseOwner(m_RenameOwner);
+    }
+    m_RenameTarget = {}; m_ValueReference = {};
+}
 void SchematicCanvas::RenameDialog() {
     if (m_Doc.openRename) {
-        ImGui::OpenPopup("Rename");
         m_Doc.openRename = false;
+        if (!m_State.workspace || !m_State.workspace->Begin("object.name", m_RenameTarget, m_RenameEdit, m_RenameOwner)) return;
+        ImGui::OpenPopup("Rename");
     }
     if (!ImGui::BeginPopupModal("Rename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    const bool entered = ImGui::InputText("Name", &m_RenameText, ImGuiInputTextFlags_EnterReturnsTrue);
-    if (ImGui::Button("OK", ImVec2(100, 0)) || entered) {
-        Report(RenameObject(*m_State.document, m_Doc.dialogScript, m_Doc.renameObject, Utf8ToAnsi(m_RenameText)),
-               "Rename");
-        ImGui::CloseCurrentPopup();
-    }
+    const bool entered = m_State.workspace->DrawInput(m_RenameEdit, "Name", ImGui::IsWindowAppearing());
+    bool close = false;
+    if (ImGui::Button("OK", ImVec2(100, 0)) || entered) close = m_State.workspace->Finish(m_RenameEdit, true);
     ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_RenameEdit) {
+        m_State.workspace->Finish(m_RenameEdit, false); close = true;
+    }
+    if (close) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
@@ -297,7 +305,7 @@ void SchematicCanvas::ValueDialog() {
     }
     if (!ImGui::IsPopupOpen(id)) return;
     CKContext *context = m_State.document->Context();
-    CKObject *edited = context->GetObject(m_Doc.valueParameter);
+    CKObject *edited = m_State.document->Resolve(m_ValueReference);
     CKParameterManager *manager = context->GetParameterManager();
     const float s = ImGui::GetFontSize() / 13.0f;
     const ImVec2 box = m_ParameterBox.Size(s, false);
@@ -322,7 +330,19 @@ void SchematicCanvas::ValueDialog() {
     auto P = [&](float px, float py) { return ImVec2(o.x + px, o.y + py); };
     // The name.
     vi::Text(P(X, nameY + 2.0f * s), P(X + 120.0f * s, nameY + 16.0f * s), "Parameter Name :", true);
-    if (m_ValueNameEditable) vi::Edit("##name", P(right - field, nameY), P(right, nameY + 16.0f * s), m_ValueName, vi::RIGHT);
+    if (m_ValueNameEditable && m_ValueNameEditor.draw && m_State.workspace) {
+        const auto update = [](void *data, const EditorValue *value, uint32_t count) {
+            std::vector<EditorField> fields;
+            if (!value || count != 1 || value->type != EDITOR_TEXT_VALUE || CopyEditorFields(fields, value, count) != EDITOR_OK) return EDITOR_INVALID;
+            *static_cast<std::string *>(data) = std::move(fields.front().text);
+            return EDITOR_OK;
+        };
+        ImGui::SetCursorScreenPos(P(right - field, nameY));
+        const EditorValue name{EDITOR_TEXT("name"), EDITOR_TEXT_VALUE, {}, EditorText(m_ValueName)};
+        const EditorValueInput input{sizeof(input), 0, EDITOR_TEXT("##name"), name, nullptr, 0, 0, {&m_ValueName, update},
+            EDITOR_VALUE_DIALOG, field, 16 * s};
+        m_State.workspace->Application().DrawValue(m_ValueNameEditor, input);
+    }
     else vi::Text(P(right - field, nameY + 3.0f * s), P(right, nameY + 16.0f * s), m_ValueName.c_str(), false, vi::RIGHT);
     // The type: the types shown, by name (CBS_SORT).
     vi::Text(P(X, typeY + 2.0f * s), P(X + 120.0f * s, typeY + 16.0f * s), "Parameter Type :", true);
@@ -370,9 +390,9 @@ void SchematicCanvas::ValueDialog() {
     }
     float bx = o.x + width - 10.0f * s - 60.0f * s;
     const float by = o.y + panelBottom + 4.0f * s;
-    bool cancel = vi::DialogButton("Cancel", ImVec2(bx, by), s, ImGuiKey_Escape) && m_Doc.invalidLinks.empty();
+    bool cancel = !edited || (vi::DialogButton("Cancel", ImVec2(bx, by), s, ImGuiKey_Escape) && m_Doc.invalidLinks.empty());
     bx -= 70.0f * s;
-    bool ok = vi::DialogButton("OK", ImVec2(bx, by), s, ImGuiKey_Enter);
+    bool ok = vi::DialogButton("OK", ImVec2(bx, by), s, ImGuiKey_Enter) && m_ParameterBox.Valid() && edited;
     // A new type some links would not fit: asked first (Dev's "Invalid
     // Parameter Link"), the dialog kept open meanwhile.
     bool apply = ok && edited && m_Doc.invalidLinks.empty(); // not while the question waits
@@ -394,22 +414,49 @@ void SchematicCanvas::ValueDialog() {
     }
     if (apply) {
         // The links that will not fit, the name, the type, then the value: one undo step.
-        EditGroup group(*m_State.document, "Edit Parameter");
+        Edit edit(*m_State.document, "Edit Parameter");
+        bool valid = true;
         if (!m_Doc.invalidLinks.empty()) {
-            Report(DeleteElements(*m_State.document, m_Doc.invalidLinksScript, m_Doc.invalidLinks), "Delete Invalid Links");
-            m_Doc.invalidLinks.clear();
+            const auto result = DeleteElements(*m_State.document, m_Doc.invalidLinksScript, m_Doc.invalidLinks);
+            valid = result.ok || result.Unchanged();
+            if (!valid) Report(result, "Delete Invalid Links");
         }
         const std::string name = Utf8ToAnsi(m_ValueName);
-        if (m_ValueNameEditable && name != (edited->GetName() ? edited->GetName() : ""))
-            RenameObject(*m_State.document, m_Doc.dialogScript, m_Doc.valueParameter, name);
-        CKParameterIn *input = CKParameterIn::Cast(edited);
-        const CKGUID current =
-            input ? input->GetGUID() : CKParameter::Cast(edited) ? CKParameter::Cast(edited)->GetGUID() : CKGUID();
-        if (m_ValueTypeEditable && !(current == m_ValueType)) {
-            const EditResult typed = SetParameterType(*m_State.document, m_Doc.valueParameter, m_ValueType);
-            if (!typed.ok) Report(typed, "Edit Parameter Type");
+        if (valid && m_ValueNameEditable && name != (edited->GetName() ? edited->GetName() : "")) {
+            auto &app = m_State.workspace->Application();
+            const EditorValue value{EDITOR_TEXT("name"), EDITOR_TEXT_VALUE, {}, EditorText(m_ValueName)};
+            const auto result = app.ApplyEdit(m_ValueNameProperty, app.Scope(), m_ValueReference, value, {});
+            valid = result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE;
+            if (!valid) m_State.Log(LogLevel::Warning, result.message);
         }
-        m_ParameterBox.Apply(m_Doc.dialogScript);
+        CKParameterIn *input = CKParameterIn::Cast(edited);
+        const CKGUID current = input ? input->GetGUID() : CKParameter::Cast(edited) ? CKParameter::Cast(edited)->GetGUID() : CKGUID();
+        if (valid && m_ValueTypeEditable && current != m_ValueType) {
+            const auto result = SetParameterType(*m_State.document, m_Doc.valueParameter, m_ValueType);
+            valid = result.ok || result.Unchanged();
+            if (!valid) Report(result, "Edit Parameter Type");
+        }
+        bool applyValue = true;
+        if (valid && input && !m_ParameterBox.Empty()) {
+            auto *holder = EditableValueOf(input);
+            // Deleting an incompatible shared link may leave this input
+            // without a value holder. Its old shared value stays untouched.
+            applyValue = holder != nullptr;
+            if (holder) valid = m_ParameterBox.Retarget(0, holder);
+            m_Doc.valueHolder = holder ? holder->GetID() : 0;
+        }
+        if (valid && applyValue) {
+            const bool changed = m_ParameterBox.Changed();
+            valid = m_ParameterBox.Apply(m_Doc.dialogScript) != 0 || !changed;
+        }
+        if (valid) {
+            if (!edit.Empty()) edit.Touches(m_Doc.dialogScript);
+            const auto result = edit.Commit();
+            valid = result.ok || result.Unchanged();
+        }
+        else edit.Cancel();
+        if (valid) m_Doc.invalidLinks.clear();
+        else apply = false;
     }
     InvalidLinksDialog(); // over this dialog
     if ((ok && apply) || cancel) {

@@ -702,7 +702,7 @@ void SchematicCanvas::BeginRename() {
     if (!runtime) return;
     m_Doc.dialogScript = selection.script;
     m_Doc.renameObject = object;
-    m_RenameText = AnsiToUtf8(runtime->GetName() ? runtime->GetName() : "");
+    m_RenameTarget = m_State.document->Reference(object);
     m_Doc.openRename = true;
 }
 
@@ -1326,6 +1326,14 @@ void SchematicCanvas::OpenValueDialog(CK_ID script, CKObject *parameter) {
     if (!parameter || !m_State.HasDocument()) return;
     m_Doc.dialogScript = script;
     m_Doc.valueParameter = parameter->GetID();
+    m_ValueReference = m_State.document->Reference(parameter->GetID());
+    if (m_State.workspace) {
+        auto &app = m_State.workspace->Application();
+        if (const auto *property = app.Property("object.name")) {
+            m_ValueNameProperty = *property;
+            app.ValueEditor(property->editor, m_ValueNameEditor);
+        }
+    }
     m_Doc.invalidLinks.clear();
     m_InvalidLinksAnswered = false;
     m_ValueName = AnsiToUtf8(parameter->GetName() ? parameter->GetName() : "");
