@@ -277,10 +277,16 @@ bool SetHeldValue(CKParameter *parameter, void *value) {
     }
     void *own = *slot;
     *slot = value;
-    parameter->CopyValue(carrier, FALSE);
+    CKERROR result;
+    try { result = parameter->CopyValue(carrier, FALSE); }
+    catch (...) {
+        *slot = own;
+        context->DestroyObject(carrier);
+        throw;
+    }
     *slot = own;
     context->DestroyObject(carrier);
-    return true;
+    return result == CK_OK;
 }
 
 std::vector<std::string> DependencyOptions(CK_CLASSID cid, CK_DEPENDENCIES_OPMODE mode) {
