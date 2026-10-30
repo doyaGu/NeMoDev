@@ -12,6 +12,9 @@ namespace vdev {
 // Helpers relating stored Schematic records to the CK runtime graph, which
 // is the source of topology. None of them changes CK or InterfaceData.
 
+// The owning Script of a behavior, IO, operation or parameter; null for scene objects.
+CKBehavior *OwningScript(CKObject *);
+
 // The CK object a link endpoint designates, or null:
 //   BIN/BOUT        CKBehaviorIO of the behavior (GetInput/GetOutput)
 //   START_BIN       the Script input CKBehaviorIO (endpoint id is the IO)

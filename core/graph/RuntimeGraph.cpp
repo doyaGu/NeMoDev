@@ -4,6 +4,18 @@
 #include <map>
 
 namespace vdev {
+CKBehavior *OwningScript(CKObject *object) {
+    for (int depth = 0; object && depth < 32; ++depth) {
+        if (auto *behavior = CKBehavior::Cast(object))
+            return (behavior->GetType() & CKBEHAVIORTYPE_SCRIPT) ? behavior : behavior->GetOwnerScript();
+        if (auto *parameter = CKParameter::Cast(object)) object = parameter->GetOwner();
+        else if (auto *input = CKParameterIn::Cast(object)) object = input->GetOwner();
+        else if (auto *io = CKBehaviorIO::Cast(object)) object = io->GetOwner();
+        else if (auto *operation = CKParameterOperation::Cast(object)) object = operation->GetOwner();
+        else return nullptr;
+    }
+    return nullptr;
+}
 
 namespace {
 

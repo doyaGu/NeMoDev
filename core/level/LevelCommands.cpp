@@ -666,7 +666,11 @@ EditResult RenameLevelObject(Document &document, ObjectRef reference, const std:
     if (before == name) return EditResult::NoChange("The name is unchanged");
     auto record = NewRecord<ObjectNameChange>(document);
     record.Changes<ObjectNameChange>().emplace_back(ObjectNameChange{RecordedObject(document, object), before, name});
-    return ApplyLevelActionRecord(document, "Rename", std::move(record));
+    Edit edit(document, "Rename");
+    const auto result = ApplyLevelActionRecord(document, "Rename", std::move(record));
+    if (!result.ok) return result;
+    if (auto *script = OwningScript(object)) edit.Touches(script->GetID());
+    return edit.Commit();
 }
 
 EditResult CreateArray(Document &document, const std::string &name) {
