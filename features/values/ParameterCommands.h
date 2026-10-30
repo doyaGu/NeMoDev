@@ -3,7 +3,6 @@
 namespace vdev {
 enum class ParameterValueKind;
 struct ParameterValue;
-EditorValue BorrowParameterValue(const ParameterValue &, EditorString key);
 struct ParameterValueDescription;
 EditorField ParameterValueField(const ParameterValue &, const std::string &key = "value");
 std::vector<EditorField> ParameterFields(const ParameterValueDescription &);

@@ -40,14 +40,6 @@ const char *ParameterProperty(ParameterValueKind kind) {
     for (const auto &entry : kinds) if (entry.kind == kind) return entry.property;
     return nullptr;
 }
-EditorValue BorrowParameterValue(const ParameterValue &value, EditorString key) {
-    EditorValue result{};
-    result.key = key;
-    for (const auto &entry : kinds) if (entry.kind == value.kind) result.type = entry.type;
-    result.integer = uint64_t(int64_t(value.integer)); result.real = value.real; result.object = value.object;
-    result.reals = {value.components.data(), uint32_t(value.components.size())};
-    return result;
-}
 EditorField ParameterValueField(const ParameterValue &value, const std::string &key) {
     EditorField result; result.key = key;
     for (const auto &entry : kinds) if (entry.kind == value.kind) result.type = entry.type;

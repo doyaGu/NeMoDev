@@ -126,6 +126,37 @@ bool DescribeValue(const Document &document, CKParameter *parameter, ParameterVa
     case ParameterUI::Rect: shape(ParameterValueKind::Rect, 2, 2, {"X", "Y"}, {"Left,Top", "Right,Bottom"}); break;
     default: break;
     }
+    if (ui.ui == ParameterUI::String) {
+        kind = ParameterValueKind::Text;
+        result.value.text = AnsiToUtf8(ParameterText(parameter));
+    } else if (ui.ui == ParameterUI::ObjectArray) {
+        kind = ParameterValueKind::ObjectArray; result.objectClass = CKCID_OBJECT;
+        XObjectArray *array = nullptr;
+        if (parameter->GetDataSize() != sizeof(array) || parameter->GetValue(&array, FALSE) != CK_OK || !array || array->Size() < 0 || array->Size() > 65536) return false;
+        if (unsigned(array->Size()) > budget.objects) return false;
+        budget.objects -= unsigned(array->Size());
+        for (int i = 0; i < array->Size(); ++i) {
+            const auto object = document.Reference((*array)[i]);
+            if (!object) return false;
+            result.value.objects.push_back(object);
+            auto *entry = document.Resolve(object);
+            result.rowLabels.push_back(AnsiToUtf8(entry && entry->GetName() ? entry->GetName() : ""));
+        }
+    } else if (ui.ui == ParameterUI::Struct) {
+        kind = ParameterValueKind::Structure;
+        std::vector<ParameterMember> members;
+        if (!ParameterMembers(document, parameter, members)) return false;
+        for (const auto &member : members) {
+            ParameterValueDescription child;
+            auto *native = CKParameter::Cast(document.Resolve(member.parameter, CKCID_PARAMETER, Document::ObjectScope::Existing));
+            if (!DescribeValue(document, native, child, depth + 1, budget)) return false;
+            child.name = member.name;
+            result.value.members.push_back(child.value); result.members.push_back(std::move(child));
+        }
+    }
+    if (kind == ParameterValueKind::Text || kind == ParameterValueKind::Structure || kind == ParameterValueKind::ObjectArray) {
+        result.display = AnsiToUtf8(ParameterText(parameter)); out = std::move(result); return true;
+    }
     const auto count = ParameterComponentCount(kind);
     const auto bytes = count ? count * sizeof(float) : sizeof(int32_t);
     if (kind == ParameterValueKind::None || parameter->GetDataSize() != int(bytes)) return false;

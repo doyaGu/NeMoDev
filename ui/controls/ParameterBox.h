@@ -64,7 +64,7 @@ public:
     // True when a working copy differs from its parameter.
     bool Changed() const;
     bool Valid() const;
-    bool InputActive() const { return m_InputActive; }
+    bool InputActive() const { return (m_InputAction & EDITOR_INPUT_ACTIVE) != 0; }
     // Writes the working copies that differ (script: the Script edited;
     // its session follows the values). The undo steps made.
     size_t Apply(CK_ID script);
@@ -74,11 +74,22 @@ public:
 
 private:
     struct Row {
-        ObjectRef targetReference{}, workReference{}, valueReference{};
+        ObjectRef targetReference{}, workReference{};
+        std::unique_ptr<ParameterValue> valueRoot;
+        ParameterValue *valueOwner = nullptr;
+        std::vector<size_t> valuePath;
+        ParameterValue *References() const {
+            auto *value = valueOwner;
+            for (auto index : valuePath) {
+                if (!value || value->kind != ParameterValueKind::Structure || index >= value->members.size()) return nullptr;
+                value = &value->members[index];
+            }
+            return value;
+        }
         bool invalid = false, typed = false;
         ParameterValue beforeInteraction;
         PropertyBinding property;
-        EditorValueEditorDesc editor{};
+        EditorField schema;
         CK_ID target = 0; // the parameter Apply writes (0: a member of a structure's copy)
         CK_ID work = 0;   // the working copy (or a member of the structure's)
         bool owned = false;
@@ -100,7 +111,6 @@ private:
         // Dependencies, Object Array: the value edited in the editor's memory,
         // copied to the working copy by its type (SetHeldValue).
         CKDependencies dependencies;
-        XObjectArray objects;
         int dependencyClass = -1;        // Dependencies: the class chosen in the tree
         std::set<CK_CLASSID> folded;     // Dependencies: the tree's items folded
         std::set<int> chosen;            // Object Array: the items selected
@@ -118,7 +128,13 @@ private:
         float uiX = 0.0f, uiWidth = 0.0f, uiHeight = 0.0f, height = 0.0f;
     };
     void InitRow(Row &row, CKParameter *work);
+    void InitRow(Row &row, CKParameter *work, unsigned depth, unsigned &remaining);
     void AddRow(Row row);
+    void ShareValues(Row &, ParameterValue *owner = nullptr, std::vector<size_t> path = {});
+    void TargetRow(Row &, CKParameter *);
+    bool ValuesCurrent(const Row &) const;
+    bool TargetsCurrent(const Row &) const;
+    size_t PrepareRow(const Row &);
     // The rows were made before a ClearAll (CkRuntimeHost::Generation): they
     // are dropped, the ids they hold no longer theirs.
     bool Stale();
@@ -131,7 +147,7 @@ private:
     struct UiPen;
     void Curve2DUi(Row &row, UiPen &pen);
     bool DependenciesUi(Row &row, CKParameter *work, const ImVec2 &at, float scale);
-    bool ObjectArrayUi(Row &row, CKParameter *work, const ImVec2 &at, float scale);
+    bool ObjectArrayUi(Row &row, const EditorValueInput &, const ImVec2 &at, float scale);
     bool LodOptionsUi(Row &row, CKParameter *work, const ImVec2 &at, float scale);
     // The target button (CK2UI's StartPick and WindowProc): the row being
     // picked for, the object of its class under the mouse (message 0x607 to
@@ -144,13 +160,15 @@ private:
     // value, an object what the type takes from it.
     bool PickResult(Row &row, CK_ID picked);
     bool RowChanged(const Row &row) const;
-    size_t ApplyRow(const Row &row, CK_ID target, CK_ID script);
+    size_t ApplyRow(const Row &row);
 
     EditorState &m_State;
     std::vector<Row> m_Rows;
     std::uint64_t m_Generation = 0; // the host's when the rows were made
     bool m_ApplyFailed = false;
-    bool m_InputActive = false;
+    uint32_t m_InputAction = 0;
+    EditorValueEditors m_Editors;
+    std::string m_CopyProvider;
     CK_ID m_PickWork = 0;    // the row whose target button is picking
     bool m_PickClick = false; // clicked: until the next click (else until the button is released)
     bool m_PickToggle = false;
