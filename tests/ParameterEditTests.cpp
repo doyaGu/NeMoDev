@@ -52,8 +52,8 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
     EditorApplication app([&] { return &document; }, [&] { return native; });
     ParameterCommands commands([&] { return &document; });
     Painter painter;
-    const char *ids[] = {"value.boolean", "value.integer", "value.real", "value.enumeration", "value.object", "value.angle", "value.vector2", "value.vector3", "value.quaternion", "value.euler", "value.matrix", "value.color", "value.box", "value.rect", "value.string", "value.structure", "value.object-array"};
-    const EditorValueType types[] = {EDITOR_INTEGER_VALUE, EDITOR_INTEGER_VALUE, EDITOR_REAL_VALUE, EDITOR_INTEGER_VALUE, EDITOR_OBJECT, EDITOR_REAL_VALUE, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_TEXT_VALUE, EDITOR_RECORD, EDITOR_OBJECT_LIST};
+    const char *ids[] = {"value.boolean", "value.integer", "value.real", "value.enumeration", "value.object", "value.angle", "value.vector2", "value.vector3", "value.quaternion", "value.euler", "value.matrix", "value.color", "value.box", "value.rect", "value.string", "value.structure", "value.object-array", "value.flags"};
+    const EditorValueType types[] = {EDITOR_INTEGER_VALUE, EDITOR_INTEGER_VALUE, EDITOR_REAL_VALUE, EDITOR_INTEGER_VALUE, EDITOR_OBJECT, EDITOR_REAL_VALUE, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_TEXT_VALUE, EDITOR_RECORD, EDITOR_OBJECT_LIST, EDITOR_INTEGER_VALUE};
     EditorValueEditorDesc editors[std::size(ids)]{};
     for (unsigned i = 0; i < std::size(ids); ++i)
         editors[i] = {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EditorLiteral(ids[i]), EDITOR_TEXT("test.values"),
@@ -413,6 +413,85 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
         Check(document.History().Redo() && curveOf(before[1].parameter)->GetControlPoint(0)->GetPosition().x == .25f,
               "native container redo failed");
         document.History().Clear(); context->DestroyObject(source); context->DestroyObject(target); manager->UnRegisterParameterType(type);
+    }
+    {
+        auto *manager = context->GetParameterManager();
+        const CKGUID flagsType(0x6e76616c, 0x00000440), recordType(0x6e76616c, 0x00000441);
+        Check(manager->RegisterNewFlags(flagsType, "Typed flags", "First=1,Second=2,High=-2147483648,Both=3,Zero=0") == CK_OK,
+              "register flags with high, combined and zero masks");
+        auto *flags = context->CreateCKParameterLocal("Flags value", flagsType);
+        Check(flags != nullptr, "create flags parameter");
+        int32_t initial = 0x40000000;
+        Check(flags->SetValue(&initial, sizeof(initial)) == CK_OK, "initialize unlisted flag bit");
+        const auto original = read(flags);
+        Check(original.value.kind == ParameterValueKind::Flags && original.value.integer == initial &&
+              original.choices.size() == 5 && original.choices[2].first == INT32_MIN && original.choices[3].first == 3 &&
+              original.choices[4].first == 0 && original.rows == 16 && original.columns == 2,
+              "flag description lost masks or the highest bit's native layout");
+        const auto target = document.Reference(flags->GetID());
+        const EditorValue queryTarget{EDITOR_TEXT("target"), EDITOR_OBJECT, target};
+        const auto projection = app.Query("parameter.flags-value", {scope, &queryTarget, 1});
+        Check(projection.status == EDITOR_OK && projection.fields[3].texts.size() == 5 &&
+              projection.fields[4].integers[2] == uint64_t(int64_t(INT32_MIN)), "flag projection lost signed mask bits");
+        document.History().Clear(); document.MarkSaved(); document.History().MarkSavePoint();
+        Check(app.BeginEdit("parameter.flags", scope, target, edit) == EDITOR_OK, "begin flags interaction");
+        for (int i = 0; i < 40; ++i) {
+            const int32_t mask = INT32_MIN | initial | (i % 2 ? 3 : 1);
+            Check(app.UpdateEdit(edit, Integer(mask)) == EDITOR_OK && read(flags).value == original.value && history() == 0,
+                  "flag update wrote document before acceptance");
+        }
+        Check(app.FinishEdit(edit, true) == EDITOR_QUEUED, "accept flags interaction"); edit = 0; app.EndFrame();
+        Check(history() == 1 && read(flags).value.integer == (INT32_MIN | initial | 3), "flags did not commit once with all bits preserved");
+        Check(document.History().Undo() && read(flags).value == original.value && !document.Dirty(), "flags undo lost unlisted bits or save point");
+        Check(app.BeginEdit("parameter.flags", scope, target, edit) == EDITOR_OK &&
+              app.UpdateEdit(edit, Integer(-1)) == EDITOR_OK && app.FinishEdit(edit, false) == EDITOR_CANCELLED,
+              "cancel flags interaction"); edit = 0;
+        Check(history() == 0 && document.History().CanRedo() && !document.Dirty() && read(flags).value == original.value,
+              "flag cancellation changed value, Dirty or Redo");
+        apply(flags, "parameter.flags", Integer(initial));
+        Check(history() == 0 && document.History().CanRedo(), "unchanged flags discarded Redo");
+        Check(app.BeginEdit("parameter.flags", scope, target, edit) == EDITOR_OK, "begin out-of-range mask");
+        Check(app.UpdateEdit(edit, Integer(int64_t(INT32_MAX) + 1)) == EDITOR_OK && app.FinishEdit(edit, true) == EDITOR_INVALID,
+              "flags silently truncated a mask outside native storage");
+        app.FinishEdit(edit, false); edit = 0;
+        Check(ParseParameterValue(original, "-2147483648", parsed) && parsed.integer == INT32_MIN &&
+              ValidateParameterValue(document, original, parsed), "high flag bit was treated as an enum choice");
+        // Corrupt native descriptions must fail before calling their formatter.
+        auto *nativeFlags = manager->GetFlagsDescByType(flags->GetType());
+        Check(nativeFlags != nullptr, "locate flags metadata");
+        {
+            const auto saved = *nativeFlags;
+            struct Restore { CKFlagsStruct *target; CKFlagsStruct value; ~Restore() { *target = value; } } restore{nativeFlags, saved};
+            auto unchanged = original;
+            nativeFlags->NbData = -1;
+            Check(!DescribeParameterValue(document, flags, unchanged) && unchanged.value == original.value, "negative flag count accepted");
+            *nativeFlags = saved; nativeFlags->Vals = nullptr;
+            Check(!DescribeParameterValue(document, flags, unchanged), "missing flag masks accepted");
+            *nativeFlags = saved; nativeFlags->Desc = nullptr;
+            Check(!DescribeParameterValue(document, flags, unchanged), "missing flag labels accepted");
+            *nativeFlags = saved; nativeFlags->NbData = 65537;
+            Check(!DescribeParameterValue(document, flags, unchanged), "unbounded flag count accepted");
+        }
+        XArray<CKGUID> types; types.PushBack(flagsType); types.PushBack(CKPGUID_INT);
+        Check(manager->RegisterNewStructure(recordType, "Flags record", "Flags,Count", types) == CK_OK, "register nested flags");
+        auto *record = context->CreateCKParameterLocal("Flags record", recordType);
+        Check(record != nullptr, "create nested flags");
+        const auto before = read(record);
+        Check(before.value.members[0].kind == ParameterValueKind::Flags, "nested flags left typed editing");
+        auto next = before.value; next.members[0].integer = INT32_MIN | 3; next.members[1].integer = 12;
+        apply(record, "parameter.structure", BorrowEditorFields(std::vector<EditorField>{ParameterValueField(next)}).values.front());
+        Check(history() == 1 && read(record).value == next && document.History().Undo() && read(record).value == before.value,
+              "nested flags were not part of the parent undo record");
+        Check(document.History().Redo() && read(record).members[0].parameter == before.members[0].parameter,
+              "nested flags redo replaced its member instance");
+        auto *work = context->CreateCKParameterOut("Flags draft", flagsType, TRUE);
+        Check(work && work->CopyValue(flags, FALSE) == CK_OK, "create flag working copy");
+        auto draft = read(work).value; draft.integer = -1;
+        const auto count = history();
+        Check(WriteParameterDraft(document, work, draft) && read(work).value == draft && read(flags).value == original.value && history() == count,
+              "flag working copy modified the source or history");
+        document.History().Clear(); context->DestroyObject(work); context->DestroyObject(record); context->DestroyObject(flags);
+        manager->UnRegisterParameterType(recordType); manager->UnRegisterParameterType(flagsType);
     }
     const CKGUID derivedVectorType(0x6e76616c, 0x00000411);
     auto *manager = context->GetParameterManager();

@@ -42,6 +42,64 @@ uint32_t DrawText(void *data, const EditorHost *, const EditorValueInput *input)
         (changed ? EDITOR_INPUT_CHANGED : 0u) | (!valid ? EDITOR_INPUT_INVALID : 0u) |
         (deactivated ? EDITOR_INPUT_DEACTIVATED : 0u);
 }
+uint32_t DrawFlags(void *, const EditorHost *, const EditorValueInput *input) {
+    const auto *labels = Field(*input, "labels"), *values = Field(*input, "values");
+    if (input->value.type != EDITOR_INTEGER_VALUE || !labels || labels->type != EDITOR_TEXT_LIST ||
+        !values || values->type != EDITOR_INTEGER_LIST || labels->texts.count != values->integers.count ||
+        (values->integers.count && (!labels->texts.data || !values->integers.data))) return EDITOR_INPUT_INVALID;
+    const bool dialog = input->style == EDITOR_VALUE_DIALOG;
+    const auto *representation = Field(*input, "representation");
+    const auto *display = Field(*input, "display");
+    const auto at = ImGui::GetCursorScreenPos();
+    // The parameter dialog retains its compact text and two-column bit layout.
+    const bool collapsed = dialog && representation && representation->type == EDITOR_INTEGER_VALUE && representation->integer;
+    const auto scale = input->width / ((collapsed ? 56 : 169) * 1.5f + 5);
+    const auto sx = 1.5f * scale, sy = 1.625f * scale;
+    if (collapsed) {
+        if (display && display->type == EDITOR_TEXT_VALUE)
+            vi::Text(ImVec2(at.x + 5 * sx, at.y + 3 * sy), ImVec2(at.x + 56 * sx, at.y + 11 * sy), Text(display->text).c_str());
+        return 0;
+    }
+    auto bits = uint32_t(input->value.integer);
+    bool changed = false, active = false, deactivated = false;
+    const auto label = Text(input->label);
+    ImGui::PushID(label.c_str()); ImGui::BeginGroup();
+    for (uint32_t i = 0; i < values->integers.count; ++i) {
+        const auto mask = uint32_t(values->integers.data[i]);
+        int position = -1;
+        if (dialog) {
+            if (!mask || (mask & (mask - 1))) continue;
+            for (unsigned bit = 0; bit < 32; ++bit) if (mask == (uint32_t(1) << bit)) position = int(bit);
+        }
+        bool on = mask && (bits & mask) == mask;
+        ImGui::PushID(int(i));
+        const auto name = Text(labels->texts.data[i]);
+        bool toggle = false;
+        if (dialog) {
+            const auto x = (position % 2 ? 91 : 5) * sx;
+            const auto y = (position == 0 ? 3 : 2 + 10 * (position / 2)) * sy;
+            toggle = vi::Check("##flag", ImVec2(at.x + x, at.y + y), 8 * sx, on);
+            active |= ImGui::IsItemActive() || ImGui::IsItemActivated();
+            deactivated |= ImGui::IsItemDeactivatedAfterEdit();
+            vi::Text(ImVec2(at.x + x + 11 * sx, at.y + y), ImVec2(at.x + x + 82 * sx, at.y + y + 10 * sy), name.c_str(), false, vi::LEFT);
+        } else {
+            toggle = ImGui::Checkbox(name.c_str(), &on);
+            active |= ImGui::IsItemActive() || ImGui::IsItemActivated();
+            deactivated |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        if (toggle) { bits = on ? bits | mask : bits & ~mask; changed = true; }
+        ImGui::PopID();
+    }
+    ImGui::EndGroup(); ImGui::PopID();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (active) ImGui::ClearActiveID();
+        return EDITOR_INPUT_CANCEL;
+    }
+    auto value = input->value; value.integer = uint64_t(int64_t(int32_t(bits)));
+    const bool valid = !changed || input->update.write(input->update.data, &value, 1) == EDITOR_OK;
+    return (active ? EDITOR_INPUT_ACTIVE : 0u) | (changed ? EDITOR_INPUT_CHANGED | EDITOR_INPUT_ACCEPT : 0u) |
+        (deactivated ? EDITOR_INPUT_DEACTIVATED : 0u) | (!valid ? EDITOR_INPUT_INVALID : 0u);
+}
 enum class Kind { Boolean, Integer, Real, Enumeration, Object };
 uint32_t DrawScalar(void *data, const EditorHost *host, const EditorValueInput *input) {
     const auto kind = *static_cast<const Kind *>(data);
@@ -482,6 +540,7 @@ bool RegisterValueEditors(EditorApplication &editor, std::string &error) {
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.integer"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Integer"), DrawScalar, const_cast<Kind *>(&kinds[1]), EDITOR_INTEGER_VALUE},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.real"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Number"), DrawScalar, const_cast<Kind *>(&kinds[2]), EDITOR_REAL_VALUE},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.enumeration"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Enumeration"), DrawScalar, const_cast<Kind *>(&kinds[3]), EDITOR_INTEGER_VALUE},
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.flags"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Flags"), DrawFlags, nullptr, EDITOR_INTEGER_VALUE},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.object"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Object"), DrawScalar, const_cast<Kind *>(&kinds[4]), EDITOR_OBJECT},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.angle"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Angle"), DrawComponents, const_cast<CompositeKind *>(&components[0]), EDITOR_REAL_VALUE},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.vector2"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("2D Vector"), DrawComponents, const_cast<CompositeKind *>(&components[1]), EDITOR_REAL_LIST},

@@ -94,6 +94,7 @@ bool DescribeValue(const Document &document, CKParameter *parameter, ParameterVa
     auto &kind = result.value.kind;
     if (ui.ui == ParameterUI::Bool) kind = ParameterValueKind::Boolean;
     else if (ui.ui == ParameterUI::Enum) kind = ParameterValueKind::Enumeration;
+    else if (ui.ui == ParameterUI::Flags) kind = ParameterValueKind::Flags;
     else if (ui.ui == ParameterUI::Object) { kind = ParameterValueKind::Object; result.objectClass = ui.pickClass; }
     else if (ui.ui == ParameterUI::Number) {
         // Follow the selected UI's type ancestry, including types registered later.
@@ -185,6 +186,21 @@ bool DescribeValue(const Document &document, CKParameter *parameter, ParameterVa
             result.choices.push_back({enumeration->GetEnumValue(i), AnsiToUtf8(label ? label : "")});
         }
     }
+    if (kind == ParameterValueKind::Flags) {
+        auto *flags = manager->GetFlagsDescByType(parameter->GetType());
+        if (!flags || flags->NbData < 0 || flags->NbData > 65536 ||
+            (flags->NbData && (!flags->Vals || !flags->Desc))) return false;
+        result.columns = 2;
+        for (int i = 0; i < flags->NbData; ++i) {
+            const auto mask = uint32_t(flags->GetFlagValue(i));
+            const auto *label = flags->GetFlagDescription(i);
+            result.choices.push_back({flags->GetFlagValue(i), AnsiToUtf8(label ? label : "")});
+            // The native dialog places single-bit flags by bit position.
+            if (mask && !(mask & (mask - 1)))
+                for (unsigned bit = 0; bit < 32; ++bit)
+                    if (mask == (uint32_t(1) << bit)) result.rows = std::max(result.rows, bit / 2 + 1);
+        }
+    }
     result.display = AnsiToUtf8(ParameterText(parameter));
     out = std::move(result);
     return true;
@@ -196,7 +212,7 @@ bool DescribeParameterValue(const Document &document, CKParameter *parameter, Pa
 }
 bool ParseParameterValue(const ParameterValueDescription &description, const std::string &text, ParameterValue &out) {
     auto value = description.value;
-    if (value.kind == ParameterValueKind::Integer || value.kind == ParameterValueKind::Enumeration || value.kind == ParameterValueKind::Boolean) {
+    if (value.kind == ParameterValueKind::Integer || value.kind == ParameterValueKind::Enumeration || value.kind == ParameterValueKind::Boolean || value.kind == ParameterValueKind::Flags) {
         if (!ParseIntegerValue(text, value.integer)) return false;
     } else if (value.kind == ParameterValueKind::Real || value.kind == ParameterValueKind::Angle) {
         if (!ParseRealValue(text, value.real, description.displayScale)) return false;
@@ -224,6 +240,9 @@ bool ValidateParameterValue(const Document &document, const ParameterValueDescri
     switch (value.kind) {
     case ParameterValueKind::Boolean: return value.integer == 0 || value.integer == 1;
     case ParameterValueKind::Integer: return true;
+    // Unlisted bits belong to the value too; editing a listed flag must not
+    // discard bits introduced by another plugin or a newer type definition.
+    case ParameterValueKind::Flags: return true;
     case ParameterValueKind::Angle:
     case ParameterValueKind::Real: return std::isfinite(value.real) && std::abs(value.real) <= std::numeric_limits<float>::max();
     case ParameterValueKind::Enumeration:

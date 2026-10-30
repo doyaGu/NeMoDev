@@ -28,7 +28,8 @@ const Kind kinds[] = {
     {ParameterValueKind::Rect, "parameter.rect", "value.rect", EDITOR_REAL_LIST},
     {ParameterValueKind::Text, "parameter.string", "value.string", EDITOR_TEXT_VALUE},
     {ParameterValueKind::Structure, "parameter.structure", "value.structure", EDITOR_RECORD},
-    {ParameterValueKind::ObjectArray, "parameter.object-array", "value.object-array", EDITOR_OBJECT_LIST}};
+    {ParameterValueKind::ObjectArray, "parameter.object-array", "value.object-array", EDITOR_OBJECT_LIST},
+    {ParameterValueKind::Flags, "parameter.flags", "value.flags", EDITOR_INTEGER_VALUE}};
 const EditorValue *Find(const EditorRequest &request, const char *key) {
     for (uint32_t i = 0; i < request.count; ++i)
         if (std::string(request.values[i].key.data, request.values[i].key.size) == key) return &request.values[i];

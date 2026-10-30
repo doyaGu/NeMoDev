@@ -6,7 +6,7 @@ namespace vdev {
 enum class ParameterValueKind {
     None, Boolean, Integer, Real, Enumeration, Object,
     Angle, Vector2, Vector3, Quaternion, EulerAngles, Matrix, Color, Box, Rect,
-    Text, Structure, ObjectArray
+    Text, Structure, ObjectArray, Flags
 };
 unsigned ParameterComponentCount(ParameterValueKind);
 struct ParameterValue {
