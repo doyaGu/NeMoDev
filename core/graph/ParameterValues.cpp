@@ -1,4 +1,5 @@
 #include "core/graph/ParameterValues.h"
+#include "core/graph/ParameterSelections.h"
 #include "core/graph/detail/SpecializedParameterStorage.h"
 #include "core/graph/ValueCommands.h"
 #include "core/catalog/ValueText.h"
@@ -31,6 +32,13 @@ unsigned ParameterComponentCount(ParameterValueKind kind) {
     default: return 0;
     }
 }
+bool ParameterObjectValue(ParameterValueKind kind) {
+    return kind == ParameterValueKind::Object || kind == ParameterValueKind::Script ||
+        kind == ParameterValueKind::Animation || kind == ParameterValueKind::Synchro;
+}
+bool ParameterRealValue(ParameterValueKind kind) {
+    return kind == ParameterValueKind::Real || kind == ParameterValueKind::Angle || kind == ParameterValueKind::Time;
+}
 bool operator==(const ParameterValue &a, const ParameterValue &b) {
     if (a.kind != b.kind) return false;
     if (ParameterComponentCount(a.kind)) return a.components == b.components;
@@ -40,16 +48,21 @@ bool operator==(const ParameterValue &a, const ParameterValue &b) {
     if (a.kind == ParameterValueKind::Curve2D) return a.curve == b.curve;
     if (a.kind == ParameterValueKind::Dependencies) return a.integer == b.integer && a.options == b.options;
     if (a.kind == ParameterValueKind::LodOptions) return a.integer == b.integer && a.components == b.components;
-    switch (a.kind) {
-    case ParameterValueKind::Angle:
-    case ParameterValueKind::Real: return a.real == b.real;
-    case ParameterValueKind::Object: return a.object == b.object;
-    default: return a.integer == b.integer;
-    }
+    if (a.kind == ParameterValueKind::Message) return a.integer == b.integer && (a.integer != -1 || a.text == b.text);
+    if (a.kind == ParameterValueKind::Synchro)
+        return a.object == b.object && a.text == b.text && (!(a.setWaiters || b.setWaiters) || a.waiters == b.waiters);
+    if (ParameterObjectValue(a.kind)) return a.object == b.object;
+    if (ParameterRealValue(a.kind)) return a.real == b.real;
+    return a.integer == b.integer;
 }
-ParameterValue RememberParameterReferences(ParameterValue value, const ParameterValue &remembered) {
+ParameterValue ParameterDraftValue(ParameterValue value, const ParameterValue &remembered) {
     if (value.kind != remembered.kind) return value;
-    if (value.kind == ParameterValueKind::Object && value.object.object == remembered.object.object) value.object = remembered.object;
+    if (ParameterObjectValue(value.kind) && value.object.object == remembered.object.object) value.object = remembered.object;
+    if (value.kind == ParameterValueKind::Message && value.integer == -1 && remembered.integer == -1) value.text = remembered.text;
+    if (value.kind == ParameterValueKind::Synchro && value.object == remembered.object) {
+        value.text = remembered.text;
+        if (remembered.setWaiters) { value.waiters = remembered.waiters; value.setWaiters = true; }
+    }
     if (value.kind == ParameterValueKind::ObjectArray) {
         std::unordered_map<CK_ID, ObjectRef> previous;
         previous.reserve(remembered.objects.size());
@@ -60,7 +73,7 @@ ParameterValue RememberParameterReferences(ParameterValue value, const Parameter
         }
     }
     if (value.kind == ParameterValueKind::Structure && value.members.size() == remembered.members.size())
-        for (size_t i = 0; i < value.members.size(); ++i) value.members[i] = RememberParameterReferences(std::move(value.members[i]), remembered.members[i]);
+        for (size_t i = 0; i < value.members.size(); ++i) value.members[i] = ParameterDraftValue(std::move(value.members[i]), remembered.members[i]);
     return value;
 }
 bool ParameterMembers(const Document &document, CKParameter *parameter, std::vector<ParameterMember> &out) {
@@ -225,7 +238,7 @@ bool ParseParameterValue(const ParameterValueDescription &description, const std
     auto value = description.value;
     if (value.kind == ParameterValueKind::Integer || value.kind == ParameterValueKind::Enumeration || value.kind == ParameterValueKind::Boolean || value.kind == ParameterValueKind::Flags) {
         if (!ParseIntegerValue(text, value.integer)) return false;
-    } else if (value.kind == ParameterValueKind::Real || value.kind == ParameterValueKind::Angle) {
+    } else if (ParameterRealValue(value.kind)) {
         if (!ParseRealValue(text, value.real, description.displayScale)) return false;
     } else return false;
     out = value;
@@ -255,6 +268,9 @@ bool ValidateParameterValue(const Document &document, const ParameterValueDescri
         return value.components.size() == 6 && std::all_of(value.components.begin(), value.components.end(), [](double number) {
             return std::isfinite(number) && std::abs(number) <= std::numeric_limits<float>::max();
         });
+    if (value.kind == ParameterValueKind::Time || value.kind == ParameterValueKind::Key || value.kind == ParameterValueKind::Script ||
+        value.kind == ParameterValueKind::Animation || value.kind == ParameterValueKind::Message || value.kind == ParameterValueKind::Attribute || value.kind == ParameterValueKind::Synchro)
+        return ValidateParameterSelection(document, description, value);
     if (value == description.value) return true;
     switch (value.kind) {
     case ParameterValueKind::Boolean: return value.integer == 0 || value.integer == 1;
@@ -273,7 +289,7 @@ bool ValidateParameterValue(const Document &document, const ParameterValueDescri
 }
 namespace {
 bool Normalize(ParameterValue &value, const ParameterValue *before) {
-    if (value.kind == ParameterValueKind::Real || value.kind == ParameterValueKind::Angle) value.real = float(value.real);
+    if (ParameterRealValue(value.kind)) value.real = float(value.real);
     for (auto &component : value.components) component = float(component);
     if (value.kind == ParameterValueKind::Curve2D) {
         if (before && value.curve == before->curve) value.curve = before->curve;
@@ -291,7 +307,7 @@ std::vector<std::pair<ObjectRef, CKGUID>> ParameterIdentities(const ParameterVal
     };
     visit(visit, description); return identities;
 }
-bool WriteValue(const Document &document, CKParameter *parameter, const ParameterValue &value, bool replay) {
+bool WriteValue(const Document &document, CKParameter *parameter, const ParameterValue &value, bool replay, bool draft = false) {
     ParameterValueDescription description;
     if (!DescribeParameterValue(document, parameter, description) || value.kind != description.value.kind) return false;
     if (!replay && !ValidateParameterValue(document, description, value)) return false;
@@ -305,7 +321,7 @@ bool WriteValue(const Document &document, CKParameter *parameter, const Paramete
         if (description.members.size() != value.members.size()) return false;
         for (size_t i = 0; i < value.members.size(); ++i) {
             auto *child = CKParameter::Cast(document.Resolve(description.members[i].parameter, CKCID_PARAMETER, Document::ObjectScope::Existing));
-            if (!child || !WriteValue(document, child, value.members[i], replay)) return false;
+            if (!child || !WriteValue(document, child, value.members[i], replay, draft)) return false;
         }
         return true;
     }
@@ -334,20 +350,23 @@ bool WriteValue(const Document &document, CKParameter *parameter, const Paramete
             const auto component = float(value.components[i]);
             std::memcpy(bytes + i * sizeof(float), &component, sizeof(float));
         }
-    } else if (value.kind == ParameterValueKind::Object) {
+    } else if (ParameterObjectValue(value.kind)) {
         auto *object = value.object ? document.Resolve(value.object, description.objectClass, Document::ObjectScope::Existing) : nullptr;
         if (value.object && !object) return false;
         CK_ID id = object ? object->GetID() : 0;
         std::memcpy(bytes, &id, 4);
-    } else if (value.kind == ParameterValueKind::Real || value.kind == ParameterValueKind::Angle) {
+    } else if (ParameterRealValue(value.kind)) {
         const auto real = float(value.real); std::memcpy(bytes, &real, 4);
     } else std::memcpy(bytes, &value.integer, 4);
     if (parameter->SetValue(bytes, count ? int(count * sizeof(float)) : 4) != CK_OK) return false;
     ParameterValueDescription actual;
     auto expected = value;
-    if (expected.kind == ParameterValueKind::Real || expected.kind == ParameterValueKind::Angle) expected.real = float(expected.real);
+    if (ParameterRealValue(expected.kind)) expected.real = float(expected.real);
     for (auto &component : expected.components) component = float(component);
-    return DescribeParameterValue(document, parameter, actual) && actual.value == expected;
+    if (!DescribeParameterValue(document, parameter, actual)) return false;
+    if (draft && value.kind == ParameterValueKind::Message) return actual.value.integer == value.integer;
+    if (draft && value.kind == ParameterValueKind::Synchro) return actual.value.object == value.object;
+    return actual.value == expected;
 }
 class ParameterValueAction final : public Action {
   public:
@@ -390,8 +409,8 @@ bool WriteParameterDraft(const Document &document, CKParameter *parameter, const
     auto normalized = value;
     if (!Normalize(normalized, &before.value)) return false;
     bool applied = false;
-    if (GuardedCall([&] { applied = WriteValue(document, parameter, normalized, false); }, &document.Host(), "Edit working parameter") && applied) return true;
-    GuardedCall([&] { WriteValue(document, parameter, before.value, true); }, &document.Host(), "Restore working parameter");
+    if (GuardedCall([&] { applied = WriteValue(document, parameter, normalized, false, true); }, &document.Host(), "Edit working parameter") && applied) return true;
+    GuardedCall([&] { WriteValue(document, parameter, before.value, true, true); }, &document.Host(), "Restore working parameter");
     return false;
 }
 static EditResult EditParameterValue(Document &document, ObjectRef target, const CKGUID &type,
@@ -407,7 +426,15 @@ static EditResult EditParameterValue(Document &document, ObjectRef target, const
     if (prepare && !Normalize(normalized, &description.value)) return EditResult::Refused("Invalid parameter value");
     if (description.value == normalized) return EditResult::NoChange("The value is unchanged");
     Edit edit(document, "Set Value");
-    if (!edit.Do(std::make_unique<ParameterValueAction>(target, type, std::move(description), std::move(normalized)))) {
+    bool ready = false;
+    if (!GuardedCall([&] { ready = PrepareParameterSelection(document, description, normalized); }, &document.Host(), "Prepare parameter value") || !ready) {
+        edit.Fail("The parameter selection could not be prepared");
+        return EditResult::Error("The parameter selection could not be prepared");
+    }
+    // Preparation may change a referenced object's rendezvous count. The value
+    // action records the parameter after those separate object edits.
+    if (!DescribeParameterValue(document, parameter, description)) return EditResult::Error("The parameter is no longer available");
+    if (description.value != normalized && !edit.Do(std::make_unique<ParameterValueAction>(target, type, std::move(description), std::move(normalized)))) {
         edit.Fail("The parameter value could not be applied");
         return EditResult::Error("The parameter value could not be applied");
     }

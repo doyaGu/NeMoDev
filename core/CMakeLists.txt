@@ -59,6 +59,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         graph/ValueCommands.cpp
         graph/ParameterValues.cpp
         graph/SpecializedParameterValues.cpp
+        graph/ParameterSelections.cpp
         graph/ScriptCommands.cpp
         graph/NmsCommands.cpp
         graph/Debugger.cpp

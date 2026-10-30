@@ -36,7 +36,7 @@ uint32_t DrawParameterDraft(EditorState &state, CKParameter *work, const Paramet
     if (projection.status != EDITOR_OK) return EDITOR_INPUT_INVALID;
     auto current = std::find_if(projection.fields.begin(), projection.fields.end(), [&](const auto &field) { return field.key == property->field; });
     if (current == projection.fields.end() || current->type != property->type) return EDITOR_INPUT_INVALID;
-    auto original = remembered ? RememberParameterReferences(description.value, *remembered) : description.value;
+    auto original = remembered ? ParameterDraftValue(description.value, *remembered) : description.value;
     *current = ParameterValueField(original, property->field);
     if (original.kind == ParameterValueKind::Object && original.object != description.value.object)
         for (auto &field : projection.fields) if (field.key == "display") field.text = "<deleted object>";

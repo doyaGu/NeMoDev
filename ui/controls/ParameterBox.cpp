@@ -194,7 +194,7 @@ bool ParameterBox::ValuesCurrent(const Row &row) const {
         ParameterValueDescription description;
         const auto *remembered = row.References();
         if (!remembered || !DescribeParameterValue(*m_State.document, work, description)) return false;
-        auto value = RememberParameterReferences(std::move(description.value), *remembered);
+        auto value = ParameterDraftValue(std::move(description.value), *remembered);
         auto *target = CKParameter::Cast(m_State.document->Resolve(row.targetReference, CKCID_PARAMETER));
         return DescribeParameterValue(*m_State.document, target, description) && ValidateParameterValue(*m_State.document, description, value);
     }
@@ -861,7 +861,7 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
                 auto *work = CKParameter::Cast(box.m_State.document->Resolve(row.workReference, CKCID_PARAMETER, Document::ObjectScope::Existing));
                 if (!DescribeParameterValue(*box.m_State.document, work, description)) action |= EDITOR_INPUT_INVALID;
                 else {
-                    if (auto *value = row.References()) description.value = RememberParameterReferences(std::move(description.value), *value);
+                    if (auto *value = row.References()) description.value = ParameterDraftValue(std::move(description.value), *value);
                     const std::vector<EditorField> fields{ParameterValueField(description.value)};
                     const auto borrowed = BorrowEditorFields(fields);
                     if (input->update.write(input->update.data, borrowed.data(), 1) != EDITOR_OK) action |= EDITOR_INPUT_INVALID;
@@ -1345,7 +1345,7 @@ size_t ParameterBox::ApplyRow(const Row &row) {
     const bool described = DescribeParameterValue(*m_State.document, work, description);
     if (row.typed && !described) { m_ApplyFailed = true; return 0; }
     if (described) {
-        if (auto *value = row.References()) description.value = RememberParameterReferences(std::move(description.value), *value);
+        if (auto *value = row.References()) description.value = ParameterDraftValue(std::move(description.value), *value);
         if (!m_State.workspace || row.property.id.empty()) { m_ApplyFailed = true; return 0; }
         const auto fields = ParameterFields(description);
         const auto borrowed = BorrowEditorFields(fields);

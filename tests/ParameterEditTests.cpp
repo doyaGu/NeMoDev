@@ -321,7 +321,7 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
               "reuse nested array object ID");
         auto reordered = withObject;
         reordered.members[0].members[2].objects = {document.Reference(frame.created), document.Reference(newObject->GetID())};
-        Check(RememberParameterReferences(std::move(reordered), withObject).members[0].members[2].objects.back() == oldObjectRef,
+        Check(ParameterDraftValue(std::move(reordered), withObject).members[0].members[2].objects.back() == oldObjectRef,
               "reordered array forgot an object's original lifetime");
         Check(app.FinishEdit(edit, true) != EDITOR_QUEUED && read(parameter).value == original.value && document.History().CanRedo(),
               "nested array draft rebound a reused object ID");
