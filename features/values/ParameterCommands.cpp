@@ -27,10 +27,10 @@ const char *ParameterProperty(ParameterValueKind kind) {
     for (const auto &entry : kinds) if (entry.kind == kind) return entry.property;
     return nullptr;
 }
-bool ParameterScalarFromEditor(ParameterValueKind kind, const EditorValue &value, ParameterScalar &out) {
+bool ParameterValueFromEditor(ParameterValueKind kind, const EditorValue &value, ParameterValue &out) {
     const auto expected = kind == ParameterValueKind::Real ? EDITOR_REAL_VALUE : kind == ParameterValueKind::Object ? EDITOR_OBJECT : EDITOR_INTEGER_VALUE;
     if (value.type != expected) return false;
-    ParameterScalar scalar;
+    ParameterValue scalar;
     scalar.kind = kind;
     if (expected == EDITOR_REAL_VALUE) scalar.real = value.real;
     else if (expected == EDITOR_OBJECT) scalar.object = value.object;
@@ -50,10 +50,10 @@ EditorStatus ParameterCommands::Check(void *data, const EditorHost *, const Edit
     auto *parameter = CKParameter::Cast(document->Resolve(target->object, CKCID_PARAMETER));
     if (!parameter || TypeId(parameter->GetGUID()) != type->integer) return EDITOR_STALE;
     ParameterValueDescription description;
-    ParameterScalar scalar;
-    if (!ParameterScalarFromEditor(kinds[entry.kind].kind, *value, scalar) ||
+    ParameterValue scalar;
+    if (!ParameterValueFromEditor(kinds[entry.kind].kind, *value, scalar) ||
         !DescribeParameterValue(*document, parameter, description)) return EDITOR_INVALID;
-    return ValidateParameterScalar(*document, description, scalar) ? EDITOR_OK : EDITOR_REFUSED;
+    return ValidateParameterValue(*document, description, scalar) ? EDITOR_OK : EDITOR_REFUSED;
 }
 EditorStatus ParameterCommands::Describe(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto *document = static_cast<ParameterCommands *>(data)->m_Current();
@@ -121,9 +121,9 @@ EditorStatus ParameterCommands::Write(void *data, const EditorHost *, const Edit
     if (!document || document->Token() != request->scope.document || !target || !value || !type) return EDITOR_STALE;
     const auto guid = CKGUID(CKDWORD(type->integer >> 32), CKDWORD(type->integer));
     const auto &kind = kinds[entry.kind];
-    ParameterScalar scalar;
-    if (!ParameterScalarFromEditor(kind.kind, *value, scalar)) return EDITOR_INVALID;
-    const auto result = SetParameterScalar(*document, target->object, guid, scalar);
+    ParameterValue scalar;
+    if (!ParameterValueFromEditor(kind.kind, *value, scalar)) return EDITOR_INVALID;
+    const auto result = SetParameterValue(*document, target->object, guid, scalar);
     if (!result.message.empty() && !result.ok && !result.Unchanged()) {
         const auto message = AnsiToUtf8(result.message);
         const EditorValue field{EDITOR_TEXT("message"), EDITOR_TEXT_VALUE, {}, EditorText(message)};

@@ -2,8 +2,8 @@
 #include "application/EditorApplication.h"
 namespace vdev {
 enum class ParameterValueKind;
-struct ParameterScalar;
-bool ParameterScalarFromEditor(ParameterValueKind, const EditorValue &, ParameterScalar &);
+struct ParameterValue;
+bool ParameterValueFromEditor(ParameterValueKind, const EditorValue &, ParameterValue &);
 const char *ParameterProperty(ParameterValueKind);
 class ParameterCommands {
   public:

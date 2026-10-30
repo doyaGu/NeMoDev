@@ -150,21 +150,21 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
     Check(app.UpdateEdit(edit, Real(std::numeric_limits<double>::infinity())) == EDITOR_INVALID &&
           app.UpdateEdit(edit, Real(std::numeric_limits<double>::quiet_NaN())) == EDITOR_INVALID, "non-finite draft accepted");
     app.FinishEdit(edit, false); edit = 0;
-    ParameterScalar ignoredFields;
+    ParameterValue ignoredFields;
     auto tagged = Integer(-7);
     tagged.real = std::numeric_limits<double>::quiet_NaN(); tagged.object = document.Reference(frame.created);
-    Check(ParameterScalarFromEditor(ParameterValueKind::Integer, tagged, ignoredFields) &&
+    Check(ParameterValueFromEditor(ParameterValueKind::Integer, tagged, ignoredFields) &&
           ignoredFields.integer == -7 && !ignoredFields.object && ignoredFields.real == 0,
           "integer conversion read fields belonging to another value type");
-    ParameterScalar parsed;
+    ParameterValue parsed;
     const auto percent = read(percentage);
-    Check(ParseParameterScalar(percent, "25%", parsed) && parsed.real == .25, "percentage units were changed");
+    Check(ParseParameterValue(percent, "25%", parsed) && parsed.real == .25, "percentage units were changed");
     Check(WriteParameterDraft(document, percentage, parsed) == false, "draft writer accepted a composition parameter");
     const auto intDesc = read(integer);
     for (const char *text : {"2147483648", "-2147483649", "1x", "", "nan"})
-        Check(!ParseParameterScalar(intDesc, text, parsed), "invalid integer parsed");
+        Check(!ParseParameterValue(intDesc, text, parsed), "invalid integer parsed");
     for (const char *text : {"1e400", "nan", "inf", "1x", ""})
-        Check(!ParseParameterScalar(read(real), text, parsed), "invalid real parsed");
+        Check(!ParseParameterValue(read(real), text, parsed), "invalid real parsed");
     Check(app.BeginEdit("parameter.integer", scope, integerRef, edit) == EDITOR_OK && app.UpdateEdit(edit, Integer(11)) == EDITOR_OK,
           "prepare busy draft");
     native = false; app.NativeAvailable(false);

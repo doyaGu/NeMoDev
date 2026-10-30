@@ -22,7 +22,7 @@ std::string ParameterValueText(CKParameter *parameter) {
 }
 
 namespace {
-uint32_t DrawScalarDraft(EditorState &state, CKParameter *work, ParameterValueDescription &description,
+uint32_t DrawParameterDraft(EditorState &state, CKParameter *work, ParameterValueDescription &description,
                         const char *label, float width, float height, CK_CLASSID cid, bool derived,
                         const std::string &filter, ObjectRef *remembered, const PropertyBinding *capturedProperty, const EditorValueEditorDesc *capturedEditor) {
     if (!state.workspace) return EDITOR_INPUT_INVALID;
@@ -52,8 +52,8 @@ uint32_t DrawScalarDraft(EditorState &state, CKParameter *work, ParameterValueDe
     struct Draft { EditorState *state; CKParameter *work; ParameterValueKind kind; ObjectRef *remembered; } draft{&state, work, description.value.kind, remembered};
     const auto update = [](void *data, const EditorValue *value, uint32_t count) {
         auto &draft = *static_cast<Draft *>(data);
-        ParameterScalar scalar;
-        if (!value || count != 1 || !ParameterScalarFromEditor(draft.kind, *value, scalar)) return EDITOR_INVALID;
+        ParameterValue scalar;
+        if (!value || count != 1 || !ParameterValueFromEditor(draft.kind, *value, scalar)) return EDITOR_INVALID;
         if (!WriteParameterDraft(*draft.state->document, draft.work, scalar)) return EDITOR_REFUSED;
         if (draft.remembered && scalar.kind == ParameterValueKind::Object) *draft.remembered = scalar.object;
         return EDITOR_OK;
@@ -76,7 +76,7 @@ uint32_t ParameterDraftEditor(EditorState &state, CKParameter *work, const char 
                               const PropertyBinding *property, const EditorValueEditorDesc *editor) {
     ParameterValueDescription description;
     if (!state.document || !DescribeParameterValue(*state.document, work, description)) return EDITOR_INPUT_INVALID;
-    return DrawScalarDraft(state, work, description, label, width, height, cid, derived, filter, remembered, property, editor);
+    return DrawParameterDraft(state, work, description, label, width, height, cid, derived, filter, remembered, property, editor);
 }
 void CancelParameterValueEdit(EditorState &state, ValueEditState &edit) {
     if (state.workspace) {

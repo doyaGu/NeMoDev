@@ -14,7 +14,7 @@
 #include <limits>
 
 namespace vdev {
-bool operator==(const ParameterScalar &a, const ParameterScalar &b) {
+bool operator==(const ParameterValue &a, const ParameterValue &b) {
     if (a.kind != b.kind) return false;
     switch (a.kind) {
     case ParameterValueKind::Real: return a.real == b.real;
@@ -68,7 +68,7 @@ bool DescribeParameterValue(const Document &document, CKParameter *parameter, Pa
     out = std::move(result);
     return true;
 }
-bool ParseParameterScalar(const ParameterValueDescription &description, const std::string &text, ParameterScalar &out) {
+bool ParseParameterValue(const ParameterValueDescription &description, const std::string &text, ParameterValue &out) {
     auto value = description.value;
     if (value.kind == ParameterValueKind::Integer || value.kind == ParameterValueKind::Enumeration || value.kind == ParameterValueKind::Boolean) {
         if (!ParseIntegerValue(text, value.integer)) return false;
@@ -78,7 +78,7 @@ bool ParseParameterScalar(const ParameterValueDescription &description, const st
     out = value;
     return true;
 }
-bool ValidateParameterScalar(const Document &document, const ParameterValueDescription &description, const ParameterScalar &value) {
+bool ValidateParameterValue(const Document &document, const ParameterValueDescription &description, const ParameterValue &value) {
     if (value.kind != description.value.kind || value.kind == ParameterValueKind::None) return false;
     if (value == description.value) return true;
     switch (value.kind) {
@@ -93,10 +93,10 @@ bool ValidateParameterScalar(const Document &document, const ParameterValueDescr
     }
 }
 namespace {
-bool WriteScalar(const Document &document, CKParameter *parameter, const ParameterScalar &value, bool replay) {
+bool WriteValue(const Document &document, CKParameter *parameter, const ParameterValue &value, bool replay) {
     ParameterValueDescription description;
     if (!DescribeParameterValue(document, parameter, description) || value.kind != description.value.kind) return false;
-    if (!replay && !ValidateParameterScalar(document, description, value)) return false;
+    if (!replay && !ValidateParameterValue(document, description, value)) return false;
     unsigned char bytes[4]{};
     if (value.kind == ParameterValueKind::Object) {
         auto *object = value.object ? document.Resolve(value.object, description.objectClass, Document::ObjectScope::Existing) : nullptr;
@@ -112,9 +112,9 @@ bool WriteScalar(const Document &document, CKParameter *parameter, const Paramet
     if (expected.kind == ParameterValueKind::Real) expected.real = float(expected.real);
     return DescribeParameterValue(document, parameter, actual) && actual.value == expected;
 }
-class ScalarAction final : public Action {
+class ParameterValueAction final : public Action {
   public:
-    ScalarAction(ObjectRef target, CKGUID type, ParameterScalar before, ParameterScalar after)
+    ParameterValueAction(ObjectRef target, CKGUID type, ParameterValue before, ParameterValue after)
         : m_Target(target), m_Type(type), m_Before(before), m_After(after) {}
     bool Undo(Document &document) override { return Apply(document, m_Before, m_After); }
     bool Redo(Document &document) override { return Apply(document, m_After, m_Before); }
@@ -123,36 +123,36 @@ class ScalarAction final : public Action {
             if (auto id = document.NativeId(ref, Document::ObjectScope::Existing)) objects.insert(id);
     }
   private:
-    bool Apply(Document &document, const ParameterScalar &value, const ParameterScalar &restore) {
+    bool Apply(Document &document, const ParameterValue &value, const ParameterValue &restore) {
         auto *parameter = CKParameter::Cast(document.Resolve(m_Target, CKCID_PARAMETER, Document::ObjectScope::Existing));
         if (!parameter || parameter->GetGUID() != m_Type) return false;
         bool applied = false;
-        if (GuardedCall([&] { applied = WriteScalar(document, parameter, value, true); }, &document.Host(), "Set parameter value") && applied) return true;
+        if (GuardedCall([&] { applied = WriteValue(document, parameter, value, true); }, &document.Host(), "Set parameter value") && applied) return true;
         bool restored = false;
-        if (!GuardedCall([&] { restored = WriteScalar(document, parameter, restore, true); }, &document.Host(), "Restore parameter value") || !restored)
+        if (!GuardedCall([&] { restored = WriteValue(document, parameter, restore, true); }, &document.Host(), "Restore parameter value") || !restored)
             document.InvalidateHistory();
         return false;
     }
     ObjectRef m_Target;
     CKGUID m_Type;
-    ParameterScalar m_Before, m_After;
+    ParameterValue m_Before, m_After;
 };
 } // namespace
-bool WriteParameterDraft(const Document &document, CKParameter *parameter, const ParameterScalar &value) {
+bool WriteParameterDraft(const Document &document, CKParameter *parameter, const ParameterValue &value) {
     if (!parameter || !parameter->IsDynamic()) return false;
-    return WriteScalar(document, parameter, value, false);
+    return WriteValue(document, parameter, value, false);
 }
-EditResult SetParameterScalar(Document &document, ObjectRef target, const CKGUID &type, const ParameterScalar &value, CK_ID script) {
+EditResult SetParameterValue(Document &document, ObjectRef target, const CKGUID &type, const ParameterValue &value, CK_ID script) {
     auto *parameter = CKParameter::Cast(document.Resolve(target, CKCID_PARAMETER));
     ParameterValueDescription description;
     if (!parameter || parameter->GetGUID() != type || !DescribeParameterValue(document, parameter, description))
         return EditResult::Refused("The parameter or its type is no longer available");
-    if (!ValidateParameterScalar(document, description, value)) return EditResult::Refused("Invalid parameter value");
+    if (!ValidateParameterValue(document, description, value)) return EditResult::Refused("Invalid parameter value");
     auto normalized = value;
     if (normalized.kind == ParameterValueKind::Real) normalized.real = float(normalized.real);
     if (description.value == normalized) return EditResult::NoChange("The value is unchanged");
     Edit edit(document, "Set Value");
-    if (!edit.Do(std::make_unique<ScalarAction>(target, type, description.value, normalized))) {
+    if (!edit.Do(std::make_unique<ParameterValueAction>(target, type, description.value, normalized))) {
         edit.Fail("The parameter value could not be applied");
         return EditResult::Error("The parameter value could not be applied");
     }

@@ -132,7 +132,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             vdev::ParameterValueDescription description;
             IM_CHECK_NO_RET(vdev::DescribeParameterValue(*state.document, a, description));
             description.value.integer = 4;
-            IM_CHECK_NO_RET(vdev::SetParameterScalar(*state.document, state.document->Reference(a->GetID()), description.type, description.value).ok);
+            IM_CHECK_NO_RET(vdev::SetParameterValue(*state.document, state.document->Reference(a->GetID()), description.type, description.value).ok);
             IM_CHECK_NO_RET(state.History().Undo() && state.History().CanRedo());
             description.value.integer = 33;
             IM_CHECK_NO_RET(vdev::WriteParameterDraft(*state.document, editing.box->Work(0), description.value));
