@@ -830,3 +830,76 @@ targeted/full runs and three reference module repetitions passed; the cause is
 unresolved and is not claimed fixed. Raw measurements, failed iterations, the
 bounded native stack, fingerprints and remaining work are preserved in
 [value-editing-macos-arm64-metal.json](baselines/value-editing-macos-arm64-metal.json).
+
+
+## Phase four: compound numeric values
+
+The same ParameterValue description and undo record now cover 2D/3D vectors,
+quaternions, Euler angles, matrices, colors, bounding boxes and rectangles, as
+well as the existing scalar values and angle controls. Public interface version
+11 adds finite real arrays. Native values retain their component order: RGBA,
+XYZ/W, row-major matrices, Min/Max boxes and corner-coordinate rectangles.
+Rows, columns, component/row labels and display scale are copied query fields;
+no native memory layout or SDK type reaches the public editor description.
+
+ParameterBox no longer draws or writes these components through its own color,
+vector, matrix and angle branches. It uses the same registered renderers as
+inline values. Native byte conversion stays in ParameterValues; invalid counts,
+non-finite components and values outside float range are refused together.
+Ordinary derived parameter types inherit their nearest parent editor while
+keeping their actual native GUID. Turn/degree controls, RGBA byte channels,
+matrix collapse, rectangle representations and native object picking remain
+available. Each rectangle row owns its display representation.
+
+An inline interaction updates its owned draft and commits once. Native dialogs
+retain working parameters and one pre-interaction value per row. Cancel restores
+that value; accepting an input ends that interaction, and Apply groups all rows
+into one history step. The color renderer owns only popup opening/closing state;
+restoration belongs to the draft or working-copy owner. Child input activity
+prevents the parent dialog from accepting while its picker is active. Cancelled
+input consumes Escape for that frame even if ImGui has ended its active widget,
+so the same key cannot also close the containing dialog. Query,
+renderer, modifier and option-provider choices are captured when opening a native
+dialog, so changing configuration cannot mix providers in an existing edit.
+
+Five additional native UI cases cover an eight-type batch, invalid input,
+color-picker cancellation (including Escape), a multi-frame inline drag,
+Redo preservation, an independently compiled vector editor/query/modifier, and
+angle-dial cancellation while the mouse remains held and continues moving.
+The provider test changes configuration during an open dialog and verifies both
+continued queries and the original renderer/modifier. Core tests exercise forty
+updates for each compound shape, cancel/undo, malformed arrays, finite/range
+checks, working copies, inherited type identity and copied command outputs.
+C/C++ header consumers still include no STL, SDK, SDL or ImGui dependency.
+
+The final macOS arm64 Release run passes 124/124 CTests without skips, including
+the expanded compound-dialog case and the held-mouse cancellation regression.
+The module group executes 29 of 183 registered UI cases; unselected cases are
+not counted as passes. SDK
+source state equals the start of this batch. The reference is the preceding
+phase-four implementation at efe593c; source hashes and all 22 SDK runtime hashes
+were checked. The viewport rendering/transfer implementation is unchanged.
+
+Timing acceptance remains pending. The final eleven-group implementation pair
+and its subsequent same-program control exceed the original 3% MAD limit. An
+earlier source version passed its implementation pair (median +0.812768%), but
+both of its controls were unstable. Those captures remain in the record and do
+not validate the final source. Concurrent native CPU work was observed during
+earlier sampling; that does not establish a cause. No benchmark source or limits
+were changed, and all complete captures are retained.
+
+| Run | Median (ms) | p10 (ms) | p90 (ms) | MAD (ms) | MAD / median |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Final implementation pair, reference | 0.261137 | 0.248244 | 0.285039 | 0.012590 | 4.8212% |
+| Final implementation pair, candidate | 0.257971 | 0.241328 | 0.276659 | 0.015778 | 6.1162% |
+| Final same-program control, reference | 0.313287 | 0.226684 | 0.405114 | 0.069908 | 22.3144% |
+| Final same-program control, candidate | 0.287143 | 0.225574 | 0.379181 | 0.061569 | 21.4418% |
+
+Complete captures report zero stable readback, upload, target creation/release
+and path-selection counts; one explicit verification readback is outside timing.
+Other GPU/allocator counters remain unmeasured. Sources, binary/runtime hashes,
+full samples, corrected UI failures and remaining work are in
+[compound-values-macos-arm64-metal.json](baselines/compound-values-macos-arm64-metal.json).
+Structures/arrays, nested drafts and the remaining view migrations keep phase
+four open; completed_phase remains 3. The preceding native teardown crash did
+not recur here, and is not claimed fixed.
