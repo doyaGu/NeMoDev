@@ -130,6 +130,18 @@ ParameterUIInfo ParameterUIOf(CKParameterManager *manager, CKParameterType type)
                 if (entry.ui == ParameterUI::Object) derived.pickClass = manager->TypeToClassID(type);
                 return derived;
             }
+    // Use the nearest ordinary parent for custom numeric and geometric types.
+    // Exact special UIs and the enum/flags/structure rules above keep precedence.
+    auto parent = description->DerivedFrom;
+    for (int depth = 0; depth < 32 && (parent.d1 || parent.d2) && parent != guid; ++depth) {
+        for (const auto &entry : EXACT) if (entry.guid == parent)
+            return {entry.ui, entry.dialog, entry.width, entry.height, entry.pick, entry.pickClass, entry.expand};
+        for (const auto &object : OBJECTS) if (object == parent)
+            return {ParameterUI::Object, 2011, 219, 43, 2, manager->TypeToClassID(type), true};
+        const auto *next = manager->GetParameterTypeDescription(manager->ParameterGuidToType(parent));
+        if (!next || next->DerivedFrom == parent) break;
+        parent = next->DerivedFrom;
+    }
     return info;
 }
 

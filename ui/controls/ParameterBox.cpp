@@ -114,11 +114,6 @@ struct LodOptions {
     float screenMag = 0.4f, screenMin = 0.01f, facesMag = 1.0f, facesMin = 0.02f, alphaMag = 0.1f, alphaMin = 0.05f;
 };
 
-// The Rect UI's representation, shared by every Rect UI (CK2UI
-// dword_24E88C68): 0 the corners, 1 the corner and the size, 2 the center
-// and the half size.
-int g_RectMode = 0;
-
 bool SameCurve(CK2dCurve *a, CK2dCurve *b) {
     if (!a || !b) return a == b;
     if (a->GetControlPointCount() != b->GetControlPointCount()) return false;
@@ -219,12 +214,12 @@ void ParameterBox::InitRow(Row &row, CKParameter *work) {
     CKParameterManager *manager = context->GetParameterManager();
     row.work = work->GetID();
     row.workReference = m_State.document ? m_State.document->Reference(row.work) : ObjectRef{};
-    ParameterValueDescription scalar;
-    row.scalar = m_State.document && DescribeParameterValue(*m_State.document, work, scalar);
-    if (row.scalar && scalar.value.kind == ParameterValueKind::Object) row.valueReference = scalar.value.object;
-    if (row.scalar && m_State.workspace) {
+    ParameterValueDescription description;
+    row.typed = m_State.document && DescribeParameterValue(*m_State.document, work, description);
+    if (row.typed && description.value.kind == ParameterValueKind::Object) row.valueReference = description.value.object;
+    if (row.typed && m_State.workspace) {
         auto &app = m_State.workspace->Application();
-        if (const auto *property = app.Property(ParameterProperty(scalar.value.kind))) {
+        if (const auto *property = app.Property(ParameterProperty(description.value.kind))) {
             row.property = *property;
             app.ValueEditor(property->editor, row.editor);
         }
@@ -529,7 +524,7 @@ bool ParameterBox::DrawRows(std::vector<Row> &rows, const ImVec2 &at, float s, b
             // curve shown small.
             if (button("##expand", 1.0f, EXPAND, false)) {
                 switch (row.info.ui) {
-                case ParameterUI::Rect: g_RectMode = (g_RectMode + 1) % 3; break;
+                case ParameterUI::Rect: row.representation = (row.representation + 1) % 3; break;
                 case ParameterUI::Matrix:
                 case ParameterUI::Flags:
                 case ParameterUI::Curve2D: row.collapsed = !row.collapsed; break;
@@ -577,50 +572,6 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
             }
         }
     };
-    // A VIAngleCtrl (InterfaceControls.dll: 300 x 22 pixels; "Turn" and its
-    // edit, "Degree" and its edit ("%.3g"), the dial from 220 to 240).
-    auto angle = [&](const char *id, ImVec2 o, float value, const std::function<void(float)> &set) {
-        ImGui::PushID(id);
-        auto A = [&](float x, float y) { return ImVec2(o.x + x * s, o.y + y * s); };
-        // InterfaceControls' SetAngle: the whole turns, the rest in [0, 2 PI).
-        const float wholeTurns = static_cast<float>(static_cast<int>(value / (2.0f * PI)));
-        const float rest = value - wholeTurns * 2.0f * PI;
-        vi::Text(A(0, 4), A(43, 18), "Turn", true, vi::CENTER);
-        std::string turnText = std::to_string(static_cast<int>(wholeTurns));
-        if (vi::Edit("##turn", A(43, 4), A(104, 16), turnText, vi::CENTER)) {
-            int parsed = 0;
-            if (ParseInt(turnText, parsed)) {
-                set(parsed * 2.0f * PI + rest);
-                changed = true;
-            }
-        }
-        vi::Text(A(112, 4), A(160, 18), "Degree", true, vi::CENTER);
-        char degrees[32];
-        std::snprintf(degrees, sizeof(degrees), "%.3g", rest * 180.0f / PI);
-        std::string degreeText = degrees;
-        if (vi::Edit("##degree", A(160, 4), A(210, 16), degreeText, vi::CENTER)) {
-            float parsed = 0.0f;
-            if (ParseFloat(degreeText, parsed)) {
-                set(wholeTurns * 2.0f * PI + parsed * PI / 180.0f);
-                changed = true;
-            }
-        }
-        // The dial: dragging sets the angle (the turns kept).
-        const ImVec2 c = A(230, 10);
-        ImGui::SetCursorScreenPos(A(220, 0));
-        ImGui::InvisibleButton("##dial", ImVec2(20.0f * s, 20.0f * s));
-        if (ImGui::IsItemActive()) {
-            const ImVec2 m = ImGui::GetIO().MousePos;
-            float a = std::atan2(c.y - m.y, m.x - c.x);
-            if (a < 0.0f) a += 2.0f * PI;
-            set(wholeTurns * 2.0f * PI + a);
-            changed = true;
-        }
-        dl->AddCircleFilled(c, 10.0f * s, vi::Color(8));
-        dl->AddCircle(c, 10.0f * s, vi::Color(0));
-        dl->AddLine(c, ImVec2(c.x + 10.0f * s * std::cos(rest), c.y - 10.0f * s * std::sin(rest)), vi::Color(0));
-        ImGui::PopID();
-    };
     // A combo of choices with the CK_ID value (NULL: 0).
     auto objectCombo = [&](const char *id, float x, float y, float w, CK_ID current,
                            const std::function<ObjectChoices()> &choices, const std::function<void(CK_ID)> &set) {
@@ -656,25 +607,30 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         const auto max = row.info.ui == ParameterUI::Enum ? P(210, 12) : P(70, 12);
         ImGui::SetCursorScreenPos(min);
         const auto action = ParameterDraftEditor(m_State, work, id, max.x - min.x,
-            boolean ? 8 * DLU_X * s : max.y - min.y, 0, true, {}, nullptr, &row.property, &row.editor);
+            boolean ? 8 * DLU_X * s : max.y - min.y, 0, true, {}, nullptr, &row.property, &row.editor, 0);
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
-        if (action & EDITOR_INPUT_CHANGED) { row.invalid = (action & EDITOR_INPUT_INVALID) != 0; changed = !row.invalid; }
+        if (action & EDITOR_INPUT_INVALID) row.invalid = true;
+        else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
         break;
     }
-    case ParameterUI::Angle: {
-        angle("##angle", ImVec2(at.x + 2.0f * s, at.y + 2.0f * s), ValueOf<float>(work), [&](float v) { SetValueOf(work, v); });
-        break;
-    }
-    case ParameterUI::EulerAngles: {
-        VxVector v = ValueOf<VxVector>(work);
-        for (int i = 0; i < 3; ++i) {
-            ImGui::PushID(i);
-            angle("##euler", ImVec2(at.x + 2.0f * s, at.y + 24.0f * s * i), v[i], [&](float a) {
-                v[i] = a;
-                SetValueOf(work, v);
-            });
-            ImGui::PopID();
-        }
+    case ParameterUI::Angle:
+    case ParameterUI::EulerAngles:
+    case ParameterUI::Vector:
+    case ParameterUI::Quaternion:
+    case ParameterUI::Vector2D:
+    case ParameterUI::Matrix:
+    case ParameterUI::Color:
+    case ParameterUI::Box:
+    case ParameterUI::Rect: {
+        ImGui::SetCursorScreenPos(at);
+        const auto size = UiSize(row, s);
+        const unsigned representation = row.info.ui == ParameterUI::Matrix ? unsigned(row.collapsed) :
+            row.info.ui == ParameterUI::Rect ? row.representation : 0;
+        const auto action = ParameterDraftEditor(m_State, work, "##components", size.x, size.y,
+            0, true, {}, nullptr, &row.property, &row.editor, representation);
+        if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
+        if (action & EDITOR_INPUT_INVALID) row.invalid = true;
+        else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
         break;
     }
     case ParameterUI::Time: {
@@ -731,127 +687,6 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         }
         break;
     }
-    case ParameterUI::Vector:
-    case ParameterUI::Quaternion:
-    case ParameterUI::Vector2D: {
-        const int count = row.info.ui == ParameterUI::Vector ? 3 : row.info.ui == ParameterUI::Quaternion ? 4 : 2;
-        float v[4] = {};
-        work->GetValue(v, FALSE);
-        static const char *const AXES[4] = {"X:", "Y:", "Z:", "W:"};
-        static const char *const IDS[4] = {"##x", "##y", "##z", "##w"};
-        for (int i = 0; i < count; ++i) {
-            label(5.0f + 70.0f * i, 0, 10, 10, AXES[i]);
-            number(IDS[i], 15.0f + 70.0f * i, 0, 55, Format(v[i]), [&](float value) {
-                v[i] = value;
-                work->SetValue(v, static_cast<int>(sizeof(float)) * count);
-            });
-        }
-        break;
-    }
-    case ParameterUI::Matrix: {
-        if (row.collapsed) {
-            vi::Text(P(15, 0), P(319, 18), TextOf(work).c_str());
-            break;
-        }
-        VxMatrix m = ValueOf<VxMatrix>(work);
-        static const char *const AXES[4] = {"X:", "Y:", "Z:", "W:"};
-        static const char *const ROWS[4] = {"Right", "Up", "Dir", "Position"};
-        for (int r = 0; r < 4; ++r)
-            for (int c = 0; c < 4; ++c) {
-                ImGui::PushID(r * 4 + c);
-                label(5.0f + 70.0f * c, 15.0f * r, 10, 10, AXES[c]);
-                number("##m", 15.0f + 70.0f * c, 15.0f * r, 55, Format(m[r][c]), [&](float value) {
-                    m[r][c] = value;
-                    SetValueOf(work, m);
-                });
-                ImGui::PopID();
-            }
-        for (int r = 0; r < 4; ++r) label(285, 15.0f * r, 45, 12, ROWS[r], false, vi::LEFT);
-        break;
-    }
-    case ParameterUI::Color: {
-        // The color's button (2, 0, 38 x 12) and R, G, B, A in 0..255
-        // (CK2UI sub_24E66410).
-        VxColor color = ValueOf<VxColor>(work);
-        const ImVec2 a = P(2, 0), b = P(40, 12);
-        ImGui::SetCursorScreenPos(a);
-        if (ImGui::InvisibleButton("##swatch", ImVec2(b.x - a.x, b.y - a.y))) ImGui::OpenPopup("##colorpicker");
-        dl->AddRectFilled(a, b, ImGui::ColorConvertFloat4ToU32(ImVec4(color.r, color.g, color.b, 1.0f)), 3.0f * s);
-        dl->AddRect(a, b, vi::Color(3), 3.0f * s);
-        if (ImGui::BeginPopup("##colorpicker")) {
-            float rgba[4] = {color.r, color.g, color.b, color.a};
-            if (ImGui::ColorPicker4("##picker", rgba, ImGuiColorEditFlags_AlphaBar)) {
-                SetValueOf(work, VxColor(rgba[0], rgba[1], rgba[2], rgba[3]));
-                changed = true;
-            }
-            ImGui::EndPopup();
-        }
-        float channels[4] = {color.r, color.g, color.b, color.a};
-        static const char *const NAMES[4] = {"R:", "G:", "B:", "A:"};
-        static const char *const IDS[4] = {"##r", "##g", "##b", "##a"};
-        for (int i = 0; i < 4; ++i) {
-            label(41.0f + 37.0f * i, 0, 10, 10, NAMES[i]);
-            integer(IDS[i], 51.0f + 37.0f * i, 0, 20, static_cast<int>(channels[i] * 255.0f), [&](int value) {
-                channels[i] = std::clamp(value, 0, 255) / 255.0f;
-                SetValueOf(work, VxColor(channels[0], channels[1], channels[2], channels[3]));
-            });
-        }
-        break;
-    }
-    case ParameterUI::Box: {
-        VxBbox box = ValueOf<VxBbox>(work);
-        static const char *const AXES[3] = {"X:", "Y:", "Z:"};
-        for (int r = 0; r < 2; ++r) {
-            VxVector &v = r ? box.Max : box.Min;
-            for (int c = 0; c < 3; ++c) {
-                ImGui::PushID(r * 3 + c);
-                label(5.0f + 70.0f * c, 15.0f * r, 10, 10, AXES[c]);
-                number("##b", 15.0f + 70.0f * c, 15.0f * r, 55, Format(v[c]), [&](float value) {
-                    v[c] = value;
-                    SetValueOf(work, box);
-                });
-                ImGui::PopID();
-            }
-            label(215, 15.0f * r, 53, 12, r ? "Max" : "Min", false, vi::LEFT);
-        }
-        break;
-    }
-    case ParameterUI::Rect: {
-        // In the representation chosen with the expand button (sub_24E70FF0
-        // and its reverse): Left,Top and Right,Bottom; Left,Top and Size;
-        // Center and Half Size.
-        const VxRect rect = ValueOf<VxRect>(work);
-        float shown[4] = {rect.left, rect.top, rect.right, rect.bottom};
-        if (g_RectMode == 1) {
-            shown[2] = rect.right - rect.left;
-            shown[3] = rect.bottom - rect.top;
-        } else if (g_RectMode == 2) {
-            shown[2] = (rect.right - rect.left) * 0.5f;
-            shown[3] = (rect.bottom - rect.top) * 0.5f;
-            shown[0] = rect.left + shown[2];
-            shown[1] = rect.top + shown[3];
-        }
-        static const char *const FIRST[3] = {"Left,Top", "Left,Top", "Center"};
-        static const char *const SECOND[3] = {"Right,Bottom", "Size", "Half Size"};
-        for (int r = 0; r < 2; ++r) {
-            for (int c = 0; c < 2; ++c) {
-                ImGui::PushID(r * 2 + c);
-                label(5.0f + 70.0f * c, 15.0f * r, 10, 10, c ? "Y:" : "X:");
-                const int i = r * 2 + c;
-                number("##r", 15.0f + 70.0f * c, 15.0f * r, 55, Format(shown[i]), [&](float v) {
-                    shown[i] = v;
-                    VxRect value(shown[0], shown[1], shown[2], shown[3]);
-                    if (g_RectMode == 1) value = VxRect(shown[0], shown[1], shown[0] + shown[2], shown[1] + shown[3]);
-                    else if (g_RectMode == 2)
-                        value = VxRect(shown[0] - shown[2], shown[1] - shown[3], shown[0] + shown[2], shown[1] + shown[3]);
-                    SetValueOf(work, value);
-                });
-                ImGui::PopID();
-            }
-            label(145, 15.0f * r, 68, 12, r ? SECOND[g_RectMode] : FIRST[g_RectMode], true, vi::LEFT);
-        }
-        break;
-    }
     case ParameterUI::Object: {
         // CK2UI's Object UI (dialog 2011, sub_24E6CE00): the objects of the
         // class; with its filter: Class, Derived, Text Filter, Show Setup.
@@ -859,9 +694,10 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         const CK_CLASSID cid = row.extended ? row.filterClass : row.info.pickClass;
         ImGui::SetCursorScreenPos(P(19, 0));
         const auto action = ParameterDraftEditor(m_State, work, "##object", 195 * DLU_X * s, 12 * DLU_Y * s,
-            cid, row.extended ? row.derived : true, row.extended ? row.filter : "", &row.valueReference, &row.property, &row.editor);
+            cid, row.extended ? row.derived : true, row.extended ? row.filter : "", &row.valueReference, &row.property, &row.editor, 0);
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
-        if (action & EDITOR_INPUT_CHANGED) { row.invalid = (action & EDITOR_INPUT_INVALID) != 0; changed = !row.invalid; }
+        if (action & EDITOR_INPUT_INVALID) row.invalid = true;
+        else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
         if (row.extended) {
             label(15, 15, 28, 10, "Class", true, vi::LEFT);
             const auto classes = DerivedClasses(row.info.pickClass);
@@ -1820,18 +1656,17 @@ size_t ParameterBox::ApplyRow(const Row &row, CK_ID targetId, CK_ID script) {
             if (set.ok) ++steps;
         }
     }
-    ParameterValueDescription scalar;
-    const bool described = DescribeParameterValue(*m_State.document, work, scalar);
-    if (row.scalar && !described) { m_ApplyFailed = true; return 0; }
+    ParameterValueDescription description;
+    const bool described = DescribeParameterValue(*m_State.document, work, description);
+    if (row.typed && !described) { m_ApplyFailed = true; return 0; }
     if (described) {
-        if (scalar.value.kind == ParameterValueKind::Object && row.valueReference.object == scalar.value.object.object)
-            scalar.value.object = row.valueReference;
+        if (description.value.kind == ParameterValueKind::Object && row.valueReference.object == description.value.object.object)
+            description.value.object = row.valueReference;
         if (!m_State.workspace || row.property.id.empty()) { m_ApplyFailed = true; return 0; }
-        const auto type = scalar.value.kind == ParameterValueKind::Object ? EDITOR_OBJECT : scalar.value.kind == ParameterValueKind::Real ? EDITOR_REAL_VALUE : EDITOR_INTEGER_VALUE;
-        const EditorValue value{EDITOR_TEXT("value"), type, scalar.value.object, {}, uint64_t(int64_t(scalar.value.integer)), {}, {}, {}, scalar.value.real};
+        const auto value = BorrowParameterValue(description.value, EditorString EDITOR_TEXT("value"));
         auto &app = m_State.workspace->Application();
         const auto result = app.ApplyEdit(row.property, app.Scope(), m_State.document->Reference(targetId), value,
-            {{"type", EDITOR_INTEGER_VALUE, {}, {}, (uint64_t(scalar.type.d1) << 32) | scalar.type.d2}});
+            {{"type", EDITOR_INTEGER_VALUE, {}, {}, (uint64_t(description.type.d1) << 32) | description.type.d2}});
         if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) {
             m_ApplyFailed = true;
             m_State.Log(LogLevel::Warning, "Edit Parameters: " + result.message);
@@ -1959,7 +1794,11 @@ size_t ParameterBox::Apply(CK_ID script) {
     if (steps) edit.Touches(script);
     const auto result = edit.Commit();
     if (!result.ok) return 0;
-    for (auto &row : m_Rows) { row.created.clear(); row.usersSet = false; }
+    const auto accepted = [&](const auto &self, Row &row) -> void {
+        row.created.clear(); row.usersSet = false;
+        for (auto &member : row.members) self(self, member);
+    };
+    for (auto &row : m_Rows) accepted(accepted, row);
     return steps;
 }
 

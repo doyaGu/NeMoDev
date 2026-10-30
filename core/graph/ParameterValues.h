@@ -3,12 +3,17 @@
 #include "core/document/EditResult.h"
 
 namespace vdev {
-enum class ParameterValueKind { None, Boolean, Integer, Real, Enumeration, Object };
+enum class ParameterValueKind {
+    None, Boolean, Integer, Real, Enumeration, Object,
+    Angle, Vector2, Vector3, Quaternion, EulerAngles, Matrix, Color, Box, Rect
+};
+unsigned ParameterComponentCount(ParameterValueKind);
 struct ParameterValue {
     ParameterValueKind kind = ParameterValueKind::None;
     int32_t integer = 0;
     double real = 0;
     ObjectRef object{};
+    std::vector<double> components;
 };
 bool operator==(const ParameterValue &, const ParameterValue &);
 inline bool operator!=(const ParameterValue &a, const ParameterValue &b) { return !(a == b); }
@@ -19,9 +24,11 @@ struct ParameterValueDescription {
     std::vector<std::pair<int32_t, std::string>> choices;
     CK_CLASSID objectClass = 0;
     double displayScale = 1;
+    unsigned rows = 1, columns = 1;
+    std::vector<std::string> componentLabels, rowLabels;
 };
 // The same type selection and validation serve inline values and dialog copies.
-// Complex types retain their existing specialized editors.
+// Native data stays in the core; public editors receive typed values and metadata.
 bool DescribeParameterValue(const Document &, CKParameter *, ParameterValueDescription &);
 bool ParseParameterValue(const ParameterValueDescription &, const std::string &, ParameterValue &);
 bool ValidateParameterValue(const Document &, const ParameterValueDescription &, const ParameterValue &);

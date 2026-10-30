@@ -16,13 +16,14 @@
 namespace {
 using namespace vdev;
 void Check(bool condition, const char *message) { if (!condition) throw std::runtime_error(message); }
-struct Painter { uint64_t integer = 0; uint32_t action = 0; bool update = false; unsigned calls = 0; };
+struct Painter { std::vector<double> components; uint64_t integer = 0; uint32_t action = 0; bool update = false; unsigned calls = 0; };
 uint32_t Paint(void *data, const EditorHost *, const EditorValueInput *input) {
     auto &painter = *static_cast<Painter *>(data);
     ++painter.calls;
     if (painter.update) {
         auto value = input->value;
         value.integer = painter.integer;
+        if (!painter.components.empty()) value.reals = {painter.components.data(), uint32_t(painter.components.size())};
         Check(input->update.write(input->update.data, &value, 1) == EDITOR_OK, "typed renderer update rejected");
     }
     return painter.action;
@@ -40,15 +41,15 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
     EditorApplication app([&] { return &document; }, [&] { return native; });
     ParameterCommands commands([&] { return &document; });
     Painter painter;
-    const char *ids[] = {"value.boolean", "value.integer", "value.real", "value.enumeration", "value.object"};
-    const EditorValueType types[] = {EDITOR_INTEGER_VALUE, EDITOR_INTEGER_VALUE, EDITOR_REAL_VALUE, EDITOR_INTEGER_VALUE, EDITOR_OBJECT};
-    EditorValueEditorDesc editors[5]{};
-    for (unsigned i = 0; i < 5; ++i)
+    const char *ids[] = {"value.boolean", "value.integer", "value.real", "value.enumeration", "value.object", "value.angle", "value.vector2", "value.vector3", "value.quaternion", "value.euler", "value.matrix", "value.color", "value.box", "value.rect"};
+    const EditorValueType types[] = {EDITOR_INTEGER_VALUE, EDITOR_INTEGER_VALUE, EDITOR_REAL_VALUE, EDITOR_INTEGER_VALUE, EDITOR_OBJECT, EDITOR_REAL_VALUE, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST};
+    EditorValueEditorDesc editors[std::size(ids)]{};
+    for (unsigned i = 0; i < std::size(ids); ++i)
         editors[i] = {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EditorLiteral(ids[i]), EDITOR_TEXT("test.values"),
             EDITOR_TEXT("Test value"), Paint, &painter, types[i]};
     EditorModuleDesc module{};
     module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("test.parameter-editors");
-    module.editors = editors; module.editorCount = 5;
+    module.editors = editors; module.editorCount = uint32_t(std::size(editors));
     {
         EditorApplication invalid([&] { return &document; });
         ParameterCommands invalidCommands([&] { return &document; });
@@ -165,6 +166,74 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
         Check(!ParseParameterValue(intDesc, text, parsed), "invalid integer parsed");
     for (const char *text : {"1e400", "nan", "inf", "1x", ""})
         Check(!ParseParameterValue(read(real), text, parsed), "invalid real parsed");
+    struct Shape { CKGUID type; const char *property; unsigned count; };
+    const Shape shapes[] = {
+        {CKPGUID_2DVECTOR, "parameter.vector2", 2}, {CKPGUID_VECTOR, "parameter.vector3", 3},
+        {CKPGUID_QUATERNION, "parameter.quaternion", 4}, {CKPGUID_EULERANGLES, "parameter.euler", 3},
+        {CKPGUID_MATRIX, "parameter.matrix", 16}, {CKPGUID_COLOR, "parameter.color", 4},
+        {CKPGUID_BOX, "parameter.box", 6}, {CKPGUID_RECT, "parameter.rect", 4}};
+    for (const auto &shape : shapes) {
+        auto *parameter = context->CreateCKParameterLocal("Compound value", shape.type);
+        Check(parameter != nullptr, "create compound parameter");
+        float original[16]{};
+        for (unsigned i = 0; i < shape.count; ++i) original[i] = float(i + 1) * .25f;
+        Check(parameter->SetValue(original, int(shape.count * sizeof(float))) == CK_OK, "initialize compound parameter");
+        const auto description = read(parameter);
+        Check(description.value.components.size() == shape.count && description.rows * description.columns == shape.count,
+              "compound shape or component order was lost");
+        const auto target = document.Reference(parameter->GetID());
+        document.History().Clear(); document.MarkSaved(); document.History().MarkSavePoint();
+        for (int frameIndex = 0; frameIndex < 40; ++frameIndex) {
+            painter.components = description.value.components;
+            for (auto &component : painter.components) component += frameIndex + 1;
+            painter.action = frameIndex == 39 ? EDITOR_INPUT_ACCEPT : EDITOR_INPUT_ACTIVE;
+            app.EnterDraw(); app.DrawProperty(shape.property, scope, target, edit, EditorLiteral("compound")); app.LeaveDraw();
+            Check(read(parameter).value == description.value && history() == 0, "compound drag wrote native data before acceptance");
+            app.EndFrame();
+        }
+        Check(!edit && history() == 1 && read(parameter).value.components == painter.components,
+              "compound drag did not commit exactly once");
+        Check(document.History().Undo() && read(parameter).value == description.value && document.History().CanRedo(), "compound undo lost component order");
+        const auto redoCount = document.History().CanRedo();
+        painter.action = EDITOR_INPUT_CANCEL;
+        app.EnterDraw(); app.DrawProperty(shape.property, scope, target, edit, EditorLiteral("compound")); app.LeaveDraw(); app.EndFrame();
+        Check(!edit && read(parameter).value == description.value && history() == 0 && document.History().CanRedo() == redoCount,
+              "compound cancellation changed the value, dirty state or Redo");
+        Check(!document.Dirty(), "compound cancel dirtied document");
+        Check(app.BeginEdit(shape.property, scope, target, edit) == EDITOR_OK, "begin invalid compound draft");
+        auto invalid = BorrowParameterValue(description.value, EditorString EDITOR_TEXT("value"));
+        invalid.reals.count = shape.count - 1;
+        Check(app.UpdateEdit(edit, invalid) == EDITOR_OK && app.FinishEdit(edit, true) != EDITOR_QUEUED, "wrong component count was committed");
+        invalid = BorrowParameterValue(description.value, EditorString EDITOR_TEXT("value"));
+        std::vector<double> nonfinite = description.value.components;
+        nonfinite[0] = std::numeric_limits<double>::quiet_NaN(); invalid.reals = {nonfinite.data(), uint32_t(nonfinite.size())};
+        Check(app.UpdateEdit(edit, invalid) == EDITOR_INVALID, "non-finite component entered a draft");
+        nonfinite[0] = std::numeric_limits<double>::max();
+        Check(app.UpdateEdit(edit, invalid) == EDITOR_OK && app.FinishEdit(edit, true) != EDITOR_QUEUED, "out-of-range component was committed");
+        app.FinishEdit(edit, false); edit = 0;
+        auto *work = context->CreateCKParameterOut("Compound working copy", shape.type, TRUE);
+        Check(work && work->CopyValue(parameter, FALSE) == CK_OK, "copy compound parameter");
+        auto changed = description.value; changed.components[0] += 7;
+        Check(WriteParameterDraft(document, work, changed) && read(parameter).value == description.value && history() == 0,
+              "working copy edit changed the document");
+        Check(WriteParameterDraft(document, work, description.value) && read(work).value == description.value,
+              "working copy cancellation did not restore all components");
+        context->DestroyObject(work);
+        painter.components.clear(); document.History().Clear(); context->DestroyObject(parameter);
+    }
+    const CKGUID derivedVectorType(0x6e76616c, 0x00000411);
+    auto *manager = context->GetParameterManager();
+    auto derived = *manager->GetParameterTypeDescription(manager->ParameterGuidToType(CKPGUID_VECTOR));
+    derived.Guid = derivedVectorType; derived.DerivedFrom = CKPGUID_VECTOR; derived.TypeName = "Derived compound vector";
+    Check(manager->RegisterParameterType(&derived) == CK_OK, "register inherited vector type");
+    auto *custom = context->CreateCKParameterLocal("Inherited vector", derivedVectorType);
+    Check(custom && ParameterUIOf(manager, custom->GetType()).ui == ParameterUI::Vector, "inherited vector lost its editor");
+    const auto inherited = read(custom);
+    Check(inherited.type == derivedVectorType && inherited.value.kind == ParameterValueKind::Vector3, "inherited type identity was replaced by its parent");
+    auto changedVector = inherited.value; changedVector.components = {1, 2, 3};
+    Check(SetParameterValue(document, document.Reference(custom->GetID()), derivedVectorType, changedVector).ok &&
+          document.History().Undo() && read(custom).value == inherited.value, "inherited vector edit/undo failed");
+    document.History().Clear(); context->DestroyObject(custom); manager->UnRegisterParameterType(derivedVectorType);
     Check(app.BeginEdit("parameter.integer", scope, integerRef, edit) == EDITOR_OK && app.UpdateEdit(edit, Integer(11)) == EDITOR_OK,
           "prepare busy draft");
     native = false; app.NativeAvailable(false);

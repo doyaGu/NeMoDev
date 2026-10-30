@@ -31,7 +31,7 @@ void CancelParameterValueEdit(EditorState &, ValueEditState &);
 uint32_t ParameterDraftEditor(EditorState &, CKParameter *, const char *label, float width, float height,
                               CK_CLASSID filterClass = 0, bool derived = true, const std::string &filter = {},
                               ObjectRef *object = nullptr, const PropertyBinding *property = nullptr,
-                              const EditorValueEditorDesc *editor = nullptr);
+                              const EditorValueEditorDesc *editor = nullptr, unsigned representation = 0);
 
 // A Copy / Delete Dependencies value (CKPGUID_COPYDEPENDENCIES ...; Dev's
 // Copy Options of Duplicate and Paste, Dev.exe sub_5BDD60): the mode (Custom,

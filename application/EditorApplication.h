@@ -61,7 +61,7 @@ struct EditorConfiguration {
 struct PropertyBinding {
     std::string id, label, query, field, command, argument, editor, choices;
     EditorValueType type = EDITOR_TEXT_VALUE;
-    std::string commandProvider, choicesProvider;
+    std::string commandProvider, queryProvider, choicesProvider;
 };
 struct MenuEntry {
     std::string id, action, location, label;

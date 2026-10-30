@@ -1236,6 +1236,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
             };
             d.type = editors.at(d.editor)->type;
             d.commandProvider = String(c->provider);
+            d.queryProvider = String(q->provider);
             if (!d.choices.empty()) {
                 const auto *choices = queries.at(d.choices);
                 d.choicesProvider = String(choices->provider);

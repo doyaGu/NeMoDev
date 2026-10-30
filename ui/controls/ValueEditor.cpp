@@ -1,6 +1,7 @@
 #include "ui/controls/ValueEditor.h"
 #include "ui/controls/TypeAhead.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cstring>
 #include <vector>
@@ -22,61 +23,55 @@ std::string ParameterValueText(CKParameter *parameter) {
 }
 
 namespace {
-uint32_t DrawParameterDraft(EditorState &state, CKParameter *work, ParameterValueDescription &description,
-                        const char *label, float width, float height, CK_CLASSID cid, bool derived,
-                        const std::string &filter, ObjectRef *remembered, const PropertyBinding *capturedProperty, const EditorValueEditorDesc *capturedEditor) {
+uint32_t DrawParameterDraft(EditorState &state, CKParameter *work, const ParameterValueDescription &description,
+                            const char *label, float width, float height, CK_CLASSID cid, bool derived,
+                            const std::string &filter, ObjectRef *remembered, const PropertyBinding *capturedProperty,
+                            const EditorValueEditorDesc *capturedEditor, unsigned representation) {
     if (!state.workspace) return EDITOR_INPUT_INVALID;
-    const auto *property = capturedProperty && !capturedProperty->id.empty() ? capturedProperty : state.workspace->Application().Property(ParameterProperty(description.value.kind));
+    auto &app = state.workspace->Application();
+    const auto *property = capturedProperty && !capturedProperty->id.empty() ? capturedProperty : app.Property(ParameterProperty(description.value.kind));
     if (!property) return EDITOR_INPUT_INVALID;
-    std::vector<ObjectRef> objects;
-    std::vector<EditorString> labels;
-    std::vector<uint64_t> values;
-    if (description.value.kind == ParameterValueKind::Object) {
-        if (remembered && remembered->object == description.value.object.object && *remembered != description.value.object) {
-            description.value.object = *remembered;
-            description.display = "<deleted object>";
-        }
-    } else for (const auto &choice : description.choices) {
-        labels.push_back(EditorText(choice.second)); values.push_back(uint64_t(int64_t(choice.first)));
+    const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, state.document->Reference(work->GetID())};
+    auto projection = app.Query(property->query, {app.Scope(), &target, 1, EditorText(property->queryProvider)});
+    if (projection.status != EDITOR_OK) return EDITOR_INPUT_INVALID;
+    auto current = std::find_if(projection.fields.begin(), projection.fields.end(), [&](const auto &field) { return field.key == property->field; });
+    if (current == projection.fields.end() || current->type != property->type) return EDITOR_INPUT_INVALID;
+    if (remembered && current->type == EDITOR_OBJECT && remembered->object == current->object.object && *remembered != current->object) {
+        current->object = *remembered;
+        for (auto &field : projection.fields) if (field.key == "display") field.text = "<deleted object>";
     }
-    const auto type = description.value.kind == ParameterValueKind::Object ? EDITOR_OBJECT :
-        description.value.kind == ParameterValueKind::Real ? EDITOR_REAL_VALUE : EDITOR_INTEGER_VALUE;
-    const EditorValue value{EDITOR_TEXT("value"), type, description.value.object, {},
-        uint64_t(int64_t(description.value.integer)), {}, {}, {}, description.value.real};
-    const EditorValue fields[] = {
-        {EDITOR_TEXT("display"), EDITOR_TEXT_VALUE, {}, EditorText(description.display)},
-        {EDITOR_TEXT("labels"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {labels.data(), uint32_t(labels.size())}},
-        {EDITOR_TEXT("values"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {values.data(), uint32_t(values.size())}},
-        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}},
-        {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, description.displayScale}};
+    projection.fields.push_back({"representation", EDITOR_INTEGER_VALUE, {}, {}, representation});
+    const auto fields = BorrowEditorFields(projection.fields);
+    const auto value = *std::find_if(fields.values.begin(), fields.values.end(), [&](const auto &field) {
+        return std::string(field.key.data, field.key.size) == property->field;
+    });
     struct Draft { EditorState *state; CKParameter *work; ParameterValueKind kind; ObjectRef *remembered; } draft{&state, work, description.value.kind, remembered};
     const auto update = [](void *data, const EditorValue *value, uint32_t count) {
         auto &draft = *static_cast<Draft *>(data);
-        ParameterValue scalar;
-        if (!value || count != 1 || !ParameterValueFromEditor(draft.kind, *value, scalar)) return EDITOR_INVALID;
-        if (!WriteParameterDraft(*draft.state->document, draft.work, scalar)) return EDITOR_REFUSED;
-        if (draft.remembered && scalar.kind == ParameterValueKind::Object) *draft.remembered = scalar.object;
+        ParameterValue parsed;
+        if (!value || count != 1 || !ParameterValueFromEditor(draft.kind, *value, parsed)) return EDITOR_INVALID;
+        if (!WriteParameterDraft(*draft.state->document, draft.work, parsed)) return EDITOR_REFUSED;
+        if (draft.remembered && parsed.kind == ParameterValueKind::Object) *draft.remembered = parsed.object;
         return EDITOR_OK;
     };
-    const EditorValue choices[] = {
-        {EDITOR_TEXT("target"), EDITOR_OBJECT, state.document->Reference(work->GetID())},
+    const EditorValue choices[] = {target,
         {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(cid)},
         {EDITOR_TEXT("derived"), EDITOR_INTEGER_VALUE, {}, {}, derived ? 1u : 2u},
         {EDITOR_TEXT("filter"), EDITOR_TEXT_VALUE, {}, EditorText(filter)}};
-    const EditorValueInput input{sizeof(input), 0, EditorLiteral(label), value, fields, 5, 0,
+    const EditorValueInput input{sizeof(input), 0, EditorLiteral(label), value, fields.data(), uint32_t(fields.size()), 0,
         {&draft, update}, EDITOR_VALUE_DIALOG, width, height, EditorText(property->choices),
-        {state.workspace->Application().Scope(), choices, 4, EditorText(property->choicesProvider)}};
+        {app.Scope(), choices, 4, EditorText(property->choicesProvider)}};
     ImGui::SetNextItemWidth(width);
-    return capturedEditor && capturedEditor->draw ? state.workspace->Application().DrawValue(*capturedEditor, input) :
-        state.workspace->Application().DrawValue(property->editor, input);
+    auto action = capturedEditor && capturedEditor->draw ? app.DrawValue(*capturedEditor, input) : app.DrawValue(property->editor, input);
+    return action;
 }
 } // namespace
 uint32_t ParameterDraftEditor(EditorState &state, CKParameter *work, const char *label, float width, float height,
                               CK_CLASSID cid, bool derived, const std::string &filter, ObjectRef *remembered,
-                              const PropertyBinding *property, const EditorValueEditorDesc *editor) {
+                              const PropertyBinding *property, const EditorValueEditorDesc *editor, unsigned representation) {
     ParameterValueDescription description;
     if (!state.document || !DescribeParameterValue(*state.document, work, description)) return EDITOR_INPUT_INVALID;
-    return DrawParameterDraft(state, work, description, label, width, height, cid, derived, filter, remembered, property, editor);
+    return DrawParameterDraft(state, work, description, label, width, height, cid, derived, filter, remembered, property, editor, representation);
 }
 void CancelParameterValueEdit(EditorState &state, ValueEditState &edit) {
     if (state.workspace) {

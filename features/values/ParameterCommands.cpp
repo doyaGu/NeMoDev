@@ -2,6 +2,7 @@
 #include "core/graph/ParameterValues.h"
 #include "core/runtime/TextEncoding.h"
 #include <cmath>
+#include <iterator>
 
 namespace vdev {
 namespace {
@@ -15,7 +16,16 @@ const Kind kinds[] = {
     {ParameterValueKind::Integer, "parameter.integer", "value.integer", EDITOR_INTEGER_VALUE},
     {ParameterValueKind::Real, "parameter.real", "value.real", EDITOR_REAL_VALUE},
     {ParameterValueKind::Enumeration, "parameter.enumeration", "value.enumeration", EDITOR_INTEGER_VALUE},
-    {ParameterValueKind::Object, "parameter.object", "value.object", EDITOR_OBJECT}};
+    {ParameterValueKind::Object, "parameter.object", "value.object", EDITOR_OBJECT},
+    {ParameterValueKind::Angle, "parameter.angle", "value.angle", EDITOR_REAL_VALUE},
+    {ParameterValueKind::Vector2, "parameter.vector2", "value.vector2", EDITOR_REAL_LIST},
+    {ParameterValueKind::Vector3, "parameter.vector3", "value.vector3", EDITOR_REAL_LIST},
+    {ParameterValueKind::Quaternion, "parameter.quaternion", "value.quaternion", EDITOR_REAL_LIST},
+    {ParameterValueKind::EulerAngles, "parameter.euler", "value.euler", EDITOR_REAL_LIST},
+    {ParameterValueKind::Matrix, "parameter.matrix", "value.matrix", EDITOR_REAL_LIST},
+    {ParameterValueKind::Color, "parameter.color", "value.color", EDITOR_REAL_LIST},
+    {ParameterValueKind::Box, "parameter.box", "value.box", EDITOR_REAL_LIST},
+    {ParameterValueKind::Rect, "parameter.rect", "value.rect", EDITOR_REAL_LIST}};
 const EditorValue *Find(const EditorRequest &request, const char *key) {
     for (uint32_t i = 0; i < request.count; ++i)
         if (std::string(request.values[i].key.data, request.values[i].key.size) == key) return &request.values[i];
@@ -27,19 +37,34 @@ const char *ParameterProperty(ParameterValueKind kind) {
     for (const auto &entry : kinds) if (entry.kind == kind) return entry.property;
     return nullptr;
 }
+EditorValue BorrowParameterValue(const ParameterValue &value, EditorString key) {
+    EditorValue result{};
+    result.key = key;
+    for (const auto &entry : kinds) if (entry.kind == value.kind) result.type = entry.type;
+    result.integer = uint64_t(int64_t(value.integer)); result.real = value.real; result.object = value.object;
+    result.reals = {value.components.data(), uint32_t(value.components.size())};
+    return result;
+}
 bool ParameterValueFromEditor(ParameterValueKind kind, const EditorValue &value, ParameterValue &out) {
-    const auto expected = kind == ParameterValueKind::Real ? EDITOR_REAL_VALUE : kind == ParameterValueKind::Object ? EDITOR_OBJECT : EDITOR_INTEGER_VALUE;
+    if (kind == ParameterValueKind::None) return false;
+    const auto count = ParameterComponentCount(kind);
+    const auto expected = count ? EDITOR_REAL_LIST : kind == ParameterValueKind::Real || kind == ParameterValueKind::Angle ?
+        EDITOR_REAL_VALUE : kind == ParameterValueKind::Object ? EDITOR_OBJECT : EDITOR_INTEGER_VALUE;
     if (value.type != expected) return false;
-    ParameterValue scalar;
-    scalar.kind = kind;
-    if (expected == EDITOR_REAL_VALUE) scalar.real = value.real;
-    else if (expected == EDITOR_OBJECT) scalar.object = value.object;
+    ParameterValue parsed;
+    parsed.kind = kind;
+    if (expected == EDITOR_REAL_LIST) {
+        if (value.reals.count != count || !value.reals.data) return false;
+        parsed.components.assign(value.reals.data, value.reals.data + count);
+    }
+    if (expected == EDITOR_REAL_VALUE) parsed.real = value.real;
+    else if (expected == EDITOR_OBJECT) parsed.object = value.object;
     if (expected == EDITOR_INTEGER_VALUE) {
         const auto integer = int64_t(value.integer);
         if (integer < INT32_MIN || integer > INT32_MAX) return false;
-        scalar.integer = int32_t(integer);
+        parsed.integer = int32_t(integer);
     }
-    out = scalar;
+    out = parsed;
     return true;
 }
 EditorStatus ParameterCommands::Check(void *data, const EditorHost *, const EditorRequest *request) {
@@ -50,10 +75,10 @@ EditorStatus ParameterCommands::Check(void *data, const EditorHost *, const Edit
     auto *parameter = CKParameter::Cast(document->Resolve(target->object, CKCID_PARAMETER));
     if (!parameter || TypeId(parameter->GetGUID()) != type->integer) return EDITOR_STALE;
     ParameterValueDescription description;
-    ParameterValue scalar;
-    if (!ParameterValueFromEditor(kinds[entry.kind].kind, *value, scalar) ||
+    ParameterValue parsed;
+    if (!ParameterValueFromEditor(kinds[entry.kind].kind, *value, parsed) ||
         !DescribeParameterValue(*document, parameter, description)) return EDITOR_INVALID;
-    return ValidateParameterValue(*document, description, scalar) ? EDITOR_OK : EDITOR_REFUSED;
+    return ValidateParameterValue(*document, description, parsed) ? EDITOR_OK : EDITOR_REFUSED;
 }
 EditorStatus ParameterCommands::Describe(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto *document = static_cast<ParameterCommands *>(data)->m_Current();
@@ -81,15 +106,24 @@ EditorStatus ParameterCommands::Read(void *data, const EditorHost *, const Edito
         labels.push_back(EditorText(choice.second));
         values.push_back(uint64_t(int64_t(choice.first)));
     }
+    if (!description.componentLabels.empty()) {
+        labels.clear();
+        for (const auto &label : description.componentLabels) labels.push_back(EditorText(label));
+    }
+    std::vector<EditorString> rowLabels;
+    for (const auto &label : description.rowLabels) rowLabels.push_back(EditorText(label));
     EditorValue fields[] = {
-        {EDITOR_TEXT("value"), kind.type, description.value.object, {}, uint64_t(int64_t(description.value.integer)), {}, {}, {}, description.value.real},
+        BorrowParameterValue(description.value, EditorString EDITOR_TEXT("value")),
         {EDITOR_TEXT("display"), EDITOR_TEXT_VALUE, {}, EditorText(description.display)},
         {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE, {}, {}, TypeId(description.type)},
         {EDITOR_TEXT("labels"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {labels.data(), uint32_t(labels.size())}},
         {EDITOR_TEXT("values"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {values.data(), uint32_t(values.size())}},
         {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}},
-        {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, description.displayScale}};
-    return sink.write ? sink.write(sink.data, fields, 7) : EDITOR_INVALID;
+        {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, description.displayScale},
+        {EDITOR_TEXT("rows"), EDITOR_INTEGER_VALUE, {}, {}, description.rows},
+        {EDITOR_TEXT("columns"), EDITOR_INTEGER_VALUE, {}, {}, description.columns},
+        {EDITOR_TEXT("row-labels"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {rowLabels.data(), uint32_t(rowLabels.size())}}};
+    return sink.write ? sink.write(sink.data, fields, 10) : EDITOR_INVALID;
 }
 EditorStatus ParameterCommands::Choices(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto *document = static_cast<ParameterCommands *>(data)->m_Current();
@@ -121,9 +155,9 @@ EditorStatus ParameterCommands::Write(void *data, const EditorHost *, const Edit
     if (!document || document->Token() != request->scope.document || !target || !value || !type) return EDITOR_STALE;
     const auto guid = CKGUID(CKDWORD(type->integer >> 32), CKDWORD(type->integer));
     const auto &kind = kinds[entry.kind];
-    ParameterValue scalar;
-    if (!ParameterValueFromEditor(kind.kind, *value, scalar)) return EDITOR_INVALID;
-    const auto result = SetParameterValue(*document, target->object, guid, scalar);
+    ParameterValue parsed;
+    if (!ParameterValueFromEditor(kind.kind, *value, parsed)) return EDITOR_INVALID;
+    const auto result = SetParameterValue(*document, target->object, guid, parsed);
     if (!result.message.empty() && !result.ok && !result.Unchanged()) {
         const auto message = AnsiToUtf8(result.message);
         const EditorValue field{EDITOR_TEXT("message"), EDITOR_TEXT_VALUE, {}, EditorText(message)};
@@ -135,10 +169,12 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
     std::vector<EditorCommandDesc> commands;
     std::vector<EditorQueryDesc> queries;
     std::vector<EditorPropertyDesc> properties;
-    EditorParameter arguments[5][3]{}, fields[5][7]{};
+    constexpr auto count = std::size(kinds);
+    EditorParameter arguments[count][3]{}, fields[count][10]{};
+    m_Entries.resize(count);
     const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
-    std::string queryIds[5], commandIds[5];
-    for (unsigned i = 0; i < 5; ++i) {
+    std::string queryIds[count], commandIds[count];
+    for (unsigned i = 0; i < count; ++i) {
         const auto &kind = kinds[i];
         m_Entries[i] = {this, i};
         queryIds[i] = std::string(kind.property) + "-value";
@@ -153,10 +189,13 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
         fields[i][4] = {EDITOR_TEXT("values"), EDITOR_INTEGER_LIST};
         fields[i][5] = {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST};
         fields[i][6] = {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE};
+        fields[i][7] = {EDITOR_TEXT("rows"), EDITOR_INTEGER_VALUE};
+        fields[i][8] = {EDITOR_TEXT("columns"), EDITOR_INTEGER_VALUE};
+        fields[i][9] = {EDITOR_TEXT("row-labels"), EDITOR_TEXT_LIST};
         commands.push_back({sizeof(EditorCommandDesc), EditorText(commandIds[i]), EDITOR_TEXT("builtin.parameters"),
             EDITOR_TEXT("Set Value"), arguments[i], 3, Write, &m_Entries[i], EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT, Check});
         queries.push_back({sizeof(EditorQueryDesc), EditorText(queryIds[i]), EDITOR_TEXT("builtin.parameters"),
-            &target, 1, Read, &m_Entries[i], EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields[i], 7});
+            &target, 1, Read, &m_Entries[i], EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields[i], 10});
         properties.push_back({sizeof(EditorPropertyDesc), EditorLiteral(kind.property), EDITOR_TEXT("Value"),
             EditorText(queryIds[i]), EDITOR_TEXT("value"), EditorText(commandIds[i]), EDITOR_TEXT("value"), EditorLiteral(kind.editor), kind.kind == ParameterValueKind::Object ? EditorString EDITOR_TEXT("parameter.object-choices") : EditorString{}});
     }

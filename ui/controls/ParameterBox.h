@@ -74,7 +74,7 @@ public:
 private:
     struct Row {
         ObjectRef targetReference{}, workReference{}, valueReference{};
-        bool invalid = false, scalar = false;
+        bool invalid = false, typed = false;
         PropertyBinding property;
         EditorValueEditorDesc editor{};
         CK_ID target = 0; // the parameter Apply writes (0: a member of a structure's copy)
@@ -83,6 +83,7 @@ private:
         std::string label; // UTF-8
         ParameterUIInfo info;
         bool extended = false;           // Object: the class filter shown; String: the multi-line edit
+        unsigned representation = 0; // Rect: corners, size or center/half-size
         bool collapsed = false;          // Matrix, Flags, 2D curve: shown small (the wrapper's second button)
         CK_CLASSID filterClass = 0;      // Object: the class listed
         bool derived = true;             // Object: with the derived classes
