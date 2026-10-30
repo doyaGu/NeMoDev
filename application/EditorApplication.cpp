@@ -22,8 +22,11 @@ namespace vdev {
 namespace {
 constexpr uint32_t Limit = 1024 * 1024;
 constexpr uint64_t ArrayLimit = uint64_t(64) * Limit;
+// Structure queries also describe every member. Their metadata adds one
+// record level per native value level; leave room for a complete query result.
+constexpr unsigned ValueDepth = 64;
 bool ValueType(EditorValueType type) {
-    return type >= EDITOR_OBJECT && type <= EDITOR_REAL_LIST;
+    return type >= EDITOR_OBJECT && type <= EDITOR_RECORD;
 }
 std::string String(EditorString value) {
     if (value.size > Limit || (value.size && !value.data))
@@ -60,70 +63,91 @@ template <class T> void Array(const T *data, uint32_t count) {
     if (count > 4096 || (count && !data))
         throw std::invalid_argument("Invalid descriptor array");
 }
-EditorStatus EDITOR_CALL Collect(void *data, const EditorValue *values, uint32_t count) {
-    try {
-        Array(values, count);
-        auto &fields = *static_cast<std::vector<EditorField> *>(data);
-        if (fields.size() + count > 64)
-            return EDITOR_INVALID;
-        uint64_t bytes = 0, arrayBytes = 0;
-        for (const auto &field : fields) {
-            bytes += field.key.size() + field.text.size();
-            for (const auto &text : field.texts) bytes += text.size();
-            arrayBytes += field.texts.size() * sizeof(EditorString);
-            arrayBytes += field.objects.size() * sizeof(ObjectRef) + field.integers.size() * sizeof(uint64_t) + field.reals.size() * sizeof(double);
+struct ValueBudget {
+    uint64_t text = 0, arrays = 0, nodes = 0;
+    void Add(uint64_t words, uint64_t bytes) {
+        text += words; arrays += bytes;
+        if (text > Limit || arrays > ArrayLimit || ++nodes > 65536)
+            throw std::invalid_argument("Value exceeds the size limit");
+    }
+    void Count(const std::vector<EditorField> &fields, unsigned depth = 0) {
+        if (depth >= ValueDepth) throw std::invalid_argument("Value nesting is too deep");
+        for (const auto &f : fields) {
+            Add(f.key.size() + (f.type == EDITOR_TEXT_VALUE ? f.text.size() : 0),
+                f.type == EDITOR_OBJECT_LIST ? f.objects.size() * sizeof(ObjectRef) :
+                f.type == EDITOR_INTEGER_LIST ? f.integers.size() * sizeof(uint64_t) :
+                f.type == EDITOR_REAL_LIST ? f.reals.size() * sizeof(double) :
+                f.type == EDITOR_TEXT_LIST ? f.texts.size() * sizeof(EditorString) :
+                f.type == EDITOR_RECORD ? f.fields.size() * sizeof(EditorValue) : 0);
+            if (f.type == EDITOR_TEXT_LIST) for (const auto &text : f.texts) {
+                this->text += text.size(); if (this->text > Limit) throw std::invalid_argument("Text exceeds the size limit");
+            }
+            if (f.type == EDITOR_RECORD && !f.fields.empty()) Count(f.fields, depth + 1);
         }
+    }
+    std::vector<EditorField> Copy(const EditorValue *values, uint32_t count, unsigned depth = 0) {
+        Array(values, count);
+        if (depth >= ValueDepth) throw std::invalid_argument("Value nesting is too deep");
+        std::vector<EditorField> fields;
+        std::set<std::string> keys;
         for (uint32_t i = 0; i < count; ++i) {
             const auto &v = values[i];
-            bytes += uint64_t(v.key.size) + (v.type == EDITOR_TEXT_VALUE ? v.text.size : 0);
-            if (v.type == EDITOR_OBJECT_LIST) arrayBytes += uint64_t(v.objects.count) * sizeof(EditorObject);
-            if (v.type == EDITOR_INTEGER_LIST) arrayBytes += uint64_t(v.integers.count) * sizeof(uint64_t);
-            if (v.type == EDITOR_REAL_LIST) arrayBytes += uint64_t(v.reals.count) * sizeof(double);
-            if (v.type == EDITOR_TEXT_LIST) arrayBytes += uint64_t(v.texts.count) * sizeof(EditorString);
-            if (bytes > Limit || arrayBytes > ArrayLimit)
-                return EDITOR_INVALID;
-            if (!ValueType(v.type))
-                return EDITOR_INVALID;
+            if (!ValueType(v.type)) throw std::invalid_argument("Unknown value type");
+            uint64_t bytes = v.type == EDITOR_OBJECT_LIST ? uint64_t(v.objects.count) * sizeof(EditorObject) :
+                v.type == EDITOR_INTEGER_LIST ? uint64_t(v.integers.count) * sizeof(uint64_t) :
+                v.type == EDITOR_REAL_LIST ? uint64_t(v.reals.count) * sizeof(double) :
+                v.type == EDITOR_TEXT_LIST ? uint64_t(v.texts.count) * sizeof(EditorString) :
+                v.type == EDITOR_RECORD ? uint64_t(v.fields.count) * sizeof(EditorValue) : 0;
+            Add(uint64_t(v.key.size) + (v.type == EDITOR_TEXT_VALUE ? v.text.size : 0), bytes);
+            EditorField f;
+            f.key = String(v.key); f.type = v.type;
+            if (f.key.empty() || !keys.insert(f.key).second) throw std::invalid_argument("Duplicate or empty value key");
+            if (v.type == EDITOR_OBJECT) f.object = v.object;
+            if (v.type == EDITOR_TEXT_VALUE) f.text = String(v.text);
+            if (v.type == EDITOR_INTEGER_VALUE) f.integer = v.integer;
+            if (v.type == EDITOR_REAL_VALUE) {
+                if (!std::isfinite(v.real)) throw std::invalid_argument("Non-finite value");
+                f.real = v.real;
+            }
             if ((v.type == EDITOR_OBJECT_LIST && v.objects.count && !v.objects.data) ||
                 (v.type == EDITOR_INTEGER_LIST && v.integers.count && !v.integers.data) ||
                 (v.type == EDITOR_TEXT_LIST && v.texts.count && !v.texts.data) ||
-                (v.type == EDITOR_REAL_LIST && v.reals.count && !v.reals.data)) return EDITOR_INVALID;
-            auto key = String(v.key);
-            if (key.empty() ||
-                std::any_of(fields.begin(), fields.end(), [&](const EditorField &f) { return f.key == key; }))
-                return EDITOR_INVALID;
-            EditorField field;
-            field.key = std::move(key);
-            field.type = v.type;
-            if (v.type == EDITOR_OBJECT) field.object = v.object;
-            if (v.type == EDITOR_TEXT_VALUE) field.text = String(v.text);
-            if (v.type == EDITOR_INTEGER_VALUE) field.integer = v.integer;
-            if (v.type == EDITOR_REAL_VALUE) {
-                if (!std::isfinite(v.real)) return EDITOR_INVALID;
-                field.real = v.real;
-            }
+                (v.type == EDITOR_REAL_LIST && v.reals.count && !v.reals.data))
+                throw std::invalid_argument("Missing value array");
+            if (v.type == EDITOR_OBJECT_LIST && v.objects.count) f.objects.assign(v.objects.data, v.objects.data + v.objects.count);
+            if (v.type == EDITOR_INTEGER_LIST && v.integers.count) f.integers.assign(v.integers.data, v.integers.data + v.integers.count);
             if (v.type == EDITOR_REAL_LIST) {
                 for (uint32_t j = 0; j < v.reals.count; ++j)
-                    if (!std::isfinite(v.reals.data[j])) return EDITOR_INVALID;
-                if (v.reals.count) field.reals.assign(v.reals.data, v.reals.data + v.reals.count);
+                    if (!std::isfinite(v.reals.data[j])) throw std::invalid_argument("Non-finite component");
+                if (v.reals.count) f.reals.assign(v.reals.data, v.reals.data + v.reals.count);
             }
-            if (v.type == EDITOR_TEXT_LIST) {
-                for (uint32_t j = 0; j < v.texts.count; ++j) {
-                    bytes += v.texts.data[j].size;
-                    if (bytes > Limit) return EDITOR_INVALID;
-                    field.texts.push_back(String(v.texts.data[j]));
-                }
+            if (v.type == EDITOR_TEXT_LIST) for (uint32_t j = 0; j < v.texts.count; ++j) {
+                text += v.texts.data[j].size;
+                if (text > Limit) throw std::invalid_argument("Text exceeds the size limit");
+                f.texts.push_back(String(v.texts.data[j]));
             }
-            fields.push_back(std::move(field));
-            if (v.type == EDITOR_OBJECT_LIST && v.objects.count)
-                fields.back().objects.assign(v.objects.data, v.objects.data + v.objects.count);
-            if (v.type == EDITOR_INTEGER_LIST && v.integers.count)
-                fields.back().integers.assign(v.integers.data, v.integers.data + v.integers.count);
+            if (v.type == EDITOR_RECORD && v.fields.count) f.fields = Copy(v.fields.data, v.fields.count, depth + 1);
+            fields.push_back(std::move(f));
         }
-        return EDITOR_OK;
-    } catch (...) {
-        return EDITOR_INVALID;
+        return fields;
     }
+};
+template<class Predicate> bool EveryField(const std::vector<EditorField> &fields, const Predicate &test) {
+    for (const auto &field : fields)
+        if (!test(field) || (field.type == EDITOR_RECORD && !EveryField(field.fields, test))) return false;
+    return true;
+}
+EditorStatus EDITOR_CALL Collect(void *data, const EditorValue *values, uint32_t count) {
+    try {
+        auto &fields = *static_cast<std::vector<EditorField> *>(data);
+        if (fields.size() + uint64_t(count) > 64) return EDITOR_INVALID;
+        ValueBudget budget; budget.Count(fields);
+        auto copied = budget.Copy(values, count);
+        for (const auto &value : copied)
+            if (std::any_of(fields.begin(), fields.end(), [&](const auto &f) { return f.key == value.key; })) return EDITOR_INVALID;
+        fields.insert(fields.end(), std::make_move_iterator(copied.begin()), std::make_move_iterator(copied.end()));
+        return EDITOR_OK;
+    } catch (...) { return EDITOR_INVALID; }
 }
 struct Output {
     std::vector<EditorField> &fields;
@@ -262,8 +286,7 @@ struct Module {
         }
         for (uint32_t i = 0; i < source.editorCount; ++i) {
             auto d = source.editors[i];
-            if (d.size != sizeof(d) || !d.draw || (d.type != EDITOR_TEXT_VALUE && d.type != EDITOR_INTEGER_VALUE &&
-                d.type != EDITOR_REAL_VALUE && d.type != EDITOR_REAL_LIST && d.type != EDITOR_OBJECT))
+            if (d.size != sizeof(d) || !d.draw || !ValueType(d.type))
                 throw std::invalid_argument("Invalid editor descriptor");
             d.id = Text(d.id, true);
             d.provider = Text(d.provider, true);
@@ -321,20 +344,56 @@ template <class T> bool Schema(const T &a, const T &b) {
 }
 } // namespace
 
+bool operator==(const EditorField &a, const EditorField &b) {
+    if (a.key != b.key || a.type != b.type) return false;
+    switch (a.type) {
+    case EDITOR_OBJECT: return a.object == b.object;
+    case EDITOR_TEXT_VALUE: return a.text == b.text;
+    case EDITOR_INTEGER_VALUE: return a.integer == b.integer;
+    case EDITOR_REAL_VALUE: return a.real == b.real;
+    case EDITOR_OBJECT_LIST: return a.objects == b.objects;
+    case EDITOR_INTEGER_LIST: return a.integers == b.integers;
+    case EDITOR_REAL_LIST: return a.reals == b.reals;
+    case EDITOR_TEXT_LIST: return a.texts == b.texts;
+    case EDITOR_RECORD: return a.fields == b.fields;
+    }
+    return false;
+}
 EditorFieldValues BorrowEditorFields(const std::vector<EditorField> &fields) {
     EditorFieldValues result;
-    size_t count = 0;
-    for (const auto &field : fields) count += field.texts.size();
-    result.texts.reserve(count);
-    result.values.reserve(fields.size());
-    for (const auto &f : fields) {
-        const auto offset = result.texts.size();
-        for (const auto &text : f.texts) result.texts.push_back(EditorText(text));
-        result.values.push_back({EditorText(f.key), f.type, f.object, EditorText(f.text), f.integer,
-                          {f.objects.data(), static_cast<uint32_t>(f.objects.size())},
-                          {f.integers.data(), static_cast<uint32_t>(f.integers.size())},
-                          {f.texts.empty() ? nullptr : result.texts.data() + offset, static_cast<uint32_t>(f.texts.size())}, f.real, {f.reals.data(), static_cast<uint32_t>(f.reals.size())}});
-    }
+    size_t texts = 0, members = 0;
+    EveryField(fields, [&](const auto &field) {
+        if (field.type == EDITOR_TEXT_LIST) texts += field.texts.size();
+        if (field.type == EDITOR_RECORD) members += field.fields.size();
+        return true;
+    });
+    result.texts.reserve(texts); result.members.reserve(members); result.values.reserve(fields.size());
+    const auto append = [&](const auto &self, const std::vector<EditorField> &owned, std::vector<EditorValue> &values) -> size_t {
+        const auto begin = values.size(); values.resize(begin + owned.size());
+        for (size_t i = 0; i < owned.size(); ++i) {
+            const auto &f = owned[i];
+            EditorValue value{}; value.key = EditorText(f.key); value.type = f.type;
+            if (f.type == EDITOR_OBJECT) value.object = f.object;
+            if (f.type == EDITOR_TEXT_VALUE) value.text = EditorText(f.text);
+            if (f.type == EDITOR_INTEGER_VALUE) value.integer = f.integer;
+            if (f.type == EDITOR_REAL_VALUE) value.real = f.real;
+            if (f.type == EDITOR_OBJECT_LIST) value.objects = {f.objects.data(), uint32_t(f.objects.size())};
+            if (f.type == EDITOR_INTEGER_LIST) value.integers = {f.integers.data(), uint32_t(f.integers.size())};
+            if (f.type == EDITOR_REAL_LIST) value.reals = {f.reals.data(), uint32_t(f.reals.size())};
+            if (f.type == EDITOR_TEXT_LIST) {
+                const auto offset = result.texts.size();
+                for (const auto &text : f.texts) result.texts.push_back(EditorText(text));
+                value.texts = {f.texts.empty() ? nullptr : result.texts.data() + offset, uint32_t(f.texts.size())};
+            }
+            if (f.type == EDITOR_RECORD && !f.fields.empty()) {
+                const auto first = self(self, f.fields, result.members);
+                value.fields = {result.members.data() + first, uint32_t(f.fields.size())};
+            }
+            values[begin + i] = value;
+        }
+        return begin;
+    };
+    append(append, fields, result.values);
     return result;
 }
 
@@ -351,7 +410,8 @@ struct EditorApplication::State {
     std::vector<Module *> activation;
     std::map<std::string, const EditorCommandDesc *> commands;
     std::map<std::string, const EditorQueryDesc *> queries;
-    std::map<std::string, const EditorValueEditorDesc *> editors;
+    EditorValueEditors editors;
+    const EditorValueEditors *drawingValues = nullptr;
     std::map<std::string, const EditorViewDesc *> views;
     std::map<std::string, PropertyBinding> properties;
     std::vector<MenuEntry> menus;
@@ -375,6 +435,7 @@ struct EditorApplication::State {
         const EditorValueEditorDesc *editor;
         EditorField value;
         std::vector<EditorField> fields;
+        EditorValueEditors editors;
     };
     std::map<EditorEdit, Draft> drafts;
     struct Pending {
@@ -449,6 +510,12 @@ struct EditorApplication::State {
         return active && (!scope.view || scopes.count(scope.view)) &&
                (area == EDITOR_WORKSPACE || scope.document == document);
     }
+    bool CurrentValues(const std::vector<EditorField> &fields) const {
+        return EveryField(fields, [&](const auto &field) {
+            if (field.type == EDITOR_OBJECT && field.object && !Current(field.object)) return false;
+            return field.type != EDITOR_OBJECT_LIST || std::all_of(field.objects.begin(), field.objects.end(), [&](auto object) { return Current(object); });
+        });
+    }
     EditorStatus Arguments(const EditorParameter *parameters, uint32_t count, const EditorRequest &request,
                            std::vector<EditorField> &fields, EditorArea area = EDITOR_DOCUMENT) const {
         if (!Thread() || !Valid(request.scope, area)) return EDITOR_STALE;
@@ -473,11 +540,12 @@ struct EditorApplication::State {
                 ((!f->object && !parameter.optional) || (f->object &&
                 (f->object.document != document || (NativeReady() && !Current(f->object))))))
                 return EDITOR_STALE;
-            if (f->type == EDITOR_OBJECT_LIST)
-                for (auto object : f->objects)
-                    if (!object || object.document != document || (NativeReady() && !Current(object)))
-                        return EDITOR_STALE;
         }
+        if (!EveryField(fields, [&](const auto &field) {
+            const auto valid = [&](auto object) { return object.document == document && (!NativeReady() || Current(object)); };
+            if (field.type == EDITOR_OBJECT && field.object && !valid(field.object)) return false;
+            return field.type != EDITOR_OBJECT_LIST || std::all_of(field.objects.begin(), field.objects.end(), valid);
+        })) return EDITOR_STALE;
         return EDITOR_OK;
     }
     EditorStatus Check(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields, bool fromDraft = false) {
@@ -485,10 +553,9 @@ struct EditorApplication::State {
         if (readOnlyCallbacks) return EDITOR_REFUSED;
         const bool native = command.effect != EDITOR_SESSION_CHANGE;
         if ((native && !NativeReady()) || (!fromDraft && !drafts.empty())) return EDITOR_REFUSED;
-        if (!NativeReady())
-            for (const auto &field : fields)
-                if ((field.type == EDITOR_OBJECT && field.object) ||
-                    (field.type == EDITOR_OBJECT_LIST && !field.objects.empty())) return EDITOR_REFUSED;
+        if (!NativeReady() && !EveryField(fields, [](const auto &field) {
+            return !(field.type == EDITOR_OBJECT && field.object) && !(field.type == EDITOR_OBJECT_LIST && !field.objects.empty());
+        })) return EDITOR_REFUSED;
         if ((command.effect == EDITOR_DOCUMENT_EDIT || command.effect == EDITOR_DOCUMENT_CHANGE ||
              command.effect == EDITOR_HISTORY_CHANGE) && !writable)
             return EDITOR_REFUSED;
@@ -522,19 +589,11 @@ struct EditorApplication::State {
         result.operation = operation;
         result.status = (readOnlyCallbacks || checking) ? EDITOR_REFUSED : Check(command, scope, fields);
         if (result.status != EDITOR_OK) { if (!executing) Complete(operation, result); return result; }
-        for (const auto &field : fields)
-            if (field.type == EDITOR_OBJECT && field.object && !Current(field.object)) {
-                result.status = EDITOR_STALE;
-                if (!executing) Complete(operation, result);
-                return result;
-            }
-        for (const auto &field : fields)
-            if (field.type == EDITOR_OBJECT_LIST)
-                for (auto object : field.objects) if (!Current(object)) {
-                    result.status = EDITOR_STALE;
-                    if (!executing) Complete(operation, result);
-                    return result;
-                }
+        if (!CurrentValues(fields)) {
+            result.status = EDITOR_STALE;
+            if (!executing) Complete(operation, result);
+            return result;
+        }
         auto *doc = NativeReady() ? CurrentDocument() : nullptr;
         auto values = BorrowEditorFields(fields);
         EditorRequest request{scope, values.data(), static_cast<uint32_t>(values.size()), {}, operation};
@@ -667,6 +726,11 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         if (!edit) return uint32_t(EDITOR_INPUT_INVALID);
         try { return static_cast<EditorApplication *>(p)->DrawProperty(Id(property), scope, target, *edit, label); }
         catch (...) { return uint32_t(EDITOR_INPUT_CANCEL); }
+    };
+    h.drawValue = [](void *p, EditorString editor, const EditorValueInput *input) {
+        if (!input || input->size != sizeof(*input) || !static_cast<EditorApplication *>(p)->m_State->drawingEdit) return uint32_t(EDITOR_INPUT_INVALID);
+        try { return static_cast<EditorApplication *>(p)->DrawValue(Id(editor), *input); }
+        catch (...) { return uint32_t(EDITOR_INPUT_INVALID); }
     };
     h.editValue = [](void *p, EditorEdit edit, const EditorValue *value) -> EditorStatus {
         try { return value ? static_cast<EditorApplication *>(p)->UpdateEdit(edit, *value) : EDITOR_INVALID; }
@@ -806,9 +870,9 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         {EDITOR_TEXT("text"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("integer"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("integers"), EDITOR_INTEGER_LIST},
         {EDITOR_TEXT("texts"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("real"), EDITOR_REAL_VALUE},
-        {EDITOR_TEXT("reals"), EDITOR_REAL_LIST}};
+        {EDITOR_TEXT("reals"), EDITOR_REAL_LIST}, {EDITOR_TEXT("fields"), EDITOR_RECORD}};
     EditorQueryDesc output{sizeof(output), EDITOR_TEXT("application.operation-output"), EDITOR_TEXT("builtin.application"),
-        outputArgs, 2, nullptr, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, outputFields, 10};
+        outputArgs, 2, nullptr, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, outputFields, 11};
     output.read = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) -> EditorStatus {
         const auto &state = *static_cast<State *>(data);
         uint64_t operation = 0, index = 0;
@@ -822,6 +886,9 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         const auto &field = found->second.result.fields[static_cast<size_t>(index)];
         std::vector<EditorString> texts;
         for (const auto &text : field.texts) texts.push_back(EditorText(text));
+        const auto nested = BorrowEditorFields(field.fields);
+        EditorValue record{}; record.key = EDITOR_TEXT("fields"); record.type = EDITOR_RECORD;
+        record.fields = {nested.data(), uint32_t(nested.size())};
         const EditorValue values[] = {
             {EDITOR_TEXT("key"), EDITOR_TEXT_VALUE, {}, EditorText(field.key)},
             {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(field.type)},
@@ -836,8 +903,8 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
              {texts.data(), static_cast<uint32_t>(texts.size())}},
             {EDITOR_TEXT("real"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, field.real},
             {EDITOR_TEXT("reals"), EDITOR_REAL_LIST, {}, {}, 0, {}, {}, {}, 0,
-             {field.reals.data(), static_cast<uint32_t>(field.reals.size())}}};
-        return sink.write ? sink.write(sink.data, values, 10) : EDITOR_INVALID;
+             {field.reals.data(), static_cast<uint32_t>(field.reals.size())}}, record};
+        return sink.write ? sink.write(sink.data, values, 11) : EDITOR_INVALID;
     };
     const EditorQueryDesc queries[] = {query, output};
     EditorModuleDesc module{};
@@ -892,8 +959,7 @@ EditorResponse EditorApplication::SaveViewState(const EditorViewDesc &desc, void
     --s.readOnlyCallbacks;
     --s.querying;
     if (output.status != EDITOR_OK) result.status = output.status;
-    for (const auto &field : result.fields)
-        if (field.type == EDITOR_OBJECT || field.type == EDITOR_OBJECT_LIST) result.status = EDITOR_INVALID;
+    if (!EveryField(result.fields, [](const auto &field) { return field.type != EDITOR_OBJECT && field.type != EDITOR_OBJECT_LIST; })) result.status = EDITOR_INVALID;
     if (result.status != EDITOR_OK) result.fields.clear();
     return result;
 }
@@ -946,10 +1012,10 @@ EditorResponse EditorApplication::InspectView(const EditorViewDesc &desc, void *
         });
         if (field == result.fields.end()) result.status = EDITOR_INVALID;
     }
-    for (const auto &field:result.fields) {
-        if (field.type==EDITOR_OBJECT && field.object && field.object.document!=scope.document) result.status=EDITOR_STALE;
-        if (field.type==EDITOR_OBJECT_LIST) for(auto object:field.objects) if(object && object.document!=scope.document) result.status=EDITOR_STALE;
-    }
+    if (!EveryField(result.fields, [&](const auto &field) {
+        if (field.type == EDITOR_OBJECT && field.object && field.object.document != scope.document) return false;
+        return field.type != EDITOR_OBJECT_LIST || std::all_of(field.objects.begin(), field.objects.end(), [&](auto object) { return !object || object.document == scope.document; });
+    })) result.status = EDITOR_STALE;
     if (result.status != EDITOR_OK) result.fields.clear();
     return result;
 }
@@ -1242,8 +1308,8 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
                 d.choicesProvider = String(choices->provider);
                 if (choices->area != EDITOR_DOCUMENT || !has(choices->parameters, choices->count, "target", EDITOR_OBJECT) ||
                     !has(choices->fields, choices->fieldCount, "labels", EDITOR_TEXT_LIST) ||
-                    !has(choices->fields, choices->fieldCount, d.type == EDITOR_OBJECT ? "objects" : "values",
-                        d.type == EDITOR_OBJECT ? EDITOR_OBJECT_LIST : d.type == EDITOR_INTEGER_VALUE ? EDITOR_INTEGER_LIST : EDITOR_TEXT_LIST))
+                    !has(choices->fields, choices->fieldCount, (d.type == EDITOR_OBJECT || d.type == EDITOR_OBJECT_LIST) ? "objects" : "values",
+                        (d.type == EDITOR_OBJECT || d.type == EDITOR_OBJECT_LIST) ? EDITOR_OBJECT_LIST : d.type == EDITOR_INTEGER_VALUE ? EDITOR_INTEGER_LIST : EDITOR_TEXT_LIST))
                     throw std::invalid_argument("Property choices query schema mismatch");
                 for (uint32_t i = 0; i < choices->count; ++i)
                     if (String(choices->parameters[i].key) != "target" && !choices->parameters[i].optional)
@@ -1472,10 +1538,7 @@ const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const 
             c.arguments.size() != fields.size())
             return false;
         for (size_t i = 0; i < fields.size(); ++i)
-            if (c.arguments[i].key != fields[i].key || c.arguments[i].type != fields[i].type ||
-                c.arguments[i].object != fields[i].object || c.arguments[i].text != fields[i].text ||
-                c.arguments[i].integer != fields[i].integer || c.arguments[i].objects != fields[i].objects ||
-                c.arguments[i].integers != fields[i].integers || c.arguments[i].texts != fields[i].texts || c.arguments[i].real != fields[i].real || c.arguments[i].reals != fields[i].reals)
+            if (c.arguments[i] != fields[i])
                 return false;
         return true;
     };
@@ -1628,7 +1691,7 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, EditorSco
         return f.key == p.field && f.type == p.type;
     });
     if (value == result.fields.end()) return EDITOR_INVALID;
-    State::Draft draft{scope, target, p, s.commands.at(p.command), s.editors.at(p.editor), *value, std::move(result.fields)};
+    State::Draft draft{scope, target, p, s.commands.at(p.command), s.editors.at(p.editor), *value, std::move(result.fields), s.editors};
     out = s.next++;
     s.drafts.emplace(out, std::move(draft));
     return EDITOR_OK;
@@ -1645,10 +1708,10 @@ EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const EditorValue &v
     if (value.type != found->second.property.type) return EDITOR_INVALID;
     std::vector<EditorField> fields;
     if (CopyEditorFields(fields, &value, 1) != EDITOR_OK || fields.size() != 1) return EDITOR_INVALID;
-    if (value.type == EDITOR_OBJECT && value.object) {
-        if (!s.NativeReady()) return EDITOR_REFUSED;
-        if (!s.Current(value.object)) return EDITOR_STALE;
-    }
+    if (!s.NativeReady() && !EveryField(fields, [](const auto &field) {
+        return !(field.type == EDITOR_OBJECT && field.object) && !(field.type == EDITOR_OBJECT_LIST && !field.objects.empty());
+    })) return EDITOR_REFUSED;
+    if (s.NativeReady() && !s.CurrentValues(fields)) return EDITOR_STALE;
     found->second.value = std::move(fields.front());
     return EDITOR_OK;
 }
@@ -1681,53 +1744,72 @@ EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit) {
     s.drafts.erase(found);
     return EDITOR_QUEUED;
 }
+std::string EditorApplication::CommandProvider(const std::string &id) const {
+    const auto &s = *m_State;
+    if (!s.Thread()) return {};
+    const auto found = s.commands.find(id);
+    return found == s.commands.end() ? std::string() : String(found->second->provider);
+}
 bool EditorApplication::ValueEditor(const std::string &id, EditorValueEditorDesc &editor) const {
     const auto &s = *m_State;
     if (!s.Thread()) return false;
-    const auto found = s.editors.find(id);
-    if (found == s.editors.end()) return false;
+    const auto &editors = s.drawingValues ? *s.drawingValues : s.editors;
+    const auto found = editors.find(id);
+    if (found == editors.end()) return false;
     editor = *found->second;
     return true;
 }
+EditorValueEditors EditorApplication::CaptureValueEditors() const { return m_State->Thread() ? m_State->editors : EditorValueEditors{}; }
 uint32_t EditorApplication::DrawValue(const std::string &id, const EditorValueInput &input) {
     EditorValueEditorDesc editor{};
     return ValueEditor(id, editor) ? DrawValue(editor, input) : EDITOR_INPUT_INVALID;
 }
-uint32_t EditorApplication::DrawValue(const EditorValueEditorDesc &editor, const EditorValueInput &input) {
+uint32_t EditorApplication::DrawValue(const EditorValueEditorDesc &editor, const EditorValueInput &input, const EditorValueEditors *editors) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || s.drawingEdit >= 16 || s.readOnlyCallbacks) return EDITOR_INPUT_CANCEL;
+    if (!s.Thread() || !s.active || s.drawingEdit >= 64 || s.readOnlyCallbacks) return EDITOR_INPUT_CANCEL;
     if (!editor.draw || editor.type != input.value.type || !input.update.write) return EDITOR_INPUT_INVALID;
+    const auto previous = s.drawingValues;
+    if (editors) s.drawingValues = editors;
     ++s.drawing; ++s.drawingEdit;
     uint32_t action = EDITOR_INPUT_CANCEL;
     try { action = editor.draw(editor.data, Host(), &input); } catch (...) {}
     --s.drawingEdit; --s.drawing;
+    s.drawingValues = previous;
     return action;
 }
 EditorResponse EditorApplication::ApplyEdit(const PropertyBinding &property, EditorScope scope, ObjectRef target,
                                            const EditorValue &value, const std::vector<EditorField> &context) {
-    auto &s = *m_State;
-    EditorResponse result{EDITOR_REFUSED};
-    if (!s.Thread() || !s.NativeReady() || s.readOnlyCallbacks || s.drawing || s.querying || s.notifying ||
-        !s.drafts.empty() || !s.writable || !s.Valid(scope) || !s.Current(target)) return result;
-    auto *document = s.CurrentDocument();
-    if (!document || !document->EditOpen()) return result;
-    const EditorCommandDesc *command = nullptr;
-    for (const auto &module : s.modules) for (const auto &candidate : module->commands)
-        if (String(candidate.id) == property.command && String(candidate.provider) == property.commandProvider) command = &candidate;
-    if (!command || command->effect != EDITOR_DOCUMENT_EDIT || value.type != property.type) return result;
+    if (!m_State->Thread() || value.type != property.type) return {EDITOR_REFUSED};
     std::vector<EditorField> fields;
-    if (CopyEditorFields(fields, &value, 1) != EDITOR_OK || fields.size() != 1) { result.status = EDITOR_INVALID; return result; }
+    if (CopyEditorFields(fields, &value, 1) != EDITOR_OK || fields.size() != 1) return {EDITOR_INVALID};
     fields.front().key = property.argument;
     fields.insert(fields.begin(), {"target", EDITOR_OBJECT, target});
     fields.insert(fields.end(), context.begin(), context.end());
     const auto values = BorrowEditorFields(fields);
+    return ApplyEdit(property.command, {scope, values.data(), uint32_t(values.size()), EditorText(property.commandProvider)});
+}
+EditorResponse EditorApplication::ApplyEdit(const std::string &id, const EditorRequest &request) {
+    auto &s = *m_State;
+    EditorResponse result{EDITOR_REFUSED};
+    if (!s.Thread() || !s.NativeReady() || s.readOnlyCallbacks || s.drawing || s.querying || s.notifying ||
+        !s.drafts.empty() || !s.writable || !s.Valid(request.scope)) return result;
+    auto *document = s.CurrentDocument();
+    if (!document || !document->EditOpen()) return result;
+    const auto selected = s.commands.find(id);
+    const EditorCommandDesc *command = selected == s.commands.end() ? nullptr : selected->second;
+    if (request.handler.size) {
+        command = nullptr;
+        for (const auto &module : s.modules) for (const auto &candidate : module->commands)
+            if (String(candidate.id) == id && String(candidate.provider) == String(request.handler)) command = &candidate;
+    }
+    if (!command || command->effect != EDITOR_DOCUMENT_EDIT) return result;
     std::vector<EditorField> checked;
-    result.status = s.Arguments(command->parameters, command->count, {scope, values.data(), uint32_t(values.values.size())}, checked);
+    result.status = s.Arguments(command->parameters, command->count, request, checked);
     if (result.status != EDITOR_OK) return result;
     // Only document edits may join the native dialog's enclosing transaction.
     // External callers continue through execute/finishEdit and frame dispatch.
     ++s.editing;
-    try { result = s.Run(*command, scope, checked); }
+    try { result = s.Run(*command, request.scope, checked); }
     catch (...) { result.status = EDITOR_ERROR; }
     --s.editing;
     return result;
@@ -1753,7 +1835,7 @@ uint32_t EditorApplication::DrawEdit(EditorEdit edit, EditorString label, uint32
     auto choiceInput = input;
     const EditorValue choiceTarget{EditorLiteral("target"), EDITOR_OBJECT, found->second.object};
     choiceInput.choicesRequest.values = &choiceTarget; choiceInput.choicesRequest.count = 1;
-    return DrawValue(property.editor, choiceInput);
+    return DrawValue(*found->second.editor, choiceInput, &found->second.editors);
 }
 uint32_t EditorApplication::DrawProperty(const std::string &property, EditorScope scope, ObjectRef target, EditorEdit &edit, EditorString label) {
     auto &s = *m_State;
@@ -1794,7 +1876,7 @@ uint32_t EditorApplication::DrawProperty(const std::string &property, EditorScop
     auto choiceInput = input;
     const EditorValue choiceTarget{EditorLiteral("target"), EDITOR_OBJECT, target};
     choiceInput.choicesRequest.values = &choiceTarget; choiceInput.choicesRequest.count = 1;
-    auto action = DrawValue(p->second.editor, choiceInput);
+    auto action = owns ? DrawValue(*s.drafts.at(edit).editor, choiceInput, &s.drafts.at(edit).editors) : DrawValue(p->second.editor, choiceInput);
     if (edit && EditTarget(edit) == target) {
         if (action & EDITOR_INPUT_CANCEL) { FinishEdit(edit, false); edit = 0; }
         else if ((action & (EDITOR_INPUT_ACCEPT | EDITOR_INPUT_DEACTIVATED)) && !(action & EDITOR_INPUT_INVALID)) {

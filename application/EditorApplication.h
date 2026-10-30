@@ -24,7 +24,10 @@ struct EditorField {
     std::vector<std::string> texts;
     double real = 0;
     std::vector<double> reals;
+    std::vector<EditorField> fields;
 };
+bool operator==(const EditorField &, const EditorField &);
+inline bool operator!=(const EditorField &a, const EditorField &b) { return !(a == b); }
 // Borrowed C views of owned fields; the fields must outlive this value.
 struct EditorFieldValues {
     EditorFieldValues() = default;
@@ -34,10 +37,12 @@ struct EditorFieldValues {
     EditorFieldValues &operator=(EditorFieldValues &&) = default;
     std::vector<EditorString> texts;
     std::vector<EditorValue> values;
+    std::vector<EditorValue> members;
     const EditorValue *data() const { return values.data(); }
     size_t size() const { return values.size(); }
 };
 EditorFieldValues BorrowEditorFields(const std::vector<EditorField> &);
+using EditorValueEditors = std::map<std::string, const EditorValueEditorDesc *>;
 struct EditorResponse {
     EditorStatus status = EDITOR_ERROR;
     std::string message;
@@ -127,12 +132,14 @@ class EditorApplication {
     bool EditState(EditorEdit edit, std::string &value, EditorValueEditorDesc &editor) const;
     bool EditState(EditorEdit edit, EditorField &value, EditorValueEditorDesc &editor) const;
     uint32_t DrawValue(const std::string &editor, const EditorValueInput &);
-    uint32_t DrawValue(const EditorValueEditorDesc &, const EditorValueInput &);
+    uint32_t DrawValue(const EditorValueEditorDesc &, const EditorValueInput &, const EditorValueEditors * = nullptr);
+    EditorValueEditors CaptureValueEditors() const;
     bool ValueEditor(const std::string &, EditorValueEditorDesc &) const;
     // Native dialog copies join their already-open core edit. The selected
     // property/editor are captured when that dialog creates the copy.
     EditorResponse ApplyEdit(const PropertyBinding &, EditorScope, ObjectRef, const EditorValue &,
                              const std::vector<EditorField> &context);
+    EditorResponse ApplyEdit(const std::string &command, const EditorRequest &);
     uint32_t DrawProperty(const std::string &, EditorScope, ObjectRef, EditorEdit &, EditorString label);
     const PropertyBinding *Property(const std::string &id) const;
     const std::vector<MenuEntry> &Menus() const;
@@ -141,6 +148,7 @@ class EditorApplication {
     const std::map<std::string, std::vector<EditorKey>> &Shortcuts() const;
     const char *ActionTitle(const std::string &action) const;
     bool IsCommand(const std::string &action) const;
+    std::string CommandProvider(const std::string &) const;
     std::vector<EditorViewDesc> Views(bool allProviders = false) const;
     std::vector<EditorValueEditorDesc> ValueEditors() const;
     // Callback execution pins registered code. Mutating configuration is

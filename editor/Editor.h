@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 11u
+#define EDITOR_VERSION 12u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -42,7 +42,8 @@ typedef enum EditorStatus {
 } EditorStatus;
 typedef enum EditorValueType {
     EDITOR_OBJECT = 1, EDITOR_TEXT_VALUE = 2, EDITOR_INTEGER_VALUE = 3,
-    EDITOR_OBJECT_LIST = 4, EDITOR_INTEGER_LIST = 5, EDITOR_TEXT_LIST = 6, EDITOR_REAL_VALUE = 7, EDITOR_REAL_LIST = 8
+    EDITOR_OBJECT_LIST = 4, EDITOR_INTEGER_LIST = 5, EDITOR_TEXT_LIST = 6, EDITOR_REAL_VALUE = 7, EDITOR_REAL_LIST = 8,
+    EDITOR_RECORD = 9
 } EditorValueType;
 typedef struct EditorObjects {
     const EditorObject *data;
@@ -60,9 +61,16 @@ typedef struct EditorReals {
     const double *data;
     uint32_t count;
 } EditorReals;
+struct EditorValue;
+typedef struct EditorFields {
+    const struct EditorValue *data;
+    uint32_t count;
+} EditorFields;
 // Only the field matching type is read. Text and arrays are borrowed during a
 // callback and copied on submission or sink delivery. Each request/result is
-// limited to 1 MiB of text and 64 MiB of arrays. Object arrays do not retain objects.
+// limited to 1 MiB of text and 64 MiB of arrays. Records have at most 64 levels,
+// 4096 members per record and 65536 total fields; a request/result has at most
+// 64 top-level fields. Object arrays do not retain objects.
 typedef struct EditorValue {
     EditorString key;
     EditorValueType type;
@@ -74,6 +82,7 @@ typedef struct EditorValue {
     EditorStrings texts;
     double real; // finite only
     EditorReals reals; // finite components, in the property's declared order
+    EditorFields fields; // named record members; copied with the containing value
 } EditorValue;
 typedef struct EditorScope {
     EditorDocument document;
@@ -167,6 +176,8 @@ typedef struct EditorChange {
 } EditorChange;
 typedef void(EDITOR_CALL *EditorChanged)(void *, const EditorHost *, const EditorChange *);
 typedef enum EditorValueStyle { EDITOR_VALUE_INLINE, EDITOR_VALUE_DIALOG } EditorValueStyle;
+struct EditorValueInput;
+typedef uint32_t(EDITOR_CALL *EditorDrawMembers)(void *, const EditorHost *, const struct EditorValueInput *);
 // Fields carry the property query's copied metadata (options, display text and
 // type identity). update copies one value of the declared type before returning.
 // Dialogs edit their owned copies; a property draft commits through finishEdit.
@@ -186,6 +197,12 @@ typedef struct EditorValueInput {
     float width, height;
     EditorString choicesQuery;
     EditorRequest choicesRequest;
+    // Optional member presentation supplied by a working-copy owner. It uses
+    // this input's update sink and reports the children's combined activity.
+    // Container editors may reuse it or compose the described members directly.
+    // The callback and data are borrowed only for this draw call.
+    EditorDrawMembers drawMembers;
+    void *membersData;
 } EditorValueInput;
 typedef uint32_t(EDITOR_CALL *EditorDrawValue)(void *, const EditorHost *, const EditorValueInput *);
 typedef void *(EDITOR_CALL *EditorCreateView)(void *, const EditorHost *, EditorView);
@@ -355,6 +372,10 @@ struct EditorHost {
     // by this view and is cleared only when that interaction has ended.
     uint32_t(EDITOR_CALL *drawProperty)(void *, EditorString property, EditorScope, EditorObject,
                                       EditorEdit *, EditorString label);
+    // Compose value editors without starting another document edit. Child
+    // updates go to the containing value's sink. Provider choices are retained
+    // by the containing interaction; recursion is bounded by the host.
+    uint32_t(EDITOR_CALL *drawValue)(void *, EditorString editor, const EditorValueInput *);
 
 };
 

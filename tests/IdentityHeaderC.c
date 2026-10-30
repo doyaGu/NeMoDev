@@ -60,3 +60,8 @@ EditorValue RealsFromC(const double *data, uint32_t count) {
     result.type = EDITOR_REAL_LIST; result.reals.data = data; result.reals.count = count;
     return result;
 }
+
+EditorValue RecordFromC(const EditorValue *fields, uint32_t count) {
+    EditorValue result = {0}; result.type = EDITOR_RECORD;
+    result.fields.data = fields; result.fields.count = count; return result;
+}

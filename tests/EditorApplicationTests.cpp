@@ -145,6 +145,67 @@ void RealArrays() {
     Check(output.status == EDITOR_OK && reals != output.fields.end() && reals->reals == std::vector<double>({1.25, -2, 3}),
           "completed operation lost its copied real array");
 }
+void RecordValues() {
+    double numbers[] = {1, 2, 3};
+    EditorValue leaf{}; leaf.key = EDITOR_TEXT("leaf"); leaf.type = EDITOR_REAL_LIST; leaf.reals = {numbers, 3};
+    EditorValue child{}; child.key = EDITOR_TEXT("child"); child.type = EDITOR_RECORD; child.fields = {&leaf, 1};
+    EditorValue root{}; root.key = EDITOR_TEXT("value"); root.type = EDITOR_RECORD; root.fields = {&child, 1};
+    std::vector<EditorField> copied;
+    Check(CopyEditorFields(copied, &root, 1) == EDITOR_OK, "copy nested record");
+    numbers[0] = 99;
+    Check(copied.front().fields.front().fields.front().reals.front() == 1, "record retained producer memory");
+    auto borrowed = BorrowEditorFields(copied);
+    auto moved = std::move(borrowed);
+    Check(moved.values.front().fields.data[0].fields.data[0].reals.data[0] == 1, "moving record view invalidated members");
+    std::vector<EditorField> roundtrip;
+    Check(CopyEditorFields(roundtrip, moved.data(), uint32_t(moved.size())) == EDITOR_OK && roundtrip == copied,
+          "nested record roundtrip changed types or values");
+    const auto before = copied;
+    root.fields = {nullptr, 1};
+    Check(CopyEditorFields(copied, &root, 1) == EDITOR_INVALID && copied == before, "invalid record modified collected fields");
+    root.fields = {&root, 1};
+    std::vector<EditorField> cyclic;
+    Check(CopyEditorFields(cyclic, &root, 1) == EDITOR_INVALID && cyclic.empty(), "cyclic record was accepted");
+    EditorValue duplicates[] = {leaf, leaf}; root.fields = {duplicates, 2};
+    Check(CopyEditorFields(cyclic, &root, 1) == EDITOR_INVALID, "duplicate record keys were accepted");
+    root.fields = {&child, 1}; leaf.reals.count = UINT32_MAX;
+    Check(CopyEditorFields(cyclic, &root, 1) == EDITOR_INVALID, "nested array bypassed total byte limit");
+    leaf.reals.count = 3; numbers[0] = std::numeric_limits<double>::quiet_NaN();
+    Check(CopyEditorFields(cyclic, &root, 1) == EDITOR_INVALID, "non-finite nested component was accepted");
+    numbers[0] = 1;
+    EditorApplication app({});
+    const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("test.record-output"), EDITOR_TEXT("test.records"),
+        EDITOR_TEXT("Record output"), nullptr, 0,
+        [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            return sink.write(sink.data, static_cast<EditorValue *>(data), 1);
+        }, &root, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE};
+    const auto paint = [](void *, const EditorHost *, const EditorValueInput *) -> uint32_t { return EDITOR_INPUT_NONE; };
+    const EditorValueEditorDesc editors[] = {
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("test.integer-array"), EDITOR_TEXT("test.records"), EDITOR_TEXT("Integers"), paint, nullptr, EDITOR_INTEGER_LIST},
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("test.text-array"), EDITOR_TEXT("test.records"), EDITOR_TEXT("Texts"), paint, nullptr, EDITOR_TEXT_LIST}};
+    EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("test.records");
+    module.commands = &command; module.commandCount = 1; module.editors = editors; module.editorCount = 2;
+    std::string error;
+    Check(app.Register(module, error) && app.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
+    const auto result = app.Execute("test.record-output", {app.Scope(), nullptr, 0});
+    Check(result.status == EDITOR_OK && result.fields.front().fields.front().fields.front().reals.front() == 1, "record output was not copied");
+    numbers[0] = 88;
+    const EditorValue args[] = {{EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE, {}, {}, result.operation}, {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE, {}, {}, 0}};
+    const auto output = app.Query("application.operation-output", {app.Scope(), args, 2});
+    const auto field = std::find_if(output.fields.begin(), output.fields.end(), [](const auto &value) { return value.key == "fields"; });
+    Check(output.status == EDITOR_OK && field != output.fields.end() && field->fields.front().fields.front().reals.front() == 1,
+          "completed operation did not retain nested values");
+    std::vector<EditorValue> deep(64);
+    for (size_t i = 0; i < deep.size(); ++i) {
+        deep[i].key = EDITOR_TEXT("member"); deep[i].type = EDITOR_RECORD;
+        if (i + 1 < deep.size()) deep[i].fields = {&deep[i + 1], 1};
+    }
+    std::vector<EditorField> boundary;
+    Check(CopyEditorFields(boundary, deep.data(), 1) == EDITOR_OK, "empty record at the nesting limit was refused");
+    EditorValue extra{}; extra.key = EDITOR_TEXT("member"); extra.type = EDITOR_RECORD; deep.back().fields = {&extra, 1};
+    std::vector<EditorField> beyond;
+    Check(CopyEditorFields(beyond, deep.data(), 1) == EDITOR_INVALID && beyond.empty(), "record exceeded the nesting limit");
+}
 void VersionedQueries() {
     struct Values {
         uint64_t revision = 1, value = 7;
@@ -473,6 +534,7 @@ int main(int argc, char **argv) {
         MenuChecks();
         CommandStateReads();
         RealArrays();
+        RecordValues();
         CkRuntimeHost runtime;
         std::string error;
         const auto *path = std::getenv("VIRTOOLS_PATH");
