@@ -168,3 +168,11 @@ VIRTOOLSDEV_UI_CASE("modules", "color_picker_cancel_restores_working_value")
 VIRTOOLSDEV_UI_CASE("modules", "compound_inline_drag_cancel_and_undo")
 VIRTOOLSDEV_UI_CASE("modules", "external_vector_editor_shared_by_inline_and_dialog")
 VIRTOOLSDEV_UI_CASE("modules", "angle_dial_escape_stops_writes")
+
+// Nested values and object arrays.
+VIRTOOLSDEV_UI_CASE("modules", "nested_parameter_dialog_one_undo_and_cancel")
+VIRTOOLSDEV_UI_CASE("modules", "object_array_dialog_operations_and_cancel")
+VIRTOOLSDEV_UI_CASE("modules", "object_array_inline_operations_and_cancel")
+VIRTOOLSDEV_UI_CASE("modules", "nested_inline_commit_and_cancel")
+VIRTOOLSDEV_UI_CASE("modules", "external_structure_editor_and_nested_provider")
+VIRTOOLSDEV_UI_CASE("modules", "nested_member_reuse_is_rejected")

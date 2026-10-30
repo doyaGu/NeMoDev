@@ -12,6 +12,7 @@ struct Editing {
     std::vector<CK_ID> parameters;
     std::unique_ptr<vdev::EditorConfiguration> configuration;
     CKGUID enumType{0, 0};
+    std::vector<CKGUID> structures;
     bool open = false, popup = false, inlineValue = false;
     const char *property = "parameter.integer";
     vdev::ObjectRef target{};
@@ -46,10 +47,11 @@ void Cleanup(ImGuiTestContext *ctx) {
         if (editing.edit) app.FinishEdit(editing.edit, false);
         if (editing.owner) app.CloseScope(editing.owner);
         editing.box.reset();
-        ImGui::ClosePopupToLevel(0, false);
+        if (!ImGui::GetCurrentContext()->OpenPopupStack.empty()) ImGui::ClosePopupToLevel(0, false);
         if (editing.configuration) { std::string error; state.workspace->Configure(*editing.configuration, error); }
         state.History().Clear();
         for (auto id : editing.parameters) if (state.host.Context()->GetObject(id)) state.host.Context()->DestroyObject(id);
+        for (auto type = editing.structures.rbegin(); type != editing.structures.rend(); ++type) state.host.Context()->GetParameterManager()->UnRegisterParameterType(*type);
         if (editing.enumType.d1 || editing.enumType.d2) state.host.Context()->GetParameterManager()->UnRegisterParameterType(editing.enumType);
         editing = Editing{};
     });
@@ -73,6 +75,47 @@ std::vector<float> WorkingComponents(ImGuiTestContext *ctx, size_t row) {
         if (parameter) parameter->GetValue(values.data(), FALSE);
         return values;
     });
+}
+vdev::ParameterValue Value(ImGuiTestContext *ctx, CK_ID id) {
+    return Read<vdev::ParameterValue>(ctx, [=] {
+        vdev::ParameterValueDescription value;
+        IM_CHECK_NO_RET(vdev::DescribeParameterValue(*App().State().document, Object<CKParameter>(id), value));
+        return value.value;
+    });
+}
+vdev::ParameterValue WorkingValue(ImGuiTestContext *ctx) {
+    return Read<vdev::ParameterValue>(ctx, [] {
+        vdev::ParameterValueDescription value;
+        IM_CHECK_NO_RET(editing.box && vdev::DescribeParameterValue(*App().State().document, editing.box->Work(0), value));
+        return value.value;
+    });
+}
+void ArrayItem(ImGuiTestContext *ctx) {
+    const auto at = Read<ImVec2>(ctx, [] {
+        for (auto *window : ImGui::GetCurrentContext()->Windows)
+            if (window->WasActive && window->ParentWindow && std::string(window->Name).find("##items") != std::string::npos &&
+                std::string(window->ParentWindow->Name).find("PrimitiveValues") != std::string::npos)
+                return ImVec2(window->DC.CursorStartPos.x + 12, window->DC.CursorStartPos.y + 7);
+        return ImVec2(-1, -1);
+    });
+    IM_CHECK_NO_RET(at.x >= 0 && at.y >= 0);
+    ctx->MouseMoveToPos(at); ctx->MouseClick(0);
+}
+void NestedFixture(bool dialog = true) {
+    auto &state = App().State(); auto *context = state.host.Context(); auto *manager = context->GetParameterManager();
+    const CKGUID innerType(0x6e76616c, 0x00000430), outerType(0x6e76616c, 0x00000431);
+    XArray<CKGUID> inner; for (auto type : {CKPGUID_INT, CKPGUID_COLOR, CKPGUID_OBJECTARRAY, CKPGUID_STRING}) inner.PushBack(type);
+    IM_CHECK_NO_RET(manager->RegisterNewStructure(innerType, "UI nested inner", "Count,Color,Objects,Text", inner) == CK_OK);
+    editing.structures.push_back(innerType);
+    XArray<CKGUID> outer; outer.PushBack(innerType); outer.PushBack(CKPGUID_VECTOR);
+    IM_CHECK_NO_RET(manager->RegisterNewStructure(outerType, "UI nested outer", "Inner,Position", outer) == CK_OK);
+    editing.structures.push_back(outerType);
+    auto *parameter = context->CreateCKParameterLocal("Nested editor", outerType);
+    IM_CHECK_NO_RET(parameter != nullptr);
+    editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
+    if (dialog) { editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(parameter, "Nested")); editing.open = true; }
+    else { editing.property = "parameter.structure"; editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true; }
+    state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
 void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
     ctx->ItemClick(path);
@@ -468,6 +511,198 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(WorkingComponents(ctx, 0) == before);
         IM_CHECK(Components(ctx, editing.parameters[0]) == before);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && !App().State().document->Dirty(); }));
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "nested_parameter_dialog_one_undo_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { NestedFixture(); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto before = Value(ctx, editing.parameters[0]);
+        Input(ctx, "**/##number", "12");
+        Input(ctx, "**/##string", "Nested text");
+        Input(ctx, "**/##r", "128");
+        Input(ctx, "**/##x", "7");
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto applied = Value(ctx, editing.parameters[0]);
+        IM_CHECK(applied.members[0].members[0].integer == 12 && applied.members[0].members[3].text == "Nested text");
+        IM_CHECK(std::abs(applied.members[0].members[1].components[0] - 128.0 / 255) < .00001 && applied.members[1].components[0] == 7);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        Input(ctx, "**/##r", "200"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(Read<bool>(ctx, [] { return editing.open; }));
+        IM_CHECK(WorkingValue(ctx) == applied);
+        Input(ctx, "**/##string", "Cancelled text"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx) == applied && Read<bool>(ctx, [] { return editing.open; }));
+        ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == applied);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        IM_CHECK(Read<bool>(ctx, [] { return !App().State().document->Dirty() && App().State().History().CanRedo(); }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "object_array_dialog_operations_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] {
+            auto &state = App().State(); auto *context = state.host.Context();
+            auto *parameter = context->CreateCKParameterLocal("Array editor", CKPGUID_OBJECTARRAY);
+            auto *a = context->CreateObject(CKCID_3DENTITY, "Array A"), *b = context->CreateObject(CKCID_3DENTITY, "Array B");
+            XObjectArray list; list.PushBack(a->GetID()); list.PushBack(b->GetID());
+            IM_CHECK_NO_RET(vdev::SetHeldValue(parameter, &list));
+            editing.parameters = {parameter->GetID(), a->GetID(), b->GetID()};
+            editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(parameter, "Objects")); editing.open = true;
+            state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
+        });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto before = Value(ctx, editing.parameters[0]);
+        ArrayItem(ctx); ctx->Yield(2); ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_C);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_V); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx).objects.size() == 3 && Value(ctx, editing.parameters[0]) == before);
+        ArrayItem(ctx); ctx->Yield(2); ctx->KeyPress(ImGuiKey_KeypadAdd); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx).objects[0] == before.objects[1]);
+        ctx->KeyPress(ImGuiKey_Delete); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx).objects.size() == 2);
+        ctx->ItemClick("**/OK/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        OnMainThread(ctx, [] {
+            auto &state = App().State(); IM_CHECK_NO_RET(state.History().Undo());
+            editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(Object<CKParameter>(editing.parameters[0]), "Objects"));
+            editing.open = true; editing.popup = false;
+        });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        ArrayItem(ctx); ctx->Yield(2); ctx->KeyPress(ImGuiKey_Delete); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx).objects.size() == 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty(); }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "object_array_inline_operations_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] {
+            auto &state = App().State(); auto *context = state.host.Context();
+            auto *parameter = context->CreateCKParameterLocal("Inline array", CKPGUID_OBJECTARRAY);
+            auto *first = context->CreateObject(CKCID_3DENTITY, "Inline array first");
+            auto *second = context->CreateObject(CKCID_3DENTITY, "Inline array second");
+            IM_CHECK_NO_RET(parameter && first && second);
+            editing.parameters = {parameter->GetID(), first->GetID(), second->GetID()};
+            editing.target = state.document->Reference(parameter->GetID());
+            vdev::ParameterValueDescription value;
+            IM_CHECK_NO_RET(vdev::DescribeParameterValue(*state.document, parameter, value));
+            value.value.objects = {state.document->Reference(first->GetID()), state.document->Reference(second->GetID())};
+            IM_CHECK_NO_RET(vdev::SetParameterValue(*state.document, editing.target, value.type, value.value).ok);
+            editing.property = "parameter.object-array"; editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true;
+            state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
+        });
+        ctx->Yield(3); ctx->SetRef("//Typed inline");
+        const auto before = Value(ctx, editing.parameters[0]);
+        ctx->ItemClick("**/$$0/Down"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).objects == std::vector<vdev::ObjectRef>({before.objects[1], before.objects[0]}));
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        ctx->ItemClick("**/$$0/Remove"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).objects == std::vector<vdev::ObjectRef>({before.objects[0]}));
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 2);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo() && App().State().History().Undo()); });
+        ctx->Yield(2);
+        const auto add = Read<ImGuiID>(ctx, [] {
+            auto *window = ImGui::FindWindowByName("Typed inline");
+            return ImHashStr("Add Object", 0, ImHashStr("##integer", 0, window->ID));
+        });
+        ctx->ItemClick(add); ctx->Yield(2); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty(); }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "nested_inline_commit_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { NestedFixture(false); });
+        ctx->Yield(3); ctx->SetRef("//Typed inline");
+        const auto before = Value(ctx, editing.parameters[0]);
+        const auto at = ctx->ItemInfo("**/##Count").RectFull.GetCenter();
+        ctx->MouseMoveToPos(at); ctx->MouseDown(0);
+        for (int i = 1; i <= 8; ++i) { ctx->MouseMoveToPos(ImVec2(at.x + 8 * i, at.y)); ctx->Yield(2); }
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        ctx->MouseUp(0); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]).members[0].members[0].integer != before.members[0].members[0].integer);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        ctx->MouseMoveToPos(at); ctx->MouseDown(0); ctx->MouseMoveToPos(ImVec2(at.x + 72, at.y)); ctx->Yield(2);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        IM_CHECK(Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty(); }));
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "external_structure_editor_and_nested_provider");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        vdev::EditorConfiguration previous;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); auto &app = state.workspace->Application(); previous = app.Configuration();
+            editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
+            auto config = previous;
+            for (auto &choice : config.providers) {
+                if (choice.kind == "editor" && choice.id == "value.structure") choice.provider = "example.structure";
+                if (choice.kind == "editor" && choice.id == "value.vector3") choice.provider = "example.vector";
+                if ((choice.kind == "command" && choice.id == "parameter.structure-set") ||
+                    (choice.kind == "query" && choice.id == "parameter.structure-value")) choice.provider = "example.structure";
+            }
+            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(config, error)); NestedFixture(false);
+        });
+        ctx->Yield(3); ctx->SetRef("//Typed inline");
+        ctx->ItemClick("Offset nested count"); ctx->Yield(2);
+        ctx->ItemClick("Offset vector"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).members[0].members[0].integer == 1);
+        IM_CHECK(Value(ctx, editing.parameters[0]).members[1].components == std::vector<double>({1, 2, 3}));
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 2);
+        const auto inlineValue = Value(ctx, editing.parameters[0]);
+        OnMainThread(ctx, [] {
+            editing.inlineValue = false; auto &app = App().State().workspace->Application();
+            const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, editing.target};
+            IM_CHECK_NO_RET(app.Execute("parameter.edit", {app.Scope(), &target, 1}).status == EDITOR_OK);
+        });
+        ctx->Yield(3); ctx->SetRef("//Edit Parameter###AttributeManagerValue");
+        const auto reads = [&] {
+            return Read<uint64_t>(ctx, [] { auto &app = App().State().workspace->Application(); const auto result = app.Query("example.structure-count", {app.Scope(), nullptr, 0}); return vdev::EditorClient::Integer(result, "reads"); });
+        };
+        const auto beforeSwitch = reads();
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().State().workspace->Configure(previous, error)); });
+        ctx->Yield(2);
+        IM_CHECK(reads() > beforeSwitch && ctx->ItemExists("**/Offset nested count") && ctx->ItemExists("**/Offset vector"));
+        ctx->ItemClick("**/Offset nested count"); ctx->ItemClick("**/Offset vector"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == inlineValue);
+        ctx->ItemClick("**/OK/##dialogbutton"); ctx->Yield(3);
+        const auto applied = Value(ctx, editing.parameters[0]);
+        IM_CHECK(applied.members[0].members[0].integer == 2 && applied.members[1].components == std::vector<double>({2, 4, 6}));
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 3);
+        IM_CHECK(Read<uint64_t>(ctx, [] { auto &app = App().State().workspace->Application(); const auto result = app.Query("example.structure-count", {app.Scope(), nullptr, 0}); return vdev::EditorClient::Integer(result, "count"); }) == 3);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == inlineValue);
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "nested_member_reuse_is_rejected");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { NestedFixture(); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        Input(ctx, "**/##number", "12");
+        OnMainThread(ctx, [] {
+            auto &state = App().State(); vdev::ParameterValueDescription description;
+            IM_CHECK_NO_RET(vdev::DescribeParameterValue(*state.document, Object<CKParameter>(editing.parameters[0]), description));
+            const auto old = description.members[0].members[0].parameter;
+            IM_CHECK_NO_RET(state.host.Context()->DestroyObject(old.object, CK_DESTROY_FREEID | CK_DESTROY_NONOTIFY) == CK_OK);
+            auto *replacement = state.host.Context()->CreateCKParameterOut("Replacement member", CKPGUID_INT);
+            IM_CHECK_NO_RET(replacement && replacement->GetID() == old.object && state.document->Reference(old.object) != old);
+            const int value = 77; replacement->SetValue(&value, sizeof(value));
+        });
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).members[0].members[0].integer == 77);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 0);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
     };
 
 }

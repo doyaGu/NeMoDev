@@ -2,6 +2,7 @@
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <iterator>
+#include <deque>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -9,7 +10,7 @@
 namespace {
 const EditorString RenameId = EDITOR_TEXT("object.rename");
 struct Module {
-    int views = 0, playCalls = 0, integerCalls = 0, vectorCalls = 0, vectorReads = 0;
+    int views = 0, playCalls = 0, integerCalls = 0, vectorCalls = 0, vectorReads = 0, structureCalls = 0, structureReads = 0;
     bool refuseFileView = false;
     EditorObject resourceTarget{};
 };
@@ -253,6 +254,53 @@ uint32_t DrawVector(void *, const EditorHost *, const EditorValueInput *input) {
     }
     return ImGui::IsKeyPressed(ImGuiKey_Escape) ? EDITOR_INPUT_CANCEL : EDITOR_INPUT_NONE;
 }
+const EditorValue *RecordField(EditorFields fields, const char *key) {
+    for (uint32_t i = 0; i < fields.count; ++i)
+        if (std::string(fields.data[i].key.data, fields.data[i].key.size) == key) return &fields.data[i];
+    return nullptr;
+}
+uint32_t DrawStructure(void *, const EditorHost *host, const EditorValueInput *input) {
+    if (input->value.type != EDITOR_RECORD) return EDITOR_INPUT_INVALID;
+    uint32_t action = 0;
+    if (ImGui::Button("Offset nested count")) {
+        auto value = input->value;
+        std::deque<std::vector<EditorValue>> storage;
+        const auto offset = [&](const auto &self, EditorValue &value, unsigned depth) -> bool {
+            if (value.type == EDITOR_INTEGER_VALUE) { ++value.integer; return true; }
+            if (value.type != EDITOR_RECORD || depth >= 32) return false;
+            if (value.fields.count) storage.emplace_back(value.fields.data, value.fields.data + value.fields.count);
+            else storage.emplace_back();
+            auto &members = storage.back(); value.fields = {members.data(), uint32_t(members.size())};
+            for (auto &member : members) if (self(self, member, depth + 1)) return true;
+            return false;
+        };
+        if (!offset(offset, value, 0) || input->update.write(input->update.data, &value, 1) != EDITOR_OK) action |= EDITOR_INPUT_INVALID;
+        else action |= EDITOR_INPUT_CHANGED | EDITOR_INPUT_ACCEPT;
+    }
+    const auto *schema = RecordField({input->fields, input->count}, "schema");
+    if (schema && schema->type == EDITOR_RECORD) for (uint32_t i = 0; i < input->value.fields.count; ++i) {
+        const auto &value = input->value.fields.data[i];
+        if (value.type != EDITOR_REAL_LIST || value.reals.count != 3) continue;
+        const auto key = std::string(value.key.data, value.key.size);
+        const auto *metadata = RecordField(schema->fields, key.c_str());
+        if (!metadata || metadata->type != EDITOR_RECORD) return EDITOR_INPUT_INVALID;
+        auto child = *input; child.value = value; child.label = EDITOR_TEXT("Nested vector");
+        child.fields = metadata->fields.data; child.count = metadata->fields.count; child.drawMembers = nullptr; child.membersData = nullptr;
+        struct Update { const EditorValueInput *input; uint32_t index; } update{input, i};
+        child.update = {&update, [](void *data, const EditorValue *value, uint32_t count) -> EditorStatus {
+            const auto &u = *static_cast<Update *>(data);
+            if (!value || count != 1) return EDITOR_INVALID;
+            std::vector<EditorValue> members(u.input->value.fields.data, u.input->value.fields.data + u.input->value.fields.count);
+            members[u.index] = *value;
+            auto root = u.input->value; root.fields = {members.data(), uint32_t(members.size())};
+            return u.input->update.write(u.input->update.data, &root, 1);
+        }};
+        action |= host->drawValue(host->data, EditorString EDITOR_TEXT("value.vector3"), &child);
+        break;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) action |= EDITOR_INPUT_CANCEL;
+    return action;
+}
 uint32_t DrawName(void *, const EditorHost *host, const EditorValueInput *input) {
     std::string text(input->value.text.data, input->value.text.size), label(input->label.data, input->label.size);
     if (input->focus)
@@ -346,7 +394,15 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
         {EDITOR_TEXT("selection"), EDITOR_INTEGER_LIST, 1}};
     static const EditorParameter integerArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}};
     static const EditorParameter vectorArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_REAL_LIST}, {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}};
+    static const EditorParameter structureArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_RECORD},
+        {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("schema"), EDITOR_RECORD}};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.structure-set"), EDITOR_TEXT("example.structure"), EDITOR_TEXT("Set External Structure"),
+         structureArgs, 4, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->structureCalls;
+             auto next = *request; next.handler = EDITOR_TEXT("builtin.parameters");
+             return host->execute(host->data, EditorString EDITOR_TEXT("parameter.structure-set"), &next, sink);
+         }, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.vector3-set"), EDITOR_TEXT("example.vector"), EDITOR_TEXT("Set External Vector"),
          vectorArgs, 3, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
              ++static_cast<Module *>(data)->vectorCalls;
@@ -492,9 +548,9 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     // its own allocations at stop; the host copies strings and arrays.
     struct Descriptors {
         std::vector<EditorCommandDesc> commands;
-        EditorQueryDesc queries[6];
+        EditorQueryDesc queries[8];
         EditorViewDesc views[6];
-        EditorValueEditorDesc editors[3];
+        EditorValueEditorDesc editors[4];
         Module *data;
     };
     static const EditorParameter playCountField{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE};
@@ -528,13 +584,31 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                 {EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(static_cast<Module *>(data)->vectorReads)}};
             return sink.write(sink.data, values, 2);
         }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, vectorCountFields, 2};
+    static const EditorParameter structureFields[] = {{EDITOR_TEXT("value"), EDITOR_RECORD}, {EDITOR_TEXT("display"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("labels"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("values"), EDITOR_INTEGER_LIST},
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("rows"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("columns"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("row-labels"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("schema"), EDITOR_RECORD}};
+    const EditorQueryDesc structureValue{sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.structure-value"), EDITOR_TEXT("example.structure"),
+        structureArgs, 1, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            ++static_cast<Module *>(data)->structureReads;
+            auto next = *request; next.handler = EDITOR_TEXT("builtin.parameters");
+            return host->query(host->data, EditorString EDITOR_TEXT("parameter.structure-value"), &next, sink);
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, structureFields, 11};
+    const EditorQueryDesc structureCount{sizeof(EditorQueryDesc), EDITOR_TEXT("example.structure-count"), EDITOR_TEXT("example.structure"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const EditorValue values[] = {{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(static_cast<Module *>(data)->structureCalls)},
+                {EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(static_cast<Module *>(data)->structureReads)}};
+            return sink.write(sink.data, values, 2);
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, vectorCountFields, 2};
     auto *descriptors = new Descriptors{std::vector<EditorCommandDesc>(std::begin(commands), std::end(commands)),
-                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue},
+                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount},
                                         {view, fileView, outputView, logView, resourceView, resourceInputs},
                                         {editor, {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.integer"),
                                             EDITOR_TEXT("example.integer"), EDITOR_TEXT("External integer"), DrawInteger, data, EDITOR_INTEGER_VALUE},
                                         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.vector3"),
-                                            EDITOR_TEXT("example.vector"), EDITOR_TEXT("External vector"), DrawVector, data, EDITOR_REAL_LIST}},
+                                            EDITOR_TEXT("example.vector"), EDITOR_TEXT("External vector"), DrawVector, data, EDITOR_REAL_LIST},
+                                        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.structure"),
+                                            EDITOR_TEXT("example.structure"), EDITOR_TEXT("External structure"), DrawStructure, data, EDITOR_RECORD}},
                                         data};
     *out = {};
     out->size = sizeof(*out);
@@ -545,11 +619,11 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->commands = descriptors->commands.data();
     out->commandCount = static_cast<uint32_t>(descriptors->commands.size());
     out->queries = descriptors->queries;
-    out->queryCount = 6;
+    out->queryCount = 8;
     out->views = descriptors->views;
     out->viewCount = 6;
     out->editors = descriptors->editors;
-    out->editorCount = 3;
+    out->editorCount = 4;
     out->data = descriptors;
     out->stop = [](void *p) {
         auto *d = static_cast<Descriptors *>(p);
