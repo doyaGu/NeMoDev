@@ -4,6 +4,11 @@ namespace vdev {
 WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     WorkspaceConfiguration result;
     result.contributions.providers = {{"editor", "text.single-line", "builtin.text"},
+                                      {"editor", "value.boolean", "builtin.values"},
+                                      {"editor", "value.integer", "builtin.values"},
+                                      {"editor", "value.real", "builtin.values"},
+                                      {"editor", "value.enumeration", "builtin.values"},
+                                      {"editor", "value.object", "builtin.values"},
                                       {"command", "object.rename", "builtin.objects"},
                                       {"command", "object.create-frame3d", "builtin.objects"},
                                       {"command", "resource.load", "builtin.documents"},

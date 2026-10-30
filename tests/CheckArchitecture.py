@@ -109,8 +109,8 @@ def check(source, manifest, inventory=None, ui_tests=False):
     graph, all_exposures = include_graph(source, files, all_access=True)
     exposures = {path: access for path, access in all_exposures.items() if path.startswith("ui/")}
     for path, access in all_exposures.items():
-        if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/defaults/")) and not re.match(
-                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands))\.(?:h|cpp)$", path):
+        if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/defaults/", "features/values/")) and not re.match(
+                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|values/ParameterCommands)\.(?:h|cpp)$", path):
             errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
     observed = set()
     for path, dependencies in graph.items():

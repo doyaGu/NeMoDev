@@ -4,6 +4,7 @@
 #include "ui/panels/EventLogView.h"
 #include <stdexcept>
 #include "features/objects/ObjectViews.h"
+#include "features/values/ValueEditors.h"
 #include "features/resources/BuildingBlockQueries.h"
 #include "features/resources/BuildingBlockViews.h"
 #include "features/resources/DataResourceViews.h"
@@ -125,6 +126,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_FileCommands.Register(error) || !RegisterFileInputs(m_Editor, window, error) ||
         !m_ObjectCommands.Register(m_Editor, error) || !m_SelectionCommands.Register(m_Editor, error) ||
         !m_Execution.Register(error) || !m_Outputs.Register(error) || !RegisterOutputInputs(m_Editor, window, error) ||
+        !RegisterValueEditors(m_Editor, error) ||
         !RegisterObjectViews(m_Editor, error) || !m_SceneCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
         !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
         m_State.Log(LogLevel::Error, error);

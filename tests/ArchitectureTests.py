@@ -141,6 +141,17 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native/state access in workspace view: features/defaults/DefaultWorkspace.cpp", result.stderr)
 
+    def test_value_editor_rejects_indirect_native_access(self):
+        self.write("features/values/ValueEditors.h", '#include "core/model.h"\n')
+        self.write("features/values/ValueEditors.cpp", '#include "features/values/ValueEditors.h"\n')
+        self.write("core/model.h", '#include "CKAll.h"\n')
+        self.manifest["source_groups"].append({"id": "views", "patterns": ["features/**"]})
+        self.manifest["features"][0]["source_groups"].append("views")
+        self.manifest["dependencies"] = {"views": ["core"]}
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("native/state access in workspace view: features/values/ValueEditors.cpp", result.stderr)
+
     def test_stale_and_expired_legacy_exposure_is_rejected(self):
         self.add_ui('#include "CKAll.h"\n')
         self.manifest["legacy_exposures"] = [

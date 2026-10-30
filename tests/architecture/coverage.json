@@ -384,6 +384,13 @@
       "patterns": [
         "features/defaults/**"
       ]
+    },
+    {
+      "id": "S45",
+      "name": "通用值编辑器",
+      "patterns": [
+        "features/values/ValueEditors.*"
+      ]
     }
   ],
   "dependencies": {
@@ -495,7 +502,8 @@
       "S40",
       "S41",
       "S42",
-      "S43"
+      "S43",
+      "S45"
     ],
     "S15": [
       "S01",
@@ -734,6 +742,12 @@
     ],
     "S43": [
       "S35"
+    ],
+    "S45": [
+      "S12",
+      "S27",
+      "S33",
+      "S34"
     ]
   },
   "legacy_exposures": [
@@ -1435,7 +1449,8 @@
         "S20",
         "S35",
         "S38",
-        "S39"
+        "S39",
+        "S45"
       ],
       "tests": [
         "VirtoolsDev.AttributeQueryProjections",
@@ -1507,7 +1522,8 @@
       "source_groups": [
         "S05",
         "S12",
-        "S20"
+        "S20",
+        "S45"
       ],
       "tests": [
         "VirtoolsDev.ParameterValueFailures",
@@ -1531,7 +1547,8 @@
       "owner": "Property domain",
       "source_groups": [
         "S08",
-        "S20"
+        "S20",
+        "S45"
       ],
       "tests": [
         "VirtoolsDev.ObjectPropertyUndo",
@@ -1608,7 +1625,8 @@
         "S04",
         "S19",
         "S22",
-        "S15"
+        "S15",
+        "S45"
       ],
       "tests": [
         "VirtoolsDev.ScriptDebugger",
@@ -2011,7 +2029,8 @@
         "S35",
         "S36",
         "S37",
-        "S43"
+        "S43",
+        "S45"
       ],
       "tests": [
         "NeMoDevEditor",
@@ -2325,13 +2344,17 @@
     },
     {
       "id": "property-drafts",
-      "name": "属性草稿、固定目标对象及编辑器选择",
+      "name": "有类型的属性草稿、固定目标与原生类型、编辑器选择",
       "owner": "EditorApplication",
       "lifetime": "目标文档和视图；确认后帧末执行，取消、关闭或对象失效时清除",
-      "persistence": "临时输入；成功修改复用 Document 的 Edit 和 UndoHistory",
+      "persistence": "临时值与查询数据由应用持有；编辑器只更新草稿，确认后帧末调用同一 core 修改；取消和无变化保留历史",
       "features": [
         "F08",
-        "F31"
+        "F31",
+        "F10",
+        "F13",
+        "F14",
+        "F17"
       ]
     },
     {
