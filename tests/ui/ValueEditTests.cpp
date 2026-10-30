@@ -15,6 +15,7 @@ struct Editing {
     CKGUID flagsType{0, 0};
     std::vector<CKGUID> structures;
     bool open = false, popup = false, inlineValue = false;
+    float inlineHeight = 180;
     const char *property = "parameter.integer";
     vdev::ObjectRef target{};
     EditorView owner = 0;
@@ -32,7 +33,7 @@ void Gui(ImGuiTestContext *ctx) {
         }
     }
     if (editing.inlineValue) {
-        ImGui::SetNextWindowSize(ImVec2(420, 180), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(500, editing.inlineHeight), ImGuiCond_Always);
         ImGui::Begin("Typed inline");
         auto &app = App().State().workspace->Application();
         app.EnterDraw();
@@ -85,10 +86,10 @@ vdev::ParameterValue Value(ImGuiTestContext *ctx, CK_ID id) {
         return value.value;
     });
 }
-vdev::ParameterValue WorkingValue(ImGuiTestContext *ctx) {
-    return Read<vdev::ParameterValue>(ctx, [] {
+vdev::ParameterValue WorkingValue(ImGuiTestContext *ctx, size_t row = 0) {
+    return Read<vdev::ParameterValue>(ctx, [=] {
         vdev::ParameterValueDescription value;
-        IM_CHECK_NO_RET(editing.box && vdev::DescribeParameterValue(*App().State().document, editing.box->Work(0), value));
+        IM_CHECK_NO_RET(editing.box && vdev::DescribeParameterValue(*App().State().document, editing.box->Work(row), value));
         return value.value;
     });
 }
@@ -147,6 +148,42 @@ void FlagsFixture(bool dialog, bool nested = false) {
     } else {
         editing.property = nested ? "parameter.structure" : "parameter.flags";
         editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true;
+    }
+    state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
+}
+void SpecializedFixture(bool dialog, bool nested = false, bool curveOnly = false) {
+    auto &state = App().State(); auto *context = state.host.Context(); auto *manager = context->GetParameterManager();
+    const CKGUID lod(0x2b2d2f43, 0x02ab7bc5); const CKGUID types[] = {CKPGUID_2DCURVE, CKPGUID_COPYDEPENDENCIES, lod};
+    std::vector<CKParameter *> values;
+    if (nested) {
+        const CKGUID type(0x6e76616c, 0x00000451); XArray<CKGUID> members;
+        for (auto child : types) members.PushBack(child);
+        IM_CHECK_NO_RET(manager->RegisterNewStructure(type, "UI specialized values", "Curve,Dependencies,LOD", members) == CK_OK);
+        editing.structures.push_back(type);
+        auto *parameter = context->CreateCKParameterLocal("Specialized record", type); IM_CHECK_NO_RET(parameter);
+        editing.parameters.push_back(parameter->GetID()); std::vector<vdev::ParameterMember> entries;
+        IM_CHECK_NO_RET(vdev::ParameterMembers(*state.document, parameter, entries));
+        for (const auto &entry : entries) values.push_back(CKParameter::Cast(state.document->Resolve(entry.parameter, CKCID_PARAMETER)));
+    } else for (unsigned i = 0; i < (curveOnly ? 1u : 3u); ++i) {
+        auto *parameter = context->CreateCKParameterLocal("Specialized value", types[i]); IM_CHECK_NO_RET(parameter);
+        values.push_back(parameter); editing.parameters.push_back(parameter->GetID());
+    }
+    CK2dCurve *curve = nullptr; values[0]->GetValue(&curve, FALSE); IM_CHECK_NO_RET(curve);
+    curve->AddControlPoint(Vx2DVector(.4f, .5f));
+    if (!curveOnly) {
+        CKDependencies options; options.m_Flags = CK_DEPENDENCIES_NONE;
+        options.Resize(CKGetClassCount() + 1); options.Fill(0); options[CKCID_OBJECT] = 0x80000000; options[options.Size() - 1] = 0xabcdef01;
+        IM_CHECK_NO_RET(vdev::SetHeldValue(values[1], &options));
+    }
+    editing.target = state.document->Reference(editing.parameters.front());
+    if (dialog) {
+        editing.box = std::make_unique<vdev::ParameterBox>(state);
+        if (nested) IM_CHECK_NO_RET(editing.box->Add(Object<CKParameter>(editing.parameters.front()), "Specialized"));
+        else for (unsigned i = 0; i < values.size(); ++i) IM_CHECK_NO_RET(editing.box->Add(values[i], i == 0 ? "Curve" : i == 1 ? "Dependencies" : "LOD"));
+        editing.open = true;
+    } else {
+        editing.property = nested ? "parameter.structure" : "parameter.curve2d";
+        editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true; editing.inlineHeight = 400;
     }
     state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
@@ -799,6 +836,134 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             return vdev::EditorClient::Integer(app.Query("example.flags-count", {app.Scope(), nullptr, 0}), "count"); }) == 2);
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000001);
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "specialized_dialog_one_undo_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SpecializedFixture(true); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto curve = Value(ctx, editing.parameters[0]), dependencies = Value(ctx, editing.parameters[1]), lod = Value(ctx, editing.parameters[2]);
+        Input(ctx, "**/##cy", "0.25");
+        ctx->ItemClick("**/$$1/##specialized/$$1/##radio");
+        ctx->ItemClick("**/##alpha"); ctx->Yield(2);
+        Input(ctx, "**/##screenmag", "25%"); Input(ctx, "**/##alphamag", "50%");
+        IM_CHECK(Value(ctx, editing.parameters[0]) == curve && Value(ctx, editing.parameters[1]) == dependencies && Value(ctx, editing.parameters[2]) == lod);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]).curve.points[0].values[1] == .25 && Value(ctx, editing.parameters[1]).integer == CK_DEPENDENCIES_FULL);
+        IM_CHECK(Value(ctx, editing.parameters[1]).options == dependencies.options && Value(ctx, editing.parameters[2]).components[0] == .25 && Value(ctx, editing.parameters[2]).components[4] == .5);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        const auto applied = WorkingValue(ctx);
+        Input(ctx, "**/##cy", "0.9"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx) == applied && Read<bool>(ctx, [] { return editing.open; }));
+        Input(ctx, "**/##screenmag", "90%"); ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[2]).components[0] == .25);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == curve && Value(ctx, editing.parameters[1]) == dependencies && Value(ctx, editing.parameters[2]) == lod);
+        IM_CHECK(Read<bool>(ctx, [] { return !App().State().document->Dirty() && App().State().History().CanRedo(); }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "curve_inline_drag_cancel_add_remove");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SpecializedFixture(false, false, true); });
+        ctx->Yield(3); ctx->SetRef("//Typed inline");
+        const auto before = Value(ctx, editing.parameters[0]);
+        const auto rect = ctx->ItemInfo("**/##curve").RectFull;
+        const auto point = [&](float x, float y) { return ImVec2(rect.Min.x + 6 + x * (rect.GetWidth() - 12), rect.Max.y - 6 - y * (rect.GetHeight() - 12)); };
+        const auto at = point(.4f, .5f);
+        ctx->MouseMoveToPos(at); ctx->MouseDown(0);
+        for (int i = 1; i < 8; ++i) { ctx->MouseMoveToPos(ImVec2(at.x + i * 3, at.y - i * 3)); ctx->Yield(2); }
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        ctx->MouseUp(0); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]) != before && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        ctx->MouseMoveToPos(at); ctx->MouseDown(0); ctx->MouseMoveToPos(ImVec2(at.x + 30, at.y - 20)); ctx->Yield(2);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->MouseMoveToPos(ImVec2(at.x + 50, at.y - 40)); ctx->Yield(2); ctx->MouseUp(0); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before && Read<bool>(ctx, [] { return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty(); }));
+        ctx->MouseMoveToPos(point(.7f, .25f)); ctx->MouseDoubleClick(0); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]).curve.points.size() == 4 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        ctx->MouseClick(1); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]).curve.points.size() == 3 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 2);
+        OnMainThread(ctx, [] { editing.inlineValue = false; }); ctx->Yield(3);
+        OnMainThread(ctx, [] { editing.inlineValue = true; }); ctx->Yield(3);
+        Input(ctx, "**/##cy", "0.2"); ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]).curve.points[0].values[1] == double(float(.2)));
+        OnMainThread(ctx, [] {
+            CK2dCurve *curve = nullptr; Object<CKParameter>(editing.parameters[0])->GetValue(&curve, FALSE);
+            IM_CHECK_NO_RET(curve); curve->GetControlPoint(0)->SetPosition(Vx2DVector(-.2f, .2f));
+        }); ctx->Yield(2);
+        Input(ctx, "**/##cy", "0.4"); ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]).curve.points[0].values[0] == double(-.2f));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "dependencies_options_cancel_preserves_hidden_bits");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] {
+            SpecializedFixture(true); auto &state = App().State();
+            editing.box = std::make_unique<vdev::ParameterBox>(state);
+            IM_CHECK_NO_RET(editing.box->Add(Object<CKParameter>(editing.parameters[1]), "Dependencies"));
+        });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto before = Value(ctx, editing.parameters[1]);
+        ctx->ItemClick("**/$$2/##radio"); ctx->Yield(3);
+        const auto custom = WorkingValue(ctx);
+        ctx->MouseMove("**/$$0/##option"); ctx->MouseDown(0); ctx->Yield(2);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx) == custom && Read<bool>(ctx, [] { return editing.open; }));
+        ctx->ItemClick("**/$$0/##option"); ctx->Yield(2);
+        const auto changed = WorkingValue(ctx);
+        IM_CHECK(changed.options != custom.options && changed.options.back() == 0xabcdef01);
+        ctx->ItemClick("**/$$1/##radio"); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto applied = Value(ctx, editing.parameters[1]);
+        IM_CHECK(applied.integer == CK_DEPENDENCIES_FULL && applied.options == changed.options && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton"); OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[1]) == before && Read<bool>(ctx, [] { return !App().State().document->Dirty(); }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "specialized_nested_editors_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SpecializedFixture(true, true); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues"); const auto before = Value(ctx, editing.parameters[0]);
+        Input(ctx, "**/##cy", "0.3"); ctx->ItemClick("**/##alpha");
+        Input(ctx, "**/##screenmag", "25%"); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto applied = Value(ctx, editing.parameters[0]);
+        IM_CHECK(applied.members[0].curve.points[0].values[1] == double(float(.3)) && applied.members[2].components[0] == .25);
+        Input(ctx, "**/##screenmag", "80%"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
+        IM_CHECK(WorkingValue(ctx) == applied && Read<bool>(ctx, [] { return editing.open; }));
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "external_specialized_value_providers_are_captured");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); previous = state.workspace->Application().Configuration(); editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
+            auto selected = previous;
+            for (auto &entry : selected.providers)
+                if (entry.id.find("value.curve2d") == 0 || entry.id.find("value.dependencies") == 0 || entry.id.find("value.lod-options") == 0 ||
+                    entry.id.find("parameter.curve2d-") == 0 || entry.id.find("parameter.dependencies-") == 0 || entry.id.find("parameter.lod-options-") == 0)
+                    entry.provider = "example.specialized";
+            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(selected, error)); SpecializedFixture(true);
+        });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto counts = [&](const char *key) { return Read<std::vector<uint64_t>>(ctx, [=] { auto &app = App().State().workspace->Application();
+            const auto result = app.Query("example.specialized-count", {app.Scope(), nullptr, 0});
+            for (const auto &field : result.fields) if (field.key == key) return field.integers;
+            return std::vector<uint64_t>{}; }); };
+        const auto reads = counts("reads"), writes = counts("count");
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().State().workspace->Configure(previous, error)); }); ctx->Yield(2);
+        const auto retained = counts("reads"); IM_CHECK(retained.size() == 3 && reads.size() == 3 && writes.size() == 3);
+        for (unsigned i = 0; i < 3; ++i) IM_CHECK(retained[i] > reads[i]);
+        ctx->ItemClick("**/Change external curve"); ctx->ItemClick("**/Change external dependencies"); ctx->ItemClick("**/Change external LOD");
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto written = counts("count"); for (unsigned i = 0; i < 3; ++i) IM_CHECK(written[i] == writes[i] + 1);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        const auto curve = Value(ctx, editing.parameters[0]);
+        ctx->ItemClick("**/Change external curve"); ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == curve);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]).curve.points[0].values[1] == 0 && Read<bool>(ctx, [] { return !App().State().document->Dirty(); }));
     };
     test = IM_REGISTER_TEST(engine, "modules", "nested_member_reuse_is_rejected");
     test->GuiFunc = Gui;

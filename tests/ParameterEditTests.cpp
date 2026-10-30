@@ -12,6 +12,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <thread>
+namespace vdev { void TestSpecializedParameterEdits(Document &, EditorApplication &, EditorScope); }
 
 namespace {
 using namespace vdev;
@@ -498,6 +499,7 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
         document.History().Clear(); context->DestroyObject(work); context->DestroyObject(record); context->DestroyObject(flags);
         manager->UnRegisterParameterType(recordType); manager->UnRegisterParameterType(flagsType);
     }
+    TestSpecializedParameterEdits(document, app, scope);
     const CKGUID derivedVectorType(0x6e76616c, 0x00000411);
     auto *manager = context->GetParameterManager();
     auto derived = *manager->GetParameterTypeDescription(manager->ParameterGuidToType(CKPGUID_VECTOR));

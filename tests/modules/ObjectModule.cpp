@@ -12,6 +12,7 @@ const EditorString RenameId = EDITOR_TEXT("object.rename");
 struct Module {
     int views = 0, playCalls = 0, integerCalls = 0, vectorCalls = 0, vectorReads = 0, structureCalls = 0, structureReads = 0, flagCalls = 0, flagReads = 0;
     bool refuseFileView = false;
+    uint64_t specializedCalls[3]{}, specializedReads[3]{};
     EditorObject resourceTarget{};
 };
 struct FileView {
@@ -252,6 +253,44 @@ uint32_t DrawFlags(void *, const EditorHost *, const EditorValueInput *input) {
             EDITOR_INPUT_CHANGED | EDITOR_INPUT_ACCEPT : EDITOR_INPUT_INVALID;
     }
     return ImGui::IsItemActive() ? EDITOR_INPUT_ACTIVE : 0u;
+}
+const char *specializedCommandIds[] = {"parameter.curve2d-set", "parameter.dependencies-set", "parameter.lod-options-set"};
+const char *specializedQueryIds[] = {"parameter.curve2d-value", "parameter.dependencies-value", "parameter.lod-options-value"};
+template<unsigned Index> EditorStatus ModifySpecialized(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    ++static_cast<Module *>(data)->specializedCalls[Index];
+    auto next = *request; next.handler = EDITOR_TEXT("builtin.parameters");
+    const auto *id = specializedCommandIds[Index];
+    return host->execute(host->data, {id, uint32_t(std::char_traits<char>::length(id))}, &next, sink);
+}
+template<unsigned Index> EditorStatus ReadSpecialized(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    ++static_cast<Module *>(data)->specializedReads[Index];
+    auto next = *request; next.handler = EDITOR_TEXT("builtin.parameters");
+    const auto *id = specializedQueryIds[Index];
+    return host->query(host->data, {id, uint32_t(std::char_traits<char>::length(id))}, &next, sink);
+}
+uint32_t DrawSpecialized(void *, const EditorHost *, const EditorValueInput *input) {
+    if (input->value.type != EDITOR_RECORD) return EDITOR_INPUT_INVALID;
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) return EDITOR_INPUT_CANCEL;
+    std::vector<EditorValue> members(input->value.fields.data, input->value.fields.data + input->value.fields.count);
+    std::vector<double> numbers;
+    for (auto &member : members) {
+        const std::string key(member.key.data, member.key.size);
+        const char *label = key == "points" ? "Change external curve" : key == "mode" ? "Change external dependencies" :
+            key == "proportions" ? "Change external LOD" : nullptr;
+        if (!label) continue;
+        if (ImGui::Button(label)) {
+            if (key == "mode") member.integer = member.integer == 2 ? 1 : 2;
+            else {
+                numbers.assign(member.reals.data, member.reals.data + member.reals.count);
+                if (numbers.size() <= (key == "points" ? 1u : 0u)) return EDITOR_INPUT_INVALID;
+                numbers[key == "points" ? 1 : 0] += .1; member.reals = {numbers.data(), uint32_t(numbers.size())};
+            }
+            auto value = input->value; value.fields = {members.data(), uint32_t(members.size())};
+            return input->update.write(input->update.data, &value, 1) == EDITOR_OK ? EDITOR_INPUT_CHANGED | EDITOR_INPUT_ACCEPT : EDITOR_INPUT_INVALID;
+        }
+        return ImGui::IsItemActive() ? EDITOR_INPUT_ACTIVE : 0u;
+    }
+    return EDITOR_INPUT_INVALID;
 }
 uint32_t DrawVector(void *, const EditorHost *, const EditorValueInput *input) {
     if (input->value.type != EDITOR_REAL_LIST || input->value.reals.count != 3 || !input->value.reals.data) return EDITOR_INPUT_INVALID;
@@ -564,9 +603,9 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     // its own allocations at stop; the host copies strings and arrays.
     struct Descriptors {
         std::vector<EditorCommandDesc> commands;
-        EditorQueryDesc queries[10];
-        EditorViewDesc views[6];
-        EditorValueEditorDesc editors[5];
+        std::vector<EditorQueryDesc> queries;
+        std::vector<EditorViewDesc> views;
+        std::vector<EditorValueEditorDesc> editors;
         Module *data;
     };
     static const EditorParameter playCountField{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE};
@@ -644,6 +683,31 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                                         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.flags"),
                                             EDITOR_TEXT("example.flags"), EDITOR_TEXT("External flags"), DrawFlags, data, EDITOR_INTEGER_VALUE}},
                                         data};
+    const EditorDrawValue specializedDraw = DrawSpecialized;
+    const EditorCommand modifiers[] = {ModifySpecialized<0>, ModifySpecialized<1>, ModifySpecialized<2>};
+    const EditorQuery readers[] = {ReadSpecialized<0>, ReadSpecialized<1>, ReadSpecialized<2>};
+    static const EditorParameter specializedArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_RECORD}, {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}};
+    static const EditorParameter specializedFields[] = {{EDITOR_TEXT("value"), EDITOR_RECORD}, {EDITOR_TEXT("display"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("labels"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("values"), EDITOR_INTEGER_LIST},
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("rows"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("columns"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("row-labels"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("schema"), EDITOR_RECORD}};
+    const char *valueIds[] = {"value.curve2d", "value.dependencies", "value.lod-options"};
+    for (unsigned i = 0; i < 3; ++i) {
+        descriptors->commands.push_back({sizeof(EditorCommandDesc), {specializedCommandIds[i], uint32_t(std::char_traits<char>::length(specializedCommandIds[i]))}, EDITOR_TEXT("example.specialized"),
+            EDITOR_TEXT("Set specialized value"), specializedArgs, 3, modifiers[i], data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT});
+        descriptors->queries.push_back({sizeof(EditorQueryDesc), {specializedQueryIds[i], uint32_t(std::char_traits<char>::length(specializedQueryIds[i]))}, EDITOR_TEXT("example.specialized"),
+            specializedArgs, 1, readers[i], data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, specializedFields, i == 1 ? 11u : 10u});
+        descriptors->editors.push_back({sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, {valueIds[i], uint32_t(std::char_traits<char>::length(valueIds[i]))},
+            EDITOR_TEXT("example.specialized"), EDITOR_TEXT("External specialized value"), specializedDraw, data, EDITOR_RECORD});
+    }
+    static const EditorParameter specializedCounts[] = {{EDITOR_TEXT("count"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("reads"), EDITOR_INTEGER_LIST}};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("example.specialized-count"), EDITOR_TEXT("example.specialized"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const auto &module = *static_cast<Module *>(data);
+            const EditorValue fields[] = {{EDITOR_TEXT("count"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {module.specializedCalls, 3}},
+                {EDITOR_TEXT("reads"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {module.specializedReads, 3}}};
+            return sink.write(sink.data, fields, 2);
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, specializedCounts, 2});
     *out = {};
     out->size = sizeof(*out);
     out->version = EDITOR_VERSION;
@@ -652,12 +716,12 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->dependencyCount = 1;
     out->commands = descriptors->commands.data();
     out->commandCount = static_cast<uint32_t>(descriptors->commands.size());
-    out->queries = descriptors->queries;
-    out->queryCount = 10;
-    out->views = descriptors->views;
-    out->viewCount = 6;
-    out->editors = descriptors->editors;
-    out->editorCount = 5;
+    out->queries = descriptors->queries.data();
+    out->queryCount = uint32_t(descriptors->queries.size());
+    out->views = descriptors->views.data();
+    out->viewCount = uint32_t(descriptors->views.size());
+    out->editors = descriptors->editors.data();
+    out->editorCount = uint32_t(descriptors->editors.size());
     out->data = descriptors;
     out->stop = [](void *p) {
         auto *d = static_cast<Descriptors *>(p);
