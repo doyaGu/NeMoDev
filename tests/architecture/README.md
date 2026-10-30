@@ -987,3 +987,44 @@ phase four open. DataArray table rows, columns and cells belong to that remainin
 Setup work; object-reference parameter arrays are the arrays completed here.
 Coverage contains 876 files, 45 source groups, 32 features and 41 state entries;
 the 55 existing UI native-access entries and completed_phase 3 are unchanged.
+
+## Phase four: flags
+
+Flags now use the same parameter description, registered value editor and
+modification command in inline controls, native dialogs and nested structures.
+The value retains all 32 bits, including unlisted bits and the sign bit. Choice
+metadata retains zero and combined masks; inline controls keep their list while
+native dialogs keep the single-bit grid and compact text representation. Public
+interface version 12 and its existing integer/list fields are sufficient.
+
+The old inline byte writes and native dialog mask reads/writes are removed.
+The dialog reads its dimensions through its captured query provider. Independent
+module regressions replace the flags query, renderer and modifier, then change
+the configuration with a dialog open to verify that its original choices remain
+active. Pressing Escape while holding a checkbox also cancels its pending click.
+
+The macOS Release build and all 124 CTests pass without skips. The module group
+executes 38 of 192 registered UI cases, including three new flags cases. Core
+checks cover forty draft updates before one commit, cancellation and unchanged
+values preserving Redo/Dirty, masks outside native storage, invalid native
+descriptions, working copies, and nested undo/redo preserving member identity.
+The previous native file-menu crash did not occur in this run; its cause remains
+unresolved. SDK and viewport rendering/transfer sources are unchanged. Performance
+results and remaining acceptance work are recorded in
+[flags-values-macos-arm64-metal.json](baselines/flags-values-macos-arm64-metal.json).
+
+| Release capture | median ms | p10 ms | p90 ms | MAD ms | MAD % |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Frozen reference | 0.208036 | 0.206459 | 0.210985 | 0.001319 | 0.6341% |
+| Current | 0.208038 | 0.205986 | 0.210799 | 0.000765 | 0.3679% |
+| Same-program reference | 0.212597 | 0.211141 | 0.213800 | 0.001080 | 0.5081% |
+| Same-program candidate | 0.206519 | 0.204838 | 0.209502 | 0.001232 | 0.5964% |
+
+Both eleven-group comparisons pass the original 3% limits: the implementation
+median change is +0.0012%, and the same-program change is -2.8591%. This reuses
+the preserved `aa75568` reference, measuring nested editing plus flags together;
+it does not isolate flags against `e3244e4`. Paired SDK revisions, patches and
+twenty-two runtime hashes are equal. Stable transfer/target/path counters remain
+zero; additional GPU/allocator counters and remaining phase-four migration stay
+open. Earlier rejected measurements and native crashes remain in their original
+records.
