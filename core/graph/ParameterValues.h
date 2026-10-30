@@ -1,12 +1,13 @@
 #pragma once
 #include "core/catalog/ParameterUIs.h"
 #include "core/document/EditResult.h"
+#include "core/graph/SpecializedParameterValues.h"
 
 namespace vdev {
 enum class ParameterValueKind {
     None, Boolean, Integer, Real, Enumeration, Object,
     Angle, Vector2, Vector3, Quaternion, EulerAngles, Matrix, Color, Box, Rect,
-    Text, Structure, ObjectArray, Flags
+    Text, Structure, ObjectArray, Flags, Curve2D, Dependencies, LodOptions
 };
 unsigned ParameterComponentCount(ParameterValueKind);
 struct ParameterValue {
@@ -18,6 +19,8 @@ struct ParameterValue {
     std::string text;
     std::vector<ObjectRef> objects;
     std::vector<ParameterValue> members;
+    ParameterCurve curve;
+    std::vector<uint32_t> options;
 };
 bool operator==(const ParameterValue &, const ParameterValue &);
 inline bool operator!=(const ParameterValue &a, const ParameterValue &b) { return !(a == b); }
@@ -33,6 +36,12 @@ struct ParameterValueDescription {
     ObjectRef parameter{};
     std::string name;
     std::vector<ParameterValueDescription> members;
+    struct DependencyClass {
+        uint32_t id = 0, depth = 0;
+        std::string name;
+        std::vector<std::string> options;
+    };
+    std::vector<DependencyClass> dependencyClasses;
 };
 struct ParameterMember {
     ObjectRef parameter;

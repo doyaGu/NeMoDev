@@ -1,4 +1,5 @@
 #include "core/graph/ParameterValues.h"
+#include "core/graph/detail/SpecializedParameterStorage.h"
 #include "core/graph/ValueCommands.h"
 #include "core/catalog/ValueText.h"
 #include "core/graph/RuntimeGraph.h"
@@ -36,6 +37,9 @@ bool operator==(const ParameterValue &a, const ParameterValue &b) {
     if (a.kind == ParameterValueKind::Text) return a.text == b.text;
     if (a.kind == ParameterValueKind::ObjectArray) return a.objects == b.objects;
     if (a.kind == ParameterValueKind::Structure) return a.members == b.members;
+    if (a.kind == ParameterValueKind::Curve2D) return a.curve == b.curve;
+    if (a.kind == ParameterValueKind::Dependencies) return a.integer == b.integer && a.options == b.options;
+    if (a.kind == ParameterValueKind::LodOptions) return a.integer == b.integer && a.components == b.components;
     switch (a.kind) {
     case ParameterValueKind::Angle:
     case ParameterValueKind::Real: return a.real == b.real;
@@ -236,6 +240,14 @@ bool ValidateParameterValue(const Document &document, const ParameterValueDescri
     if (value.kind == ParameterValueKind::ObjectArray)
         return value.objects.size() <= 65536 && std::all_of(value.objects.begin(), value.objects.end(), [&](auto ref) { return ref && document.Resolve(ref); });
     if (value.kind == ParameterValueKind::Text) return value.text.size() <= 1024 * 1024 && value.text.find('\0') == std::string::npos;
+    if (value.kind == ParameterValueKind::Curve2D)
+        return ValidParameterCurve(value.curve) && (value.curve.points.size() >= 2 || description.value.curve.points.size() < 2);
+    if (value.kind == ParameterValueKind::Dependencies)
+        return value.options.size() <= 65536 && (value == description.value || (value.integer >= 0 && value.integer <= 2));
+    if (value.kind == ParameterValueKind::LodOptions)
+        return value.components.size() == 6 && std::all_of(value.components.begin(), value.components.end(), [](double number) {
+            return std::isfinite(number) && std::abs(number) <= std::numeric_limits<float>::max();
+        });
     if (value == description.value) return true;
     switch (value.kind) {
     case ParameterValueKind::Boolean: return value.integer == 0 || value.integer == 1;
@@ -253,11 +265,16 @@ bool ValidateParameterValue(const Document &document, const ParameterValueDescri
     }
 }
 namespace {
-ParameterValue Normalized(ParameterValue value) {
+bool Normalize(ParameterValue &value, const ParameterValue *before) {
     if (value.kind == ParameterValueKind::Real || value.kind == ParameterValueKind::Angle) value.real = float(value.real);
     for (auto &component : value.components) component = float(component);
-    for (auto &member : value.members) member = Normalized(std::move(member));
-    return value;
+    if (value.kind == ParameterValueKind::Curve2D) {
+        if (before && value.curve == before->curve) value.curve = before->curve;
+        else if (!NormalizeParameterCurve(value.curve)) return false;
+    }
+    for (size_t i = 0; i < value.members.size(); ++i)
+        if (!Normalize(value.members[i], before && i < before->members.size() ? &before->members[i] : nullptr)) return false;
+    return true;
 }
 std::vector<std::pair<ObjectRef, CKGUID>> ParameterIdentities(const ParameterValueDescription &description) {
     std::vector<std::pair<ObjectRef, CKGUID>> identities;
@@ -272,6 +289,11 @@ bool WriteValue(const Document &document, CKParameter *parameter, const Paramete
     if (!DescribeParameterValue(document, parameter, description) || value.kind != description.value.kind) return false;
     if (!replay && !ValidateParameterValue(document, description, value)) return false;
     if (description.value == value) return true;
+    if (value.kind == ParameterValueKind::Curve2D || value.kind == ParameterValueKind::Dependencies || value.kind == ParameterValueKind::LodOptions) {
+        if (!WriteSpecializedParameter(parameter, value)) return false;
+        ParameterValueDescription actual;
+        return DescribeParameterValue(document, parameter, actual) && actual.value == value;
+    }
     if (value.kind == ParameterValueKind::Structure) {
         if (description.members.size() != value.members.size()) return false;
         for (size_t i = 0; i < value.members.size(); ++i) {
@@ -358,18 +380,24 @@ bool WriteParameterDraft(const Document &document, CKParameter *parameter, const
     if (!parameter || !parameter->IsDynamic()) return false;
     ParameterValueDescription before;
     if (!DescribeParameterValue(document, parameter, before) || !ValidateParameterValue(document, before, value)) return false;
+    auto normalized = value;
+    if (!Normalize(normalized, &before.value)) return false;
     bool applied = false;
-    if (GuardedCall([&] { applied = WriteValue(document, parameter, value, false); }, &document.Host(), "Edit working parameter") && applied) return true;
+    if (GuardedCall([&] { applied = WriteValue(document, parameter, normalized, false); }, &document.Host(), "Edit working parameter") && applied) return true;
     GuardedCall([&] { WriteValue(document, parameter, before.value, true); }, &document.Host(), "Restore working parameter");
     return false;
 }
-EditResult SetParameterValue(Document &document, ObjectRef target, const CKGUID &type, const ParameterValue &value, CK_ID script) {
+static EditResult EditParameterValue(Document &document, ObjectRef target, const CKGUID &type,
+                                     const ParameterValue &value, CK_ID script, bool prepare) {
     auto *parameter = CKParameter::Cast(document.Resolve(target, CKCID_PARAMETER));
     ParameterValueDescription description;
     if (!parameter || parameter->GetGUID() != type || !DescribeParameterValue(document, parameter, description))
         return EditResult::Refused("The parameter or its type is no longer available");
-    if (!ValidateParameterValue(document, description, value)) return EditResult::Refused("Invalid parameter value");
-    auto normalized = Normalized(value);
+    // Native copies have already been described with their original bounds,
+    // types and references. Keep legacy values that an editor cannot create.
+    if (prepare && !ValidateParameterValue(document, description, value)) return EditResult::Refused("Invalid parameter value");
+    auto normalized = value;
+    if (prepare && !Normalize(normalized, &description.value)) return EditResult::Refused("Invalid parameter value");
     if (description.value == normalized) return EditResult::NoChange("The value is unchanged");
     Edit edit(document, "Set Value");
     if (!edit.Do(std::make_unique<ParameterValueAction>(target, type, std::move(description), std::move(normalized)))) {
@@ -380,13 +408,19 @@ EditResult SetParameterValue(Document &document, ObjectRef target, const CKGUID 
     edit.Touches(script);
     return edit.Commit();
 }
+EditResult SetParameterValue(Document &document, ObjectRef target, const CKGUID &type, const ParameterValue &value, CK_ID script) {
+    return EditParameterValue(document, target, type, value, script, true);
+}
 EditResult CopyParameterValue(Document &document, ObjectRef targetRef, ObjectRef sourceRef, CK_ID script) {
     auto *target = CKParameter::Cast(document.Resolve(targetRef, CKCID_PARAMETER));
     auto *source = CKParameter::Cast(document.Resolve(sourceRef, CKCID_PARAMETER, Document::ObjectScope::Existing));
     if (!target || !source || target->GetGUID() != source->GetGUID()) return EditResult::Refused("The parameter or its type is no longer available");
     if (targetRef == sourceRef) return EditResult::NoChange("The value is unchanged");
     ParameterValueDescription description;
-    if (DescribeParameterValue(document, source, description)) return SetParameterValue(document, targetRef, description.type, description.value, script);
+    // A native copy already includes its computed data. Recomputing it here
+    // would change tangent rounding and the semantics of the SDK copier.
+    if (DescribeParameterValue(document, source, description))
+        return EditParameterValue(document, targetRef, description.type, description.value, script, false);
     if (!ManagesMemory(document.Context(), target->GetType())) return SetParameterBytes(document, script, target->GetID(), ParameterBytes(source));
     // A plugin may own a value that has no portable description. Its existing
     // copier and saved state remain the value representation. Include every
