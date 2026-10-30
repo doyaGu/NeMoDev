@@ -903,3 +903,87 @@ full samples, corrected UI failures and remaining work are in
 Structures/arrays, nested drafts and the remaining view migrations keep phase
 four open; completed_phase remains 3. The preceding native teardown crash did
 not recur here, and is not claimed fixed.
+
+## Phase four: structures, object arrays and nested values
+
+ParameterValue now describes structures, text and object-reference arrays,
+including nested combinations with numeric values. Public C interface version
+12 adds copied named records and child-editor composition. A child updates the
+parent draft through its sink; it does not start another document edit. Record
+copying checks nesting, member counts, aggregate sizes, unique keys and finite
+components before changing the receiving value. Native structure queries include
+member type GUIDs and full object references. Thirty native levels, including
+their query metadata, pass through the editing path and undo as one value.
+An empty record at the 64-level public limit is accepted; a 65th level is refused.
+
+Inline editors retain one parent draft. Native dialogs retain their working
+parameters and original layouts, including array selection, copy/paste,
+ordering, deletion, object choosing and setup. Each supported subtree owns one
+logical value; member rows access it by path. Cancelling a child restores its
+interaction's initial value while retaining earlier accepted child edits.
+Apply commits the whole dialog once. Query, modifier and child-editor choices
+stay fixed during an open interaction. An independently compiled module tests
+replacement of the structure renderer/query/modifier and composition with a
+separately selected vector renderer, including reconfiguration while open.
+Standalone inline arrays also test reordering, removal, undo and cancelled
+selection. Their clipped list ends before drawing Add Object.
+
+Core setters preserve member identities and validate nested references before
+writing. A late setter rejection or exception restores earlier member writes;
+the same compensation protects native working copies. Undo records retain
+before/after values, member identities and referenced objects. Opaque native
+values keep their copier and saved state through the registered
+parameter.copy-value command, in the dialog's existing edit. A structure
+containing a curve tests no-change, undo/redo and member identity preservation.
+The older private value/action types in ValueCommands have distinct names to
+avoid conflicting with the common ParameterValue model.
+
+The Release build and all new regressions pass. The module group executes 35 of
+189 registered UI cases, including six new cases. The final full CTest run is
+**123/124**, with no skips: VirtoolsDevUi.filemenu crashes after its assertions
+in AppKit destruction. An earlier full run crashes in SDL/Metal destruction.
+The frozen pre-change program reproduces an SDL/Metal texture-access crash
+during rendering; its different stack does not establish a common root cause.
+The final web-export case passes three isolated repetitions; the save-callback
+case passes three repetitions in each program. The group remains unresolved,
+and passing repetitions do not replace the failed full run. No SDK/GPU
+workaround or production debug logging was added.
+
+Following the final file-menu crash, fifteen UI launches stopped at the macOS
+restore-windows prompt. A process sample shows NSPersistentUIRestorer and
+NSAlert.runModal before the debugger tests begin. Dismissing Don’t Reopen in each
+test process allowed its cases to run. The final run includes those interventions
+and is not a clean automated pass. Two test-only defects were corrected: cleanup
+indexed an empty popup stack, and the unused-material check read a native object
+pointer after destruction. The latter now captures the ID before deletion and
+passes three successive runs. Earlier full results and their failures remain
+recorded separately.
+
+SDK revisions, existing patches and untracked contents equal the start of this
+batch. Both measured programs use identical SDK runtime hashes. The viewport
+rendering/transfer implementation and benchmark source are unchanged.
+
+| Run | Median (ms) | p10 (ms) | p90 (ms) | MAD (ms) | MAD / median |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Before-change reference | 0.217586 | 0.203034 | 0.241736 | 0.014175 | 6.5145% |
+| Nested-value implementation | 0.208834 | 0.203590 | 0.232499 | 0.006699 | 3.2080% |
+| Same-program reference | 0.211175 | 0.210477 | 0.213604 | 0.000698 | 0.3307% |
+| Same-program candidate | 0.212114 | 0.210596 | 0.213547 | 0.001262 | 0.5952% |
+
+Each comparison contains eleven paired groups after warmup. The implementation's
+observed median change is -4.0225%, but both sides exceed the original 3% MAD
+limit. The final same-program control passes, with median +0.4446% and both MADs
+below 1%. Timing acceptance remains pending. Earlier source captures are retained
+alongside the fixes that required another measurement; no limits or benchmark
+sources changed.
+Stable readback, upload, target creation/release and path-selection counters
+remain zero, with one explicit verification readback outside timing. Other
+GPU/allocator counters remain unmeasured. Full samples, fingerprints and native
+failure records are in
+[nested-values-macos-arm64-metal.json](baselines/nested-values-macos-arm64-metal.json).
+
+Specialized native renderers and the remaining Setup/Schematic/Layout work keep
+phase four open. DataArray table rows, columns and cells belong to that remaining
+Setup work; object-reference parameter arrays are the arrays completed here.
+Coverage contains 876 files, 45 source groups, 32 features and 41 state entries;
+the 55 existing UI native-access entries and completed_phase 3 are unchanged.
