@@ -43,8 +43,6 @@ template <typename T> void SetValueOf(CKParameter *parameter, const T &value) {
     if (parameter) parameter->SetValue(const_cast<T *>(&value), sizeof(T));
 }
 
-bool ParseInt(const std::string &text, int &value) { int32_t integer = 0; if (!ParseIntegerValue(text, integer)) return false; value = integer; return true; }
-
 std::string TextOf(CKParameter *parameter) { return AnsiToUtf8(ParameterText(parameter)); }
 
 void SetText(CKParameter *parameter, const std::string &utf8) {
@@ -143,22 +141,6 @@ void ParameterBox::InitRow(Row &row, CKParameter *work, unsigned depth, unsigned
         row.filterClass = row.info.pickClass;
         row.extended = row.filterClass == CKCID_OBJECT || row.filterClass == CKCID_BEOBJECT;
         break;
-    case ParameterUI::Script: {
-        CKBehavior *script = CKBehavior::Cast(context->GetObject(ValueOf<CK_ID>(work)));
-        CKBeObject *owner = script ? script->GetOwner() : nullptr;
-        row.ownerClass = owner ? owner->GetClassID() : CKCID_BEOBJECT;
-        row.owner = owner ? owner->GetID() : 0;
-        row.ownerSet = owner != nullptr;
-        break;
-    }
-    case ParameterUI::Synchro: {
-        // The object's name, a synchro object's number of users (sub_24E73240).
-        CKObject *object = context->GetObject(ValueOf<CK_ID>(work));
-        row.text = AnsiToUtf8(object && object->GetName() ? object->GetName() : "");
-        if (CKSynchroObject *synchro = CKSynchroObject::Cast(object))
-            row.users = std::to_string(synchro->GetRendezVousNumberOfWaiters());
-        break;
-    }
     case ParameterUI::Struct: {
         std::vector<ParameterMember> members;
         if (!ParameterMembers(*m_State.document, work, members)) { row.invalid = true; break; }
@@ -520,40 +502,6 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         vi::Text(P(x, y), P(x + w, y + h), text, bold, align);
     };
     bool changed = false;
-    auto integer = [&](const char *id, float x, float y, float w, int value, const std::function<void(int)> &set) {
-        std::string text = std::to_string(value);
-        bool done = false;
-        if (vi::Edit(id, P(x, y), P(x + w, y + 12), text, vi::CENTER, &done)) {
-            int parsed = 0;
-            if (ParseInt(text, parsed)) {
-                set(parsed);
-                changed = true;
-            }
-        }
-    };
-    // A combo of choices with the CK_ID value (NULL: 0).
-    auto objectCombo = [&](const char *id, float x, float y, float w, CK_ID current,
-                           const std::function<ObjectChoices()> &choices, const std::function<void(CK_ID)> &set) {
-        CKObject *object = context->GetObject(current);
-        const std::string preview = AnsiToUtf8(object && object->GetName() ? object->GetName() : current ? "" : "NULL");
-        ObjectChoices list;
-        const int chosen = vi::Combo(id, P(x, y), P(x + w, y + 12), preview,
-                                     [&] {
-                                         list = choices();
-                                         std::vector<std::string> names;
-                                         for (const auto &choice : list) names.push_back(AnsiToUtf8(choice.second));
-                                         return names;
-                                     },
-                                     [&] {
-                                         for (size_t i = 0; i < list.size(); ++i)
-                                             if (list[i].first == current) return static_cast<int>(i);
-                                         return -1;
-                                     }());
-        if (chosen >= 0 && chosen < static_cast<int>(list.size())) {
-            set(list[chosen].first);
-            changed = true;
-        }
-    };
     auto textEdit = [&](float x, float w, vi::Align align) {
         auto text = TextOf(work);
         if (vi::Edit("##text", P(x, 0), P(x + w, 12), text, align)) { SetText(work, text); changed = true; }
@@ -595,43 +543,6 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
         if (action & EDITOR_INPUT_INVALID) row.invalid = true;
         else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
-        break;
-    }
-    case ParameterUI::Time: {
-        // "%dm %ds %dms" (CK2UI sub_24E739A0).
-        int m = 0, sec = 0, ms = 0;
-        std::sscanf(ParameterText(work).c_str(), "%dm %ds %dms", &m, &sec, &ms);
-        auto setTime = [&] {
-            char text[64];
-            std::snprintf(text, sizeof(text), "%dm %ds %dms", m, sec, ms);
-            work->SetStringValue(text);
-        };
-        label(5, 0, 15, 10, "Min:");
-        integer("##min", 20, 0, 25, m, [&](int v) { m = v; setTime(); });
-        label(50, 0, 10, 10, "S:");
-        integer("##s", 60, 0, 25, sec, [&](int v) { sec = v; setTime(); });
-        label(90, 0, 15, 10, "Ms:");
-        integer("##ms", 105, 0, 25, ms, [&](int v) { ms = v; setTime(); });
-        break;
-    }
-    case ParameterUI::Key: {
-        // A key pressed after the click is the value (a DirectInput code).
-        const int key = ValueOf<int>(work);
-        std::string name = key ? TextOf(work) : std::string();
-        if (row.waitingKey) name = "Push a Key";
-        if (name.empty()) name = "Click Here and Push a Key";
-        if (vi::Button("##key", P(0, 1), P(145, 14), name.c_str())) row.waitingKey = !row.waitingKey;
-        if (row.waitingKey) {
-            for (int scan = 1; scan < 256; ++scan) {
-                if (!VxIsKeyDown(static_cast<XDWORD>(scan))) continue;
-                if (scan) {
-                    SetValueOf(work, scan);
-                    row.waitingKey = false;
-                    changed = true;
-                }
-                break;
-            }
-        }
         break;
     }
     case ParameterUI::String: {
@@ -685,144 +596,6 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
             for (CK_CLASSID setupClass : SETUPS) setup = setup || (object && CKIsChildClassOf(object, setupClass));
             if (vi::Button("##showsetup", P(170, 30), P(215, 40), "Show Setup", setup))
                 m_State.events.Post(ShowObjectSetup{m_State.document->Reference(current)});
-        }
-        break;
-    }
-    case ParameterUI::Script: {
-        // CK2UI's Script UI (dialog 158): the owner (the objects of the
-        // class with Scripts), its class, its Scripts; a new owner takes its
-        // first Script.
-        const CK_ID current = ValueOf<CK_ID>(work);
-        objectCombo("##owner", 15, 0, 120, row.ownerSet ? row.owner : (CK_ID)-1,
-                    [&] { return ScriptOwners(*m_State.document, row.ownerClass); },
-                    [&](CK_ID id) {
-                        row.owner = id;
-                        row.ownerSet = true;
-                        const ObjectChoices scripts = ScriptsOf(*m_State.document, id);
-                        SetValueOf<CK_ID>(work, scripts.empty() ? 0 : scripts.front().first);
-                    });
-        const auto classes = DerivedClasses(CKCID_BEOBJECT);
-        int index = -1;
-        for (size_t i = 0; i < classes.size(); ++i)
-            if (classes[i].first == row.ownerClass) index = static_cast<int>(i);
-        const char *className = CKClassIDToString(row.ownerClass);
-        const int chosen = vi::Combo("##ownerclass", P(135, 0), P(210, 12), className ? className : "",
-                                     [&] {
-                                         std::vector<std::string> names;
-                                         for (const auto &entry : classes) names.push_back(entry.second);
-                                         return names;
-                                     },
-                                     index);
-        if (chosen >= 0) {
-            row.ownerClass = classes[chosen].first;
-            row.ownerSet = false;
-            row.owner = 0;
-        }
-        objectCombo("##script", 15, 15, 195, current,
-                    [&] { return ScriptsOf(*m_State.document, row.ownerSet ? row.owner : 0); },
-                    [&](CK_ID id) { SetValueOf(work, id); });
-        break;
-    }
-    case ParameterUI::Message: {
-        // An edit combo of the message types (CBS_DROPDOWN | CBS_SORT): a
-        // name typed is a new type (sub_24E6F290: AddMessageType; nothing
-        // for an empty name, -1).
-        CKMessageManager *messages = context->GetMessageManager();
-        const int current = ValueOf<int>(work);
-        const char *name = messages ? messages->GetMessageTypeName(current) : nullptr;
-        std::string text = AnsiToUtf8(name ? name : "");
-        if (vi::EditCombo("##message", P(15, 0), P(210, 12), text, [&] {
-                std::vector<std::string> names;
-                for (int i = 0; messages && i < messages->GetMessageTypeCount(); ++i) {
-                    const char *type = messages->GetMessageTypeName(i);
-                    if (type && *type) names.push_back(AnsiToUtf8(type));
-                }
-                std::sort(names.begin(), names.end(),
-                          [](const std::string &a, const std::string &b) { return _stricmp(a.c_str(), b.c_str()) < 0; });
-                return names;
-            })) {
-            const std::string ansi = Utf8ToAnsi(text);
-            SetValueOf<int>(work, ansi.empty() || !messages ? -1 : messages->AddMessageType(const_cast<CKSTRING>(ansi.c_str())));
-            changed = true;
-        }
-        break;
-    }
-    case ParameterUI::Attribute: {
-        // The attribute types (of the category chosen below) and their category.
-        CKAttributeManager *attributes = context->GetAttributeManager();
-        const int current = ValueOf<int>(work);
-        const char *name = attributes ? attributes->GetAttributeNameByType(current) : nullptr;
-        if (row.filter.empty() && attributes && current >= 0) {
-            const char *category = attributes->GetAttributeCategory(current);
-            row.filter = AnsiToUtf8(category ? category : "");
-        }
-        std::vector<int> types;
-        const int chosen = vi::Combo("##attribute", P(15, 0), P(210, 12), AnsiToUtf8(name ? name : ""),
-                                     [&] {
-                                         std::vector<std::string> names;
-                                         for (int t = 0; attributes && t < attributes->GetAttributeCount(); ++t) {
-                                             if (!attributes->IsAttributeIndexValid(t)) continue;
-                                             const char *category = attributes->GetAttributeCategory(t);
-                                             if (!row.filter.empty() && AnsiToUtf8(category ? category : "") != row.filter) continue;
-                                             const char *n = attributes->GetAttributeNameByType(t);
-                                             types.push_back(t);
-                                             names.push_back(AnsiToUtf8(n ? n : ""));
-                                         }
-                                         return names;
-                                     },
-                                     -1);
-        if (chosen >= 0 && chosen < static_cast<int>(types.size())) {
-            SetValueOf(work, types[chosen]);
-            changed = true;
-        }
-        const int category = vi::Combo("##category", P(15, 15), P(170, 27), row.filter,
-                                       [&] {
-                                           std::vector<std::string> names;
-                                           for (int c = 0; attributes && c < attributes->GetCategoriesCount(); ++c) {
-                                               const char *n = attributes->GetCategoryName(c);
-                                               names.push_back(AnsiToUtf8(n ? n : ""));
-                                           }
-                                           return names;
-                                       },
-                                       -1);
-        if (category >= 0) row.filter = AnsiToUtf8(attributes->GetCategoryName(category) ? attributes->GetCategoryName(category) : "");
-        label(170, 15, 38, 10, "Category", true, vi::CENTER);
-        break;
-    }
-    case ParameterUI::Animation: {
-        const CK_CLASSID cid = manager->TypeToClassID(work->GetType());
-        objectCombo("##objects", 15, 0, 195, ValueOf<CK_ID>(work),
-                    [&] { return ObjectsOfClass(*m_State.document, cid ? cid : CKCID_OBJECT, true, ""); },
-                    [&](CK_ID id) { SetValueOf(work, id); });
-        break;
-    }
-    case ParameterUI::Synchro: {
-        // An edit combo of the objects of the class (sub_24E732D0): a name
-        // typed is an object of the class, made at Apply when there is none
-        // (synchro objects, critical sections and states); a synchro
-        // object's Number Of Users.
-        const CK_CLASSID cid = manager->TypeToClassID(work->GetType());
-        if (vi::EditCombo("##synchro", P(15, 0), P(210, 12), row.text, [&] {
-                std::vector<std::string> names;
-                for (const auto &choice : ObjectsOfClass(*m_State.document, cid ? cid : CKCID_OBJECT, true, ""))
-                    if (choice.first) names.push_back(AnsiToUtf8(choice.second));
-                return names;
-            })) {
-            const std::string ansi = Utf8ToAnsi(row.text);
-            CKObject *named = ansi.empty() ? nullptr
-                                           : context->GetObjectByNameAndClass(const_cast<CKSTRING>(ansi.c_str()), cid ? cid : CKCID_OBJECT);
-            row.created.clear();
-            if (!named && !ansi.empty() && (cid == CKCID_SYNCHRO || cid == CKCID_CRITICALSECTION || cid == CKCID_STATE))
-                row.created = ansi;
-            SetValueOf<CK_ID>(work, named ? named->GetID() : 0);
-            if (CKSynchroObject *synchro = CKSynchroObject::Cast(named))
-                row.users = std::to_string(synchro->GetRendezVousNumberOfWaiters());
-            changed = true;
-        }
-        label(15, 15, 140, 8, "Number Of Users:", true, vi::RIGHT);
-        if (vi::Edit("##users", P(155, 15), P(210, 27), row.users, vi::CENTER)) {
-            row.usersSet = true;
-            changed = true;
         }
         break;
     }
@@ -881,6 +654,13 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         else if (action & EDITOR_INPUT_CHANGED) changed = true;
         break;
     }
+    case ParameterUI::Time:
+    case ParameterUI::Key:
+    case ParameterUI::Script:
+    case ParameterUI::Message:
+    case ParameterUI::Attribute:
+    case ParameterUI::Animation:
+    case ParameterUI::Synchro:
     case ParameterUI::Curve2D:
     case ParameterUI::Dependencies:
     case ParameterUI::LodOptions: {
@@ -1163,11 +943,12 @@ bool ParameterBox::PickResult(Row &row, CK_ID pickedId) {
     if (!work || !picked) return false;
     if (CKParameter *parameter = CKParameter::Cast(picked)) {
         if (parameter == work || !parameter->IsCompatibleWith(work)) return false;
-        work->CopyValue(parameter, FALSE);
-        // The combos' own state follows the value.
-        if (row.info.ui == ParameterUI::Script || row.info.ui == ParameterUI::Synchro ||
-            row.info.ui == ParameterUI::Dependencies || row.info.ui == ParameterUI::ObjectArray)
-            InitRow(row, work);
+        if (work->CopyValue(parameter, FALSE) != CK_OK) return false;
+        ParameterValueDescription description;
+        if (row.typed && DescribeParameterValue(*m_State.document, work, description)) {
+            if (auto *value = row.References()) *value = std::move(description.value);
+            row.beforeInteraction = {};
+        } else if (row.info.ui == ParameterUI::Dependencies || row.info.ui == ParameterUI::ObjectArray) InitRow(row, work);
         return true;
     }
     const bool shift = ImGui::GetIO().KeyShift;
@@ -1192,18 +973,17 @@ bool ParameterBox::PickResult(Row &row, CK_ID pickedId) {
         return true;
     }
     case ParameterUI::Script: {
-        // The behavior's owner and its Scripts, the behavior chosen when it
-        // is one of them, else NULL (sub_24E72000).
-        CKBehavior *behavior = CKBehavior::Cast(picked);
+        auto *behavior = CKBehavior::Cast(picked);
         if (!behavior) return false;
-        CKBeObject *owner = behavior->GetOwner();
-        row.owner = owner ? owner->GetID() : 0;
-        row.ownerSet = owner != nullptr;
-        if (owner) row.ownerClass = owner->GetClassID();
         CK_ID chosen = 0;
-        for (const auto &choice : ScriptsOf(*m_State.document, row.owner))
+        auto *owner = behavior->GetOwner();
+        for (const auto &choice : ScriptsOf(*m_State.document, owner ? owner->GetID() : 0))
             if (choice.first == pickedId) chosen = pickedId;
-        SetValueOf(work, chosen);
+        ParameterValueDescription description;
+        if (!DescribeParameterValue(*m_State.document, work, description)) return false;
+        description.value.object = m_State.document->Reference(chosen);
+        if (!WriteParameterDraft(*m_State.document, work, description.value)) return false;
+        if (auto *value = row.References()) *value = description.value;
         return true;
     }
     case ParameterUI::Vector:
@@ -1282,9 +1062,9 @@ bool ParameterBox::RowChanged(const Row &row) const {
     if (row.typed) {
         ParameterValueDescription current, previous;
         return DescribeParameterValue(*m_State.document, work, current) &&
-            DescribeParameterValue(*m_State.document, target, previous) && current.value != previous.value;
+            DescribeParameterValue(*m_State.document, target, previous) &&
+            ParameterDraftValue(std::move(current.value), *row.References()) != previous.value;
     }
-    if (row.info.ui == ParameterUI::Synchro && (!row.created.empty() || row.usersSet)) return true;
     if (ManagesMemory(context, work->GetType())) return ParameterText(work) != ParameterText(target);
     return ParameterBytes(work) != ParameterBytes(target);
 }
@@ -1293,41 +1073,6 @@ bool ParameterBox::Changed() const {
     for (const Row &row : m_Rows)
         if ((row.targetReference && !TargetsCurrent(row)) || RowChanged(row)) return true;
     return false;
-}
-
-size_t ParameterBox::PrepareRow(const Row &row) {
-    auto *context = m_State.host.Context();
-    auto *work = CKParameter::Cast(m_State.document->Resolve(row.workReference, CKCID_PARAMETER, Document::ObjectScope::Existing));
-    if (!work) { m_ApplyFailed = true; return 0; }
-    size_t steps = 0;
-    for (const auto &member : row.members) { steps += PrepareRow(member); if (m_ApplyFailed) return steps; }
-    if (row.info.ui == ParameterUI::Synchro) {
-        // The object typed in made first (sub_24E732D0: CreateObject, added
-        // to the level), then a synchro object's Number Of Users.
-        const CK_CLASSID cid = context->GetParameterManager()->TypeToClassID(work->GetType());
-        if (!row.created.empty()) {
-            const EditResult made = CreateNamedObject(*m_State.document, cid, row.created);
-            if (made.ok) {
-                ++steps;
-                SetValueOf<CK_ID>(work, made.created);
-            } else {
-                m_ApplyFailed = true;
-                m_State.Log(LogLevel::Warning, "Edit Parameters: " + AnsiToUtf8(made.message));
-                return steps;
-            }
-        }
-        int users = 0;
-        CKSynchroObject *synchro = CKSynchroObject::Cast(context->GetObject(ValueOf<CK_ID>(work)));
-        if (row.usersSet && synchro && ParseInt(row.users, users) && users != synchro->GetRendezVousNumberOfWaiters()) {
-            const EditResult set = EditObjectState(*m_State.document, synchro->GetID(), "Set Number Of Users",
-                                                   [users](CKObject *object) {
-                                                       static_cast<CKSynchroObject *>(object)->SetRendezVousNumberOfWaiters(users);
-                                                   });
-            if (set.ok) ++steps;
-            else if (!set.Unchanged()) m_ApplyFailed = true;
-        }
-    }
-    return steps;
 }
 
 size_t ParameterBox::ApplyRow(const Row &row) {
@@ -1339,8 +1084,7 @@ size_t ParameterBox::ApplyRow(const Row &row) {
         m_ApplyFailed = true;
         return 0;
     }
-    size_t steps = PrepareRow(row);
-    if (m_ApplyFailed) return 0;
+    size_t steps = 0;
     ParameterValueDescription description;
     const bool described = DescribeParameterValue(*m_State.document, work, description);
     if (row.typed && !described) { m_ApplyFailed = true; return 0; }
@@ -1461,12 +1205,20 @@ size_t ParameterBox::Apply(CK_ID script) {
     if (m_ApplyFailed) { edit.Cancel(); return 0; }
     if (steps) edit.Touches(script);
     const auto result = edit.Commit();
-    if (!result.ok) return 0;
+    if (!result.ok && !result.Unchanged()) return 0;
     const auto accepted = [&](const auto &self, Row &row) -> void {
-        row.created.clear(); row.usersSet = false; row.beforeInteraction = {};
+        row.beforeInteraction = {};
         for (auto &member : row.members) self(self, member);
     };
-    for (auto &row : m_Rows) accepted(accepted, row);
+    for (auto &row : m_Rows) {
+        accepted(accepted, row);
+        if (!row.typed) continue;
+        auto *target = CKParameter::Cast(m_State.document->Resolve(row.targetReference, CKCID_PARAMETER));
+        auto *work = CKParameter::Cast(m_State.document->Resolve(row.workReference, CKCID_PARAMETER, Document::ObjectScope::Existing));
+        ParameterValueDescription value;
+        if (target && work && DescribeParameterValue(*m_State.document, target, value) && WriteParameterDraft(*m_State.document, work, value.value))
+            if (auto *remembered = row.References()) *remembered = std::move(value.value);
+    }
     return steps;
 }
 

@@ -101,17 +101,8 @@ private:
         CK_CLASSID filterClass = 0;      // Object: the class listed
         bool derived = true;             // Object: with the derived classes
         std::string filter;              // Object: the Text Filter
-        CK_CLASSID ownerClass = 0;       // Script: the owner's class
-        CK_ID owner = 0;                 // Script: the owner chosen
-        bool ownerSet = false;
-        bool waitingKey = false;         // Key: the next key pressed is the value
         std::set<int> chosen;            // Object Array: the items selected
         int anchor = -1;                 // Object Array: the last item clicked
-        std::string text;                // Message, Synchro: the combo's text
-        bool textSet = false;
-        std::string created;             // Synchro: a name to make an object of (at Apply)
-        std::string users;               // Synchro: Number Of Users
-        bool usersSet = false;
         ImVec2 drawnMin, drawnMax;       // where the row was drawn last (picking another row)
         std::vector<Row> members;        // Struct: a row per member
     };
@@ -126,7 +117,6 @@ private:
     void TargetRow(Row &, CKParameter *);
     bool ValuesCurrent(const Row &) const;
     bool TargetsCurrent(const Row &) const;
-    size_t PrepareRow(const Row &);
     // The rows were made before a ClearAll (CkRuntimeHost::Generation): they
     // are dropped, the ids they hold no longer theirs.
     bool Stale();
