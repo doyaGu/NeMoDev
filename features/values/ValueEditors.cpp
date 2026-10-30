@@ -1,4 +1,5 @@
 #include "features/values/ValueEditors.h"
+#include "features/values/SpecializedValueEditors.h"
 #include "core/catalog/ValueText.h"
 #include <iterator>
 #include <algorithm>
@@ -531,6 +532,9 @@ bool RegisterValueEditors(EditorApplication &editor, std::string &error) {
     static const Kind kinds[] = {Kind::Boolean, Kind::Integer, Kind::Real, Kind::Enumeration, Kind::Object};
     static const CompositeKind components[] = {CompositeKind::Angle, CompositeKind::Vector, CompositeKind::Euler, CompositeKind::Matrix, CompositeKind::Color, CompositeKind::Box, CompositeKind::Rect};
     const EditorValueEditorDesc editors[] = {
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.curve2d"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("2D Curve"), DrawCurve2DValue, nullptr, EDITOR_RECORD},
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.dependencies"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Dependencies"), DrawDependenciesValue, nullptr, EDITOR_RECORD},
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.lod-options"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("LOD Options"), DrawLodOptionsValue, nullptr, EDITOR_RECORD},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.structure"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Structure"), DrawStructure, nullptr, EDITOR_RECORD},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.object-array"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Object Array"), DrawObjectArray, nullptr, EDITOR_OBJECT_LIST},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.string"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("String"), DrawText, nullptr, EDITOR_TEXT_VALUE},

@@ -23,5 +23,6 @@ class ParameterCommands {
     static EditorStatus Check(void *, const EditorHost *, const EditorRequest *);
     static EditorStatus Write(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Copy(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus CurvePreview(void *, const EditorHost *, const EditorRequest *, EditorSink);
 };
 } // namespace vdev

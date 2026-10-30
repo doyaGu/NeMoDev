@@ -29,7 +29,10 @@ const Kind kinds[] = {
     {ParameterValueKind::Text, "parameter.string", "value.string", EDITOR_TEXT_VALUE},
     {ParameterValueKind::Structure, "parameter.structure", "value.structure", EDITOR_RECORD},
     {ParameterValueKind::ObjectArray, "parameter.object-array", "value.object-array", EDITOR_OBJECT_LIST},
-    {ParameterValueKind::Flags, "parameter.flags", "value.flags", EDITOR_INTEGER_VALUE}};
+    {ParameterValueKind::Flags, "parameter.flags", "value.flags", EDITOR_INTEGER_VALUE},
+    {ParameterValueKind::Curve2D, "parameter.curve2d", "value.curve2d", EDITOR_RECORD},
+    {ParameterValueKind::Dependencies, "parameter.dependencies", "value.dependencies", EDITOR_RECORD},
+    {ParameterValueKind::LodOptions, "parameter.lod-options", "value.lod-options", EDITOR_RECORD}};
 const EditorValue *Find(const EditorRequest &request, const char *key) {
     for (uint32_t i = 0; i < request.count; ++i)
         if (std::string(request.values[i].key.data, request.values[i].key.size) == key) return &request.values[i];
@@ -44,6 +47,23 @@ const char *ParameterProperty(ParameterValueKind kind) {
 EditorField ParameterValueField(const ParameterValue &value, const std::string &key) {
     EditorField result; result.key = key;
     for (const auto &entry : kinds) if (entry.kind == value.kind) result.type = entry.type;
+    if (value.kind == ParameterValueKind::Curve2D) {
+        result.fields = {{"fitting", EDITOR_REAL_VALUE}, {"points", EDITOR_REAL_LIST}, {"flags", EDITOR_INTEGER_LIST}};
+        result.fields[0].real = value.curve.fitting;
+        for (const auto &point : value.curve.points) {
+            result.fields[1].reals.insert(result.fields[1].reals.end(), point.values.begin(), point.values.end());
+            result.fields[2].integers.push_back(point.flags);
+        }
+        return result;
+    }
+    if (value.kind == ParameterValueKind::Dependencies) {
+        result.fields = {{"mode", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(value.integer))}, {"options", EDITOR_INTEGER_LIST}};
+        result.fields[1].integers.assign(value.options.begin(), value.options.end()); return result;
+    }
+    if (value.kind == ParameterValueKind::LodOptions) {
+        result.fields = {{"flags", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(value.integer))}, {"proportions", EDITOR_REAL_LIST}};
+        result.fields[1].reals = value.components; return result;
+    }
     result.integer = uint64_t(int64_t(value.integer)); result.real = value.real; result.object = value.object;
     result.reals = value.components; result.text = value.text; result.objects = value.objects;
     for (size_t i = 0; i < value.members.size(); ++i) result.fields.push_back(ParameterValueField(value.members[i], std::to_string(i)));
@@ -72,6 +92,16 @@ std::vector<EditorField> ParameterFields(const ParameterValueDescription &descri
             member.fields.push_back({"target", EDITOR_OBJECT, child.parameter});
             member.fields.push_back({"choices", EDITOR_TEXT_VALUE, {}, child.value.kind == ParameterValueKind::Object || child.value.kind == ParameterValueKind::ObjectArray ? "parameter.object-choices" : ""});
             schema.fields.push_back(std::move(member));
+        }
+        fields.push_back(std::move(schema));
+    }
+    if (description.value.kind == ParameterValueKind::Dependencies) {
+        EditorField schema{"schema", EDITOR_RECORD};
+        for (const auto &entry : description.dependencyClasses) {
+            EditorField item{std::to_string(entry.id), EDITOR_RECORD};
+            item.fields = {{"id", EDITOR_INTEGER_VALUE, {}, {}, entry.id}, {"depth", EDITOR_INTEGER_VALUE, {}, {}, entry.depth},
+                {"name", EDITOR_TEXT_VALUE, {}, entry.name}, {"labels", EDITOR_TEXT_LIST}};
+            item.fields[3].texts = entry.options; schema.fields.push_back(std::move(item));
         }
         fields.push_back(std::move(schema));
     }
@@ -113,6 +143,39 @@ bool ParameterValueFromEditor(const ParameterValueDescription &description, cons
 }
 bool ParameterValueFromEditor(ParameterValueKind kind, const EditorValue &value, ParameterValue &out) {
     if (kind == ParameterValueKind::None) return false;
+    if (kind == ParameterValueKind::Curve2D || kind == ParameterValueKind::Dependencies || kind == ParameterValueKind::LodOptions) {
+        if (value.type != EDITOR_RECORD) return false;
+        ParameterValue parsed; parsed.kind = kind;
+        if (kind == ParameterValueKind::Curve2D) {
+            const auto *fitting = Member(value, "fitting"), *points = Member(value, "points"), *flags = Member(value, "flags");
+            if (value.fields.count != 3 || !fitting || fitting->type != EDITOR_REAL_VALUE || !points || points->type != EDITOR_REAL_LIST ||
+                !flags || flags->type != EDITOR_INTEGER_LIST || flags->integers.count > 4096 || points->reals.count != flags->integers.count * 9 ||
+                (points->reals.count && (!points->reals.data || !flags->integers.data))) return false;
+            parsed.curve.fitting = fitting->real;
+            for (uint32_t i = 0; i < flags->integers.count; ++i) {
+                if (flags->integers.data[i] > UINT32_MAX) return false;
+                ParameterCurvePoint point; point.flags = uint32_t(flags->integers.data[i]);
+                std::copy_n(points->reals.data + i * 9, 9, point.values.begin()); parsed.curve.points.push_back(point);
+            }
+        } else {
+            const bool dependencies = kind == ParameterValueKind::Dependencies;
+            const auto *flags = Member(value, dependencies ? "mode" : "flags"), *list = Member(value, dependencies ? "options" : "proportions");
+            if (value.fields.count != 2 || !flags || flags->type != EDITOR_INTEGER_VALUE || int64_t(flags->integer) < INT32_MIN ||
+                int64_t(flags->integer) > INT32_MAX || !list) return false;
+            parsed.integer = int32_t(int64_t(flags->integer));
+            if (dependencies) {
+                if (list->type != EDITOR_INTEGER_LIST || list->integers.count > 65536 || (list->integers.count && !list->integers.data)) return false;
+                for (uint32_t i = 0; i < list->integers.count; ++i) {
+                    if (list->integers.data[i] > UINT32_MAX) return false;
+                    parsed.options.push_back(uint32_t(list->integers.data[i]));
+                }
+            } else {
+                if (list->type != EDITOR_REAL_LIST || list->reals.count != 6 || !list->reals.data) return false;
+                parsed.components.assign(list->reals.data, list->reals.data + 6);
+            }
+        }
+        out = std::move(parsed); return true;
+    }
     const auto count = ParameterComponentCount(kind);
     const auto expected = count ? EDITOR_REAL_LIST : kind == ParameterValueKind::Real || kind == ParameterValueKind::Angle ?
         EDITOR_REAL_VALUE : kind == ParameterValueKind::Object ? EDITOR_OBJECT : kind == ParameterValueKind::Text ? EDITOR_TEXT_VALUE :
@@ -230,6 +293,17 @@ EditorStatus ParameterCommands::Copy(void *data, const EditorHost *, const Edito
     const auto result = CopyParameterValue(*document, target->object, source->object);
     return result.ok ? EDITOR_OK : result.Unchanged() ? EDITOR_NO_CHANGE : EDITOR_REFUSED;
 }
+EditorStatus ParameterCommands::CurvePreview(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+    auto *document = static_cast<ParameterCommands *>(data)->m_Current();
+    const auto *value = Find(*request, "value"); ParameterValue parsed;
+    if (!document || document->Token() != request->scope.document) return EDITOR_STALE;
+    std::vector<double> points, tangents;
+    if (!value || !ParameterValueFromEditor(ParameterValueKind::Curve2D, *value, parsed) ||
+        !ParameterCurvePreview(parsed.curve, points, tangents)) return EDITOR_INVALID;
+    const EditorValue fields[] = {{EDITOR_TEXT("points"), EDITOR_REAL_LIST, {}, {}, 0, {}, {}, {}, 0, {points.data(), uint32_t(points.size())}},
+        {EDITOR_TEXT("tangents"), EDITOR_REAL_LIST, {}, {}, 0, {}, {}, {}, 0, {tangents.data(), uint32_t(tangents.size())}}};
+    return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+}
 bool ParameterCommands::Register(EditorApplication &editor, std::string &error) {
     std::vector<EditorCommandDesc> commands;
     std::vector<EditorQueryDesc> queries;
@@ -260,10 +334,11 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
         arguments[i][3] = {EDITOR_TEXT("schema"), EDITOR_RECORD};
         fields[i][10] = arguments[i][3];
         const bool structure = kind.kind == ParameterValueKind::Structure;
+        const bool schema = structure || kind.kind == ParameterValueKind::Dependencies;
         commands.push_back({sizeof(EditorCommandDesc), EditorText(commandIds[i]), EDITOR_TEXT("builtin.parameters"),
             EDITOR_TEXT("Set Value"), arguments[i], structure ? 4u : 3u, Write, &m_Entries[i], EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT, Check});
         queries.push_back({sizeof(EditorQueryDesc), EditorText(queryIds[i]), EDITOR_TEXT("builtin.parameters"),
-            &target, 1, Read, &m_Entries[i], EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields[i], structure ? 11u : 10u});
+            &target, 1, Read, &m_Entries[i], EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields[i], schema ? 11u : 10u});
         properties.push_back({sizeof(EditorPropertyDesc), EditorLiteral(kind.property), EDITOR_TEXT("Value"),
             EditorText(queryIds[i]), EDITOR_TEXT("value"), EditorText(commandIds[i]), EDITOR_TEXT("value"), EditorLiteral(kind.editor), (kind.kind == ParameterValueKind::Object || kind.kind == ParameterValueKind::ObjectArray) ? EditorString EDITOR_TEXT("parameter.object-choices") : EditorString{}});
     }
@@ -273,6 +348,10 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
     const EditorParameter property{EDITOR_TEXT("property"), EDITOR_TEXT_VALUE};
     queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.description"), EDITOR_TEXT("builtin.parameters"),
         &target, 1, Describe, this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &property, 1});
+    const EditorParameter curveValue{EDITOR_TEXT("value"), EDITOR_RECORD};
+    const EditorParameter curveFields[] = {{EDITOR_TEXT("points"), EDITOR_REAL_LIST}, {EDITOR_TEXT("tangents"), EDITOR_REAL_LIST}};
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.curve2d-preview"), EDITOR_TEXT("builtin.parameters"),
+        &curveValue, 1, CurvePreview, this, EDITOR_QUERY_DOCUMENT, EDITOR_DOCUMENT, curveFields, 2});
     const EditorParameter choiceArgs[] = {target, {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE, 1},
         {EDITOR_TEXT("derived"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("filter"), EDITOR_TEXT_VALUE, 1}};
     const EditorParameter choiceFields[] = {{EDITOR_TEXT("labels"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}};

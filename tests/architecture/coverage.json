@@ -396,7 +396,8 @@
       "id": "S45",
       "name": "通用值编辑器",
       "patterns": [
-        "features/values/ValueEditors.*"
+        "features/values/ValueEditors.*",
+        "features/values/SpecializedValueEditors.*"
       ]
     }
   ],

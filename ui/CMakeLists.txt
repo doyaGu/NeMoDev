@@ -66,6 +66,7 @@ set(_editor_sources
         panels/EventLogView.cpp
         ../features/scene/SceneViewData.cpp
         ../features/values/ValueEditors.cpp
+        ../features/values/SpecializedValueEditors.cpp
         ../features/scene/SceneTreeView.cpp
         ../features/scene/AttributeView.cpp
         ../features/resources/BuildingBlockViews.cpp

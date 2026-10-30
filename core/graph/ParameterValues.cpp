@@ -95,6 +95,13 @@ bool DescribeValue(const Document &document, CKParameter *parameter, ParameterVa
     const auto guid = parameter->GetGUID();
     ParameterValueDescription result;
     result.type = guid; result.parameter = reference;
+    if (ui.ui == ParameterUI::Curve2D || ui.ui == ParameterUI::Dependencies || ui.ui == ParameterUI::LodOptions) {
+        if (!DescribeSpecializedParameter(parameter, result)) return false;
+        const auto entries = result.value.curve.points.size() + result.value.options.size();
+        if (entries > budget.nodes) return false;
+        budget.nodes -= unsigned(entries);
+        result.display = AnsiToUtf8(ParameterText(parameter)); out = std::move(result); return true;
+    }
     auto &kind = result.value.kind;
     if (ui.ui == ParameterUI::Bool) kind = ParameterValueKind::Boolean;
     else if (ui.ui == ParameterUI::Enum) kind = ParameterValueKind::Enumeration;

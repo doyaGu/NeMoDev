@@ -52,8 +52,8 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
     EditorApplication app([&] { return &document; }, [&] { return native; });
     ParameterCommands commands([&] { return &document; });
     Painter painter;
-    const char *ids[] = {"value.boolean", "value.integer", "value.real", "value.enumeration", "value.object", "value.angle", "value.vector2", "value.vector3", "value.quaternion", "value.euler", "value.matrix", "value.color", "value.box", "value.rect", "value.string", "value.structure", "value.object-array", "value.flags"};
-    const EditorValueType types[] = {EDITOR_INTEGER_VALUE, EDITOR_INTEGER_VALUE, EDITOR_REAL_VALUE, EDITOR_INTEGER_VALUE, EDITOR_OBJECT, EDITOR_REAL_VALUE, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_TEXT_VALUE, EDITOR_RECORD, EDITOR_OBJECT_LIST, EDITOR_INTEGER_VALUE};
+    const char *ids[] = {"value.boolean", "value.integer", "value.real", "value.enumeration", "value.object", "value.angle", "value.vector2", "value.vector3", "value.quaternion", "value.euler", "value.matrix", "value.color", "value.box", "value.rect", "value.string", "value.structure", "value.object-array", "value.flags", "value.curve2d", "value.dependencies", "value.lod-options"};
+    const EditorValueType types[] = {EDITOR_INTEGER_VALUE, EDITOR_INTEGER_VALUE, EDITOR_REAL_VALUE, EDITOR_INTEGER_VALUE, EDITOR_OBJECT, EDITOR_REAL_VALUE, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_TEXT_VALUE, EDITOR_RECORD, EDITOR_OBJECT_LIST, EDITOR_INTEGER_VALUE, EDITOR_RECORD, EDITOR_RECORD, EDITOR_RECORD};
     EditorValueEditorDesc editors[std::size(ids)]{};
     for (unsigned i = 0; i < std::size(ids); ++i)
         editors[i] = {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EditorLiteral(ids[i]), EDITOR_TEXT("test.values"),
@@ -375,7 +375,11 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
     {
         const CKGUID type(0x6e76616c, 0x00000423);
         auto *manager = context->GetParameterManager();
-        XArray<CKGUID> members; members.PushBack(CKPGUID_INT); members.PushBack(CKPGUID_2DCURVE);
+        const CKGUID opaqueType(0x6e76616c, 0x00000424);
+        auto opaque = *manager->GetParameterTypeDescription(manager->ParameterGuidToType(CKPGUID_2DCURVE));
+        opaque.Guid = opaqueType; opaque.DerivedFrom = CKGUID(0, 0); opaque.TypeName = "Opaque curve storage";
+        Check(manager->RegisterParameterType(&opaque) == CK_OK, "register opaque native value");
+        XArray<CKGUID> members; members.PushBack(CKPGUID_INT); members.PushBack(opaqueType);
         Check(manager->RegisterNewStructure(type, "Native value container", "Count,Curve", members) == CK_OK, "register native value container");
         auto *target = context->CreateCKParameterLocal("Native target", type);
         auto *source = context->CreateCKParameterOut("Native source", type, TRUE);
@@ -413,6 +417,7 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
         Check(document.History().Redo() && curveOf(before[1].parameter)->GetControlPoint(0)->GetPosition().x == .25f,
               "native container redo failed");
         document.History().Clear(); context->DestroyObject(source); context->DestroyObject(target); manager->UnRegisterParameterType(type);
+        manager->UnRegisterParameterType(opaqueType);
     }
     {
         auto *manager = context->GetParameterManager();
