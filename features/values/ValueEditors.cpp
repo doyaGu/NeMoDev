@@ -28,7 +28,8 @@ uint32_t DrawText(void *data, const EditorHost *, const EditorValueInput *input)
     bool accept = false, dialogDeactivated = false;
     if (input->style == EDITOR_VALUE_DIALOG) {
         const auto at = ImGui::GetCursorScreenPos();
-        vi::Edit(label.c_str(), at, ImVec2(at.x + input->width, at.y + input->height), text, vi::RIGHT, &dialogDeactivated);
+        if (input->height > 30) ImGui::InputTextMultiline(label.c_str(), &text, ImVec2(input->width, input->height));
+        else vi::Edit(label.c_str(), at, ImVec2(at.x + input->width, at.y + input->height), text, vi::LEFT, &dialogDeactivated);
     } else accept = ImGui::InputText(label.c_str(), &text, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
     bool changed = text != Text(input->value.text);
     bool deactivated = dialogDeactivated || ImGui::IsItemDeactivatedAfterEdit();
@@ -152,6 +153,110 @@ uint32_t DrawScalar(void *data, const EditorHost *host, const EditorValueInput *
         valid = input->update.write(input->update.data, &value, 1) == EDITOR_OK;
     return (active ? EDITOR_INPUT_ACTIVE : 0u) | (accept ? EDITOR_INPUT_ACCEPT : 0u) |
         (changed ? EDITOR_INPUT_CHANGED : 0u) | (!valid ? EDITOR_INPUT_INVALID : 0u);
+}
+// A container delegates child changes to its own sink; children never start
+// another document edit. Native working copies may supply their member layout.
+uint32_t DrawStructure(void *, const EditorHost *host, const EditorValueInput *input) {
+    if (input->drawMembers) return input->drawMembers(input->membersData, host, input);
+    const auto *schema = Field(*input, "schema");
+    if (input->value.type != EDITOR_RECORD || !schema || schema->type != EDITOR_RECORD ||
+        schema->fields.count != input->value.fields.count) return EDITOR_INPUT_INVALID;
+    std::vector<EditorField> owned;
+    if (CopyEditorFields(owned, &input->value, 1) != EDITOR_OK) return EDITOR_INPUT_INVALID;
+    uint32_t action = 0;
+    ImGui::PushID(Text(input->label).c_str());
+    for (size_t i = 0; i < owned.front().fields.size(); ++i) {
+        const auto &member = owned.front().fields[i];
+        const EditorValue *description = nullptr;
+        for (uint32_t j = 0; j < schema->fields.count; ++j)
+            if (Text(schema->fields.data[j].key) == member.key) description = &schema->fields.data[j];
+        if (!description || description->type != EDITOR_RECORD) { action |= EDITOR_INPUT_INVALID; break; }
+        EditorValueInput metadata{}; metadata.fields = description->fields.data; metadata.count = description->fields.count;
+        const auto *name = Field(metadata, "name"), *editor = Field(metadata, "editor"), *choices = Field(metadata, "choices"), *target = Field(metadata, "target");
+        if (!name || name->type != EDITOR_TEXT_VALUE || !editor || editor->type != EDITOR_TEXT_VALUE || !target || target->type != EDITOR_OBJECT) {
+            action |= EDITOR_INPUT_INVALID; break;
+        }
+        ImGui::PushID(member.key.c_str());
+        ImGui::TextUnformatted(Text(name->text).c_str());
+        const std::vector<EditorField> childOwned{member};
+        const auto childValue = BorrowEditorFields(childOwned);
+        struct Update { std::vector<EditorField> *owned; const EditorValueInput *input; size_t member; } update{&owned, input, i};
+        const auto write = [](void *data, const EditorValue *value, uint32_t count) -> EditorStatus {
+            auto &u = *static_cast<Update *>(data);
+            std::vector<EditorField> fields;
+            if (count != 1 || CopyEditorFields(fields, value, count) != EDITOR_OK) return EDITOR_INVALID;
+            auto candidate = *u.owned;
+            fields.front().key = candidate.front().fields[u.member].key;
+            candidate.front().fields[u.member] = std::move(fields.front());
+            const auto borrowed = BorrowEditorFields(candidate);
+            const auto status = u.input->update.write(u.input->update.data, borrowed.data(), 1);
+            if (status == EDITOR_OK) *u.owned = std::move(candidate);
+            return status;
+        };
+        auto child = *input;
+        const auto label = "##" + Text(name->text);
+        child.label = EditorText(label); child.value = childValue.values.front(); child.edit = 0;
+        child.fields = description->fields.data; child.count = description->fields.count;
+        child.update = {&update, write}; child.drawMembers = nullptr; child.membersData = nullptr;
+        child.choicesQuery = choices && choices->type == EDITOR_TEXT_VALUE ? choices->text : EditorString{};
+        child.choicesRequest.values = target; child.choicesRequest.count = 1; child.choicesRequest.handler = {};
+        ImGui::SetNextItemWidth(-1);
+        action |= host->drawValue(host->data, editor->text, &child);
+        ImGui::PopID();
+    }
+    ImGui::PopID();
+    return action;
+}
+uint32_t DrawObjectArray(void *, const EditorHost *host, const EditorValueInput *input) {
+    if (input->drawMembers) return input->drawMembers(input->membersData, host, input);
+    if (input->value.type != EDITOR_OBJECT_LIST || (input->value.objects.count && !input->value.objects.data) || input->value.objects.count > 65536)
+        return EDITOR_INPUT_INVALID;
+    std::vector<ObjectRef> objects;
+    if (input->value.objects.count) objects.assign(input->value.objects.data, input->value.objects.data + input->value.objects.count);
+    uint32_t action = 0;
+    bool changed = false;
+    ImGui::PushID(Text(input->label).c_str());
+    struct Update { std::vector<ObjectRef> *objects; size_t index; bool *changed; };
+    const auto write = [](void *data, const EditorValue *value, uint32_t count) -> EditorStatus {
+        auto &u = *static_cast<Update *>(data);
+        if (!value || count != 1 || value->type != EDITOR_OBJECT || !value->object) return EDITOR_INVALID;
+        if (u.index == u.objects->size()) u.objects->push_back(value->object);
+        else (*u.objects)[u.index] = value->object;
+        *u.changed = true; return EDITOR_OK;
+    };
+    ImGuiListClipper clipper; clipper.Begin(int(objects.size()), ImGui::GetFrameHeightWithSpacing());
+    while (!changed && clipper.Step()) for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+        ImGui::PushID(i);
+        auto child = *input; child.label = EDITOR_TEXT("Object"); child.value = {}; child.value.key = EDITOR_TEXT("value");
+        child.value.type = EDITOR_OBJECT; child.value.object = objects[size_t(i)]; child.drawMembers = nullptr; child.membersData = nullptr;
+        const auto *names = Field(*input, "row-labels");
+        EditorValue display{}; display.key = EDITOR_TEXT("display"); display.type = EDITOR_TEXT_VALUE;
+        if (names && names->type == EDITOR_TEXT_LIST && uint32_t(i) < names->texts.count) display.text = names->texts.data[i];
+        child.fields = &display; child.count = 1;
+        Update update{&objects, size_t(i), &changed}; child.update = {&update, write};
+        ImGui::SetNextItemWidth(std::max(60.0f, ImGui::GetContentRegionAvail().x - 145));
+        action |= host->drawValue(host->data, EditorString EDITOR_TEXT("value.object"), &child);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove")) { objects.erase(objects.begin() + i); changed = true; }
+        ImGui::SameLine(); ImGui::BeginDisabled(i == 0 || changed);
+        if (ImGui::SmallButton("Up")) { std::swap(objects[size_t(i)], objects[size_t(i - 1)]); changed = true; }
+        ImGui::EndDisabled(); ImGui::SameLine(); ImGui::BeginDisabled(size_t(i + 1) >= objects.size() || changed);
+        if (ImGui::SmallButton("Down")) { std::swap(objects[size_t(i)], objects[size_t(i + 1)]); changed = true; }
+        ImGui::EndDisabled();
+        ImGui::PopID();
+        if (changed) break;
+    }
+    clipper.End();
+    auto add = *input; add.label = EDITOR_TEXT("Add Object"); add.value = {}; add.value.key = EDITOR_TEXT("value"); add.value.type = EDITOR_OBJECT;
+    add.drawMembers = nullptr; add.membersData = nullptr; add.fields = nullptr; add.count = 0;
+    Update update{&objects, objects.size(), &changed}; add.update = {&update, write};
+    action |= host->drawValue(host->data, EditorString EDITOR_TEXT("value.object"), &add);
+    if (changed) {
+        auto value = input->value; value.objects = {objects.data(), uint32_t(objects.size())};
+        if (input->update.write(input->update.data, &value, 1) != EDITOR_OK) action |= EDITOR_INPUT_INVALID;
+        action |= EDITOR_INPUT_CHANGED | EDITOR_INPUT_ACCEPT;
+    }
+    ImGui::PopID(); return action;
 }
 enum class CompositeKind { Angle, Vector, Euler, Matrix, Color, Box, Rect };
 uint32_t DrawComponents(void *data, const EditorHost *, const EditorValueInput *input) {
@@ -368,6 +473,9 @@ bool RegisterValueEditors(EditorApplication &editor, std::string &error) {
     static const Kind kinds[] = {Kind::Boolean, Kind::Integer, Kind::Real, Kind::Enumeration, Kind::Object};
     static const CompositeKind components[] = {CompositeKind::Angle, CompositeKind::Vector, CompositeKind::Euler, CompositeKind::Matrix, CompositeKind::Color, CompositeKind::Box, CompositeKind::Rect};
     const EditorValueEditorDesc editors[] = {
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.structure"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Structure"), DrawStructure, nullptr, EDITOR_RECORD},
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.object-array"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Object Array"), DrawObjectArray, nullptr, EDITOR_OBJECT_LIST},
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.string"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("String"), DrawText, nullptr, EDITOR_TEXT_VALUE},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("text.single-line"), EDITOR_TEXT("builtin.text"), EDITOR_TEXT("Text"), DrawText, nullptr, EDITOR_TEXT_VALUE},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("text.single-line"), EDITOR_TEXT("builtin.text-clear"), EDITOR_TEXT("Text with Clear"), DrawText, &clear, EDITOR_TEXT_VALUE},
         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.boolean"), EDITOR_TEXT("builtin.values"), EDITOR_TEXT("Boolean"), DrawScalar, const_cast<Kind *>(&kinds[0]), EDITOR_INTEGER_VALUE},
