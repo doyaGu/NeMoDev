@@ -43,15 +43,6 @@ template <typename T> void SetValueOf(CKParameter *parameter, const T &value) {
     if (parameter) parameter->SetValue(const_cast<T *>(&value), sizeof(T));
 }
 
-std::string Format(float value) {
-    char text[32];
-    std::snprintf(text, sizeof(text), "%g", value);
-    return text;
-}
-
-bool ParseFloat(const std::string &text, float &value) {
-    double real = 0; if (!ParseRealValue(text, real)) return false; value = float(real); return true;
-}
 bool ParseInt(const std::string &text, int &value) { int32_t integer = 0; if (!ParseIntegerValue(text, integer)) return false; value = integer; return true; }
 
 std::string TextOf(CKParameter *parameter) { return AnsiToUtf8(ParameterText(parameter)); }
@@ -70,13 +61,6 @@ std::vector<CK_ID> MembersOf(const Document &document, CKParameter *parameter) {
 // Dev's dialog units (MS Sans Serif 8).
 constexpr float DLU_X = 1.5f, DLU_Y = 1.625f;
 
-// A 2D curve value (the parameter holds a CK2dCurve pointer).
-CK2dCurve *CurveOf(CKParameter *parameter) {
-    CK2dCurve *curve = nullptr;
-    if (parameter && parameter->GetDataSize() == static_cast<int>(sizeof(curve))) parameter->GetValue(&curve, FALSE);
-    return curve;
-}
-
 // The values held by pointer (the types' own memory, copied by their copy
 // functions): a dependencies value, an object array.
 template <typename T> T *HeldOf(CKParameter *parameter) {
@@ -85,83 +69,7 @@ template <typename T> T *HeldOf(CKParameter *parameter) {
     return held;
 }
 
-bool SameDependencies(CKDependencies *a, CKDependencies *b) {
-    if (!a || !b) return a == b;
-    if (a->m_Flags != b->m_Flags) return false;
-    const int size = std::max(a->Size(), b->Size());
-    for (int i = 0; i < size; ++i)
-        if ((i < a->Size() ? (*a)[i] : 0) != (i < b->Size() ? (*b)[i] : 0)) return false;
-    return true;
-}
-
-bool SameObjects(XObjectArray *a, XObjectArray *b) {
-    if (!a || !b) return a == b;
-    if (a->Size() != b->Size()) return false;
-    for (int i = 0; i < a->Size(); ++i)
-        if ((*a)[i] != (*b)[i]) return false;
-    return true;
-}
-
-// The LOD Manager's LOD Options (MeshModifiers LODManager.h: LODAlpha 1,
-// LODMultiMesh 2, LODAnimation 4, LODPatchMesh 8; the screen and faces
-// proportions, the alpha's screen proportions).
-struct LodOptions {
-    int flags = 0;
-    float screenMag = 0.4f, screenMin = 0.01f, facesMag = 1.0f, facesMin = 0.02f, alphaMag = 0.1f, alphaMin = 0.05f;
-};
-
-bool SameCurve(CK2dCurve *a, CK2dCurve *b) {
-    if (!a || !b) return a == b;
-    if (a->GetControlPointCount() != b->GetControlPointCount()) return false;
-    for (int i = 0; i < a->GetControlPointCount(); ++i) {
-        CK2dCurvePoint *p = a->GetControlPoint(i), *q = b->GetControlPoint(i);
-        if (!p || !q) return p == q;
-        if (p->GetPosition().x != q->GetPosition().x || p->GetPosition().y != q->GetPosition().y ||
-            (p->IsLinear() != FALSE) != (q->IsLinear() != FALSE) || p->GetTension() != q->GetTension() ||
-            p->GetContinuity() != q->GetContinuity() || p->GetBias() != q->GetBias())
-            return false;
-    }
-    return true;
-}
-
 } // namespace
-
-// What a row's UI draws with: its origin and scale (CK2UI's dialog units),
-// the window's draw list, the working copy, and whether it changed.
-struct ParameterBox::UiPen {
-    ImVec2 at;
-    float s = 1.0f;
-    ImDrawList *dl = nullptr;
-    CKParameter *work = nullptr;
-    bool changed = false;
-
-    ImVec2 P(float x, float y) const { return ImVec2(at.x + x * DLU_X * s, at.y + y * DLU_Y * s); }
-    void Label(float x, float y, float w, float h, const char *text, bool bold = true, vi::Align align = vi::CENTER) const {
-        vi::Text(P(x, y), P(x + w, y + h), text, bold, align);
-    }
-    // An edit of a number of a value (its text from value); set: the
-    // number typed, while it parses.
-    void Number(const char *id, float x, float y, float w, const std::string &value, const std::function<void(float)> &set) {
-        std::string text = value;
-        bool done = false;
-        if (vi::Edit(id, P(x, y), P(x + w, y + 12), text, vi::CENTER, &done)) {
-            float parsed = 0.0f;
-            if (ParseFloat(text, parsed)) {
-                set(parsed);
-                changed = true;
-            }
-        }
-    }
-    // The value's text in a wide edit (the types CK2UI has no small UI for).
-    void TextEdit(float x, float w, vi::Align align) {
-        std::string text = TextOf(work);
-        bool done = false;
-        if (vi::Edit("##text", P(x, 0), P(x + w, 12), text, align, &done)) {
-            SetText(work, text);
-            changed = true;
-        }
-    }
-};
 
 ParameterBox::~ParameterBox() { Clear(); }
 
@@ -243,9 +151,6 @@ void ParameterBox::InitRow(Row &row, CKParameter *work, unsigned depth, unsigned
         row.ownerSet = owner != nullptr;
         break;
     }
-    case ParameterUI::Dependencies:
-        if (CKDependencies *held = HeldOf<CKDependencies>(work)) row.dependencies = *held;
-        break;
     case ParameterUI::Synchro: {
         // The object's name, a synchro object's number of users (sub_24E73240).
         CKObject *object = context->GetObject(ValueOf<CK_ID>(work));
@@ -410,10 +315,9 @@ ImVec2 ParameterBox::UiSize(const Row &row, float s) const {
     }
     // Dialog 156 less 260 pixels unless Custom Dependencies (sub_24E6B180).
     case ParameterUI::Dependencies: {
-        CKParameter *work = CKParameter::Cast(m_State.host.Context()->GetObject(row.work));
-        CKDependencies *dependencies = HeldOf<CKDependencies>(work);
-        const bool custom = dependencies && dependencies->m_Flags == CK_DEPENDENCIES_CUSTOM;
-        return ImVec2(296 * DLU_X * s, custom ? 196 * DLU_Y * s : 196 * DLU_Y * s - 260.0f * s);
+        const auto *value = row.References();
+        const bool custom = value && value->integer == 0;
+        return ImVec2(296 * DLU_X * s, custom ? 196 * DLU_Y * s : 196 * DLU_Y * s - 260 * s);
     }
     case ParameterUI::ObjectArray: return dlu(216, 105);
     case ParameterUI::LodOptions: return dlu(231, 55);
@@ -611,15 +515,11 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
     CKParameter *work = CKParameter::Cast(context->GetObject(row.work));
     if (!work) return false;
     if (row.typed && !row.References()) { row.invalid = true; return false; }
-    UiPen pen{at, s, ImGui::GetWindowDrawList(), work};
-    ImDrawList *dl = pen.dl;
-    auto P = [&](float x, float y) { return pen.P(x, y); };
+    auto P = [&](float x, float y) { return ImVec2(at.x + x * DLU_X * s, at.y + y * DLU_Y * s); };
     auto label = [&](float x, float y, float w, float h, const char *text, bool bold = true, vi::Align align = vi::CENTER) {
-        pen.Label(x, y, w, h, text, bold, align);
+        vi::Text(P(x, y), P(x + w, y + h), text, bold, align);
     };
-    bool &changed = pen.changed;
-    auto number = [&](const char *id, float x, float y, float w, const std::string &value,
-                      const std::function<void(float)> &set) { pen.Number(id, x, y, w, value, set); };
+    bool changed = false;
     auto integer = [&](const char *id, float x, float y, float w, int value, const std::function<void(int)> &set) {
         std::string text = std::to_string(value);
         bool done = false;
@@ -654,7 +554,10 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
             changed = true;
         }
     };
-    auto textEdit = [&](float x, float w, vi::Align align) { pen.TextEdit(x, w, align); };
+    auto textEdit = [&](float x, float w, vi::Align align) {
+        auto text = TextOf(work);
+        if (vi::Edit("##text", P(x, 0), P(x + w, 12), text, align)) { SetText(work, text); changed = true; }
+    };
 
     switch (row.info.ui) {
     case ParameterUI::Number:
@@ -934,7 +837,6 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
         break;
     }
-    case ParameterUI::Curve2D: Curve2DUi(row, pen); break;
     case ParameterUI::Struct:
     case ParameterUI::ObjectArray: {
         if (!row.typed) {
@@ -979,268 +881,21 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         else if (action & EDITOR_INPUT_CHANGED) changed = true;
         break;
     }
+    case ParameterUI::Curve2D:
     case ParameterUI::Dependencies:
-        if (HeldOf<CKDependencies>(work)) changed = DependenciesUi(row, work, at, s) || changed;
-        else textEdit(15, 205, vi::LEFT);
+    case ParameterUI::LodOptions: {
+        if (!row.typed) { textEdit(15, 205, vi::LEFT); break; }
+        ImGui::SetCursorScreenPos(at);
+        const auto size = UiSize(row, s);
+        const auto action = ParameterDraftEditor(m_State, work, "##specialized", size.x, size.y, 0, true, {},
+            row.References(), &row.property, &m_Editors, unsigned(row.collapsed), &row.beforeInteraction);
+        m_InputAction |= action;
+        if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
+        if (action & EDITOR_INPUT_INVALID) row.invalid = true;
+        else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
         break;
-    case ParameterUI::LodOptions:
-        if (work->GetDataSize() == static_cast<int>(sizeof(LodOptions))) changed = LodOptionsUi(row, work, at, s) || changed;
-        else textEdit(15, 205, vi::LEFT);
-        break;
+    }
     default: textEdit(15, 205, vi::LEFT); break;
-    }
-    return changed;
-}
-
-// CK2UI's 2D curve (dialog 102): the point chosen's X and Y, Hide
-// Tangents and Linear, the curve from (0, 0) to (1, 1) below (3, 16,
-// 205 x 148): a point drags, a double click adds one, Del or a right
-// click removes the one chosen (two are kept).
-void ParameterBox::Curve2DUi(Row &row, UiPen &pen) {
-    const ImVec2 &at = pen.at;
-    const float s = pen.s;
-    ImDrawList *dl = pen.dl;
-    auto P = [&](float x, float y) { return pen.P(x, y); };
-    auto label = [&](float x, float y, float w, float h, const char *text) { pen.Label(x, y, w, h, text); };
-    auto number = [&](const char *id, float x, float y, float w, const std::string &value,
-                      const std::function<void(float)> &set) { pen.Number(id, x, y, w, value, set); };
-    auto textEdit = [&](float x, float w, vi::Align align) { pen.TextEdit(x, w, align); };
-    bool &changed = pen.changed;
-    CKParameter *work = pen.work;
-    CK2dCurve *curve = CurveOf(work);
-    if (!curve) {
-        textEdit(15, 205, vi::LEFT);
-        return;
-    }
-    if (row.collapsed) {
-        // Small (sub_24E67810): the curve alone, 200 x 40 pixels at (3, 3).
-        const ImVec2 a(at.x + 3.0f * s, at.y + 3.0f * s), b(a.x + 200.0f * s, a.y + 40.0f * s);
-        dl->AddRectFilled(a, b, vi::Color(8));
-        dl->AddRect(a, b, vi::Color(3));
-        ImVec2 previous;
-        for (int i = 0; i <= 100; ++i) {
-            const float x = i / 100.0f;
-            const ImVec2 point(a.x + 1.0f * s + x * (b.x - a.x - 2.0f * s),
-                               b.y - 1.0f * s - std::clamp(curve->GetY(x), 0.0f, 1.0f) * (b.y - a.y - 2.0f * s));
-            if (i) dl->AddLine(previous, point, vi::Color(0), 1.0f * s);
-            previous = point;
-        }
-        return;
-    }
-    const int count = curve->GetControlPointCount();
-    row.curvePoint = std::clamp(row.curvePoint, 0, std::max(0, count - 1));
-    CK2dCurvePoint *chosen = count ? curve->GetControlPoint(row.curvePoint) : nullptr;
-    if (chosen) {
-        Vx2DVector position = chosen->GetPosition();
-        label(5, 1, 8, 8, "X:");
-        number("##cx", 15, 1, 55, Format(position.x), [&](float v) {
-            position.x = std::clamp(v, 0.0f, 1.0f);
-            chosen->SetPosition(position);
-            curve->Update();
-        });
-        label(75, 1, 8, 8, "Y:");
-        number("##cy", 85, 1, 55, Format(position.y), [&](float v) {
-            position.y = v;
-            chosen->SetPosition(position);
-            curve->Update();
-        });
-    }
-    // Its owner-drawn buttons (CK2UI bitmaps 2010 tangents, 2011 / 2012
-    // linear, 2013 the grid).
-    auto bitmapButton = [&](const char *id, float x, int bitmap, bool on, const char *tip) {
-        const ImVec2 a = P(x, 2), b = P(x + 11, 12);
-        ImGui::SetCursorScreenPos(a);
-        const bool clicked = ImGui::InvisibleButton(id, ImVec2(b.x - a.x, b.y - a.y));
-        if (on || ImGui::IsItemActive()) dl->AddRectFilled(a, b, vi::Color(4));
-        if (ImTextureID texture = CK2UIBitmap(bitmap)) dl->AddImage(texture, a, ImVec2(a.x + 16.0f * s, a.y + 16.0f * s));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
-        return clicked;
-    };
-    if (bitmapButton("##tangents", 144, 2010, row.hideTangents, "Hide Tangents")) row.hideTangents = !row.hideTangents;
-    const bool linear = chosen && chosen->IsLinear();
-    if (bitmapButton("##linear", 159, linear ? 2012 : 2011, linear, "Linear") && chosen) {
-        chosen->SetLinear(!linear);
-        curve->Update();
-        changed = true;
-    }
-    if (bitmapButton("##grid", 174, 2013, !row.hideGrid, "Grid")) row.hideGrid = !row.hideGrid;
-    const ImVec2 a = P(3, 16), b = P(208, 164);
-    dl->AddRectFilled(a, b, vi::Color(8));
-    dl->AddRect(a, b, vi::Color(3));
-    const float margin = 6.0f * s;
-    const ImVec2 g0(a.x + margin, a.y + margin), g1(b.x - margin, b.y - margin);
-    auto toScreen = [&](const Vx2DVector &v) {
-        return ImVec2(g0.x + v.x * (g1.x - g0.x), g1.y - v.y * (g1.y - g0.y));
-    };
-    auto fromScreen = [&](const ImVec2 &m) {
-        return Vx2DVector((m.x - g0.x) / (g1.x - g0.x), (g1.y - m.y) / (g1.y - g0.y));
-    };
-    for (int i = 1; i < 4 && !row.hideGrid; ++i) {
-        const float x = g0.x + (g1.x - g0.x) * i / 4.0f, y = g0.y + (g1.y - g0.y) * i / 4.0f;
-        dl->AddLine(ImVec2(x, g0.y), ImVec2(x, g1.y), vi::Color(7));
-        dl->AddLine(ImVec2(g0.x, y), ImVec2(g1.x, y), vi::Color(7));
-    }
-    dl->AddRect(g0, g1, vi::Color(5));
-    ImVec2 previous;
-    for (int i = 0; i <= 100; ++i) {
-        const float x = i / 100.0f;
-        const ImVec2 point = toScreen(Vx2DVector(x, curve->GetY(x)));
-        if (i) dl->AddLine(previous, point, vi::Color(0), 1.5f * s);
-        previous = point;
-    }
-    ImGui::SetCursorScreenPos(a);
-    ImGui::InvisibleButton("##curve", ImVec2(b.x - a.x, b.y - a.y), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-    const ImVec2 mouse = ImGui::GetIO().MousePos;
-    if (ImGui::IsItemActivated()) {
-        // The point under the mouse is chosen.
-        for (int i = 0; i < count; ++i) {
-            const ImVec2 point = toScreen(curve->GetControlPoint(i)->GetPosition());
-            if (std::fabs(point.x - mouse.x) <= 5.0f * s && std::fabs(point.y - mouse.y) <= 5.0f * s) row.curvePoint = i;
-        }
-    }
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 1.0f) && chosen) {
-        Vx2DVector v = fromScreen(mouse);
-        // Between its neighbors, the ends at 0 and 1.
-        const float left = row.curvePoint > 0 ? curve->GetControlPoint(row.curvePoint - 1)->GetPosition().x : 0.0f;
-        const float right = row.curvePoint + 1 < count ? curve->GetControlPoint(row.curvePoint + 1)->GetPosition().x : 1.0f;
-        v.x = row.curvePoint == 0 ? 0.0f : row.curvePoint == count - 1 ? 1.0f : std::clamp(v.x, left, right);
-        v.y = std::clamp(v.y, 0.0f, 1.0f);
-        chosen->SetPosition(v);
-        curve->Update();
-        changed = true;
-    }
-    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        Vx2DVector v = fromScreen(mouse);
-        v.x = std::clamp(v.x, 0.0f, 1.0f);
-        v.y = std::clamp(v.y, 0.0f, 1.0f);
-        curve->AddControlPoint(v);
-        curve->Update();
-        for (int i = 0; i < curve->GetControlPointCount(); ++i)
-            if (curve->GetControlPoint(i)->GetPosition().x == v.x) row.curvePoint = i;
-        changed = true;
-    }
-    const bool remove = (ImGui::IsItemClicked(ImGuiMouseButton_Right) ||
-                         (ImGui::IsItemFocused() && ImGui::IsKeyPressed(ImGuiKey_Delete)));
-    if (remove && chosen && count > 2) {
-        curve->DeleteControlPoint(chosen);
-        row.curvePoint = std::max(0, row.curvePoint - 1);
-        changed = true;
-    }
-    for (int i = 0; i < curve->GetControlPointCount(); ++i) {
-        CK2dCurvePoint *point = curve->GetControlPoint(i);
-        const ImVec2 c = toScreen(point->GetPosition());
-        const float h = 3.0f * s;
-        if (!row.hideTangents && !point->IsLinear()) {
-            const Vx2DVector in = point->GetInTangent(), out = point->GetOutTangent();
-            const float k = 0.15f;
-            dl->AddLine(c, toScreen(point->GetPosition() - in * k), vi::Color(5));
-            dl->AddLine(c, toScreen(point->GetPosition() + out * k), vi::Color(5));
-        }
-        dl->AddRectFilled(ImVec2(c.x - h, c.y - h), ImVec2(c.x + h, c.y + h),
-                          i == row.curvePoint ? vi::Color(10) : vi::Color(1));
-    }
-}
-
-// CK2UI's Dependencies UI (dialog 156, sub_24E6ADA0 / sub_24E6B180 /
-// sub_24E6B070): No / Full / Custom Dependencies; Custom shows the classes
-// with options (a tree) and the chosen class's options, two columns of
-// check boxes from (132, 33), 10 apart.
-bool ParameterBox::DependenciesUi(Row &row, CKParameter *work, const ImVec2 &at, float s) {
-    CKDependencies *dependencies = &row.dependencies;
-    const CK_DEPENDENCIES_OPMODE mode = DependenciesModeOf(m_State.host.Context()->GetParameterManager(), work->GetType());
-    auto P = [&](float x, float y) { return ImVec2(at.x + x * DLU_X * s, at.y + y * DLU_Y * s); };
-    bool changed = false;
-    const float radio = 8.0f * DLU_X * s;
-    static const char *const LABELS[3] = {"No Dependencies", "Full Dependencies", "Custom Dependencies"};
-    static const CK_DEPENDENCIES_FLAGS FLAGS[3] = {CK_DEPENDENCIES_NONE, CK_DEPENDENCIES_FULL, CK_DEPENDENCIES_CUSTOM};
-    for (int i = 0; i < 3; ++i) {
-        ImGui::PushID(i);
-        if (vi::Radio("##radio", P(7, 3.0f + 10.0f * i), radio, dependencies->m_Flags == FLAGS[i], LABELS[i]) &&
-            dependencies->m_Flags != FLAGS[i]) {
-            dependencies->m_Flags = FLAGS[i];
-            changed = true;
-        }
-        ImGui::PopID();
-    }
-    if (changed) SetHeldValue(work, dependencies);
-    if (dependencies->m_Flags != CK_DEPENDENCIES_CUSTOM) return changed;
-    const int classes = CKGetClassCount();
-    if (dependencies->Size() < classes) {
-        const int old = dependencies->Size();
-        dependencies->Resize(classes);
-        for (int i = old; i < classes; ++i) (*dependencies)[i] = 0;
-    }
-    // The tree (SysTreeView32 at (5, 35), 120 x 155): the root chosen first.
-    const std::vector<DependencyClass> tree = DependencyClasses(mode);
-    if (row.dependencyClass < 0 && !tree.empty()) row.dependencyClass = static_cast<int>(tree.front().cid);
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    const ImVec2 treeMin = P(5, 35), treeMax = P(125, 190);
-    dl->AddRectFilled(treeMin, treeMax, vi::Color(9));
-    dl->AddRect(treeMin, treeMax, vi::Color(0));
-    ImGui::SetCursorScreenPos(ImVec2(treeMin.x + 1.0f, treeMin.y + 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 0, 0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f * s, 2.0f * s));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
-    ImGui::BeginChild("##tree", ImVec2(treeMax.x - treeMin.x - 2.0f, treeMax.y - treeMin.y - 2.0f), ImGuiChildFlags_None);
-    ImDrawList *tl = ImGui::GetWindowDrawList();
-    const float line = 16.0f * s, indent = 19.0f * s;
-    int hiddenBelow = -1; // the depth of a folded item: its descendants are not shown
-    for (size_t i = 0; i < tree.size(); ++i) {
-        const DependencyClass &entry = tree[i];
-        if (hiddenBelow >= 0 && entry.depth > hiddenBelow) continue;
-        hiddenBelow = -1;
-        const bool parent = i + 1 < tree.size() && tree[i + 1].depth > entry.depth;
-        const bool folded = row.folded.count(entry.cid) != 0;
-        if (parent && folded) hiddenBelow = entry.depth;
-        const ImVec2 cursor = ImGui::GetCursorScreenPos();
-        const float x = cursor.x + indent * entry.depth;
-        ImGui::PushID(static_cast<int>(entry.cid));
-        // The button (TVS_HASBUTTONS): a 9 x 9 box with - or +.
-        if (parent) {
-            const ImVec2 b0(x + 2.0f * s, cursor.y + (line - 9.0f * s) * 0.5f), b1(b0.x + 9.0f * s, b0.y + 9.0f * s);
-            ImGui::SetCursorScreenPos(b0);
-            if (ImGui::InvisibleButton("##fold", ImVec2(9.0f * s, 9.0f * s))) {
-                if (folded) row.folded.erase(entry.cid);
-                else row.folded.insert(entry.cid);
-            }
-            tl->AddRectFilled(b0, b1, vi::Color(9));
-            tl->AddRect(b0, b1, vi::Color(5));
-            const float cy = (b0.y + b1.y) * 0.5f, cx = (b0.x + b1.x) * 0.5f;
-            tl->AddLine(ImVec2(b0.x + 2.0f * s, cy), ImVec2(b1.x - 2.0f * s, cy), vi::Color(0));
-            if (folded) tl->AddLine(ImVec2(cx, b0.y + 2.0f * s), ImVec2(cx, b1.y - 2.0f * s), vi::Color(0));
-        }
-        const ImVec2 text(x + 15.0f * s, cursor.y + (line - ImGui::GetFontSize()) * 0.5f);
-        const bool selected = static_cast<int>(entry.cid) == row.dependencyClass;
-        const float textWidth = ImGui::CalcTextSize(entry.name.c_str()).x;
-        ImGui::SetCursorScreenPos(ImVec2(text.x - 2.0f * s, cursor.y));
-        if (ImGui::InvisibleButton("##class", ImVec2(textWidth + 4.0f * s, line))) row.dependencyClass = static_cast<int>(entry.cid);
-        if (selected) tl->AddRectFilled(ImVec2(text.x - 2.0f * s, cursor.y + 1.0f), ImVec2(text.x + textWidth + 2.0f * s, cursor.y + line - 1.0f),
-                                        IM_COL32(10, 36, 106, 255));
-        tl->AddText(text, selected ? vi::Color(9) : vi::Color(0), entry.name.c_str());
-        ImGui::SetCursorScreenPos(ImVec2(cursor.x, cursor.y + line));
-        ImGui::PopID();
-    }
-    ImGui::Dummy(ImVec2(1.0f, 1.0f));
-    ImGui::EndChild();
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor();
-    // The chosen class's options (sub_24E6B350).
-    if (row.dependencyClass >= 0 && row.dependencyClass < classes) {
-        const std::vector<std::string> options = DependencyOptions(row.dependencyClass, mode);
-        CKDWORD &bits = (*dependencies)[row.dependencyClass];
-        for (size_t i = 0; i < options.size(); ++i) {
-            const float x = (i % 2) ? 218.0f : 132.0f;
-            const float y = i == 0 ? 33.0f : 32.0f + 10.0f * (i / 2);
-            bool on = (bits & (1u << i)) != 0;
-            ImGui::PushID(static_cast<int>(i));
-            if (vi::Check("##option", P(x, y + 1.0f), radio, on)) {
-                bits = on ? (bits | (1u << i)) : (bits & ~(1u << i));
-                SetHeldValue(work, dependencies);
-                changed = true;
-            }
-            vi::Text(P(x + 11.0f, y), P(x + 78.0f, y + 10.0f), AnsiToUtf8(options[i]).c_str(), false, vi::LEFT);
-            ImGui::PopID();
-        }
     }
     return changed;
 }
@@ -1432,56 +1087,6 @@ bool ParameterBox::ObjectArrayUi(Row &row, const EditorValueInput &input, const 
 // proportions and the alpha's, in percent; Alpha shows its edits, Character
 // Animation hides Multiple Meshes and Patch Mesh and names the second row
 // Anims.
-bool ParameterBox::LodOptionsUi(Row &row, CKParameter *work, const ImVec2 &at, float s) {
-    (void)row;
-    LodOptions options = ValueOf<LodOptions>(work);
-    auto P = [&](float x, float y) { return ImVec2(at.x + x * DLU_X * s, at.y + y * DLU_Y * s); };
-    bool changed = false;
-    const float box = 8.0f * DLU_X * s;
-    auto flag = [&](const char *id, float x, float y, int bit, const char *text, float textX) {
-        bool on = (options.flags & bit) != 0;
-        if (vi::Check(id, P(x, y), box, on)) {
-            options.flags = on ? (options.flags | bit) : (options.flags & ~bit);
-            changed = true;
-        }
-        vi::Text(P(textX, y), P(99.0f, y + 10.0f), text, true); // to the group box's edge
-    };
-    const bool animation = (options.flags & 4) != 0, alpha = (options.flags & 1) != 0;
-    ImGui::GetWindowDrawList()->AddRect(P(5, 3), P(100, 39), vi::Color(5), 3.0f * s); // the group box 2084
-    if (!animation) flag("##meshes", 13, 8, 2, "Multiple Meshes", 28);
-    flag("##animation", 13, 18, 4, "Character Animation", 28);
-    if (!animation) flag("##patch", 13, 28, 8, "Patch Mesh", 27);
-    flag("##alpha", 13, 42, 1, "Alpha", 28);
-    vi::Text(P(140, 1), P(170, 11), "Mag", true, vi::CENTER);
-    vi::Text(P(185, 1), P(215, 11), "Min", true, vi::CENTER);
-    vi::Text(P(105, 10), P(135, 20), "Screen:", true, vi::RIGHT);
-    vi::Text(P(105, 26), P(135, 36), animation ? "Anims:" : "Faces:", true, vi::RIGHT);
-    if (alpha) vi::Text(P(80, 41), P(135, 51), "Screen Alpha:", true, vi::RIGHT);
-    // "%g%%" of the proportion; what is typed is in percent.
-    auto percent = [&](const char *id, float x, float y, float &value) {
-        char text[32];
-        std::snprintf(text, sizeof(text), "%g%%", value * 100.0f);
-        std::string typed = text;
-        if (vi::Edit(id, P(x, y), P(x + 30.0f, y + 12.0f), typed, vi::CENTER)) {
-            float parsed = 0.0f;
-            if (std::sscanf(typed.c_str(), "%g", &parsed) == 1) {
-                value = parsed * 0.01f;
-                changed = true;
-            }
-        }
-    };
-    percent("##screenmag", 140, 10, options.screenMag);
-    percent("##screenmin", 185, 10, options.screenMin);
-    percent("##facesmag", 140, 25, options.facesMag);
-    percent("##facesmin", 185, 25, options.facesMin);
-    if (alpha) {
-        percent("##alphamag", 140, 41, options.alphaMag);
-        percent("##alphamin", 185, 41, options.alphaMin);
-    }
-    if (changed) SetValueOf(work, options);
-    return changed;
-}
-
 std::string ParameterBox::Text(size_t row) const {
     CKContext *context = m_State.host.Context();
     CKParameter *work = row < m_Rows.size() && context ? CKParameter::Cast(context->GetObject(m_Rows[row].work)) : nullptr;
@@ -1674,11 +1279,11 @@ bool ParameterBox::RowChanged(const Row &row) const {
         }
         return false;
     }
-    if (row.info.ui == ParameterUI::Curve2D && CurveOf(work)) return !SameCurve(CurveOf(work), CurveOf(target));
-    if (row.info.ui == ParameterUI::Dependencies && HeldOf<CKDependencies>(work))
-        return !SameDependencies(HeldOf<CKDependencies>(work), HeldOf<CKDependencies>(target));
-    if (row.info.ui == ParameterUI::ObjectArray && HeldOf<XObjectArray>(work))
-        return !SameObjects(HeldOf<XObjectArray>(work), HeldOf<XObjectArray>(target));
+    if (row.typed) {
+        ParameterValueDescription current, previous;
+        return DescribeParameterValue(*m_State.document, work, current) &&
+            DescribeParameterValue(*m_State.document, target, previous) && current.value != previous.value;
+    }
     if (row.info.ui == ParameterUI::Synchro && (!row.created.empty() || row.usersSet)) return true;
     if (ManagesMemory(context, work->GetType())) return ParameterText(work) != ParameterText(target);
     return ParameterBytes(work) != ParameterBytes(target);

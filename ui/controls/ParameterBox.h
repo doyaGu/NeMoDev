@@ -105,14 +105,6 @@ private:
         CK_ID owner = 0;                 // Script: the owner chosen
         bool ownerSet = false;
         bool waitingKey = false;         // Key: the next key pressed is the value
-        int curvePoint = 0;              // Curve2D: the control point chosen
-        bool hideTangents = false;       // Curve2D: Hide Tangents
-        bool hideGrid = false;           // Curve2D: its grid button
-        // Dependencies, Object Array: the value edited in the editor's memory,
-        // copied to the working copy by its type (SetHeldValue).
-        CKDependencies dependencies;
-        int dependencyClass = -1;        // Dependencies: the class chosen in the tree
-        std::set<CK_CLASSID> folded;     // Dependencies: the tree's items folded
         std::set<int> chosen;            // Object Array: the items selected
         int anchor = -1;                 // Object Array: the last item clicked
         std::string text;                // Message, Synchro: the combo's text
@@ -144,11 +136,7 @@ private:
     float RowsHeight(const std::vector<Row> &rows, float scale, bool minimum, float *width) const;
     bool DrawRows(std::vector<Row> &rows, const ImVec2 &at, float scale, bool minimum);
     bool DrawUi(Row &row, const ImVec2 &at, float scale);
-    struct UiPen;
-    void Curve2DUi(Row &row, UiPen &pen);
-    bool DependenciesUi(Row &row, CKParameter *work, const ImVec2 &at, float scale);
     bool ObjectArrayUi(Row &row, const EditorValueInput &, const ImVec2 &at, float scale);
-    bool LodOptionsUi(Row &row, CKParameter *work, const ImVec2 &at, float scale);
     // The target button (CK2UI's StartPick and WindowProc): the row being
     // picked for, the object of its class under the mouse (message 0x607 to
     // the window there), another row's value (0x606, pick mode 1).

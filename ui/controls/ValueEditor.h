@@ -35,10 +35,4 @@ uint32_t ParameterDraftEditor(EditorState &, CKParameter *, const char *label, f
                               const EditorValueEditors *editors = nullptr, unsigned representation = 0,
                               ParameterValue *beforeInteraction = nullptr, EditorDrawMembers drawMembers = nullptr, void *membersData = nullptr);
 
-// A Copy / Delete Dependencies value (CKPGUID_COPYDEPENDENCIES ...; Dev's
-// Copy Options of Duplicate and Paste, Dev.exe sub_5BDD60): the mode (Custom,
-// None, Full) and, in Custom, each class's own options (CKClassDesc
-// DependsFct for mode). True when changed.
-bool DependenciesEditor(CKDependencies &dependencies, CK_DEPENDENCIES_OPMODE mode, float height);
-
 } // namespace vdev
