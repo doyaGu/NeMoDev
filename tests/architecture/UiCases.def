@@ -176,3 +176,8 @@ VIRTOOLSDEV_UI_CASE("modules", "object_array_inline_operations_and_cancel")
 VIRTOOLSDEV_UI_CASE("modules", "nested_inline_commit_and_cancel")
 VIRTOOLSDEV_UI_CASE("modules", "external_structure_editor_and_nested_provider")
 VIRTOOLSDEV_UI_CASE("modules", "nested_member_reuse_is_rejected")
+
+// Flags use the same value editing path in lists, dialogs and nested records.
+VIRTOOLSDEV_UI_CASE("modules", "nested_flags_dialog_one_undo_and_cancel")
+VIRTOOLSDEV_UI_CASE("modules", "flags_inline_masks_cancel_and_undo")
+VIRTOOLSDEV_UI_CASE("modules", "external_flags_editor_query_and_modifier")

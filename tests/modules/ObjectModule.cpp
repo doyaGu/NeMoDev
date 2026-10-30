@@ -10,7 +10,7 @@
 namespace {
 const EditorString RenameId = EDITOR_TEXT("object.rename");
 struct Module {
-    int views = 0, playCalls = 0, integerCalls = 0, vectorCalls = 0, vectorReads = 0, structureCalls = 0, structureReads = 0;
+    int views = 0, playCalls = 0, integerCalls = 0, vectorCalls = 0, vectorReads = 0, structureCalls = 0, structureReads = 0, flagCalls = 0, flagReads = 0;
     bool refuseFileView = false;
     EditorObject resourceTarget{};
 };
@@ -243,6 +243,16 @@ uint32_t DrawInteger(void *, const EditorHost *, const EditorValueInput *input) 
     }
     return (changed ? EDITOR_INPUT_CHANGED : 0u) | (accept ? EDITOR_INPUT_ACCEPT : 0u) | (active ? EDITOR_INPUT_ACTIVE : 0u);
 }
+uint32_t DrawFlags(void *, const EditorHost *, const EditorValueInput *input) {
+    if (input->value.type != EDITOR_INTEGER_VALUE) return EDITOR_INPUT_INVALID;
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) return EDITOR_INPUT_CANCEL;
+    if (ImGui::Button("Toggle external flag")) {
+        auto value = input->value; value.integer ^= 1;
+        return input->update.write(input->update.data, &value, 1) == EDITOR_OK ?
+            EDITOR_INPUT_CHANGED | EDITOR_INPUT_ACCEPT : EDITOR_INPUT_INVALID;
+    }
+    return ImGui::IsItemActive() ? EDITOR_INPUT_ACTIVE : 0u;
+}
 uint32_t DrawVector(void *, const EditorHost *, const EditorValueInput *input) {
     if (input->value.type != EDITOR_REAL_LIST || input->value.reals.count != 3 || !input->value.reals.data) return EDITOR_INPUT_INVALID;
     if (ImGui::Button("Offset vector")) {
@@ -397,6 +407,12 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     static const EditorParameter structureArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_RECORD},
         {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("schema"), EDITOR_RECORD}};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.flags-set"), EDITOR_TEXT("example.flags"), EDITOR_TEXT("Set External Flags"),
+         integerArgs, 3, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->flagCalls;
+             auto next = *request; next.handler = EDITOR_TEXT("builtin.parameters");
+             return host->execute(host->data, EditorString EDITOR_TEXT("parameter.flags-set"), &next, sink);
+         }, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.structure-set"), EDITOR_TEXT("example.structure"), EDITOR_TEXT("Set External Structure"),
          structureArgs, 4, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
              ++static_cast<Module *>(data)->structureCalls;
@@ -548,9 +564,9 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     // its own allocations at stop; the host copies strings and arrays.
     struct Descriptors {
         std::vector<EditorCommandDesc> commands;
-        EditorQueryDesc queries[8];
+        EditorQueryDesc queries[10];
         EditorViewDesc views[6];
-        EditorValueEditorDesc editors[4];
+        EditorValueEditorDesc editors[5];
         Module *data;
     };
     static const EditorParameter playCountField{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE};
@@ -600,15 +616,33 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                 {EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(static_cast<Module *>(data)->structureReads)}};
             return sink.write(sink.data, values, 2);
         }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, vectorCountFields, 2};
+    static const EditorParameter flagFields[] = {{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("display"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("labels"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("values"), EDITOR_INTEGER_LIST},
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("rows"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("columns"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("row-labels"), EDITOR_TEXT_LIST}};
+    const EditorQueryDesc flagValue{sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.flags-value"), EDITOR_TEXT("example.flags"),
+        integerArgs, 1, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            ++static_cast<Module *>(data)->flagReads;
+            auto next = *request; next.handler = EDITOR_TEXT("builtin.parameters");
+            return host->query(host->data, EditorString EDITOR_TEXT("parameter.flags-value"), &next, sink);
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, flagFields, 10};
+    const EditorQueryDesc flagCount{sizeof(EditorQueryDesc), EDITOR_TEXT("example.flags-count"), EDITOR_TEXT("example.flags"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const EditorValue values[] = {{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(static_cast<Module *>(data)->flagCalls)},
+                {EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(static_cast<Module *>(data)->flagReads)}};
+            return sink.write(sink.data, values, 2);
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, vectorCountFields, 2};
     auto *descriptors = new Descriptors{std::vector<EditorCommandDesc>(std::begin(commands), std::end(commands)),
-                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount},
+                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount, flagValue, flagCount},
                                         {view, fileView, outputView, logView, resourceView, resourceInputs},
                                         {editor, {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.integer"),
                                             EDITOR_TEXT("example.integer"), EDITOR_TEXT("External integer"), DrawInteger, data, EDITOR_INTEGER_VALUE},
                                         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.vector3"),
                                             EDITOR_TEXT("example.vector"), EDITOR_TEXT("External vector"), DrawVector, data, EDITOR_REAL_LIST},
                                         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.structure"),
-                                            EDITOR_TEXT("example.structure"), EDITOR_TEXT("External structure"), DrawStructure, data, EDITOR_RECORD}},
+                                            EDITOR_TEXT("example.structure"), EDITOR_TEXT("External structure"), DrawStructure, data, EDITOR_RECORD},
+                                        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.flags"),
+                                            EDITOR_TEXT("example.flags"), EDITOR_TEXT("External flags"), DrawFlags, data, EDITOR_INTEGER_VALUE}},
                                         data};
     *out = {};
     out->size = sizeof(*out);
@@ -619,11 +653,11 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->commands = descriptors->commands.data();
     out->commandCount = static_cast<uint32_t>(descriptors->commands.size());
     out->queries = descriptors->queries;
-    out->queryCount = 8;
+    out->queryCount = 10;
     out->views = descriptors->views;
     out->viewCount = 6;
     out->editors = descriptors->editors;
-    out->editorCount = 4;
+    out->editorCount = 5;
     out->data = descriptors;
     out->stop = [](void *p) {
         auto *d = static_cast<Descriptors *>(p);

@@ -12,6 +12,7 @@ struct Editing {
     std::vector<CK_ID> parameters;
     std::unique_ptr<vdev::EditorConfiguration> configuration;
     CKGUID enumType{0, 0};
+    CKGUID flagsType{0, 0};
     std::vector<CKGUID> structures;
     bool open = false, popup = false, inlineValue = false;
     const char *property = "parameter.integer";
@@ -53,6 +54,7 @@ void Cleanup(ImGuiTestContext *ctx) {
         for (auto id : editing.parameters) if (state.host.Context()->GetObject(id)) state.host.Context()->DestroyObject(id);
         for (auto type = editing.structures.rbegin(); type != editing.structures.rend(); ++type) state.host.Context()->GetParameterManager()->UnRegisterParameterType(*type);
         if (editing.enumType.d1 || editing.enumType.d2) state.host.Context()->GetParameterManager()->UnRegisterParameterType(editing.enumType);
+        if (editing.flagsType.d1 || editing.flagsType.d2) state.host.Context()->GetParameterManager()->UnRegisterParameterType(editing.flagsType);
         editing = Editing{};
     });
 }
@@ -115,6 +117,37 @@ void NestedFixture(bool dialog = true) {
     editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
     if (dialog) { editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(parameter, "Nested")); editing.open = true; }
     else { editing.property = "parameter.structure"; editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true; }
+    state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
+}
+void FlagsFixture(bool dialog, bool nested = false) {
+    auto &state = App().State(); auto *context = state.host.Context(); auto *manager = context->GetParameterManager();
+    editing.flagsType = CKGUID(0x6e76616c, 0x00000442);
+    IM_CHECK_NO_RET(manager->RegisterNewFlags(editing.flagsType, "UI flags", "First=1,Second=2,High=-2147483648,Both=3,Zero=0") == CK_OK);
+    auto type = editing.flagsType;
+    if (nested) {
+        type = CKGUID(0x6e76616c, 0x00000443);
+        XArray<CKGUID> types; types.PushBack(editing.flagsType); types.PushBack(CKPGUID_INT);
+        IM_CHECK_NO_RET(manager->RegisterNewStructure(type, "UI flag structure", "Flags,Count", types) == CK_OK);
+        editing.structures.push_back(type);
+    }
+    auto *parameter = context->CreateCKParameterLocal("Flag editor", type);
+    IM_CHECK_NO_RET(parameter != nullptr);
+    CKParameter *flags = parameter;
+    if (nested) {
+        std::vector<vdev::ParameterMember> members;
+        IM_CHECK_NO_RET(vdev::ParameterMembers(*state.document, parameter, members));
+        flags = CKParameter::Cast(state.document->Resolve(members[0].parameter, CKCID_PARAMETER));
+    }
+    int32_t initial = 0x40000000;
+    IM_CHECK_NO_RET(flags && flags->SetValue(&initial, sizeof(initial)) == CK_OK);
+    editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
+    if (dialog) {
+        editing.box = std::make_unique<vdev::ParameterBox>(state);
+        IM_CHECK_NO_RET(editing.box->Add(parameter, "Flags")); editing.open = true;
+    } else {
+        editing.property = nested ? "parameter.structure" : "parameter.flags";
+        editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true;
+    }
     state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
 void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
@@ -684,6 +717,89 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx, editing.parameters[0]) == inlineValue);
     };
 
+    test = IM_REGISTER_TEST(engine, "modules", "nested_flags_dialog_one_undo_and_cancel");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { FlagsFixture(true, true); });
+        ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        const auto before = Value(ctx, editing.parameters[0]);
+        IM_CHECK(ctx->ItemExists("**/##flags/$$0/##flag") && ctx->ItemExists("**/##flags/$$2/##flag"));
+        IM_CHECK(!ctx->ItemExists("**/##flags/$$3/##flag"));
+        ctx->ItemClick("**/##flags/$$0/##flag"); ctx->ItemClick("**/##flags/$$1/##flag");
+        ctx->ItemClick("**/##flags/$$2/##flag");
+        Input(ctx, "**/##number", "12"); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto applied = Value(ctx, editing.parameters[0]);
+        IM_CHECK(applied.members[0].integer == (INT32_MIN | 0x40000003) && applied.members[1].integer == 12);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        ctx->ItemClick("**/##flags/$$0/##flag");
+        const auto accepted = WorkingValue(ctx);
+        ctx->MouseMove("**/##flags/$$1/##flag"); ctx->MouseDown(0); ctx->Yield(2);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2); ctx->MouseUp(0); ctx->Yield(2);
+        IM_CHECK(Read<bool>(ctx, [] { return editing.open; }) && WorkingValue(ctx) == accepted);
+        ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == applied);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before && Read<bool>(ctx, [] { return !App().State().document->Dirty() && App().State().History().CanRedo(); }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "flags_inline_masks_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { FlagsFixture(false); });
+        ctx->Yield(3); ctx->SetRef("//Typed inline");
+        const auto before = Value(ctx, editing.parameters[0]);
+        ctx->ItemClick("**/Both"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000003 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        ctx->ItemClick("**/First"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000002);
+        ctx->ItemClick("**/High"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).integer == (INT32_MIN | 0x40000002));
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo() && App().State().History().Undo() && App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        ctx->MouseMove("**/First"); ctx->MouseDown(0); ctx->Yield(2);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2); ctx->MouseUp(0); ctx->Yield(2);
+        ctx->ItemClick("**/Zero"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before && Read<bool>(ctx, [] {
+            return App().State().History().UndoCount() == 0 && App().State().History().CanRedo() && !App().State().document->Dirty();
+        }));
+    };
+    test = IM_REGISTER_TEST(engine, "modules", "external_flags_editor_query_and_modifier");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); previous = state.workspace->Application().Configuration();
+            editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
+            auto selected = previous;
+            for (auto &choice : selected.providers)
+                if ((choice.kind == "editor" && choice.id == "value.flags") ||
+                    (choice.kind == "command" && choice.id == "parameter.flags-set") ||
+                    (choice.kind == "query" && choice.id == "parameter.flags-value")) choice.provider = "example.flags";
+            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(selected, error)); FlagsFixture(false);
+        });
+        ctx->Yield(3); ctx->SetRef("//Typed inline"); ctx->ItemClick("Toggle external flag"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000001);
+        OnMainThread(ctx, [] {
+            editing.inlineValue = false; auto &app = App().State().workspace->Application();
+            const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, editing.target};
+            IM_CHECK_NO_RET(app.Execute("parameter.edit", {app.Scope(), &target, 1}).status == EDITOR_OK);
+        });
+        ctx->Yield(3); ctx->SetRef("//Edit Parameter###AttributeManagerValue");
+        const auto reads = [&] { return Read<uint64_t>(ctx, [] { auto &app = App().State().workspace->Application();
+            return vdev::EditorClient::Integer(app.Query("example.flags-count", {app.Scope(), nullptr, 0}), "reads"); }); };
+        const auto beforeSwitch = reads();
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().State().workspace->Configure(previous, error)); });
+        ctx->Yield(2); IM_CHECK(reads() > beforeSwitch && ctx->ItemExists("**/Toggle external flag"));
+        ctx->ItemClick("**/Toggle external flag"); ctx->Yield(2);
+        IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000001);
+        ctx->ItemClick("**/OK/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000000 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 2);
+        IM_CHECK(Read<uint64_t>(ctx, [] { auto &app = App().State().workspace->Application();
+            return vdev::EditorClient::Integer(app.Query("example.flags-count", {app.Scope(), nullptr, 0}), "count"); }) == 2);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000001);
+    };
     test = IM_REGISTER_TEST(engine, "modules", "nested_member_reuse_is_rejected");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
