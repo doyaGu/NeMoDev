@@ -811,22 +811,25 @@ void EditorWorkspace::Menu() {
             const EditorValue type{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE, {}, d.id};
             m_Application.Execute("workspace.open-view", {m_Application.Scope(), &type, 1});
         }
-    if (ImGui::BeginMenu("Text Editors")) {
-        for (auto &editor : m_Application.TextEditors()) {
+    const auto editorMenu = [&](const char *title, bool text) {
+        if (!ImGui::BeginMenu(title)) return;
+        for (const auto &editor : m_Application.ValueEditors()) {
+            if ((editor.type == EDITOR_TEXT_VALUE) != text) continue;
             const auto id = Text(editor.id), provider = Text(editor.provider);
-            const auto label = Text(editor.title);
-            if (ImGui::MenuItem(label.c_str())) {
+            EditorValueEditorDesc selected{};
+            const bool checked = m_Application.ValueEditor(id, selected) && Text(selected.provider) == provider;
+            if (ImGui::MenuItem(Text(editor.title).c_str(), nullptr, checked)) {
                 auto config = m_Application.Configuration();
-                config.providers.erase(
-                    std::remove_if(config.providers.begin(), config.providers.end(),
-                                   [&](const ProviderChoice &p) { return p.kind == "editor" && p.id == id; }),
-                    config.providers.end());
+                config.providers.erase(std::remove_if(config.providers.begin(), config.providers.end(),
+                    [&](const ProviderChoice &choice) { return choice.kind == "editor" && choice.id == id; }), config.providers.end());
                 config.providers.push_back({"editor", id, provider});
                 Configure(config, m_Error);
             }
         }
         ImGui::EndMenu();
-    }
+    };
+    editorMenu("Text Editors", true);
+    editorMenu("Value Editors", false);
     if (ImGui::BeginMenu("Shortcuts")) {
         const auto bindings = m_Application.Bindings();
         std::set<std::string> shown;

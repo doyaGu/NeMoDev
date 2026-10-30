@@ -191,7 +191,7 @@ struct Module {
     std::vector<EditorCommandDesc> commands;
     std::vector<EditorQueryDesc> queries;
     std::vector<EditorPropertyDesc> properties;
-    std::vector<EditorTextEditorDesc> editors;
+    std::vector<EditorValueEditorDesc> editors;
     std::vector<EditorViewDesc> views;
     std::vector<EditorMenuDesc> menus;
     std::vector<EditorBindingDesc> bindings;
@@ -272,11 +272,13 @@ struct Module {
             d.command = Text(d.command, true);
             d.argument = Text(d.argument);
             d.editor = Text(d.editor, true);
+            d.choices = Text(d.choices, d.choices.size != 0);
             properties.push_back(d);
         }
         for (uint32_t i = 0; i < source.editorCount; ++i) {
             auto d = source.editors[i];
-            if (d.size != sizeof(d) || !d.draw)
+            if (d.size != sizeof(d) || !d.draw || (d.type != EDITOR_TEXT_VALUE && d.type != EDITOR_INTEGER_VALUE &&
+                d.type != EDITOR_REAL_VALUE && d.type != EDITOR_OBJECT))
                 throw std::invalid_argument("Invalid editor descriptor");
             d.id = Text(d.id, true);
             d.provider = Text(d.provider, true);
@@ -347,7 +349,7 @@ struct EditorApplication::State {
     std::vector<Module *> activation;
     std::map<std::string, const EditorCommandDesc *> commands;
     std::map<std::string, const EditorQueryDesc *> queries;
-    std::map<std::string, const EditorTextEditorDesc *> editors;
+    std::map<std::string, const EditorValueEditorDesc *> editors;
     std::map<std::string, const EditorViewDesc *> views;
     std::map<std::string, PropertyBinding> properties;
     std::vector<MenuEntry> menus;
@@ -357,7 +359,7 @@ struct EditorApplication::State {
     bool active = false, available = false, writable = false, stopped = false;
     std::map<std::string, std::string> locations;
     unsigned drawing = 0, querying = 0, executing = 0, editing = 0, drawingEdit = 0;
-    unsigned readOnlyCallbacks = 0;
+    unsigned readOnlyCallbacks = 0, checking = 0;
     DocumentToken document{};
     uint64_t revision = 0, published = 1, next = 1;
     ObjectRef selection{};
@@ -368,8 +370,9 @@ struct EditorApplication::State {
         ObjectRef object;
         PropertyBinding property;
         const EditorCommandDesc *command;
-        const EditorTextEditorDesc *editor;
-        std::string value;
+        const EditorValueEditorDesc *editor;
+        EditorField value;
+        std::vector<EditorField> fields;
     };
     std::map<EditorEdit, Draft> drafts;
     struct Pending {
@@ -475,11 +478,11 @@ struct EditorApplication::State {
         }
         return EDITOR_OK;
     }
-    EditorStatus Check(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields) {
+    EditorStatus Check(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields, bool fromDraft = false) {
         if (!Thread() || !Valid(scope, command.area)) return EDITOR_STALE;
         if (readOnlyCallbacks) return EDITOR_REFUSED;
         const bool native = command.effect != EDITOR_SESSION_CHANGE;
-        if ((native && !NativeReady()) || !drafts.empty()) return EDITOR_REFUSED;
+        if ((native && !NativeReady()) || (!fromDraft && !drafts.empty())) return EDITOR_REFUSED;
         if (!NativeReady())
             for (const auto &field : fields)
                 if ((field.type == EDITOR_OBJECT && field.object) ||
@@ -496,18 +499,26 @@ struct EditorApplication::State {
         if (querying >= 16) return EDITOR_REFUSED;
         const auto values = Borrow(fields);
         const EditorRequest request{scope, values.data(), static_cast<uint32_t>(values.size())};
-        ++querying;
+        ++querying; ++checking;
         EditorStatus status;
         try { status = command.state(command.data, &host, &request); }
         catch (...) { status = EDITOR_ERROR; }
-        --querying;
+        --checking; --querying;
         return status >= EDITOR_OK && status <= EDITOR_ERROR ? status : EDITOR_ERROR;
     }
     EditorResponse Run(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields,
                        EditorOperation operation = 0) {
         EditorResponse result;
+        if (!operation) {
+            if (activeOperation) operation = activeOperation;
+            else {
+                if (operations.size() >= completedOperations.size() + 256) { result.status = EDITOR_REFUSED; return result; }
+                operation = next++;
+                operations.emplace(operation, Operation{EditorResponse{EDITOR_QUEUED}, command.effect == EDITOR_DOCUMENT_EDIT});
+            }
+        }
         result.operation = operation;
-        result.status = Check(command, scope, fields);
+        result.status = (readOnlyCallbacks || checking) ? EDITOR_REFUSED : Check(command, scope, fields);
         if (result.status != EDITOR_OK) { if (!executing) Complete(operation, result); return result; }
         for (const auto &field : fields)
             if (field.type == EDITOR_OBJECT && field.object && !Current(field.object)) {
@@ -650,12 +661,14 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
             return EDITOR_INVALID;
         }
     };
-    h.editValue = [](void *p, EditorEdit edit, EditorString text) -> EditorStatus {
-        try {
-            return static_cast<EditorApplication *>(p)->UpdateEdit(edit, String(text));
-        } catch (...) {
-            return EDITOR_INVALID;
-        }
+    h.drawProperty = [](void *p, EditorString property, EditorScope scope, EditorObject target, EditorEdit *edit, EditorString label) {
+        if (!edit) return uint32_t(EDITOR_INPUT_INVALID);
+        try { return static_cast<EditorApplication *>(p)->DrawProperty(Id(property), scope, target, *edit, label); }
+        catch (...) { return uint32_t(EDITOR_INPUT_CANCEL); }
+    };
+    h.editValue = [](void *p, EditorEdit edit, const EditorValue *value) -> EditorStatus {
+        try { return value ? static_cast<EditorApplication *>(p)->UpdateEdit(edit, *value) : EDITOR_INVALID; }
+        catch (...) { return EDITOR_INVALID; }
     };
     h.finishEdit = [](void *p, EditorEdit edit, uint32_t commit) -> EditorStatus {
         try {
@@ -679,6 +692,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         auto &s = *self.m_State;
         if (!s.Thread() || !changed || !view || !s.active || !s.scopes.count(view))
             return EDITOR_STALE;
+        if (s.checking) return EDITOR_REFUSED;
         try {
             const auto id = s.next++;
             s.watches.emplace(id, State::Watch{self.Scope(view), changed, data});
@@ -690,7 +704,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
     };
     h.unwatch = [](void *p, EditorSubscription id) {
         auto &s = *static_cast<EditorApplication *>(p)->m_State;
-        if (s.Thread())
+        if (s.Thread() && !s.checking)
             s.watches.erase(id);
     };
     h.scope = [](void *p, EditorView view) { return static_cast<EditorApplication *>(p)->Scope(view); };
@@ -1138,7 +1152,7 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
             for (auto &d : m->properties)
                 s.properties.emplace(String(d.id),
                                      PropertyBinding{String(d.id), String(d.label), String(d.query), String(d.field),
-                                                     String(d.command), String(d.argument), String(d.editor)});
+                                                     String(d.command), String(d.argument), String(d.editor), String(d.choices)});
         }
         s.activation = std::move(ordered);
         s.active = true;
@@ -1199,13 +1213,15 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
             if (!found)
                 throw std::invalid_argument("Unknown provider selection");
         }
-        for (auto &p : s.properties) {
-            const auto &d = p.second;
+        auto properties = s.properties;
+        for (auto &p : properties) {
+            auto &d = p.second;
             if (!commands.count(d.command) || !queries.count(d.query) || !editors.count(d.editor))
                 throw std::invalid_argument("Unresolved property contribution");
+            if (!d.choices.empty() && !queries.count(d.choices)) throw std::invalid_argument("Unknown property choices query");
             auto *c = commands.at(d.command);
             auto *q = queries.at(d.query);
-            if (c->count != 2 || q->count != 1 || c->effect != EDITOR_DOCUMENT_EDIT)
+            if (c->count < 2 || q->count != 1 || c->effect != EDITOR_DOCUMENT_EDIT)
                 throw std::invalid_argument("Property command/query schema mismatch");
             const auto has = [](auto *p, uint32_t count, const std::string &key, EditorValueType type) {
                 for (uint32_t i = 0; i < count; ++i)
@@ -1213,12 +1229,32 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
                         return true;
                 return false;
             };
-            if (!has(q->fields, q->fieldCount, d.field, EDITOR_TEXT_VALUE))
+            d.type = editors.at(d.editor)->type;
+            d.commandProvider = String(c->provider);
+            if (!d.choices.empty()) {
+                const auto *choices = queries.at(d.choices);
+                d.choicesProvider = String(choices->provider);
+                if (choices->area != EDITOR_DOCUMENT || !has(choices->parameters, choices->count, "target", EDITOR_OBJECT) ||
+                    !has(choices->fields, choices->fieldCount, "labels", EDITOR_TEXT_LIST) ||
+                    !has(choices->fields, choices->fieldCount, d.type == EDITOR_OBJECT ? "objects" : "values",
+                        d.type == EDITOR_OBJECT ? EDITOR_OBJECT_LIST : d.type == EDITOR_INTEGER_VALUE ? EDITOR_INTEGER_LIST : EDITOR_TEXT_LIST))
+                    throw std::invalid_argument("Property choices query schema mismatch");
+                for (uint32_t i = 0; i < choices->count; ++i)
+                    if (String(choices->parameters[i].key) != "target" && !choices->parameters[i].optional)
+                        throw std::invalid_argument("Property choices query requires an unbound argument");
+            }
+            if (!has(q->fields, q->fieldCount, d.field, d.type))
                 throw std::invalid_argument("Unknown property value field");
             if (!has(c->parameters, c->count, "target", EDITOR_OBJECT) ||
-                !has(c->parameters, c->count, d.argument, EDITOR_TEXT_VALUE) ||
+                !has(c->parameters, c->count, d.argument, d.type) ||
                 !has(q->parameters, q->count, "target", EDITOR_OBJECT))
                 throw std::invalid_argument("Property command/query schema mismatch");
+            for (uint32_t i = 0; i < c->count; ++i) {
+                const auto key = String(c->parameters[i].key);
+                if (key != "target" && key != d.argument &&
+                    !has(q->fields, q->fieldCount, key, c->parameters[i].type))
+                    throw std::invalid_argument("Property command context field is missing");
+            }
         }
         const auto actionExists = [&](const std::string &id) {
             const bool property = s.properties.count(id), command = commands.count(id);
@@ -1280,6 +1316,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
             return a.location == b.location ? (a.order == b.order ? a.id < b.id : a.order < b.order)
                                             : a.location < b.location;
         });
+        s.properties = std::move(properties);
         s.commands = std::move(commands);
         s.queries = std::move(queries);
         s.editors = std::move(editors);
@@ -1520,7 +1557,7 @@ EditorStatus EditorApplication::CanEdit(const std::string &property, EditorScope
 EditorResponse EditorApplication::Execute(const std::string &id, const EditorRequest &request) {
     auto &s = *m_State;
     EditorResponse result;
-    if (!s.Thread()) {
+    if (!s.Thread() || s.readOnlyCallbacks || s.checking) {
         result.status = EDITOR_REFUSED;
         return result;
     }
@@ -1566,7 +1603,7 @@ EditorResponse EditorApplication::Execute(const std::string &id, const EditorReq
 }
 bool EditorApplication::CompleteOperation(EditorOperation operation, EditorResponse result) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || s.readOnlyCallbacks) return false;
+    if (!s.Thread() || !s.active || s.readOnlyCallbacks || s.checking) return false;
     const auto found = s.operations.find(operation);
     return found != s.operations.end() && !found->second.documentEdit && s.Complete(operation, std::move(result));
 }
@@ -1574,91 +1611,206 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, EditorSco
                                           EditorEdit &out) {
     auto &s = *m_State;
     out = 0;
+    if (s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
     const auto status = CanEdit(property, scope, target);
-    if (status != EDITOR_OK)
-        return status;
-    auto p = s.properties.find(property);
-    if (p == s.properties.end())
-        return EDITOR_INVALID;
+    if (status != EDITOR_OK) return status;
+    const auto &p = s.properties.at(property);
     const EditorValue argument{EditorLiteral("target"), EDITOR_OBJECT, target, {}};
-    const EditorRequest request{scope, &argument, 1};
-    auto result = Query(p->second.query, request);
-    if (result.status != EDITOR_OK)
-        return result.status;
-    auto value = std::find_if(result.fields.begin(), result.fields.end(), [&](const EditorField &f) {
-        return f.key == p->second.field && f.type == EDITOR_TEXT_VALUE;
+    auto result = Query(p.query, {scope, &argument, 1});
+    if (result.status != EDITOR_OK) return result.status;
+    const auto value = std::find_if(result.fields.begin(), result.fields.end(), [&](const EditorField &f) {
+        return f.key == p.field && f.type == p.type;
     });
-    if (value == result.fields.end())
-        return EDITOR_INVALID;
+    if (value == result.fields.end()) return EDITOR_INVALID;
+    State::Draft draft{scope, target, p, s.commands.at(p.command), s.editors.at(p.editor), *value, std::move(result.fields)};
     out = s.next++;
-    s.drafts.emplace(out, State::Draft{scope, target, p->second, s.commands.at(p->second.command),
-                                       s.editors.at(p->second.editor), value->text});
+    s.drafts.emplace(out, std::move(draft));
     return EDITOR_OK;
 }
 EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const std::string &text) {
+    const EditorValue value{EditorLiteral("value"), EDITOR_TEXT_VALUE, {}, EditorText(text)};
+    return UpdateEdit(edit, value);
+}
+EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const EditorValue &value) {
     auto &s = *m_State;
-    if (!s.Thread() || s.readOnlyCallbacks)
-        return EDITOR_REFUSED;
-    auto found = s.drafts.find(edit);
-    if (found == s.drafts.end() || !s.Valid(found->second.scope))
-        return EDITOR_STALE;
-    try {
-        found->second.value = String(EditorText(text));
-        return EDITOR_OK;
-    } catch (...) {
-        return EDITOR_INVALID;
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
+    const auto found = s.drafts.find(edit);
+    if (found == s.drafts.end() || !s.Valid(found->second.scope) || (s.NativeReady() && !s.Current(found->second.object))) return EDITOR_STALE;
+    if (value.type != found->second.property.type) return EDITOR_INVALID;
+    std::vector<EditorField> fields;
+    if (CopyEditorFields(fields, &value, 1) != EDITOR_OK || fields.size() != 1) return EDITOR_INVALID;
+    if (value.type == EDITOR_OBJECT && value.object) {
+        if (!s.NativeReady()) return EDITOR_REFUSED;
+        if (!s.Current(value.object)) return EDITOR_STALE;
     }
+    found->second.value = std::move(fields.front());
+    return EDITOR_OK;
 }
 EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit) {
     auto &s = *m_State;
-    if (!s.Thread() || s.readOnlyCallbacks)
-        return EDITOR_REFUSED;
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
     auto found = s.drafts.find(edit);
-    if (found == s.drafts.end())
-        return EDITOR_STALE;
-    if (!commit) {
-        s.drafts.erase(found);
-        return EDITOR_CANCELLED;
-    }
+    if (found == s.drafts.end()) return EDITOR_STALE;
+    if (!commit) { s.drafts.erase(found); return EDITOR_CANCELLED; }
     const auto &draft = found->second;
-    if (!s.Valid(draft.scope)) {
-        s.drafts.erase(found);
-        return EDITOR_STALE;
+    if (!s.Valid(draft.scope)) { s.drafts.erase(found); return EDITOR_STALE; }
+    if (!s.NativeReady() || !s.writable) return EDITOR_REFUSED;
+    if (!s.Current(draft.object)) { s.drafts.erase(found); return EDITOR_STALE; }
+    auto value = draft.value;
+    value.key = draft.property.argument;
+    std::vector<EditorField> fields{{"target", EDITOR_OBJECT, draft.object, {}}, std::move(value)};
+    for (uint32_t i = 0; i < draft.command->count; ++i) {
+        const auto key = String(draft.command->parameters[i].key);
+        if (key == "target" || key == draft.property.argument) continue;
+        const auto context = std::find_if(draft.fields.begin(), draft.fields.end(), [&](const auto &field) { return field.key == key; });
+        if (context == draft.fields.end()) return EDITOR_INVALID;
+        fields.push_back(*context);
     }
-    if (!s.NativeReady() || !s.writable)
-        return EDITOR_REFUSED;
-    s.pending.push_back(
-        {draft.command,
-         draft.scope,
-         {{"target", EDITOR_OBJECT, draft.object, {}}, {draft.property.argument, EDITOR_TEXT_VALUE, {}, draft.value}}});
+    const auto allowed = s.Check(*draft.command, draft.scope, fields, true);
+    if (allowed != EDITOR_OK) {
+        if (allowed == EDITOR_STALE) s.drafts.erase(found);
+        return allowed;
+    }
+    s.pending.push_back({draft.command, draft.scope, std::move(fields)});
     s.drafts.erase(found);
     return EDITOR_QUEUED;
 }
-uint32_t EditorApplication::DrawEdit(EditorEdit edit, EditorString label, uint32_t focus) {
+bool EditorApplication::ValueEditor(const std::string &id, EditorValueEditorDesc &editor) const {
+    const auto &s = *m_State;
+    if (!s.Thread()) return false;
+    const auto found = s.editors.find(id);
+    if (found == s.editors.end()) return false;
+    editor = *found->second;
+    return true;
+}
+uint32_t EditorApplication::DrawValue(const std::string &id, const EditorValueInput &input) {
+    EditorValueEditorDesc editor{};
+    return ValueEditor(id, editor) ? DrawValue(editor, input) : EDITOR_INPUT_INVALID;
+}
+uint32_t EditorApplication::DrawValue(const EditorValueEditorDesc &editor, const EditorValueInput &input) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.drawing || s.drawingEdit >= 16)
-        return EDITOR_INPUT_CANCEL;
-    std::string value;
-    EditorTextEditorDesc editor{};
-    if (!EditState(edit, value, editor))
-        return EDITOR_INPUT_CANCEL;
-    const EditorTextInput input{sizeof(input), edit, label, EditorText(value), focus};
-    ++s.drawingEdit;
+    if (!s.Thread() || !s.active || s.drawingEdit >= 16 || s.readOnlyCallbacks) return EDITOR_INPUT_CANCEL;
+    if (!editor.draw || editor.type != input.value.type || !input.update.write) return EDITOR_INPUT_INVALID;
+    ++s.drawing; ++s.drawingEdit;
     uint32_t action = EDITOR_INPUT_CANCEL;
-    try {
-        action = editor.draw(editor.data, Host(), &input);
-    } catch (...) {
-    }
-    --s.drawingEdit;
+    try { action = editor.draw(editor.data, Host(), &input); } catch (...) {}
+    --s.drawingEdit; --s.drawing;
     return action;
 }
-bool EditorApplication::EditState(EditorEdit edit, std::string &value, EditorTextEditorDesc &editor) const {
+EditorResponse EditorApplication::ApplyEdit(const PropertyBinding &property, EditorScope scope, ObjectRef target,
+                                           const EditorValue &value, const std::vector<EditorField> &context) {
     auto &s = *m_State;
-    auto f = s.drafts.find(edit);
-    if (!s.Thread() || f == s.drafts.end() || !s.Valid(f->second.scope))
-        return false;
-    value = f->second.value;
-    editor = *f->second.editor;
+    EditorResponse result{EDITOR_REFUSED};
+    if (!s.Thread() || !s.NativeReady() || s.readOnlyCallbacks || s.drawing || s.querying || s.notifying ||
+        !s.drafts.empty() || !s.writable || !s.Valid(scope) || !s.Current(target)) return result;
+    auto *document = s.CurrentDocument();
+    if (!document || !document->EditOpen()) return result;
+    const EditorCommandDesc *command = nullptr;
+    for (const auto &module : s.modules) for (const auto &candidate : module->commands)
+        if (String(candidate.id) == property.command && String(candidate.provider) == property.commandProvider) command = &candidate;
+    if (!command || command->effect != EDITOR_DOCUMENT_EDIT || value.type != property.type) return result;
+    std::vector<EditorField> fields;
+    if (CopyEditorFields(fields, &value, 1) != EDITOR_OK || fields.size() != 1) { result.status = EDITOR_INVALID; return result; }
+    fields.front().key = property.argument;
+    fields.insert(fields.begin(), {"target", EDITOR_OBJECT, target});
+    fields.insert(fields.end(), context.begin(), context.end());
+    const auto values = Borrow(fields);
+    std::vector<EditorField> checked;
+    result.status = s.Arguments(command->parameters, command->count, {scope, values.data(), uint32_t(values.values.size())}, checked);
+    if (result.status != EDITOR_OK) return result;
+    // Only document edits may join the native dialog's enclosing transaction.
+    // External callers continue through execute/finishEdit and frame dispatch.
+    ++s.editing;
+    try { result = s.Run(*command, scope, checked); }
+    catch (...) { result.status = EDITOR_ERROR; }
+    --s.editing;
+    return result;
+}
+uint32_t EditorApplication::DrawEdit(EditorEdit edit, EditorString label, uint32_t focus) {
+    auto &s = *m_State;
+    if (!s.Thread() || !s.drawing) return EDITOR_INPUT_CANCEL;
+    auto found = s.drafts.find(edit);
+    if (found == s.drafts.end() || !s.Valid(found->second.scope)) return EDITOR_INPUT_CANCEL;
+    const auto property = found->second.property;
+    const std::vector<EditorField> ownedValue{found->second.value};
+    const auto value = Borrow(ownedValue);
+    const auto ownedFields = found->second.fields;
+    const auto fields = Borrow(ownedFields);
+    struct Update { EditorApplication *app; EditorEdit edit; } update{this, edit};
+    const auto write = [](void *data, const EditorValue *value, uint32_t count) {
+        const auto &update = *static_cast<Update *>(data);
+        return count == 1 && value ? update.app->UpdateEdit(update.edit, *value) : EDITOR_INVALID;
+    };
+    const EditorValueInput input{sizeof(input), edit, label, value.values.front(), fields.data(),
+        uint32_t(fields.values.size()), focus, {&update, write}, EDITOR_VALUE_INLINE, 0, 0,
+        EditorText(property.choices), {found->second.scope, nullptr, 0, EditorText(property.choicesProvider)}};
+    auto choiceInput = input;
+    const EditorValue choiceTarget{EditorLiteral("target"), EDITOR_OBJECT, found->second.object};
+    choiceInput.choicesRequest.values = &choiceTarget; choiceInput.choicesRequest.count = 1;
+    return DrawValue(property.editor, choiceInput);
+}
+uint32_t EditorApplication::DrawProperty(const std::string &property, EditorScope scope, ObjectRef target, EditorEdit &edit, EditorString label) {
+    auto &s = *m_State;
+    if (!s.Thread() || !s.drawing || s.readOnlyCallbacks || s.querying || s.notifying || !s.NativeReady() || !s.Valid(scope) || !s.Current(target)) return EDITOR_INPUT_INVALID;
+    const auto p = s.properties.find(property);
+    if (p == s.properties.end()) return EDITOR_INPUT_INVALID;
+    auto found = s.drafts.find(edit);
+    if (edit && found == s.drafts.end()) edit = 0;
+    const bool owns = edit && found != s.drafts.end() && found->second.object == target &&
+        found->second.property.id == property && found->second.scope.view == scope.view;
+    EditorResponse projection;
+    EditorField current;
+    if (owns) { projection.fields = found->second.fields; current = found->second.value; }
+    else {
+        const EditorValue argument{EditorLiteral("target"), EDITOR_OBJECT, target};
+        projection = Query(p->second.query, {scope, &argument, 1});
+        if (projection.status != EDITOR_OK) return EDITOR_INPUT_INVALID;
+        const auto value = std::find_if(projection.fields.begin(), projection.fields.end(), [&](const auto &field) { return field.key == p->second.field; });
+        if (value == projection.fields.end()) return EDITOR_INPUT_INVALID;
+        current = *value;
+    }
+    const std::vector<EditorField> ownedValue{current};
+    const auto value = Borrow(ownedValue), fields = Borrow(projection.fields);
+    struct Update { EditorApplication *app; const std::string *property; EditorScope scope; ObjectRef target; EditorEdit *edit; } update{this, &property, scope, target, &edit};
+    const auto write = [](void *data, const EditorValue *value, uint32_t count) {
+        auto &update = *static_cast<Update *>(data);
+        if (!value || count != 1) return EDITOR_INVALID;
+        if (*update.edit && update.app->EditTarget(*update.edit) != update.target) return EDITOR_REFUSED;
+        if (!*update.edit) {
+            const auto status = update.app->BeginEdit(*update.property, update.scope, update.target, *update.edit);
+            if (status != EDITOR_OK) return status;
+        }
+        return update.app->UpdateEdit(*update.edit, *value);
+    };
+    const EditorValueInput input{sizeof(input), owns ? edit : 0, label, value.values.front(), fields.data(),
+        uint32_t(fields.values.size()), 0, {&update, write}, EDITOR_VALUE_INLINE, 0, 0,
+        EditorText(p->second.choices), {scope, nullptr, 0, EditorText(p->second.choicesProvider)}};
+    auto choiceInput = input;
+    const EditorValue choiceTarget{EditorLiteral("target"), EDITOR_OBJECT, target};
+    choiceInput.choicesRequest.values = &choiceTarget; choiceInput.choicesRequest.count = 1;
+    auto action = DrawValue(p->second.editor, choiceInput);
+    if (edit && EditTarget(edit) == target) {
+        if (action & EDITOR_INPUT_CANCEL) { FinishEdit(edit, false); edit = 0; }
+        else if ((action & (EDITOR_INPUT_ACCEPT | EDITOR_INPUT_DEACTIVATED)) && !(action & EDITOR_INPUT_INVALID)) {
+            const auto status = FinishEdit(edit, true);
+            if (status == EDITOR_QUEUED || status == EDITOR_NO_CHANGE || status == EDITOR_STALE) edit = 0;
+            else action |= EDITOR_INPUT_INVALID;
+        }
+    }
+    return action;
+}
+bool EditorApplication::EditState(EditorEdit edit, EditorField &value, EditorValueEditorDesc &editor) const {
+    auto &s = *m_State;
+    if (!s.Thread()) return false;
+    const auto f = s.drafts.find(edit);
+    if (f == s.drafts.end() || !s.Valid(f->second.scope)) return false;
+    value = f->second.value; editor = *f->second.editor;
+    return true;
+}
+bool EditorApplication::EditState(EditorEdit edit, std::string &value, EditorValueEditorDesc &editor) const {
+    EditorField field;
+    if (!EditState(edit, field, editor) || field.type != EDITOR_TEXT_VALUE) return false;
+    value = field.text;
     return true;
 }
 const PropertyBinding *EditorApplication::Property(const std::string &id) const {
@@ -1688,8 +1840,8 @@ std::vector<EditorViewDesc> EditorApplication::Views(bool allProviders) const {
         result.push_back(*v.second);
     return result;
 }
-std::vector<EditorTextEditorDesc> EditorApplication::TextEditors() const {
-    std::vector<EditorTextEditorDesc> result;
+std::vector<EditorValueEditorDesc> EditorApplication::ValueEditors() const {
+    std::vector<EditorValueEditorDesc> result;
     for (auto &m : m_State->modules)
         for (auto &e : m->editors)
             result.push_back(e);

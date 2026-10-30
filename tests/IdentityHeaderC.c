@@ -51,3 +51,6 @@ EditorAttributePayload AttributeFromC(ObjectRef parameter, uint64_t catalog) {
     return payload;
 }
 uint32_t EditorPickRegionSizeFromC(void) { return (uint32_t)sizeof(EditorPickRegion); }
+
+uint32_t EditorValueInputSizeFromC(void) { return (uint32_t)sizeof(EditorValueInput); }
+uint32_t EditorValueEditorSizeFromC(void) { return (uint32_t)sizeof(EditorValueEditorDesc); }

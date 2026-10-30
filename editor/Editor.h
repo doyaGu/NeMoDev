@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 9u
+#define EDITOR_VERSION 10u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -139,30 +139,50 @@ typedef struct EditorQueryDesc {
     uint32_t fieldCount;
     EditorQueryVersion revision; // required only for EDITOR_QUERY_VERSIONED
 } EditorQueryDesc;
-// A property connects a query field to a command argument. Text is the first
-// value type with an editor; no native getter/setter escapes through this table.
+// A property connects a typed query field to a command argument.
+// Remaining command arguments are captured from query fields with the same key
+// and type (for example, the native type identity). No native pointers escape.
 typedef struct EditorPropertyDesc {
     uint32_t size;
     EditorString id, label, query, field, command, argument, editor;
+    EditorString choices; // optional read-only option query, requested only when its chooser opens
 } EditorPropertyDesc;
 typedef enum EditorInputAction {
     EDITOR_INPUT_NONE = 0,
     EDITOR_INPUT_ACCEPT = 1,
     EDITOR_INPUT_CANCEL = 2,
-    EDITOR_INPUT_ACTIVE = 4
+    EDITOR_INPUT_ACTIVE = 4,
+    EDITOR_INPUT_CHANGED = 8,
+    EDITOR_INPUT_INVALID = 16,
+    EDITOR_INPUT_DEACTIVATED = 32
 } EditorInputAction;
 typedef struct EditorChange {
     EditorScope scope;
     uint64_t revision;
 } EditorChange;
 typedef void(EDITOR_CALL *EditorChanged)(void *, const EditorHost *, const EditorChange *);
-typedef struct EditorTextInput {
+typedef enum EditorValueStyle { EDITOR_VALUE_INLINE, EDITOR_VALUE_DIALOG } EditorValueStyle;
+// Fields carry the property query's copied metadata (options, display text and
+// type identity). update copies one value of the declared type before returning.
+// Dialogs edit their owned copies; a property draft commits through finishEdit.
+// Built-ins use display (UTF-8), scale (real), and enum labels/values lists.
+// Object choices are queried lazily through choicesQuery/choicesRequest and
+// return labels plus full object references. Signed values use int64_t's bit
+// representation in integer; CK integer parameters are validated as int32_t.
+typedef struct EditorValueInput {
     uint32_t size;
     EditorEdit edit;
-    EditorString label, value;
-    uint32_t focus;
-} EditorTextInput;
-typedef uint32_t(EDITOR_CALL *EditorDrawText)(void *, const EditorHost *, const EditorTextInput *);
+    EditorString label;
+    EditorValue value;
+    const EditorValue *fields;
+    uint32_t count, focus;
+    EditorSink update;
+    EditorValueStyle style;
+    float width, height;
+    EditorString choicesQuery;
+    EditorRequest choicesRequest;
+} EditorValueInput;
+typedef uint32_t(EDITOR_CALL *EditorDrawValue)(void *, const EditorHost *, const EditorValueInput *);
 typedef void *(EDITOR_CALL *EditorCreateView)(void *, const EditorHost *, EditorView);
 typedef void(EDITOR_CALL *EditorDestroyView)(void *);
 // The workspace owns the window name and focus request. Window views use the
@@ -195,13 +215,14 @@ typedef enum EditorInputKind { EDITOR_FILE_INPUT, EDITOR_SAVE_CHANGES_INPUT, EDI
 typedef struct EditorDrawingVersion {
     uint32_t version, ioSize, styleSize, vertexSize, indexSize;
 } EditorDrawingVersion;
-typedef struct EditorTextEditorDesc {
+typedef struct EditorValueEditorDesc {
     uint32_t size;
     EditorDrawingVersion imguiVersion;
     EditorString id, provider, title;
-    EditorDrawText draw;
+    EditorDrawValue draw;
     void *data;
-} EditorTextEditorDesc;
+    EditorValueType type;
+} EditorValueEditorDesc;
 typedef struct EditorViewDesc {
     uint32_t size;
     EditorDrawingVersion imguiVersion;
@@ -253,7 +274,7 @@ typedef struct EditorModuleDesc {
     uint32_t queryCount;
     const EditorPropertyDesc *properties;
     uint32_t propertyCount;
-    const EditorTextEditorDesc *editors;
+    const EditorValueEditorDesc *editors;
     uint32_t editorCount;
     const EditorViewDesc *views;
     uint32_t viewCount;
@@ -296,7 +317,7 @@ struct EditorHost {
     EditorStatus(EDITOR_CALL *canEdit)(void *, EditorString, EditorScope, EditorObject);
     EditorStatus(EDITOR_CALL *execute)(void *, EditorString, const EditorRequest *, EditorSink);
     EditorStatus(EDITOR_CALL *beginEdit)(void *, EditorString, EditorScope, EditorObject, EditorEdit *);
-    EditorStatus(EDITOR_CALL *editValue)(void *, EditorEdit, EditorString);
+    EditorStatus(EDITOR_CALL *editValue)(void *, EditorEdit, const EditorValue *);
     EditorStatus(EDITOR_CALL *finishEdit)(void *, EditorEdit, uint32_t commit);
     uint32_t(EDITOR_CALL *drawEdit)(void *, EditorEdit, EditorString label, uint32_t focus);
     EditorStatus(EDITOR_CALL *watch)(void *, EditorView, EditorChanged, void *, EditorSubscription *);
@@ -324,6 +345,11 @@ struct EditorHost {
     // shortcuts cannot dispatch the same key again in this frame.
     uint32_t(EDITOR_CALL *shortcut)(void *, EditorString action);
     EditorStatus(EDITOR_CALL *menu)(void *, EditorString location, EditorScope, EditorObject, EditorEdit *);
+    // Inline property input: begin on interaction, retain the typed draft,
+    // finish once on accept/deactivation, and cancel on Escape. edit is owned
+    // by this view and is cleared only when that interaction has ended.
+    uint32_t(EDITOR_CALL *drawProperty)(void *, EditorString property, EditorScope, EditorObject,
+                                      EditorEdit *, EditorString label);
 
 };
 

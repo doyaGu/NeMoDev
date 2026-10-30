@@ -226,14 +226,15 @@ void Draw(void *data, const EditorHost *host, EditorView id, EditorViewFrame *fr
     ImGui::TextUnformatted("External object view");
     ImGui::TextUnformatted(view.name.c_str());
 }
-uint32_t DrawName(void *, const EditorHost *host, const EditorTextInput *input) {
-    std::string text(input->value.data, input->value.size), label(input->label.data, input->label.size);
+uint32_t DrawName(void *, const EditorHost *host, const EditorValueInput *input) {
+    std::string text(input->value.text.data, input->value.text.size), label(input->label.data, input->label.size);
     if (input->focus)
         ImGui::SetKeyboardFocusHere();
     const bool accepted =
         ImGui::InputTextWithHint(label.c_str(), "External name editor", &text,
                                  ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-    host->editValue(host->data, input->edit, {text.data(), static_cast<uint32_t>(text.size())});
+    auto value = input->value; value.text = {text.data(), static_cast<uint32_t>(text.size())};
+    input->update.write(input->update.data, &value, 1);
     return ImGui::IsKeyPressed(ImGuiKey_Escape)
                ? EDITOR_INPUT_CANCEL
                : (accepted ? EDITOR_INPUT_ACCEPT : 0u) | (ImGui::IsItemActive() ? EDITOR_INPUT_ACTIVE : 0u);
@@ -439,20 +440,20 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     resourceInputs.draw = [](void *data, const EditorHost *host, EditorView id, EditorViewFrame *) {
         DrawInput(data, host, id, EditorString EDITOR_TEXT("resource.input"), EditorString EDITOR_TEXT("resource.respond"));
     };
-    const EditorTextEditorDesc editor{sizeof(editor),
+    const EditorValueEditorDesc editor{sizeof(editor),
                                       EDITOR_IMGUI_VERSION,
                                       EDITOR_TEXT("text.single-line"),
                                       EDITOR_TEXT("example.text"),
                                       EDITOR_TEXT("External text"),
                                       DrawName,
-                                      data};
+                                      data, EDITOR_TEXT_VALUE};
     // Keep descriptor arrays valid after this entry returns. The module frees
     // its own allocations at stop; the host copies strings and arrays.
     struct Descriptors {
         std::vector<EditorCommandDesc> commands;
         EditorQueryDesc queries[3];
         EditorViewDesc views[6];
-        EditorTextEditorDesc editor;
+        EditorValueEditorDesc editor;
         Module *data;
     };
     static const EditorParameter playCountField{EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE};

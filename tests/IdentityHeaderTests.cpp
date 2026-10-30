@@ -32,7 +32,12 @@ static_assert(__is_standard_layout(EditorPickRegion), "C picking rectangle");
 static_assert(__is_trivially_copyable(EditorAttributePayload), "Attribute identity and catalog version");
 extern "C" EditorAttributePayload AttributeFromC(vdev::ObjectRef, uint64_t);
 extern "C" uint32_t EditorPickRegionSizeFromC(void);
+extern "C" uint32_t EditorValueInputSizeFromC(void);
+extern "C" uint32_t EditorValueEditorSizeFromC(void);
+static_assert(__is_standard_layout(EditorValueInput), "C value input");
+static_assert(__is_trivially_copyable(EditorValueEditorDesc), "Borrowed typed editor");
 int main() {
+    if (sizeof(EditorValueInput) != EditorValueInputSizeFromC() || sizeof(EditorValueEditorDesc) != EditorValueEditorSizeFromC()) return 1;
     const auto attribute = AttributeFromC({{3}, 7, 11}, 17);
     if(attribute.type != 7 || attribute.value.lifetime != 11 || attribute.catalog != 17 ||
        sizeof(EditorPickRegion) != EditorPickRegionSizeFromC()) return 1;

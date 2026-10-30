@@ -4,8 +4,8 @@
 
 namespace vdev {
 namespace {
-uint32_t DrawText(void *data, const EditorHost *host, const EditorTextInput *input) {
-    std::string value(input->value.data, input->value.size);
+uint32_t DrawText(void *data, const EditorHost *host, const EditorValueInput *input) {
+    std::string value(input->value.text.data, input->value.text.size);
     const std::string label(input->label.data, input->label.size);
     if (input->focus)
         ImGui::SetKeyboardFocusHere();
@@ -17,7 +17,8 @@ uint32_t DrawText(void *data, const EditorHost *host, const EditorTextInput *inp
         if (ImGui::SmallButton("Clear"))
             value.clear();
     }
-    host->editValue(host->data, input->edit, {value.data(), static_cast<uint32_t>(value.size())});
+    auto updated = input->value; updated.text = {value.data(), static_cast<uint32_t>(value.size())};
+    input->update.write(input->update.data, &updated, 1);
     return ImGui::IsKeyPressed(ImGuiKey_Escape)
                ? EDITOR_INPUT_CANCEL
                : (accept ? EDITOR_INPUT_ACCEPT : 0u) | (active ? EDITOR_INPUT_ACTIVE : 0u);
@@ -104,11 +105,11 @@ void Draw(void *data, const EditorHost *host, EditorView id, EditorViewFrame *fr
 bool RegisterObjectViews(EditorApplication &editor, std::string &error) {
     static const EditorString dependencies[] = {EDITOR_TEXT("objects.editing")};
     static bool clearButton = true, editableView = true;
-    static const EditorTextEditorDesc editors[] = {
-        {sizeof(EditorTextEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("text.single-line"),
-         EDITOR_TEXT("builtin.text"), EDITOR_TEXT("Text"), DrawText, nullptr},
-        {sizeof(EditorTextEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("text.single-line"),
-         EDITOR_TEXT("builtin.text-clear"), EDITOR_TEXT("Text with Clear"), DrawText, &clearButton}};
+    static const EditorValueEditorDesc editors[] = {
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("text.single-line"),
+         EDITOR_TEXT("builtin.text"), EDITOR_TEXT("Text"), DrawText, nullptr, EDITOR_TEXT_VALUE},
+        {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("text.single-line"),
+         EDITOR_TEXT("builtin.text-clear"), EDITOR_TEXT("Text with Clear"), DrawText, &clearButton, EDITOR_TEXT_VALUE}};
     static const EditorViewDesc views[] = {
         {sizeof(EditorViewDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("object.properties"),
          EDITOR_TEXT("builtin.properties"), EDITOR_TEXT("Object Properties"), Create, Destroy, Draw, &editableView},

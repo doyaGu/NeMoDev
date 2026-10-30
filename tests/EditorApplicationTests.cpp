@@ -27,15 +27,15 @@ void Check(bool ok, const char *message) {
     if (!ok)
         throw std::runtime_error(message);
 }
-uint32_t Draw(void *, const EditorHost *, const EditorTextInput *) { return 0; }
+uint32_t Draw(void *, const EditorHost *, const EditorValueInput *) { return 0; }
 EditorModuleDesc TextModule() {
-    static const EditorTextEditorDesc editor{sizeof(editor),
+    static const EditorValueEditorDesc editor{sizeof(editor),
                                              EDITOR_IMGUI_VERSION,
                                              EDITOR_TEXT("text.single-line"),
                                              EDITOR_TEXT("test.text"),
                                              EDITOR_TEXT("Text"),
                                              Draw,
-                                             nullptr};
+                                             nullptr, EDITOR_TEXT_VALUE};
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
@@ -73,6 +73,34 @@ void MenuChecks() {
                 "menu lost its registered check query");
         }
     }
+}
+void CommandStateReads() {
+    struct Counts { unsigned writes = 0; EditorStatus nested = EDITOR_INVALID, mutation = EDITOR_OK; } counts;
+    EditorApplication app({});
+    const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("test.state-inner"), EDITOR_TEXT("test.states"), EDITOR_TEXT("Inner"), nullptr, 0,
+         [](void *data, const EditorHost *, const EditorRequest *, EditorSink) { ++static_cast<Counts *>(data)->writes; return EDITOR_OK; },
+         &counts, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("test.state-outer"), EDITOR_TEXT("test.states"), EDITOR_TEXT("Outer"), nullptr, 0,
+         [](void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             return host->execute(host->data, EditorString EDITOR_TEXT("test.state-inner"), request, sink);
+         }, &counts, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE,
+         [](void *data, const EditorHost *host, const EditorRequest *request) {
+             auto &counts = *static_cast<Counts *>(data);
+             counts.nested = host->commandState(host->data, EditorString EDITOR_TEXT("test.state-inner"), request);
+             counts.mutation = host->execute(host->data, EditorString EDITOR_TEXT("test.state-inner"), request, {});
+             return counts.nested;
+         }}};
+    EditorModuleDesc module{};
+    module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("test.states");
+    module.commands = commands; module.commandCount = 2;
+    std::string error;
+    Check(app.Register(module, error) && app.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
+    const EditorRequest request{app.Scope(), nullptr, 0};
+    Check(app.CommandState("test.state-outer", request) == EDITOR_OK && counts.nested == EDITOR_OK &&
+          counts.mutation == EDITOR_REFUSED && counts.writes == 0, "command state rejected nested reads or allowed a write");
+    Check(app.Execute("test.state-outer", request).status == EDITOR_OK && counts.writes == 1,
+          "read-only state checks blocked normal nested execution");
 }
 void VersionedQueries() {
     struct Values {
@@ -152,7 +180,7 @@ void Registration() {
     invalid.size = 0;
     Check(!app.Register(invalid, error), "wrong size accepted");
     auto duplicate = module;
-    const EditorTextEditorDesc editors[] = {module.editors[0], module.editors[0]};
+    const EditorValueEditorDesc editors[] = {module.editors[0], module.editors[0]};
     duplicate.editors = editors;
     duplicate.editorCount = 2;
     Check(!app.Register(duplicate, error), "partial duplicate registration accepted");
@@ -283,7 +311,7 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
     app.NativeAvailable(false);
     Check(app.FinishEdit(edit, true) == EDITOR_REFUSED, "busy edit was submitted");
     std::string draft;
-    EditorTextEditorDesc chosen{};
+    EditorValueEditorDesc chosen{};
     Check(app.EditState(edit, draft, chosen) && draft == "Draft", "refused commit lost its draft");
     app.NativeAvailable(true);
     Check(app.FinishEdit(edit, false) == EDITOR_CANCELLED && !document.Dirty(), "cancel wrote document");
@@ -400,6 +428,7 @@ int main(int argc, char **argv) {
         Registration();
         VersionedQueries();
         MenuChecks();
+        CommandStateReads();
         CkRuntimeHost runtime;
         std::string error;
         const auto *path = std::getenv("VIRTOOLS_PATH");

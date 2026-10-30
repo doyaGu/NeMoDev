@@ -45,7 +45,9 @@ struct EditorConfiguration {
     std::vector<MenuPlacement> menus;
 };
 struct PropertyBinding {
-    std::string id, label, query, field, command, argument, editor;
+    std::string id, label, query, field, command, argument, editor, choices;
+    EditorValueType type = EDITOR_TEXT_VALUE;
+    std::string commandProvider, choicesProvider;
 };
 struct MenuEntry {
     std::string id, action, location, label;
@@ -105,9 +107,19 @@ class EditorApplication {
     bool CompleteOperation(EditorOperation operation, EditorResponse result);
     EditorStatus BeginEdit(const std::string &property, EditorScope scope, ObjectRef target, EditorEdit &out);
     EditorStatus UpdateEdit(EditorEdit edit, const std::string &text);
+    EditorStatus UpdateEdit(EditorEdit edit, const EditorValue &value);
     EditorStatus FinishEdit(EditorEdit edit, bool commit);
     uint32_t DrawEdit(EditorEdit edit, EditorString label, uint32_t focus);
-    bool EditState(EditorEdit edit, std::string &value, EditorTextEditorDesc &editor) const;
+    bool EditState(EditorEdit edit, std::string &value, EditorValueEditorDesc &editor) const;
+    bool EditState(EditorEdit edit, EditorField &value, EditorValueEditorDesc &editor) const;
+    uint32_t DrawValue(const std::string &editor, const EditorValueInput &);
+    uint32_t DrawValue(const EditorValueEditorDesc &, const EditorValueInput &);
+    bool ValueEditor(const std::string &, EditorValueEditorDesc &) const;
+    // Native dialog copies join their already-open core edit. The selected
+    // property/editor are captured when that dialog creates the copy.
+    EditorResponse ApplyEdit(const PropertyBinding &, EditorScope, ObjectRef, const EditorValue &,
+                             const std::vector<EditorField> &context);
+    uint32_t DrawProperty(const std::string &, EditorScope, ObjectRef, EditorEdit &, EditorString label);
     const PropertyBinding *Property(const std::string &id) const;
     const std::vector<MenuEntry> &Menus() const;
     const std::map<std::string, std::string> &MenuLocations() const;
@@ -116,7 +128,7 @@ class EditorApplication {
     const char *ActionTitle(const std::string &action) const;
     bool IsCommand(const std::string &action) const;
     std::vector<EditorViewDesc> Views(bool allProviders = false) const;
-    std::vector<EditorTextEditorDesc> TextEditors() const;
+    std::vector<EditorValueEditorDesc> ValueEditors() const;
     // Callback execution pins registered code. Mutating configuration is
     // refused while a draft/callback is active; callers keep the old profile.
     void EnterDraw();
