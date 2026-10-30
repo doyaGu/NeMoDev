@@ -115,6 +115,11 @@ bool DescribeValue(const Document &document, CKParameter *parameter, ParameterVa
         budget.nodes -= unsigned(entries);
         result.display = AnsiToUtf8(ParameterText(parameter)); out = std::move(result); return true;
     }
+    if (ui.ui == ParameterUI::Time || ui.ui == ParameterUI::Key || ui.ui == ParameterUI::Script ||
+        ui.ui == ParameterUI::Animation || ui.ui == ParameterUI::Message || ui.ui == ParameterUI::Attribute || ui.ui == ParameterUI::Synchro) {
+        if (!DescribeParameterSelection(document, parameter, result)) return false;
+        out = std::move(result); return true;
+    }
     auto &kind = result.value.kind;
     if (ui.ui == ParameterUI::Bool) kind = ParameterValueKind::Boolean;
     else if (ui.ui == ParameterUI::Enum) kind = ParameterValueKind::Enumeration;

@@ -397,7 +397,8 @@
       "name": "通用值编辑器",
       "patterns": [
         "features/values/ValueEditors.*",
-        "features/values/SpecializedValueEditors.*"
+        "features/values/SpecializedValueEditors.*",
+        "features/values/SelectionValueEditors.*"
       ]
     }
   ],

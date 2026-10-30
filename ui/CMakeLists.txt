@@ -67,6 +67,7 @@ set(_editor_sources
         ../features/scene/SceneViewData.cpp
         ../features/values/ValueEditors.cpp
         ../features/values/SpecializedValueEditors.cpp
+        ../features/values/SelectionValueEditors.cpp
         ../features/scene/SceneTreeView.cpp
         ../features/scene/AttributeView.cpp
         ../features/resources/BuildingBlockViews.cpp

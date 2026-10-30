@@ -18,6 +18,7 @@ class ParameterCommands {
     std::vector<Entry> m_Entries;
     std::function<Document *()> m_Current;
     static EditorStatus Read(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus Selections(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Choices(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Describe(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Check(void *, const EditorHost *, const EditorRequest *);

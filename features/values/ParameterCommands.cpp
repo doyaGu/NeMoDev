@@ -32,13 +32,26 @@ const Kind kinds[] = {
     {ParameterValueKind::Flags, "parameter.flags", "value.flags", EDITOR_INTEGER_VALUE},
     {ParameterValueKind::Curve2D, "parameter.curve2d", "value.curve2d", EDITOR_RECORD},
     {ParameterValueKind::Dependencies, "parameter.dependencies", "value.dependencies", EDITOR_RECORD},
-    {ParameterValueKind::LodOptions, "parameter.lod-options", "value.lod-options", EDITOR_RECORD}};
+    {ParameterValueKind::LodOptions, "parameter.lod-options", "value.lod-options", EDITOR_RECORD},
+    {ParameterValueKind::Time, "parameter.time", "value.time", EDITOR_REAL_VALUE},
+    {ParameterValueKind::Key, "parameter.key", "value.key", EDITOR_INTEGER_VALUE},
+    {ParameterValueKind::Script, "parameter.script", "value.script", EDITOR_OBJECT},
+    {ParameterValueKind::Animation, "parameter.animation", "value.animation", EDITOR_OBJECT},
+    {ParameterValueKind::Message, "parameter.message", "value.message", EDITOR_RECORD},
+    {ParameterValueKind::Attribute, "parameter.attribute", "value.attribute", EDITOR_INTEGER_VALUE},
+    {ParameterValueKind::Synchro, "parameter.synchro", "value.synchro", EDITOR_RECORD}};
 const EditorValue *Find(const EditorRequest &request, const char *key) {
     for (uint32_t i = 0; i < request.count; ++i)
         if (std::string(request.values[i].key.data, request.values[i].key.size) == key) return &request.values[i];
     return nullptr;
 }
 uint64_t TypeId(CKGUID type) { return (uint64_t(type.d1) << 32) | type.d2; }
+const char *ChoicesFor(ParameterValueKind kind) {
+    if (kind == ParameterValueKind::Object || kind == ParameterValueKind::ObjectArray) return "parameter.object-choices";
+    if (kind == ParameterValueKind::Script || kind == ParameterValueKind::Animation || kind == ParameterValueKind::Message ||
+        kind == ParameterValueKind::Attribute || kind == ParameterValueKind::Synchro) return "parameter.selection-choices";
+    return "";
+}
 } // namespace
 const char *ParameterProperty(ParameterValueKind kind) {
     for (const auto &entry : kinds) if (entry.kind == kind) return entry.property;
@@ -47,6 +60,16 @@ const char *ParameterProperty(ParameterValueKind kind) {
 EditorField ParameterValueField(const ParameterValue &value, const std::string &key) {
     EditorField result; result.key = key;
     for (const auto &entry : kinds) if (entry.kind == value.kind) result.type = entry.type;
+    if (value.kind == ParameterValueKind::Message) {
+        result.fields = {{"id", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(value.integer))}, {"name", EDITOR_TEXT_VALUE, {}, value.text}};
+        return result;
+    }
+    if (value.kind == ParameterValueKind::Synchro) {
+        result.fields = {{"object", EDITOR_OBJECT, value.object}, {"name", EDITOR_TEXT_VALUE, {}, value.text}};
+        if (value.waiters) result.fields.push_back({"users", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(*value.waiters))});
+        if (value.setWaiters) result.fields.push_back({"set-users", EDITOR_INTEGER_VALUE, {}, {}, 1});
+        return result;
+    }
     if (value.kind == ParameterValueKind::Curve2D) {
         result.fields = {{"fitting", EDITOR_REAL_VALUE}, {"points", EDITOR_REAL_LIST}, {"flags", EDITOR_INTEGER_LIST}};
         result.fields[0].real = value.curve.fitting;
@@ -90,7 +113,7 @@ std::vector<EditorField> ParameterFields(const ParameterValueDescription &descri
             member.fields.push_back({"name", EDITOR_TEXT_VALUE, {}, child.name});
             member.fields.push_back({"editor", EDITOR_TEXT_VALUE, {}, editor});
             member.fields.push_back({"target", EDITOR_OBJECT, child.parameter});
-            member.fields.push_back({"choices", EDITOR_TEXT_VALUE, {}, child.value.kind == ParameterValueKind::Object || child.value.kind == ParameterValueKind::ObjectArray ? "parameter.object-choices" : ""});
+            member.fields.push_back({"choices", EDITOR_TEXT_VALUE, {}, ChoicesFor(child.value.kind)});
             schema.fields.push_back(std::move(member));
         }
         fields.push_back(std::move(schema));
@@ -143,6 +166,26 @@ bool ParameterValueFromEditor(const ParameterValueDescription &description, cons
 }
 bool ParameterValueFromEditor(ParameterValueKind kind, const EditorValue &value, ParameterValue &out) {
     if (kind == ParameterValueKind::None) return false;
+    if (kind == ParameterValueKind::Message || kind == ParameterValueKind::Synchro) {
+        if (value.type != EDITOR_RECORD) return false;
+        ParameterValue parsed; parsed.kind = kind;
+        const auto *name = Member(value, "name");
+        if (!name || name->type != EDITOR_TEXT_VALUE || name->text.size > 1024 * 1024 || (name->text.size && !name->text.data)) return false;
+        parsed.text.assign(name->text.data ? name->text.data : "", name->text.size);
+        const auto integer = [](const EditorValue *field, int32_t &out) {
+            if (!field || field->type != EDITOR_INTEGER_VALUE || int64_t(field->integer) < INT32_MIN || int64_t(field->integer) > INT32_MAX) return false;
+            out = int32_t(int64_t(field->integer)); return true;
+        };
+        if (kind == ParameterValueKind::Message) {
+            if (value.fields.count != 2 || !integer(Member(value, "id"), parsed.integer)) return false;
+        } else {
+            const auto *object = Member(value, "object"), *users = Member(value, "users"), *setUsers = Member(value, "set-users"); int32_t count = 0;
+            if (!object || object->type != EDITOR_OBJECT || value.fields.count != 2u + (users ? 1u : 0u) + (setUsers ? 1u : 0u) || (users && !integer(users, count)) ||
+                (setUsers && (setUsers->type != EDITOR_INTEGER_VALUE || setUsers->integer != 1 || !users))) return false;
+            parsed.object = object->object; if (users) parsed.waiters = count; parsed.setWaiters = setUsers != nullptr;
+        }
+        out = std::move(parsed); return true;
+    }
     if (kind == ParameterValueKind::Curve2D || kind == ParameterValueKind::Dependencies || kind == ParameterValueKind::LodOptions) {
         if (value.type != EDITOR_RECORD) return false;
         ParameterValue parsed; parsed.kind = kind;
@@ -177,8 +220,8 @@ bool ParameterValueFromEditor(ParameterValueKind kind, const EditorValue &value,
         out = std::move(parsed); return true;
     }
     const auto count = ParameterComponentCount(kind);
-    const auto expected = count ? EDITOR_REAL_LIST : kind == ParameterValueKind::Real || kind == ParameterValueKind::Angle ?
-        EDITOR_REAL_VALUE : kind == ParameterValueKind::Object ? EDITOR_OBJECT : kind == ParameterValueKind::Text ? EDITOR_TEXT_VALUE :
+    const auto expected = count ? EDITOR_REAL_LIST : ParameterRealValue(kind) ?
+        EDITOR_REAL_VALUE : ParameterObjectValue(kind) ? EDITOR_OBJECT : kind == ParameterValueKind::Text ? EDITOR_TEXT_VALUE :
         kind == ParameterValueKind::ObjectArray ? EDITOR_OBJECT_LIST : EDITOR_INTEGER_VALUE;
     if (value.type != expected) return false;
     ParameterValue parsed;
@@ -265,6 +308,84 @@ EditorStatus ParameterCommands::Choices(void *data, const EditorHost *, const Ed
         {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}}};
     return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
 }
+EditorStatus ParameterCommands::Selections(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+    auto *document = static_cast<ParameterCommands *>(data)->m_Current(); const auto *target = Find(*request, "target");
+    if (!document || !target || document->Token() != request->scope.document) return EDITOR_STALE;
+    auto *parameter = CKParameter::Cast(document->Resolve(target->object, CKCID_PARAMETER));
+    ParameterValueDescription description;
+    if (!DescribeParameterValue(*document, parameter, description)) return EDITOR_STALE;
+    std::vector<EditorField> fields{{"labels", EDITOR_TEXT_LIST}, {"objects", EDITOR_OBJECT_LIST}, {"values", EDITOR_INTEGER_LIST},
+        {"categories", EDITOR_TEXT_LIST}, {"classes", EDITOR_INTEGER_LIST}, {"class-labels", EDITOR_TEXT_LIST},
+        {"owners", EDITOR_OBJECT_LIST}, {"owner-labels", EDITOR_TEXT_LIST}, {"owner", EDITOR_OBJECT}, {"class", EDITOR_INTEGER_VALUE},
+        {"category", EDITOR_TEXT_VALUE}, {"users", EDITOR_INTEGER_LIST}, {"has-users", EDITOR_INTEGER_VALUE}};
+    const EditorValue defaults{EDITOR_TEXT("filters"),EDITOR_RECORD};
+    const auto *filters = Find(*request, "filters");
+    if (!filters) filters=&defaults;
+    if (filters->type != EDITOR_RECORD || filters->fields.count > 3) return EDITOR_INVALID;
+    const auto *classId = Member(*filters,"class"), *ownerId = Member(*filters,"owner"), *categoryFilter = Member(*filters,"category");
+    if ((classId && classId->type != EDITOR_INTEGER_VALUE) || (ownerId && ownerId->type != EDITOR_OBJECT) ||
+        (categoryFilter && categoryFilter->type != EDITOR_TEXT_VALUE) ||
+        filters->fields.count != unsigned(bool(classId)) + unsigned(bool(ownerId)) + unsigned(bool(categoryFilter))) return EDITOR_INVALID;
+    auto *context = document->Context(); const auto kind = description.value.kind;
+    const auto objects = [&](const ObjectChoices &choices, unsigned labels = 0, unsigned refs = 1) {
+        for (const auto &choice : choices) {
+            fields[labels].texts.push_back(AnsiToUtf8(choice.second)); fields[refs].objects.push_back(document->Reference(choice.first));
+            if (refs == 1) {
+                auto *synchro = CKSynchroObject::Cast(context->GetObject(choice.first));
+                fields[11].integers.push_back(uint64_t(int64_t(synchro ? synchro->GetRendezVousNumberOfWaiters() : 0)));
+            }
+        }
+    };
+    if (kind == ParameterValueKind::Script) {
+        auto *script = CKBehavior::Cast(document->Resolve(description.value.object)); auto *owner = script ? script->GetOwner() : nullptr;
+        auto ref = owner ? document->Reference(owner->GetID()) : ObjectRef{};
+        auto cid = owner ? owner->GetClassID() : CKCID_BEOBJECT;
+        if (classId && classId->integer) {
+            if (classId->integer > INT32_MAX || !CKIsChildClassOf(CK_CLASSID(classId->integer), CKCID_BEOBJECT)) return EDITOR_INVALID;
+            cid = CK_CLASSID(classId->integer);
+            if (owner && !CKIsChildClassOf(owner, cid)) ref = {};
+        }
+        if (ownerId) {
+            if (ownerId->object && !document->Resolve(ownerId->object, cid)) return EDITOR_STALE;
+            ref = ownerId->object;
+        }
+        fields[8].object = ref; fields[9].integer = cid;
+        for (const auto &entry : DerivedClasses(CKCID_BEOBJECT)) { fields[4].integers.push_back(entry.first); fields[5].texts.push_back(AnsiToUtf8(entry.second)); }
+        auto owners = ScriptOwners(*document, cid); owners.emplace_back(0, "NULL");
+        std::stable_sort(owners.begin(), owners.end(), [](const auto &a, const auto &b) { return _stricmp(a.second.c_str(), b.second.c_str()) < 0; });
+        objects(owners, 7, 6);
+        objects(ScriptsOf(*document, document->NativeId(ref)));
+    } else if (kind == ParameterValueKind::Animation || kind == ParameterValueKind::Synchro) {
+        objects(ObjectsOfClass(*document, description.objectClass, true, ""));
+        fields[9].integer = description.objectClass; fields[12].integer = description.objectClass == CKCID_SYNCHRO;
+    } else if (kind == ParameterValueKind::Message) {
+        auto *messages = context->GetMessageManager();
+        if (!messages || messages->GetMessageTypeCount() > 65536) return EDITOR_INVALID;
+        std::vector<std::pair<std::string, int>> names;
+        for (int i = 0; i < messages->GetMessageTypeCount(); ++i) {
+            const auto *name = messages->GetMessageTypeName(i);
+            if (name && *name) names.emplace_back(AnsiToUtf8(name), i);
+        }
+        std::stable_sort(names.begin(), names.end(), [](const auto &a, const auto &b) { return _stricmp(a.first.c_str(), b.first.c_str()) < 0; });
+        for (const auto &entry : names) { fields[0].texts.push_back(entry.first); fields[2].integers.push_back(uint64_t(int64_t(entry.second))); }
+    } else if (kind == ParameterValueKind::Attribute) {
+        auto *attributes = context->GetAttributeManager();
+        if (!attributes || attributes->GetAttributeCount() > 65536 || attributes->GetCategoriesCount() > 65536) return EDITOR_INVALID;
+        const auto *category = categoryFilter;
+        const auto *native = description.value.integer >= 0 ? attributes->GetAttributeCategory(description.value.integer) : nullptr;
+        const auto selected = category ? std::string(category->text.data ? category->text.data : "", category->text.size) : AnsiToUtf8(native ? native : "");
+        fields[10].text = selected;
+        for (int i = 0; i < attributes->GetCategoriesCount(); ++i) { const auto *name = attributes->GetCategoryName(i); fields[3].texts.push_back(AnsiToUtf8(name ? name : "")); }
+        for (int i = 0; i < attributes->GetAttributeCount(); ++i) {
+            if (!attributes->IsAttributeIndexValid(i)) continue;
+            const auto *category = attributes->GetAttributeCategory(i), *name = attributes->GetAttributeNameByType(i);
+            if (!selected.empty() && selected != AnsiToUtf8(category ? category : "")) continue;
+            fields[0].texts.push_back(AnsiToUtf8(name ? name : "")); fields[2].integers.push_back(uint64_t(int64_t(i)));
+        }
+    } else return EDITOR_INVALID;
+    const auto borrowed = BorrowEditorFields(fields);
+    return sink.write ? sink.write(sink.data, borrowed.data(), uint32_t(borrowed.size())) : EDITOR_INVALID;
+}
 EditorStatus ParameterCommands::Write(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     const auto &entry = *static_cast<Entry *>(data);
     auto *document = entry.owner->m_Current();
@@ -319,7 +440,7 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
         queryIds[i] = std::string(kind.property) + "-value";
         commandIds[i] = std::string(kind.property) + "-set";
         arguments[i][0] = target;
-        arguments[i][1] = {EDITOR_TEXT("value"), kind.type};
+        arguments[i][1] = {EDITOR_TEXT("value"), kind.type, 0, kind.type == EDITOR_OBJECT ? 1u : 0u};
         arguments[i][2] = {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE};
         fields[i][0] = arguments[i][1];
         fields[i][1] = {EDITOR_TEXT("display"), EDITOR_TEXT_VALUE};
@@ -340,7 +461,8 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
         queries.push_back({sizeof(EditorQueryDesc), EditorText(queryIds[i]), EDITOR_TEXT("builtin.parameters"),
             &target, 1, Read, &m_Entries[i], EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields[i], schema ? 11u : 10u});
         properties.push_back({sizeof(EditorPropertyDesc), EditorLiteral(kind.property), EDITOR_TEXT("Value"),
-            EditorText(queryIds[i]), EDITOR_TEXT("value"), EditorText(commandIds[i]), EDITOR_TEXT("value"), EditorLiteral(kind.editor), (kind.kind == ParameterValueKind::Object || kind.kind == ParameterValueKind::ObjectArray) ? EditorString EDITOR_TEXT("parameter.object-choices") : EditorString{}});
+            EditorText(queryIds[i]), EDITOR_TEXT("value"), EditorText(commandIds[i]), EDITOR_TEXT("value"), EditorLiteral(kind.editor),
+            EditorLiteral(ChoicesFor(kind.kind))});
     }
     const EditorParameter copyArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("source"), EDITOR_OBJECT}};
     commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.copy-value"), EDITOR_TEXT("builtin.parameters"),
@@ -357,6 +479,15 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
     const EditorParameter choiceFields[] = {{EDITOR_TEXT("labels"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}};
     queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.object-choices"), EDITOR_TEXT("builtin.parameters"),
         choiceArgs, 4, Choices, this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, choiceFields, 2});
+    const EditorParameter selectionArgs[] = {target, {EDITOR_TEXT("filters"), EDITOR_RECORD, 1}};
+    const EditorParameter selectionFields[] = {{EDITOR_TEXT("labels"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},
+        {EDITOR_TEXT("values"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("categories"), EDITOR_TEXT_LIST},
+        {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("class-labels"), EDITOR_TEXT_LIST},
+        {EDITOR_TEXT("owners"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("owner-labels"), EDITOR_TEXT_LIST},
+        {EDITOR_TEXT("owner"), EDITOR_OBJECT}, {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("category"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("users"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("has-users"), EDITOR_INTEGER_VALUE}};
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.selection-choices"), EDITOR_TEXT("builtin.parameters"),
+        selectionArgs, 2, Selections, this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, selectionFields, uint32_t(std::size(selectionFields))});
     EditorModuleDesc module{};
     module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("parameters.editing");
     module.commands = commands.data(); module.commandCount = uint32_t(commands.size());

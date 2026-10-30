@@ -1306,10 +1306,12 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
             if (!d.choices.empty()) {
                 const auto *choices = queries.at(d.choices);
                 d.choicesProvider = String(choices->provider);
+                // A record editor defines its own choice projection. Scalar
+                // editors keep the paired label/value lists of their value type.
                 if (choices->area != EDITOR_DOCUMENT || !has(choices->parameters, choices->count, "target", EDITOR_OBJECT) ||
-                    !has(choices->fields, choices->fieldCount, "labels", EDITOR_TEXT_LIST) ||
+                    (d.type != EDITOR_RECORD && (!has(choices->fields, choices->fieldCount, "labels", EDITOR_TEXT_LIST) ||
                     !has(choices->fields, choices->fieldCount, (d.type == EDITOR_OBJECT || d.type == EDITOR_OBJECT_LIST) ? "objects" : "values",
-                        (d.type == EDITOR_OBJECT || d.type == EDITOR_OBJECT_LIST) ? EDITOR_OBJECT_LIST : d.type == EDITOR_INTEGER_VALUE ? EDITOR_INTEGER_LIST : EDITOR_TEXT_LIST))
+                        (d.type == EDITOR_OBJECT || d.type == EDITOR_OBJECT_LIST) ? EDITOR_OBJECT_LIST : d.type == EDITOR_INTEGER_VALUE ? EDITOR_INTEGER_LIST : EDITOR_TEXT_LIST))))
                     throw std::invalid_argument("Property choices query schema mismatch");
                 for (uint32_t i = 0; i < choices->count; ++i)
                     if (String(choices->parameters[i].key) != "target" && !choices->parameters[i].optional)
