@@ -678,7 +678,7 @@ struct SetupCommands::Data {
         const auto targets = Targets(entry, *doc, *request);
         if (targets.empty())
             return EDITOR_STALE;
-        if (targets.size() > 1 && (entry.storage != Storage::Object))
+        if (targets.size() > 1 && entry.storage != Storage::Object && entry.storage != Storage::Script)
             return EDITOR_INVALID;
         if (entry.bitmapProperty && targets.size() > 1) {
             const auto count = std::count_if(targets.begin(), targets.end(),
@@ -703,19 +703,23 @@ struct SetupCommands::Data {
             int v;
             if (!Parse(*value, v))
                 return EDITOR_INVALID;
-            CKBehavior *owner = CKBehavior::Cast(object);
-            if (auto *link = CKBehaviorLink::Cast(object))
-                owner = link->GetInBehaviorIO()    ? link->GetInBehaviorIO()->GetOwner()
-                        : link->GetOutBehaviorIO() ? link->GetOutBehaviorIO()->GetOwner()
-                                                   : nullptr;
-            auto *script =
-                owner ? (owner->GetType() == CKBEHAVIORTYPE_SCRIPT ? owner : owner->GetOwnerScript()) : nullptr;
-            if (!script || !doc.FindScript(script->GetID()))
-                return EDITOR_REFUSED;
-            return Result(entry.id == "setup.behavior.priority"
-                              ? SetBehaviorPriority(doc, script->GetID(), object->GetID(), v)
-                              : SetLinkDelay(doc, script->GetID(), object->GetID(), v),
-                          sink);
+            Edit edit(doc, entry.label);
+            for (auto id : Targets(entry, doc, *request)) {
+                auto *target = doc.Context()->GetObject(id);
+                CKBehavior *owner = CKBehavior::Cast(target);
+                if (auto *link = CKBehaviorLink::Cast(target))
+                    owner = link->GetInBehaviorIO()    ? link->GetInBehaviorIO()->GetOwner()
+                            : link->GetOutBehaviorIO() ? link->GetOutBehaviorIO()->GetOwner()
+                                                       : nullptr;
+                auto *script =
+                    owner ? (owner->GetType() == CKBEHAVIORTYPE_SCRIPT ? owner : owner->GetOwnerScript()) : nullptr;
+                if (!script || !doc.FindScript(script->GetID())) return EDITOR_REFUSED;
+                const auto result = entry.id == "setup.behavior.priority"
+                                        ? SetBehaviorPriority(doc, script->GetID(), id, v)
+                                        : SetLinkDelay(doc, script->GetID(), id, v);
+                if (!result.ok && !result.Unchanged()) return Result(result, sink);
+            }
+            return Result(edit.Commit(), sink);
         }
         if (entry.storage == Storage::Grid) {
             GridPropertyValue v;
