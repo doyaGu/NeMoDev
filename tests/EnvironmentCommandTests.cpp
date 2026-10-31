@@ -36,6 +36,14 @@ void TestEnvironmentCommands(vdev::CkRuntimeHost &runtime, const std::string &fi
             if (saveFailure) { error = "Injected preferences save refusal"; return false; }
             preferences = paths; ++saved; return true;
         }, [&] { ++catalogs; });
+    EnvironmentCommands::LinkOptions linkOptions{4, true, runtime.Context()->GetBehaviorManager()->GetBehaviorMaxIteration()};
+    const auto originalLinkOptions = linkOptions;
+    unsigned linkSaves = 0;
+    environment.ConfigureLinks([&] { return linkOptions; }, [&](const EnvironmentCommands::LinkOptions &next, std::string &error) {
+        if (saveThrows) throw std::runtime_error("Injected link properties save exception");
+        if (saveFailure) { error = "Injected link properties save refusal"; return false; }
+        linkOptions = next; ++linkSaves; return true;
+    });
     Check(environment.Register(error) && editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
     const auto attach = [&] { editor.Attach(document.Token(), document.TopologyRevision(), true, true); };
     attach();
@@ -91,6 +99,32 @@ void TestEnvironmentCommands(vdev::CkRuntimeHost &runtime, const std::string &fi
               preferences[0].second == std::vector<std::string>({"search-a", "search-b"}) && saved == 1,
               "failed path publication did not restore native paths and preferences");
     }
+    auto links = query("environment.link-options");
+    Check(links.status == EDITOR_OK && Field(links, "delay").integer == 4, "behavior link properties query missing");
+    const auto changeLinks = [&](const EditorResponse &base, uint64_t delay, uint64_t prevent, uint64_t iterations) {
+        return command("environment.set-link-options", {IntegerArgument("revision", Field(base, "revision").integer),
+            IntegerArgument("delay", delay), IntegerArgument("prevent", prevent), IntegerArgument("iterations", iterations)});
+    };
+    Check(changeLinks(links, 12, 0, 64).status == EDITOR_OK && linkOptions.delay == 12 && !linkOptions.preventLoop && linkSaves == 1 &&
+          runtime.Context()->GetBehaviorManager()->GetBehaviorMaxIteration() == 64, "link properties did not update preferences and the behavior manager");
+    Check(changeLinks(links, 3, 1, 32).status == EDITOR_STALE && linkSaves == 1, "stale link properties overwrote current preferences");
+    links = query("environment.link-options");
+    Check(changeLinks(links, UINT64_MAX, 1, 64).status == EDITOR_INVALID && changeLinks(links, 1, 2, 64).status == EDITOR_INVALID &&
+          changeLinks(links, 1, 1, 0).status == EDITOR_INVALID, "invalid link properties reached native settings");
+    for (int failure : {1, 2}) {
+        saveFailure = failure == 1; saveThrows = failure == 2;
+        const auto result = changeLinks(links, 18, 1, 99); saveFailure = saveThrows = false;
+        Check(result.status == EDITOR_ERROR && query("environment.link-options").fields == links.fields &&
+              linkOptions.delay == 12 && !linkOptions.preventLoop && linkSaves == 1 &&
+              runtime.Context()->GetBehaviorManager()->GetBehaviorMaxIteration() == 64,
+              "failed link settings save did not restore the runtime and preferences");
+    }
+    runtime.Context()->GetBehaviorManager()->SetBehaviorMaxIteration(65);
+    Check(changeLinks(links, 18, 1, 32).status == EDITOR_STALE && runtime.Context()->GetBehaviorManager()->GetBehaviorMaxIteration() == 65,
+          "native link setting changes were overwritten by an old dialog");
+    links = query("environment.link-options");
+    Check(changeLinks(links, originalLinkOptions.delay, originalLinkOptions.preventLoop, originalLinkOptions.iterations).status == EDITOR_OK,
+          "restore native link properties");
     auto plugins = query("plugins.list"); Check(plugins.status == EDITOR_OK, "plugin projection missing");
     std::vector<EditorField> rows;
     uint64_t first = 0, version = Field(plugins, "revision").integer;

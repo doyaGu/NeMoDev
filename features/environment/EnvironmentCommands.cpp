@@ -8,6 +8,7 @@
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <limits>
 
 namespace vdev {
 namespace {
@@ -63,7 +64,7 @@ bool StringValid(const std::string &value) {
 } // namespace
 
 struct EnvironmentCommands::Data {
-    enum class Action { Unload, Reload, Manager, Paths, Folder, Respond, Retry, Refresh };
+    enum class Action { Unload, Reload, Manager, Paths, Folder, Respond, Retry, Refresh, Links };
     struct Handler { Data *owner; Action action; };
     struct Unloaded { EditorView owner = 0; bool attempted = false; std::string error; };
     EditorApplication &editor;
@@ -71,6 +72,11 @@ struct EnvironmentCommands::Data {
     std::function<bool()> nativeAvailable;
     SavePaths savePaths;
     std::function<void()> pluginsChanged;
+    std::function<LinkOptions()> readLinks;
+    std::function<bool(const LinkOptions &, std::string &)> saveLinks;
+    LinkOptions links;
+    uint64_t linkRevision = 1;
+    bool linksReady = false;
     std::deque<Handler> handlers;
     std::vector<PluginRow> plugins;
     std::vector<EditorField> pluginFields;
@@ -78,7 +84,7 @@ struct EnvironmentCommands::Data {
     std::map<std::string, Unloaded> unloaded;
     uint64_t pluginRevision = 1, pathRevision = 1, generation = UINT64_MAX;
     bool pluginReady = false, pathsReady = false, stopped = false;
-    std::set<EditorView> pluginReaders, pathReaders;
+    std::set<EditorView> pluginReaders, pathReaders, linkReaders;
     std::chrono::steady_clock::time_point sampled{};
     struct Folder { EditorOperation operation = 0; EditorScope origin{}; uint64_t input = 0; } folder;
     uint64_t nextInput = 1;
@@ -87,7 +93,15 @@ struct EnvironmentCommands::Data {
     bool Ready() const { return !stopped && editor.NativeAvailable() && (!nativeAvailable || nativeAvailable()) && runtime.Context(); }
     void CheckGeneration() {
         if (generation == runtime.Generation()) return;
-        generation = runtime.Generation(); pluginReady = pathsReady = false; ++pluginRevision; ++pathRevision;
+        generation = runtime.Generation(); pluginReady = pathsReady = linksReady = false; ++pluginRevision; ++pathRevision; ++linkRevision;
+    }
+    bool ReadLinks() {
+        if (!Ready() || !readLinks) return false;
+        CheckGeneration();
+        auto next = readLinks();
+        if (auto *manager = runtime.Context()->GetBehaviorManager()) next.iterations = manager->GetBehaviorMaxIteration();
+        if (!linksReady || !(next == links)) { links = next; ++linkRevision; }
+        linksReady = true; return true;
     }
     bool ReadPathModel() {
         if (!Ready()) return false;
@@ -178,6 +192,10 @@ struct EnvironmentCommands::Data {
                 scope.document == folder.origin.document ? EDITOR_OK : EDITOR_STALE;
         }
         if (!Ready() || editor.HasEdits()) return EDITOR_REFUSED;
+        if (action == Action::Links) return !readLinks || !saveLinks ? EDITOR_REFUSED :
+            Number(request, "revision") != linkRevision ? EDITOR_STALE :
+            Number(request, "delay") > 32764 || Number(request, "prevent") > 1 || !Number(request, "iterations") ||
+            Number(request, "iterations") > uint64_t(std::numeric_limits<int>::max()) ? EDITOR_INVALID : EDITOR_OK;
         if (action == Action::Retry || action == Action::Refresh) return EDITOR_OK;
         if (Number(request, "revision") != (action == Action::Paths ? pathRevision : pluginRevision)) return EDITOR_STALE;
         if (action == Action::Paths) return EDITOR_OK;
@@ -243,9 +261,30 @@ struct EnvironmentCommands::Data {
             if (choice != "accept" || !path || Text(path->text).empty() || !StringValid(Text(path->text))) return EDITOR_INVALID;
             CompleteFolder(EDITOR_OK, Text(path->text)); return EDITOR_OK;
         }
-        if (action == Action::Paths) ReadPathModel(); else ReadPlugins();
+        if (action == Action::Links) ReadLinks();
+        else if (action == Action::Paths) ReadPathModel(); else ReadPlugins();
         const auto status = Status(action, request);
         if (status != EDITOR_OK) return status;
+        if (action == Action::Links) {
+            const LinkOptions next{int(Number(request, "delay")), Number(request, "prevent") != 0, int(Number(request, "iterations"))};
+            if (next == links) return EDITOR_NO_CHANGE;
+            auto *manager = runtime.Context()->GetBehaviorManager();
+            if (!manager) return EDITOR_REFUSED;
+            const auto before = links;
+            bool saved = false;
+            std::string error;
+            const bool completed = GuardedCall([&] {
+                manager->SetBehaviorMaxIteration(next.iterations);
+                saved = saveLinks(next, error);
+            }, &runtime, "Apply behavior link properties");
+            if (!completed || !saved) {
+                GuardedCall([&] { manager->SetBehaviorMaxIteration(before.iterations); }, &runtime, "Restore behavior link properties");
+                ReadLinks();
+                Write(sink, {{"message", EDITOR_TEXT_VALUE, {}, error.empty() ? "Behavior link properties could not be saved." : error}});
+                return EDITOR_ERROR;
+            }
+            ReadLinks(); return EDITOR_OK;
+        }
         if (action == Action::Retry) { RestoreClosed(false, true); ReadPlugins(); return EDITOR_OK; }
         if (action == Action::Refresh) { ReadPathModel(); if (pluginsChanged) pluginsChanged(); return EDITOR_OK; }
         if (action == Action::Paths) return SetPaths(request, sink);
@@ -320,6 +359,11 @@ EnvironmentCommands::EnvironmentCommands(EditorApplication &editor, CkRuntimeHos
                                          std::function<void()> changed)
     : m_Data(std::make_unique<Data>(editor, runtime, std::move(available), std::move(save), std::move(changed))) {}
 EnvironmentCommands::~EnvironmentCommands() = default;
+void EnvironmentCommands::ConfigureLinks(std::function<LinkOptions()> read,
+    std::function<bool(const LinkOptions &, std::string &)> save) {
+    m_Data->readLinks = std::move(read); m_Data->saveLinks = std::move(save);
+    m_Data->linksReady = false; ++m_Data->linkRevision;
+}
 bool EnvironmentCommands::InitializePaths(const PathCategories &paths, std::string &error) {
     if (!m_Data->Ready()) { error = "The runtime is busy"; return false; }
     bool result = false;
@@ -335,7 +379,7 @@ void EnvironmentCommands::Poll() {
         for (auto it = readers.begin(); it != readers.end();)
             if (self.editor.Scope(*it).view != *it) it = readers.erase(it); else ++it;
     };
-    prune(self.pathReaders); prune(self.pluginReaders);
+    prune(self.pathReaders); prune(self.pluginReaders); prune(self.linkReaders);
     if (!self.Ready()) return;
     const auto now = std::chrono::steady_clock::now();
     const bool changed = self.generation != self.runtime.Generation();
@@ -344,6 +388,7 @@ void EnvironmentCommands::Poll() {
         self.sampled = now;
         if (!self.pathReaders.empty()) self.ReadPathModel();
         if (!self.pluginReaders.empty() || !self.unloaded.empty()) self.ReadPlugins();
+        if (!self.linkReaders.empty()) self.ReadLinks();
     }
 }
 void EnvironmentCommands::Stop() {
@@ -356,6 +401,8 @@ bool EnvironmentCommands::Register(std::string &error) {
     const EditorParameter pluginArgs[] = {{EDITOR_TEXT("plugin"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}};
     const EditorParameter managerArgs[] = {pluginArgs[0], pluginArgs[1], {EDITOR_TEXT("active"), EDITOR_INTEGER_VALUE}};
     const EditorParameter pathArgs[] = {pluginArgs[1], {EDITOR_TEXT("categories"), EDITOR_RECORD}};
+    const EditorParameter linkArgs[] = {pluginArgs[1], {EDITOR_TEXT("delay"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("prevent"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("iterations"), EDITOR_INTEGER_VALUE}};
     const EditorParameter response[] = {{EDITOR_TEXT("input"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("choice"), EDITOR_TEXT_VALUE},
         {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE, 1}};
     const struct { Data::Action action; const char *id, *title; const EditorParameter *args; uint32_t count; } descriptions[] = {
@@ -366,7 +413,8 @@ bool EnvironmentCommands::Register(std::string &error) {
         {Data::Action::Folder, "paths.choose-folder", "Choose Search Path", nullptr, 0},
         {Data::Action::Respond, "paths.folder-response", "Choose Search Path Result", response, 4},
         {Data::Action::Retry, "plugins.retry-reloads", "Retry Plugin Reloads", nullptr, 0},
-        {Data::Action::Refresh, "environment.refresh", "Refresh Plugins and Search Paths", nullptr, 0}};
+        {Data::Action::Refresh, "environment.refresh", "Refresh Plugins and Search Paths", nullptr, 0},
+        {Data::Action::Links, "environment.set-link-options", "Behavior Link Properties", linkArgs, 4}};
     std::vector<EditorCommandDesc> commands;
     for (const auto &description : descriptions) {
         self.handlers.push_back({&self, description.action});
@@ -382,7 +430,20 @@ bool EnvironmentCommands::Register(std::string &error) {
         {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("rows"), EDITOR_RECORD}};
     const EditorParameter pathFields[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("categories"), EDITOR_RECORD}};
     const EditorParameter folderFields[] = {{EDITOR_TEXT("input"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter linkFields[] = {pluginArgs[1], linkArgs[1], linkArgs[2], linkArgs[3]};
     const EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("environment.link-options"), EDITOR_TEXT("builtin.environment"), nullptr, 0,
+            [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+                auto &self = *static_cast<Data *>(data);
+                const bool first = request->scope.view && self.linkReaders.insert(request->scope.view).second;
+                if (!self.linksReady || first) self.ReadLinks();
+                if (!self.linksReady) return EDITOR_REFUSED;
+                return Write(sink, {{"revision", EDITOR_INTEGER_VALUE, {}, {}, self.linkRevision},
+                    {"delay", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(self.links.delay))},
+                    {"prevent", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(self.links.preventLoop)},
+                    {"iterations", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(self.links.iterations))}});
+            }, &self, EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, linkFields, 4,
+            [](void *data, const EditorHost *) { return static_cast<Data *>(data)->linkRevision; }},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("environment.state"), EDITOR_TEXT("builtin.environment"), nullptr, 0, Data::Query, &self, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, stateFields, 4},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("plugins.list"), EDITOR_TEXT("builtin.environment"), page, 2, Data::Plugins, &self, EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, pluginFields, 4,
             [](void *data, const EditorHost *) { return static_cast<Data *>(data)->pluginRevision; }},
