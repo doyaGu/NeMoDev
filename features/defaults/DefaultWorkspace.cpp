@@ -80,7 +80,11 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"command", "runtime.play", "builtin.execution"},
                                       {"view", "runtime.debugger", "builtin.runtime-views"},
                                       {"view", "runtime.profiler", "builtin.runtime-views"},
-                                      {"view", "runtime.parameters", "builtin.runtime-views"}};
+                                      {"view", "runtime.parameters", "builtin.runtime-views"},
+                                      {"view", "environment.plugins", "builtin.environment-views"},
+                                      {"view", "environment.paths", "builtin.environment-views"},
+                                      {"command", "paths.choose-folder", "builtin.environment"},
+                                      {"command", "paths.apply", "builtin.environment"}};
     for (const auto *id : {"array.row-insert", "array.rows-remove", "array.rows-duplicate", "array.row-move",
                            "array.column-set", "array.column-insert", "array.column-remove", "array.column-move",
                            "array.sort", "array.key-set", "array.cells-set", "array.copy", "array.paste",
@@ -95,6 +99,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.insert(result.contributions.providers.end(), schematic.begin(), schematic.end());
     result.views = {{"document.file-dialogs", "", "", true},
                     {"document.output-dialogs", "", "", true},
+                    {"environment.folder-dialogs", "", "", true},
                     {"scene.level", "main.level", "editing", true, true},
                     {"script.schematic", "main.schematic", "editing", true, true},
                     {"resource.building-blocks", "main.building-blocks", "resources", true, true},
@@ -104,7 +109,9 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                     {"resource.data", "", "resources", false, false, true},
                     {"runtime.debugger", "main.debugger", ""},
                     {"runtime.profiler", "main.profiler", ""},
-                    {"runtime.parameters", "main.parameters", "resources"}};
+                    {"runtime.parameters", "main.parameters", "resources"},
+                    {"environment.plugins", "main.plugins", ""},
+                    {"environment.paths", "main.paths", ""}};
     result.splits = {{"root", "top", "editing", WorkspaceDirection::Up, .5f},
                      {"top", "resources", "layout", WorkspaceDirection::Right, .5f}};
     result.regions = {

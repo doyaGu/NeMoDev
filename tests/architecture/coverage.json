@@ -145,7 +145,8 @@
         "application/ExecutionCommands.*",
         "application/OutputCommands.*",
         "application/Printing.h",
-        "ui/app/OutputInputs.*"
+        "ui/app/OutputInputs.*",
+        "ui/app/EnvironmentInputs.*"
       ]
     },
     {
@@ -437,6 +438,14 @@
       "patterns": [
         "features/environment/EnvironmentCommands.*"
       ]
+    },
+    {
+      "id": "S51",
+      "name": "插件与路径工作区视图",
+      "patterns": [
+        "features/environment/**",
+        "!features/environment/EnvironmentCommands.*"
+      ]
     }
   ],
   "dependencies": {
@@ -557,7 +566,9 @@
       "S46",
       "S47",
       "S48",
-      "S49"
+      "S49",
+      "S50",
+      "S51"
     ],
     "S15": [
       "S01",
@@ -569,7 +580,8 @@
       "S27",
       "S28",
       "S33",
-      "S34"
+      "S34",
+      "S35"
     ],
     "S16": [
       "S01",
@@ -847,6 +859,12 @@
       "S03",
       "S13",
       "S34"
+    ],
+    "S51": [
+      "S34",
+      "S35",
+      "S27",
+      "S33"
     ]
   },
   "legacy_exposures": [
@@ -1790,7 +1808,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "Script Debugger、Profiler 和 Parameter Debugger 已迁移；插件与路径、剩余诊断工具待迁移并验证"
+          "reason": "Script Debugger、Profiler、Parameter Debugger 及插件与路径管理已迁移；剩余诊断工具待迁移并验证"
         }
       ]
     },
@@ -1827,13 +1845,15 @@
     {
       "id": "F21",
       "name": "原生插件与路径",
-      "owner": "RuntimeHost",
+      "owner": "EnvironmentCommands",
       "source_groups": [
         "S03",
         "S13",
         "S17",
         "S24",
-        "S50"
+        "S15",
+        "S50",
+        "S51"
       ],
       "tests": [
         "VirtoolsDev.ManagersAfterClearAll",
@@ -2348,7 +2368,7 @@
     {
       "id": "environment",
       "name": "recent files、runtime directory、打开的 RSC、path categories",
-      "owner": "应用配置与 RuntimeHost 的实际环境",
+      "owner": "EnvironmentCommands 拥有已发布插件与路径及临时卸载恢复；应用配置保存已确认路径；工作区视图拥有未提交输入",
       "lifetime": "操作结果、配置切换、退出",
       "persistence": "文档替换不清这些数据；期望与实际不同含义分别显示",
       "features": [

@@ -1,6 +1,9 @@
 #include "ui/app/EditorApp.h"
 #include "ui/app/FileInputs.h"
 #include "ui/app/OutputInputs.h"
+#include "ui/app/EnvironmentInputs.h"
+#include "features/environment/EnvironmentViews.h"
+#include "core/document/OutputFiles.h"
 #include "ui/panels/EventLogView.h"
 #include <stdexcept>
 #include "features/objects/ObjectViews.h"
@@ -131,7 +134,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !RegisterHelpViews(m_Editor, m_HtmlFonts, error) || !m_FileCommands.Register(error) ||
         !RegisterFileInputs(m_Editor, window, error) || !m_ObjectCommands.Register(m_Editor, error) ||
         !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) ||
-        !RegisterRuntimeViews(m_Editor, error) || !m_Outputs.Register(error) ||
+        !RegisterRuntimeViews(m_Editor, error) || !m_Environment.Register(error) ||
+        !RegisterEnvironmentViews(m_Editor, error) || !RegisterEnvironmentInputs(m_Editor, window, error) || !m_Outputs.Register(error) ||
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
@@ -160,6 +164,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     // editor has its own.
     if (!isolated && !preferences.pathsSaved && preferences.ImportDevPaths())
         m_State.Log(LogLevel::Info, "Path Manager: Virtools Dev's paths");
+    if (!m_Environment.InitializePaths(preferences.paths, error)) m_State.Log(LogLevel::Warning, error);
     ApplyRuntimeSettings();
     m_HideFps = m_State.preferences.Bool("Time Settings\\Hide Fps");
     // The 3D Layout's render context (Dev makes it with its main window).
@@ -226,6 +231,24 @@ void EditorApp::SavePreferences() {
 #endif
     m_State.preferences.Save(PreferencesPath());
 }
+bool EditorApp::SaveSearchPaths(const PathCategories &paths, std::string &error) {
+    Preferences next = m_State.preferences;
+    next.paths = paths; next.pathsSaved = true;
+#ifdef VIRTOOLSDEV_UI_TESTS
+    if (!m_Startup.isolated)
+#endif
+    {
+        SaveReport report; OutputFiles outputs(report);
+        const auto staged = outputs.Add(PreferencesPath());
+        std::vector<std::string> written;
+        if (staged.empty() || !next.Save(staged) || !outputs.Publish(written)) {
+            error = "Search path preferences could not be saved";
+            for (const auto &message : report.errors) error += "\n" + message;
+            return false;
+        }
+    }
+    m_State.preferences = std::move(next); return true;
+}
 
 void EditorApp::ApplyPreferences() {
     const Preferences &p = m_State.preferences;
@@ -279,19 +302,7 @@ void EditorApp::ApplyRuntimeSettings() {
     // Behavior Link Properties: Max Behavioral Iterations.
     if (CKBehaviorManager *behaviors = context->GetBehaviorManager())
         behaviors->SetBehaviorMaxIteration(std::max(1, p.Int("BehaviorManager\\MaxIteration")));
-    // Path Manager: the saved categories and their paths.
-    CKPathManager *paths = context->GetPathManager();
-    for (const auto &category : paths ? p.paths : decltype(p.paths)()) {
-        XString name(const_cast<CKSTRING>(category.first.c_str()));
-        int index = paths->GetCategoryIndex(name);
-        if (index < 0) index = paths->AddCategory(name);
-        if (index < 0) continue;
-        while (paths->GetPathCount(index) > 0) paths->RemovePath(index, 0);
-        for (const std::string &path : category.second) {
-            XString value(const_cast<CKSTRING>(path.c_str()));
-            paths->AddPath(index, value);
-        }
-    }
+
 }
 
 void EditorApp::ImportFile(Document::ImportMode mode, const std::string &path) {
@@ -306,6 +317,7 @@ void EditorApp::CloseSetupsAndManagers() {
     CloseSceneView("attributes");
     CloseSceneView("hierarchy");
     Command("runtime.close-tools");
+    Command("environment.close-managers");
     m_Tools.CloseManagers();
 }
 
@@ -317,6 +329,7 @@ void EditorApp::Shutdown() {
     m_State.FinishRuntimeOperations();
     m_FileCommands.Stop();
     m_Outputs.Stop();
+    m_Editor.NativeAvailable(true);
     m_State.DrainRuntimeLog();
     m_State.fileDialogs.Close();
     // Toolbar toggles are preferences too.
@@ -329,6 +342,10 @@ void EditorApp::Shutdown() {
     p.showScriptLeftPart = view.showHeaders;
     m_ResourceCommands.Poll();
     SavePreferences();
+    // A pending library input must not prevent final plugin restoration.
+    m_ResourceCommands.Stop();
+    m_Environment.Stop();
+    m_State.DrainRuntimeLog();
     if (m_State.document) {
         CloseDocumentViews();
         m_State.files.Close({});
@@ -340,7 +357,6 @@ void EditorApp::Shutdown() {
     m_State.documentViews = nullptr;
     m_Layout.Stop();
     m_Workspace.CloseAll();
-    m_ResourceCommands.Stop();
     m_SceneCommands.Stop();
     m_State.document.reset();
     m_State.host.Stop();
@@ -704,7 +720,7 @@ void EditorApp::MainMenu() {
     // Dev's Editors menu.
     if (ImGui::BeginMenu("Editors")) {
         m_Workspace.CommandMenu("editors.managers");
-        if (ImGui::MenuItem("Path Manager")) m_Tools.OpenPathManager();
+        m_Workspace.CommandMenu("editors.paths");
         m_Workspace.CommandMenu("editors.diagnostics");
         ImGui::Separator();
         if (ImGui::MenuItem("Close All Setups and Managers")) CloseSetupsAndManagers();
@@ -731,6 +747,7 @@ void EditorApp::MainMenu() {
         }
         if (ImGui::MenuItem("Unused Object Explorer", nullptr, false, hasDocument)) m_Tools.OpenUnusedObjects();
         if (ImGui::MenuItem("Refresh Windows")) {
+            Command("environment.refresh");
             // Documentation "Options Menu": refreshes the windows "and resets
             // the three main tabbed windows to their default size and position"
             // (the other windows docked stay in their tab rows).
@@ -747,7 +764,7 @@ void EditorApp::MainMenu() {
         }
         if (ImGui::MenuItem("Building Block Version Test", nullptr, false, hasDocument)) m_Tools.RunVersionTest();
         ImGui::Separator();
-        if (ImGui::MenuItem("Installed Plugins")) m_Tools.OpenInstalledPlugins();
+        m_Workspace.CommandMenu("options.plugins");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Help")) {
@@ -954,6 +971,8 @@ void EditorApp::Frame() {
     m_FileCommands.Poll();
     m_Outputs.Poll();
     m_ResourceCommands.Poll();
+    m_Editor.NativeAvailable(!m_State.runtimeOperation.Busy());
+    m_Environment.Poll();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }

@@ -227,9 +227,9 @@ void EditorApp::OpenStartupTool(const std::string &name) {
         if (name.size() > 6) page = std::atoi(name.c_str() + 6);
         m_Tools.OpenGeneralPreferences(page);
     } else if (name == "plugins") {
-        m_Tools.OpenInstalledPlugins();
+        Command("environment.open-plugins");
     } else if (name == "paths") {
-        m_Tools.OpenPathManager();
+        Command("environment.open-paths");
     } else if (name == "unused") {
         m_Tools.OpenUnusedObjects();
     } else if (name == "versiontest") {

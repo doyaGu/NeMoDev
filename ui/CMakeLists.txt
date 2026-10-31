@@ -24,6 +24,7 @@ set(_editor_sources
         app/EditorState.cpp
         app/FileInputs.cpp
         app/OutputInputs.cpp
+        app/EnvironmentInputs.cpp
         app/FileMenu.cpp
         app/StatusBar.cpp
         app/DuplicateNames.cpp
@@ -78,6 +79,9 @@ set(_editor_sources
         ../features/runtime/DebuggerView.cpp
         ../features/runtime/ProfilerView.cpp
         ../features/runtime/ParameterDebuggerView.cpp
+        ../features/environment/EnvironmentViews.cpp
+        ../features/environment/PluginView.cpp
+        ../features/environment/PathView.cpp
         # The Setups.
         setup/SetupWindows.cpp
         setup/SetupRenderPages.cpp

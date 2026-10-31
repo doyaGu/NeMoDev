@@ -16,7 +16,7 @@ namespace vdev {
 
 // Dev's windows of the Resources, Editors, Options and Help menus and the
 // status bar (layouts after the Dev 2.5 screenshots the user gave):
-// General Preferences, Installed Plugins, Path Manager, Unused Object
+// General Preferences, Unused Object
 // Explorer, Building Block Version Test,
 // Behavior Link Properties and About.
 class ToolWindows {
@@ -30,8 +30,6 @@ public:
 
     // Opens a window.
     void OpenGeneralPreferences(int page = -1);
-    void OpenInstalledPlugins() { m_ShowPlugins = true; }
-    void OpenPathManager();
     void OpenUnusedObjects();
     void RunVersionTest();
     void OpenAbout() { m_OpenAbout = true; }
@@ -59,8 +57,6 @@ private:
     void SchematicPage(Preferences &p);
     void MiscPage(Preferences &p);
     // ToolWindows.cpp
-    void InstalledPlugins();
-    void PathManager();
     void UnusedObjectExplorer();
     void VersionTestDialog();
     void AboutDialog();
@@ -84,20 +80,6 @@ private:
     int m_CenterPreferences = 0;
     int m_Page = 0;
     Preferences m_Edit;
-    // Installed Plugins
-    bool m_ShowPlugins = false;
-    std::set<std::string> m_OpenCategories{"Bitmap Readers", "Movie Readers"};
-    // The plugin dlls unloaded (Temporary Unload); reloaded with the window closed.
-    std::set<int> m_UnloadedDlls;
-    void ReloadPluginDlls();
-    // Path Manager
-    bool m_OpenPaths = false;
-    unsigned m_PathRevision = 0;
-    std::vector<std::pair<std::string, std::vector<std::string>>> m_Paths;
-    int m_PathCategory = 0;
-    std::set<int> m_PathSelection;
-    int m_EditPath = -1;
-    std::string m_EditPathText;
     // Unused Object Explorer
     bool m_OpenUnused = false;
     // Building Block Version Test

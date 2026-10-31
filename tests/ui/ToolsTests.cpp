@@ -48,7 +48,9 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
     // Editors > Path Manager: its dialog (Escape closes it).
     t = IM_REGISTER_TEST(engine, "tools", "path_manager");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        IM_CHECK(OpenFromMenu(ctx, "Editors/Path Manager", "//Path Manager"));
+        Settle(ctx);
+        ctx->MenuClick("//##MainMenuBar/Editors/Path Manager"); ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, EnvironmentRef("paths").c_str()));
         ctx->KeyPress(ImGuiKey_Escape);
         ctx->Yield(3);
     };
@@ -180,8 +182,10 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
     // Options > Installed Plugins: its window.
     t = IM_REGISTER_TEST(engine, "tools", "installed_plugins");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        IM_CHECK(OpenFromMenu(ctx, "Options/Installed Plugins", "//Installed Plugins"));
-        ctx->WindowClose("//Installed Plugins");
+        Settle(ctx);
+        ctx->MenuClick("//##MainMenuBar/Options/Installed Plugins"); ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, EnvironmentRef("plugins").c_str()));
+        ctx->WindowClose(EnvironmentRef("plugins").c_str());
         ctx->Yield(2);
     };
 

@@ -16,6 +16,7 @@ class SceneCommands {
     bool Register(std::string &error);
     // Only published editor-thread values are used by version callbacks.
     void Publish(uint64_t documentRevision, int runtimeFrame, int runtimeState, bool dynamic);
+    void RefreshCatalog();
     void Stop();
 
   private:

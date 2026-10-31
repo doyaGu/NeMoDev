@@ -1,4 +1,4 @@
-// Dev's Installed Plugins, Path Manager, Unused Object Explorer, Building
+// Dev's Unused Object Explorer, Building
 // Block Version Test, Behavior Link
 // Properties and About windows; layouts after the Dev 2.5 screenshots.
 
@@ -20,7 +20,6 @@
 #include "core/level/LevelCommands.h"
 #include "core/graph/ReplaceCommands.h"
 #include "ui/controls/ObjectText.h"
-#include "ui/controls/TypeAhead.h"
 #include "core/runtime/TextEncoding.h"
 
 namespace vdev {
@@ -46,32 +45,11 @@ bool BeginDevModal(const char *name, bool *openFlag, bool canOpen, const ImVec2 
     return ImGui::BeginPopupModal(name, nullptr, flags);
 }
 
-// The CKPathManager categories and paths.
-std::vector<std::pair<std::string, std::vector<std::string>>> ReadPaths(CKContext *context) {
-    std::vector<std::pair<std::string, std::vector<std::string>>> result;
-    CKPathManager *paths = context ? context->GetPathManager() : nullptr;
-    if (!paths) return result;
-    for (int c = 0; c < paths->GetCategoryCount(); ++c) {
-        XString name;
-        paths->GetCategoryName(c, name);
-        std::pair<std::string, std::vector<std::string>> category(name.CStr() ? name.CStr() : "", {});
-        for (int i = 0; i < paths->GetPathCount(c); ++i) {
-            XString path;
-            paths->GetPathName(c, i, path);
-            category.second.push_back(path.CStr() ? path.CStr() : "");
-        }
-        result.push_back(category);
-    }
-    return result;
-}
-
 } // namespace
 
 void ToolWindows::Draw(bool openPopups) {
     m_OpenPopups = openPopups;
     GeneralPreferences();
-    InstalledPlugins();
-    PathManager();
     UnusedObjectExplorer();
     VersionTestDialog();
     AboutDialog();
@@ -80,306 +58,11 @@ void ToolWindows::Draw(bool openPopups) {
 }
 
 void ToolWindows::CloseManagers() {
-    m_ShowPlugins = false;
     m_ShowPreferences = false;
 }
 
 void ToolWindows::DocumentClosed() {
     m_Doc = DocumentState();
-}
-
-// ------------------------------------------------------------ Installed Plugins
-
-// Dev.exe sub_5A1290: a tree of the plugin categories; columns Plugin,
-// Active, Description, Dll, Author, Version. A manager's Active mark
-// switches it (CKContext::ActivateManager).
-// Dev.exe sub_5A1C50: Temporary Unload (CKPluginManager::UnLoadPluginDll)
-// and Reload; documentation "Installed Plugins": closing the window reloads
-// the plugins unloaded.
-void ToolWindows::ReloadPluginDlls() {
-    CKPluginManager *plugins = CKGetPluginManager();
-    for (int dll : m_UnloadedDlls)
-        if (plugins && plugins->ReLoadPluginDll(dll) == CK_OK) m_State.Log(LogLevel::Info, "Plugin reloaded");
-        else m_State.Log(LogLevel::Warning, "A plugin could not be reloaded");
-    m_UnloadedDlls.clear();
-}
-
-void ToolWindows::InstalledPlugins() {
-    if (!m_ShowPlugins) {
-        if (!m_UnloadedDlls.empty()) ReloadPluginDlls();
-        return;
-    }
-    ImGui::SetNextWindowSize(ImVec2(840, 600), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
-    if (!ImGui::Begin("Installed Plugins", &m_ShowPlugins, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
-        ImGui::End();
-        return;
-    }
-    CKContext *context = m_State.host.Context();
-    const std::vector<PluginCategory> categories = vdev::InstalledPlugins(context);
-    const float footer = ImGui::GetFrameHeightWithSpacing() + 6;
-    const ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
-                                  ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX;
-    if (ImGui::BeginTable("plugins", 6, flags, ImVec2(0, -footer))) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Plugin", ImGuiTableColumnFlags_WidthFixed, 200);
-        ImGui::TableSetupColumn("Active", ImGuiTableColumnFlags_WidthFixed, 44);
-        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthFixed, 260);
-        ImGui::TableSetupColumn("Dll", ImGuiTableColumnFlags_WidthFixed, 150);
-        ImGui::TableSetupColumn("Author", ImGuiTableColumnFlags_WidthFixed, 110);
-        ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthFixed, 60);
-        ImGui::TableHeadersRow();
-        for (const PluginCategory &category : categories) {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            const bool wasOpen = m_OpenCategories.count(category.name) != 0;
-            ImGui::SetNextItemOpen(wasOpen, ImGuiCond_Always);
-            const bool open = ImGui::TreeNodeEx(AnsiToUtf8(category.name).c_str(), ImGuiTreeNodeFlags_SpanAllColumns);
-            if (open != wasOpen) {
-                if (open) m_OpenCategories.insert(category.name);
-                else m_OpenCategories.erase(category.name);
-            }
-            if (!open) continue;
-            int row = 0;
-            for (const PluginRow &plugin : category.plugins) {
-                ImGui::PushID(row++);
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::Indent();
-                const bool unloaded = m_UnloadedDlls.count(plugin.dllIndex) != 0;
-                const std::string label = AnsiToUtf8(plugin.name) + (unloaded ? " (unloaded)" : "");
-                ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowOverlap);
-                ImGui::Unindent();
-                // Its menu: Temporary Unload, then Reload (the file may be replaced meanwhile).
-                if (plugin.dllIndex >= 0 && ImGui::BeginPopupContextItem("pluginmenu")) {
-                    CKPluginManager *plugins = CKGetPluginManager();
-                    if (ImGui::MenuItem("Temporary Unload", nullptr, false, !unloaded) && plugins) {
-                        if (plugins->UnLoadPluginDll(plugin.dllIndex) == CK_OK) {
-                            m_UnloadedDlls.insert(plugin.dllIndex);
-                            m_State.Log(LogLevel::Info, "Unloaded " + AnsiToUtf8(plugin.dll) + " (Reload, or close the window, to load it again)");
-                        } else {
-                            m_State.Log(LogLevel::Warning, "Cannot unload " + AnsiToUtf8(plugin.dll));
-                        }
-                    }
-                    if (ImGui::MenuItem("Reload", nullptr, false, unloaded) && plugins) {
-                        if (plugins->ReLoadPluginDll(plugin.dllIndex) == CK_OK)
-                            m_State.Log(LogLevel::Info, "Reloaded " + AnsiToUtf8(plugin.dll));
-                        else
-                            m_State.Log(LogLevel::Warning, "Cannot reload " + AnsiToUtf8(plugin.dll));
-                        m_UnloadedDlls.erase(plugin.dllIndex);
-                    }
-                    ImGui::EndPopup();
-                }
-                ImGui::TableSetColumnIndex(1);
-                if (plugin.active >= 0) {
-                    const char *mark = plugin.active ? "A" : "-";
-                    if (plugin.managerIndex >= 0) {
-                        if (ImGui::Selectable(mark, false)) {
-                            CKBaseManager *manager = context ? context->GetManager(plugin.managerIndex) : nullptr;
-                            if (manager) {
-                                context->ActivateManager(manager, !plugin.active);
-                                m_State.Log(LogLevel::Info, std::string(plugin.active ? "Deactivated" : "Activated") +
-                                                                " manager " + AnsiToUtf8(plugin.name));
-                            }
-                        }
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Click to switch the manager on or off");
-                    } else {
-                        ImGui::TextUnformatted(mark);
-                    }
-                }
-                ImGui::TableSetColumnIndex(2);
-                ImGui::TextUnformatted(AnsiToUtf8(plugin.description).c_str());
-                ImGui::TableSetColumnIndex(3);
-                ImGui::TextUnformatted(AnsiToUtf8(plugin.dll).c_str());
-                ImGui::TableSetColumnIndex(4);
-                ImGui::TextUnformatted(AnsiToUtf8(plugin.author).c_str());
-                ImGui::TableSetColumnIndex(5);
-                ImGui::Text("%d", plugin.version);
-                ImGui::PopID();
-            }
-            ImGui::TreePop();
-        }
-        ImGui::EndTable();
-    }
-    ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - 90);
-    if (RightButton("Close")) m_ShowPlugins = false;
-    ImGui::End();
-}
-
-// ---------------------------------------------------------------- Path Manager
-
-void ToolWindows::OpenPathManager() {
-    m_Paths = ReadPaths(m_State.host.Context());
-    m_PathCategory = 0;
-    m_PathSelection.clear();
-    m_EditPath = -1;
-    ++m_PathRevision;
-    m_OpenPaths = true;
-}
-
-// Dev's Path Manager (screenshot): the category combo, the paths of the
-// category, Add Path / Delete Path / Up / Down, Ok / Cancel. F2 or a double
-// click edits a path, Delete removes the selected ones. Ok gives the paths to
-// CKPathManager and keeps them in the preferences.
-void ToolWindows::PathManager() {
-    if (!BeginDevModal("Path Manager", &m_OpenPaths, m_OpenPopups, ImVec2(680, 420))) return;
-    if (m_Paths.empty()) {
-        ImGui::TextUnformatted("The path manager has no categories.");
-        if (RightButton("Cancel")) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-        return;
-    }
-    m_PathCategory = std::max(0, std::min(m_PathCategory, static_cast<int>(m_Paths.size()) - 1));
-    std::vector<std::string> &list = m_Paths[m_PathCategory].second;
-    ImGui::SetNextItemWidth(480);
-    if (ImGui::BeginCombo("##category", AnsiToUtf8(m_Paths[m_PathCategory].first).c_str())) {
-        TypeAhead typeAhead;
-        for (int c = 0; c < static_cast<int>(m_Paths.size()); ++c)
-            if (typeAhead.Selectable(AnsiToUtf8(m_Paths[c].first).c_str(), c == m_PathCategory)) {
-                m_PathCategory = c;
-                m_PathSelection.clear();
-                m_EditPath = -1;
-            }
-        ImGui::EndCombo();
-    }
-    const float buttons = 110.0f;
-    const float height = ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing() - 8;
-    ImGui::BeginChild("paths", ImVec2(ImGui::GetContentRegionAvail().x - buttons - 8, height), ImGuiChildFlags_Borders);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBg));
-    for (int i = 0; i < static_cast<int>(list.size()); ++i) {
-        ImGui::PushID(i);
-        if (m_EditPath == i) {
-            // Documentation "Path Manager": the path typed, or browsed with "...".
-            const float browse = ImGui::GetFrameHeight() + 8.0f;
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - browse - ImGui::GetStyle().ItemSpacing.x);
-            if (ImGui::IsWindowAppearing() || !ImGui::IsAnyItemActive()) ImGui::SetKeyboardFocusHere();
-            char buffer[4096];
-            std::snprintf(buffer, sizeof(buffer), "%s", m_EditPathText.c_str());
-            bool done = false;
-            if (ImGui::InputText("##edit", buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue)) {
-                list[i] = buffer;
-                done = true;
-            } else {
-                m_EditPathText = buffer;
-                if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (ImGui::IsItemDeactivated() && !ImGui::IsItemActive())) {
-                    if (!ImGui::IsKeyPressed(ImGuiKey_Escape)) list[i] = m_EditPathText;
-                    done = true;
-                }
-            }
-            ImGui::SameLine();
-            // Pressed on the click: the edit leaves its field on that click.
-            if (!done && ImGui::ButtonEx("...", ImVec2(browse, 0), ImGuiButtonFlags_PressedOnClick)) {
-                list[i] = m_EditPathText;
-                const unsigned revision = m_PathRevision;
-                const int category = m_PathCategory;
-                const std::string before = list[i];
-                m_State.fileDialogs.RequestFolder(L"Edit Path", nullptr,
-                    [this, revision, category, i, before](const FileDialogResult &selection) {
-                        if (revision != m_PathRevision || category >= static_cast<int>(m_Paths.size())) return;
-                        auto &paths = m_Paths[category].second;
-                        if (i >= static_cast<int>(paths.size()) || paths[i] != before) return;
-                        if (selection.status == FileDialogResult::Status::Selected) paths[i] = selection.paths.front();
-                        else {
-                            if (before.empty()) paths.erase(paths.begin() + i);
-                            if (selection.status == FileDialogResult::Status::Error) m_State.Log(LogLevel::Error, selection.error);
-                        }
-                    });
-                m_EditPath = -1;
-            }
-            if (done) {
-                // A new path left empty is not kept.
-                if (list[i].empty()) {
-                    list.erase(list.begin() + i);
-                    m_PathSelection.clear();
-                }
-                m_EditPath = -1;
-                ImGui::PopID();
-                break;
-            }
-        } else {
-            const bool selected = m_PathSelection.count(i) != 0;
-            if (ImGui::Selectable(AnsiToUtf8(list[i]).c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick)) {
-                // A click on the path selected alone edits it (as a double click).
-                const bool alone = selected && m_PathSelection.size() == 1 && !ImGui::GetIO().KeyCtrl;
-                if (!ImGui::GetIO().KeyCtrl) m_PathSelection.clear();
-                if (selected && ImGui::GetIO().KeyCtrl) m_PathSelection.erase(i);
-                else m_PathSelection.insert(i);
-                if (alone || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    m_EditPath = i;
-                    m_EditPathText = list[i];
-                }
-            }
-        }
-        ImGui::PopID();
-    }
-    ImGui::PopStyleColor();
-    const bool listFocused = ImGui::IsWindowFocused();
-    ImGui::EndChild();
-    auto removeSelected = [&] {
-        for (auto it = m_PathSelection.rbegin(); it != m_PathSelection.rend(); ++it)
-            if (*it < static_cast<int>(list.size())) list.erase(list.begin() + *it);
-        m_PathSelection.clear();
-    };
-    if (listFocused && m_EditPath < 0) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Delete)) removeSelected();
-        if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_PathSelection.size() == 1) {
-            m_EditPath = *m_PathSelection.begin();
-            m_EditPathText = list[m_EditPath];
-        }
-    }
-    ImGui::SameLine();
-    ImGui::BeginGroup();
-    // Documentation "Path Manager": "add a new path at the end of the path
-    // list. Either enter directly the path in the edit box or use the
-    // ellipsis button".
-    if (ImGui::Button("Add Path", ImVec2(buttons, 0))) {
-        list.emplace_back();
-        m_EditPath = static_cast<int>(list.size()) - 1;
-        m_EditPathText.clear();
-        m_PathSelection = {m_EditPath};
-    }
-    if (ImGui::Button("Delete Path", ImVec2(buttons, 0))) removeSelected();
-    const int single = m_PathSelection.size() == 1 ? *m_PathSelection.begin() : -1;
-    if (ImGui::Button("Up", ImVec2(buttons, 0)) && single > 0) {
-        std::swap(list[single], list[single - 1]);
-        m_PathSelection = {single - 1};
-    }
-    if (ImGui::Button("Down", ImVec2(buttons, 0)) && single >= 0 && single + 1 < static_cast<int>(list.size())) {
-        std::swap(list[single], list[single + 1]);
-        m_PathSelection = {single + 1};
-    }
-    ImGui::EndGroup();
-    ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - 2 * 90 - ImGui::GetStyle().ItemSpacing.x);
-    if (RightButton("Ok")) {
-        // A path still edited is taken as typed (an empty new one dropped).
-        if (m_EditPath >= 0 && m_EditPath < static_cast<int>(list.size())) {
-            list[m_EditPath] = Utf8ToAnsi(m_EditPathText);
-            if (list[m_EditPath].empty()) list.erase(list.begin() + m_EditPath);
-            m_EditPath = -1;
-        }
-        CKContext *context = m_State.host.Context();
-        CKPathManager *paths = context ? context->GetPathManager() : nullptr;
-        if (paths) {
-            for (const auto &category : m_Paths) {
-                XString name(const_cast<CKSTRING>(category.first.c_str()));
-                int index = paths->GetCategoryIndex(name);
-                if (index < 0) index = paths->AddCategory(name);
-                if (index < 0) continue;
-                while (paths->GetPathCount(index) > 0) paths->RemovePath(index, 0);
-                for (const std::string &path : category.second) {
-                    XString value(const_cast<CKSTRING>(path.c_str()));
-                    paths->AddPath(index, value);
-                }
-            }
-        }
-        m_State.preferences.paths = m_Paths;
-        m_State.preferences.pathsSaved = true;
-        if (applyPreferences) applyPreferences();
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::SameLine();
-    if (RightButton("Cancel") || (ImGui::IsKeyPressed(ImGuiKey_Escape) && m_EditPath < 0)) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
 }
 
 // ------------------------------------------------------ Unused Object Explorer

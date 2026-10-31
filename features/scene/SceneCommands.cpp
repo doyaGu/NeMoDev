@@ -236,6 +236,11 @@ void SceneCommands::Stop() {
     m_Data->trees.clear();
     m_Data->worksets.clear();
 }
+void SceneCommands::RefreshCatalog() {
+    ++m_Data->catalogEpoch;
+    ++m_Data->revision;
+    m_Data->trees.clear();
+}
 EditorStatus SceneCommands::Data::Tree(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto &d = *static_cast<Data *>(data);
     auto *doc = d.DocumentOf(*request);
