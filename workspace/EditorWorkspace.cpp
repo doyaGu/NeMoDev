@@ -355,6 +355,13 @@ EditorView EditorWorkspace::Create(const EditorViewDesc &desc) {
 }
 EditorStatus EditorWorkspace::Navigate(const EditorViewDesc &desc, EditorView id,
                                        const EditorRequest &request, EditorSink sink) {
+    bool background = false;
+    for (uint32_t i = 0; i < request.count; ++i) {
+        const auto &value = request.values[i];
+        if (Text(value.key) == "background" && value.type == EDITOR_INTEGER_VALUE)
+            background = value.integer != 0;
+    }
+    const auto previousFocus = m_LastFocusRequest;
     bool created = false;
     if (!id)
         for (const auto &entry : m_Views)
@@ -374,10 +381,14 @@ EditorStatus EditorWorkspace::Navigate(const EditorViewDesc &desc, EditorView id
         catch (...) { status = EDITOR_ERROR; }
     }
     if (status != EDITOR_OK && status != EDITOR_NO_CHANGE) {
-        if (created) Destroy(id);
+        if (created) { Destroy(id); m_LastFocusRequest = previousFocus; }
         return status;
     }
-    Focus(id);
+    if (!background) Focus(id);
+    else if (created) {
+        view.focus = false;
+        m_LastFocusRequest = previousFocus;
+    }
     ++m_ViewsRevision;
     const EditorValue value{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, id};
     if (sink.write) {

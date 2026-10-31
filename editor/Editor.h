@@ -238,6 +238,8 @@ typedef struct EditorPickRegion {
     float left, top, right, bottom;
 } EditorPickRegion;
 typedef void(EDITOR_CALL *EditorDrawView)(void *, const EditorHost *, EditorView, EditorViewFrame *);
+// A declared INTEGER navigation argument named "background" keeps window
+// focus unchanged when nonzero; the workspace applies this to every view type.
 typedef EditorStatus(EDITOR_CALL *EditorNavigateView)(void *, const EditorHost *, const EditorRequest *);
 typedef enum EditorViewKind { EDITOR_WINDOW_VIEW, EDITOR_OVERLAY_VIEW } EditorViewKind;
 typedef enum EditorInputKind { EDITOR_FILE_INPUT, EDITOR_SAVE_CHANGES_INPUT, EDITOR_CONFIRM_INPUT,
