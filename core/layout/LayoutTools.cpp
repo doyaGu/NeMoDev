@@ -117,9 +117,10 @@ bool CameraGesture::ConstantSpeed() const {
 
 bool CameraGesture::Begin(LayoutView &view, CameraAction action, const CameraSteps &steps, int x, int y,
                           const std::vector<CK_ID> &selection, bool locked, bool shift, bool ctrl) {
-    m_Active = false;
+    if (m_Active) return false;
     CKCamera *camera = view.Camera();
     if (!camera) return false;
+    m_PreviousCamera = camera->GetCKContext()->GetObjectHandle(camera->GetID());
     if (action == CameraAction::Orbit || action == CameraAction::OrbitCamera || action == CameraAction::Roll)
         camera = FreeView(view, camera);
     CKContext *context = camera->GetCKContext();
@@ -134,7 +135,10 @@ bool CameraGesture::Begin(LayoutView &view, CameraAction action, const CameraSte
     m_LastY = y;
     m_DeltaX = m_DeltaY = 0;
     m_AroundSelection = false;
-    if (!m_Undo.Begin(context, {m_Camera, m_Target})) return false;
+    if (!m_Undo.Begin(context, {m_Camera, m_Target})) {
+        if (context->GetObjectByHandle(m_PreviousCamera)) view.SetCamera(m_PreviousCamera.Id);
+        return false;
+    }
     const bool perspective = camera->GetProjectionType() == CK_PERSPECTIVEPROJECTION;
     switch (action) {
     case CameraAction::Dolly:
@@ -318,10 +322,15 @@ void CameraGesture::Process(bool shift) {
     }
 }
 
-void CameraGesture::Cancel() {
+void CameraGesture::Cancel(Document *document) {
     if (!m_Active) return;
     m_Active = false;
-    m_Undo.Cancel(m_View ? m_View->Context() : nullptr);
+    if (document)
+        m_Undo.Cancel(*document);
+    else
+        m_Undo.Cancel(m_View ? m_View->Context() : nullptr);
+    if (m_View && m_View->Context() && m_View->Context()->GetObjectByHandle(m_PreviousCamera))
+        m_View->SetCamera(m_PreviousCamera.Id);
 }
 
 bool CameraGesture::End(Document *document) {
@@ -405,7 +414,7 @@ bool TransformGesture::MouseRay(int x, int y, VxVector &origin, VxVector &direct
 bool TransformGesture::Begin(LayoutView &view, TransformAction action, const TransformSettings &settings,
                              const TransformSteps &steps, int scaleMode, const std::vector<CK_ID> &selection, int x,
                              int y, const VxVector *grabbed) {
-    m_Active = false;
+    if (m_Active) return false;
     CKContext *context = view.Context();
     if (!context) return false;
     m_View = &view;
@@ -654,10 +663,13 @@ void TransformGesture::Scale() {
     }
 }
 
-void TransformGesture::Cancel() {
+void TransformGesture::Cancel(Document *document) {
     if (!m_Active) return;
     m_Active = false;
-    m_Undo.Cancel(m_View ? m_View->Context() : nullptr);
+    if (document)
+        m_Undo.Cancel(*document);
+    else
+        m_Undo.Cancel(m_View ? m_View->Context() : nullptr);
 }
 
 bool TransformGesture::End(Document *document) {
@@ -847,7 +859,7 @@ int Handle2DAt(CK2dEntity *entity, float x, float y, float size) {
 
 bool Transform2DGesture::Begin(LayoutView &view, TransformAction action, int axes, bool snap, const Snap2D &snapping,
                                float snapScale, const std::vector<CK_ID> &selection, CK_ID grabbed, int x, int y) {
-    m_Active = false;
+    if (m_Active) return false;
     CKContext *context = view.Context();
     if (!context || action == TransformAction::Rotate) return false;
     m_View = &view;
@@ -962,9 +974,12 @@ void Transform2DGesture::Move(int x, int y) {
             entity->SetSize(Vx2DVector(moved.size.x * fx, moved.size.y * fy));
 }
 
-void Transform2DGesture::Cancel() {
+void Transform2DGesture::Cancel(Document *document) {
     if (!m_Active) return;
-    m_Undo.Cancel(m_View->Context());
+    if (document)
+        m_Undo.Cancel(*document);
+    else
+        m_Undo.Cancel(m_View->Context());
     m_Active = false;
 }
 

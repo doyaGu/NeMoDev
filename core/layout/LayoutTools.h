@@ -55,7 +55,7 @@ public:
                const std::vector<CK_ID> &selection, bool locked, bool shift, bool ctrl);
     void Move(int x, int y, bool shift);
     void Idle(bool shift);
-    void Cancel();
+    void Cancel(Document *document = nullptr);
     // Records the move as one undo step (false when nothing moved; no
     // document: nothing is recorded).
     bool End(Document *document);
@@ -82,6 +82,7 @@ private:
     CameraSteps m_Steps;
     bool m_Active = false;
     CK_ID m_Camera = 0, m_Target = 0;
+    CKObjectHandle m_PreviousCamera{};
     int m_LastX = 0, m_LastY = 0, m_DeltaX = 0, m_DeltaY = 0;
     VxTimeProfiler m_Clock;
     std::function<float()> m_Milliseconds;
@@ -162,7 +163,7 @@ public:
     bool Begin(LayoutView &view, TransformAction action, const TransformSettings &settings, const TransformSteps &steps,
                int scaleMode, const std::vector<CK_ID> &selection, int x, int y, const VxVector *grabbed);
     void Move(int x, int y);
-    void Cancel();
+    void Cancel(Document *document = nullptr);
     bool End(Document *document);
     bool Active() const { return m_Active; }
     TransformAction Action() const { return m_Action; }
@@ -234,7 +235,7 @@ public:
     bool Begin(LayoutView &view, TransformAction action, int axes, bool snap, const Snap2D &snapping, float snapScale,
                const std::vector<CK_ID> &selection, CK_ID grabbed, int x, int y);
     void Move(int x, int y);
-    void Cancel();
+    void Cancel(Document *document = nullptr);
     bool End(Document *document);
     bool Active() const { return m_Active; }
     TransformAction Action() const { return m_Action; }

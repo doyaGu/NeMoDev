@@ -206,18 +206,27 @@ int LayoutFile(CkRuntimeHost &host, const std::string &path, const std::string &
             const std::vector<CK_ID> sprites{frame->GetID()};
             const int gx = static_cast<int>(rect.left + 30), gy = static_cast<int>(rect.top + 30);
             Transform2DGesture move;
+            const auto cancelSteps = undo.UndoCount();
+            const auto cancelRedo = undo.CanRedo();
+            const auto cancelDirty = document.Dirty();
             Snap2D borders;
             borders.mode = SNAP_SCREEN_BORDERS;
             borders.influence = 5;
             check(move.Begin(view, TransformAction::Translate, 3, false, borders, 10.0f, sprites, frame->GetID(), gx, gy),
                   "a 2D move begins");
             move.Move(gx + 30, gy + 10);
+            check(
+                !move.Begin(view, TransformAction::Scale, 3, false, borders, 10.0f, sprites, frame->GetID(), gx, gy) &&
+                    move.Active(),
+                "a second gesture must keep the first active");
             Vx2DVector position;
             frame->GetPosition(position);
             check(std::fabs(position.x - 130.0f) < 0.01f && std::fabs(position.y - 90.0f) < 0.01f, "the 2D frame follows the mouse");
-            move.Cancel();
+            move.Cancel(&document);
             frame->GetPosition(position);
             check(std::fabs(position.x - 100.0f) < 0.01f, "cancel puts it back");
+            check(undo.UndoCount() == cancelSteps && undo.CanRedo() == cancelRedo && document.Dirty() == cancelDirty,
+                  "2D cancellation keeps history and the save point");
             // To 3 pixels from the left border: it snaps to the border.
             const size_t before = undo.UndoCount();
             check(move.Begin(view, TransformAction::Translate, 1, true, borders, 10.0f, sprites, frame->GetID(), gx, gy),
@@ -1179,6 +1188,7 @@ void LayoutGestures(CkRuntimeHost &host) {
     CameraSteps steps;
     CHECK(steps.zoomConstant);
     CHECK(zoom.Begin(view, CameraAction::Zoom, steps, 320, 240, {}, false, false, false));
+    CHECK(!zoom.Begin(view, CameraAction::Pan, steps, 320, 240, {}, false, false, false) && zoom.Active());
     zoom.Move(320, 192, false); // 48 pixels up: 0.1 of the view
     camera->GetPosition(&moved);
     CHECK(same(moved, start));
@@ -1208,6 +1218,8 @@ void LayoutGestures(CkRuntimeHost &host) {
     TransformGesture translate;
     CHECK(translate.Begin(view, TransformAction::Translate, settings, transformSteps, 0, {id}, 320, 240, nullptr));
     translate.Move(384, 200); // 0.1 of the view's width along X; Y is not constrained
+    CHECK(!translate.Begin(view, TransformAction::Scale, settings, transformSteps, 0, {id}, 320, 240, nullptr) &&
+          translate.Active());
     VxVector position;
     entity->GetPosition(&position);
     CHECK(same(position, VxVector(1.0f, 0.0f, 0.0f)));
