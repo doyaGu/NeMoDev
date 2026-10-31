@@ -6,10 +6,12 @@
 #include "core/interface/InterfaceChunkFormat.h"
 #include "core/runtime/TextEncoding.h"
 #include "core/schematic/SchematicEdits.h"
+#include "core/graph/ReplaceCommands.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 
 namespace vdev {
 namespace {
@@ -149,8 +151,44 @@ const std::vector<ProviderChoice> &SchematicCommands::DefaultProviders() {
                                                        {"command", "schematic.comment-set", "builtin.schematic"},
                                                        {"query", "schematic.script-color-value", "builtin.schematic"},
                                                        {"command", "schematic.script-color-set", "builtin.schematic"},
-                                                       {"command", "schematic.reset-color", "builtin.schematic"}};
+                                                       {"command", "schematic.reset-color", "builtin.schematic"},
+                                                       {"command", "schematic.replace-blocks", "builtin.schematic"}};
     return result;
+}
+EditorStatus SchematicCommands::Replace(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+    auto *doc = static_cast<SchematicCommands *>(data)->m_Current();
+    if (!doc || doc->Token() != request->scope.document) return EDITOR_STALE;
+    const auto *scripts = Argument(*request, "scripts"), *objects = Argument(*request, "objects"),
+               *prototypes = Argument(*request, "prototypes");
+    const auto count = objects->objects.count;
+    if (scripts->objects.count != count || prototypes->integers.count != count || count > 65536) return EDITOR_INVALID;
+    std::set<ObjectRef> unique;
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto script = scripts->objects.data[i], object = objects->objects.data[i];
+        auto *session = doc->Session(doc->NativeId(script));
+        auto *block = CKBehavior::Cast(doc->Resolve(object, CKCID_BEHAVIOR));
+        const auto guid = prototypes->integers.data[i];
+        if (!session || session->ReadOnly() || !block || !unique.insert(object).second ||
+            !FindRecord(session->Data(), object.object)) return EDITOR_STALE;
+        if (!(block->GetFlags() & CKBEHAVIOR_BUILDINGBLOCK) || !CKGetObjectDeclarationFromGuid(CKGUID(CKDWORD(guid >> 32), CKDWORD(guid)))) return EDITOR_INVALID;
+    }
+    std::vector<ObjectRef> replaced;
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto guid = prototypes->integers.data[i];
+        const auto result = ReplaceBuildingBlock(*doc, scripts->objects.data[i].object, objects->objects.data[i].object,
+            CKGUID(CKDWORD(guid >> 32), CKDWORD(guid)));
+        if (!result.ok) {
+            const auto message = AnsiToUtf8(result.message);
+            const EditorValue field{EDITOR_TEXT("message"), EDITOR_TEXT_VALUE, {}, EditorText(message)};
+            if (sink.write) sink.write(sink.data, &field, 1);
+            return result.Unchanged() ? EDITOR_NO_CHANGE : EDITOR_ERROR;
+        }
+        replaced.push_back(doc->Reference(result.created));
+    }
+    const EditorValue fields[] = {{EDITOR_TEXT("replaced"), EDITOR_INTEGER_VALUE, {}, {}, replaced.size()},
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {replaced.data(), uint32_t(replaced.size())}}};
+    if (sink.write) sink.write(sink.data, fields, 2);
+    return replaced.empty() ? EDITOR_NO_CHANGE : EDITOR_OK;
 }
 bool SchematicCommands::Register(EditorApplication &app, std::string &error) {
     const EditorParameter queryArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT},
@@ -190,6 +228,10 @@ bool SchematicCommands::Register(EditorApplication &app, std::string &error) {
              i == 0 ? EditorString EDITOR_TEXT("value.string") : EditorString EDITOR_TEXT("value.color")});
     }
     const EditorParameter resetArgs[] = {queryArgs[0], queryArgs[3]};
+    const EditorParameter replaceArgs[] = {{EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST},
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST}};
+    commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.replace-blocks"), EDITOR_TEXT("builtin.schematic"),
+        EDITOR_TEXT("Replace Building Blocks"), replaceArgs, 3, Replace, this, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT});
     commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.reset-color"),
                         EDITOR_TEXT("builtin.schematic"), EDITOR_TEXT("Remove Color"), resetArgs, 2, Write,
                         &m_Entries[2], EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT, Check});

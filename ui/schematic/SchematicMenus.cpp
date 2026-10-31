@@ -1,4 +1,5 @@
 #include "ui/schematic/SchematicViews.h"
+#include "workspace/EditorClient.h"
 // Schematic context menus after Dev 2.5: the comment, local parameter,
 // Building Block, link and Script body menus follow the user's Dev
 // screenshots (2D Text.cmo); item names and shortcuts come from the
@@ -940,6 +941,21 @@ void SchematicCanvas::OpenReplaceBlock(CK_ID script, CK_ID behavior, const CKGUI
 
 // Dev "Replace Building Block": Yes / Apply to All / No.
 void SchematicCanvas::ReplaceBlockDialog() {
+    auto &editor = m_State.workspace->Application();
+    const auto completed = [&](const EditorResponse &result, CKGUID prototype) {
+        const auto steps = result.status == EDITOR_OK ? EditorClient::Integer(result, "replaced") : 0;
+        if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE && !result.message.empty())
+            m_State.Log(LogLevel::Warning, result.message);
+        if (steps) {
+            m_State.RememberBlock(prototype);
+            m_Navigation.selection.Clear();
+            m_State.Log(LogLevel::Info, "Replaced " + std::to_string(steps) + " Building Block(s)");
+        }
+    };
+    if (m_Doc.replaceOperation) {
+        const auto result = EditorClient(editor.Host(), m_Instance).Completion(m_Doc.replaceOperation);
+        if (result.status != EDITOR_QUEUED) { m_Doc.replaceOperation = 0; completed(result, m_Doc.replacePrototype); }
+    }
     if (m_Doc.openReplaceBlock) {
         ImGui::OpenPopup("Replace Building Block");
         m_Doc.openReplaceBlock = false;
@@ -960,16 +976,14 @@ void SchematicCanvas::ReplaceBlockDialog() {
     if (yes || all) {
         std::vector<std::pair<CK_ID, CK_ID>> targets{{m_Doc.replaceScript, m_Doc.replaceBehavior}};
         if (all) targets = SameNamedBehaviors(*m_State.document, m_Doc.replaceBehavior);
-        size_t steps = 0;
-        for (const EditResult &result : ReplaceBuildingBlocks(*m_State.document, targets, m_ReplaceGuid)) {
-            if (result.ok) ++steps;
-            else Report(result, "Replace Building Block");
-        }
-        if (steps) {
-            m_State.RememberBlock(m_ReplaceGuid);
-            m_Navigation.selection.Clear();
-            m_State.Log(LogLevel::Info, "Replaced " + std::to_string(steps) + " Building Block(s)");
-        }
+        std::vector<ObjectRef> scripts, objects;
+        std::vector<uint64_t> prototypes(targets.size(), (uint64_t(m_ReplaceGuid.d1) << 32) | m_ReplaceGuid.d2);
+        for (const auto &target : targets) { scripts.push_back(m_State.document->Reference(target.first)); objects.push_back(m_State.document->Reference(target.second)); }
+        const EditorValue args[] = {ObjectsArgument("scripts", scripts), ObjectsArgument("objects", objects),
+            {EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {prototypes.data(), uint32_t(prototypes.size())}}};
+        const auto result = editor.Execute("schematic.replace-blocks", {editor.Scope(m_Instance), args, 3});
+        if (result.status == EDITOR_QUEUED) { m_Doc.replaceOperation = result.operation; m_Doc.replacePrototype = m_ReplaceGuid; }
+        else completed(result, m_ReplaceGuid);
     }
     if (yes || all || no) {
         m_Doc.replaceBehavior = 0;

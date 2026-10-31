@@ -476,6 +476,8 @@ private:
         bool openReplaceGraph = false;
         CK_ID replaceScript = 0;
         CK_ID replaceBehavior = 0; // the Building Block menus replace it (Shift+middle/right click)
+        EditorOperation replaceOperation = 0;
+        CKGUID replacePrototype = CKGUID();
         CK_ID replaceSource = 0;
         bool openOperationChoice = false;
         CK_ID choiceScript = 0;

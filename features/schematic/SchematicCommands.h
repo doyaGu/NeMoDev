@@ -20,5 +20,6 @@ private:
     static EditorStatus Read(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Check(void *, const EditorHost *, const EditorRequest *);
     static EditorStatus Write(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus Replace(void *, const EditorHost *, const EditorRequest *, EditorSink);
 };
 } // namespace vdev
