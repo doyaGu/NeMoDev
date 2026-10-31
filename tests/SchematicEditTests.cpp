@@ -82,6 +82,26 @@ void TestSchematicEdits(vdev::CkRuntimeHost &runtime) {
           error.c_str());
     const auto sync = [&] { app.Attach(doc.Token(), doc.TopologyRevision(), true, true); };
     sync();
+    // The Schematic's direct display edit must notify an external view too.
+    app.EndFrame();
+    const auto watching = app.OpenScope();
+    unsigned notices = 0;
+    EditorSubscription subscription = 0;
+    Check(app.Host()->watch(app.Host()->data, watching,
+        [](void *data, const EditorHost *, const EditorChange *) { ++*static_cast<unsigned *>(data); },
+        &notices, &subscription) == EDITOR_OK, "watch Schematic display edits");
+    Check(EditScriptData(doc, a.object, "Change Script color", [](InterfaceData &data) {
+        data.header.color ^= 1;
+    }), "direct Schematic display edit");
+    sync();
+    app.EndFrame();
+    Check(notices == 1, "direct Schematic display edit did not notify external view");
+    Check(doc.History().Undo(), "undo direct display edit");
+    app.CloseScope(watching);
+    doc.History().Clear();
+    doc.MarkSaved();
+    doc.History().MarkSavePoint();
+    sync();
     const auto owner = app.OpenScope();
     const auto begin = [&](const char *id, const std::vector<EditorField> &fields) {
         const auto values = BorrowEditorFields(fields);

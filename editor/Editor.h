@@ -181,6 +181,10 @@ typedef enum EditorInputAction {
     EDITOR_INPUT_INVALID = 16,
     EDITOR_INPUT_DEACTIVATED = 32
 } EditorInputAction;
+// Frame-coalesced changes include committed Script display edits, topology,
+// Undo and Redo, regardless of whether a built-in or external command ran.
+// Uncommitted gestures and successful rollback do not publish document edits.
+// Subscribers read the resulting state; callbacks cannot mutate it immediately.
 typedef struct EditorChange {
     EditorScope scope;
     uint64_t revision;

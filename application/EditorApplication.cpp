@@ -424,7 +424,7 @@ struct EditorApplication::State {
     unsigned drawing = 0, querying = 0, executing = 0, editing = 0, drawingEdit = 0;
     unsigned readOnlyCallbacks = 0, checking = 0;
     DocumentToken document{};
-    uint64_t revision = 0, published = 1, next = 1;
+    uint64_t revision = 0, contentRevision = 0, published = 1, next = 1;
     ObjectRef selection{};
     std::set<EditorView> scopes;
     EditorViewNavigation *navigation = nullptr;
@@ -632,6 +632,16 @@ struct EditorApplication::State {
         --checking; --querying;
         return status >= EDITOR_OK && status <= EDITOR_ERROR ? status : EDITOR_ERROR;
     }
+    void RefreshDocument() {
+        if (querying || executing || notifying || !NativeReady()) return;
+        auto *doc = CurrentDocument();
+        if (!doc || doc->Token() != document || doc->EditOpen()) return;
+        if (contentRevision == doc->ChangeRevision() && revision == doc->TopologyRevision()) return;
+        contentRevision = doc->ChangeRevision();
+        revision = doc->TopologyRevision();
+        cache.clear();
+        ++published;
+    }
     EditorResponse Run(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields,
                        EditorOperation operation = 0) {
         EditorResponse result;
@@ -663,7 +673,7 @@ struct EditorApplication::State {
         // edit. Only the outer command adds a history step or rolls it back.
         std::unique_ptr<Edit> edit;
         if (command.effect == EDITOR_DOCUMENT_EDIT && !editing)
-            edit = std::make_unique<Edit>(*doc, Utf8ToAnsi(String(command.title)));
+            edit = std::make_unique<Edit>(*doc, Utf8ToAnsi(String(command.title)), Edit::Marks::Nested);
         if (command.effect == EDITOR_DOCUMENT_EDIT) ++editing;
         ++executing;
         Output output{result.fields};
@@ -701,10 +711,7 @@ struct EditorApplication::State {
                 result.message = "Command failed and could not be undone";
             }
         }
-        if (NativeReady() && doc && doc->Token() == document) {
-            const auto changed = doc->TopologyRevision();
-            if (changed != revision) { revision = changed; ++published; }
-        }
+        RefreshDocument();
         const auto record = operations.find(operation);
         if (record != operations.end() && result.status == EDITOR_QUEUED) record->second.asynchronous = true;
         if (!executing && result.status != EDITOR_QUEUED) {
@@ -1080,6 +1087,7 @@ EditorResponse EditorApplication::InspectView(const EditorViewDesc &desc, void *
 EditorStatus EditorApplication::QueryRevision(const std::string &id, uint64_t &version) {
     auto &s = *m_State;
     if (!s.Thread() || !s.active || s.readOnlyCallbacks || s.querying>=16) return EDITOR_REFUSED;
+    s.RefreshDocument();
     const auto found = s.queries.find(id);
     if (found == s.queries.end()) return EDITOR_INVALID;
     const auto &desc = *found->second;
@@ -1477,13 +1485,17 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
         s.selection = {};
         s.cache.clear();
     }
-    if (s.revision != revision || s.document != document) {
+    s.available = available;
+    auto *current = s.NativeReady() ? s.CurrentDocument() : nullptr;
+    const bool contentChanged = current && current->Token() == document && !current->EditOpen() &&
+                                current->ChangeRevision() != s.contentRevision;
+    if (s.revision != revision || s.document != document || contentChanged) {
         s.cache.clear();
         ++s.published;
     }
     s.document = document;
     s.revision = revision;
-    s.available = available;
+    if (current && current->Token() == document && !current->EditOpen()) s.contentRevision = current->ChangeRevision();
     s.writable = writable;
     if (available) {
         for (auto it = s.drafts.begin(); it != s.drafts.end();)
@@ -1499,7 +1511,11 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
 }
 void EditorApplication::NativeAvailable(bool available) { m_State->available = available; }
 bool EditorApplication::NativeAvailable() const { return m_State->Thread() && m_State->NativeReady(); }
-uint64_t EditorApplication::Revision() const { return m_State->Thread() ? m_State->published : 0; }
+uint64_t EditorApplication::Revision() const {
+    if (!m_State->Thread()) return 0;
+    m_State->RefreshDocument();
+    return m_State->published;
+}
 bool EditorApplication::HasEdits() const { return !m_State->drafts.empty() || !m_State->pending.empty(); }
 ObjectRef EditorApplication::EditTarget(EditorEdit edit) const {
     auto f = m_State->drafts.find(edit);
@@ -1560,6 +1576,7 @@ const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const 
         static const EditorResponse refused{EDITOR_REFUSED};
         return refused;
     }
+    s.RefreshDocument();
     const auto transient = [&]() -> const EditorResponse & { s.queryResult = std::move(result); return s.queryResult; };
     auto found = s.queries.find(id);
     if (found == s.queries.end()) {
@@ -2068,6 +2085,7 @@ void EditorApplication::EndFrame() {
                 report(result);
         }
     }
+    s.RefreshDocument();
     if (s.delivered == s.published)
         return;
     s.delivered = s.published;
