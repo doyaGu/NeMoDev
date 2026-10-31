@@ -572,10 +572,11 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         Settle(ctx);
         ctx->MenuClick("//##MainMenuBar/Help/About Virtools...");
         ctx->Yield(3);
-        IM_CHECK(WindowShown(ctx, "//About Virtools"));
-        ctx->ItemClick("//About Virtools/OK");
+        const auto window = DiagnosticRef("about");
+        IM_CHECK(WindowShown(ctx, window.c_str()));
+        ctx->ItemClick((window + "/OK").c_str());
         ctx->Yield(3);
-        IM_CHECK(!WindowShown(ctx, "//About Virtools"));
+        IM_CHECK(!WindowShown(ctx, window.c_str()));
     };
 }
 

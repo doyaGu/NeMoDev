@@ -82,13 +82,14 @@ set(_editor_sources
         ../features/environment/EnvironmentViews.cpp
         ../features/environment/PluginView.cpp
         ../features/environment/PathView.cpp
+        ../features/environment/LinkOptionsView.cpp
+        ../features/diagnostics/DiagnosticViews.cpp
         # The Setups.
         setup/SetupWindows.cpp
         setup/SetupRenderPages.cpp
         setup/SetupScenePages.cpp
         setup/SetupObjectPages.cpp
         # The Resources, Editors, Options and Help windows.
-        tools/ToolWindows.cpp
         tools/GeneralPreferences.cpp)
 
 if(WIN32)

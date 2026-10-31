@@ -192,21 +192,27 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
     // Options > Building Block Version Test: its report; No (or Escape) closes it.
     t = IM_REGISTER_TEST(engine, "tools", "version_test");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        IM_CHECK(OpenFromMenu(ctx, "Options/Building Block Version Test", "//Building Block Version Test"));
+        Settle(ctx); ctx->MenuClick("//##MainMenuBar/Options/Building Block Version Test"); ctx->Yield(3);
+        const auto window = DiagnosticRef("versions");
+        IM_CHECK(WindowShown(ctx, window.c_str()));
+        ctx->WindowFocus(window.c_str());
         ctx->KeyPress(ImGuiKey_Escape);
         ctx->Yield(3);
-        IM_CHECK(!WindowShown(ctx, "//Building Block Version Test"));
+        IM_CHECK(!WindowShown(ctx, window.c_str()));
     };
 
     // Ctrl+Alt+F12: All CK Object In Memory; Enter (OK) closes it.
     t = IM_REGISTER_TEST(engine, "tools", "all_objects");
     t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_F12);
         ctx->Yield(3);
-        IM_CHECK(WindowShown(ctx, "//###AllObjects"));
+        const auto window = DiagnosticRef("memory");
+        IM_CHECK(WindowShown(ctx, window.c_str()));
+        ctx->WindowFocus(window.c_str());
         ctx->KeyPress(ImGuiKey_Enter);
         ctx->Yield(3);
-        IM_CHECK(!WindowShown(ctx, "//###AllObjects"));
+        IM_CHECK(!WindowShown(ctx, window.c_str()));
     };
 
     // Last (no undo): a material made in the 3D Layout (7) is unused;
@@ -227,8 +233,19 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
             if (!before.count(id)) material = id;
         IM_CHECK_SILENT(material != 0);
         ctx->LogInfo("material '%s'", ObjectName(ctx, material).c_str());
-        IM_CHECK_SILENT(OpenFromMenu(ctx, "Options/Unused Object Explorer", "//Unused Object Explorer"));
-        ctx->ItemClick("//Unused Object Explorer/**/Delete");
+        Settle(ctx); ctx->MenuClick("//##MainMenuBar/Options/Unused Object Explorer"); ctx->Yield(3);
+        const auto window = DiagnosticRef("unused");
+        IM_CHECK_SILENT(WindowShown(ctx, window.c_str()));
+        bool ready = false;
+        for (int i = 0; i < 100 && !ready; ++i) {
+            ready = Read<bool>(ctx, [] {
+                auto &workspace = *App().State().workspace;
+                const auto snapshot = vdev::EditorClient(workspace.Application().Host(), 0).Inspect(workspace.Role("main.unused"));
+                return snapshot.status == EDITOR_OK && vdev::EditorClient::Integer(snapshot, "revision") != 0;
+            }); ctx->Yield();
+        }
+        IM_CHECK(ready);
+        ctx->ItemClick((window + "/**/Delete").c_str());
         ctx->Yield(3);
         IM_CHECK(!ObjectExists(ctx, material));
         IM_CHECK(!App().State().History().CanUndo());

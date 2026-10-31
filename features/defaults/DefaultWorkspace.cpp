@@ -1,6 +1,7 @@
 #include "features/defaults/DefaultWorkspace.h"
 #include "features/setup/SetupCommands.h"
 #include "features/schematic/SchematicCommands.h"
+#include "features/diagnostics/DiagnosticCommands.h"
 
 namespace vdev {
 WorkspaceConfiguration DefaultWorkspaceConfiguration() {
@@ -84,7 +85,14 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"view", "environment.plugins", "builtin.environment-views"},
                                       {"view", "environment.paths", "builtin.environment-views"},
                                       {"command", "paths.choose-folder", "builtin.environment"},
-                                      {"command", "paths.apply", "builtin.environment"}};
+                                      {"command", "paths.apply", "builtin.environment"},
+                                      {"view", "environment.link-options", "builtin.environment-views"},
+                                      {"query", "environment.link-options", "builtin.environment"},
+                                      {"command", "environment.set-link-options", "builtin.environment"},
+                                      {"view", "diagnostics.unused", "builtin.diagnostic-views"},
+                                      {"view", "diagnostics.versions", "builtin.diagnostic-views"},
+                                      {"view", "diagnostics.memory", "builtin.diagnostic-views"},
+                                      {"view", "diagnostics.about", "builtin.diagnostic-views"}};
     for (const auto *id : {"array.row-insert", "array.rows-remove", "array.rows-duplicate", "array.row-move",
                            "array.column-set", "array.column-insert", "array.column-remove", "array.column-move",
                            "array.sort", "array.key-set", "array.cells-set", "array.copy", "array.paste",
@@ -97,6 +105,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.insert(result.contributions.providers.end(), setup.begin(), setup.end());
     const auto &schematic = SchematicCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), schematic.begin(), schematic.end());
+    const auto &diagnostics = DiagnosticCommands::DefaultProviders();
+    result.contributions.providers.insert(result.contributions.providers.end(), diagnostics.begin(), diagnostics.end());
     result.views = {{"document.file-dialogs", "", "", true},
                     {"document.output-dialogs", "", "", true},
                     {"environment.folder-dialogs", "", "", true},
@@ -111,7 +121,12 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                     {"runtime.profiler", "main.profiler", ""},
                     {"runtime.parameters", "main.parameters", "resources"},
                     {"environment.plugins", "main.plugins", ""},
-                    {"environment.paths", "main.paths", ""}};
+                    {"environment.paths", "main.paths", ""},
+                    {"environment.link-options", "main.link-options", ""},
+                    {"diagnostics.unused", "main.unused", ""},
+                    {"diagnostics.versions", "main.versions", ""},
+                    {"diagnostics.memory", "main.memory", ""},
+                    {"diagnostics.about", "main.about", ""}};
     result.splits = {{"root", "top", "editing", WorkspaceDirection::Up, .5f},
                      {"top", "resources", "layout", WorkspaceDirection::Right, .5f}};
     result.regions = {

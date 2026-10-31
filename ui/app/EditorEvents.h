@@ -67,9 +67,6 @@ struct FocusSchematic {};
 // Explorer and Find).
 struct OpenSchematicExplorer {};
 
-// Behavior Link Properties (the Schematic toolbar).
-struct OpenLinkProperties {};
-
 // The Schematic's stack made again as what it shows changed while the
 // Scripts did not (filters, the order, hidden Scripts; once however many are
 // posted): Document::ScriptsRevision tells the Scripts' changes.
@@ -77,7 +74,7 @@ struct RefreshScriptStack {};
 
 using EditorEvent =
     std::variant<ShowElement, ShowObjectSetup, ShowInLevelManager, OpenAddAttribute, ConfirmDeleteObjects,
-                 ShowGeneralPreferences, FocusSchematic, OpenSchematicExplorer, OpenLinkProperties,
+                 ShowGeneralPreferences, FocusSchematic, OpenSchematicExplorer,
                  RefreshScriptStack>;
 
 class EditorEvents {

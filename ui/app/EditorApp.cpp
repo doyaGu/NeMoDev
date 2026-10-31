@@ -3,6 +3,7 @@
 #include "ui/app/OutputInputs.h"
 #include "ui/app/EnvironmentInputs.h"
 #include "features/environment/EnvironmentViews.h"
+#include "features/diagnostics/DiagnosticViews.h"
 #include "core/document/OutputFiles.h"
 #include "ui/panels/EventLogView.h"
 #include <stdexcept>
@@ -126,6 +127,15 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         return false;
     }
     m_State.catalog.Refresh();
+    m_Environment.ConfigureLinks([this] {
+        const auto &p = m_State.preferences;
+        return EnvironmentCommands::LinkOptions{p.defaultLinkDelay, p.autoLoopLinkDelay, p.Int("BehaviorManager\\MaxIteration")};
+    }, [this](const EnvironmentCommands::LinkOptions &options, std::string &error) {
+        Preferences next = m_State.preferences;
+        next.defaultLinkDelay = options.delay; next.autoLoopLinkDelay = options.preventLoop;
+        next.SetInt("BehaviorManager\\MaxIteration", options.iterations);
+        return SaveSettings(std::move(next), error);
+    });
     if (!RegisterBuildingBlockQueries(m_Editor, m_State.catalog, error) ||
         !RegisterBuildingBlockViews(m_Editor, error) || !m_ResourceCommands.Register(error) ||
         !RegisterDataResourceViews(m_Editor, error) || !RegisterResourceInputs(m_Editor, window, error) ||
@@ -135,7 +145,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !RegisterFileInputs(m_Editor, window, error) || !m_ObjectCommands.Register(m_Editor, error) ||
         !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) ||
         !RegisterRuntimeViews(m_Editor, error) || !m_Environment.Register(error) ||
-        !RegisterEnvironmentViews(m_Editor, error) || !RegisterEnvironmentInputs(m_Editor, window, error) || !m_Outputs.Register(error) ||
+        !RegisterEnvironmentViews(m_Editor, error) || !RegisterEnvironmentInputs(m_Editor, window, error) ||
+        !m_Diagnostics.Register(error) || !RegisterDiagnosticViews(m_Editor, error) || !m_Outputs.Register(error) ||
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
@@ -234,6 +245,9 @@ void EditorApp::SavePreferences() {
 bool EditorApp::SaveSearchPaths(const PathCategories &paths, std::string &error) {
     Preferences next = m_State.preferences;
     next.paths = paths; next.pathsSaved = true;
+    return SaveSettings(std::move(next), error);
+}
+bool EditorApp::SaveSettings(Preferences next, std::string &error) {
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (!m_Startup.isolated)
 #endif
@@ -242,7 +256,7 @@ bool EditorApp::SaveSearchPaths(const PathCategories &paths, std::string &error)
         const auto staged = outputs.Add(PreferencesPath());
         std::vector<std::string> written;
         if (staged.empty() || !next.Save(staged) || !outputs.Publish(written)) {
-            error = "Search path preferences could not be saved";
+            error = "Preferences could not be saved";
             for (const auto &message : report.errors) error += "\n" + message;
             return false;
         }
@@ -318,6 +332,7 @@ void EditorApp::CloseSetupsAndManagers() {
     CloseSceneView("hierarchy");
     Command("runtime.close-tools");
     Command("environment.close-managers");
+    Command("diagnostics.close-tools");
     m_Tools.CloseManagers();
 }
 
@@ -329,6 +344,7 @@ void EditorApp::Shutdown() {
     m_State.FinishRuntimeOperations();
     m_FileCommands.Stop();
     m_Outputs.Stop();
+    m_Diagnostics.Stop();
     m_Editor.NativeAvailable(true);
     m_State.DrainRuntimeLog();
     m_State.fileDialogs.Close();
@@ -508,7 +524,6 @@ void EditorApp::CloseDocumentViews() {
     m_Editor.NativeAvailable(false);
     m_Outputs.Stop();
     m_Setups.CloseAll();
-    m_Tools.DocumentClosed();
     m_Panels.DocumentClosed();
     m_Layout.DocumentClosed(); // its working copies while they still exist
     m_Layout.ApplyLayoutData(LayoutInterfaceData());
@@ -745,7 +760,7 @@ void EditorApp::MainMenu() {
                 m_Panels.RefreshStack();
             }
         }
-        if (ImGui::MenuItem("Unused Object Explorer", nullptr, false, hasDocument)) m_Tools.OpenUnusedObjects();
+        m_Workspace.CommandMenu("options.unused");
         if (ImGui::MenuItem("Refresh Windows")) {
             Command("environment.refresh");
             // Documentation "Options Menu": refreshes the windows "and resets
@@ -762,14 +777,14 @@ void EditorApp::MainMenu() {
             m_ResetLayout = true;
             m_CloseSeparated = true;
         }
-        if (ImGui::MenuItem("Building Block Version Test", nullptr, false, hasDocument)) m_Tools.RunVersionTest();
+        m_Workspace.CommandMenu("options.versions");
         ImGui::Separator();
         m_Workspace.CommandMenu("options.plugins");
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Help")) {
         m_Workspace.CommandMenu("help.reference");
-        if (ImGui::MenuItem("About Virtools...")) m_Tools.OpenAbout();
+        m_Workspace.CommandMenu("help.about");
         ImGui::EndMenu();
     }
     m_Workspace.Menu();
@@ -852,8 +867,6 @@ void EditorApp::GlobalShortcuts() {
     }
     m_Workspace.CommandShortcuts();
     if (!io.KeyCtrl) return;
-    // Ctrl+Alt+F12: All CK Object In Memory.
-    if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_F12, false)) m_Tools.OpenAllObjects();
     // Dev: Ctrl+P General Preferences, Ctrl+T Trace Mode.
     if (ImGui::IsKeyPressed(ImGuiKey_P, false)) m_Tools.OpenGeneralPreferences();
     // Dev: Ctrl+L Load Composition (Ctrl+O kept), Ctrl+Shift+S Save Version,
@@ -919,8 +932,6 @@ void EditorApp::DispatchEvents() {
             m_Schematics.Focus();
         } else if (std::holds_alternative<OpenSchematicExplorer>(event)) {
             ShowSchematicExplorer();
-        } else if (std::holds_alternative<OpenLinkProperties>(event)) {
-            m_Tools.OpenLinkProperties();
         } else if (std::holds_alternative<RefreshScriptStack>(event)) {
             refresh = true;
         }
@@ -973,6 +984,7 @@ void EditorApp::Frame() {
     m_ResourceCommands.Poll();
     m_Editor.NativeAvailable(!m_State.runtimeOperation.Busy());
     m_Environment.Poll();
+    m_Diagnostics.Poll();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }

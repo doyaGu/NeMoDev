@@ -19,5 +19,6 @@ inline bool Available(const EditorClient &client) {
 }
 EditorViewDesc PluginView();
 EditorViewDesc PathView();
+EditorViewDesc LinkOptionsView();
 } // namespace environment
 } // namespace vdev

@@ -14,7 +14,7 @@ EditorStatus Close(void *, const EditorHost *host, const EditorRequest *, Editor
     const auto *ids = EditorClient::Find(instances, "views"), *types = EditorClient::Find(instances, "types");
     if (instances.status != EDITOR_OK || !ids || !types || ids->integers.size() != types->texts.size()) return EDITOR_ERROR;
     for (size_t i = 0; i < ids->integers.size(); ++i)
-        if (types->texts[i] == "environment.plugins" || types->texts[i] == "environment.paths") {
+        if (types->texts[i] == "environment.plugins" || types->texts[i] == "environment.paths" || types->texts[i] == "environment.link-options") {
             const auto result = client.Command("workspace.close-view", {IntegerArgument("view", ids->integers[i])});
             if (result.status != EDITOR_OK) return result.status;
         }
@@ -22,13 +22,15 @@ EditorStatus Close(void *, const EditorHost *host, const EditorRequest *, Editor
 }
 } // namespace
 bool RegisterEnvironmentViews(EditorApplication &editor, std::string &error) {
-    const EditorViewDesc views[] = {environment::PluginView(), environment::PathView()};
-    static char pluginRole[] = "main.plugins", pathRole[] = "main.paths";
+    const EditorViewDesc views[] = {environment::PluginView(), environment::PathView(), environment::LinkOptionsView()};
+    static char pluginRole[] = "main.plugins", pathRole[] = "main.paths", linkRole[] = "main.link-options";
     const EditorCommandDesc commands[] = {
         {sizeof(EditorCommandDesc), EDITOR_TEXT("environment.open-plugins"), EDITOR_TEXT("builtin.environment-views"),
             EDITOR_TEXT("Installed Plugins"), nullptr, 0, Open, pluginRole, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("environment.open-paths"), EDITOR_TEXT("builtin.environment-views"),
             EDITOR_TEXT("Path Manager"), nullptr, 0, Open, pathRole, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("environment.open-link-options"), EDITOR_TEXT("builtin.environment-views"),
+            EDITOR_TEXT("Behavior Link Properties"), nullptr, 0, Open, linkRole, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("environment.close-managers"), EDITOR_TEXT("builtin.environment-views"),
             EDITOR_TEXT("Close Plugin and Path Managers"), nullptr, 0, Close, nullptr, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
     const EditorMenuLocation locations[] = {{EDITOR_TEXT("editors.paths"), EDITOR_TEXT("Editors paths")},

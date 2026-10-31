@@ -166,6 +166,10 @@ inline std::string EnvironmentRef(const char *type, const char *suffix = "") {
     auto &workspace = *App().State().workspace;
     return "//" + workspace.WindowName(workspace.Role(std::string("main.") + type)) + suffix;
 }
+inline std::string DiagnosticRef(const char *type, const char *suffix = "") {
+    auto &workspace = *App().State().workspace;
+    return "//" + workspace.WindowName(workspace.Role(std::string("main.") + type)) + suffix;
+}
 using LevelRow = vdev::SceneShownRow;
 std::optional<LevelRow> FindLevelRow(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact = false);
 std::optional<LevelRow> ClickLevelRow(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact = false);

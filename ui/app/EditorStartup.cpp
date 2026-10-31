@@ -231,9 +231,9 @@ void EditorApp::OpenStartupTool(const std::string &name) {
     } else if (name == "paths") {
         Command("environment.open-paths");
     } else if (name == "unused") {
-        m_Tools.OpenUnusedObjects();
+        Command("diagnostics.open-unused");
     } else if (name == "versiontest") {
-        m_Tools.RunVersionTest();
+        Command("diagnostics.open-versions");
     } else if (name == "profiler") {
         Command("runtime.open-profiler");
     } else if (name == "eventlog") {
@@ -263,9 +263,9 @@ void EditorApp::OpenStartupTool(const std::string &name) {
             first = next;
         }
     } else if (name == "about") {
-        m_Tools.OpenAbout();
+        Command("diagnostics.open-about");
     } else if (name == "linkprops") {
-        m_Tools.OpenLinkProperties();
+        Command("environment.open-link-options");
     } else if (name == "debugger") {
         Command("runtime.open-debugger");
     } else if (name == "explorer") {

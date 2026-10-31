@@ -2043,8 +2043,10 @@ void SchematicCanvas::Toolbar() {
         options.showControlPoints = !options.showControlPoints;
     if (icon("info", INFO, !options.showLinkInfo, true, "Show/Hide Link Informations"))
         options.showLinkInfo = !options.showLinkInfo;
-    if (icon("linkprops", LINK_PROPERTIES, false, true, "Behavior Link Properties (default link delay)"))
-        m_State.events.Post(OpenLinkProperties{});
+    if (icon("linkprops", LINK_PROPERTIES, false, true, "Behavior Link Properties (default link delay)")) {
+        auto &editor = m_State.workspace->Application();
+        editor.Execute("environment.open-link-options", {editor.Scope(m_Instance), nullptr, 0});
+    }
     if (icon("priorities", PRIORITIES, !options.showPriorities, true, "Show/Hide Priorities"))
         options.showPriorities = !options.showPriorities;
     separator();

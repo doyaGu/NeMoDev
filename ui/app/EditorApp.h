@@ -11,6 +11,7 @@
 #include "features/schematic/SchematicCommands.h"
 #include "features/values/ParameterCommands.h"
 #include "features/environment/EnvironmentCommands.h"
+#include "features/diagnostics/DiagnosticCommands.h"
 #include "workspace/EditorWorkspace.h"
 #include <functional>
 #include <string>
@@ -241,6 +242,7 @@ private:
     std::string PreferencesPath() const;
     void SavePreferences(); // not when isolated
     bool SaveSearchPaths(const PathCategories &, std::string &error);
+    bool SaveSettings(Preferences next, std::string &error);
 
     EditorState m_State;
     EditorApplication m_Editor;
@@ -254,10 +256,12 @@ private:
                                    [this](bool redraw) { m_State.preferences.redrawOnlyAtBreakpoint = redraw; }}};
     EditorWorkspace m_Workspace{m_Editor};
     DataResourceCommands m_ResourceCommands{m_Editor, m_State.host, [this] { return FileOperationAvailable(); }};
+    DiagnosticCommands m_Diagnostics{m_Editor, m_State.runtimeOperation, m_State.host,
+        [this] { return m_State.document.get(); }, [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }};
     EnvironmentCommands m_Environment{m_Editor, m_State.host,
         [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
         [this](const PathCategories &paths, std::string &error) { return SaveSearchPaths(paths, error); },
-        [this] { m_State.catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); }};
+        [this] { m_State.catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); }};
     ObjectCommands m_ObjectCommands;
     ParameterCommands m_ParameterCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, &m_State.clipboard};
     ArrayCommands m_ArrayCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, m_State.clipboard};
