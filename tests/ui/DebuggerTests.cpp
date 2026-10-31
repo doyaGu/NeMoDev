@@ -338,6 +338,51 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             state.document->Context()->EnableProfiling(originally ? TRUE : FALSE);
         });
     };
+    t = IM_REGISTER_TEST(engine, "debugger", "environment_views_during_file_work");
+    t->GuiFunc = RuntimeGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
+        vdev::EditorResponse plugins, paths;
+        EditorView pluginView = 0, pathView = 0;
+        size_t undo = 0; bool redo = false, dirty = false; vdev::ObjectRef selected{};
+        OnMainThread(ctx, [&] {
+            editor.Execute("environment.open-plugins", {editor.Scope(), nullptr, 0});
+            editor.Execute("environment.open-paths", {editor.Scope(), nullptr, 0});
+            pluginView = workspace.Role("main.plugins"); pathView = workspace.Role("main.paths");
+        }); ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(editor.Host(), pluginView);
+            plugins = client.Query("plugins.list"); paths = client.Query("paths.list");
+            IM_CHECK_NO_RET(plugins.status == EDITOR_OK && paths.status == EDITOR_OK);
+            undo = state.History().UndoCount(); redo = state.History().CanRedo(); dirty = state.document->Dirty(); selected = editor.Selection();
+            IM_CHECK_NO_RET(state.RunRuntime("Environment projection regression", [gate] {
+                std::unique_lock<std::mutex> lock(gate->mutex); gate->entered = true;
+                gate->changed.wait(lock, [&] { return gate->released; });
+            }));
+        });
+        IM_CHECK(WaitFor(ctx, 100, [&] { return gate->entered.load(); })); ctx->Yield(4);
+        const auto *pluginWindow = ctx->GetWindowByRef(EnvironmentRef("plugins").c_str());
+        const auto *pathWindow = ctx->GetWindowByRef(EnvironmentRef("paths").c_str());
+        IM_CHECK(pluginWindow && pathWindow && pluginWindow->WasActive && pathWindow->WasActive);
+        OnRuntimeThread(ctx, [&] {
+            const vdev::EditorClient client(editor.Host(), pluginView);
+            IM_CHECK_NO_RET(client.Query("plugins.list").fields == plugins.fields && client.Query("paths.list").fields == paths.fields);
+            const auto *categories = vdev::EditorClient::Find(paths, "categories");
+            IM_CHECK_NO_RET(categories != nullptr);
+            const std::vector<vdev::EditorField> fields{*categories}; const auto args = vdev::BorrowEditorFields(fields);
+            IM_CHECK_NO_RET(client.Command("paths.apply", {vdev::IntegerArgument("revision", vdev::EditorClient::Integer(paths, "revision")), args.values.front()}).status == EDITOR_REFUSED);
+            IM_CHECK_NO_RET(workspace.Close(pluginView) && workspace.Close(pathView));
+        });
+        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && state.document->Dirty() == dirty && editor.Selection() == selected);
+            IM_CHECK_NO_RET(!workspace.Role("main.plugins") && !workspace.Role("main.paths"));
+            IM_CHECK_NO_RET(!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId));
+        });
+    };
+
 }
 
 } // namespace vdevuitest

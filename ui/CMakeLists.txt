@@ -211,7 +211,8 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/SoundTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/CharacterTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/DebuggerTests.cpp
-            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ToolsTests.cpp)
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ToolsTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/EnvironmentTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PrintTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PlayerTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/HelpTests.cpp)

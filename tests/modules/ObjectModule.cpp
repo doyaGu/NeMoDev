@@ -21,6 +21,7 @@ struct Module {
     EditorObject schematicTarget{};
     EditorSubscription schematicWatch = 0;
     uint64_t schematicWrites = 0, schematicNotices = 0, schematicColor = 0;
+    uint64_t environmentFolders = 0, environmentPaths = 0;
     EditorStatus schematicRead = EDITOR_STALE;
 };
 struct FileView {
@@ -578,7 +579,20 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
         {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("revisions"), EDITOR_INTEGER_LIST}};
     static const EditorParameter schematicWatchArgs[] = {
         {EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE}};
+    static const EditorParameter environmentPaths[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("categories"), EDITOR_RECORD}};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("paths.choose-folder"), EDITOR_TEXT("example.environment"), EDITOR_TEXT("Choose External Folder"),
+         nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+             if (++static_cast<Module *>(data)->environmentFolders == 1) return EDITOR_CANCELLED;
+             const EditorValue path{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("External chosen folder")};
+             return sink.write ? sink.write(sink.data, &path, 1) : EDITOR_INVALID;
+         }, data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("paths.apply"), EDITOR_TEXT("example.environment"), EDITOR_TEXT("Apply External Search Paths"),
+         environmentPaths, 2, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->environmentPaths;
+             auto next = *request; next.handler = EDITOR_TEXT("builtin.environment");
+             return host->execute(host->data, EditorString EDITOR_TEXT("paths.apply"), &next, sink);
+         }, data, EDITOR_APPLICATION, EDITOR_RUNTIME_CONTROL},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.script-color-set"), EDITOR_TEXT("example.schematic"),
          EDITOR_TEXT("Set Script Color"), colorArgs, 6, SchematicColor, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("example.schematic-color-refuse"), EDITOR_TEXT("example.schematic"),
@@ -834,8 +848,16 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     const EditorQueryDesc schematicState{sizeof(EditorQueryDesc), EDITOR_TEXT("example.schematic-state"),
         EDITOR_TEXT("example.schematic"), nullptr, 0, SchematicState, data, EDITOR_QUERY_EACH_READ,
         EDITOR_APPLICATION, schematicFields, 4};
+    static const EditorParameter environmentFields[] = {{EDITOR_TEXT("folders"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("paths"), EDITOR_INTEGER_VALUE}};
+    const EditorQueryDesc environmentCounts{sizeof(EditorQueryDesc), EDITOR_TEXT("example.environment-counts"), EDITOR_TEXT("example.environment"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const auto &module = *static_cast<Module *>(data);
+            const EditorValue fields[] = {{EDITOR_TEXT("folders"), EDITOR_INTEGER_VALUE, {}, {}, module.environmentFolders},
+                {EDITOR_TEXT("paths"), EDITOR_INTEGER_VALUE, {}, {}, module.environmentPaths}};
+            return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, environmentFields, 2};
     auto *descriptors = new Descriptors{std::vector<EditorCommandDesc>(std::begin(commands), std::end(commands)),
-                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount, flagValue, flagCount, schematicState},
+                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount, flagValue, flagCount, schematicState, environmentCounts},
                                         {view, fileView, outputView, logView, resourceView, resourceInputs},
                                         {editor, {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.integer"),
                                             EDITOR_TEXT("example.integer"), EDITOR_TEXT("External integer"), DrawInteger, data, EDITOR_INTEGER_VALUE},
