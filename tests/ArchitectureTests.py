@@ -130,6 +130,17 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native/state access in workspace view: features/resources/DataResourceViews.cpp", result.stderr)
 
+    def test_array_table_cannot_gain_indirect_native_access(self):
+        self.write("features/arrays/ArrayTable.h", '#include "core/model.h"\n')
+        self.write("features/arrays/ArrayTable.cpp", '#include "features/arrays/ArrayTable.h"\n')
+        self.write("core/model.h", '#include "CKAll.h"\n')
+        self.manifest["source_groups"].append({"id": "views", "patterns": ["features/**"]})
+        self.manifest["features"][0]["source_groups"].append("views")
+        self.manifest["dependencies"] = {"views": ["core"]}
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("native/state access in workspace view: features/arrays/ArrayTable.cpp", result.stderr)
+
     def test_default_workspace_cannot_gain_indirect_native_access(self):
         self.write("features/defaults/DefaultWorkspace.h", '#include "core/model.h"\n')
         self.write("features/defaults/DefaultWorkspace.cpp", '#include "features/defaults/DefaultWorkspace.h"\n')

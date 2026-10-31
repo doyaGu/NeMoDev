@@ -400,6 +400,13 @@
         "features/values/SpecializedValueEditors.*",
         "features/values/SelectionValueEditors.*"
       ]
+    },
+    {
+      "id": "S46",
+      "name": "DataArray 原生查询与修改",
+      "patterns": [
+        "features/arrays/ArrayCommands.*"
+      ]
     }
   ],
   "dependencies": {
@@ -766,6 +773,12 @@
       "S12",
       "S27",
       "S33",
+      "S34"
+    ],
+    "S46": [
+      "S01",
+      "S08",
+      "S13",
       "S34"
     ]
   },
@@ -1544,7 +1557,8 @@
         "S12",
         "S20",
         "S44",
-        "S45"
+        "S45",
+        "S46"
       ],
       "tests": [
         "VirtoolsDev.ParameterValueFailures",
