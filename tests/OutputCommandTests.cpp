@@ -1,12 +1,14 @@
 #include "application/OutputCommands.h"
 #include "core/document/FileCommands.h"
 #include "core/document/OutputFiles.h"
+#include "core/document/SaveFileOperations.h"
 #include "core/layout/LayoutCommands.h"
 #include "editor/ImGuiDrawing.h"
 
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <stdexcept>
 #include <utility>
 
@@ -347,6 +349,56 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
         OutputFiles outputs(report);
         const auto a = outputs.Add((root / "same.txt").u8string());
         Check(!a.empty() && outputs.Add((root / "same.txt").u8string()).empty(), "output aliases accepted");
+    }
+    // Failure to restore one output cannot prevent restoration of the others.
+    // Backups must remain usable after the OutputFiles owner is destroyed.
+    for (bool throws : {false, true}) {
+        struct RecoveryFailure : SaveFileOperations {
+            std::filesystem::path blocked, recovery, backup;
+            std::map<std::filesystem::path, unsigned> calls;
+            std::vector<std::filesystem::path> restored;
+            bool throws = false;
+            std::error_code Replace(const std::filesystem::path &from, const std::filesystem::path &to,
+                                   bool overwrite) override {
+                if (++calls[to] > 1) restored.push_back(to);
+                if (to == blocked) return std::make_error_code(std::errc::io_error);
+                if (to == recovery && calls[to] > 1) {
+                    backup = from;
+                    if (throws) throw std::filesystem::filesystem_error("Injected output recovery failure", from, to,
+                                                                      std::make_error_code(std::errc::permission_denied));
+                    return std::make_error_code(std::errc::permission_denied);
+                }
+                return SaveFileOperations::Replace(from, to, overwrite);
+            }
+        } failure;
+        const auto first = root / "recover-first.txt", second = root / "recover-second.txt", third = root / "recover-third.txt";
+        Write(first, "Previous first");
+        Write(second, "Previous second");
+        Write(third, "Previous third");
+        failure.blocked = fs::canonical(third);
+        failure.recovery = fs::canonical(second);
+        failure.throws = throws;
+        SaveReport recovered;
+        std::vector<std::string> written{"Earlier output"};
+        {
+            OutputFiles outputs(recovered, &failure);
+            Write(outputs.Add(first.u8string()), "New first");
+            Write(outputs.Add(second.u8string()), "New second");
+            Write(outputs.Add(third.u8string()), "New third");
+            Check(!outputs.Publish(written), "blocked third output was published");
+        }
+        Check(Bytes(first) == "Previous first" && Bytes(second) == "New second" && Bytes(third) == "Previous third",
+              "one recovery failure prevented the other old outputs from being restored");
+        Check(failure.restored == std::vector<fs::path>({fs::canonical(second), fs::canonical(first)}),
+              "outputs were not recovered exactly once in reverse order");
+        Check(written == std::vector<std::string>({"Earlier output", second.u8string()}), "remaining outputs were misreported");
+        Check(Bytes(failure.backup) == "Previous second" &&
+                  std::any_of(recovered.notes.begin(), recovered.notes.end(), [&](const auto &note) {
+                      return note.find(failure.backup.u8string()) != std::string::npos;
+                  }), "recovery backup or its location was discarded");
+        Check(fs::copy_file(failure.backup, second, fs::copy_options::overwrite_existing) && Bytes(second) == "Previous second",
+              "retained recovery backup could not restore the old file");
+        Check(fs::remove(failure.backup), "remove manually recovered backup");
     }
     for (const auto &entry : fs::directory_iterator(root))
         Check(entry.path().filename().u8string().find(".nemodev-save-") != 0, "output temporary file leaked");

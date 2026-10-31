@@ -21,13 +21,26 @@ struct OutputFiles::Data {
     void Restore(std::vector<std::string> &written) {
         for (auto i = files.rbegin(); i != files.rend(); ++i) {
             if (!i->published) continue;
-            std::error_code error;
-            const bool restored = i->existed ? i->backup->Publish(true)
-                                             : (std::filesystem::remove(i->staged->Destination(), error), !error);
+            bool restored = false;
+            std::string failure;
+            try {
+                if (i->existed) restored = i->backup->Publish(true);
+                else {
+                    const auto error = operations.Remove(i->staged->Destination());
+                    restored = !error;
+                    if (error) failure = error.message();
+                }
+            } catch (const std::exception &error) {
+                failure = error.what();
+            } catch (...) {
+                failure = "The file operation raised an exception";
+            }
             if (restored)
                 i->published = false;
             else {
-                report.errors.push_back("Cannot restore the previous output: " + i->name);
+                report.errors.push_back(std::string(i->existed ? "Cannot restore the previous output: " :
+                                                               "Cannot remove the new output: ") + i->name +
+                                        (failure.empty() ? std::string() : ": " + failure));
                 if (i->existed)
                     report.notes.push_back("Previous output saved at " + i->backup->LeaveForRecovery().u8string());
             }
@@ -110,6 +123,10 @@ bool OutputFiles::Publish(std::vector<std::string> &written) {
         return true;
     } catch (const std::exception &error) {
         d.report.errors.push_back(std::string("Cannot publish output files: ") + error.what());
+        d.Restore(written);
+        return false;
+    } catch (...) {
+        d.report.errors.push_back("Cannot publish output files: the file operation raised an exception");
         d.Restore(written);
         return false;
     }
