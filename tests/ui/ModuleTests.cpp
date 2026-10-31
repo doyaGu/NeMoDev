@@ -513,6 +513,12 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             auto &document = *App().State().document;
             const auto old = document.Reference(object);
+            auto *render = App().Layout().View().RenderContext();
+            auto *renderObject = CKRenderObject::Cast(document.Resolve(old));
+            // NONOTIFY skips the render manager. Keep this fixture's render
+            // list valid while testing a command target's native lifetime.
+            if (render && renderObject) render->RemoveObject(renderObject);
+            IM_CHECK_NO_RET(!render || !renderObject || !render->IsObjectAttached(renderObject));
             IM_CHECK_NO_RET(document.Context()->DestroyObject(object, CK_DESTROY_NONOTIFY | CK_DESTROY_FREEID) == CK_OK);
             auto *replacement = document.Context()->CreateObject(CKCID_3DENTITY, "Delete replacement");
             IM_CHECK_NO_RET(replacement && replacement->GetID() == object && document.Reference(object) != old);
@@ -527,6 +533,12 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
             state.preferences.SetBool("3D Layout\\Auto Show Setup", showSetup);
             state.History().Clear();
+            state.document->MarkSaved(); state.History().MarkSavePoint();
+            const auto oldDocument = state.document->Token();
+            auto &editor = state.workspace->Application();
+            IM_CHECK_NO_RET(editor.Execute("document.new", {editor.Scope(), nullptr, 0}).status == EDITOR_QUEUED);
+            state.FinishRuntimeOperations();
+            IM_CHECK_NO_RET(state.document->IsOpen() && state.document->Token() != oldDocument && !state.runtimeOperation.Busy());
         });
     };
     test = IM_REGISTER_TEST(engine, "modules", "resource_and_export_commands_use_registered_file_view");
