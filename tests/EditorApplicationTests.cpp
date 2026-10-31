@@ -20,6 +20,7 @@ void TestDataResources(vdev::CkRuntimeHost &host);
 void TestParameterEdits(vdev::CkRuntimeHost &host);
 void TestArrayEdits(vdev::CkRuntimeHost &host);
 void TestSetupEdits(vdev::CkRuntimeHost &host);
+void TestSchematicEdits(vdev::CkRuntimeHost &host);
 void TestDocumentCommands(vdev::CkRuntimeHost &host);
 void TestDocumentTransitions(vdev::CkRuntimeHost &host);
 void TestOutputCommands(vdev::CkRuntimeHost &host);
@@ -595,6 +596,7 @@ int main(int argc, char **argv) {
         TestParameterEdits(runtime);
         TestArrayEdits(runtime);
         TestSetupEdits(runtime);
+        TestSchematicEdits(runtime);
         TestObjectCommands(runtime, argv[1]);
         TestResourceCommands(runtime, argv[1]);
         TestExecutionCommands(runtime, argv[1]);

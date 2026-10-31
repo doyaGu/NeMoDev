@@ -261,6 +261,100 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
 
     // Translate (X): the entity dragged 50 pixels moves, one undo step, the
     // composition modified; Ctrl+Z puts it back, unmodified, Ctrl+Y moves it again.
+    t = IM_REGISTER_TEST(engine, "layout", "transform_escape_restores_and_reedit");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK_SILENT(SelectEntity(ctx, found));
+        auto &state = App().State();
+        const auto before = WorldMatrix(ctx, found.entity);
+        const auto steps = state.History().UndoCount();
+        const auto redo = state.History().CanRedo();
+        const auto dirty = state.document->Dirty();
+        ctx->KeyPress(ImGuiKey_X);
+        ctx->MouseMoveToPos(found.at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(found.at.x + 45, found.at.y + 15));
+        ctx->Yield(3);
+        IM_CHECK(!Same(WorldMatrix(ctx, found.entity), before));
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(2);
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
+        ctx->MouseMoveToPos(ImVec2(found.at.x + 70, found.at.y + 20));
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
+        IM_CHECK_EQ(state.History().UndoCount(), steps);
+        IM_CHECK_EQ(state.History().CanRedo(), redo);
+        IM_CHECK_EQ(state.document->Dirty(), dirty);
+        DragFrom(ctx, found.at, 40, 0);
+        IM_CHECK_EQ(state.History().UndoCount(), steps + 1);
+        Undo(ctx);
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
+    };
+
+    t = IM_REGISTER_TEST(engine, "layout", "transform_focus_loss_restores");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK_SILENT(SelectEntity(ctx, found));
+        auto &state = App().State();
+        const auto before = WorldMatrix(ctx, found.entity);
+        const auto steps = state.History().UndoCount();
+        const auto dirty = state.document->Dirty();
+        ctx->KeyPress(ImGuiKey_X);
+        ctx->MouseMoveToPos(found.at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(found.at.x + 45, found.at.y));
+        ctx->Yield(2);
+        IM_CHECK(!Same(WorldMatrix(ctx, found.entity), before));
+        OnMainThread(ctx, [] { ImGui::SetWindowFocus("Schematic"); });
+        ctx->Yield(2);
+        IM_CHECK(!App().Layout().Busy());
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(state.History().UndoCount(), steps);
+        IM_CHECK_EQ(state.document->Dirty(), dirty);
+    };
+
+    t = IM_REGISTER_TEST(engine, "layout", "camera_escape_restores_view");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        const auto original = CurrentCamera(ctx);
+        OnMainThread(ctx, [] {
+            auto &view = App().Layout().View();
+            view.SetCamera(view.ViewCamera(vdev::LayoutViewCamera::Top));
+        });
+        ctx->Yield(3);
+        const auto camera = CurrentCamera(ctx);
+        const auto before = WorldMatrix(ctx, camera);
+        const auto steps = App().State().History().UndoCount();
+        ImVec2 min, max;
+        IM_CHECK(App().Layout().ShownView(min, max));
+        const auto at = Center(min, max);
+        ctx->MouseMoveToPos(at);
+        ctx->KeyPress(ImGuiKey_O);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(at.x + 45, at.y + 20));
+        ctx->Yield(3);
+        IM_CHECK(App().Layout().Busy());
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(2);
+        IM_CHECK(!App().Layout().Busy());
+        IM_CHECK_EQ(CurrentCamera(ctx), camera);
+        IM_CHECK(Same(WorldMatrix(ctx, camera), before));
+        OnMainThread(ctx, [=] { App().Layout().View().SetCamera(original); });
+        ctx->MouseMoveToPos(ImVec2(at.x + 70, at.y + 35));
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().State().History().UndoCount(), steps);
+        IM_CHECK(Same(WorldMatrix(ctx, camera), before));
+    };
+
     t = IM_REGISTER_TEST(engine, "layout", "translate_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

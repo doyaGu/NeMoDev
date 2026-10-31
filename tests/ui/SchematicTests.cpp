@@ -15,6 +15,7 @@
 #include "core/graph/ValueCommands.h"
 #include "core/schematic/SchematicModel.h"
 #include "core/schematic/SchematicSearch.h"
+#include "core/schematic/SchematicEdits.h"
 #include "tests/ui/UiTests.h"
 
 namespace vdevuitest {
@@ -72,6 +73,100 @@ bool WindowShown(ImGuiTestContext *ctx, const char *ref) {
 
 void RegisterSchematicTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "schematic", "priority_selection_single_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Schematic");
+        const auto shown = App().Canvas().ShownBehaviors();
+        std::vector<Shown> blocks;
+        for (const auto &item : shown)
+            if (item.buildingBlock && (blocks.empty() || item.script == blocks.front().script)) blocks.push_back(item);
+        IM_CHECK(!blocks.empty());
+        bool created = false;
+        if (blocks.size() == 1) {
+            const auto result = Read<vdev::EditResult>(ctx, [&] {
+                return vdev::InsertBuildingBlock(*App().State().document, blocks[0].script, blocks[0].script,
+                                                 Object<CKBehavior>(blocks[0].behavior)->GetPrototypeGuid(),
+                                                 {400, 240});
+            });
+            IM_CHECK(result.ok && result.created);
+            auto second = blocks[0];
+            second.behavior = result.created;
+            blocks.push_back(second);
+            created = true;
+        }
+        blocks.resize(2);
+        const auto before = Read<std::vector<int>>(ctx, [&] {
+            return std::vector<int>{Object<CKBehavior>(blocks[0].behavior)->GetPriority(),
+                                    Object<CKBehavior>(blocks[1].behavior)->GetPriority()};
+        });
+        auto &state = App().State();
+        const auto steps = state.History().UndoCount();
+        const auto dirty = state.document->Dirty();
+        OnMainThread(ctx, [&] {
+            state.selection.Clear();
+            for (const auto &block : blocks)
+                state.selection.Add(block.script, {vdev::ElementKind::Behavior, 0, block.behavior});
+        });
+        ctx->KeyPress(ImGuiKey_Y);
+        ctx->Yield(3);
+        ctx->ItemInputValue("//Priority/Priority", before[0] + 37);
+        ctx->Yield(3);
+        IM_CHECK_EQ(state.History().UndoCount(), steps + 1);
+        for (const auto &block : blocks)
+            IM_CHECK_EQ(Read<int>(ctx, [&] { return Object<CKBehavior>(block.behavior)->GetPriority(); }),
+                        before[0] + 37);
+        Undo(ctx);
+        for (size_t i = 0; i < blocks.size(); ++i)
+            IM_CHECK_EQ(Read<int>(ctx, [&] { return Object<CKBehavior>(blocks[i].behavior)->GetPriority(); }),
+                        before[i]);
+        IM_CHECK_EQ(state.document->Dirty(), dirty);
+        if (created) Undo(ctx);
+    };
+
+    t = IM_REGISTER_TEST(engine, "schematic", "script_color_cancel_and_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Schematic");
+        const auto scripts = App().Canvas().ShownScripts();
+        IM_CHECK(!scripts.empty());
+        const auto script = scripts.front();
+        const auto color = [&] {
+            return Read<CKDWORD>(ctx,
+                                 [&] { return App().State().document->Session(script.script)->Data().header.color; });
+        };
+        const auto before = color();
+        const auto steps = App().State().History().UndoCount();
+        const auto dirty = App().State().document->Dirty();
+        const auto open = [&] {
+            ctx->WindowFocus("//Schematic");
+            ctx->MouseMoveToPos(Center(script.headerMin, script.headerMax));
+            ctx->MouseClick(1);
+            ctx->Yield(3);
+            ctx->ItemClick("//$FOCUSED/Set Color");
+            ctx->Yield(3);
+            IM_CHECK_NO_RET(WindowShown(ctx, "//Script Color"));
+            ctx->ItemClick("//Script Color/**/##color/##hex/##Text");
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+            ctx->KeyChars("FF00AA");
+            ctx->Yield(3);
+        };
+        open();
+        IM_CHECK_EQ(color(), before);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK_EQ(color(), before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), steps);
+        open();
+        ctx->ItemClick("//Script Color/OK");
+        ctx->Yield(3);
+        IM_CHECK_EQ(color(), 0xAA00FFu);
+        IM_CHECK_EQ(App().State().History().UndoCount(), steps + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(color(), before);
+        IM_CHECK_EQ(App().State().document->Dirty(), dirty);
+    };
 
     // A Building Block dragged 60 pixels to the right: one undo step, the
     // composition modified; Ctrl+Z puts it back (unmodified again), Ctrl+Y
@@ -158,6 +253,61 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
 
     // A Building Block clicked and deleted (Del): no longer shown; Ctrl+Z
     // brings it back where it was, Ctrl+Y deletes it again.
+    t = IM_REGISTER_TEST(engine, "schematic", "move_focus_loss_restores");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Schematic");
+        const auto block = FirstBlock();
+        IM_CHECK(block.has_value());
+        auto &state = App().State();
+        const auto steps = state.History().UndoCount();
+        const auto dirty = state.document->Dirty();
+        const auto at = Center(block->min, block->max);
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(at.x + 60, at.y));
+        ctx->Yield(3);
+        IM_CHECK(state.document->EditOpen());
+        OnMainThread(ctx, [] { ImGui::SetWindowFocus("3D Layout"); });
+        ctx->Yield(3);
+        IM_CHECK(!state.document->EditOpen());
+        const auto restored = Find(block->behavior);
+        IM_CHECK(restored.has_value());
+        IM_CHECK(Near(restored->min.x, block->min.x) && Near(restored->min.y, block->min.y));
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(state.History().UndoCount(), steps);
+        IM_CHECK_EQ(state.document->Dirty(), dirty);
+    };
+
+    t = IM_REGISTER_TEST(engine, "schematic", "draw_graph_escape_preserves_document");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//Schematic");
+        const auto point = EmptySchematicPoint();
+        IM_CHECK(point.has_value());
+        auto &state = App().State();
+        const auto steps = state.History().UndoCount();
+        const auto redo = state.History().CanRedo();
+        const auto dirty = state.document->Dirty();
+        const auto count = Read<size_t>(ctx, [&] { return state.document->LiveObjects(CKCID_BEHAVIOR).size(); });
+        ctx->MouseMoveToPos(point->second);
+        ctx->KeyPress(ImGuiKey_G);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(point->second.x + 100, point->second.y + 60));
+        ctx->Yield(2);
+        IM_CHECK(App().Canvas().Busy());
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(2);
+        IM_CHECK(!App().Canvas().Busy());
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(Read<size_t>(ctx, [&] { return state.document->LiveObjects(CKCID_BEHAVIOR).size(); }), count);
+        IM_CHECK_EQ(state.History().UndoCount(), steps);
+        IM_CHECK_EQ(state.History().CanRedo(), redo);
+        IM_CHECK_EQ(state.document->Dirty(), dirty);
+    };
+
     t = IM_REGISTER_TEST(engine, "schematic", "delete_block_undo");
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, "//Schematic");
@@ -258,8 +408,38 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK_STR_EQ(App().State().History().UndoLabel().c_str(), "Add Comment");
         // Its text editor opens on it (the shortcuts wait while it is open): Escape.
         IM_CHECK(WindowShown(ctx, "//Edit Comment"));
+        const auto ref = Read<vdev::ElementRef>(ctx, [] { return App().State().selection.items.front(); });
+        const auto text = [&] {
+            return Read<std::string>(ctx, [&] {
+                const auto *session = App().State().document->Session(point->first);
+                const auto *record = session ? vdev::FindRecord(session->Data(), ref.owner) : nullptr;
+                return record ? record->comments[size_t(ref.index)].text : "missing";
+            });
+        };
+        const auto original = text();
+        const auto steps = App().State().History().UndoCount();
+        ctx->ItemClick("//Edit Comment/##text");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("Cancelled comment");
+        ctx->Yield(2);
+        IM_CHECK_STR_EQ(text().c_str(), original.c_str());
+        IM_CHECK_EQ(App().State().History().UndoCount(), steps);
         ctx->KeyPress(ImGuiKey_Escape);
         ctx->Yield(3);
+        IM_CHECK_STR_EQ(text().c_str(), original.c_str());
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, "//Edit Comment"));
+        ctx->ItemClick("//Edit Comment/##text");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("Accepted comment");
+        ctx->Yield(2);
+        ctx->ItemClick("//Edit Comment/OK");
+        ctx->Yield(3);
+        IM_CHECK_STR_EQ(text().c_str(), "Accepted comment");
+        IM_CHECK_EQ(App().State().History().UndoCount(), steps + 1);
+        Undo(ctx);
+        IM_CHECK_STR_EQ(text().c_str(), original.c_str());
         Undo(ctx);
         IM_CHECK_EQ(CommentCount(ctx, point->first), before);
         IM_CHECK(!App().State().document->Dirty());
