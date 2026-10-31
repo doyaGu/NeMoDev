@@ -182,6 +182,7 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
     const size_t undo = document.History().UndoCount();
     const auto undoLabel = document.History().UndoLabel(), redoLabel = document.History().RedoLabel();
     const auto revision = document.TopologyRevision(), scriptsRevision = document.ScriptsRevision();
+    const auto changeRevision = document.ChangeRevision();
     manager->original = original->GetID();
     manager->document = &document;
     manager->parameter = value->GetID();
@@ -250,6 +251,7 @@ void LoadFailurePreservation(CkRuntimeHost &host) {
         CHECK(document.SourcePath() == target && !document.Dirty());
         CHECK(document.LoadedObjects() == loaded && document.CreatedObjects() == created);
         CHECK(document.TopologyRevision() == revision && document.ScriptsRevision() == scriptsRevision);
+        CHECK(document.ChangeRevision() == changeRevision);
         CHECK(document.ChangesOutsideUndo() == outside && document.ExistingSession(scriptId) == session);
         CHECK(document.IsDiscarded(deleted.created) && !document.FindScript(deleted.created));
         CHECK(document.ExistingSession(deleted.created) == deletedSession);

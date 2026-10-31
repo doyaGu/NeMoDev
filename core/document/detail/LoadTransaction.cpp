@@ -151,6 +151,7 @@ struct LoadTransaction::State {
     std::map<CK_ID, CKQWORD> created, graveyard;
     std::map<CK_ID, std::pair<ScriptSession *, ScriptSession>> sessions;
     std::uint64_t topology = 0, savedTopology = 0, outside = 0, scriptsRevision = 0;
+    std::uint64_t changeRevision = 0;
     std::vector<ScriptInfo> scripts;
     LayoutLists layout;
     ObjectPictures pictures;
@@ -182,6 +183,7 @@ bool LoadTransaction::Capture(std::string *error) {
     state.loaded = m_Document.m_LoadedObjects;
     state.created = m_Document.m_CreatedObjects;
     state.graveyard = m_Document.m_Graveyard;
+    state.changeRevision = m_Document.m_ChangeRevision;
     state.topology = m_Document.m_TopologyRevision;
     state.savedTopology = m_Document.m_SavedTopologyRevision;
     state.outside = m_Document.m_ChangesOutsideUndo;
@@ -377,6 +379,7 @@ bool LoadTransaction::Rollback(std::string *error) {
     m_Document.m_LoadedObjects = std::move(state.loaded);
     m_Document.m_CreatedObjects = std::move(state.created);
     m_Document.m_Graveyard = std::move(state.graveyard);
+    m_Document.m_ChangeRevision = state.changeRevision;
     m_Document.m_TopologyRevision = state.topology;
     m_Document.m_SavedTopologyRevision = state.savedTopology;
     m_Document.m_ChangesOutsideUndo = state.outside;

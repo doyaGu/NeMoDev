@@ -73,12 +73,14 @@ bool UndoHistory::Undo() {
         step.reset();
         m_Running = false;
         m_Document.CollectGraveyard();
+        m_Document.Changed();
         return false;
     }
     m_Redo.push_back(std::move(step));
     ReachSavePoint();
     m_Running = false;
     m_Document.CollectGraveyard();
+    m_Document.Changed();
     return true;
 }
 
@@ -92,6 +94,7 @@ bool UndoHistory::Redo() {
         step.reset();
         m_Running = false;
         m_Document.CollectGraveyard();
+        m_Document.Changed();
         return false;
     }
     m_Undo.push_back(std::move(step));
@@ -99,6 +102,7 @@ bool UndoHistory::Redo() {
     m_Running = false;
     if (Evict()) m_Document.RequestGraveyardCollection();
     else m_Document.CollectGraveyard();
+    m_Document.Changed();
     return true;
 }
 

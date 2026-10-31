@@ -182,6 +182,9 @@ public:
     // An edit is being built (Edit): the history is not undone or redone
     // meanwhile, and an edit begun now is nested in it.
     bool EditOpen() const { return m_OpenEdit != nullptr; }
+    // Committed content, including Script display data. Live previews and
+    // cancelled edits do not advance this version.
+    std::uint64_t ChangeRevision() const { return m_ChangeRevision; }
     std::uint64_t TopologyRevision() const { return m_TopologyRevision; }
     bool TopologyDirty() const { return m_TopologyRevision != m_SavedTopologyRevision; }
     void MarkSaved();
@@ -205,6 +208,7 @@ private:
     friend class Edit;
     friend class UndoStep;
     friend class UndoHistory;
+    friend class ScriptSession;
     friend class ObjectReferences;
     friend struct DocumentSaverAccess;
     friend class LoadTransaction;
@@ -217,6 +221,7 @@ private:
                        const std::vector<DuplicateName> *duplicates, const SceneEnvironment &environment);
     // Only an Edit/UndoStep may claim that a change belongs to undo.
     void MarkUndoableChange() { ++m_TopologyRevision; }
+    void Changed() { ++m_ChangeRevision; }
     void ListScripts();
     std::unique_ptr<PreparedDocument> PrepareDocument(const std::string *path, std::string *error,
                                                       const SceneEnvironment &environment);
@@ -253,6 +258,7 @@ private:
     ObjectPictures m_Pictures;
     bool m_LayoutChanged = false;
     bool m_PicturesChanged = false;
+    std::uint64_t m_ChangeRevision = 0;
     std::uint64_t m_TopologyRevision = 0;
     std::uint64_t m_SavedTopologyRevision = 0;
     std::uint64_t m_ChangesOutsideUndo = 0; // with those of the sessions gone

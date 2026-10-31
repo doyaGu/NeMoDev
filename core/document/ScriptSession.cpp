@@ -1,5 +1,7 @@
 #include "core/document/ScriptSession.h"
 
+#include "core/document/Document.h"
+
 #include <cmath>
 
 #include "core/runtime/CkRuntimeHost.h"
@@ -88,6 +90,12 @@ bool ScriptSession::Reconstruct(CKContext *context) {
 
 bool ScriptSession::IsCurrent() const {
     return m_Context && m_Context->GetObjectByHandle(m_Script) != nullptr;
+}
+
+void ScriptSession::Touch() {
+    ++m_Revision;
+    ++m_ChangesOutsideUndo;
+    if (m_Document) m_Document->Changed();
 }
 
 bool ScriptSession::Assign(const InterfaceData &data) {

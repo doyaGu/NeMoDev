@@ -203,6 +203,8 @@ void Document::CommitPrepared(PreparedDocument &prepared) {
         script.ownerReference = Reference(script.ownerId);
     }
     m_Sessions = std::move(candidate.m_Sessions);
+    for (auto &entry : m_Sessions) entry.second->m_Document = this;
+    m_ChangeRevision = candidate.m_ChangeRevision;
     m_Graveyard = std::move(candidate.m_Graveyard);
     m_CreatedObjects = std::move(candidate.m_CreatedObjects);
     m_Bitmaps = std::move(candidate.m_Bitmaps);
@@ -900,6 +902,7 @@ ScriptSession *Document::Session(CK_ID scriptId) {
     session->Open(Context(), scriptId);
     if (!session->LoadMessage().empty())
         m_Host.Log(LogLevel::Warning, FindScript(scriptId)->name + ": " + session->LoadMessage());
+    session->m_Document = this;
     ScriptSession *result = session.get();
     m_Sessions.emplace(scriptId, std::move(session));
     return result;
@@ -913,6 +916,7 @@ bool Document::Dirty() const {
 }
 
 void Document::MarkTopologyChanged() {
+    Changed();
     EditorObjectsChanged();
     ++m_TopologyRevision;
     ++m_ChangesOutsideUndo;

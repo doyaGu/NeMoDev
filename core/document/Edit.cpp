@@ -247,6 +247,7 @@ EditResult Edit::Commit(const std::string &message, CK_ID created) {
     } else {
         step->MarkAll(document);
         document.History().Push(std::move(step));
+        document.Changed();
     }
     return EditResult::Applied(message, created);
 }

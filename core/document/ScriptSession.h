@@ -6,6 +6,7 @@
 #include "core/interface/InterfaceData.h"
 
 namespace vdev {
+class Document;
 
 enum class SessionOrigin {
     LoadedChunk,   // the Script's saved InterfaceChunk was parsed
@@ -72,15 +73,13 @@ private:
     void RefreshRuntimeState(CKContext *context);
     // A change outside undo (display reconstructed, invalid links removed):
     // the Script stays modified until it is saved.
-    void Touch() {
-        ++m_Revision;
-        ++m_ChangesOutsideUndo;
-    }
+    void Touch();
     // A change an undo step makes, or a live edit that ends as one (or is
     // put back): undoing back to the save point leaves it unmodified.
     void TouchUndoable() { ++m_Revision; }
     void MarkSaved() { m_SavedRevision = m_Revision; }
 
+    Document *m_Document = nullptr; // owning document, absent for isolated model reconstruction
     CKContext *m_Context = nullptr; // borrowed for this session's lifetime
     CKObjectHandle m_Script{};
     SessionOrigin m_Origin = SessionOrigin::LoadedChunk;
