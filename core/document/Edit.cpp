@@ -32,8 +32,8 @@ private:
 class NestedStep : public Action {
 public:
     explicit NestedStep(std::unique_ptr<UndoStep> step) : step(std::move(step)) {}
-    bool Redo(Document &document) override { return step->Redo(document); }
-    bool Undo(Document &document) override { return step->Undo(document); }
+    bool Redo(Document &document) override { return step->Run(document, false, false); }
+    bool Undo(Document &document) override { return step->Run(document, true, false); }
     // Taken back with the edit it is in: as Undo, marking nothing (the edit changed nothing).
     bool TakeBack(Document &document) { return step->Run(document, true, false); }
     void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override { step->RetainObjects(document, objects); }
@@ -75,7 +75,7 @@ bool UndoStep::Run(Document &document, bool undo, bool mark) {
     document.RefreshScripts();
     // The display after the runtime: its runtime fields are read from the graph as it is now.
     if (ok) Show(document, undo);
-    if (mark) Mark(document);
+    if (mark) MarkAll(document);
     return ok;
 }
 
@@ -88,16 +88,25 @@ void UndoStep::Show(Document &document, bool undo) const {
     }
 }
 
-void UndoStep::Mark(Document &document) const {
-    if (m_Marks == Edit::Marks::Composition) document.MarkUndoableChange();
-    for (ObjectRef script : m_Touched)
-        if (ScriptSession *session = document.ExistingSession(document.NativeId(script, Document::ObjectScope::Existing))) session->TouchUndoable();
+void UndoStep::CollectMarks(bool &composition, std::set<ObjectRef> &scripts) const {
+    composition = composition || m_Marks == Edit::Marks::Composition;
+    scripts.insert(m_Touched.begin(), m_Touched.end());
+    if (m_Marks == Edit::Marks::Nested && (!m_Created.empty() || !m_Buried.empty())) composition = true;
+    for (const auto &action : m_Actions) {
+        if (const auto *nested = dynamic_cast<const NestedStep *>(action.get()))
+            nested->step->CollectMarks(composition, scripts);
+        else if (m_Marks == Edit::Marks::Nested)
+            composition = true;
+    }
 }
-
 void UndoStep::MarkAll(Document &document) const {
-    Mark(document);
-    for (const auto &action : m_Actions)
-        if (const auto *nested = dynamic_cast<const NestedStep *>(action.get())) nested->step->MarkAll(document);
+    bool composition = false;
+    std::set<ObjectRef> scripts;
+    CollectMarks(composition, scripts);
+    if (composition) document.MarkUndoableChange();
+    for (const auto &script : scripts)
+        if (auto *session = document.ExistingSession(document.NativeId(script, Document::ObjectScope::Existing)))
+            session->TouchUndoable();
 }
 
 bool UndoStep::Empty() const {

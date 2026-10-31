@@ -54,6 +54,7 @@ class Edit {
 public:
     // What applying, undoing or redoing the step marks modified by undo.
     enum class Marks {
+        Nested,      // command/group wrapper: use its recorded edits, not an extra composition change
         Composition, // the composition (Document::MarkUndoableChange) and the Scripts it shows or touches
         Scripts,     // only the Scripts it shows or touches: display edits, and none for the 3D Layout's own cameras
     };
@@ -140,7 +141,7 @@ private:
 // nothing.
 class EditGroup {
 public:
-    EditGroup(Document &document, std::string label) : m_Edit(document, std::move(label)) {}
+    EditGroup(Document &document, std::string label) : m_Edit(document, std::move(label), Edit::Marks::Nested) {}
     ~EditGroup() { m_Edit.Commit(); }
     EditGroup(const EditGroup &) = delete;
     EditGroup &operator=(const EditGroup &) = delete;
@@ -175,7 +176,7 @@ private:
     void Show(Document &document, bool undo) const;
     // What applying it marks, the Scripts listed again first (MarkAll: with
     // the steps nested in it).
-    void Mark(Document &document) const;
+    void CollectMarks(bool &composition, std::set<ObjectRef> &scripts) const;
     void MarkAll(Document &document) const;
     bool Empty() const;
 
