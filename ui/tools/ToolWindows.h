@@ -11,25 +11,21 @@
 #include "ui/app/EditorState.h"
 #include "core/document/ToolCommands.h"
 #include "ui/controls/ParameterBox.h"
-#include "ui/controls/ValueEditor.h"
 
 namespace vdev {
-
-class SchematicViews;
 
 // Dev's windows of the Resources, Editors, Options and Help menus and the
 // status bar (layouts after the Dev 2.5 screenshots the user gave):
 // General Preferences, Installed Plugins, Path Manager, Unused Object
-// Explorer, Building Block Version Test, Parameter Debugger,
+// Explorer, Building Block Version Test,
 // Behavior Link Properties and About.
 class ToolWindows {
 public:
-    ToolWindows(EditorState &state, SchematicViews &canvases) : m_State(state), m_Schematics(canvases) {}
+    explicit ToolWindows(EditorState &state) : m_State(state) {}
 
-    // topDock: the dock node for the Parameter Debugger; applyPreferences:
-    // called after the General Preferences are accepted.
+    // applyPreferences: called after the General Preferences are accepted.
     // openPopups: false while the application moves the focus (it would close them).
-    void Draw(ImGuiID topDock, bool openPopups = true);
+    void Draw(bool openPopups = true);
     std::function<void()> applyPreferences;
 
     // Opens a window.
@@ -43,10 +39,6 @@ public:
     // sub_5BB370, sub_5BB8D0): every CK object, as when it opens.
     void OpenAllObjects();
     void OpenLinkProperties();
-    bool showParameterDebugger = false;
-    // Parameter Debugger: adds parameters (locals and outputs only).
-    int WatchParameters(const std::vector<CK_ID> &parameters);
-    void ClearWatches() { m_Doc.watches.clear(); }
     // Every window of the document goes (Close All Setups and Managers keeps
     // the Data Resources, as Dev keeps its default windows).
     void CloseManagers();
@@ -71,15 +63,12 @@ private:
     void PathManager();
     void UnusedObjectExplorer();
     void VersionTestDialog();
-    void ParameterDebugger(ImGuiID dock);
     void AboutDialog();
     void LinkPropertiesDialog();
     // What names the open composition's objects (CK gives their ids to the
     // next document's objects): made anew when it is closed; a field naming
     // an object goes here.
     struct DocumentState {
-        std::vector<CK_ID> watches; // Parameter Debugger
-        int watchSelected = -1;
         std::vector<UnusedObject> unused; // Unused Object Explorer
         std::set<CK_ID> excluded;
         VersionTestResult versionTest; // Building Block Version Test
@@ -87,7 +76,6 @@ private:
 
     EditorState &m_State;
     DocumentState m_Doc;
-    SchematicViews &m_Schematics;
     bool m_OpenPopups = true;
 
     // General Preferences: edited on a copy, kept with OK.
@@ -114,9 +102,6 @@ private:
     bool m_OpenUnused = false;
     // Building Block Version Test
     bool m_OpenVersionTest = false;
-    // Parameter Debugger
-    ValueEditState m_WatchEdit;
-    ImGuiID m_TopDock = 0;
     // About
     bool m_OpenAbout = false;
     void AllObjectsDialog();

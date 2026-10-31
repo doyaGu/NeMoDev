@@ -276,7 +276,9 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         Settle(ctx);
         auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
         auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
-        EditorView profiler = 0;
+        EditorView profiler = 0, parameters = 0;
+        std::vector<vdev::ObjectRef> watches;
+        std::vector<std::string> values;
         uint64_t revision = 0;
         size_t undo = 0; bool redo = false;
         vdev::ObjectRef selected{};
@@ -288,11 +290,22 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             editor.Execute("runtime.open-debugger", {editor.Scope(), nullptr, 0});
             editor.Execute("runtime.open-profiler", {editor.Scope(), nullptr, 0});
             profiler = workspace.Role("main.profiler");
+            auto *parameter = state.document->Context()->CreateCKParameterLocal("Busy watch", CKPGUID_INT);
+            IM_CHECK_NO_RET(parameter != nullptr);
+            int value = 123; parameter->SetValue(&value);
+            watches = {state.document->Reference(parameter->GetID())};
+            const auto args = vdev::ObjectsArgument("objects", watches);
+            IM_CHECK_NO_RET(editor.Execute("runtime.watch-parameters", {editor.Scope(), &args, 1}).status == EDITOR_OK);
+            parameters = workspace.Role("main.parameters");
         }); ctx->Yield(6);
         OnMainThread(ctx, [&] {
             const auto profile = editor.Query("runtime.profile", {editor.Scope(), nullptr, 0});
             IM_CHECK_NO_RET(profile.status == EDITOR_OK && vdev::EditorClient::Integer(profile, "available"));
             revision = vdev::EditorClient::Integer(profile, "revision");
+            const auto watched = vdev::EditorClient(editor.Host(), parameters).Inspect(parameters);
+            IM_CHECK_NO_RET(watched.status == EDITOR_OK);
+            values = vdev::EditorClient::Find(watched, "values")->texts;
+            IM_CHECK_NO_RET(values == std::vector<std::string>{"123"});
             undo = state.History().UndoCount(); redo = state.History().CanRedo(); selected = editor.Selection();
             IM_CHECK_NO_RET(state.RunRuntime("Runtime projection regression", [gate] {
                 std::unique_lock<std::mutex> lock(gate->mutex); gate->entered = true;
@@ -302,12 +315,18 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         IM_CHECK(WaitFor(ctx, 100, [&] { return gate->entered.load(); })); ctx->Yield(5);
         const auto *debuggerWindow = ctx->GetWindowByRef(RuntimeRef("debugger").c_str());
         const auto *profilerWindow = ctx->GetWindowByRef(RuntimeRef("profiler").c_str());
-        IM_CHECK(debuggerWindow && profilerWindow && debuggerWindow->WasActive && profilerWindow->WasActive);
+        const auto *parameterWindow = ctx->GetWindowByRef(RuntimeRef("parameters").c_str());
+        IM_CHECK(debuggerWindow && profilerWindow && parameterWindow && debuggerWindow->WasActive && profilerWindow->WasActive && parameterWindow->WasActive);
         OnRuntimeThread(ctx, [&] {
             IM_CHECK_NO_RET(state.runtimeOperation.Busy());
             const auto profile = editor.Query("runtime.profile", {editor.Scope(), nullptr, 0});
             IM_CHECK_NO_RET(profile.status == EDITOR_OK && vdev::EditorClient::Integer(profile, "revision") == revision);
             IM_CHECK_NO_RET(editor.Execute("runtime.play", {editor.Scope(), nullptr, 0}).status == EDITOR_REFUSED);
+            const vdev::EditorClient client(editor.Host(), parameters);
+            const auto watched = client.Inspect(parameters);
+            IM_CHECK_NO_RET(watched.status == EDITOR_OK && vdev::EditorClient::Find(watched, "objects")->objects == watches &&
+                            vdev::EditorClient::Find(watched, "values")->texts == values);
+            IM_CHECK_NO_RET(workspace.Close(parameters));
             IM_CHECK_NO_RET(workspace.Close(profiler));
         });
         gate->Release();

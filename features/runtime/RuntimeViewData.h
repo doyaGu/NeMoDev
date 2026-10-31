@@ -22,5 +22,6 @@ inline void Show(const EditorClient &client, ObjectRef script, ObjectRef behavio
 }
 EditorViewDesc DebuggerView();
 EditorViewDesc ProfilerView();
+EditorViewDesc ParameterDebuggerView();
 } // namespace runtime
 } // namespace vdev

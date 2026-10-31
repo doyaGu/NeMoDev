@@ -667,7 +667,6 @@
       "S13",
       "S14",
       "S20",
-      "S21",
       "S27",
       "S28"
     ],
@@ -1778,7 +1777,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "Script Debugger 和 Profiler 已覆盖忙时缓存、对象复用与多窗口清理；Parameter Debugger、插件与路径、剩余诊断工具待迁移并验证"
+          "reason": "Script Debugger、Profiler 和 Parameter Debugger 已迁移；插件与路径、剩余诊断工具待迁移并验证"
         }
       ]
     },
@@ -2283,7 +2282,7 @@
     {
       "id": "watches",
       "name": "profiler、parameter watches、runtime log targets",
-      "owner": "ExecutionCommands 发布运行与 Profiler 数据；每个工作区调试视图拥有显示状态；Parameter Debugger 待迁移",
+      "owner": "ExecutionCommands 发布运行与 Profiler 数据；ParameterCommands 发布参数值；每个工作区调试视图拥有显示状态与观察列表",
       "lifetime": "文档切换、对象失效和视图关闭；最后一个 Profiler 关闭后恢复原设置，后台任务结束后同步原生清理",
       "persistence": "多实例列表独立，写参数仍走领域编辑",
       "features": [

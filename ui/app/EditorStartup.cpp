@@ -239,18 +239,29 @@ void EditorApp::OpenStartupTool(const std::string &name) {
     } else if (name == "eventlog") {
         Command("log.open");
     } else if (name == "watch") {
-        // The Script locals of the first Script, as Paste after a copy would add them.
-        std::vector<CK_ID> locals;
-        CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-        for (const ScriptInfo &script : m_State.HasDocument() ? m_State.document->Scripts() : std::vector<ScriptInfo>())
-            if (CKBehavior *behavior = context ? CKBehavior::Cast(context->GetObject(script.id)) : nullptr) {
-                for (int i = 0; i < behavior->GetLocalParameterCount(); ++i)
-                    if (CKParameterLocal *local = behavior->GetLocalParameter(i))
-                        if (!local->IsMyselfParameter()) locals.push_back(local->GetID());
-                if (!locals.empty()) break;
+        Command("runtime.open-parameters");
+        const EditorClient client(m_Editor.Host(), 0);
+        uint64_t first = 0;
+        for (;;) {
+            const auto scripts = client.Query("runtime.context", {IntegerArgument("first", first)});
+            const auto *objects = EditorClient::Find(scripts, "scripts");
+            if (scripts.status != EDITOR_OK || !objects) break;
+            for (const auto script : objects->objects) {
+                auto page = client.Query("parameter.script-locals", {ObjectArgument("target", script)});
+                if (page.status != EDITOR_OK || !EditorClient::Integer(page, "total")) continue;
+                for (;;) {
+                    const auto *locals = EditorClient::Find(page, "objects");
+                    if (page.status != EDITOR_OK || !locals) return;
+                    client.Command("runtime.watch-parameters", {ObjectsArgument("objects", locals->objects)});
+                    const auto next = EditorClient::Integer(page, "next");
+                    if (next >= EditorClient::Integer(page, "total")) return;
+                    page = client.Query("parameter.script-locals", {ObjectArgument("target", script), IntegerArgument("first", next)});
+                }
             }
-        m_Tools.showParameterDebugger = true;
-        m_Tools.WatchParameters(locals);
+            const auto next = EditorClient::Integer(scripts, "next");
+            if (next <= first || next >= EditorClient::Integer(scripts, "total")) break;
+            first = next;
+        }
     } else if (name == "about") {
         m_Tools.OpenAbout();
     } else if (name == "linkprops") {

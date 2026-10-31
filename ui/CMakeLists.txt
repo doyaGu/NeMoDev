@@ -77,6 +77,7 @@ set(_editor_sources
         ../features/runtime/RuntimeViews.cpp
         ../features/runtime/DebuggerView.cpp
         ../features/runtime/ProfilerView.cpp
+        ../features/runtime/ParameterDebuggerView.cpp
         # The Setups.
         setup/SetupWindows.cpp
         setup/SetupRenderPages.cpp

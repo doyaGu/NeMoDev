@@ -79,7 +79,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"view", "resource.building-blocks", "builtin.building-blocks"},
                                       {"command", "runtime.play", "builtin.execution"},
                                       {"view", "runtime.debugger", "builtin.runtime-views"},
-                                      {"view", "runtime.profiler", "builtin.runtime-views"}};
+                                      {"view", "runtime.profiler", "builtin.runtime-views"},
+                                      {"view", "runtime.parameters", "builtin.runtime-views"}};
     for (const auto *id : {"array.row-insert", "array.rows-remove", "array.rows-duplicate", "array.row-move",
                            "array.column-set", "array.column-insert", "array.column-remove", "array.column-move",
                            "array.sort", "array.key-set", "array.cells-set", "array.copy", "array.paste",
@@ -102,13 +103,13 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                     {"scene.attributes", "main.attributes", "editing"},
                     {"resource.data", "", "resources", false, false, true},
                     {"runtime.debugger", "main.debugger", ""},
-                    {"runtime.profiler", "main.profiler", ""}};
+                    {"runtime.profiler", "main.profiler", ""},
+                    {"runtime.parameters", "main.parameters", "resources"}};
     result.splits = {{"root", "top", "editing", WorkspaceDirection::Up, .5f},
                      {"top", "resources", "layout", WorkspaceDirection::Right, .5f}};
     result.regions = {
         {"layout", "", "3D Layout"}, {"editing", "main.schematic", ""}, {"resources", "main.building-blocks", ""}};
     result.legacyWindows = {{"3D Layout", "layout", false, true},
-                            {"Parameter Debugger", "resources"},
                             {"###setup", "editing", true}};
     return result;
 }

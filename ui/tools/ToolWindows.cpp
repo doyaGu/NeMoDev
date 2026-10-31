@@ -1,6 +1,5 @@
-#include "ui/schematic/SchematicViews.h"
 // Dev's Installed Plugins, Path Manager, Unused Object Explorer, Building
-// Block Version Test, Parameter Debugger, Behavior Link
+// Block Version Test, Behavior Link
 // Properties and About windows; layouts after the Dev 2.5 screenshots.
 
 #include "ui/tools/ToolWindows.h"
@@ -20,7 +19,6 @@
 #include "ui/controls/FileDialogs.h"
 #include "core/level/LevelCommands.h"
 #include "core/graph/ReplaceCommands.h"
-#include "ui/schematic/SchematicCanvas.h"
 #include "ui/controls/ObjectText.h"
 #include "ui/controls/TypeAhead.h"
 #include "core/runtime/TextEncoding.h"
@@ -69,16 +67,13 @@ std::vector<std::pair<std::string, std::vector<std::string>>> ReadPaths(CKContex
 
 } // namespace
 
-void ToolWindows::Draw(ImGuiID topDock, bool openPopups) {
-    m_TopDock = topDock;
+void ToolWindows::Draw(bool openPopups) {
     m_OpenPopups = openPopups;
     GeneralPreferences();
     InstalledPlugins();
     PathManager();
     UnusedObjectExplorer();
     VersionTestDialog();
-    ParameterDebugger(topDock);
-    if (!showParameterDebugger) CancelParameterValueEdit(m_State, m_WatchEdit);
     AboutDialog();
     AllObjectsDialog();
     LinkPropertiesDialog();
@@ -86,12 +81,10 @@ void ToolWindows::Draw(ImGuiID topDock, bool openPopups) {
 
 void ToolWindows::CloseManagers() {
     m_ShowPlugins = false;
-    showParameterDebugger = false;
     m_ShowPreferences = false;
 }
 
 void ToolWindows::DocumentClosed() {
-    CancelParameterValueEdit(m_State, m_WatchEdit);
     m_Doc = DocumentState();
 }
 
@@ -516,114 +509,6 @@ void ToolWindows::VersionTestDialog() {
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
-}
-
-// ---------------------------------------------------------- Parameter Debugger
-
-int ToolWindows::WatchParameters(const std::vector<CK_ID> &parameters) {
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-    if (!context) return 0;
-    int added = 0;
-    for (CK_ID id : parameters) {
-        CKObject *object = context->GetObject(id);
-        // Dev.exe sub_581280: local parameters and outputs only.
-        if (!CKParameterLocal::Cast(object) && !CKParameterOut::Cast(object)) continue;
-        if (std::find(m_Doc.watches.begin(), m_Doc.watches.end(), id) != m_Doc.watches.end()) {
-            m_State.Log(LogLevel::Warning, "Parameter already present");
-            continue;
-        }
-        m_Doc.watches.push_back(id);
-        ++added;
-    }
-    showParameterDebugger = showParameterDebugger || added > 0;
-    return added;
-}
-
-// Dev's Parameter Debugger tab ([Watch View]): Name, Value, Owner Object,
-// Owner Script; Paste adds the parameters copied (in the Schematic, the
-// Attribute Manager, an Attribute page, an Array Setup), a double
-// click edits a value (one undo step), Go to source shows it.
-void ToolWindows::ParameterDebugger(ImGuiID dock) {
-    if (!showParameterDebugger) return;
-    if (dock) ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (!BeginDevWindow("Parameter Debugger", &showParameterDebugger)) {
-        ImGui::End();
-        return;
-    }
-    DevTabClose(&showParameterDebugger);
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-    // Parameters destroyed since leave the list.
-    if (context)
-        m_Doc.watches.erase(std::remove_if(m_Doc.watches.begin(), m_Doc.watches.end(),
-                                       [context](CK_ID id) { return context->GetObject(id) == nullptr; }),
-                        m_Doc.watches.end());
-    auto paste = [&] {
-        const int added = WatchParameters(m_State.clipboard.parameters);
-        if (!added && m_State.clipboard.parameters.empty())
-            m_State.Log(LogLevel::Info, "Copy local parameters or outputs in the Schematic first (Ctrl+C)");
-    };
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyCtrl &&
-        ImGui::IsKeyPressed(ImGuiKey_V, false))
-        paste();
-    const ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
-                                  ImGuiTableFlags_ScrollY;
-    int remove = -1;
-    if (ImGui::BeginTable("watches", 4, flags)) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 150);
-        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthFixed, 380);
-        ImGui::TableSetupColumn("Owner Object", ImGuiTableColumnFlags_WidthFixed, 380);
-        ImGui::TableSetupColumn("Owner Script", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableHeadersRow();
-        for (int i = 0; context && i < static_cast<int>(m_Doc.watches.size()); ++i) {
-            CKParameter *parameter = CKParameter::Cast(context->GetObject(m_Doc.watches[i]));
-            if (!parameter) continue;
-            // The owner behavior (an operation's own owner for its output),
-            // its object and its Script.
-            CKObject *owner = parameter->GetOwner();
-            if (CKParameterOperation *operation = CKParameterOperation::Cast(owner)) owner = operation->GetOwner();
-            CKBehavior *behavior = CKBehavior::Cast(owner);
-            CKBehavior *script = behavior ? behavior->GetOwnerScript() : nullptr;
-            if (behavior && (behavior->GetType() & CKBEHAVIORTYPE_SCRIPT)) script = behavior;
-            CKObject *ownerObject = behavior ? behavior->GetOwner() : owner;
-            ImGui::PushID(i);
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            const std::string name = CKParameterOperation::Cast(parameter->GetOwner()) ? std::string("Out") : NameOf(parameter);
-            if (ImGui::Selectable(name.c_str(), m_Doc.watchSelected == i, ImGuiSelectableFlags_SpanAllColumns |
-                                                                          ImGuiSelectableFlags_AllowOverlap))
-                m_Doc.watchSelected = i;
-            if (ImGui::BeginPopupContextItem("watch")) {
-                m_Doc.watchSelected = i;
-                if (ImGui::MenuItem("Go to source")) m_Schematics.Current().GoToParameter(m_Doc.watches[i]);
-                if (ImGui::MenuItem("Delete")) remove = i;
-                ImGui::Separator();
-                if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_State.clipboard.parameters.empty())) paste();
-                if (ImGui::MenuItem("Clear")) m_Doc.watches.clear();
-                ImGui::EndPopup();
-            }
-            ImGui::TableSetColumnIndex(1);
-            ImGui::SetNextItemWidth(-1);
-            ParameterValueEditor(m_State, m_WatchEdit, script ? script->GetID() : 0, parameter,
-                                 script != nullptr && CKParameterLocal::Cast(parameter) != nullptr);
-            ImGui::TableSetColumnIndex(2);
-            ImGui::TextUnformatted(NameOf(ownerObject, "").c_str());
-            ImGui::TableSetColumnIndex(3);
-            ImGui::TextUnformatted(NameOf(script, "").c_str());
-            ImGui::PopID();
-        }
-        ImGui::EndTable();
-    }
-    if (ImGui::BeginPopupContextWindow("watchspace", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-        if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_State.clipboard.parameters.empty())) paste();
-        if (ImGui::MenuItem("Clear", nullptr, false, !m_Doc.watches.empty())) m_Doc.watches.clear();
-        ImGui::EndPopup();
-    }
-    if (remove >= 0 && remove < static_cast<int>(m_Doc.watches.size())) m_Doc.watches.erase(m_Doc.watches.begin() + remove);
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Delete) &&
-        m_Doc.watchSelected >= 0 && m_Doc.watchSelected < static_cast<int>(m_Doc.watches.size()) && !ImGui::IsAnyItemActive())
-        m_Doc.watches.erase(m_Doc.watches.begin() + m_Doc.watchSelected);
-    ImGui::End();
 }
 
 // ---------------------------------------------------- Behavior Link Properties

@@ -44,7 +44,7 @@ EditorApp::EditorApp(HtmlFonts fonts)
     : m_Editor([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }),
       m_ObjectCommands([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }),
-      m_Schematics(m_State), m_Panels(m_State, m_Schematics), m_Tools(m_State, m_Schematics), m_HtmlFonts(fonts) {
+      m_Schematics(m_State), m_Panels(m_State, m_Schematics), m_Tools(m_State), m_HtmlFonts(fonts) {
     m_State.workspace = &m_Workspace;
     m_State.documentViews = this;
     m_State.files.Execution(&m_Execution);
@@ -705,7 +705,7 @@ void EditorApp::MainMenu() {
     if (ImGui::BeginMenu("Editors")) {
         m_Workspace.CommandMenu("editors.managers");
         if (ImGui::MenuItem("Path Manager")) m_Tools.OpenPathManager();
-        ImGui::MenuItem("Parameter Debugger", nullptr, &m_Tools.showParameterDebugger);
+        m_Workspace.CommandMenu("editors.diagnostics");
         ImGui::Separator();
         if (ImGui::MenuItem("Close All Setups and Managers")) CloseSetupsAndManagers();
         ImGui::EndMenu();
@@ -1028,7 +1028,7 @@ void EditorApp::Frame() {
         // Setup tabs dock with the Schematic (Dev's tab row).
         ImGuiWindow *schematic = ImGui::FindWindowByName(m_Schematics.Window().c_str());
         m_Setups.Draw(schematic ? schematic->DockId : 0);
-        m_Tools.Draw(m_Workspace.RegionDock("resources"), m_FocusSchematic <= 0);
+        m_Tools.Draw(m_FocusSchematic <= 0);
     }
     const auto &execution = m_Execution.State();
     m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"));
