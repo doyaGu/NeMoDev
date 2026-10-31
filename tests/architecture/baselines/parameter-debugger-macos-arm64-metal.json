@@ -1,0 +1,157 @@
+{
+  "description": "阶段五第二批：Parameter Debugger 通过工作区、只读查询和统一命令运行。阶段五尚未完成，性能验收继续暂缓。",
+  "changes": [
+    "观察列表、选中项与输入属于各视图；移除 ToolWindows 的原生编号列表、开关及 Schematic 依赖。",
+    "参数观察、剪贴板与指定 Script 的局部参数使用只读投影和完整对象引用；列表按 128 项分页。",
+    "Paste、源导航、添加、移除与清空走登记入口；属性编辑复用当前提供者，文本转换也进入原有领域编辑。",
+    "失效或类型变化时取消未提交输入；忙时显示最后完成的行；隐藏标签的观察查询也过滤失效对象。",
+    "删除无人调用的旧值编辑包装；外部测试编辑器按当前 ImGui 项目宽度布局，生产视图不含专门分支。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five/parameters-build.log"
+    },
+    "full_ctest": {
+      "total": 124,
+      "passed": 124,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 26.44,
+      "log": "out/phase-five/parameters-full-verified.log",
+      "excluded_label": "performance"
+    },
+    "ui": {
+      "tools": {
+        "registered": 229,
+        "executed": 7,
+        "not_selected": 222,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/tools.xml"
+      },
+      "modules": {
+        "registered": 229,
+        "executed": 57,
+        "not_selected": 172,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/modules.xml"
+      },
+      "debugger": {
+        "registered": 229,
+        "executed": 6,
+        "not_selected": 223,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/debugger.xml"
+      },
+      "app": {
+        "registered": 229,
+        "executed": 25,
+        "not_selected": 204,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/app.xml"
+      },
+      "filemenu": {
+        "registered": 229,
+        "executed": 10,
+        "not_selected": 219,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/filemenu.xml"
+      }
+    },
+    "regressions": [
+      "观察资格、名称、所属 Script/对象及类型；输出与无 Script 的局部参数只读。",
+      "133 个参数的分页、越界拒绝、剪贴板原生编号复用后的失效检查。",
+      "确认一次产生一步撤销，取消保留值、Dirty 与 Redo；类型或生命周期变化后拒绝提交。",
+      "双实例独立列表、Ctrl+V、单行移除、清空、源导航、文档替换、关闭所有实例。",
+      "后台独占任务期间保留已完成数据，关闭视图不修改文档、选区和撤销历史。",
+      "切换外部编辑器和修改提供者后保留观察列表，并通过同一撤销流程提交。",
+      "隐藏标签页即使没有绘制，也不在观察查询中返回已删除对象。"
+    ],
+    "failed_run": {
+      "log": "out/phase-five/parameters-hidden-watch-red.log",
+      "failure": "旧引用的清理只发生在 Draw，隐藏标签的观察查询仍返回已删除对象。"
+    },
+    "focused_verification": {
+      "log": "out/phase-five/parameters-hidden-watch-green.log",
+      "total": 3,
+      "passed": 3
+    },
+    "architecture_log": "out/phase-five/parameters-architecture.log",
+    "layering_log": "out/phase-five/parameters-layering.log"
+  },
+  "architecture": {
+    "files": 931,
+    "groups": 49,
+    "features": 32,
+    "states": 42,
+    "legacy_exposures": 54,
+    "completed_phase": 3,
+    "test_registration_checked": true,
+    "open_gaps": 22,
+    "phase_five_complete": false
+  },
+  "sdk": {
+    "repositories": 16,
+    "sources_changed": false,
+    "before_log": "out/phase-five/parameters-sdk-before.json",
+    "after_log": "out/phase-five/parameters-sdk-after.json",
+    "before_sha256": "b8c520a0f80cc39342b6eeb8ac7d7a90d53c24c8ae782c05387b733c4a1d28e3",
+    "after_sha256": "b8c520a0f80cc39342b6eeb8ac7d7a90d53c24c8ae782c05387b733c4a1d28e3",
+    "runtime_sha256": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a"
+    }
+  },
+  "source": {
+    "base_revision": "61cb8089e914165aeab7df245ba3436c859dc936",
+    "build_source_sha256": "a36038fae5d07da36cdd371d071af689d92d1a4a0b7f9aa6a8353bf6f6d9d890",
+    "binary_sha256": {
+      "NeMoDev": "35299099ef730ab1264532a6c4eeebc6e89a04b0c94e8d252e399933fe7ccb9d",
+      "VirtoolsDevUiTests": "9f9784ca4c1eaf9e3bf3cc6480eae62edf62bd64e88572feff458e356d2a4183",
+      "NeMoDevEditorTests": "3725fa9529d360a271b59cb84ca00595d5ee7d9fc4073e5f656cc42ba4a98e5a"
+    },
+    "test_module_sha256": {
+      "libNeMoDevEditorModule.so": "19324de11b1350fecbe1c87274a24f37af7de319085ce0a73d3c86dd7785e701",
+      "libNeMoDevUiObjectModule.so": "b393d907cccfc4b5c1ae7cf3d84ba5f164d622da8e12fc1dfb270426ed724d96"
+    },
+    "gpu_render_transfer_source_changed": false,
+    "public_c_headers_changed": false
+  },
+  "performance": {
+    "status": "deferred",
+    "acceptance_performed": false,
+    "thresholds_changed": false,
+    "note": "没有执行新的 GPU 时延验收或独立 CPU 探针；原 3% 门槛不变。"
+  },
+  "remaining": [
+    "插件与路径管理",
+    "剩余诊断与特殊工具",
+    "Layout/Schematic 剩余原生适配"
+  ]
+}

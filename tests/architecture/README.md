@@ -719,7 +719,7 @@ operations/dialogs are active; provider-only replacement retains its existing
 path. Runtime changes apply at the next layout update, without a separate Reset.
 The workspace also owns first-use layout checks. Default seed order preserves the
 existing primary window identities; startup retains an existing dock layout.
-Only the remaining Schematic/Layout/Setup/Parameter Debugger windows use the named
+Only the remaining Schematic/Layout/Setup windows use the named
 legacy placements listed in this configuration.
 
 The old DefaultObjectConfiguration helper and per-type default docking map are
@@ -1339,5 +1339,46 @@ SDK、文件格式、公开 C 头和 GPU 渲染/传输实现不变。性能验�
 故障注入现在先解除该对象的渲染登记，保留 NONOTIFY 和同 ID 复用检查，并在同一用例中
 实际切换文档、确认文档身份已改变，验证视口拆除。没有修改 SDK 的删除通知行为。
 
-阶段五尚未收尾：Parameter Debugger、插件与路径管理、其余诊断和特殊工具，以及
-Layout/Schematic 中剩余的原生适配仍保留在迁移清单中；没有新增或延长旧访问例外。
+阶段五尚未收尾：插件与路径管理、其余诊断和特殊工具，以及 Layout/Schematic 中剩余的
+原生适配仍保留在迁移清单中；没有新增或延长旧访问例外。
+
+
+## 阶段五：Parameter Debugger
+
+Parameter Debugger 现在是 `runtime.parameters` 工作区视图，主实例使用 `main.parameters` 角色。
+每个实例拥有独立的观察列表、选中项和未提交输入，列表只保存完整对象引用和已读取的值。
+查询来自 `ParameterCommands`，不在视图中访问 CKContext、可变 Document、EditorState 或旧窗口。
+移除 ToolWindows 中对应的实现、原生编号列表、窗口开关和 Schematic 依赖，删除已无调用者的
+`ValueEditState`、`ParameterValueEditor` 和取消包装。现有 Setup 使用的参数草稿编辑保持原样。
+
+`parameter.watch` 读取参数的名称、值、类型、所有者、Script 和可用属性编辑器。
+输入参数拒绝观察；输出参数和没有所属 Script 的局部参数保持只读。
+`parameter.clipboard` 和 `parameter.script-locals` 分页返回完整对象引用，每页最多 128 项；
+后者明确要求 Script，不在领域查询中选择启动样例。捕获模式通过运行查询寻找第一个有局部参数
+的 Script，普通视图不依赖该选择。原有剪贴板继续拥有复制来源，没有引入第二份剪贴板。
+参数功能模块增加对现有 Clipboard 所在组 S01 的依赖；工具窗口不再依赖 Schematic 的 S21。
+
+菜单、捕获模式和外部调用使用同一组打开、观察、移除、清空命令；命令可以显式指定视图。
+Paste 读取已有剪贴板，Go to source 通过 `script.show-parameter` 进入现有 Schematic 导航。
+支持的参数复用已登记的属性编辑器和修改命令；剩余文本转换通过 `parameter.set-text` 进入
+原有领域编辑，并校验对象生命周期和参数类型。一次确认形成一步撤销，Escape、清除观察或
+关闭视图会放弃未提交输入。对象类型变化和后台任务开始时取消该行输入，避免恢复显示后误提交。
+
+后台任务占用原生上下文期间继续显示上次完成的行，查询由宿主拒绝，视图不进入原生上下文。
+对象失效时移除该行；被遮住的标签页即使没有绘制，其观察查询也会过滤失效引用。
+文档身份变化时清空列表，加载失败保留同一文档的列表。
+不同视图互不修改观察列表，关闭工具命令会覆盖所有调试视图实例。
+切换属性编辑器和修改提供者保留观察列表，外部实现通过相同流程产生撤销步骤。
+外部测试编辑器调整为使用 ImGui 当前项目宽度，避免表格中的附加按钮落在可见区域之外；
+没有为它增加专门的生产代码分支。
+
+新增回归覆盖观察资格、所有者和 Script、分页剪贴板、类型变化、原生编号复用、文本修改与
+Undo/Redo、双实例隔离、Ctrl+V、源导航、文档切换、忙时缓存，以及选择外部属性编辑器。
+新视图继续受现有禁止原生状态包含的两项架构检查约束。SDK、公开 C 头及 GPU 渲染和传输
+实现不变，性能验收继续暂缓，原门槛不变，`completed_phase` 仍为三。
+
+本批构建与回归结果记录于
+[Parameter Debugger 验证记录](baselines/parameter-debugger-macos-arm64-metal.json)。
+
+本批完整 Release 功能回归 124/124，无跳过；其中工具组 7 项、模块组 57 项和调试组 6 项
+实际执行并通过，未选择的 UI 用例未计为通过。SDK 十六个仓库及二十二项运行库校验值均未变。
