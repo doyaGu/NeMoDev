@@ -8,36 +8,22 @@
 #include <cmath>
 #include <cstring>
 
-#include "core/runtime/TextEncoding.h"
 #include "core/level/ObjectProperties.h"
 #include "core/level/SceneCommands.h"
+#include "core/level/SetupCommands.h"
+#include "core/runtime/GridCompat.h"
+#include "core/runtime/TextEncoding.h"
 #include "tests/ui/UiTests.h"
-#include "tests/ObjectEditTestObject.h"
 
 namespace vdev {
-
-// Exercise the same live-edit entry points as the widgets, using a CK
-// object with failing Save/Load methods. No production failure switches.
 struct SetupEditTests {
-    static SetupWindows &Setups(EditorApp &app) { return const_cast<SetupWindows &>(app.Setups()); }
-    static void Set(EditorApp &app, CK_ID id, int value, bool fail = false) {
-        Setups(app).Live(id, "Property test", [value, fail](CKObject *object) {
-            auto *test = static_cast<vdevtest::PropertyTestObject *>(object);
-            ++test->writes;
-            test->value = value;
-            if (fail) throw std::runtime_error("Property setter failed");
-        });
-    }
-    static bool Finish(EditorApp &app) { return Setups(app).FlushPending(); }
-    static void Cancel(EditorApp &app) { Setups(app).CancelPending(); }
-    static void Scene(EditorApp &app, CK_ID id, float fog, bool fail = false) {
-        Setups(app).LiveScene(id, "Scene property test", [fog, fail](CKScene *scene) {
-            scene->SetFogStart(fog);
-            if (fail) throw std::runtime_error("Scene setter failed");
-        });
+    static void ChooseGridLayers(EditorApp &app, CK_ID grid) {
+        auto &setups = const_cast<SetupWindows &>(app.Setups());
+        for (auto &setup : setups.m_Doc.setups)
+            if (setup.object == grid)
+                setup.layers = {0, 1};
     }
 };
-
 } // namespace vdev
 
 namespace vdevuitest {
@@ -68,79 +54,6 @@ bool Near(float a, float b) { return std::fabs(a - b) < 1e-3f; }
 void RegisterSetupTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
 
-    t = IM_REGISTER_TEST(engine, "propertyedits", "capture_and_recovery_failures");
-    t->GuiFunc = MainThreadGui;
-    t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx);
-        struct Results { bool before = false, after = false, exception = false, cancel = false, recovery = false; } results;
-        OnMainThread(ctx, [&] {
-            auto &app = App();
-            auto &document = *app.State().document;
-            auto &history = document.History();
-            auto *object = new vdevtest::PropertyTestObject(document.Context());
-            document.Include(object->GetID());
-            document.MarkSaved();
-            history.MarkSavePoint();
-            const size_t count = history.UndoCount();
-            object->failSave = object->saves + 1;
-            vdev::SetupEditTests::Set(app, object->GetID(), 10);
-            results.before = object->writes == 0 && object->value == 0 && !document.Dirty() &&
-                             history.UndoCount() == count;
-            object->failSave = object->saves + 2;
-            vdev::SetupEditTests::Set(app, object->GetID(), 20);
-            results.after = !vdev::SetupEditTests::Finish(app) && object->value == 0 && !document.Dirty() &&
-                            history.UndoCount() == count;
-            vdev::SetupEditTests::Set(app, object->GetID(), 30, true);
-            results.exception = object->value == 0 && !document.Dirty() && history.UndoCount() == count;
-            vdev::SetupEditTests::Set(app, object->GetID(), 10);
-            const bool committed = vdev::SetupEditTests::Finish(app);
-            vdev::SetupEditTests::Set(app, object->GetID(), 20);
-            vdev::SetupEditTests::Cancel(app);
-            results.cancel = committed && object->value == 10 && history.UndoCount() == count + 1 &&
-                             history.Undo() && object->value == 0 && !document.Dirty() &&
-                             history.Redo() && object->value == 10;
-            vdev::SetupEditTests::Set(app, object->GetID(), 30);
-            object->failLoad = object->loads + 1;
-            vdev::SetupEditTests::Cancel(app);
-            results.recovery = object->value == -100 && document.Dirty() && !history.CanUndo() && !history.CanRedo();
-            object->value = 0;
-            document.MarkSaved();
-            history.MarkSavePoint();
-        });
-        IM_CHECK(results.before);
-        IM_CHECK(results.after);
-        IM_CHECK(results.exception);
-        IM_CHECK(results.cancel);
-        IM_CHECK(results.recovery);
-    };
-
-    t = IM_REGISTER_TEST(engine, "propertyedits", "scene_cancel_and_setter_failure");
-    t->GuiFunc = MainThreadGui;
-    t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx);
-        IM_CHECK(Read<bool>(ctx, [] {
-            auto &app = App();
-            auto &document = *app.State().document;
-            CKScene *scene = vdev::InitialConditionsScene(document.Context());
-            if (!scene) return false;
-            const auto before = vdev::ReadSceneEnvironment(scene);
-            auto restored = [&] {
-                const auto now = vdev::ReadSceneEnvironment(scene);
-                return now.ambient == before.ambient && now.fogColor == before.fogColor &&
-                       now.background == before.background && now.fogMode == before.fogMode &&
-                       now.fogStart == before.fogStart && now.fogEnd == before.fogEnd &&
-                       now.fogDensity == before.fogDensity && now.backgroundTexture == before.backgroundTexture &&
-                       now.startingCamera == before.startingCamera && now.useAtStart == before.useAtStart;
-            };
-            const size_t count = document.History().UndoCount();
-            vdev::SetupEditTests::Scene(app, scene->GetID(), before.fogStart + 50.0f);
-            vdev::SetupEditTests::Cancel(app);
-            if (!restored() || document.History().UndoCount() != count) return false;
-            vdev::SetupEditTests::Scene(app, scene->GetID(), before.fogStart + 80.0f, true);
-            return restored() && document.History().UndoCount() == count && !document.Dirty();
-        }));
-    };
-
     t = IM_REGISTER_TEST(engine, "propertyedits", "position_drag_cancel_undo_redo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
@@ -168,6 +81,230 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         IM_CHECK(Near(Position(ctx, row->object).x, before.x) && !App().State().document->Dirty());
         Redo(ctx);
         IM_CHECK(Near(Position(ctx, row->object).x, before.x + 12.5f));
+        Undo(ctx);
+    };
+
+    t = IM_REGISTER_TEST(engine, "propertyedits", "close_during_preview_restores_object");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        const auto row = OpenSetup(ctx);
+        IM_CHECK_SILENT(row.has_value() && SetupShown(ctx));
+        const auto before = Position(ctx, row->object);
+        const auto count = App().State().History().UndoCount();
+        ctx->SetRef(SETUP);
+        const auto at = ctx->ItemInfo("**/##v").RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 35, at.y});
+        IM_CHECK(!Near(Position(ctx, row->object).x, before.x));
+        OnMainThread(ctx, [] { const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll(); });
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(Near(Position(ctx, row->object).x, before.x));
+        IM_CHECK(App().State().History().UndoCount() == count && !App().State().document->Dirty());
+        IM_CHECK(Read<bool>(ctx, [] { return !App().State().workspace->Application().HasEdits(); }));
+    };
+    t = IM_REGISTER_TEST(engine, "propertyedits", "switch_object_during_preview_restores_original");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        const auto row = OpenSetup(ctx);
+        IM_CHECK_SILENT(row.has_value() && SetupShown(ctx));
+        const auto before = Position(ctx, row->object);
+        const auto count = App().State().History().UndoCount();
+        ctx->SetRef(SETUP);
+        const auto at = ctx->ItemInfo("**/##v").RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 35, at.y});
+        IM_CHECK(!Near(Position(ctx, row->object).x, before.x));
+        const auto other = Read<CK_ID>(ctx, [] {
+            auto &state = App().State();
+            auto *object = state.document->Context()->CreateObject(CKCID_3DOBJECT, "Next Setup object");
+            state.document->Context()->GetCurrentLevel()->AddObject(object);
+            state.document->Include(object->GetID());
+            state.preferences.SetBool("3D Layout\\Show New Setups", false);
+            state.events.Post(vdev::ShowObjectSetup{state.document->Reference(object->GetID())});
+            return object->GetID();
+        });
+        ctx->Yield(3);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(other) && !ShowsObject(row->object));
+        IM_CHECK(Near(Position(ctx, row->object).x, before.x));
+        IM_CHECK(App().State().History().UndoCount() == count && !App().State().document->Dirty());
+    };
+
+    t = IM_REGISTER_TEST(engine, "propertyedits", "sprite_text_long_input_cancel_and_font_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto id = Read<CK_ID>(ctx, [] {
+            auto &doc = *App().State().document;
+            auto *text = CKSpriteText::Cast(doc.Context()->CreateObject(CKCID_SPRITETEXT, "Text editing"));
+            if (!text || !text->Create(128, 64, 32, 0))
+                return CK_ID(0);
+            text->SetText("Original");
+            text->SetFont("Arial", 12, 400, FALSE, FALSE);
+            doc.Context()->GetCurrentLevel()->AddObject(text);
+            doc.Include(text->GetID());
+            return text->GetID();
+        });
+        IM_CHECK_SILENT(id && ShowSetup(ctx, id, "//###setupspritetext"));
+        const auto value = [id] {
+            auto *text = Object<CKSpriteText>(id);
+            return std::string(text->GetText() ? text->GetText() : "");
+        };
+        const auto size = [id] {
+            vdev::SpriteTextFont font;
+            vdev::ReadSpriteTextFont(Object<CKSpriteText>(id), &font);
+            return font.size;
+        };
+        const auto count = App().State().History().UndoCount();
+        const std::string longText(4096, 'x');
+        ctx->ItemClick("**/##text");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars(longText.c_str());
+        ctx->Yield(2);
+        IM_CHECK_EQ(Read<std::string>(ctx, value).size(), longText.size());
+        IM_CHECK(App().State().History().UndoCount() == count);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(Read<std::string>(ctx, value) == "Original");
+        IM_CHECK(App().State().History().UndoCount() == count);
+        const auto before = Read<int>(ctx, size);
+        ctx->ItemInputValue("**/Size", before + 8);
+        ctx->Yield(3);
+        IM_CHECK_EQ(Read<int>(ctx, size), before + 8);
+        IM_CHECK(App().State().History().UndoCount() == count + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(Read<int>(ctx, size), before);
+    };
+    t = IM_REGISTER_TEST(engine, "propertyedits", "level_environment_drag_cancel_and_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto level = Read<CK_ID>(ctx, [] {
+            auto *level = App().State().document->Context()->GetCurrentLevel();
+            level->GetLevelScene()->SetFogMode(VXFOG_LINEAR);
+            return level->GetID();
+        });
+        IM_CHECK_SILENT(ShowSetup(ctx, level, "//###setupscene"));
+        const auto fog = [] {
+            return App().State().document->Context()->GetCurrentLevel()->GetLevelScene()->GetFogStart();
+        };
+        const auto before = Read<float>(ctx, fog);
+        const auto count = App().State().History().UndoCount();
+        const auto at = ctx->ItemInfo("**/Fog Start:/##value").RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 40, at.y});
+        ctx->Yield(3);
+        IM_CHECK(!Near(Read<float>(ctx, fog), before));
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(Near(Read<float>(ctx, fog), before) && App().State().History().UndoCount() == count);
+        ctx->ItemInputValue("**/Fog Start:/##value", before + 25);
+        ctx->Yield(3);
+        IM_CHECK(Near(Read<float>(ctx, fog), before + 25));
+        IM_CHECK(App().State().History().UndoCount() == count + 1);
+        Undo(ctx);
+        IM_CHECK(Near(Read<float>(ctx, fog), before));
+    };
+    t = IM_REGISTER_TEST(engine, "propertyedits", "scene_color_text_cancel_has_no_late_write");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto level =
+            Read<CK_ID>(ctx, [] { return App().State().document->Context()->GetCurrentLevel()->GetID(); });
+        IM_CHECK_SILENT(ShowSetup(ctx, level, "//###setupscene"));
+        const auto color = [] {
+            return vdev::ReadSceneEnvironment(App().State().document->Context()->GetCurrentLevel()->GetLevelScene());
+        };
+        const auto before = Read<vdev::SceneEnvironment>(ctx, color);
+        const auto count = App().State().History().UndoCount();
+        const auto swatch = Read<ImGuiID>(ctx, [] {
+            auto *root = ImGui::FindWindowByName("###setupscene");
+            if (root)
+                for (auto *child : root->DC.ChildWindows)
+                    if (std::strstr(child->Name, "page"))
+                        return ImHashStr("##swatch", 0, ImHashStr("Ambient", 0, child->IDStack[0]));
+            return ImGuiID(0);
+        });
+        IM_CHECK(swatch != 0);
+        ctx->ItemClick(swatch);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("**/##picker/##hex/##Text");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("7F3344");
+        ctx->Yield(2);
+        IM_CHECK(!(Read<vdev::SceneEnvironment>(ctx, color) == before));
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(4);
+        IM_CHECK(Read<vdev::SceneEnvironment>(ctx, color) == before);
+        IM_CHECK(App().State().History().UndoCount() == count && !App().State().document->Dirty());
+    };
+
+    t = IM_REGISTER_TEST(engine, "propertyedits", "grid_multilayer_stroke_cancel_and_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto id = Read<CK_ID>(ctx, [] {
+            auto &doc = *App().State().document;
+            auto *grid = CKGrid::Cast(doc.Context()->CreateObject(CKCID_GRID, "Paint Grid"));
+            if (!grid)
+                return CK_ID(0);
+            grid->SetDimensions(4, 4, 4, 4);
+            doc.Context()->GetCurrentLevel()->AddObject(grid);
+            doc.Include(grid->GetID());
+            const auto first = vdev::RegisterGridLayerType(doc, "Paint first"),
+                       second = vdev::RegisterGridLayerType(doc, "Paint second");
+            if (!first.ok || !second.ok || !vdev::AddGridLayer(doc, grid->GetID(), int(first.created)).ok ||
+                !vdev::AddGridLayer(doc, grid->GetID(), int(second.created)).ok)
+                return CK_ID(0);
+            return grid->GetID();
+        });
+        IM_CHECK_SILENT(id && ShowSetup(ctx, id, "//###setupgrid"));
+        OnMainThread(ctx, [=] { vdev::SetupEditTests::ChooseGridLayers(App(), id); });
+        ctx->Yield(2);
+        const auto sum = [id] {
+            auto *grid = Object<CKGrid>(id);
+            int total = 0;
+            for (int l = 0; l < grid->GetLayerCount(); ++l)
+                for (int y = 0; y < 4; ++y)
+                    for (int x = 0; x < 4; ++x) {
+                        int v = 0;
+                        grid->GetLayerByIndex(l)->GetValue2(x, y, &v);
+                        total += v;
+                    }
+            return total;
+        };
+        const auto count = App().State().History().UndoCount();
+        const auto rect = ctx->ItemInfo("**/##squares").RectFull;
+        const ImVec2 at(rect.Min.x + 30, rect.Min.y + 30);
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 105, at.y});
+        ctx->Yield(3);
+        IM_CHECK(Read<int>(ctx, sum) > 0);
+        IM_CHECK(App().State().History().UndoCount() == count);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(Read<int>(ctx, sum), 0);
+        IM_CHECK(App().State().History().UndoCount() == count);
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 105, at.y});
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(Read<int>(ctx, sum) > 0);
+        IM_CHECK(App().State().History().UndoCount() == count + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(Read<int>(ctx, sum), 0);
+        Redo(ctx);
+        IM_CHECK(Read<int>(ctx, sum) > 0);
         Undo(ctx);
     };
 
@@ -676,9 +813,17 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         });
         IM_CHECK_SILENT(!label.empty());
         const std::string formatBefore = Read<std::string>(ctx, format);
+        const auto formatSize = Read<int>(ctx, [texture] {
+            auto *f = Object<CKTexture>(texture)->GetSaveFormat();
+            return f ? f->m_Size : 0;
+        });
+        ctx->LogInfo("Save format before edit: %s, size %d (native %d)", formatBefore.c_str(), formatSize,
+                     int(sizeof(CKBitmapProperties)));
         if (_stricmp(formatBefore.c_str(), extension.c_str()) != 0) {
             ChooseInCombo(ctx, ref, "Format", label.c_str());
             ctx->Yield(5);
+            if (_stricmp(Read<std::string>(ctx, format).c_str(), extension.c_str()) != 0)
+                LogEditor(ctx, 0);
             IM_CHECK(_stricmp(Read<std::string>(ctx, format).c_str(), extension.c_str()) == 0);
             Undo(ctx);
             IM_CHECK(Read<std::string>(ctx, format) == formatBefore);

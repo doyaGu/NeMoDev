@@ -60,13 +60,7 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
             page.Label(640, y, 665, y + 20, axes[i]);
             page.Place(670, y, 740, y + 20);
             if (ImGui::DragFloat("##point", &v[i], 0.01f, 0.0f, 0.0f, "%.4f") && point)
-                Live(point->GetID(), "Move Control Point", [v](CKObject *o) {
-                    VxVector at(v[0], v[1], v[2]);
-                    CKCurvePoint *moved = CKCurvePoint::Cast(o);
-                    moved->SetPosition(&at);
-                    moved->NotifyUpdate();
-                    if (CKCurve *owner = moved->GetCurve()) owner->Update();
-                });
+                LiveSet(point->GetID(), properties::CurvePointPosition, VxVector(v[0], v[1], v[2]));
             ImGui::PopID();
         }
         ImGui::EndDisabled();
@@ -99,7 +93,8 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
     const bool open = curve->IsOpen() != 0;
     if (ImGui::RadioButton("Open", open) && !open) LiveSet(id, properties::CurveOpen, true);
     ImGui::SameLine();
-    if (ImGui::RadioButton("Close", !open) && open) LiveSet(id, properties::CurveOpen, false, "Close Curve");
+    if (ImGui::RadioButton("Close", !open) && open)
+        LiveSet(id, properties::CurveOpen, false);
     ImGui::Dummy(ImVec2(1, 6));
     int steps = curve->GetStepCount();
     ImGui::SetNextItemWidth(120);
@@ -314,7 +309,7 @@ void SetupWindows::SoundPage(CKWaveSound *sound) {
     // sound made again from its file (SetFileStreaming, recreated).
     bool streamed = sound->GetFileStreaming() != 0;
     if (ImGui::Checkbox("Streamed", &streamed))
-        Live(id, "Streamed", [streamed](CKObject *o) { CKWaveSound::Cast(o)->SetFileStreaming(streamed, TRUE); });
+        LiveSet(id, properties::WaveSoundStreaming, streamed);
     ImGui::Dummy(ImVec2(1, 6));
     const char *saves[] = {"External", "Include Original File", "Use Global"};
     int save = std::max(0, std::min(2, static_cast<int>(sound->GetSaveOptions())));
@@ -370,7 +365,7 @@ void SetupWindows::SoundPage(CKWaveSound *sound) {
     float pan = sound->GetPan();
     ImGui::SetNextItemWidth(160);
     if (ImGui::SliderFloat("Pan", &pan, -1.0f, 1.0f, "%.3f"))
-        Live(id, "Pan", [pan](CKObject *o) { CKWaveSound::Cast(o)->SetPan(pan); });
+        LiveSet(id, properties::WaveSoundPan, pan);
     ImGui::EndDisabled();
     ImGui::EndGroup();
     // Right: 3D settings (point sounds).
@@ -385,21 +380,13 @@ void SetupWindows::SoundPage(CKWaveSound *sound) {
     CK_ID chosen = 0;
     ImGui::TextUnformatted("Attached Object");
     if (ObjectCombo("##attached", CKCID_3DENTITY, attached, &chosen, 200))
-        Live(id, "Attached Object", [this, chosen, position, direction](CKObject *o) {
-            VxVector p = position, d = direction;
-            CKWaveSound::Cast(o)->PositionSound(Get<CK3dEntity>(m_State, chosen), &p, &d, TRUE);
-        });
+        LiveSet(id, properties::WaveSoundAttached, chosen);
     auto vector3 = [&](const char *label, VxVector value, bool isPosition) {
         float v[3] = {value.x, value.y, value.z};
         ImGui::SetNextItemWidth(240);
         if (ImGui::DragFloat3(label, v, 0.01f, 0.0f, 0.0f, "%.3f")) {
-            const CK_ID entity = attached ? attached->GetID() : 0;
-            const VxVector keep = isPosition ? direction : position;
-            Live(id, label, [this, v, isPosition, keep, entity](CKObject *o) {
-                VxVector changed(v[0], v[1], v[2]), other = keep;
-                CKWaveSound::Cast(o)->PositionSound(Get<CK3dEntity>(m_State, entity), isPosition ? &changed : &other,
-                                                    isPosition ? &other : &changed, TRUE);
-            });
+            LiveSet(id, isPosition ? properties::WaveSoundPosition : properties::WaveSoundDirection,
+                    VxVector(v[0], v[1], v[2]));
         }
     };
     vector3("Relative Position", position, true);
@@ -451,7 +438,7 @@ void SetupWindows::ScenePage(CKObject *object) {
     ImGui::SetCursorPos(ImVec2(8, top));
     ImGui::BeginGroup();
     Group("Colors");
-    auto color = [&](const char *label, CKDWORD value, void (CKScene::*set)(CKDWORD)) {
+    auto color = [&](const char *label, CKDWORD value, const char *field) {
         const VxColor c(static_cast<CKDWORD>(value));
         const float alpha = c.a;
         ImGui::PushID(label);
@@ -464,22 +451,22 @@ void SetupWindows::ScenePage(CKObject *object) {
         if (ImGui::BeginPopup("picker")) {
             float rgb[3] = {c.r, c.g, c.b};
             if (ImGui::ColorPicker3("##picker", rgb))
-                LiveScene(id, label, [rgb, alpha, set](CKScene *s) { (s->*set)(VxColor(rgb[0], rgb[1], rgb[2], alpha).GetRGBA()); });
+                PreviewColor(id, field, VxColor(rgb[0], rgb[1], rgb[2], alpha));
             ImGui::EndPopup();
         }
         ImGui::PopID();
         ImGui::Dummy(ImVec2(1, 4));
     };
-    color("Ambient", scene->GetAmbientLight(), &CKScene::SetAmbientLight);
-    color("Fog", scene->GetFogColor(), &CKScene::SetFogColor);
-    color("Background", scene->GetBackgroundColor(), &CKScene::SetBackgroundColor);
+    color("Ambient", scene->GetAmbientLight(), "scene.ambient");
+    color("Fog", scene->GetFogColor(), "scene.fog");
+    color("Background", scene->GetBackgroundColor(), "scene.background");
     ImGui::EndGroup();
     const float lower = ImGui::GetCursorPosY() + 12.0f;
     // Use settings at Scene Start (top right).
     ImGui::SetCursorPos(ImVec2(450, top));
     bool use = scene->EnvironmentSettings() != FALSE;
     if (ImGui::Checkbox("Use settings at Scene Start", &use))
-        LiveScene(id, "Use settings at Scene Start", [use](CKScene *s) { s->UseEnvironmentSettings(use ? TRUE : FALSE); });
+        PreviewInteger(id, "scene.use-environment", use);
     // Fog Settings (bottom left).
     ImGui::SetCursorPos(ImVec2(8, lower));
     ImGui::BeginGroup();
@@ -492,9 +479,9 @@ void SetupWindows::ScenePage(CKObject *object) {
     ImGui::SameLine(180);
     ImGui::SetNextItemWidth(190);
     if (TypeAheadCombo("##fogtype", &type, types, 4))
-        LiveScene(id, "Fog Type", [type](CKScene *s) { s->SetFogMode(static_cast<VXFOG_MODE>(type)); });
+        PreviewInteger(id, "scene.fog-mode", type);
     if (type != 0) {
-        auto number = [&](const char *label, float value, float step, void (CKScene::*set)(float)) {
+        auto number = [&](const char *label, float value, float step, const char *field) {
             ImGui::PushID(label);
             ImGui::SetCursorPosX(38);
             ImGui::AlignTextToFramePadding();
@@ -502,12 +489,12 @@ void SetupWindows::ScenePage(CKObject *object) {
             ImGui::SameLine(180);
             ImGui::SetNextItemWidth(190);
             if (ImGui::DragFloat("##value", &value, step, 0.0f, 0.0f, "%.3f"))
-                LiveScene(id, label, [value, set](CKScene *s) { (s->*set)(value); });
+                PreviewReal(id, field, value);
             ImGui::PopID();
         };
-        number("Fog Start:", scene->GetFogStart(), 0.5f, &CKScene::SetFogStart);
-        number("Fog End:", scene->GetFogEnd(), 0.5f, &CKScene::SetFogEnd);
-        number("Fog Density:", scene->GetFogDensity(), 0.001f, &CKScene::SetFogDensity);
+        number("Fog Start:", scene->GetFogStart(), 0.5f, "scene.fog-start");
+        number("Fog End:", scene->GetFogEnd(), 0.5f, "scene.fog-end");
+        number("Fog Density:", scene->GetFogDensity(), 0.001f, "scene.fog-density");
         if (scene->GetFogStart() > scene->GetFogEnd())
             ImGui::TextColored(ImVec4(0.6f, 0.0f, 0.0f, 1.0f), "Fog Start must be smaller than Fog End");
     }
@@ -522,13 +509,13 @@ void SetupWindows::ScenePage(CKObject *object) {
     ImGui::TextUnformatted("Background Image");
     ImGui::SameLine(210);
     if (ObjectCombo("##background", CKCID_TEXTURE, scene->GetBackgroundTexture(), &chosen, 210))
-        LiveScene(id, "Background Image", [this, chosen](CKScene *s) { s->SetBackgroundTexture(Get<CKTexture>(m_State, chosen)); });
+        PreviewObject(id, "scene.background-image", chosen);
     ImGui::SetCursorPosX(480);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Starting Camera");
     ImGui::SameLine(210);
     if (ObjectCombo("##camera", CKCID_CAMERA, scene->GetStartingCamera(), &chosen, 210))
-        LiveScene(id, "Starting Camera", [this, chosen](CKScene *s) { s->SetStartingCamera(Get<CKCamera>(m_State, chosen)); });
+        PreviewObject(id, "scene.starting-camera", chosen);
     ImGui::EndGroup();
 }
 
@@ -541,18 +528,18 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
     if (!frame) return;
     const CK_ID id = frame->GetID();
     CK3dEntity *parent = frame->GetParent();
-    const CK_ID parentId = parent ? parent->GetID() : 0;
     const float top = ImGui::GetCursorPosY();
     float bottom = top;
     const char *axes[] = {"X :", "Y :", "Z :"};
     // One group: title (+ button), World and Local columns of X / Y / Z.
     auto group = [&](float x, const char *title, const char *button, const std::function<void()> &press, float *world,
-                     float *local, const char *label, const std::function<void(CKObject *, const float *, bool)> &apply) {
+                     float *local, const char *label, const char *field, float divisor) {
         ImGui::SetCursorPos(ImVec2(x + 8, top));
         Group(title);
         if (button) {
             ImGui::SameLine();
-            if (ImGui::SmallButton(button)) press();
+            if (ImGui::SmallButton(button))
+                press();
         }
         ImGui::SetCursorPosX(x + 60);
         ImGui::TextUnformatted("World");
@@ -568,28 +555,25 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
             ImGui::SameLine(x + 60);
             ImGui::SetNextItemWidth(100);
             if (ImGui::DragFloat("##world", &world[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                Live(id, label, [&](CKObject *o) { apply(o, world, false); });
+                PreviewNumbers(id, ("entity3d.world-" + std::string(field)).c_str(), world, 3, divisor);
             if (parent) {
                 ImGui::SameLine(x + 175);
                 ImGui::SetNextItemWidth(100);
                 if (ImGui::DragFloat("##local", &local[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                    Live(id, label, [&](CKObject *o) { apply(o, local, true); });
+                    PreviewNumbers(id, ("entity3d.local-" + std::string(field)).c_str(), local, 3, divisor);
             }
             ImGui::PopID();
             ImGui::PopID();
         }
         bottom = std::max(bottom, ImGui::GetCursorPosY());
     };
-    auto parentOf = [this, parentId]() { return parentId ? Get<CK3dEntity>(m_State, parentId) : nullptr; };
     const ShownTransform &transform = Shown(frame);
     const VxVector wp = Translation(transform.world), lp = Translation(transform.local);
     float pw[3] = {wp.x, wp.y, wp.z}, pl[3] = {lp.x, lp.y, lp.z};
-    group(0, "Position", "Reset World Matrix",
-          [&] { Act("Reset World Matrix", [&] { return ResetWorldMatrix(*m_State.document, id); }); },
-          pw, pl, "Set Position", [parentOf](CKObject *o, const float *v, bool local) {
-              VxVector at(v[0], v[1], v[2]);
-              CK3dEntity::Cast(o)->SetPosition(&at, local ? parentOf() : nullptr);
-          });
+    group(
+        0, "Position", "Reset World Matrix",
+        [&] { Act("Reset World Matrix", [&] { return ResetWorldMatrix(*m_State.document, id); }); }, pw, pl,
+        "Set Position", "position", 1.0f);
     float ow[3] = {0, 0, 0}, ol[3] = {0, 0, 0};
     Vx3DMatrixToEulerAngles(transform.world, &ow[0], &ow[1], &ow[2]);
     Vx3DMatrixToEulerAngles(transform.local, &ol[0], &ol[1], &ol[2]);
@@ -597,22 +581,15 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
         ow[i] *= RAD_TO_DEG;
         ol[i] *= RAD_TO_DEG;
     }
-    group(300, "Orientation", nullptr, nullptr, ow, ol, "Set Orientation", [parentOf](CKObject *o, const float *v, bool local) {
-        VxMatrix rotation;
-        Vx3DMatrixFromEulerAngles(rotation, v[0] / RAD_TO_DEG, v[1] / RAD_TO_DEG, v[2] / RAD_TO_DEG);
-        VxQuaternion quaternion = Vx3DQuaternionFromMatrix(rotation);
-        CK3dEntity::Cast(o)->SetQuaternion(&quaternion, local ? parentOf() : nullptr, FALSE, TRUE);
-    });
+    group(300, "Orientation", nullptr, nullptr, ow, ol, "Set Orientation", "orientation", RAD_TO_DEG);
     const VxVector ws = ScaleOf(transform.world), ls = ScaleOf(transform.local);
     float sw[3] = {ws.x, ws.y, ws.z}, sl[3] = {ls.x, ls.y, ls.z};
     CKPlace *place = CKPlace::Cast(frame);
     const bool portal = !place && (frame->GetFlags() & CK_3DENTITY_PORTAL) != 0;
-    group(600, "Scale", place ? "Set as Unit" : nullptr,
-          [&] { Act("Set as Unit", [&] { return SetScaleToUnit(*m_State.document, id); }); }, sw, sl,
-          "Set Scale", [](CKObject *o, const float *v, bool local) {
-        VxVector size(v[0], v[1], v[2]);
-        CK3dEntity::Cast(o)->SetScale(&size, FALSE, local ? TRUE : FALSE);
-    });
+    group(
+        600, "Scale", place ? "Set as Unit" : nullptr,
+        [&] { Act("Set as Unit", [&] { return SetScaleToUnit(*m_State.document, id); }); }, sw, sl, "Set Scale",
+        "scale", 1.0f);
     ImGui::SetCursorPos(ImVec2(0, bottom + 4));
     ImGui::Separator();
     if (place) {
@@ -791,13 +768,14 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
     const float top = ImGui::GetCursorPosY();
     float bottom = top;
     const char *axes[] = {"X :", "Y :", "Z :"};
-    auto group = [&](float x, const char *title, const char *button, const std::function<void()> &press, float *v, int count,
-                     const char *label, const char *heading, const std::function<void(CKObject *, const float *)> &apply) {
+    auto group = [&](float x, const char *title, const char *button, const std::function<void()> &press, float *v,
+                     int count, const char *label, const char *heading, const char *field, float divisor) {
         ImGui::SetCursorPos(ImVec2(x + 8, top));
         Group(title);
         if (button) {
             ImGui::SameLine();
-            if (ImGui::SmallButton(button)) press();
+            if (ImGui::SmallButton(button))
+                press();
         }
         ImGui::SetCursorPosX(x + 60);
         ImGui::TextUnformatted(heading);
@@ -808,7 +786,8 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
             ImGui::TextUnformatted(axes[i]);
             ImGui::SameLine(x + 75);
             ImGui::SetNextItemWidth(105);
-            if (ImGui::DragFloat("##v", &v[i], 0.01f, 0.0f, 0.0f, "%.4f")) Live(id, label, [&](CKObject *o) { apply(o, v); });
+            if (ImGui::DragFloat("##v", &v[i], 0.01f, 0.0f, 0.0f, "%.4f"))
+                PreviewNumbers(id, field, v, count, divisor);
             ImGui::PopID();
             ImGui::PopID();
         }
@@ -817,28 +796,19 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
     const ShownTransform &shown = Shown(sprite);
     const VxVector position = Translation(shown.world);
     float p[3] = {position.x, position.y, position.z};
-    group(0, "Position", "Reset World Matrix",
-          [&] { Act("Reset World Matrix", [&] { return ResetWorldMatrix(*m_State.document, id); }); },
-          p, 3, "Set Position", "World", [](CKObject *o, const float *v) {
-              VxVector at(v[0], v[1], v[2]);
-              CK3dEntity::Cast(o)->SetPosition(&at);
-          });
+    group(
+        0, "Position", "Reset World Matrix",
+        [&] { Act("Reset World Matrix", [&] { return ResetWorldMatrix(*m_State.document, id); }); }, p, 3,
+        "Set Position", "World", "entity3d.world-position", 1.0f);
     float e[3] = {0, 0, 0};
     Vx3DMatrixToEulerAngles(shown.world, &e[0], &e[1], &e[2]);
     for (float &angle : e) angle *= RAD_TO_DEG;
-    group(300, "Orientation", nullptr, nullptr, e, 3, "Set Orientation", "World", [](CKObject *o, const float *v) {
-        VxMatrix rotation;
-        Vx3DMatrixFromEulerAngles(rotation, v[0] / RAD_TO_DEG, v[1] / RAD_TO_DEG, v[2] / RAD_TO_DEG);
-        VxQuaternion quaternion = Vx3DQuaternionFromMatrix(rotation);
-        CK3dEntity::Cast(o)->SetQuaternion(&quaternion, nullptr, FALSE, TRUE);
-    });
+    group(300, "Orientation", nullptr, nullptr, e, 3, "Set Orientation", "World", "entity3d.world-orientation",
+          RAD_TO_DEG);
     Vx2DVector size;
     sprite->GetSize(size);
     float sz[2] = {size.x, size.y};
-    group(600, "Scale", nullptr, nullptr, sz, 2, "Set Size", " ", [](CKObject *o, const float *v) {
-        Vx2DVector value(v[0], v[1]);
-        CKSprite3D::Cast(o)->SetSize(value);
-    });
+    group(600, "Scale", nullptr, nullptr, sz, 2, "Set Size", " ", "sprite3d.size", 1.0f);
     ImGui::SetCursorPos(ImVec2(0, bottom + 4));
     ImGui::Separator();
     const float lower = ImGui::GetCursorPosY();
@@ -887,10 +857,7 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
         ImGui::PushID(index);
         ImGui::SetNextItemWidth(90);
         if (ImGui::DragFloat("##uv", &r[index], 0.001f, 0.0f, 0.0f, "%.4f"))
-            Live(id, "UV Mapping", [r](CKObject *o) {
-                VxRect value(r[0], r[1], r[2], r[3]);
-                CKSprite3D::Cast(o)->SetUVMapping(value);
-            });
+            LiveSet(id, properties::Sprite3DUv, VxRect(r[0], r[1], r[2], r[3]));
         ImGui::PopID();
     };
     for (int row = 0; row < 2; ++row) {
@@ -917,7 +884,7 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
     ImGui::SameLine();
     CK_ID chosen = 0;
     if (ObjectCombo("##material", CKCID_MATERIAL, material, &chosen, 190))
-        Live(id, "Sprite Material", [this, chosen](CKObject *o) { CKSprite3D::Cast(o)->SetMaterial(Get<CKMaterial>(m_State, chosen)); });
+        LiveSet(id, properties::Sprite3DMaterial, chosen);
     ImGui::EndGroup();
 }
 

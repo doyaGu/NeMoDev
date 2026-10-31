@@ -9,9 +9,9 @@
 #include <cstring>
 #include <map>
 
-
 #include "imgui.h"
 #include "imgui_internal.h"
+#include "misc/cpp/imgui_stdlib.h"
 
 #include "CKAll.h"
 
@@ -123,13 +123,11 @@ void SetupWindows::AnimationPage(CKAnimation *animation) {
     ImGui::Dummy(ImVec2(1, 6));
     Group("Merge");
     if (animation->IsMerged()) {
-        float factor = m_MergeFactor >= 0.0f ? m_MergeFactor : animation->GetMergeFactor();
+        float factor = animation->GetMergeFactor();
         ImGui::SetNextItemWidth(160);
         if (ImGui::SliderFloat("Merge Factor", &factor, 0.0f, 1.0f, "%.3f")) {
-            m_MergeFactor = factor;
             LiveSet(id, properties::AnimationMergeFactor, factor);
         }
-        if (!ImGui::IsItemActive()) m_MergeFactor = -1.0f;
     } else {
         ImGui::TextDisabled("Not a merged animation");
     }
@@ -306,12 +304,12 @@ void SetupWindows::MidiSoundPage(CKMidiSound *sound) {
         FileDialogOptions options;
         options.filter = L"Midi files (*.mid;*.midi;*.rmi)\0*.mid;*.midi;*.rmi\0All files (*.*)\0*.*\0";
         FlushPending();
-        m_State.RequestFile(options, [this, id](const FileDialogResult &result) {
-            if (result.status != FileDialogResult::Status::Selected) return;
+        m_State.RequestFile(options, [this, target = m_State.document->Reference(id),
+                                      owner = m_CurrentOwner](const FileDialogResult &result) {
+            if (result.status != FileDialogResult::Status::Selected)
+                return;
             const std::string chosen = result.paths.front();
-            Report(EditObjectState(*m_State.document, id, "Change File", [chosen](CKObject *o) {
-                CKMidiSound::Cast(o)->SetSoundFileName(const_cast<CKSTRING>(std::filesystem::u8path(chosen).string().c_str()));
-            }), "Change File");
+            SetProperty(target, owner, "sound.file", EditorField{"value", EDITOR_TEXT_VALUE, {}, chosen});
         });
     }
     ImGui::Dummy(ImVec2(1, 6));
@@ -349,45 +347,30 @@ void SetupWindows::SpriteTextPage(CKSpriteText *text) {
     const CK_ID id = text->GetID();
     SpriteTextFont font;
     const bool hasFont = ReadSpriteTextFont(text, &font);
-    // A field being typed shows what was typed; it is applied when left.
-    auto typed = [&](const char *label, const std::string &value, bool multiline,
-                     const std::function<void(CKObject *, const std::string &)> &apply) {
-        const CK_ID key = id * 2 + (multiline ? 1 : 0);
-        std::string shown = m_SpriteTextEditing == key ? m_SpriteTextEdit : AnsiToUtf8(value);
-        char buffer[2048];
-        strncpy(buffer, shown.c_str(), sizeof(buffer) - 1);
-        buffer[sizeof(buffer) - 1] = 0;
-        const bool changed = multiline ? ImGui::InputTextMultiline(label, buffer, sizeof(buffer), ImVec2(300, 70))
-                                       : (ImGui::SetNextItemWidth(160), ImGui::InputText(label, buffer, sizeof(buffer)));
+    auto typed = [&](const char *label, const std::string &value, bool multiline, bool fontFace) {
+        std::string shown = AnsiToUtf8(value);
+        const bool changed = multiline ? ImGui::InputTextMultiline(label, &shown, ImVec2(300, 70))
+                                       : (ImGui::SetNextItemWidth(160), ImGui::InputText(label, &shown));
         if (changed) {
-            m_SpriteTextEditing = key;
-            m_SpriteTextEdit = buffer;
-        }
-        if (ImGui::IsItemDeactivatedAfterEdit() && m_SpriteTextEditing == key) {
-            const std::string entered = Utf8ToAnsi(m_SpriteTextEdit);
-            if (entered != value) Live(id, label[0] == '#' ? "Sprite Text" : label, [apply, entered](CKObject *o) { apply(o, entered); });
-            FlushPending();
-            m_SpriteTextEditing = 0;
+            if (fontFace) {
+                auto changedFont = font;
+                changedFont.face = Utf8ToAnsi(shown);
+                PreviewFont(id, changedFont);
+            } else
+                LiveSet(id, properties::SpriteTextText, Utf8ToAnsi(shown));
         }
     };
     ImGui::BeginGroup();
     Group("Text");
-    typed("##text", text->GetText() ? text->GetText() : "", true,
-          [](CKObject *o, const std::string &v) { properties::SpriteTextText.set(o, v); });
+    typed("##text", text->GetText() ? text->GetText() : "", true, false);
     ImGui::EndGroup();
     ImGui::SameLine(340);
     ImGui::BeginGroup();
     Group("Font");
-    auto setFont = [&](const char *label, const SpriteTextFont &changed) {
-        Live(id, label, [changed](CKObject *o) {
-            CKSpriteText::Cast(o)->SetFont(const_cast<CKSTRING>(changed.face.c_str()), changed.size, changed.weight,
-                                           changed.italic, changed.underline);
-        });
-    };
-    if (!hasFont) ImGui::TextDisabled("(no font yet)");
-    typed("Face", font.face, false, [font](CKObject *o, const std::string &v) {
-        CKSpriteText::Cast(o)->SetFont(const_cast<CKSTRING>(v.c_str()), font.size, font.weight, font.italic, font.underline);
-    });
+    auto setFont = [&](const char *, const SpriteTextFont &changed) { PreviewFont(id, changed); };
+    if (!hasFont)
+        ImGui::TextDisabled("(no font yet)");
+    typed("Face", font.face, false, true);
     SpriteTextFont edited = font;
     ImGui::SetNextItemWidth(100);
     if (ImGui::DragInt("Size", &edited.size, 0.2f, 1, 512)) setFont("Font Size", edited);
@@ -587,9 +570,7 @@ void SetupWindows::KinematicChainPage(CKKinematicChain *chain) {
     ImGui::TextUnformatted("Start Effector");
     ImGui::SameLine(110);
     if (ObjectCombo("##start", CKCID_BODYPART, chain->GetStartEffector(), &chosen)) {
-        Live(id, "Start Effector", [chosen](CKObject *o) {
-            CKKinematicChain::Cast(o)->SetStartEffector(CKBodyPart::Cast(o->GetCKContext()->GetObject(chosen)));
-        });
+        LiveSet(id, properties::KinematicStart, chosen);
         FlushPending();
     }
     ImGui::SameLine();
@@ -600,9 +581,7 @@ void SetupWindows::KinematicChainPage(CKKinematicChain *chain) {
     ImGui::TextUnformatted("End Effector");
     ImGui::SameLine(110);
     if (ObjectCombo("##end", CKCID_BODYPART, chain->GetEndEffector(), &chosen)) {
-        Live(id, "End Effector", [chosen](CKObject *o) {
-            CKKinematicChain::Cast(o)->SetEndEffector(CKBodyPart::Cast(o->GetCKContext()->GetObject(chosen)));
-        });
+        LiveSet(id, properties::KinematicEnd, chosen);
         FlushPending();
     }
     ImGui::SameLine();
@@ -914,11 +893,8 @@ void SetupWindows::BehaviorPage(CKBehavior *behavior) {
     const bool editable = script && m_State.document->FindScript(script->GetID());
     ImGui::BeginDisabled(!editable);
     ImGui::SetNextItemWidth(90);
-    if (ImGui::InputInt("##priority", &priority, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable) {
-        const EditResult result =
-            SetBehaviorPriority(*m_State.document, script->GetID(), behavior->GetID(), priority);
-        if (!result.ok && !result.Unchanged()) Report(result, "Set Priority");
-    }
+    if (ImGui::InputInt("##priority", &priority, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable)
+        PreviewInteger(behavior->GetID(), "behavior.priority", priority);
     ImGui::EndDisabled();
     ImGui::TextUnformatted("Active");
     ImGui::SameLine(110);
@@ -1091,10 +1067,8 @@ void SetupWindows::BehaviorLinkPage(CKBehaviorLink *link) {
     const bool editable = script && m_State.document->FindScript(script->GetID());
     ImGui::BeginDisabled(!editable);
     ImGui::SetNextItemWidth(90);
-    if (ImGui::InputInt("##delay", &delay, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable) {
-        const EditResult result = SetLinkDelay(*m_State.document, script->GetID(), link->GetID(), delay);
-        if (!result.ok && !result.Unchanged()) Report(result, "Set Link Delay");
-    }
+    if (ImGui::InputInt("##delay", &delay, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable)
+        PreviewInteger(link->GetID(), "behavior-link.delay", delay);
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextUnformatted("frames");

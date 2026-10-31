@@ -9,12 +9,13 @@
 
 #include "imgui.h"
 
-#include "ui/app/EditorState.h"
 #include "core/level/LevelCommands.h"
-#include "core/level/ObjectProperties.h"
 #include "core/level/ObjectEditCommands.h"
-#include "ui/controls/ParameterBox.h"
+#include "core/level/ObjectProperties.h"
+#include "core/runtime/TextEncoding.h"
 #include "features/arrays/ArrayTable.h"
+#include "ui/app/EditorState.h"
+#include "ui/controls/ParameterBox.h"
 
 namespace vdev {
 
@@ -40,7 +41,7 @@ public:
     // dock: where a Setup opened for the first time docks (the Schematic's node).
     void Draw(ImGuiID dock);
     void CloseAll();
-    bool HasPendingEdits() const { return m_Pending.Active() || m_PendingSceneActive; }
+    bool HasPendingEdits() const { return m_PropertyEdit != 0; }
     // The Setups open, in their order (the 3D Layout's data saves them, Dev.exe
     // sub_4B4E50): the object, the Curve Setup's control point, the one in front.
     struct OpenSetup {
@@ -215,11 +216,77 @@ private:
 
     // Edits: a change applied now; consecutive changes of one control (a
     // drag, typing) form one undo step, recorded when no control is active.
-    void Live(CK_ID object, const char *label, const std::function<void(CKObject *)> &change);
-    // A property's live edit (core ObjectProperties: its label, its setter).
-    template <typename T> void LiveSet(CK_ID object, const ObjectProperty<T> &property, std::common_type_t<T> value,
-                                       const char *label = nullptr) {
-        Live(object, label ? label : property.label, [&property, value](CKObject *o) { property.set(o, value); });
+    // Setup controls submit typed values to the same property draft as modules.
+    void PreviewProperty(CK_ID object, const char *property, EditorField value, std::vector<uint64_t> indices = {},
+                         ObjectRef relative = {}, std::vector<ObjectRef> targets = {});
+    void PreviewReal(CK_ID id, const char *property, float value) {
+        EditorField field;
+        field.key = "value";
+        field.type = EDITOR_REAL_VALUE;
+        field.real = value;
+        PreviewProperty(id, property, std::move(field));
+    }
+    void PreviewColor(CK_ID id, const char *property, VxColor value) {
+        EditorField field{"value", EDITOR_REAL_LIST};
+        field.reals = {value.r, value.g, value.b, value.a};
+        PreviewProperty(id, property, std::move(field));
+    }
+    void PreviewInteger(CK_ID id, const char *property, int64_t value, std::vector<uint64_t> indices = {}) {
+        EditorField field{"value", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(value)};
+        PreviewProperty(id, property, std::move(field), std::move(indices));
+    }
+    void PreviewObject(CK_ID id, const char *property, CK_ID value, std::vector<uint64_t> indices = {}) {
+        EditorField field{"value", EDITOR_OBJECT, m_State.document->Reference(value)};
+        PreviewProperty(id, property, std::move(field), std::move(indices));
+    }
+    void PreviewFont(CK_ID id, const SpriteTextFont &font) {
+        EditorField value{"value", EDITOR_RECORD};
+        value.fields = {{"face", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(font.face)},
+                        {"size", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(font.size))},
+                        {"weight", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(font.weight))},
+                        {"italic", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(font.italic)},
+                        {"underline", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(font.underline)}};
+        PreviewProperty(id, "spritetext.font", std::move(value));
+    }
+    bool EditObjectList(CK_ID id, const char *property, const std::vector<CK_ID> &add,
+                        const std::vector<CK_ID> &remove = {});
+    bool FinishProperty(bool commit);
+    void SetProperty(ObjectRef target, EditorView owner, const char *property, EditorField value);
+    void PreviewNumbers(CK_ID object, const char *property, const float *values, int count, float divisor = 1.0f) {
+        EditorField field;
+        field.key = "value";
+        field.type = EDITOR_REAL_LIST;
+        for (int i = 0; i < count; ++i)
+            field.reals.push_back(values[i] / divisor);
+        PreviewProperty(object, property, std::move(field));
+    }
+    template <typename T> void LiveSet(CK_ID object, const ObjectProperty<T> &property, std::common_type_t<T> value) {
+        EditorField field;
+        field.key = "value";
+        if constexpr (std::is_same_v<T, CK_ID>) {
+            field.type = EDITOR_OBJECT;
+            field.object = m_State.document->Reference(value);
+        } else if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int>) {
+            field.type = EDITOR_INTEGER_VALUE;
+            field.integer = uint64_t(int64_t(value));
+        } else if constexpr (std::is_same_v<T, float>) {
+            field.type = EDITOR_REAL_VALUE;
+            field.real = value;
+        } else if constexpr (std::is_same_v<T, std::string>) {
+            field.type = EDITOR_TEXT_VALUE;
+            field.text = AnsiToUtf8(value);
+        } else {
+            field.type = EDITOR_REAL_LIST;
+            if constexpr (std::is_same_v<T, VxColor>)
+                field.reals = {value.r, value.g, value.b, value.a};
+            else if constexpr (std::is_same_v<T, VxVector>)
+                field.reals = {value.x, value.y, value.z};
+            else if constexpr (std::is_same_v<T, VxRect>)
+                field.reals = {value.left, value.top, value.right, value.bottom};
+            else
+                field.reals = {value.x, value.y};
+        }
+        PreviewProperty(object, ObjectPropertyId(&property), std::move(field));
     }
     // An action (core SetupCommands): the edit being made recorded first,
     // then the action's undo step; a refusal logged.
@@ -229,9 +296,6 @@ private:
     }
     bool FlushPending();
     void CancelPending();
-    // The same for a scene's environment (not an object state: the scene
-    // also holds the initial conditions of its objects).
-    void LiveScene(CK_ID scene, const char *label, const std::function<void(CKScene *)> &change);
     void UsedBy(const char *title, const std::vector<CKObject *> &users, float height);
     void UsedByList(const char *id, const std::vector<CKObject *> &users, const ImVec2 &size);
     bool ObjectCombo(const char *label, CK_CLASSID cid, CKObject *current, CK_ID *chosen, float width = 190.0f);
@@ -264,15 +328,12 @@ private:
     std::string m_AttributeType;
     bool m_OpenAttributeValue = false;
     void AttributeValueDialog();
-    ObjectsGesture m_Pending;
-    CK_ID m_PendingObject = 0;
-    std::string m_PendingLabel;
-    bool m_PendingSceneActive = false;
-    CK_ID m_PendingScene = 0;
-    SceneEnvironment m_PendingSceneBefore;
-    std::string m_SpriteTextEdit; // Sprite Text: the text or font face being typed
-    CK_ID m_SpriteTextEditing = 0;
-    float m_MergeFactor = -1.0f;  // Animation Setup: the merge factor being dragged
+    EditorEdit m_PropertyEdit = 0;
+    EditorView m_CurrentOwner = 0, m_PropertyOwner = 0;
+    ObjectRef m_PropertyTarget{}, m_PropertySetup{}, m_CurrentTarget{};
+    std::string m_PropertyKey;
+    unsigned m_PropertyControl = 0, m_PropertyActive = 0, m_CancelledControl = 0;
+    int m_CancelledFrame = 0;
     int m_PlaceMenuRow = -1; // Place Setup: the link row the context menu opened on
     // Place Setup's Automatic Portal: the place whose portal waits for the
     // other place to be picked (a click in a window that answers, Escape or

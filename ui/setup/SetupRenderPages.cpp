@@ -59,16 +59,16 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
     const float localEuler[3] = {ex * RAD_TO_DEG, ey * RAD_TO_DEG, ez * RAD_TO_DEG};
     // A group at x (0, 200, 400): its title (and button), X, Y and Z in the
     // World and the Local (the parent's) referential.
-    using Apply = std::function<void(CK3dEntity *, const float *, CK3dEntity *parent, bool local)>;
     auto group = [&](float x, const char *title, float titleRight, const char *button, float buttonRight,
-                     const float *world, const float *local, const char *label, const Apply &apply,
+                     const float *world, const float *local, const char *label, const char *field, float divisor,
                      const std::function<void()> &press) {
         page.Label(x + 20, 2, titleRight, 17, title);
         if (button) {
             const ImVec2 a = page.At(x + 105, 1), b = page.At(buttonRight, 17);
             ImGui::SetCursorScreenPos(a);
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 0.0f));
-            if (ImGui::Button(button, ImVec2(b.x - a.x, b.y - a.y))) press();
+            if (ImGui::Button(button, ImVec2(b.x - a.x, b.y - a.y)))
+                press();
             ImGui::PopStyleVar();
         }
         page.Line(x + 25, 17, x + 26, 97);
@@ -83,41 +83,24 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
             float w[3] = {world[0], world[1], world[2]}, l[3] = {local[0], local[1], local[2]};
             page.Place(x + 70, y, x + 140, y + 20);
             if (ImGui::DragFloat("##v", &w[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                Live(id, label, [&](CKObject *o) { apply(CK3dEntity::Cast(o), w, nullptr, false); });
+                PreviewNumbers(id, ("entity3d.world-" + std::string(field)).c_str(), w, 3, divisor);
             page.Place(x + 150, y, x + 220, y + 20);
             if (ImGui::DragFloat("##local", &l[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                Live(id, label, [&](CKObject *o) {
-                    CK3dEntity *moved = CK3dEntity::Cast(o);
-                    apply(moved, l, moved->GetParent(), true);
-                });
+                PreviewNumbers(id, ("entity3d.local-" + std::string(field)).c_str(), l, 3, divisor);
             ImGui::PopID();
         }
         ImGui::PopID();
     };
     const VxVector position = Translation(shown.world), localPosition = Translation(shown.local);
     const float p[3] = {position.x, position.y, position.z}, lp[3] = {localPosition.x, localPosition.y, localPosition.z};
-    group(0, "Position", 95, "Reset World Matrix", 195, p, lp, "Set Position",
-          [](CK3dEntity *e, const float *v, CK3dEntity *parent, bool) {
-              VxVector at(v[0], v[1], v[2]);
-              e->SetPosition(&at, parent);
-          },
+    group(0, "Position", 95, "Reset World Matrix", 195, p, lp, "Set Position", "position", 1.0f,
           [&] { Act("Reset World Matrix", [&] { return ResetWorldMatrix(*m_State.document, id); }); });
-    group(200, "Orientation", 295, nullptr, 0, worldEuler, localEuler, "Set Orientation",
-          [](CK3dEntity *e, const float *v, CK3dEntity *parent, bool) {
-              VxMatrix rotation;
-              Vx3DMatrixFromEulerAngles(rotation, v[0] / RAD_TO_DEG, v[1] / RAD_TO_DEG, v[2] / RAD_TO_DEG);
-              VxQuaternion quaternion = Vx3DQuaternionFromMatrix(rotation);
-              e->SetQuaternion(&quaternion, parent, FALSE, TRUE);
-          },
+    group(200, "Orientation", 295, nullptr, 0, worldEuler, localEuler, "Set Orientation", "orientation", RAD_TO_DEG,
           nullptr);
     if (sized) {
         const VxVector scale = ScaleOf(shown.world), localScale = ScaleOf(shown.local);
         const float sc[3] = {scale.x, scale.y, scale.z}, ls[3] = {localScale.x, localScale.y, localScale.z};
-        group(400, "Scale", 465, "Set as Unit", 574, sc, ls, "Set Scale",
-              [](CK3dEntity *e, const float *v, CK3dEntity *, bool local) {
-                  VxVector size(v[0], v[1], v[2]);
-                  e->SetScale(&size, FALSE, local ? TRUE : FALSE);
-              },
+        group(400, "Scale", 465, "Set as Unit", 574, sc, ls, "Set Scale", "scale", 1.0f,
               [&] { Act("Set as Unit", [&] { return SetScaleToUnit(*m_State.document, id); }); });
     }
     if (fourth) {
@@ -157,9 +140,7 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
     auto removeMeshes = [&] {
         const std::vector<CK_ID> chosen(rows.begin(), rows.end());
         if (chosen.empty()) return;
-        Live(id, "Remove Mesh(es)", [this, chosen](CKObject *o) {
-            for (CK_ID mesh : chosen) CK3dEntity::Cast(o)->RemoveMesh(Get<CKMesh>(m_State, mesh));
-        });
+        EditObjectList(id, "entity3d.meshes", {}, chosen);
         FlushPending();
         rows.clear();
     };
@@ -187,9 +168,7 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
                 ImGui::Separator();
                 if (ImGui::MenuItem("Set As Current", nullptr, false, single)) {
                     const CK_ID chosen = *rows.begin();
-                    Live(id, "Set Current Mesh", [this, chosen](CKObject *o) {
-                        CK3dEntity::Cast(o)->SetCurrentMesh(Get<CKMesh>(m_State, chosen), FALSE);
-                    });
+                    LiveSet(id, properties::Entity3DCurrentMesh, chosen);
                     FlushPending();
                 }
                 ImGui::Separator();
@@ -221,7 +200,7 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
             for (int i = 0; mesh && i < entity->GetMeshCount(); ++i) held = held || entity->GetMesh(i) == mesh;
             if (mesh && !held && !payload->IsDelivery()) ImGui::SetTooltip("Add Mesh %s", NameOf(mesh).c_str());
             if (mesh && !held && payload->IsDelivery()) {
-                Live(id, "Add Mesh", [this, dragged](CKObject *o) { CK3dEntity::Cast(o)->AddMesh(Get<CKMesh>(m_State, dragged)); });
+                EditObjectList(id, "entity3d.meshes", {dragged});
                 FlushPending();
             }
         }
@@ -238,7 +217,7 @@ void SetupWindows::Entity3DPage(CK3dEntity *entity, bool sized, bool details,
             ImGui::PushID(static_cast<int>(object->GetID()));
             if (typeAhead.Selectable(NameOf(object).c_str())) {
                 const CK_ID chosen = object->GetID();
-                Live(id, "Add Mesh", [this, chosen](CKObject *o) { CK3dEntity::Cast(o)->AddMesh(Get<CKMesh>(m_State, chosen)); });
+                EditObjectList(id, "entity3d.meshes", {chosen});
                 FlushPending();
                 ImGui::CloseCurrentPopup();
             }
@@ -308,10 +287,7 @@ void SetupWindows::CameraPage(CKCamera *camera) {
         float at[3] = {to.x, to.y, to.z};
         page.Place(430, 105, 640, 125);
         if (ImGui::DragFloat3("##targetposition", at, 0.05f, 0.0f, 0.0f, "%.3f"))
-            Live(target->GetID(), "Target Position", [at](CKObject *o) {
-                VxVector p(at[0], at[1], at[2]);
-                CK3dEntity::Cast(o)->SetPosition(&p);
-            });
+            LiveSet(target->GetID(), properties::Entity3DWorldPosition, VxVector(at[0], at[1], at[2]));
     }
     // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player
     // Mode (not the object's visibility); the 3D Layout draws the camera's
@@ -328,7 +304,7 @@ void SetupWindows::CameraPage(CKCamera *camera) {
         page.Label(20, 190, 80, 210, "Target");
         CK_ID chosen = 0;
         if (ObjectCombo("##target", CKCID_3DENTITY, target, &chosen, page.Place(80, 190, 210, 210)))
-            Live(id, "Camera Target", [this, chosen](CKObject *o) { CKCamera::Cast(o)->SetTarget(Get<CK3dEntity>(m_State, chosen)); });
+            LiveSet(id, properties::CameraTarget, chosen);
     }
 
     // Projection Type.
@@ -360,16 +336,16 @@ void SetupWindows::CameraPage(CKCamera *camera) {
     page.Place(300, 210, 400, 230);
     int picked = type;
     if (TypeAheadCombo("##aspecttype", &picked, types, 5) && picked != type && picked > 0)
-        Live(id, "Aspect Ratio", [picked](CKObject *o) { CKCamera::Cast(o)->SetAspectRatio(RATIOS[picked][0], RATIOS[picked][1]); });
+        LiveSet(id, properties::CameraRatio, Vx2DVector(float(RATIOS[picked][0]), float(RATIOS[picked][1])));
     int x = width, y = height;
     page.Label(240, 230, 270, 250, "X :");
     page.Place(270, 230, 310, 250);
     if (ImGui::DragInt("##aspectx", &x, 0.1f, 1, 10000) && x > 0)
-        Live(id, "Aspect Ratio", [x, height](CKObject *o) { CKCamera::Cast(o)->SetAspectRatio(x, height); });
+        LiveSet(id, properties::CameraRatio, Vx2DVector(float(x), float(height)));
     page.Label(330, 230, 360, 250, "Y :");
     page.Place(360, 230, 400, 250);
     if (ImGui::DragInt("##aspecty", &y, 0.1f, 1, 10000) && y > 0)
-        Live(id, "Aspect Ratio", [width, y](CKObject *o) { CKCamera::Cast(o)->SetAspectRatio(width, y); });
+        LiveSet(id, properties::CameraRatio, Vx2DVector(float(width), float(y)));
     char ratio[32];
     std::snprintf(ratio, sizeof(ratio), "%.4f", height ? static_cast<float>(width) / height : 0.0f);
     page.Label(240, 250, 295, 270, "Ratio:");
@@ -460,7 +436,7 @@ void SetupWindows::LightPage(CKLight *light) {
         CK_ID chosen = 0;
         page.Label(20, 190, 80, 210, "Target");
         if (ObjectCombo("##target", CKCID_3DENTITY, light->GetTarget(), &chosen, page.Place(80, 190, 210, 210)))
-            Live(id, "Light Target", [this, chosen](CKObject *o) { CKLight::Cast(o)->SetTarget(Get<CK3dEntity>(m_State, chosen)); });
+            LiveSet(id, properties::LightTarget, chosen);
     }
     // The power (not in Dev's page; CKLight::SetPower).
     float power = properties::LightPower.get(light);
@@ -578,9 +554,7 @@ void SetupWindows::Entity2DPage(CK2dEntity *entity, bool sprite) {
     float xy[2] = {position.x, position.y};
     ImGui::SetNextItemWidth(200);
     if (ImGui::DragFloat2("X / Y", xy, homogeneous ? 0.001f : 1.0f, 0.0f, 0.0f, "%.4f"))
-        Live(id, "Set Position", [xy, homogeneous](CKObject *o) {
-            CK2dEntity::Cast(o)->SetPosition(Vx2DVector(xy[0], xy[1]), homogeneous);
-        });
+        LiveSet(id, properties::Entity2DPosition, Vx2DVector(xy[0], xy[1]));
     int z = entity->GetZOrder();
     ImGui::SetNextItemWidth(80);
     if (ImGui::DragInt("Z Order", &z, 0.2f)) LiveSet(id, properties::Entity2DZOrder, z);
@@ -592,7 +566,7 @@ void SetupWindows::Entity2DPage(CK2dEntity *entity, bool sprite) {
     float wh[2] = {size.x, size.y};
     ImGui::SetNextItemWidth(200);
     if (ImGui::DragFloat2("Width / Height", wh, homogeneous ? 0.001f : 1.0f, 0.0f, 0.0f, "%.4f"))
-        Live(id, "Set Size", [wh, homogeneous](CKObject *o) { CK2dEntity::Cast(o)->SetSize(Vx2DVector(wh[0], wh[1]), homogeneous); });
+        LiveSet(id, properties::Entity2DSize, Vx2DVector(wh[0], wh[1]));
     ImGui::Unindent(20);
     ImGui::EndGroup();
     ImGui::SameLine(380);
@@ -602,7 +576,7 @@ void SetupWindows::Entity2DPage(CK2dEntity *entity, bool sprite) {
         Group("Material:");
         ImGui::SameLine();
         if (ObjectCombo("##material", CKCID_MATERIAL, entity->GetMaterial(), &chosen))
-            Live(id, "Material", [this, chosen](CKObject *o) { CK2dEntity::Cast(o)->SetMaterial(Get<CKMaterial>(m_State, chosen)); });
+            LiveSet(id, properties::Entity2DMaterial, chosen);
         // Documentation "2D Frame Setup": "Clicking on the icon opens the Material setup".
         ImGui::SameLine();
         ImGui::BeginDisabled(!entity->GetMaterial());
@@ -622,15 +596,12 @@ void SetupWindows::Entity2DPage(CK2dEntity *entity, bool sprite) {
     float uv[4] = {source.left, source.top, source.right, source.bottom};
     ImGui::SetNextItemWidth(260);
     if (ImGui::DragFloat4("L / T / R / B", uv, sprite ? 1.0f : 0.005f, 0.0f, 0.0f, sprite ? "%.0f" : "%.3f"))
-        Live(id, "UV Mapping", [uv](CKObject *o) {
-            VxRect rect(uv[0], uv[1], uv[2], uv[3]);
-            CK2dEntity::Cast(o)->SetSourceRect(rect);
-        });
+        LiveSet(id, properties::Entity2DUv, VxRect(uv[0], uv[1], uv[2], uv[3]));
     ImGui::Dummy(ImVec2(1, 10));
     Group("Parent");
     ImGui::SameLine();
     if (ObjectCombo("##parent", CKCID_2DENTITY, entity->GetParent(), &chosen) && chosen != id)
-        Live(id, "Parent", [this, chosen](CKObject *o) { CK2dEntity::Cast(o)->SetParent(Get<CK2dEntity>(m_State, chosen)); });
+        LiveSet(id, properties::Entity2DParent, chosen);
     // Show Parent Setup (Dev.exe sub_479A10, command 816).
     ImGui::SameLine();
     ImGui::BeginDisabled(!entity->GetParent());
@@ -915,13 +886,7 @@ void SetupWindows::SaveFormatControls(CKObject *bitmap) {
     int picked = chosen;
     if (TypeAheadCombo("Format", &picked, items.data(), static_cast<int>(items.size())) && picked != chosen) {
         const std::string ext = extensions[picked];
-        Live(bitmap->GetID(), "Image Format", [ext](CKObject *o) {
-            std::vector<char> bytes = MakeSaveFormat(o->GetCKContext(), ext);
-            if (bytes.empty()) return;
-            CKBitmapProperties *properties = reinterpret_cast<CKBitmapProperties *>(bytes.data());
-            if (CKTexture *t = CKTexture::Cast(o)) t->SetSaveFormat(properties);
-            else if (CKSprite *s = CKSprite::Cast(o)) s->SetSaveFormat(properties);
-        });
+        PreviewProperty(bitmap->GetID(), "bitmap.save-format", EditorField{"value", EDITOR_TEXT_VALUE, {}, ext});
         FlushPending();
         // SetSaveFormat replaces the storage borrowed by current. Draw its
         // options from the new format on the next frame.
@@ -948,9 +913,8 @@ void SetupWindows::SaveFormatControls(CKObject *bitmap) {
         if (reader && reader->m_ReadersInfo && _stricmp(reader->m_PluginInfo.m_Extension.m_Data, extension.c_str()) == 0)
             optionsType = reader->m_ReadersInfo->m_SettingsParameterGuid;
     }
-    void *optionData = reinterpret_cast<char *>(current) + sizeof(CKBitmapProperties);
     if (optionsType != CKGUID(0, 0) && ImGui::Button("Format Options...")) {
-        if (CKParameterOut *options = plugins->GetReaderOptionData(context, optionData, ext, &current->m_ReaderGuid)) {
+        if (CKParameterOut *options = ReadBitmapOptions(*m_State.document, bitmap)) {
             m_FormatBox.Clear();
             if (CKParameter *old = CKParameter::Cast(context->GetObject(m_FormatParameter))) context->DestroyObject(old);
             m_FormatParameter = options->GetID();
@@ -965,22 +929,7 @@ void SetupWindows::SaveFormatControls(CKObject *bitmap) {
     if (action != DialogAction::None) {
         CKParameter *edited = m_FormatBox.Count() ? m_FormatBox.Work(0) : nullptr;
         if (action == DialogAction::Ok && edited) {
-            const std::string wanted = extension;
-            CKParameterOut *value = CKParameterOut::Cast(edited);
-            Live(bitmap->GetID(), "Format Options", [this, wanted, value](CKObject *o) {
-                CKTexture *t = CKTexture::Cast(o);
-                CKSprite *s = CKSprite::Cast(o);
-                CKBitmapProperties *format = t ? t->GetSaveFormat() : s ? s->GetSaveFormat() : nullptr;
-                if (!format || !value) return;
-                CKBitmapProperties *copy = CKCopyBitmapProperties(format);
-                if (!copy) return;
-                CKFileExtension e(const_cast<char *>(wanted.c_str()));
-                CKGetPluginManager()->SetReaderOptionData(o->GetCKContext(), reinterpret_cast<char *>(copy) + sizeof(CKBitmapProperties),
-                                                          value, e, &copy->m_ReaderGuid);
-                if (t) t->SetSaveFormat(copy);
-                else s->SetSaveFormat(copy);
-                CKDeleteBitmapProperties(copy);
-            });
+            PreviewObject(bitmap->GetID(), "bitmap.format-options", edited->GetID());
             FlushPending();
             m_FormatInfoKey.erase(bitmap->GetID());
         }
@@ -1378,7 +1327,7 @@ void SetupWindows::MaterialPage(Setup &setup, CKMaterial *material) {
         m_State.events.Post(ShowObjectSetup{m_State.document->Reference(texture->GetID())});
     CK_ID chosen = 0;
     if (ObjectCombo("##texture", CKCID_TEXTURE, texture, &chosen, page.Place(300, 140, 445, 160)))
-        Live(id, "Texture", [this, chosen](CKObject *o) { CKMaterial::Cast(o)->SetTexture0(Get<CKTexture>(m_State, chosen)); });
+        LiveSet(id, properties::MaterialTexture, chosen);
     page.Line(230, 159, 231, 280);
     const char *blends[] = {"Decal", "Modulate", "Decal Alpha", "Modulate Alpha", "Decal Mask", "Modulate Mask", "Copy", "Add", "Dot Product 3", "Max"};
     int textureBlend = std::max(0, std::min(9, static_cast<int>(material->GetTextureBlendMode()) - 1));
@@ -1448,9 +1397,7 @@ void SetupWindows::MaterialPage(Setup &setup, CKMaterial *material) {
                 m_State.events.Post(ShowObjectSetup{m_State.document->Reference(extra->GetID())});
             CK_ID picked = 0;
             if (ObjectCombo("##effecttexture", CKCID_TEXTURE, extra, &picked, page.Place(830, y, 930, y + 20))) {
-                Live(id, "Effect Texture", [this, i, picked](CKObject *o) {
-                    CKMaterial::Cast(o)->SetTexture(i + 1, Get<CKTexture>(m_State, picked));
-                });
+                PreviewObject(id, "material.effect-texture", picked, {uint64_t(i + 1)});
                 FlushPending();
             }
             ImGui::PopID();
@@ -1532,25 +1479,22 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
         int vertices = mesh->GetVerticesRendered();
         ImGui::SetNextItemWidth(200);
         if (ImGui::SliderInt("Vertices", &vertices, 0, std::max(1, mesh->GetVertexCount())))
-            Live(id, "Vertices Rendered", [vertices](CKObject *o) { CKMesh::Cast(o)->SetVerticesRendered(vertices); });
+            LiveSet(id, properties::MeshVerticesRendered, vertices);
         bool geomorph = mesh->IsPMGeoMorphEnabled() != 0;
         if (ImGui::Checkbox("GeoMorphic Transition", &geomorph))
-            Live(id, "GeoMorphic Transition", [geomorph](CKObject *o) { CKMesh::Cast(o)->EnablePMGeoMorph(geomorph); });
+            LiveSet(id, properties::MeshGeoMorph, geomorph);
         ImGui::SameLine();
         int step = mesh->GetPMGeoMorphStep();
         ImGui::SetNextItemWidth(80);
         if (ImGui::InputInt("Decimation", &step, 1, 10))
-            Live(id, "GeoMorph Step", [step](CKObject *o) { CKMesh::Cast(o)->SetPMGeoMorphStep(std::max(0, step)); });
+            LiveSet(id, properties::MeshGeoMorphStep, step);
     } else {
         ImGui::Dummy(ImVec2(1, 30));
     }
     // Stripify (VXMESH_STRIPIFY: the mesh is stripified each time it loads).
     bool stripify = (mesh->GetFlags() & VXMESH_STRIPIFY) != 0;
     if (ImGui::Checkbox("Stripify", &stripify))
-        Live(id, "Stripify", [stripify](CKObject *o) {
-            CKMesh *m = CKMesh::Cast(o);
-            m->SetFlags(stripify ? (m->GetFlags() | VXMESH_STRIPIFY) : (m->GetFlags() & ~VXMESH_STRIPIFY));
-        });
+        LiveSet(id, properties::MeshStripify, stripify);
     const char *wraps[] = {"None", "U", "V", "UV"};
     int wrap = std::max(0, std::min(3, static_cast<int>(mesh->GetWrapMode())));
     ImGui::SetNextItemWidth(120);
@@ -1632,9 +1576,7 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
         for (int channel : setup.channelRows)
             if (CKMaterial *material = mesh->GetChannelMaterial(channel)) materials.push_back(material->GetID());
         if (materials.empty()) return;
-        Live(id, "Remove Channel(s)", [this, materials](CKObject *o) {
-            for (CK_ID material : materials) CKMesh::Cast(o)->RemoveChannelByMaterial(Get<CKMaterial>(m_State, material));
-        });
+        EditObjectList(id, "mesh.channels", {}, materials);
         FlushPending();
         setup.channelRows.clear();
     };
@@ -1650,9 +1592,7 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
             return;
         }
         bool added = false;
-        Live(id, "Add Channel", [this, material, &added](CKObject *o) {
-            added = CKMesh::Cast(o)->AddChannel(Get<CKMaterial>(m_State, material), TRUE) >= 0;
-        });
+        added = EditObjectList(id, "mesh.channels", {material});
         FlushPending();
         if (!added) m_State.Log(LogLevel::Warning, "Add Channel: the channel cannot be added");
     };
@@ -1693,20 +1633,22 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
             }
             ImGui::TableNextColumn();
             bool active = mesh->IsChannelActive(i) != 0;
-            if (ImGui::Checkbox("##active", &active)) Live(id, "Channel Active", [i, active](CKObject *o) { CKMesh::Cast(o)->ActivateChannel(i, active); });
+            if (ImGui::Checkbox("##active", &active))
+                PreviewInteger(id, "mesh.channel-active", active, {uint64_t(i)});
             ImGui::TableNextColumn();
             bool lit = mesh->IsChannelLit(i) != 0;
-            if (ImGui::Checkbox("##lit", &lit)) Live(id, "Channel Lit", [i, lit](CKObject *o) { CKMesh::Cast(o)->LitChannel(i, lit); });
+            if (ImGui::Checkbox("##lit", &lit))
+                PreviewInteger(id, "mesh.channel-lit", lit, {uint64_t(i)});
             ImGui::TableNextColumn();
             int src = std::max(0, static_cast<int>(mesh->GetChannelSourceBlend(i)) - 1);
             ImGui::SetNextItemWidth(-1);
             if (TypeAheadCombo("##src", &src, BLENDS, 13))
-                Live(id, "Channel Source Blend", [i, src](CKObject *o) { CKMesh::Cast(o)->SetChannelSourceBlend(i, static_cast<VXBLEND_MODE>(src + 1)); });
+                PreviewInteger(id, "mesh.channel-source-blend", src + 1, {uint64_t(i)});
             ImGui::TableNextColumn();
             int dst = std::max(0, static_cast<int>(mesh->GetChannelDestBlend(i)) - 1);
             ImGui::SetNextItemWidth(-1);
             if (TypeAheadCombo("##dst", &dst, BLENDS, 13))
-                Live(id, "Channel Dest Blend", [i, dst](CKObject *o) { CKMesh::Cast(o)->SetChannelDestBlend(i, static_cast<VXBLEND_MODE>(dst + 1)); });
+                PreviewInteger(id, "mesh.channel-dest-blend", dst + 1, {uint64_t(i)});
             ImGui::TableNextColumn();
             if (mesh->IsChannelActive(i)) ImGui::Text("%d", ++pass);
             else ImGui::TextDisabled("-");
@@ -1804,9 +1746,7 @@ void SetupWindows::MeshPage(Setup &setup, CKMesh *mesh) {
                     ImGui::SetTooltip("Add material or replace existing material");
                 } else {
                     const CK_ID chosen = with->GetID();
-                    Live(id, "Apply Material", [this, chosen](CKObject *o) {
-                        CKMesh::Cast(o)->ApplyGlobalMaterial(Get<CKMaterial>(m_State, chosen));
-                    });
+                    PreviewObject(id, "mesh.global-material", chosen);
                     FlushPending();
                 }
             }
@@ -1896,7 +1836,7 @@ void SetupWindows::TexturePage(Setup &setup, CKTexture *texture) {
         LiveSet(id, properties::TextureSaveOptions, option);
     if (option == CKTEXTURE_IMAGEFORMAT) SaveFormatControls(texture);
     const char *mips[] = {"None", "Automatic"};
-    int mip = texture->GetMipmapCount() > 0 ? 1 : 0;
+    int mip = texture->GetMipmapCount() != 0 ? 1 : 0;
     ImGui::SetNextItemWidth(160);
     if (TypeAheadCombo("Mip Levels", &mip, mips, 2)) LiveSet(id, properties::TextureMipmap, mip);
     bool cube = bitmap->IsCubeMap() != 0;
@@ -2071,19 +2011,35 @@ void SetupWindows::GridPage(Setup &setup, CKGrid *grid) {
                     setup.squareValue = valueAt(selected, x, y);
                     setup.openSquare = true;
                 } else {
-                    // Left paints the value, right clears, on every layer
-                    // chosen (one undo step per stroke and layer).
-                    const bool paint = ImGui::IsMouseDown(ImGuiMouseButton_Left), clear = ImGui::IsMouseDown(ImGuiMouseButton_Right);
-                    if (ImGui::IsItemActive() && (paint || clear))
-                        for (int l : setup.layers) {
-                            CKLayer *layer = grid->GetLayerByIndex(l);
-                            const int value = paint ? setup.paint : 0;
-                            if (layer && valueAt(layer, x, y) != value)
-                                Live(layer->GetID(), "Paint Grid", [x, y, value](CKObject *o) {
-                                    int v = value;
-                                    static_cast<CKLayer *>(o)->SetValue2(x, y, &v);
-                                });
+                    // One stroke edits all selected layers in one property draft.
+                    const bool paint = ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                               clear = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+                    if (ImGui::IsItemActive() && (paint || clear)) {
+                        std::vector<ObjectRef> targets;
+                        for (int l : setup.layers)
+                            if (auto *layer = grid->GetLayerByIndex(l))
+                                targets.push_back(m_State.document->Reference(layer->GetID()));
+                        if (!targets.empty()) {
+                            EditorField field{"value", EDITOR_RECORD};
+                            field.fields = {{"cells", EDITOR_INTEGER_LIST}};
+                            EditorValueEditorDesc editor{};
+                            if (m_PropertyKey == "setup.layer.cells")
+                                m_State.workspace->Application().EditState(m_PropertyEdit, field, editor);
+                            const auto value = uint64_t(paint ? setup.paint : 0);
+                            bool found = false;
+                            auto &cells = field.fields.front().integers;
+                            for (size_t i = 0; i < cells.size(); i += 3)
+                                if (cells[i] == uint64_t(x) && cells[i + 1] == uint64_t(y)) {
+                                    cells[i + 2] = value;
+                                    found = true;
+                                    break;
+                                }
+                            if (!found)
+                                cells.insert(cells.end(), {uint64_t(x), uint64_t(y), value});
+                            const CK_ID first = targets.front().object;
+                            PreviewProperty(first, "layer.cells", std::move(field), {}, {}, std::move(targets));
                         }
+                    }
                 }
             }
         }
@@ -2111,15 +2067,18 @@ void SetupWindows::GridPage(Setup &setup, CKGrid *grid) {
         }
         if (ImGui::Button("OK", ImVec2(80, 0))) {
             const int x = setup.squareX, y = setup.squareY, value = setup.squareValue;
+            std::vector<ObjectRef> targets;
             for (int l : setup.layers)
-                if (CKLayer *layer = grid->GetLayerByIndex(l))
-                    if (x >= 0 && x < width && y >= 0 && y < length && valueAt(layer, x, y) != value) {
-                        Live(layer->GetID(), "Square Value", [x, y, value](CKObject *o) {
-                            int v = value;
-                            static_cast<CKLayer *>(o)->SetValue2(x, y, &v);
-                        });
-                        FlushPending();
-                    }
+                if (auto *layer = grid->GetLayerByIndex(l))
+                    targets.push_back(m_State.document->Reference(layer->GetID()));
+            if (!targets.empty() && x >= 0 && x < width && y >= 0 && y < length) {
+                EditorField field{"value", EDITOR_RECORD};
+                field.fields = {{"cells", EDITOR_INTEGER_LIST}};
+                field.fields.front().integers = {uint64_t(x), uint64_t(y), uint64_t(value)};
+                const CK_ID first = targets.front().object;
+                PreviewProperty(first, "layer.cells", std::move(field), {}, {}, std::move(targets));
+                FlushPending();
+            }
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -2170,11 +2129,16 @@ void SetupWindows::GridPage(Setup &setup, CKGrid *grid) {
         if (!name) return;
         VxColor color = typeColor(type);
         float rgb[3] = {color.r, color.g, color.b};
-        if (ImGui::ColorPicker3("##typecolor", rgb, ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs))
-            Report(SetGridLayerTypeColor(*m_State.document, type, VxColor(rgb[0], rgb[1], rgb[2], color.a)), "Layer Type Color");
+        if (ImGui::ColorPicker3("##typecolor", rgb, ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoInputs)) {
+            EditorField value{"value", EDITOR_REAL_LIST};
+            value.reals = {rgb[0], rgb[1], rgb[2], color.a};
+            PreviewProperty(id, "grid.layer-color", std::move(value), {uint64_t(type)});
+        }
         ImGui::Separator();
-        if (ImGui::MenuItem("Integer", nullptr, !linker(type))) Report(SetGridLayerTypeLinker(*m_State.document, type, false), "Param Type");
-        if (ImGui::MenuItem("Linker", nullptr, linker(type))) Report(SetGridLayerTypeLinker(*m_State.document, type, true), "Param Type");
+        if (ImGui::MenuItem("Integer", nullptr, !linker(type)))
+            PreviewInteger(id, "grid.layer-linker", 0, {uint64_t(type)});
+        if (ImGui::MenuItem("Linker", nullptr, linker(type)))
+            PreviewInteger(id, "grid.layer-linker", 1, {uint64_t(type)});
     };
     // Layers of the grid: color, name, visibility (V). Ctrl+click chooses
     // several; right-click: the type's color and parameter, Remove Layer. A
@@ -2219,8 +2183,16 @@ void SetupWindows::GridPage(Setup &setup, CKGrid *grid) {
             if (ImGui::Checkbox("##visible", &visible)) {
                 // The layers chosen together.
                 const std::set<int> targets = setup.layers.count(l) ? setup.layers : std::set<int>{l};
+                std::vector<ObjectRef> objects;
                 for (int t : targets)
-                    if (CKLayer *each = grid->GetLayerByIndex(t)) LiveSet(each->GetID(), properties::LayerVisible, visible);
+                    if (auto *each = grid->GetLayerByIndex(t))
+                        objects.push_back(m_State.document->Reference(each->GetID()));
+                if (!objects.empty()) {
+                    const CK_ID first = objects.front().object;
+                    PreviewProperty(first, "layer.visible",
+                                    EditorField{"value", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(visible)}, {}, {},
+                                    std::move(objects));
+                }
             }
             ImGui::PopID();
         }
@@ -2378,10 +2350,10 @@ void SetupWindows::GridPage(Setup &setup, CKGrid *grid) {
         ImGui::SetNextItemWidth(240);
         const bool entered = ImGui::InputText("##name", &setup.gridRenameText, ImGuiInputTextFlags_EnterReturnsTrue);
         if (ImGui::Button("OK", ImVec2(80, 0)) || entered) {
-            const std::string name = Utf8ToAnsi(setup.gridRenameText);
-            Report(setup.renamingClassification ? RenameGridClassification(*m_State.document, setup.classification, name)
-                                                : RenameGridLayerType(*m_State.document, setup.layerType, name),
-                   "Rename");
+            PreviewProperty(id, setup.renamingClassification ? "grid.classification-name" : "grid.layer-name",
+                            EditorField{"value", EDITOR_TEXT_VALUE, {}, setup.gridRenameText},
+                            {uint64_t(setup.renamingClassification ? setup.classification : setup.layerType)});
+            FlushPending();
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();

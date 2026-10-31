@@ -214,7 +214,7 @@ std::vector<SetupWindows::OpenSetup> SetupWindows::OpenSetups() const {
 }
 
 void SetupWindows::CloseAll() {
-    FlushPending();
+    CancelPending();
     if (m_State.workspace)
         for (auto &setup : m_Doc.setups) {
             if (setup.kind == Kind::Array)
@@ -256,24 +256,28 @@ void SetupWindows::Draw(ImGuiID dock) {
     }
     m_Doc.gridLayer = 0;
     if (!m_State.HasDocument()) {
-        m_Pending.Begin(nullptr, {});
-        m_PendingSceneActive = false;
         CloseAll();
         return;
     }
+    if (m_CancelledControl && ImGui::GetFrameCount() > m_CancelledFrame + 1 && !ImGui::IsAnyItemActive() &&
+        !ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+        m_CancelledControl = 0;
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) CancelPending();
     for (Setup &setup : m_Doc.setups)
         if (setup.open) DrawSetup(setup, dock);
     for (Setup &setup : m_Doc.setups)
         if (!setup.open) {
+            if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner)
+                FinishProperty(false);
             if (setup.kind == Kind::Array)
                 setup.array.Cancel(EditorClient(m_State.workspace->Application().Host(), setup.nameOwner));
             m_State.workspace->CloseOwner(setup.nameOwner);
         }
     m_Doc.setups.erase(std::remove_if(m_Doc.setups.begin(), m_Doc.setups.end(), [](const Setup &s) { return !s.open; }),
                    m_Doc.setups.end());
-    // A gesture ends when no control is held any more.
-    if ((m_Pending.Active() || m_PendingSceneActive) && !ImGui::IsAnyItemActive()) FlushPending();
+    if (m_PropertyEdit && !ImGui::IsAnyItemActive() && !ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
+        !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+        FinishProperty(true);
     PortalPick();
     SetupPick();
 }
@@ -293,8 +297,12 @@ void SetupWindows::SetupPick() {
     if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
     const CK_ID picked = ObjectUnderMouse(m_State, ImGui::GetMousePos(), object->GetClassID());
     if (!picked) return; // a click elsewhere (the picker itself) is not a pick
-    FlushPending();
+    if (m_PropertyEdit && m_PropertyOwner == picking->nameOwner)
+        FinishProperty(false);
+    else
+        FlushPending();
     picking->object = picked;
+    picking->reference = m_State.document->Reference(picked);
     m_PickSetup = 0;
 }
 
@@ -329,6 +337,15 @@ void SetupWindows::PortalPick() {
 }
 
 void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
+    if (m_State.workspace) {
+        auto &app = m_State.workspace->Application();
+        if (!setup.nameOwner)
+            setup.nameOwner = app.OpenScope();
+        m_CurrentOwner = setup.nameOwner;
+        m_CurrentTarget = setup.reference;
+        if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner && m_PropertySetup != setup.reference)
+            FinishProperty(false);
+    }
     CKObject *object = m_State.document->Resolve(setup.reference);
     if (!object) {
         setup.open = false;
@@ -357,13 +374,19 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
     DevTabClose(&setup.open, "Close Window");
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) m_Doc.front = setup.object;
     Header(setup, object);
+    if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner && m_PropertySetup != setup.reference)
+        FinishProperty(false);
+    m_CurrentTarget = setup.reference;
     object = m_State.document->Context()->GetObject(setup.object);
     if (!object) {
         ImGui::End();
         return;
     }
     ImGui::PushID(static_cast<int>(setup.kind));
+    const bool attributes = setup.attributes;
     Sidebar(setup, object);
+    if (attributes != setup.attributes && m_PropertyOwner == setup.nameOwner)
+        FinishProperty(false);
     ImGui::SameLine();
     ImGui::BeginChild("page", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 255));
@@ -548,16 +571,13 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
             FileDialogOptions options;
             options.filter = L"Wave files (*.wav)\0*.wav\0All files (*.*)\0*.*\0";
             FlushPending();
-            m_State.RequestFile(options, [this, id = setup.object](const FileDialogResult &result) {
-                if (result.status != FileDialogResult::Status::Selected) return;
-                const std::string chosen = result.paths.front();
-                // The sound made again from the file (SetFileStreaming recreates it).
-                Report(EditObjectState(*m_State.document, id, "Change File", [chosen](CKObject *o) {
-                    CKWaveSound *wave = CKWaveSound::Cast(o);
-                    wave->SetSoundFileName(const_cast<CKSTRING>(std::filesystem::u8path(chosen).string().c_str()));
-                    wave->SetFileStreaming(wave->GetFileStreaming(), TRUE);
-                }), "Change File");
-            });
+            m_State.RequestFile(
+                options, [this, target = setup.reference, owner = setup.nameOwner](const FileDialogResult &result) {
+                    if (result.status != FileDialogResult::Status::Selected)
+                        return;
+                    const std::string chosen = result.paths.front();
+                    SetProperty(target, owner, "sound.file", EditorField{"value", EDITOR_TEXT_VALUE, {}, chosen});
+                });
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replace the sound's file");
     }
@@ -572,13 +592,13 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
             FileDialogOptions options;
             options.filter = L"MIDI files (*.mid)\0*.mid;*.midi\0All files (*.*)\0*.*\0";
             FlushPending();
-            m_State.RequestFile(options, [this, id = setup.object](const FileDialogResult &result) {
-                if (result.status != FileDialogResult::Status::Selected) return;
-                const std::string chosen = result.paths.front();
-                Report(EditObjectState(*m_State.document, id, "Change File", [chosen](CKObject *o) {
-                    CKMidiSound::Cast(o)->SetSoundFileName(const_cast<CKSTRING>(std::filesystem::u8path(chosen).string().c_str()));
-                }), "Change File");
-            });
+            m_State.RequestFile(
+                options, [this, target = setup.reference, owner = setup.nameOwner](const FileDialogResult &result) {
+                    if (result.status != FileDialogResult::Status::Selected)
+                        return;
+                    const std::string chosen = result.paths.front();
+                    SetProperty(target, owner, "sound.file", EditorField{"value", EDITOR_TEXT_VALUE, {}, chosen});
+                });
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replace the MIDI file");
     }
@@ -662,88 +682,132 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
 
 // ---------------------------------------------------------------- edits
 
-void SetupWindows::Live(CK_ID id, const char *label, const std::function<void(CKObject *)> &change) {
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) return;
-    CKContext *context = m_State.document->Context();
-    if (m_PendingSceneActive || (m_Pending.Active() && (m_PendingObject != id || m_PendingLabel != label)))
-        if (!FlushPending()) return;
-    if (!m_Pending.Active()) {
-        if (!m_Pending.Begin(*m_State.document, {id})) {
-            Report(EditResult::Error("Cannot capture the object's state"), label);
+bool SetupWindows::FinishProperty(bool commit) {
+    if (!m_PropertyEdit || !m_State.workspace)
+        return true;
+    auto &app = m_State.workspace->Application();
+    const auto status = app.FinishEdit(m_PropertyEdit, commit);
+    if (status == EDITOR_QUEUED || status == EDITOR_NO_CHANGE || status == EDITOR_STALE || status == EDITOR_CANCELLED ||
+        status == EDITOR_ERROR) {
+        if (!commit) {
+            auto *g = ImGui::GetCurrentContext();
+            if (g && g->ActiveId == m_PropertyActive)
+                ImGui::ClearActiveID();
+            if (g && (g->InputTextDeactivatedState.ID == m_PropertyControl ||
+                      g->InputTextDeactivatedState.ID == m_PropertyActive))
+                g->InputTextDeactivatedState.ID = 0;
+            m_CancelledControl = m_PropertyControl;
+            m_CancelledFrame = ImGui::GetFrameCount();
+        }
+        m_PropertyEdit = 0;
+        m_PropertyKey.clear();
+        m_PropertyTarget = {};
+        m_PropertyControl = 0;
+    }
+    // Legacy Setup actions run outside registered drawing callbacks. Finish
+    // the property before such an action starts its own core command.
+    if (status == EDITOR_QUEUED)
+        app.EndFrame();
+    return status == EDITOR_QUEUED || status == EDITOR_NO_CHANGE || status == EDITOR_STALE ||
+           status == EDITOR_CANCELLED;
+}
+void SetupWindows::PreviewProperty(CK_ID id, const char *property, EditorField value, std::vector<uint64_t> indices,
+                                   ObjectRef relative, std::vector<ObjectRef> targets) {
+    if (!property || !m_State.workspace || !m_State.HasDocument())
+        return;
+    const auto control = ImGui::GetItemID();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+        return;
+    if (m_CancelledControl == control) {
+        if (ImGui::IsAnyItemActive() || ImGui::IsMouseDown(ImGuiMouseButton_Left) ||
+            ImGui::IsMouseDown(ImGuiMouseButton_Right) || ImGui::IsItemDeactivatedAfterEdit())
             return;
-        }
-        m_PendingObject = id;
-        m_PendingLabel = label;
+        m_CancelledControl = 0;
     }
-    CKObject *object = context->GetObject(id);
-    if (!object || !GuardedCall([&] { change(object); }, &m_State.document->Host(), label)) {
-        CancelPending();
-        Report(EditResult::Error("The property edit failed"), label);
-    }
-}
-
-void SetupWindows::LiveScene(CK_ID id, const char *label, const std::function<void(CKScene *)> &change) {
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) return;
-    CKScene *scene = Get<CKScene>(m_State, id);
-    if (!scene) return;
-    if (m_Pending.Active() || (m_PendingSceneActive && (m_PendingScene != id || m_PendingLabel != label)))
-        if (!FlushPending()) return;
-    if (!m_PendingSceneActive) {
-        if (!GuardedCall([&] { m_PendingSceneBefore = ReadSceneEnvironment(scene); },
-                         &m_State.document->Host(), "Capture scene environment")) {
-            Report(EditResult::Error("Cannot capture the scene environment"), label);
+    auto &app = m_State.workspace->Application();
+    const auto target = m_State.document->Reference(id);
+    const auto key = "setup." + std::string(property);
+    if (m_PropertyEdit && (m_PropertyTarget != target || m_PropertyKey != key || m_PropertyControl != control))
+        if (!FinishProperty(true))
             return;
-        }
-        m_PendingSceneActive = true;
-        m_PendingScene = id;
-        m_PendingLabel = label;
+    if (!m_PropertyEdit) {
+        if (!m_CurrentOwner)
+            m_CurrentOwner = app.OpenScope();
+        m_PropertyOwner = m_CurrentOwner;
+        const EditorValue context[] = {
+            {EditorLiteral("target"), EDITOR_OBJECT, target},
+            {EditorLiteral("indices"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {indices.data(), uint32_t(indices.size())}},
+            {EditorLiteral("relative"), EDITOR_OBJECT, relative},
+            {EditorLiteral("targets"), EDITOR_OBJECT_LIST, {}, {}, 0, {targets.data(), uint32_t(targets.size())}}};
+        if (app.BeginEdit(key, {app.Scope(m_PropertyOwner), context, 4}, m_PropertyEdit) != EDITOR_OK)
+            return;
+        m_PropertyTarget = target;
+        m_PropertySetup = m_CurrentTarget;
+        m_PropertyKey = key;
+        m_PropertyControl = control;
     }
-    if (!GuardedCall([&] { change(scene); }, &m_State.document->Host(), label)) {
-        CancelPending();
-        Report(EditResult::Error("The scene edit failed"), label);
+    const std::vector<EditorField> fields{std::move(value)};
+    const auto values = BorrowEditorFields(fields);
+    m_PropertyActive = ImGui::GetActiveID();
+    if (app.UpdateEdit(m_PropertyEdit, values.values.front()) != EDITOR_OK) {
+        FinishProperty(false);
+        Report(EditResult::Error("The property edit failed"), property);
+        return;
     }
+    if (!ImGui::IsAnyItemActive() && !ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
+        !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+        FinishProperty(true);
 }
 
-void SetupWindows::CancelPending() {
-    bool restored = true;
-    if (m_State.HasDocument()) {
-        if (m_Pending.Active()) restored = m_Pending.Cancel(*m_State.document);
-        if (m_PendingSceneActive)
-            restored = CancelSceneEnvironment(*m_State.document, m_PendingScene, m_PendingSceneBefore) && restored;
-    } else {
-        m_Pending.Begin(nullptr, {});
+void SetupWindows::SetProperty(ObjectRef target, EditorView owner, const char *property, EditorField value) {
+    if (!m_State.workspace || !m_State.HasDocument() || !m_State.document->Resolve(target) || !FlushPending())
+        return;
+    auto &app = m_State.workspace->Application();
+    EditorEdit edit = 0;
+    if (app.BeginEdit("setup." + std::string(property), app.Scope(owner), target, edit) != EDITOR_OK)
+        return;
+    const std::vector<EditorField> fields{std::move(value)};
+    const auto values = BorrowEditorFields(fields);
+    if (app.UpdateEdit(edit, values.values.front()) != EDITOR_OK) {
+        app.FinishEdit(edit, false);
+        return;
     }
-    if (!restored) Report(EditResult::Error("Recovery was incomplete: the undo history is cleared"), m_PendingLabel.c_str());
-    m_PendingObject = 0;
-    m_PendingSceneActive = false;
-    m_PendingScene = 0;
-    m_PendingLabel.clear();
-    m_SpriteTextEditing = 0;
+    if (app.FinishEdit(edit, true) == EDITOR_QUEUED)
+        app.EndFrame();
 }
 
-bool SetupWindows::FlushPending() {
-    bool ok = true;
-    if (m_PendingSceneActive) {
-        if (m_State.HasDocument()) {
-            const EditResult result = CommitSceneEnvironment(*m_State.document, m_PendingScene, m_PendingSceneBefore, m_PendingLabel);
-            Report(result, m_PendingLabel.c_str());
-            ok = result.ok || result.Unchanged();
-        }
-        m_PendingSceneActive = false;
-        m_PendingScene = 0;
-        m_PendingLabel.clear();
+bool SetupWindows::EditObjectList(CK_ID id, const char *property, const std::vector<CK_ID> &add,
+                                  const std::vector<CK_ID> &remove) {
+    if (!m_State.workspace || !FlushPending())
+        return false;
+    auto &app = m_State.workspace->Application();
+    if (!m_CurrentOwner)
+        m_CurrentOwner = app.OpenScope();
+    const EditorValue target{EditorLiteral("target"), EDITOR_OBJECT, m_State.document->Reference(id)};
+    const auto query = "setup." + std::string(property) + "-value";
+    const auto result = app.Query(query, {app.Scope(m_CurrentOwner), &target, 1});
+    if (result.status != EDITOR_OK)
+        return false;
+    auto value =
+        std::find_if(result.fields.begin(), result.fields.end(), [](const auto &f) { return f.key == "value"; });
+    if (value == result.fields.end() || value->type != EDITOR_OBJECT_LIST)
+        return false;
+    EditorField desired = *value;
+    desired.objects.erase(
+        std::remove_if(desired.objects.begin(), desired.objects.end(),
+                       [&](auto ref) { return std::find(remove.begin(), remove.end(), ref.object) != remove.end(); }),
+        desired.objects.end());
+    for (auto object : add) {
+        const auto ref = m_State.document->Reference(object);
+        if (std::find(desired.objects.begin(), desired.objects.end(), ref) == desired.objects.end())
+            desired.objects.push_back(ref);
     }
-    if (!m_Pending.Active()) return ok;
-    if (m_State.HasDocument()) {
-        const EditResult result = m_Pending.Commit(*m_State.document, m_PendingLabel);
-        Report(result, m_PendingLabel.c_str());
-        ok = (result.ok || result.Unchanged()) && ok;
-    } else
-        m_Pending.Begin(nullptr, {});
-    m_PendingObject = 0;
-    m_PendingLabel.clear();
-    return ok;
+    PreviewProperty(id, property, std::move(desired));
+    return FinishProperty(true);
 }
+
+void SetupWindows::CancelPending() { FinishProperty(false); }
+bool SetupWindows::FlushPending() { return FinishProperty(true); }
 
 // Dev "Used By" lists; double-click opens the user's Setup.
 void SetupWindows::UsedBy(const char *title, const std::vector<CKObject *> &users, float height) {
