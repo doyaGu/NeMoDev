@@ -1,7 +1,7 @@
 # Stage zero architecture checks
 
-`coverage.json` lists the 51 source groups,
-32 feature/extension targets and 42 state families. It records CTest results,
+`coverage.json` lists the 53 source groups,
+32 feature/extension targets and 44 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
 
@@ -1424,3 +1424,43 @@ SDK、公开 C 头及 GPU 渲染与传输源码未改动；性能验收继续暂
 
 最终 Release 功能回归 124/124，无跳过；其中工具组 9 项、模块组 58 项和调试组 7 项
 实际执行并通过。SDK 十六个仓库状态和二十二项运行库校验值均未变。
+
+
+## 阶段五：独立诊断与连线属性
+
+Unused Object Explorer、Building Block Version Test、All CK Object In Memory 与 About
+已迁入工作区；Behavior Link Properties 也使用工作区实例与登记命令。
+菜单、快捷键、Schematic 工具栏和启动入口走相同命令，不再由 ToolWindows 维护窗口开关。
+删除旧 ToolWindows.cpp；剩下的 ToolWindows.h 只服务尚未迁移的 General Preferences。
+
+`DiagnosticCommands` 通过既有 RuntimeOperation 执行检查并发布分页只读结果。
+结果属于发起视图与文档，包含完整对象引用和内容版本；排除项、选择和排序属于视图实例。
+检查失败保留上次结果，关闭视图或替换文档后丢弃迟到结果。
+原生上下文被后台任务占用时继续显示已完成结果，查询不访问 CKContext。
+不同实例的检查不会重置彼此的排除项和选择；插件目录变化使旧版本报告失效。
+
+删除无用对象在执行时重验内容版本和对象生命期，保留既有不可撤销删除及清除历史的行为。
+版本检查与 Schematic 替换共用 `schematic.replace-blocks`，先校验整批目标，再复用 core
+替换操作；整批形成一步撤销，失败回滚。Schematic 在命令排队完成后更新最近使用列表、
+选择及日志，不以排队状态当成替换成功。
+
+连线属性只保存普通整数和布尔草稿，复用已登记的值编辑器，不创建临时 CK 参数。
+宿主允许视图绘制自己的值草稿，继续拒绝绘制阶段之外、错误线程和错误描述符的调用，
+并限制编辑器递归。`environment.link-options` 提供只读设置，
+`environment.set-link-options` 统一校验版本、更新原生迭代上限与保存偏好。
+保存失败或抛异常恢复原生设置；Cancel 放弃草稿，不改变文档、选区和撤销历史。
+结束当前数值输入的 Enter 不会同时确认整个对话框，空闲时的 Enter 与 OK 都重验设置版本。
+路径与连线设置保存复用同一现有 OutputFiles 配置写入流程。
+工作区模态窗口的关闭清理由共用 EditorPopup 管理，忙时程序关闭也不会残留模态遮罩。
+
+新增原生与 UI 回归覆盖分页、独立实例、失败保留、忙时显示和关闭、文档切换、
+同编号对象复用、过期结果拒绝、批量替换回滚及单步 Undo，以及外部查询、命令和值编辑器。
+完整 Release 功能回归 124/124，无跳过；工具组 11 项、模块组 59 项、调试组 8 项，
+以及 Schematic 替换完成回归实际执行并通过。SDK 十六个仓库状态、二十二项运行库校验值、
+公开 C 头和 GPU 渲染与传输源码均未变。性能验收继续暂缓，原门槛不变。
+
+源码归属现为 53 组、44 类状态；旧 UI 访问由 54 处降至 53 处。
+载入后连线检查、消息浏览等 Schematic 图内诊断仍单独列在清单中，
+General Preferences、Layout/Schematic 剩余原生适配及 F20 资源待办继续保留。
+本批不代表阶段五已完成，`completed_phase` 仍为三，二十一项待办没有延期。
+验证记录见 [诊断与连线属性验证记录](baselines/diagnostics-macos-arm64-metal.json)。
