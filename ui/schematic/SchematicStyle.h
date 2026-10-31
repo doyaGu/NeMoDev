@@ -2,14 +2,14 @@
 
 #include "imgui.h"
 
-#include "CKAll.h"
+#include "application/Preferences.h"
 
 namespace vdev {
 
 // Schematic palette, modeled on Dev 2.5's Schematic View (a screenshot of
 // Dev with 2D Text.cmo): a plain gray canvas, Script bands with a colored
 // left column, raised light-gray Building Blocks, black behavior links,
-// dotted parameter links, white Comments. Evidence: the Script colors
+// dotted parameter links, white Comments. The Script colors
 // (stored COLORREF, e.g. 0x96C8FA orange) and the link / behavior state
 // colors from Dev's preferences (Preferences.h, ApplyColors). The gray
 // levels are sampled from the screenshot (canvas 176, Building Block 200,
@@ -74,8 +74,21 @@ struct SchematicStyle {
 
 // Stored Script colors are GDI COLORREF (0x00BBGGRR), as Dev paints them
 // (0x96C8FA is the orange of "Topic" Scripts, 0xFAC896 the light blue).
-inline ImU32 ColorRefToImU32(CKDWORD color, int alpha = 255) {
+inline ImU32 ColorRefToImU32(uint32_t color, int alpha = 255) {
     return IM_COL32(color & 0xFF, (color >> 8) & 0xFF, (color >> 16) & 0xFF, alpha);
+}
+
+inline void ApplyColors(const Preferences &preferences, SchematicStyle &style) {
+    style.behaviorLink = ColorRefToImU32(preferences.ioLinkColor);
+    style.parameterLink = ColorRefToImU32(preferences.parameterLinkColor);
+    style.highlightLink = ColorRefToImU32(preferences.exportedLinkColor);
+    style.operationLink = ColorRefToImU32(preferences.operationLinkColor);
+    style.validLink = ColorRefToImU32(preferences.validLinkColor);
+    style.invalidLink = ColorRefToImU32(preferences.invalidLinkColor);
+    style.obsoleteBorder = ColorRefToImU32(preferences.obsoleteColor);
+    style.noPrototypeBorder = ColorRefToImU32(preferences.noPrototypeColor);
+    style.missingBorder = ColorRefToImU32(preferences.noObjectColor);
+    style.toReplaceBorder = ColorRefToImU32(preferences.toReplaceColor);
 }
 
 } // namespace vdev

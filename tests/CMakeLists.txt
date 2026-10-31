@@ -91,7 +91,7 @@ add_test(NAME VirtoolsDevFontDeployment COMMAND ${CMAKE_COMMAND}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/CheckFontDeployment.cmake")
 
 set(_application_test_sources
-    ../ui/controls/FileDialogs.cpp ../ui/app/Preferences.cpp ../application/RuntimeOperation.cpp
+    ../ui/controls/FileDialogs.cpp ../application/RuntimeOperation.cpp
     ../ui/app/EditorState.cpp ../application/DocumentFiles.cpp)
 foreach(_test IN ITEMS FileDialog DocumentFiles)
     add_executable(VirtoolsDev${_test}Tests VirtoolsDev${_test}Tests.cpp ${_application_test_sources})

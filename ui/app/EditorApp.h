@@ -30,6 +30,7 @@
 #include "features/scene/SceneViews.h"
 #include "ui/setup/SetupWindows.h"
 #include "ui/tools/ToolWindows.h"
+#include "features/preferences/PreferencesCommands.h"
 #include "ui/help/HelpWindow.h"
 
 namespace vdev {
@@ -243,6 +244,7 @@ private:
     void SavePreferences(); // not when isolated
     bool SaveSearchPaths(const PathCategories &, std::string &error);
     bool SaveSettings(Preferences next, std::string &error);
+    bool WriteSettings(const Preferences &, std::string &error);
 
     EditorState m_State;
     EditorApplication m_Editor;
@@ -258,10 +260,14 @@ private:
     DataResourceCommands m_ResourceCommands{m_Editor, m_State.host, [this] { return FileOperationAvailable(); }};
     DiagnosticCommands m_Diagnostics{m_Editor, m_State.runtimeOperation, m_State.host,
         [this] { return m_State.document.get(); }, [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }};
+    PreferencesCommands m_Preferences{m_Editor, m_State.host, m_State.preferences,
+        [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
+        [this](const Preferences &preferences, std::string &error) { return WriteSettings(preferences, error); },
+        [this] { ApplyPreferences(); m_Panels.RefreshStack(); }};
     EnvironmentCommands m_Environment{m_Editor, m_State.host,
         [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
         [this](const PathCategories &paths, std::string &error) { return SaveSearchPaths(paths, error); },
-        [this] { m_State.catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); }};
+        [this] { m_State.catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); m_Preferences.InvalidateCatalog(); }};
     ObjectCommands m_ObjectCommands;
     ParameterCommands m_ParameterCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, &m_State.clipboard};
     ArrayCommands m_ArrayCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, m_State.clipboard};

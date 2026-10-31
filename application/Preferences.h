@@ -4,12 +4,12 @@
 #include <string>
 #include <vector>
 
-#include "CKAll.h"
-#include "core/level/LevelCommands.h"
+#include <cstdint>
 
 namespace vdev {
 
-struct SchematicStyle;
+struct EditorField;
+struct PreferencePage { const char *id; const char *title; };
 
 // Dev 2.5 "General Preferences: Schematic" (UI reference 3.4.6). Defaults
 // are Dev's: static values of Dev.exe (read in 0x512DF0 from
@@ -35,16 +35,16 @@ struct Preferences {
     bool parameterBreakpointReengage = true; // "Parameter Breakpoint Auto Reengage"
     bool redrawOnlyAtBreakpoint = false;     // "Redraw Schematic Only When Breakpoint Reached"
     // Colors (Dev palette slot in parentheses).
-    CKDWORD ioLinkColor = 0x000000;            // behavior links (Black)
-    CKDWORD parameterLinkColor = 0xC8323C;     // (Red)
-    CKDWORD exportedLinkColor = 0xFFFF00;      // exported parameters (Yellow)
-    CKDWORD operationLinkColor = 0x408000;     // parameter operation links (DarkGreen)
-    CKDWORD validLinkColor = 0x64A014;         // link being created (Green)
-    CKDWORD invalidLinkColor = 0x0000FF;       // (Blue)
-    CKDWORD obsoleteColor = 0x7D9632;          // obsolete Building Block (GreenYellow)
-    CKDWORD noPrototypeColor = 0x0080FF;       // (DodgerBlue)
-    CKDWORD noObjectColor = 0x0000FF;          // behavior without CKObject (Blue2)
-    CKDWORD toReplaceColor = 0xD2B390;         // newer prototype version (BurlyWood)
+    uint32_t ioLinkColor = 0x000000;            // behavior links (Black)
+    uint32_t parameterLinkColor = 0xC8323C;     // (Red)
+    uint32_t exportedLinkColor = 0xFFFF00;      // exported parameters (Yellow)
+    uint32_t operationLinkColor = 0x408000;     // parameter operation links (DarkGreen)
+    uint32_t validLinkColor = 0x64A014;         // link being created (Green)
+    uint32_t invalidLinkColor = 0x0000FF;       // (Blue)
+    uint32_t obsoleteColor = 0x7D9632;          // obsolete Building Block (GreenYellow)
+    uint32_t noPrototypeColor = 0x0080FF;       // (DodgerBlue)
+    uint32_t noObjectColor = 0x0000FF;          // behavior without CKObject (Blue2)
+    uint32_t toReplaceColor = 0xD2B390;         // newer prototype version (BurlyWood)
 
     // File menu: the last compositions opened or saved, newest first (Dev
     // lists eight, numbered "1)" to "8)").
@@ -61,7 +61,6 @@ struct Preferences {
     bool Bool(const std::string &key) const;
     int Int(const std::string &key) const;
     float Float(const std::string &key) const;
-    SceneEnvironment NewSceneEnvironment() const;
     std::string Text(const std::string &key) const;
     void Set(const std::string &key, const std::string &value) { settings[key] = value; }
     void SetBool(const std::string &key, bool value) { settings[key] = value ? "1" : "0"; }
@@ -77,6 +76,13 @@ struct Preferences {
     // Data Resources open in the editor (.rsc files), opened again at start.
     std::vector<std::string> dataResources;
 
+    // The editable General Preferences values; unrelated session data stays owned here.
+    std::vector<EditorField> Values() const;
+    bool ReadValues(const std::vector<EditorField> &, std::string &error);
+    bool SetValues(const std::vector<EditorField> &, std::string &error);
+    void ResetPage(int page, const std::string &firstEngine);
+    static const std::vector<PreferencePage> &Pages();
+
     bool Load(const std::string &path);
     bool Save(const std::string &path) const;
     // Reads Dev's own settings, if present (read-only). Returns the number
@@ -88,6 +94,8 @@ struct Preferences {
     int ImportDevIni(const std::string &runtimeDirectory);
     // Dev's path categories (HKCU\Software\Virtools\Data Paths), read-only.
     bool ImportDevPaths();
+private:
+    bool DecodeValues(const std::vector<EditorField> &, std::string &error, bool validate);
 };
 
 // A General Preferences value: key, Dev's default, kind ('b' bool, 'i' int,
@@ -98,9 +106,5 @@ struct DevSetting {
     char kind;
 };
 const std::vector<DevSetting> &DevSettings();
-
-// COLORREF (0x00BBGGRR) -> ImGui color.
-unsigned int ColorRefToColor(CKDWORD color, int alpha = 255);
-void ApplyColors(const Preferences &preferences, SchematicStyle &style);
 
 } // namespace vdev

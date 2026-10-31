@@ -1,4 +1,5 @@
-#include "ui/app/Preferences.h"
+#include "application/Preferences.h"
+#include "application/EditorApplication.h"
 #include "core/runtime/TextEncoding.h"
 
 #ifdef _WIN32
@@ -14,7 +15,11 @@
 #include <map>
 #include <vector>
 
-#include "ui/schematic/SchematicStyle.h"
+#include <cmath>
+#include <limits>
+#include <set>
+#include <sstream>
+#include <cctype>
 
 namespace vdev {
 
@@ -26,7 +31,7 @@ struct Field {
     const char *key; // also Dev's registry value name
     std::function<int &(Preferences &)> integer;
     std::function<bool &(Preferences &)> boolean;
-    std::function<CKDWORD &(Preferences &)> color;
+    std::function<uint32_t &(Preferences &)> color;
 };
 
 const std::vector<Field> &Fields() {
@@ -48,16 +53,16 @@ const std::vector<Field> &Fields() {
         {"Link Breakpoint Auto Reengage", nullptr, [](P &p) -> bool & { return p.linkBreakpointReengage; }, nullptr},
         {"Parameter Breakpoint Auto Reengage", nullptr, [](P &p) -> bool & { return p.parameterBreakpointReengage; }, nullptr},
         {"Redraw Schematic Only When Breakpoint Reached", nullptr, [](P &p) -> bool & { return p.redrawOnlyAtBreakpoint; }, nullptr},
-        {"Io Link Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.ioLinkColor; }},
-        {"Parameter Link Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.parameterLinkColor; }},
-        {"Exported Parameter Link Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.exportedLinkColor; }},
-        {"Parameter Operation Link Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.operationLinkColor; }},
-        {"Valid Link Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.validLinkColor; }},
-        {"Invalid Link Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.invalidLinkColor; }},
-        {"Behavior Obsolete Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.obsoleteColor; }},
-        {"Behavior No Prototype Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.noPrototypeColor; }},
-        {"Behavior No CKObject Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.noObjectColor; }},
-        {"Building Block to Replace Color", nullptr, nullptr, [](P &p) -> CKDWORD & { return p.toReplaceColor; }},
+        {"Io Link Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.ioLinkColor; }},
+        {"Parameter Link Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.parameterLinkColor; }},
+        {"Exported Parameter Link Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.exportedLinkColor; }},
+        {"Parameter Operation Link Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.operationLinkColor; }},
+        {"Valid Link Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.validLinkColor; }},
+        {"Invalid Link Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.invalidLinkColor; }},
+        {"Behavior Obsolete Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.obsoleteColor; }},
+        {"Behavior No Prototype Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.noPrototypeColor; }},
+        {"Behavior No CKObject Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.noObjectColor; }},
+        {"Building Block to Replace Color", nullptr, nullptr, [](P &p) -> uint32_t & { return p.toReplaceColor; }},
     };
     return fields;
 }
@@ -65,7 +70,7 @@ const std::vector<Field> &Fields() {
 void Assign(Preferences &preferences, const Field &field, unsigned long value) {
     if (field.integer) field.integer(preferences) = static_cast<int>(value);
     if (field.boolean) field.boolean(preferences) = value != 0;
-    if (field.color) field.color(preferences) = static_cast<CKDWORD>(value & 0xFFFFFF);
+    if (field.color) field.color(preferences) = static_cast<uint32_t>(value & 0xFFFFFF);
 }
 
 // Split "<registry key>\<value name>" at the last backslash.
@@ -250,19 +255,6 @@ float Preferences::Float(const std::string &key) const {
     return static_cast<float>(std::atof(Text(key).c_str()));
 }
 
-SceneEnvironment Preferences::NewSceneEnvironment() const {
-    const std::string prefix = "3D Layout\\Environment\\";
-    SceneEnvironment environment;
-    environment.ambient = static_cast<CKDWORD>(std::strtoul(Text(prefix + "Ambient Light Color").c_str(), nullptr, 10));
-    environment.background = static_cast<CKDWORD>(std::strtoul(Text(prefix + "Background Color").c_str(), nullptr, 10));
-    environment.fogColor = static_cast<CKDWORD>(std::strtoul(Text(prefix + "Fog Color").c_str(), nullptr, 10));
-    environment.fogMode = Int(prefix + "Fog Mode");
-    environment.fogStart = Float(prefix + "Fog Start");
-    environment.fogEnd = Float(prefix + "Fog End");
-    environment.fogDensity = Float(prefix + "Fog Density");
-    return environment;
-}
-
 void Preferences::SetFloat(const std::string &key, float value) {
     char text[64];
     std::snprintf(text, sizeof(text), "%g", value);
@@ -272,6 +264,135 @@ void Preferences::SetFloat(const std::string &key, float value) {
 void Preferences::ResetSettings(const std::string &prefix) {
     for (const DevSetting &setting : DevSettings())
         if (std::strncmp(setting.key, prefix.c_str(), prefix.size()) == 0) settings[setting.key] = setting.fallback;
+}
+
+namespace {
+bool GeneralField(const std::string &key) {
+    static const std::set<std::string> names = {"Automatic Link", "Strict MultiSelection", "Search Best Path Link",
+        "Max Recent Building Block Count", "Enable Tooltips", "Tooltips Delay(ms)", "Io Link Color", "Parameter Link Color",
+        "Exported Parameter Link Color", "Parameter Operation Link Color", "Valid Link Color", "Invalid Link Color",
+        "Behavior Obsolete Color", "Behavior No Prototype Color", "Behavior No CKObject Color", "Building Block to Replace Color"};
+    return names.count(key) != 0;
+}
+bool GeneralSetting(const std::string &key) {
+    return key.rfind("Schematic Explorer\\", 0) != 0 && key.rfind("BehaviorManager\\", 0) != 0;
+}
+bool ValidText(const std::string &text) {
+    return text.size() <= 4096 && text.find_first_of(std::string("\0\r\n", 3)) == std::string::npos;
+}
+bool ValidNumbers(const std::string &key, const std::string &text) {
+    size_t count = 0;
+    if (key == "3D Layout\\World Size Min" || key == "3D Layout\\World Size Max" || key == "3D Layout\\World Step" ||
+        key.rfind("3D Layout\\Reference Grid\\Orientation ", 0) == 0) count = 3;
+    if (key == "3D Layout\\Screen Offset" || key == "3D Layout\\Screen Step" || key == "3D Layout\\Environment\\Screen Size" ||
+        key == "3D Layout\\Reference Grid\\Sections" || key == "3D Layout\\Reference Grid\\Step") count = 2;
+    if (!count) return true;
+    std::string item;
+    std::istringstream input(text);
+    const char separator = key == "3D Layout\\Reference Grid\\Sections" || key == "3D Layout\\Reference Grid\\Step" ? ';' : '|';
+    std::vector<double> values;
+    while (std::getline(input, item, separator)) {
+        char *end = nullptr;
+        const double value = std::strtod(item.c_str(), &end);
+        if (end == item.c_str() || *end || !std::isfinite(value) || std::abs(value) > std::numeric_limits<float>::max()) return false;
+        values.push_back(value);
+    }
+    if (values.size() != count || (!text.empty() && text.back() == separator)) return false;
+    if (key == "3D Layout\\Environment\\Screen Size") return (values[0] == 0 && values[1] == 0) || (values[0] > 0 && values[1] > 0);
+    return true;
+}
+bool ValidInteger(const std::string &key, int64_t value) {
+    if (key == "Schematic\\Max Recent Building Block Count") return value >= 1 && value <= 100;
+    if (key == "Schematic\\Tooltips Delay(ms)") return value >= 0 && value <= std::numeric_limits<int>::max();
+    if (key == "File Options\\Compression Level") return value >= 1 && value <= 9;
+    if (key == "File Options\\Sounds") return value == 0 || value == 1;
+    if (key == "File Options\\Textures") return value == 0 || value == 1 || value == 2 || value == 4;
+    if (key == "CK2 Settings\\Quantization Sampling Factor") return value >= 1 && value <= 100;
+    if (key == "3D Layout\\Author Mode\\Render Type Index" || key == "3D Layout\\Player Mode\\Render Type Index") return value >= 0 && value <= 3;
+    if (key == "Schematic\\Edit Parameter Operation Mode") return value == 0 || value == 1;
+    const bool color = key.size() >= 5 && key.compare(key.size() - 5, 5, "Color") == 0;
+    return value >= std::numeric_limits<int32_t>::min() && value <= (color ? int64_t(UINT32_MAX) : int64_t(INT32_MAX));
+}
+} // namespace
+
+const std::vector<PreferencePage> &Preferences::Pages() {
+    static const std::vector<PreferencePage> pages{{"rendering", "3D Layout - Rendering"}, {"actions", "3D Layout - Actions"},
+        {"interface", "3D Layout - Interface"}, {"reference-guide", "3D Layout - Reference Guide"},
+        {"snap-align", "3D Layout - Snap & Align"}, {"schematic", "Schematic"}, {"miscellaneous", "Miscellaneous Controls"}};
+    return pages;
+}
+std::vector<EditorField> Preferences::Values() const {
+    Preferences copy = *this;
+    std::vector<EditorField> result;
+    for (const auto &field : Fields()) if (GeneralField(field.key)) {
+        const auto value = field.boolean ? uint64_t(field.boolean(copy)) : field.integer ? uint64_t(int64_t(field.integer(copy))) : uint64_t(field.color(copy));
+        result.push_back({std::string("Schematic\\") + field.key, EDITOR_INTEGER_VALUE, {}, {}, value});
+    }
+    for (const auto &field : DevSettings()) if (GeneralSetting(field.key)) {
+        EditorField value{field.key, field.kind == 's' ? EDITOR_TEXT_VALUE : field.kind == 'f' ? EDITOR_REAL_VALUE : EDITOR_INTEGER_VALUE};
+        if (field.kind == 's') value.text = Text(field.key);
+        else if (field.kind == 'f') value.real = Float(field.key);
+        else if (field.kind == 'b') value.integer = Bool(field.key);
+        else value.integer = uint64_t(std::strtoll(Text(field.key).c_str(), nullptr, 10));
+        result.push_back(std::move(value));
+    }
+    return result;
+}
+bool Preferences::SetValues(const std::vector<EditorField> &values, std::string &error) {
+    return DecodeValues(values, error, true);
+}
+bool Preferences::ReadValues(const std::vector<EditorField> &values, std::string &error) {
+    return DecodeValues(values, error, false);
+}
+bool Preferences::DecodeValues(const std::vector<EditorField> &values, std::string &error, bool validate) {
+    Preferences next = *this;
+    const auto current = Values();
+    std::set<std::string> keys;
+    for (const auto &value : values) {
+        const auto found = std::find_if(current.begin(), current.end(), [&](const EditorField &field) { return field.key == value.key; });
+        if (found == current.end() || found->type != value.type || !keys.insert(value.key).second) { error = "Unknown or duplicate preference: " + value.key; return false; }
+        if (value == *found) continue;
+        bool assigned = false;
+        for (const auto &field : Fields()) if (GeneralField(field.key) && value.key == std::string("Schematic\\") + field.key) {
+            if (validate && ((field.boolean && value.integer > 1) || (field.color && value.integer > 0xFFFFFF) ||
+                (field.integer && !ValidInteger(value.key, int64_t(value.integer))))) { error = "Invalid preference: " + value.key; return false; }
+            Assign(next, field, static_cast<unsigned long>(value.integer)); assigned = true; break;
+        }
+        if (assigned) continue;
+        const auto setting = std::find_if(DevSettings().begin(), DevSettings().end(), [&](const DevSetting &field) { return value.key == field.key; });
+        if (setting == DevSettings().end()) { error = "Unknown preference: " + value.key; return false; }
+        if (value.type == EDITOR_TEXT_VALUE) {
+            if (validate && (!ValidText(value.text) || !ValidNumbers(value.key, value.text))) { error = "Invalid preference: " + value.key; return false; }
+            next.Set(value.key, value.text);
+        } else if (value.type == EDITOR_REAL_VALUE) {
+            if (!std::isfinite(value.real) || std::abs(value.real) > std::numeric_limits<float>::max()) { error = "Invalid preference: " + value.key; return false; }
+            next.SetFloat(value.key, float(value.real));
+        } else {
+            if (validate && ((setting->kind == 'b' && value.integer > 1) || (setting->kind == 'i' && !ValidInteger(value.key, int64_t(value.integer))))) {
+                error = "Invalid preference: " + value.key; return false;
+            }
+            next.Set(value.key, std::to_string(int64_t(value.integer)));
+        }
+    }
+    *this = std::move(next); return true;
+}
+void Preferences::ResetPage(int page, const std::string &firstEngine) {
+    static const char *const prefixes[][12] = {
+        {"3D Layout\\Author Mode\\", "3D Layout\\Player Mode\\", "3D Layout\\Environment\\Ignore", "3D Layout\\Environment\\Screen", "3D Layout\\Author RealTime", "3D Layout\\Player RealTime"},
+        {"3D Layout\\Actions\\Object", "3D Layout\\Actions\\Camera Rotate", "3D Layout\\Actions\\Camera Translate", "3D Layout\\Actions\\Camera Zoom", "3D Layout\\Actions\\Camera Ortho", "3D Layout\\Actions\\Camera Roll", "3D Layout\\Actions\\Camera Fov", "3D Layout\\Actions\\Camera Fly", "3D Layout\\Actions\\Camera Navigate", "3D Layout\\Actions\\Free", "3D Layout\\Actions\\Orbit"},
+        {"3D Layout\\Interface Objects\\", "3D Layout\\Auto Show", "3D Layout\\Show New Setups", "3D Layout\\Debug Mode", "3D Layout\\World", "3D Layout\\Screen", "3D Layout\\Homogenous", "3D Layout\\Actions\\Camera Plane"},
+        {"3D Layout\\Reference Grid\\"}, {"3D Layout\\Snap\\"}, {"Schematic\\"}, {"CK2 Settings\\", "File Options\\", "3D Layout\\Show Dynamic Objects"}};
+    if (page < 0 || size_t(page) >= Pages().size()) return;
+    for (auto prefix : prefixes[page]) if (prefix) ResetSettings(prefix);
+    if (page == 5) {
+        Preferences defaults;
+        for (const auto &field : Fields()) if (GeneralField(field.key)) {
+            if (field.boolean) field.boolean(*this) = field.boolean(defaults);
+            if (field.integer) field.integer(*this) = field.integer(defaults);
+            if (field.color) field.color(*this) = field.color(defaults);
+        }
+    }
+    if (page == 6 && !firstEngine.empty()) Set("CK2 Settings\\Render Engine", firstEngine);
 }
 
 int Preferences::ImportDevIni(const std::string &runtimeDirectory) {
@@ -407,7 +528,8 @@ bool Preferences::Load(const std::string &path) {
 void Preferences::AddRecentFile(const std::string &path) {
     if (path.empty()) return;
     recentFiles.erase(std::remove_if(recentFiles.begin(), recentFiles.end(),
-                                     [&](const std::string &other) { return _stricmp(other.c_str(), path.c_str()) == 0; }),
+                                     [&](const std::string &other) { return other.size() == path.size() && std::equal(other.begin(), other.end(), path.begin(),
+                                         [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); }); }),
                       recentFiles.end());
     recentFiles.insert(recentFiles.begin(), path);
     if (recentFiles.size() > MAX_RECENT_FILES) recentFiles.resize(MAX_RECENT_FILES);
@@ -496,23 +618,6 @@ int Preferences::ImportDevSettings() {
 #else
     return 0;
 #endif
-}
-
-unsigned int ColorRefToColor(CKDWORD color, int alpha) {
-    return IM_COL32(color & 0xFF, (color >> 8) & 0xFF, (color >> 16) & 0xFF, alpha);
-}
-
-void ApplyColors(const Preferences &preferences, SchematicStyle &style) {
-    style.behaviorLink = ColorRefToColor(preferences.ioLinkColor);
-    style.parameterLink = ColorRefToColor(preferences.parameterLinkColor);
-    style.highlightLink = ColorRefToColor(preferences.exportedLinkColor);
-    style.operationLink = ColorRefToColor(preferences.operationLinkColor);
-    style.validLink = ColorRefToColor(preferences.validLinkColor);
-    style.invalidLink = ColorRefToColor(preferences.invalidLinkColor);
-    style.obsoleteBorder = ColorRefToColor(preferences.obsoleteColor);
-    style.noPrototypeBorder = ColorRefToColor(preferences.noPrototypeColor);
-    style.missingBorder = ColorRefToColor(preferences.noObjectColor);
-    style.toReplaceBorder = ColorRefToColor(preferences.toReplaceColor);
 }
 
 } // namespace vdev

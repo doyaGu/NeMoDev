@@ -146,7 +146,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) ||
         !RegisterRuntimeViews(m_Editor, error) || !m_Environment.Register(error) ||
         !RegisterEnvironmentViews(m_Editor, error) || !RegisterEnvironmentInputs(m_Editor, window, error) ||
-        !m_Diagnostics.Register(error) || !RegisterDiagnosticViews(m_Editor, error) || !m_Outputs.Register(error) ||
+        !m_Diagnostics.Register(error) || !RegisterDiagnosticViews(m_Editor, error) ||
+        !m_Preferences.Register(error) || !m_Outputs.Register(error) ||
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
@@ -248,6 +249,10 @@ bool EditorApp::SaveSearchPaths(const PathCategories &paths, std::string &error)
     return SaveSettings(std::move(next), error);
 }
 bool EditorApp::SaveSettings(Preferences next, std::string &error) {
+    if (!WriteSettings(next, error)) return false;
+    m_State.preferences = std::move(next); return true;
+}
+bool EditorApp::WriteSettings(const Preferences &next, std::string &error) {
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (!m_Startup.isolated)
 #endif
@@ -261,13 +266,13 @@ bool EditorApp::SaveSettings(Preferences next, std::string &error) {
             return false;
         }
     }
-    m_State.preferences = std::move(next); return true;
+    return true;
 }
 
 void EditorApp::ApplyPreferences() {
     const Preferences &p = m_State.preferences;
     DocumentCommands::Settings files;
-    files.open.environment = p.NewSceneEnvironment();
+    files.open.environment = m_Preferences.NewSceneEnvironment();
     files.open.testLinkTypes = p.Bool("Schematic\\Test Parameter Link after Loading");
     files.open.removeInvalidLinks = p.Bool("Schematic\\Remove Invalid Link after Loading");
     files.saveScriptSnapshots = p.Bool("Schematic\\Save Script Snapshot");
@@ -296,26 +301,8 @@ void EditorApp::ApplyRuntimeSettings() {
     m_Editor.Execute("runtime.set-breakpoint-reengagement", {m_Editor.Scope(), reengage, 3});
     const EditorValue redraw{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, p.redrawOnlyAtBreakpoint ? 1u : 0u};
     m_Editor.Execute("runtime.set-redraw-at-breakpoint", {m_Editor.Scope(), &redraw, 1});
-    // File saving (Miscellaneous Controls): whole-file compression and its
-    // level, texture/sprite and sound save options, the image format.
-    CK_FILE_WRITEMODE mode = context->GetFileWriteMode();
-    mode = static_cast<CK_FILE_WRITEMODE>(p.Bool("File Options\\Compressed") ? (mode | CKFILE_WHOLECOMPRESSED)
-                                                                              : (mode & ~CKFILE_WHOLECOMPRESSED));
-    context->SetFileWriteMode(mode);
-    context->SetCompressionLevel(std::max(1, std::min(9, p.Int("File Options\\Compression Level"))));
-    context->SetGlobalImagesSaveOptions(static_cast<CK_TEXTURE_SAVEOPTIONS>(p.Int("File Options\\Textures")));
-    context->SetGlobalSoundsSaveOptions(static_cast<CK_SOUND_SAVEOPTIONS>(p.Int("File Options\\Sounds")));
-    const std::string format = p.Text("File Options\\Texture Format");
-    if (!format.empty())
-        {
-            // The 2.1 readers give no default properties (core MakeSaveFormat).
-            std::vector<char> bytes = MakeSaveFormat(context, format);
-            if (!bytes.empty()) context->SetGlobalImagesSaveFormat(reinterpret_cast<CKBitmapProperties *>(bytes.data()));
-        }
-    SetQuantizationSamplingFactor(std::max(1, std::min(100, p.Int("CK2 Settings\\Quantization Sampling Factor"))));
-    // Behavior Link Properties: Max Behavioral Iterations.
-    if (CKBehaviorManager *behaviors = context->GetBehaviorManager())
-        behaviors->SetBehaviorMaxIteration(std::max(1, p.Int("BehaviorManager\\MaxIteration")));
+    std::string error;
+    if (!m_Preferences.ApplyRuntimeSettings(error)) m_State.Log(LogLevel::Warning, error);
 
 }
 
@@ -345,6 +332,7 @@ void EditorApp::Shutdown() {
     m_FileCommands.Stop();
     m_Outputs.Stop();
     m_Diagnostics.Stop();
+    m_Preferences.Stop();
     m_Editor.NativeAvailable(true);
     m_State.DrainRuntimeLog();
     m_State.fileDialogs.Close();
@@ -753,12 +741,11 @@ void EditorApp::MainMenu() {
         // objects and Scripts Building Blocks create, in the Level Manager,
         // the Schematic and the Profiler (General Preferences' "Show Dynamic Objects").
         {
-            const bool dynamic = m_State.preferences.Bool("3D Layout\\Show Dynamic Objects");
-            if (ImGui::MenuItem(dynamic ? "Hide Dynamic Objects" : "Show Dynamic Objects")) {
-                m_State.preferences.Set("3D Layout\\Show Dynamic Objects", dynamic ? "0" : "1");
-                SavePreferences();
-                m_Panels.RefreshStack();
-            }
+            const auto settings = m_Editor.Query("preferences.dynamic-objects", {m_Editor.Scope(), nullptr, 0});
+            const bool dynamic = EditorClient::Integer(settings, "checked") != 0;
+            if (ImGui::MenuItem(dynamic ? "Hide Dynamic Objects" : "Show Dynamic Objects", nullptr, false,
+                m_Editor.CommandState("preferences.toggle-dynamic-objects", {m_Editor.Scope(), nullptr, 0}) == EDITOR_OK))
+                Command("preferences.toggle-dynamic-objects");
         }
         m_Workspace.CommandMenu("options.unused");
         if (ImGui::MenuItem("Refresh Windows")) {
@@ -985,6 +972,7 @@ void EditorApp::Frame() {
     m_Editor.NativeAvailable(!m_State.runtimeOperation.Busy());
     m_Environment.Poll();
     m_Diagnostics.Poll();
+    m_Preferences.Poll();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }

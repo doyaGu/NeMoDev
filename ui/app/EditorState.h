@@ -14,7 +14,7 @@
 
 #include "core/catalog/BuildingBlockCatalog.h"
 #include "core/runtime/CkRuntimeHost.h"
-#include "ui/app/Preferences.h"
+#include "application/Preferences.h"
 #include "core/document/Clipboard.h"
 #include "ui/schematic/SchematicStyle.h"
 #include "core/schematic/SchematicNavigation.h"

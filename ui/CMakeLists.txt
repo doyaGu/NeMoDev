@@ -28,7 +28,6 @@ set(_editor_sources
         app/FileMenu.cpp
         app/StatusBar.cpp
         app/DuplicateNames.cpp
-        app/Preferences.cpp
         app/DesktopFiles.cpp
         help/HelpBook.cpp
         help/HelpWindow.cpp
