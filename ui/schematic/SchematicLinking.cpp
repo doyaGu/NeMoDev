@@ -158,7 +158,7 @@ bool SchematicCanvas::MultiLink(const Hit &hit) {
         sources.push_back(source);
     };
     if (group) {
-        for (const auto &item : m_State.selection.items)
+        for (const auto &item : m_Navigation.selection.items)
             if (item.kind == pressed.kind && (item.kind != ElementKind::Pin || item.pin == pressed.pin)) add(item);
     } else {
         add(pressed);

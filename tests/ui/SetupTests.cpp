@@ -900,12 +900,12 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(!scripts.empty());
         const CK_ID script = scripts.back().id;
         IM_CHECK_SILENT(ShowSetup(ctx, script, "//###setupbehavior"));
-        OnMainThread(ctx, [] { App().State().focus = vdev::FocusRequest(); });
+        OnMainThread(ctx, [] { App().State().Schematic().focus = vdev::FocusRequest(); });
         ctx->ItemClick("**/Show in Schematic");
         ctx->Yield(3);
-        IM_CHECK(InFront(ctx, "//Schematic"));
-        IM_CHECK_EQ(App().State().stackScript, script);
-        IM_CHECK_EQ(App().State().focus.script, script);
+        IM_CHECK(InFront(ctx, SchematicRef().c_str()));
+        IM_CHECK_EQ(App().State().Schematic().stackScript, App().State().document->Reference(script));
+        IM_CHECK_EQ(App().State().Schematic().focus.address.script, App().State().document->Reference(script));
         bool shown = false;
         for (const vdev::SchematicCanvas::ShownScript &each : App().Canvas().ShownScripts()) shown |= each.script == script;
         IM_CHECK(shown);

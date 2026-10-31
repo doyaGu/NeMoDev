@@ -62,8 +62,8 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(InFront(ctx, SceneRef("level", "").c_str()));
         ctx->KeyPress(ImGuiKey_Enter);
         ctx->Yield(3);
-        IM_CHECK(InFront(ctx, "//Schematic"));
-        IM_CHECK_EQ(App().State().stackScript, row->object);
+        IM_CHECK(InFront(ctx, SchematicRef().c_str()));
+        IM_CHECK_EQ(App().State().Schematic().stackScript, App().State().document->Reference(row->object));
         bool shown = false;
         for (const vdev::SchematicCanvas::ShownScript &each : App().Canvas().ShownScripts())
             shown |= each.script == row->object;

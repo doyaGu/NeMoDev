@@ -119,7 +119,7 @@ struct SceneCommands::Data {
     std::function<Document *()> current;
     ObjectClipboard &objectClipboard;
     Clipboard &clipboard;
-    std::set<CK_ID> &hidden;
+    std::function<SchematicNavigation &()> navigation;
     std::function<CKDependencies &()> copyOptions;
     uint64_t revision = 1, published = 0, nextWorkset = 1, catalogEpoch = 1;
     DocumentToken document{};
@@ -208,8 +208,8 @@ struct SceneCommands::Data {
     }
 };
 SceneCommands::SceneCommands(EditorApplication &editor, std::function<Document *()> current, ObjectClipboard &objects,
-                             Clipboard &clipboard, std::set<CK_ID> &hidden, std::function<CKDependencies &()> options)
-    : m_Data(new Data{editor, std::move(current), objects, clipboard, hidden, std::move(options)}) {
+                             Clipboard &clipboard, std::function<SchematicNavigation &()> navigation, std::function<CKDependencies &()> options)
+    : m_Data(new Data{editor, std::move(current), objects, clipboard, std::move(navigation), std::move(options)}) {
 }
 SceneCommands::~SceneCommands() = default;
 void SceneCommands::Publish(uint64_t published, int frame, int state, bool dynamic) {
@@ -267,7 +267,7 @@ EditorStatus SceneCommands::Data::Tree(void *data, const EditorHost *, const Edi
         }
         d.trees.push_back(
             {options, hierarchy,
-             hierarchy ? ReadHierarchyTree(*doc, options) : ReadLevelTree(*doc, options, d.worksets, d.hidden)});
+             hierarchy ? ReadHierarchyTree(*doc, options) : ReadLevelTree(*doc, options, d.worksets, d.navigation().HiddenIds(*doc))});
         found = std::prev(d.trees.end());
     }
     const auto &tree = found->tree;
@@ -948,17 +948,17 @@ EditorStatus SceneCommands::Data::Run(void *data, const EditorHost *, const Edit
                         auto *o = doc->Resolve(ref);
                         if (auto *script = CKBehavior::Cast(o)) {
                             if (!mode) {
-                                d.hidden.erase(script->GetID());
+                                d.navigation().hiddenScripts.erase(doc->Reference(script->GetID()));
                             } else {
-                                d.hidden.insert(script->GetID());
+                                d.navigation().hiddenScripts.insert(doc->Reference(script->GetID()));
                             }
                         } else if (auto *be = CKBeObject::Cast(o)) {
                             for (int i = 0; i < be->GetScriptCount(); ++i) {
                                 if (auto *script = be->GetScript(i)) {
                                     if (!mode) {
-                                        d.hidden.erase(script->GetID());
+                                        d.navigation().hiddenScripts.erase(doc->Reference(script->GetID()));
                                     } else {
-                                        d.hidden.insert(script->GetID());
+                                        d.navigation().hiddenScripts.insert(doc->Reference(script->GetID()));
                                     }
                                 }
                             }

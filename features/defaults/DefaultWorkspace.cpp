@@ -73,6 +73,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"view", "document.output-dialogs", "builtin.output-dialogs"},
                                       {"view", "resource.file-dialogs", "builtin.resource-dialogs"},
                                       {"view", "application.event-log", "builtin.log"},
+                                      {"command", "script.navigate", "builtin.schematic"},
+                                      {"view", "script.schematic", "builtin.schematic"},
                                       {"view", "resource.data", "builtin.data-resources"},
                                       {"view", "resource.building-blocks", "builtin.building-blocks"},
                                       {"command", "runtime.play", "builtin.execution"}};
@@ -91,6 +93,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.views = {{"document.file-dialogs", "", "", true},
                     {"document.output-dialogs", "", "", true},
                     {"scene.level", "main.level", "editing", true, true},
+                    {"script.schematic", "main.schematic", "editing", true, true},
                     {"resource.building-blocks", "main.building-blocks", "resources", true, true},
                     {"resource.file-dialogs", "", "", true},
                     {"scene.hierarchy", "main.hierarchy", "resources"},
@@ -99,9 +102,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.splits = {{"root", "top", "editing", WorkspaceDirection::Up, .5f},
                      {"top", "resources", "layout", WorkspaceDirection::Right, .5f}};
     result.regions = {
-        {"layout", "", "3D Layout"}, {"editing", "", "Schematic"}, {"resources", "main.building-blocks", ""}};
+        {"layout", "", "3D Layout"}, {"editing", "main.schematic", ""}, {"resources", "main.building-blocks", ""}};
     result.legacyWindows = {{"3D Layout", "layout", false, true},
-                            {"Schematic", "editing", false, true},
                             {"Parameter Debugger", "resources"},
                             {"###setup", "editing", true}};
     return result;

@@ -88,7 +88,7 @@ void EditorApp::StatusBar() {
 
         // Selection: the Schematic's (the element or "%d elements selected"),
         // or the 3D Layout's after it was used.
-        const Selection &selection = m_State.selection;
+        const Selection &selection = m_State.Schematic().selection;
         std::string selected = "Nothing selected";
         if (selection.items.size() == 1) {
             const ElementRef &item = selection.items[0];
@@ -102,7 +102,7 @@ void EditorApp::StatusBar() {
         BarText(dl, at(10.0f, 6.0f), fromRight(871.0f, 18.0f), selected, false);
         separator(866.0f);
         BarText(dl, fromRight(863.0f, 4.0f), fromRight(713.0f, 17.0f),
-                layoutAction.empty() ? std::string(m_Canvas.ActionText()) : layoutAction, true);
+                layoutAction.empty() ? std::string(m_Schematics.Current().ActionText()) : layoutAction, true);
         separator(712.0f);
         // X / Y / Z once a 3D Layout tool is used (sub_424CB0), else the info text.
         std::string coordinates[3];

@@ -41,10 +41,10 @@ void TestSceneCommands(CkRuntimeHost &runtime) {
     EditorApplication app([&] { return &document; }, [&] { return available; });
     ObjectClipboard objects;
     Clipboard clipboard;
-    std::set<CK_ID> hidden;
+    SchematicNavigation navigation;
     CKDependencies copy;
     SceneCommands scene(
-        app, [&] { return &document; }, objects, clipboard, hidden, [&]() -> CKDependencies & { return copy; });
+        app, [&] { return &document; }, objects, clipboard, [&]() -> SchematicNavigation & { return navigation; }, [&]() -> CKDependencies & { return copy; });
     Check(scene.Register(error), error.c_str());
     Check(app.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
     auto publish = [&] {

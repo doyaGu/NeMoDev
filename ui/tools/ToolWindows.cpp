@@ -1,3 +1,4 @@
+#include "ui/schematic/SchematicViews.h"
 // Dev's Installed Plugins, Path Manager, Unused Object Explorer, Building
 // Block Version Test, Profiler, Parameter Debugger, Behavior Link
 // Properties and About windows; layouts after the Dev 2.5 screenshots.
@@ -798,9 +799,9 @@ void ToolWindows::ProfilerDetails() {
     auto showInSchematic = [this](CKBehavior *behavior) {
         CKBehavior *script = behavior->GetOwnerScript() ? behavior->GetOwnerScript() : behavior;
         if (script == behavior)
-            m_State.events.Post(ShowElement{script->GetID()});
+            m_State.events.Post(ShowElement{*m_State.document, script->GetID()});
         else
-            m_State.events.Post(ShowElement{script->GetID(), ElementRef{ElementKind::Behavior, script->GetID(), behavior->GetID()},
+            m_State.events.Post(ShowElement{*m_State.document, script->GetID(), ElementRef{ElementKind::Behavior, script->GetID(), behavior->GetID()},
                                             behavior->GetID()});
     };
     // Behavioral objects (dynamic ones only when shown), their Scripts and behaviors.
@@ -925,7 +926,7 @@ void ToolWindows::ParameterDebugger(ImGuiID dock) {
                 m_Doc.watchSelected = i;
             if (ImGui::BeginPopupContextItem("watch")) {
                 m_Doc.watchSelected = i;
-                if (ImGui::MenuItem("Go to source")) m_Canvas.GoToParameter(m_Doc.watches[i]);
+                if (ImGui::MenuItem("Go to source")) m_Schematics.Current().GoToParameter(m_Doc.watches[i]);
                 if (ImGui::MenuItem("Delete")) remove = i;
                 ImGui::Separator();
                 if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_State.clipboard.parameters.empty())) paste();

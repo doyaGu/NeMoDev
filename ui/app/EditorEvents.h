@@ -5,7 +5,8 @@
 #include <variant>
 #include <vector>
 
-#include "core/schematic/ElementRef.h"
+#include "core/schematic/ElementAddress.h"
+#include "editor/Editor.h"
 #include "editor/Identity.h"
 
 namespace vdev {
@@ -22,9 +23,10 @@ namespace vdev {
 // focusBehavior, or its shown ancestor, when ref is not shown), ref
 // selected.
 struct ShowElement {
-    CK_ID script = 0;
-    ElementRef ref;
-    CK_ID focusBehavior = 0;
+    ElementAddress address;
+    ObjectRef focusBehavior{};
+    EditorView view = 0;
+    ShowElement(Document &, CK_ID script, const ElementRef &ref = {}, CK_ID focus = 0, EditorView view = 0);
 };
 
 // The object's Setup shown (SetupWindows::Open: that of its curve for a

@@ -15,7 +15,7 @@
 
 namespace vdev {
 
-class SchematicCanvas;
+class SchematicViews;
 
 // Dev's windows of the Resources, Editors, Options and Help menus and the
 // status bar (layouts after the Dev 2.5 screenshots the user gave):
@@ -24,7 +24,7 @@ class SchematicCanvas;
 // Behavior Link Properties and About.
 class ToolWindows {
 public:
-    ToolWindows(EditorState &state, SchematicCanvas &canvas) : m_State(state), m_Canvas(canvas) {}
+    ToolWindows(EditorState &state, SchematicViews &canvases) : m_State(state), m_Schematics(canvases) {}
 
     // topDock: the dock node for the Parameter Debugger; applyPreferences:
     // called after the General Preferences are accepted.
@@ -91,7 +91,7 @@ private:
 
     EditorState &m_State;
     DocumentState m_Doc;
-    SchematicCanvas &m_Canvas;
+    SchematicViews &m_Schematics;
     bool m_OpenPopups = true;
 
     // General Preferences: edited on a copy, kept with OK.

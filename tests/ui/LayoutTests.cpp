@@ -310,7 +310,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         ctx->MouseMoveToPos(ImVec2(found.at.x + 45, found.at.y));
         ctx->Yield(2);
         IM_CHECK(!Same(WorldMatrix(ctx, found.entity), before));
-        OnMainThread(ctx, [] { ImGui::SetWindowFocus("Schematic"); });
+        OnMainThread(ctx, [] { ImGui::SetWindowFocus(App().SchematicWindow().c_str()); });
         ctx->Yield(2);
         IM_CHECK(!App().Layout().Busy());
         IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));

@@ -107,7 +107,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
     // takes it out, unmodified.
     t = IM_REGISTER_TEST(engine, "blocks", "drop_into_schematic_undo");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         vdev::EditorState &state = App().State();
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint(0, ImVec2(200, 120));
         IM_CHECK_SILENT(point.has_value());
@@ -116,7 +116,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         Filter(ctx, BLOCK);
         DragBlockTo(ctx, point->second);
         IM_CHECK_EQ(ShownNamed(script), before + 1);
-        IM_CHECK_EQ(state.selection.items.size(), 1u);
+        IM_CHECK_EQ(state.Schematic().selection.items.size(), 1u);
         IM_CHECK(state.History().CanUndo());
         IM_CHECK(state.document->Dirty());
         Undo(ctx);
@@ -129,7 +129,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
     // Resource"): both inserted; Ctrl+Z twice takes them out, unmodified.
     t = IM_REGISTER_TEST(engine, "blocks", "multi_drag_into_schematic");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         vdev::EditorState &state = App().State();
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint(0, ImVec2(200, 120));
         IM_CHECK_SILENT(point.has_value());
@@ -189,9 +189,9 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         IM_CHECK(state.document->Dirty());
         // The Schematic's stack made for the entity's Script, which shows the
         // block; the Schematic in front once the dialog is closed.
-        const vdev::ScriptInfo *shown = state.document->FindScript(state.stackScript);
+        const vdev::ScriptInfo *shown = state.document->FindScript(state.document->NativeId(state.Schematic().stackScript));
         IM_CHECK(shown && shown->ownerId == found.entity);
-        IM_CHECK(InFront(ctx, "//Schematic"));
+        IM_CHECK(InFront(ctx, SchematicRef().c_str()));
         Undo(ctx);
         IM_CHECK_EQ(BlocksOn(ctx, found.entity), before);
         IM_CHECK(!state.document->Dirty());

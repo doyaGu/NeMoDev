@@ -1,6 +1,7 @@
 #pragma once
 #include "application/EditorApplication.h"
 #include "core/document/Clipboard.h"
+#include "core/schematic/SchematicNavigation.h"
 #include "features/scene/SceneModel.h"
 #include <functional>
 #include <memory>
@@ -10,7 +11,7 @@ namespace vdev {
 class SceneCommands {
   public:
     SceneCommands(EditorApplication &, std::function<Document *()>, ObjectClipboard &, Clipboard &,
-                  std::set<CK_ID> &hiddenScripts, std::function<CKDependencies &()> copyOptions);
+                  std::function<SchematicNavigation &()> navigation, std::function<CKDependencies &()> copyOptions);
     ~SceneCommands();
     bool Register(std::string &error);
     // Only published editor-thread values are used by version callbacks.

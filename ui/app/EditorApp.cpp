@@ -43,7 +43,7 @@ EditorApp::EditorApp(HtmlFonts fonts)
     : m_Editor([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }),
       m_ObjectCommands([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }),
-      m_Canvas(m_State), m_Panels(m_State, m_Canvas), m_Tools(m_State, m_Canvas), m_HtmlFonts(fonts) {
+      m_Schematics(m_State), m_Panels(m_State, m_Schematics), m_Tools(m_State, m_Schematics), m_HtmlFonts(fonts) {
     m_State.workspace = &m_Workspace;
     m_State.documentViews = this;
     m_State.files.Execution(&m_Execution);
@@ -59,7 +59,7 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
     m_Layout.HandleEvent(event);
     if (!m_Window || event.type != SDL_EVENT_WINDOW_FOCUS_LOST ||
         event.window.windowID != SDL_GetWindowID(m_Window) || m_Layout.FullScreen()) return;
-    m_Canvas.CancelInteraction();
+    m_Schematics.CancelInteraction();
     m_Layout.CancelEdits();
     if (m_State.debugger && m_State.debugger->GetState() == Debugger::State::Running)
         Command("runtime.pause");
@@ -67,7 +67,7 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
 
 namespace {
 
-const char *SCHEMATIC_WINDOW = "Schematic";
+
 
 } // namespace
 
@@ -104,7 +104,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     }
     ApplyPreferences();
 #ifdef VIRTOOLSDEV_UI_TESTS
-    m_State.view.showAllScripts = startup.showAllScripts;
+    m_Schematics.Defaults().showAllScripts = startup.showAllScripts;
 #endif
     m_State.runtimeDirectory = runtimeDirectory;
     m_Tools.applyPreferences = [this] {
@@ -135,7 +135,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
         !RegisterArrayValueEditors(m_Editor, error) || !RegisterObjectViews(m_Editor, error) ||
         !m_SceneCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
-        !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
+        !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }
@@ -234,12 +234,13 @@ void EditorApp::ApplyPreferences() {
     files.saveScriptSnapshots = p.Bool("Schematic\\Save Script Snapshot");
     m_FileCommands.Configure(files);
     m_Outputs.SaveScriptSnapshots(files.saveScriptSnapshots);
-    ViewOptions &view = m_State.view;
+    ViewOptions view = m_Schematics.Defaults();
     view.autoLink = p.automaticLink;
     view.showControlPoints = p.showControlPoints;
     view.showLinkInfo = p.showLinkDelay;
     view.showPriorities = p.showPriorities;
     view.showHeaders = p.showScriptLeftPart;
+    m_Schematics.ApplyOptions(view);
     ApplyColors(p, m_State.style);
 }
 
@@ -318,11 +319,12 @@ void EditorApp::Shutdown() {
     m_State.fileDialogs.Close();
     // Toolbar toggles are preferences too.
     Preferences &p = m_State.preferences;
-    p.automaticLink = m_State.view.autoLink;
-    p.showControlPoints = m_State.view.showControlPoints;
-    p.showLinkDelay = m_State.view.showLinkInfo;
-    p.showPriorities = m_State.view.showPriorities;
-    p.showScriptLeftPart = m_State.view.showHeaders;
+    const auto &view = m_Schematics.CurrentId() ? m_State.Schematic().options : m_Schematics.Defaults();
+    p.automaticLink = view.autoLink;
+    p.showControlPoints = view.showControlPoints;
+    p.showLinkDelay = view.showLinkInfo;
+    p.showPriorities = view.showPriorities;
+    p.showScriptLeftPart = view.showHeaders;
     m_ResourceCommands.Poll();
     SavePreferences();
     if (m_State.document) {
@@ -372,6 +374,7 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
     m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
                     m_State.document ? m_State.document->TopologyRevision() : 0, true, m_State.HasDocument());
     m_Execution.Synchronize();
+    m_Schematics.Validate();
     using A = DocumentCommands::Action;
     if (result.action == A::New && result.status == EDITOR_OK) {
         std::string error;
@@ -382,8 +385,8 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
     if ((result.action == A::Open || result.action == A::Revert) && result.opened.opened)
         CompleteOpen(result.path, result.opened);
     if (result.loaded.loaded) {
-        m_State.selection.Clear();
-        m_Canvas.Invalidate();
+        m_Schematics.ClearSelections();
+        m_Schematics.Invalidate();
         if (result.action == A::Merge || result.action == A::MergeScene) RememberRecentFile(result.path);
         for (const auto &script : m_State.document->Scripts())
             if (std::find(result.loaded.objects.begin(), result.loaded.objects.end(), script.id) != result.loaded.objects.end()) {
@@ -395,7 +398,7 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
         m_State.Log(item.loaded ? LogLevel::Info : LogLevel::Warning,
                     std::string(item.loaded ? "Loaded: " : "Load failed: ") + item.message + " (" + item.path + ")");
         if (item.loaded) {
-            m_Canvas.Invalidate();
+            m_Schematics.Invalidate();
             if (result.action == A::LoadScripts && item.created && m_State.document->Resolve(item.created))
                 m_Panels.ShowScript(item.created.object);
         }
@@ -491,7 +494,7 @@ void EditorApp::CloseDocumentViews() {
     m_Panels.DocumentClosed();
     m_Layout.DocumentClosed(); // its working copies while they still exist
     m_Layout.ApplyLayoutData(LayoutInterfaceData());
-    m_Canvas.DocumentClosed();
+    m_Schematics.DocumentClosed();
     ReleaseSnapshotTextures(); // the document frees its bitmaps
     UpdateTitle();
 }
@@ -512,13 +515,13 @@ void EditorApp::RestoreDocument() {
     if (!m_Layout.Start(m_Window, &error)) throw std::runtime_error("3D Layout: " + error);
     m_Layout.ApplyLayoutData(m_DetachedLayout, false);
     ReopenSetups(m_DetachedLayout);
-    m_Canvas.Invalidate();
+    m_Schematics.Invalidate();
     UpdateTitle();
     m_DetachedDocument = {};
 }
 
 bool EditorApp::DocumentInteractionActive() const {
-    return m_Canvas.Busy() || m_Layout.Busy() || m_Setups.HasPendingEdits() || m_Workspace.Interacting();
+    return m_Schematics.Busy() || m_Layout.Busy() || m_Setups.HasPendingEdits() || m_Workspace.Interacting();
 }
 
 
@@ -586,7 +589,7 @@ void EditorApp::DropFiles(const std::vector<std::wstring> &paths, float x, float
             Command("document.open", path);
             return;
         }
-        if (!m_State.HasDocument() || !m_Canvas.DropFile(wide, path, ImVec2(x, y)))
+        if (!m_State.HasDocument() || !m_Schematics.DropFile(wide, path, float(x), float(y)))
             m_State.Log(LogLevel::Info, "Dropped file not used: " + path +
                                             " (compositions open; images go on Script headers, .nms on graphs or bodies)");
     }
@@ -729,8 +732,8 @@ void EditorApp::MainMenu() {
             // Documentation "Options Menu": refreshes the windows "and resets
             // the three main tabbed windows to their default size and position"
             // (the other windows docked stay in their tab rows).
-            m_Canvas.Invalidate();
-            if (hasDocument) m_Canvas.Refresh();
+            m_Schematics.Invalidate();
+            if (hasDocument) m_Schematics.Current().Refresh();
             m_Panels.RefreshStack();
             m_ResetLayout = true;
             m_CloseSeparated = false;
@@ -808,7 +811,7 @@ void EditorApp::CreateObject(LayoutObject kind) {
 }
 
 bool EditorApp::Busy() const {
-    return m_State.runtimeOperation.Busy() || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) || m_Canvas.Busy() ||
+    return m_State.runtimeOperation.Busy() || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) || m_Schematics.Busy() ||
            m_Layout.Busy();
 }
 
@@ -819,13 +822,13 @@ void EditorApp::GlobalShortcuts() {
     // the Level Manager F3 (its Find Item).
     const ImGuiWindow *focused = ImGui::GetCurrentContext()->NavWindow;
     const bool levelManager = focused && focused->RootWindow && m_Workspace.Focused() == m_Workspace.Role("main.level");
-    const bool schematic = focused && focused->RootWindow && std::strcmp(focused->RootWindow->Name, SCHEMATIC_WINDOW) == 0;
+    const bool schematic = m_Schematics.Find(m_Workspace.Focused()) != nullptr;
     // F3 / Shift+F3: the Schematic's Find (once a text was asked), else the
     // Explorer's results;
     // Ctrl+F3 in the Schematic: the selected element's name.
     if (!levelManager && ImGui::IsKeyPressed(ImGuiKey_F3, false)) {
-        if (schematic && io.KeyCtrl) m_Canvas.FindSelected(io.KeyShift);
-        else if (schematic && m_Canvas.Finding()) m_Canvas.FindNext(io.KeyShift);
+        if (schematic && io.KeyCtrl) m_Schematics.Current().FindSelected(io.KeyShift);
+        else if (schematic && m_Schematics.Current().Finding()) m_Schematics.Current().FindNext(io.KeyShift);
         else if (!io.KeyCtrl) m_Panels.FindNext(io.KeyShift ? -1 : 1);
     }
     m_Workspace.CommandShortcuts();
@@ -839,7 +842,7 @@ void EditorApp::GlobalShortcuts() {
     // Ctrl+Shift+F the Schematic Explorer; Ctrl+F the Schematic's Find (the
     // Level Manager's own there), else the Explorer.
     if (ImGui::IsKeyPressed(ImGuiKey_F, false) && !levelManager) {
-        if (schematic && !io.KeyShift) m_Canvas.OpenFind();
+        if (schematic && !io.KeyShift) m_Schematics.Current().OpenFind();
         else ShowSchematicExplorer();
     }
 }
@@ -870,8 +873,11 @@ void EditorApp::DispatchEvents() {
     bool refresh = scripts != m_ScriptsSeen;
     for (const EditorEvent &event : m_State.events.Take()) {
         if (const ShowElement *show = std::get_if<ShowElement>(&event)) {
-            m_Panels.ShowScript(show->script, show->ref, show->focusBehavior);
-            m_ToFront = SCHEMATIC_WINDOW;
+            // A dropped Building Block can still be asking for its values.
+            // Keep the original position until that edit commits or cancels.
+            if ((m_State.HasDocument() && m_State.document->EditOpen()) || m_Editor.HasEdits())
+                m_State.events.Post(*show);
+            else m_Schematics.Show(show->address, show->focusBehavior, true, show->view);
         } else if (const ShowObjectSetup *setup = std::get_if<ShowObjectSetup>(&event)) {
             if (m_State.HasDocument())
                 if (const auto id = m_State.document->NativeId(setup->object)) m_Setups.Open(id);
@@ -891,7 +897,7 @@ void EditorApp::DispatchEvents() {
         } else if (const ShowGeneralPreferences *preferences = std::get_if<ShowGeneralPreferences>(&event)) {
             m_Tools.OpenGeneralPreferences(preferences->page);
         } else if (std::holds_alternative<FocusSchematic>(event)) {
-            m_ToFront = SCHEMATIC_WINDOW;
+            m_Schematics.Focus();
         } else if (std::holds_alternative<OpenSchematicExplorer>(event)) {
             ShowSchematicExplorer();
         } else if (std::holds_alternative<OpenLinkProperties>(event)) {
@@ -950,6 +956,8 @@ void EditorApp::Frame() {
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     if (m_State.HasDocument()) m_State.objectSelection.Validate(*m_State.document);
+    m_Schematics.Validate();
+    m_State.RefreshInvalidLinks();
     m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
                     m_State.HasDocument() ? m_State.document->TopologyRevision() : 0, true,
                     m_State.HasDocument());
@@ -974,10 +982,9 @@ void EditorApp::Frame() {
 
     DispatchEvents();
     // Dev's main windows have no close button.
-    m_Canvas.Draw(SCHEMATIC_WINDOW, nullptr);
     // The canvas size is known only after a docked frame.
 #ifdef VIRTOOLSDEV_UI_TESTS
-    if (m_FitFrames > 0 && --m_FitFrames == 0) m_Canvas.FitAll();
+    if (m_FitFrames > 0 && --m_FitFrames == 0) m_Schematics.Current().FitAll();
 #endif
     DuplicateNamesDialog();
     MessageDialog();
@@ -1017,7 +1024,7 @@ void EditorApp::Frame() {
     {
         m_Layout.Draw(0, m_FocusSchematic <= 0);
         // Setup tabs dock with the Schematic (Dev's tab row).
-        ImGuiWindow *schematic = ImGui::FindWindowByName(SCHEMATIC_WINDOW);
+        ImGuiWindow *schematic = ImGui::FindWindowByName(m_Schematics.Window().c_str());
         m_Setups.Draw(schematic ? schematic->DockId : 0);
         m_Tools.Draw(m_Workspace.RegionDock("resources"), m_FocusSchematic <= 0);
     }
@@ -1025,7 +1032,7 @@ void EditorApp::Frame() {
     m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"));
     m_Workspace.Draw();
     if (m_State.showDebugger) m_Panels.DebuggerPanel(&m_State.showDebugger);
-    if (m_Execution.Update(0.010)) m_Canvas.RefreshValues();
+    if (m_Execution.Update(0.010)) m_Schematics.RefreshValues();
 #ifdef VIRTOOLSDEV_UI_TESTS
     const bool settled = m_FocusSchematic <= 0;
 #endif
@@ -1049,6 +1056,7 @@ void EditorApp::Frame() {
         if (!names.empty()) {
             auto name=names[m_FocusSchematic % names.size()];
             if(name=="Building Blocks")m_Workspace.Focus(m_Workspace.Role("main.building-blocks"));
+            else if(name=="Schematic")m_Schematics.Focus();
             else if(name=="Level Manager")m_Workspace.Focus(m_Workspace.Role("main.level"));
             else if(name=="Hierarchy Manager")m_Workspace.Focus(m_Workspace.Role("main.hierarchy"));
             else if(name=="Attribute Manager")m_Workspace.Focus(m_Workspace.Role("main.attributes"));
@@ -1097,7 +1105,9 @@ bool EditorApp::RegisterSceneNavigation(std::string &error){
         auto &app=*static_cast<EditorApp*>(data);return host->navigateView(host->data,EditorString EDITOR_TEXT("scene.level"),app.OpenSceneView("level"),request,sink);};
     commands[2].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
         auto &app=*static_cast<EditorApp*>(data);const auto id=app.m_State.document->NativeId(request->values[0].object);if(!id)return EDITOR_STALE;
-        const bool focus=request->values[1].integer!=0;app.m_Panels.ShowScript(id,{},0,focus);if(focus)app.m_ToFront=SCHEMATIC_WINDOW;return EDITOR_OK;};
+        const bool focus=request->values[1].integer!=0;
+        const auto view=app.m_Schematics.Find(request->scope.view)?request->scope.view:app.m_Schematics.CurrentId();
+        return app.m_Schematics.Show(ElementAddress::Capture(*app.m_State.document,id,Selection::HeaderOf(id)),{},focus,view);};
     commands[3].run=[](void*data,const EditorHost*,const EditorRequest*,EditorSink){static_cast<EditorApp*>(data)->m_Panels.RefreshStack();return EDITOR_OK;};
     commands[4].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
         auto &app=*static_cast<EditorApp*>(data);auto &state=app.m_State;std::vector<ObjectRef> targets;
@@ -1105,13 +1115,13 @@ bool EditorApp::RegisterSceneNavigation(std::string &error){
         const auto prototype=request->values[1].integer;const CKGUID guid(CKDWORD(prototype>>32),CKDWORD(prototype));
         auto create=[&]()->std::pair<CK_ID,CK_ID>{CK_ID script=0,block=0;
             for(auto ref:targets){auto*object=state.document->Resolve(ref);EditResult result=EditResult::NoChange();
-                if(auto*behavior=CKBehavior::Cast(object)){if(state.hiddenScripts.count(behavior->GetID())){state.Log(LogLevel::Warning,"Cannot drop on script with hidden graph!");continue;}script=behavior->GetID();result=DropBuildingBlockInto(*state.document,script,guid);}
-                else if(object)result=DropBuildingBlockOn(*state.document,object->GetID(),guid,state.hiddenScripts,&script);
+                if(auto*behavior=CKBehavior::Cast(object)){if(state.Schematic().hiddenScripts.count(state.document->Reference(behavior->GetID()))){state.Log(LogLevel::Warning,"Cannot drop on script with hidden graph!");continue;}script=behavior->GetID();result=DropBuildingBlockInto(*state.document,script,guid);}
+                else if(object)result=DropBuildingBlockOn(*state.document,object->GetID(),guid,state.Schematic().HiddenIds(*state.document),&script);
                 if(result.ok)block=result.created;else if(!result.message.empty())state.Log(LogLevel::Warning,AnsiToUtf8(result.message));}
             return {script,block};};
         std::pair<CK_ID,CK_ID> made;
         if(targets.size()==1)made=app.m_Layout.DropAsking(create);else{EditGroup group(*state.document,"Drop Behavior");made=create();}
-        if(!made.second)return EDITOR_REFUSED;state.RememberBlock(guid);state.events.Post(ShowElement{made.first,ElementRef{ElementKind::Behavior,made.first,made.second},made.second});return EDITOR_OK;};
+        if(!made.second)return EDITOR_REFUSED;state.RememberBlock(guid);state.events.Post(ShowElement{*state.document, made.first,ElementRef{ElementKind::Behavior,made.first,made.second},made.second});return EDITOR_OK;};
     commands[5].run=[](void*data,const EditorHost*host,const EditorRequest*request,EditorSink sink){auto&app=*static_cast<EditorApp*>(data);return host->navigateView(host->data,EditorString EDITOR_TEXT("scene.level"),app.OpenSceneView("level"),request,sink);};
     EditorModuleDesc module{};module.size=sizeof(module);module.version=EDITOR_VERSION;module.id=EDITOR_TEXT("scene.navigation");module.commands=commands;module.commandCount=6;return m_Editor.Register(module,error);
 }

@@ -25,9 +25,9 @@ const vdev::Debugger &TheDebugger() { return *App().State().debugger; }
 
 // The Schematic in front, its toolbar's Dbg: the Script Debugger shown.
 bool OpenDebugger(ImGuiTestContext *ctx) {
-    Settle(ctx, "//Schematic");
+    Settle(ctx, SchematicRef().c_str());
     if (!App().State().debugger) return false;
-    if (!App().State().showDebugger) ctx->ItemClick("//Schematic/**/debugger/##bitmap");
+    if (!App().State().showDebugger) ctx->ItemClick(SchematicRef("/**/debugger/##bitmap").c_str());
     ctx->Yield(3);
     ImGuiWindow *window = ctx->GetWindowByRef(DEBUGGER);
     return window && window->WasActive;
@@ -89,7 +89,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(OpenDebugger(ctx));
         const vdev::Debugger &debugger = TheDebugger();
         const size_t before = debugger.Breakpoints().size();
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const std::optional<vdev::SchematicCanvas::ShownBehavior> block = FirstBlock();
         IM_CHECK_SILENT(block.has_value());
         ctx->LogInfo("block '%s'", block->name.c_str());
@@ -117,7 +117,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             const EditorValue value{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, 0};
             editor.Execute("runtime.set-trace", {editor.Scope(), &value, 1});
         });
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         ctx->MouseMoveToPos(at);
         ctx->MouseClick(0);
         ctx->Yield(2);

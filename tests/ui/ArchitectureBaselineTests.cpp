@@ -19,7 +19,7 @@ void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine) {
         Settle(ctx, "//3D Layout");
         ImGuiWindow *layout = ctx->GetWindowByRef("//3D Layout");
         ImGuiWindow *blocks = ctx->GetWindowByRef(BlocksRef().c_str());
-        ImGuiWindow *schematic = ctx->GetWindowByRef("//Schematic");
+        ImGuiWindow *schematic = ctx->GetWindowByRef(SchematicRef().c_str());
         ImGuiWindow *level = ctx->GetWindowByRef(SceneRef("level", "").c_str());
         IM_CHECK(layout && blocks && schematic && level);
         IM_CHECK(layout->DockId && blocks->DockId && level->DockId);

@@ -179,11 +179,11 @@ std::unique_ptr<SchematicPrintContent> SchematicCanvas::CapturePrint() const {
     snapshot->options.font = m_Font;
     snapshot->options.boldFont = BoldFont();
     snapshot->options.fontSize = 13.0f;
-    snapshot->options.showLocalParams = m_State.view.showLocalParams;
-    snapshot->options.showLinkInfo = m_State.view.showLinkInfo;
-    snapshot->options.showControlPoints = m_State.view.showControlPoints;
-    snapshot->options.showPriorities = m_State.view.showPriorities;
-    snapshot->options.showHeaders = m_State.view.showHeaders;
+    snapshot->options.showLocalParams = m_Navigation.options.showLocalParams;
+    snapshot->options.showLinkInfo = m_Navigation.options.showLinkInfo;
+    snapshot->options.showControlPoints = m_Navigation.options.showControlPoints;
+    snapshot->options.showPriorities = m_Navigation.options.showPriorities;
+    snapshot->options.showHeaders = m_Navigation.options.showHeaders;
     for (const auto &view : m_Views) {
         PrintedSchematic::Script script{view.model, view.offsetY, view.scale, view.stackTop, view.anchor};
         if (script.model.script.snapshot) {
@@ -204,7 +204,7 @@ std::unique_ptr<SchematicPrintContent> SchematicCanvas::CapturePrint() const {
     return snapshot;
 }
 std::unique_ptr<SchematicPrintContent> EditorApp::CapturePrint(std::string &error) {
-    auto snapshot = m_Canvas.CapturePrint();
+    auto snapshot = m_Schematics.Current().CapturePrint();
     if (!snapshot) error = "No visible Script to print";
     return snapshot;
 }

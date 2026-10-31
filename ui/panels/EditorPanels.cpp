@@ -1,3 +1,4 @@
+#include "ui/schematic/SchematicViews.h"
 #include "ui/panels/EditorPanels.h"
 #include "ui/app/DesktopFiles.h"
 #include "ui/controls/DevControls.h"
@@ -43,87 +44,20 @@ void EditorPanels::FindNext(int direction) {
     m_Doc.currentResult = m_Doc.currentResult < 0 ? (direction > 0 ? 0 : count - 1)
                                           : ((m_Doc.currentResult + direction) % count + count) % count;
     const SearchResult &result = m_Doc.results[m_Doc.currentResult];
-    ShowScript(result.script, result.ref, result.focus);
+    m_Schematics.Show(result.address, m_State.document->Reference(result.focus), true, m_Doc.explorerView);
 }
 
 void EditorPanels::ShowScript(CK_ID script, const ElementRef &ref, CK_ID focusBehavior, bool focus) {
     if (!m_State.HasDocument()) return;
-    const ScriptInfo *info = m_State.document->FindScript(script);
-    if (!info) return;
-    // Showing a Script explicitly brings it back from Hide Selected / Other.
-    if (focus) m_State.hiddenScripts.erase(script);
-    m_State.stackScript = script;
-    CKContext *context = m_State.document->Context();
-    CKLevel *level = context ? context->GetCurrentLevel() : nullptr;
-    CKScene *scene = m_State.view.sceneFilter && level ? level->GetCurrentScene() : nullptr;
-    m_State.visibleScripts.clear();
-    // Scripts created at run time (or of objects so created) only with Show
-    // Dynamic Objects (the one asked for always).
-    const bool showDynamic = m_State.preferences.Bool("3D Layout\\Show Dynamic Objects");
-    for (const auto &other : m_State.document->Scripts()) {
-        const bool sameOwner = info->ownerId ? other.ownerId == info->ownerId : other.id == script;
-        if (!m_State.view.showAllScripts && !sameOwner) continue;
-        if (m_State.hiddenScripts.count(other.id)) continue;
-        if (!showDynamic && other.id != script) {
-            CKObject *each = context->GetObject(other.id);
-            CKObject *owner = context->GetObject(other.ownerId);
-            if ((each && each->IsDynamic()) || (owner && owner->IsDynamic())) continue;
-        }
-        if (scene) {
-            // Scene filter: Scripts whose owner is in the active scene (the
-            // Level's own Scripts always).
-            CKObject *owner = context->GetObject(other.ownerId);
-            if (owner && owner != level && !scene->IsObjectHere(owner)) {
-                // Dev.exe sub_4C81C0 ([Schematic]<Dialog>#0) for the one asked for.
-                if (other.id == script && focus)
-                    m_State.Log(LogLevel::Warning, "Script is not in current scene. Remove Schematic scene filter to show it");
-                continue;
-            }
-        }
-        m_State.visibleScripts.push_back(other.id);
-    }
-    // Dev stacks Scripts by their stored Header::scriptIndex (2D Text.cmo);
-    // Scripts without a saved InterfaceChunk follow in document order.
-    auto order = [&](CK_ID id) -> unsigned long long {
-        ScriptSession *session = m_State.document->Session(id);
-        return session && session->Origin() == SessionOrigin::LoadedChunk ? session->Data().header.scriptIndex
-                                                                           : ~0ull;
-    };
-    std::stable_sort(m_State.visibleScripts.begin(), m_State.visibleScripts.end(),
-                     [&](CK_ID a, CK_ID b) { return order(a) < order(b); });
-    if (!m_State.scriptOrder.empty()) {
-        // A Sort By ... order; Scripts it does not name keep their place at the end.
-        auto rank = [&](CK_ID id) {
-            auto found = std::find(m_State.scriptOrder.begin(), m_State.scriptOrder.end(), id);
-            return static_cast<size_t>(found - m_State.scriptOrder.begin());
-        };
-        std::stable_sort(m_State.visibleScripts.begin(), m_State.visibleScripts.end(),
-                         [&](CK_ID a, CK_ID b) { return rank(a) < rank(b); });
-    }
-    if (!focus) return;
-    m_State.focus.pending = true;
-    m_State.focus.script = script;
-    m_State.focus.ref = ref.IsValid() ? ref : ElementRef{ElementKind::Script, script, script};
-    m_State.focus.behavior = focusBehavior;
+    const auto address = ElementAddress::Capture(*m_State.document, script, ref.IsValid() ? ref : Selection::HeaderOf(script));
+    m_Schematics.Show(address, m_State.document->Reference(focusBehavior), focus);
 }
+void EditorPanels::RefreshStack() { m_Schematics.RefreshStacks(); }
 
-void EditorPanels::RefreshStack() {
-    if (!m_State.HasDocument()) return;
-    const Document &document = *m_State.document;
-    // The Script the stack was made for; gone, one still shown; else the first.
-    CK_ID anchor = document.FindScript(m_State.stackScript) ? m_State.stackScript : 0;
-    for (CK_ID id : m_State.visibleScripts)
-        if (!anchor && document.FindScript(id)) anchor = id;
-    if (!anchor && !document.Scripts().empty()) anchor = document.Scripts().front().id;
-    if (anchor) {
-        ShowScript(anchor, ElementRef(), 0, false);
-    } else {
-        m_State.visibleScripts.clear();
-        m_State.stackScript = 0;
-    }
+SchematicNavigation &EditorPanels::ExplorerNavigation() {
+    auto *canvas = m_Schematics.Find(m_Doc.explorerView);
+    return canvas ? canvas->Navigation() : m_Schematics.Current().Navigation();
 }
-
-
 
 void EditorPanels::RunSearch() {
     if (!m_State.HasDocument()) {
@@ -136,7 +70,7 @@ void EditorPanels::RunSearch() {
     query.id = static_cast<CK_ID>(std::max(0, std::atoi(m_SearchIdText.c_str())));
     query.kinds = m_SearchKinds;
     query.onlyScripts = !m_SearchAllScripts;
-    query.scripts = m_State.visibleScripts;
+    query.scripts = ExplorerNavigation().visibleScripts;
     query.filter = static_cast<SearchFilter>(m_SearchFilter);
     query.type = m_SearchType;
     query.derived = m_SearchDerived;
@@ -151,6 +85,9 @@ void EditorPanels::RunSearch() {
         for (CK_ID script : query.scripts) key += ',' + std::to_string(script);
     if (m_SearchFilter == 2)
         if (CKParameter *value = ExplorerValue(false)) key += '\x1f' + ParameterText(value);
+    for (const auto &script : document.Scripts())
+        if (auto *session = m_State.document->ExistingSession(script.id))
+            key += ":" + std::to_string(script.id) + ":" + std::to_string(session->Revision());
     if (key == m_Doc.resultsKey) return;
     m_Doc.resultsKey = key;
     m_Doc.results = SearchDocument(*m_State.document, query);
@@ -184,12 +121,12 @@ CKParameter *EditorPanels::ExplorerValue(bool replace) {
 void EditorPanels::ExplorerSelect() {
     if (m_Doc.anchor < 0 || m_Doc.anchor >= static_cast<int>(m_Doc.results.size())) return;
     const CK_ID script = m_Doc.results[m_Doc.anchor].script;
-    m_State.selection.Clear();
+    ExplorerNavigation().selection.Clear();
     for (int row : m_Doc.chosen) {
         const SearchResult &result = m_Doc.results[row];
-        if (result.script == script && result.ref.kind != ElementKind::Script) m_State.selection.Add(script, result.ref);
+        if (result.script == script && result.ref.kind != ElementKind::Script) ExplorerNavigation().selection.Add(script, result.ref);
     }
-    if (m_State.selection.Empty()) m_State.selection.script = script;
+    if (ExplorerNavigation().selection.Empty()) ExplorerNavigation().selection.script = script;
 }
 
 // Dev's tree view (sub_5B79E0): the Scripts and their behaviors; a click
@@ -225,7 +162,7 @@ void EditorPanels::ExplorerTree(const ImVec2 &min, const ImVec2 &max) {
     if (context)
         for (const ScriptInfo &info : m_State.document->Scripts())
             if (m_SearchAllScripts ||
-                std::find(m_State.visibleScripts.begin(), m_State.visibleScripts.end(), info.id) != m_State.visibleScripts.end())
+                std::find(ExplorerNavigation().visibleScripts.begin(), ExplorerNavigation().visibleScripts.end(), info.id) != ExplorerNavigation().visibleScripts.end())
                 node(info.id, CKBehavior::Cast(context->GetObject(info.id)));
     // F2: the node chosen renamed.
     CKObject *chosenNode = context ? context->GetObject(m_Doc.treeBehavior) : nullptr;
@@ -260,6 +197,11 @@ void EditorPanels::ExplorerTree(const ImVec2 &min, const ImVec2 &max) {
 // Filter Value: Type, Derived, Edit Value, Edit Replace Value, Replace
 // Value); Select keeps the selection made, Cancel gives the Schematic's back.
 void EditorPanels::ExplorerPanel(bool *open) {
+    if (m_ExplorerShown && !m_Schematics.Find(m_Doc.explorerView)) {
+        m_ExplorerShown = false;
+        *open = false;
+        return;
+    }
     const float s = ImGui::GetFontSize() / 13.0f;
     const ImVec2 units(345.0f, 279.0f);
     constexpr float PAD = 4.5f;
@@ -267,7 +209,8 @@ void EditorPanels::ExplorerPanel(bool *open) {
     Preferences &prefs = m_State.preferences;
     if (!m_ExplorerShown) {
         m_ExplorerShown = true;
-        m_Doc.selectionBefore = m_State.selection;
+        m_Doc.explorerView = m_Schematics.CurrentId();
+        m_Doc.selectionBefore = ExplorerNavigation().selection;
         // The settings it had when it closed last.
         m_SearchKinds = static_cast<unsigned>(prefs.Int("Schematic Explorer\\Show In List"));
         if (!m_SearchKinds) m_SearchKinds = SearchScripts;
@@ -277,7 +220,10 @@ void EditorPanels::ExplorerPanel(bool *open) {
         m_SearchDerived = prefs.Bool("Schematic Explorer\\Derived");
     }
     auto close = [&](bool keep) {
-        if (!keep) m_State.selection = m_Doc.selectionBefore;
+        if (!keep && m_Schematics.Find(m_Doc.explorerView)) {
+            m_Doc.selectionBefore.Validate();
+            ExplorerNavigation().selection = m_Doc.selectionBefore;
+        }
         prefs.SetInt("Schematic Explorer\\Show In List", static_cast<int>(m_SearchKinds));
         prefs.SetBool("Schematic Explorer\\Parse All Items", m_SearchAllScripts);
         prefs.SetBool("Schematic Explorer\\Tree View", m_SearchTree);
@@ -341,7 +287,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
             ExplorerSelect();
             if (twice) {
                 const SearchResult &result = m_Doc.results[clicked];
-                ShowScript(result.script, result.ref, result.focus);
+                m_Schematics.Show(result.address, m_State.document->Reference(result.focus), true, m_Doc.explorerView);
             }
         }
         // Its menu (Dev.exe sub_5B8520): Edit, the first row chosen's dialog
@@ -353,8 +299,11 @@ void EditorPanels::ExplorerPanel(bool *open) {
         if (ImGui::BeginPopup("explorermenu")) {
             if (ImGui::MenuItem("Edit", nullptr, false, first >= 0 && first < count)) {
                 const SearchResult &result = m_Doc.results[first];
-                ShowScript(result.script, result.ref, result.focus);
-                m_Canvas.EditElement(result.script, result.ref);
+                m_Schematics.Show(result.address, m_State.document->Reference(result.focus), true, m_Doc.explorerView);
+                if (auto *canvas = m_Schematics.Find(m_Doc.explorerView)) {
+                    CK_ID script = 0; ElementRef ref;
+                    if (result.address.Resolve(*m_State.document, script, ref)) canvas->EditElement(script, ref);
+                }
                 m_State.events.Post(FocusSchematic{});
             }
             ImGui::EndPopup();
@@ -434,7 +383,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
     }
     if (vi::Button("None", l.Min(3, 251), l.Max(3, 251, 46, 10), "None", listing)) {
         m_Doc.chosen.clear();
-        m_State.selection.Clear();
+        ExplorerNavigation().selection.Clear();
     }
     if (vi::Button("Invert", l.Min(3, 264), l.Max(3, 264, 46, 10), "Invert", listing)) {
         std::set<int> inverted;
@@ -450,7 +399,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
         if (listing) {
             const SearchResult &result = m_Doc.results[*m_Doc.chosen.begin()];
             m_Doc.currentResult = *m_Doc.chosen.begin();
-            ShowScript(result.script, result.ref, result.focus);
+            m_Schematics.Show(result.address, m_State.document->Reference(result.focus), true, m_Doc.explorerView);
             ExplorerSelect();
         } else if (treeNode) {
             CKBehavior *parent = treeNode->GetParent();
@@ -482,7 +431,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
             if (!result.ok && !result.Unchanged()) m_State.Log(LogLevel::Warning, "Delete: " + AnsiToUtf8(result.message));
         }
         for (CK_ID script : scripts) Report(DeleteScript(*m_State.document, script), "Delete Script");
-        m_State.selection.Clear();
+        ExplorerNavigation().selection.Clear();
         m_Doc.chosen.clear();
         m_Doc.treeBehavior = m_Doc.treeScript = 0;
         m_Doc.resultsKey.clear();

@@ -154,6 +154,7 @@ std::optional<std::pair<CK_ID, ImVec2>> EmptySchematicPoint(CK_ID in = 0, const 
 // that class, not a derived one), the closed rows opened with their arrows
 // (the shallowest first) until one shows; ClickLevelRow clicks it on its
 // name too. The Level Manager must be in front.
+inline std::string SchematicRef(const char *suffix = "") { return "//" + App().SchematicWindow() + suffix; }
 inline std::string BlocksRef(const char *suffix = "") { return "//" + App().BuildingBlocksWindow() + suffix; }
 inline std::string SceneRef(const char *type, const char *suffix = "") { return "//" + App().SceneWindow(type) + suffix; }
 using LevelRow = vdev::SceneShownRow;

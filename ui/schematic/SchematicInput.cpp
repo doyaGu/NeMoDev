@@ -100,7 +100,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                     if (comment.ref == handle) m_ResizeStart = comment.bounds;
                 if (const BehaviorItem *graph = hit.view->model.FindBehavior(handle.object))
                     if (handle.kind == ElementKind::Behavior) m_ResizeStart = graph->box;
-                m_State.selection.Set(hit.view->id, handle);
+                m_Navigation.selection.Set(hit.view->id, handle);
                 m_Tool = Tool::ResizeElement;
                 break;
             }
@@ -124,11 +124,13 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
             m_Tool = Tool::Pending;
             m_DragButton = ImGuiMouseButton_Middle;
             m_Doc.press = hit;
+            RetainHit(m_Doc.press, m_PressAddress);
             m_PressScreen = mouse;
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
             m_Tool = Tool::Pending;
             m_DragButton = ImGuiMouseButton_Right;
             m_Doc.press = hit;
+            RetainHit(m_Doc.press, m_PressAddress);
             m_PressScreen = mouse;
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             if (spaceDown) {
@@ -138,8 +140,8 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
             } else if (m_Doc.pickBreakpoint) {
                 // Add Breakpoint (Script Debugger): the element clicked.
                 m_Doc.pickBreakpoint = false;
-                if (hit.view && hit.ref.IsValid()) m_State.selection.Set(hit.view->id, hit.ref);
-                else m_State.selection.Clear();
+                if (hit.view && hit.ref.IsValid()) m_Navigation.selection.Set(hit.view->id, hit.ref);
+                else m_Navigation.selection.Clear();
                 ToggleBreakpointOfSelection();
             } else if (m_Doc.pickConditionRow >= 0) {
                 // Breakpoint condition: a local, a shortcut or a behavior parameter.
@@ -172,7 +174,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 m_Tool = Tool::RectSelect;
                 m_DragButton = ImGuiMouseButton_Left;
                 m_PressScreen = mouse;
-            } else if (m_State.view.zoomMode) {
+            } else if (m_Navigation.options.zoomMode) {
                 m_Tool = Tool::Zoom;
                 m_DragButton = ImGuiMouseButton_Left;
                 m_PressScreen = mouse;
@@ -184,6 +186,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 m_Tool = Tool::Pending;
                 m_DragButton = ImGuiMouseButton_Left;
                 m_Doc.press = hit;
+            RetainHit(m_Doc.press, m_PressAddress);
                 m_PressScreen = mouse;
                 m_PressWorld = !hit.view    ? m_View.ToWorld(mouse)
                                : hit.onStart ? hit.view->frame.ToWorld(mouse)
@@ -212,7 +215,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 break;
             }
             if (m_DragButton == ImGuiMouseButton_Left && linkable && !io.KeyCtrl &&
-                (m_State.view.autoLink || m_LinkMode) &&
+                (m_Navigation.options.autoLink || m_LinkMode) &&
                 EndpointOf(m_Doc.press, m_Doc.linkFrom, m_LinkBehavior, m_LinkFromPoint)) {
                 // Click on an I/O: the link follows the mouse until the next click.
                 Click(m_Doc.press);
@@ -232,14 +235,16 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 m_Doc.openRecentMenu = true;
             } else {
                 m_Doc.menuHit = m_Doc.press;
+                m_MenuAddress = m_PressAddress;
+                m_MenuStale = false;
                 m_Doc.menuScripts.clear();
                 // Ctrl + right-click on a local keeps the Script headers selected (its menu
                 // converts to a shortcut source in those Scripts only).
                 const bool keepHeaders = io.KeyCtrl && m_Doc.press.ref.kind == ElementKind::LocalParam &&
-                                         m_State.selection.OnlyHeaders();
-                if (keepHeaders) m_Doc.menuScripts = m_State.selection.Scripts();
+                                         m_Navigation.selection.OnlyHeaders();
+                if (keepHeaders) m_Doc.menuScripts = m_Navigation.selection.Scripts();
                 else if (m_Doc.press.view && m_Doc.press.ref.IsValid() && !IsSelected(m_Doc.press.view->id, m_Doc.press.ref))
-                    m_State.selection.Set(m_Doc.press.view->id, m_Doc.press.ref);
+                    m_Navigation.selection.Set(m_Doc.press.view->id, m_Doc.press.ref);
                 ImGui::OpenPopup("SchematicContext");
             }
             m_Tool = Tool::Idle;
@@ -374,10 +379,10 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 if (insert > at) --insert;
                 order.insert(order.begin() + std::min(insert, order.size()), m_Doc.reorderScript);
                 // Hidden Scripts keep their place after the shown ones.
-                for (CK_ID id : m_State.visibleScripts)
+                for (CK_ID id : m_Navigation.visibleScripts)
                     if (std::find(order.begin(), order.end(), id) == order.end()) order.push_back(id);
-                m_State.scriptOrder = order;
-                m_State.events.Post(RefreshScriptStack{});
+                m_Navigation.scriptOrder = m_State.document->References(order);
+                RefreshStack();
             }
             m_Tool = Tool::Idle;
         }
@@ -440,18 +445,18 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 m_Tool = Tool::Idle;
                 break;
             }
-            if (!io.KeyCtrl && !io.KeyShift) m_State.selection.Clear();
+            if (!io.KeyCtrl && !io.KeyShift) m_Navigation.selection.Clear();
             if (view) {
                 const Point wa = view->transform.ToWorld(a), wb = view->transform.ToWorld(b);
                 const Rect local(wa.h, wa.v - view->offsetY, wb.h - wa.h, wb.v - wa.v);
                 for (const auto &ref : ElementsInRect(view->model, local, m_State.preferences.strictMultiSelection)) {
-                    if (ref.kind == ElementKind::LocalParam && !m_State.view.showLocalParams) {
+                    if (ref.kind == ElementKind::LocalParam && !m_Navigation.options.showLocalParams) {
                         bool shown = true;
                         for (const auto &param : view->model.params)
                             if (param.ref == ref) shown = IsParamShown(param, false);
                         if (!shown) continue;
                     }
-                    m_State.selection.Add(view->id, ref);
+                    m_Navigation.selection.Add(view->id, ref);
                 }
             }
             m_Tool = Tool::Idle;
@@ -522,7 +527,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     case Tool::Move: {
         const ScriptView *view = ViewFor(m_Doc.moveScript);
         // Moving Start alone: frame units (it does not zoom with the body).
-        const bool startOnly = m_Doc.press.ref.kind == ElementKind::Start && m_State.selection.items.size() == 1;
+        const bool startOnly = m_Doc.press.ref.kind == ElementKind::Start && m_Navigation.selection.items.size() == 1;
         const Point world = !view       ? m_View.ToWorld(mouse)
                             : startOnly ? view->frame.ToWorld(mouse)
                                         : view->transform.ToWorld(mouse);
@@ -564,14 +569,14 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         // Dev Ctrl+B: select/deselect the highlighted Script.
         if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_B) && m_Doc.currentScript) {
             ScriptView *current = ViewFor(m_Doc.currentScript);
-            if (current && IsSelected(current->id, current->model.script.ref)) m_State.selection.Clear();
-            else if (current) m_State.selection.Set(current->id, current->model.script.ref);
+            if (current && IsSelected(current->id, current->model.script.ref)) m_Navigation.selection.Clear();
+            else if (current) m_Navigation.selection.Set(current->id, current->model.script.ref);
         }
         // Dev Ctrl+Up/Down: move the highlighted Script when a Script is selected, else page scroll.
         if (io.KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_UpArrow) || ImGui::IsKeyPressed(ImGuiKey_DownArrow))) {
             const int step = ImGui::IsKeyPressed(ImGuiKey_UpArrow) ? -1 : 1;
             bool script = false;
-            for (const auto &item : m_State.selection.items) script = script || item.kind == ElementKind::Script;
+            for (const auto &item : m_Navigation.selection.items) script = script || item.kind == ElementKind::Script;
             if (script) MoveHighlightedScript(step);
             else PanBy(0.0f, -step * (canvasMax.y - canvasMin.y) * 0.8f);
         }
@@ -600,7 +605,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     // Dev G: Draw Behavior Graph mode (the next drag draws the graph).
     if (ImGui::IsKeyPressed(ImGuiKey_G)) BeginDrawGraph();
     if (ImGui::IsKeyPressed(ImGuiKey_F1) || ImGui::IsKeyPressed(ImGuiKey_K)) {
-        const Selection &selection = m_State.selection;
+        const Selection &selection = m_Navigation.selection;
         if (selection.items.size() == 1) {
             const ElementRef &item = selection.items[0];
             if (ImGui::IsKeyPressed(ImGuiKey_F1) && item.kind == ElementKind::Behavior) {
@@ -643,7 +648,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
         // Dev E / Return: the selected item's parameters - a behavior or operation,
         // a link's delay, a local's or a shortcut's value.
-        const Selection &selection = m_State.selection;
+        const Selection &selection = m_Navigation.selection;
         ScriptView *view = ViewFor(selection.script);
         const ElementRef item = selection.items.size() == 1 ? selection.items[0] : ElementRef();
         if (view && item.kind == ElementKind::Link) {
@@ -669,8 +674,8 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     if (ImGui::IsKeyPressed(ImGuiKey_S)) OpenSettingsDialog(); // Dev: Edit Settings
     // Dev link mode: L links with clicks; A / Z switch auto-link on / off.
     if (ImGui::IsKeyPressed(ImGuiKey_L) && m_LinkEndedFrame != ImGui::GetFrameCount()) m_LinkMode = !m_LinkMode;
-    if (ImGui::IsKeyPressed(ImGuiKey_A)) m_State.view.autoLink = true;
-    if (ImGui::IsKeyPressed(ImGuiKey_Z)) m_State.view.autoLink = false;
+    if (ImGui::IsKeyPressed(ImGuiKey_A)) m_Navigation.options.autoLink = true;
+    if (ImGui::IsKeyPressed(ImGuiKey_Z)) m_Navigation.options.autoLink = false;
     if (ImGui::IsKeyPressed(ImGuiKey_R)) ResetView();
     // Dev Home / End scroll to the first / last Script.
     if (ImGui::IsKeyPressed(ImGuiKey_Home)) ScrollToEnd(false);
@@ -693,12 +698,12 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         if (m_LinkMode) m_LinkMode = false;
-        else m_State.selection.Clear();
+        else m_Navigation.selection.Clear();
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Delete)) DeleteSelection();
     if (ImGui::IsKeyPressed(ImGuiKey_C) && hovered && hit.view) AddComment(hit.view->id, hit.local);
     if (ImGui::IsKeyPressed(ImGuiKey_F2)) {
-        const Selection &selection = m_State.selection;
+        const Selection &selection = m_Navigation.selection;
         if (selection.items.size() == 1 && selection.items[0].kind != ElementKind::Comment) BeginRename();
         if (selection.items.size() == 1 && selection.items[0].kind == ElementKind::Comment) {
             if (ScriptView *view = ViewFor(selection.script)) {
@@ -713,13 +718,13 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     }
     const float step = 60.0f / m_View.zoom;
     // Dev: Right/Left open/close the selected Scripts; otherwise arrows scroll.
-    const std::vector<CK_ID> selectedScripts = m_State.selection.Scripts();
+    const std::vector<CK_ID> selectedScripts = m_Navigation.selection.Scripts();
     if (!selectedScripts.empty() &&
         (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_RightArrow))) {
         const bool open = ImGui::IsKeyPressed(ImGuiKey_RightArrow);
         for (CK_ID script : selectedScripts) {
             ScriptSession *session = m_State.document->Session(script);
-            if (session && session->IsOpen() != open) ToggleScriptOpen(script);
+            if (session && ScriptOpen(script) != open) ToggleScriptOpen(script);
         }
         return;
     }

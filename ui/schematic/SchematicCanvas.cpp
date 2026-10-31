@@ -1,6 +1,10 @@
+#include <climits>
+#include <stdexcept>
 #include "workspace/BuildingBlockDrag.h"
 #include "workspace/ResourceDrag.h"
 #include "ui/schematic/SchematicCanvas.h"
+#include "ui/schematic/SchematicViews.h"
+#include "editor/ImGuiDrawing.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -8,6 +12,7 @@
 #include <cmath>
 #include <cstring>
 #include <map>
+#include <iterator>
 
 #include "imgui_internal.h"
 #include "misc/cpp/imgui_stdlib.h"
@@ -141,7 +146,7 @@ void SchematicCanvas::UpdateTransforms() {
         body.zoom = m_View.zoom * view.scale;
         body.panX = view.anchor.h;
         body.panY = view.anchor.v + view.offsetY;
-        const float left = m_State.view.showHeaders ? bounds.hPos + script.header.hSize : bounds.hPos;
+        const float left = m_Navigation.options.showHeaders ? bounds.hPos + script.header.hSize : bounds.hPos;
         view.bodyMin = view.frame.ToScreen(left, bounds.vPos + view.offsetY);
         view.bodyMax = view.frame.ToScreen(bounds.Right(), bounds.Bottom() + view.offsetY);
         view.bodyMax.x = std::max(view.bodyMax.x, m_View.origin.x + m_CanvasSize.x);
@@ -301,6 +306,91 @@ SchematicCanvas::ScriptView *SchematicCanvas::BoundaryAt(const ImVec2 &screen) {
     return nullptr;
 }
 
+void SchematicCanvas::ShowScript(CK_ID script, const ElementRef &ref, CK_ID focusBehavior, bool focus) {
+    if (!m_State.HasDocument()) return;
+    const ScriptInfo *info = m_State.document->FindScript(script);
+    if (!info) return;
+    ++m_StackRevision;
+    // Showing a Script explicitly brings it back from Hide Selected / Other.
+    if (focus) m_Navigation.hiddenScripts.erase(m_State.document->Reference(script));
+    m_Navigation.stackScript = m_State.document->Reference(script);
+    CKContext *context = m_State.document->Context();
+    CKLevel *level = context ? context->GetCurrentLevel() : nullptr;
+    CKScene *scene = m_Navigation.options.sceneFilter && level ? level->GetCurrentScene() : nullptr;
+    m_Navigation.visibleScripts.clear();
+    // Scripts created at run time (or of objects so created) only with Show
+    // Dynamic Objects (the one asked for always).
+    const bool showDynamic = m_State.preferences.Bool("3D Layout\\Show Dynamic Objects");
+    for (const auto &other : m_State.document->Scripts()) {
+        const bool sameOwner = info->ownerId ? other.ownerId == info->ownerId : other.id == script;
+        if (!m_Navigation.options.showAllScripts && !sameOwner) continue;
+        if (m_Navigation.hiddenScripts.count(m_State.document->Reference(other.id))) continue;
+        if (!showDynamic && other.id != script) {
+            CKObject *each = context->GetObject(other.id);
+            CKObject *owner = context->GetObject(other.ownerId);
+            if ((each && each->IsDynamic()) || (owner && owner->IsDynamic())) continue;
+        }
+        if (scene) {
+            // Scene filter: Scripts whose owner is in the active scene (the
+            // Level's own Scripts always).
+            CKObject *owner = context->GetObject(other.ownerId);
+            if (owner && owner != level && !scene->IsObjectHere(owner)) {
+                // Dev.exe sub_4C81C0 ([Schematic]<Dialog>#0) for the one asked for.
+                if (other.id == script && focus)
+                    m_State.Log(LogLevel::Warning, "Script is not in current scene. Remove Schematic scene filter to show it");
+                continue;
+            }
+        }
+        m_Navigation.visibleScripts.push_back(other.id);
+    }
+    // Dev stacks Scripts by their stored Header::scriptIndex (2D Text.cmo);
+    // Scripts without a saved InterfaceChunk follow in document order.
+    auto order = [&](CK_ID id) -> unsigned long long {
+        ScriptSession *session = m_State.document->Session(id);
+        return session && session->Origin() == SessionOrigin::LoadedChunk ? session->Data().header.scriptIndex
+                                                                           : ~0ull;
+    };
+    std::stable_sort(m_Navigation.visibleScripts.begin(), m_Navigation.visibleScripts.end(),
+                     [&](CK_ID a, CK_ID b) { return order(a) < order(b); });
+    if (!m_Navigation.scriptOrder.empty()) {
+        // A Sort By ... order; Scripts it does not name keep their place at the end.
+        auto rank = [&](CK_ID id) {
+            auto found = std::find(m_Navigation.scriptOrder.begin(), m_Navigation.scriptOrder.end(), m_State.document->Reference(id));
+            return static_cast<size_t>(found - m_Navigation.scriptOrder.begin());
+        };
+        std::stable_sort(m_Navigation.visibleScripts.begin(), m_Navigation.visibleScripts.end(),
+                         [&](CK_ID a, CK_ID b) { return rank(a) < rank(b); });
+    }
+    if (!focus) return;
+    m_Navigation.focus.address = ElementAddress::Capture(*m_State.document, script,
+        ref.IsValid() ? ref : Selection::HeaderOf(script));
+    m_Navigation.focus.pending = bool(m_Navigation.focus.address);
+    m_Navigation.focus.behavior = m_State.document->Reference(focusBehavior);
+}
+
+void SchematicCanvas::RefreshStack() {
+    if (!m_State.HasDocument()) return;
+    ++m_StackRevision;
+    const Document &document = *m_State.document;
+    for (auto it = m_Navigation.hiddenScripts.begin(); it != m_Navigation.hiddenScripts.end();)
+        if (!document.Resolve(*it)) it = m_Navigation.hiddenScripts.erase(it); else ++it;
+    m_Navigation.scriptOrder.erase(std::remove_if(m_Navigation.scriptOrder.begin(), m_Navigation.scriptOrder.end(),
+        [&](ObjectRef ref) { return !document.Resolve(ref); }), m_Navigation.scriptOrder.end());
+    // The Script the stack was made for; gone, one still shown; else the first.
+    CK_ID anchor = document.NativeId(m_Navigation.stackScript);
+    for (CK_ID id : m_Navigation.visibleScripts)
+        if (!anchor && document.FindScript(id)) anchor = id;
+    if (!anchor && !document.Scripts().empty()) anchor = document.Scripts().front().id;
+    if (anchor) {
+        ShowScript(anchor, ElementRef(), 0, false);
+    } else {
+        m_Navigation.visibleScripts.clear();
+        m_Navigation.stackScript = {};
+    }
+}
+
+
+
 void SchematicCanvas::SyncViews(ImFont *font) {
     if (!m_State.HasDocument()) {
         m_Views.clear();
@@ -310,21 +400,30 @@ void SchematicCanvas::SyncViews(ImFont *font) {
     Document &document = *m_State.document;
     // Hits kept across frames point into m_Views, which is rebuilt below:
     // re-point them by Script id afterwards.
-    const CK_ID pressScript = m_Doc.press.view ? m_Doc.press.view->id : 0;
-    const CK_ID menuScript = m_Doc.menuHit.view ? m_Doc.menuHit.view->id : 0;
+    CK_ID pressScript = 0, menuScript = 0;
+    ElementRef retained;
+    if (m_Doc.press.view && !m_PressAddress.Resolve(document, pressScript, retained)) {
+        CancelInteraction();
+        m_Doc.press = {};
+    }
+    if (m_Doc.menuHit.view && !m_MenuAddress.Resolve(document, menuScript, retained)) {
+        m_Doc.menuHit = {};
+        m_MenuStale = true;
+    }
     std::vector<ScriptView> next;
-    for (CK_ID id : m_State.visibleScripts) {
+    for (CK_ID id : m_Navigation.visibleScripts) {
         ScriptSession *session = document.Session(id);
         if (!session) continue;
         ScriptView view;
-        if (ScriptView *existing = ViewFor(id)) view = std::move(*existing);
+        if (ScriptView *existing = ViewFor(id); existing && existing->identity == document.Reference(id)) view = std::move(*existing);
         view.id = id;
+        view.identity = document.Reference(id);
         if (view.revision != session->Revision() || view.topology != document.TopologyRevision() ||
             view.viewRevision != session->ViewRevision()) {
             const TextMeasure measure = [font](const std::string &text) {
                 return font ? font->CalcTextSizeA(WORLD_FONT_SIZE, FLT_MAX, 0.0f, text.c_str()).x : 0.0f;
             };
-            view.model.Build(*session, document.Context(), measure);
+            view.model.Build(*session, document.Context(), measure, ScriptOpen(id));
             // Dev.exe sub_4FB3A0, after its contents change: a Script grows to
             // what they need, and shrinks to it with Auto Resize Scripts. The
             // height belongs to the edit: undo restores the data before it,
@@ -336,7 +435,7 @@ void SchematicCanvas::SyncViews(ImFont *font) {
             if (changed && view.model.script.open && stored > 0.0f && !session->ReadOnly() &&
                 (content > stored || (content < stored && m_State.preferences.Bool("Schematic\\Auto Resize Scripts")))) {
                 session->FitContentHeight(content);
-                view.model.Build(*session, document.Context(), measure);
+                view.model.Build(*session, document.Context(), measure, ScriptOpen(id));
             }
             CKBehavior *script = CKBehavior::Cast(document.Context()->GetObject(id));
             view.rootIsScript = script && (script->GetType() & CKBEHAVIORTYPE_SCRIPT);
@@ -392,10 +491,10 @@ SchematicCanvas::Hit SchematicCanvas::HitAt(const ImVec2 &mouse) {
     if (hit.ref.kind == ElementKind::Start) hit.ref = ElementRef(); // only where it is drawn
     // The body never picks the header column (it may lie under scrolled content).
     if (hit.ref.kind == ElementKind::Script) hit.ref = ElementRef();
-    if (!m_State.view.showLocalParams && hit.ref.kind == ElementKind::LocalParam) {
+    if (!m_Navigation.options.showLocalParams && hit.ref.kind == ElementKind::LocalParam) {
         for (const auto &param : hit.view->model.params)
             if (param.ref == hit.ref && !IsParamShown(param, false)) hit.ref = ElementRef();
-    } else if (!m_State.view.showLocalParams && hit.ref.kind == ElementKind::Link) {
+    } else if (!m_Navigation.options.showLocalParams && hit.ref.kind == ElementKind::Link) {
         for (const auto &link : hit.view->model.links)
             if (link.ref == hit.ref && !IsLinkShown(link, false)) hit.ref = ElementRef();
     }
@@ -492,18 +591,21 @@ void SchematicCanvas::FitAll() {
 }
 
 void SchematicCanvas::ApplyFocus(const ImVec2 &size) {
-    FocusRequest &focus = m_State.focus;
+    FocusRequest &focus = m_Navigation.focus;
     if (!focus.pending) return;
-    ScriptView *view = ViewFor(focus.script);
+    CK_ID script = 0;
+    ElementRef requested;
+    if (!focus.address.Resolve(*m_State.document, script, requested)) { focus = {}; return; }
+    ScriptView *view = ViewFor(script);
     if (!view) return; // the application adds the Script to the stack first
     focus.pending = false;
     Point center;
-    ElementRef shown = focus.ref;
+    ElementRef shown = requested;
     bool found = FindCenter(view->model, shown, center);
     if (!found) {
         // Inside a folded graph: show the nearest visible enclosing behavior.
-        ScriptSession *session = m_State.document->Session(focus.script);
-        CK_ID id = focus.behavior;
+        ScriptSession *session = m_State.document->Session(script);
+        CK_ID id = m_State.document->NativeId(focus.behavior);
         for (int guard = 0; !found && id && session && guard < 64; ++guard) {
             if (const BehaviorItem *behavior = view->model.FindBehavior(id)) {
                 center = Center(behavior->box);
@@ -530,7 +632,7 @@ void SchematicCanvas::ApplyFocus(const ImVec2 &size) {
         // Its band at the top of the view, the element centered in its body.
         const ImVec2 top = view->frame.ToScreen(0.0f, view->model.script.bounds.vPos + view->offsetY);
         PanBy(0.0f, m_View.origin.y - top.y);
-        if (ScriptView *again = ViewFor(focus.script)) {
+        if (ScriptView *again = ViewFor(script)) {
             // Horizontally centered by the shared scroll.
             const ImVec2 at = again->transform.ToScreen(center.h, center.v + again->offsetY);
             PanBy((again->bodyMin.x + m_View.origin.x + size.x) * 0.5f - at.x, 0.0f);
@@ -538,7 +640,7 @@ void SchematicCanvas::ApplyFocus(const ImVec2 &size) {
         }
     }
     UpdateTransforms();
-    m_State.selection.Set(focus.script, shown);
+    m_Navigation.selection.Set(script, shown);
 }
 
 void SchematicCanvas::ToggleFold(CK_ID script, CK_ID behavior) {
@@ -552,7 +654,11 @@ void SchematicCanvas::ToggleFold(CK_ID script, CK_ID behavior) {
 
 void SchematicCanvas::ToggleScriptOpen(CK_ID script) {
     // View state, as Dev's open/close: not an edit, not saved.
-    if (ScriptSession *session = m_State.document->Session(script)) session->SetOpen(!session->IsOpen());
+    if (!m_State.HasDocument()) return;
+    const auto ref = m_State.document->Reference(script);
+    if (ScriptOpen(script)) m_Navigation.closedScripts.insert(ref);
+    else m_Navigation.closedScripts.erase(ref);
+    if (auto *view = ViewFor(script)) view->viewRevision = ~0ull;
 }
 
 void SchematicCanvas::AddComment(CK_ID script, const Point &local) {
@@ -577,11 +683,11 @@ void SchematicCanvas::AddComment(CK_ID script, const Point &local) {
     m_Doc.commentScript = script;
     m_Doc.commentRef = {ElementKind::Comment, graph, 0, slot};
     m_Doc.openCommentEditor = true;
-    m_State.selection.Set(script, m_Doc.commentRef);
+    m_Navigation.selection.Set(script, m_Doc.commentRef);
 }
 
 void SchematicCanvas::DeleteSelection(bool graphsConfirmed) {
-    Selection &selection = m_State.selection;
+    Selection &selection = m_Navigation.selection;
     if (selection.Empty() || !m_State.HasDocument()) return;
     // Dev.exe sub_50E430: behavior graphs (behaviors that are no Building
     // Block) are deleted once "Confirm Graph(es) Deletion" is answered.
@@ -653,7 +759,7 @@ CK_ID SchematicCanvas::GraphAt(ScriptView &view, const Point &local) const {
 }
 
 void SchematicCanvas::ToggleTargetOfSelection() {
-    const Selection selection = m_State.selection;
+    const Selection selection = m_Navigation.selection;
     if (!m_State.HasDocument()) return;
     bool any = false;
     for (const auto &item : selection.items) {
@@ -668,7 +774,7 @@ void SchematicCanvas::ToggleTargetOfSelection() {
 }
 
 void SchematicCanvas::BeginRename() {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || !m_State.HasDocument()) return;
     const ElementRef &item = selection.items[0];
     CK_ID object = 0;
@@ -706,7 +812,7 @@ void SchematicCanvas::BeginRename() {
 }
 
 CK_ID SchematicCanvas::SelectedGraph() const {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || selection.items[0].kind != ElementKind::Behavior) return 0;
     CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(selection.items[0].object));
     const bool editable = behavior && behavior->GetType() != CKBEHAVIORTYPE_BASE &&
@@ -715,7 +821,7 @@ CK_ID SchematicCanvas::SelectedGraph() const {
 }
 
 CK_ID SchematicCanvas::SelectedVariableBlock(PinKind kind) const {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || selection.items[0].kind != ElementKind::Behavior || !m_State.HasDocument())
         return 0;
     CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(selection.items[0].object));
@@ -726,7 +832,7 @@ void SchematicCanvas::AddGraphIo(bool input) {
     if (!m_State.HasDocument()) return;
     const PinKind kind = input ? PinKind::BehaviorIn : PinKind::BehaviorOut;
     if (const CK_ID block = SelectedVariableBlock(kind)) {
-        Report(AddBuildingBlockPin(*m_State.document, m_State.selection.script, block, kind),
+        Report(AddBuildingBlockPin(*m_State.document, m_Navigation.selection.script, block, kind),
                input ? "Add behavior input" : "Add behavior output");
         return;
     }
@@ -738,7 +844,7 @@ void SchematicCanvas::AddGraphIo(bool input) {
     CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(graph));
     const std::string name = (input ? "In " : "Out ") +
                              std::to_string(input ? behavior->GetInputCount() : behavior->GetOutputCount());
-    Report(AddGraphPin(*m_State.document, m_State.selection.script, graph,
+    Report(AddGraphPin(*m_State.document, m_Navigation.selection.script, graph,
                        input ? PinKind::BehaviorIn : PinKind::BehaviorOut, name),
            input ? "Add behavior input" : "Add behavior output");
 }
@@ -747,7 +853,7 @@ void SchematicCanvas::OpenGraphParameterPicker(bool input) {
     if (!m_State.HasDocument()) return;
     CK_ID owner = SelectedGraph();
     if (!owner) owner = SelectedVariableBlock(input ? PinKind::ParamIn : PinKind::ParamOut);
-    CK_ID script = m_State.selection.script;
+    CK_ID script = m_Navigation.selection.script;
     if (!owner && m_Doc.hoveredScript) owner = script = m_Doc.hoveredScript; // Script parameters
     if (!owner) {
         m_State.Log(LogLevel::Info, "Select a behavior graph, or point at a Script, to add a parameter");
@@ -770,7 +876,7 @@ void SchematicCanvas::CreateGraphAt(CK_ID script, const Point &local) {
     const EditResult result =
         CreateBehaviorGraph(*m_State.document, script, graph, "Behavior Graph", local);
     Report(result, "Create behavior graph");
-    if (result.ok) m_State.selection.Set(script, ElementRef{ElementKind::Behavior, graph, result.created});
+    if (result.ok) m_Navigation.selection.Set(script, ElementRef{ElementKind::Behavior, graph, result.created});
 }
 
 void SchematicCanvas::OpenLocalParameterPicker(CK_ID script, const Point &local) {
@@ -870,7 +976,7 @@ void SchematicCanvas::EndLink(const Hit &hit) {
             return;
         }
         edit.Commit();
-        m_State.selection.Clear();
+        m_Navigation.selection.Clear();
         return;
     }
     const std::vector<Point> points = m_LinkPoints;
@@ -1066,7 +1172,7 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
             } else {
                 const CK_ID script = hit.view->id;
                 // Several Building Blocks dragged: one under the other, all selected.
-                m_State.selection.Clear();
+                m_Navigation.selection.Clear();
                 for (size_t i = 0; i < blocks.size(); ++i) {
                     Point at = hit.local;
                     at.v += 60.0f * static_cast<float>(i);
@@ -1075,7 +1181,7 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
                     Report(result, "Insert Building Block");
                     if (result.ok) {
                         m_State.RememberBlock(CKGUID(blocks[i].first, blocks[i].second));
-                        m_State.selection.Add(script, ElementRef{ElementKind::Behavior, graph, result.created});
+                        m_Navigation.selection.Add(script, ElementRef{ElementKind::Behavior, graph, result.created});
                     }
                 }
             }
@@ -1115,7 +1221,7 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
 }
 
 void SchematicCanvas::Copy() {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     ScriptSession *session = m_State.HasDocument() ? m_State.document->Session(selection.script) : nullptr;
     if (!session || selection.Empty()) return;
     Clipboard clipboard;
@@ -1183,21 +1289,21 @@ void SchematicCanvas::PasteShortcuts() {
 void SchematicCanvas::GroupSelection() {
     if (!m_State.HasDocument()) return;
     std::vector<CK_ID> behaviors;
-    for (const auto &item : m_State.selection.items)
+    for (const auto &item : m_Navigation.selection.items)
         if (item.kind == ElementKind::Behavior) behaviors.push_back(item.object);
     if (behaviors.empty()) {
         if (m_Doc.mouseScript) CreateGraphAt(m_Doc.mouseScript, m_Doc.mouseLocal);
         return;
     }
-    const CK_ID script = m_State.selection.script;
+    const CK_ID script = m_Navigation.selection.script;
     const EditResult result = GroupBehaviors(*m_State.document, script, behaviors);
     Report(result, "Create behavior graph");
-    if (result.ok) m_State.selection.Set(script, ElementRef{ElementKind::Behavior, 0, result.created});
+    if (result.ok) m_Navigation.selection.Set(script, ElementRef{ElementKind::Behavior, 0, result.created});
 }
 
 void SchematicCanvas::UngroupSelection() {
     if (!m_State.HasDocument()) return;
-    const Selection selection = m_State.selection;
+    const Selection selection = m_Navigation.selection;
     bool any = false;
     for (const auto &item : selection.items)
         if (item.kind == ElementKind::Behavior) {
@@ -1205,7 +1311,7 @@ void SchematicCanvas::UngroupSelection() {
             Report(UngroupGraph(*m_State.document, selection.script, item.object), "Delete graph");
         }
     if (!any) m_State.Log(LogLevel::Info, "Shift+Del: select behavior graphs to remove while keeping their contents");
-    m_State.selection.Clear();
+    m_Navigation.selection.Clear();
 }
 
 void SchematicCanvas::Cut() {
@@ -1237,7 +1343,7 @@ void SchematicCanvas::Paste() {
     const EditResult result = PasteBehaviors(*m_State.document, clipboard.data, clipboard.behaviors,
                                              clipboard.comments, script, graph, at);
     Report(result, "Paste");
-    if (result.ok && result.created) m_State.selection.Set(script, ElementRef{ElementKind::Behavior, graph, result.created});
+    if (result.ok && result.created) m_Navigation.selection.Set(script, ElementRef{ElementKind::Behavior, graph, result.created});
 }
 
 void SchematicCanvas::PasteParameters() {
@@ -1294,7 +1400,7 @@ void SchematicCanvas::CopyParametersTo(CK_ID script, const std::vector<std::pair
 }
 
 void SchematicCanvas::Duplicate() {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     ScriptView *view = ViewFor(selection.script);
     if (!view || selection.Empty()) return;
     // Next to the selection: one grid step plus its own offset (library choice).
@@ -1354,7 +1460,7 @@ void SchematicCanvas::OpenValueDialog(CK_ID script, CKObject *parameter) {
 }
 
 void SchematicCanvas::OpenParametersDialog() {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || !m_State.HasDocument()) return;
     const ElementRef &item = selection.items[0];
     if (item.kind != ElementKind::Behavior && item.kind != ElementKind::Operation) return;
@@ -1395,12 +1501,12 @@ void SchematicCanvas::OpenParametersOf(CK_ID script, CK_ID object) {
     ElementRef ref;
     ref.kind = CKParameterOperation::Cast(found) ? ElementKind::Operation : ElementKind::Behavior;
     ref.object = object;
-    m_State.selection.Set(script, ref);
+    m_Navigation.selection.Set(script, ref);
     OpenParametersDialog();
 }
 
 void SchematicCanvas::OpenPriorityDialog() {
-    const auto &selection = m_State.selection;
+    const auto &selection = m_Navigation.selection;
     if (!m_State.HasDocument()) return;
     m_PriorityTargets.clear();
     if (selection.OnlyHeaders()) {
@@ -1426,11 +1532,11 @@ void SchematicCanvas::InsertBlockAt(const CKGUID &guid, CK_ID script, const Poin
     Report(result, "Insert Building Block");
     if (!result.ok) return;
     m_State.RememberBlock(guid);
-    m_State.selection.Set(script, ElementRef{ElementKind::Behavior, graph, result.created});
+    m_Navigation.selection.Set(script, ElementRef{ElementKind::Behavior, graph, result.created});
 }
 
 void SchematicCanvas::BeginCopyDrag() {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     ScriptView *view = ViewFor(selection.script);
     ScriptSession *session = m_State.document->Session(selection.script);
     if (!view || !session) return;
@@ -1514,27 +1620,27 @@ void SchematicCanvas::EndCopyDrag(const Point &world) {
     const EditResult result = PasteBehaviors(*m_State.document, m_Doc.copySource, m_Doc.copyBehaviors,
                                              m_Doc.copyComments, into, graph, to);
     Report(result, "Copy");
-    if (result.ok && result.created) m_State.selection.Set(into, ElementRef{ElementKind::Behavior, graph, result.created});
+    if (result.ok && result.created) m_Navigation.selection.Set(into, ElementRef{ElementKind::Behavior, graph, result.created});
 }
 
 void SchematicCanvas::SelectAll() {
-    CK_ID script = m_State.selection.script;
+    CK_ID script = m_Navigation.selection.script;
     if (!script && !m_Views.empty()) script = m_Views.front().id;
     ScriptView *view = ViewFor(script);
     if (!view) return;
-    m_State.selection.Clear();
+    m_Navigation.selection.Clear();
     const SchematicModel &model = view->model;
-    for (const auto &behavior : model.behaviors) m_State.selection.Add(script, behavior.ref);
-    for (const auto &operation : model.operations) m_State.selection.Add(script, operation.ref);
+    for (const auto &behavior : model.behaviors) m_Navigation.selection.Add(script, behavior.ref);
+    for (const auto &operation : model.operations) m_Navigation.selection.Add(script, operation.ref);
     for (const auto &param : model.params)
-        if (IsParamShown(param, m_State.view.showLocalParams)) m_State.selection.Add(script, param.ref);
-    for (const auto &comment : model.comments) m_State.selection.Add(script, comment.ref);
+        if (IsParamShown(param, m_Navigation.options.showLocalParams)) m_Navigation.selection.Add(script, param.ref);
+    for (const auto &comment : model.comments) m_Navigation.selection.Add(script, comment.ref);
 }
 
 void SchematicCanvas::Click(const Hit &hit) {
     const ImGuiIO &io = ImGui::GetIO();
     if (!hit.view || !hit.ref.IsValid()) {
-        if (!io.KeyCtrl && !io.KeyShift) m_State.selection.Clear();
+        if (!io.KeyCtrl && !io.KeyShift) m_Navigation.selection.Clear();
         return;
     }
     // Dev: a click on the header row (triangle and name) opens or closes the Script.
@@ -1543,9 +1649,9 @@ void SchematicCanvas::Click(const Hit &hit) {
         ToggleScriptOpen(hit.view->id);
         return;
     }
-    if (io.KeyCtrl) m_State.selection.Toggle(hit.view->id, hit.ref);
-    else if (io.KeyShift) m_State.selection.Add(hit.view->id, hit.ref);
-    else m_State.selection.Set(hit.view->id, hit.ref);
+    if (io.KeyCtrl) m_Navigation.selection.Toggle(hit.view->id, hit.ref);
+    else if (io.KeyShift) m_Navigation.selection.Add(hit.view->id, hit.ref);
+    else m_Navigation.selection.Set(hit.view->id, hit.ref);
 }
 
 void SchematicCanvas::DoubleClick(const Hit &hit) {
@@ -1566,11 +1672,11 @@ void SchematicCanvas::DoubleClick(const Hit &hit) {
         if (behavior && behavior->expandable) {
             ToggleFold(hit.view->id, behavior->id);
         } else if (behavior) {
-            m_State.selection.Set(hit.view->id, hit.ref);
+            m_Navigation.selection.Set(hit.view->id, hit.ref);
             OpenParametersDialog();
         }
     } else if (hit.ref.kind == ElementKind::Operation) {
-        m_State.selection.Set(hit.view->id, hit.ref);
+        m_Navigation.selection.Set(hit.view->id, hit.ref);
         OpenParametersDialog();
     } else if (hit.ref.kind == ElementKind::Link) {
         for (const auto &link : hit.view->model.links)
@@ -1616,9 +1722,9 @@ void SchematicCanvas::BeginMove() {
     ScriptSession *session = m_State.document->Session(m_Doc.press.view->id);
     if (!session || session->ReadOnly()) return;
     const CK_ID script = m_Doc.press.view->id;
-    if (!IsSelected(script, m_Doc.press.ref)) m_State.selection.Set(script, m_Doc.press.ref);
+    if (!IsSelected(script, m_Doc.press.ref)) m_Navigation.selection.Set(script, m_Doc.press.ref);
     m_Doc.moveItems.clear();
-    for (const auto &item : m_State.selection.items)
+    for (const auto &item : m_Navigation.selection.items)
         if (Movable(item.kind)) m_Doc.moveItems.push_back(item);
     if (m_Doc.moveItems.empty()) return;
     m_Doc.moveScript = script;
@@ -1819,18 +1925,18 @@ const char *SchematicCanvas::ActionText() const {
 // The Script the Expand/Collapse/Hide buttons act on: the selected one or,
 // failing that, the current one.
 CK_ID SchematicCanvas::ToolbarScript() const {
-    return m_State.selection.script ? m_State.selection.script : m_Doc.currentScript;
+    return m_Navigation.selection.script ? m_Navigation.selection.script : m_Doc.currentScript;
 }
 
 std::vector<CK_ID> SchematicCanvas::ToolbarScripts() const {
-    std::vector<CK_ID> scripts = m_State.selection.Scripts();
+    std::vector<CK_ID> scripts = m_Navigation.selection.Scripts();
     if (scripts.empty())
         if (const CK_ID script = ToolbarScript()) scripts.push_back(script);
     return scripts;
 }
 
 void SchematicCanvas::Toolbar() {
-    ViewOptions &options = m_State.view;
+    ViewOptions &options = m_Navigation.options;
     // Dev's Schematic toolbar (Dev.exe sub_51CA80, tooltips from the language
     // pack): a strip 21 pixels high (the view below it, this + 988), from x 9
     // the buttons 4 apart: resvis bitmaps (normal, hover, pressed, pressed
@@ -1882,7 +1988,7 @@ void SchematicCanvas::Toolbar() {
     static const int LINK_ERRORS[5] = {1335, 1334, 1333, 1333, 1335};
     auto setOpen = [&](bool open) {
         for (CK_ID each : document ? ToolbarScripts() : std::vector<CK_ID>())
-            if (ScriptSession *session = m_State.document->Session(each)) session->SetOpen(open);
+            if (ScriptOpen(each) != open) ToggleScriptOpen(each);
     };
     if (icon("expand", EXPAND, false, script != 0, "Expand Selected Scripts (Right Arrow)")) setOpen(true);
     if (icon("collapse", COLLAPSE, false, script != 0, "Collapse Selected Scripts (Left Arrow)")) setOpen(false);
@@ -1900,29 +2006,29 @@ void SchematicCanvas::Toolbar() {
                                  : "Level filter: no filter on the shown Scripts",
              19.0f)) {
         options.sceneFilter = !options.sceneFilter;
-        m_State.events.Post(RefreshScriptStack{});
+        RefreshStack();
     }
     if (pill("showall", "Show All", false, document, "Show All Scripts", 70.0f)) {
-        m_State.hiddenScripts.clear();
+        m_Navigation.hiddenScripts.clear();
         options.showAllScripts = true;
-        m_State.events.Post(RefreshScriptStack{});
+        RefreshStack();
     }
     if (pill("hideall", "Hide All", false, document, "Hide All Scripts", 70.0f)) {
-        for (const auto &info : m_State.document->Scripts()) m_State.hiddenScripts.insert(info.id);
-        m_State.events.Post(RefreshScriptStack{});
+        for (const auto &info : m_State.document->Scripts()) m_Navigation.hiddenScripts.insert(m_State.document->Reference(info.id));
+        RefreshStack();
     }
     if (pill("hidesel", "Hide Selected", false, script != 0, "Hide Selected Scripts", 70.0f)) {
-        for (CK_ID each : ToolbarScripts()) m_State.hiddenScripts.insert(each);
-        m_State.selection.Clear();
+        for (CK_ID each : ToolbarScripts()) m_Navigation.hiddenScripts.insert(m_State.document->Reference(each));
+        m_Navigation.selection.Clear();
         m_Doc.currentScript = 0;
-        m_State.events.Post(RefreshScriptStack{});
+        RefreshStack();
     }
     if (pill("hideother", "Hide Other", false, script != 0, "Hide Unselected Scripts", 70.0f)) {
         const std::vector<CK_ID> kept = ToolbarScripts();
         for (const auto &info : m_State.document->Scripts())
-            if (std::find(kept.begin(), kept.end(), info.id) == kept.end()) m_State.hiddenScripts.insert(info.id);
-        for (CK_ID each : kept) m_State.hiddenScripts.erase(each);
-        m_State.events.Post(RefreshScriptStack{});
+            if (std::find(kept.begin(), kept.end(), info.id) == kept.end()) m_Navigation.hiddenScripts.insert(m_State.document->Reference(info.id));
+        for (CK_ID each : kept) m_Navigation.hiddenScripts.erase(m_State.document->Reference(each));
+        RefreshStack();
     }
     separator();
     // Pressed while what they show is hidden (Dev.exe sub_537CA0: the
@@ -1947,7 +2053,7 @@ void SchematicCanvas::Toolbar() {
     if (icon("debugger", DEBUGGER, m_State.showDebugger, true, "Script Debugger"))
         m_State.showDebugger = !m_State.showDebugger;
     if (m_State.debugger && pill("trace", "Trace", m_State.debugger->trace, true, "Trace Mode (Ctrl+T)", 66.0f))
-        m_State.workspace->Application().Execute("runtime.toggle-trace", {m_State.workspace->Application().Scope(), nullptr, 0});
+        m_State.workspace->Application().Execute("runtime.toggle-trace", {m_State.workspace->Application().Scope(m_Instance), nullptr, 0});
     // Dev: right of Trace, the Invalid Link Explorer's icon, shown only when
     // the composition has invalid links kept after loading.
     if (!m_State.invalidLinks.empty() &&
@@ -1972,7 +2078,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
         return;
     }
     ImFont *font = ImGui::GetFont();
-    ViewOptions &options = m_State.view;
+    ViewOptions &options = m_Navigation.options;
     Toolbar();
 
     const ImVec2 canvasMin = ImGui::GetCursorScreenPos();
@@ -2005,7 +2111,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     m_View.origin = canvasMin;
     m_Font = font;
     SyncViews(font);
-    if (m_State.selection.script) m_Doc.currentScript = m_State.selection.script;
+    if (m_Navigation.selection.script) m_Doc.currentScript = m_Navigation.selection.script;
     if (!m_ViewInitialized && !m_Views.empty()) {
         ResetView();
         m_ViewInitialized = true;
@@ -2031,15 +2137,18 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     draw.clipMax = canvasMax;
     for (const auto &view : m_Views) {
         std::set<ElementRef> selected;
-        if (m_State.selection.script == view.id)
-            selected.insert(m_State.selection.items.begin(), m_State.selection.items.end());
-        if (std::find(m_State.selection.headers.begin(), m_State.selection.headers.end(), view.id) !=
-            m_State.selection.headers.end())
+        if (m_Navigation.selection.script == view.id)
+            selected.insert(m_Navigation.selection.items.begin(), m_Navigation.selection.items.end());
+        if (std::find(m_Navigation.selection.headers.begin(), m_Navigation.selection.headers.end(), view.id) !=
+            m_Navigation.selection.headers.end())
             selected.insert(view.model.script.ref);
         draw.selection = &selected;
         std::set<ElementRef> invalid;
-        for (const InvalidLink &link : m_State.invalidLinks)
-            if (link.script == view.id) invalid.insert({ElementKind::Link, link.graph, link.link, link.slot});
+        for (const InvalidLink &link : m_State.invalidLinks) {
+            CK_ID script = 0;
+            ElementRef ref;
+            if (link.address.Resolve(*m_State.document, script, ref) && script == view.id) invalid.insert(ref);
+        }
         draw.invalid = &invalid;
         draw.hovered = m_Doc.hoveredScript == view.id ? m_Doc.hovered : ElementRef();
         draw.current = view.id == m_Doc.currentScript;
@@ -2071,7 +2180,14 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
         }
         DrawScript(drawList, view.model, view.offsetY, view.frame, view.transform, draw);
     }
+    const bool wasBusy = Busy();
     HandleInput(canvasMin, canvasMax, hovered, focused);
+    // A gesture changes its own display records while retaining the same
+    // elements. Other changes are checked before the next input is handled.
+    if (wasBusy || Busy()) {
+        m_Navigation.selection.Rebase();
+        RetainHit(m_Doc.press, m_PressAddress);
+    }
     if (!m_State.HasDocument() || m_Views.empty()) {
         const char *message = !m_State.HasDocument() ? "File > Open a composition (.cmo, .nmo, .vmo)"
                                                      : "Select an object or Script in the Level Manager";
@@ -2085,7 +2201,9 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     if (m_MenuRequested && m_ViewInitialized && --m_MenuDelay <= 0) {
         m_MenuRequested = false;
         m_Doc.menuHit = HitAt(ImVec2(canvasMin.x + m_MenuRequest.x, canvasMin.y + m_MenuRequest.y));
-        if (m_Doc.menuHit.view && m_Doc.menuHit.ref.IsValid()) m_State.selection.Set(m_Doc.menuHit.view->id, m_Doc.menuHit.ref);
+        RetainHit(m_Doc.menuHit, m_MenuAddress);
+        m_MenuStale = false;
+        if (m_Doc.menuHit.view && m_Doc.menuHit.ref.IsValid()) m_Navigation.selection.Set(m_Doc.menuHit.view->id, m_Doc.menuHit.ref);
         ImGui::SetNextWindowPos(ImVec2(canvasMin.x + m_MenuRequest.x, canvasMin.y + m_MenuRequest.y));
         ImGui::OpenPopup("SchematicContext");
     }
@@ -2131,7 +2249,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
 namespace vdev {
 
 void SchematicCanvas::UpdateLinkPaths() {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     ScriptView *view = ViewFor(selection.script);
     if (!view || !m_State.HasDocument()) return;
     std::set<CK_ID> owners; // selected behaviors and operations
@@ -2211,23 +2329,23 @@ void SchematicCanvas::SelectAdjacentScript(int step) {
     if (m_Views.empty()) return;
     int at = -1;
     for (int i = 0; i < static_cast<int>(m_Views.size()); ++i)
-        if (m_Views[i].id == (m_State.selection.script ? m_State.selection.script : m_Doc.currentScript)) at = i;
+        if (m_Views[i].id == (m_Navigation.selection.script ? m_Navigation.selection.script : m_Doc.currentScript)) at = i;
     const int next = std::max(0, std::min(static_cast<int>(m_Views.size()) - 1, at < 0 ? 0 : at + step));
     const ScriptView &view = m_Views[next];
     m_Doc.currentScript = view.id;
-    m_State.focus = FocusRequest{true, view.id, view.model.script.ref, 0};
+    ShowScript(view.id, view.model.script.ref);
 }
 
 void SchematicCanvas::MoveHighlightedScript(int step) {
-    std::vector<CK_ID> order = m_State.visibleScripts;
-    auto at = std::find(order.begin(), order.end(), m_Doc.currentScript ? m_Doc.currentScript : m_State.selection.script);
+    std::vector<CK_ID> order = m_Navigation.visibleScripts;
+    auto at = std::find(order.begin(), order.end(), m_Doc.currentScript ? m_Doc.currentScript : m_Navigation.selection.script);
     if (at == order.end()) return;
     const auto index = at - order.begin();
     const auto other = index + step;
     if (other < 0 || other >= static_cast<long long>(order.size())) return;
     std::swap(order[index], order[other]);
-    m_State.scriptOrder = order;
-    m_State.events.Post(RefreshScriptStack{});
+    m_Navigation.scriptOrder = m_State.document->References(order);
+    RefreshStack();
 }
 
 void SchematicCanvas::ScrollToEnd(bool end) {
@@ -2249,7 +2367,7 @@ namespace vdev {
 
 void SchematicCanvas::InitialConditionsOfScripts(int action) {
     if (!m_State.HasDocument()) return;
-    std::vector<CK_ID> scripts = m_State.selection.Scripts();
+    std::vector<CK_ID> scripts = m_Navigation.selection.Scripts();
     if (scripts.empty() && m_Doc.currentScript) scripts.push_back(m_Doc.currentScript);
     const InitialConditions what = action == 0   ? InitialConditions::Set
                                    : action == 1 ? InitialConditions::Remove
@@ -2335,7 +2453,7 @@ void SchematicCanvas::ApplyOperationChoice(const OperationSignature &signature) 
 }
 
 void SchematicCanvas::OpenModifyOperation() {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || selection.items[0].kind != ElementKind::Operation || !m_State.HasDocument()) {
         m_State.Log(LogLevel::Info, "M: select a parameter operation to modify");
         return;
@@ -2409,7 +2527,7 @@ void SchematicCanvas::FindNext(bool backward) {
     std::vector<SearchResult> results = SearchDocument(*m_State.document, query);
     // The Schematic's order of the Scripts: the stack's (with a Sort By's),
     // the others after; in a Script the order found.
-    std::vector<CK_ID> order = m_State.visibleScripts;
+    std::vector<CK_ID> order = m_Navigation.visibleScripts;
     for (const ScriptInfo &info : m_State.document->Scripts())
         if (std::find(order.begin(), order.end(), info.id) == order.end()) order.push_back(info.id);
     auto rank = [&](CK_ID script) { return static_cast<size_t>(std::find(order.begin(), order.end(), script) - order.begin()); };
@@ -2417,10 +2535,10 @@ void SchematicCanvas::FindNext(bool backward) {
     // Hidden Scripts, closed Scripts and folded graphs when asked only.
     results.erase(std::remove_if(results.begin(), results.end(),
                                  [&](const SearchResult &result) {
-                                     if (!m_FindHidden && m_State.hiddenScripts.count(result.script)) return true;
+                                     if (!m_FindHidden && m_Navigation.hiddenScripts.count(m_State.document->Reference(result.script))) return true;
                                      if (m_FindClosed) return false;
                                      ScriptSession *session = m_State.document->Session(result.script);
-                                     if (!session || !session->IsOpen()) return true;
+                                     if (!session || !ScriptOpen(result.script)) return true;
                                      const ScriptView *view = ViewFor(result.script);
                                      if (!view || !result.focus || result.focus == result.script) return false;
                                      return !view->model.IsOpenGraph(result.focus) && !view->model.FindBehavior(result.focus);
@@ -2434,7 +2552,7 @@ void SchematicCanvas::FindNext(bool backward) {
     const int next = at < 0 ? (backward ? count - 1 : 0) : at + (backward ? -1 : 1);
     if (next < 0 || next >= count) {
         m_State.Log(LogLevel::Warning, "Passed the end of Schematic");
-        m_State.selection.Clear();
+        m_Navigation.selection.Clear();
         m_FoundScript = 0;
         m_FoundRef = ElementRef();
         return;
@@ -2442,13 +2560,14 @@ void SchematicCanvas::FindNext(bool backward) {
     const SearchResult &found = results[next];
     m_FoundScript = found.script;
     m_FoundRef = found.ref;
-    if (ScriptSession *session = m_State.document->Session(found.script))
-        if (!session->IsOpen()) session->SetOpen(true);
-    m_State.events.Post(ShowElement{found.script, found.ref, found.focus});
+    m_Navigation.closedScripts.erase(m_State.document->Reference(found.script));
+    if (auto *view = ViewFor(found.script)) view->viewRevision = ~0ull;
+    m_FoundAddress = found.address;
+    m_State.schematics->Show(found.address, m_State.document->Reference(found.focus), true, m_Instance);
 }
 
 void SchematicCanvas::FindSelected(bool backward) {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || !m_State.HasDocument()) {
         m_State.Log(LogLevel::Info, "Ctrl+F3: select one element");
         return;
@@ -2459,6 +2578,7 @@ void SchematicCanvas::FindSelected(bool backward) {
     m_FindText = AnsiToUtf8(object->GetName());
     m_FoundScript = selection.script;
     m_FoundRef = item;
+    m_FoundAddress = ElementAddress::Capture(*m_State.document, selection.script, item);
     FindNext(backward);
 }
 
@@ -2480,9 +2600,10 @@ void SchematicCanvas::FindDialog() {
         m_FoundScript = 0;
         m_FoundRef = ElementRef();
         // From the element selected, as Dev goes on from it.
-        if (m_State.selection.items.size() == 1) {
-            m_FoundScript = m_State.selection.script;
-            m_FoundRef = m_State.selection.items.front();
+        if (m_Navigation.selection.items.size() == 1) {
+            m_FoundScript = m_Navigation.selection.script;
+            m_FoundRef = m_Navigation.selection.items.front();
+            m_FoundAddress = ElementAddress::Capture(*m_State.document, m_FoundScript, m_FoundRef);
         }
         FindNext(m_FindBackward);
     }
@@ -2491,4 +2612,369 @@ void SchematicCanvas::FindDialog() {
     ImGui::EndPopup();
 }
 
+} // namespace vdev
+
+namespace vdev {
+namespace {
+const EditorParameter schematicNavigation[] = {
+    {EDITOR_TEXT("target"), EDITOR_OBJECT, 1}, {EDITOR_TEXT("owner"), EDITOR_OBJECT, 1},
+    {EDITOR_TEXT("object"), EDITOR_OBJECT, 1}, {EDITOR_TEXT("endpoint"), EDITOR_OBJECT, 1},
+    {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE, 1},
+    {EDITOR_TEXT("sub"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("pin"), EDITOR_INTEGER_VALUE, 1},
+    {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE, 1},
+    {EDITOR_TEXT("focus-target"), EDITOR_OBJECT, 1}, {EDITOR_TEXT("background"), EDITOR_INTEGER_VALUE, 1}};
+const EditorParameter schematicFields[] = {
+    {EDITOR_TEXT("selection"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST},
+    {EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE},
+    {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE}};
+}
+struct SchematicViews::Data {
+    EditorState &state;
+    ViewOptions defaults;
+    std::multimap<EditorView, SchematicCanvas *> canvases;
+    mutable EditorView current = 0;
+};
+SchematicViews::SchematicViews(EditorState &state) : m_Data(new Data{state, {}, {}}) { state.schematics = this; }
+SchematicViews::~SchematicViews() { m_Data->state.schematics = nullptr; }
+ViewOptions &SchematicViews::Defaults() { return m_Data->defaults; }
+SchematicCanvas *SchematicViews::Find(EditorView id) const {
+    const auto range = m_Data->canvases.equal_range(id);
+    return range.first == range.second ? nullptr : std::prev(range.second)->second;
+}
+EditorView SchematicViews::CurrentId() const {
+    auto &data = *m_Data;
+    if (auto *workspace = data.state.workspace) {
+        const auto focused = workspace->Focused();
+        if (Find(focused)) data.current = focused;
+        if (!Find(data.current)) data.current = workspace->Role("main.schematic");
+    }
+    if (!Find(data.current) && !data.canvases.empty()) data.current = data.canvases.begin()->first;
+    return data.current;
+}
+SchematicCanvas &SchematicViews::Current() const {
+    auto *canvas = Find(CurrentId());
+    if (!canvas) throw std::logic_error("No Schematic view is open");
+    canvas->Navigation().selection.Bind(m_Data->state.document.get());
+    if (m_Data->state.document && canvas->m_Document != m_Data->state.document->Token()) canvas->ValidateNavigation();
+    return *canvas;
+}
+SchematicNavigation &EditorState::Schematic() const {
+    if (!schematics) throw std::logic_error("Schematic views are not available");
+    return schematics->Current().Navigation();
+}
+std::string SchematicViews::Window(EditorView id) const {
+    return m_Data->state.workspace->WindowName(id ? id : CurrentId());
+}
+void SchematicViews::Focus(EditorView id) { m_Data->state.workspace->Focus(id ? id : CurrentId()); }
+void SchematicViews::ApplyOptions(const ViewOptions &options) {
+    m_Data->defaults = options;
+    for (auto &entry : m_Data->canvases) entry.second->Navigation().options = options;
+    RefreshStacks();
+}
+void SchematicViews::Validate() { for (auto &entry : m_Data->canvases) entry.second->ValidateNavigation(); }
+void SchematicViews::CancelInteraction() { for (auto &entry : m_Data->canvases) entry.second->CancelInteraction(); }
+void SchematicViews::DocumentClosed() { for (auto &entry : m_Data->canvases) entry.second->DocumentClosed(); }
+void SchematicViews::Invalidate() { for (auto &entry : m_Data->canvases) entry.second->Invalidate(); }
+void SchematicViews::RefreshValues() { for (auto &entry : m_Data->canvases) entry.second->RefreshValues(); }
+void SchematicViews::RefreshStacks() { for (auto &entry : m_Data->canvases) entry.second->RefreshStack(); }
+void SchematicViews::ClearSelections() { for (auto &entry : m_Data->canvases) entry.second->Navigation().selection.Clear(); }
+bool SchematicViews::Busy() const {
+    for (const auto &entry : m_Data->canvases) if (entry.second->Busy()) return true;
+    return false;
+}
+bool SchematicViews::DropFile(const std::wstring &path, const std::string &ansi, float x, float y) {
+    for (auto &entry : m_Data->canvases)
+        if (entry.second->DropFile(path, ansi, ImVec2(x, y))) return true;
+    return false;
+}
+EditorStatus SchematicViews::Show(const ElementAddress &address, ObjectRef focus, bool select, EditorView id) {
+    if (!address) return EDITOR_STALE;
+    auto &state = m_Data->state;
+    if (!id) id = CurrentId();
+    if (!Find(id)) return EDITOR_STALE;
+    const auto &ref = address.element;
+    const EditorValue values[] = {
+        {EDITOR_TEXT("target"), EDITOR_OBJECT, address.script}, {EDITOR_TEXT("owner"), EDITOR_OBJECT, address.owner},
+        {EDITOR_TEXT("object"), EDITOR_OBJECT, address.object}, {EDITOR_TEXT("endpoint"), EDITOR_OBJECT, address.endpoint},
+        {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ref.kind)},
+        {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(ref.index))},
+        {EDITOR_TEXT("sub"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(ref.sub))},
+        {EDITOR_TEXT("pin"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ref.pin)},
+        {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, {}, {}, address.revision},
+        {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE, {}, {}, address.topology},
+        {EDITOR_TEXT("focus-target"), EDITOR_OBJECT, focus},
+        {EDITOR_TEXT("background"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(!select)}};
+    auto &editor = state.workspace->Application();
+    const EditorRequest request{editor.Scope(id), values, uint32_t(std::size(values))};
+    return editor.Execute("script.navigate", request).status;
+}
+bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
+    EditorViewDesc view{};
+    view.size = sizeof(view);
+    view.imguiVersion = EDITOR_IMGUI_VERSION;
+    view.id = EDITOR_TEXT("script.schematic");
+    view.provider = EDITOR_TEXT("builtin.schematic");
+    view.title = EDITOR_TEXT("Schematic");
+    view.area = EDITOR_DOCUMENT;
+    view.data = m_Data.get();
+    view.create = [](void *data, const EditorHost *, EditorView id) -> void * {
+        auto &module = *static_cast<Data *>(data);
+        auto canvas = std::make_unique<SchematicCanvas>(module.state, id);
+        canvas->Navigation().options = module.defaults;
+        canvas->RefreshStack();
+        module.canvases.emplace(id, canvas.get());
+        return canvas.release();
+    };
+    view.destroy = [](void *data) {
+        auto *canvas = static_cast<SchematicCanvas *>(data);
+        auto &module = *canvas->m_State.schematics->m_Data;
+        canvas->CancelEdits();
+        module.state.objectPick.erase(module.state.workspace->WindowName(canvas->m_Instance));
+        const auto range = module.canvases.equal_range(canvas->m_Instance);
+        for (auto it = range.first; it != range.second; ++it)
+            if (it->second == canvas) { module.canvases.erase(it); break; }
+        delete canvas;
+    };
+    view.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        static_cast<SchematicCanvas *>(data)->Draw(*frame);
+    };
+    view.parameters = schematicNavigation;
+    view.count = uint32_t(std::size(schematicNavigation));
+    view.navigate = [](void *data, const EditorHost *, const EditorRequest *request) {
+        return static_cast<SchematicCanvas *>(data)->Navigate(*request);
+    };
+    view.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        return static_cast<SchematicCanvas *>(data)->Inspect(sink);
+    };
+    view.fields = schematicFields;
+    view.fieldCount = uint32_t(std::size(schematicFields));
+    view.stateVersion = 1;
+    view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        return static_cast<SchematicCanvas *>(data)->Save(sink);
+    };
+    view.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
+        return static_cast<SchematicCanvas *>(data)->Restore(*request);
+    };
+    const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("script.navigate"),
+        EDITOR_TEXT("builtin.schematic"), EDITOR_TEXT("Show Schematic Element"), schematicNavigation,
+        uint32_t(std::size(schematicNavigation)),
+        [](void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            return host->navigateView(host->data, EditorString EDITOR_TEXT("script.schematic"), request->scope.view, request, sink);
+        }, nullptr, EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE};
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("schematic.views");
+    module.commands = &command;
+    module.commandCount = 1;
+    module.views = &view;
+    module.viewCount = 1;
+    return editor.Register(module, error);
+}
+SchematicCanvas::SchematicCanvas(EditorState &state, EditorView instance) : m_State(state), m_Instance(instance) {
+    m_Navigation.selection.Bind(state.document.get());
+    if (state.document) m_Document = state.document->Token();
+}
+SchematicCanvas::~SchematicCanvas() { m_State.fileDialogs.Cancel(this); }
+void SchematicCanvas::RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion) {
+    m_State.RequestFile(options, std::move(completion), false, this);
+}
+bool SchematicCanvas::ScriptOpen(CK_ID id) const {
+    return m_State.HasDocument() && !m_Navigation.closedScripts.count(m_State.document->Reference(id));
+}
+void SchematicCanvas::DocumentClosed() {
+    CancelEdits();
+    // Navigation contains value identities only. Keep it while document
+    // replacement can still fail; a new document token resets it below.
+    for (const auto &view : m_Views) m_PendingZoom.emplace_back(view.id, view.scale);
+    Invalidate();
+    m_Doc = {};
+    m_QuerySelection.clear();
+    m_QueryScripts.clear();
+    m_QueryScript = {};
+    m_QueryElement = {};
+    ++m_StackRevision;
+}
+void SchematicCanvas::Invalidate() {
+    // No retained hit may outlive the model storage it points into.
+    m_Doc.press = {};
+    m_Doc.menuHit = {};
+    m_MenuStale = true;
+    m_PressAddress = {};
+    m_MenuAddress = {};
+    m_Views.clear();
+    m_PickFrame = -1;
+}
+void SchematicCanvas::RetainHit(const Hit &hit, ElementAddress &address) {
+    address = hit.view && m_State.HasDocument() ? ElementAddress::Capture(*m_State.document, hit.view->id,
+        hit.ref.IsValid() ? hit.ref : Selection::HeaderOf(hit.view->id)) : ElementAddress{};
+}
+void SchematicCanvas::ValidateNavigation() {
+    const auto document = m_State.document ? m_State.document->Token() : DocumentToken{};
+    if (document != m_Document) {
+        const auto options = m_Navigation.options;
+        m_Navigation = {};
+        m_Navigation.options = options;
+        m_Document = document;
+        m_PendingZoom.clear();
+        m_FoundAddress = {};
+        m_FoundRef = {};
+        m_FoundScript = 0;
+        m_ViewInitialized = false;
+        Invalidate();
+        RefreshStack();
+    }
+    m_Navigation.selection.Bind(m_State.document.get());
+    m_Navigation.selection.Validate();
+    if (!m_State.HasDocument()) { PublishNavigation(); return; }
+    CK_ID script = 0;
+    ElementRef ref;
+    if (m_Navigation.focus.pending && !m_Navigation.focus.address.Resolve(*m_State.document, script, ref))
+        m_Navigation.focus = {};
+    if (m_FoundAddress && !m_FoundAddress.Resolve(*m_State.document, script, ref)) {
+        m_FoundAddress = {};
+        m_FoundScript = 0;
+        m_FoundRef = {};
+    }
+    PublishNavigation();
+}
+EditorStatus SchematicCanvas::Navigate(const EditorRequest &request) {
+    if (!m_State.HasDocument()) return EDITOR_STALE;
+    ElementAddress address;
+    ObjectRef focus{};
+    bool background = false;
+    bool hasKind = false;
+    for (uint32_t i = 0; i < request.count; ++i) {
+        const auto &v = request.values[i];
+        const std::string key(v.key.data, v.key.size);
+        if (key == "target") address.script = v.object;
+        else if (key == "owner") address.owner = v.object;
+        else if (key == "object") address.object = v.object;
+        else if (key == "endpoint") address.endpoint = v.object;
+        else if (key == "kind") {
+            if (v.integer > uint64_t(ElementKind::Start)) return EDITOR_INVALID;
+            address.element.kind = ElementKind(v.integer); hasKind = v.integer != 0;
+        }
+        else if (key == "index") {
+            const auto index = int64_t(v.integer);
+            if (index < -2 || index > INT_MAX) return EDITOR_INVALID;
+            address.element.index = int(index);
+        }
+        else if (key == "sub") {
+            const auto sub = int64_t(v.integer);
+            if (sub < -1 || sub > INT_MAX) return EDITOR_INVALID;
+            address.element.sub = int(sub);
+        }
+        else if (key == "pin") {
+            if (v.integer > uint64_t(PinKind::Target)) return EDITOR_INVALID;
+            address.element.pin = PinKind(v.integer);
+        }
+        else if (key == "revision") address.revision = v.integer;
+        else if (key == "topology") address.topology = v.integer;
+        else if (key == "focus-target") focus = v.object;
+        else if (key == "background") background = v.integer != 0;
+    }
+    if (!address.script) { RefreshStack(); return EDITOR_OK; }
+    const auto id = m_State.document->NativeId(address.script);
+    if (!id) return EDITOR_STALE;
+    if (address.element.kind == ElementKind::Pin && !address.endpoint) return EDITOR_INVALID;
+    if (!hasKind) address = ElementAddress::Capture(*m_State.document, id, Selection::HeaderOf(id));
+    else {
+        if (address.element.kind < ElementKind::Script || address.element.kind > ElementKind::Start ||
+            address.element.pin < PinKind::None || address.element.pin > PinKind::Target) return EDITOR_INVALID;
+        address.element.owner = m_State.document->NativeId(address.owner);
+        address.element.object = m_State.document->NativeId(address.object);
+    }
+    CK_ID script = 0;
+    ElementRef ref;
+    if (!address.Resolve(*m_State.document, script, ref) || (focus && !m_State.document->Resolve(focus))) return EDITOR_STALE;
+    ShowScript(script, ref, m_State.document->NativeId(focus), !background);
+    PublishNavigation();
+    return EDITOR_OK;
+}
+void SchematicCanvas::PublishNavigation() {
+    const auto *document = m_State.HasDocument() ? m_State.document.get() : nullptr;
+    const auto version = std::make_tuple(document ? document->Token().value : 0,
+        document ? document->TopologyRevision() : 0, document ? document->ScriptsRevision() : 0,
+        m_Navigation.selection.Revision(), m_StackRevision);
+    if (version == m_QueryVersion) return;
+    m_QueryVersion = version;
+    m_QuerySelection.clear();
+    m_QueryScripts.clear();
+    m_QueryScript = {};
+    m_QueryElement = {};
+    if (!m_State.HasDocument()) return;
+    for (const auto &item : m_Navigation.selection.items) {
+        const auto ref = m_State.document->Reference(item.object ? item.object : item.owner);
+        if (ref) m_QuerySelection.push_back(ref);
+    }
+    for (auto id : m_Navigation.selection.headers) {
+        const auto ref = m_State.document->Reference(id);
+        if (ref) m_QuerySelection.push_back(ref);
+    }
+    for (auto id : m_Navigation.visibleScripts) {
+        const auto ref = m_State.document->Reference(id);
+        if (ref) m_QueryScripts.push_back(ref);
+    }
+    m_QueryScript = m_Navigation.stackScript;
+    if (!m_Navigation.selection.items.empty()) m_QueryElement = m_Navigation.selection.items.front();
+}
+EditorStatus SchematicCanvas::Inspect(EditorSink sink) {
+    const EditorValue values[] = {
+        {EDITOR_TEXT("selection"), EDITOR_OBJECT_LIST, {}, {}, 0, {m_QuerySelection.data(), uint32_t(m_QuerySelection.size())}},
+        {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST, {}, {}, 0, {m_QueryScripts.data(), uint32_t(m_QueryScripts.size())}},
+        {EDITOR_TEXT("target"), EDITOR_OBJECT, m_QueryScript},
+        {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_QueryElement.kind)},
+        {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(m_QueryElement.index))},
+        {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, double(m_View.zoom)}};
+    return sink.write ? sink.write(sink.data, values, uint32_t(std::size(values))) : EDITOR_INVALID;
+}
+EditorStatus SchematicCanvas::Save(EditorSink sink) const {
+    const auto &o = m_Navigation.options;
+    const uint64_t options = o.showLocalParams | (o.showLinkInfo << 1) | (o.showControlPoints << 2) | (o.showGrid << 3) |
+        (o.showAllScripts << 4) | (o.showPriorities << 5) | (o.showHeaders << 6) | (o.sceneFilter << 7) |
+        (o.zoomMode << 8) | (o.autoLink << 9);
+    const EditorValue fields[] = {
+        {EDITOR_TEXT("options"), EDITOR_INTEGER_VALUE, {}, {}, options},
+        {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, double(m_View.zoom)},
+        {EDITOR_TEXT("pan-x"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, double(m_View.panX)},
+        {EDITOR_TEXT("pan-y"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, double(m_View.panY)}};
+    return sink.write ? sink.write(sink.data, fields, uint32_t(std::size(fields))) : EDITOR_INVALID;
+}
+EditorStatus SchematicCanvas::Restore(const EditorRequest &request) {
+    auto options = m_Navigation.options;
+    auto transform = m_View;
+    for (uint32_t i = 0; i < request.count; ++i) {
+        const auto &field = request.values[i];
+        const std::string key(field.key.data, field.key.size);
+        if (key == "options") {
+            if (field.type != EDITOR_INTEGER_VALUE || field.integer > 1023) return EDITOR_INVALID;
+            const auto v = field.integer;
+            options.showLocalParams = v & 1; options.showLinkInfo = v & 2;
+            options.showControlPoints = v & 4; options.showGrid = v & 8;
+            options.showAllScripts = v & 16; options.showPriorities = v & 32;
+            options.showHeaders = v & 64; options.sceneFilter = v & 128;
+            options.zoomMode = v & 256; options.autoLink = v & 512;
+        } else if (key == "zoom" || key == "pan-x" || key == "pan-y") {
+            if (field.type != EDITOR_REAL_VALUE || !std::isfinite(field.real) || std::abs(field.real) > FLT_MAX)
+                return EDITOR_INVALID;
+            if (key == "zoom") transform.zoom = std::clamp(float(field.real), MIN_ZOOM, MAX_ZOOM);
+            else if (key == "pan-x") transform.panX = float(field.real);
+            else transform.panY = float(field.real);
+        }
+    }
+    m_Navigation.options = options;
+    m_View = transform;
+    RefreshStack();
+    m_ViewInitialized = true;
+    return EDITOR_OK;
+}
+void SchematicCanvas::Draw(EditorViewFrame &frame) {
+    EditorPrepareViewWindow(frame);
+    bool open = true;
+    Draw(frame.window.data, frame.closable ? &open : nullptr);
+    PublishNavigation();
+    frame.close = !open;
+    frame.active = Busy();
+}
 } // namespace vdev

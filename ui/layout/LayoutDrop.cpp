@@ -206,7 +206,7 @@ void LayoutWindow::DropBuildingBlock(int x, int y, const CKGUID &guid) {
     }
     if (!block) return;
     m_State.RememberBlock(guid);
-    m_State.events.Post(ShowElement{script, ElementRef{ElementKind::Behavior, script, block}, block});
+    m_State.events.Post(ShowElement{*m_State.document, script, ElementRef{ElementKind::Behavior, script, block}, block});
 }
 
 // Dev.exe sub_4C3510 (DropBuildingBlockOn): the object's first Script shown
@@ -218,7 +218,7 @@ bool LayoutWindow::DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, 
     CK_ID into = 0;
     bool insertRefused = false;
     const EditResult dropped =
-        DropBuildingBlockOn(*m_State.document, object, guid, m_State.hiddenScripts, &into, &insertRefused);
+        DropBuildingBlockOn(*m_State.document, object, guid, m_State.Schematic().HiddenIds(*m_State.document), &into, &insertRefused);
     if (!dropped.ok) {
         if (!insertRefused) {
             m_State.Log(LogLevel::Warning, AnsiToUtf8(dropped.message));

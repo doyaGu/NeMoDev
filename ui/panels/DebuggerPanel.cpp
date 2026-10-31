@@ -1,3 +1,4 @@
+#include "ui/schematic/SchematicViews.h"
 // Dev's Script Debugger (dialog 670, Dev.exe sub_585EF0 / sub_586150 /
 // sub_5866B0; language pack [Schematic]<Debug>): Trace Options, the Debug
 // Context (locked to an object or a Script by the boxes beside them), Trace
@@ -178,11 +179,11 @@ void EditorPanels::DebuggerPanel(bool *open) {
     text(296, 4, 82, 8, "Breakpoints", true);
     vi::Frame(l.Min(296, 14), l.Max(296, 14, 106, 94));
     if (vi::Button("Add Breakpoint", l.Min(303, 18), l.Max(303, 18, 94, 10), "Add Breakpoint", usable))
-        m_Canvas.PickBreakpoint();
+        m_Schematics.Current().PickBreakpoint();
     if (vi::Button("Configure Breakpoints", l.Min(303, 30), l.Max(303, 30, 94, 10), "Configure Breakpoints", usable))
-        m_Canvas.ConfigureBreakpoints();
+        m_Schematics.Current().ConfigureBreakpoints();
     if (vi::Button("Breakpoint List", l.Min(303, 65), l.Max(303, 65, 94, 10), "Breakpoint List", usable))
-        m_Canvas.OpenBreakpointList();
+        m_Schematics.Current().OpenBreakpointList();
     const size_t reachedCount = usable ? debugger->ReachedBreakpoints().size() : 0;
     if (usable && debugger->Reached() != m_DebugReached) {
         m_DebugReached = debugger->Reached();
@@ -200,7 +201,7 @@ void EditorPanels::DebuggerPanel(bool *open) {
     if (vi::Button("Goto", l.Min(324, 95), l.Max(324, 95, 50, 10), "Goto", reachedCount > 0)) {
         const auto &reached = debugger->ReachedBreakpoints();
         m_DebugGoto = (m_DebugGoto + 1) % static_cast<int>(reached.size());
-        m_Canvas.GoToBreakpoint(reached[m_DebugGoto].script, reached[m_DebugGoto].data);
+        m_Schematics.Current().GoToBreakpoint(reached[m_DebugGoto].script, reached[m_DebugGoto].data);
     }
 
     // The Debug Log: its button shows or hides it (sub_5866B0 1200).

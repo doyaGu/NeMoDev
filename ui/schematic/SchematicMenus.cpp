@@ -1,3 +1,4 @@
+#include "ui/schematic/SchematicViews.h"
 // Schematic context menus after Dev 2.5: the comment, local parameter,
 // Building Block, link and Script body menus follow the user's Dev
 // screenshots (2D Text.cmo); item names and shortcuts come from the
@@ -95,15 +96,15 @@ void SchematicCanvas::SaveBehaviorsAs(const std::vector<CK_ID> &behaviors, const
         {EDITOR_TEXT("initial"), EDITOR_TEXT_VALUE, {}, EditorText(suggestion)},
         {EDITOR_TEXT("ask-description"), EDITOR_INTEGER_VALUE, {}, {}, 1}};
     auto &editor = m_State.workspace->Application();
-    editor.Execute("script.export", {editor.Scope(), values, 3});
+    editor.Execute("script.export", {editor.Scope(m_Instance), values, 3});
 }
 
 void SchematicCanvas::SaveSelectionAsNms() {
     if (!m_State.HasDocument()) return;
     std::vector<CK_ID> behaviors;
-    for (const auto &item : m_State.selection.items)
+    for (const auto &item : m_Navigation.selection.items)
         if (item.kind == ElementKind::Behavior || item.kind == ElementKind::Script) behaviors.push_back(item.object);
-    for (CK_ID header : m_State.selection.headers) behaviors.push_back(header);
+    for (CK_ID header : m_Navigation.selection.headers) behaviors.push_back(header);
     if (behaviors.empty() && m_Doc.currentScript) behaviors.push_back(m_Doc.currentScript);
     CKObject *first = behaviors.empty() ? nullptr : m_State.document->Context()->GetObject(behaviors.front());
     SaveBehaviorsAs(behaviors, first && first->GetName() ? AnsiToUtf8(first->GetName()) + ".nms" : std::string());
@@ -116,8 +117,11 @@ void SchematicCanvas::ImportBehaviorFile(CK_ID script, const Point &local) {
         m_State.Log(LogLevel::Info, "Import Behavior Graph: point at an open Script or an expanded graph");
         return;
     }
-    m_State.RequestFile(BehaviorFileDialog(false, {}), [this, script, graph, local](const FileDialogResult &selection) {
+    const auto scriptRef = m_State.document->Reference(script), graphRef = m_State.document->Reference(graph);
+    RequestFile(BehaviorFileDialog(false, {}), [this, scriptRef, graphRef, local](const FileDialogResult &selection) {
         if (selection.status != FileDialogResult::Status::Selected) return;
+        const auto script = m_State.document->NativeId(scriptRef), graph = m_State.document->NativeId(graphRef);
+        if (!script || !graph) return;
         const std::string path = selection.paths.front();
         auto result = std::make_shared<EditResult>(EditResult::NoChange());
         m_State.RunRuntime("Importing behavior graph", [this, script, graph, path, local, result] {
@@ -134,6 +138,7 @@ void SchematicCanvas::ImportBehaviorFile(CK_ID script, const Point &local) {
 // loading, by Script and the behavior (graph) holding them; Goto shows the
 // Script with the link selected, Delete and Delete All take them off.
 void SchematicCanvas::LinkErrorsExplorer() {
+    m_State.RefreshInvalidLinks();
     if (m_State.invalidLinks.empty()) m_ShowLinkErrors = false;
     if (!m_ShowLinkErrors || !m_State.HasDocument()) return;
     const float s = ImGui::GetFontSize() / 13.0f;
@@ -148,7 +153,15 @@ void SchematicCanvas::LinkErrorsExplorer() {
     vi::TemplatePanel(l);
     CKContext *context = m_State.document->Context();
     const std::vector<InvalidLink> &links = m_State.invalidLinks;
-    if (m_LinkErrorPick >= static_cast<int>(links.size())) m_LinkErrorPick = -1;
+    if (m_LinkErrorPick >= 0) {
+        CK_ID script = 0;
+        ElementRef ref;
+        m_LinkErrorPick = -1;
+        if (m_LinkErrorAddress.Resolve(*m_State.document, script, ref))
+            for (size_t i = 0; i < links.size(); ++i)
+                if (links[i].script == script && links[i].graph == ref.owner && links[i].slot == ref.index)
+                    m_LinkErrorPick = int(i);
+    }
     static const std::vector<vi::ListColumn> COLUMNS{{"In Script", 184.0f * 1.0f}, {"In Behavior", 184.0f}, {"", 0.0f}};
     std::vector<vi::ListColumn> columns = COLUMNS;
     for (vi::ListColumn &column : columns) column.width *= s;
@@ -160,10 +173,10 @@ void SchematicCanvas::LinkErrorsExplorer() {
             return c < 2 && object && object->GetName() ? AnsiToUtf8(object->GetName()) : std::string();
         },
         [&](int r) { return r == m_LinkErrorPick; }, &twice);
-    if (row >= 0) m_LinkErrorPick = row;
+    if (row >= 0) { m_LinkErrorPick = row; m_LinkErrorAddress = links[row].address; }
     const bool picked = m_LinkErrorPick >= 0;
     auto show = [&](const InvalidLink &link) {
-        m_State.events.Post(ShowElement{link.script, {ElementKind::Link, link.graph, link.link, link.slot}, link.graph});
+        m_State.events.Post(ShowElement{*m_State.document, link.script, {ElementKind::Link, link.graph, link.link, link.slot}, link.graph, m_Instance});
     };
     if ((vi::Button("Goto", l.Min(7, 143), l.Max(7, 143, 71, 10), "Goto", picked) || (row >= 0 && twice)) && picked)
         show(links[m_LinkErrorPick]);
@@ -235,7 +248,7 @@ void SchematicCanvas::MessageExplorer() {
     // a double click or Goto centers the Schematic on the one selected.
     const int count = messages ? messages->GetMessageTypeCount() : 0;
     auto show = [&](const Use &use) {
-        m_State.events.Post(ShowElement{use.script, ElementRef{ElementKind::Behavior, use.parent, use.behavior}, use.behavior});
+        m_State.events.Post(ShowElement{*m_State.document, use.script, ElementRef{ElementKind::Behavior, use.parent, use.behavior}, use.behavior, m_Instance});
     };
     const float listWidth = std::max(160.0f, ImGui::GetContentRegionAvail().x * 0.4f);
     const float height = std::max(80.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing());
@@ -295,7 +308,7 @@ void SchematicCanvas::MessageExplorer() {
 // The breakpoint the selection names: a behavior, a behavior link (with its
 // graph), a local, a shortcut source or a behavior's parameter.
 bool SchematicCanvas::SelectionBreakpoint(ExtraDataType &type, CK_ID &object, CK_ID &owner) const {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || !m_State.HasDocument()) return false;
     const ElementRef &item = selection.items[0];
     owner = 0;
@@ -357,7 +370,7 @@ void SchematicCanvas::ToggleBreakpointOfSelection() {
         m_State.Log(LogLevel::Info, "Cannot add breakpoint on picked item");
         return;
     }
-    if (!ToggleBreakpoint(*m_State.document, m_State.selection.script, type, object, owner))
+    if (!ToggleBreakpoint(*m_State.document, m_Navigation.selection.script, type, object, owner))
         m_State.Log(LogLevel::Warning, "Breakpoint: the Script's display is read-only");
 }
 
@@ -365,7 +378,7 @@ void SchematicCanvas::BreakpointItems() {
     ExtraDataType type;
     CK_ID object = 0, owner = 0;
     const bool named = SelectionBreakpoint(type, object, owner);
-    ScriptSession *session = named ? m_State.document->Session(m_State.selection.script) : nullptr;
+    ScriptSession *session = named ? m_State.document->Session(m_Navigation.selection.script) : nullptr;
     const bool present = session && FindBreakpoint(session->Data(), type, object);
     if (ImGui::MenuItem(present ? "Remove Breakpoint" : "Add Breakpoint", "F9", false, named))
         ToggleBreakpointOfSelection();
@@ -405,7 +418,7 @@ void SchematicCanvas::GoToBreakpoint(CK_ID script, const ExtraData &data) {
     else if (data.type == EXTRA_DATA_PARAMETER) focus = OwnerBehaviorOf(context->GetObject(data.id1));
     else if (CKBehaviorLink *link = CKBehaviorLink::Cast(context->GetObject(data.id1)))
         if (link->GetInBehaviorIO() && link->GetInBehaviorIO()->GetOwner()) focus = link->GetInBehaviorIO()->GetOwner()->GetID();
-    m_State.events.Post(ShowElement{script, ElementRef(), focus});
+    m_State.events.Post(ShowElement{*m_State.document, script, ElementRef(), focus, m_Instance});
 }
 
 void SchematicCanvas::PickBreakpoint() {
@@ -416,9 +429,9 @@ void SchematicCanvas::PickBreakpoint() {
 void SchematicCanvas::ConfigureBreakpoints() {
     ExtraDataType type;
     CK_ID object = 0, owner = 0;
-    ScriptSession *session = SelectionBreakpoint(type, object, owner) ? m_State.document->Session(m_State.selection.script) : nullptr;
+    ScriptSession *session = SelectionBreakpoint(type, object, owner) ? m_State.document->Session(m_Navigation.selection.script) : nullptr;
     if (session && FindBreakpoint(session->Data(), type, object)) {
-        LoadBreakpointConfig(m_State.selection.script, type, object);
+        LoadBreakpointConfig(m_Navigation.selection.script, type, object);
         return;
     }
     const std::vector<Debugger::Breakpoint> all = m_State.debugger ? m_State.debugger->Breakpoints() : std::vector<Debugger::Breakpoint>();
@@ -461,12 +474,12 @@ void SchematicCanvas::OpenBreakpointConfig() {
     ExtraDataType type;
     CK_ID object = 0, owner = 0;
     if (!SelectionBreakpoint(type, object, owner)) return;
-    ScriptSession *session = m_State.document->Session(m_State.selection.script);
+    ScriptSession *session = m_State.document->Session(m_Navigation.selection.script);
     if (!session || !FindBreakpoint(session->Data(), type, object)) {
         m_State.Log(LogLevel::Info, "Configure Breakpoint: add the breakpoint first (F9)");
         return;
     }
-    LoadBreakpointConfig(m_State.selection.script, type, object);
+    LoadBreakpointConfig(m_Navigation.selection.script, type, object);
 }
 
 void SchematicCanvas::LoadBreakpointConfig(CK_ID script, ExtraDataType type, CK_ID object) {
@@ -656,7 +669,7 @@ void SchematicCanvas::BreakpointConfigDialog() {
     if (button("Go To Breakpoint", 80, context != nullptr)) GoToBreakpoint(m_Doc.breakpointScript, shown);
     auto goToParameter = [&](CK_ID parameter) {
         if (const CK_ID behavior = parameter && context ? OwnerBehaviorOf(context->GetObject(parameter)) : 0)
-            m_State.events.Post(ShowElement{m_Doc.breakpointScript, ElementRef(), behavior});
+            m_State.events.Post(ShowElement{*m_State.document, m_Doc.breakpointScript, ElementRef(), behavior, m_Instance});
     };
     if (button("Go to Schematic Parameter", 92, picked && rows[pick].parameter)) goToParameter(rows[pick].parameter);
     if (button("Go To Reference Parameter", 104, picked && ByParameter(rows[pick].comparison))) {
@@ -827,12 +840,12 @@ void SchematicCanvas::PickConditionParameter(CK_ID parameter) {
 // Dev "Execute Script(s)" (Alt+X): the selected Scripts, else the current one.
 void SchematicCanvas::ExecuteSelectedScripts() {
     if (!m_State.debugger || !m_State.HasDocument()) return;
-    std::vector<CK_ID> scripts = m_State.selection.Scripts();
+    std::vector<CK_ID> scripts = m_Navigation.selection.Scripts();
     if (scripts.empty() && m_Doc.currentScript) scripts.push_back(m_Doc.currentScript);
     const auto objects = m_State.document->References(scripts);
     const EditorValue value{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}};
     auto &editor = m_State.workspace->Application();
-    editor.Execute("runtime.execute-scripts", {editor.Scope(), &value, 1});
+    editor.Execute("runtime.execute-scripts", {editor.Scope(m_Instance), &value, 1});
     RefreshValues();
     m_State.showDebugger = true;
 }
@@ -845,8 +858,11 @@ void SchematicCanvas::LoadSnapshotFor(CK_ID script) {
     // Read with WIC: the wide path, any name.
     FileDialogOptions options;
     options.filter = L"Images (*.bmp;*.png;*.jpg;*.jpeg;*.gif;*.tif)\0*.bmp;*.png;*.jpg;*.jpeg;*.gif;*.tif;*.tiff\0All files (*.*)\0*.*\0";
-    m_State.RequestFile(options, [this, script](const FileDialogResult &selection) {
+    const auto scriptRef = m_State.document->Reference(script);
+    RequestFile(options, [this, scriptRef](const FileDialogResult &selection) {
         if (selection.status != FileDialogResult::Status::Selected) return;
+        const auto script = m_State.document->NativeId(scriptRef);
+        if (!script) return;
         const std::wstring path = Utf8ToWide(selection.paths.front());
     std::string error;
     // The header's snapshot place is 49 x 38 pixels (library layout).
@@ -951,7 +967,7 @@ void SchematicCanvas::ReplaceBlockDialog() {
         }
         if (steps) {
             m_State.RememberBlock(m_ReplaceGuid);
-            m_State.selection.Clear();
+            m_Navigation.selection.Clear();
             m_State.Log(LogLevel::Info, "Replaced " + std::to_string(steps) + " Building Block(s)");
         }
     }
@@ -1015,7 +1031,7 @@ void SchematicCanvas::ReplaceGraphDialog() {
             if (result.ok) ++steps;
             else if (!result.Unchanged()) Report(result, "Replace Behavior Graph");
         }
-        if (steps) m_State.selection.Clear();
+        if (steps) m_Navigation.selection.Clear();
     }
     if ((ok && m_Doc.replaceSource) || cancel) {
         m_Doc.replaceBehavior = 0;
@@ -1025,8 +1041,11 @@ void SchematicCanvas::ReplaceGraphDialog() {
 }
 
 void SchematicCanvas::ReplaceWithFile(CK_ID script, CK_ID graph) {
-    m_State.RequestFile(BehaviorFileDialog(false, {}), [this, script, graph](const FileDialogResult &selection) {
+    const auto scriptRef = m_State.document->Reference(script), graphRef = m_State.document->Reference(graph);
+    RequestFile(BehaviorFileDialog(false, {}), [this, scriptRef, graphRef](const FileDialogResult &selection) {
         if (selection.status != FileDialogResult::Status::Selected) return;
+        const auto script = m_State.document->NativeId(scriptRef), graph = m_State.document->NativeId(graphRef);
+        if (!script || !graph) return;
         const std::string path = selection.paths.front();
         auto result = std::make_shared<EditResult>(EditResult::NoChange());
         m_State.RunRuntime("Replacing behavior graph", [this, script, graph, path, result] {
@@ -1034,7 +1053,7 @@ void SchematicCanvas::ReplaceWithFile(CK_ID script, CK_ID graph) {
         }, [this, result](bool ok) {
             if (!ok) return;
             Report(*result, "Replace with File Graph");
-            if (result->ok) m_State.selection.Clear();
+            if (result->ok) m_Navigation.selection.Clear();
         });
     });
 }
@@ -1056,7 +1075,7 @@ void SchematicCanvas::ConfirmScriptDeletion() {
             for (CK_ID each : scripts)
                 if (m_State.document->Context()->GetObject(each)) Report(DeleteScript(*m_State.document, each), "Delete Script");
         }
-        m_State.selection.Clear();
+        m_Navigation.selection.Clear();
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
@@ -1124,7 +1143,7 @@ void SchematicCanvas::ToggleCommentIcon(CK_ID script, const ElementRef &ref) {
 // iconify/open the selected comments, open/close the selected graphs and
 // Scripts.
 void SchematicCanvas::SpaceAction() {
-    const Selection selection = m_State.selection;
+    const Selection selection = m_Navigation.selection;
     ScriptView *view = ViewFor(selection.script);
     if (!view) return;
     for (const auto &item : selection.items) {
@@ -1189,7 +1208,7 @@ void SchematicCanvas::GoToShortcutSource(CK_ID source) {
     query.kinds = SearchParameters;
     for (const auto &result : SearchDocument(*m_State.document, query)) {
         if (result.ref.kind == ElementKind::Shortcut) continue;
-        m_State.events.Post(ShowElement{result.script, result.ref, result.focus});
+        m_State.schematics->Show(result.address, m_State.document->Reference(result.focus), true, m_Instance);
         return;
     }
     // Not displayed in a Script (an output, an attribute, ...): its owner.
@@ -1219,15 +1238,15 @@ void SchematicCanvas::OpenHtmlHelpOf(const BuildingBlockEntry &bb) {
     if (m_State.workspace) {
         auto &editor = m_State.workspace->Application();
         const EditorValue value{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, {}, EditorText(topic)};
-        editor.Execute("help.open", {editor.Scope(), &value, 1});
+        editor.Execute("help.open", {editor.Scope(m_Instance), &value, 1});
     }
 }
 
 // Dev's Script header sorts (documentation): the order of the stack.
 void SchematicCanvas::SortScripts(ScriptSort sort) {
     if (!m_State.HasDocument()) return;
-    m_State.scriptOrder = vdev::SortScripts(*m_State.document, m_State.visibleScripts, sort);
-    m_State.events.Post(RefreshScriptStack{});
+    m_Navigation.scriptOrder = m_State.document->References(vdev::SortScripts(*m_State.document, m_Navigation.visibleScripts, sort));
+    RefreshStack();
 }
 
 // ------------------------------------------------------------- dialogs
@@ -1308,7 +1327,7 @@ void SchematicCanvas::ShortcutAnalysisDialog() {
     if (ImGui::Button("Close", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
     if (go && m_Doc.shortcutPick >= 0) {
         const SearchResult &result = m_Doc.shortcutResults[m_Doc.shortcutPick];
-        m_State.events.Post(ShowElement{result.script, result.ref, result.focus});
+        m_State.schematics->Show(result.address, m_State.document->Reference(result.focus), true, m_Instance);
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -1441,7 +1460,7 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Rename", "F2")) {
-        m_State.selection.Set(script, view.model.script.ref);
+        m_Navigation.selection.Set(script, view.model.script.ref);
         BeginRename();
     }
     if (ImGui::MenuItem("Save As...", "Alt+S")) SaveBehaviorsAs({script}, view.model.script.name + ".nms");
@@ -1460,8 +1479,8 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
 void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
     const CK_ID script = view.id;
     // On a header among those selected: they all; else this one.
-    if (!m_State.selection.Contains(script, view.model.script.ref)) m_State.selection.Set(script, view.model.script.ref);
-    const std::vector<CK_ID> scripts = m_State.selection.Scripts();
+    if (!m_Navigation.selection.Contains(script, view.model.script.ref)) m_Navigation.selection.Set(script, view.model.script.ref);
+    const std::vector<CK_ID> scripts = m_Navigation.selection.Scripts();
     if (ImGui::MenuItem("Execute Script(s)", "Alt+X")) ExecuteSelectedScripts();
     if (ImGui::MenuItem("Set Initial Conditions", "Shift+Q")) InitialConditionsOfScripts(0);
     if (ImGui::MenuItem("Remove Initial Conditions", "Ctrl+Q")) InitialConditionsOfScripts(1);
@@ -1663,7 +1682,8 @@ void SchematicCanvas::LinkMenu(ScriptView &view, const LinkItem &link, const Poi
 void SchematicCanvas::ContextMenu() {
     PushDevMenuStyle();
     if (ImGui::BeginPopup("SchematicContext")) {
-        ContextMenuItems();
+        if (m_MenuStale) { ImGui::CloseCurrentPopup(); m_MenuStale = false; }
+        else ContextMenuItems();
         ImGui::EndPopup();
     }
     PopDevMenuStyle();

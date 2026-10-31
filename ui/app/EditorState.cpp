@@ -6,6 +6,10 @@
 
 namespace vdev {
 
+ShowElement::ShowElement(Document &document, CK_ID script, const ElementRef &ref, CK_ID focus, EditorView instance)
+    : address(ElementAddress::Capture(document, script, ref.IsValid() ? ref : Selection::HeaderOf(script))),
+      focusBehavior(document.Reference(focus)), view(instance) {}
+
 void SelectionFollower::Push(ObjectSelection &objects, const std::set<CK_ID> &selection, const Document *document,
                              EditorApplication &editor) {
     if (selection == m_Pushed) return;
@@ -90,6 +94,18 @@ void EditorState::ClearDocumentState() {
     files.DocumentChanged();
     objectSelection.Reset();
     static_cast<DocumentSession &>(*this) = DocumentSession();
+}
+
+void EditorState::RefreshInvalidLinks() {
+    if (!HasDocument()) return;
+    for (const auto &link : invalidLinks) {
+        CK_ID script = 0;
+        ElementRef ref;
+        if (!link.address.Resolve(*document, script, ref)) {
+            invalidLinks = FindInvalidLinks(*document, preferences.Bool("Schematic\\Test Parameter Link after Loading"));
+            break;
+        }
+    }
 }
 
 void EditorState::ReplacingDocument(bool replaceContext) {

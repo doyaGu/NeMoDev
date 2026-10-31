@@ -23,6 +23,7 @@
 #include "ui/app/EditorState.h"
 #include "ui/layout/LayoutWindow.h"
 #include "ui/schematic/SchematicCanvas.h"
+#include "ui/schematic/SchematicViews.h"
 #include "features/scene/SceneCommands.h"
 #include "features/scene/SceneViews.h"
 #include "ui/setup/SetupWindows.h"
@@ -135,7 +136,8 @@ public:
     EditorState &State() { return m_State; }
 #ifdef VIRTOOLSDEV_UI_TESTS
     // What the UI tests (tests/ui) check the UI's work on.
-    const SchematicCanvas &Canvas() const { return m_Canvas; }
+    SchematicCanvas &Canvas(EditorView view = 0) const { return view ? *m_Schematics.Find(view) : m_Schematics.Current(); }
+    std::string SchematicWindow(EditorView view = 0) const { return m_Schematics.Window(view); }
     const LayoutWindow &Layout() const { return m_Layout; }
     LayoutWindow &Layout() { return m_Layout; }
     const EditorPanels &Panels() const { return m_Panels; }
@@ -164,7 +166,7 @@ private:
     bool OpenFile(const std::string &path);
     LayoutInterfaceData CaptureLayout() const override { return LayoutDataToSave(); }
     void FileFinished(const DocumentCommands::Result &result) override;
-    void HistoryChanged() override { m_State.selection.Clear(); UpdateTitle(); }
+    void HistoryChanged() override { m_Schematics.ClearSelections(); UpdateTitle(); }
     void Quit() override { m_Quit = true; }
     void CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result);
     void RuntimeOperationFrame();
@@ -255,11 +257,11 @@ private:
     SchematicCommands m_SchematicCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
     SelectionCommands m_SelectionCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                                           m_State.objectSelection};
-    SchematicCanvas m_Canvas;
+    SchematicViews m_Schematics;
     EditorPanels m_Panels;
     SetupWindows m_Setups{m_State};
     SceneCommands m_SceneCommands{m_Editor, [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
-        m_State.objectClipboard, m_State.clipboard, m_State.hiddenScripts, [this]() -> CKDependencies & { return m_State.CopyDependencies(); }};
+        m_State.objectClipboard, m_State.clipboard, [this]() -> SchematicNavigation & { return m_State.Schematic(); }, [this]() -> CKDependencies & { return m_State.CopyDependencies(); }};
     ToolWindows m_Tools;
     HtmlFonts m_HtmlFonts;
     LayoutWindow m_Layout{m_State};

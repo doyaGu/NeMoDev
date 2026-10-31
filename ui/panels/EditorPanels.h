@@ -14,11 +14,11 @@
 
 namespace vdev {
 
-class SchematicCanvas;
+class SchematicViews;
 
 class EditorPanels {
 public:
-    EditorPanels(EditorState &state, SchematicCanvas &canvas) : m_State(state), m_Canvas(canvas) {}
+    EditorPanels(EditorState &state, SchematicViews &canvases) : m_State(state), m_Schematics(canvases) {}
 
     void ExplorerPanel(bool *open);
     // Dev Script Debugger (DebuggerPanel.cpp).
@@ -46,6 +46,7 @@ private:
     // The Schematic Explorer's parts: the rows chosen made the Schematic's
     // selection; the tree view; the parameters of the Parameter Filter.
     void ExplorerSelect();
+    SchematicNavigation &ExplorerNavigation();
     void ExplorerTree(const ImVec2 &min, const ImVec2 &max);
     CKParameter *ExplorerValue(bool replace);
     int m_ExplorerRename = -1; // the row F2 renames (-2: the tree's node)
@@ -65,6 +66,7 @@ private:
         std::set<int> chosen;
         int anchor = -1;
         Selection selectionBefore;
+        EditorView explorerView = 0;
         CK_ID filterValue = 0, replaceValue = 0;
         std::string resultsKey;
         // The Script Debugger's Debug Context combos (the debugger's object
@@ -74,7 +76,7 @@ private:
 
     EditorState &m_State;
     DocumentState m_Doc;
-    SchematicCanvas &m_Canvas;
+    SchematicViews &m_Schematics;
     // Schematic Explorer (Dev's Schematic Filter Box, dialog 732): Show in
     // List (Dev's default: Scripts), the CK ID and Text Filters, Parse All
     // Items, the tree view, the Parameter Filter (mode, type, Derived).

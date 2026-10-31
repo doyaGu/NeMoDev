@@ -92,21 +92,23 @@ void Workflows() {
     CHECK(saved && !document.Dirty());
     CHECK(vdev::RenameLevelObject(document, document.Reference(frame.created), "Undo then redo after failed file operation").ok);
     CHECK(document.History().Undo());
-    state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
+    vdev::Selection schematicSelection;
+    schematicSelection.Bind(&document);
+    schematicSelection.Set(script.created, vdev::Selection::HeaderOf(script.created));
     state.objectSelection.Restore(*state.document, {frame.created});
     const auto context = document.Context();
     FileViews views(document);
     views.expected = context;
     state.documentViews = &views;
     bool &detached = views.detached;
-    const auto selection = state.selection;
+    const auto selection = schematicSelection;
     const auto objects = state.objectSelection;
     const auto undo = document.History().UndoCount();
     const auto redo = document.History().RedoLabel();
     const auto dirty = document.Dirty();
     const auto preserved = [&] {
         CHECK(document.Context() == context && document.Dirty() == dirty);
-        CHECK(state.selection.script == selection.script && state.selection.items == selection.items);
+        CHECK(schematicSelection.script == selection.script && schematicSelection.items == selection.items);
         CHECK(state.objectSelection.Objects() == objects.Objects() && state.objectSelection.Revision() == objects.Revision());
         CHECK(document.History().UndoCount() == undo && document.History().CanRedo() && document.History().RedoLabel() == redo);
     };
@@ -212,7 +214,7 @@ void Workflows() {
     CHECK(state.RunRuntime("Old document request", [&] { staleWork = true; }, [&](bool) { staleCompletion = true; }));
     Drain(state);
     CHECK(detached && opened && !staleWork && !staleCompletion);
-    CHECK(document.Context() != context && state.selection.Empty() && state.objectSelection.Objects().empty());
+    CHECK(document.Context() != context && (schematicSelection.Validate(), schematicSelection.Empty()) && state.objectSelection.Objects().empty());
     CHECK(document.CreatedFrom() == vdev::Document::Origin::LoadedComposition && !document.Dirty());
     CHECK(!document.History().CanUndo() && !document.History().CanRedo());
 

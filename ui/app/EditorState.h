@@ -17,7 +17,7 @@
 #include "ui/app/Preferences.h"
 #include "core/document/Clipboard.h"
 #include "ui/schematic/SchematicStyle.h"
-#include "core/schematic/ElementRef.h"
+#include "core/schematic/SchematicNavigation.h"
 #include "core/document/Edit.h"
 #include "core/document/Document.h"
 #include "core/document/LinkValidation.h"
@@ -38,109 +38,6 @@ namespace vdev {
 // Drag-and-drop payload of the Snapshot Buffer: the slot (an int) of
 // EditorState::snapshots.
 constexpr const char *SNAPSHOT_PAYLOAD = "SCHEMATIC_SNAPSHOT";
-// Selection is confined to one Script at a time, but Script headers: with
-// a header selected, Ctrl or Shift and a click on others' select them too
-// (headers; Dev acts on "one or several scripts": Expand, Hide Selected,
-// colors, Save As, Copy, Delete, initial conditions, Execute).
-struct Selection {
-    CK_ID script = 0;
-    std::vector<ElementRef> items;
-    std::vector<CK_ID> headers; // the other Scripts whose header is selected
-
-    static ElementRef HeaderOf(CK_ID scriptId) { return {ElementKind::Script, scriptId, scriptId}; }
-    bool Empty() const { return items.empty(); }
-    // Only Script headers are selected.
-    bool OnlyHeaders() const {
-        if (items.empty()) return false;
-        for (const ElementRef &item : items)
-            if (item.kind != ElementKind::Script) return false;
-        return true;
-    }
-    bool Contains(CK_ID inScript, const ElementRef &ref) const {
-        if (ref.kind == ElementKind::Script && std::find(headers.begin(), headers.end(), inScript) != headers.end()) return true;
-        return inScript == script && std::find(items.begin(), items.end(), ref) != items.end();
-    }
-    // The Scripts whose header is selected, the first one first.
-    std::vector<CK_ID> Scripts() const {
-        std::vector<CK_ID> scripts;
-        for (const ElementRef &item : items)
-            if (item.kind == ElementKind::Script && script) {
-                scripts.push_back(script);
-                break;
-            }
-        for (CK_ID other : headers)
-            if (std::find(scripts.begin(), scripts.end(), other) == scripts.end()) scripts.push_back(other);
-        return scripts;
-    }
-    void Clear() {
-        script = 0;
-        items.clear();
-        headers.clear();
-    }
-    void Set(CK_ID inScript, const ElementRef &ref) {
-        script = inScript;
-        items.assign(1, ref);
-        headers.clear();
-    }
-    void Add(CK_ID inScript, const ElementRef &ref) {
-        if (inScript != script && ref.kind == ElementKind::Script && OnlyHeaders()) {
-            if (std::find(headers.begin(), headers.end(), inScript) == headers.end()) headers.push_back(inScript);
-            return;
-        }
-        if (inScript != script) Set(inScript, ref);
-        else if (!Contains(inScript, ref)) items.push_back(ref);
-    }
-    void Toggle(CK_ID inScript, const ElementRef &ref) {
-        if (inScript != script && ref.kind == ElementKind::Script && OnlyHeaders()) {
-            auto found = std::find(headers.begin(), headers.end(), inScript);
-            if (found != headers.end()) headers.erase(found);
-            else headers.push_back(inScript);
-            return;
-        }
-        if (inScript != script) {
-            Set(inScript, ref);
-            return;
-        }
-        auto found = std::find(items.begin(), items.end(), ref);
-        if (found != items.end()) items.erase(found);
-        else items.push_back(ref);
-        if (items.empty()) {
-            script = 0;
-            // Another header selected takes its place.
-            if (!headers.empty()) {
-                script = headers.front();
-                headers.erase(headers.begin());
-                items.assign(1, HeaderOf(script));
-            }
-        }
-    }
-};
-
-// Dev Schematic toolbar toggles (UI reference section 8.1).
-struct ViewOptions {
-    bool showLocalParams = true;
-    bool showLinkInfo = true;
-    bool showControlPoints = true;
-    bool showGrid = false; // Dev's canvas is plain
-    bool showAllScripts = true; // Dev shows every Script, in Header::scriptIndex order
-    bool showPriorities = false;
-    bool showHeaders = true;
-    // Dev's Level / Scene script filter (L / S button): with S only Scripts of
-    // the active scene are shown.
-    bool sceneFilter = false;
-    bool zoomMode = false; // Dev Zoom Mode: drag up/down to zoom
-    // Dev Link Mode: with auto-link (A on, Z off) a click on an I/O starts a
-    // link; L starts one while auto-link is off. Ctrl+click selects instead.
-    bool autoLink = true;
-};
-
-struct FocusRequest {
-    bool pending = false;
-    CK_ID script = 0;
-    ElementRef ref;
-    CK_ID behavior = 0; // fallback: center on this behavior (or its visible ancestor)
-};
-
 // Dev Worksets: "an user interface only item" (Dev documentation, Level
 // Manager name column) grouping objects and Scripts to show or hide their
 // Scripts in the Schematic. Kept for the session (Dev's own interface data
@@ -182,27 +79,22 @@ private:
 // the log and Copy Options keep their application lifetime.
 struct DocumentSession {
     EditorEvents events; // what windows ask of each other (EditorApp::DispatchEvents)
-    std::vector<CK_ID> visibleScripts; // stacked in the Schematic, top to bottom
-    CK_ID stackScript = 0;             // the Script the stack was made for (EditorPanels::ShowScript)
-    // Hidden with Dev's Hide All / Hide Selected / Hide Other (view state).
-    std::set<CK_ID> hiddenScripts;
-    // Stack order set by Dev's Sort By ... / Invert Order (view state);
-    // empty: Header::scriptIndex.
-    std::vector<CK_ID> scriptOrder;
     ObjectClipboard objectClipboard;
-    Selection selection;
     // The invalid links found after loading and kept (Dev's Links with
     // Errors Explorer; Remove Invalid Link after Loading removes them).
     std::vector<InvalidLink> invalidLinks;
     // A 3D Layout transformation is being dragged (RealTime Notifications).
     bool layoutTransforming = false;
     CurveTool curveTool;
-    FocusRequest focus;
     Clipboard clipboard;
 
 };
 
+class SchematicViews;
+
 struct EditorState : DocumentSession, DocumentFiles::Observer {
+    SchematicViews *schematics = nullptr;
+    SchematicNavigation &Schematic() const;
     EditorWorkspace *workspace = nullptr; // attached by the editor; outlives its windows
     DocumentFiles::Views *documentViews = nullptr;
     void ReplacingDocument(bool replaceContext) override;
@@ -256,7 +148,6 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
         }
         return copyDependencies;
     }
-    ViewOptions view;
     // Building Blocks inserted recently, newest first (Dev Shift+right-click menu).
     std::vector<CKGUID> recentBlocks;
     Preferences preferences;
@@ -272,6 +163,7 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
 
     void Log(LogLevel level, const std::string &text) override { eventLog.Append(level, text); }
     void RuntimeLog(LogLevel level, const std::string &text) { eventLog.Post(level, text); }
+    void RefreshInvalidLinks();
     void DrainRuntimeLog() { eventLog.Drain(); }
     bool RunRuntime(const std::string &label, std::function<void()> work, std::function<void(bool)> completed = {});
     void PollRuntimeOperations();

@@ -42,7 +42,7 @@ bool Near(float a, float b) { return std::fabs(a - b) < 0.5f; }
 
 // The Building Block clicked alone (the Schematic in front).
 std::optional<Shown> ClickFirstBlock(ImGuiTestContext *ctx) {
-    Settle(ctx, "//Schematic");
+    Settle(ctx, SchematicRef().c_str());
     const std::optional<Shown> block = FirstBlock();
     if (!block) return block;
     ctx->LogInfo("block '%s'", block->name.c_str());
@@ -77,7 +77,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "priority_selection_single_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const auto shown = App().Canvas().ShownBehaviors();
         std::vector<Shown> blocks;
         for (const auto &item : shown)
@@ -105,9 +105,9 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const auto steps = state.History().UndoCount();
         const auto dirty = state.document->Dirty();
         OnMainThread(ctx, [&] {
-            state.selection.Clear();
+            state.Schematic().selection.Clear();
             for (const auto &block : blocks)
-                state.selection.Add(block.script, {vdev::ElementKind::Behavior, 0, block.behavior});
+                state.Schematic().selection.Add(block.script, {vdev::ElementKind::Behavior, 0, block.behavior});
         });
         ctx->KeyPress(ImGuiKey_Y);
         ctx->Yield(3);
@@ -128,7 +128,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "script_color_cancel_and_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const auto scripts = App().Canvas().ShownScripts();
         IM_CHECK(!scripts.empty());
         const auto script = scripts.front();
@@ -140,7 +140,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const auto steps = App().State().History().UndoCount();
         const auto dirty = App().State().document->Dirty();
         const auto open = [&] {
-            ctx->WindowFocus("//Schematic");
+            ctx->WindowFocus(SchematicRef().c_str());
             ctx->MouseMoveToPos(Center(script.headerMin, script.headerMax));
             ctx->MouseClick(1);
             ctx->Yield(3);
@@ -173,7 +173,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     // moves it again.
     t = IM_REGISTER_TEST(engine, "schematic", "move_block_undo");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         vdev::EditorState &state = App().State();
         IM_CHECK(state.HasDocument());
         const std::optional<Shown> block = FirstBlock();
@@ -210,7 +210,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     // another move must still commit as its own undo step.
     t = IM_REGISTER_TEST(engine, "schematic", "move_block_cancel_and_reedit");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const auto block = FirstBlock();
         IM_CHECK_SILENT(block.has_value());
         auto &state = App().State();
@@ -256,7 +256,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "move_focus_loss_restores");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const auto block = FirstBlock();
         IM_CHECK(block.has_value());
         auto &state = App().State();
@@ -283,7 +283,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "draw_graph_escape_preserves_document");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const auto point = EmptySchematicPoint();
         IM_CHECK(point.has_value());
         auto &state = App().State();
@@ -310,7 +310,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
 
     t = IM_REGISTER_TEST(engine, "schematic", "delete_block_undo");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         vdev::EditorState &state = App().State();
         IM_CHECK(state.HasDocument());
         const std::optional<Shown> block = FirstBlock();
@@ -319,7 +319,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->MouseMoveToPos(Center(block->min, block->max));
         ctx->MouseClick(0);
         ctx->Yield(2);
-        IM_CHECK_EQ(state.selection.items.size(), 1u);
+        IM_CHECK_EQ(state.Schematic().selection.items.size(), 1u);
         ctx->KeyPress(ImGuiKey_Delete);
         ctx->Yield(3);
         IM_CHECK(!Find(block->behavior).has_value());
@@ -388,7 +388,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "comment_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint();
         IM_CHECK_SILENT(point.has_value());
         const int before = CommentCount(ctx, point->first);
@@ -408,7 +408,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK_STR_EQ(App().State().History().UndoLabel().c_str(), "Add Comment");
         // Its text editor opens on it (the shortcuts wait while it is open): Escape.
         IM_CHECK(WindowShown(ctx, "//Edit Comment"));
-        const auto ref = Read<vdev::ElementRef>(ctx, [] { return App().State().selection.items.front(); });
+        const auto ref = Read<vdev::ElementRef>(ctx, [] { return App().State().Schematic().selection.items.front(); });
         const auto text = [&] {
             return Read<std::string>(ctx, [&] {
                 const auto *session = App().State().document->Session(point->first);
@@ -450,7 +450,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     // Script.
     t = IM_REGISTER_TEST(engine, "schematic", "explorer_find");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const std::optional<Shown> block = FirstBlock();
         IM_CHECK_SILENT(block.has_value());
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_F);
@@ -472,7 +472,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         // F3: the next result (the first) shown, its Script in the Schematic.
         ctx->KeyPress(ImGuiKey_F3);
         ctx->Yield(3);
-        IM_CHECK_EQ(App().State().stackScript, results[0].script);
+        IM_CHECK_EQ(App().State().Schematic().stackScript, App().State().document->Reference(results[0].script));
     };
 
     // Ctrl+F in the Schematic: Find, the first Building Block's name, Find
@@ -480,23 +480,23 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     // the end (nothing selected).
     t = IM_REGISTER_TEST(engine, "schematic", "find_dialog");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const std::optional<Shown> block = FirstBlock();
         IM_CHECK_SILENT(block.has_value());
-        ctx->WindowFocus("//Schematic");
-        App().State().selection.Clear();
+        ctx->WindowFocus(SchematicRef().c_str());
+        App().State().Schematic().selection.Clear();
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_F);
         ctx->Yield(3);
         IM_CHECK_SILENT(WindowShown(ctx, "//Find###SchematicFind"));
         // Enter: Find Next.
         ctx->ItemInputValue("//Find###SchematicFind/Find", block->name.c_str());
         ctx->Yield(5);
-        const vdev::Selection &selection = App().State().selection;
+        const vdev::Selection &selection = App().State().Schematic().selection;
         const vdev::ElementRef found = App().Canvas().Found();
         IM_CHECK_SILENT(found.IsValid());
         IM_CHECK_EQ(selection.items.size(), 1u);
         IM_CHECK(!selection.items.empty() && selection.items.front() == found);
-        ctx->WindowFocus("//Schematic");
+        ctx->WindowFocus(SchematicRef().c_str());
         ctx->KeyPress(ImGuiKey_F3);
         ctx->Yield(5);
         IM_CHECK(!(App().Canvas().Found() == found));
@@ -508,7 +508,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "show_object_in_level_manager");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const std::vector<vdev::SchematicCanvas::ShownScript> scripts = App().Canvas().ShownScripts();
         IM_CHECK_SILENT(!scripts.empty());
         const vdev::SchematicCanvas::ShownScript script = scripts.front();
@@ -538,7 +538,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "shift_export_refused");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         std::optional<vdev::SchematicCanvas::ShownPin> found;
         for (const vdev::SchematicCanvas::ShownPin &pin : App().Canvas().ShownPins())
             if (!found && pin.kind == vdev::PinKind::ParamIn) {
@@ -577,7 +577,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "start_click_link_undo");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         // Bring the complete stack into view before caching pin coordinates;
         // a short viewport can otherwise autoscroll during the two clicks.
         ctx->KeyPress(ImGuiKey_KeypadSubtract);
@@ -585,8 +585,8 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->KeyPress(ImGuiKey_End);
         ctx->Yield(3);
         // Auto Link on (a click on an I/O begins a link), as it was after.
-        const bool autoLink = App().State().view.autoLink;
-        OnMainThread(ctx, [] { App().State().view.autoLink = true; });
+        const bool autoLink = App().State().Schematic().options.autoLink;
+        OnMainThread(ctx, [] { App().State().Schematic().options.autoLink = true; });
         // Start's links to the owner's inputs (none wanted: a new one is made).
         auto startLinks = [](CK_ID script, CK_ID owner) {
             CKBehavior *graph = Object<CKBehavior>(script);
@@ -634,20 +634,20 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         Undo(ctx);
         IM_CHECK_EQ(Read<int>(ctx, [&] { return startLinks(id, owner); }), 0);
         IM_CHECK(!state.document->Dirty());
-        OnMainThread(ctx, [autoLink] { App().State().view.autoLink = autoLink; });
+        OnMainThread(ctx, [autoLink] { App().State().Schematic().options.autoLink = autoLink; });
     };
 
     // H over the Schematic: the Message Explorer; H again closes it.
     t = IM_REGISTER_TEST(engine, "schematic", "message_explorer");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint();
         IM_CHECK_SILENT(point.has_value());
         ctx->MouseMoveToPos(point->second);
         ctx->KeyPress(ImGuiKey_H);
         ctx->Yield(3);
         IM_CHECK(WindowShown(ctx, "//Message Explorer"));
-        ctx->WindowFocus("//Schematic");
+        ctx->WindowFocus(SchematicRef().c_str());
         ctx->MouseMoveToPos(point->second);
         ctx->KeyPress(ImGuiKey_H);
         ctx->Yield(3);
@@ -676,7 +676,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(graph != 0 && graph != parent);
         auto alive = [&] { return Read<bool>(ctx, [&] { return !state.document->IsDiscarded(graph) && state.document->Context()->GetObject(graph); }); };
         auto selectGraph = [&] {
-            OnMainThread(ctx, [&] { state.selection.Set(block->script, vdev::ElementRef{vdev::ElementKind::Behavior, parent, graph}); });
+            OnMainThread(ctx, [&] { state.Schematic().selection.Set(block->script, vdev::ElementRef{vdev::ElementKind::Behavior, parent, graph}); });
             ctx->Yield(2);
         };
         const size_t steps = state.History().UndoCount();
@@ -706,7 +706,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     // "+" 75% below it, else 100%; "-" 50% at or below 75%, else 75%).
     t = IM_REGISTER_TEST(engine, "schematic", "zoom_levels");
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint();
         IM_CHECK_SILENT(point.has_value());
         ctx->MouseMoveToPos(point->second);
@@ -734,7 +734,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "invalid_link_type_change");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//Schematic");
+        Settle(ctx, SchematicRef().c_str());
         vdev::EditorState &state = App().State();
         // Two Logics Building Blocks with an Int input inserted in an open
         // Script, at an empty place (core commands; the test is the dialog).
@@ -807,7 +807,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
                 if (behavior->GetInputParameter(i) == in) index = i;
             // Scrolled to (the blocks are inserted out of the view).
             CKBehavior *graph = behavior->GetParent();
-            state.events.Post(vdev::ShowElement{script, vdev::ElementRef{vdev::ElementKind::Behavior, graph ? graph->GetID() : script, owner}, owner});
+            state.events.Post(vdev::ShowElement{*state.document, script, vdev::ElementRef{vdev::ElementKind::Behavior, graph ? graph->GetID() : script, owner}, owner});
         });
         ctx->Yield(6);
         std::optional<ImVec2> pin;
@@ -848,6 +848,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         while (state.History().UndoCount() > steps) Undo(ctx);
         IM_CHECK(!state.document->Dirty());
     };
+
 }
 
 } // namespace vdevuitest

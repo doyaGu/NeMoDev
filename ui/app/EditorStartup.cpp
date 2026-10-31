@@ -50,26 +50,26 @@ void EditorApp::RunStartupActions(bool opened) {
         else m_State.Log(LogLevel::Error, "--drop-block: unknown Building Block " + m_Startup.dropBlock);
     }
     if (opened || m_Startup.newComposition) {
-        for (CK_ID script : m_State.visibleScripts) {
+        for (CK_ID script : m_State.Schematic().visibleScripts) {
             if (m_Startup.openScripts)
-                if (ScriptSession *session = m_State.document->Session(script)) session->SetOpen(true);
+                if (!m_Schematics.Current().ScriptOpen(script)) m_Schematics.Current().ToggleScriptOpen(script);
             if (m_Startup.expandGraphs)
                 EditScriptData(*m_State.document, script, "Expand graphs", [](InterfaceData &data) {
                     for (auto &record : data.behaviors)
                         if (record.isBehaviorGraph) SetBehaviorFolded(data, record.id, false);
                 });
         }
-        if (!m_Startup.insertBlock.empty() && !m_State.visibleScripts.empty()) InsertStartupBlock();
+        if (!m_Startup.insertBlock.empty() && !m_State.Schematic().visibleScripts.empty()) InsertStartupBlock();
         if (m_Startup.fit) m_FitFrames = 3;
         for (const auto &script : m_State.document->Scripts()) {
             const std::string name = AnsiToUtf8(script.name);
             for (const auto &closed : m_Startup.closeScripts)
                 if (closed == name)
-                    if (ScriptSession *session = m_State.document->Session(script.id)) session->SetOpen(false);
+                    if (m_Schematics.Current().ScriptOpen(script.id)) m_Schematics.Current().ToggleScriptOpen(script.id);
             for (const auto &zoom : m_Startup.zoomScripts)
-                if (zoom.first == name) m_Canvas.SetScriptZoom(script.id, zoom.second);
+                if (zoom.first == name) m_Schematics.Current().SetScriptZoom(script.id, zoom.second);
         }
-        if (m_Startup.messages) m_Canvas.ShowMessageExplorer();
+        if (m_Startup.messages) m_Schematics.Current().ShowMessageExplorer();
         if (m_Startup.expandLevel) {
             const EditorValue expand{EDITOR_TEXT("expand"), EDITOR_INTEGER_VALUE, {}, {}, 2};
             const EditorRequest request{m_Editor.Scope(), &expand, 1};
@@ -148,7 +148,7 @@ void EditorApp::RunStartupActions(bool opened) {
             m_Editor.Execute("runtime.set-max-frames", {m_Editor.Scope(), &frames, 1});
             Command("runtime.play");
         }
-        if (m_Startup.menuAt) m_Canvas.RequestMenuAt(ImVec2(m_Startup.menuX, m_Startup.menuY));
+        if (m_Startup.menuAt) m_Schematics.Current().RequestMenuAt(ImVec2(m_Startup.menuX, m_Startup.menuY));
         if (!m_Startup.editParameters.empty()) {
             // The first behavior or operation of that name, in a Script.
             CKContext *context = m_State.document->Context();
@@ -194,7 +194,7 @@ void EditorApp::RunStartupActions(bool opened) {
 
 // --insert-block: exercises the topology commands for --capture checks.
 void EditorApp::InsertStartupBlock() {
-    const CK_ID script = m_State.visibleScripts.front();
+    const CK_ID script = m_State.Schematic().visibleScripts.front();
     const BuildingBlockEntry *found = nullptr;
     for (const auto &entry : m_State.catalog.Entries())
         if (entry.name == m_Startup.insertBlock) found = &entry;
@@ -283,18 +283,18 @@ void EditorApp::OpenStartupDialog(const std::string &name) {
     if (name == "breakpointconfig" || name == "breakpoints") {
         // A breakpoint on the first Script's first behavior when there is none.
         CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-        CKBehavior *script = context && !m_State.visibleScripts.empty()
-                                 ? CKBehavior::Cast(context->GetObject(m_State.visibleScripts.front()))
+        CKBehavior *script = context && !m_State.Schematic().visibleScripts.empty()
+                                 ? CKBehavior::Cast(context->GetObject(m_State.Schematic().visibleScripts.front()))
                                  : nullptr;
         if (m_State.debugger && m_State.debugger->Breakpoints().empty() && script && script->GetSubBehaviorCount() > 0)
             ToggleBreakpoint(*m_State.document, script->GetID(), EXTRA_DATA_BEHAVIOR, script->GetSubBehavior(0)->GetID());
-        if (name == "breakpoints") m_Canvas.OpenBreakpointList();
-        else m_Canvas.ConfigureBreakpoints();
+        if (name == "breakpoints") m_Schematics.Current().OpenBreakpointList();
+        else m_Schematics.Current().ConfigureBreakpoints();
     } else if (name == "invalidlinks") {
         // A link of the first Script listed as invalid (the explorer's look).
-        if (m_State.invalidLinks.empty() && !m_State.visibleScripts.empty())
-            m_State.invalidLinks.push_back({m_State.visibleScripts.front(), m_State.visibleScripts.front(), -1, 0, true, "capture"});
-        m_Canvas.ShowInvalidLinks();
+        if (m_State.invalidLinks.empty() && !m_State.Schematic().visibleScripts.empty())
+            m_State.invalidLinks.push_back({m_State.Schematic().visibleScripts.front(), m_State.Schematic().visibleScripts.front(), -1, 0, true, "capture"});
+        m_Schematics.Current().ShowInvalidLinks();
     }
 }
 
@@ -304,7 +304,7 @@ void EditorApp::StartupFrame(bool settled) {
     if (!settled) {
     } else if (m_StartupParameters) {
         // --edit-parameters once the focus settled (a focus change closes popups).
-        m_Canvas.OpenParametersOf(m_StartupParametersScript, m_StartupParameters);
+        m_Schematics.Current().OpenParametersOf(m_StartupParametersScript, m_StartupParameters);
         m_StartupParameters = 0;
     } else if (!m_Startup.editValue.empty() && m_StartupValueState == 0 && m_State.HasDocument()) {
         CKContext *context = m_State.document->Context();

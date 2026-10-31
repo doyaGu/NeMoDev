@@ -294,17 +294,16 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             IM_CHECK(script.ok);
             const auto graph = vdev::CreateBehaviorGraph(document, script.created, script.created, "Copied graph", Point(240, 120));
             IM_CHECK(graph.ok);
-            state.selection.Set(script.created, vdev::ElementRef{vdev::ElementKind::Behavior, script.created, graph.created});
-            vdev::SchematicCanvas canvas(state);
-            canvas.Copy();
+            state.Schematic().selection.Set(script.created, vdev::ElementRef{vdev::ElementKind::Behavior, script.created, graph.created});
+            App().Canvas().Copy();
             IM_CHECK(!state.clipboard.Empty());
-            IM_CHECK(vdev::DeleteElements(document, script.created, state.selection.items).ok);
+            IM_CHECK(vdev::DeleteElements(document, script.created, state.Schematic().selection.items).ok);
             document.History().Clear();
             const auto pasted = vdev::PasteBehaviors(document, state.clipboard.data, state.clipboard.behaviors,
                                                       state.clipboard.comments, script.created, script.created, Point(500, 200));
             IM_CHECK(pasted.ok && pasted.created);
             state.clipboard = {};
-            state.selection.Clear();
+            state.Schematic().selection.Clear();
             state.objectClipboard.SetScripts(document, {script.created});
             IM_CHECK(state.objectClipboard.Objects(*state.document).empty());
             IM_CHECK(vdev::DeleteScript(document, script.created).ok);
@@ -407,7 +406,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         IM_CHECK(App().State().HasDocument());
-        for (const std::string &name : {std::string("//3D Layout"), std::string("//Schematic"), SceneRef("level"), BlocksRef()})
+        for (const std::string &name : {std::string("//3D Layout"), std::string(SchematicRef().c_str()), SceneRef("level"), BlocksRef()})
             IM_CHECK_NO_RET(ctx->GetWindowByRef(name.c_str()) != nullptr);
     };
 

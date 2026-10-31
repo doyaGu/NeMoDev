@@ -26,7 +26,19 @@ namespace vdev {
 // its session revision or the document topology changes.
 class SchematicCanvas {
 public:
-    explicit SchematicCanvas(EditorState &state) : m_State(state) {}
+    explicit SchematicCanvas(EditorState &state, EditorView instance);
+    ~SchematicCanvas();
+    SchematicNavigation &Navigation() { return m_Navigation; }
+    const SchematicNavigation &Navigation() const { return m_Navigation; }
+    void ValidateNavigation();
+    void ShowScript(CK_ID, const ElementRef & = {}, CK_ID focusBehavior = 0, bool focus = true);
+    void RefreshStack();
+    bool ScriptOpen(CK_ID) const;
+    EditorStatus Navigate(const EditorRequest &);
+    EditorStatus Inspect(EditorSink);
+    EditorStatus Save(EditorSink) const;
+    EditorStatus Restore(const EditorRequest &);
+    void Draw(EditorViewFrame &);
 
     void Draw(const char *title, bool *open);
     void CancelEdits() {
@@ -36,16 +48,12 @@ public:
     void CancelInteraction();
     void ResetView();
     void FitAll();
-    void Invalidate() { m_Views.clear(); }
+    void Invalidate();
     // A drag going on (move, resize, link, selection rectangle...): it ends
     // with the data it began with.
     bool Busy() const { return m_Tool != Tool::Idle; }
     // The composition is closed: Set Shortcut Source's next click no longer picks.
-    void DocumentClosed() {
-        CancelEdits();
-        Invalidate();
-        m_Doc = DocumentState(); // a gesture going on is taken back (none is: Busy)
-    }
+    void DocumentClosed();
     // Rebuilds the models (values shown while the Script Debugger runs).
     void RefreshValues() {
         for (auto &view : m_Views) view.revision = ~0ull;
@@ -178,8 +186,10 @@ public:
     std::unique_ptr<SchematicPrintContent> CapturePrint() const;
 
 private:
+    friend class SchematicViews;
     struct ScriptView {
         CK_ID id = 0;
+        ObjectRef identity{};
         SchematicModel model;
         std::uint64_t revision = ~0ull;
         std::uint64_t topology = ~0ull;
@@ -207,6 +217,7 @@ private:
     };
     enum class Tool { Idle, Pending, Pan, Zoom, Resize, ResizeElement, Reorder, RectSelect, Move, Link, CopyDrag, ExportDrag };
 
+    void RequestFile(const FileDialogOptions &, FileDialogs::Completion);
     CK_ID ToolbarScript() const;
 
     // The Scripts whose header is selected, else ToolbarScript.
@@ -237,7 +248,7 @@ private:
     void ContextMenu();
     void CommentEditor();
     void Tooltip(const Hit &hit);
-    bool IsSelected(CK_ID script, const ElementRef &ref) const { return m_State.selection.Contains(script, ref); }
+    bool IsSelected(CK_ID script, const ElementRef &ref) const { return m_Navigation.selection.Contains(script, ref); }
     void Click(const Hit &hit);
     void DoubleClick(const Hit &hit);
     // Link endpoint named by a hit: pins, Start, local parameters, shortcuts.
@@ -359,6 +370,7 @@ private:
     void LinkErrorsExplorer();
     bool m_ShowLinkErrors = false;
     int m_LinkErrorPick = -1;
+    ElementAddress m_LinkErrorAddress;
     void BeginPickShortcutSource(CK_ID from);
     void RetargetAllShortcuts(CK_ID from, CK_ID to);
     void ReplaceOperation(CK_ID script, CK_ID operation, const OperationSignature &signature);
@@ -509,6 +521,19 @@ private:
     };
 
     EditorState &m_State;
+    EditorView m_Instance = 0;
+    DocumentToken m_Document{};
+    SchematicNavigation m_Navigation;
+    ElementAddress m_PressAddress, m_MenuAddress, m_FoundAddress;
+    // Published outside read-only view queries.
+    std::vector<ObjectRef> m_QuerySelection, m_QueryScripts;
+    ObjectRef m_QueryScript{};
+    ElementRef m_QueryElement;
+    std::uint64_t m_StackRevision = 0;
+    std::tuple<std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t> m_QueryVersion{};
+    void PublishNavigation();
+    bool m_MenuStale = false;
+    void RetainHit(const Hit &, ElementAddress &);
     std::vector<ScriptView> m_Views;
     ViewTransform m_View;
     bool m_ViewInitialized = false;

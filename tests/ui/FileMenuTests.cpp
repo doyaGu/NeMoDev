@@ -170,7 +170,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             document.History().MarkSavePoint();
             IM_CHECK_NO_RET(vdev::RenameLevelObject(document, document.Reference(made.created), "Undo after failed load").ok);
             IM_CHECK_NO_RET(document.History().Undo() && !document.Dirty());
-            state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
+            state.Schematic().selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
             state.objectSelection.Restore(*state.document, {made.created});
             probe->context = document.Context();
             probe->manager = new FileMenuLoadFailureManager(document.Context());
@@ -179,7 +179,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            probe->selection = state.selection;
+            probe->selection = state.Schematic().selection;
             probe->objects = state.objectSelection;
             probe->undo = state.History().UndoCount();
             probe->undoLabel = state.History().UndoLabel();
@@ -201,8 +201,8 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                 auto &state = App().State();
                 IM_CHECK_NO_RET(probe->completed && !probe->loaded && probe->manager->fired);
                 IM_CHECK_NO_RET(state.document->Context() == probe->context && !state.document->Dirty());
-                IM_CHECK_NO_RET(state.selection.script == probe->selection.script && state.selection.items == probe->selection.items &&
-                                state.selection.headers == probe->selection.headers);
+                IM_CHECK_NO_RET(state.Schematic().selection.script == probe->selection.script && state.Schematic().selection.items == probe->selection.items &&
+                                state.Schematic().selection.headers == probe->selection.headers);
                 IM_CHECK_NO_RET(state.objectSelection.Objects() == probe->objects.Objects() && state.objectSelection.Revision() == probe->objects.Revision());
                 IM_CHECK_NO_RET(state.History().UndoCount() == probe->undo && state.History().CanRedo());
                 IM_CHECK_NO_RET(state.History().UndoLabel() == probe->undoLabel && state.History().RedoLabel() == probe->redoLabel);
@@ -356,7 +356,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
             state.objectSelection.Restore(*state.document, {object}, true);
         });
         ctx->Yield(5);
-        OnMainThread(ctx, [&] { App().State().selection.Set(script, vdev::Selection::HeaderOf(script)); });
+        OnMainThread(ctx, [&] { App().State().Schematic().selection.Set(script, vdev::Selection::HeaderOf(script)); });
         auto check = [&] {
             IM_CHECK(Read<bool>(ctx, [&] {
                 auto &state = App().State();
@@ -366,7 +366,7 @@ void RegisterFileMenuTests(ImGuiTestEngine *engine) {
                        !document.Dirty() && document.History().UndoLabel() == undo &&
                        document.History().RedoLabel() == redo && state.objectSelection.Locked() &&
                        state.objectSelection.Objects() == std::vector<CK_ID>{object} &&
-                       state.selection.Contains(script, vdev::Selection::HeaderOf(script)) &&
+                       state.Schematic().selection.Contains(script, vdev::Selection::HeaderOf(script)) &&
                        App().LevelSelection() == std::set<CK_ID>{object} &&
                        App().Layout().View().RenderContext() == render;
             }));

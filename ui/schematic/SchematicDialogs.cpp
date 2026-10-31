@@ -149,7 +149,7 @@ void SchematicCanvas::LocalParameterDialog() {
             Report(AddLocalParameter(*m_State.document, m_Doc.dialogScript, m_Doc.dialogGraph,
                                      Utf8ToAnsi(m_LocalName), m_Types[m_TypeIndex].guid, m_Doc.dialogPosition),
                    "Add local parameter");
-            m_State.view.showLocalParams = true;
+            m_Navigation.options.showLocalParams = true;
         } else {
             const bool input = m_TypePurpose == TypePurpose::GraphInput;
             const PinKind kind = input ? PinKind::ParamIn : PinKind::ParamOut;
@@ -516,8 +516,8 @@ void SchematicCanvas::EditElement(CK_ID script, const ElementRef &ref) {
     CKContext *context = m_State.document->Context();
     switch (ref.kind) {
     case ElementKind::Behavior: {
-        m_State.selection.Clear();
-        m_State.selection.Add(script, ref);
+        m_Navigation.selection.Clear();
+        m_Navigation.selection.Add(script, ref);
         if (!BehaviorSettings(CKBehavior::Cast(context->GetObject(ref.object))).empty()) OpenSettingsDialog();
         else OpenParametersDialog();
         break;
@@ -542,7 +542,7 @@ void SchematicCanvas::EditElement(CK_ID script, const ElementRef &ref) {
 }
 
 void SchematicCanvas::OpenSettingsDialog() {
-    const Selection &selection = m_State.selection;
+    const Selection &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || selection.items[0].kind != ElementKind::Behavior || !m_State.HasDocument())
         return;
     CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(selection.items[0].object));

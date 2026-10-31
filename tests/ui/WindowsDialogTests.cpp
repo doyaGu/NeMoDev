@@ -189,7 +189,7 @@ void RegisterWindowsDialogTests(ImGuiTestEngine *engine) {
         t->GuiFunc = MainThreadGui;
         t->TestFunc = [](ImGuiTestContext *ctx) {
             const char *action = ctx->Test->Name;
-            SettleDesktop(ctx, "//Schematic");
+            SettleDesktop(ctx, SchematicRef().c_str());
             const ContentState content;
             const LogStart log;
             const auto output = Output(u8"\u4e2d\u6587\u6253\u5370.pdf");

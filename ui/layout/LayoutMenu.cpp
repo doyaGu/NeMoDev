@@ -282,7 +282,7 @@ void LayoutWindow::CreateScriptsOnSelection() {
 }
 
 void LayoutWindow::ShowScriptInSchematic(CK_ID script) {
-    m_State.events.Post(ShowElement{script});
+    m_State.events.Post(ShowElement{*m_State.document, script});
 }
 
 // Command 150; one undo step, the default views' not marking the

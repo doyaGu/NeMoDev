@@ -474,7 +474,7 @@ void SetupWindows::ShowInSchematic(CKBehavior *behavior, const ElementRef &ref) 
     const bool shown = script && m_State.document->FindScript(script->GetID());
     ImGui::BeginDisabled(!shown);
     if (ImGui::Button("Show in Schematic") && shown)
-        m_State.events.Post(ShowElement{
+        m_State.events.Post(ShowElement{*m_State.document,
             script->GetID(),
             ref.IsValid() || behavior == script || !behavior->GetParent()
                 ? ref

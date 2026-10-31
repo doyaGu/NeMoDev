@@ -555,7 +555,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//Script Debugger/Debug Inside Frames");
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().debugger->trace && App().State().debugger->insideFrames; }));
-        ctx->WindowFocus("//Schematic");
+        ctx->WindowFocus(SchematicRef().c_str());
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_T);
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().debugger->trace; }));
@@ -733,14 +733,14 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::RenameLevelObject(*state.document, state.document->Reference(frame.created), "Redo after failed switch").ok);
             IM_CHECK_NO_RET(state.History().Undo());
             state.objectSelection.Restore(*state.document, {frame.created}, true);
-            state.selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
+            state.Schematic().selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
         });
         ctx->Yield(4);
         OnMainThread(ctx, [&] {
             auto &state = App().State(); auto &editor = state.workspace->Application();
             const auto context = state.document->Context(); const auto token = state.document->Token();
             const auto objectSelection = state.objectSelection;
-            const auto selection = state.selection;
+            const auto selection = state.Schematic().selection;
             const auto undo = state.History().UndoCount(); const auto redo = state.History().RedoLabel();
             const auto revision = state.document->TopologyRevision(); const auto dirty = state.document->Dirty();
             IM_CHECK_NO_RET(editor.Execute("runtime.play", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
@@ -776,7 +776,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                 IM_CHECK_NO_RET(state.document->Context() == context && state.document->Token() == token);
                 IM_CHECK_NO_RET(state.document->TopologyRevision() == revision && state.document->Dirty() == dirty);
                 IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() && state.History().RedoLabel() == redo);
-                IM_CHECK_NO_RET(state.selection.script == selection.script && state.selection.items == selection.items);
+                IM_CHECK_NO_RET(state.Schematic().selection.script == selection.script && state.Schematic().selection.items == selection.items);
                 IM_CHECK_NO_RET(state.objectSelection.References() == objectSelection.References() && state.objectSelection.Locked() == objectSelection.Locked() && state.objectSelection.Revision() == objectSelection.Revision());
                 IM_CHECK_NO_RET(state.debugger->GetState() == vdev::Debugger::State::Running);
             }

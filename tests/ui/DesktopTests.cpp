@@ -272,7 +272,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "desktopprint", "system_cancel");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        SettleDesktop(ctx, "//Schematic");
+        SettleDesktop(ctx, SchematicRef().c_str());
         const size_t log = App().State().eventLog.Entries().size();
         PrintResponse response;
         ctx->MenuClick("//##MainMenuBar/File/Print Schematic...");
@@ -285,7 +285,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "desktopprint", "system_pdf_pagination");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        SettleDesktop(ctx, "//Schematic");
+        SettleDesktop(ctx, SchematicRef().c_str());
         const auto output = Output(u8"\u4e2d\u6587\u6253\u5370.pdf");
         fs::create_directories(output.parent_path());
         fs::remove(output);
@@ -311,7 +311,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "desktopprint", "system_parameters_cancel");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        SettleDesktop(ctx, "//Schematic");
+        SettleDesktop(ctx, SchematicRef().c_str());
         const auto output = Output("cancelled.pdf");
         fs::remove(output);
         const auto temporary = TemporaryPdfs();
@@ -328,7 +328,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "desktopprint", "system_submission_failure");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        SettleDesktop(ctx, "//Schematic");
+        SettleDesktop(ctx, SchematicRef().c_str());
         const auto output = Output("blocked.pdf");
         fs::remove(output);
         const auto temporary = TemporaryPdfs();
@@ -350,7 +350,7 @@ void RegisterDesktopTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "desktopcups", "cups_pagination");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
-        SettleDesktop(ctx, "//Schematic");
+        SettleDesktop(ctx, SchematicRef().c_str());
         const char *capture = SDL_getenv("VIRTOOLSDEV_CUPS_CAPTURE_DIR");
         IM_CHECK(capture != nullptr);
         const fs::path directory = fs::u8path(capture);

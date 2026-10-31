@@ -1283,7 +1283,7 @@ struct ParameterDialog {
         std::vector<EditorValue> arguments(values,values+5);if(d.kind==2)arguments.erase(arguments.begin()+1);
         const EditorRequest forwarded{request->scope,arguments.data(),uint32_t(arguments.size()),{},request->operation};
         const auto status=host->execute(host->data,d.kind==1?EditorString EDITOR_TEXT("scene.duplicate"):EditorString EDITOR_TEXT("object.destroy"),&forwarded,sink);
-        if((status==EDITOR_OK||status==EDITOR_NO_CHANGE)&&d.kind==2)d.state.selection.Clear();
+        if((status==EDITOR_OK||status==EDITOR_NO_CHANGE)&&d.kind==2)d.state.Schematic().selection.Clear();
         d.box->Clear();d.open=false;
         return status;
     }
