@@ -1367,27 +1367,25 @@ void SchematicCanvas::OpenQuickAdd(CK_ID script, const Point &local) {
 // Dev "Set Color": the stored header color (COLORREF) of the Script.
 void SchematicCanvas::ScriptColorDialog() {
     if (m_Doc.openScriptColor) {
-        ImGui::OpenPopup("Script Color");
         m_Doc.openScriptColor = false;
-        ScriptSession *session = m_Doc.colorScripts.empty() ? nullptr : m_State.document->Session(m_Doc.colorScripts.front());
-        const CKDWORD color = session ? session->Data().header.color : InterfaceChunkFormat::DEFAULT_HEADER_COLOR;
-        m_ScriptColor[0] = (color & 0xFF) / 255.0f;
-        m_ScriptColor[1] = ((color >> 8) & 0xFF) / 255.0f;
-        m_ScriptColor[2] = ((color >> 16) & 0xFF) / 255.0f;
+        if (!m_State.HasDocument() || m_Doc.colorScripts.empty()) return;
+        EditorField targets{"targets", EDITOR_OBJECT_LIST};
+        for (auto id : m_Doc.colorScripts)
+            targets.objects.push_back(m_State.document->Reference(id));
+        if (!BeginPropertyInput("schematic.script-color", targets.objects.front(), {targets})) return;
+        ImGui::OpenPopup("Script Color");
     }
     if (!ImGui::BeginPopupModal("Script Color", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::ColorPicker3("##color", m_ScriptColor, ImGuiColorEditFlags_NoSidePreview);
-    if (ImGui::Button("OK", ImVec2(100, 0))) {
-        const CKDWORD color = static_cast<CKDWORD>(m_ScriptColor[0] * 255.0f + 0.5f) |
-                              static_cast<CKDWORD>(m_ScriptColor[1] * 255.0f + 0.5f) << 8 |
-                              static_cast<CKDWORD>(m_ScriptColor[2] * 255.0f + 0.5f) << 16;
-        EditGroup group(*m_State.document, "Set Color");
-        for (CK_ID each : m_Doc.colorScripts)
-            EditScriptData(*m_State.document, each, "Set Color", [&](InterfaceData &data) { data.header.color = color; });
+    m_State.workspace->DrawInput(m_PropertyEdit, "##color", false, nullptr, EDITOR_VALUE_DIALOG, 260, 200);
+    bool close = false;
+    if (ImGui::Button("OK", ImVec2(100, 0))) close = m_State.workspace->Finish(m_PropertyEdit, true);
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_PropertyEdit)
+        close = true;
+    if (close) {
+        ClosePropertyInput();
         ImGui::CloseCurrentPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
@@ -1493,10 +1491,16 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
         m_Doc.openScriptColor = true;
     }
     if (ImGui::MenuItem("Remove Color")) {
-        EditGroup group(*m_State.document, "Remove Color");
-        for (CK_ID each : scripts)
-            EditScriptData(*m_State.document, each, "Remove Color",
-                           [](InterfaceData &data) { data.header.color = InterfaceChunkFormat::DEFAULT_HEADER_COLOR; });
+        EditorField targets{"targets", EDITOR_OBJECT_LIST};
+        for (auto id : scripts)
+            targets.objects.push_back(m_State.document->Reference(id));
+        if (!targets.objects.empty()) {
+            const std::vector<EditorField> fields{{"target", EDITOR_OBJECT, targets.objects.front()},
+                                                  std::move(targets)};
+            const auto values = BorrowEditorFields(fields);
+            auto &app = m_State.workspace->Application();
+            app.Execute("schematic.reset-color", {app.Scope(), values.data(), uint32_t(values.size())});
+        }
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Rename", "F2", false, scripts.size() == 1)) BeginRename();
@@ -1621,7 +1625,6 @@ void SchematicCanvas::LinkMenu(ScriptView &view, const LinkItem &link, const Poi
     if (link.behaviorLink && ImGui::MenuItem("Edit Link Delay", "E")) {
         m_Doc.dialogScript = view.id;
         m_Doc.delayLink = link.ref.object;
-        m_DelayValue = link.delay;
         m_Doc.openDelay = true;
     }
     if (!link.conversion.empty() && ImGui::MenuItem("Edit Parameter Operation Link", "E"))
@@ -1705,7 +1708,6 @@ void SchematicCanvas::ContextMenuItems() {
                 if (comment.ref == hit.ref) {
                     m_Doc.commentScript = view->id;
                     m_Doc.commentRef = hit.ref;
-                    m_CommentText = comment.text;
                     m_Doc.openCommentEditor = true;
                 }
         if (ImGui::MenuItem("Cut", "Ctrl+X")) Cut();

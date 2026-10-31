@@ -654,7 +654,6 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 if (link.ref == item && link.behaviorLink) {
                     m_Doc.dialogScript = view->id;
                     m_Doc.delayLink = link.ref.object;
-                    m_DelayValue = link.delay;
                     m_Doc.openDelay = true;
                 }
         } else if (view && (item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut)) {
@@ -707,7 +706,6 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                     if (comment.ref != selection.items[0]) continue;
                     m_Doc.commentScript = selection.script;
                     m_Doc.commentRef = comment.ref;
-                    m_CommentText = comment.text;
                     m_Doc.openCommentEditor = true;
                 }
             }

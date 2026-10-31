@@ -576,7 +576,6 @@ void SchematicCanvas::AddComment(CK_ID script, const Point &local) {
     if (!added || slot < 0) return;
     m_Doc.commentScript = script;
     m_Doc.commentRef = {ElementKind::Comment, graph, 0, slot};
-    m_CommentText = "Comment";
     m_Doc.openCommentEditor = true;
     m_State.selection.Set(script, m_Doc.commentRef);
 }
@@ -1401,32 +1400,19 @@ void SchematicCanvas::OpenParametersOf(CK_ID script, CK_ID object) {
 }
 
 void SchematicCanvas::OpenPriorityDialog() {
-    const Selection &selection = m_State.selection;
+    const auto &selection = m_State.selection;
     if (!m_State.HasDocument()) return;
-    m_PriorityScripts.clear();
-    // Script headers (documentation "Script Header": Edit Priority edits the
-    // Script's priority), one or several.
+    m_PriorityTargets.clear();
     if (selection.OnlyHeaders()) {
-        m_PriorityScripts = selection.Scripts();
-        CKBehavior *first = m_PriorityScripts.empty() ? nullptr
-                                                      : CKBehavior::Cast(m_State.document->Context()->GetObject(m_PriorityScripts.front()));
-        if (first) {
-            m_PriorityValue = first->GetPriority();
-            m_OpenPriority = true;
-            return;
-        }
-        m_PriorityScripts.clear();
+        for (auto id : selection.Scripts())
+            if (auto ref = m_State.document->Reference(id)) m_PriorityTargets.push_back(ref);
+    } else {
+        for (const auto &item : selection.items)
+            if (item.kind == ElementKind::Behavior)
+                if (auto ref = m_State.document->Reference(item.object)) m_PriorityTargets.push_back(ref);
     }
-    for (const auto &item : selection.items) {
-        if (item.kind != ElementKind::Behavior) continue;
-        CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(item.object));
-        if (!behavior) continue;
-        m_Doc.dialogScript = selection.script;
-        m_PriorityValue = behavior->GetPriority();
-        m_OpenPriority = true;
-        return;
-    }
-    m_State.Log(LogLevel::Info, "Select behaviors to edit their priority (Y)");
+    m_OpenPriority = !m_PriorityTargets.empty();
+    if (!m_OpenPriority) m_State.Log(LogLevel::Info, "Select behaviors to edit their priority (Y)");
 }
 
 void SchematicCanvas::InsertBlockAt(const CKGUID &guid, CK_ID script, const Point &local) {
@@ -1591,7 +1577,6 @@ void SchematicCanvas::DoubleClick(const Hit &hit) {
             if (link.ref == hit.ref && link.behaviorLink) {
                 m_Doc.dialogScript = hit.view->id;
                 m_Doc.delayLink = link.ref.object;
-                m_DelayValue = link.delay;
                 m_Doc.openDelay = true;
             }
     } else if (hit.ref.kind == ElementKind::LocalParam || hit.ref.kind == ElementKind::Shortcut) {
@@ -1621,7 +1606,6 @@ void SchematicCanvas::DoubleClick(const Hit &hit) {
             if (comment.ref != hit.ref) continue;
             m_Doc.commentScript = hit.view->id;
             m_Doc.commentRef = hit.ref;
-            m_CommentText = comment.text;
             m_Doc.openCommentEditor = true;
         }
     }

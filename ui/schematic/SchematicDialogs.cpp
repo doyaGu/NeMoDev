@@ -21,30 +21,46 @@
 
 namespace vdev {
 
+bool SchematicCanvas::BeginPropertyInput(const char *property, ObjectRef target,
+                                         const std::vector<EditorField> &arguments) {
+    ClosePropertyInput();
+    return m_State.workspace && m_State.workspace->Begin(property, target, m_PropertyEdit, m_PropertyOwner, arguments);
+}
+void SchematicCanvas::ClosePropertyInput() {
+    if (!m_State.workspace) return;
+    m_State.workspace->Finish(m_PropertyEdit, false);
+}
 void SchematicCanvas::CommentEditor() {
     if (m_Doc.openCommentEditor) {
-        ImGui::OpenPopup("Edit Comment");
         m_Doc.openCommentEditor = false;
+        const auto &ref = m_Doc.commentRef;
+        if (!m_State.HasDocument() ||
+            !BeginPropertyInput("schematic.comment", m_State.document->Reference(m_Doc.commentScript),
+                                {{"owner", EDITOR_OBJECT, m_State.document->Reference(ref.owner)},
+                                 {"index", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ref.index)}}))
+            return;
+        ImGui::OpenPopup("Edit Comment");
     }
     if (!ImGui::BeginPopupModal("Edit Comment", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    ImGui::InputTextMultiline("##text", &m_CommentText, ImVec2(420, 160));
-    if (ImGui::Button("OK", ImVec2(100, 0))) {
-        const std::string text = Utf8ToAnsi(m_CommentText);
-        const ElementRef ref = m_Doc.commentRef;
-        EditScriptData(*m_State.document, m_Doc.commentScript, "Edit Comment", [&](InterfaceData &data) {
-            BehaviorData *record = FindRecord(data, ref.owner);
-            if (record && ref.index >= 0 && ref.index < static_cast<int>(record->comments.size()))
-                record->comments[ref.index].text = text;
-        });
+    m_State.workspace->DrawInput(m_PropertyEdit, "##text", ImGui::IsWindowAppearing(), nullptr, EDITOR_VALUE_DIALOG,
+                                 420, 160);
+    bool close = false;
+    if (ImGui::Button("OK", ImVec2(100, 0))) close = m_State.workspace->Finish(m_PropertyEdit, true);
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_PropertyEdit)
+        close = true;
+    if (close) {
+        ClosePropertyInput();
         ImGui::CloseCurrentPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
 void SchematicCanvas::CloseValueInputs() {
+    ClosePropertyInput();
+    if (m_State.workspace) m_State.workspace->CloseOwner(m_PropertyOwner);
+    m_PriorityTargets.clear();
+    m_ParameterBox.Clear();
     if (m_State.workspace) {
         m_State.workspace->Finish(m_RenameEdit, false);
         m_State.workspace->CloseOwner(m_RenameOwner);
@@ -71,19 +87,24 @@ void SchematicCanvas::RenameDialog() {
 
 void SchematicCanvas::DelayDialog() {
     if (m_Doc.openDelay) {
-        ImGui::OpenPopup("Link Delay");
         m_Doc.openDelay = false;
+        if (!m_State.HasDocument() ||
+            !BeginPropertyInput("setup.behavior-link.delay", m_State.document->Reference(m_Doc.delayLink)))
+            return;
+        ImGui::OpenPopup("Link Delay");
     }
     if (!ImGui::BeginPopupModal("Link Delay", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    ImGui::InputInt("Frames", &m_DelayValue);
-    m_DelayValue = std::max(0, std::min(32764, m_DelayValue));
-    if (ImGui::Button("OK", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
-        Report(SetLinkDelay(*m_State.document, m_Doc.dialogScript, m_Doc.delayLink, m_DelayValue), "Link delay");
+    const bool entered = m_State.workspace->DrawInput(m_PropertyEdit, "Frames", ImGui::IsWindowAppearing());
+    bool close = false;
+    if (ImGui::Button("OK", ImVec2(100, 0)) || entered || ImGui::IsKeyPressed(ImGuiKey_Enter))
+        close = m_State.workspace->Finish(m_PropertyEdit, true);
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_PropertyEdit)
+        close = true;
+    if (close) {
+        ClosePropertyInput();
         ImGui::CloseCurrentPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
@@ -513,7 +534,6 @@ void SchematicCanvas::EditElement(CK_ID script, const ElementRef &ref) {
                 if (comment.ref == ref) {
                     m_Doc.commentScript = script;
                     m_Doc.commentRef = comment.ref;
-                    m_CommentText = comment.text;
                     m_Doc.openCommentEditor = true;
                 }
         break;
@@ -568,28 +588,26 @@ void SchematicCanvas::SettingsDialog() {
 
 void SchematicCanvas::PriorityDialog() {
     if (m_OpenPriority) {
-        ImGui::OpenPopup("Priority");
         m_OpenPriority = false;
+        if (m_PriorityTargets.empty()) return;
+        EditorField targets{"targets", EDITOR_OBJECT_LIST};
+        targets.objects = m_PriorityTargets;
+        if (!BeginPropertyInput("setup.behavior.priority", targets.objects.front(), {targets})) return;
+        ImGui::OpenPopup("Priority");
     }
     if (!ImGui::BeginPopupModal("Priority", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    ImGui::InputInt("Priority", &m_PriorityValue);
-    if (ImGui::Button("OK", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
-        if (!m_PriorityScripts.empty()) {
-            EditGroup group(*m_State.document, "Set Priority");
-            for (CK_ID script : m_PriorityScripts)
-                Report(SetBehaviorPriority(*m_State.document, script, script, m_PriorityValue), "Priority");
-        } else {
-            for (const auto &item : m_State.selection.items)
-                if (item.kind == ElementKind::Behavior || item.kind == ElementKind::Script)
-                    Report(SetBehaviorPriority(*m_State.document, m_Doc.dialogScript, item.object, m_PriorityValue),
-                           "Priority");
-        }
-        m_PriorityScripts.clear();
+    const bool entered = m_State.workspace->DrawInput(m_PropertyEdit, "Priority", ImGui::IsWindowAppearing());
+    bool close = false;
+    if (ImGui::Button("OK", ImVec2(100, 0)) || entered || ImGui::IsKeyPressed(ImGuiKey_Enter))
+        close = m_State.workspace->Finish(m_PropertyEdit, true);
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_PropertyEdit)
+        close = true;
+    if (close) {
+        ClosePropertyInput();
+        m_PriorityTargets.clear();
         ImGui::CloseCurrentPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 

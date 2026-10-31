@@ -522,7 +522,6 @@ private:
     bool m_DrawGraphMode = false; // Dev G: the next drag draws a behavior graph
     std::string m_QuickAddText;
     int m_QuickAddPick = 0;
-    float m_ScriptColor[3] = {0.8f, 0.8f, 0.8f};
     float m_ScrollX = 0.0f; // horizontal scroll of every body (frame units, >= 0)
     float m_ResizeTop = 0.0f;
     int m_ResizeEdges = 0;  // 1 right, 2 bottom
@@ -534,7 +533,6 @@ private:
     // taken back by Escape. Its Script's data is taken (ScriptData) when it
     // first changes, so a click that moves nothing records nothing.
     // Context menu / Comment editor targets
-    std::string m_CommentText;
     double m_TooltipSince = 0.0;
     // Link tool
     bool m_LinkBehavior = false;
@@ -569,10 +567,13 @@ private:
     // Shift+drag copy
     // Dialogs: target Script, graph and Script-local position.
     void CloseValueInputs();
+    void ClosePropertyInput();
+    bool BeginPropertyInput(const char *, ObjectRef, const std::vector<EditorField> & = {});
+    EditorEdit m_PropertyEdit = 0;
+    EditorView m_PropertyOwner = 0;
     ObjectRef m_RenameTarget{};
     EditorEdit m_RenameEdit = 0;
     EditorView m_RenameOwner = 0;
-    int m_DelayValue = 0;
     std::string m_PickerFilter;
     std::string m_LocalName;
     // The type dialog adds a local (graph = m_Doc.dialogGraph) or a graph pin.
@@ -604,9 +605,7 @@ private:
     bool m_ValueNameEditable = false;
     bool m_ValueTypeEditable = false;
     bool m_OpenPriority = false;
-    int m_PriorityValue = 0;
-    // Edit Priority with Script headers selected: those Scripts' priority.
-    std::vector<CK_ID> m_PriorityScripts;
+    std::vector<ObjectRef> m_PriorityTargets;
     // Building Block menus (middle click: categories; Shift+right click: recent)
 };
 
