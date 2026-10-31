@@ -178,6 +178,7 @@ using TextMeasure = std::function<float(const std::string &utf8)>;
 class SchematicModel {
 public:
     void Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure = TextMeasure());
+    void Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure, bool open);
 
     ScriptItem script;
     StartItem start;

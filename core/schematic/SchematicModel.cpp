@@ -95,6 +95,10 @@ CK_ID SchematicModel::GraphAt(const Point &point) const {
 }
 
 void SchematicModel::Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure) {
+    Build(session, context, measure, session.IsOpen());
+}
+
+void SchematicModel::Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure, bool open) {
     *this = SchematicModel();
     const InterfaceData &data = session.Data();
     const BehaviorData &rootRecord = data.rootBehavior;
@@ -109,7 +113,7 @@ void SchematicModel::Build(const ScriptSession &session, CKContext *context, con
     if (CKScene *scene = root ? InitialConditionsScene(context) : nullptr)
         script.initialConditions = scene->IsObjectHere(root) && scene->GetObjectInitialValue(root);
     script.isScript = rootIsScript;
-    script.open = session.IsOpen();
+    script.open = open;
     script.hidden = (rootRecord.flags & UI_FLAG_SCRIPT_HIDDEN) != 0;
     script.color = data.header.color;
     script.priority = root ? root->GetPriority() : 0;
