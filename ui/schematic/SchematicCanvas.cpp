@@ -2777,7 +2777,11 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
         {sizeof(EditorCommandDesc), EDITOR_TEXT("script.configure-breakpoints"), EDITOR_TEXT("builtin.schematic"),
             EDITOR_TEXT("Configure Breakpoints"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("script.open-breakpoints"), EDITOR_TEXT("builtin.schematic"),
-            EDITOR_TEXT("Breakpoint List"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE}};
+            EDITOR_TEXT("Breakpoint List"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("script.show-parameter"), EDITOR_TEXT("builtin.schematic"),
+            EDITOR_TEXT("Go to Parameter Source"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE}};
+    const EditorParameter parameter{EDITOR_TEXT("target"), EDITOR_OBJECT};
+    commands[4].parameters = &parameter; commands[4].count = 1;
     for (size_t i = 1; i < std::size(commands); ++i)
         commands[i].state = [](void *data, const EditorHost *, const EditorRequest *request) {
             const auto &module = *static_cast<Data *>(data);
@@ -2792,6 +2796,13 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     };
     commands[3].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
         static_cast<Data *>(data)->Canvas(request->scope.view)->OpenBreakpointList(); return EDITOR_OK;
+    };
+    commands[4].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+        auto &module = *static_cast<Data *>(data);
+        const auto target = request->values[0].object;
+        if (!module.state.document->Resolve(target, CKCID_PARAMETER)) return EDITOR_INVALID;
+        module.Canvas(request->scope.view)->GoToParameter(target.object);
+        return EDITOR_OK;
     };
     EditorModuleDesc module{};
     module.size = sizeof(module);
