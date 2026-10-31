@@ -1290,3 +1290,26 @@ transfer counters, source/runtime hashes and the stage completion status are in
 F05 closes the last phase-four functional gap. completed_phase remains three
 because the final timing pair and same-program control exceed the original
 variation limit. All samples remain in the baseline record.
+
+## Phase four: viewport diagnostics, acceptance deferred
+
+性能验收按用户要求继续暂缓，原定 3% 回退、MAD 和同程序漂移门槛保持不变，
+`completed_phase` 仍为三。第四阶段功能缺口为零；其余二十二项属于阶段五及后续。
+
+计时仍覆盖原驱动下的完整编辑器帧及 GPU 完成等待。新增组间 CPU、调度、热状态、
+低功耗和 GPU 等待记录；预热与组时长可显式增加，输出须与请求一致。macOS 准备阶段
+在 GPU 空闲时等待热状态正常且无低功耗模式连续三十秒，最多三分钟，随后仍执行
+至少十五秒实际渲染预热。准备与组间空闲不计作渲染时间，也不从已测组中扣除耗时。
+控制器和原生看门狗均保留有限时长，结束或异常退出会恢复看门狗配置。
+
+第三版测量会拒绝热状态、低功耗或调度角色变化的整轮记录，同时保留双方全部样本。
+稳定传输与资源计数仍要求为零，验证截图要求一次显式读回。线程提级、进程提级、
+交互活动和主循环驱动的实验均已撤回，未修改编辑器、SDK 或 GPU 渲染/传输实现。
+
+热状态不能单独解释波动：正常热状态下的同程序对照仍出现 MAD 4.0352% / 3.1183%。
+固定工作量的组间探针和调用栈采样不足以确认唯一根因；独立 CPU 探针尚未执行。
+全部 28 轮诊断、634 组样本和各自源码、程序及运行库校验值保留于
+[诊断记录](baselines/viewport-diagnostics-macos-arm64-metal.json)，均未用于宣告性能通过。
+
+完整 Release 回归 124/124，无跳过；最终补充检查 3/3，计时工具测试 26/26。
+SDK 十六个仓库前后状态不变，双方二十二项运行库校验值一致。
