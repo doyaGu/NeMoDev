@@ -414,6 +414,13 @@
       "patterns": [
         "features/arrays/ArrayTable.*"
       ]
+    },
+    {
+      "id": "S48",
+      "name": "Setup 属性查询、预览与修改",
+      "patterns": [
+        "features/setup/**"
+      ]
     }
   ],
   "dependencies": {
@@ -529,7 +536,8 @@
       "S44",
       "S45",
       "S46",
-      "S47"
+      "S47",
+      "S48"
     ],
     "S15": [
       "S01",
@@ -716,7 +724,8 @@
       "S42",
       "S44",
       "S46",
-      "S47"
+      "S47",
+      "S48"
     ],
     "S33": [],
     "S34": [
@@ -774,7 +783,8 @@
       "S35"
     ],
     "S43": [
-      "S35"
+      "S35",
+      "S48"
     ],
     "S44": [
       "S05",
@@ -796,6 +806,13 @@
     "S47": [
       "S33",
       "S35"
+    ],
+    "S48": [
+      "S01",
+      "S05",
+      "S08",
+      "S13",
+      "S34"
     ]
   },
   "legacy_exposures": [
@@ -1575,7 +1592,8 @@
         "S44",
         "S45",
         "S46",
-        "S47"
+        "S47",
+        "S48"
       ],
       "tests": [
         "VirtoolsDev.ParameterValueFailures",
@@ -1591,7 +1609,7 @@
       "gaps": [
         {
           "due_phase": 4,
-          "reason": "名字、基本值、数值组合、结构、对象数组、文本、标志位、2D 曲线、四种依赖、LOD、时间、按键和其余内置值选择器、DataArray 行列与单元格共用编辑与撤销；剩余 Setup/Schematic/Layout 迁移仍待完成"
+          "reason": "名字、基本值、数值组合、结构、对象数组、文本、专用值、DataArray 行列/单元格及 Setup 属性共用草稿、预览与撤销；剩余 Schematic/Layout 交互迁移仍待完成"
         }
       ]
     },
@@ -1603,13 +1621,15 @@
         "S08",
         "S20",
         "S44",
-        "S45"
+        "S45",
+        "S48"
       ],
       "tests": [
         "VirtoolsDev.ObjectPropertyUndo",
         "VirtoolsDev.ObjectEditFailures",
         "VirtoolsDev.ObjectEditCancellation",
-        "VirtoolsDev.SetupActions"
+        "VirtoolsDev.SetupActions",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.setup",
@@ -1619,8 +1639,8 @@
       ],
       "gaps": [
         {
-          "due_phase": 4,
-          "reason": "迁移后通过正式接口复验本项行为与生命周期"
+          "due_phase": 5,
+          "reason": "属性查询、实时预览、取消与撤销已统一；Setup 窗口绘制和离散工具操作仍待迁移为已登记视图与命令"
         }
       ]
     },
@@ -2404,7 +2424,7 @@
       "name": "有类型的属性与嵌套草稿、固定目标与原生类型、编辑器选择",
       "owner": "EditorApplication",
       "lifetime": "目标文档和视图；确认后帧末执行，取消、关闭或对象失效时清除",
-      "persistence": "应用持有递归值与查询数据，子控件只更新父级草稿；一次交互只提交父级命令，取消和无变化保留历史。嵌套编辑器选择随交互固定，对象引用逐层校验",
+      "persistence": "应用持有递归值与查询数据，子控件只更新父级草稿；一次交互只提交父级命令，取消和无变化保留历史。嵌套编辑器选择随交互固定，对象引用逐层校验。Setup 实时预览由选中的命令保存恢复数据，确认前恢复再执行一次正式命令；取消、关闭、失效与停止恢复原值，临时预览不记历史或 Dirty。",
       "features": [
         "F08",
         "F31",

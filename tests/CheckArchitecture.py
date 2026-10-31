@@ -11,7 +11,7 @@ import sys
 import tarfile
 
 
-CODE_SUFFIXES = {".h", ".hpp", ".c", ".cpp", ".cxx", ".mm"}
+CODE_SUFFIXES = {".h", ".hpp", ".c", ".cpp", ".cxx", ".mm", ".def"}
 RESTRICTED = {"ui/app/EditorState.h": "editor-state",
               "core/document/Document.h": "mutable-document",
               "core/document/ScriptSession.h": "mutable-document"}
@@ -109,8 +109,8 @@ def check(source, manifest, inventory=None, ui_tests=False):
     graph, all_exposures = include_graph(source, files, all_access=True)
     exposures = {path: access for path, access in all_exposures.items() if path.startswith("ui/")}
     for path, access in all_exposures.items():
-        if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/defaults/", "features/values/", "features/arrays/")) and not re.match(
-                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|values/ParameterCommands|arrays/ArrayCommands)\.(?:h|cpp)$", path):
+        if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/")) and not re.match(
+                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|values/ParameterCommands|arrays/ArrayCommands|setup/SetupCommands)\.(?:h|cpp)$", path):
             errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
     observed = set()
     for path, dependencies in graph.items():

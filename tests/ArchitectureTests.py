@@ -141,6 +141,25 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native/state access in workspace view: features/arrays/ArrayTable.cpp", result.stderr)
 
+    def test_setup_view_cannot_gain_indirect_native_access(self):
+        self.write("features/setup/SetupView.h", '#include "core/model.h"\n')
+        self.write("features/setup/SetupView.cpp", '#include "features/setup/SetupView.h"\n')
+        self.write("core/model.h", '#include "CKAll.h"\n')
+        self.manifest["source_groups"].append({"id": "views", "patterns": ["features/**"]})
+        self.manifest["features"][0]["source_groups"].append("views")
+        self.manifest["dependencies"] = {"views": ["core"]}
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("native/state access in workspace view: features/setup/SetupView.cpp", result.stderr)
+
+    def test_definition_include_is_checked(self):
+        self.write("core/properties.def", '#include "CKAll.h"\n')
+        self.add_ui('#include "core/properties.def"\n')
+        self.manifest["dependencies"] = {"ui": ["core"]}
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unrecorded native/state exposure: ui/view.cpp: native-sdk", result.stderr)
+
     def test_default_workspace_cannot_gain_indirect_native_access(self):
         self.write("features/defaults/DefaultWorkspace.h", '#include "core/model.h"\n')
         self.write("features/defaults/DefaultWorkspace.cpp", '#include "features/defaults/DefaultWorkspace.h"\n')

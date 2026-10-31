@@ -255,7 +255,7 @@ def environment(source, build, binary, config):
     source_hash = hashlib.sha256()
     for folder in ("core", "ui", "editor", "application", "workspace", "features"):
         for path in sorted((build_source / folder).rglob("*")):
-            if path.is_file() and path.suffix in (".h", ".cpp", ".mm", ".txt"):
+            if path.is_file() and path.suffix in (".h", ".cpp", ".mm", ".txt", ".def"):
                 source_hash.update(str(path.relative_to(build_source)).encode("utf-8") + b"\0" + path.read_bytes())
     return {"source_revision": git(source, "rev-parse", "HEAD"),
             "source_dirty": bool(git(source, "status", "--porcelain")),
