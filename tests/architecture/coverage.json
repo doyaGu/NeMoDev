@@ -216,7 +216,7 @@
     },
     {
       "id": "S24",
-      "name": "工具和资源视图",
+      "name": "旧 General Preferences 外壳",
       "patterns": [
         "ui/tools/ToolWindows.*"
       ]
@@ -434,17 +434,32 @@
     },
     {
       "id": "S50",
-      "name": "原生插件与搜索路径查询和修改",
+      "name": "原生插件、搜索路径和连线设置",
       "patterns": [
         "features/environment/EnvironmentCommands.*"
       ]
     },
     {
       "id": "S51",
-      "name": "插件与路径工作区视图",
+      "name": "环境管理工作区视图",
       "patterns": [
         "features/environment/**",
         "!features/environment/EnvironmentCommands.*"
+      ]
+    },
+    {
+      "id": "S52",
+      "name": "诊断检查与结果",
+      "patterns": [
+        "features/diagnostics/DiagnosticCommands.*"
+      ]
+    },
+    {
+      "id": "S53",
+      "name": "诊断工作区视图",
+      "patterns": [
+        "features/diagnostics/**",
+        "!features/diagnostics/DiagnosticCommands.*"
       ]
     }
   ],
@@ -568,7 +583,9 @@
       "S48",
       "S49",
       "S50",
-      "S51"
+      "S51",
+      "S52",
+      "S53"
     ],
     "S15": [
       "S01",
@@ -680,14 +697,7 @@
       "S26"
     ],
     "S24": [
-      "S03",
-      "S05",
-      "S08",
-      "S13",
-      "S14",
-      "S20",
-      "S27",
-      "S28"
+      "S14"
     ],
     "S25": [
       "S13",
@@ -756,7 +766,8 @@
       "S47",
       "S48",
       "S49",
-      "S50"
+      "S50",
+      "S52"
     ],
     "S33": [],
     "S34": [
@@ -817,7 +828,8 @@
     "S43": [
       "S35",
       "S48",
-      "S49"
+      "S49",
+      "S52"
     ],
     "S44": [
       "S01",
@@ -853,7 +865,8 @@
       "S06",
       "S07",
       "S13",
-      "S34"
+      "S34",
+      "S05"
     ],
     "S50": [
       "S03",
@@ -865,6 +878,19 @@
       "S35",
       "S27",
       "S33"
+    ],
+    "S52": [
+      "S03",
+      "S08",
+      "S13",
+      "S15",
+      "S34"
+    ],
+    "S53": [
+      "S27",
+      "S33",
+      "S34",
+      "S35"
     ]
   },
   "legacy_exposures": [
@@ -1311,15 +1337,6 @@
       "remove_by": 5
     },
     {
-      "file": "ui/tools/ToolWindows.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
       "file": "ui/tools/ToolWindows.h",
       "access": [
         "editor-state",
@@ -1424,7 +1441,6 @@
         "S02",
         "S05",
         "S20",
-        "S24",
         "S15"
       ],
       "tests": [
@@ -1788,14 +1804,16 @@
     {
       "id": "F19",
       "name": "监控与诊断",
-      "owner": "Diagnostics",
+      "owner": "DiagnosticCommands / 工作区视图",
       "source_groups": [
         "S03",
         "S04",
         "S15",
         "S18",
         "S19",
-        "S24"
+        "S21",
+        "S52",
+        "S53"
       ],
       "tests": [
         "VirtoolsDev.EditorCommands",
@@ -1808,7 +1826,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "Script Debugger、Profiler、Parameter Debugger 及插件与路径管理已迁移；剩余诊断工具待迁移并验证"
+          "reason": "独立诊断工具已迁移并补忙时缓存与过期修改拒绝回归；载入后连线检查、消息浏览等图内诊断仍随 Schematic 原生适配迁移"
         }
       ]
     },
@@ -1821,7 +1839,6 @@
         "S03",
         "S15",
         "S20",
-        "S24",
         "S35",
         "S41",
         "S42"
@@ -1850,7 +1867,6 @@
         "S03",
         "S13",
         "S17",
-        "S24",
         "S15",
         "S50",
         "S51"
@@ -1908,8 +1924,7 @@
         "S18",
         "S20",
         "S21",
-        "S22",
-        "S24"
+        "S22"
       ],
       "tests": [
         "VirtoolsDev.ObjectReferenceLifetimes",
@@ -1959,11 +1974,14 @@
       "source_groups": [
         "S14",
         "S17",
+        "S24",
         "S27",
         "S31",
         "S34",
         "S35",
-        "S43"
+        "S43",
+        "S50",
+        "S51"
       ],
       "tests": [
         "VirtoolsDevPortable",
@@ -1991,7 +2009,9 @@
         "S31",
         "S33",
         "S34",
-        "S35"
+        "S35",
+        "S52",
+        "S53"
       ],
       "tests": [
         "NeMoDevHelpContent",
@@ -2017,9 +2037,10 @@
         "S13",
         "S14",
         "S18",
-        "S24",
         "S34",
-        "S35"
+        "S35",
+        "S52",
+        "S53"
       ],
       "tests": [
         "VirtoolsDev.TextEncoding",
@@ -2292,9 +2313,9 @@
     },
     {
       "id": "diagnostics",
-      "name": "invalidLinks、unused/version/all-object rows",
-      "owner": "诊断投影",
-      "lifetime": "内容/目录版本变化，执行前重验",
+      "name": "unused/version/all-object rows",
+      "owner": "DiagnosticCommands",
+      "lifetime": "对应视图及文档作用域；执行前重验版本与完整引用",
       "persistence": "查询无 Undo；清理与替换是独立命令",
       "features": [
         "F19"
@@ -2650,6 +2671,28 @@
       "features": [
         "F13",
         "F14"
+      ]
+    },
+    {
+      "id": "diagnostic-view",
+      "name": "诊断视图的排除、选择、排序和已读取结果",
+      "owner": "对应工作区视图实例",
+      "lifetime": "关闭视图或文档身份变化",
+      "persistence": "只读交互不制造撤销；各实例互不覆盖；错误保留上次结果",
+      "features": [
+        "F19"
+      ]
+    },
+    {
+      "id": "loaded-link-validation",
+      "name": "载入后连线检查结果（EditorState.invalidLinks）",
+      "owner": "DocumentSession",
+      "lifetime": "原编辑文档；失效位置重新检查，切换失败保留",
+      "persistence": "仍由既有 Schematic 入口呈现和修改，随剩余图内原生适配迁移",
+      "features": [
+        "F02",
+        "F11",
+        "F19"
       ]
     }
   ],
