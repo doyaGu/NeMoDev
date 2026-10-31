@@ -18,6 +18,7 @@ void TestSceneCommands(vdev::CkRuntimeHost &host);
 void TestBuildingBlockQueries(vdev::CkRuntimeHost &host);
 void TestDataResources(vdev::CkRuntimeHost &host);
 void TestParameterEdits(vdev::CkRuntimeHost &host);
+void TestArrayEdits(vdev::CkRuntimeHost &host);
 void TestDocumentCommands(vdev::CkRuntimeHost &host);
 void TestDocumentTransitions(vdev::CkRuntimeHost &host);
 void TestOutputCommands(vdev::CkRuntimeHost &host);
@@ -566,6 +567,7 @@ int main(int argc, char **argv) {
         TestBuildingBlockQueries(runtime);
         TestDataResources(runtime);
         TestParameterEdits(runtime);
+        TestArrayEdits(runtime);
         TestObjectCommands(runtime, argv[1]);
         TestResourceCommands(runtime, argv[1]);
         TestExecutionCommands(runtime, argv[1]);

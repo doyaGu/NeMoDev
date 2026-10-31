@@ -15,6 +15,8 @@ struct Module {
     uint64_t specializedCalls[3]{}, specializedReads[3]{};
     uint64_t selectorCalls[7]{}, selectorReads[7]{}, selectorChoices=0;
     struct Selector { Module *owner = nullptr; unsigned index = 0; } selectors[7];
+    uint64_t arrayWrites[2]{}, arrayReads[2]{}, arrayDraws[2]{};
+    struct Array { Module *owner; unsigned kind; } arrays[2];
     EditorObject resourceTarget{};
 };
 struct FileView {
@@ -293,6 +295,33 @@ uint32_t DrawSpecialized(void *, const EditorHost *, const EditorValueInput *inp
         return ImGui::IsItemActive() ? EDITOR_INPUT_ACTIVE : 0u;
     }
     return EDITOR_INPUT_INVALID;
+}
+const char *arrayQueries[] = {"array.cells-value", "array.column-value"};
+const char *arrayCommands[] = {"array.cells-set", "array.column-set"};
+EditorStatus ReadArray(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink) {
+    auto &a=*static_cast<Module::Array *>(data); ++a.owner->arrayReads[a.kind];
+    auto next=*request; next.handler=EDITOR_TEXT("builtin.arrays");
+    const char *id=arrayQueries[a.kind]; return host->query(host->data,{id,uint32_t(std::char_traits<char>::length(id))},&next,sink);
+}
+EditorStatus ModifyArray(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink) {
+    auto &a=*static_cast<Module::Array *>(data); ++a.owner->arrayWrites[a.kind];
+    auto next=*request; next.handler=EDITOR_TEXT("builtin.arrays");
+    const char *id=arrayCommands[a.kind]; return host->execute(host->data,{id,uint32_t(std::char_traits<char>::length(id))},&next,sink);
+}
+uint32_t DrawArray(void *data,const EditorHost *,const EditorValueInput *input) {
+    auto &a=*static_cast<Module::Array *>(data); ++a.owner->arrayDraws[a.kind];
+    const auto original=a.kind ? input->value.fields.data[0].text : input->value.text;
+    std::string text(original.data ? original.data : "",original.size);
+    if (input->focus) ImGui::SetKeyboardFocusHere();
+    const bool accepted=ImGui::InputText(a.kind ? "External column" : "External cell",&text,ImGuiInputTextFlags_EnterReturnsTrue);
+    const bool changed=text != std::string(original.data ? original.data : "",original.size);
+    auto value=input->value; std::vector<EditorValue> fields;
+    if (a.kind) { fields.assign(value.fields.data,value.fields.data+value.fields.count); fields[0].text={text.data(),uint32_t(text.size())}; value.fields={fields.data(),uint32_t(fields.size())}; }
+    else value.text={text.data(),uint32_t(text.size())};
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) return EDITOR_INPUT_CANCEL;
+    const bool valid=!changed || input->update.write(input->update.data,&value,1)==EDITOR_OK;
+    return (changed ? EDITOR_INPUT_CHANGED : 0u) | (accepted ? EDITOR_INPUT_ACCEPT : 0u) |
+        (ImGui::IsItemActive() ? EDITOR_INPUT_ACTIVE : 0u) | (ImGui::IsItemDeactivatedAfterEdit() ? EDITOR_INPUT_DEACTIVATED : 0u) | (!valid ? EDITOR_INPUT_INVALID : 0u);
 }
 const char *selectorNames[] = {"time","key","script","animation","message","attribute","synchro"};
 const char *selectorCommandIds[] = {"parameter.time-set","parameter.key-set","parameter.script-set","parameter.animation-set","parameter.message-set","parameter.attribute-set","parameter.synchro-set"};
@@ -782,6 +811,23 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
             const EditorValue fields[]={{EDITOR_TEXT("count"),EDITOR_INTEGER_LIST,{},{},0,{},{module.selectorCalls,7}},
                 {EDITOR_TEXT("reads"),EDITOR_INTEGER_LIST,{},{},0,{},{module.selectorReads,7}},{EDITOR_TEXT("choices"),EDITOR_INTEGER_VALUE,{},{},module.selectorChoices}};
             return sink.write(sink.data,fields,3);},data,EDITOR_QUERY_EACH_READ,EDITOR_APPLICATION,selectorCounts,3});
+    static const EditorParameter arrayCellArgs[]={{EDITOR_TEXT("target"),EDITOR_OBJECT},{EDITOR_TEXT("rows"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("column"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("value"),EDITOR_TEXT_VALUE},{EDITOR_TEXT("revision"),EDITOR_INTEGER_VALUE}};
+    static const EditorParameter arrayColumnArgs[]={{EDITOR_TEXT("target"),EDITOR_OBJECT},{EDITOR_TEXT("column"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("value"),EDITOR_RECORD},{EDITOR_TEXT("revision"),EDITOR_INTEGER_VALUE}};
+    static const EditorParameter arrayCellFields[]={{EDITOR_TEXT("value"),EDITOR_TEXT_VALUE},{EDITOR_TEXT("rows"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("column"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("revision"),EDITOR_INTEGER_VALUE}};
+    static const EditorParameter arrayColumnFields[]={{EDITOR_TEXT("value"),EDITOR_RECORD},{EDITOR_TEXT("column"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("revision"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("parameter-labels"),EDITOR_TEXT_LIST},{EDITOR_TEXT("parameter-types"),EDITOR_INTEGER_LIST}};
+    static const EditorParameter arrayCellCommandArgs[]={{EDITOR_TEXT("target"),EDITOR_OBJECT},{EDITOR_TEXT("revision"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("rows"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("column"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("value"),EDITOR_TEXT_VALUE}};
+    static const EditorParameter arrayColumnCommandArgs[]={{EDITOR_TEXT("target"),EDITOR_OBJECT},{EDITOR_TEXT("revision"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("column"),EDITOR_INTEGER_VALUE},{EDITOR_TEXT("value"),EDITOR_RECORD}};
+    for(unsigned i=0;i<2;++i) {
+        data->arrays[i]={data,i}; const auto *args=i?arrayColumnArgs:arrayCellArgs;
+        descriptors->commands.push_back({sizeof(EditorCommandDesc),{arrayCommands[i],uint32_t(std::char_traits<char>::length(arrayCommands[i]))},EDITOR_TEXT("example.arrays"),EDITOR_TEXT("Edit table"),i?arrayColumnCommandArgs:arrayCellCommandArgs,i?4u:5u,ModifyArray,&data->arrays[i],EDITOR_DOCUMENT,EDITOR_DOCUMENT_EDIT});
+        descriptors->queries.push_back({sizeof(EditorQueryDesc),{arrayQueries[i],uint32_t(std::char_traits<char>::length(arrayQueries[i]))},EDITOR_TEXT("example.arrays"),args,i?2u:3u,ReadArray,&data->arrays[i],EDITOR_QUERY_EACH_READ,EDITOR_DOCUMENT,i?arrayColumnFields:arrayCellFields,i?5u:4u});
+        const char *id=i?"value.array-column":"value.string";
+        descriptors->editors.push_back({sizeof(EditorValueEditorDesc),EDITOR_IMGUI_VERSION,{id,uint32_t(std::char_traits<char>::length(id))},EDITOR_TEXT("example.arrays"),EDITOR_TEXT("External table value"),DrawArray,&data->arrays[i],i?EDITOR_RECORD:EDITOR_TEXT_VALUE});
+    }
+    static const EditorParameter arrayCounts[]={{EDITOR_TEXT("writes"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("reads"),EDITOR_INTEGER_LIST},{EDITOR_TEXT("draws"),EDITOR_INTEGER_LIST}};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc),EDITOR_TEXT("example.array-count"),EDITOR_TEXT("example.arrays"),nullptr,0,
+        [](void *data,const EditorHost *,const EditorRequest *,EditorSink sink) { auto &m=*static_cast<Module *>(data);
+            const EditorValue fields[]={{EDITOR_TEXT("writes"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayWrites,2}}, {EDITOR_TEXT("reads"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayReads,2}}, {EDITOR_TEXT("draws"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayDraws,2}}}; return sink.write(sink.data,fields,3); },data,EDITOR_QUERY_EACH_READ,EDITOR_APPLICATION,arrayCounts,3});
     *out = {};
     out->size = sizeof(*out);
     out->version = EDITOR_VERSION;

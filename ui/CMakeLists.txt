@@ -188,6 +188,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ModuleTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WorkspaceTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ValueEditTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArrayEditTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArchitectureBaselineTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/GpuViewportTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ViewportBaselineTests.cpp
@@ -241,7 +242,7 @@ if(WIN32)
     endif()
 endif()
 if(VIRTOOLSDEV_BUILD_TESTS)
-    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp ../tests/BuildingBlockQueryTests.cpp ../tests/DataResourceTests.cpp ../tests/ParameterEditTests.cpp ../tests/SpecializedParameterEditTests.cpp ../tests/SelectionParameterEditTests.cpp ../features/resources/DataResourceViews.cpp)
+    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp ../tests/BuildingBlockQueryTests.cpp ../tests/DataResourceTests.cpp ../tests/ArrayEditTests.cpp ../tests/ParameterEditTests.cpp ../tests/SpecializedParameterEditTests.cpp ../tests/SelectionParameterEditTests.cpp ../features/resources/DataResourceViews.cpp)
     target_link_libraries(NeMoDevEditorTests PRIVATE VirtoolsDevWorkspace NeMoDevObjectCommands VirtoolsDevCore NeMoDevEditorApplication "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
     set_target_properties(NeMoDevEditorTests PROPERTIES ENABLE_EXPORTS TRUE)
     function(nemodev_example_module target host)
