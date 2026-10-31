@@ -1,0 +1,168 @@
+{
+  "description": "阶段五第一批：Script Debugger 和 Profiler 使用只读运行投影与统一命令，工作区拥有各视图实例。阶段五尚未完成，性能验收继续暂缓。",
+  "changes": [
+    "删除旧 DebuggerPanel、ToolWindows 中的 Profiler，以及对应的全局窗口与显示状态。",
+    "运行状态、调试对象与工作区角色查询按版本缓存；对象选择和统计明细分页读取。",
+    "日志行与统计页校验版本；命中位置和统计目标保留完整对象引用，防止同 ID 复用后导航错误。",
+    "ExecutionCommands 管理 profiling 设置和已发布统计；最后一个视图关闭后恢复原设置，独占运行任务结束后执行原生清理。",
+    "原生任务不改已发布数据；任务结束后同步调试状态，关闭文档时不用原生访问即可清空旧投影。",
+    "运行选项通过命令更新已有偏好，Script Debugger 与 Profiler 不再访问 EditorState、可变 Document 或 CKContext。",
+    "旧静默删除测试先解除渲染登记，再使用原有 NONOTIFY 和 FREEID 进行身份复用；随后实际切换文档并校验文档身份，覆盖视口拆除。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five/build-final.log",
+      "ui_fixture_build_log": "out/phase-five/delete-fixture-build.log"
+    },
+    "full_ctest": {
+      "total": 124,
+      "passed": 124,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 21.54,
+      "log": "out/phase-five/full-final-verified.log"
+    },
+    "ui": {
+      "debugger": {
+        "registered": 227,
+        "executed": 6,
+        "not_selected": 221,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/debugger.xml"
+      },
+      "modules": {
+        "registered": 227,
+        "executed": 56,
+        "not_selected": 171,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/modules.xml"
+      },
+      "app": {
+        "registered": 227,
+        "executed": 25,
+        "not_selected": 202,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/app.xml"
+      },
+      "filemenu": {
+        "registered": 227,
+        "executed": 10,
+        "not_selected": 217,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/filemenu.xml"
+      },
+      "tools": {
+        "registered": 227,
+        "executed": 6,
+        "not_selected": 221,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/tools.xml"
+      }
+    },
+    "core_regressions": [
+      "运行状态的稳定版本与更新；运行选项同步到偏好。",
+      "超过 128 个 Script 和统计行的分页、来源与对象身份。",
+      "两个 profiling 视图依次关闭，及原先已启用 profiling 的恢复。",
+      "独占任务和 host 禁止原生访问时，只读查询不进入文档。",
+      "后台线程释放文档时保留已发布数据，任务结束后刷新同一文档的调试状态。",
+      "旧统计目标不能导航到复用原生 ID 的新对象；旧日志和统计页不能读取新记录。",
+      "文档切换和关闭后清除旧投影；只读操作保留文档身份、选区、Dirty 和撤销记录。",
+      "新调试视图不能间接包含 SDK、可变文档或 EditorState。"
+    ],
+    "reproductions": [
+      {
+        "log": "out/phase-five/full-tests-final.log",
+        "failure": "原生渲染上下文拆除时访问已失效对象；旧测试使用 NONOTIFY 销毁仍在渲染上下文中的对象。"
+      },
+      {
+        "log": "out/phase-five/delete-membership-red.log",
+        "failure": "删除前的渲染登记断言失败，短用例稳定重现无效的故障注入准备。"
+      },
+      {
+        "log": "out/phase-five/delete-sequence-green.log",
+        "passed": 4,
+        "memory_scribble": true,
+        "note": "删除、实际文档切换、导出、运行控制与打印四个用例连续通过。"
+      }
+    ],
+    "module_repeat": {
+      "runs": 3,
+      "passed_runs": 3,
+      "failed_runs": 0,
+      "executed_ui_cases_per_run": 56,
+      "elapsed_seconds": 40.94,
+      "log": "out/phase-five/modules-repeat.log"
+    }
+  },
+  "architecture": {
+    "completed_phase": 3,
+    "phase_five_complete": false,
+    "legacy_ui_exposures_before": 55,
+    "legacy_ui_exposures_after": 54,
+    "source_groups": 49,
+    "features": 32,
+    "states": 42,
+    "open_gaps": 22,
+    "remaining": [
+      "Parameter Debugger",
+      "插件与路径管理",
+      "剩余诊断与特殊工具",
+      "Layout/Schematic 剩余原生适配"
+    ]
+  },
+  "sdk": {
+    "repositories": 16,
+    "sources_changed": false,
+    "before_log": "out/phase-five/sdk-before.json",
+    "after_log": "out/phase-five/sdk-after.json",
+    "state_sha256": "b8c520a0f80cc39342b6eeb8ac7d7a90d53c24c8ae782c05387b733c4a1d28e3",
+    "runtime_sha256": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a"
+    }
+  },
+  "source": {
+    "base_revision": "59c4a7cd1339603fca4f400d55c5f94432e35579",
+    "build_source_sha256": "5670a9c856afe892081f8384f8b756359e7e82ab96cdd0e951ecb8a347007017",
+    "binary_sha256": {
+      "NeMoDev": "f90a8524cfa0e23bd5c9ce7d954b26ee400fd66c98e39178c7efd6691c5d0699",
+      "VirtoolsDevUiTests": "2443aaac5973be989e96d7d09c301c1154a10122e7c856a20b480bd28e14d2e5",
+      "NeMoDevEditorTests": "91119da359fe31fb9d18f32703324e0b853ed1915f618951a1c093bbaac64ce0"
+    },
+    "gpu_render_transfer_source_changed": false,
+    "public_c_headers_changed": false
+  },
+  "performance": {
+    "status": "deferred",
+    "acceptance_performed": false,
+    "thresholds_changed": false,
+    "note": "没有执行新的 GPU 时延验收或独立 CPU 探针；原 3% 门槛保持不变。"
+  }
+}
