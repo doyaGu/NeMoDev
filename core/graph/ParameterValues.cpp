@@ -373,27 +373,104 @@ bool WriteValue(const Document &document, CKParameter *parameter, const Paramete
     if (draft && value.kind == ParameterValueKind::Synchro) return actual.value.object == value.object;
     return actual.value == expected;
 }
+// Effect parameters are owned by a material and SetEffect can recreate them.
+// Their undo target is the material's effect value, including a member path.
+struct MaterialParameter {
+    ObjectRef material{};
+    int effect = 0;
+    std::vector<size_t> members;
+};
+MaterialParameter MaterialParameterOf(Document &doc, CKParameter *parameter) {
+    if (!parameter)
+        return {};
+    MaterialParameter result;
+    auto *root = parameter;
+    for (unsigned depth = 0; root && depth < 32; ++depth) {
+        auto *parent = CKParameter::Cast(root->GetOwner());
+        if (!parent)
+            break;
+        std::vector<ParameterMember> members;
+        if (!ParameterMembers(doc, parent, members))
+            return {};
+        const auto found = std::find_if(members.begin(), members.end(), [&](const auto &member) {
+            return member.parameter == doc.Reference(root->GetID());
+        });
+        if (found == members.end())
+            return {};
+        result.members.insert(result.members.begin(), size_t(found - members.begin()));
+        root = parent;
+    }
+    for (auto *object : doc.LiveObjects(CKCID_MATERIAL)) {
+        auto *material = CKMaterial::Cast(object);
+        if (material->GetEffectParameter() == root) {
+            if (result.material)
+                return {};
+            result.material = doc.Reference(material->GetID());
+            result.effect = int(material->GetEffect());
+        }
+    }
+    return result;
+}
+CKParameter *ResolveMaterialParameter(Document &doc, const MaterialParameter &value) {
+    auto *material = CKMaterial::Cast(doc.Resolve(value.material, CKCID_MATERIAL, Document::ObjectScope::Existing));
+    if (!material || int(material->GetEffect()) != value.effect)
+        return nullptr;
+    auto *parameter = material->GetEffectParameter();
+    for (auto index : value.members) {
+        std::vector<ParameterMember> members;
+        if (!ParameterMembers(doc, parameter, members) || index >= members.size())
+            return nullptr;
+        parameter =
+            CKParameter::Cast(doc.Resolve(members[index].parameter, CKCID_PARAMETER, Document::ObjectScope::Existing));
+    }
+    return parameter;
+}
 class ParameterValueAction final : public Action {
   public:
-    ParameterValueAction(ObjectRef target, CKGUID type, ParameterValueDescription before, ParameterValue after)
-        : m_Target(target), m_Type(type), m_Identities(ParameterIdentities(before)), m_Before(std::move(before.value)), m_After(std::move(after)) {}
-    bool Undo(Document &document) override { return Apply(document, m_Before, m_After); }
-    bool Redo(Document &document) override { return Apply(document, m_After, m_Before); }
-    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
-        const auto retain = [&](ObjectRef ref) { if (auto id = document.NativeId(ref, Document::ObjectScope::Existing)) objects.insert(id); };
-        retain(m_Target);
-        const auto values = [&](const auto &self, const ParameterValue &value) -> void {
-            retain(value.object); for (auto ref : value.objects) retain(ref);
-            for (const auto &member : value.members) self(self, member);
-        };
-        values(values, m_Before); values(values, m_After);
-        for (const auto &identity : m_Identities) retain(identity.first);
-    }
+      ParameterValueAction(Document &doc, ObjectRef target, CKGUID type, ParameterValueDescription before,
+                           ParameterValue after)
+          : m_Target(target),
+            m_Material(MaterialParameterOf(doc, CKParameter::Cast(doc.Resolve(target, CKCID_PARAMETER)))), m_Type(type),
+            m_Identities(ParameterIdentities(before)), m_Before(std::move(before.value)), m_After(std::move(after)) {}
+      bool Undo(Document &document) override { return Apply(document, m_Before, m_After); }
+      bool Redo(Document &document) override { return Apply(document, m_After, m_Before); }
+      void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+          const auto retain = [&](ObjectRef ref) {
+              if (auto id = document.NativeId(ref, Document::ObjectScope::Existing))
+                  objects.insert(id);
+          };
+          retain(m_Target);
+          retain(m_Material.material);
+          const auto values = [&](const auto &self, const ParameterValue &value) -> void {
+              retain(value.object);
+              for (auto ref : value.objects)
+                  retain(ref);
+              for (const auto &member : value.members)
+                  self(self, member);
+          };
+          values(values, m_Before);
+          values(values, m_After);
+          for (const auto &identity : m_Identities)
+              retain(identity.first);
+      }
   private:
     bool Apply(Document &document, const ParameterValue &value, const ParameterValue &restore) {
-        auto *parameter = CKParameter::Cast(document.Resolve(m_Target, CKCID_PARAMETER, Document::ObjectScope::Existing));
+        auto *parameter =
+            m_Material.material
+                ? ResolveMaterialParameter(document, m_Material)
+                : CKParameter::Cast(document.Resolve(m_Target, CKCID_PARAMETER, Document::ObjectScope::Existing));
         ParameterValueDescription current;
-        if (!parameter || parameter->GetGUID() != m_Type || !DescribeParameterValue(document, parameter, current) || m_Identities != ParameterIdentities(current)) return false;
+        if (!parameter || parameter->GetGUID() != m_Type || !DescribeParameterValue(document, parameter, current))
+            return false;
+        const auto identities = ParameterIdentities(current);
+        if (m_Material.material) {
+            if (identities.size() != m_Identities.size())
+                return false;
+            for (size_t i = 0; i < identities.size(); ++i)
+                if (identities[i].second != m_Identities[i].second)
+                    return false;
+        } else if (m_Identities != identities)
+            return false;
         bool applied = false;
         if (GuardedCall([&] { applied = WriteValue(document, parameter, value, true); }, &document.Host(), "Set parameter value") && applied) return true;
         bool restored = false;
@@ -402,6 +479,7 @@ class ParameterValueAction final : public Action {
         return false;
     }
     ObjectRef m_Target;
+    MaterialParameter m_Material;
     CKGUID m_Type;
     std::vector<std::pair<ObjectRef, CKGUID>> m_Identities;
     ParameterValue m_Before, m_After;
@@ -439,7 +517,9 @@ static EditResult EditParameterValue(Document &document, ObjectRef target, const
     // Preparation may change a referenced object's rendezvous count. The value
     // action records the parameter after those separate object edits.
     if (!DescribeParameterValue(document, parameter, description)) return EditResult::Error("The parameter is no longer available");
-    if (description.value != normalized && !edit.Do(std::make_unique<ParameterValueAction>(target, type, std::move(description), std::move(normalized)))) {
+    if (description.value != normalized &&
+        !edit.Do(std::make_unique<ParameterValueAction>(document, target, type, std::move(description),
+                                                        std::move(normalized)))) {
         edit.Fail("The parameter value could not be applied");
         return EditResult::Error("The parameter value could not be applied");
     }
