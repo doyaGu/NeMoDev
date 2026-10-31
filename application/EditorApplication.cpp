@@ -793,7 +793,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         catch (...) { return uint32_t(EDITOR_INPUT_CANCEL); }
     };
     h.drawValue = [](void *p, EditorString editor, const EditorValueInput *input) {
-        if (!input || input->size != sizeof(*input) || !static_cast<EditorApplication *>(p)->m_State->drawingEdit) return uint32_t(EDITOR_INPUT_INVALID);
+        if (!input || input->size != sizeof(*input) || !static_cast<EditorApplication *>(p)->m_State->drawing) return uint32_t(EDITOR_INPUT_INVALID);
         try { return static_cast<EditorApplication *>(p)->DrawValue(Id(editor), *input); }
         catch (...) { return uint32_t(EDITOR_INPUT_INVALID); }
     };

@@ -53,6 +53,43 @@ EditorModuleDesc TextModule() {
     return module;
 }
 EditorStatus NoChange(void *, const EditorHost *, const EditorRequest *, EditorSink) { return EDITOR_NO_CHANGE; }
+void OwnedValueDrawing() {
+    struct Painter { unsigned calls = 0; bool recursive = false; } painter;
+    const EditorValueEditorDesc valueEditor{sizeof(valueEditor), EDITOR_IMGUI_VERSION,
+        EDITOR_TEXT("test.draft"), EDITOR_TEXT("test.draft"), EDITOR_TEXT("Draft value"),
+        [](void *data, const EditorHost *host, const EditorValueInput *input) -> uint32_t {
+            auto &painter = *static_cast<Painter *>(data); ++painter.calls;
+            if (painter.recursive) return host->drawValue(host->data, EditorString EDITOR_TEXT("test.draft"), input);
+            auto value = input->value; value.integer = 37;
+            return input->update.write(input->update.data, &value, 1) == EDITOR_OK ? EDITOR_INPUT_CHANGED : EDITOR_INPUT_INVALID;
+        }, &painter, EDITOR_INTEGER_VALUE};
+    EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("test.draft"); module.editors = &valueEditor; module.editorCount = 1;
+    EditorApplication app({}); std::string error;
+    Check(app.Register(module, error) && app.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
+    uint64_t draft = 4;
+    EditorValueInput input{}; input.size = sizeof(input); input.label = EDITOR_TEXT("value");
+    input.value = {EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, draft};
+    input.update = {&draft, [](void *data, const EditorValue *value, uint32_t count) {
+        if (count != 1 || !value || value->type != EDITOR_INTEGER_VALUE) return EDITOR_INVALID;
+        *static_cast<uint64_t *>(data) = value->integer; return EDITOR_OK;
+    }};
+    const auto draw = [&] { return app.Host()->drawValue(app.Host()->data, EditorString EDITOR_TEXT("test.draft"), &input); };
+    Check(draw() == EDITOR_INPUT_INVALID && !painter.calls && draft == 4, "draft value editor ran outside drawing");
+    app.EnterDraw();
+    auto invalid = input; --invalid.size;
+    Check(app.Host()->drawValue(app.Host()->data, EditorString EDITOR_TEXT("test.draft"), &invalid) == EDITOR_INPUT_INVALID,
+          "draft value editor accepted an invalid descriptor");
+    Check(draw() == EDITOR_INPUT_CHANGED && painter.calls == 1 && draft == 37 && !app.HasEdits(),
+          "view-owned value editing did not update only its draft");
+    painter.calls = 0; painter.recursive = true;
+    Check(draw() == EDITOR_INPUT_CANCEL && painter.calls == 64, "draft value editor recursion was not bounded");
+    painter.recursive = false; painter.calls = 0;
+    uint32_t workerAction = EDITOR_INPUT_NONE;
+    std::thread worker([&] { workerAction = draw(); }); worker.join();
+    Check(workerAction == EDITOR_INPUT_INVALID && !painter.calls, "draft value editor ran on a worker thread");
+    app.LeaveDraw();
+}
 void PreviewRegistration() {
     EditorApplication app({});
     const EditorCommandDesc command{
@@ -580,6 +617,7 @@ int main(int argc, char **argv) {
         VersionedQueries();
         MenuChecks();
         PreviewRegistration();
+        OwnedValueDrawing();
         CommandStateReads();
         RealArrays();
         RecordValues();
