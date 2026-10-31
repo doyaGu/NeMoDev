@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "core/document/EditResult.h"
-#include "core/schematic/ElementRef.h"
+#include "core/schematic/ElementAddress.h"
 
 namespace vdev {
 
@@ -68,6 +68,7 @@ struct SearchResult {
     // The CK object the element shows (the behavior, the parameter, the
     // operation; a shortcut's source), 0 for Comments.
     CK_ID object = 0;
+    ElementAddress address;
 };
 
 // Opens every Script session of the document as needed.

@@ -62,13 +62,20 @@ std::vector<InvalidLink> FindInvalidLinks(Document &document, bool testParameter
         Check(context, info.id, data.rootBehavior, testParameterTypes, invalid);
         for (const BehaviorData &record : data.behaviors) Check(context, info.id, record, testParameterTypes, invalid);
     }
+    for (auto &link : invalid)
+        link.address = ElementAddress::Capture(document, link.script,
+            {ElementKind::Link, link.graph, link.link, link.slot});
     return invalid;
 }
 
 int RemoveInvalidLinks(Document &document, const std::vector<InvalidLink> &links) {
     // Per record, the slots from the last so that the others stay valid.
     std::map<std::pair<CK_ID, CK_ID>, std::vector<int>> slots;
-    for (const InvalidLink &link : links) slots[{link.script, link.graph}].push_back(link.slot);
+    for (const InvalidLink &link : links) {
+        CK_ID script = 0;
+        ElementRef ref;
+        if (link.address.Resolve(document, script, ref)) slots[{script, ref.owner}].push_back(ref.index);
+    }
     int removed = 0;
     for (auto &entry : slots) {
         ScriptSession *session = document.Session(entry.first.first);

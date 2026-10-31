@@ -209,6 +209,8 @@ std::vector<SearchResult> SearchDocument(Document &document, const SearchQuery &
         searchComments(data->rootBehavior);
         for (const auto &record : data->behaviors) searchComments(record);
     }
+    for (auto &result : results)
+        result.address = ElementAddress::Capture(document, result.script, result.ref);
     return results;
 }
 

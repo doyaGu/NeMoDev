@@ -17,6 +17,8 @@
 #include "core/schematic/LinkRouting.h"
 #include "core/schematic/SchematicModel.h"
 #include "core/schematic/SchematicSearch.h"
+#include "core/document/Edit.h"
+#include "core/document/LinkValidation.h"
 #include "VirtoolsRuntimeCheck.h"
 
 using namespace vdev;
@@ -215,6 +217,85 @@ void ExplorerSearch(CkRuntimeHost &host) {
     context->DestroyObject(replace);
     context->ClearAll();
     std::cout << "Explorer search passed\n";
+}
+
+void RetainedElementAddresses(CkRuntimeHost &host) {
+    auto *context = host.Context();
+    auto *script = CreateScript(context, "Retained positions");
+    auto *block = AddBehavior(context, script, "Stable behavior", false);
+    auto *input = block->CreateInputParameter((CKSTRING)"Original pin", CKPGUID_INT);
+    auto *local = script->CreateLocalParameter((CKSTRING)"Local", CKPGUID_INT);
+    assert(input && local);
+    Document document(host);
+    document.RefreshScripts();
+    auto *session = document.Session(script->GetID());
+    assert(session);
+    auto data = session->Data();
+    Comment a, b; a.text = "First"; b.text = "Second";
+    data.rootBehavior.comments = {a, b};
+    Link link; link.points = {Point(10, 10), Point(20, 20)};
+    data.rootBehavior.links.push_back(link);
+    data.rootBehavior.sharedParams.push_back(data.rootBehavior.localParams.front());
+    assert(session->Assign(data));
+    const CK_ID scriptId = script->GetID();
+    const ElementRef behavior{ElementKind::Behavior, scriptId, block->GetID()};
+    const auto stable = ElementAddress::Capture(document, scriptId, behavior);
+    const std::vector<ElementRef> slots = {
+        {ElementKind::Comment, scriptId, 0, 0}, {ElementKind::LocalParam, scriptId, 0, 0},
+        {ElementKind::Shortcut, scriptId, 0, 0}, {ElementKind::Link, scriptId, 0, 0},
+        {ElementKind::ControlPoint, scriptId, 0, 0, 0},
+        {ElementKind::Pin, block->GetID(), block->GetID(), 0, -1, PinKind::ParamIn}};
+    std::vector<ElementAddress> retained;
+    for (const auto &ref : slots) {
+        retained.push_back(ElementAddress::Capture(document, scriptId, ref));
+        assert(retained.back());
+        CK_ID resolved = 0; ElementRef element;
+        assert(retained.back().Resolve(document, resolved, element) && element == ref && resolved == scriptId);
+    }
+    SearchQuery query; query.text = "First"; query.kinds = SearchComments;
+    const auto results = SearchDocument(document, query);
+    assert(results.size() == 1 && results.front().address);
+    // The same slot now contains a different comment. A retained search
+    // result, link, point, local, shortcut or pin index cannot follow it.
+    assert(EditScriptData(document, scriptId, "Replace first comment", [](InterfaceData &value) {
+        value.rootBehavior.comments.erase(value.rootBehavior.comments.begin());
+    }));
+    for (const auto &address : retained) {
+        CK_ID resolved = 123; ElementRef element = behavior;
+        assert(!address.Resolve(document, resolved, element));
+        assert(resolved == 123 && element == behavior);
+    }
+    InvalidLink staleLink;
+    staleLink.script = staleLink.graph = scriptId;
+    staleLink.slot = 0;
+    staleLink.address = retained[3];
+    const auto linksBefore = session->Data().rootBehavior.links.size();
+    assert(RemoveInvalidLinks(document, {staleLink}) == 0);
+    assert(session->Data().rootBehavior.links.size() == linksBefore);
+    CK_ID resolved = 0; ElementRef element;
+    assert(stable.Resolve(document, resolved, element));
+    assert(!results.front().address.Resolve(document, resolved, element));
+    assert(document.History().Undo());
+    assert(!retained.front().Resolve(document, resolved, element));
+    assert(document.History().Redo());
+    assert(!retained.front().Resolve(document, resolved, element));
+    // Native pin replacement can happen without a display-data revision.
+    const ElementRef pin{ElementKind::Pin, block->GetID(), block->GetID(), 0, -1, PinKind::ParamIn};
+    const auto originalPin = ElementAddress::Capture(document, scriptId, pin);
+    const auto revision = session->Revision();
+    auto *removed = block->RemoveInputParameter(0);
+    assert(removed == input);
+    context->DestroyObject(removed, CK_DESTROY_NONOTIFY);
+    assert(block->CreateInputParameter((CKSTRING)"Replacement pin", CKPGUID_INT));
+    assert(session->Revision() == revision);
+    assert(!originalPin.Resolve(document, resolved, element));
+    assert(ElementAddress::Capture(document, scriptId, pin).Resolve(document, resolved, element));
+    // Invalid table positions are rejected at capture, before entering a queue.
+    assert(!ElementAddress::Capture(document, scriptId, {ElementKind::Comment, scriptId, 0, -1}));
+    assert(!ElementAddress::Capture(document, scriptId, {ElementKind::ControlPoint, scriptId, 0, 0, 999}));
+    context->ClearAll();
+    assert(!stable.Resolve(document, resolved, element));
+    std::cout << "Retained Schematic positions passed\n";
 }
 
 // Dev's record order compared with the runtime tree: breadth-first (as
@@ -468,6 +549,7 @@ int main(int argc, char **argv) {
     } else {
         SyntheticScriptModel(host.Context());
         ExplorerSearch(host);
+        RetainedElementAddresses(host);
         std::cout << "SchematicModelTests passed\n";
     }
     host.Stop();

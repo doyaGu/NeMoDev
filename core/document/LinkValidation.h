@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "CKAll.h"
+#include "core/schematic/ElementAddress.h"
 
 namespace vdev {
 
@@ -23,6 +24,7 @@ struct InvalidLink {
     CK_ID link = 0;  // the stored link id
     bool behaviorLink = false;
     std::string reason;
+    ElementAddress address;
 };
 
 // Every Script of the composition (sessions are opened for the ones with a chunk).

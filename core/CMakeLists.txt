@@ -40,6 +40,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         document/FileCommands.cpp
         document/ToolCommands.cpp
         # The Schematic's display model and display-only edits.
+        schematic/ElementAddress.cpp
         schematic/SchematicModel.cpp
         schematic/SchematicHitTest.cpp
         schematic/SchematicSearch.cpp
