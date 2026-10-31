@@ -2,6 +2,7 @@
 #include "core/level/SetupCommands.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -9,6 +10,7 @@
 
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
+#include "core/graph/ParameterValues.h"
 #include "core/level/ObjectEditCommands.h"
 #include "core/level/detail/LevelCommandsDetail.h"
 #include "core/runtime/CkRuntimeHost.h"
@@ -567,38 +569,188 @@ EditResult RegisterGridLayerType(Document &document, const std::string &name) {
     return EditResult::Applied(std::string(), static_cast<CK_ID>(type));
 }
 
+bool ReadBitmapFormat(CKObject *object, BitmapFormat &format) {
+    auto *texture = CKTexture::Cast(object);
+    auto *sprite = CKSprite::Cast(object);
+    if (!texture && !sprite)
+        return false;
+    auto *properties = texture ? texture->GetSaveFormat() : sprite->GetSaveFormat();
+    format.bytes.clear();
+    if (properties) {
+        // Loaded files may retain the 32-bit header (84 bytes rather than
+        // the native 88). Preserve its opaque reader data without rewriting it.
+        if (properties->m_Size < int(offsetof(CKBitmapProperties, m_Format)) || properties->m_Size >= 256)
+            return false;
+        const auto *data = reinterpret_cast<const char *>(properties);
+        format.bytes.assign(data, data + properties->m_Size);
+    }
+    return true;
+}
+bool ApplyBitmapFormat(CKObject *object, const BitmapFormat &format) {
+    auto *texture = CKTexture::Cast(object);
+    auto *sprite = CKSprite::Cast(object);
+    if (!texture && !sprite)
+        return false;
+    auto *properties = format.bytes.empty()
+                           ? nullptr
+                           : reinterpret_cast<CKBitmapProperties *>(const_cast<char *>(format.bytes.data()));
+    if (texture)
+        texture->SetSaveFormat(properties);
+    else
+        sprite->SetSaveFormat(properties);
+    BitmapFormat actual;
+    return ReadBitmapFormat(object, actual) && actual.bytes == format.bytes;
+}
+namespace {
+CKBitmapProperties *BitmapProperties(CKObject *object) {
+    if (auto *texture = CKTexture::Cast(object))
+        return texture->GetSaveFormat();
+    if (auto *sprite = CKSprite::Cast(object))
+        return sprite->GetSaveFormat();
+    return nullptr;
+}
+CKGUID BitmapOptionsType(CKBitmapProperties *format) {
+    if (!format)
+        return CKGUID{};
+    auto *plugins = CKGetPluginManager();
+    if (!plugins)
+        return CKGUID{};
+    CKPluginEntry *extension = nullptr;
+    for (int i = 0; i < plugins->GetPluginCount(CKPLUGIN_BITMAP_READER); ++i) {
+        auto *entry = plugins->GetPluginInfo(CKPLUGIN_BITMAP_READER, i);
+        if (!entry || !entry->m_ReadersInfo)
+            continue;
+        if (entry->m_PluginInfo.m_GUID == format->m_ReaderGuid)
+            return entry->m_ReadersInfo->m_SettingsParameterGuid;
+        if (_stricmp(entry->m_PluginInfo.m_Extension.m_Data, format->m_Ext.m_Data) == 0)
+            extension = entry;
+    }
+    return extension ? extension->m_ReadersInfo->m_SettingsParameterGuid : CKGUID{};
+}
+bool BitmapOptionMembers(Document &doc, CKBitmapProperties *format, CKParameterOut *options,
+                         std::vector<ParameterMember> &members) {
+    if (!format || !options || format->m_Size < int(sizeof(CKBitmapProperties)) || format->m_Size >= 256 ||
+        options->GetGUID() != BitmapOptionsType(format) || !ParameterMembers(doc, options, members))
+        return false;
+    size_t remaining = size_t(format->m_Size) - sizeof(CKBitmapProperties);
+    for (const auto &member : members) {
+        auto *parameter =
+            CKParameter::Cast(doc.Resolve(member.parameter, CKCID_PARAMETER, Document::ObjectScope::Existing));
+        if (!parameter || parameter->GetDataSize() < 0 || size_t(parameter->GetDataSize()) > remaining ||
+            (parameter->GetDataSize() && !parameter->GetReadDataPtr(FALSE)))
+            return false;
+        remaining -= size_t(parameter->GetDataSize());
+    }
+    return true;
+}
+} // namespace
+CKParameterOut *ReadBitmapOptions(Document &doc, CKObject *bitmap) {
+    auto *format = BitmapProperties(bitmap);
+    const auto type = BitmapOptionsType(format);
+    if (type == CKGUID{} || !format || format->m_Size < int(sizeof(CKBitmapProperties)))
+        return nullptr;
+    auto *options = doc.Context()->CreateCKParameterOut("Temp", type);
+    if (!options)
+        return nullptr;
+    std::vector<ParameterMember> members;
+    bool copied = false;
+    const bool called = GuardedCall(
+        [&] {
+            if (!BitmapOptionMembers(doc, format, options, members))
+                return;
+            const char *data = reinterpret_cast<const char *>(format) + sizeof(CKBitmapProperties);
+            for (const auto &member : members) {
+                auto *parameter =
+                    CKParameter::Cast(doc.Resolve(member.parameter, CKCID_PARAMETER, Document::ObjectScope::Existing));
+                const int size = parameter->GetDataSize();
+                if (parameter->SetValue(data, size) != CK_OK)
+                    return;
+                data += size;
+            }
+            copied = true;
+        },
+        &doc.Host(), "Read image format options");
+    if (called && copied)
+        return options;
+    doc.Context()->DestroyObject(options);
+    return nullptr;
+}
+bool WriteBitmapOptions(Document &doc, CKObject *bitmap, CKParameterOut *options) {
+    auto *format = BitmapProperties(bitmap);
+    std::vector<ParameterMember> members;
+    if (!BitmapOptionMembers(doc, format, options, members))
+        return false;
+    BitmapFormat value;
+    if (!ReadBitmapFormat(bitmap, value))
+        return false;
+    char *data = value.bytes.data() + sizeof(CKBitmapProperties);
+    for (const auto &member : members) {
+        auto *parameter =
+            CKParameter::Cast(doc.Resolve(member.parameter, CKCID_PARAMETER, Document::ObjectScope::Existing));
+        const int size = parameter->GetDataSize();
+        if (size)
+            std::memcpy(data, parameter->GetReadDataPtr(FALSE), size_t(size));
+        data += size;
+    }
+    return ApplyBitmapFormat(bitmap, value);
+}
+
+namespace {
+class BitmapFormatAction final : public Action {
+public:
+    BitmapFormatAction(CKObjectHandle object, BitmapFormat before, BitmapFormat after)
+        : object(object), before(std::move(before)), after(std::move(after)) {}
+    bool Redo(Document &doc) override { return Apply(doc, after); }
+    bool Undo(Document &doc) override { return Apply(doc, before); }
+    void RetainObjects(const Document &doc, std::set<CK_ID> &objects) const override {
+        if (doc.Context()->GetObjectByHandle(object))
+            objects.insert(object.Id);
+    }
+
+private:
+    bool Apply(Document &doc, const BitmapFormat &value) {
+        auto *target = doc.Context()->GetObjectByHandle(object);
+        BitmapFormat previous;
+        if (!ReadBitmapFormat(target, previous))
+            return false;
+        if (ApplyBitmapFormat(target, value))
+            return true;
+        ApplyBitmapFormat(target, previous);
+        return false;
+    }
+    CKObjectHandle object;
+    BitmapFormat before, after;
+};
+} // namespace
+EditResult CommitBitmapFormat(Document &doc, CK_ID id, const BitmapFormat &before, const std::string &label) {
+    auto *object = doc.Context()->GetObject(id);
+    BitmapFormat after;
+    if (!ReadBitmapFormat(object, after)) {
+        if (!ApplyBitmapFormat(object, before))
+            doc.InvalidateHistory();
+        return EditResult::Error("Cannot capture image format");
+    }
+    if (before.bytes == after.bytes)
+        return EditResult::NoChange();
+    Edit edit(doc, label);
+    edit.Done(std::make_unique<BitmapFormatAction>(doc.Context()->GetObjectHandle(id), before, std::move(after)));
+    return edit.Commit();
+}
+
 EditResult RenameGridLayerType(Document &document, int type, const std::string &name) {
-    CKGridManager *manager = GridManagerOf(document);
-    if (!manager || !manager->GetTypeName(type)) return EditResult::Refused("No such layer type");
-    if (name.empty()) return EditResult::Refused("Give a name to the layer type");
-    if (name == manager->GetTypeName(type)) return EditResult::NoChange("The name is unchanged");
-    // Dev: a name in use is not taken, the old one stays.
-    if (manager->GetTypeFromName(const_cast<CKSTRING>(name.c_str())) > 0) return EditResult::Refused("Name already used");
-    if (manager->SetTypeName(type, const_cast<CKSTRING>(name.c_str())) != CK_OK) return EditResult::Refused("The layer type could not be renamed");
-    document.MarkTopologyChanged();
-    return EditResult::Applied();
+    GridPropertyValue value;
+    value.text = name;
+    return EditGridProperty(document, GridProperty::LayerName, type, value);
 }
-
 EditResult SetGridLayerTypeColor(Document &document, int type, const VxColor &color) {
-    CKGridManager *manager = GridManagerOf(document);
-    if (!manager || !manager->GetTypeName(type)) return EditResult::Refused("No such layer type");
-    VxColor now;
-    manager->GetAssociatedColor(type, &now);
-    if (now.r == color.r && now.g == color.g && now.b == color.b && now.a == color.a) return EditResult::NoChange("The color is unchanged");
-    VxColor value = color;
-    if (manager->SetAssociatedColor(type, &value) != CK_OK) return EditResult::Refused("The color could not be set");
-    document.MarkTopologyChanged();
-    return EditResult::Applied();
+    GridPropertyValue value;
+    value.color = color;
+    return EditGridProperty(document, GridProperty::LayerColor, type, value);
 }
-
 EditResult SetGridLayerTypeLinker(Document &document, int type, bool linker) {
-    CKGridManager *manager = GridManagerOf(document);
-    if (!manager || !manager->GetTypeName(type)) return EditResult::Refused("No such layer type");
-    const CKGUID wanted = linker ? CKPGUID_LINKERGRAPH_ENUM : CKPGUID_INT;
-    if (manager->GetAssociatedParam(type) == wanted) return EditResult::NoChange("The parameter type is unchanged");
-    if (manager->SetAssociatedParam(type, wanted) != CK_OK) return EditResult::Refused("The parameter type could not be set");
-    document.MarkTopologyChanged();
-    return EditResult::Applied();
+    GridPropertyValue value;
+    value.linker = linker;
+    return EditGridProperty(document, GridProperty::LayerLinker, type, value);
 }
 
 EditResult RegisterGridClassification(Document &document, const std::string &name) {
@@ -614,15 +766,102 @@ EditResult RegisterGridClassification(Document &document, const std::string &nam
 }
 
 EditResult RenameGridClassification(Document &document, int classification, const std::string &name) {
-    CKAttributeManager *attributes = document.Context()->GetAttributeManager();
-    if (!attributes || !attributes->IsAttributeIndexValid(classification)) return EditResult::Refused("No such classification");
-    if (name.empty()) return EditResult::Refused("Give a name to the classification");
-    const char *current = attributes->GetAttributeNameByType(classification);
-    if (current && name == current) return EditResult::NoChange("The name is unchanged");
-    if (attributes->GetAttributeTypeByName(const_cast<CKSTRING>(name.c_str())) >= 0) return EditResult::Refused("Name already used");
-    attributes->SetAttributeNameByType(classification, const_cast<CKSTRING>(name.c_str()));
-    document.MarkTopologyChanged();
-    return EditResult::Applied();
+    GridPropertyValue value;
+    value.text = name;
+    return EditGridProperty(document, GridProperty::ClassificationName, classification, value);
+}
+
+bool ReadGridProperty(Document &doc, GridProperty property, int index, GridPropertyValue &value) {
+    if (property == GridProperty::ClassificationName) {
+        auto *attributes = doc.Context()->GetAttributeManager();
+        if (!attributes || !attributes->IsAttributeIndexValid(index))
+            return false;
+        const auto *name = attributes->GetAttributeNameByType(index);
+        value.text = name ? name : "";
+        return true;
+    }
+    auto *manager = GridManagerOf(doc);
+    if (!manager || !manager->GetTypeName(index))
+        return false;
+    switch (property) {
+    case GridProperty::LayerName:
+        value.text = manager->GetTypeName(index);
+        return true;
+    case GridProperty::LayerColor:
+        manager->GetAssociatedColor(index, &value.color);
+        return true;
+    case GridProperty::LayerLinker:
+        value.linker = manager->GetAssociatedParam(index) == CKPGUID_LINKERGRAPH_ENUM;
+        return true;
+    default:
+        return false;
+    }
+}
+bool WriteGridProperty(Document &doc, GridProperty property, int index, const GridPropertyValue &value) {
+    GridPropertyValue current;
+    if (!ReadGridProperty(doc, property, index, current))
+        return false;
+    if (property == GridProperty::ClassificationName) {
+        auto *attributes = doc.Context()->GetAttributeManager();
+        const int used = attributes->GetAttributeTypeByName(const_cast<CKSTRING>(value.text.c_str()));
+        if (value.text.empty() || (used >= 0 && used != index))
+            return false;
+        attributes->SetAttributeNameByType(index, const_cast<CKSTRING>(value.text.c_str()));
+        return true;
+    }
+    auto *manager = GridManagerOf(doc);
+    switch (property) {
+    case GridProperty::LayerName: {
+        const int used = manager->GetTypeFromName(const_cast<CKSTRING>(value.text.c_str()));
+        return !value.text.empty() && (used <= 0 || used == index) &&
+               manager->SetTypeName(index, const_cast<CKSTRING>(value.text.c_str())) == CK_OK;
+    }
+    case GridProperty::LayerColor: {
+        auto color = value.color;
+        return manager->SetAssociatedColor(index, &color) == CK_OK;
+    }
+    case GridProperty::LayerLinker:
+        return manager->SetAssociatedParam(index, value.linker ? CKPGUID_LINKERGRAPH_ENUM : CKPGUID_INT) == CK_OK;
+    default:
+        return false;
+    }
+}
+namespace {
+bool SameGridProperty(GridProperty field, const GridPropertyValue &a, const GridPropertyValue &b) {
+    if (field == GridProperty::LayerColor)
+        return a.color.r == b.color.r && a.color.g == b.color.g && a.color.b == b.color.b && a.color.a == b.color.a;
+    return field == GridProperty::LayerLinker ? a.linker == b.linker : a.text == b.text;
+}
+class GridPropertyAction final : public Action {
+public:
+    GridPropertyAction(GridProperty property, int index, GridPropertyValue before, GridPropertyValue after)
+        : property(property), index(index), before(std::move(before)), after(std::move(after)) {}
+    bool Redo(Document &doc) override { return Apply(doc, before, after); }
+    bool Undo(Document &doc) override { return Apply(doc, after, before); }
+
+private:
+    bool Apply(Document &doc, const GridPropertyValue &expected, const GridPropertyValue &value) {
+        GridPropertyValue current;
+        return ReadGridProperty(doc, property, index, current) && SameGridProperty(property, current, expected) &&
+               WriteGridProperty(doc, property, index, value);
+    }
+    GridProperty property;
+    int index;
+    GridPropertyValue before, after;
+};
+} // namespace
+EditResult EditGridProperty(Document &doc, GridProperty property, int index, const GridPropertyValue &value) {
+    GridPropertyValue before;
+    if (!ReadGridProperty(doc, property, index, before))
+        return EditResult::Refused("No such grid setting");
+    if (SameGridProperty(property, before, value))
+        return EditResult::NoChange();
+    Edit edit(doc, property == GridProperty::LayerColor    ? "Layer Type Color"
+                   : property == GridProperty::LayerLinker ? "Layer Parameter Type"
+                                                           : "Rename");
+    if (!edit.Do(std::make_unique<GridPropertyAction>(property, index, before, value)))
+        return edit.Fail("The grid setting could not be changed");
+    return edit.Commit();
 }
 
 } // namespace vdev

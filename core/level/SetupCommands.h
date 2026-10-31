@@ -89,4 +89,26 @@ EditResult SetGridLayerTypeLinker(Document &document, int type, bool linker);
 EditResult RegisterGridClassification(Document &document, const std::string &name);
 EditResult RenameGridClassification(Document &document, int classification, const std::string &name);
 
+// Image-save settings contain reader options, not image slots or GPU state.
+struct BitmapFormat {
+    std::vector<char> bytes;
+};
+bool ReadBitmapFormat(CKObject *object, BitmapFormat &format);
+bool ApplyBitmapFormat(CKObject *object, const BitmapFormat &format);
+CKParameterOut *ReadBitmapOptions(Document &document, CKObject *bitmap);
+bool WriteBitmapOptions(Document &document, CKObject *bitmap, CKParameterOut *options);
+EditResult CommitBitmapFormat(Document &document, CK_ID object, const BitmapFormat &before, const std::string &label);
+
+// Grid registries belong to the document runtime, separately from a grid's
+// saved object state. Preview and undo both address one named field.
+enum class GridProperty { None, LayerName, LayerColor, LayerLinker, ClassificationName };
+struct GridPropertyValue {
+    std::string text;
+    VxColor color{0, 0, 0, 1};
+    bool linker = false;
+};
+bool ReadGridProperty(Document &document, GridProperty property, int index, GridPropertyValue &value);
+bool WriteGridProperty(Document &document, GridProperty property, int index, const GridPropertyValue &value);
+EditResult EditGridProperty(Document &document, GridProperty property, int index, const GridPropertyValue &value);
+
 } // namespace vdev
