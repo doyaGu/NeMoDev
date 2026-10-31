@@ -192,3 +192,6 @@ VIRTOOLSDEV_UI_CASE("modules", "message_and_synchro_defer_creation_and_restore_u
 VIRTOOLSDEV_UI_CASE("modules", "script_animation_and_attribute_selectors")
 VIRTOOLSDEV_UI_CASE("modules", "nested_remaining_selectors_one_undo_and_cancel")
 VIRTOOLSDEV_UI_CASE("modules", "external_remaining_value_providers_are_captured")
+
+VIRTOOLSDEV_UI_CASE("schematic", "two_instance_navigation")
+VIRTOOLSDEV_UI_CASE("schematic", "stale_navigation_and_menu")

@@ -848,6 +848,169 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         while (state.History().UndoCount() > steps) Undo(ctx);
         IM_CHECK(!state.document->Dirty());
     };
+    t = IM_REGISTER_TEST(engine, "schematic", "two_instance_navigation");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, SchematicRef().c_str());
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        auto &editor = workspace.Application();
+        const auto first = workspace.Role("main.schematic");
+        const auto scripts = Read<std::vector<vdev::ScriptInfo>>(ctx, [&] { return state.document->Scripts(); });
+        IM_CHECK(scripts.size() >= 2);
+        const auto a = scripts.front().id, b = scripts.back().id;
+        const auto before = App().Canvas(first).Navigation();
+        const auto undo = state.History().UndoCount();
+        const auto dirty = state.document->Dirty();
+        const auto second = Read<EditorView>(ctx, [&] { return workspace.Open("script.schematic"); });
+        IM_CHECK(second && second != first);
+        auto navigate = [&](EditorView view, CK_ID script) {
+            const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, state.document->Reference(script)};
+            const EditorRequest request{editor.Scope(view), &target, 1};
+            return editor.Execute("script.navigate", request).status;
+        };
+        OnMainThread(ctx, [&] {
+            App().Canvas(first).Navigation().options.showAllScripts = false;
+            App().Canvas(second).Navigation().options.showAllScripts = false;
+            IM_CHECK_NO_RET(navigate(first, a) == EDITOR_OK);
+        });
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            const EditorValue invalid[] = {
+                {EDITOR_TEXT("target"), EDITOR_OBJECT, state.document->Reference(a)},
+                {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, {}, {}, UINT64_MAX}};
+            IM_CHECK_NO_RET(editor.Execute("script.navigate", {editor.Scope(first), invalid, 2}).status == EDITOR_INVALID);
+        });
+        const auto firstSelection = App().Canvas(first).Navigation().selection;
+        const auto firstZoom = App().Canvas(first).GlobalZoom();
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(navigate(second, b) == EDITOR_OK); });
+        ctx->Yield(4);
+        IM_CHECK_EQ(App().Canvas(first).Navigation().stackScript, state.document->Reference(a));
+        IM_CHECK_EQ(App().Canvas(second).Navigation().stackScript, state.document->Reference(b));
+        IM_CHECK(App().Canvas(first).Navigation().selection.items == firstSelection.items);
+        IM_CHECK_EQ(App().Canvas(first).GlobalZoom(), firstZoom);
+        IM_CHECK_EQ(App().Canvas(second).Navigation().selection.script, b);
+        OnMainThread(ctx, [&] {
+            const EditorValue values[] = {
+                {EDITOR_TEXT("target"), EDITOR_OBJECT, state.document->Reference(a)},
+                {EDITOR_TEXT("background"), EDITOR_INTEGER_VALUE, {}, {}, 1}};
+            IM_CHECK_NO_RET(editor.Execute("script.navigate", {editor.Scope(first), values, 2}).status == EDITOR_OK);
+        });
+        ctx->Yield(3);
+        IM_CHECK_EQ(Read<EditorView>(ctx, [&] { return workspace.Focused(); }), second);
+        const auto secondSelection = Read<vdev::EditorResponse>(ctx, [&] { return workspace.Inspect(second); });
+        const auto firstState = Read<vdev::EditorResponse>(ctx, [&] { return workspace.Inspect(first); });
+        IM_CHECK(firstState.status == EDITOR_OK && secondSelection.status == EDITOR_OK);
+        IM_CHECK_EQ(App().Canvas(first).Navigation().selection.script, a);
+        const auto wasOpen = App().Canvas(first).ScriptOpen(b);
+        OnMainThread(ctx, [&] {
+            App().Canvas(second).ToggleScriptOpen(b);
+            App().Canvas(second).Navigation().hiddenScripts.insert(state.document->Reference(a));
+            App().Canvas(second).Navigation().scriptOrder = {state.document->Reference(b), state.document->Reference(a)};
+            App().Canvas(second).Navigation().options.showGrid = !before.options.showGrid;
+        });
+        ctx->Yield(3);
+        IM_CHECK(App().Canvas(first).ScriptOpen(b) == wasOpen);
+        IM_CHECK(!App().Canvas(second).ScriptOpen(b));
+        IM_CHECK(App().Canvas(first).Navigation().hiddenScripts == before.hiddenScripts);
+        IM_CHECK(App().Canvas(first).Navigation().scriptOrder == before.scriptOrder);
+        IM_CHECK(App().Canvas(first).Navigation().options.showGrid == before.options.showGrid);
+        // A failed document switch must retain both windows' navigation.
+        OnMainThread(ctx, [&] {
+            struct FailingViews : vdev::DocumentFiles::Views {
+                vdev::EditorState &state;
+                vdev::DocumentFiles::Views *original;
+                explicit FailingViews(vdev::EditorState &s) : state(s), original(s.documentViews) { state.documentViews = this; }
+                ~FailingViews() { state.documentViews = original; }
+                bool DocumentInteractionActive() const override { return original->DocumentInteractionActive(); }
+                void DetachDocument(bool context) override {
+                    original->DetachDocument(context);
+                    throw std::runtime_error("Injected Schematic view detach failure");
+                }
+                void RestoreDocument() override { original->RestoreDocument(); }
+            } views(state);
+            const auto token = state.document->Token();
+            const auto left = App().Canvas(first).Navigation(), right = App().Canvas(second).Navigation();
+            const auto result = editor.Execute("document.new", {editor.Scope(), nullptr, 0});
+            IM_CHECK_NO_RET(result.status == EDITOR_QUEUED);
+            state.FinishRuntimeOperations();
+            IM_CHECK_NO_RET(state.document->Token() == token);
+            IM_CHECK_NO_RET(App().Canvas(first).Navigation().selection.items == left.selection.items);
+            IM_CHECK_NO_RET(App().Canvas(second).Navigation().selection.items == right.selection.items);
+            IM_CHECK_NO_RET(App().Canvas(first).Navigation().stackScript == left.stackScript);
+            IM_CHECK_NO_RET(App().Canvas(second).Navigation().stackScript == right.stackScript);
+            IM_CHECK_NO_RET(App().Canvas(second).Navigation().closedScripts == right.closedScripts);
+            IM_CHECK_NO_RET(App().Canvas(second).Navigation().hiddenScripts == right.hiddenScripts);
+            IM_CHECK_NO_RET(App().Canvas(second).Navigation().scriptOrder == right.scriptOrder);
+        });
+        ctx->Yield(3);
+        // A deferred navigation to a closed instance cannot go to the first.
+        OnMainThread(ctx, [&] {
+            state.events.Post(vdev::ShowElement{*state.document, a, {}, 0, second});
+            IM_CHECK_NO_RET(workspace.Close(second));
+        });
+        ctx->Yield(4);
+        IM_CHECK_EQ(App().Canvas(first).Navigation().stackScript, state.document->Reference(a));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(navigate(second, b) != EDITOR_OK);
+            App().Canvas(first).Navigation() = before;
+            App().Canvas(first).RefreshStack();
+            workspace.Focus(first);
+        });
+        ctx->Yield(3);
+        IM_CHECK_EQ(state.History().UndoCount(), undo);
+        IM_CHECK(state.document->Dirty() == dirty);
+    };
+
+    t = IM_REGISTER_TEST(engine, "schematic", "stale_navigation_and_menu");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        const auto block = ClickFirstBlock(ctx);
+        IM_CHECK(block.has_value());
+        auto &state = App().State();
+        const auto view = state.workspace->Role("main.schematic");
+        const auto selected = App().Canvas(view).Navigation().selection;
+        const auto undo = state.History().UndoCount();
+        const auto dirty = state.document->Dirty();
+        vdev::ElementAddress old;
+        OnMainThread(ctx, [&] {
+            auto *session = state.document->Session(block->script);
+            const auto index = int(session->Data().rootBehavior.comments.size());
+            auto made = vdev::EditScriptData(*state.document, block->script, "Navigation test comment", [&](InterfaceData &data) {
+                Comment note; note.text = "Original navigation comment";
+                data.rootBehavior.comments.push_back(note);
+            });
+            IM_CHECK_NO_RET(made);
+            const vdev::ElementRef ref{vdev::ElementKind::Comment, block->script, 0, index};
+            old = vdev::ElementAddress::Capture(*state.document, block->script, ref);
+            state.events.Post(vdev::ShowElement{*state.document, block->script, ref, 0, view});
+            auto changed = vdev::EditScriptData(*state.document, block->script, "Replace navigation comment", [&](InterfaceData &data) {
+                data.rootBehavior.comments.erase(data.rootBehavior.comments.begin() + index);
+                Comment note; note.text = "Replacement must not be selected";
+                data.rootBehavior.comments.push_back(note);
+            });
+            IM_CHECK_NO_RET(changed);
+        });
+        ctx->Yield(4);
+        IM_CHECK(App().Canvas(view).Navigation().selection.items == selected.items);
+        IM_CHECK_EQ(App().Canvas(view).Navigation().selection.script, selected.script);
+        OnMainThread(ctx, [&] {
+            CK_ID script = 0; vdev::ElementRef ref;
+            IM_CHECK_NO_RET(!old.Resolve(*state.document, script, ref));
+            while (state.History().UndoCount() > undo) IM_CHECK_NO_RET(state.History().Undo());
+        });
+        ctx->Yield(3);
+        // The retained hit must be dropped before its model storage is cleared.
+        const auto shown = ClickFirstBlock(ctx);
+        IM_CHECK(shown.has_value());
+        ctx->MouseClick(1);
+        ctx->Yield(2);
+        OnMainThread(ctx, [&] { App().Canvas(view).Invalidate(); });
+        ctx->Yield(3);
+        IM_CHECK(Read<bool>(ctx, [] { return !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId); }));
+        IM_CHECK_EQ(state.History().UndoCount(), undo);
+        IM_CHECK(state.document->Dirty() == dirty);
+    };
 
 }
 

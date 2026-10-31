@@ -17,6 +17,7 @@
 #include "core/schematic/LinkRouting.h"
 #include "core/schematic/SchematicModel.h"
 #include "core/schematic/SchematicSearch.h"
+#include "core/schematic/SchematicNavigation.h"
 #include "core/document/Edit.h"
 #include "core/document/LinkValidation.h"
 #include "VirtoolsRuntimeCheck.h"
@@ -252,11 +253,15 @@ void RetainedElementAddresses(CkRuntimeHost &host) {
         CK_ID resolved = 0; ElementRef element;
         assert(retained.back().Resolve(document, resolved, element) && element == ref && resolved == scriptId);
     }
+    Selection selection;
+    selection.Bind(&document);
+    selection.Set(scriptId, slots.front());
+    selection.Add(scriptId, behavior);
     SearchQuery query; query.text = "First"; query.kinds = SearchComments;
     const auto results = SearchDocument(document, query);
     assert(results.size() == 1 && results.front().address);
-    // The same slot now contains a different comment. A retained search
-    // result, link, point, local, shortcut or pin index cannot follow it.
+    // The same slot now contains a different comment. An old selection,
+    // search result, link, point, local, shortcut or pin index cannot follow it.
     assert(EditScriptData(document, scriptId, "Replace first comment", [](InterfaceData &value) {
         value.rootBehavior.comments.erase(value.rootBehavior.comments.begin());
     }));
@@ -272,6 +277,8 @@ void RetainedElementAddresses(CkRuntimeHost &host) {
     const auto linksBefore = session->Data().rootBehavior.links.size();
     assert(RemoveInvalidLinks(document, {staleLink}) == 0);
     assert(session->Data().rootBehavior.links.size() == linksBefore);
+    selection.Validate();
+    assert(selection.items.size() == 1 && selection.items.front() == behavior);
     CK_ID resolved = 0; ElementRef element;
     assert(stable.Resolve(document, resolved, element));
     assert(!results.front().address.Resolve(document, resolved, element));
@@ -293,8 +300,15 @@ void RetainedElementAddresses(CkRuntimeHost &host) {
     // Invalid table positions are rejected at capture, before entering a queue.
     assert(!ElementAddress::Capture(document, scriptId, {ElementKind::Comment, scriptId, 0, -1}));
     assert(!ElementAddress::Capture(document, scriptId, {ElementKind::ControlPoint, scriptId, 0, 0, 999}));
+    SchematicNavigation navigation;
+    navigation.hiddenScripts.insert(stable.script);
+    navigation.scriptOrder = {stable.script};
+    navigation.stackScript = stable.script;
     context->ClearAll();
+    assert(navigation.HiddenIds(document).empty());
     assert(!stable.Resolve(document, resolved, element));
+    selection.Validate();
+    assert(selection.Empty());
     std::cout << "Retained Schematic positions passed\n";
 }
 
