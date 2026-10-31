@@ -1,4 +1,5 @@
 #include "features/environment/EnvironmentViewData.h"
+#include "workspace/EditorPopup.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include "imgui_internal.h"
 #include "ui/controls/TypeAhead.h"
@@ -15,17 +16,11 @@ struct Paths {
     std::set<size_t> selected;
     int editing = -1;
     std::string text, message;
-    bool popup = false, loaded = false;
-    ImGuiID popupId = 0;
+    bool loaded = false;
+    EditorPopup popup;
     uint64_t revision = 0, changes = 0;
     EditorOperation applying = 0;
     struct Browse { EditorOperation operation = 0; uint64_t changes = 0; size_t category = 0, row = 0; std::string before; } browse;
-    ~Paths() {
-        if (!popupId) return;
-        if (auto *context = ImGui::GetCurrentContext())
-            for (int i = 0; i < context->OpenPopupStack.Size; ++i)
-                if (context->OpenPopupStack[i].PopupId == popupId) { ImGui::ClosePopupToLevel(i, false); break; }
-    }
     void Draw(const EditorClient &, EditorViewFrame &);
     void Finish(bool accept) {
         if (editing < 0 || category >= categories.size()) return;
@@ -90,7 +85,7 @@ void Paths::Draw(const EditorClient &client, EditorViewFrame &frame) {
     Complete(client, frame);
     if (frame.close) return;
     if (!loaded) Read(client);
-    if (!popup) { popupId = ImGui::GetID(frame.window.data); ImGui::OpenPopup(frame.window.data); popup = true; }
+    popup.Open(frame);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(.5f, .5f));
     ImGui::SetNextWindowSize(ImVec2(680, 420), ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal(frame.window.data, nullptr, ImGuiWindowFlags_NoDocking)) return;
