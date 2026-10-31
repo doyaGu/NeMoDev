@@ -6,6 +6,7 @@
 #include "ui/render/UiRenderer.h"
 #include "ui/schematic/Snapshots.h"
 #include "core/document/ToolCommands.h"
+#include "core/schematic/SchematicEdits.h"
 #include <fstream>
 #include <chrono>
 #include <filesystem>
@@ -20,7 +21,121 @@ int LiveViews() {
 }
 } // namespace
 void RegisterModuleTests(ImGuiTestEngine *engine) {
-    auto *test = IM_REGISTER_TEST(engine, "modules", "rename_cancel_undo_configuration_and_loaded_view");
+    auto *test = IM_REGISTER_TEST(engine, "modules", "schematic_changes_reach_external_views");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        auto &editor = workspace.Application();
+        vdev::EditorConfiguration initial;
+        vdev::SchematicNavigation navigation;
+        CK_ID script = 0, graph = 0;
+        EditorView first = 0, second = 0, observer = 0;
+        size_t steps = 0;
+        CKDWORD before = 0;
+        OnMainThread(ctx, [&] {
+            initial = editor.Configuration();
+            first = workspace.Role("main.schematic");
+            navigation = App().Canvas(first).Navigation();
+            steps = state.History().UndoCount();
+            const auto created = vdev::CreateScript(*state.document, state.document->Context()->GetCurrentLevel()->GetID(),
+                                                    "Notification view");
+            IM_CHECK_NO_RET(created.ok);
+            script = created.created;
+            const auto child = vdev::CreateBehaviorGraph(*state.document, script, script, "Child graph", Point(80, 80));
+            IM_CHECK_NO_RET(child.ok);
+            graph = child.created;
+            before = state.document->Session(script)->Data().header.color;
+            second = workspace.Open("script.schematic");
+            IM_CHECK_NO_RET(first && second && first != second);
+            App().Canvas(first).ShowScript(script);
+            App().Canvas(second).ShowScript(script);
+            workspace.Focus(first);
+            auto config = initial;
+            for (auto &choice : config.providers)
+                if (choice.kind == "command" && choice.id == "schematic.script-color-set")
+                    choice.provider = "example.schematic";
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+            observer = editor.OpenScope();
+            const EditorValue fields[] = {
+                {EDITOR_TEXT("target"), EDITOR_OBJECT, state.document->Reference(script)},
+                {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, observer}};
+            IM_CHECK_NO_RET(editor.Execute("example.schematic-watch", {editor.Scope(observer), fields, 2}).status == EDITOR_OK);
+        });
+        ctx->Yield(5);
+        const auto count = [&](const char *key) {
+            return Read<uint64_t>(ctx, [&] {
+                const auto result = editor.Query("example.schematic-state", {editor.Scope(observer), nullptr, 0});
+                for (const auto &field : result.fields) if (field.key == key) return field.integer;
+                return UINT64_MAX;
+            });
+        };
+        const auto notices = count("notices"), writes = count("writes");
+        const auto topology = Read<uint64_t>(ctx, [&] { return state.document->TopologyRevision(); });
+        OnMainThread(ctx, [&] { App().Canvas(first).ToggleFold(script, graph); });
+        ctx->Yield(4);
+        IM_CHECK_EQ(count("notices"), notices + 1);
+        IM_CHECK_EQ(Read<uint64_t>(ctx, [&] { return state.document->TopologyRevision(); }), topology);
+        IM_CHECK(Read<bool>(ctx, [&] { return vdev::FindRecord(state.document->Session(script)->Data(), graph)->folded; }));
+        Undo(ctx);
+        IM_CHECK_EQ(count("notices"), notices + 2);
+        Redo(ctx);
+        IM_CHECK_EQ(count("notices"), notices + 3);
+        Undo(ctx);
+        IM_CHECK_EQ(count("notices"), notices + 4);
+
+        // The ordinary color dialog must use the selected external command;
+        // drafting and cancelling publish no document modification.
+        ctx->WindowFocus(("//" + App().SchematicWindow(first)).c_str());
+        ctx->Yield(3);
+        const auto shown = Read<std::vector<vdev::SchematicCanvas::ShownScript>>(ctx,
+            [&] { return App().Canvas(first).ShownScripts(); });
+        const auto found = std::find_if(shown.begin(), shown.end(), [&](const auto &item) { return item.script == script; });
+        IM_CHECK(found != shown.end());
+        const auto open = [&] {
+            ctx->MouseMoveToPos(Center(found->headerMin, found->headerMax));
+            ctx->MouseClick(1);
+            ctx->Yield(3);
+            ctx->ItemClick("//$FOCUSED/Set Color");
+            ctx->Yield(3);
+            ctx->ItemClick("//Script Color/**/##color/##hex/##Text");
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+            ctx->KeyChars("FF00AA");
+            ctx->Yield(3);
+        };
+        open();
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK_EQ(count("notices"), notices + 4);
+        IM_CHECK_EQ(count("writes"), writes);
+        open();
+        ctx->ItemClick("//Script Color/OK");
+        ctx->Yield(4);
+        IM_CHECK_EQ(count("writes"), writes + 1);
+        IM_CHECK_EQ(count("notices"), notices + 5);
+        IM_CHECK_EQ(count("color"), 0xAA00FFu);
+        IM_CHECK_EQ(state.History().UndoCount(), steps + 3);
+        IM_CHECK_EQ(Read<uint64_t>(ctx, [&] { return state.document->TopologyRevision(); }), topology);
+        Undo(ctx);
+        IM_CHECK_EQ(count("notices"), notices + 6);
+        IM_CHECK_EQ(count("color"), before);
+        OnMainThread(ctx, [&] {
+            editor.CloseScope(observer);
+            IM_CHECK_NO_RET(workspace.Close(second));
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(initial, error));
+            IM_CHECK_NO_RET(state.History().Undo() && state.History().Undo());
+            App().Canvas(first).Navigation() = navigation;
+            App().Canvas(first).RefreshStack();
+            workspace.Focus(first);
+        });
+        ctx->Yield(3);
+        IM_CHECK_EQ(state.History().UndoCount(), steps);
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "rename_cancel_undo_configuration_and_loaded_view");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, SceneRef("level", "").c_str());
