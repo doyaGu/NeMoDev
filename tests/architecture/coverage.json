@@ -407,6 +407,13 @@
       "patterns": [
         "features/arrays/ArrayCommands.*"
       ]
+    },
+    {
+      "id": "S47",
+      "name": "DataArray 表格和值绘制",
+      "patterns": [
+        "features/arrays/ArrayTable.*"
+      ]
     }
   ],
   "dependencies": {
@@ -780,6 +787,10 @@
       "S08",
       "S13",
       "S34"
+    ],
+    "S47": [
+      "S33",
+      "S35"
     ]
   },
   "legacy_exposures": [
@@ -1558,7 +1569,8 @@
         "S20",
         "S44",
         "S45",
-        "S46"
+        "S46",
+        "S47"
       ],
       "tests": [
         "VirtoolsDev.ParameterValueFailures",
