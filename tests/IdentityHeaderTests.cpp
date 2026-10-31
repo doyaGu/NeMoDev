@@ -43,8 +43,18 @@ static_assert(__is_standard_layout(EditorValueInput), "C value input");
 static_assert(__is_trivially_copyable(EditorValueEditorDesc), "Borrowed typed editor");
 extern "C" EditorParameter NullableObjectFromC(void);
 extern "C" uint32_t EditorParameterSizeFromC(void);
-static_assert(EDITOR_VERSION == 14, "Editor request-based property version");
+extern "C" EditorCommandDesc PreviewCommandFromC(void *);
+static_assert(EDITOR_VERSION == 15, "Editor live-preview property version");
 int main() {
+    int previewValue = 17;
+    void *previewState = nullptr;
+    const auto command = PreviewCommandFromC(&previewValue);
+    if (command.size != sizeof(EditorCommandDesc) || !command.preview ||
+        command.preview(command.data, nullptr, nullptr, EDITOR_PREVIEW_UPDATE, &previewState) != EDITOR_OK ||
+        previewState != &previewValue ||
+        command.preview(command.data, nullptr, nullptr, EDITOR_PREVIEW_CANCEL, &previewState) != EDITOR_OK ||
+        previewState)
+        return 1;
     EditorHost host{};
     host.beginEdit=[](void *,EditorString,const EditorRequest *request,EditorEdit *edit) {
         if (!request || request->count != 1 || request->values[0].type != EDITOR_INTEGER_LIST) return EDITOR_INVALID;

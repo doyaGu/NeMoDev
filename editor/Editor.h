@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 14u
+#define EDITOR_VERSION 15u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -126,6 +126,13 @@ typedef enum EditorEffect {
     EDITOR_FILE_OPERATION,
     EDITOR_RUNTIME_CONTROL
 } EditorEffect;
+// Optional live preview of a document edit. The host owns the interaction and
+// keeps state between updates. CANCEL restores the original state, frees the
+// provider's state and sets it to null. It also runs before the final command,
+// so only that command records Undo. No preview changes document history.
+typedef enum EditorPreviewAction { EDITOR_PREVIEW_UPDATE, EDITOR_PREVIEW_CANCEL } EditorPreviewAction;
+typedef EditorStatus(EDITOR_CALL *EditorCommandPreview)(void *, const struct EditorHost *, const EditorRequest *,
+                                                        EditorPreviewAction, void **state);
 typedef struct EditorCommandDesc {
     uint32_t size;
     EditorString id, provider, title;
@@ -136,6 +143,7 @@ typedef struct EditorCommandDesc {
     EditorArea area;
     EditorEffect effect;
     EditorCommandState state;
+    EditorCommandPreview preview;
 } EditorCommandDesc;
 typedef enum EditorQueryRefresh { EDITOR_QUERY_DOCUMENT, EDITOR_QUERY_EACH_READ, EDITOR_QUERY_VERSIONED } EditorQueryRefresh;
 // Reads a published version, without native access or mutations. A changed

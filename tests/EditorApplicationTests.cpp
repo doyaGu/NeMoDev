@@ -48,6 +48,30 @@ EditorModuleDesc TextModule() {
     return module;
 }
 EditorStatus NoChange(void *, const EditorHost *, const EditorRequest *, EditorSink) { return EDITOR_NO_CHANGE; }
+void PreviewRegistration() {
+    EditorApplication app({});
+    const EditorCommandDesc command{
+        sizeof(command),
+        EDITOR_TEXT("test.bad-preview"),
+        EDITOR_TEXT("test.preview"),
+        EDITOR_TEXT("Bad preview"),
+        nullptr,
+        0,
+        NoChange,
+        nullptr,
+        EDITOR_WORKSPACE,
+        EDITOR_SESSION_CHANGE,
+        nullptr,
+        [](void *, const EditorHost *, const EditorRequest *, EditorPreviewAction, void **) { return EDITOR_OK; }};
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("test.bad-preview");
+    module.commands = &command;
+    module.commandCount = 1;
+    std::string error;
+    Check(!app.Register(module, error), "non-document command accepted a native preview");
+}
 void MenuChecks() {
     for (int invalid = 0; invalid < 4; ++invalid) {
         EditorApplication app({});
@@ -550,6 +574,7 @@ int main(int argc, char **argv) {
         Registration();
         VersionedQueries();
         MenuChecks();
+        PreviewRegistration();
         CommandStateReads();
         RealArrays();
         RecordValues();

@@ -81,3 +81,25 @@ EditorStatus BeginPositionedEditFromC(const EditorHost *host, EditorString prope
 uint32_t DrawPositionedPropertyFromC(const EditorHost *host, EditorString property, const EditorRequest *request, EditorEdit *edit, EditorString label) {
     return host->drawProperty(host->data, property, request, edit, label);
 }
+
+static EditorStatus EDITOR_CALL PreviewFromC(void *data, const struct EditorHost *host, const EditorRequest *request,
+                                             EditorPreviewAction action, void **state) {
+    (void)host;
+    (void)request;
+    if (!state)
+        return EDITOR_INVALID;
+    if (action == EDITOR_PREVIEW_UPDATE)
+        *state = data;
+    else if (action == EDITOR_PREVIEW_CANCEL)
+        *state = 0;
+    else
+        return EDITOR_INVALID;
+    return EDITOR_OK;
+}
+EditorCommandDesc PreviewCommandFromC(void *data) {
+    EditorCommandDesc command = {0};
+    command.size = sizeof(command);
+    command.preview = PreviewFromC;
+    command.data = data;
+    return command;
+}

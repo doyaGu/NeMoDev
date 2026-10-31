@@ -247,6 +247,7 @@ struct Module {
             auto d = source.commands[i];
             if (d.size != sizeof(d) || !d.run || d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION ||
                 d.effect < EDITOR_DOCUMENT_EDIT || d.effect > EDITOR_RUNTIME_CONTROL ||
+                (d.preview && d.effect != EDITOR_DOCUMENT_EDIT) ||
                 ((d.effect == EDITOR_DOCUMENT_EDIT || d.effect == EDITOR_DOCUMENT_CHANGE) && d.area != EDITOR_DOCUMENT))
                 throw std::invalid_argument("Invalid command descriptor");
             d.id = Text(d.id, true);
@@ -437,6 +438,7 @@ struct EditorApplication::State {
         std::vector<EditorField> fields;
         EditorValueEditors editors;
         std::vector<EditorField> arguments;
+        void *preview = nullptr;
     };
     std::map<EditorEdit, Draft> drafts;
     struct Pending {
@@ -548,6 +550,60 @@ struct EditorApplication::State {
             return field.type != EDITOR_OBJECT_LIST || std::all_of(field.objects.begin(), field.objects.end(), valid);
         })) return EDITOR_STALE;
         return EDITOR_OK;
+    }
+    std::vector<EditorField> DraftFields(const Draft &draft, const EditorField &value) const {
+        auto owned = value;
+        owned.key = draft.property.argument;
+        std::vector<EditorField> fields{{"target", EDITOR_OBJECT, draft.object}, std::move(owned)};
+        for (uint32_t i = 0; i < draft.command->count; ++i) {
+            const auto key = String(draft.command->parameters[i].key);
+            if (key == "target" || key == draft.property.argument)
+                continue;
+            const auto field =
+                std::find_if(draft.fields.begin(), draft.fields.end(), [&](const auto &v) { return v.key == key; });
+            if (field != draft.fields.end())
+                fields.push_back(*field);
+        }
+        return fields;
+    }
+    EditorStatus Preview(Draft &draft, const EditorField &value, EditorPreviewAction action) {
+        if (!draft.command->preview || (action == EDITOR_PREVIEW_CANCEL && !draft.preview))
+            return EDITOR_OK;
+        if (action == EDITOR_PREVIEW_UPDATE && !NativeReady())
+            return EDITOR_REFUSED;
+        const auto fields = DraftFields(draft, value);
+        const auto values = BorrowEditorFields(fields);
+        if (action == EDITOR_PREVIEW_UPDATE) {
+            const auto allowed = Check(*draft.command, draft.scope, fields, true);
+            if (allowed != EDITOR_OK)
+                return allowed;
+        }
+        const EditorRequest request{draft.scope, values.data(), uint32_t(values.values.size())};
+        ++executing;
+        ++readOnlyCallbacks;
+        EditorStatus status = EDITOR_ERROR;
+        try {
+            status = draft.command->preview(draft.command->data, &host, &request, action, &draft.preview);
+        } catch (...) {
+        }
+        --readOnlyCallbacks;
+        --executing;
+        cache.clear();
+        ++published;
+        return status == EDITOR_OK || status == EDITOR_STALE ? status : EDITOR_ERROR;
+    }
+    bool RestorePreview(Draft &draft) {
+        const auto status = Preview(draft, draft.value, EDITOR_PREVIEW_CANCEL);
+        const bool restored = (status == EDITOR_OK || status == EDITOR_STALE) && !draft.preview;
+        if (!restored)
+            if (auto *doc = CurrentDocument(); doc && doc->Token() == draft.scope.document)
+                doc->InvalidateHistory();
+        return restored;
+    }
+    void ClearDrafts() {
+        for (auto &entry : drafts)
+            RestorePreview(entry.second);
+        drafts.clear();
     }
     EditorStatus Check(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields, bool fromDraft = false) {
         if (!Thread() || !Valid(scope, command.area)) return EDITOR_STALE;
@@ -1415,7 +1471,7 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
         return;
     const bool documentChanged = s.document != document;
     if (documentChanged) {
-        s.drafts.clear();
+        s.ClearDrafts();
         for (const auto &pending : s.pending) s.Complete(pending.operation, {EDITOR_STALE});
         s.pending.clear();
         s.selection = {};
@@ -1431,9 +1487,10 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
     s.writable = writable;
     if (available) {
         for (auto it = s.drafts.begin(); it != s.drafts.end();)
-            if (!s.Current(it->second.object))
+            if (!s.Current(it->second.object)) {
+                s.RestorePreview(it->second);
                 it = s.drafts.erase(it);
-            else
+            } else
                 ++it;
     }
     if (documentChanged)
@@ -1473,9 +1530,10 @@ void EditorApplication::CloseScope(EditorView view) {
         else
             ++it;
     for (auto it = s.drafts.begin(); it != s.drafts.end();)
-        if (it->second.scope.view == view)
+        if (it->second.scope.view == view) {
+            s.RestorePreview(it->second);
             it = s.drafts.erase(it);
-        else
+        } else
             ++it;
     s.pending.erase(std::remove_if(s.pending.begin(), s.pending.end(),
                                    [&](const State::Pending &command) {
@@ -1717,7 +1775,15 @@ EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const EditorValue &v
     auto &s = *m_State;
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
     const auto found = s.drafts.find(edit);
-    if (found == s.drafts.end() || !s.Valid(found->second.scope) || (s.NativeReady() && !s.Current(found->second.object))) return EDITOR_STALE;
+    if (found == s.drafts.end())
+        return EDITOR_STALE;
+    if (!s.Valid(found->second.scope) || (s.NativeReady() && !s.Current(found->second.object))) {
+        s.RestorePreview(found->second);
+        s.drafts.erase(found);
+        return EDITOR_STALE;
+    }
+    if (found->second.command->preview && !s.NativeReady())
+        return EDITOR_REFUSED;
     if (value.type != found->second.property.type) return EDITOR_INVALID;
     std::vector<EditorField> fields;
     if (CopyEditorFields(fields, &value, 1) != EDITOR_OK || fields.size() != 1) return EDITOR_INVALID;
@@ -1725,6 +1791,12 @@ EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const EditorValue &v
         return !(field.type == EDITOR_OBJECT && field.object) && !(field.type == EDITOR_OBJECT_LIST && !field.objects.empty());
     })) return EDITOR_REFUSED;
     if (s.NativeReady() && !s.CurrentValues(fields)) return EDITOR_STALE;
+    const auto preview = s.Preview(found->second, fields.front(), EDITOR_PREVIEW_UPDATE);
+    if (preview != EDITOR_OK) {
+        s.RestorePreview(found->second);
+        s.drafts.erase(found);
+        return preview;
+    }
     found->second.value = std::move(fields.front());
     return EDITOR_OK;
 }
@@ -1733,25 +1805,35 @@ EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit) {
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
     auto found = s.drafts.find(edit);
     if (found == s.drafts.end()) return EDITOR_STALE;
-    if (!commit) { s.drafts.erase(found); return EDITOR_CANCELLED; }
-    const auto &draft = found->second;
-    if (!s.Valid(draft.scope)) { s.drafts.erase(found); return EDITOR_STALE; }
-    if (!s.NativeReady() || !s.writable) return EDITOR_REFUSED;
-    if (!s.Current(draft.object)) { s.drafts.erase(found); return EDITOR_STALE; }
-    auto value = draft.value;
-    value.key = draft.property.argument;
-    std::vector<EditorField> fields{{"target", EDITOR_OBJECT, draft.object, {}}, std::move(value)};
-    for (uint32_t i = 0; i < draft.command->count; ++i) {
-        const auto key = String(draft.command->parameters[i].key);
-        if (key == "target" || key == draft.property.argument) continue;
-        const auto context = std::find_if(draft.fields.begin(), draft.fields.end(), [&](const auto &field) { return field.key == key; });
-        if (context == draft.fields.end()) return EDITOR_INVALID;
-        fields.push_back(*context);
+    if (!commit) {
+        const bool restored = s.RestorePreview(found->second);
+        s.drafts.erase(found);
+        return restored ? EDITOR_CANCELLED : EDITOR_ERROR;
     }
+    const auto &draft = found->second;
+    if (!s.Valid(draft.scope)) {
+        s.RestorePreview(found->second);
+        s.drafts.erase(found);
+        return EDITOR_STALE;
+    }
+    if (!s.NativeReady() || !s.writable) return EDITOR_REFUSED;
+    if (!s.Current(draft.object)) {
+        s.RestorePreview(found->second);
+        s.drafts.erase(found);
+        return EDITOR_STALE;
+    }
+    auto fields = s.DraftFields(draft, draft.value);
     const auto allowed = s.Check(*draft.command, draft.scope, fields, true);
     if (allowed != EDITOR_OK) {
-        if (allowed == EDITOR_STALE) s.drafts.erase(found);
+        if (allowed == EDITOR_STALE) {
+            s.RestorePreview(found->second);
+            s.drafts.erase(found);
+        }
         return allowed;
+    }
+    if (!s.RestorePreview(found->second)) {
+        s.drafts.erase(found);
+        return EDITOR_ERROR;
     }
     s.pending.push_back({draft.command, draft.scope, std::move(fields)});
     s.drafts.erase(found);
@@ -2005,7 +2087,7 @@ void EditorApplication::Stop() {
     s.active = false;
     s.stopped = true;
     s.watches.clear();
-    s.drafts.clear();
+    s.ClearDrafts();
     s.pending.clear();
     s.scopes.clear();
     s.cache.clear();
