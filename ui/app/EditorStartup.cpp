@@ -141,7 +141,7 @@ void EditorApp::RunStartupActions(bool opened) {
                 m_State.Log(LogLevel::Warning, "--setup: no object named " + AnsiToUtf8(name));
         }
         if (m_Startup.playFrames > 0 && m_State.debugger) {
-            m_State.showDebugger = true;
+            Command("runtime.open-debugger");
             const EditorValue trace{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, 1};
             m_Editor.Execute("runtime.set-trace", {m_Editor.Scope(), &trace, 1});
             const EditorValue frames{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_Startup.playFrames)};
@@ -235,7 +235,7 @@ void EditorApp::OpenStartupTool(const std::string &name) {
     } else if (name == "versiontest") {
         m_Tools.RunVersionTest();
     } else if (name == "profiler") {
-        m_Tools.showProfiler = true;
+        Command("runtime.open-profiler");
     } else if (name == "eventlog") {
         Command("log.open");
     } else if (name == "watch") {
@@ -256,7 +256,7 @@ void EditorApp::OpenStartupTool(const std::string &name) {
     } else if (name == "linkprops") {
         m_Tools.OpenLinkProperties();
     } else if (name == "debugger") {
-        m_State.showDebugger = true;
+        Command("runtime.open-debugger");
     } else if (name == "explorer") {
         ShowSchematicExplorer();
     } else if (name == "breakpointconfig" || name == "breakpoints" || name == "invalidlinks") {

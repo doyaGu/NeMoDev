@@ -247,7 +247,9 @@ private:
     OutputCommands m_Outputs{m_Editor, m_State.files, m_State.runtimeOperation,
                               [this] { return m_State.document.get(); }, *this};
     ExecutionCommands m_Execution{m_Editor, [this] { return m_State.document.get(); },
-                                  [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }};
+                                  [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
+                                  {[this] { return m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"); },
+                                   [this](bool redraw) { m_State.preferences.redrawOnlyAtBreakpoint = redraw; }}};
     EditorWorkspace m_Workspace{m_Editor};
     DataResourceCommands m_ResourceCommands{m_Editor, m_State.host, [this] { return FileOperationAvailable(); }};
     ObjectCommands m_ObjectCommands;

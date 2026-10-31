@@ -31,6 +31,7 @@
 #include "core/graph/ScriptCommands.h"
 #include "ui/schematic/Snapshots.h"
 #include "core/runtime/TextEncoding.h"
+#include "workspace/EditorClient.h"
 #include "core/graph/ValueCommands.h"
 
 namespace vdev {
@@ -2050,9 +2051,13 @@ void SchematicCanvas::Toolbar() {
     if (icon("reset", RESET, false, true, "Reset Schematic Zoom and Position")) ResetView();
     if (icon("zoom", ZOOM, options.zoomMode, true, "Zoom Mode")) options.zoomMode = !options.zoomMode;
     separator();
-    if (icon("debugger", DEBUGGER, m_State.showDebugger, true, "Script Debugger"))
-        m_State.showDebugger = !m_State.showDebugger;
-    if (m_State.debugger && pill("trace", "Trace", m_State.debugger->trace, true, "Trace Mode (Ctrl+T)", 66.0f))
+    auto &application = m_State.workspace->Application();
+    const EditorClient runtime(application.Host(), m_Instance);
+    const EditorValue role{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("main.debugger")};
+    const bool debuggerOpen = EditorClient::Integer(application.ReadQuery("workspace.role", {application.Scope(m_Instance), &role, 1}), "view") != 0;
+    if (icon("debugger", DEBUGGER, debuggerOpen, true, "Script Debugger")) runtime.Command("runtime.toggle-debugger");
+    const auto &execution = application.ReadQuery("runtime.state", {application.Scope(m_Instance), nullptr, 0});
+    if (EditorClient::Integer(execution, "available") && pill("trace", "Trace", EditorClient::Integer(execution, "trace") != 0, true, "Trace Mode (Ctrl+T)", 66.0f))
         m_State.workspace->Application().Execute("runtime.toggle-trace", {m_State.workspace->Application().Scope(m_Instance), nullptr, 0});
     // Dev: right of Trace, the Invalid Link Explorer's icon, shown only when
     // the composition has invalid links kept after loading.

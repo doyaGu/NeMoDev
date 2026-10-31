@@ -157,6 +157,10 @@ std::optional<std::pair<CK_ID, ImVec2>> EmptySchematicPoint(CK_ID in = 0, const 
 inline std::string SchematicRef(const char *suffix = "") { return "//" + App().SchematicWindow() + suffix; }
 inline std::string BlocksRef(const char *suffix = "") { return "//" + App().BuildingBlocksWindow() + suffix; }
 inline std::string SceneRef(const char *type, const char *suffix = "") { return "//" + App().SceneWindow(type) + suffix; }
+inline std::string RuntimeRef(const char *type, const char *suffix = "") {
+    auto &workspace = *App().State().workspace;
+    return "//" + workspace.WindowName(workspace.Role(std::string("main.") + type)) + suffix;
+}
 using LevelRow = vdev::SceneShownRow;
 std::optional<LevelRow> FindLevelRow(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact = false);
 std::optional<LevelRow> ClickLevelRow(ImGuiTestContext *ctx, CK_CLASSID cid, bool exact = false);

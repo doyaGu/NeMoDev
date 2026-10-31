@@ -119,7 +119,6 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
     // did not draw).
     std::map<std::string, std::function<CK_ID(float x, float y, CK_CLASSID cid)>> objectPick;
     const Debugger *debugger = nullptr; // read-only until the breakpoint views migrate; owned by ExecutionCommands
-    bool showDebugger = false;
     std::vector<std::string> layoutFrameShapes; // Virtools_Frame_ meshes less the prefix
     // Dev's lines for Add Attribute (Dev.exe sub_594BA0), each object's.
     void LogAttributeAdds(const char *attribute, const std::vector<std::pair<std::string, bool>> &each, bool ok) {

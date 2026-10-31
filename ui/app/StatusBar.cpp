@@ -2,6 +2,7 @@
 // them from the bar's right end at each size) and its Time Settings
 // (Dev.exe dialog 644, the Play button's right click).
 #include "ui/app/EditorApp.h"
+#include "workspace/EditorClient.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -152,16 +153,20 @@ void EditorApp::StatusBar() {
                 status, false, true);
         separator(206.0f);
         static const int PROFILER[5] = {961, 1343, 1344, 1344, 961};
-        if (DevBitmapButton("profiler", fromRight(203.0f, 2.0f), PROFILER, m_Tools.showProfiler, true, s, "Profiler"))
-            m_Tools.showProfiler = !m_Tools.showProfiler;
+        const EditorValue role{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("main.profiler")};
+        const auto &profiler = m_Editor.ReadQuery("workspace.role", {m_Editor.Scope(), &role, 1});
+        if (DevBitmapButton("profiler", fromRight(203.0f, 2.0f), PROFILER, EditorClient::Integer(profiler, "view") != 0, true, s, "Profiler"))
+            Command("runtime.toggle-profiler");
         // The frame rate: NA when not playing (Dev hides it with Hide Fps).
-        const Debugger *debugger = m_State.debugger;
-        const bool running = debugger && debugger->GetState() == Debugger::State::Running;
+        const auto &runtime = m_Editor.ReadQuery("runtime.state", {m_Editor.Scope(), nullptr, 0});
+        const bool running = EditorClient::Integer(runtime, "state") == EDITOR_EXECUTION_RUNNING;
+        const auto *measured = EditorClient::Find(runtime, "measured-fps");
+        const double measuredFps = measured ? measured->real : 0;
         if (!m_HideFps) {
             std::string fps = "NA";
-            if (running && m_Execution.State().measuredFps > 0) {
+            if (running && measuredFps > 0) {
                 char text[32];
-                std::snprintf(text, sizeof(text), "%.1f", m_Execution.State().measuredFps);
+                std::snprintf(text, sizeof(text), "%.1f", measuredFps);
                 fps = text;
             }
             BarText(dl, fromRight(185.0f, 7.0f), fromRight(155.0f, 19.0f), fps, false);
@@ -170,7 +175,7 @@ void EditorApp::StatusBar() {
         separator(123.0f);
         // Restore Initial Conditions, Play / Pause (pressed while playing;
         // a right click opens the Time Settings), Step One Frame.
-        const bool usable = m_State.HasDocument() && debugger;
+        const bool usable = EditorClient::Integer(runtime, "available") != 0;
         static const int REWIND[5] = {911, 912, 913, 913, 911};
         static const int PLAY[5] = {907, 908, 910, 910, 907};
         static const int STEP[5] = {914, 915, 916, 916, 914};
@@ -199,8 +204,7 @@ void EditorApp::StatusBar() {
 // bounds (CKTimeManager), Hide Fps.
 void EditorApp::TimeSettingsDialog() {
     const char *id = "###TimeSettings";
-    const bool ready = m_State.debugger != nullptr;
-    if (m_OpenTimeSettings && ready) {
+    if (m_OpenTimeSettings) {
         const auto settings = m_Editor.Query("runtime.time", {m_Editor.Scope(), nullptr, 0});
         if (settings.status != EDITOR_OK) { m_OpenTimeSettings = false; return; }
         for (const auto &field : settings.fields) {
@@ -215,7 +219,7 @@ void EditorApp::TimeSettingsDialog() {
         ImGui::OpenPopup(id);
     }
     m_OpenTimeSettings = false;
-    if (!ready || !ImGui::IsPopupOpen(id)) return;
+    if (!ImGui::IsPopupOpen(id)) return;
     const float s = ImGui::GetFontSize() / 13.0f;
     const ImVec2 client(231.0f * 1.5f * s, 95.0f * 1.625f * s + 26.0f * s);
     ImVec2 o;

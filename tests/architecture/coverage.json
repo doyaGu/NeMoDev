@@ -169,15 +169,14 @@
       "id": "S18",
       "name": "管理及目录视图",
       "patterns": [
-        "ui/panels/**",
-        "!ui/panels/DebuggerPanel.cpp"
+        "ui/panels/**"
       ]
     },
     {
       "id": "S19",
       "name": "调试视图",
       "patterns": [
-        "ui/panels/DebuggerPanel.cpp"
+        "features/runtime/**"
       ]
     },
     {
@@ -524,6 +523,7 @@
       "S16",
       "S17",
       "S18",
+      "S19",
       "S20",
       "S21",
       "S22",
@@ -596,13 +596,10 @@
       "S34"
     ],
     "S19": [
-      "S04",
-      "S13",
-      "S17",
-      "S18",
-      "S20",
-      "S21",
-      "S27"
+      "S27",
+      "S33",
+      "S34",
+      "S35"
     ],
     "S20": [
       "S01",
@@ -1089,15 +1086,6 @@
     },
     {
       "file": "ui/layout/LayoutWindow.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/panels/DebuggerPanel.cpp",
       "access": [
         "editor-state",
         "mutable-document",
@@ -1772,20 +1760,24 @@
       "owner": "Diagnostics",
       "source_groups": [
         "S03",
+        "S04",
+        "S15",
         "S18",
         "S19",
         "S24"
       ],
       "tests": [
-        "VirtoolsDev.EditorCommands"
+        "VirtoolsDev.EditorCommands",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.tools"
+        "VirtoolsDevUi.tools",
+        "VirtoolsDevUi.debugger"
       ],
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "补长任务中的缓存显示和旧诊断不能删错对象"
+          "reason": "Script Debugger 和 Profiler 已覆盖忙时缓存、对象复用与多窗口清理；Parameter Debugger、插件与路径、剩余诊断工具待迁移并验证"
         }
       ]
     },
@@ -2290,8 +2282,8 @@
     {
       "id": "watches",
       "name": "profiler、parameter watches、runtime log targets",
-      "owner": "运行值由会话投影提供；watch/filter 由各诊断视图挂接状态拥有",
-      "lifetime": "对象/会话/目录变化及视图脱离",
+      "owner": "ExecutionCommands 发布运行与 Profiler 数据；每个工作区调试视图拥有显示状态；Parameter Debugger 待迁移",
+      "lifetime": "文档切换、对象失效和视图关闭；最后一个 Profiler 关闭后恢复原设置，后台任务结束后同步原生清理",
       "persistence": "多实例列表独立，写参数仍走领域编辑",
       "features": [
         "F19"

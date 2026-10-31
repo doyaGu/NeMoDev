@@ -20,7 +20,7 @@ class SchematicViews;
 // Dev's windows of the Resources, Editors, Options and Help menus and the
 // status bar (layouts after the Dev 2.5 screenshots the user gave):
 // General Preferences, Installed Plugins, Path Manager, Unused Object
-// Explorer, Building Block Version Test, Profiler, Parameter Debugger,
+// Explorer, Building Block Version Test, Parameter Debugger,
 // Behavior Link Properties and About.
 class ToolWindows {
 public:
@@ -43,7 +43,6 @@ public:
     // sub_5BB370, sub_5BB8D0): every CK object, as when it opens.
     void OpenAllObjects();
     void OpenLinkProperties();
-    bool showProfiler = false;
     bool showParameterDebugger = false;
     // Parameter Debugger: adds parameters (locals and outputs only).
     int WatchParameters(const std::vector<CK_ID> &parameters);
@@ -72,8 +71,6 @@ private:
     void PathManager();
     void UnusedObjectExplorer();
     void VersionTestDialog();
-    void Profiler();
-    void ProfilerDetails();
     void ParameterDebugger(ImGuiID dock);
     void AboutDialog();
     void LinkPropertiesDialog();
@@ -86,7 +83,6 @@ private:
         std::vector<UnusedObject> unused; // Unused Object Explorer
         std::set<CK_ID> excluded;
         VersionTestResult versionTest; // Building Block Version Test
-        bool facesCounted = false;     // Profiler
     };
 
     EditorState &m_State;
@@ -118,14 +114,6 @@ private:
     bool m_OpenUnused = false;
     // Building Block Version Test
     bool m_OpenVersionTest = false;
-    // Profiler
-    CKStats m_Stats = {};
-    int m_Faces = 0, m_Vertices = 0;
-    bool m_ProfilerDetails = false;
-    bool m_ProfilerSorted = false; // Sort By Execution time: the slowest first
-    bool m_ProfilingWasEnabled = false;
-    bool m_ProfilerOpen = false;
-    double m_LastStats = 0.0;
     // Parameter Debugger
     ValueEditState m_WatchEdit;
     ImGuiID m_TopDock = 0;

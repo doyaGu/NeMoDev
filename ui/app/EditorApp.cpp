@@ -10,6 +10,7 @@
 #include "features/resources/BuildingBlockViews.h"
 #include "features/resources/DataResourceViews.h"
 #include "features/defaults/DefaultWorkspace.h"
+#include "features/runtime/RuntimeViews.h"
 #include "features/scene/SceneViewData.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/level/SetupCommands.h"
@@ -61,7 +62,7 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
         event.window.windowID != SDL_GetWindowID(m_Window) || m_Layout.FullScreen()) return;
     m_Schematics.CancelInteraction();
     m_Layout.CancelEdits();
-    if (m_State.debugger && m_State.debugger->GetState() == Debugger::State::Running)
+    if (m_Execution.State().state == EDITOR_EXECUTION_RUNNING)
         Command("runtime.pause");
 }
 
@@ -129,7 +130,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_State.eventLog.Register(m_Editor, error) || !RegisterEventLogView(m_Editor, error) ||
         !RegisterHelpViews(m_Editor, m_HtmlFonts, error) || !m_FileCommands.Register(error) ||
         !RegisterFileInputs(m_Editor, window, error) || !m_ObjectCommands.Register(m_Editor, error) ||
-        !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) || !m_Outputs.Register(error) ||
+        !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) ||
+        !RegisterRuntimeViews(m_Editor, error) || !m_Outputs.Register(error) ||
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
@@ -303,7 +305,7 @@ void EditorApp::CloseSetupsAndManagers() {
     m_Setups.CloseAll();
     CloseSceneView("attributes");
     CloseSceneView("hierarchy");
-    m_State.showDebugger = false;
+    Command("runtime.close-tools");
     m_Tools.CloseManagers();
 }
 
@@ -712,8 +714,8 @@ void EditorApp::MainMenu() {
     if (ImGui::BeginMenu("Options")) {
         if (ImGui::MenuItem("General Preferences", "Ctrl+P")) m_Tools.OpenGeneralPreferences();
         ImGui::Separator();
-        const Debugger *debugger = m_State.debugger;
-        if (ImGui::MenuItem(debugger && debugger->trace ? "Deactivate Trace Mode" : "Activate Trace Mode", m_Workspace.ShortcutLabel("runtime.toggle-trace"), false,
+        const auto runtime = m_Editor.Query("runtime.state", {m_Editor.Scope(), nullptr, 0});
+        if (ImGui::MenuItem(EditorClient::Integer(runtime, "trace") ? "Deactivate Trace Mode" : "Activate Trace Mode", m_Workspace.ShortcutLabel("runtime.toggle-trace"), false,
                             m_Editor.CommandState("runtime.toggle-trace", {m_Editor.Scope(), nullptr, 0}) == EDITOR_OK))
             Command("runtime.toggle-trace");
         // Hide/Show Dynamic Objects (documentation "Options Menu"): the
@@ -1031,7 +1033,6 @@ void EditorApp::Frame() {
     const auto &execution = m_Execution.State();
     m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"));
     m_Workspace.Draw();
-    if (m_State.showDebugger) m_Panels.DebuggerPanel(&m_State.showDebugger);
     if (m_Execution.Update(0.010)) m_Schematics.RefreshValues();
 #ifdef VIRTOOLSDEV_UI_TESTS
     const bool settled = m_FocusSchematic <= 0;

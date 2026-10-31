@@ -847,7 +847,7 @@ void SchematicCanvas::ExecuteSelectedScripts() {
     auto &editor = m_State.workspace->Application();
     editor.Execute("runtime.execute-scripts", {editor.Scope(m_Instance), &value, 1});
     RefreshValues();
-    m_State.showDebugger = true;
+    editor.Execute("runtime.open-debugger", {editor.Scope(m_Instance), nullptr, 0});
 }
 
 // --------------------------------------------------------------- snapshot

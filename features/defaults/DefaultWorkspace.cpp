@@ -77,7 +77,9 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"view", "script.schematic", "builtin.schematic"},
                                       {"view", "resource.data", "builtin.data-resources"},
                                       {"view", "resource.building-blocks", "builtin.building-blocks"},
-                                      {"command", "runtime.play", "builtin.execution"}};
+                                      {"command", "runtime.play", "builtin.execution"},
+                                      {"view", "runtime.debugger", "builtin.runtime-views"},
+                                      {"view", "runtime.profiler", "builtin.runtime-views"}};
     for (const auto *id : {"array.row-insert", "array.rows-remove", "array.rows-duplicate", "array.row-move",
                            "array.column-set", "array.column-insert", "array.column-remove", "array.column-move",
                            "array.sort", "array.key-set", "array.cells-set", "array.copy", "array.paste",
@@ -98,7 +100,9 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                     {"resource.file-dialogs", "", "", true},
                     {"scene.hierarchy", "main.hierarchy", "resources"},
                     {"scene.attributes", "main.attributes", "editing"},
-                    {"resource.data", "", "resources", false, false, true}};
+                    {"resource.data", "", "resources", false, false, true},
+                    {"runtime.debugger", "main.debugger", ""},
+                    {"runtime.profiler", "main.profiler", ""}};
     result.splits = {{"root", "top", "editing", WorkspaceDirection::Up, .5f},
                      {"top", "resources", "layout", WorkspaceDirection::Right, .5f}};
     result.regions = {

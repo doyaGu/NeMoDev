@@ -21,8 +21,6 @@ public:
     EditorPanels(EditorState &state, SchematicViews &canvases) : m_State(state), m_Schematics(canvases) {}
 
     void ExplorerPanel(bool *open);
-    // Dev Script Debugger (DebuggerPanel.cpp).
-    void DebuggerPanel(bool *open);
 
     // Shows the Scripts of the given Script's owner (Dev shows the Scripts of
     // the selected object) and centers the view on it.
@@ -71,7 +69,6 @@ private:
         std::string resultsKey;
         // The Script Debugger's Debug Context combos (the debugger's object
         // and Script, or the ones chosen to lock it to).
-        ObjectRef debugObject{}, debugScript{};
     };
 
     EditorState &m_State;
@@ -95,11 +92,6 @@ private:
     bool m_OpenExplorerValue = false;
     // Script Debugger: the Debug Log shown, the edits' text, the reached
     // breakpoints (blinking since, Goto's last one).
-    bool m_DebugLogShown = true;
-    std::string m_MaxFramesText, m_FpsText;
-    int m_DebugReached = 0;
-    double m_DebugBlinkStart = -100.0;
-    int m_DebugGoto = -1;
 };
 
 } // namespace vdev

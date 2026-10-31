@@ -8,14 +8,17 @@
 
 #include <cstring>
 #include <optional>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 
 #include "tests/ui/UiTests.h"
+#include "workspace/EditorClient.h"
 
 namespace vdevuitest {
 
 namespace {
 
-constexpr const char *DEBUGGER = "//Script Debugger";
 // The status bar's bitmap buttons (StatusBar.cpp: DevBitmapButton's ids).
 constexpr const char *PLAY = "//##StatusBar/play/##bitmap";
 constexpr const char *STEP = "//##StatusBar/step/##bitmap";
@@ -27,10 +30,29 @@ const vdev::Debugger &TheDebugger() { return *App().State().debugger; }
 bool OpenDebugger(ImGuiTestContext *ctx) {
     Settle(ctx, SchematicRef().c_str());
     if (!App().State().debugger) return false;
-    if (!App().State().showDebugger) ctx->ItemClick(SchematicRef("/**/debugger/##bitmap").c_str());
+    if (!App().State().workspace->Role("main.debugger")) ctx->ItemClick(SchematicRef("/**/debugger/##bitmap").c_str());
     ctx->Yield(3);
-    ImGuiWindow *window = ctx->GetWindowByRef(DEBUGGER);
+    ImGuiWindow *window = ctx->GetWindowByRef(RuntimeRef("debugger").c_str());
     return window && window->WasActive;
+}
+struct Gate {
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::atomic<bool> entered{false};
+    bool released = false;
+    void Release() { std::lock_guard<std::mutex> lock(mutex); released = true; changed.notify_all(); }
+};
+struct ReleaseGate { std::shared_ptr<Gate> gate; ~ReleaseGate() { gate->Release(); } };
+std::function<void()> runtimeWork;
+void RuntimeGui(ImGuiTestContext *ctx) {
+    if (runtimeWork) { runtimeWork(); runtimeWork = {}; }
+    MainThreadGui(ctx);
+}
+void OnRuntimeThread(ImGuiTestContext *ctx, std::function<void()> work) {
+    runtimeWork = std::move(work);
+    for (int i = 0; runtimeWork && i < 100; ++i) ctx->Yield();
+    IM_CHECK_NO_RET(!runtimeWork);
+    runtimeWork = {};
 }
 
 // Frames of the UI until done or the count runs out.
@@ -101,15 +123,23 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK_SILENT(debugger.Breakpoints().size() == before + 1);
         const int reached = debugger.Reached();
-        if (!debugger.insideFrames) ctx->ItemClick("//Script Debugger/Debug Inside Frames");
+        if (!debugger.insideFrames) ctx->ItemClick(RuntimeRef("debugger", "/Debug Inside Frames").c_str());
         IM_CHECK(debugger.insideFrames && debugger.trace);
         ctx->ItemClick(PLAY);
         IM_CHECK(WaitFor(ctx, 300, [&] { return debugger.Reached() > reached; }));
         IM_CHECK(debugger.GetState() == vdev::Debugger::State::Paused);
         IM_CHECK_EQ(debugger.CurrentBehavior(), block->behavior);
         IM_CHECK(!debugger.ReachedBreakpoints().empty());
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); auto &editor = state.workspace->Application();
+            const EditorValue args[] = {vdev::IntegerArgument("index", 0), vdev::IntegerArgument("reached", uint64_t(debugger.Reached()))};
+            const auto hit = editor.Query("runtime.reached-breakpoint", {editor.Scope(), args, 2});
+            IM_CHECK_NO_RET(hit.status == EDITOR_OK);
+            const auto *target = vdev::EditorClient::Find(hit, "object"), *behavior = vdev::EditorClient::Find(hit, "behavior");
+            IM_CHECK_NO_RET(target && behavior && target->object == state.document->Reference(block->behavior) && behavior->object == target->object);
+        });
         ctx->ItemClick(REWIND);
-        ctx->ItemClick("//Script Debugger/Debug Inside Frames");
+        ctx->ItemClick(RuntimeRef("debugger", "/Debug Inside Frames").c_str());
         ctx->Yield(2);
         IM_CHECK(!debugger.insideFrames);
         OnMainThread(ctx, [] {
@@ -139,13 +169,13 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         const bool dirty = App().State().document->Dirty();
         const std::optional<vdev::SchematicCanvas::ShownBehavior> block = FirstBlock();
         IM_CHECK_SILENT(block.has_value());
-        ctx->ItemClick("//Script Debugger/Add Breakpoint");
+        ctx->ItemClick(RuntimeRef("debugger", "/Add Breakpoint").c_str());
         ctx->Yield(2);
         ctx->MouseMoveToPos(Center(block->min, block->max));
         ctx->MouseClick(0);
         ctx->Yield(3);
         IM_CHECK_EQ(debugger.Breakpoints().size(), size_t(1));
-        ctx->ItemClick("//Script Debugger/Breakpoint List");
+        ctx->ItemClick(RuntimeRef("debugger", "/Breakpoint List").c_str());
         ctx->Yield(3);
         ImGuiWindow *list = ctx->GetWindowByRef("//$FOCUSED");
         IM_CHECK_SILENT(list != nullptr && std::strstr(list->Name, "BreakpointList"));
@@ -166,6 +196,128 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         Undo(ctx);
         IM_CHECK(debugger.Breakpoints().empty());
         IM_CHECK(App().State().document->Dirty() == dirty);
+    };
+
+    t = IM_REGISTER_TEST(engine, "debugger", "independent_registered_debugger_windows");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &workspace = *App().State().workspace;
+        auto &editor = workspace.Application();
+        EditorView first = 0, second = 0;
+        size_t undo = 0; bool redo = false;
+        vdev::ObjectRef selected{};
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(editor.Execute("runtime.close-tools", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(editor.Execute("runtime.open-debugger", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
+            first = workspace.Role("main.debugger"); second = workspace.Open("runtime.debugger");
+            IM_CHECK_NO_RET(first && second && first != second);
+            undo = App().State().History().UndoCount(); redo = App().State().History().CanRedo();
+            selected = editor.Selection();
+        });
+        ctx->Yield(5);
+        const auto log = [&](EditorView id) {
+            return Read<uint64_t>(ctx, [&] { return vdev::EditorClient::Integer(workspace.Inspect(id), "log-visible"); });
+        };
+        IM_CHECK(log(first) && log(second));
+        const auto window = "//" + workspace.WindowName(first);
+        ctx->WindowFocus(window.c_str()); ctx->Yield(2);
+        ctx->ItemClick((window + "/Debug Log").c_str()); ctx->Yield(3);
+        IM_CHECK(!log(first) && log(second));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(editor.Execute("runtime.close-tools", {editor.Scope(second), nullptr, 0}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(workspace.WindowName(first).empty() && workspace.WindowName(second).empty());
+            IM_CHECK_NO_RET(App().State().History().UndoCount() == undo && App().State().History().CanRedo() == redo && editor.Selection() == selected);
+        });
+    };
+
+    t = IM_REGISTER_TEST(engine, "debugger", "profiler_views_restore_original_setting");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        EditorView first = 0, second = 0;
+        bool originally = false;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(editor.Execute("runtime.close-tools", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
+            originally = state.document->Context()->IsProfilingEnable() != 0;
+            state.document->Context()->EnableProfiling(FALSE);
+            IM_CHECK_NO_RET(editor.Execute("runtime.open-profiler", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
+            first = workspace.Role("main.profiler"); second = workspace.Open("runtime.profiler");
+            IM_CHECK_NO_RET(first && second && first != second);
+        });
+        ctx->Yield(7);
+        IM_CHECK(Read<bool>(ctx, [&] { return state.document->Context()->IsProfilingEnable() != 0; }));
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(workspace.Close(first)); }); ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [&] { return state.document->Context()->IsProfilingEnable() != 0; }));
+        ctx->WindowFocus(("//" + workspace.WindowName(second)).c_str()); ctx->Yield(2);
+        ctx->ItemClick(("//" + workspace.WindowName(second) + "/##details").c_str()); ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            const auto value = vdev::IntegerArgument("details", 1);
+            const auto profile = editor.Query("runtime.profile", {editor.Scope(second), &value, 1});
+            IM_CHECK_NO_RET(profile.status == EDITOR_OK && vdev::EditorClient::Integer(profile, "row-count") > 0);
+            IM_CHECK_NO_RET(workspace.Close(second));
+        }); ctx->Yield(4);
+        IM_CHECK(!Read<bool>(ctx, [&] { return state.document->Context()->IsProfilingEnable() != 0; }));
+        OnMainThread(ctx, [&] {
+            state.document->Context()->EnableProfiling(TRUE);
+            editor.Execute("runtime.open-profiler", {editor.Scope(), nullptr, 0});
+        }); ctx->Yield(5);
+        OnMainThread(ctx, [&] { workspace.Close(workspace.Role("main.profiler")); }); ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.document->Context()->IsProfilingEnable());
+            state.document->Context()->EnableProfiling(originally ? TRUE : FALSE);
+        });
+    };
+
+    t = IM_REGISTER_TEST(engine, "debugger", "published_runtime_views_during_file_work");
+    t->GuiFunc = RuntimeGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
+        EditorView profiler = 0;
+        uint64_t revision = 0;
+        size_t undo = 0; bool redo = false;
+        vdev::ObjectRef selected{};
+        bool originally = false;
+        OnMainThread(ctx, [&] {
+            editor.Execute("runtime.close-tools", {editor.Scope(), nullptr, 0});
+            originally = state.document->Context()->IsProfilingEnable() != 0;
+            state.document->Context()->EnableProfiling(FALSE);
+            editor.Execute("runtime.open-debugger", {editor.Scope(), nullptr, 0});
+            editor.Execute("runtime.open-profiler", {editor.Scope(), nullptr, 0});
+            profiler = workspace.Role("main.profiler");
+        }); ctx->Yield(6);
+        OnMainThread(ctx, [&] {
+            const auto profile = editor.Query("runtime.profile", {editor.Scope(), nullptr, 0});
+            IM_CHECK_NO_RET(profile.status == EDITOR_OK && vdev::EditorClient::Integer(profile, "available"));
+            revision = vdev::EditorClient::Integer(profile, "revision");
+            undo = state.History().UndoCount(); redo = state.History().CanRedo(); selected = editor.Selection();
+            IM_CHECK_NO_RET(state.RunRuntime("Runtime projection regression", [gate] {
+                std::unique_lock<std::mutex> lock(gate->mutex); gate->entered = true;
+                gate->changed.wait(lock, [&] { return gate->released; });
+            }));
+        });
+        IM_CHECK(WaitFor(ctx, 100, [&] { return gate->entered.load(); })); ctx->Yield(5);
+        const auto *debuggerWindow = ctx->GetWindowByRef(RuntimeRef("debugger").c_str());
+        const auto *profilerWindow = ctx->GetWindowByRef(RuntimeRef("profiler").c_str());
+        IM_CHECK(debuggerWindow && profilerWindow && debuggerWindow->WasActive && profilerWindow->WasActive);
+        OnRuntimeThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.runtimeOperation.Busy());
+            const auto profile = editor.Query("runtime.profile", {editor.Scope(), nullptr, 0});
+            IM_CHECK_NO_RET(profile.status == EDITOR_OK && vdev::EditorClient::Integer(profile, "revision") == revision);
+            IM_CHECK_NO_RET(editor.Execute("runtime.play", {editor.Scope(), nullptr, 0}).status == EDITOR_REFUSED);
+            IM_CHECK_NO_RET(workspace.Close(profiler));
+        });
+        gate->Release();
+        IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(!state.document->Context()->IsProfilingEnable());
+            IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && editor.Selection() == selected);
+            editor.Execute("runtime.close-tools", {editor.Scope(), nullptr, 0});
+            state.document->Context()->EnableProfiling(originally ? TRUE : FALSE);
+        });
     };
 }
 

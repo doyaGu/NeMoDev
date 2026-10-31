@@ -656,7 +656,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             selected.bindings.emplace_back("runtime.toggle-trace", "Alt+T");
             std::string error;
             IM_CHECK_NO_RET(state.workspace->Configure(selected, error));
-            state.showDebugger = true;
+            editor.Execute("runtime.open-debugger", {editor.Scope(), nullptr, 0});
             history = state.History().UndoCount();
             time = editor.Query("runtime.time", {editor.Scope(), nullptr, 0}).fields;
             const EditorValue value{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, 1};
@@ -678,8 +678,8 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//##StatusBar/rewind/##bitmap");
         ctx->Yield(3);
         IM_CHECK(Read<int>(ctx, [] { return App().State().debugger->Frames(); }) == 0);
-        ctx->WindowFocus("//Script Debugger");
-        ctx->ItemClick("//Script Debugger/Debug Inside Frames");
+        ctx->WindowFocus(RuntimeRef("debugger", "").c_str());
+        ctx->ItemClick(RuntimeRef("debugger", "/Debug Inside Frames").c_str());
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [] { return App().State().debugger->trace && App().State().debugger->insideFrames; }));
         ctx->WindowFocus(SchematicRef().c_str());
@@ -712,7 +712,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             editor.Execute("runtime.set-inside-frames", {editor.Scope(), &disabled, 1});
             const EditorValue frames{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, 0};
             editor.Execute("runtime.set-max-frames", {editor.Scope(), &frames, 1});
-            state.showDebugger = false;
+            state.workspace->Close(state.workspace->Role("main.debugger"));
             std::string error;
             IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
         });

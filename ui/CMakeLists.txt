@@ -74,7 +74,9 @@ set(_editor_sources
         ../features/resources/BuildingBlockViews.cpp
         ../features/resources/DataResourceViews.cpp
         ../features/defaults/DefaultWorkspace.cpp
-        panels/DebuggerPanel.cpp
+        ../features/runtime/RuntimeViews.cpp
+        ../features/runtime/DebuggerView.cpp
+        ../features/runtime/ProfilerView.cpp
         # The Setups.
         setup/SetupWindows.cpp
         setup/SetupRenderPages.cpp
