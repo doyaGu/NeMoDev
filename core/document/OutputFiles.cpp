@@ -12,10 +12,12 @@ struct OutputFiles::Data {
         bool existed = false, published = false;
     };
     SaveReport &report;
+    SaveFileOperations &operations;
     std::vector<File> files;
     bool attempted = false;
     bool valid = true;
-    explicit Data(SaveReport &report) : report(report) {}
+    Data(SaveReport &report, SaveFileOperations *operations)
+        : report(report), operations(operations ? *operations : SaveFileOperations::Native()) {}
     void Restore(std::vector<std::string> &written) {
         for (auto i = files.rbegin(); i != files.rend(); ++i) {
             if (!i->published) continue;
@@ -34,7 +36,8 @@ struct OutputFiles::Data {
             if (file.published) written.push_back(file.name);
     }
 };
-OutputFiles::OutputFiles(SaveReport &report) : m_Data(std::make_unique<Data>(report)) {}
+OutputFiles::OutputFiles(SaveReport &report, SaveFileOperations *operations)
+    : m_Data(std::make_unique<Data>(report, operations)) {}
 OutputFiles::~OutputFiles() = default;
 std::string OutputFiles::Add(const std::string &destination) {
     auto &d = *m_Data;
@@ -42,7 +45,7 @@ std::string OutputFiles::Add(const std::string &destination) {
         d.valid = false;
         return {};
     }
-    auto pending = std::make_unique<PendingSaveFile>(std::filesystem::u8path(destination), d.report);
+    auto pending = std::make_unique<PendingSaveFile>(std::filesystem::u8path(destination), d.report, &d.operations);
     if (!pending->Create()) {
         d.valid = false;
         return {};
@@ -83,7 +86,7 @@ bool OutputFiles::Publish(std::vector<std::string> &written) {
                 return false;
             }
             if (!file.existed) continue;
-            file.backup = std::make_unique<PendingSaveFile>(file.staged->Destination(), d.report);
+            file.backup = std::make_unique<PendingSaveFile>(file.staged->Destination(), d.report, &d.operations);
             if (!file.backup->Create()) return false;
             // Create preserves destination permissions. A read-only source is
             // still readable for backup; make our private candidate writable

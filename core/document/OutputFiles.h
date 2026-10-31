@@ -6,6 +6,7 @@
 
 namespace vdev {
 struct SaveReport;
+class SaveFileOperations;
 
 // A declared set of files, staged beside their actual destinations. Publish
 // preserves previous files first and restores them in reverse order on failure.
@@ -13,7 +14,7 @@ struct SaveReport;
 // failures report the remaining outputs and retain backups for the user.
 class OutputFiles {
   public:
-    explicit OutputFiles(SaveReport &report);
+    explicit OutputFiles(SaveReport &report, SaveFileOperations *operations = nullptr);
     ~OutputFiles();
     OutputFiles(const OutputFiles &) = delete;
     OutputFiles &operator=(const OutputFiles &) = delete;

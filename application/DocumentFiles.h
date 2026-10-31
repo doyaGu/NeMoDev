@@ -12,6 +12,7 @@
 
 namespace vdev {
 class ExecutionCommands;
+class SaveFileOperations;
 
 // Application file workflows. Native stages use the exclusive runtime lane;
 // UI callbacks run between submitted frames on the main thread. Results are
@@ -35,8 +36,10 @@ class DocumentFiles {
         virtual void DocumentReplaced() = 0;
         virtual void Log(LogLevel level, const std::string &message) = 0;
     };
-    DocumentFiles(std::function<Document *()> current, RuntimeOperation &runtime, Observer &observer)
-        : m_Current(std::move(current)), m_Runtime(runtime), m_Observer(observer) {}
+    // Supplied file operations must outlive this owner and its queued work.
+    DocumentFiles(std::function<Document *()> current, RuntimeOperation &runtime, Observer &observer,
+                  SaveFileOperations *operations = nullptr)
+        : m_Current(std::move(current)), m_Runtime(runtime), m_Observer(observer), m_FileOperations(operations) {}
     // Application assembly. Native execution ends inside the admitted commit,
     // after candidate preparation and view detachment have succeeded.
     void Execution(ExecutionCommands *execution) { m_Execution = execution; }
@@ -153,6 +156,7 @@ class DocumentFiles {
     std::function<Document *()> m_Current;
     RuntimeOperation &m_Runtime;
     Observer &m_Observer;
+    SaveFileOperations *m_FileOperations = nullptr;
     ExecutionCommands *m_Execution = nullptr;
     std::vector<PendingLoad> m_Loads;
     unsigned m_NextPrompt = 0;

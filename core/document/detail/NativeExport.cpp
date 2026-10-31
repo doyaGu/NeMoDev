@@ -213,7 +213,7 @@ bool WriteExport(Document &document, CKObjectArray *objects, const std::string &
 
 void ExportNativeObjects(Document &document, const std::vector<CK_ID> &objects, const std::string &path,
                          NativeExportKind kind, bool hideRepresentation, const BehaviorDescription *description,
-                         NativeExportResult &result) {
+                         NativeExportResult &result, SaveFileOperations *operations) {
     result = {};
     auto &report = result.report;
     if (!document.Context() || (description && kind != NativeExportKind::Behaviors)) {
@@ -233,7 +233,7 @@ void ExportNativeObjects(Document &document, const std::vector<CK_ID> &objects, 
         return;
     }
     try {
-        OutputFiles outputs(report);
+        OutputFiles outputs(report, operations);
         std::string stagedDescription;
         const auto descriptionName = description ? BehaviorDescriptionPath(path) : std::string();
         if (description) {

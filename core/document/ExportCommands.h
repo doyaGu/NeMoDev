@@ -9,6 +9,7 @@ namespace vdev {
 enum class NativeExportKind { Objects, Behaviors };
 
 class Document;
+class SaveFileOperations;
 struct BehaviorDescription;
 struct NativeExportResult {
     SaveReport report;
@@ -19,6 +20,6 @@ struct NativeExportResult {
 // failed restoration is listed in written, with a recovery path in report.
 void ExportNativeObjects(Document &document, const std::vector<CK_ID> &objects, const std::string &path,
                          NativeExportKind kind, bool hideRepresentation, const BehaviorDescription *description,
-                         NativeExportResult &result);
+                         NativeExportResult &result, SaveFileOperations *operations = nullptr);
 
 } // namespace vdev

@@ -255,7 +255,7 @@ bool DocumentFiles::ExportWebPage(WebPage request, std::function<void(const WebR
         }
         SaveReport report;
         {
-            OutputFiles outputs(report);
+            OutputFiles outputs(report, m_FileOperations);
             const auto stagedComposition = outputs.Add(composition), stagedPage = outputs.Add(request.path);
             result->failure = stagedComposition.empty() ? WebResult::Failure::Composition : WebResult::Failure::Page;
             if (!stagedComposition.empty() && !stagedPage.empty()) {
@@ -428,7 +428,7 @@ bool DocumentFiles::Export(ExportRequest request, std::function<void(const Expor
         }
         ExportNativeObjects(*Current(), objects, request.path,
                             request.behaviors ? NativeExportKind::Behaviors : NativeExportKind::Objects,
-                            request.hide, request.description ? &description : nullptr, *native);
+                            request.hide, request.description ? &description : nullptr, *native, m_FileOperations);
     }, [this, native, result, completed = std::move(completed)](bool ok) {
         result->saved = native->report.saved;
         result->written = std::move(native->written);
