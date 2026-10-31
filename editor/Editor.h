@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 13u
+#define EDITOR_VERSION 14u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -155,6 +155,8 @@ typedef struct EditorQueryDesc {
     EditorQueryVersion revision; // required only for EDITOR_QUERY_VERSIONED
 } EditorQueryDesc;
 // A property connects a typed query field to a command argument.
+// Queries may receive additional position arguments (for example, table rows
+// and a column). beginEdit/drawProperty receive the same query request.
 // Remaining command arguments are captured from query fields with the same key
 // and type (for example, the native type identity). No native pointers escape.
 typedef struct EditorPropertyDesc {
@@ -339,7 +341,7 @@ struct EditorHost {
     EditorStatus(EDITOR_CALL *commandState)(void *, EditorString, const EditorRequest *);
     EditorStatus(EDITOR_CALL *canEdit)(void *, EditorString, EditorScope, EditorObject);
     EditorStatus(EDITOR_CALL *execute)(void *, EditorString, const EditorRequest *, EditorSink);
-    EditorStatus(EDITOR_CALL *beginEdit)(void *, EditorString, EditorScope, EditorObject, EditorEdit *);
+    EditorStatus(EDITOR_CALL *beginEdit)(void *, EditorString, const EditorRequest *, EditorEdit *);
     EditorStatus(EDITOR_CALL *editValue)(void *, EditorEdit, const EditorValue *);
     EditorStatus(EDITOR_CALL *finishEdit)(void *, EditorEdit, uint32_t commit);
     uint32_t(EDITOR_CALL *drawEdit)(void *, EditorEdit, EditorString label, uint32_t focus);
@@ -371,7 +373,7 @@ struct EditorHost {
     // Inline property input: begin on interaction, retain the typed draft,
     // finish once on accept/deactivation, and cancel on Escape. edit is owned
     // by this view and is cleared only when that interaction has ended.
-    uint32_t(EDITOR_CALL *drawProperty)(void *, EditorString property, EditorScope, EditorObject,
+    uint32_t(EDITOR_CALL *drawProperty)(void *, EditorString property, const EditorRequest *,
                                       EditorEdit *, EditorString label);
     // Compose value editors without starting another document edit. Child
     // updates go to the containing value's sink. Provider choices are retained

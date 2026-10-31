@@ -18,6 +18,7 @@ extern "C" uint32_t IdentitySizeFromC(void);
 extern "C" uint32_t EditorModuleSizeFromC(void);
 extern "C" uint32_t EditorRequestSizeFromC(void);
 extern "C" uint32_t EditorHostSizeFromC(void);
+extern "C" EditorStatus BeginPositionedEditFromC(const EditorHost *, EditorString, const EditorRequest *, EditorEdit *);
 extern "C" uint32_t EditorViewFrameSizeFromC(void);
 extern "C" uint32_t EditorViewDescSizeFromC(void);
 extern "C" uint32_t EditorQueryDescSizeFromC(void);
@@ -42,8 +43,17 @@ static_assert(__is_standard_layout(EditorValueInput), "C value input");
 static_assert(__is_trivially_copyable(EditorValueEditorDesc), "Borrowed typed editor");
 extern "C" EditorParameter NullableObjectFromC(void);
 extern "C" uint32_t EditorParameterSizeFromC(void);
-static_assert(EDITOR_VERSION == 13, "Editor parameter nullability version");
+static_assert(EDITOR_VERSION == 14, "Editor request-based property version");
 int main() {
+    EditorHost host{};
+    host.beginEdit=[](void *,EditorString,const EditorRequest *request,EditorEdit *edit) {
+        if (!request || request->count != 1 || request->values[0].type != EDITOR_INTEGER_LIST) return EDITOR_INVALID;
+        *edit=request->values[0].integers.data[0]; return EDITOR_OK;
+    };
+    const uint64_t row=17;
+    EditorValue position{}; position.type=EDITOR_INTEGER_LIST; position.integers={&row,1};
+    const EditorRequest request{{},&position,1}; EditorEdit edit=0;
+    if (BeginPositionedEditFromC(&host,{},&request,&edit) != EDITOR_OK || edit != 17) return 1;
     const auto nullable = NullableObjectFromC();
     if (nullable.type != EDITOR_OBJECT || nullable.optional || nullable.nullable != 1 || sizeof(EditorParameter) != EditorParameterSizeFromC()) return 1;
     if (sizeof(EditorValueInput) != EditorValueInputSizeFromC() || sizeof(EditorValueEditorDesc) != EditorValueEditorSizeFromC()) return 1;

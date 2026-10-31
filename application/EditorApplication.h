@@ -125,6 +125,7 @@ class EditorApplication {
     EditorResponse Execute(const std::string &id, const EditorRequest &request);
     bool CompleteOperation(EditorOperation operation, EditorResponse result);
     EditorStatus BeginEdit(const std::string &property, EditorScope scope, ObjectRef target, EditorEdit &out);
+    EditorStatus BeginEdit(const std::string &property, const EditorRequest &, EditorEdit &out);
     EditorStatus UpdateEdit(EditorEdit edit, const std::string &text);
     EditorStatus UpdateEdit(EditorEdit edit, const EditorValue &value);
     EditorStatus FinishEdit(EditorEdit edit, bool commit);
@@ -141,6 +142,7 @@ class EditorApplication {
                              const std::vector<EditorField> &context);
     EditorResponse ApplyEdit(const std::string &command, const EditorRequest &);
     uint32_t DrawProperty(const std::string &, EditorScope, ObjectRef, EditorEdit &, EditorString label);
+    uint32_t DrawProperty(const std::string &, const EditorRequest &, EditorEdit &, EditorString label);
     const PropertyBinding *Property(const std::string &id) const;
     const std::vector<MenuEntry> &Menus() const;
     const std::map<std::string, std::string> &MenuLocations() const;

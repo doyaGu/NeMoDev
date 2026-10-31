@@ -60,8 +60,11 @@ void Draw(void *data, const EditorHost *host, EditorView id, EditorViewFrame *fr
         const auto session = host->scope(host->data, id);
         ImGui::BeginDisabled(host->canEdit(host->data, EditorString EDITOR_TEXT("object.name"), session, view.object) !=
                              EDITOR_OK);
-        if (ImGui::Button("Rename"))
-            host->beginEdit(host->data, EditorString EDITOR_TEXT("object.name"), session, view.object, &view.edit);
+        if (ImGui::Button("Rename")) {
+            const EditorValue target{EditorLiteral("target"), EDITOR_OBJECT, view.object};
+            const EditorRequest request{session, &target, 1};
+            host->beginEdit(host->data, EditorString EDITOR_TEXT("object.name"), &request, &view.edit);
+        }
         ImGui::EndDisabled();
     }
     if (view.edit) {

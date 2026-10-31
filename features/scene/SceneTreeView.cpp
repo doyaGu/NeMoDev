@@ -297,8 +297,7 @@ void SceneTreeView::BeginRename(const EditorClient &client, const SceneRow &row)
     if (!row.object || rename) {
         return;
     }
-    if (client.Host()->beginEdit(client.Host()->data, EditorString EDITOR_TEXT("object.name"), client.Scope(),
-                                 row.object, &rename) != EDITOR_OK) {
+    if (client.BeginEdit("object.name", {ObjectArgument("target", row.object)}, rename) != EDITOR_OK) {
         return;
     }
     renameFocus = true;

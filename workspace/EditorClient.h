@@ -11,7 +11,17 @@ class EditorClient {
         return m_Host->queryRevision(m_Host->data, EditorLiteral(query), &version) == EDITOR_OK ? version : 0;
     }
     uint32_t DrawProperty(const std::string &property, ObjectRef target, EditorEdit &edit, const char *label) const {
-        return m_Host->drawProperty(m_Host->data, EditorText(property), Scope(), target, &edit, EditorLiteral(label));
+        const EditorValue argument{EditorLiteral("target"),EDITOR_OBJECT,target};
+        const EditorRequest request{Scope(),&argument,1};
+        return m_Host->drawProperty(m_Host->data,EditorText(property),&request,&edit,EditorLiteral(label));
+    }
+    uint32_t DrawProperty(const std::string &property, const std::vector<EditorValue> &values, EditorEdit &edit, const char *label) const {
+        const EditorRequest request{Scope(), values.data(), uint32_t(values.size())};
+        return m_Host->drawProperty(m_Host->data, EditorText(property), &request, &edit, EditorLiteral(label));
+    }
+    EditorStatus BeginEdit(const char *property, const std::vector<EditorValue> &values, EditorEdit &edit) const {
+        const EditorRequest request{Scope(), values.data(), uint32_t(values.size())};
+        return m_Host->beginEdit(m_Host->data, EditorLiteral(property), &request, &edit);
     }
     void CancelEdit(EditorEdit &edit) const {
         if (edit) m_Host->finishEdit(m_Host->data, edit, 0);

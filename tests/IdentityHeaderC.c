@@ -74,3 +74,10 @@ EditorParameter NullableObjectFromC(void) {
     return parameter;
 }
 uint32_t EditorParameterSizeFromC(void) { return (uint32_t)sizeof(EditorParameter); }
+
+EditorStatus BeginPositionedEditFromC(const EditorHost *host, EditorString property, const EditorRequest *request, EditorEdit *edit) {
+    return host->beginEdit(host->data, property, request, edit);
+}
+uint32_t DrawPositionedPropertyFromC(const EditorHost *host, EditorString property, const EditorRequest *request, EditorEdit *edit, EditorString label) {
+    return host->drawProperty(host->data, property, request, edit, label);
+}
