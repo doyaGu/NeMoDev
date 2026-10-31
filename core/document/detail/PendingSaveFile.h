@@ -28,10 +28,17 @@ public:
     ~PendingSaveFile() {
         if (m_Path.empty())
             return;
-        std::error_code error;
-        std::filesystem::remove(m_Path, error);
-        if (error)
-            m_Report.notes.push_back("Cannot remove temporary save file " + m_Path.string() + ": " + error.message());
+        std::string failure;
+        try {
+            const auto error = m_Operations.Remove(m_Path);
+            if (error) failure = error.message();
+        } catch (const std::exception &error) {
+            failure = error.what();
+        } catch (...) {
+            failure = "The file operation raised an exception";
+        }
+        if (!failure.empty())
+            m_Report.notes.push_back("Cannot remove temporary save file " + m_Path.string() + ": " + failure);
     }
     bool Create() {
         namespace fs = std::filesystem;
