@@ -1,4 +1,5 @@
 #include "core/level/ObjectEditCommands.h"
+#include "core/document/detail/StateReferences.h"
 
 #include <algorithm>
 #include <cstring>
@@ -16,8 +17,14 @@ namespace vdev {
 struct ObjectState {
     std::unique_ptr<CKStateChunk, decltype(&DeleteCKStateChunk)> chunk{nullptr, &DeleteCKStateChunk};
     UnkeptValues unkept;
+    std::vector<CKObjectHandle> references;
     std::vector<std::pair<ObjectPropertyCheck, std::string>> properties;
     int slots = -1;
+    bool entity = false;
+    std::vector<CKObjectHandle> meshes;
+    int effect = -1;
+    CK_ID effectParameter = 0;
+    std::unique_ptr<CKStateChunk, decltype(&DeleteCKStateChunk)> effectValue{nullptr, DeleteCKStateChunk};
 };
 
 struct ObjectStateEntry {
@@ -65,7 +72,27 @@ static bool CaptureState(CKContext *context, CKObjectHandle handle, ObjectState 
         state.chunk.reset(CKSaveObjectState(object));
         if (!state.chunk || context->GetObjectByHandle(handle) != object) return;
         state.slots = SlotCountOf(object);
+        if (auto *entity = CK3dEntity::Cast(object)) {
+            state.entity = true;
+            for (int i = 0; i < entity->GetMeshCount(); ++i)
+                state.meshes.push_back(context->GetObjectHandle(entity->GetMesh(i)->GetID()));
+        }
         state.unkept = ReadUnkeptValues(object);
+        state.references = state.unkept.references;
+        detail::ReadStateReferences(*context, *state.chunk, state.references);
+        if (auto *material = CKMaterial::Cast(object)) {
+            state.effect = int(material->GetEffect());
+            if (auto *parameter = material->GetEffectParameter()) {
+                state.effectParameter = parameter->GetID();
+                state.effectValue.reset(CKSaveObjectState(parameter));
+                if (!state.effectValue)
+                    return;
+                detail::ReadStateReferences(*context, *state.effectValue, state.references);
+                state.references.erase(std::remove_if(state.references.begin(), state.references.end(),
+                                                      [&](auto handle) { return handle.Id == state.effectParameter; }),
+                                       state.references.end());
+            }
+        }
         for (const auto &property : ObjectPropertyChecks())
             if (CKIsChildClassOf(object, property.cid))
                 state.properties.emplace_back(property, property.text(object));
@@ -73,20 +100,33 @@ static bool CaptureState(CKContext *context, CKObjectHandle handle, ObjectState 
     }, host, "Capture object state") && captured;
 }
 
+static bool CompareChunks(CKStateChunk *a, CKStateChunk *b, bool &same) {
+    if (!a || !b) {
+        same = a == b;
+        return true;
+    }
+    const int size = a->GetDataSize(), other = b->GetDataSize();
+    if (size < 0 || other < 0)
+        return false;
+    a->StartRead();
+    b->StartRead();
+    const void *x = size ? a->LockReadBuffer() : nullptr, *y = other ? b->LockReadBuffer() : nullptr;
+    if ((size && !x) || (other && !y))
+        return false;
+    same = size == other && (!size || std::memcmp(x, y, size_t(size)) == 0);
+    return true;
+}
+
 static bool CompareStates(ObjectState &a, ObjectState &b, bool &same, const CkRuntimeHost *host) {
     same = false;
     bool compared = false;
     return GuardedCall([&] {
         if (!a.chunk || !b.chunk) return;
-        const int size = a.chunk->GetDataSize(), otherSize = b.chunk->GetDataSize();
-        if (size < 0 || otherSize < 0) return;
-        a.chunk->StartRead();
-        b.chunk->StartRead();
-        const void *x = size ? a.chunk->LockReadBuffer() : nullptr;
-        const void *y = otherSize ? b.chunk->LockReadBuffer() : nullptr;
-        if ((size && !x) || (otherSize && !y)) return;
-        same = size == otherSize && a.slots == b.slots && a.unkept.text == b.unkept.text &&
-               (!size || std::memcmp(x, y, static_cast<size_t>(size)) == 0);
+        bool state = false, effect = false;
+        if (!CompareChunks(a.chunk.get(), b.chunk.get(), state) ||
+            !CompareChunks(a.effectValue.get(), b.effectValue.get(), effect))
+            return;
+        same = state && effect && a.slots == b.slots && a.unkept.text == b.unkept.text;
         compared = true;
     }, host, "Compare object states") && compared;
 }
@@ -95,12 +135,63 @@ static bool ReadState(CKContext *context, ObjectStateEntry &entry, ObjectState &
     bool read = false;
     return GuardedCall([&] {
         CKObject *object = context ? context->GetObjectByHandle(entry.object) : nullptr;
-        if (!object || !state.chunk) return;
-        const CKERROR error = CKReadObjectState(object, state.chunk.get());
+        if (!object || !state.chunk || std::any_of(state.references.begin(), state.references.end(), [&](auto handle) {
+                return !context->GetObjectByHandle(handle);
+            }))
+            return;
+        std::unique_ptr<CKStateChunk, decltype(&DeleteCKStateChunk)> materialState(nullptr, DeleteCKStateChunk);
+        auto *chunk = state.chunk.get();
+        if (auto *material = CKMaterial::Cast(object); material && state.effect >= 0) {
+            if (int(material->GetEffect()) != state.effect)
+                material->SetEffect(VX_EFFECT(state.effect));
+            if (state.effectParameter) {
+                auto *parameter = material->GetEffectParameter();
+                if (!parameter || !state.effectValue)
+                    return;
+                materialState.reset(CreateCKStateChunk(state.chunk.get()));
+                if (!materialState)
+                    return;
+                materialState->RemapObject(state.effectParameter, parameter->GetID());
+                chunk = materialState.get();
+            }
+        }
+        const CKERROR error = CKReadObjectState(object, chunk);
         if (context->GetObjectByHandle(entry.object) != object) return;
+        // Native entity Load adds saved meshes to its existing list. Restore
+        // the collection exactly, including removals and ordering.
+        if (state.entity) {
+            auto *entity = CK3dEntity::Cast(object);
+            if (!entity)
+                return;
+            bool same = entity->GetMeshCount() == int(state.meshes.size());
+            for (size_t i = 0; same && i < state.meshes.size(); ++i)
+                same = entity->GetMesh(int(i)) == context->GetObjectByHandle(state.meshes[i]);
+            if (!same) {
+                for (int i = entity->GetMeshCount(); i-- > 0;)
+                    entity->RemoveMesh(entity->GetMesh(i));
+                for (auto handle : state.meshes) {
+                    auto *mesh = CKMesh::Cast(context->GetObjectByHandle(handle));
+                    if (!mesh || entity->AddMesh(mesh) != CK_OK)
+                        return;
+                }
+            }
+        }
         for (const auto &restore : state.unkept.restore) {
             restore(object);
             if (context->GetObjectByHandle(entry.object) != object) return;
+        }
+        if (state.effectValue) {
+            auto *material = CKMaterial::Cast(object);
+            auto *parameter = material ? material->GetEffectParameter() : nullptr;
+            if (!parameter)
+                return;
+            std::unique_ptr<CKStateChunk, decltype(&DeleteCKStateChunk)> value(
+                CreateCKStateChunk(state.effectValue.get()), DeleteCKStateChunk);
+            if (!value)
+                return;
+            value->RemapObject(state.effectParameter, parameter->GetID());
+            if (CKReadObjectState(parameter, value.get()) != CK_OK)
+                return;
         }
         const bool slots = RestoreSlotCount(object, state.slots);
         read = error == CK_OK && slots && context->GetObjectByHandle(entry.object) == object;
@@ -156,8 +247,13 @@ public:
     bool Redo(Document &document) override { return Read(document, false); }
     bool Undo(Document &document) override { return Read(document, true); }
     void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
-        for (const auto &entry : m_Entries)
+        for (const auto &entry : m_Entries) {
             if (document.Context()->GetObjectByHandle(entry.object)) objects.insert(entry.object.Id);
+            for (const auto *state : {&entry.before, &entry.after})
+                for (auto handle : state->references)
+                    if (document.Context()->GetObjectByHandle(handle))
+                        objects.insert(handle.Id);
+        }
     }
 
 private:

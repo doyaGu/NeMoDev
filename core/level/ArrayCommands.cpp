@@ -1,6 +1,7 @@
 #include "core/level/ArrayCommands.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
+#include "core/document/detail/StateReferences.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include <algorithm>
 #include <cstring>
@@ -28,44 +29,14 @@ struct Parameter {
 };
 // DataArray's memory Save/Load embeds and recreates cell parameters. Keep
 // table data separately so Undo restores the original owned and shortcut IDs.
-void CaptureReferences(Document &doc, CKStateChunk &chunk, std::set<ObjectRef> &references, unsigned depth = 0) {
-    if (depth > 256)
-        throw std::runtime_error("Cell parameter nesting is too deep");
-    chunk.StartRead();
-    const auto remember = [&] {
-        if (const auto ref = doc.Reference(chunk.ReadObjectID()))
+void CaptureReferences(Document &doc, CKStateChunk &chunk, std::set<ObjectRef> &references) {
+    std::vector<CKObjectHandle> handles;
+    detail::ReadStateReferences(*doc.Context(), chunk, handles);
+    for (auto handle : handles)
+        if (auto ref = doc.Reference(handle.Id))
             references.insert(ref);
-    };
-    if (auto *ids = chunk.GetIds())
-        for (int i = 0; i < ids->Size; ++i) {
-            if (ids->Data[i] >= 0) {
-                chunk.Goto(ids->Data[i]);
-                remember();
-            } else if (++i < ids->Size) {
-                chunk.Goto(ids->Data[i]);
-                const int count = chunk.StartReadSequence();
-                for (int j = 0; j < count; ++j)
-                    remember();
-            }
-        }
-    if (auto *chunks = chunk.GetChunks())
-        for (int i = 0; i < chunks->Size; ++i) {
-            int count = 1;
-            if (chunks->Data[i] >= 0)
-                chunk.Goto(chunks->Data[i]);
-            else {
-                if (++i >= chunks->Size)
-                    break;
-                chunk.Goto(chunks->Data[i]);
-                count = chunk.StartReadSequence();
-            }
-            for (int j = 0; j < count; ++j) {
-                Chunk child(chunk.ReadSubChunk(), DeleteCKStateChunk);
-                if (child)
-                    CaptureReferences(doc, *child, references, depth + 1);
-            }
-        }
 }
+
 struct ArrayState {
     std::vector<Column> columns;
     std::vector<std::vector<Cell>> rows;
