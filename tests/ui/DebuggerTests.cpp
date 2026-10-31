@@ -433,6 +433,44 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId));
         });
     };
+    t = IM_REGISTER_TEST(engine, "debugger", "preferences_during_file_work");
+    t->GuiFunc = RuntimeGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
+        EditorView view = 0; vdev::EditorResponse beforeView, beforeValues, beforeCatalog;
+        size_t undo = 0; bool redo = false, dirty = false; vdev::ObjectRef selection{};
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(editor.Execute("preferences.open", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
+            view = workspace.Role("main.preferences");
+        }); ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(editor.Host(), 0);
+            beforeView = client.Inspect(view); beforeValues = client.Query("preferences.values"); beforeCatalog = client.Query("preferences.catalog");
+            IM_CHECK_NO_RET(beforeView.status == EDITOR_OK && beforeValues.status == EDITOR_OK && beforeCatalog.status == EDITOR_OK);
+            undo = state.History().UndoCount(); redo = state.History().CanRedo(); dirty = state.document->Dirty(); selection = editor.Selection();
+            IM_CHECK_NO_RET(state.RunRuntime("Preferences projection regression", [gate] {
+                std::unique_lock<std::mutex> lock(gate->mutex); gate->entered = true;
+                gate->changed.wait(lock, [&] { return gate->released; });
+            }));
+        });
+        IM_CHECK(WaitFor(ctx, 100, [&] { return gate->entered.load(); })); ctx->Yield(4);
+        OnRuntimeThread(ctx, [&] {
+            const vdev::EditorClient client(editor.Host(), 0);
+            IM_CHECK_NO_RET(client.Inspect(view).fields == beforeView.fields && client.Query("preferences.values").fields == beforeValues.fields &&
+                client.Query("preferences.catalog").fields == beforeCatalog.fields);
+            const EditorValue args[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, {}, {}, vdev::EditorClient::Integer(beforeValues, "revision")},
+                {EDITOR_TEXT("value"), EDITOR_RECORD}};
+            IM_CHECK_NO_RET(editor.Execute("preferences.apply", {editor.Scope(view), args, 2}).status == EDITOR_REFUSED);
+            IM_CHECK_NO_RET(client.Command("preferences.close").status == EDITOR_OK && !workspace.Role("main.preferences"));
+            IM_CHECK_NO_RET(!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId));
+        });
+        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && state.document->Dirty() == dirty && editor.Selection() == selection);
+        });
+    };
 }
 
 } // namespace vdevuitest

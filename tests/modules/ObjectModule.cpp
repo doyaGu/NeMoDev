@@ -23,10 +23,15 @@ struct Module {
     uint64_t schematicWrites = 0, schematicNotices = 0, schematicColor = 0;
     uint64_t environmentFolders = 0, environmentPaths = 0;
     uint64_t diagnosticScans = 0, diagnosticLinks = 0;
+    uint64_t preferenceReads = 0, preferenceWrites = 0;
     EditorStatus schematicRead = EDITOR_STALE;
 };
 struct FileView {
     uint64_t answered = 0;
+};
+struct PreferencesView {
+    std::string page = "rendering";
+    uint64_t axis = 0;
 };
 EditorStatus FileViewState(void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
     static_cast<Module *>(data)->refuseFileView = request->values[0].integer != 0;
@@ -963,6 +968,84 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     descriptors->queries.push_back({sizeof(EditorQueryDesc),EDITOR_TEXT("example.array-count"),EDITOR_TEXT("example.arrays"),nullptr,0,
         [](void *data,const EditorHost *,const EditorRequest *,EditorSink sink) { auto &m=*static_cast<Module *>(data);
             const EditorValue fields[]={{EDITOR_TEXT("writes"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayWrites,2}}, {EDITOR_TEXT("reads"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayReads,2}}, {EDITOR_TEXT("draws"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayDraws,2}}}; return sink.write(sink.data,fields,3); },data,EDITOR_QUERY_EACH_READ,EDITOR_APPLICATION,arrayCounts,3});
+    static const EditorParameter preferenceArgs[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("value"), EDITOR_RECORD}};
+    descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.apply"), EDITOR_TEXT("example.preferences"),
+        EDITOR_TEXT("External General Preferences"), preferenceArgs, 2,
+        [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            ++static_cast<Module *>(data)->preferenceWrites;
+            auto next = *request; next.handler = EDITOR_TEXT("builtin.preferences");
+            return host->execute(host->data, EditorString EDITOR_TEXT("preferences.apply"), &next, sink);
+        }, data, EDITOR_APPLICATION, EDITOR_RUNTIME_CONTROL});
+    descriptors->queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("preferences.values"), EDITOR_TEXT("example.preferences"),
+        nullptr, 0, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            ++static_cast<Module *>(data)->preferenceReads;
+            auto next = *request; next.handler = EDITOR_TEXT("builtin.preferences");
+            return host->query(host->data, EditorString EDITOR_TEXT("preferences.values"), &next,
+                {&sink, [](void *data, const EditorValue *values, uint32_t count) {
+                    std::vector<EditorValue> result(values, values + count), members;
+                    for (auto &value : result) if (std::string(value.key.data, value.key.size) == "value") {
+                        members.assign(value.fields.data, value.fields.data + value.fields.count);
+                        for (auto &field : members) if (std::string(field.key.data, field.key.size) == "Schematic\\Max Recent Building Block Count") field.integer = 37;
+                        value.fields = {members.data(), uint32_t(members.size())};
+                    }
+                    auto &sink = *static_cast<EditorSink *>(data);
+                    return sink.write ? sink.write(sink.data, result.data(), uint32_t(result.size())) : EDITOR_INVALID;
+                }});
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, preferenceArgs, 2});
+    static const EditorParameter preferenceCounts[] = {{EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("writes"), EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("example.preference-counts"), EDITOR_TEXT("example.preferences"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const auto &module = *static_cast<Module *>(data);
+            const EditorValue fields[] = {{EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE, {}, {}, module.preferenceReads},
+                {EDITOR_TEXT("writes"), EDITOR_INTEGER_VALUE, {}, {}, module.preferenceWrites}};
+            return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, preferenceCounts, 2});
+    static const EditorParameter preferencePage{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, 1};
+    static const EditorParameter preferenceViewFields[] = {{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("value"), EDITOR_RECORD}, {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE}};
+    EditorViewDesc preferencesView{}; preferencesView.size = sizeof(preferencesView); preferencesView.imguiVersion = EDITOR_IMGUI_VERSION;
+    preferencesView.id = EDITOR_TEXT("preferences.general"); preferencesView.provider = EDITOR_TEXT("example.preferences");
+    preferencesView.title = EDITOR_TEXT("External General Preferences"); preferencesView.area = EDITOR_APPLICATION; preferencesView.singleInstance = 1;
+    preferencesView.parameters = &preferencePage; preferencesView.count = 1;
+    preferencesView.create = [](void *, const EditorHost *, EditorView) -> void * { return new PreferencesView; };
+    preferencesView.destroy = [](void *data) { delete static_cast<PreferencesView *>(data); };
+    preferencesView.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        EditorImGuiWindow window(*frame, ImGuiWindowFlags_AlwaysAutoResize);
+        if (window) ImGui::Text("External preferences view: %s", static_cast<PreferencesView *>(data)->page.c_str());
+    };
+    preferencesView.navigate = [](void *data, const EditorHost *, const EditorRequest *request) {
+        const auto &page = request->values[0].text;
+        if (page.size) static_cast<PreferencesView *>(data)->page.assign(page.data, page.size);
+        return EDITOR_OK;
+    };
+    preferencesView.stateVersion = 1;
+    preferencesView.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &view = *static_cast<PreferencesView *>(data);
+        const EditorValue fields[] = {{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, {view.page.data(), uint32_t(view.page.size())}},
+            {EDITOR_TEXT("axis"), EDITOR_INTEGER_VALUE, {}, {}, view.axis}};
+        return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+    };
+    preferencesView.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
+        if (request->count != 2) return EDITOR_INVALID;
+        auto next = *static_cast<PreferencesView *>(data); bool page = false, axis = false;
+        for (uint32_t i = 0; i < request->count; ++i) {
+            const auto &field = request->values[i]; const std::string key(field.key.data, field.key.size);
+            if (key == "page" && field.type == EDITOR_TEXT_VALUE) { next.page.assign(field.text.data, field.text.size); page = true; }
+            else if (key == "axis" && field.type == EDITOR_INTEGER_VALUE && field.integer < 2) { next.axis = field.integer; axis = true; }
+            else return EDITOR_INVALID;
+        }
+        if (!page || !axis) return EDITOR_INVALID;
+        *static_cast<PreferencesView *>(data) = std::move(next); return EDITOR_OK;
+    };
+    preferencesView.fields = preferenceViewFields; preferencesView.fieldCount = 4;
+    preferencesView.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &view = *static_cast<PreferencesView *>(data);
+        const EditorValue fields[] = {{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, {view.page.data(), uint32_t(view.page.size())}},
+            {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("value"), EDITOR_RECORD},
+            {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("External preferences view")}};
+        return sink.write ? sink.write(sink.data, fields, 4) : EDITOR_INVALID;
+    };
+    descriptors->views.push_back(preferencesView);
     *out = {};
     out->size = sizeof(*out);
     out->version = EDITOR_VERSION;
