@@ -1591,7 +1591,7 @@
       "gaps": [
         {
           "due_phase": 4,
-          "reason": "名字、基本值、数值组合、结构、对象数组、文本、标志位、2D 曲线、四种依赖、LOD、时间、按键和其余内置值选择器共用编辑与撤销；DataArray 表格和剩余 Setup/Schematic/Layout 迁移仍待完成"
+          "reason": "名字、基本值、数值组合、结构、对象数组、文本、标志位、2D 曲线、四种依赖、LOD、时间、按键和其余内置值选择器、DataArray 行列与单元格共用编辑与撤销；剩余 Setup/Schematic/Layout 迁移仍待完成"
         }
       ]
     },
