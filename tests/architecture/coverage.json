@@ -1860,14 +1860,11 @@
         "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.tools"
+        "VirtoolsDevUi.tools",
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.debugger"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "补 reload 拒绝、面板关闭恢复失败与目录缓存失效"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F22",

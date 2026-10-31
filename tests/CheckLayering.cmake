@@ -88,6 +88,11 @@ foreach (_source IN LISTS _sources)
                  (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme)\\.h$")))
             list(APPEND _errors "${_source}: runtime view includes native or legacy editor state ${_path}")
         endif()
+        if(_source MATCHES "^features/environment/" AND NOT _source MATCHES "^features/environment/EnvironmentCommands\\.(h|cpp)$" AND
+                (_path MATCHES "^(core/|CK|Vx|SDL)" OR
+                 (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme|TypeAhead)\\.h$")))
+            list(APPEND _errors "${_source}: environment view includes native or legacy editor state ${_path}")
+        endif()
         if(_source MATCHES "^features/values/" AND NOT _source MATCHES "^features/values/ParameterCommands\\.(h|cpp)$" AND
                 _path MATCHES "^(CK|Vx|SDL|ui/app/EditorState|core/(document|runtime|graph|level|layout))")
             list(APPEND _errors "${_source}: value editor includes native state ${_path}")
