@@ -262,6 +262,7 @@ void LayoutWindow::DropResources(int x, int y, const std::vector<ResourceFile> &
 }
 
 void LayoutWindow::DocumentClosed() {
+    CancelEdits();
     if (m_Doc.dropEdit) m_Doc.dropEdit->Commit(); // the document goes with its history
     // A flight going on ends with the composition, not recorded.
     if (m_Tool == LayoutTool::Fly) m_Tool = LayoutTool::Select;

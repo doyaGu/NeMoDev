@@ -29,6 +29,11 @@ public:
     explicit SchematicCanvas(EditorState &state) : m_State(state) {}
 
     void Draw(const char *title, bool *open);
+    void CancelEdits() {
+        CancelInteraction();
+        CloseValueInputs();
+    }
+    void CancelInteraction();
     void ResetView();
     void FitAll();
     void Invalidate() { m_Views.clear(); }
@@ -37,7 +42,7 @@ public:
     bool Busy() const { return m_Tool != Tool::Idle; }
     // The composition is closed: Set Shortcut Source's next click no longer picks.
     void DocumentClosed() {
-        CloseValueInputs();
+        CancelEdits();
         Invalidate();
         m_Doc = DocumentState(); // a gesture going on is taken back (none is: Busy)
     }

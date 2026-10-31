@@ -72,6 +72,7 @@ const char *const REFERENTIALS[] = {"Local", "World", "View", "Parent", "Ref. Gu
 LayoutWindow::LayoutWindow(EditorState &state) : m_State(state), m_View(state.host) {}
 
 LayoutWindow::~LayoutWindow() {
+    CancelEdits();
     if (!ReleaseTexture()) {
         m_View.Stop();
         ResetViewportAfterContextStop();
@@ -79,6 +80,7 @@ LayoutWindow::~LayoutWindow() {
 }
 
 bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
+    CancelEdits();
     if (!ReleaseTexture()) {
         // Keep the borrowed SDL texture alive until the old Context, and with
         // it the stale logical handle, has ceased to exist.
@@ -110,6 +112,7 @@ bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
 }
 
 void LayoutWindow::Stop() {
+    CancelEdits();
     m_State.objectPick.erase("3D Layout");
     const bool released = ReleaseTexture();
     m_View.Stop();
@@ -236,6 +239,7 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     if (!visible) {
+        CancelEdits();
         ImGui::End();
         ExplorerWindow();
         SnapshotWindow();
@@ -250,9 +254,11 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
     if (shapes != m_State.layoutFrameShapes) m_State.layoutFrameShapes = shapes;
     // Dev's status bar shows the 3D Layout's action after it was used last.
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+        if ((Busy() || m_Tool == LayoutTool::Fly) && ImGui::IsKeyPressed(ImGuiKey_Escape)) CancelEdits();
         m_LastUsed = true;
         Shortcuts();
     } else if (ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow)) {
+        CancelEdits();
         m_LastUsed = false;
     }
     m_Scale = ImGui::GetFontSize() / 13.0f;

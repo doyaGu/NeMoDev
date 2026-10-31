@@ -1724,6 +1724,15 @@ void SchematicCanvas::EndMove(bool commit) {
     m_Tool = Tool::Idle;
 }
 
+void SchematicCanvas::CancelInteraction() {
+    EndMove(false);
+    m_Doc.press = {};
+    m_Doc.relinkLink = 0;
+    m_Doc.resizeScript = 0;
+    m_LinkPoints.clear();
+    m_DrawGraphMode = false;
+}
+
 // ContextMenu: SchematicMenus.cpp.
 
 void SchematicCanvas::Tooltip(const Hit &hit) {
@@ -1958,6 +1967,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     const bool visible = BeginDevWindow(title, open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     ImGui::PopStyleVar();
     if (!visible) {
+        CancelEdits();
         ImGui::End();
         return;
     }
@@ -1983,6 +1993,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
                                ImGuiButtonFlags_MouseButtonMiddle);
     const bool hovered = ImGui::IsItemHovered();
     const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+    if (!focused && Busy()) CancelInteraction();
     m_PickMin = canvasMin;
     m_PickMax = canvasMax;
     m_PickFrame = ImGui::GetFrameCount();

@@ -31,20 +31,41 @@ bool LayoutWindow::BeginCamera(CameraAction action, int x, int y, ImGuiMouseButt
     return true;
 }
 
+void LayoutWindow::CancelEdits() {
+    auto *document = m_State.HasDocument() ? m_State.document.get() : nullptr;
+    m_Gesture.Cancel(document);
+    m_TransformGesture.Cancel(document);
+    m_Gesture2D.Cancel(document);
+    if (m_Tool == LayoutTool::Fly) {
+        if (document)
+            m_FlyUndo.Cancel(*document);
+        else
+            m_FlyUndo.Cancel(m_View.Context());
+        m_Tool = LayoutTool::Select;
+    }
+    m_CurveEditing = false;
+    m_Selecting = m_Rectangle = false;
+    m_RightPressed = false;
+    m_Capturing = 0;
+    m_State.layoutTransforming = false;
+}
+
 // The mouse in the view (Dev.exe sub_4B95C0): the left button drags the
 // current camera tool, the middle button pans (Alt: orbits), the wheel
 // zooms; the right button cancels a drag.
 void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     const ImGuiIO &io = ImGui::GetIO();
+    if (Busy() && (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right))) {
+        CancelEdits();
+        return;
+    }
     const int x = static_cast<int>(io.MousePos.x - at.x), y = static_cast<int>(io.MousePos.y - at.y);
     if (m_Tool == LayoutTool::Fly) {
         FlyFrame(x, y);
         return;
     }
     if (m_Gesture.Active()) {
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-            m_Gesture.Cancel();
-        } else if (!ImGui::IsMouseDown(m_GestureButton)) {
+        if (!ImGui::IsMouseDown(m_GestureButton)) {
             m_Gesture.End(m_State.HasDocument() ? m_State.document.get() : nullptr);
         } else {
             if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) m_Gesture.Move(x, y, io.KeyShift);
@@ -53,8 +74,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
         return;
     }
     if (m_Gesture2D.Active()) {
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) m_Gesture2D.Cancel();
-        else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
             m_Gesture2D.End(m_State.HasDocument() ? m_State.document.get() : nullptr);
         else if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
             m_Gesture2D.Move(x, y);
@@ -63,10 +83,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
         return;
     }
     if (m_TransformGesture.Active()) {
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-            m_TransformGesture.Cancel();
-            m_CurveEditing = false;
-        } else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             // Editing a curve's points: their move and the curve's update, one undo step.
             std::unique_ptr<Edit> points;
             if (m_CurveEditing && m_State.HasDocument()) points = std::make_unique<Edit>(*m_State.document, "Edit Points");
@@ -92,9 +109,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
 #else
         const float drag = std::max(1.0f, io.MouseDragThreshold);
 #endif
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-            m_Selecting = m_Rectangle = false; // Dev restores the selection
-        } else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             if (m_Rectangle)
                 ApplyRect(VxRect(m_PressAt.x, m_PressAt.y, static_cast<float>(x), static_cast<float>(y)));
             else

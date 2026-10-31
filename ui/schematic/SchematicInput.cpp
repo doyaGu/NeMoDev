@@ -49,6 +49,12 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         m_Doc.mouseScript = hit.view->id;
         m_Doc.mouseLocal = hit.local;
     }
+    if ((Busy() || m_DrawGraphMode) && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        const bool linking = m_Tool == Tool::Link;
+        CancelInteraction();
+        if (linking) m_LinkMode = false;
+        return;
+    }
 
     if (hovered && io.MouseWheel != 0.0f && m_Tool != Tool::Move) {
         // The wheel scrolls the stack (Shift: sideways); Ctrl+wheel zooms the
@@ -322,7 +328,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         // Dev: dragging a Script boundary changes its height (header vSize, 20 px steps).
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
         ScriptSession *session = m_State.document ? m_State.document->Session(m_Doc.resizeScript) : nullptr;
-        if (!session || !m_Doc.gesture || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (!session || !m_Doc.gesture) {
             EndMove(false);
             m_Doc.resizeScript = 0;
             break;
@@ -358,10 +364,6 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         ImGui::GetWindowDrawList()->AddLine(ImVec2(canvasMin.x, lineY), ImVec2(canvasMax.x, lineY),
                                             m_State.style.selection, 3.0f);
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            m_Tool = Tool::Idle;
-            break;
-        }
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             std::vector<CK_ID> order;
             for (const auto &view : m_Views) order.push_back(view.id);
@@ -383,7 +385,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     }
     case Tool::ResizeElement: {
         ScriptView *view = ViewFor(m_Doc.moveScript);
-        if (!view || !m_Doc.gesture || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (!view || !m_Doc.gesture) {
             EndMove(false);
             break;
         }
@@ -461,7 +463,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         // Documentation "Schematic Keyboard Shortcuts": "ESC or right-click
         // or L - End link mode if in link mode".
         const bool endByL = ImGui::IsKeyPressed(ImGuiKey_L, false) && !io.WantTextInput;
-        if (!view || ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right) || endByL) {
+        if (!view || ImGui::IsMouseClicked(ImGuiMouseButton_Right) || endByL) {
             m_Tool = Tool::Idle;
             m_Doc.relinkLink = 0;
             if (endByL) {
@@ -505,7 +507,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         break;
     case Tool::CopyDrag: {
         ScriptView *view = ViewFor(m_Doc.copyScript);
-        if (!view || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        if (!view) {
             m_Tool = Tool::Idle;
             break;
         }
@@ -524,9 +526,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         const Point world = !view       ? m_View.ToWorld(mouse)
                             : startOnly ? view->frame.ToWorld(mouse)
                                         : view->transform.ToWorld(mouse);
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            EndMove(false);
-        } else if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             UpdateMove(world);
             EndMove(true);
         } else {

@@ -43,7 +43,7 @@ void SchematicCanvas::BeginExportDrag() {
 
 void SchematicCanvas::UpdateExportDrag(const ImVec2 &mouse) {
     ScriptView *view = ViewFor(m_Doc.exportScript);
-    if (!view || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if (!view) {
         m_Tool = Tool::Idle;
         return;
     }

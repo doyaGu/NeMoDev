@@ -136,6 +136,7 @@ public:
     // The composition is closed: the objects waiting for a dialog (Copy
     // Options, a dropped Building Block's parameters) go.
     void DocumentClosed();
+    void CancelEdits();
 
     // The composition's 3D Layout data (Dev.exe sub_4B46C0 on opening, sub_4B4E50
     // on saving): the selection group shown, the selection, the lock; the

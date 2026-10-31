@@ -59,6 +59,8 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
     m_Layout.HandleEvent(event);
     if (!m_Window || event.type != SDL_EVENT_WINDOW_FOCUS_LOST ||
         event.window.windowID != SDL_GetWindowID(m_Window) || m_Layout.FullScreen()) return;
+    m_Canvas.CancelInteraction();
+    m_Layout.CancelEdits();
     if (m_State.debugger && m_State.debugger->GetState() == Debugger::State::Running)
         Command("runtime.pause");
 }
