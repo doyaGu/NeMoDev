@@ -19,6 +19,7 @@ def measurement(median=100):
             "minimum_warmup_ms": 15000, "minimum_group_ms": 1000,
             "stable_readbacks": 0, "stable_uploads": 0, "stable_target_creations": 0,
             "stable_path_selections": 0, "stable_target_releases": 0,
+            "verification_readbacks": 1,
             "samples": [{"frames": 100, "elapsed_ms": value * 100} for value in
                         [median - 2, median - 1, median - 1, median - 1, median, median,
                          median, median + 1, median + 1, median + 1, median + 2]]}

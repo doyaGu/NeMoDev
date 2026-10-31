@@ -4,9 +4,11 @@
 #include "ui/render/UiRenderer.h"
 
 #include <SDL3/SDL.h>
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -80,6 +82,24 @@ struct Counters {
     std::uint64_t readbacks, uploads, creations, selections, releases;
 };
 
+class ViewportWatchdog {
+public:
+    ViewportWatchdog(ImGuiTestEngineIO &io, float duration) : m_Io(io),
+        m_Warning(io.ConfigWatchdogWarning), m_Kill(io.ConfigWatchdogKillTest) {
+        io.ConfigWatchdogWarning = std::max(m_Warning, duration + 30.0f);
+        io.ConfigWatchdogKillTest = std::max(m_Kill, duration + 60.0f);
+    }
+    ViewportWatchdog(const ViewportWatchdog &) = delete;
+    ViewportWatchdog &operator=(const ViewportWatchdog &) = delete;
+    ~ViewportWatchdog() {
+        m_Io.ConfigWatchdogWarning = m_Warning;
+        m_Io.ConfigWatchdogKillTest = m_Kill;
+    }
+private:
+    ImGuiTestEngineIO &m_Io;
+    float m_Warning, m_Kill;
+};
+
 Counters Counts() {
     auto &layout = App().Layout();
     return {layout.View().ReadbackFrames(), layout.ViewportUploadsForTests(),
@@ -109,8 +129,14 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
         const int samples = Setting("NEMODEV_BASELINE_SAMPLES", 11, 11, 101);
         const int frames = Setting("NEMODEV_BASELINE_FRAMES", 240, 30, 10000);
         const int warmup = Setting("NEMODEV_BASELINE_WARMUP", 480, 60, 10000);
+        const int warmupMilliseconds = Setting("NEMODEV_BASELINE_WARMUP_MS", 15000, 15000, 120000);
+        const int groupMilliseconds = Setting("NEMODEV_BASELINE_GROUP_MS", 1000, 1000, 10000);
         const bool paired = Setting("NEMODEV_BASELINE_PAIRED", 0, 0, 1) == 1;
-        IM_CHECK(samples && frames && warmup);
+        IM_CHECK(samples && frames && warmup && warmupMilliseconds && groupMilliseconds);
+        // A paired test also waits for the other program's warmup and groups.
+        // Keep a finite limit around the requested complete measurement.
+        ViewportWatchdog watchdog(*ctx->EngineIO, (paired ? 2.0f : 1.0f) *
+            (warmupMilliseconds + samples * groupMilliseconds + ViewportScheduling::MaximumCooldownMilliseconds) / 1000.0f);
         ViewportScheduling scheduling;
         Settle(ctx, "//3D Layout");
         OnMainThread(ctx, [&] {
@@ -120,10 +146,14 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
             IM_CHECK(window && SDL_SetWindowSize(window, 1280, 800));
             IM_CHECK(MakeScene());
             IM_CHECK(scheduling.Start());
+            // Let the device cool without rendering or counting idle time as
+            // work. Every measured group is retained even if heat returns.
+            IM_CHECK(SDL_WaitForGPUIdle(vdev::MainRenderer().Device()));
+            IM_CHECK(scheduling.WaitForNominal());
         });
         const Uint64 warmupStart = SDL_GetTicksNS();
         ctx->Yield(warmup);
-        while (SDL_GetTicksNS() - warmupStart < 15000000000ull) ctx->Yield(60);
+        while (SDL_GetTicksNS() - warmupStart < Uint64(warmupMilliseconds) * 1000000ull) ctx->Yield(60);
         vdev::UiTexture *texture = nullptr;
         int width = 0, height = 0;
         OnMainThread(ctx, [&] {
@@ -134,13 +164,25 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
             width = texture->Width();
             height = texture->Height();
         });
-        struct Sample { int frames; double milliseconds; };
+        struct Sample {
+            int frames;
+            double milliseconds, drainMilliseconds, idleMilliseconds;
+            ViewportScheduling::Usage before, after;
+            bool usage;
+            double testCpuMilliseconds = 0;
+            int testQos = 0;
+        };
         std::vector<Sample> measured;
         measured.reserve(samples);
         for (int sample = 0; sample < samples; ++sample) {
             Uint64 start = 0;
             int firstFrame = 0;
             Counters before{};
+            ViewportScheduling::Usage usageBefore{};
+            bool haveUsage = false;
+            double idleMilliseconds = 0;
+            ViewportScheduling::Usage testUsageBefore{};
+            const bool testUsage = scheduling.Snapshot(testUsageBefore);
             OnMainThread(ctx, [&] {
                 IM_CHECK(SDL_WaitForGPUIdle(vdev::MainRenderer().Device()));
                 if (paired) {
@@ -148,19 +190,29 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
                     // GPU is idle and time/frame counting has not started.
                     std::printf("NEMODEV_VIEWPORT_READY %d\n", sample);
                     std::fflush(stdout);
+                    const auto idleStart = SDL_GetPerformanceCounter();
                     IM_CHECK(std::getchar() == '\n');
+                    idleMilliseconds = double(SDL_GetPerformanceCounter() - idleStart) * 1000.0 /
+                                       double(SDL_GetPerformanceFrequency());
                 }
                 before = Counts();
                 firstFrame = ImGui::GetFrameCount();
+                haveUsage = scheduling.Snapshot(usageBefore);
                 start = SDL_GetPerformanceCounter();
             });
             do {
                 ctx->Yield(frames);
-            } while (double(SDL_GetPerformanceCounter() - start) / double(SDL_GetPerformanceFrequency()) < 1.0);
+            } while (double(SDL_GetPerformanceCounter() - start) * 1000.0 /
+                     double(SDL_GetPerformanceFrequency()) < groupMilliseconds);
             OnMainThread(ctx, [&] {
+                const auto drainStart = SDL_GetPerformanceCounter();
                 IM_CHECK(SDL_WaitForGPUIdle(vdev::MainRenderer().Device()));
-                const double elapsed = double(SDL_GetPerformanceCounter() - start) * 1000.0 /
+                const auto end = SDL_GetPerformanceCounter();
+                const double elapsed = double(end - start) * 1000.0 /
                                        double(SDL_GetPerformanceFrequency());
+                const double drain = double(end - drainStart) * 1000.0 / double(SDL_GetPerformanceFrequency());
+                ViewportScheduling::Usage usageAfter{};
+                const bool usage = haveUsage && scheduling.Snapshot(usageAfter);
                 auto &layout = App().Layout();
                 const Counters after = Counts();
                 IM_CHECK(layout.UsesGpuViewport() && layout.GpuViewportTextureForTests() == texture);
@@ -171,8 +223,15 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
                 VxStats stats{};
                 layout.View().RenderContext()->GetStats(&stats);
                 IM_CHECK(stats.NbObjectDrawn >= 64 && stats.NbTrianglesDrawn >= 768);
-                measured.push_back({ImGui::GetFrameCount() - firstFrame, elapsed});
+                measured.push_back({ImGui::GetFrameCount() - firstFrame, elapsed, drain, idleMilliseconds,
+                                    usageBefore, usageAfter, usage});
             });
+            IM_CHECK(measured.size() == size_t(sample + 1));
+            ViewportScheduling::Usage testUsageAfter{};
+            if (testUsage && scheduling.Snapshot(testUsageAfter)) {
+                measured.back().testCpuMilliseconds = double(testUsageAfter.threadNanoseconds - testUsageBefore.threadNanoseconds) / 1e6;
+                measured.back().testQos = testUsageBefore.qos;
+            }
         }
         IM_CHECK(static_cast<int>(measured.size()) == samples);
         OnMainThread(ctx, [&] {
@@ -195,24 +254,47 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
                 reinterpret_cast<uintptr_t>(viewport->PlatformHandle)));
             int pixelWidth = 0, pixelHeight = 0;
             IM_CHECK(window && SDL_GetWindowSizeInPixels(window, &pixelWidth, &pixelHeight));
-            std::printf("NEMODEV_VIEWPORT_BASELINE {\"version\":2,\"scenario\":\"cubes64-v1\","
+            std::printf("NEMODEV_VIEWPORT_BASELINE {\"version\":3,\"scenario\":\"cubes64-v1\","
                         "\"scope\":\"editor_frame_gpu_drained\",\"driver\":\"%s\","
                         "\"group_control\":\"%s\","
                         "\"cpu_policy\":\"%s\","
+                        "\"thermal_policy\":\"%s\",\"minimum_cooldown_ms\":%d,\"maximum_cooldown_ms\":%d,\"cooldown_ms\":%.3f,"
                         "\"gpu_device\":%s,\"gpu_driver_info\":%s,\"window_pixels\":[%d,%d],"
                         "\"sdl_version\":%d,\"viewport\":[%d,%d],\"window\":[1280,800],"
                         "\"ui_scale\":%.6f,\"warmup_frames\":%d,\"requested_frames\":%d,"
-                        "\"minimum_warmup_ms\":15000,\"minimum_group_ms\":1000,"
+                        "\"minimum_warmup_ms\":%d,\"minimum_group_ms\":%d,"
                         "\"verification_readbacks\":1,\"stable_readbacks\":0,\"stable_uploads\":0,"
                         "\"stable_target_creations\":0,\"stable_path_selections\":0,"
                         "\"stable_target_releases\":0,\"samples\":[",
                         SDL_GetGPUDeviceDriver(device), paired ? "paired" : "continuous", scheduling.Name(),
+                        scheduling.ThermalPolicy(), scheduling.MinimumCooldownMilliseconds,
+                        scheduling.MaximumCooldownMilliseconds, scheduling.CooldownMilliseconds(),
                         name.c_str(), driverInfo.c_str(),
                         pixelWidth, pixelHeight, SDL_GetVersion(), width, height,
-                        ImGui::GetStyle().FontScaleDpi, warmup, frames);
-            for (size_t i = 0; i < measured.size(); ++i)
-                std::printf("%s{\"frames\":%d,\"elapsed_ms\":%.9f}", i ? "," : "",
-                            measured[i].frames, measured[i].milliseconds);
+                        ImGui::GetStyle().FontScaleDpi, warmup, frames, warmupMilliseconds, groupMilliseconds);
+            for (size_t i = 0; i < measured.size(); ++i) {
+                const auto &sample = measured[i];
+                std::printf("%s{\"frames\":%d,\"elapsed_ms\":%.9f,\"drain_ms\":%.9f,\"idle_ms\":%.9f,"
+                            "\"cpu_usage_available\":%s,\"thread_cpu_ms\":%.9f,\"process_cpu_ms\":%.9f,"
+                            "\"voluntary_switches\":%llu,\"involuntary_switches\":%llu,"
+                            "\"qos_before\":%d,\"qos_after\":%d,\"priority_before\":%d,\"priority_after\":%d,"
+                            "\"foreground_before\":%s,\"foreground_after\":%s,"
+                            "\"thermal_before\":%d,\"thermal_after\":%d,\"low_power_before\":%s,\"low_power_after\":%s,"
+                            "\"task_role_before\":%d,\"task_role_after\":%d,"
+                            "\"test_cpu_ms\":%.9f,\"test_qos\":%d}", i ? "," : "",
+                            sample.frames, sample.milliseconds, sample.drainMilliseconds, sample.idleMilliseconds,
+                            sample.usage ? "true" : "false",
+                            sample.usage ? double(sample.after.threadNanoseconds - sample.before.threadNanoseconds) / 1e6 : 0,
+                            sample.usage ? double(sample.after.processMicroseconds - sample.before.processMicroseconds) / 1e3 : 0,
+                            sample.usage ? static_cast<unsigned long long>(sample.after.voluntarySwitches - sample.before.voluntarySwitches) : 0,
+                            sample.usage ? static_cast<unsigned long long>(sample.after.involuntarySwitches - sample.before.involuntarySwitches) : 0,
+                            sample.before.qos, sample.after.qos, sample.before.priority, sample.after.priority,
+                            sample.before.foreground ? "true" : "false", sample.after.foreground ? "true" : "false",
+                            sample.before.thermal, sample.after.thermal, sample.before.lowPower ? "true" : "false",
+                            sample.after.lowPower ? "true" : "false",
+                            sample.before.taskRole, sample.after.taskRole,
+                            sample.testCpuMilliseconds, sample.testQos);
+            }
             std::puts("]}");
             IM_CHECK(scheduling.Restore());
         });

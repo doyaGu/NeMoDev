@@ -21,30 +21,52 @@ STABLE_COUNTERS = ("stable_readbacks", "stable_uploads", "stable_target_creation
                    "stable_path_selections", "stable_target_releases")
 CONDITIONS = ("version", "scenario", "scope", "driver", "gpu_device", "gpu_driver_info", "sdl_version", "viewport", "window", "window_pixels",
               "ui_scale", "warmup_frames", "requested_frames", "minimum_warmup_ms", "minimum_group_ms")
+MIN_COOLDOWN_MS = 30000
+MAX_COOLDOWN_MS = 180000
 
 
 def summarize(measurement):
-    if measurement["version"] not in (1, 2) or measurement["scope"] != "editor_frame_gpu_drained":
+    if measurement["version"] not in (1, 2, 3) or measurement["scope"] != "editor_frame_gpu_drained":
         raise ValueError("unsupported viewport measurement")
-    if measurement["version"] == 2 and measurement.get("group_control") not in ("continuous", "paired"):
+    if measurement["version"] >= 2 and measurement.get("group_control") not in ("continuous", "paired"):
         raise ValueError("unsupported viewport group control")
-    if measurement["version"] == 2 and measurement.get("cpu_policy") not in ("user-initiated-activity", "system-default"):
+    if measurement["version"] >= 2 and measurement.get("cpu_policy") not in ("user-initiated-activity", "system-default"):
         raise ValueError("unsupported viewport CPU policy")
+    nominal = measurement["version"] == 3 and measurement.get("thermal_policy") == "nominal"
+    if measurement["version"] == 3:
+        if measurement.get("thermal_policy") not in ("nominal", "system-default"):
+            raise ValueError("unsupported viewport thermal policy")
+        if nominal and (measurement.get("minimum_cooldown_ms", 0) < MIN_COOLDOWN_MS or
+                measurement.get("maximum_cooldown_ms", 0) < measurement["minimum_cooldown_ms"] or
+                not math.isfinite(measurement.get("cooldown_ms", float("nan"))) or
+                measurement["cooldown_ms"] < measurement["minimum_cooldown_ms"]):
+            raise ValueError("viewport did not complete its thermal preparation")
     for counter in STABLE_COUNTERS:
         if measurement[counter] != 0:
             raise ValueError(f"stable viewport performed {counter}")
+    if measurement.get("verification_readbacks") != 1:
+        raise ValueError("viewport requires exactly one explicit verification readback")
     samples = measurement["samples"]
     if measurement["minimum_warmup_ms"] < 15000 or measurement["minimum_group_ms"] < 1000:
         raise ValueError("measurement needs at least 15 seconds warmup and 1 second per group")
     if len(samples) < 11:
         raise ValueError("at least 11 sample groups are required")
     values = []
+    roles = set()
     for sample in samples:
+        if nominal:
+            if (not sample.get("cpu_usage_available") or sample.get("thermal_before") != 0 or
+                    sample.get("thermal_after") != 0 or sample.get("low_power_before") is not False or
+                    sample.get("low_power_after") is not False):
+                raise ValueError("viewport thermal or power state changed during measurement")
+            roles.update((sample.get("task_role_before", -1), sample.get("task_role_after", -1)))
         frames, elapsed = sample["frames"], sample["elapsed_ms"]
         if (not isinstance(frames, int) or frames < measurement["requested_frames"] or
                 not math.isfinite(elapsed) or elapsed < measurement["minimum_group_ms"]):
             raise ValueError("invalid frame count or duration")
         values.append(elapsed / frames)
+    if nominal and (len(roles) != 1 or min(roles) < 0):
+        raise ValueError("viewport scheduling role changed during measurement")
     values.sort()
     def percentile(fraction):
         at = (len(values) - 1) * fraction
@@ -64,14 +86,27 @@ def parse_measurement(output):
     return measurements[0]
 
 
+def measurement_report(metadata, measurement):
+    report = {"environment": metadata, "measurement": measurement}
+    try:
+        report["statistics"] = summarize(measurement)
+    except ValueError as error:
+        # Environmental failures retain both complete, unfiltered programs.
+        report.update(statistics=None, validation_error=str(error))
+    return report
+
+
 def compare(candidate, baseline, sdk_change=False):
     for key in CONDITIONS:
         if candidate["measurement"][key] != baseline["measurement"][key]:
             raise ValueError(f"incompatible measurement condition: {key}")
-    if candidate["measurement"].get("group_control") != baseline["measurement"].get("group_control"):
-        raise ValueError("incompatible measurement condition: group_control")
-    if candidate["measurement"].get("cpu_policy") != baseline["measurement"].get("cpu_policy"):
-        raise ValueError("incompatible measurement condition: cpu_policy")
+    for key in ("group_control", "cpu_policy", "thermal_policy", "minimum_cooldown_ms", "maximum_cooldown_ms"):
+        if candidate["measurement"].get(key) != baseline["measurement"].get(key):
+            raise ValueError(f"incompatible measurement condition: {key}")
+    previous, current = summarize(baseline["measurement"]), summarize(candidate["measurement"])
+    if candidate["measurement"].get("thermal_policy") == "nominal":
+        if candidate["measurement"]["samples"][0].get("task_role_before") != baseline["measurement"]["samples"][0].get("task_role_before"):
+            raise ValueError("incompatible measurement condition: task_role")
     if candidate["environment"].get("launch_policy") != baseline["environment"].get("launch_policy"):
         raise ValueError("incompatible environment: launch_policy")
     for key in ("platform", "machine", "hardware", "build_type", "compiler", "compiler_flags",
@@ -82,7 +117,6 @@ def compare(candidate, baseline, sdk_change=False):
         raise ValueError("incompatible environment: sdk_revisions")
     if not sdk_change and (candidate["environment"]["sdk_dirty"] or baseline["environment"]["sdk_dirty"]):
         raise ValueError("comparison requires unchanged SDK sources")
-    previous, current = summarize(baseline["measurement"]), summarize(candidate["measurement"])
     if previous["mad_percent"] > 3.0:
         raise ValueError("baseline variation exceeds 3 percent")
     change = (current["median_ms"] / previous["median_ms"] - 1.0) * 100.0
@@ -100,6 +134,26 @@ def git(directory, *arguments):
 
 def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def measurement_timeout(samples, warmup_ms, group_ms, paired, cooldown_ms=0):
+    # Include both programs' warmups and groups, plus bounded setup/exit time.
+    duration = (2 if paired else 1) * (warmup_ms + samples * group_ms + cooldown_ms) / 1000
+    return max(360 if paired else 180, duration + 120)
+
+
+def validate_request(measurement, args):
+    expected = {"warmup_frames": args.warmup, "requested_frames": args.frames,
+                "minimum_warmup_ms": args.warmup_ms, "minimum_group_ms": args.group_ms,
+                "group_control": "paired" if args.reference_binary else "continuous",
+                "version": 3, "thermal_policy": "nominal" if sys.platform == "darwin" else "system-default",
+                "minimum_cooldown_ms": MIN_COOLDOWN_MS if sys.platform == "darwin" else 0,
+                "maximum_cooldown_ms": MAX_COOLDOWN_MS if sys.platform == "darwin" else 0}
+    if len(measurement["samples"]) != args.samples:
+        raise ValueError("native test did not emit the complete requested measurement")
+    for key, value in expected.items():
+        if measurement.get(key) != value:
+            raise ValueError(f"native test ignored requested measurement: {key}")
 
 
 class ViewportProcess:
@@ -189,7 +243,9 @@ class ViewportProcess:
 
 def paired_measurements(binary, reference, output, env, samples):
     env = dict(env, NEMODEV_BASELINE_PAIRED="1")
-    deadline = time.monotonic() + 360
+    deadline = time.monotonic() + measurement_timeout(samples,
+        int(env.get("NEMODEV_BASELINE_WARMUP_MS", 15000)), int(env.get("NEMODEV_BASELINE_GROUP_MS", 1000)), True,
+        MAX_COOLDOWN_MS if sys.platform == "darwin" else 0)
     processes = []
     measurements = {}
     try:
@@ -262,7 +318,7 @@ def environment(source, build, binary, config):
             "binary_sha256": sha256(binary), "harness_sha256": harness.hexdigest(),
             "build_source_sha256": source_hash.hexdigest(),
             "platform": platform.platform(), "machine": platform.machine(), "hardware": hardware,
-            "launch_policy": "foreground-on-launch" if sys.platform == "darwin" else "system-default",
+            "launch_policy": "hidden-window",
             "logical_cpus": os.cpu_count(),
             "build_type": build_type, "compiler": compiler,
             "compiler_flags": {key: cache.get(key, "") for key in
@@ -288,6 +344,8 @@ def main():
     parser.add_argument("--samples", type=int, default=11)
     parser.add_argument("--frames", type=int, default=240)
     parser.add_argument("--warmup", type=int, default=480)
+    parser.add_argument("--warmup-ms", type=int, default=15000)
+    parser.add_argument("--group-ms", type=int, default=1000)
     args = parser.parse_args()
     if bool(args.reference_build) != bool(args.reference_binary):
         parser.error("paired measurement needs both --reference-build and --reference-binary")
@@ -295,6 +353,8 @@ def main():
         parser.error("choose a paired reference or a saved comparison")
     if not 11 <= args.samples <= 101 or not 30 <= args.frames <= 10000 or not 60 <= args.warmup <= 10000:
         parser.error("samples must be 11..101, frames 30..10000, warmup 60..10000")
+    if not 15000 <= args.warmup_ms <= 120000 or not 1000 <= args.group_ms <= 10000:
+        parser.error("warmup-ms must be 15000..120000, group-ms 1000..10000")
     source = Path(__file__).resolve().parent.parent
     args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -305,7 +365,8 @@ def main():
             # the background. Keep this identical for both measured programs.
             env["SDL_MAC_BACKGROUND_APP"] = "0"
         env.update(NEMODEV_BASELINE_SAMPLES=str(args.samples), NEMODEV_BASELINE_FRAMES=str(args.frames),
-                   NEMODEV_BASELINE_WARMUP=str(args.warmup))
+                   NEMODEV_BASELINE_WARMUP=str(args.warmup), NEMODEV_BASELINE_WARMUP_MS=str(args.warmup_ms),
+                   NEMODEV_BASELINE_GROUP_MS=str(args.group_ms), NEMODEV_BASELINE_PAIRED="0")
         reference_report = None
         if args.reference_binary:
             reference_metadata = environment(source, args.reference_build.resolve(),
@@ -314,28 +375,29 @@ def main():
                 raise ValueError("paired programs must be built with the same benchmark source")
             measurement, reference_measurement = paired_measurements(
                 args.binary.resolve(), args.reference_binary.resolve(), args.output.resolve(), env, args.samples)
+            validate_request(reference_measurement, args)
             if (reference_metadata["binary_sha256"] != sha256(args.reference_binary) or
                     len(reference_measurement["samples"]) != args.samples):
                 raise ValueError("reference binary changed or emitted incomplete samples")
-            reference_report = {"environment": reference_metadata, "measurement": reference_measurement,
-                                "statistics": summarize(reference_measurement)}
+            reference_report = measurement_report(reference_metadata, reference_measurement)
         else:
             result = subprocess.run([str(args.binary.resolve()), "--ui-tests", "^viewportbaseline$",
                                      "--ui-results", str(args.output.with_suffix(".xml").resolve())],
-                                    env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
+                                    env=env, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                    timeout=measurement_timeout(args.samples, args.warmup_ms, args.group_ms, False,
+                                                                MAX_COOLDOWN_MS if sys.platform == "darwin" else 0))
             args.output.with_suffix(".log").write_text(result.stdout + result.stderr, encoding="utf-8")
             if result.returncode:
                 raise ValueError(f"native viewport test failed ({result.returncode}); see {args.output.with_suffix('.log')}")
             measurement = parse_measurement(result.stdout)
-        if len(measurement["samples"]) != args.samples:
-            raise ValueError("native test did not emit the complete requested measurement")
+        validate_request(measurement, args)
         if metadata["binary_sha256"] != sha256(args.binary):
             raise ValueError("test binary changed during measurement")
-        report = {"environment": metadata, "measurement": measurement,
-                  "statistics": summarize(measurement),
-                  "unmeasured": ["GPU-only timestamps", "application allocations", "GPU preserve copies",
-                                 "extra GPU passes/submissions", "native capability queries", "resource retain/release"]}
-        passed = report["statistics"]["mad_percent"] <= 3.0 and (not metadata["sdk_dirty"] or args.sdk_change)
+        report = measurement_report(metadata, measurement)
+        report["unmeasured"] = ["GPU-only timestamps", "application allocations", "GPU preserve copies",
+                                "extra GPU passes/submissions", "native capability queries", "resource retain/release"]
+        passed = ("validation_error" not in report and report["statistics"]["mad_percent"] <= 3.0 and
+                  (not metadata["sdk_dirty"] or args.sdk_change))
         report["sdk_change"] = args.sdk_change
         if reference_report:
             report["reference"] = reference_report
