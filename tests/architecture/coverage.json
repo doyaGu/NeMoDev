@@ -1553,28 +1553,27 @@
     {
       "id": "F11",
       "name": "Schematic 浏览",
-      "owner": "Graph domain",
+      "owner": "EditorWorkspace / Schematic 视图实例 / Graph domain",
       "source_groups": [
         "S06",
         "S07",
         "S18",
         "S21",
-        "S49"
+        "S49",
+        "S33",
+        "S35",
+        "S38"
       ],
       "tests": [
         "SchematicModelTests",
         "VirtoolsDev.Edits",
-        "NeMoDevEditor"
+        "NeMoDevEditor",
+        "VirtoolsDevFileDialogs"
       ],
       "ui_tests": [
         "VirtoolsDevUi.schematic"
       ],
-      "gaps": [
-        {
-          "due_phase": 4,
-          "reason": "补双实例导航和旧索引失效"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F12",
@@ -2183,8 +2182,8 @@
     {
       "id": "selection",
       "name": "Schematic 元素、Script headers 和图内选区",
-      "owner": "DocumentSession 中的 Schematic 选区；随图视图迁移",
-      "lifetime": "对象失效、成功替换；失败保持",
+      "owner": "Schematic 视图实例",
+      "lifetime": "随视图和文档身份；元素位置携带完整对象引用与 Script 版本；对象或槽位失效时移除；切换失败保持",
       "persistence": "活动选择不制造创作 Undo；旧文件字段只捕获恢复快照",
       "features": [
         "F11",
@@ -2194,10 +2193,10 @@
     },
     {
       "id": "schematic_view",
-      "name": "visibleScripts、stackScript、hiddenScripts、scriptOrder",
-      "owner": "Schematic 视图的文档挂接状态",
+      "name": "可见 Script 投影、完整引用的锚点/隐藏/排序/开合、平移缩放和查找位置",
+      "owner": "每个 Schematic 视图实例",
       "lifetime": "成功替换或实例脱离；其他实例不被覆盖",
-      "persistence": "过滤/排序为实例状态，stack 派生；与写入 InterfaceData 的显示修改分开",
+      "persistence": "导航不制造创作 Undo；工作区保存选项和平移缩放，不将文档对象引用写入用户配置；真正换文档时重置，切换失败保持",
       "features": [
         "F11"
       ]
@@ -2472,7 +2471,8 @@
       "persistence": "带版本的提供者状态；单实例关闭重开和活动提供者替换时恢复；跨启动保存仍在阶段六",
       "features": [
         "F29",
-        "F31"
+        "F31",
+        "F11"
       ]
     },
     {
