@@ -47,7 +47,8 @@
       "id": "S04",
       "name": "运行和断点",
       "patterns": [
-        "core/graph/Debugger.*"
+        "core/graph/Debugger.*",
+        "core/graph/RuntimeProfile.*"
       ]
     },
     {
@@ -55,7 +56,8 @@
       "name": "图编辑领域",
       "patterns": [
         "core/graph/**",
-        "!core/graph/Debugger.*"
+        "!core/graph/Debugger.*",
+        "!core/graph/RuntimeProfile.*"
       ]
     },
     {
@@ -460,6 +462,7 @@
     ],
     "S04": [
       "S01",
+      "S03",
       "S06",
       "S13",
       "S33"

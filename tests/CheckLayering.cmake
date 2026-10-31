@@ -69,7 +69,7 @@ foreach (_source IN LISTS _sources)
                 NOT (_source STREQUAL "application/OutputCommands.cpp" AND
                      _path STREQUAL "core/document/FileCommands.h") AND
                 NOT (_source STREQUAL "application/ExecutionCommands.cpp" AND
-                     _path MATCHES "^core/(document/Document|graph/Debugger|runtime/TextEncoding)\\.h$") AND
+                     _path MATCHES "^core/(document/Document|graph/(Debugger|RuntimeProfile)|runtime/TextEncoding)\\.h$") AND
                 NOT (_source STREQUAL "application/DocumentCommands.cpp" AND
                      _path MATCHES "^core/(document/FileCommands|runtime/TextEncoding)\\.h$"))
             list(APPEND _errors "${_source}: editor commands include ${_path}")

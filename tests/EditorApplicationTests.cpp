@@ -26,6 +26,7 @@ void TestDocumentCommands(vdev::CkRuntimeHost &host);
 void TestDocumentTransitions(vdev::CkRuntimeHost &host);
 void TestOutputCommands(vdev::CkRuntimeHost &host);
 void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
+void TestRuntimeProjections(vdev::CkRuntimeHost &host);
 void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestObjectCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 namespace {
@@ -602,6 +603,7 @@ int main(int argc, char **argv) {
         TestObjectCommands(runtime, argv[1]);
         TestResourceCommands(runtime, argv[1]);
         TestExecutionCommands(runtime, argv[1]);
+        TestRuntimeProjections(runtime);
         std::cout << "Module registration, object editing, undo and view lifetime checks passed\n";
         return 0;
     } catch (const std::exception &e) {

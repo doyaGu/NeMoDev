@@ -143,7 +143,8 @@ std::vector<Debugger::Breakpoint> Debugger::Breakpoints() const {
             for (const auto &data : entry.second->Data().extraData)
                 if (data.type == EXTRA_DATA_PARAMETER || data.type == EXTRA_DATA_BEHAVIOR ||
                     data.type == EXTRA_DATA_CONNECTION)
-                    all.push_back({entry.first, data});
+                    all.push_back({entry.first, data, m_Document.Reference(entry.first),
+                        m_Document.Reference(data.id1), m_Document.Reference(data.id2)});
     return all;
 }
 

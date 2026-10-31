@@ -111,6 +111,7 @@ public:
     struct Breakpoint {
         CK_ID script = 0;
         ExtraData data;
+        ObjectRef scriptRef{}, object{}, owner{};
     };
     std::vector<Breakpoint> Breakpoints() const;
     // Called when the document closes.

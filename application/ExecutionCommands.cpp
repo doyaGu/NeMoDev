@@ -1,13 +1,17 @@
 #include "application/ExecutionCommands.h"
 #include "core/document/Document.h"
 #include "core/graph/Debugger.h"
+#include "core/graph/RuntimeProfile.h"
 #include "core/runtime/TextEncoding.h"
 
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <deque>
 #include <limits>
 #include <stdexcept>
+#include <set>
+#include <tuple>
 
 namespace vdev {
 namespace {
@@ -16,6 +20,11 @@ const EditorValue &Field(const EditorRequest &request, const char *key) {
         if (std::string(request.values[i].key.data, request.values[i].key.size) == key) return request.values[i];
     throw std::logic_error("Missing execution argument");
 }
+uint64_t OptionalInteger(const EditorRequest &request, const char *key) {
+    for (uint32_t i = 0; i < request.count; ++i)
+        if (std::string(request.values[i].key.data, request.values[i].key.size) == key) return request.values[i].integer;
+    return 0;
+}
 EditorValue Integer(const char *key, uint64_t value) { return {EditorLiteral(key), EDITOR_INTEGER_VALUE, {}, {}, value}; }
 EditorValue Real(const char *key, double value) { return {EditorLiteral(key), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, value}; }
 EditorValue Object(const char *key, ObjectRef value) { return {EditorLiteral(key), EDITOR_OBJECT, value}; }
@@ -23,41 +32,133 @@ EditorValue Object(const char *key, ObjectRef value) { return {EditorLiteral(key
 
 struct ExecutionCommands::Data {
     enum class Action { Play, Pause, TogglePlay, Reset, StepFrame, DebugStep, Leave, Execute, Trace, ToggleTrace,
-        Inside, MaxFrames, SimulatedFps, FramesPerUpdate, LockObject, LockScript, ClearLog, Reengage, Redraw, Time };
+        Inside, MaxFrames, SimulatedFps, FramesPerUpdate, LockObject, LockScript, ClearLog, Reengage, Redraw, Time,
+        Profile, RefreshProfile };
     struct Command { Data *owner; Action action; const char *id, *title; };
     EditorApplication &editor;
     std::function<Document *()> current;
     std::function<bool()> nativeAvailable;
+    Settings settings;
     Document *document = nullptr;
     std::unique_ptr<Debugger> debugger;
     StateData state;
+    uint64_t stateRevision = 1;
     std::vector<Debugger::Entry> log;
     uint64_t logRevision = 0;
     ObjectRef lockedObject{}, lockedScript{};
     std::deque<Command> commands;
     unsigned refresh = 0;
+    bool synchronizeAfterRelease = false;
+    // Profiling follows the lifetime of view scopes, including provider changes
+    // and closes while a file worker owns the context. Only Synchronize touches CK.
+    std::set<EditorView> profilers;
+    bool profilingApplied = false, profilingWasEnabled = false;
+    RuntimeProfile profile;
+    bool profileAvailable = false, profileDetails = false, geometryReady = false;
+    uint64_t profileRevision = 0, faces = 0, vertices = 0;
+    std::chrono::steady_clock::time_point profileTime{};
+    DocumentToken profileDocument{};
+    std::vector<ObjectRef> contextObjects, contextScripts, contextOwners;
+    std::vector<std::string> objectNames, scriptNames;
+    std::string behaviorName;
+    std::tuple<uint64_t, uint64_t, uint64_t> contextVersion{};
+    uint64_t contextRevision = 1;
+    struct Reached { ObjectRef script{}, object{}, behavior{}; };
+    std::vector<Reached> reached;
     struct Time {
         uint64_t frameMode = 0, behaviorMode = 0;
         double frameLimit = 60, behaviorLimit = 60, scale = 1, minimum = 0, maximum = 100;
     } time;
-    Data(EditorApplication &editor, std::function<Document *()> current, std::function<bool()> nativeAvailable)
-        : editor(editor), current(std::move(current)), nativeAvailable(std::move(nativeAvailable)) {}
+    Data(EditorApplication &editor, std::function<Document *()> current, std::function<bool()> nativeAvailable,
+         Settings settings)
+        : editor(editor), current(std::move(current)), nativeAvailable(std::move(nativeAvailable)), settings(std::move(settings)) {}
     bool Ready() const {
+        if (!editor.NativeAvailable()) return false;
         if (nativeAvailable && !nativeAvailable()) return false;
         return document && debugger && current() == document && document->Context() && !document->EditOpen();
     }
-    static bool NeedsDocument(Action action) {
-        return action <= Action::Execute || action == Action::LockObject || action == Action::LockScript;
+    void ClearPublished() {
+        state = {}; ++stateRevision;
+        lockedObject = {}; lockedScript = {};
+        log.clear(); logRevision = 0; reached.clear();
+        contextObjects.clear(); contextScripts.clear(); contextOwners.clear();
+        objectNames.clear(); scriptNames.clear(); behaviorName.clear();
+        contextVersion = {}; ++contextRevision;
+        profile = {}; profileAvailable = profileDetails = geometryReady = false;
+        profileDocument = {}; ++profileRevision;
     }
-    void ValidateLocks() {
+    void RestoreProfiling() {
+        if (profilingApplied) {
+            document->Context()->EnableProfiling(profilingWasEnabled ? TRUE : FALSE);
+            profilingApplied = false;
+        }
+    }
+    void ProfileViews() {
+        for (auto it = profilers.begin(); it != profilers.end();)
+            if (editor.Scope(*it).view != *it) it = profilers.erase(it);
+            else ++it;
+        if (!Ready()) return;
+        if (profileDocument != document->Token()) {
+            profile = {}; profileAvailable = profileDetails = geometryReady = false;
+            profileDocument = document->Token(); ++profileRevision;
+        }
+        if (profilers.empty()) RestoreProfiling();
+        else if (!profilingApplied && document->IsOpen()) {
+            profilingWasEnabled = document->Context()->IsProfilingEnable() != 0;
+            document->Context()->EnableProfiling(TRUE);
+            profilingApplied = true;
+        }
+    }
+    void ReadProfile(bool details) {
+        if (!Ready() || !document->IsOpen()) return;
+        details = details || profileDetails;
+        const auto now = std::chrono::steady_clock::now();
+        if (profileAvailable && geometryReady && (!details || profileDetails) &&
+            now - profileTime < std::chrono::milliseconds(250)) return;
+        auto next = ReadRuntimeProfile(*document, details);
+        if (!geometryReady) {
+            ReadRuntimeGeometry(*document, faces, vertices);
+            geometryReady = true;
+        }
+        next.faces = faces; next.vertices = vertices;
+        profile = std::move(next); profileTime = now;
+        profileAvailable = true; profileDetails = details; ++profileRevision;
+    }
+    void ReadContext() {
+        if (!Ready()) return;
+        const auto version = std::make_tuple(document->Token().value, editor.Revision(), document->ScriptsRevision());
+        if (contextVersion == version) return;
+        contextObjects.clear(); contextScripts.clear(); contextOwners.clear();
+        objectNames.clear(); scriptNames.clear();
+        for (const auto &script : document->Scripts()) {
+            if (!document->Resolve(script.reference)) continue;
+            contextScripts.push_back(script.reference);
+            contextOwners.push_back(script.ownerReference);
+            scriptNames.push_back(script.name.empty() ? "<Unnamed>" : AnsiToUtf8(script.name));
+            if (script.ownerReference && document->Resolve(script.ownerReference) &&
+                std::find(contextObjects.begin(), contextObjects.end(), script.ownerReference) == contextObjects.end()) {
+                contextObjects.push_back(script.ownerReference);
+                objectNames.push_back(script.ownerName.empty() ? "<Unnamed>" : AnsiToUtf8(script.ownerName));
+            }
+        }
+        contextVersion = version;
+        ++contextRevision;
+    }
+    static bool NeedsDocument(Action action) {
+        return action <= Action::Execute || action == Action::LockObject || action == Action::LockScript || action == Action::RefreshProfile;
+    }
+    bool ValidateLocks() {
+        const auto previousObject = lockedObject, previousScript = lockedScript;
         if (lockedScript && !document->Resolve(lockedScript, CKCID_BEHAVIOR)) {
             lockedScript = {}; lockedObject = {};
         }
         if (lockedObject && !document->Resolve(lockedObject)) lockedObject = {};
         debugger->lockedObject = lockedObject.object;
         debugger->lockedScript = lockedScript.object;
+        return lockedObject != previousObject || lockedScript != previousScript;
     }
     void Publish(bool readTime = false) {
+        ++stateRevision;
         if (!debugger || !document) { state = {}; return; }
         state.document = document->Token();
         state.available = document->IsOpen();
@@ -77,8 +178,27 @@ struct ExecutionCommands::Data {
         state.lockedObject = lockedObject;
         state.lockedScript = lockedScript;
         state.logEntries = debugger->Log().size();
+        state.logRevision = debugger->LogRevision();
         state.reachedBreakpoints = debugger->ReachedBreakpoints().size();
         state.faults = debugger->Faults();
+        const auto previousName = behaviorName;
+        behaviorName.clear();
+        if (auto *behavior = document->Resolve(state.behavior))
+            behaviorName = behavior->GetName() && *behavior->GetName() ? AnsiToUtf8(behavior->GetName()) : "<Unnamed>";
+        if (behaviorName != previousName) ++contextRevision;
+        reached.clear();
+        for (const auto &breakpoint : debugger->ReachedBreakpoints()) {
+            auto *target = document->Resolve(breakpoint.object);
+            CKBehavior *focus = CKBehavior::Cast(target);
+            if (auto *input = CKParameterIn::Cast(target)) focus = CKBehavior::Cast(input->GetOwner());
+            else if (auto *value = CKParameter::Cast(target)) {
+                auto *owner = value->GetOwner();
+                if (auto *operation = CKParameterOperation::Cast(owner)) owner = operation->GetOwner();
+                focus = CKBehavior::Cast(owner);
+            } else if (auto *link = CKBehaviorLink::Cast(target))
+                focus = link->GetInBehaviorIO() ? link->GetInBehaviorIO()->GetOwner() : nullptr;
+            reached.push_back({breakpoint.scriptRef, breakpoint.object, document->Reference(focus ? focus->GetID() : 0)});
+        }
         if (logRevision != debugger->LogRevision()) {
             const auto &source = debugger->Log();
             // Append new entries once. Clear/trim changes the size by a
@@ -107,13 +227,22 @@ struct ExecutionCommands::Data {
             }
     }
     void Synchronize() {
+        ProfileViews();
+        // Attach publishes the absence of a document even when native access
+        // is disabled. Clear copied data without entering a worker's context.
+        if (!editor.Scope().document.value && (state.document.value || profileDocument.value)) {
+            ClearPublished();
+            return;
+        }
         if (!Ready()) return;
-        if (state.document != document->Token()) {
-            debugger->Detach();
+        if (state.document != document->Token() || synchronizeAfterRelease) {
+            if (!synchronizeAfterRelease) debugger->Detach();
+            synchronizeAfterRelease = false;
             lockedObject = {}; lockedScript = {};
             ValidateLocks();
             Publish(true);
         }
+        ReadContext();
     }
     bool Valid(Action action, const EditorRequest &request) const {
         const auto boolean = [&](const char *key) { return Field(request, key).integer <= 1; };
@@ -122,7 +251,7 @@ struct ExecutionCommands::Data {
             return std::isfinite(value) && value > 0 && value <= std::numeric_limits<float>::max() && float(value) > 0;
         };
         switch (action) {
-        case Action::Trace: case Action::Inside: case Action::Redraw: return boolean("enabled");
+        case Action::Trace: case Action::Inside: case Action::Redraw: case Action::Profile: return boolean("enabled");
         case Action::MaxFrames: return Field(request, "value").integer <= uint64_t(std::numeric_limits<int>::max());
         case Action::FramesPerUpdate:
             return Field(request, "value").integer > 0 && Field(request, "value").integer <= uint64_t(std::numeric_limits<int>::max());
@@ -149,6 +278,12 @@ struct ExecutionCommands::Data {
         }
     }
     EditorStatus Status(Action action, const EditorRequest &request) const {
+        if (action == Action::Profile) {
+            if (!request.scope.view) return EDITOR_REFUSED;
+            if (!Valid(action, request)) return EDITOR_INVALID;
+            return bool(profilers.count(request.scope.view)) == bool(Field(request, "enabled").integer)
+                ? EDITOR_NO_CHANGE : EDITOR_OK;
+        }
         if (!Ready() || (NeedsDocument(action) && !document->IsOpen())) return EDITOR_REFUSED;
         if (!Valid(action, request)) return EDITOR_INVALID;
         if ((action == Action::DebugStep || action == Action::Leave) && (!debugger->trace || !debugger->insideFrames))
@@ -170,6 +305,11 @@ struct ExecutionCommands::Data {
     static EditorStatus Run(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         const auto &command = *static_cast<Command *>(data);
         auto &self = *command.owner;
+        if (command.action == Action::Profile) {
+            if (Field(*request, "enabled").integer) self.profilers.insert(request->scope.view);
+            else self.profilers.erase(request->scope.view);
+            return EDITOR_OK;
+        }
         self.Synchronize();
         auto &debugger = *self.debugger;
         self.ValidateLocks();
@@ -221,7 +361,10 @@ struct ExecutionCommands::Data {
             debugger.reengageLink = Field(*request, "link").integer != 0;
             debugger.reengageParameter = Field(*request, "parameter").integer != 0;
             break;
-        case Action::Redraw: debugger.redrawOnlyAtBreakpoint = enabled(); break;
+        case Action::Redraw:
+            debugger.redrawOnlyAtBreakpoint = enabled();
+            if (self.settings.redrawChanged) self.settings.redrawChanged(debugger.redrawOnlyAtBreakpoint);
+            break;
         case Action::Time: {
             auto *time = self.document->Context()->GetTimeManager();
             if (!time) return EDITOR_REFUSED;
@@ -235,6 +378,8 @@ struct ExecutionCommands::Data {
             time->SetMaximumDeltaTime(float(Field(*request, "maximum").real));
             break;
         }
+        case Action::RefreshProfile: self.geometryReady = false; break;
+        case Action::Profile: break;
         }
         self.ValidateLocks();
         self.Publish(command.action == Action::Time);
@@ -256,7 +401,8 @@ struct ExecutionCommands::Data {
             Real("simulated-fps", s.simulatedFps), Real("measured-fps", s.measuredFps),
             Integer("redraw-at-breakpoint", s.redrawOnlyAtBreakpoint), Object("object", s.object), Object("script", s.script),
             Object("behavior", s.behavior), Object("locked-object", s.lockedObject), Object("locked-script", s.lockedScript),
-            Integer("log-entries", s.logEntries), Integer("reached-breakpoints", s.reachedBreakpoints), Integer("faults", s.faults)};
+            Integer("log-entries", s.logEntries), Integer("log-revision", s.logRevision),
+            Integer("reached-breakpoints", s.reachedBreakpoints), Integer("faults", s.faults)};
         return sink.write ? sink.write(sink.data, fields, uint32_t(std::size(fields))) : EDITOR_INVALID;
     }
     static EditorStatus ReadTime(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
@@ -268,6 +414,8 @@ struct ExecutionCommands::Data {
     }
     static EditorStatus ReadLog(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         const auto &self = *static_cast<Data *>(data);
+        if (OptionalInteger(*request, "revision") && OptionalInteger(*request, "revision") != self.logRevision)
+            return EDITOR_STALE;
         const auto index = Field(*request, "index").integer;
         if (index >= self.log.size()) return EDITOR_INVALID;
         const auto &entry = self.log[size_t(index)];
@@ -276,43 +424,141 @@ struct ExecutionCommands::Data {
                                       Object("script", entry.script), Object("behavior", entry.behavior)};
         return sink.write ? sink.write(sink.data, fields, 3) : EDITOR_INVALID;
     }
+    static uint64_t ContextRevision(void *data, const EditorHost *) {
+        const auto &self = *static_cast<Data *>(data);
+        return self.contextRevision + self.editor.Revision();
+    }
+    static EditorStatus Context(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        self.ReadContext();
+        const auto first = OptionalInteger(*request, "first");
+        const auto total = std::max(self.contextScripts.size(), self.contextObjects.size());
+        if (first > total) return EDITOR_INVALID;
+        const auto objectsBegin = std::min(size_t(first), self.contextObjects.size());
+        const auto objectsEnd = std::min(size_t(first) + 128, self.contextObjects.size());
+        const auto scriptsBegin = std::min(size_t(first), self.contextScripts.size());
+        const auto scriptsEnd = std::min(size_t(first) + 128, self.contextScripts.size());
+        std::vector<ObjectRef> objectRefs(self.contextObjects.begin() + objectsBegin, self.contextObjects.begin() + objectsEnd),
+            scriptRefs(self.contextScripts.begin() + scriptsBegin, self.contextScripts.begin() + scriptsEnd),
+            ownerRefs(self.contextOwners.begin() + scriptsBegin, self.contextOwners.begin() + scriptsEnd);
+        std::vector<EditorString> objects, scripts;
+        for (size_t i = objectsBegin; i < objectsEnd; ++i) objects.push_back(EditorText(self.objectNames[i]));
+        for (size_t i = scriptsBegin; i < scriptsEnd; ++i) scripts.push_back(EditorText(self.scriptNames[i]));
+        const EditorValue values[] = {
+            {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objectRefs.data(), uint32_t(objectRefs.size())}},
+            {EDITOR_TEXT("object-names"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {objects.data(), uint32_t(objects.size())}},
+            {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST, {}, {}, 0, {scriptRefs.data(), uint32_t(scriptRefs.size())}},
+            {EDITOR_TEXT("script-names"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {scripts.data(), uint32_t(scripts.size())}},
+            {EDITOR_TEXT("script-owners"), EDITOR_OBJECT_LIST, {}, {}, 0, {ownerRefs.data(), uint32_t(ownerRefs.size())}},
+            {EDITOR_TEXT("behavior-name"), EDITOR_TEXT_VALUE, {}, EditorText(self.behaviorName)},
+            Integer("revision", ContextRevision(data, nullptr)), Integer("total", total), Integer("next", std::min(size_t(first) + 128, total))};
+        return sink.write ? sink.write(sink.data, values, uint32_t(std::size(values))) : EDITOR_INVALID;
+    }
+    static EditorStatus ReachedBreakpoint(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        const auto &self = *static_cast<Data *>(data);
+        if (Field(*request, "reached").integer != uint64_t(self.state.reached)) return EDITOR_STALE;
+        const auto index = Field(*request, "index").integer;
+        if (index >= self.reached.size()) return EDITOR_INVALID;
+        const auto &entry = self.reached[size_t(index)];
+        const EditorValue values[] = {Object("script", entry.script), Object("object", entry.object), Object("behavior", entry.behavior)};
+        return sink.write ? sink.write(sink.data, values, 3) : EDITOR_INVALID;
+    }
+    static EditorStatus ProfileData(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        if (OptionalInteger(*request, "details") > 1) return EDITOR_INVALID;
+        self.ReadProfile(OptionalInteger(*request, "details") != 0);
+        const auto &p = self.profile; const auto &s = p.stats; const auto &r = p.render;
+        std::vector<EditorField> fields;
+        const auto integer = [&](const char *key, uint64_t value) { fields.push_back({key, EDITOR_INTEGER_VALUE, {}, {}, value}); };
+        const auto real = [&](const char *key, double value) { EditorField field{key, EDITOR_REAL_VALUE}; field.real = value; fields.push_back(std::move(field)); };
+        integer("available", self.profileAvailable); integer("revision", self.profileRevision);
+        integer("show-dynamic", self.settings.showDynamic && self.settings.showDynamic());
+        real("frame-time", s.TotalFrameTime); real("interface-time", s.EstimatedInterfaceTime);
+        real("render-time", s.RenderTime); real("graph-time", s.TotalBehaviorExecution - s.BehaviorCodeExecution);
+        real("behavior-time", s.BehaviorCodeExecution); real("operation-time", s.ParametricOperations);
+        real("animation-time", s.AnimationManagement);
+        integer("objects", p.objects3d); integer("textures", p.textures); integer("sprites", p.sprites);
+        integer("behaviors", p.behaviors); integer("faces", p.faces); integer("vertices", p.vertices);
+        integer("drawn-faces", r.NbTrianglesDrawn); integer("drawn-objects", r.NbObjectDrawn); integer("drawn-lines", r.NbLinesDrawn);
+        integer("video-textures", p.videoTextures); integer("texture-bytes", p.textureBytes);
+        integer("video-sprites", p.videoSprites); integer("sprite-bytes", p.spriteBytes);
+        integer("executed-objects", s.ActiveObjectsExecuted); integer("executed-behaviors", s.BehaviorsExecuted);
+        integer("executed-blocks", s.BuildingBlockExecuted); integer("parsed-links", s.BehaviorLinksParsed);
+        integer("delayed-links", s.BehaviorDelayedLinks);
+        integer("row-count", p.rows.size());
+        const auto borrowed = BorrowEditorFields(fields);
+        return sink.write ? sink.write(sink.data, borrowed.data(), uint32_t(borrowed.size())) : EDITOR_INVALID;
+    }
+    static EditorStatus ProfileRows(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        const auto &self = *static_cast<Data *>(data);
+        if (Field(*request, "revision").integer != self.profileRevision) return EDITOR_STALE;
+        const auto first = Field(*request, "first").integer;
+        if (first > self.profile.rows.size()) return EDITOR_INVALID;
+        std::vector<EditorField> fields{{"revision", EDITOR_INTEGER_VALUE, {}, {}, self.profileRevision},
+            {"total", EDITOR_INTEGER_VALUE, {}, {}, self.profile.rows.size()}};
+        EditorField rows{"rows", EDITOR_RECORD};
+        for (size_t i = size_t(first); i < std::min(self.profile.rows.size(), size_t(first) + 128); ++i) {
+            const auto &row = self.profile.rows[i];
+            EditorField item{std::to_string(i), EDITOR_RECORD};
+            EditorField time{"time", EDITOR_REAL_VALUE}; time.real = row.time;
+            item.fields = {{"name", EDITOR_TEXT_VALUE, {}, row.name}, time,
+                {"parent", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(row.parent))},
+                {"object", EDITOR_OBJECT, row.object}, {"script", EDITOR_OBJECT, row.script},
+                {"dynamic", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(row.dynamic)}};
+            rows.fields.push_back(std::move(item));
+        }
+        fields.push_back(std::move(rows));
+        const auto borrowed = BorrowEditorFields(fields);
+        return sink.write ? sink.write(sink.data, borrowed.data(), uint32_t(borrowed.size())) : EDITOR_INVALID;
+    }
 };
 
 ExecutionCommands::ExecutionCommands(EditorApplication &editor, std::function<Document *()> current,
-                                     std::function<bool()> nativeAvailable)
-    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(nativeAvailable))) {}
+                                     std::function<bool()> nativeAvailable, Settings settings)
+    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(nativeAvailable), std::move(settings))) {}
 ExecutionCommands::~ExecutionCommands() = default;
 const Debugger *ExecutionCommands::Bind(Document &document) {
+    if (m_Data->document) m_Data->RestoreProfiling();
     m_Data->document = &document;
+    m_Data->synchronizeAfterRelease = false;
     m_Data->debugger = std::make_unique<Debugger>(document);
     m_Data->log.clear(); m_Data->logRevision = 0;
     m_Data->lockedObject = {}; m_Data->lockedScript = {};
     m_Data->Publish(true);
+    m_Data->ReadContext();
     return m_Data->debugger.get();
 }
 void ExecutionCommands::DocumentChanging() {
     if (!m_Data->debugger) return;
+    m_Data->RestoreProfiling();
     m_Data->debugger->Detach();
     m_Data->lockedObject = {}; m_Data->lockedScript = {};
     m_Data->ValidateLocks();
     m_Data->Publish();
 }
 void ExecutionCommands::ReleaseDocument() {
+    m_Data->RestoreProfiling();
     if (m_Data->debugger) m_Data->debugger->Detach();
+    m_Data->synchronizeAfterRelease = true;
 }
 void ExecutionCommands::Synchronize() { m_Data->Synchronize(); }
 void ExecutionCommands::Stop() {
-    m_Data->debugger.reset(); m_Data->document = nullptr; m_Data->state = {};
-    m_Data->lockedObject = {}; m_Data->lockedScript = {};
-    m_Data->log.clear(); m_Data->logRevision = 0;
+    m_Data->RestoreProfiling();
+    m_Data->debugger.reset(); m_Data->document = nullptr;
+    m_Data->synchronizeAfterRelease = false;
+    m_Data->profilers.clear();
+    m_Data->ClearPublished();
 }
 const ExecutionCommands::StateData &ExecutionCommands::State() const { return m_Data->state; }
 bool ExecutionCommands::Update(double budget) {
     auto &d = *m_Data;
-    if (!d.Ready() || !d.document->IsOpen()) return false;
     d.Synchronize();
-    d.ValidateLocks();
-    if (d.debugger->GetState() == Debugger::State::Stopped) return false;
+    if (!d.Ready() || !d.document->IsOpen()) return false;
+    const bool locksChanged = d.ValidateLocks();
+    if (d.debugger->GetState() == Debugger::State::Stopped) {
+        if (locksChanged) d.Publish();
+        return false;
+    }
     const auto frames = d.debugger->Frames(), reached = d.debugger->Reached();
     const auto before = d.debugger->GetState();
     d.debugger->Update(budget);
@@ -352,14 +598,17 @@ bool ExecutionCommands::Register(std::string &error) {
         {A::ClearLog, "runtime.clear-log", "Clear Debug Log"},
         {A::Reengage, "runtime.set-breakpoint-reengagement", "Breakpoint Auto Reengage", reengage, 3},
         {A::Redraw, "runtime.set-redraw-at-breakpoint", "Redraw Schematic At Breakpoint", &enabled, 1},
-        {A::Time, "runtime.set-time", "Time Settings", time, 7}};
+        {A::Time, "runtime.set-time", "Time Settings", time, 7},
+        {A::Profile, "runtime.observe-profile", "Show Runtime Profile", &enabled, 1},
+        {A::RefreshProfile, "runtime.refresh-profile", "Refresh Profile Geometry"}};
     std::vector<EditorCommandDesc> commands;
     for (const auto &description : descriptions) {
         m_Data->commands.push_back({m_Data.get(), description.action, description.id, description.title});
         auto &command = m_Data->commands.back();
         commands.push_back({sizeof(EditorCommandDesc), EditorLiteral(command.id), EDITOR_TEXT("builtin.execution"),
             EditorLiteral(command.title), description.parameters, description.count, &Data::Run, &command,
-            Data::NeedsDocument(command.action) ? EDITOR_DOCUMENT : EDITOR_APPLICATION, EDITOR_RUNTIME_CONTROL, &Data::Check});
+            Data::NeedsDocument(command.action) ? EDITOR_DOCUMENT : EDITOR_APPLICATION,
+            command.action == A::Profile ? EDITOR_SESSION_CHANGE : EDITOR_RUNTIME_CONTROL, &Data::Check});
     }
     const EditorParameter stateFields[] = {
         {EDITOR_TEXT("available"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("state"), EDITOR_INTEGER_VALUE},
@@ -370,18 +619,50 @@ bool ExecutionCommands::Register(std::string &error) {
         {EDITOR_TEXT("measured-fps"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("redraw-at-breakpoint"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("object"), EDITOR_OBJECT}, {EDITOR_TEXT("script"), EDITOR_OBJECT}, {EDITOR_TEXT("behavior"), EDITOR_OBJECT},
         {EDITOR_TEXT("locked-object"), EDITOR_OBJECT}, {EDITOR_TEXT("locked-script"), EDITOR_OBJECT},
-        {EDITOR_TEXT("log-entries"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("reached-breakpoints"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("log-entries"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("log-revision"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("reached-breakpoints"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("faults"), EDITOR_INTEGER_VALUE}};
     const EditorParameter index{EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE};
+    const EditorParameter logArgs[] = {index, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorParameter reachedArgs[] = {index, {EDITOR_TEXT("reached"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter details{EDITOR_TEXT("details"), EDITOR_INTEGER_VALUE, 1};
+    const EditorParameter first{EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, 1};
     const EditorParameter logFields[] = {{EDITOR_TEXT("text"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("script"), EDITOR_OBJECT},
                                         {EDITOR_TEXT("behavior"), EDITOR_OBJECT}};
+    const EditorParameter contextFields[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},
+        {EDITOR_TEXT("object-names"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST},
+        {EDITOR_TEXT("script-names"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("script-owners"), EDITOR_OBJECT_LIST},
+        {EDITOR_TEXT("behavior-name"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter reachedFields[] = {{EDITOR_TEXT("script"), EDITOR_OBJECT},
+        {EDITOR_TEXT("object"), EDITOR_OBJECT}, {EDITOR_TEXT("behavior"), EDITOR_OBJECT}};
+    std::vector<EditorParameter> profileFields;
+    for (const auto *key : {"available", "revision", "show-dynamic", "objects", "textures", "sprites", "behaviors", "faces", "vertices",
+                           "drawn-faces", "drawn-objects", "drawn-lines", "video-textures", "texture-bytes",
+                           "video-sprites", "sprite-bytes", "executed-objects", "executed-behaviors", "executed-blocks",
+                           "parsed-links", "delayed-links", "row-count"})
+        profileFields.push_back({EditorLiteral(key), EDITOR_INTEGER_VALUE});
+    for (const auto *key : {"frame-time", "interface-time", "render-time", "graph-time", "behavior-time", "operation-time", "animation-time"})
+        profileFields.push_back({EditorLiteral(key), EDITOR_REAL_VALUE});
+    const EditorParameter rowArgs[] = {{EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter rowFields[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("rows"), EDITOR_RECORD}};
     const EditorQueryDesc queries[] = {
         {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.state"), EDITOR_TEXT("builtin.execution"), nullptr, 0,
-            &Data::Read, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, stateFields, uint32_t(std::size(stateFields))},
+            &Data::Read, m_Data.get(), EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, stateFields, uint32_t(std::size(stateFields)),
+            [](void *data, const EditorHost *) { return static_cast<Data *>(data)->stateRevision; }},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.time"), EDITOR_TEXT("builtin.execution"), nullptr, 0,
             &Data::ReadTime, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, time, 7},
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.log"), EDITOR_TEXT("builtin.execution"), &index, 1,
-            &Data::ReadLog, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, logFields, 3}};
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.log"), EDITOR_TEXT("builtin.execution"), logArgs, 2,
+            &Data::ReadLog, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, logFields, 3},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.context"), EDITOR_TEXT("builtin.execution"), &first, 1,
+            &Data::Context, m_Data.get(), EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, contextFields, uint32_t(std::size(contextFields)), &Data::ContextRevision},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.reached-breakpoint"), EDITOR_TEXT("builtin.execution"), reachedArgs, 2,
+            &Data::ReachedBreakpoint, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, reachedFields, 3},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.profile"), EDITOR_TEXT("builtin.execution"), &details, 1,
+            &Data::ProfileData, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, profileFields.data(), uint32_t(profileFields.size())},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.profile-rows"), EDITOR_TEXT("builtin.execution"), rowArgs, 2,
+            &Data::ProfileRows, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, rowFields, 3}};
     std::deque<std::string> chords;
     std::vector<EditorBindingDesc> bindings;
     const auto bind = [&](const char *action, std::string chord) {

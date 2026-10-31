@@ -56,7 +56,7 @@ void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &moduleP
     };
     const auto read = [&](const char *id = "runtime.state", std::vector<EditorValue> values = {}) {
         const auto result = editor.Query(id, {editor.Scope(), values.data(), uint32_t(values.size())});
-        Check(result.status == EDITOR_OK, "runtime projection unavailable");
+        Check(result.status == EDITOR_OK, (std::string("runtime projection unavailable: ") + id).c_str());
         return result;
     };
     const auto field = [&](const char *key) {
@@ -205,7 +205,8 @@ void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &moduleP
     auto *replacement = document.Context()->CreateObject(CKCID_3DENTITY, (CKSTRING) "Lock replacement");
     Check(replacement && replacement->GetID() == stale.object, "native lock ID was not reused");
     editor.EndFrame(); commands.Update(0.01);
-    Check(!debugger->lockedObject, "a debug lock migrated to a same-ID replacement");
+    Check(!debugger->lockedObject && !field("locked-object").object,
+          "a debug lock or its projection migrated to a same-ID replacement");
     execute("runtime.execute-scripts", {validScripts});
     const auto retained = debugger->Log().size() - 1;
     document.Context()->DestroyObject(scriptRef.object, CK_DESTROY_NONOTIFY | CK_DESTROY_FREEID);
@@ -230,8 +231,12 @@ void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &moduleP
           "trimmed log exposed an evicted entry");
     Check(execute("runtime.clear-log").status == EDITOR_OK && !field("log-entries").integer,
           "cleared log projection retained entries");
+    const auto oldRevision = field("log-revision").integer;
     Check(execute("runtime.reset").status == EDITOR_OK && field("log-entries").integer == 1 &&
           read("runtime.log", {Integer("index", 0)}).fields[0].text == "Reset", "log append after clear failed");
+    const EditorValue oldLog[] = {Integer("index", 0), Integer("revision", oldRevision)};
+    Check(editor.Query("runtime.log", {editor.Scope(), oldLog, 2}).status == EDITOR_STALE,
+          "old log row silently read a newer entry at the same index");
     commands.DocumentChanging();
     Check(document.New(&error), error.c_str());
     attach(); commands.Synchronize();

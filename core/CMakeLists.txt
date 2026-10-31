@@ -66,6 +66,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         graph/ScriptCommands.cpp
         graph/NmsCommands.cpp
         graph/Debugger.cpp
+        graph/RuntimeProfile.cpp
         # The level: Level Manager, objects, curves, scenes, hierarchy.
         level/LevelCommands.cpp
         level/LevelActionRecord.cpp
