@@ -10,10 +10,13 @@
 
 namespace vdev {
 struct FileDialogs::State {
-    struct Finished { Completion completion; FileDialogResult result; };
+    struct Finished { Completion completion; FileDialogResult result; const void *requester = nullptr; };
     std::mutex mutex;
     bool open = true;
-    std::list<Finished> finished;
+    std::list<Finished> finished, dispatching;
+    bool dispatchActive = false;
+    struct Request;
+    std::list<Request *> active;
 
     struct Request {
         std::shared_ptr<State> state;
@@ -46,15 +49,16 @@ struct FileDialogs::State {
             try { result.error = error.what(); } catch (...) { result.error.clear(); }
         }
         std::lock_guard<std::mutex> lock(request->state->mutex);
-        if (request->state->open)
+        request->state->active.remove(request.get());
+        if (request->state->open && request->finished.front().completion)
             request->state->finished.splice(request->state->finished.end(), request->finished);
     }
 
-    void Show(const FileDialogOptions &options, Completion completion, bool multiple, bool folder) {
+    void Show(const FileDialogOptions &options, Completion completion, bool multiple, bool folder, const void *requester) {
         auto request = std::make_unique<Request>();
         request->state = owner.lock();
         if (!request->state) return;
-        request->finished.push_back({std::move(completion), {}});
+        request->finished.push_back({std::move(completion), {}, requester});
         request->initial = WideToUtf8(options.initial);
         if (!request->initial.empty()) {
             const auto location = std::filesystem::u8path(request->initial);
@@ -98,6 +102,11 @@ struct FileDialogs::State {
             SDL_SetStringProperty(properties, SDL_PROP_FILE_DIALOG_LOCATION_STRING, request->initial.c_str()) &&
             SDL_SetStringProperty(properties, SDL_PROP_FILE_DIALOG_TITLE_STRING, request->title.c_str()) &&
             SDL_SetBooleanProperty(properties, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, multiple);
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (!open) return;
+            active.push_back(request.get());
+        }
         Request *pending = request.release();
         if (!ready) { Completed(pending, nullptr, -1); return; }
         SDL_ShowFileDialogWithProperties(folder ? SDL_FILEDIALOG_OPENFOLDER : options.save ? SDL_FILEDIALOG_SAVEFILE : SDL_FILEDIALOG_OPENFILE,
@@ -108,27 +117,57 @@ struct FileDialogs::State {
 
 FileDialogs::FileDialogs() : m_State(std::make_shared<State>()) { m_State->owner = m_State; }
 FileDialogs::~FileDialogs() { Close(); }
-void FileDialogs::Request(const FileDialogOptions &options, Completion completion, bool multiple) {
-    m_State->Show(options, std::move(completion), multiple, false);
+void FileDialogs::Request(const FileDialogOptions &options, Completion completion, bool multiple, const void *requester) {
+    m_State->Show(options, std::move(completion), multiple, false, requester);
 }
 void FileDialogs::RequestFolder(const std::wstring &title, SDL_Window *owner, Completion completion) {
     FileDialogOptions options;
     options.title = title.c_str(); options.owner = owner;
-    m_State->Show(options, std::move(completion), false, true);
+    m_State->Show(options, std::move(completion), false, true, nullptr);
+}
+void FileDialogs::Cancel(const void *requester) {
+    if (!requester) return;
+    std::lock_guard<std::mutex> lock(m_State->mutex);
+    for (auto *request : m_State->active)
+        if (request->finished.front().requester == requester) request->finished.front().completion = {};
+    const auto matches = [&](const State::Finished &item) { return item.requester == requester; };
+    m_State->finished.remove_if(matches);
+    m_State->dispatching.remove_if(matches);
 }
 void FileDialogs::Dispatch() {
-    std::list<State::Finished> finished;
-    { std::lock_guard<std::mutex> lock(m_State->mutex); finished.swap(m_State->finished); }
-    for (auto &item : finished) {
-        if (!m_State->open) break;
-        item.completion(item.result);
+    {
+        std::lock_guard<std::mutex> lock(m_State->mutex);
+        if (m_State->dispatchActive) return;
+        m_State->dispatchActive = true;
+        m_State->dispatching.swap(m_State->finished);
     }
+    try {
+        for (;;) {
+            State::Finished item;
+            {
+                std::lock_guard<std::mutex> lock(m_State->mutex);
+                if (!m_State->open || m_State->dispatching.empty()) break;
+                item = std::move(m_State->dispatching.front());
+                m_State->dispatching.pop_front();
+            }
+            if (item.completion) item.completion(item.result);
+        }
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(m_State->mutex);
+        m_State->dispatching.clear();
+        m_State->dispatchActive = false;
+        throw;
+    }
+    std::lock_guard<std::mutex> lock(m_State->mutex);
+    m_State->dispatchActive = false;
 }
 void FileDialogs::Close() {
     if (!m_State) return;
     std::lock_guard<std::mutex> lock(m_State->mutex);
     m_State->open = false;
     m_State->finished.clear();
+    m_State->dispatching.clear();
+    for (auto *request : m_State->active) request->finished.front().completion = {};
     m_State->owner.reset();
 }
 } // namespace vdev

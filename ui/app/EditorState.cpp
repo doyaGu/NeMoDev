@@ -57,14 +57,14 @@ void EditorState::DispatchFileRequests() {
     if (!runtimeOperation.Busy() && (!document || !document->EditOpen())) fileDialogs.Dispatch();
 }
 
-void EditorState::RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion, bool multiple) {
+void EditorState::RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion, bool multiple, const void *requester) {
     const auto document = runtimeOperation.CurrentDocument();
     fileDialogs.Request(options, [this, document, completion = std::move(completion)](const FileDialogResult &result) {
         if (!document.IsCurrent()) return;
         if (result.status == FileDialogResult::Status::Error)
             Log(LogLevel::Error, result.error.empty() ? "File selection failed" : result.error);
         if (completion) completion(result);
-    }, multiple);
+    }, multiple, requester);
 }
 
 bool EditorState::RunRuntime(const std::string &label, std::function<void()> work, std::function<void(bool)> completed) {

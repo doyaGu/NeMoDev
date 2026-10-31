@@ -216,7 +216,7 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
     ObjectSelection objectSelection;
     FileDialogs fileDialogs;
     void DispatchFileRequests();
-    void RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion, bool multiple = false);
+    void RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion, bool multiple = false, const void *requester = nullptr);
     BuildingBlockCatalog catalog;
     EventLog eventLog;
     // The windows answering the parameter UIs' target button (CK2UI sends

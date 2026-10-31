@@ -37,7 +37,9 @@ public:
     ~FileDialogs();
     FileDialogs(const FileDialogs &) = delete;
     FileDialogs &operator=(const FileDialogs &) = delete;
-    void Request(const FileDialogOptions &options, Completion completion, bool multiple = false);
+    void Request(const FileDialogOptions &options, Completion completion, bool multiple = false, const void *requester = nullptr);
+    // Cancels pending and queued completions belonging to a closing window.
+    void Cancel(const void *requester);
     void RequestFolder(const std::wstring &title, SDL_Window *owner, Completion completion);
     void Dispatch();
     void Close();

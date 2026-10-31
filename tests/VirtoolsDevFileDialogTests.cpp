@@ -87,6 +87,42 @@ int main() {
             }
         }
         Require(std::filesystem::remove(folder), "remove empty starting directory");
+        // A closed view cancels both an outstanding native dialog and a
+        // result already queued for main-thread dispatch.
+        int view = 0, otherView = 0;
+        bool closedViewCalled = false;
+        for (bool queued : {false, true}) {
+            auto retained = std::make_shared<int>(42);
+            std::weak_ptr<int> released = retained;
+            editor.RequestFile({}, [&, retained](const vdev::FileDialogResult &) { closedViewCalled = true; }, false, &view);
+            retained.reset();
+            request = Take();
+            if (queued) request.callback(request.userdata, empty, -1);
+            editor.fileDialogs.Cancel(&view);
+            Require(released.expired(), "view callback captures released immediately");
+            if (!queued) request.callback(request.userdata, empty, -1);
+            editor.DispatchFileRequests();
+            Require(!closedViewCalled, "closed view callback discarded");
+        }
+        // Reusing the same requester address creates an independent request.
+        bool reopened = false, otherCalled = false;
+        editor.RequestFile({}, [&](const vdev::FileDialogResult &) { reopened = true; }, false, &view);
+        request = Take(); request.callback(request.userdata, empty, -1);
+        editor.DispatchFileRequests(); Require(reopened, "new view request after cancellation");
+        editor.RequestFile({}, [&](const vdev::FileDialogResult &) {
+            editor.fileDialogs.Cancel(&view);
+            editor.DispatchFileRequests(); // nested dispatch must not deliver cancelled callbacks
+        }, false, &view);
+        const auto first = Take();
+        editor.RequestFile({}, [&](const vdev::FileDialogResult &) { closedViewCalled = true; }, false, &view);
+        const auto second = Take();
+        editor.RequestFile({}, [&](const vdev::FileDialogResult &) { otherCalled = true; }, false, &otherView);
+        const auto third = Take();
+        first.callback(first.userdata, empty, -1);
+        second.callback(second.userdata, empty, -1);
+        third.callback(third.userdata, empty, -1);
+        editor.DispatchFileRequests();
+        Require(!closedViewCalled && otherCalled, "closing one view during dispatch preserves other views");
         bool stale = false;
         editor.RequestFile({}, [&](const vdev::FileDialogResult &) { stale = true; }); request = Take();
         editor.ClearDocumentState(); request.callback(request.userdata, empty, -1); editor.DispatchFileRequests(); Require(!stale, "closed document result discarded");
