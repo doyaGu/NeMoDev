@@ -98,39 +98,5 @@ uint32_t ParameterDraftEditor(EditorState &state, CKParameter *work, const char 
     if (!state.document || !DescribeParameterValue(*state.document, work, description)) return EDITOR_INPUT_INVALID;
     return DrawParameterDraft(state, work, description, label, width, height, cid, derived, filter, remembered, property, editors, representation, beforeInteraction, drawMembers, membersData);
 }
-void CancelParameterValueEdit(EditorState &state, ValueEditState &edit) {
-    if (state.workspace) {
-        if (edit.draft) state.workspace->Application().FinishEdit(edit.draft, false);
-        state.workspace->CloseOwner(edit.owner);
-    }
-    edit.draft = 0; edit.editing = 0;
-}
-void ParameterValueEditor(EditorState &state, ValueEditState &edit, CK_ID script, CKParameter *parameter, bool editable) {
-    if (!parameter) { ImGui::TextDisabled("(no value)"); return; }
-    if (!editable) { ImGui::TextWrapped("%s", ParameterValueText(parameter).c_str()); return; }
-    const auto id = parameter->GetID();
-    ImGui::PushID(int(id));
-    ImGui::SetNextItemWidth(-FLT_MIN);
-    ParameterValueDescription description;
-    if (state.workspace && DescribeParameterValue(*state.document, parameter, description)) {
-        if (!edit.owner) edit.owner = state.workspace->Application().OpenScope();
-        state.workspace->Application().EnterDraw();
-        state.workspace->Application().DrawProperty(ParameterProperty(description.value.kind),
-            state.workspace->Application().Scope(edit.owner), state.document->Reference(id), edit.draft, EditorLiteral("##value"));
-        state.workspace->Application().LeaveDraw();
-    } else {
-        // Specialized types keep their existing text presentation.
-        if (edit.editing != id) edit.text = ParameterValueText(parameter);
-        const bool accept = ImGui::InputText("##value", &edit.text, ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::IsItemActivated()) edit.editing = id;
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) edit.editing = 0;
-        else if (accept || ImGui::IsItemDeactivatedAfterEdit()) {
-            const auto result = SetParameterText(*state.document, script, id, Utf8ToAnsi(edit.text));
-            if (!result.ok && !result.Unchanged()) state.Log(LogLevel::Warning, AnsiToUtf8(result.message));
-            edit.editing = 0;
-        }
-    }
-    ImGui::PopID();
-}
 
 } // namespace vdev
