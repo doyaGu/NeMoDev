@@ -255,6 +255,15 @@ void TestWorkspace(CkRuntimeHost &runtime) {
                     {"test.other", "test.secondary", "right", true}};
     Check(workspace.Configure(layout, error), error.c_str());
     const auto main = workspace.Role("test.main"), secondary = workspace.Role("test.secondary");
+    const auto roleQuery = [&](const char *role) {
+        const EditorValue argument{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EditorLiteral(role)};
+        const auto result = app.Query("workspace.role", {app.Scope(), &argument, 1});
+        Check(result.status == EDITOR_OK && result.fields.size() == 1, "workspace role projection failed");
+        return result.fields.front().integer;
+    };
+    uint64_t roleRevision = 0;
+    Check(app.QueryRevision("workspace.role", roleRevision) == EDITOR_OK && roleQuery("test.main") == main &&
+          roleQuery("test.secondary") == secondary && !roleQuery("test.missing"), "workspace role projection lost an instance");
     Check(main && secondary && main != secondary && workspace.ViewCount() == 2 &&
         workspace.OpenRole("test.main") == main && !workspace.Close(main), "workspace configuration did not create independent primary roles");
     const auto generation = [&] { uint64_t version = 0; Check(app.QueryRevision("workspace.instances", version) == EDITOR_OK, "workspace instance version unavailable"); return version; };
@@ -279,7 +288,13 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     Check(workspace.Configuration().splits[0].fraction == .4f && workspace.Configuration().views.size() == 2,
         "failed workspace configuration replaced valid layout data");
     Check(workspace.Close(secondary) && generation() != configured, "closing configured view kept instance query cache");
+    uint64_t changedRoleRevision = 0;
+    Check(app.QueryRevision("workspace.role", changedRoleRevision) == EDITOR_OK && changedRoleRevision != roleRevision &&
+          !roleQuery("test.secondary"), "closed role kept a cached view ID");
     const auto recreated = workspace.OpenRole("test.secondary");
     Check(recreated && recreated != secondary && generation() != configured, "configured role did not reopen");
+    native = false;
+    Check(roleQuery("test.secondary") == recreated, "workspace role query required native access or kept the closed instance");
+    native = true;
     workspace.CloseAll();
 }

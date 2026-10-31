@@ -58,6 +58,14 @@ bool EditorWorkspace::Register(std::string &error) {
         [](void *data, const EditorHost *) { return static_cast<EditorWorkspace *>(data)->m_ViewsRevision; }};
     std::vector<EditorQueryDesc> allQueries(std::begin(queries), std::end(queries));
     allQueries.push_back(instances);
+    const EditorParameter roleField{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE};
+    allQueries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("workspace.role"), EDITOR_TEXT("builtin.workspace"),
+        &role, 1, [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+            const auto id = static_cast<EditorWorkspace *>(data)->Role(Text(request->values[0].text));
+            const EditorValue value{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, id};
+            return sink.write ? sink.write(sink.data, &value, 1) : EDITOR_INVALID;
+        }, this, EDITOR_QUERY_VERSIONED, EDITOR_WORKSPACE, &roleField, 1,
+        [](void *data, const EditorHost *) { return static_cast<EditorWorkspace *>(data)->m_ViewsRevision; }});
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
