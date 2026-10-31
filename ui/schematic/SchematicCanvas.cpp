@@ -2633,6 +2633,10 @@ struct SchematicViews::Data {
     ViewOptions defaults;
     std::multimap<EditorView, SchematicCanvas *> canvases;
     mutable EditorView current = 0;
+    SchematicCanvas *Canvas(EditorView id) const {
+        auto &views = *state.schematics;
+        return views.Find(views.Find(id) ? id : views.CurrentId());
+    }
 };
 SchematicViews::SchematicViews(EditorState &state) : m_Data(new Data{state, {}, {}}) { state.schematics = this; }
 SchematicViews::~SchematicViews() { m_Data->state.schematics = nullptr; }
@@ -2755,18 +2759,41 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     view.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
         return static_cast<SchematicCanvas *>(data)->Restore(*request);
     };
-    const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("script.navigate"),
+    EditorCommandDesc commands[] = {{sizeof(EditorCommandDesc), EDITOR_TEXT("script.navigate"),
         EDITOR_TEXT("builtin.schematic"), EDITOR_TEXT("Show Schematic Element"), schematicNavigation,
         uint32_t(std::size(schematicNavigation)),
-        [](void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
-            return host->navigateView(host->data, EditorString EDITOR_TEXT("script.schematic"), request->scope.view, request, sink);
-        }, nullptr, EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE};
+        [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            const auto &views = *static_cast<Data *>(data)->state.schematics;
+            const auto id = views.Find(request->scope.view) ? request->scope.view : views.CurrentId();
+            return host->navigateView(host->data, EditorString EDITOR_TEXT("script.schematic"), id, request, sink);
+        }, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("script.pick-breakpoint"), EDITOR_TEXT("builtin.schematic"),
+            EDITOR_TEXT("Add Breakpoint"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("script.configure-breakpoints"), EDITOR_TEXT("builtin.schematic"),
+            EDITOR_TEXT("Configure Breakpoints"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("script.open-breakpoints"), EDITOR_TEXT("builtin.schematic"),
+            EDITOR_TEXT("Breakpoint List"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE}};
+    for (size_t i = 1; i < std::size(commands); ++i)
+        commands[i].state = [](void *data, const EditorHost *, const EditorRequest *request) {
+            const auto &module = *static_cast<Data *>(data);
+            if (!module.state.workspace->Application().NativeAvailable()) return EDITOR_REFUSED;
+            return module.state.HasDocument() && module.Canvas(request->scope.view) ? EDITOR_OK : EDITOR_REFUSED;
+        };
+    commands[1].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+        static_cast<Data *>(data)->Canvas(request->scope.view)->PickBreakpoint(); return EDITOR_OK;
+    };
+    commands[2].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+        static_cast<Data *>(data)->Canvas(request->scope.view)->ConfigureBreakpoints(); return EDITOR_OK;
+    };
+    commands[3].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+        static_cast<Data *>(data)->Canvas(request->scope.view)->OpenBreakpointList(); return EDITOR_OK;
+    };
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("schematic.views");
-    module.commands = &command;
-    module.commandCount = 1;
+    module.commands = commands;
+    module.commandCount = uint32_t(std::size(commands));
     module.views = &view;
     module.viewCount = 1;
     return editor.Register(module, error);
