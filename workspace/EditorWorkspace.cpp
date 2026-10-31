@@ -447,18 +447,7 @@ const EditorResponse &EditorWorkspace::Inspect(EditorView id) {
 EditorStatus EditorWorkspace::Inspect(EditorView id, EditorSink sink) {
     const auto &result = Inspect(id);
     if (result.status != EDITOR_OK) return result.status;
-    std::vector<EditorValue> values;
-    std::vector<EditorString> texts;
-    size_t count = 0;
-    for (const auto &field : result.fields) count += field.texts.size();
-    texts.reserve(count);
-    for (const auto &field : result.fields) {
-        const auto first = texts.size();
-        for (const auto &text : field.texts) texts.push_back(EditorText(text));
-        values.push_back({EditorText(field.key), field.type, field.object, EditorText(field.text), field.integer,
-            {field.objects.data(), uint32_t(field.objects.size())}, {field.integers.data(), uint32_t(field.integers.size())},
-            {field.texts.empty() ? nullptr : texts.data() + first, uint32_t(field.texts.size())}, field.real});
-    }
+    const auto values = BorrowEditorFields(result.fields);
     return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
 }
 EditorStatus EditorWorkspace::PickRegions(EditorView id, const EditorPickRegion *regions, uint32_t count) {

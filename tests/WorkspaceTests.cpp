@@ -95,7 +95,7 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     Document document(runtime);
     std::string documentError;
     Check(document.New(&documentError), documentError.c_str());
-    Provider first, second, third, fourth, incompatible;
+    Provider first, second, third, fourth, incompatible, records;
     bool native = true;
     EditorApplication app([&] { return &document; }, [&] { return native; });
     EditorWorkspace workspace(app);
@@ -114,7 +114,18 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     f.provider = EditorLiteral("test.incompatible");
     f.data = &incompatible;
     f.stateVersion = 2;
-    const EditorViewDesc views[] = {a, b, c, d, e, f};
+    auto recordView = Description(records, "test.records", "test.records");
+    static const EditorParameter recordFields[] = {{EDITOR_TEXT("details"), EDITOR_RECORD}, {EDITOR_TEXT("numbers"), EDITOR_REAL_LIST}};
+    recordView.fields = recordFields; recordView.fieldCount = 2;
+    recordView.inspect = [](void *, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        EditorField details{"details", EDITOR_RECORD};
+        details.fields = {{"weights", EDITOR_REAL_LIST}, {"names", EDITOR_TEXT_LIST}};
+        details.fields[0].reals = {.25, .75}; details.fields[1].texts = {"left", "right"};
+        std::vector<EditorField> fields{details, {"numbers", EDITOR_REAL_LIST}}; fields[1].reals = {1, 2, 3};
+        const auto values = BorrowEditorFields(fields);
+        return sink.write(sink.data, values.data(), uint32_t(values.size()));
+    };
+    const EditorViewDesc views[] = {a, b, c, d, e, f, recordView};
     const EditorParameter arguments[] = {{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, 1},
         {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
     const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("test.navigate"),
@@ -124,7 +135,7 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("test.browser-module");
-    module.views = views; module.viewCount = 6;
+    module.views = views; module.viewCount = uint32_t(std::size(views));
     auto mixed = command;
     mixed.id = EditorLiteral("test.mixed-navigation");
     mixed.count = 0;
@@ -143,6 +154,18 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     config.providers.push_back({"view", "test.other", "test.third"});
     Check(app.Activate(EDITOR_IMGUI_VERSION, error, config), error.c_str());
     app.Attach(document.Token(), document.TopologyRevision(), true, true);
+    {
+        const auto view = workspace.Open("test.records");
+        Check(view != 0, "open nested projection view");
+        const auto expected = workspace.Inspect(view);
+        std::vector<EditorField> copied;
+        const EditorSink sink{&copied, [](void *data, const EditorValue *values, uint32_t count) {
+            return CopyEditorFields(*static_cast<std::vector<EditorField> *>(data), values, count);
+        }};
+        Check(app.Host()->queryView(app.Host()->data, view, sink) == EDITOR_OK && copied == expected.fields,
+              "workspace query forwarding dropped nested records or real lists");
+        Check(workspace.Close(view), "close nested projection view");
+    }
     const auto open = [&](const char *topic, EditorView target = 0) {
         const EditorValue values[] = {{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, {}, EditorLiteral(topic)},
             {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, target}};
