@@ -1,3 +1,4 @@
+#include "core/level/ArrayCommands.h"
 #include <clocale>
 #include <cwchar>
 #include <climits>

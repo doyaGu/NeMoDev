@@ -72,6 +72,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         level/ObjectEditCommands.cpp
         level/ObjectProperties.cpp
         level/SetupCommands.cpp
+        level/ArrayCommands.cpp
         level/LevelTree.cpp
         level/HierarchyTree.cpp
         level/ObjectQueries.cpp

@@ -1,3 +1,4 @@
+#include "core/level/ArrayCommands.h"
 #include "core/layout/LayoutCommands.h"
 // The Setups of curves, characters, sounds, arrays, levels and scenes, 3D frames and sprites, places, 2D entities.
 
