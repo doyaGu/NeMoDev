@@ -1,9 +1,13 @@
 #include "core/level/ObjectProperties.h"
+#include "core/document/Document.h"
+#include "core/document/Edit.h"
+#include "core/runtime/CkRuntimeHost.h"
 #include "core/runtime/SdkCompat.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <sstream>
 
 namespace vdev {
@@ -295,7 +299,13 @@ const ObjectProperty<int> TextureCurrentSlot = {"Current Slot", CKCID_TEXTURE, [
 const ObjectProperty<int> TextureSaveOptions = {"Save Options", CKCID_TEXTURE, [](CKObject *o) { return static_cast<int>(Texture(o)->GetSaveOptions()); }, [](CKObject *o, int v) { Texture(o)->SetSaveOptions(static_cast<CK_BITMAP_SAVEOPTIONS>(v)); }, NextBitmapSave};
 const ObjectProperty<bool> TextureTransparent = {"Color Key Transparency", CKCID_TEXTURE, [](CKObject *o) { return Texture(o)->IsTransparent() != 0; }, [](CKObject *o, bool v) { Texture(o)->SetTransparent(v); }, Not};
 const ObjectProperty<VxColor> TextureTransparentColor = {"Transparent Color", CKCID_TEXTURE, [](CKObject *o) { return ColorOf(Texture(o)->GetTransparentColor(), false); }, [](CKObject *o, VxColor v) { Texture(o)->SetTransparentColor(RGBAFTOCOLOR(v.r, v.g, v.b, 1.0f)); }, AwayColor};
-const ObjectProperty<int> TextureMipmap = {"Mip Levels", CKCID_TEXTURE, [](CKObject *o) { return Texture(o)->GetMipmapCount() > 0 ? 1 : 0; }, [](CKObject *o, int v) { Texture(o)->UseMipmap(v); }, OneMinus, true, false};
+const ObjectProperty<int> TextureMipmap = {"Mip Levels",
+                                           CKCID_TEXTURE,
+                                           [](CKObject *o) { return Texture(o)->GetMipmapCount(); },
+                                           [](CKObject *o, int v) { Texture(o)->UseMipmap(v); },
+                                           OneMinus,
+                                           true,
+                                           false};
 const ObjectProperty<bool> TextureCubeMap = {"Cube Map", CKCID_TEXTURE, [](CKObject *o) { return Texture(o)->IsCubeMap() != 0; }, [](CKObject *o, bool v) { Texture(o)->SetCubeMap(v); }, Not};
 const ObjectProperty<int> TexturePickThreshold = {"Alpha Picking Threshold", CKCID_TEXTURE, [](CKObject *o) { return Texture(o)->GetPickThreshold(); }, [](CKObject *o, int v) { Texture(o)->SetPickThreshold(v); }, Away255, false};
 const ObjectProperty<int> MaterialTextureBlend = {"Texture Blend", CKCID_MATERIAL, [](CKObject *o) { return static_cast<int>(Material(o)->GetTextureBlendMode()); }, [](CKObject *o, int v) { Material(o)->SetTextureBlendMode(static_cast<VXTEXTURE_BLENDMODE>(v)); }, NextBlend};
@@ -359,11 +369,428 @@ const ObjectProperty<int> SpriteTextAlignment = {"Text Alignment", CKCID_SPRITET
 const ObjectProperty<int> SynchroUsers = {"Set Number Of Users", CKCID_SYNCHRO, [](CKObject *o) { return CKSynchroObject::Cast(o)->GetRendezVousNumberOfWaiters(); }, [](CKObject *o, int v) { CKSynchroObject::Cast(o)->SetRendezVousNumberOfWaiters(std::max(0, v)); }, Plus1};
 const ObjectProperty<bool> StateActive = {"State Active", CKCID_STATE, [](CKObject *o) { return CKStateObject::Cast(o)->IsStateActive() != 0; }, [](CKObject *o, bool v) { if (v) CKStateObject::Cast(o)->EnterState(); else CKStateObject::Cast(o)->LeaveState(); }, Not};
 
+const ObjectProperty<VxVector> Entity3DWorldPosition = {"Set Position",
+                                                        CKCID_3DENTITY,
+                                                        [](CKObject *o) -> VxVector {
+                                                            auto *e = Entity3D(o);
+                                                            VxVector v;
+                                                            e->GetPosition(&v, nullptr);
+                                                            return v;
+                                                        },
+                                                        [](CKObject *o, VxVector v) {
+                                                            auto *e = Entity3D(o);
+                                                            e->SetPosition(&v, nullptr);
+                                                        },
+                                                        nullptr,
+                                                        true,
+                                                        false,
+                                                        CKCID_OBJECT};
+const ObjectProperty<VxVector> Entity3DLocalPosition = {"Set Position",
+                                                        CKCID_3DENTITY,
+                                                        [](CKObject *o) -> VxVector {
+                                                            auto *e = Entity3D(o);
+                                                            VxVector v;
+                                                            e->GetPosition(&v, e->GetParent());
+                                                            return v;
+                                                        },
+                                                        [](CKObject *o, VxVector v) {
+                                                            auto *e = Entity3D(o);
+                                                            e->SetPosition(&v, e->GetParent());
+                                                        },
+                                                        nullptr,
+                                                        true,
+                                                        false,
+                                                        CKCID_OBJECT};
+const ObjectProperty<VxVector> Entity3DWorldOrientation = {"Set Orientation",
+                                                           CKCID_3DENTITY,
+                                                           [](CKObject *o) -> VxVector {
+                                                               auto *e = Entity3D(o);
+                                                               const auto &m = e->GetWorldMatrix();
+                                                               VxVector v;
+                                                               Vx3DMatrixToEulerAngles(m, &v.x, &v.y, &v.z);
+                                                               return v;
+                                                           },
+                                                           [](CKObject *o, VxVector v) {
+                                                               auto *e = Entity3D(o);
+                                                               VxMatrix m;
+                                                               Vx3DMatrixFromEulerAngles(m, v.x, v.y, v.z);
+                                                               auto q = Vx3DQuaternionFromMatrix(m);
+                                                               e->SetQuaternion(&q, nullptr, FALSE, TRUE);
+                                                           },
+                                                           nullptr,
+                                                           true,
+                                                           false,
+                                                           CKCID_OBJECT};
+const ObjectProperty<VxVector> Entity3DLocalOrientation = {"Set Orientation",
+                                                           CKCID_3DENTITY,
+                                                           [](CKObject *o) -> VxVector {
+                                                               auto *e = Entity3D(o);
+                                                               const auto &m = e->GetLocalMatrix();
+                                                               VxVector v;
+                                                               Vx3DMatrixToEulerAngles(m, &v.x, &v.y, &v.z);
+                                                               return v;
+                                                           },
+                                                           [](CKObject *o, VxVector v) {
+                                                               auto *e = Entity3D(o);
+                                                               VxMatrix m;
+                                                               Vx3DMatrixFromEulerAngles(m, v.x, v.y, v.z);
+                                                               auto q = Vx3DQuaternionFromMatrix(m);
+                                                               e->SetQuaternion(&q, e->GetParent(), FALSE, TRUE);
+                                                           },
+                                                           nullptr,
+                                                           true,
+                                                           false,
+                                                           CKCID_OBJECT};
+const ObjectProperty<VxVector> Entity3DWorldScale = {
+    "Set Scale",
+    CKCID_3DENTITY,
+    [](CKObject *o) -> VxVector {
+        auto *e = Entity3D(o);
+        VxVector v;
+        e->GetScale(&v, FALSE);
+        return v;
+    },
+    [](CKObject *o, VxVector v) { Entity3D(o)->SetScale(&v, FALSE, FALSE); },
+    nullptr,
+    true,
+    false,
+    CKCID_OBJECT};
+const ObjectProperty<VxVector> Entity3DLocalScale = {
+    "Set Scale",
+    CKCID_3DENTITY,
+    [](CKObject *o) -> VxVector {
+        auto *e = Entity3D(o);
+        VxVector v;
+        e->GetScale(&v, TRUE);
+        return v;
+    },
+    [](CKObject *o, VxVector v) { Entity3D(o)->SetScale(&v, FALSE, TRUE); },
+    nullptr,
+    true,
+    false,
+    CKCID_OBJECT};
+const ObjectProperty<Vx2DVector> CameraRatio = {
+    "Aspect Ratio",
+    CKCID_CAMERA,
+    [](CKObject *o) -> Vx2DVector {
+        int x, y;
+        Camera(o)->GetAspectRatio(x, y);
+        return Vx2DVector(float(x), float(y));
+    },
+    [](CKObject *o, Vx2DVector v) {
+        Camera(o)->SetAspectRatio(int(std::clamp(double(v.x), 1.0, double(std::numeric_limits<int>::max()))),
+                                  int(std::clamp(double(v.y), 1.0, double(std::numeric_limits<int>::max()))));
+    },
+    nullptr,
+    true,
+    false,
+    CKCID_OBJECT};
+const ObjectProperty<CK_ID> CameraTarget = {
+    "Camera Target",
+    CKCID_CAMERA,
+    [](CKObject *o) -> CK_ID {
+        auto *v = Camera(o)->GetTarget();
+        return v ? v->GetID() : CK_ID(0);
+    },
+    [](CKObject *o, CK_ID v) { Camera(o)->SetTarget(CK3dEntity::Cast(o->GetCKContext()->GetObject(v))); },
+    nullptr,
+    false,
+    false,
+    CKCID_3DENTITY};
+const ObjectProperty<CK_ID> LightTarget = {
+    "Light Target",
+    CKCID_LIGHT,
+    [](CKObject *o) -> CK_ID {
+        auto *v = Light(o)->GetTarget();
+        return v ? v->GetID() : CK_ID(0);
+    },
+    [](CKObject *o, CK_ID v) { Light(o)->SetTarget(CK3dEntity::Cast(o->GetCKContext()->GetObject(v))); },
+    nullptr,
+    false,
+    false,
+    CKCID_3DENTITY};
+const ObjectProperty<CK_ID> Entity2DMaterial = {
+    "Material",
+    CKCID_2DENTITY,
+    [](CKObject *o) -> CK_ID {
+        auto *v = Entity2D(o)->GetMaterial();
+        return v ? v->GetID() : CK_ID(0);
+    },
+    [](CKObject *o, CK_ID v) { Entity2D(o)->SetMaterial(CKMaterial::Cast(o->GetCKContext()->GetObject(v))); },
+    nullptr,
+    false,
+    false,
+    CKCID_MATERIAL};
+const ObjectProperty<CK_ID> Entity2DParent = {
+    "Parent",
+    CKCID_2DENTITY,
+    [](CKObject *o) -> CK_ID {
+        auto *v = Entity2D(o)->GetParent();
+        return v ? v->GetID() : CK_ID(0);
+    },
+    [](CKObject *o, CK_ID v) { Entity2D(o)->SetParent(CK2dEntity::Cast(o->GetCKContext()->GetObject(v))); },
+    nullptr,
+    false,
+    false,
+    CKCID_2DENTITY};
+const ObjectProperty<CK_ID> MaterialTexture = {
+    "Texture",
+    CKCID_MATERIAL,
+    [](CKObject *o) -> CK_ID {
+        auto *v = Material(o)->GetTexture();
+        return v ? v->GetID() : CK_ID(0);
+    },
+    [](CKObject *o, CK_ID v) { Material(o)->SetTexture0(CKTexture::Cast(o->GetCKContext()->GetObject(v))); },
+    nullptr,
+    false,
+    false,
+    CKCID_TEXTURE};
+const ObjectProperty<CK_ID> Entity3DCurrentMesh = {
+    "Set Current Mesh",
+    CKCID_3DENTITY,
+    [](CKObject *o) -> CK_ID {
+        auto *v = Entity3D(o)->GetCurrentMesh();
+        return v ? v->GetID() : CK_ID(0);
+    },
+    [](CKObject *o, CK_ID v) { Entity3D(o)->SetCurrentMesh(CKMesh::Cast(o->GetCKContext()->GetObject(v)), FALSE); },
+    nullptr,
+    false,
+    false,
+    CKCID_MESH};
+const ObjectProperty<CK_ID> Sprite3DMaterial = {
+    "Sprite Material",
+    CKCID_SPRITE3D,
+    [](CKObject *o) -> CK_ID {
+        auto *v = CKSprite3D::Cast(o)->GetMaterial();
+        return v ? v->GetID() : CK_ID(0);
+    },
+    [](CKObject *o, CK_ID v) { CKSprite3D::Cast(o)->SetMaterial(CKMaterial::Cast(o->GetCKContext()->GetObject(v))); },
+    nullptr,
+    false,
+    false,
+    CKCID_MATERIAL};
+const ObjectProperty<CK_ID> KinematicStart = {"Start Effector",
+                                              CKCID_KINEMATICCHAIN,
+                                              [](CKObject *o) -> CK_ID {
+                                                  auto *v = CKKinematicChain::Cast(o)->GetStartEffector();
+                                                  return v ? v->GetID() : CK_ID(0);
+                                              },
+                                              [](CKObject *o, CK_ID v) {
+                                                  CKKinematicChain::Cast(o)->SetStartEffector(
+                                                      CKBodyPart::Cast(o->GetCKContext()->GetObject(v)));
+                                              },
+                                              nullptr,
+                                              false,
+                                              false,
+                                              CKCID_BODYPART};
+const ObjectProperty<CK_ID> KinematicEnd = {"End Effector",
+                                            CKCID_KINEMATICCHAIN,
+                                            [](CKObject *o) -> CK_ID {
+                                                auto *v = CKKinematicChain::Cast(o)->GetEndEffector();
+                                                return v ? v->GetID() : CK_ID(0);
+                                            },
+                                            [](CKObject *o, CK_ID v) {
+                                                CKKinematicChain::Cast(o)->SetEndEffector(
+                                                    CKBodyPart::Cast(o->GetCKContext()->GetObject(v)));
+                                            },
+                                            nullptr,
+                                            false,
+                                            false,
+                                            CKCID_BODYPART};
+const ObjectProperty<Vx2DVector> Entity2DPosition = {
+    "Set Position",
+    CKCID_2DENTITY,
+    [](CKObject *o) -> Vx2DVector {
+        Vx2DVector v;
+        Entity2D(o)->GetPosition(v, Entity2D(o)->IsHomogeneousCoordinates());
+        return v;
+    },
+    [](CKObject *o, Vx2DVector v) { Entity2D(o)->SetPosition(v, Entity2D(o)->IsHomogeneousCoordinates()); },
+    nullptr,
+    true,
+    false,
+    CKCID_OBJECT};
+const ObjectProperty<Vx2DVector> Entity2DSize = {
+    "Set Size",
+    CKCID_2DENTITY,
+    [](CKObject *o) -> Vx2DVector {
+        Vx2DVector v;
+        Entity2D(o)->GetSize(v, Entity2D(o)->IsHomogeneousCoordinates());
+        return v;
+    },
+    [](CKObject *o, Vx2DVector v) { Entity2D(o)->SetSize(v, Entity2D(o)->IsHomogeneousCoordinates()); },
+    nullptr,
+    true,
+    false,
+    CKCID_OBJECT};
+const ObjectProperty<VxRect> Entity2DUv = {"UV Mapping",
+                                           CKCID_2DENTITY,
+                                           [](CKObject *o) -> VxRect {
+                                               VxRect v;
+                                               Entity2D(o)->GetSourceRect(v);
+                                               return v;
+                                           },
+                                           [](CKObject *o, VxRect v) { Entity2D(o)->SetSourceRect(v); },
+                                           nullptr,
+                                           true,
+                                           false,
+                                           CKCID_OBJECT};
+const ObjectProperty<Vx2DVector> Sprite3DSize = {"Set Size",
+                                                 CKCID_SPRITE3D,
+                                                 [](CKObject *o) -> Vx2DVector {
+                                                     Vx2DVector v;
+                                                     CKSprite3D::Cast(o)->GetSize(v);
+                                                     return v;
+                                                 },
+                                                 [](CKObject *o, Vx2DVector v) { CKSprite3D::Cast(o)->SetSize(v); },
+                                                 nullptr,
+                                                 true,
+                                                 false,
+                                                 CKCID_OBJECT};
+const ObjectProperty<VxRect> Sprite3DUv = {"UV Mapping",
+                                           CKCID_SPRITE3D,
+                                           [](CKObject *o) -> VxRect {
+                                               VxRect v;
+                                               CKSprite3D::Cast(o)->GetUVMapping(v);
+                                               return v;
+                                           },
+                                           [](CKObject *o, VxRect v) { CKSprite3D::Cast(o)->SetUVMapping(v); },
+                                           nullptr,
+                                           true,
+                                           false,
+                                           CKCID_OBJECT};
+const ObjectProperty<VxVector> CurvePointPosition = {"Move Control Point",
+                                                     CKCID_CURVEPOINT,
+                                                     [](CKObject *o) -> VxVector {
+                                                         VxVector v;
+                                                         CurvePoint(o)->GetPosition(&v);
+                                                         return v;
+                                                     },
+                                                     [](CKObject *o, VxVector v) {
+                                                         CurvePoint(o)->SetPosition(&v);
+                                                         UpdatePoint(o);
+                                                     },
+                                                     nullptr,
+                                                     true,
+                                                     false,
+                                                     CKCID_OBJECT};
+const ObjectProperty<bool> WaveSoundStreaming = {
+    "Streamed",
+    CKCID_WAVESOUND,
+    [](CKObject *o) -> bool { return WaveSound(o)->GetFileStreaming() != 0; },
+    [](CKObject *o, bool v) { WaveSound(o)->SetFileStreaming(v, TRUE); },
+    nullptr,
+    false,
+    false,
+    CKCID_OBJECT};
+const ObjectProperty<float> WaveSoundPan = {"Pan",
+                                            CKCID_WAVESOUND,
+                                            [](CKObject *o) -> float { return WaveSound(o)->GetPan(); },
+                                            [](CKObject *o, float v) { WaveSound(o)->SetPan(v); },
+                                            nullptr,
+                                            false,
+                                            false,
+                                            CKCID_OBJECT};
+const ObjectProperty<CK_ID> WaveSoundAttached = {"Attached Object",
+                                                 CKCID_WAVESOUND,
+                                                 [](CKObject *o) -> CK_ID {
+                                                     auto *v = WaveSound(o)->GetAttachedEntity();
+                                                     return v ? v->GetID() : CK_ID(0);
+                                                 },
+                                                 [](CKObject *o, CK_ID v) {
+                                                     auto *s = WaveSound(o);
+                                                     VxVector p, d;
+                                                     s->GetPosition(p);
+                                                     s->GetDirection(d);
+                                                     s->PositionSound(CK3dEntity::Cast(o->GetCKContext()->GetObject(v)),
+                                                                      &p, &d, TRUE);
+                                                 },
+                                                 nullptr,
+                                                 false,
+                                                 false,
+                                                 CKCID_3DENTITY};
+const ObjectProperty<VxVector> WaveSoundPosition = {"Position",
+                                                    CKCID_WAVESOUND,
+                                                    [](CKObject *o) -> VxVector {
+                                                        VxVector v;
+                                                        WaveSound(o)->GetPosition(v);
+                                                        return v;
+                                                    },
+                                                    [](CKObject *o, VxVector v) {
+                                                        auto *s = WaveSound(o);
+                                                        VxVector keep;
+                                                        s->GetDirection(keep);
+                                                        s->PositionSound(s->GetAttachedEntity(), &v, &keep, TRUE);
+                                                    },
+                                                    nullptr,
+                                                    false,
+                                                    false,
+                                                    CKCID_OBJECT};
+const ObjectProperty<VxVector> WaveSoundDirection = {"Direction",
+                                                     CKCID_WAVESOUND,
+                                                     [](CKObject *o) -> VxVector {
+                                                         VxVector v;
+                                                         WaveSound(o)->GetDirection(v);
+                                                         return v;
+                                                     },
+                                                     [](CKObject *o, VxVector v) {
+                                                         auto *s = WaveSound(o);
+                                                         VxVector keep;
+                                                         s->GetPosition(keep);
+                                                         s->PositionSound(s->GetAttachedEntity(), &keep, &v, TRUE);
+                                                     },
+                                                     nullptr,
+                                                     false,
+                                                     false,
+                                                     CKCID_OBJECT};
+const ObjectProperty<int> MeshVerticesRendered = {"Vertices Rendered",
+                                                  CKCID_MESH,
+                                                  [](CKObject *o) -> int { return Mesh(o)->GetVerticesRendered(); },
+                                                  [](CKObject *o, int v) { Mesh(o)->SetVerticesRendered(v); },
+                                                  nullptr,
+                                                  false,
+                                                  false,
+                                                  CKCID_OBJECT};
+const ObjectProperty<bool> MeshGeoMorph = {"GeoMorphic Transition",
+                                           CKCID_MESH,
+                                           [](CKObject *o) -> bool { return Mesh(o)->IsPMGeoMorphEnabled() != 0; },
+                                           [](CKObject *o, bool v) { Mesh(o)->EnablePMGeoMorph(v); },
+                                           nullptr,
+                                           false,
+                                           false,
+                                           CKCID_OBJECT};
+const ObjectProperty<int> MeshGeoMorphStep = {"GeoMorph Step",
+                                              CKCID_MESH,
+                                              [](CKObject *o) -> int { return Mesh(o)->GetPMGeoMorphStep(); },
+                                              [](CKObject *o, int v) { Mesh(o)->SetPMGeoMorphStep(std::max(0, v)); },
+                                              nullptr,
+                                              false,
+                                              false,
+                                              CKCID_OBJECT};
+const ObjectProperty<bool> MeshStripify = {
+    "Stripify",
+    CKCID_MESH,
+    [](CKObject *o) -> bool { return (Mesh(o)->GetFlags() & VXMESH_STRIPIFY) != 0; },
+    [](CKObject *o, bool v) {
+        auto *m = Mesh(o);
+        m->SetFlags(v ? m->GetFlags() | VXMESH_STRIPIFY : m->GetFlags() & ~VXMESH_STRIPIFY);
+    },
+    nullptr,
+    true,
+    false,
+    CKCID_OBJECT};
 } // namespace properties
 
 namespace {
 
+std::string Text(const VxRect &value) {
+    std::ostringstream text;
+    text.precision(9);
+    text << value.left << ' ' << value.top << ' ' << value.right << ' ' << value.bottom;
+    return text.str();
+}
 std::string Text(bool value) { return value ? "true" : "false"; }
+std::string Text(CK_ID value) { return std::to_string(value); }
 std::string Text(int value) { return std::to_string(value); }
 std::string Text(float value) {
     char text[32];
@@ -395,133 +822,19 @@ template <typename T> ObjectPropertyCheck Check(const ObjectProperty<T> &propert
 
 // Every property, once (the checks, the values a state does not keep).
 template <typename F> void ForEachProperty(F f) {
-    using namespace properties;
-    f(CameraProjection);
-    f(CameraAspectRatioActive);
-    f(CameraOrthoZoom);
-    f(CameraFov);
-    f(CameraNearClip);
-    f(CameraFarClip);
-    f(LightSpecular);
-    f(LightType);
-    f(LightActive);
-    f(LightColor);
-    f(LightRange);
-    f(LightPower);
-    f(LightHotSpot);
-    f(LightFallOff);
-    f(LightFallOffShape);
-    f(LightConstantAttenuation);
-    f(LightLinearAttenuation);
-    f(LightQuadraticAttenuation);
-    f(MaterialAmbient);
-    f(MaterialDiffuse);
-    f(MaterialSpecular);
-    f(MaterialEmissive);
-    f(MaterialAlpha);
-    f(MaterialPower);
-    f(MaterialMode);
-    f(MaterialSourceBlend);
-    f(MaterialDestBlend);
-    f(MaterialZWrite);
-    f(MaterialAlphaBlend);
-    f(MaterialZFunc);
-    f(MaterialAlphaTest);
-    f(MaterialAlphaFunc);
-    f(MaterialAlphaRef);
-    f(MaterialBothSided);
-    f(MaterialFillMode);
-    f(MaterialShadeMode);
-    f(MaterialEffect);
-    f(Entity3DPickable);
-    f(Entity2DPickable);
-    f(Entity2DHomogeneous);
-    f(Entity2DClipToCamera);
-    f(Entity2DRatioOffset);
-    f(Entity2DZOrder);
-    f(Entity2DBackground);
-    f(Entity2DSourceRect);
-    f(Entity2DClipToParent);
-    f(Entity2DStickLeft);
-    f(Entity2DStickRight);
-    f(Entity2DStickTop);
-    f(Entity2DStickBottom);
-    f(SpriteVideoFormat);
-    f(SpriteCurrentSlot);
-    f(SpriteSaveOptions);
-    f(SpriteTransparent);
-    f(SpriteTransparentColor);
-    f(TextureVideoFormat);
-    f(TextureCurrentSlot);
-    f(TextureSaveOptions);
-    f(TextureTransparent);
-    f(TextureTransparentColor);
-    f(TextureMipmap);
-    f(TextureCubeMap);
-    f(TexturePickThreshold);
-    f(MaterialTextureBlend);
-    f(MaterialTextureMinMode);
-    f(MaterialTextureMagMode);
-    f(MaterialTextureAddress);
-    f(MaterialTextureBorderColor);
-    f(MaterialPerspectiveCorrect);
-    f(MeshProgressive);
-    f(MeshWrapMode);
-    f(MeshLit);
-    f(PatchMeshIterations);
-    f(GridOrientation);
-    f(GridPriority);
-    f(LayerVisible);
-    f(CurveOpen);
-    f(CurveStepCount);
-    f(CurveFitting);
-    f(CurvePointBias);
-    f(CurvePointTension);
-    f(CurvePointContinuity);
-    f(CurvePointLinear);
-    f(SoundSaveOptions);
-    f(WaveSoundType);
-    f(WaveSoundLoop);
-    f(WaveSoundGain);
-    f(WaveSoundPitch);
-    f(WaveSoundCone);
-    f(WaveSoundDistance);
-    f(Sprite3DMode);
-    f(Sprite3DOffset);
-    f(AnimationLength);
-    f(AnimationLinked);
-    f(AnimationFrameRate);
-    f(AnimationMergeFactor);
-    f(AnimationCanBeInterrupted);
-    f(AnimationAlignOrientation);
-    f(AnimationTransitionPreset);
-    f(AnimationSecondaryPreset);
-    f(AnimationTransitionFromNow);
-    f(AnimationTransitionWarpFromCurrent);
-    f(AnimationTransitionToStart);
-    f(AnimationTransitionWarpToStart);
-    f(AnimationTransitionWarpToBest);
-    f(AnimationTransitionWarpToSamePosition);
-    f(AnimationTransitionUseVelocity);
-    f(AnimationTransitionLoopIfEqual);
-    f(AnimationSecondaryPlay);
-    f(AnimationSecondaryWarp);
-    f(ObjectAnimationLength);
-    f(ObjectAnimationMergeFactor);
-    f(ObjectAnimationIgnorePosition);
-    f(ObjectAnimationIgnoreRotation);
-    f(ObjectAnimationIgnoreScale);
-    f(ObjectAnimationIgnoreOffAxisScale);
-    f(ObjectAnimationIgnoreMorph);
-    f(SpriteTextText);
-    f(SpriteTextColor);
-    f(SpriteTextBackgroundColor);
-    f(SpriteTextAlignment);
-    f(SynchroUsers);
-    f(StateActive);
+    ForEachObjectProperty([&](const char *, const auto &property) { f(property); });
 }
 
 } // namespace
+
+const char *ObjectPropertyId(const void *property) {
+    const char *id = nullptr;
+    ForEachObjectProperty([&](const char *key, const auto &candidate) {
+        if (property == &candidate)
+            id = key;
+    });
+    return id;
+}
 
 std::vector<ObjectPropertyCheck> ObjectPropertyChecks() {
     std::vector<ObjectPropertyCheck> checks;
@@ -531,16 +844,171 @@ std::vector<ObjectPropertyCheck> ObjectPropertyChecks() {
     return checks;
 }
 
+template <class T> bool SamePropertyValue(const T &a, const T &b) {
+    if constexpr (std::is_arithmetic_v<T> || std::is_same_v<T, std::string>)
+        return a == b;
+    else if constexpr (std::is_same_v<T, VxColor>)
+        return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+    else if constexpr (std::is_same_v<T, VxRect>)
+        return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
+    else if constexpr (std::is_same_v<T, VxVector>)
+        return a.x == b.x && a.y == b.y && a.z == b.z;
+    else
+        return a.x == b.x && a.y == b.y;
+}
+
 UnkeptValues ReadUnkeptValues(CKObject *object) {
     UnkeptValues values;
     if (!object) return values;
     ForEachProperty([&](const auto &property) {
         if (property.inState || !CKIsChildClassOf(object, property.cid)) return;
         const auto value = property.get(object);
+        if constexpr (std::is_same_v<std::decay_t<decltype(value)>, CK_ID>)
+            if (const auto handle = object->GetCKContext()->GetObjectHandle(value); handle.Id)
+                values.references.push_back(handle);
         values.text += std::string(property.label) + "=" + Text(value) + ";";
-        values.restore.push_back([&property, value](CKObject *target) { property.set(target, value); });
+        values.restore.push_back([&property, value](CKObject *target) {
+            if (!SamePropertyValue(property.get(target), value))
+                property.set(target, value);
+        });
     });
     return values;
+}
+
+bool ReadObjectProperty(Document &document, const char *name, const std::vector<CK_ID> &ids,
+                        std::vector<ObjectPropertyState> &values) {
+    values.clear();
+    bool found = false, ok = true;
+    return GuardedCall(
+               [&] {
+                   ForEachObjectProperty([&](const char *key, const auto &property) {
+                       if (std::string(key) != name)
+                           return;
+                       found = true;
+                       for (auto id : ids) {
+                           auto *object = document.Context()->GetObject(id);
+                           if (!object || !CKIsChildClassOf(object, property.cid)) {
+                               ok = false;
+                               return;
+                           }
+                           ObjectPropertyState state;
+                           state.object = document.Context()->GetObjectHandle(id);
+                           const auto value = property.get(object);
+                           state.text = Text(value);
+                           if constexpr (std::is_same_v<std::decay_t<decltype(value)>, CK_ID>)
+                               state.value = document.Context()->GetObjectHandle(value);
+                           else
+                               state.value = value;
+                           values.push_back(std::move(state));
+                       }
+                   });
+               },
+               &document.Host(), "Capture property value") &&
+           found && ok && values.size() == ids.size();
+}
+bool RestoreObjectProperty(Document &document, const char *name, const std::vector<ObjectPropertyState> &values) {
+    bool found = false, ok = true;
+    ForEachObjectProperty([&](const char *key, const auto &property) {
+        if (std::string(key) != name)
+            return;
+        found = true;
+        for (const auto &state : values) {
+            bool restored = false;
+            const bool called = GuardedCall(
+                [&] {
+                    auto *object = document.Context()->GetObjectByHandle(state.object);
+                    if (!object || !CKIsChildClassOf(object, property.cid))
+                        return;
+                    using Value = std::decay_t<decltype(property.get(object))>;
+                    if constexpr (std::is_same_v<Value, CK_ID>) {
+                        const auto *value = std::get_if<CKObjectHandle>(&state.value);
+                        if (!value || (value->Id && !document.Context()->GetObjectByHandle(*value)))
+                            return;
+                        property.set(object, value->Id);
+                    } else {
+                        const auto *value = std::get_if<Value>(&state.value);
+                        if (!value)
+                            return;
+                        property.set(object, *value);
+                    }
+                    restored = Check(property).same(state.text, Text(property.get(object)));
+                },
+                &document.Host(), "Restore property value");
+            ok = called && restored && ok;
+        }
+    });
+    return found && ok;
+}
+namespace {
+bool SameProperty(const char *name, const ObjectPropertyState &a, const ObjectPropertyState &b) {
+    if (a.object.Id != b.object.Id || a.object.Lifetime != b.object.Lifetime || a.value.index() != b.value.index())
+        return false;
+    if (const auto *reference = std::get_if<CKObjectHandle>(&a.value)) {
+        const auto other = std::get<CKObjectHandle>(b.value);
+        return reference->Id == other.Id && reference->Lifetime == other.Lifetime;
+    }
+    bool same = false;
+    ForEachObjectProperty([&](const char *key, const auto &property) {
+        if (std::string(key) == name)
+            same = Check(property).same(a.text, b.text);
+    });
+    return same;
+}
+class ObjectPropertyAction final : public Action {
+public:
+    ObjectPropertyAction(std::string property, std::vector<ObjectPropertyState> before,
+                         std::vector<ObjectPropertyState> after)
+        : property(std::move(property)), before(std::move(before)), after(std::move(after)) {}
+    bool Redo(Document &doc) override { return Apply(doc, after, before); }
+    bool Undo(Document &doc) override { return Apply(doc, before, after); }
+    void RetainObjects(const Document &doc, std::set<CK_ID> &objects) const override {
+        for (const auto *states : {&before, &after})
+            for (const auto &state : *states) {
+                if (doc.Context()->GetObjectByHandle(state.object))
+                    objects.insert(state.object.Id);
+                if (const auto *reference = std::get_if<CKObjectHandle>(&state.value);
+                    reference && doc.Context()->GetObjectByHandle(*reference))
+                    objects.insert(reference->Id);
+            }
+    }
+
+private:
+    bool Apply(Document &doc, const std::vector<ObjectPropertyState> &value,
+               const std::vector<ObjectPropertyState> &previous) {
+        if (RestoreObjectProperty(doc, property.c_str(), value))
+            return true;
+        if (!RestoreObjectProperty(doc, property.c_str(), previous))
+            doc.Host().Log(LogLevel::Error, "Property value recovery was incomplete");
+        return false;
+    }
+    std::string property;
+    std::vector<ObjectPropertyState> before, after;
+};
+} // namespace
+EditResult CommitObjectProperty(Document &document, const char *property,
+                                const std::vector<ObjectPropertyState> &before, const std::string &label) {
+    std::vector<CK_ID> ids;
+    for (const auto &state : before) {
+        if (!document.Context()->GetObjectByHandle(state.object)) {
+            document.InvalidateHistory();
+            return EditResult::Error("The property target has changed");
+        }
+        ids.push_back(state.object.Id);
+    }
+    std::vector<ObjectPropertyState> after;
+    if (!ReadObjectProperty(document, property, ids, after)) {
+        if (!RestoreObjectProperty(document, property, before))
+            document.InvalidateHistory();
+        return EditResult::Error("Cannot capture property value");
+    }
+    bool same = true;
+    for (size_t i = 0; i < before.size(); ++i)
+        same = SameProperty(property, before[i], after[i]) && same;
+    if (same)
+        return EditResult::NoChange();
+    Edit edit(document, label);
+    edit.Done(std::make_unique<ObjectPropertyAction>(property, before, std::move(after)));
+    return edit.Commit();
 }
 
 } // namespace vdev

@@ -1,7 +1,9 @@
 #pragma once
 
+#include "core/document/EditResult.h"
 #include <functional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "CKAll.h"
@@ -12,7 +14,7 @@ namespace vdev {
 // CK's units (radians, CK's enum values): read and written as the Setup does.
 // The label is the Setup's and its undo step's. The Setups convert for
 // display (degrees, their lists' order) and keep the edit live
-// (SetupWindows::Live: the object's state before and after, one undo step).
+// (the registered property draft previews the value before one undo step).
 // other: a valid value differing from the one given (the checks over every
 // property, ObjectPropertyChecks). inState: CKSaveObjectState keeps the
 // value; when it does not, the value travels with the object's state
@@ -27,6 +29,7 @@ template <typename T> struct ObjectProperty {
     T (*other)(T value);
     bool inState = true;
     bool check = true;
+    CK_CLASSID referenceClass = CKCID_OBJECT;
 };
 
 namespace properties {
@@ -170,7 +173,46 @@ extern const ObjectProperty<int> SpriteTextAlignment;
 extern const ObjectProperty<int> SynchroUsers;
 extern const ObjectProperty<bool> StateActive;
 
+extern const ObjectProperty<VxVector> Entity3DWorldPosition;
+extern const ObjectProperty<VxVector> Entity3DLocalPosition;
+extern const ObjectProperty<VxVector> Entity3DWorldOrientation;
+extern const ObjectProperty<VxVector> Entity3DLocalOrientation;
+extern const ObjectProperty<VxVector> Entity3DWorldScale;
+extern const ObjectProperty<VxVector> Entity3DLocalScale;
+extern const ObjectProperty<Vx2DVector> CameraRatio;
+extern const ObjectProperty<CK_ID> CameraTarget;
+extern const ObjectProperty<CK_ID> LightTarget;
+extern const ObjectProperty<CK_ID> Entity2DMaterial;
+extern const ObjectProperty<CK_ID> Entity2DParent;
+extern const ObjectProperty<CK_ID> MaterialTexture;
+extern const ObjectProperty<CK_ID> Entity3DCurrentMesh;
+extern const ObjectProperty<CK_ID> Sprite3DMaterial;
+extern const ObjectProperty<CK_ID> KinematicStart;
+extern const ObjectProperty<CK_ID> KinematicEnd;
+extern const ObjectProperty<Vx2DVector> Entity2DPosition;
+extern const ObjectProperty<Vx2DVector> Entity2DSize;
+extern const ObjectProperty<VxRect> Entity2DUv;
+extern const ObjectProperty<Vx2DVector> Sprite3DSize;
+extern const ObjectProperty<VxRect> Sprite3DUv;
+extern const ObjectProperty<VxVector> CurvePointPosition;
+extern const ObjectProperty<bool> WaveSoundStreaming;
+extern const ObjectProperty<float> WaveSoundPan;
+extern const ObjectProperty<CK_ID> WaveSoundAttached;
+extern const ObjectProperty<VxVector> WaveSoundPosition;
+extern const ObjectProperty<VxVector> WaveSoundDirection;
+extern const ObjectProperty<int> MeshVerticesRendered;
+extern const ObjectProperty<bool> MeshGeoMorph;
+extern const ObjectProperty<int> MeshGeoMorphStep;
+extern const ObjectProperty<bool> MeshStripify;
 } // namespace properties
+
+// Stable property names are shared by commands and the native state checks.
+template <typename F> void ForEachObjectProperty(F f) {
+#define VDEV_OBJECT_PROPERTY(Name, Id) f(Id, properties::Name);
+#include "core/level/ObjectProperties.def"
+#undef VDEV_OBJECT_PROPERTY
+}
+const char *ObjectPropertyId(const void *property);
 
 // Every property, for checks over all of them: its value as text, setting
 // another one (ObjectProperty::other), and whether two texts are the same
@@ -189,8 +231,25 @@ std::vector<ObjectPropertyCheck> ObjectPropertyChecks();
 // putting them back. Object edits keep them with the native state.
 struct UnkeptValues {
     std::string text;
+    std::vector<CKObjectHandle> references;
     std::vector<std::function<void(CKObject *)>> restore;
 };
 UnkeptValues ReadUnkeptValues(CKObject *object);
+
+// Value records are useful where restoring a whole native object would also
+// normalize unrelated state, such as a bitmap without image slots.
+class Document;
+using ObjectPropertyValue =
+    std::variant<bool, int, float, std::string, VxColor, VxVector, Vx2DVector, VxRect, CKObjectHandle>;
+struct ObjectPropertyState {
+    CKObjectHandle object{};
+    ObjectPropertyValue value = false;
+    std::string text;
+};
+bool ReadObjectProperty(Document &document, const char *property, const std::vector<CK_ID> &objects,
+                        std::vector<ObjectPropertyState> &values);
+bool RestoreObjectProperty(Document &document, const char *property, const std::vector<ObjectPropertyState> &values);
+EditResult CommitObjectProperty(Document &document, const char *property,
+                                const std::vector<ObjectPropertyState> &before, const std::string &label);
 
 } // namespace vdev
