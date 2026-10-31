@@ -1,15 +1,16 @@
 #pragma once
 
-#include <functional>
-#include "features/objects/ObjectCommands.h"
-#include "features/values/ParameterCommands.h"
-#include "features/arrays/ArrayCommands.h"
-#include "features/resources/DataResourceCommands.h"
-#include "features/objects/SelectionCommands.h"
 #include "application/DocumentCommands.h"
 #include "application/ExecutionCommands.h"
 #include "application/OutputCommands.h"
+#include "features/arrays/ArrayCommands.h"
+#include "features/objects/ObjectCommands.h"
+#include "features/objects/SelectionCommands.h"
+#include "features/resources/DataResourceCommands.h"
+#include "features/setup/SetupCommands.h"
+#include "features/values/ParameterCommands.h"
 #include "workspace/EditorWorkspace.h"
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -249,6 +250,7 @@ private:
     ObjectCommands m_ObjectCommands;
     ParameterCommands m_ParameterCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
     ArrayCommands m_ArrayCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, m_State.clipboard};
+    SetupCommands m_SetupCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
     SelectionCommands m_SelectionCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                                           m_State.objectSelection};
     SchematicCanvas m_Canvas;

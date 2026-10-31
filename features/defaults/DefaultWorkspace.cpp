@@ -1,4 +1,5 @@
 #include "features/defaults/DefaultWorkspace.h"
+#include "features/setup/SetupCommands.h"
 
 namespace vdev {
 WorkspaceConfiguration DefaultWorkspaceConfiguration() {
@@ -82,6 +83,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     for (const auto *id : {"array.table", "array.cells-value", "array.column-value", "array.column-new-value", "array.paste-options"})
         result.contributions.providers.push_back({"query", id, "builtin.arrays"});
     result.contributions.providers.push_back({"editor", "value.array-column", "builtin.array-values"});
+    const auto &setup = SetupCommands::DefaultProviders();
+    result.contributions.providers.insert(result.contributions.providers.end(), setup.begin(), setup.end());
     result.views = {{"document.file-dialogs", "", "", true},
                     {"document.output-dialogs", "", "", true},
                     {"scene.level", "main.level", "editing", true, true},

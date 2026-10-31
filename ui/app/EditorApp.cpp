@@ -120,17 +120,20 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         return false;
     }
     m_State.catalog.Refresh();
-    if (!RegisterBuildingBlockQueries(m_Editor, m_State.catalog, error) || !RegisterBuildingBlockViews(m_Editor, error) ||
-        !m_ResourceCommands.Register(error) || !RegisterDataResourceViews(m_Editor, error) || !RegisterResourceInputs(m_Editor, window, error) ||
-        !RegisterDefaultWorkspace(m_Editor, error) || !m_Workspace.Register(error) || !m_State.eventLog.Register(m_Editor, error) ||
-        !RegisterEventLogView(m_Editor, error) || !RegisterHelpViews(m_Editor, m_HtmlFonts, error) ||
-        !m_FileCommands.Register(error) || !RegisterFileInputs(m_Editor, window, error) ||
-        !m_ObjectCommands.Register(m_Editor, error) || !m_SelectionCommands.Register(m_Editor, error) ||
-        !m_Execution.Register(error) || !m_Outputs.Register(error) || !RegisterOutputInputs(m_Editor, window, error) ||
-        !m_ParameterCommands.Register(m_Editor, error) || !RegisterValueEditors(m_Editor, error) ||
-        !m_ArrayCommands.Register(m_Editor, error) || !RegisterArrayValueEditors(m_Editor, error) ||
-        !RegisterObjectViews(m_Editor, error) || !m_SceneCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
-        !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
+    if (!RegisterBuildingBlockQueries(m_Editor, m_State.catalog, error) ||
+        !RegisterBuildingBlockViews(m_Editor, error) || !m_ResourceCommands.Register(error) ||
+        !RegisterDataResourceViews(m_Editor, error) || !RegisterResourceInputs(m_Editor, window, error) ||
+        !RegisterDefaultWorkspace(m_Editor, error) || !m_Workspace.Register(error) ||
+        !m_State.eventLog.Register(m_Editor, error) || !RegisterEventLogView(m_Editor, error) ||
+        !RegisterHelpViews(m_Editor, m_HtmlFonts, error) || !m_FileCommands.Register(error) ||
+        !RegisterFileInputs(m_Editor, window, error) || !m_ObjectCommands.Register(m_Editor, error) ||
+        !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) || !m_Outputs.Register(error) ||
+        !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
+        !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
+        !m_SetupCommands.Register(m_Editor, error) || !RegisterArrayValueEditors(m_Editor, error) ||
+        !RegisterObjectViews(m_Editor, error) || !m_SceneCommands.Register(error) ||
+        !RegisterSceneViews(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) ||
+        !RegisterSceneNavigation(error)) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }
