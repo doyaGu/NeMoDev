@@ -74,6 +74,14 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"view", "resource.data", "builtin.data-resources"},
                                       {"view", "resource.building-blocks", "builtin.building-blocks"},
                                       {"command", "runtime.play", "builtin.execution"}};
+    for (const auto *id : {"array.row-insert", "array.rows-remove", "array.rows-duplicate", "array.row-move",
+                           "array.column-set", "array.column-insert", "array.column-remove", "array.column-move",
+                           "array.sort", "array.key-set", "array.cells-set", "array.copy", "array.paste",
+                           "array.paste-shortcuts", "array.remove-shortcuts"})
+        result.contributions.providers.push_back({"command", id, "builtin.arrays"});
+    for (const auto *id : {"array.table", "array.cells-value", "array.column-value", "array.column-new-value", "array.paste-options"})
+        result.contributions.providers.push_back({"query", id, "builtin.arrays"});
+    result.contributions.providers.push_back({"editor", "value.array-column", "builtin.array-values"});
     result.views = {{"document.file-dialogs", "", "", true},
                     {"document.output-dialogs", "", "", true},
                     {"scene.level", "main.level", "editing", true, true},

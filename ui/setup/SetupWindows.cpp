@@ -216,7 +216,11 @@ std::vector<SetupWindows::OpenSetup> SetupWindows::OpenSetups() const {
 void SetupWindows::CloseAll() {
     FlushPending();
     if (m_State.workspace)
-        for (auto &setup : m_Doc.setups) m_State.workspace->CloseOwner(setup.nameOwner);
+        for (auto &setup : m_Doc.setups) {
+            if (setup.kind == Kind::Array)
+                setup.array.Cancel(EditorClient(m_State.workspace->Application().Host(), setup.nameOwner));
+            m_State.workspace->CloseOwner(setup.nameOwner);
+        }
     m_Doc = DocumentState();
 }
 
@@ -261,7 +265,11 @@ void SetupWindows::Draw(ImGuiID dock) {
     for (Setup &setup : m_Doc.setups)
         if (setup.open) DrawSetup(setup, dock);
     for (Setup &setup : m_Doc.setups)
-        if (!setup.open) m_State.workspace->CloseOwner(setup.nameOwner);
+        if (!setup.open) {
+            if (setup.kind == Kind::Array)
+                setup.array.Cancel(EditorClient(m_State.workspace->Application().Host(), setup.nameOwner));
+            m_State.workspace->CloseOwner(setup.nameOwner);
+        }
     m_Doc.setups.erase(std::remove_if(m_Doc.setups.begin(), m_Doc.setups.end(), [](const Setup &s) { return !s.open; }),
                    m_Doc.setups.end());
     // A gesture ends when no control is held any more.
@@ -362,6 +370,8 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 5));
     // Dev Group Setup has the Attribute page only.
     if (setup.kind == Kind::Group) setup.attributes = true;
+    if (setup.kind == Kind::Array && setup.attributes && m_State.workspace && setup.nameOwner)
+        setup.array.Cancel(EditorClient(m_State.workspace->Application().Host(), setup.nameOwner));
     if (setup.attributes) {
         AttributePage(setup, object);
     } else {
@@ -379,7 +389,7 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
         case Kind::Curve: CurvePage(setup, CKCurve::Cast(object)); break;
         case Kind::Character: CharacterPage(setup, CKCharacter::Cast(object)); break;
         case Kind::Sound: SoundPage(CKWaveSound::Cast(object)); break;
-        case Kind::Array: ArrayPage(setup, CKDataArray::Cast(object)); break;
+        case Kind::Array: ArrayPage(setup); break;
         case Kind::Scene: ScenePage(object); break;
         case Kind::Camera: CameraPage(CKCamera::Cast(object)); break;
         case Kind::Light: LightPage(CKLight::Cast(object)); break;

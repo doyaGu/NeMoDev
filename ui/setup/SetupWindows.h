@@ -14,6 +14,7 @@
 #include "core/level/ObjectProperties.h"
 #include "core/level/ObjectEditCommands.h"
 #include "ui/controls/ParameterBox.h"
+#include "features/arrays/ArrayTable.h"
 
 namespace vdev {
 
@@ -117,20 +118,7 @@ private:
         std::string gridRenameText;
         // Curve Setup: the current control point
         int point = 0;
-        // Array Setup: the cell being edited, the column dialogs
-        int editRow = -1, editColumn = -1;
-        std::string editText;
-        char columnName[128] = "";
-        int columnType = 1;       // CK_ARRAYTYPE
-        int columnParameter = -1; // CKParameterType of a parameter column
-        // Array Setup: the rows selected (Shift's anchor), the column last
-        // clicked, a cell to edit (Edit), Edit Multiple's column and text.
-        std::set<int> arrayRows;
-        int arrayAnchor = -1, arrayColumn = -1;
-        int focusRow = -1, focusColumn = -1;
-        int multiColumn = -1;
-        bool openMultiple = false;
-        char multiText[512] = "";
+        ArrayTable array;
     };
 
     static Kind KindOf(CKObject *object);
@@ -184,7 +172,7 @@ private:
     void CurvePage(Setup &setup, CKCurve *curve);
     void CharacterPage(Setup &setup, CKCharacter *character);
     void SoundPage(CKWaveSound *sound);
-    void ArrayPage(Setup &setup, CKDataArray *array);
+    void ArrayPage(Setup &setup);
     void ScenePage(CKObject *object);
     // 3D Frame, Portal and Place Setup (World / Local transforms).
     void FramePage(CK3dEntity *frame);

@@ -3,6 +3,7 @@
 #include <functional>
 #include "features/objects/ObjectCommands.h"
 #include "features/values/ParameterCommands.h"
+#include "features/arrays/ArrayCommands.h"
 #include "features/resources/DataResourceCommands.h"
 #include "features/objects/SelectionCommands.h"
 #include "application/DocumentCommands.h"
@@ -247,6 +248,7 @@ private:
     DataResourceCommands m_ResourceCommands{m_Editor, m_State.host, [this] { return FileOperationAvailable(); }};
     ObjectCommands m_ObjectCommands;
     ParameterCommands m_ParameterCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
+    ArrayCommands m_ArrayCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, m_State.clipboard};
     SelectionCommands m_SelectionCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                                           m_State.objectSelection};
     SchematicCanvas m_Canvas;
