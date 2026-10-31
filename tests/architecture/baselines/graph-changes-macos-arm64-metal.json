@@ -1,0 +1,510 @@
+{
+  "description": "阶段四：统一图显示与拓扑修改的变更通知，保持内置操作和外部命令的版本、Dirty、撤销及失败回滚行为一致。SDK、文件格式和 GPU 渲染/传输实现不变。",
+  "changes": [
+    "Document 保存已提交内容版本；核心 Edit 的外层提交、Undo/Redo 及 Script 的撤销之外修改统一推进。预览和成功取消不推进提交版本。",
+    "登记命令与 EditGroup 继承已有子记录的修改范围，显示修改不再被外层误记为拓扑修改。提交和回放合并拓扑标记及被触及的 Script；嵌套回放不自行重复标记。",
+    "EditorApplication 在安全的查询、Attach 和帧末位置检查文档版本，清除过期查询缓存，并向内置和外部订阅者合并发布通知。原生状态不可用、查询回调及事务中途不读取或发布中间修改。",
+    "失败的 Undo/Redo 清理历史后也记录状态变化；Import/Merge 成功回滚恢复提交版本。已准备文档被采用时，ScriptSession 的所属文档随之更新。",
+    "沿用现有图算法、命令登记、值编辑和 GPU 路径，没有新增图操作协议或公共 ABI。公开 C 头仅补充通知说明。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-four-graph-changes/build-final.log"
+    },
+    "full_ctest": {
+      "total": 124,
+      "passed": 124,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 30.32,
+      "log": "out/phase-four-graph-changes/full-verified.log"
+    },
+    "ui": {
+      "modules": {
+        "registered": 223,
+        "executed": 56,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/modules.xml"
+      },
+      "schematic": {
+        "registered": 223,
+        "executed": 21,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/schematic.xml"
+      },
+      "blocks": {
+        "registered": 223,
+        "executed": 6,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/blocks.xml"
+      },
+      "layout": {
+        "registered": 223,
+        "executed": 20,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/layout.xml"
+      },
+      "app": {
+        "registered": 223,
+        "executed": 24,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/app.xml"
+      },
+      "filemenu": {
+        "registered": 223,
+        "executed": 10,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/filemenu.xml"
+      },
+      "setup": {
+        "registered": 223,
+        "executed": 17,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/setup.xml"
+      },
+      "propertyedits": {
+        "registered": 223,
+        "executed": 7,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/propertyedits.xml"
+      },
+      "level": {
+        "registered": 223,
+        "executed": 7,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/level.xml"
+      }
+    },
+    "architecture": {
+      "files": 917,
+      "groups": 49,
+      "features": 32,
+      "states": 42,
+      "legacy_exposures": 55,
+      "completed_phase": 3,
+      "test_registration_checked": true,
+      "open_gaps": 23
+    },
+    "sdk": {
+      "repositories": 16,
+      "unchanged": true,
+      "before_log": "out/phase-four-graph-changes/sdk-before.json",
+      "after_log": "out/phase-four-graph-changes/sdk-after.json",
+      "runtime_libraries": 22,
+      "runtime_sha256_equal": true
+    },
+    "source": {
+      "tested_production_sha256": "e56ced3a09cade6856349097a9386d387371c1029f0b838e7d632c210beabbdf",
+      "measured_production_sha256_equal": true,
+      "binary_sha256": "e7c1951c3b9557738e959c3bae30d1fc1052c02e3fdbde2467dfe920f87cb7d5",
+      "reference_revision": "60b92091726fdf8510a15a76c0ad9a9898e405a9",
+      "reference_source_sha256": "b9e2be8f883a8e240fdeb6af3249589963185f56484af4c19ff73cc18ea48f88",
+      "reference_binary_sha256": "4161691b508579d700319af59c07f178c6fde8ecca9b20bea67692ac4ef580c0"
+    },
+    "new_regressions": [
+      "先在 NeMoDevEditor 复现直接 EditScriptData 修改未通知外部视图，修复后通过。",
+      "直接核心操作、登记内置命令和真实动态模块转发的显示/拓扑结果对照，包含数据、Dirty、拓扑及 Script 版本、一步撤销、Undo/Redo 与选区。",
+      "两订阅者和外部模块读取同一结果；帧内合并、无修改的稳定帧、查询缓存、排队调用、取消、拒绝、异常、返回无变化及 Redo 保留。",
+      "混合显示与图结构的嵌套批次、失败回放清理历史、撤销之外替换、原生状态忙碌后补发和已准备文档的 Session 归属。",
+      "原生 modules.schematic_changes_reach_external_views：双实例下内置折叠/Undo/Redo 各一次通知，普通颜色对话框经过配置选中的外部命令，取消不通知、不执行命令。",
+      "现有 Import/Merge 故障注入新增提交版本恢复检查；完整 .NMO 直接打开与 GPU 视口回归通过。"
+    ]
+  },
+  "performance": {
+    "accepted": false,
+    "reason": "修改前后配对和同程序对照的 MAD 均超过原定 3% 门槛；保留全部采样，未放宽门槛，未将较低中位数当作性能提升。",
+    "paired": {
+      "raw_report": "out/macos-arm64/architecture/phase-four-graph-changes/comparison-final.json",
+      "statistics": {
+        "median_ms": 0.3126328225727462,
+        "p10_ms": 0.28978667962593724,
+        "p90_ms": 0.4648923916395188,
+        "mad_ms": 0.021141859414456843,
+        "mad_percent": 6.762520723343872
+      },
+      "reference_statistics": {
+        "median_ms": 0.32087566752098684,
+        "p10_ms": 0.2750078321616767,
+        "p90_ms": 0.36542417274106215,
+        "mad_ms": 0.01601611431271549,
+        "mad_percent": 4.991377014172619
+      },
+      "median_change_percent": -2.5688594625834282,
+      "comparison": {
+        "passed": false,
+        "reason": "baseline variation exceeds 3 percent"
+      },
+      "measurement": {
+        "version": 2,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "group_control": "paired",
+        "cpu_policy": "user-initiated-activity",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 1921,
+            "elapsed_ms": 1149.167958333
+          },
+          {
+            "frames": 2161,
+            "elapsed_ms": 1004.632458333
+          },
+          {
+            "frames": 2881,
+            "elapsed_ms": 1008.410458333
+          },
+          {
+            "frames": 3121,
+            "elapsed_ms": 1012.885541667
+          },
+          {
+            "frames": 3361,
+            "elapsed_ms": 1005.191291667
+          },
+          {
+            "frames": 3361,
+            "elapsed_ms": 1008.434625
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1043.521833333
+          },
+          {
+            "frames": 3361,
+            "elapsed_ms": 1050.758916667
+          },
+          {
+            "frames": 3361,
+            "elapsed_ms": 1055.882
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1049.658958333
+          },
+          {
+            "frames": 3601,
+            "elapsed_ms": 1041.58075
+          }
+        ]
+      },
+      "reference_measurement": {
+        "version": 2,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "group_control": "paired",
+        "cpu_policy": "user-initiated-activity",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 2401,
+            "elapsed_ms": 1021.400125
+          },
+          {
+            "frames": 2881,
+            "elapsed_ms": 1048.860416667
+          },
+          {
+            "frames": 3121,
+            "elapsed_ms": 1013.430041667
+          },
+          {
+            "frames": 2881,
+            "elapsed_ms": 1052.787041667
+          },
+          {
+            "frames": 3121,
+            "elapsed_ms": 1045.152125
+          },
+          {
+            "frames": 3361,
+            "elapsed_ms": 1026.5515
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1056.305083333
+          },
+          {
+            "frames": 3841,
+            "elapsed_ms": 1041.955875
+          },
+          {
+            "frames": 3361,
+            "elapsed_ms": 1024.632958333
+          },
+          {
+            "frames": 3121,
+            "elapsed_ms": 1001.452958333
+          },
+          {
+            "frames": 3361,
+            "elapsed_ms": 1067.611583333
+          }
+        ]
+      }
+    },
+    "same_binary_control": {
+      "raw_report": "out/macos-arm64/architecture/phase-four-graph-changes/control-final.json",
+      "statistics": {
+        "median_ms": 0.39799073898788334,
+        "p10_ms": 0.35625860522978137,
+        "p90_ms": 0.44264122587796756,
+        "mad_ms": 0.041732133758101975,
+        "mad_percent": 10.485704733790927
+      },
+      "reference_statistics": {
+        "median_ms": 0.4039043922756531,
+        "p10_ms": 0.3766708029618188,
+        "p90_ms": 0.4780793614067561,
+        "mad_ms": 0.027233589313834294,
+        "mad_percent": 6.742583104976029
+      },
+      "median_change_percent": -1.4641220548386347,
+      "comparison": {
+        "passed": false,
+        "reason": "baseline variation exceeds 3 percent"
+      },
+      "measurement": {
+        "version": 2,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "group_control": "paired",
+        "cpu_policy": "user-initiated-activity",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 2881,
+            "elapsed_ms": 1026.381041667
+          },
+          {
+            "frames": 2881,
+            "elapsed_ms": 1014.209041667
+          },
+          {
+            "frames": 2401,
+            "elapsed_ms": 1061.023083333
+          },
+          {
+            "frames": 2881,
+            "elapsed_ms": 1077.465625
+          },
+          {
+            "frames": 2401,
+            "elapsed_ms": 1029.182541667
+          },
+          {
+            "frames": 2401,
+            "elapsed_ms": 1060.928541667
+          },
+          {
+            "frames": 2641,
+            "elapsed_ms": 1051.093541667
+          },
+          {
+            "frames": 2881,
+            "elapsed_ms": 1083.781458333
+          },
+          {
+            "frames": 2641,
+            "elapsed_ms": 1003.77725
+          },
+          {
+            "frames": 2401,
+            "elapsed_ms": 1062.781583333
+          },
+          {
+            "frames": 2401,
+            "elapsed_ms": 1086.034
+          }
+        ]
+      },
+      "reference_measurement": {
+        "version": 2,
+        "scenario": "cubes64-v1",
+        "scope": "editor_frame_gpu_drained",
+        "driver": "metal",
+        "group_control": "paired",
+        "cpu_policy": "user-initiated-activity",
+        "gpu_device": "Apple M5 Pro",
+        "gpu_driver_info": "",
+        "window_pixels": [
+          2560,
+          1600
+        ],
+        "sdl_version": 3004018,
+        "viewport": [
+          556,
+          435
+        ],
+        "window": [
+          1280,
+          800
+        ],
+        "ui_scale": 1.0,
+        "warmup_frames": 480,
+        "requested_frames": 240,
+        "minimum_warmup_ms": 15000,
+        "minimum_group_ms": 1000,
+        "verification_readbacks": 1,
+        "stable_readbacks": 0,
+        "stable_uploads": 0,
+        "stable_target_creations": 0,
+        "stable_path_selections": 0,
+        "stable_target_releases": 0,
+        "samples": [
+          {
+            "frames": 3121,
+            "elapsed_ms": 1067.994541667
+          },
+          {
+            "frames": 2881,
+            "elapsed_ms": 1085.188583333
+          },
+          {
+            "frames": 2161,
+            "elapsed_ms": 1033.1295
+          },
+          {
+            "frames": 2641,
+            "elapsed_ms": 1039.567291667
+          },
+          {
+            "frames": 2401,
+            "elapsed_ms": 1104.520791667
+          },
+          {
+            "frames": 2401,
+            "elapsed_ms": 1033.955833333
+          },
+          {
+            "frames": 2641,
+            "elapsed_ms": 1048.126
+          },
+          {
+            "frames": 2641,
+            "elapsed_ms": 1012.103916667
+          },
+          {
+            "frames": 2641,
+            "elapsed_ms": 1066.7115
+          },
+          {
+            "frames": 2401,
+            "elapsed_ms": 1109.951833333
+          },
+          {
+            "frames": 2161,
+            "elapsed_ms": 1072.491291667
+          }
+        ]
+      }
+    },
+    "stable_counters": {
+      "stable_readbacks": 0,
+      "stable_uploads": 0,
+      "stable_target_creations": 0,
+      "stable_path_selections": 0,
+      "stable_target_releases": 0
+    },
+    "explicit_verification_readbacks": 1,
+    "unmeasured": [
+      "应用层堆分配",
+      "GPU preserve copy、pass 和 submit",
+      "原生类型查询及应用层 retain/release"
+    ],
+    "sdk_option": "--sdk-change 仅用于保留 SDK 已有未提交修改的指纹；本轮前后十六个仓库状态完全相同，当前和参考的二十二个运行库校验值一致。"
+  },
+  "remaining": [
+    "F12 的变更通知与结果一致性缺口关闭；完成阶段保持为三。阶段四仍保留 F05：NMS 发布失败后的恢复本身失败时的故障注入。",
+    "计时验收需要在满足原定波动门槛的环境中复测。"
+  ]
+}

@@ -1580,27 +1580,28 @@
       "name": "图结构编辑",
       "owner": "Graph domain",
       "source_groups": [
+        "S01",
         "S05",
         "S07",
         "S12",
-        "S21"
+        "S21",
+        "S33",
+        "S34",
+        "S49"
       ],
       "tests": [
         "VirtoolsDev.CrossGraphLinks",
         "VirtoolsDev.ReplaceBehaviors",
         "VirtoolsDev.OperationCommands",
-        "VirtoolsDev.LinkAndExportCommands"
+        "VirtoolsDev.LinkAndExportCommands",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.blocks",
-        "VirtoolsDevUi.schematic"
+        "VirtoolsDevUi.schematic",
+        "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 4,
-          "reason": "补变更通知和外部命令同结果"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F13",
