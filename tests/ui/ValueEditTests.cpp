@@ -399,6 +399,51 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         });
         IM_CHECK(IntegerValue(ctx, editing.parameters[0]) == 7);
     };
+    test = IM_REGISTER_TEST(engine, "modules", "parameter_watch_uses_selected_external_value_editor");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); auto &workspace = *state.workspace; auto &app = workspace.Application();
+            editing.configuration = std::make_unique<vdev::EditorConfiguration>(app.Configuration());
+            auto selected = *editing.configuration;
+            for (auto &choice : selected.providers)
+                if (choice.kind == "command" && choice.id == "parameter.integer-set") choice.provider = "example.integer";
+            std::string error; IM_CHECK_NO_RET(workspace.Configure(selected, error));
+            auto *owner = state.document->Context()->CreateObject(CKCID_BEOBJECT, "External watch owner");
+            IM_CHECK_NO_RET(owner != nullptr); editing.objects.push_back(owner->GetID());
+            const auto script = vdev::CreateScript(*state.document, owner->GetID(), "External watch Script");
+            IM_CHECK_NO_RET(script.ok); editing.objects.push_back(script.created);
+            auto *behavior = CKBehavior::Cast(state.document->Context()->GetObject(script.created));
+            auto *parameter = behavior->CreateLocalParameter("External watch integer", CKPGUID_INT);
+            IM_CHECK_NO_RET(parameter != nullptr); editing.parameters.push_back(parameter->GetID());
+            const std::vector<vdev::ObjectRef> objects{state.document->Reference(parameter->GetID())};
+            const auto args = vdev::ObjectsArgument("objects", objects);
+            IM_CHECK_NO_RET(app.Execute("runtime.watch-parameters", {app.Scope(), &args, 1}).status == EDITOR_OK);
+            state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
+        }); ctx->Yield(3);
+        ctx->MenuClick("//##MainMenuBar/Views/Value Editors/External integer"); ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State(); auto &workspace = *state.workspace; auto &app = workspace.Application();
+            const auto id = workspace.Role("main.parameters");
+            const auto watched = vdev::EditorClient(app.Host(), id).Inspect(id);
+            IM_CHECK_NO_RET(watched.status == EDITOR_OK && vdev::EditorClient::Find(watched, "objects")->objects ==
+                std::vector<vdev::ObjectRef>{state.document->Reference(editing.parameters.front())});
+            const auto target = vdev::ObjectArgument("target", state.document->Reference(editing.parameters.front()));
+            const auto row = app.Query("parameter.watch", {app.Scope(id), &target, 1});
+            IM_CHECK_NO_RET(row.status == EDITOR_OK && vdev::EditorClient::Integer(row, "editable"));
+        });
+        const auto window = RuntimeRef("parameters"); ctx->WindowFocus(window.c_str());
+        ctx->ItemClick((window + "/**/Increment").c_str()); ctx->Yield(3);
+        IM_CHECK(IntegerValue(ctx, editing.parameters.front()) == 7);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
+        OnMainThread(ctx, [] {
+            auto &state = App().State(); auto &app = state.workspace->Application();
+            IM_CHECK_NO_RET(state.History().Undo() && !state.document->Dirty());
+            IM_CHECK_NO_RET(app.Execute("runtime.close-tools", {app.Scope(), nullptr, 0}).status == EDITOR_OK);
+        });
+        IM_CHECK(IntegerValue(ctx, editing.parameters.front()) == 0);
+    };
     test = IM_REGISTER_TEST(engine, "modules", "object_parameter_choices_apply_cancel_and_undo");
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {

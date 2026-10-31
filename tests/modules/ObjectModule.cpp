@@ -279,7 +279,8 @@ void Draw(void *data, const EditorHost *host, EditorView id, EditorViewFrame *fr
 }
 uint32_t DrawInteger(void *, const EditorHost *, const EditorValueInput *input) {
     std::string label(input->label.data, input->label.size);
-    if (input->width > 0) ImGui::SetNextItemWidth(input->width > 108 ? input->width - 76 : 32);
+    const float width = input->width > 0 ? input->width : ImGui::CalcItemWidth();
+    ImGui::SetNextItemWidth(width > 108 ? width - 76 : 32);
     int integer = int(int64_t(input->value.integer));
     bool changed = ImGui::InputInt(label.c_str(), &integer);
     const bool active = ImGui::IsItemActive();
