@@ -1,6 +1,8 @@
 #include "application/DocumentCommands.h"
 #include "application/ObjectSelection.h"
 #include "core/document/BehaviorDescription.h"
+#include "core/document/SaveFileOperations.h"
+#include "core/interface/InterfaceDataDiff.h"
 #include "core/graph/NmsCommands.h"
 #include "core/graph/TopologyCommands.h"
 #include "core/layout/LayoutCommands.h"
@@ -52,6 +54,53 @@ struct Presentation : DocumentFiles::Observer, DocumentCommands::Presentation {
     void HistoryChanged() override {}
     void Quit() override {}
 };
+class FailingNmsPublication : public SaveFileOperations {
+public:
+    enum Fault { None, Error, Exception, Unknown } recovery = Exception, publication = Error, cleanup = None;
+    bool armed = false;
+    std::filesystem::path nms, dsc, backup, stagedNms;
+    unsigned dscReplacements = 0, nmsFailures = 0, recoveryAttempts = 0;
+    std::error_code Replace(const std::filesystem::path &source,
+                           const std::filesystem::path &destination, bool overwrite) override {
+        if (armed && destination == nms) {
+            stagedNms = source;
+            ++nmsFailures;
+            if (publication == Unknown) throw 11;
+            if (publication == Exception)
+                throw std::filesystem::filesystem_error("Injected NMS publication failure", source, destination,
+                                                       std::make_error_code(std::errc::io_error));
+            return std::make_error_code(std::errc::io_error);
+        }
+        if (armed && destination == dsc && ++dscReplacements > 1) {
+            backup = source;
+            ++recoveryAttempts;
+            if (const auto error = RecoveryFailure(destination)) return error;
+        }
+        return SaveFileOperations::Replace(source, destination, overwrite);
+    }
+    std::error_code Remove(const std::filesystem::path &path) override {
+        if (armed && path == dsc) {
+            ++recoveryAttempts;
+            if (const auto error = RecoveryFailure(path)) return error;
+        }
+        if (armed && cleanup != None && path == stagedNms) {
+            if (cleanup == Unknown) throw 5;
+            if (cleanup == Exception)
+                throw std::filesystem::filesystem_error("Injected candidate cleanup failure", path,
+                                                       std::make_error_code(std::errc::permission_denied));
+            return std::make_error_code(std::errc::permission_denied);
+        }
+        return SaveFileOperations::Remove(path);
+    }
+private:
+    std::error_code RecoveryFailure(const std::filesystem::path &path) {
+        if (recovery == Exception)
+            throw std::filesystem::filesystem_error("Injected DSC recovery failure", path,
+                                                   std::make_error_code(std::errc::permission_denied));
+        if (recovery == Unknown) throw 7;
+        return recovery == Error ? std::make_error_code(std::errc::permission_denied) : std::error_code{};
+    }
+};
 }
 
 void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePath) {
@@ -68,7 +117,8 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     DocumentCommands *owner = nullptr;
     EditorApplication editor([&] { return &document; }, [&] { return !runtime.Busy() && (!owner || !owner->Busy()); });
     Presentation presentation;
-    DocumentFiles files([&] { return &document; }, runtime, presentation);
+    FailingNmsPublication publication;
+    DocumentFiles files([&] { return &document; }, runtime, presentation, &publication);
     DocumentCommands commands(editor, files, runtime, [&] { return &document; }, presentation);
     owner = &commands;
     ObjectCommands objects([&] { return &document; });
@@ -298,7 +348,7 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     Check(status(batch.operation) == EDITOR_STALE && !commands.Busy(), "old duplicate prompt retained the file operation");
     // NMS + DSC preparation and publication preserve both previous outputs.
     const auto graphRef = document.Reference(graph.created);
-    const auto saveNms = [&](const std::string &path, bool ask = false) {
+    const auto saveNms = [&](const std::string &path, bool ask = false, EditorView view = 0) {
         const EditorValue args[] = {
             {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {&graphRef, 1}},
             {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, {}, EditorText(path)},
@@ -308,7 +358,7 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
             {EDITOR_TEXT("version"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("1.25")},
             {EDITOR_TEXT("description"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("First line\nSecond line")},
             {EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, {}, {}, 1}};
-        return editor.Execute("script.export", {editor.Scope(), args, 8});
+        return editor.Execute("script.export", {editor.Scope(view), args, 8});
     };
     const auto output = (root / "graphs.nms").u8string();
     auto scriptExport = saveNms(output);
@@ -318,6 +368,116 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     Check(ReadBehaviorDescription(output, description) && description.author == "Author" && description.version == 1.25f &&
           description.description == "First line\nSecond line", "DSC content changed");
     const auto nmsBefore = Bytes(output), dscBefore = Bytes(BehaviorDescriptionPath(output));
+    // Retain a real Redo branch while exports fail and are retried.
+    Check(RenameLevelObject(document, firstRef, "Recovery redo marker").ok && document.History().Undo(),
+          "prepare recovery Redo branch");
+    const auto recoveryToken = document.Token();
+    const auto recoveryRevision = document.ChangeRevision(), recoveryTopology = document.TopologyRevision();
+    const auto recoveryHistory = document.History().UndoCount();
+    const auto recoveryRedo = document.History().RedoLabel();
+    const auto recoverySelection = selection.References();
+    const auto recoveryDirty = document.Dirty();
+    const auto context = document.Context();
+    const auto generation = host.Generation();
+    auto *session = document.Session(script.created);
+    const auto sessionRevision = session->Revision();
+    const InterfaceData originalData = session->Data();
+    const auto chunkBytes = [](CKStateChunk *chunk) {
+        std::vector<unsigned char> bytes(chunk ? size_t(chunk->ConvertToBuffer(nullptr)) : 0);
+        if (!bytes.empty()) chunk->ConvertToBuffer(bytes.data());
+        return bytes;
+    };
+    auto *behavior = CKBehavior::Cast(document.Resolve(graphRef));
+    const auto flags = behavior->GetFlags();
+    const auto chunk = chunkBytes(behavior->GetInterfaceChunk());
+    const auto writeMode = context->GetFileWriteMode();
+    const auto source = document.SourcePath();
+    const auto preserved = [&] {
+        Check(document.Token() == recoveryToken && document.Context() == context && host.Generation() == generation &&
+                  document.ChangeRevision() == recoveryRevision && document.TopologyRevision() == recoveryTopology &&
+                  document.Dirty() == recoveryDirty && document.History().UndoCount() == recoveryHistory &&
+                  document.History().CanRedo() && document.History().RedoLabel() == recoveryRedo &&
+                  selection.References() == recoverySelection && document.SourcePath() == source,
+              "failed NMS recovery changed editing state");
+        Check(session->Revision() == sessionRevision && InterfaceDataDiff().Compare(originalData, session->Data()).identical &&
+                  behavior->GetFlags() == flags && chunkBytes(behavior->GetInterfaceChunk()) == chunk &&
+                  context->GetFileWriteMode() == writeMode && !context->m_Saving && !document.EditOpen(),
+              "failed NMS recovery changed source chunks, flags or display data");
+    };
+    const std::string oldDescription = "Previous description for recovery";
+    std::vector<fs::path> retainedBackups;
+    unsigned recoveryCase = 0;
+    const auto checkRecovery = [&](bool existed, FailingNmsPublication::Fault writeFault,
+                                   FailingNmsPublication::Fault fault, FailingNmsPublication::Fault cleanupFailure) {
+        const auto recovery = (root / ("recovery-" + std::to_string(recoveryCase++) + ".nms")).u8string();
+        { std::ofstream file(recovery, std::ios::binary); file << nmsBefore; }
+        const auto recoveryDsc = BehaviorDescriptionPath(recovery);
+        if (existed) { std::ofstream file(recoveryDsc, std::ios::binary); file << oldDescription; }
+        publication = {};
+        publication.nms = fs::weakly_canonical(fs::u8path(recovery));
+        publication.dsc = fs::weakly_canonical(fs::u8path(recoveryDsc));
+        publication.publication = writeFault;
+        publication.recovery = fault;
+        publication.cleanup = cleanupFailure;
+        publication.armed = true;
+        const auto requester = editor.OpenScope();
+        const auto failure = saveNms(recovery, false, requester);
+        Check(failure.status == EDITOR_QUEUED && failure.operation, "accept NMS recovery operation");
+        editor.CloseScope(requester);
+        drain();
+        publication.armed = false;
+        Check(status(failure.operation, &written) == EDITOR_ERROR && publication.nmsFailures == 1 &&
+                  publication.recoveryAttempts == 1 && !commands.Busy(),
+              "NMS publication and recovery were not attempted exactly once");
+        Check(Bytes(recovery) == nmsBefore, "failed NMS publication overwrote the previous NMS");
+        const auto remaining = fault == FailingNmsPublication::None ? 0u : 1u;
+        Check(written == remaining && outputs(failure.operation) == (remaining ? std::vector<std::string>{recoveryDsc}
+                                                                            : std::vector<std::string>{}),
+              "failed DSC recovery concealed the remaining output");
+        const EditorValue operation{EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE, {}, {}, failure.operation};
+        const auto completed = editor.Query("application.operation", {editor.Scope(), &operation, 1});
+        std::string message;
+        for (const auto &field : completed.fields) if (field.key == "message") message = field.text;
+        if (remaining) {
+            BehaviorDescription actual;
+            Check(ReadBehaviorDescription(recovery, actual) && actual.author == "Author", "remaining DSC is not the published output");
+            Check(message.find(std::string(existed ? "Cannot restore the previous output: " : "Cannot remove the new output: ") + recoveryDsc) != std::string::npos,
+                  "completed operation omitted the recovery failure");
+            if (existed) {
+                Check(fs::is_regular_file(publication.backup) && Bytes(publication.backup) == oldDescription,
+                      "failed NMS publication and DSC recovery discarded the previous DSC backup");
+                Check(message.find("Previous output saved at " + publication.backup.u8string()) != std::string::npos,
+                      "closed requesting view lost the backup location");
+                retainedBackups.push_back(publication.backup);
+            } else Check(message.find("Previous output saved at") == std::string::npos, "new DSC claimed an old backup");
+        } else Check(existed ? Bytes(recoveryDsc) == oldDescription : !fs::exists(recoveryDsc), "DSC recovery did not restore its prior state");
+        if (cleanupFailure) {
+            Check(message.find("Cannot remove temporary save file") != std::string::npos &&
+                      fs::is_regular_file(publication.stagedNms), "cleanup failure concealed the unremoved candidate");
+            Check(fs::remove(publication.stagedNms), "remove injected cleanup residue");
+        } else Check(!fs::exists(publication.stagedNms), "unpublished NMS candidate leaked");
+        preserved();
+        // Retrying may replace the remaining DSC, but cannot collect an earlier
+        // recovery backup. A user can still restore that backup afterwards.
+        const auto retry = saveNms(recovery);
+        drain();
+        Check(status(retry.operation, &written) == EDITOR_OK && written == 2 &&
+                  outputs(retry.operation) == std::vector<std::string>({recovery, recoveryDsc}), "NMS export retry failed");
+        for (const auto &backup : retainedBackups)
+            Check(Bytes(backup) == oldDescription, "subsequent export discarded an earlier recovery backup");
+        preserved();
+    };
+    for (bool existed : {false, true})
+        for (auto writeFault : {FailingNmsPublication::Error, FailingNmsPublication::Exception, FailingNmsPublication::Unknown})
+            for (auto fault : {FailingNmsPublication::None, FailingNmsPublication::Error,
+                               FailingNmsPublication::Exception, FailingNmsPublication::Unknown})
+                checkRecovery(existed, writeFault, fault, FailingNmsPublication::None);
+    for (auto cleanup : {FailingNmsPublication::Error, FailingNmsPublication::Exception, FailingNmsPublication::Unknown})
+        checkRecovery(true, FailingNmsPublication::Exception, FailingNmsPublication::Exception, cleanup);
+    for (const auto &entry : fs::directory_iterator(root))
+        if (entry.path().filename().u8string().find(".nemodev-save-") == 0)
+            Check(std::find(retainedBackups.begin(), retainedBackups.end(), fs::weakly_canonical(entry.path())) != retainedBackups.end(),
+                  "NMS recovery leaked an unreported temporary file");
     const auto blocked = (root / "blocked.nms").u8string();
     fs::create_directory(blocked);
     { std::ofstream file(BehaviorDescriptionPath(blocked)); file << "Keep previous description"; }
