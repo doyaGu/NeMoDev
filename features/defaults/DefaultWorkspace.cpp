@@ -1,5 +1,6 @@
 #include "features/defaults/DefaultWorkspace.h"
 #include "features/setup/SetupCommands.h"
+#include "features/schematic/SchematicCommands.h"
 
 namespace vdev {
 WorkspaceConfiguration DefaultWorkspaceConfiguration() {
@@ -85,6 +86,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.push_back({"editor", "value.array-column", "builtin.array-values"});
     const auto &setup = SetupCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), setup.begin(), setup.end());
+    const auto &schematic = SchematicCommands::DefaultProviders();
+    result.contributions.providers.insert(result.contributions.providers.end(), schematic.begin(), schematic.end());
     result.views = {{"document.file-dialogs", "", "", true},
                     {"document.output-dialogs", "", "", true},
                     {"scene.level", "main.level", "editing", true, true},

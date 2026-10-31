@@ -130,10 +130,10 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) || !m_Outputs.Register(error) ||
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
-        !m_SetupCommands.Register(m_Editor, error) || !RegisterArrayValueEditors(m_Editor, error) ||
-        !RegisterObjectViews(m_Editor, error) || !m_SceneCommands.Register(error) ||
-        !RegisterSceneViews(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) ||
-        !RegisterSceneNavigation(error)) {
+        !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
+        !RegisterArrayValueEditors(m_Editor, error) || !RegisterObjectViews(m_Editor, error) ||
+        !m_SceneCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
+        !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }

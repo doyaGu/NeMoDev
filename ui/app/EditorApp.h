@@ -8,6 +8,7 @@
 #include "features/objects/SelectionCommands.h"
 #include "features/resources/DataResourceCommands.h"
 #include "features/setup/SetupCommands.h"
+#include "features/schematic/SchematicCommands.h"
 #include "features/values/ParameterCommands.h"
 #include "workspace/EditorWorkspace.h"
 #include <functional>
@@ -251,6 +252,7 @@ private:
     ParameterCommands m_ParameterCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
     ArrayCommands m_ArrayCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, m_State.clipboard};
     SetupCommands m_SetupCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
+    SchematicCommands m_SchematicCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
     SelectionCommands m_SelectionCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                                           m_State.objectSelection};
     SchematicCanvas m_Canvas;
