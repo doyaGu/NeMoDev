@@ -225,7 +225,10 @@ void EditorApp::OpenStartupTool(const std::string &name) {
     if (name.compare(0, 5, "prefs") == 0) {
         int page = 0;
         if (name.size() > 6) page = std::atoi(name.c_str() + 6);
-        m_Tools.OpenGeneralPreferences(page);
+        if (page >= 0 && size_t(page) < Preferences::Pages().size()) {
+            const EditorValue value{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, EditorLiteral(Preferences::Pages()[size_t(page)].id)};
+            m_Editor.Execute("preferences.open", {m_Editor.Scope(), &value, 1});
+        } else Command("preferences.open");
     } else if (name == "plugins") {
         Command("environment.open-plugins");
     } else if (name == "paths") {

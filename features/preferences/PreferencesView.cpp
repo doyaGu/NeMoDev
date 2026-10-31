@@ -1,51 +1,57 @@
-// Dev's General Preferences (Options > General Preferences, Ctrl+P): the
-// "Current Prefs" pages laid out as the Dev 2.5 screenshots, with Dev's
-// labels ([Preferences] of the language pack) and Dev's registry value
-// names (Preferences::settings). Edited on a copy; OK keeps it,
-// Cancel drops it, Default restores the page's Dev defaults.
-
-#include "ui/tools/ToolWindows.h"
-
-#include <algorithm>
-#include <cstdio>
-#include <cstring>
-#include <filesystem>
-#include <sstream>
-
-#include "imgui.h"
-
-#include "CKAll.h"
-
+#include "features/preferences/PreferencesView.h"
+#include "application/Preferences.h"
+#include "workspace/EditorClient.h"
+#include "workspace/EditorPopup.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/TypeAhead.h"
-#include "core/layout/LayoutView.h"
-#include "core/runtime/TextEncoding.h"
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <limits>
+#include <set>
+#include <sstream>
 
 namespace vdev {
 
-const char *const ToolWindows::PREFERENCE_PAGES[] = {
-    "3D Layout - Rendering",       "3D Layout - Actions", "3D Layout - Interface", "3D Layout - Reference Guide",
-    "3D Layout - Snap & Align",    "Schematic",           "Miscellaneous Controls"};
-const int ToolWindows::PREFERENCE_PAGE_COUNT = 7;
-
 namespace {
-
-// The registry key prefixes a page's Default button restores.
-const char *const PAGE_PREFIXES[][12] = {
-    {"3D Layout\\Author Mode\\", "3D Layout\\Player Mode\\", "3D Layout\\Environment\\Ignore",
-     "3D Layout\\Environment\\Screen", "3D Layout\\Author RealTime", "3D Layout\\Player RealTime"},
-    {"3D Layout\\Actions\\Object", "3D Layout\\Actions\\Camera Rotate", "3D Layout\\Actions\\Camera Translate",
-     "3D Layout\\Actions\\Camera Zoom", "3D Layout\\Actions\\Camera Ortho", "3D Layout\\Actions\\Camera Roll",
-     "3D Layout\\Actions\\Camera Fov", "3D Layout\\Actions\\Camera Fly", "3D Layout\\Actions\\Camera Navigate",
-     "3D Layout\\Actions\\Free", "3D Layout\\Actions\\Orbit"},
-    {"3D Layout\\Interface Objects\\", "3D Layout\\Auto Show", "3D Layout\\Show New Setups", "3D Layout\\Debug Mode",
-     "3D Layout\\World", "3D Layout\\Screen", "3D Layout\\Homogenous", "3D Layout\\Actions\\Camera Plane"},
-    {"3D Layout\\Reference Grid\\", nullptr},
-    {"3D Layout\\Snap\\", nullptr},
-    {"Schematic\\", nullptr},
-    {"CK2 Settings\\", "File Options\\", "3D Layout\\Show Dynamic Objects", nullptr},
+struct PreferencesView {
+    EditorClient client;
+    EditorPopup popup;
+    Preferences draft;
+    std::vector<EditorField> catalog;
+    std::set<std::string> invalid;
+    uint64_t revision = 0, catalogVersion = 0;
+    EditorOperation operation = 0;
+    int page = 0, axis = 0, center = 3;
+    bool loaded = false;
+    std::string message;
+    PreferencesView(const EditorHost *host, EditorView id) : client(host, id) {}
+    const std::vector<EditorField> &Rows(const char *key) const;
+    void Draw(EditorViewFrame &);
+    bool Check(Preferences &, const char *, const char *);
+    void NumberField(Preferences &, const char *, const char *, float, const char *, bool);
+    void FloatField(Preferences &, const char *, const char *, float = 90, const char * = "%g");
+    void IntField(Preferences &, const char *, const char *, float = 90);
+    void RenderingPage(Preferences &);
+    void ActionsPage(Preferences &);
+    void InterfacePage(Preferences &);
+    void ReferenceGuidePage(Preferences &);
+    void SnapPage(Preferences &);
+    void SchematicPage(Preferences &);
+    void MiscPage(Preferences &);
 };
-
+const EditorField *Field(const std::vector<EditorField> &fields, const char *key) {
+    for (const auto &field : fields) if (field.key == key) return &field;
+    return nullptr;
+}
+std::string Text(const EditorField &row, const char *key) {
+    const auto *field = Field(row.fields, key); return field ? field->text : std::string();
+}
+const std::vector<EditorField> &PreferencesView::Rows(const char *key) const {
+    static const std::vector<EditorField> empty;
+    const auto *field = Field(catalog, key); return field ? field->fields : empty;
+}
 // The page sizes of the screenshots.
 const ImVec2 PAGE_SIZES[] = {{1150, 560}, {742, 830}, {1115, 770}, {665, 590}, {607, 520}, {883, 560}, {985, 560}};
 
@@ -82,25 +88,41 @@ void Centered(const char *text, bool bold = true) {
     else ImGui::TextUnformatted(text);
 }
 
-bool Check(Preferences &p, const char *key, const char *label) {
-    bool value = p.Bool(key);
-    if (!ImGui::Checkbox(label, &value)) return false;
-    p.SetBool(key, value);
-    return true;
+bool PreferencesView::Check(Preferences &p, const char *key, const char *label) {
+    EditorValue value{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(p.Bool(key))};
+    const EditorSink update{&value, [](void *data, const EditorValue *next, uint32_t count) {
+        if (!next || count != 1 || next->type != EDITOR_INTEGER_VALUE || next->integer > 1) return EDITOR_INVALID;
+        static_cast<EditorValue *>(data)->integer = next->integer; return EDITOR_OK;
+    }};
+    const EditorValueInput input{sizeof(input), 0, EditorLiteral(label), value, nullptr, 0, 0, update, EDITOR_VALUE_INLINE, 0, ImGui::GetFrameHeight()};
+    const auto action = client.Host()->drawValue(client.Host()->data, EditorString EDITOR_TEXT("value.boolean"), &input);
+    if (action & EDITOR_INPUT_INVALID) invalid.insert(key);
+    else if (action & EDITOR_INPUT_CHANGED) { invalid.erase(key); p.SetBool(key, value.integer != 0); return true; }
+    return false;
 }
-
-// A numeric text field (Dev's underlined edit boxes).
-void FloatField(Preferences &p, const char *key, const char *id, float width = 90, const char *format = "%g") {
-    float value = p.Float(key);
-    ImGui::SetNextItemWidth(width);
-    if (ImGui::InputFloat(id, &value, 0, 0, format)) p.SetFloat(key, value);
+void PreferencesView::NumberField(Preferences &p, const char *key, const char *id, float width, const char *format, bool real) {
+    EditorValue value{EDITOR_TEXT("value"), real ? EDITOR_REAL_VALUE : EDITOR_INTEGER_VALUE};
+    if (real) value.real = p.Float(key); else value.integer = uint64_t(int64_t(p.Int(key)));
+    char text[96];
+    if (real) std::snprintf(text, sizeof(text), format, value.real); else std::snprintf(text, sizeof(text), "%d", int(int64_t(value.integer)));
+    const EditorValue display{EDITOR_TEXT("display"), EDITOR_TEXT_VALUE, {}, EditorLiteral(text)};
+    const EditorSink update{&value, [](void *data, const EditorValue *next, uint32_t count) {
+        auto &value = *static_cast<EditorValue *>(data);
+        if (!next || count != 1 || next->type != value.type) return EDITOR_INVALID;
+        if (next->type == EDITOR_REAL_VALUE && (!std::isfinite(next->real) || std::abs(next->real) > std::numeric_limits<float>::max())) return EDITOR_INVALID;
+        if (next->type == EDITOR_INTEGER_VALUE && (int64_t(next->integer) < INT32_MIN || int64_t(next->integer) > INT32_MAX)) return EDITOR_INVALID;
+        value.integer = next->integer; value.real = next->real; return EDITOR_OK;
+    }};
+    const EditorValueInput input{sizeof(input), 0, EditorLiteral(id), value, &display, 1, 0, update, EDITOR_VALUE_DIALOG, width, ImGui::GetFrameHeight()};
+    const auto action = client.Host()->drawValue(client.Host()->data, EditorLiteral(real ? "value.real" : "value.integer"), &input);
+    if (action & EDITOR_INPUT_INVALID) invalid.insert(key);
+    else if (action & EDITOR_INPUT_CHANGED) {
+        invalid.erase(key);
+        if (real) p.SetFloat(key, float(value.real)); else p.SetInt(key, int(int64_t(value.integer)));
+    }
 }
-
-void IntField(Preferences &p, const char *key, const char *id, float width = 90) {
-    int value = p.Int(key);
-    ImGui::SetNextItemWidth(width);
-    if (ImGui::InputInt(id, &value, 0, 0)) p.SetInt(key, value);
-}
+void PreferencesView::FloatField(Preferences &p, const char *key, const char *id, float width, const char *format) { NumberField(p, key, id, width, format, true); }
+void PreferencesView::IntField(Preferences &p, const char *key, const char *id, float width) { NumberField(p, key, id, width, "%d", false); }
 
 // "a|b|c" or "a;b" lists of numbers (Dev stores vectors as text).
 std::vector<float> Numbers(const std::string &text) {
@@ -185,22 +207,13 @@ bool Combo(const char *id, int &index, const std::vector<std::string> &items, fl
     return changed;
 }
 
-// The render drivers of the render manager (none when no render engine runs).
-std::vector<std::string> RenderDrivers(CKContext *context, const std::string &stored) {
+void DriverCombo(Preferences &p, const std::vector<EditorField> &rows, const char *key, const char *id, float width) {
     std::vector<std::string> drivers;
-    CKRenderManager *render = context ? context->GetRenderManager() : nullptr;
-    for (int i = 0; render && i < render->GetRenderDriverCount(); ++i)
-        if (VxDriverDesc *desc = render->GetRenderDriverDescription(i))
-            drivers.push_back(AnsiToUtf8(DriverName(desc)));
-    const std::string current = AnsiToUtf8(stored);
+    for (const auto &row : rows) drivers.push_back(Text(row, "name"));
+    const auto current = p.Text(key);
     if (!current.empty() && std::find(drivers.begin(), drivers.end(), current) == drivers.end()) drivers.push_back(current);
-    return drivers;
-}
-
-void DriverCombo(Preferences &p, CKContext *context, const char *key, const char *id, float width) {
-    const std::vector<std::string> drivers = RenderDrivers(context, p.Text(key));
-    int index = static_cast<int>(std::find(drivers.begin(), drivers.end(), AnsiToUtf8(p.Text(key))) - drivers.begin());
-    if (Combo(id, index, drivers, width)) p.Set(key, Utf8ToAnsi(drivers[index]));
+    int index = int(std::find(drivers.begin(), drivers.end(), current) - drivers.begin());
+    if (Combo(id, index, drivers, width)) p.Set(key, drivers[size_t(index)]);
 }
 
 // "640x480x32x59" <-> "640x480x32 @ 59Hz".
@@ -211,118 +224,87 @@ std::string ModeLabel(const std::string &mode) {
     return mode;
 }
 
-} // namespace
 
-void ToolWindows::OpenGeneralPreferences(int page) {
-    m_Edit = m_State.preferences;
-    if (page >= 0 && page < PREFERENCE_PAGE_COUNT) m_Page = page;
-    m_ShowPreferences = true;
-    m_FocusPreferences = true;
-}
-
-void ToolWindows::GeneralPreferences() {
-    if (m_FocusPreferences && m_OpenPopups) {
-        ImGui::OpenPopup("General Preferences");
-        m_CenterPreferences = 3;
-        m_FocusPreferences = false;
+void PreferencesView::Draw(EditorViewFrame &frame) {
+    if (!loaded) {
+        const auto result = client.Query("preferences.values");
+        const auto *value = EditorClient::Find(result, "value");
+        if (result.status == EDITOR_OK && value && draft.ReadValues(value->fields, message)) {
+            revision = EditorClient::Integer(result, "revision"); loaded = true; message.clear();
+        }
     }
-    // The dialog fits its page; centered while it takes its size.
-    if (m_CenterPreferences > 0) {
-        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        --m_CenterPreferences;
+    const auto version = client.Revision("preferences.catalog");
+    if (catalog.empty() || version != catalogVersion) {
+        const auto result = client.Query("preferences.catalog");
+        if (result.status == EDITOR_OK) { catalog = result.fields; catalogVersion = version; }
     }
-    if (!ImGui::BeginPopupModal("General Preferences", nullptr,
-                                ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize)) {
-        m_ShowPreferences = false;
-        return;
+    if (operation) {
+        const auto result = client.Completion(operation);
+        if (result.status != EDITOR_QUEUED) {
+            operation = 0;
+            if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE) { frame.close = 1; return; }
+            message = result.message.empty() ? "Preferences changed or could not be saved. Close and reopen this dialog." : result.message;
+        }
     }
-    // "Current Prefs" at the top right.
+    popup.Open(frame);
+    if (center > 0) { ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(.5f,.5f)); --center; }
+    if (!ImGui::BeginPopupModal(frame.window.data, nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize)) return;
+    ImGui::BeginDisabled(!loaded || operation != 0);
+    const auto &pages = Preferences::Pages();
     const float comboWidth = 270;
     ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - comboWidth - ImGui::CalcTextSize("Current Prefs").x - 20);
-    Bold("Current Prefs");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(comboWidth);
-    if (ImGui::BeginCombo("##page", PREFERENCE_PAGES[m_Page])) {
+    Bold("Current Prefs"); ImGui::SameLine(); ImGui::SetNextItemWidth(comboWidth);
+    if (ImGui::BeginCombo("##page", pages[size_t(page)].title)) {
         TypeAhead typeAhead;
-        for (int i = 0; i < PREFERENCE_PAGE_COUNT; ++i)
-            if (typeAhead.Selectable(PREFERENCE_PAGES[i], i == m_Page) && i != m_Page) {
-                m_Page = i;
-                m_CenterPreferences = 3;
-            }
+        for (int i = 0; size_t(i) < pages.size(); ++i) if (typeAhead.Selectable(pages[size_t(i)].title, i == page) && i != page) { page = i; center = 3; }
         ImGui::EndCombo();
     }
-    ImGui::BeginChild("page", ImVec2(PageSize(m_Page).x, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
-    Preferences &p = m_Edit;
-    switch (m_Page) {
-    case 0: RenderingPage(p); break;
-    case 1: ActionsPage(p); break;
-    case 2: InterfacePage(p); break;
-    case 3: ReferenceGuidePage(p); break;
-    case 4: SnapPage(p); break;
-    case 5: SchematicPage(p); break;
-    default: MiscPage(p); break;
+    ImGui::BeginChild("page", ImVec2(PageSize(page).x, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
+    switch (page) {
+    case 0: RenderingPage(draft); break;
+    case 1: ActionsPage(draft); break;
+    case 2: InterfacePage(draft); break;
+    case 3: ReferenceGuidePage(draft); break;
+    case 4: SnapPage(draft); break;
+    case 5: SchematicPage(draft); break;
+    default: MiscPage(draft); break;
     }
     ImGui::EndChild();
-    if (ImGui::Button("Default", ImVec2(90, 0))) {
-        // Dev's Default restores the page shown.
-        for (const char *prefix : PAGE_PREFIXES[m_Page])
-            if (prefix) p.ResetSettings(prefix);
-        if (m_Page == 5) {
-            // The Schematic page fields of Preferences.
-            const Preferences defaults;
-            p.automaticLink = defaults.automaticLink;
-            p.strictMultiSelection = defaults.strictMultiSelection;
-            p.searchBestPath = defaults.searchBestPath;
-            p.maxRecentBlocks = defaults.maxRecentBlocks;
-            p.tooltips = defaults.tooltips;
-            p.tooltipDelayMs = defaults.tooltipDelayMs;
-            p.ioLinkColor = defaults.ioLinkColor;
-            p.parameterLinkColor = defaults.parameterLinkColor;
-            p.exportedLinkColor = defaults.exportedLinkColor;
-            p.operationLinkColor = defaults.operationLinkColor;
-            p.validLinkColor = defaults.validLinkColor;
-            p.invalidLinkColor = defaults.invalidLinkColor;
-            p.obsoleteColor = defaults.obsoleteColor;
-            p.noPrototypeColor = defaults.noPrototypeColor;
-            p.noObjectColor = defaults.noObjectColor;
-            p.toReplaceColor = defaults.toReplaceColor;
-        }
-        if (m_Page == 6) {
-            // Dev.exe sub_5AF380: the first render engine.
-            CKPluginManager *plugins = CKGetPluginManager();
-            CKPluginEntry *engine = plugins ? plugins->GetPluginInfo(CKPLUGIN_RENDERENGINE_DLL, 0) : nullptr;
-            CKPluginDll *dll = engine ? plugins->GetPluginDllInfo(engine->m_PluginDllIndex) : nullptr;
-            if (dll && dll->m_DllFileName.CStr()) {
-                std::string name = std::filesystem::path(dll->m_DllFileName.CStr()).stem().string();
-                for (char &c : name) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
-                p.Set("CK2 Settings\\Render Engine", name);
-            }
-        }
+    if (ImGui::Button("Default", ImVec2(90,0))) {
+        const auto &engines = Rows("engines");
+        draft.ResetPage(page, engines.empty() ? std::string() : Text(engines.front(), "name")); invalid.clear();
     }
     ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 2 * 90 - ImGui::GetStyle().ItemSpacing.x);
-    if (ImGui::Button("OK", ImVec2(90, 0))) {
-        p.maxRecentBlocks = std::max(1, std::min(100, p.maxRecentBlocks));
-        p.tooltipDelayMs = std::max(0, p.tooltipDelayMs);
-        m_State.preferences = p;
-        if (applyPreferences) applyPreferences();
-        ImGui::CloseCurrentPopup();
+    const auto available = client.Query("preferences.state");
+    const bool canApply = loaded && !operation && invalid.empty() && available.status == EDITOR_OK && EditorClient::Integer(available, "available");
+    ImGui::BeginDisabled(!canApply);
+    if (ImGui::Button("OK", ImVec2(90,0))) {
+        draft.maxRecentBlocks = std::clamp(draft.maxRecentBlocks, 1, 100); draft.tooltipDelayMs = std::max(0, draft.tooltipDelayMs);
+        EditorField value{"value", EDITOR_RECORD}; value.fields = draft.Values();
+        const std::vector<EditorField> fields{value}; const auto borrowed = BorrowEditorFields(fields);
+        const auto result = client.Command("preferences.apply", {IntegerArgument("revision", revision), borrowed.values.front()});
+        if (result.status == EDITOR_QUEUED) operation = result.operation;
+        else if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE) frame.close = 1;
+        else message = result.message.empty() ? "Preferences changed or could not be saved. Close and reopen this dialog." : result.message;
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(90, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    ImGui::EndDisabled(); ImGui::EndDisabled(); ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(90,0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) frame.close = 1;
+    if (!invalid.empty()) ImGui::TextUnformatted("Enter a valid value before applying.");
+    if (!message.empty()) ImGui::TextWrapped("%s", message.c_str());
     ImGui::EndPopup();
 }
 
 // ------------------------------------------------------- 3D Layout - Rendering
 
-void ToolWindows::RenderingPage(Preferences &p) {
-    CKContext *context = m_State.host.Context();
+void PreferencesView::RenderingPage(Preferences &p) {
+    const auto &drivers = Rows("drivers");
     static const std::vector<std::string> renderTypes = {"Wireframe", "Flat", "Gouraud", "Phong"};
     const float half = ImGui::GetContentRegionAvail().x * 0.5f - 6;
     ImGui::BeginGroup();
     BeginBox("Author Mode", ImVec2(half, 0));
     ImGui::TextUnformatted("Render Device");
     ImGui::SameLine(200);
-    DriverCombo(p, context, "3D Layout\\Author Mode\\Device Driver", "##authordevice", half - 215);
+    DriverCombo(p, drivers, "3D Layout\\Author Mode\\Device Driver", "##authordevice", half - 215);
     ImGui::TextUnformatted("Render Type");
     ImGui::SameLine(200);
     int type = p.Int("3D Layout\\Author Mode\\Render Type Index");
@@ -381,7 +363,7 @@ void ToolWindows::RenderingPage(Preferences &p) {
     BeginBox("Player Mode", ImVec2(0, 0));
     ImGui::TextUnformatted("Fullscreen Render Device");
     ImGui::SameLine(220);
-    DriverCombo(p, context, "3D Layout\\Player Mode\\FullScren Driver", "##playerdevice", -1);
+    DriverCombo(p, drivers, "3D Layout\\Player Mode\\FullScren Driver", "##playerdevice", -1);
     ImGui::TextUnformatted("Render Type");
     ImGui::SameLine(220);
     int playerType = p.Int("3D Layout\\Player Mode\\Render Type Index");
@@ -392,17 +374,10 @@ void ToolWindows::RenderingPage(Preferences &p) {
         // The display modes of the fullscreen driver (the first one for a
         // name no driver has, as Player Mode's fullscreen takes).
         std::vector<std::string> modes, labels;
-        CKRenderManager *render = context ? context->GetRenderManager() : nullptr;
-        const int driver = LayoutFullScreenDriver(context, p.Text("3D Layout\\Player Mode\\FullScren Driver"));
-        if (VxDriverDesc *desc = render && driver < render->GetRenderDriverCount()
-                                     ? render->GetRenderDriverDescription(driver)
-                                     : nullptr) {
-            for (int m = 0; m < DisplayModeCount(desc); ++m) {
-                const VxDisplayMode &mode = DisplayModeAt(desc, m);
-                modes.push_back(std::to_string(mode.Width) + "x" + std::to_string(mode.Height) + "x" +
-                                std::to_string(mode.Bpp) + "x" + std::to_string(mode.RefreshRate));
-            }
-        }
+        const auto stored = p.Text("3D Layout\\Player Mode\\FullScren Driver");
+        auto driver = std::find_if(drivers.begin(), drivers.end(), [&](const EditorField &row) { return ImStricmp(Text(row, "name").c_str(), stored.c_str()) == 0; });
+        if (driver == drivers.end() && !drivers.empty()) driver = drivers.begin();
+        if (driver != drivers.end()) if (const auto *choices = Field(driver->fields, "modes")) modes = choices->texts;
         const std::string current = p.Text("3D Layout\\Player Mode\\Render Mode");
         if (std::find(modes.begin(), modes.end(), current) == modes.end()) modes.insert(modes.begin(), current);
         for (const auto &mode : modes) labels.push_back(ModeLabel(mode));
@@ -437,7 +412,7 @@ void ToolWindows::RenderingPage(Preferences &p) {
 
 // ---------------------------------------------------------- 3D Layout - Actions
 
-void ToolWindows::ActionsPage(Preferences &p) {
+void PreferencesView::ActionsPage(Preferences &p) {
     BeginBox("Actions", ImVec2(0, 0));
     Centered("Objects Manipulation");
     struct Row {
@@ -507,7 +482,7 @@ void ToolWindows::ActionsPage(Preferences &p) {
 
 // -------------------------------------------------------- 3D Layout - Interface
 
-void ToolWindows::InterfacePage(Preferences &p) {
+void PreferencesView::InterfacePage(Preferences &p) {
     const float half = ImGui::GetContentRegionAvail().x * 0.5f - 6;
     ImGui::BeginGroup();
     BeginBox("Interface Objects", ImVec2(half, 0));
@@ -534,7 +509,7 @@ void ToolWindows::InterfacePage(Preferences &p) {
         // two settings).
         static const std::vector<std::string> kinds = {"Object Axis,Variable Size", "Object Axis,Constant Size",
                                                        "Snap Marker,Variable Size", "Snap Marker,Constant Size"};
-        int &shown = m_AxisKindShown;
+        int &shown = axis;
         const char *constant = shown ? "3D Layout\\Interface Objects\\Snap Marker" : "3D Layout\\Interface Objects\\Constant Object Axis";
         int index = shown * 2 + (p.Bool(constant) ? 1 : 0);
         if (Combo("##axiskind", index, kinds, 210)) {
@@ -625,7 +600,7 @@ void ToolWindows::InterfacePage(Preferences &p) {
 
 // -------------------------------------------------- 3D Layout - Reference Guide
 
-void ToolWindows::ReferenceGuidePage(Preferences &p) {
+void PreferencesView::ReferenceGuidePage(Preferences &p) {
     BeginBox("Grid", ImVec2(0, 0));
     // Orientation: X 1, Y 2, Z 4 (X+Z is Dev's 5); Free Transformation 8
     // (the editor's reading of the registry value).
@@ -659,7 +634,7 @@ void ToolWindows::ReferenceGuidePage(Preferences &p) {
 
 // ------------------------------------------------------ 3D Layout - Snap & Align
 
-void ToolWindows::SnapPage(Preferences &p) {
+void PreferencesView::SnapPage(Preferences &p) {
     // Snap\Mode: Dev's bits (Dev.exe dialog 746, sub_5AC1D0).
     const int mode = p.Int("3D Layout\\Snap\\Mode");
     auto bit = [&](const char *label, int mask) {
@@ -709,7 +684,7 @@ void ToolWindows::SnapPage(Preferences &p) {
 
 // ---------------------------------------------------------------- Schematic
 
-void ToolWindows::SchematicPage(Preferences &p) {
+void PreferencesView::SchematicPage(Preferences &p) {
     const float half = ImGui::GetContentRegionAvail().x * 0.45f;
     BeginBox("Main", ImVec2(half, 0));
     ImGui::Checkbox("Automatic Link", &p.automaticLink);
@@ -737,7 +712,7 @@ void ToolWindows::SchematicPage(Preferences &p) {
     ImGui::BeginGroup();
     BeginBox("Colors", ImVec2(0, 0));
     // Dev stores COLORREF (0x00BBGGRR); a click on the swatch edits it.
-    auto color = [&](const char *label, CKDWORD &colorref) {
+    auto color = [&](const char *label, uint32_t &colorref) {
         ImGui::PushID(label);
         ImGui::TextUnformatted(label);
         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 76);
@@ -747,9 +722,9 @@ void ToolWindows::SchematicPage(Preferences &p) {
             ImGui::OpenPopup("pick");
         if (ImGui::BeginPopup("pick")) {
             if (ImGui::ColorPicker3("##picker", value, ImGuiColorEditFlags_NoSidePreview))
-                colorref = static_cast<CKDWORD>(value[0] * 255.0f + 0.5f) |
-                           (static_cast<CKDWORD>(value[1] * 255.0f + 0.5f) << 8) |
-                           (static_cast<CKDWORD>(value[2] * 255.0f + 0.5f) << 16);
+                colorref = static_cast<uint32_t>(value[0] * 255.0f + 0.5f) |
+                           (static_cast<uint32_t>(value[1] * 255.0f + 0.5f) << 8) |
+                           (static_cast<uint32_t>(value[2] * 255.0f + 0.5f) << 16);
             ImGui::EndPopup();
         }
         ImGui::PopID();
@@ -777,57 +752,40 @@ void ToolWindows::SchematicPage(Preferences &p) {
 
 // ---------------------------------------------------------- Miscellaneous Controls
 
-void ToolWindows::MiscPage(Preferences &p) {
+void PreferencesView::MiscPage(Preferences &p) {
     ImGui::Indent(60);
     char version[64];
-    std::snprintf(version, sizeof(version), "(Version %x)", static_cast<unsigned>(CKGetVersion()));
+    std::snprintf(version, sizeof(version), "(Version %x)", static_cast<unsigned>(Field(catalog, "version") ? Field(catalog, "version")->integer : 0));
     ImGui::TextUnformatted("CK2 Settings");
     ImGui::SameLine(240);
     ImGui::TextUnformatted(version);
     ImGui::Separator();
     ImGui::TextUnformatted("Render Engine");
     ImGui::SameLine(240);
-    // The render engine plugins, named by their dll in lower case (Dev's "Render Engine").
-    CKPluginManager *plugins = CKGetPluginManager();
-    std::vector<std::string> engines;
-    std::vector<CKPluginEntry *> entries;
-    for (int i = 0; plugins && i < plugins->GetPluginCount(CKPLUGIN_RENDERENGINE_DLL); ++i) {
-        CKPluginEntry *entry = plugins->GetPluginInfo(CKPLUGIN_RENDERENGINE_DLL, i);
-        CKPluginDll *dll = entry ? plugins->GetPluginDllInfo(entry->m_PluginDllIndex) : nullptr;
-        if (!dll || !dll->m_DllFileName.CStr()) continue;
-        std::string name = std::filesystem::path(dll->m_DllFileName.CStr()).stem().string();
-        for (char &c : name) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
-        engines.push_back(name);
-        entries.push_back(entry);
-    }
-    std::vector<std::string> labels;
-    for (const auto &engine : engines) {
-        std::string upper = engine;
-        for (char &c : upper) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
-        labels.push_back(upper);
-    }
+    const auto &entries = Rows("engines");
+    std::vector<std::string> engines, labels;
+    for (const auto &entry : entries) { engines.push_back(Text(entry, "name")); labels.push_back(Text(entry, "label")); }
     const std::string current = p.Text("CK2 Settings\\Render Engine");
     int index = static_cast<int>(std::find(engines.begin(), engines.end(), current) - engines.begin());
     if (index == static_cast<int>(engines.size())) {
         engines.push_back(current);
         labels.push_back(current);
-        entries.push_back(nullptr);
     }
     if (Combo("##engine", index, labels, 200)) p.Set("CK2 Settings\\Render Engine", engines[index]);
     ImGui::Unindent(60);
     ImGui::BeginChild("engineinfo", ImVec2(600, 0), ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeY);
-    CKPluginEntry *engine = index < static_cast<int>(entries.size()) ? entries[index] : nullptr;
+    const EditorField *engine = index < static_cast<int>(entries.size()) ? &entries[size_t(index)] : nullptr;
     auto info = [](const char *label, const std::string &value) {
         ImGui::TextUnformatted(label);
         ImGui::SameLine(200);
         ImGui::TextUnformatted(value.c_str());
     };
-    info("Version:", engine ? std::to_string(engine->m_PluginInfo.m_Version) : std::string());
-    info("Description:", engine && engine->m_PluginInfo.m_Description.CStr() ? AnsiToUtf8(engine->m_PluginInfo.m_Description.CStr()) : std::string());
-    info("Author:", engine && engine->m_PluginInfo.m_Author.CStr() ? AnsiToUtf8(engine->m_PluginInfo.m_Author.CStr()) : std::string());
-    info("Summary:", engine && engine->m_PluginInfo.m_Summary.CStr() ? AnsiToUtf8(engine->m_PluginInfo.m_Summary.CStr()) : std::string());
+    info("Version:", engine && Field(engine->fields, "version") ? std::to_string(Field(engine->fields, "version")->integer) : std::string());
+    info("Description:", engine ? Text(*engine, "description") : std::string());
+    info("Author:", engine ? Text(*engine, "author") : std::string());
+    info("Summary:", engine ? Text(*engine, "summary") : std::string());
     ImGui::EndChild();
-    if (current != m_State.preferences.Text("CK2 Settings\\Render Engine"))
+    if (current != (Field(catalog, "engine") ? Field(catalog, "engine")->text : std::string()))
         ImGui::TextDisabled("The Render Engine will not change until you restart Virtools!");
     ImGui::Spacing();
     Check(p, "3D Layout\\Show Dynamic Objects", "Show Dynamic Objects");
@@ -864,14 +822,7 @@ void ToolWindows::MiscPage(Preferences &p) {
         if (codes[texture] == 2) {
             // The format: a bitmap reader that can save.
             std::vector<std::string> formats, extensions;
-            for (int i = 0; plugins && i < plugins->GetPluginCount(CKPLUGIN_BITMAP_READER); ++i) {
-                CKPluginEntry *reader = plugins->GetPluginInfo(CKPLUGIN_BITMAP_READER, i);
-                if (!reader || !reader->m_PluginInfo.m_Extension.m_Data[0]) continue;
-                if (reader->m_ReadersInfo && !(reader->m_ReadersInfo->m_ReaderFlags & CK_DATAREADER_FILESAVE)) continue;
-                extensions.push_back(reader->m_PluginInfo.m_Extension.m_Data);
-                formats.push_back(AnsiToUtf8(std::string(reader->m_PluginInfo.m_Summary.CStr() ? reader->m_PluginInfo.m_Summary.CStr() : "") +
-                                             " (" + reader->m_PluginInfo.m_Extension.m_Data + ")"));
-            }
+            for (const auto &reader : Rows("formats")) { extensions.push_back(Text(reader, "extension")); formats.push_back(Text(reader, "label")); }
             const std::string ext = p.Text("File Options\\Texture Format");
             int format = static_cast<int>(std::find(extensions.begin(), extensions.end(), ext) - extensions.begin());
             ImGui::SetCursorPosX(400);
@@ -895,4 +846,91 @@ void ToolWindows::MiscPage(Preferences &p) {
     }
 }
 
+} // namespace
+
+bool RegisterPreferencesView(EditorApplication &editor, std::string &error) {
+    static const EditorParameter page{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, 1};
+    EditorViewDesc view{}; view.size = sizeof(view); view.imguiVersion = EDITOR_IMGUI_VERSION;
+    view.id = EDITOR_TEXT("preferences.general"); view.provider = EDITOR_TEXT("builtin.preference-views");
+    view.title = EDITOR_TEXT("General Preferences"); view.singleInstance = 1; view.area = EDITOR_APPLICATION;
+    view.create = [](void *, const EditorHost *host, EditorView id) -> void * { return new PreferencesView(host, id); };
+    view.destroy = [](void *data) { delete static_cast<PreferencesView *>(data); };
+    view.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) { static_cast<PreferencesView *>(data)->Draw(*frame); };
+    view.parameters = &page; view.count = 1;
+    view.navigate = [](void *data, const EditorHost *, const EditorRequest *request) {
+        const auto &value = request->values[0].text;
+        if (!value.size) return EDITOR_OK;
+        const std::string name(value.data, value.size);
+        const auto &pages = Preferences::Pages();
+        const auto found = std::find_if(pages.begin(), pages.end(), [&](const PreferencePage &page) { return name == page.id; });
+        if (found == pages.end()) return EDITOR_INVALID;
+        auto &view = *static_cast<PreferencesView *>(data); view.page = int(found - pages.begin()); view.center = 3;
+        return EDITOR_OK;
+    };
+    view.stateVersion = 1;
+    view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &view = *static_cast<PreferencesView *>(data);
+        const EditorValue fields[] = {{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, EditorLiteral(Preferences::Pages()[size_t(view.page)].id)},
+            {EDITOR_TEXT("axis"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(view.axis)}};
+        return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+    };
+    view.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
+        std::vector<EditorField> fields;
+        if (CopyEditorFields(fields, request->values, request->count) != EDITOR_OK || fields.size() != 2) return EDITOR_INVALID;
+        const auto *page = Field(fields, "page"), *axis = Field(fields, "axis");
+        if (!page || page->type != EDITOR_TEXT_VALUE || !axis || axis->type != EDITOR_INTEGER_VALUE || axis->integer > 1) return EDITOR_INVALID;
+        const auto &pages = Preferences::Pages();
+        const auto found = std::find_if(pages.begin(), pages.end(), [&](const PreferencePage &item) { return page->text == item.id; });
+        if (found == pages.end()) return EDITOR_INVALID;
+        auto &view = *static_cast<PreferencesView *>(data); view.page = int(found - pages.begin()); view.axis = int(axis->integer);
+        return EDITOR_OK;
+    };
+    static const EditorParameter fields[] = {{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("value"), EDITOR_RECORD}, {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE}};
+    view.fields = fields; view.fieldCount = uint32_t(std::size(fields));
+    view.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &view = *static_cast<PreferencesView *>(data);
+        EditorField value{"value", EDITOR_RECORD}; value.fields = view.draft.Values();
+        const std::vector<EditorField> fields{{"page", EDITOR_TEXT_VALUE, {}, Preferences::Pages()[size_t(view.page)].id},
+            {"revision", EDITOR_INTEGER_VALUE, {}, {}, view.revision}, value, {"message", EDITOR_TEXT_VALUE, {}, view.message}};
+        const auto borrowed = BorrowEditorFields(fields); return sink.write ? sink.write(sink.data, borrowed.data(), uint32_t(borrowed.size())) : EDITOR_INVALID;
+    };
+    const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.open"), EDITOR_TEXT("builtin.preference-views"), EDITOR_TEXT("General Preferences"),
+            &page, 1, [](void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+                const auto &page = request->values[0].text;
+                const std::string name(page.data ? page.data : "", page.size);
+                if (!name.empty() && std::none_of(Preferences::Pages().begin(), Preferences::Pages().end(),
+                    [&](const PreferencePage &page) { return name == page.id; })) return EDITOR_INVALID;
+                const EditorClient client(host, request->scope.view);
+                const auto result = client.Command("workspace.open-role", {{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("main.preferences")}});
+                if (result.status != EDITOR_OK) return result.status;
+                if (!request->values[0].text.size) {
+                    const EditorValue field{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(result, "view")};
+                    return sink.write ? sink.write(sink.data, &field, 1) : EDITOR_OK;
+                }
+                return host->navigateView(host->data, EditorString EDITOR_TEXT("preferences.general"), EditorClient::Integer(result, "view"), request, sink);
+            }, nullptr, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.close"), EDITOR_TEXT("builtin.preference-views"), EDITOR_TEXT("Close General Preferences"),
+            nullptr, 0, [](void *, const EditorHost *host, const EditorRequest *, EditorSink) {
+                const EditorClient client(host, 0);
+                const auto views = client.Query("workspace.instances");
+                const auto *types = EditorClient::Find(views, "types"), *ids = EditorClient::Find(views, "views");
+                if (views.status != EDITOR_OK || !types || !ids || types->texts.size() != ids->integers.size()) return EDITOR_ERROR;
+                for (size_t i = 0; i < types->texts.size(); ++i) if (types->texts[i] == "preferences.general") {
+                    const auto result = client.Command("workspace.close-view", {IntegerArgument("view", ids->integers[i])});
+                    if (result.status != EDITOR_OK) return result.status;
+                }
+                return EDITOR_OK;
+            }, nullptr, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
+    const EditorMenuLocation location{EDITOR_TEXT("options.preferences"), EDITOR_TEXT("Options preferences")};
+    const EditorMenuDesc menu{EDITOR_TEXT("preferences.open"), EDITOR_TEXT("preferences.open"), EDITOR_TEXT("options.preferences"), EDITOR_TEXT("General Preferences"), 0};
+    const EditorBindingDesc binding{EDITOR_TEXT("preferences.open"), EDITOR_TEXT("Ctrl+P")};
+    const EditorString dependencies[] = {EDITOR_TEXT("preferences.settings"), EDITOR_TEXT("workspace.views")};
+    EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("preferences.views");
+    module.commands = commands; module.commandCount = 2; module.views = &view; module.viewCount = 1;
+    module.locations = &location; module.locationCount = 1; module.menus = &menu; module.menuCount = 1;
+    module.bindings = &binding; module.bindingCount = 1; module.dependencies = dependencies; module.dependencyCount = 2;
+    return editor.Register(module, error);
+}
 } // namespace vdev

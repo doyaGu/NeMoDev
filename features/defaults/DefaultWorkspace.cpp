@@ -2,6 +2,7 @@
 #include "features/setup/SetupCommands.h"
 #include "features/schematic/SchematicCommands.h"
 #include "features/diagnostics/DiagnosticCommands.h"
+#include "features/preferences/PreferencesCommands.h"
 
 namespace vdev {
 WorkspaceConfiguration DefaultWorkspaceConfiguration() {
@@ -107,6 +108,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.insert(result.contributions.providers.end(), schematic.begin(), schematic.end());
     const auto &diagnostics = DiagnosticCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), diagnostics.begin(), diagnostics.end());
+    const auto &preferences = PreferencesCommands::DefaultProviders();
+    result.contributions.providers.insert(result.contributions.providers.end(), preferences.begin(), preferences.end());
     result.views = {{"document.file-dialogs", "", "", true},
                     {"document.output-dialogs", "", "", true},
                     {"environment.folder-dialogs", "", "", true},
@@ -123,6 +126,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                     {"environment.plugins", "main.plugins", ""},
                     {"environment.paths", "main.paths", ""},
                     {"environment.link-options", "main.link-options", ""},
+                    {"preferences.general", "main.preferences", ""},
                     {"diagnostics.unused", "main.unused", ""},
                     {"diagnostics.versions", "main.versions", ""},
                     {"diagnostics.memory", "main.memory", ""},

@@ -28,7 +28,7 @@ void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine) {
         IM_CHECK(layout->Pos.x < blocks->Pos.x && layout->Pos.y < level->Pos.y);
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_P);
         ctx->Yield(4);
-        IM_CHECK(ctx->GetWindowByRef("//General Preferences") != nullptr);
+        IM_CHECK(ctx->GetWindowByRef(PreferencesRef().c_str()) != nullptr);
         ctx->KeyPress(ImGuiKey_Escape);
         ctx->Yield(3);
     };

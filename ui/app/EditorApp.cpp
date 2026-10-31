@@ -4,6 +4,7 @@
 #include "ui/app/EnvironmentInputs.h"
 #include "features/environment/EnvironmentViews.h"
 #include "features/diagnostics/DiagnosticViews.h"
+#include "features/preferences/PreferencesView.h"
 #include "core/document/OutputFiles.h"
 #include "ui/panels/EventLogView.h"
 #include <stdexcept>
@@ -48,7 +49,7 @@ EditorApp::EditorApp(HtmlFonts fonts)
     : m_Editor([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }),
       m_ObjectCommands([this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }),
-      m_Schematics(m_State), m_Panels(m_State, m_Schematics), m_Tools(m_State), m_HtmlFonts(fonts) {
+      m_Schematics(m_State), m_Panels(m_State, m_Schematics), m_HtmlFonts(fonts) {
     m_State.workspace = &m_Workspace;
     m_State.documentViews = this;
     m_State.files.Execution(&m_Execution);
@@ -112,11 +113,6 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     m_Schematics.Defaults().showAllScripts = startup.showAllScripts;
 #endif
     m_State.runtimeDirectory = runtimeDirectory;
-    m_Tools.applyPreferences = [this] {
-        ApplyPreferences();
-        ApplyRuntimeSettings();
-        SavePreferences();
-    };
     std::string error;
     m_State.host.SetRenderEngine(preferences.Text("CK2 Settings\\Render Engine"));
     const bool started = m_State.host.Start(runtimeDirectory, [this](LogLevel level, const std::string &message) {
@@ -147,7 +143,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !RegisterRuntimeViews(m_Editor, error) || !m_Environment.Register(error) ||
         !RegisterEnvironmentViews(m_Editor, error) || !RegisterEnvironmentInputs(m_Editor, window, error) ||
         !m_Diagnostics.Register(error) || !RegisterDiagnosticViews(m_Editor, error) ||
-        !m_Preferences.Register(error) || !m_Outputs.Register(error) ||
+        !m_Preferences.Register(error) || !RegisterPreferencesView(m_Editor, error) || !m_Outputs.Register(error) ||
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
@@ -320,7 +316,7 @@ void EditorApp::CloseSetupsAndManagers() {
     Command("runtime.close-tools");
     Command("environment.close-managers");
     Command("diagnostics.close-tools");
-    m_Tools.CloseManagers();
+    Command("preferences.close");
 }
 
 EditorApp::~EditorApp() { Shutdown(); }
@@ -731,7 +727,7 @@ void EditorApp::MainMenu() {
     }
     // Dev's Options menu (screenshot).
     if (ImGui::BeginMenu("Options")) {
-        if (ImGui::MenuItem("General Preferences", "Ctrl+P")) m_Tools.OpenGeneralPreferences();
+        m_Workspace.CommandMenu("options.preferences");
         ImGui::Separator();
         const auto runtime = m_Editor.Query("runtime.state", {m_Editor.Scope(), nullptr, 0});
         if (ImGui::MenuItem(EditorClient::Integer(runtime, "trace") ? "Deactivate Trace Mode" : "Activate Trace Mode", m_Workspace.ShortcutLabel("runtime.toggle-trace"), false,
@@ -855,7 +851,6 @@ void EditorApp::GlobalShortcuts() {
     m_Workspace.CommandShortcuts();
     if (!io.KeyCtrl) return;
     // Dev: Ctrl+P General Preferences, Ctrl+T Trace Mode.
-    if (ImGui::IsKeyPressed(ImGuiKey_P, false)) m_Tools.OpenGeneralPreferences();
     // Dev: Ctrl+L Load Composition (Ctrl+O kept), Ctrl+Shift+S Save Version,
     // Ctrl+Shift+Z Revert to Saved.
     // Ctrl+Shift+F the Schematic Explorer; Ctrl+F the Schematic's Find (the
@@ -913,8 +908,6 @@ void EditorApp::DispatchEvents() {
         } else if (const ConfirmDeleteObjects *remove = std::get_if<ConfirmDeleteObjects>(&event)) {
             const auto objects = ObjectsArgument("objects", remove->objects);
             m_Editor.Execute("object.confirm-delete", {m_Editor.Scope(), &objects, 1});
-        } else if (const ShowGeneralPreferences *preferences = std::get_if<ShowGeneralPreferences>(&event)) {
-            m_Tools.OpenGeneralPreferences(preferences->page);
         } else if (std::holds_alternative<FocusSchematic>(event)) {
             m_Schematics.Focus();
         } else if (std::holds_alternative<OpenSchematicExplorer>(event)) {
@@ -1047,7 +1040,6 @@ void EditorApp::Frame() {
         // Setup tabs dock with the Schematic (Dev's tab row).
         ImGuiWindow *schematic = ImGui::FindWindowByName(m_Schematics.Window().c_str());
         m_Setups.Draw(schematic ? schematic->DockId : 0);
-        m_Tools.Draw(m_FocusSchematic <= 0);
     }
     const auto &execution = m_Execution.State();
     m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"));

@@ -631,7 +631,9 @@ void LayoutWindow::Command(int command) {
     case 24: m_Tool = LayoutTool::Roll; break;
     case 28: m_Tool = LayoutTool::Pan; break;
     case 49: case 50: m_Tool = LayoutTool::Orbit; break;
-    case 40: m_State.events.Post(ShowGeneralPreferences{-1}); break;
+    case 40: {
+        auto &editor = m_State.workspace->Application(); editor.Execute("preferences.open", {editor.Scope(), nullptr, 0}); break;
+    }
     case 41: OpenExplorer(); break;
     case 180: Duplicate(AliveSelection()); break; // the shortcut menu's Duplicate
     case 56: if (m_Started) m_SnapshotOpen = true; break;
@@ -651,17 +653,21 @@ void LayoutWindow::Command(int command) {
 // and the screen guide the Interface page, the reference guide its page,
 // snap the Snap & Align page, the sphere the Rendering page.
 void LayoutWindow::RightClick(int command) {
-    auto openPreferences = [this](int page) { m_State.events.Post(ShowGeneralPreferences{page}); };
+    auto openPreferences = [this](const char *page) {
+        auto &editor = m_State.workspace->Application();
+        const EditorValue argument{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, EditorLiteral(page)};
+        editor.Execute("preferences.open", {editor.Scope(), &argument, 1});
+    };
     switch (command) {
     case 9: case 10: case 11: case 20: case 23: case 24: case 26: case 27: case 28: case 68: case 25:
-        openPreferences(1);
+        openPreferences("actions");
         break;
     case 31: case 32: case 33: case 34: case 60: case 67: case 75:
-        openPreferences(2);
+        openPreferences("interface");
         break;
-    case 29: openPreferences(3); break;
-    case 66: openPreferences(4); break;
-    case 40: openPreferences(0); break;
+    case 29: openPreferences("reference-guide"); break;
+    case 66: openPreferences("snap-align"); break;
+    case 40: openPreferences("rendering"); break;
     default: break;
     }
 }

@@ -29,7 +29,6 @@
 #include "features/scene/SceneCommands.h"
 #include "features/scene/SceneViews.h"
 #include "ui/setup/SetupWindows.h"
-#include "ui/tools/ToolWindows.h"
 #include "features/preferences/PreferencesCommands.h"
 #include "ui/help/HelpWindow.h"
 
@@ -280,7 +279,6 @@ private:
     SetupWindows m_Setups{m_State};
     SceneCommands m_SceneCommands{m_Editor, [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
         m_State.objectClipboard, m_State.clipboard, [this]() -> SchematicNavigation & { return m_State.Schematic(); }, [this]() -> CKDependencies & { return m_State.CopyDependencies(); }};
-    ToolWindows m_Tools;
     HtmlFonts m_HtmlFonts;
     LayoutWindow m_Layout{m_State};
 #ifdef VIRTOOLSDEV_UI_TESTS

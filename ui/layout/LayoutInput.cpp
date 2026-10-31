@@ -498,7 +498,11 @@ void LayoutWindow::Shortcuts() {
                 if (m_State.host.Context()->GetObject(id)) alive.push_back(id);
             if (!alive.empty()) Duplicate(alive);
         }
-        if (pressed(ImGuiKey_G)) m_State.events.Post(ShowGeneralPreferences{3});
+        if (pressed(ImGuiKey_G)) {
+            auto &editor = m_State.workspace->Application();
+            const EditorValue page{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("reference-guide")};
+            editor.Execute("preferences.open", {editor.Scope(), &page, 1});
+        }
         return;
     }
     if (!io.KeyShift && pressed(ImGuiKey_Delete)) DeleteSelection();

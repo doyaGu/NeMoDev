@@ -89,7 +89,7 @@ set(_editor_sources
         setup/SetupScenePages.cpp
         setup/SetupObjectPages.cpp
         # The Resources, Editors, Options and Help windows.
-        tools/GeneralPreferences.cpp)
+        ../features/preferences/PreferencesView.cpp)
 
 if(WIN32)
     list(APPEND _editor_sources print/PrinterWindows.cpp)

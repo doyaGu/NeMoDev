@@ -455,16 +455,18 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         Settle(ctx);
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_P);
         ctx->Yield(3);
-        IM_CHECK(WindowShown(ctx, "//General Preferences"));
-        ctx->ItemClick("//General Preferences/Cancel");
+        auto window = PreferencesRef();
+        IM_CHECK(WindowShown(ctx, window.c_str()));
+        ctx->ItemClick((window + "/Cancel").c_str());
         ctx->Yield(3);
-        IM_CHECK(!WindowShown(ctx, "//General Preferences"));
+        IM_CHECK(!WindowShown(ctx, window.c_str()));
         ctx->MenuClick("//##MainMenuBar/Options/General Preferences");
         ctx->Yield(3);
-        IM_CHECK(WindowShown(ctx, "//General Preferences"));
-        ctx->ItemClick("//General Preferences/Cancel");
+        window = PreferencesRef();
+        IM_CHECK(WindowShown(ctx, window.c_str()));
+        ctx->ItemClick((window + "/Cancel").c_str());
         ctx->Yield(3);
-        IM_CHECK(!WindowShown(ctx, "//General Preferences"));
+        IM_CHECK(!WindowShown(ctx, window.c_str()));
     };
 
     t = IM_REGISTER_TEST(engine, "app", "duplicate_names_cancel");

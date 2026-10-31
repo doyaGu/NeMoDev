@@ -54,12 +54,6 @@ struct ConfirmDeleteObjects {
     std::vector<ObjectRef> objects;
 };
 
-// General Preferences at a page (0 Rendering ... 4 Snap & Align; -1 the
-// last one shown).
-struct ShowGeneralPreferences {
-    int page = -1;
-};
-
 // The Schematic in front (once no popup is open).
 struct FocusSchematic {};
 
@@ -74,7 +68,7 @@ struct RefreshScriptStack {};
 
 using EditorEvent =
     std::variant<ShowElement, ShowObjectSetup, ShowInLevelManager, OpenAddAttribute, ConfirmDeleteObjects,
-                 ShowGeneralPreferences, FocusSchematic, OpenSchematicExplorer,
+                 FocusSchematic, OpenSchematicExplorer,
                  RefreshScriptStack>;
 
 class EditorEvents {

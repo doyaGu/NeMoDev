@@ -211,13 +211,14 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         ImVec2 min, max;
         IM_CHECK(App().Layout().ShownView(min, max));
         ctx->MouseMoveToPos(Center(min, max));
-        IM_CHECK_SILENT(!InFront(ctx, "//General Preferences"));
+        IM_CHECK_SILENT(!App().State().workspace->Role("main.preferences"));
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_G);
         ctx->Yield(3);
-        IM_CHECK(InFront(ctx, "//General Preferences"));
-        ctx->ItemClick("//General Preferences/Cancel");
+        const auto window = PreferencesRef();
+        IM_CHECK(InFront(ctx, window.c_str()));
+        ctx->ItemClick((window + "/Cancel").c_str());
         ctx->Yield(2);
-        IM_CHECK(!InFront(ctx, "//General Preferences"));
+        IM_CHECK(!InFront(ctx, window.c_str()));
     };
 
     // N shows the next camera, Shift+N the previous one again.
