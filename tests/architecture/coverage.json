@@ -32,7 +32,8 @@
         "core/document/detail/**",
         "core/document/BehaviorDescription.*",
         "core/document/ExportCommands.h",
-        "core/document/OutputFiles.*"
+        "core/document/OutputFiles.*",
+        "core/document/SaveFileOperations.h"
       ]
     },
     {

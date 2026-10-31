@@ -9,13 +9,10 @@
 #else
 #include <fcntl.h>
 #include <unistd.h>
-#ifdef __linux__
-#include <linux/fs.h>
-#include <sys/syscall.h>
-#endif
 #endif
 
 #include "core/document/DocumentSaver.h"
+#include "core/document/SaveFileOperations.h"
 
 namespace vdev {
 
@@ -24,8 +21,8 @@ namespace vdev {
 // before publishing; cleanup failures are recorded in the caller's report.
 class PendingSaveFile {
 public:
-    PendingSaveFile(const std::filesystem::path &destination, SaveReport &report)
-        : m_Destination(destination), m_Report(report) {}
+    PendingSaveFile(const std::filesystem::path &destination, SaveReport &report, SaveFileOperations *operations = nullptr)
+        : m_Destination(destination), m_Report(report), m_Operations(operations ? *operations : SaveFileOperations::Native()) {}
     PendingSaveFile(const PendingSaveFile &) = delete;
     PendingSaveFile &operator=(const PendingSaveFile &) = delete;
     ~PendingSaveFile() {
@@ -103,50 +100,29 @@ public:
         return path;
     }
     bool Publish(bool allowOverwrite) {
-        if (allowOverwrite && !PreservePermissions())
-            return false;
-#ifdef _WIN32
-        const DWORD flags = MOVEFILE_WRITE_THROUGH | (allowOverwrite ? MOVEFILE_REPLACE_EXISTING : 0);
-        if (!MoveFileExW(m_Path.c_str(), m_Destination.c_str(), flags))
-            return Fail("Cannot replace the destination file",
-                        std::error_code(GetLastError(), std::system_category()));
-        m_Path.clear();
-#else
+        if (allowOverwrite && !PreservePermissions()) return false;
+#ifndef _WIN32
         if (allowOverwrite) {
             std::error_code error;
             const auto status = std::filesystem::status(m_Destination, error);
             if (error && error != std::errc::no_such_file_or_directory)
                 return Fail("Cannot inspect the destination file", error);
-            if (std::filesystem::exists(status)) {
-                if (access(m_Destination.c_str(), W_OK) != 0)
-                    return Fail("Cannot write the destination file",
-                                std::error_code(errno, std::generic_category()));
-            }
-            if (rename(m_Path.c_str(), m_Destination.c_str()) != 0)
-                return Fail("Cannot replace the destination file",
-                            std::error_code(errno, std::generic_category()));
-            m_Path.clear();
-        } else {
-            // Refuse an existing destination, including one created during CK
-            // callbacks. These operations do not need filesystem hard-link support.
-#if defined(__linux__)
-            if (syscall(SYS_renameat2, AT_FDCWD, m_Path.c_str(), AT_FDCWD, m_Destination.c_str(), RENAME_NOREPLACE) !=
-                0)
-                return Fail("Cannot create the destination file",
-                            std::error_code(errno, std::generic_category()));
-            m_Path.clear();
-#elif defined(__APPLE__)
-            if (renamex_np(m_Path.c_str(), m_Destination.c_str(), RENAME_EXCL) != 0)
-                return Fail("Cannot create the destination file",
-                            std::error_code(errno, std::generic_category()));
-            m_Path.clear();
-#else
-            if (link(m_Path.c_str(), m_Destination.c_str()) != 0)
-                return Fail("Cannot create the destination file",
-                            std::error_code(errno, std::generic_category()));
-                // The remaining candidate name is removed by this owner's destructor.
-#endif
+            if (std::filesystem::exists(status) && access(m_Destination.c_str(), W_OK) != 0)
+                return Fail("Cannot write the destination file", std::error_code(errno, std::generic_category()));
         }
+#endif
+        const auto error = m_Operations.Replace(m_Path, m_Destination, allowOverwrite);
+#ifdef _WIN32
+        if (error) return Fail("Cannot replace the destination file", error);
+#else
+        if (error) return Fail(allowOverwrite ? "Cannot replace the destination file" : "Cannot create the destination file", error);
+#endif
+#if defined(_WIN32) || defined(__linux__) || defined(__APPLE__)
+        m_Path.clear();
+#else
+        // Exclusive publication uses a link on these systems; retain the
+        // candidate name for the usual checked cleanup.
+        if (allowOverwrite) m_Path.clear();
 #endif
         return true;
     }
@@ -154,6 +130,7 @@ public:
 private:
     std::filesystem::path m_Destination, m_Path;
     SaveReport &m_Report;
+    SaveFileOperations &m_Operations;
     bool PreservePermissions() {
 #ifdef _WIN32
         DWORD size = 0;
