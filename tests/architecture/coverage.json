@@ -430,6 +430,13 @@
       "patterns": [
         "features/schematic/**"
       ]
+    },
+    {
+      "id": "S50",
+      "name": "原生插件与搜索路径查询和修改",
+      "patterns": [
+        "features/environment/EnvironmentCommands.*"
+      ]
     }
   ],
   "dependencies": {
@@ -736,7 +743,8 @@
       "S46",
       "S47",
       "S48",
-      "S49"
+      "S49",
+      "S50"
     ],
     "S33": [],
     "S34": [
@@ -832,6 +840,11 @@
       "S01",
       "S06",
       "S07",
+      "S13",
+      "S34"
+    ],
+    "S50": [
+      "S03",
       "S13",
       "S34"
     ]
@@ -1819,10 +1832,12 @@
         "S03",
         "S13",
         "S17",
-        "S24"
+        "S24",
+        "S50"
       ],
       "tests": [
-        "VirtoolsDev.ManagersAfterClearAll"
+        "VirtoolsDev.ManagersAfterClearAll",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.tools"

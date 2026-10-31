@@ -27,6 +27,7 @@ void TestDocumentTransitions(vdev::CkRuntimeHost &host);
 void TestOutputCommands(vdev::CkRuntimeHost &host);
 void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestRuntimeProjections(vdev::CkRuntimeHost &host);
+void TestEnvironmentCommands(vdev::CkRuntimeHost &host, const std::string &fixture);
 void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestObjectCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 namespace {
@@ -574,7 +575,7 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
 } // namespace
 int main(int argc, char **argv) {
     try {
-        Check(argc == 2, "module path is required");
+        Check(argc == 3, "module and environment fixture paths are required");
         Registration();
         VersionedQueries();
         MenuChecks();
@@ -604,6 +605,7 @@ int main(int argc, char **argv) {
         TestResourceCommands(runtime, argv[1]);
         TestExecutionCommands(runtime, argv[1]);
         TestRuntimeProjections(runtime);
+        TestEnvironmentCommands(runtime, argv[2]);
         std::cout << "Module registration, object editing, undo and view lifetime checks passed\n";
         return 0;
     } catch (const std::exception &e) {

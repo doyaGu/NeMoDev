@@ -710,9 +710,14 @@ std::vector<PluginCategory> InstalledPlugins(CKContext *context) {
             row.description = info.m_Description.CStr() ? info.m_Description.CStr() : "";
             row.author = info.m_Author.CStr() ? info.m_Author.CStr() : "";
             row.version = static_cast<int>(info.m_Version);
+            row.guid = info.m_GUID;
             row.dllIndex = plugin->m_PluginDllIndex;
-            if (CKPluginDll *dll = plugins->GetPluginDllInfo(plugin->m_PluginDllIndex))
+            if (CKPluginDll *dll = plugins->GetPluginDllInfo(plugin->m_PluginDllIndex)) {
                 row.dll = fs::u8path(dll->m_DllFileName.CStr() ? dll->m_DllFileName.CStr() : "").stem().u8string();
+                row.dllPath = dll->m_DllFileName.CStr() ? dll->m_DllFileName.CStr() : "";
+                row.loaded = dll->m_DllInstance != nullptr;
+                row.loadable = !dll->m_Static;
+            }
             if (category == CKPLUGIN_MANAGER_DLL) {
                 // Managers: their activity in this context; the interface
                 // manager cannot be switched off.
@@ -720,6 +725,8 @@ std::vector<PluginCategory> InstalledPlugins(CKContext *context) {
                     context ? context->GetManagerByName(const_cast<CKSTRING>(row.name.c_str())) : nullptr;
                 if (manager && !(manager->GetGuid().d1 == INTERFACE_MANAGER_GUID1 && manager->GetGuid().d2 == 0)) {
                     row.active = context->IsManagerActive(manager) ? 1 : 0;
+                    row.managerGuid = manager->GetGuid();
+                    row.switchable = true;
                     for (int m = 0; m < context->GetManagerCount(); ++m)
                         if (context->GetManager(m) == manager) row.managerIndex = m;
                 }

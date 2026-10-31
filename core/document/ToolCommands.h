@@ -143,6 +143,9 @@ struct PluginRow {
     int active = -1;         // 1 active, 0 inactive, -1 none shown
     int managerIndex = -1;   // managers that can be switched: index in CKContext::GetManager
     int dllIndex = -1;       // CKPluginManager::GetPluginDllInfo (Temporary Unload, Reload)
+    CKGUID guid{}, managerGuid{};
+    std::string dllPath;
+    bool loaded = false, loadable = false, switchable = false;
 };
 struct PluginCategory {
     std::string name;
