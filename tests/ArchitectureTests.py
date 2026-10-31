@@ -159,6 +159,23 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('native/state access in workspace view: features/diagnostics/DiagnosticViews.cpp', result.stderr)
 
+    def test_preferences_views_cannot_gain_native_or_mutable_state(self):
+        for include in ('CKAll.h', 'core/document/Document.h', 'ui/app/EditorState.h'):
+            with self.subTest(include=include):
+                if '/' in include:
+                    self.write(include, '#pragma once\n')
+                self.write('core/model.h', '#include "' + include + '"\n')
+                self.write('features/preferences/PreferencesViewData.h', '#include "core/model.h"\n')
+                self.write('features/preferences/PreferencesView.cpp', '#include "features/preferences/PreferencesViewData.h"\n')
+                self.manifest['source_groups'] = [
+                    {'id': 'core', 'patterns': ['core/**', 'ui/**']},
+                    {'id': 'views', 'patterns': ['features/**']}]
+                self.manifest['features'][0]['source_groups'] = ['core', 'views']
+                self.manifest['dependencies'] = {'views': ['core']}
+                result = self.run_check()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('native/state access in workspace view: features/preferences/PreferencesView.cpp', result.stderr)
+
     def test_resource_views_cannot_gain_indirect_native_access(self):
         self.write("features/resources/BuildingBlockViews.h", '#include "core/model.h"\n')
         self.write("features/resources/BuildingBlockViews.cpp", '#include "features/resources/BuildingBlockViews.h"\n')

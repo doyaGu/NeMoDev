@@ -162,8 +162,7 @@
       "id": "S17",
       "name": "配置与选项",
       "patterns": [
-        "ui/app/Preferences.*",
-        "ui/tools/GeneralPreferences.cpp"
+        "application/Preferences.*"
       ]
     },
     {
@@ -216,9 +215,9 @@
     },
     {
       "id": "S24",
-      "name": "旧 General Preferences 外壳",
+      "name": "General Preferences 工作区视图",
       "patterns": [
-        "ui/tools/ToolWindows.*"
+        "features/preferences/PreferencesView.*"
       ]
     },
     {
@@ -316,7 +315,8 @@
         "!application/DocumentCommands.*",
         "!application/ExecutionCommands.*",
         "!application/OutputCommands.*",
-        "!application/Printing.h"
+        "!application/Printing.h",
+        "!application/Preferences.*"
       ]
     },
     {
@@ -461,6 +461,13 @@
         "features/diagnostics/**",
         "!features/diagnostics/DiagnosticCommands.*"
       ]
+    },
+    {
+      "id": "S54",
+      "name": "偏好查询与原生设置修改",
+      "patterns": [
+        "features/preferences/PreferencesCommands.*"
+      ]
     }
   ],
   "dependencies": {
@@ -535,11 +542,9 @@
       "S01",
       "S13"
     ],
-    "S11": [],
     "S12": [
       "S01"
     ],
-    "S13": [],
     "S14": [
       "S01",
       "S02",
@@ -585,7 +590,8 @@
       "S50",
       "S51",
       "S52",
-      "S53"
+      "S53",
+      "S54"
     ],
     "S15": [
       "S01",
@@ -611,12 +617,8 @@
       "S28"
     ],
     "S17": [
-      "S08",
-      "S09",
       "S13",
-      "S21",
-      "S24",
-      "S27"
+      "S34"
     ],
     "S18": [
       "S03",
@@ -666,6 +668,7 @@
       "S14",
       "S15",
       "S16",
+      "S17",
       "S20",
       "S23",
       "S27",
@@ -697,7 +700,10 @@
       "S26"
     ],
     "S24": [
-      "S14"
+      "S17",
+      "S27",
+      "S34",
+      "S35"
     ],
     "S25": [
       "S13",
@@ -728,7 +734,6 @@
     "S30": [
       "S13"
     ],
-    "S31": [],
     "S32": [
       "S01",
       "S02",
@@ -767,9 +772,9 @@
       "S48",
       "S49",
       "S50",
-      "S52"
+      "S52",
+      "S54"
     ],
-    "S33": [],
     "S34": [
       "S01",
       "S13",
@@ -829,7 +834,8 @@
       "S35",
       "S48",
       "S49",
-      "S52"
+      "S52",
+      "S54"
     ],
     "S44": [
       "S01",
@@ -862,11 +868,11 @@
     ],
     "S49": [
       "S01",
+      "S05",
       "S06",
       "S07",
       "S13",
-      "S34",
-      "S05"
+      "S34"
     ],
     "S50": [
       "S03",
@@ -874,10 +880,10 @@
       "S34"
     ],
     "S51": [
-      "S34",
-      "S35",
       "S27",
-      "S33"
+      "S33",
+      "S34",
+      "S35"
     ],
     "S52": [
       "S03",
@@ -891,6 +897,13 @@
       "S33",
       "S34",
       "S35"
+    ],
+    "S54": [
+      "S01",
+      "S08",
+      "S13",
+      "S17",
+      "S34"
     ]
   },
   "legacy_exposures": [
@@ -987,20 +1000,6 @@
       "access": [
         "editor-state",
         "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/Preferences.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/Preferences.h",
-      "access": [
         "native-sdk"
       ],
       "remove_by": 5
@@ -1253,13 +1252,6 @@
       "remove_by": 5
     },
     {
-      "file": "ui/schematic/SchematicStyle.h",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
       "file": "ui/schematic/Snapshots.cpp",
       "access": [
         "native-sdk"
@@ -1320,24 +1312,6 @@
     },
     {
       "file": "ui/setup/SetupWindowsDetail.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/tools/GeneralPreferences.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/tools/ToolWindows.h",
       "access": [
         "editor-state",
         "mutable-document",
@@ -1970,7 +1944,7 @@
     {
       "id": "F25",
       "name": "自定义与偏好",
-      "owner": "Workspace",
+      "owner": "PreferencesCommands / Workspace",
       "source_groups": [
         "S14",
         "S17",
@@ -1981,7 +1955,8 @@
         "S35",
         "S43",
         "S50",
-        "S51"
+        "S51",
+        "S54"
       ],
       "tests": [
         "VirtoolsDevPortable",
@@ -1989,12 +1964,15 @@
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.debugger",
+        "VirtoolsDevUi.layout",
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.tools"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "补配置冲突、一次迁移、延期生效"
+          "reason": "General Preferences 草稿、校验、保存失败回滚和渲染引擎重启生效已覆盖；阶段六仍需配置冲突、一次迁移与可部署配置持久化"
         }
       ]
     },
@@ -2376,9 +2354,9 @@
     {
       "id": "settings",
       "name": "preferences、style、ViewOptions、runtime 设置",
-      "owner": "schema 中明确的应用/工作区/实例项；style 派生",
+      "owner": "Preferences 保存已提交值；General Preferences 由 PreferencesCommands 查询和修改；其他工作区和运行设置仍归原功能",
       "lifetime": "有效配置版本变化，需重建的项延期",
-      "persistence": "不双写 typed field 与字符串 map；运行应用模式明确",
+      "persistence": "保留原有配置、注册表和 dev.ini 读取；General Preferences 失败回滚，渲染引擎选择重启生效",
       "features": [
         "F25"
       ]
@@ -2693,6 +2671,17 @@
         "F02",
         "F11",
         "F19"
+      ]
+    },
+    {
+      "id": "preferences-draft",
+      "name": "General Preferences 草稿、页面和轴显示选择",
+      "owner": "PreferencesView 工作区实例",
+      "lifetime": "草稿至确认、取消、关闭或更换提供者；页面和轴显示由工作区保存恢复",
+      "persistence": "仅 preferences.apply 修改共享配置；草稿不写文件和原生上下文，不产生文档撤销",
+      "features": [
+        "F25",
+        "F29"
       ]
     }
   ],

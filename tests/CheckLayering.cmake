@@ -58,6 +58,8 @@ foreach (_source IN LISTS _sources)
         if(_source MATCHES "^application/" AND _path MATCHES "^(core/|ui/|features/|workspace/|CK|Vx|SDL|imgui|backends/)" AND
                 NOT (_source STREQUAL "application/EditorApplication.cpp" AND
                      _path MATCHES "^core/(document/(Document|Edit)|runtime/TextEncoding)\\.h$") AND
+                NOT (_source STREQUAL "application/Preferences.cpp" AND
+                     _path STREQUAL "core/runtime/TextEncoding.h") AND
                 NOT (_source STREQUAL "application/ObjectSelection.cpp" AND
                      _path STREQUAL "core/document/Document.h") AND
                 NOT (_source STREQUAL "application/EventLog.h" AND
@@ -92,6 +94,11 @@ foreach (_source IN LISTS _sources)
                 (_path MATCHES "^(core/|CK|Vx|SDL)" OR
                  (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme|TypeAhead)\\.h$")))
             list(APPEND _errors "${_source}: environment view includes native or legacy editor state ${_path}")
+        endif()
+        if(_source MATCHES "^features/preferences/" AND NOT _source MATCHES "^features/preferences/PreferencesCommands\\.(h|cpp)$" AND
+                (_path MATCHES "^(core/|CK|Vx|SDL)" OR
+                 (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevControls|DevTheme|TypeAhead)\\.h$")))
+            list(APPEND _errors "${_source}: preferences view includes native or legacy editor state ${_path}")
         endif()
         if(_source MATCHES "^features/diagnostics/" AND NOT _source MATCHES "^features/diagnostics/DiagnosticCommands\\.(h|cpp)$" AND
                 (_path MATCHES "^(core/|CK|Vx|SDL)" OR
