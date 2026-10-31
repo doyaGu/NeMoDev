@@ -383,6 +383,56 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         });
     };
 
+    t = IM_REGISTER_TEST(engine, "debugger", "diagnostic_views_during_file_work");
+    t->GuiFunc = RuntimeGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
+        EditorView unused = 0, memory = 0, versions = 0, links = 0;
+        OnMainThread(ctx, [&] {
+            editor.Execute("diagnostics.open-unused", {editor.Scope(), nullptr, 0});
+            editor.Execute("diagnostics.open-memory", {editor.Scope(), nullptr, 0});
+            editor.Execute("diagnostics.open-versions", {editor.Scope(), nullptr, 0});
+            unused = workspace.Role("main.unused"); memory = workspace.Role("main.memory"); versions = workspace.Role("main.versions");
+        });
+        bool ready = false;
+        for (int i = 0; i < 150 && !ready; ++i) {
+            ready = Read<bool>(ctx, [&] {
+                const vdev::EditorClient client(editor.Host(), 0);
+                return vdev::EditorClient::Integer(client.Inspect(unused), "revision") && vdev::EditorClient::Integer(client.Inspect(memory), "revision") &&
+                    vdev::EditorClient::Integer(client.Inspect(versions), "revision");
+            }); ctx->Yield();
+        }
+        IM_CHECK(ready);
+        OnMainThread(ctx, [&] { editor.Execute("environment.open-link-options", {editor.Scope(), nullptr, 0}); links = workspace.Role("main.link-options"); }); ctx->Yield(3);
+        vdev::EditorResponse beforeUnused, beforeMemory, beforeVersions, beforeLinks;
+        size_t undo = 0; bool redo = false, dirty = false; vdev::ObjectRef selection{};
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(editor.Host(), 0);
+            beforeUnused = client.Inspect(unused); beforeMemory = client.Inspect(memory); beforeVersions = client.Inspect(versions); beforeLinks = client.Inspect(links);
+            IM_CHECK_NO_RET(beforeUnused.status == EDITOR_OK && beforeMemory.status == EDITOR_OK && beforeVersions.status == EDITOR_OK && beforeLinks.status == EDITOR_OK);
+            undo = state.History().UndoCount(); redo = state.History().CanRedo(); dirty = state.document->Dirty(); selection = editor.Selection();
+            IM_CHECK_NO_RET(state.RunRuntime("Diagnostic projection regression", [gate] {
+                std::unique_lock<std::mutex> lock(gate->mutex); gate->entered = true;
+                gate->changed.wait(lock, [&] { return gate->released; });
+            }));
+        });
+        IM_CHECK(WaitFor(ctx, 100, [&] { return gate->entered.load(); })); ctx->Yield(4);
+        OnRuntimeThread(ctx, [&] {
+            const vdev::EditorClient client(editor.Host(), 0);
+            IM_CHECK_NO_RET(client.Inspect(unused).fields == beforeUnused.fields && client.Inspect(memory).fields == beforeMemory.fields &&
+                client.Inspect(versions).fields == beforeVersions.fields && client.Inspect(links).fields == beforeLinks.fields);
+            IM_CHECK_NO_RET(vdev::EditorClient(editor.Host(), unused).Command("diagnostics.scan-unused").status == EDITOR_REFUSED);
+            IM_CHECK_NO_RET(client.Command("diagnostics.close-tools").status == EDITOR_OK && client.Command("environment.close-managers").status == EDITOR_OK);
+        });
+        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && state.document->Dirty() == dirty && editor.Selection() == selection);
+            IM_CHECK_NO_RET(!workspace.Role("main.unused") && !workspace.Role("main.memory") && !workspace.Role("main.versions") && !workspace.Role("main.link-options"));
+            IM_CHECK_NO_RET(!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId));
+        });
+    };
 }
 
 } // namespace vdevuitest

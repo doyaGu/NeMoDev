@@ -95,6 +95,7 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     vdevuitest::RegisterDebuggerTests(engine);
     vdevuitest::RegisterToolsTests(engine);
     vdevuitest::RegisterEnvironmentTests(engine);
+    vdevuitest::RegisterDiagnosticTests(engine);
     vdevuitest::RegisterPrintTests(engine);
     vdevuitest::RegisterPlayerTests(engine);
     vdevuitest::RegisterHelpTests(engine);

@@ -22,6 +22,7 @@ struct Module {
     EditorSubscription schematicWatch = 0;
     uint64_t schematicWrites = 0, schematicNotices = 0, schematicColor = 0;
     uint64_t environmentFolders = 0, environmentPaths = 0;
+    uint64_t diagnosticScans = 0, diagnosticLinks = 0;
     EditorStatus schematicRead = EDITOR_STALE;
 };
 struct FileView {
@@ -580,7 +581,18 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     static const EditorParameter schematicWatchArgs[] = {
         {EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE}};
     static const EditorParameter environmentPaths[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("categories"), EDITOR_RECORD}};
+    static const EditorParameter linkOptions[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("delay"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("prevent"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("iterations"), EDITOR_INTEGER_VALUE}};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("diagnostics.scan-versions"), EDITOR_TEXT("example.diagnostics"), EDITOR_TEXT("External Version Test"),
+            nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink) { ++static_cast<Module *>(data)->diagnosticScans; return EDITOR_OK; },
+            data, EDITOR_DOCUMENT, EDITOR_RUNTIME_CONTROL},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("environment.set-link-options"), EDITOR_TEXT("example.diagnostics"), EDITOR_TEXT("External Link Properties"),
+            linkOptions, 4, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+                ++static_cast<Module *>(data)->diagnosticLinks;
+                auto next = *request; next.handler = EDITOR_TEXT("builtin.environment");
+                return host->execute(host->data, EditorString EDITOR_TEXT("environment.set-link-options"), &next, sink);
+            }, data, EDITOR_APPLICATION, EDITOR_RUNTIME_CONTROL},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("paths.choose-folder"), EDITOR_TEXT("example.environment"), EDITOR_TEXT("Choose External Folder"),
          nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
              if (++static_cast<Module *>(data)->environmentFolders == 1) return EDITOR_CANCELLED;
@@ -856,8 +868,27 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                 {EDITOR_TEXT("paths"), EDITOR_INTEGER_VALUE, {}, {}, module.environmentPaths}};
             return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
         }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, environmentFields, 2};
+    static const EditorParameter diagnosticPage[] = {{EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, 1}};
+    static const EditorParameter diagnosticFields[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("rows"), EDITOR_RECORD}, {EDITOR_TEXT("report"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("obsolete"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("missing"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("bytes"), EDITOR_INTEGER_VALUE}};
+    const EditorQueryDesc diagnosticReport{sizeof(EditorQueryDesc), EDITOR_TEXT("diagnostics.versions"), EDITOR_TEXT("example.diagnostics"),
+        diagnosticPage, 2, [](void *, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const EditorValue fields[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, {}, {}, 777}, {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE},
+                {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("rows"), EDITOR_RECORD}, {EDITOR_TEXT("report"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("External version report")},
+                {EDITOR_TEXT("obsolete"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("missing"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("bytes"), EDITOR_INTEGER_VALUE}};
+            return sink.write ? sink.write(sink.data, fields, 8) : EDITOR_INVALID;
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, diagnosticFields, 8};
+    static const EditorParameter diagnosticCountFields[] = {{EDITOR_TEXT("scans"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("links"), EDITOR_INTEGER_VALUE}};
+    const EditorQueryDesc diagnosticCounts{sizeof(EditorQueryDesc), EDITOR_TEXT("example.diagnostic-counts"), EDITOR_TEXT("example.diagnostics"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const auto &module = *static_cast<Module *>(data);
+            const EditorValue fields[] = {{EDITOR_TEXT("scans"), EDITOR_INTEGER_VALUE, {}, {}, module.diagnosticScans},
+                {EDITOR_TEXT("links"), EDITOR_INTEGER_VALUE, {}, {}, module.diagnosticLinks}};
+            return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, diagnosticCountFields, 2};
     auto *descriptors = new Descriptors{std::vector<EditorCommandDesc>(std::begin(commands), std::end(commands)),
-                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount, flagValue, flagCount, schematicState, environmentCounts},
+                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount, flagValue, flagCount, schematicState, environmentCounts, diagnosticReport, diagnosticCounts},
                                         {view, fileView, outputView, logView, resourceView, resourceInputs},
                                         {editor, {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.integer"),
                                             EDITOR_TEXT("example.integer"), EDITOR_TEXT("External integer"), DrawInteger, data, EDITOR_INTEGER_VALUE},
