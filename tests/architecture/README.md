@@ -1,6 +1,6 @@
 # Stage zero architecture checks
 
-`coverage.json` lists the 49 source groups,
+`coverage.json` lists the 51 source groups,
 32 feature/extension targets and 42 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
@@ -1382,3 +1382,45 @@ Undo/Redo、双实例隔离、Ctrl+V、源导航、文档切换、忙时缓存�
 
 本批完整 Release 功能回归 124/124，无跳过；其中工具组 7 项、模块组 57 项和调试组 6 项
 实际执行并通过，未选择的 UI 用例未计为通过。SDK 十六个仓库及二十二项运行库校验值均未变。
+
+
+## 阶段五：插件与路径管理
+
+Installed Plugins 与 Path Manager 已迁入工作区，菜单、启动参数及“关闭所有管理器”
+都通过登记命令打开和关闭视图。插件分类展开状态属于插件视图，并通过工作区保存；
+路径视图只保存 UTF-8 草稿、选区与目录选择结果，Ok 才调用统一修改命令，Cancel 放弃草稿。
+原有的分类、插件表、管理器开关、临时卸载/重载、路径添加/编辑/删除/排序和目录选择保留。
+
+`EnvironmentCommands` 是原生插件和路径操作的入口。`plugins.list` 分页返回已复制的插件信息，
+`paths.list` 返回路径分类与列表；版本查询只读已发布编号。视图打开时建立原生数据，
+有读者时以 250 ms 间隔刷新；待恢复插件也会刷新插件投影，其余关闭的视图不触发枚举。
+后台任务期间读取上次完成的数据，拒绝原生修改，关闭窗口不访问原生上下文。
+文档代际变化即使没有打开视图，也会更新路径与插件版本，旧草稿不得覆盖新状态。
+
+`plugins.unload`、`plugins.reload`、`plugins.set-manager-active` 与
+`plugins.retry-reloads` 共用原生执行与恢复流程。卸载前登记完整 DLL 路径及发起视图，
+不跨重载保留 DLL 或管理器索引。窗口关闭时等待原生任务和编辑结束再恢复；
+自动恢复失败保留错误与待恢复项，避免逐帧重试，并允许显式重试。
+退出时先结束资源库待输入请求，再恢复仍由打开视图持有的卸载项。插件及管理器操作刷新 Building Block、
+参数和属性目录及 Schematic 显示，不改变文档、选区或撤销历史。
+停用管理器的重新启用改用 SDK 已有的名称查询并校验 GUID，避免仅枚举活跃管理器造成开关失效。
+
+`paths.apply` 接受完整分类列表及预期版本，校验后统一更新原生路径和应用配置。
+配置文件使用现有 `OutputFiles` 暂存和替换流程；保存失败或抛异常时恢复原生路径，
+保留旧配置。启动加载已保存目录也使用同一原生路径实现，保留 SDK 对重复目录的处理。
+`paths.choose-folder` 的异步请求属于发起视图及文档，关闭或切换文档后拒绝迟到结果；
+系统目录窗口只负责呈现输入并提交 `paths.folder-response`，可替换的命令也供内置窗口使用。
+
+新增原生回归使用单独构建的 SDK 插件，验证实际卸载、显式重载失败、关闭视图后恢复失败、
+重试和退出恢复。路径回归覆盖过期版本、非法输入、保存失败/异常回滚、启动重复目录、
+文档切换、工作线程拒绝和异步结果失效。窗口回归覆盖输入取消、排序、确认、分类状态、
+单实例、忙时显示和关闭，以及外部模块替换目录选择和保存命令。
+嵌套路径投影还发现工作区的重复序列化漏传记录与实数列表，现已复用既有字段转换并补接口回归。
+F21 的缺口关闭；其余二十一项和阶段五剩余迁移继续保留，`completed_phase` 仍为三。
+
+本批验证记录见
+[插件与路径管理验证记录](baselines/environment-macos-arm64-metal.json)。
+SDK、公开 C 头及 GPU 渲染与传输源码未改动；性能验收继续暂缓，原门槛不变。
+
+最终 Release 功能回归 124/124，无跳过；其中工具组 9 项、模块组 58 项和调试组 7 项
+实际执行并通过。SDK 十六个仓库状态和二十二项运行库校验值均未变。
