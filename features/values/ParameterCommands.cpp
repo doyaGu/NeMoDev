@@ -1,7 +1,11 @@
 #include "features/values/ParameterCommands.h"
 #include "core/graph/ParameterValues.h"
+#include "core/graph/ValueCommands.h"
+#include "core/graph/RuntimeGraph.h"
+#include "core/document/Clipboard.h"
 #include "core/runtime/TextEncoding.h"
 #include <cmath>
+#include <algorithm>
 #include <iterator>
 
 namespace vdev {
@@ -51,6 +55,28 @@ const char *ChoicesFor(ParameterValueKind kind) {
     if (kind == ParameterValueKind::Script || kind == ParameterValueKind::Animation || kind == ParameterValueKind::Message ||
         kind == ParameterValueKind::Attribute || kind == ParameterValueKind::Synchro) return "parameter.selection-choices";
     return "";
+}
+CKBehavior *OwnerScript(CKParameter *parameter, CKObject *&owner) {
+    owner = parameter->GetOwner();
+    if (auto *operation = CKParameterOperation::Cast(owner)) owner = operation->GetOwner();
+    auto *behavior = CKBehavior::Cast(owner);
+    if (!behavior) return nullptr;
+    owner = behavior->GetOwner();
+    return (behavior->GetType() & CKBEHAVIORTYPE_SCRIPT) ? behavior : behavior->GetOwnerScript();
+}
+EditorStatus ParameterPage(Document &document, const std::vector<CK_ID> &ids, const EditorRequest &request, EditorSink sink) {
+    const auto *offset = Find(request, "first");
+    const auto first = offset ? offset->integer : 0;
+    if (first > ids.size()) return EDITOR_INVALID;
+    const auto end = std::min(ids.size(), size_t(first) + 128);
+    std::vector<ObjectRef> objects;
+    for (size_t i = size_t(first); i < end; ++i)
+        if (const auto object = document.Reference(ids[i]); document.Resolve(object)) objects.push_back(object);
+    const EditorValue fields[] = {
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}},
+        {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE, {}, {}, ids.size()},
+        {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE, {}, {}, end}};
+    return sink.write ? sink.write(sink.data, fields, 3) : EDITOR_INVALID;
 }
 } // namespace
 const char *ParameterProperty(ParameterValueKind kind) {
@@ -272,6 +298,64 @@ EditorStatus ParameterCommands::Describe(void *data, const EditorHost *, const E
     const EditorValue value{EDITOR_TEXT("property"), EDITOR_TEXT_VALUE, {}, EditorLiteral(property)};
     return sink.write ? sink.write(sink.data, &value, 1) : EDITOR_INVALID;
 }
+EditorStatus ParameterCommands::Watch(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+    auto *document = static_cast<ParameterCommands *>(data)->m_Current();
+    const auto *target = Find(*request, "target");
+    if (!document || document->Token() != request->scope.document || !target) return EDITOR_STALE;
+    auto *object = document->Resolve(target->object);
+    if (!object) return EDITOR_STALE;
+    auto *parameter = CKParameter::Cast(object);
+    if (!parameter) return EDITOR_INVALID;
+    if (!CKParameterLocal::Cast(parameter) && !CKParameterOut::Cast(parameter)) return EDITOR_INVALID;
+    CKObject *owner = nullptr;
+    auto *script = OwnerScript(parameter, owner);
+    ParameterValueDescription description;
+    const auto *property = DescribeParameterValue(*document, parameter, description) ? ParameterProperty(description.value.kind) : nullptr;
+    const auto name = [](CKObject *object) { return AnsiToUtf8(object && object->GetName() ? object->GetName() : ""); };
+    const std::vector<EditorField> fields{
+        {"name", EDITOR_TEXT_VALUE, {}, CKParameterOperation::Cast(parameter->GetOwner()) ? "Out" : name(parameter)},
+        {"display", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(ParameterText(parameter))},
+        {"property", EDITOR_TEXT_VALUE, {}, property ? property : ""},
+        {"type", EDITOR_INTEGER_VALUE, {}, {}, TypeId(parameter->GetGUID())},
+        {"owner", EDITOR_OBJECT, document->Reference(owner ? owner->GetID() : 0)},
+        {"owner-name", EDITOR_TEXT_VALUE, {}, name(owner)},
+        {"script", EDITOR_OBJECT, document->Reference(script ? script->GetID() : 0)},
+        {"script-name", EDITOR_TEXT_VALUE, {}, name(script)},
+        {"editable", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(script && CKParameterLocal::Cast(parameter))}};
+    const auto values = BorrowEditorFields(fields);
+    return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
+}
+EditorStatus ParameterCommands::ClipboardParameters(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+    const auto &self = *static_cast<ParameterCommands *>(data);
+    auto *document = self.m_Current();
+    if (!document || document->Token() != request->scope.document) return EDITOR_STALE;
+    const std::vector<CK_ID> empty;
+    return ParameterPage(*document, self.m_Clipboard && self.m_Clipboard->BelongsTo(*document) ? self.m_Clipboard->parameters : empty, *request, sink);
+}
+EditorStatus ParameterCommands::ScriptLocals(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+    auto *document = static_cast<ParameterCommands *>(data)->m_Current();
+    const auto *target = Find(*request, "target");
+    if (!document || document->Token() != request->scope.document || !target) return EDITOR_STALE;
+    auto *script = CKBehavior::Cast(document->Resolve(target->object, CKCID_BEHAVIOR));
+    if (!script || !(script->GetType() & CKBEHAVIORTYPE_SCRIPT)) return EDITOR_INVALID;
+    std::vector<CK_ID> locals;
+    for (int i = 0; i < script->GetLocalParameterCount(); ++i)
+        if (auto *local = script->GetLocalParameter(i); local && !local->IsMyselfParameter()) locals.push_back(local->GetID());
+    return ParameterPage(*document, locals, *request, sink);
+}
+EditorStatus ParameterCommands::WriteText(void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+    auto *document = static_cast<ParameterCommands *>(data)->m_Current();
+    const auto *target = Find(*request, "target"), *type = Find(*request, "type"), *text = Find(*request, "text");
+    if (!document || document->Token() != request->scope.document || !target || !type || !text) return EDITOR_STALE;
+    auto *parameter = CKParameterLocal::Cast(document->Resolve(target->object, CKCID_PARAMETERLOCAL));
+    if (!parameter || TypeId(parameter->GetGUID()) != type->integer) return EDITOR_STALE;
+    CKObject *owner = nullptr;
+    auto *script = OwnerScript(parameter, owner);
+    if (!script) return EDITOR_REFUSED;
+    const auto result = SetParameterText(*document, script->GetID(), parameter->GetID(),
+        Utf8ToAnsi(std::string(text->text.data ? text->text.data : "", text->text.size)));
+    return result.ok ? EDITOR_OK : result.Unchanged() ? EDITOR_NO_CHANGE : EDITOR_REFUSED;
+}
 EditorStatus ParameterCommands::Read(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     const auto &entry = *static_cast<Entry *>(data);
     auto *document = entry.owner->m_Current();
@@ -433,6 +517,23 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
     EditorParameter arguments[count][4]{}, fields[count][11]{};
     m_Entries.resize(count);
     const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
+    const EditorParameter first{EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, 1};
+    const EditorParameter pageFields[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},
+        {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter localArgs[] = {target, first};
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.clipboard"), EDITOR_TEXT("builtin.parameters"),
+        &first, 1, ClipboardParameters, this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, pageFields, 3});
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.script-locals"), EDITOR_TEXT("builtin.parameters"),
+        localArgs, 2, ScriptLocals, this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, pageFields, 3});
+    const EditorParameter watchFields[] = {{EDITOR_TEXT("name"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("display"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("property"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("owner"), EDITOR_OBJECT}, {EDITOR_TEXT("owner-name"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("script"), EDITOR_OBJECT}, {EDITOR_TEXT("script-name"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("editable"), EDITOR_INTEGER_VALUE}};
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.watch"), EDITOR_TEXT("builtin.parameters"),
+        &target, 1, Watch, this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, watchFields, uint32_t(std::size(watchFields))});
+    const EditorParameter textArgs[] = {target, {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("text"), EDITOR_TEXT_VALUE}};
+    commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.set-text"), EDITOR_TEXT("builtin.parameters"),
+        EDITOR_TEXT("Set Value"), textArgs, 3, WriteText, this, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT});
     std::string queryIds[count], commandIds[count];
     for (unsigned i = 0; i < count; ++i) {
         const auto &kind = kinds[i];

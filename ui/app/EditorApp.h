@@ -253,7 +253,7 @@ private:
     EditorWorkspace m_Workspace{m_Editor};
     DataResourceCommands m_ResourceCommands{m_Editor, m_State.host, [this] { return FileOperationAvailable(); }};
     ObjectCommands m_ObjectCommands;
-    ParameterCommands m_ParameterCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
+    ParameterCommands m_ParameterCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, &m_State.clipboard};
     ArrayCommands m_ArrayCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, m_State.clipboard};
     SetupCommands m_SetupCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
     SchematicCommands m_SchematicCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};

@@ -1,6 +1,7 @@
 #pragma once
 #include "application/EditorApplication.h"
 namespace vdev {
+class Clipboard;
 enum class ParameterValueKind;
 struct ParameterValue;
 struct ParameterValueDescription;
@@ -11,12 +12,18 @@ bool ParameterValueFromEditor(ParameterValueKind, const EditorValue &, Parameter
 const char *ParameterProperty(ParameterValueKind);
 class ParameterCommands {
   public:
-    explicit ParameterCommands(std::function<Document *()> current) : m_Current(std::move(current)) {}
+    explicit ParameterCommands(std::function<Document *()> current, const Clipboard *clipboard = nullptr)
+        : m_Current(std::move(current)), m_Clipboard(clipboard) {}
     bool Register(EditorApplication &, std::string &error);
   private:
     struct Entry { ParameterCommands *owner; unsigned kind; };
     std::vector<Entry> m_Entries;
     std::function<Document *()> m_Current;
+    const Clipboard *m_Clipboard;
+    static EditorStatus Watch(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus ClipboardParameters(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus ScriptLocals(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus WriteText(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Read(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Selections(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Choices(void *, const EditorHost *, const EditorRequest *, EditorSink);

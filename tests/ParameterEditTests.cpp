@@ -1,6 +1,8 @@
 #include "application/EditorApplication.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
+#include "core/document/Clipboard.h"
+#include "workspace/EditorClient.h"
 #include "core/graph/ParameterValues.h"
 #include "core/graph/ValueCommands.h"
 #include "core/level/LevelCommands.h"
@@ -51,7 +53,8 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
     Check(document.New(&error), error.c_str());
     bool native = true;
     EditorApplication app([&] { return &document; }, [&] { return native; });
-    ParameterCommands commands([&] { return &document; });
+    Clipboard clipboard;
+    ParameterCommands commands([&] { return &document; }, &clipboard);
     Painter painter;
     const char *ids[] = {"value.boolean", "value.integer", "value.real", "value.enumeration", "value.object", "value.angle", "value.vector2", "value.vector3", "value.quaternion", "value.euler", "value.matrix", "value.color", "value.box", "value.rect", "value.string", "value.structure", "value.object-array", "value.flags", "value.curve2d", "value.dependencies", "value.lod-options", "value.time", "value.key", "value.script", "value.animation", "value.message", "value.attribute", "value.synchro"};
     const EditorValueType types[] = {EDITOR_INTEGER_VALUE, EDITOR_INTEGER_VALUE, EDITOR_REAL_VALUE, EDITOR_INTEGER_VALUE, EDITOR_OBJECT, EDITOR_REAL_VALUE, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_REAL_LIST, EDITOR_TEXT_VALUE, EDITOR_RECORD, EDITOR_OBJECT_LIST, EDITOR_INTEGER_VALUE, EDITOR_RECORD, EDITOR_RECORD, EDITOR_RECORD, EDITOR_REAL_VALUE, EDITOR_INTEGER_VALUE, EDITOR_OBJECT, EDITOR_OBJECT, EDITOR_RECORD, EDITOR_INTEGER_VALUE, EDITOR_RECORD};
@@ -552,6 +555,89 @@ void TestParameterEdits(vdev::CkRuntimeHost &runtime) {
                   "nested native modifier leaked an unfinished operation");
         }
         Check(nestedCalls == 300 && read(integer).value.integer == 300, "native value interactions were repeated or dropped");
+    }
+    // Watch queries copy names, ownership, values and complete identities. They
+    // share the same edit commands as other parameter editors.
+    {
+        const auto object = CreateLayoutObject(document, LayoutObject::Frame3D);
+        const auto created = CreateScript(document, object.created, "Watch Script");
+        Check(object.ok && created.ok, "create watch owner and script");
+        auto *script = CKBehavior::Cast(context->GetObject(created.created));
+        std::vector<CK_ID> locals;
+        for (int i = 0; i < 133; ++i) {
+            auto *local = script->CreateLocalParameter((CKSTRING) ("Watch " + std::to_string(i)).c_str(), CKPGUID_INT);
+            Check(local != nullptr, "create paged watches"); locals.push_back(local->GetID());
+        }
+        auto *output = script->CreateOutputParameter("Watch Output", CKPGUID_INT);
+        auto *input = script->CreateInputParameter("Watch Input", CKPGUID_INT);
+        Check(output && input, "create watch pin fixtures");
+        const auto ref = document.Reference(locals.front());
+        app.Attach(document.Token(), document.TopologyRevision(), true, true);
+        const auto query = [&](const char *id, std::vector<EditorValue> values = {}) {
+            return app.Query(id, {app.Scope(owner), values.data(), uint32_t(values.size())});
+        };
+        const auto watch = [&](ObjectRef object) { return query("parameter.watch", {ObjectArgument("target", object)}); };
+        clipboard.SetParameters(document, locals);
+        document.History().Clear(); document.MarkSaved(); document.History().MarkSavePoint();
+        app.SetSelection(document.Reference(object.created));
+        const auto selection = app.Selection();
+        const auto original = watch(ref);
+        Check(original.status == EDITOR_OK && EditorClient::Text(original, "property") == "parameter.integer" &&
+              EditorClient::Text(original, "name") == "Watch 0" && EditorClient::Text(original, "script-name") == "Watch Script" &&
+              EditorClient::Find(original, "script")->object == document.Reference(created.created) &&
+              EditorClient::Find(original, "owner")->object == selection && EditorClient::Integer(original, "editable"),
+              "watch projection lost its value editor or ownership");
+        Check(watch(document.Reference(output->GetID())).status == EDITOR_OK &&
+              !EditorClient::Integer(watch(document.Reference(output->GetID())), "editable") &&
+              watch(document.Reference(input->GetID())).status == EDITOR_INVALID,
+              "watch accepted an input or made an output writable");
+        Check(watch(integerRef).status == EDITOR_OK && !EditorClient::Integer(watch(integerRef), "editable"),
+              "unowned parameter became editable in a watch");
+        const auto page = query("parameter.clipboard");
+        const auto tail = query("parameter.clipboard", {IntegerArgument("first", 128)});
+        Check(page.status == EDITOR_OK && EditorClient::Find(page, "objects")->objects.size() == 128 &&
+              EditorClient::Integer(page, "next") == 128 && EditorClient::Integer(page, "total") == 133 &&
+              tail.status == EDITOR_OK && EditorClient::Find(tail, "objects")->objects.back() == document.Reference(locals.back()),
+              "parameter clipboard lost a page or an object lifetime");
+        const auto scriptArg = ObjectArgument("target", document.Reference(created.created));
+        const auto localPage = query("parameter.script-locals", {scriptArg, IntegerArgument("first", 128)});
+        Check(localPage.status == EDITOR_OK && EditorClient::Find(localPage, "objects")->objects == EditorClient::Find(tail, "objects")->objects &&
+              query("parameter.clipboard", {IntegerArgument("first", UINT64_MAX)}).status == EDITOR_INVALID,
+              "Script local paging differs from copied parameters");
+        Check(!history() && !document.Dirty() && app.Selection() == selection, "watch queries changed document state");
+        native = false; app.NativeAvailable(false);
+        Check(watch(ref).status == EDITOR_REFUSED && query("parameter.clipboard").status == EDITOR_REFUSED,
+              "watch queries entered native state while busy");
+        native = true; app.NativeAvailable(true);
+        const auto text = [&](ObjectRef target, uint64_t type, const std::string &value) {
+            const EditorValue args[] = {ObjectArgument("target", target), IntegerArgument("type", type), TextArgument("text", value)};
+            return app.Execute("parameter.set-text", {app.Scope(owner), args, 3});
+        };
+        const auto type = EditorClient::Integer(original, "type");
+        Check(text(ref, type, "42").status == EDITOR_OK && history() == 1 &&
+              EditorClient::Text(watch(ref), "display") == "42" && document.History().Undo() &&
+              EditorClient::Text(watch(ref), "display") == EditorClient::Text(original, "display"),
+              "watch text edit did not form a single recoverable undo step");
+        Check(text(ref, type + 1, "9").status == EDITOR_STALE && !history() && document.History().CanRedo(),
+              "watch text edit accepted a stale parameter type or discarded Redo");
+        Check(text(document.Reference(output->GetID()), type, "9").status == EDITOR_STALE && !history(),
+              "watch text command allowed an output mutation");
+        clipboard = {}; // Release retained sources before deliberately deleting one.
+        auto *stale = context->CreateCKParameterLocal("Retained watch", CKPGUID_INT);
+        const auto staleRef = document.Reference(stale->GetID());
+        clipboard.SetParameters(document, {stale->GetID()});
+        context->DestroyObject(stale, CK_DESTROY_NONOTIFY | CK_DESTROY_FREEID);
+        CKParameterLocal *replacement = nullptr;
+        for (unsigned i = 0; i < 256 && !replacement; ++i) {
+            auto *next = context->CreateCKParameterLocal("Replacement watch", CKPGUID_INT);
+            if (next->GetID() == staleRef.object) replacement = next;
+        }
+        Check(replacement && watch(staleRef).status == EDITOR_STALE && text(staleRef, type, "7").status == EDITOR_STALE &&
+              watch(document.Reference(replacement->GetID())).status == EDITOR_OK &&
+              EditorClient::Find(query("parameter.clipboard"), "objects")->objects.empty(),
+              "watch or clipboard targeted a replacement sharing the old native slot");
+        clipboard = {};
+        document.History().Clear();
     }
     document.History().Clear();
     const auto finalCount = history();
