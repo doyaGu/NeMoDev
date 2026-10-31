@@ -7,3 +7,4 @@ add_library(NeMoDevObjectCommands STATIC ../features/objects/ObjectCommands.cpp 
 target_include_directories(NeMoDevObjectCommands PUBLIC "${VIRTOOLSDEV_SOURCE_DIR}")
 target_link_libraries(NeMoDevObjectCommands PRIVATE VirtoolsDevCore PUBLIC NeMoDevEditorApplication)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/environment/EnvironmentCommands.cpp)
+target_sources(NeMoDevObjectCommands PRIVATE ../features/diagnostics/DiagnosticCommands.cpp)
