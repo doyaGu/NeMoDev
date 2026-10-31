@@ -1414,12 +1414,7 @@
         "VirtoolsDevUi.schematic",
         "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 4,
-          "reason": "NMS/DSC 准备失败、NMS 发布失败后的恢复、清理说明保留已覆盖；恢复本身失败的故障注入仍待补验"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F06",

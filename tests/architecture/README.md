@@ -1,6 +1,6 @@
 # Stage zero architecture checks
 
-`coverage.json` lists the 45 source groups,
+`coverage.json` lists the 49 source groups,
 32 feature/extension targets and 42 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
@@ -1254,3 +1254,39 @@ SDK 十六个仓库状态和内容不变，二十二个运行库与修改前一�
 修改前后十一组配对 median **+2.2064%**，双方 MAD **2.5646%/2.5309%**，该配对通过。同程序十一组对照 median **+4.5102%**，双方 MAD **5.3445%/1.8197%**，未通过原定 3% 门槛。**计时尚未验收**，保留全部原始样本，没有放宽标准。稳定读回、上传、目标创建/释放及路径选择均为零，验证截图读回一次；应用分配、GPU pass/submit/preserve、native query 和 retain/release 仍未测。
 
 完整采样、源码和运行库校验及测试说明见 [Schematic 导航验证记录](baselines/schematic-navigation-macos-arm64-metal.json)。
+
+## Phase four: NMS publication recovery
+
+File owners can supply `SaveFileOperations` for replacement and deletion. The
+normal implementation retains the existing platform calls, permission checks and
+exclusive-create behavior. Its interface belongs to `core/document`; platform
+implementation stays in `detail`. PendingSaveFile owns candidates and OutputFiles
+owns ordered publication and recovery. The editor C ABI stays unchanged.
+
+The new NMS regression first failed because an exception during DSC recovery
+escaped, triggered another recovery attempt and allowed destruction to remove the
+previous DSC backup. A separate publication exception case showed that exceptions
+outside std::exception skipped recovery entirely. OutputFiles now handles recovery
+failure per file, continues restoring the other outputs, retains old backups and
+lists the outputs still present. Candidate cleanup records errors and exceptions
+in the completed operation. Failure to remove a new output is reported separately
+from failure to restore a previous output.
+
+NeMoDevEditor runs 27 actual script.export combinations: old or absent DSC,
+publication and recovery failures reported as error codes or exceptions, and
+cleanup failures. The requesting view closes before completion. Checks include
+original NMS bytes, remaining DSC, recovery path and backup bytes across retries,
+queryable results, document identity, content/topology versions, Dirty, selection,
+Undo/Redo, display data, flags, interface chunks and write mode. A three-output
+case additionally verifies reverse recovery order, exactly one attempt per file,
+continued recovery after another file fails, and manual restoration from the
+retained backup.
+
+The final Release suite passed 124/124 without skips, including native UI and
+representative NMO direct opening. SDK source state stayed unchanged. Timing,
+transfer counters, source/runtime hashes and the stage completion status are in
+`baselines/nms-recovery-macos-arm64-metal.json`.
+
+F05 closes the last phase-four functional gap. completed_phase remains three
+because the final timing pair and same-program control exceed the original
+variation limit. All samples remain in the baseline record.
