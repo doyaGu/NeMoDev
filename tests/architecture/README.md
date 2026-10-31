@@ -1,7 +1,7 @@
 # Stage zero architecture checks
 
-`coverage.json` lists the 53 source groups,
-32 feature/extension targets and 44 state families. It records CTest results,
+`coverage.json` lists the 54 source groups,
+32 feature/extension targets and 45 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
 
@@ -1464,3 +1464,46 @@ Unused Object Explorer、Building Block Version Test、All CK Object In Memory �
 General Preferences、Layout/Schematic 剩余原生适配及 F20 资源待办继续保留。
 本批不代表阶段五已完成，`completed_phase` 仍为三，二十一项待办没有延期。
 验证记录见 [诊断与连线属性验证记录](baselines/diagnostics-macos-arm64-metal.json)。
+
+
+## 阶段五：General Preferences
+
+General Preferences 已迁为 `preferences.general` 单实例工作区视图。
+菜单、Ctrl+P、Layout 按钮及右键、Ctrl+G 和启动入口都调用 `preferences.open`；
+页面使用稳定名称寻址，七页布局、标签、Default/OK/Cancel 行为保留。
+工作区保存页面和轴显示选择；未提交的配置草稿只属于视图，关闭或更换提供者即放弃。
+删除最后的 ToolWindows 外壳、旧 GeneralPreferences.cpp 和相关中央事件。
+
+原有 Preferences 数据及文件、注册表、dev.ini 读取实现移至 application。
+Preferences 数据头不再包含 CK、可变文档或 ImGui；颜色转换留在 Schematic 呈现。
+现有字段表同时服务持久化与偏好投影，未增加第二份共享配置。
+`preferences.values` 返回复制的可编辑值和版本；`preferences.catalog` 返回设备、显示模式、
+渲染引擎及可保存图像格式的复制信息，不跨帧保留 SDK 索引或指针。
+目录只在需要时读取，插件变化或 Context 更换使旧选择失效；后台工作期间读取上次完成的数据。
+窗口关闭后不继续轮询偏好和原生目录，GPU 呈现流程不增加查询或传输步骤。
+
+所有确认经 `preferences.apply`，执行时再次校验版本、键、类型和数值，
+只合并属于 General Preferences 的字段，不覆盖最近文件、路径、资源库、连线属性和调试设置。
+Default 修改当前页的本地草稿，OK 才更新共享值和原生设置；Cancel 不影响文档、选区或历史。
+常规布尔和数值输入复用已登记的值编辑器，外部模块可以替换查询、修改命令、编辑器和整个窗口。
+菜单中的显示/隐藏动态对象也使用同一偏好修改流程，避免另一个写入入口。
+
+命令先准备图像保存格式并保存实际原生设置，再更新设置和派生显示，最后通过既有 OutputFiles
+写入配置。准备、显示更新或保存失败/抛异常时恢复配置、原生选项和显示，保留原文件。
+渲染引擎选择保存后仍须重启；不会重建当前 Context，窗口按实际启动引擎保留重启提示。
+旧配置中无法枚举的设备和引擎继续显示原值。
+
+完整 Release 功能回归 124/124，无跳过。工具组 13 项、模块组 60 项、调试组 9 项、
+应用组 25 项和 Layout 组 20 项实际执行并通过；新用例验证七页导航、草稿与默认值、
+确认/取消、过期拒绝、单实例和关闭后状态、忙时显示及关闭，以及外部替换与动态对象菜单。
+原生回归覆盖保存拒绝和异常、派生显示更新失败、不可用图像格式、非法输入、Context 重建、
+延迟命令失效和文档/选区/Undo/Redo 保持。
+迁移前冻结的默认与自定义配置逐字节比较通过，后者包含 UTF-8 路径、最近文件和资源库。
+
+源码归属现为 54 组、45 类状态；旧 UI 访问从 53 处降到 48 处，依赖和包含检查已收紧。
+SDK 十六个仓库状态、二十二项运行库校验值和公开 C 头均未变。
+Layout 的改动仅将偏好入口接到命令；GPU 渲染、传输和 fallback 方法保持原样。
+性能验收继续暂缓，原门槛不变，`completed_phase` 仍为三。
+阶段五仍有 Schematic 图内诊断、Layout/Schematic 原生适配、资源待办与文档扩展数据等剩余项，
+阶段六的完整配置迁移与部署也没有记为完成。
+验证记录见 [General Preferences 验证记录](baselines/preferences-macos-arm64-metal.json)。

@@ -1,0 +1,194 @@
+{
+  "description": "阶段五第五批：General Preferences 迁入工作区，以只读投影和统一修改命令替代旧窗口原生访问。SDK 不改，阶段五尚未完成，性能验收继续暂缓。",
+  "changes": [
+    "Preferences 数据、原有字段表和配置/注册表/dev.ini 读取移至 application，数据头无 CK/可变文档/ImGui 依赖，颜色转换留在 Schematic。",
+    "七页布局和 Default/OK/Cancel 保留；菜单、Ctrl+P、工具栏和右键、Ctrl+G 与启动入口走 preferences.open，页面使用稳定名称，工作区保存关闭后的导航状态。",
+    "preferences.values 发布复制的偏好值和版本，preferences.catalog 发布设备、显示模式、引擎及可保存格式；原生忙时保留旧数据，窗口关闭后停止轮询。",
+    "preferences.apply 校验整个变更集、版本和输入，合并已拥有字段；不覆盖最近文件、路径、资源库、连线属性和调试设置，不产生文档撤销。",
+    "准备图像格式、保存原生设置、应用共享值与显示，再用现有 OutputFiles 发布配置；准备、派生显示或保存失败/异常时恢复原设置和文件。",
+    "常规布尔/数值输入复用所选值编辑器；外部模块替换查询、写入、编辑器和视图，导航状态按同一格式恢复。",
+    "显示/隐藏动态对象复用同一修改命令和只读查询；删除最后的 ToolWindows 外壳和偏好中央事件。",
+    "渲染引擎选择保持重启生效，未重建当前 Context；Layout 仅修改偏好命令入口，呈现、传输及 fallback 方法保持原样。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-preferences/full-build.log"
+    },
+    "full_ctest": {
+      "total": 124,
+      "passed": 124,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 25.73,
+      "log": "out/phase-five-preferences/full-verified.log",
+      "excluded_label": "performance"
+    },
+    "ui": {
+      "tools": {
+        "registered": 242,
+        "executed": 13,
+        "not_selected": 229,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/tools.xml"
+      },
+      "modules": {
+        "registered": 242,
+        "executed": 60,
+        "not_selected": 182,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/modules.xml"
+      },
+      "debugger": {
+        "registered": 242,
+        "executed": 9,
+        "not_selected": 233,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/debugger.xml"
+      },
+      "app": {
+        "registered": 242,
+        "executed": 25,
+        "not_selected": 217,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/app.xml"
+      },
+      "layout": {
+        "registered": 242,
+        "executed": 20,
+        "not_selected": 222,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/layout.xml"
+      }
+    },
+    "regressions": [
+      "冻结迁移前默认和自定义配置，比较默认写出及自定义读取/写出的原始字节；保留 UTF-8 路径、最近文件、路径分类与资源库。",
+      "七页导航和单实例，页级 Default、局部输入、取消、确认、过期草稿拒绝，以及关闭后页面和轴显示保存恢复。",
+      "原生保存选项/量化/迭代参数和颜色生效；保存拒绝、保存异常、派生显示失败和不支持的图像格式均保留原文件并恢复实际原生状态。",
+      "未知/重复键、错误类型、非法枚举/颜色/数字、非有限值、错误向量和注入配置行拒绝，整批无部分修改。",
+      "外部直接设置变化、插件目录变化、Context 重建和关闭视图后的延迟请求失效；后台原生任务期间缓存显示、拒绝修改与程序关闭无残留模态。",
+      "内置确认和动态对象菜单均使用所选写入命令；外部查询、整数编辑器和视图替换通过，页面导航状态在更换提供者后保持。",
+      "原生命令及 UI 确认/取消前后文档身份、Dirty、Revision、拓扑、选区、Undo 和 Redo 保持；选择渲染引擎不更换当前 Context。"
+    ],
+    "architecture_log": "out/phase-five-preferences/architecture.log",
+    "layering_log": "out/phase-five-preferences/layering.log",
+    "architecture_checker_log": "out/phase-five-preferences/checker.log",
+    "initial_failures": [
+      {
+        "log": "out/phase-five-preferences/nochange-probe.log",
+        "note": "偏好项多于顶层值限制；命令错误地把记录成员按顶层值复制，导致未改值确认也被拒绝。改为完整复制记录，不改变公共限制，临时日志已删除。"
+      },
+      {
+        "log": "out/phase-five-preferences/first-regression.log",
+        "note": "原有窗口测试使用固定标题，迁移后调整为工作区角色寻址。"
+      },
+      {
+        "log": "out/phase-five-preferences/native-regression.log",
+        "note": "新测试误期望关闭视图后延迟命令返回 CANCELLED；宿主原有语义为 STALE，按原有语义修正，命令没有执行。"
+      },
+      {
+        "log": "out/phase-five-preferences/targeted.log",
+        "note": "首次打开发现 Context 版本直到新读者才发布，窗口之前的无视图查询未同步。查询现于可用时同步，忙时不进入原生状态；完整字段比较回归通过。"
+      }
+    ],
+    "platform": "本批在 macOS arm64/Metal 执行；Windows/Linux 未执行。NMO 直接打开使用现有代表性测试样例，不将未运行的原版 Level_1.NMO 记为验证。"
+  },
+  "architecture": {
+    "files": 960,
+    "groups": 54,
+    "features": 32,
+    "states": 45,
+    "legacy_exposures": 48,
+    "completed_phase": 3,
+    "test_registration_checked": true,
+    "open_gaps": 21,
+    "phase_five_complete": false
+  },
+  "sdk": {
+    "repositories": 16,
+    "sources_changed": false,
+    "before_log": "out/phase-five-preferences/sdk-before.json",
+    "after_log": "out/phase-five-preferences/sdk-after.json",
+    "before_sha256": "b8c520a0f80cc39342b6eeb8ac7d7a90d53c24c8ae782c05387b733c4a1d28e3",
+    "after_sha256": "b8c520a0f80cc39342b6eeb8ac7d7a90d53c24c8ae782c05387b733c4a1d28e3",
+    "runtime_sha256": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a"
+    }
+  },
+  "source": {
+    "base_revision": "b8f8616634bf7ee6ff5075863626fec7f5567ca6",
+    "build_source_sha256": "92c23d6671aa0c1a24059b751b5d8a6b25f9bf763e86130e4a165efff9a876d2",
+    "build_source_hash_method": "按路径排序 core/ui/editor/application/workspace/features 的 .h/.cpp/.mm/.txt/.def 文件，以 UTF-8 路径、NUL、原始字节、NUL 连续计算 SHA-256。",
+    "binary_sha256": {
+      "NeMoDev": "bb92621500c1f576be5a97c1b01662009c83af079b662da5c5806f34be8098e0",
+      "VirtoolsDevUiTests": "3bfb91fbc9dace877ee264ef547e2e8eacc9a09895746848c07325c48e7dc222",
+      "NeMoDevEditorTests": "2805ff9d7aec317c1095d572c10f99739ead1fe0f8c9d6d27d5fed90df2c5046"
+    },
+    "test_module_sha256": {
+      "libNeMoDevEditorModule.so": "a3c15aecaca374240809b5afe1ecc01865f0e051ebb0ebf1db41cef2bed4943f",
+      "libNeMoDevUiObjectModule.so": "a21c8ea566af18fc084da2c904e378bdb6f9aea4d8ea831d536a5141fb4d2135",
+      "libNeMoDevEnvironmentPlugin.dylib": "76bd267b150b8fcdbb8d1ada9d89e2101b923a1c25f496577ee43516a9991106"
+    },
+    "preferences_fixture_sha256": {
+      "default.ini": "da916447a3b777fb014b9d6f40dcfab01546ea7511d6340dbe715c29e9f6b397",
+      "custom.ini": "e158b97d8d7735163f0658b660d570c1eef2c3f00fea20e46a6a708f10cabdfc"
+    },
+    "gpu_render_transfer_source_changed": false,
+    "viewport_preference_command_routing_changed": true,
+    "gpu_methods": {
+      "path": "ui/layout/LayoutWindow.cpp",
+      "base_revision": "b8f8616634bf7ee6ff5075863626fec7f5567ca6",
+      "unchanged_methods": {
+        "Start": "992440c801fbb3ba623c2cf9f20d3409244012bd0b82eda32a2800479012ac78",
+        "Stop": "fd55ffe0e9e5c5719f91c90bcbe6c3d35038bbb75f7eeed9c70c9a768a342f96",
+        "Viewport": "30b967bce6a78eb16560d6eea63b281fb4e62b01835576a785dc7010c6a5fd88",
+        "ConfigureGpuViewport": "4ab5638c1d70bf3d9f63a284ba9c0652377ccd2df2bdb81a2463032a729e2da3",
+        "ReleaseGpuViewport": "227ce2e7a3391555bb0a8d24119246a2593c121fc2a299fa62b2620c734df5e1",
+        "RenderUnselectedViewport": "457a11b0d235466147afbf1537edb81196704421d163a7cf9945ba78b2a84934",
+        "RenderReadbackViewport": "88aeb352d8f41aac86e23e37dccb60ac3a4a784f444dfa52ff703b5d6dd028cd",
+        "RenderGpuViewport": "4d4d0bf6dadff06c5f0627285471a753a5f9f6ba3f06819703a24bc9ca3f47b1",
+        "ReleaseTexture": "81f255f19f99b5c444fc964bad2f19bdb06d41d52ac17e4c65df1e1c9dff4eed",
+        "ResetViewportAfterContextStop": "310fc51e067f88c3195ef71d3badc20a260db158fe5690f8f91b54827e72ff26"
+      }
+    },
+    "public_c_headers_changed": false
+  },
+  "performance": {
+    "status": "deferred",
+    "acceptance_performed": false,
+    "thresholds_changed": false,
+    "note": "仅运行功能与 GPU 传输回归，未进行 GPU 时延验收或 CPU 探针；原 3% 门槛不变。"
+  },
+  "remaining": [
+    "Schematic 图内诊断与 Layout/Schematic 原生适配",
+    "RSC 新建多文件失败回滚及大型目录后台扫描",
+    "文档扩展数据、配置迁移与模块部署等后续项"
+  ]
+}
