@@ -123,6 +123,47 @@ std::string JsonString(const char *text) {
 } // namespace
 
 void RegisterViewportBaselineTests(ImGuiTestEngine *engine) {
+    auto *configuration = IM_REGISTER_TEST(engine, "app", "viewport_measurement_configuration");
+    configuration->GuiFunc = MainThreadGui;
+    configuration->TestFunc = [](ImGuiTestContext *ctx) {
+        ImGuiTestEngineIO io;
+        const float warning = io.ConfigWatchdogWarning, kill = io.ConfigWatchdogKillTest;
+        auto returnEarly = [&] {
+            ViewportWatchdog watchdog(io, 200);
+            IM_CHECK_NO_RET(io.ConfigWatchdogWarning == 230 && io.ConfigWatchdogKillTest == 260);
+        };
+        returnEarly();
+        IM_CHECK(io.ConfigWatchdogWarning == warning && io.ConfigWatchdogKillTest == kill);
+        try {
+            ViewportWatchdog watchdog(io, 200);
+            throw std::runtime_error("Interrupted viewport measurement");
+        } catch (const std::runtime_error &) {}
+        IM_CHECK(io.ConfigWatchdogWarning == warning && io.ConfigWatchdogKillTest == kill);
+        io.ConfigWatchdogWarning = 800;
+        io.ConfigWatchdogKillTest = 900;
+        {
+            ViewportWatchdog watchdog(io, 200);
+            IM_CHECK(io.ConfigWatchdogWarning == 800 && io.ConfigWatchdogKillTest == 900);
+        }
+        IM_CHECK(io.ConfigWatchdogWarning == 800 && io.ConfigWatchdogKillTest == 900);
+        OnMainThread(ctx, [&] {
+            ViewportScheduling scheduling;
+            ViewportScheduling::Usage before{}, after{};
+#ifdef __APPLE__
+            IM_CHECK(scheduling.Snapshot(before));
+#endif
+            IM_CHECK(scheduling.Start());
+#ifdef __APPLE__
+            IM_CHECK(!scheduling.Start());
+#endif
+            IM_CHECK(scheduling.Restore() && scheduling.Restore());
+#ifdef __APPLE__
+            IM_CHECK(scheduling.Snapshot(after));
+            IM_CHECK(after.threadNanoseconds >= before.threadNanoseconds &&
+                     after.processMicroseconds >= before.processMicroseconds && before.qos == after.qos);
+#endif
+        });
+    };
     auto *test = IM_REGISTER_TEST(engine, "viewportbaseline", "release_cubes64");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
