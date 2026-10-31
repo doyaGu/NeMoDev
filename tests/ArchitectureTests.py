@@ -152,6 +152,17 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native/state access in workspace view: features/setup/SetupView.cpp", result.stderr)
 
+    def test_schematic_view_cannot_gain_indirect_native_access(self):
+        self.write("features/schematic/SchematicView.h", '#include "core/model.h"\n')
+        self.write("features/schematic/SchematicView.cpp", '#include "features/schematic/SchematicView.h"\n')
+        self.write("core/model.h", '#include "CKAll.h"\n')
+        self.manifest["source_groups"].append({"id": "views", "patterns": ["features/**"]})
+        self.manifest["features"][0]["source_groups"].append("views")
+        self.manifest["dependencies"] = {"views": ["core"]}
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("native/state access in workspace view: features/schematic/SchematicView.cpp", result.stderr)
+
     def test_definition_include_is_checked(self):
         self.write("core/properties.def", '#include "CKAll.h"\n')
         self.add_ui('#include "core/properties.def"\n')
