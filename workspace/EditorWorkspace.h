@@ -15,8 +15,10 @@ class EditorWorkspace : private EditorViewNavigation {
     ~EditorWorkspace();
     bool Register(std::string &error);
     EditorApplication &Application() { return m_Application; }
-    bool Begin(const char *property, ObjectRef object, EditorEdit &edit, EditorView &owner);
-    bool DrawInput(EditorEdit &edit, const char *label, bool focus = false, bool *active = nullptr);
+    bool Begin(const char *property, ObjectRef object, EditorEdit &edit, EditorView &owner,
+               const std::vector<EditorField> &arguments = {});
+    bool DrawInput(EditorEdit &edit, const char *label, bool focus = false, bool *active = nullptr,
+                   EditorValueStyle style = EDITOR_VALUE_INLINE, float width = 0, float height = 0);
     bool Finish(EditorEdit &edit, bool commit);
     void CloseOwner(EditorView &owner);
     bool Shortcut(const std::string &action, bool consume = false) const override;

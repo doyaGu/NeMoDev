@@ -426,6 +426,13 @@ uint32_t DrawComponents(void *data, const EditorHost *, const EditorValueInput *
             dial(angle ? "##angle" : "##euler", ImVec2(origin.x + 2 * scale, origin.y + (angle ? 2 : 24 * i) * scale), values[i]);
             ImGui::PopID();
         }
+    } else if (kind == CompositeKind::Color && input->height > 100) {
+        ImGuiColorEditFlags flags = ImGuiColorEditFlags_NoSidePreview;
+        const auto *alpha = Field(*input, "alpha");
+        if (alpha && alpha->type == EDITOR_INTEGER_VALUE && !alpha->integer) flags |= ImGuiColorEditFlags_NoAlpha;
+        ImGui::SetNextItemWidth(input->width);
+        changed = ImGui::ColorPicker4(Text(input->label).c_str(), values, flags);
+        active = ImGui::IsAnyItemActive();
     } else if (kind == CompositeKind::Color) {
         if (count != 4) { ImGui::EndGroup(); ImGui::PopID(); return EDITOR_INPUT_INVALID; }
         auto *storage = ImGui::GetStateStorage();

@@ -154,14 +154,21 @@ EditorStatus EditorWorkspace::InstanceQuery(void *data, const EditorHost *, cons
         {EDITOR_TEXT("roles"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {roles.data(), uint32_t(roles.size())}}};
     return sink.write ? sink.write(sink.data, fields, 5) : EDITOR_INVALID;
 }
-bool EditorWorkspace::Begin(const char *property, ObjectRef object, EditorEdit &edit, EditorView &owner) {
+bool EditorWorkspace::Begin(const char *property, ObjectRef object, EditorEdit &edit, EditorView &owner,
+                            const std::vector<EditorField> &arguments) {
     if (edit)
         Finish(edit, false);
     if (!owner)
         owner = m_Application.OpenScope();
-    return m_Application.BeginEdit(property, m_Application.Scope(owner), object, edit) == EDITOR_OK;
+    std::vector<EditorField> fields{{"target", EDITOR_OBJECT, object}};
+    fields.insert(fields.end(), arguments.begin(), arguments.end());
+    const auto values = BorrowEditorFields(fields);
+    return m_Application.BeginEdit(property,
+                                   {m_Application.Scope(owner), values.data(), uint32_t(values.values.size())},
+                                   edit) == EDITOR_OK;
 }
-bool EditorWorkspace::DrawInput(EditorEdit &edit, const char *label, bool focus, bool *active) {
+bool EditorWorkspace::DrawInput(EditorEdit &edit, const char *label, bool focus, bool *active, EditorValueStyle style,
+                                float width, float height) {
     if (active)
         *active = false;
     if (!edit)
@@ -171,7 +178,7 @@ bool EditorWorkspace::DrawInput(EditorEdit &edit, const char *label, bool focus,
         return false;
     }
     Drawing drawing(m_Application);
-    const auto result = m_Application.DrawEdit(edit, EditorLiteral(label), focus ? 1u : 0u);
+    const auto result = m_Application.DrawEdit(edit, EditorLiteral(label), focus ? 1u : 0u, style, width, height);
     if (active)
         *active = (result & EDITOR_INPUT_ACTIVE) != 0;
     if (result & EDITOR_INPUT_CANCEL) {
@@ -186,7 +193,7 @@ bool EditorWorkspace::Finish(EditorEdit &edit, bool commit) {
         edit = 0;
         return true;
     }
-    m_Error = "Finish the current operation before applying the name";
+    m_Error = "Finish the current operation before applying the value";
     return false;
 }
 void EditorWorkspace::CloseOwner(EditorView &owner) {

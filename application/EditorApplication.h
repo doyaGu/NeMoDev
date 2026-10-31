@@ -129,7 +129,8 @@ class EditorApplication {
     EditorStatus UpdateEdit(EditorEdit edit, const std::string &text);
     EditorStatus UpdateEdit(EditorEdit edit, const EditorValue &value);
     EditorStatus FinishEdit(EditorEdit edit, bool commit);
-    uint32_t DrawEdit(EditorEdit edit, EditorString label, uint32_t focus);
+    uint32_t DrawEdit(EditorEdit edit, EditorString label, uint32_t focus, EditorValueStyle style = EDITOR_VALUE_INLINE,
+                      float width = 0, float height = 0);
     bool EditState(EditorEdit edit, std::string &value, EditorValueEditorDesc &editor) const;
     bool EditState(EditorEdit edit, EditorField &value, EditorValueEditorDesc &editor) const;
     uint32_t DrawValue(const std::string &editor, const EditorValueInput &);

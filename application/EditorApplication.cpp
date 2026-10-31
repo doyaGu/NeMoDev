@@ -1909,7 +1909,8 @@ EditorResponse EditorApplication::ApplyEdit(const std::string &id, const EditorR
     --s.editing;
     return result;
 }
-uint32_t EditorApplication::DrawEdit(EditorEdit edit, EditorString label, uint32_t focus) {
+uint32_t EditorApplication::DrawEdit(EditorEdit edit, EditorString label, uint32_t focus, EditorValueStyle style,
+                                     float width, float height) {
     auto &s = *m_State;
     if (!s.Thread() || !s.drawing) return EDITOR_INPUT_CANCEL;
     auto found = s.drafts.find(edit);
@@ -1924,9 +1925,19 @@ uint32_t EditorApplication::DrawEdit(EditorEdit edit, EditorString label, uint32
         const auto &update = *static_cast<Update *>(data);
         return count == 1 && value ? update.app->UpdateEdit(update.edit, *value) : EDITOR_INVALID;
     };
-    const EditorValueInput input{sizeof(input), edit, label, value.values.front(), fields.data(),
-        uint32_t(fields.values.size()), focus, {&update, write}, EDITOR_VALUE_INLINE, 0, 0,
-        EditorText(property.choices), {found->second.scope, nullptr, 0, EditorText(property.choicesProvider)}};
+    const EditorValueInput input{sizeof(input),
+                                 edit,
+                                 label,
+                                 value.values.front(),
+                                 fields.data(),
+                                 uint32_t(fields.values.size()),
+                                 focus,
+                                 {&update, write},
+                                 style,
+                                 width,
+                                 height,
+                                 EditorText(property.choices),
+                                 {found->second.scope, nullptr, 0, EditorText(property.choicesProvider)}};
     auto choiceInput = input;
     const EditorValue choiceTarget{EditorLiteral("target"), EDITOR_OBJECT, found->second.object};
     choiceInput.choicesRequest.values = &choiceTarget; choiceInput.choicesRequest.count = 1;
