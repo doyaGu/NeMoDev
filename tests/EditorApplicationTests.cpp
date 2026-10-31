@@ -21,6 +21,7 @@ void TestParameterEdits(vdev::CkRuntimeHost &host);
 void TestArrayEdits(vdev::CkRuntimeHost &host);
 void TestSetupEdits(vdev::CkRuntimeHost &host);
 void TestSchematicEdits(vdev::CkRuntimeHost &host);
+void TestGraphChangeNotifications(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestDocumentCommands(vdev::CkRuntimeHost &host);
 void TestDocumentTransitions(vdev::CkRuntimeHost &host);
 void TestOutputCommands(vdev::CkRuntimeHost &host);
@@ -597,6 +598,7 @@ int main(int argc, char **argv) {
         TestArrayEdits(runtime);
         TestSetupEdits(runtime);
         TestSchematicEdits(runtime);
+        TestGraphChangeNotifications(runtime, argv[1]);
         TestObjectCommands(runtime, argv[1]);
         TestResourceCommands(runtime, argv[1]);
         TestExecutionCommands(runtime, argv[1]);

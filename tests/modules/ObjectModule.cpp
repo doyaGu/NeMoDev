@@ -18,6 +18,10 @@ struct Module {
     uint64_t arrayWrites[2]{}, arrayReads[2]{}, arrayDraws[2]{};
     struct Array { Module *owner; unsigned kind; } arrays[2];
     EditorObject resourceTarget{};
+    EditorObject schematicTarget{};
+    EditorSubscription schematicWatch = 0;
+    uint64_t schematicWrites = 0, schematicNotices = 0, schematicColor = 0;
+    EditorStatus schematicRead = EDITOR_STALE;
 };
 struct FileView {
     uint64_t answered = 0;
@@ -136,6 +140,47 @@ EditorStatus CreateFrame(void *data, const EditorHost *host, const EditorRequest
 }
 EditorStatus CreateScripts(void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
     return host->execute(host->data, EditorString EDITOR_TEXT("script.create"), request, sink);
+}
+EditorStatus SchematicColor(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    ++static_cast<Module *>(data)->schematicWrites;
+    auto nested = *request;
+    nested.handler = EDITOR_TEXT("builtin.schematic");
+    return host->execute(host->data, EditorString EDITOR_TEXT("schematic.script-color-set"), &nested, sink);
+}
+EditorStatus WatchSchematic(void *data, const EditorHost *host, const EditorRequest *request, EditorSink) {
+    auto &module = *static_cast<Module *>(data);
+    if (module.schematicWatch) host->unwatch(host->data, module.schematicWatch);
+    module.schematicWatch = 0;
+    module.schematicTarget = request->values[0].object;
+    module.schematicNotices = 0;
+    return host->watch(host->data, request->values[1].integer,
+        [](void *data, const EditorHost *host, const EditorChange *change) {
+            auto &module = *static_cast<Module *>(data);
+            ++module.schematicNotices;
+            const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, module.schematicTarget};
+            const EditorRequest query{change->scope, &target, 1};
+            module.schematicRead = host->query(host->data, EditorString EDITOR_TEXT("schematic.script-color-value"),
+                &query, {data, [](void *data, const EditorValue *values, uint32_t count) {
+                    for (uint32_t i = 0; i < count; ++i)
+                        if (std::string(values[i].key.data, values[i].key.size) == "value" &&
+                            values[i].type == EDITOR_REAL_LIST && values[i].reals.count == 4) {
+                            const auto *color = values[i].reals.data;
+                            static_cast<Module *>(data)->schematicColor =
+                                uint64_t(color[0] * 255 + .5) | uint64_t(color[1] * 255 + .5) << 8 |
+                                uint64_t(color[2] * 255 + .5) << 16;
+                        }
+                    return EDITOR_OK;
+                }});
+        }, data, &module.schematicWatch);
+}
+EditorStatus SchematicState(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+    const auto &module = *static_cast<Module *>(data);
+    const EditorValue fields[] = {
+        {EDITOR_TEXT("writes"), EDITOR_INTEGER_VALUE, {}, {}, module.schematicWrites},
+        {EDITOR_TEXT("notices"), EDITOR_INTEGER_VALUE, {}, {}, module.schematicNotices},
+        {EDITOR_TEXT("color"), EDITOR_INTEGER_VALUE, {}, {}, module.schematicColor},
+        {EDITOR_TEXT("read-status"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(module.schematicRead)}};
+    return sink.write(sink.data, fields, 4);
 }
 EditorStatus FileCommand(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
     auto nested = *request;
@@ -526,7 +571,37 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     static const EditorParameter vectorArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_REAL_LIST}, {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}};
     static const EditorParameter structureArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_RECORD},
         {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("schema"), EDITOR_RECORD}};
+    static const EditorParameter colorArgs[] = {
+        {EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("value"), EDITOR_REAL_LIST},
+        {EDITOR_TEXT("owner"), EDITOR_OBJECT, 0, 1}, {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("revisions"), EDITOR_INTEGER_LIST}};
+    static const EditorParameter schematicWatchArgs[] = {
+        {EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE}};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.script-color-set"), EDITOR_TEXT("example.schematic"),
+         EDITOR_TEXT("Set Script Color"), colorArgs, 6, SchematicColor, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("example.schematic-color-refuse"), EDITOR_TEXT("example.schematic"),
+         EDITOR_TEXT("Set Script Color Then Refuse"), colorArgs, 6,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             const auto status = SchematicColor(data, host, request, sink);
+             return status == EDITOR_OK ? EDITOR_REFUSED : status;
+         }, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("example.schematic-color-throw"), EDITOR_TEXT("example.schematic"),
+         EDITOR_TEXT("Set Script Color Then Throw"), colorArgs, 6,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             const auto status = SchematicColor(data, host, request, sink);
+             if (status == EDITOR_OK) throw std::runtime_error("Module color edit failed");
+             return status;
+         }, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("example.schematic-color-cancel"), EDITOR_TEXT("example.schematic"),
+         EDITOR_TEXT("Set Script Color Then Return No Change"), colorArgs, 6,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             const auto status = SchematicColor(data, host, request, sink);
+             return status == EDITOR_OK ? EDITOR_NO_CHANGE : status;
+         }, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("example.schematic-watch"), EDITOR_TEXT("example.schematic"),
+         EDITOR_TEXT("Watch Script Changes"), schematicWatchArgs, 2, WatchSchematic, data,
+         EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.flags-set"), EDITOR_TEXT("example.flags"), EDITOR_TEXT("Set External Flags"),
          integerArgs, 3, [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
              ++static_cast<Module *>(data)->flagCalls;
@@ -752,8 +827,14 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                 {EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(static_cast<Module *>(data)->flagReads)}};
             return sink.write(sink.data, values, 2);
         }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, vectorCountFields, 2};
+    static const EditorParameter schematicFields[] = {
+        {EDITOR_TEXT("writes"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("notices"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("color"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("read-status"), EDITOR_INTEGER_VALUE}};
+    const EditorQueryDesc schematicState{sizeof(EditorQueryDesc), EDITOR_TEXT("example.schematic-state"),
+        EDITOR_TEXT("example.schematic"), nullptr, 0, SchematicState, data, EDITOR_QUERY_EACH_READ,
+        EDITOR_APPLICATION, schematicFields, 4};
     auto *descriptors = new Descriptors{std::vector<EditorCommandDesc>(std::begin(commands), std::end(commands)),
-                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount, flagValue, flagCount},
+                                        {query, playCount, resourceTarget, integerCalls, vectorCalls, vectorValue, structureValue, structureCount, flagValue, flagCount, schematicState},
                                         {view, fileView, outputView, logView, resourceView, resourceInputs},
                                         {editor, {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.integer"),
                                             EDITOR_TEXT("example.integer"), EDITOR_TEXT("External integer"), DrawInteger, data, EDITOR_INTEGER_VALUE},
