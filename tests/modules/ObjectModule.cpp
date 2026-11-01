@@ -27,6 +27,12 @@ struct Module {
     uint64_t canvasReads = 0, canvasCameras = 0, canvasFolds = 0, canvasRefreshes = 0;
     uint64_t setupPages = 0, setupLists = 0, setupOpens = 0;
     uint64_t setupDetails = 0, setupProperties = 0, setupActions = 0;
+    uint64_t setupCommonCounts[8]{};
+    struct SetupCommon {
+        Module *owner = nullptr;
+        EditorString id{}, provider{};
+        unsigned index = 0;
+    } setupCommon[8];
     uint64_t pickReads = 0;
     uint64_t behaviorDrops = 0, behaviorFinishes = 0;
     EditorView pickView = 0;
@@ -1142,6 +1148,79 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
              return sink.write(sink.data, values, 3);
          },
          data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, classCounts, 3});
+    static const EditorParameter attributeArgs[] = {setupTarget, {EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, 1}};
+    static const EditorParameter attributeFields[] = {setupTarget,
+                                                      {EDITOR_TEXT("catalog"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("document-revision"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("behavioral"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("available"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("rows"), EDITOR_RECORD}};
+    static const EditorParameter clipboardFields[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("names"), EDITOR_TEXT_LIST}};
+    static const EditorParameter pictureFields[] = {
+        setupTarget, {EDITOR_TEXT("present"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("pixels"), EDITOR_INTEGER_LIST}};
+    static const EditorParameter copyAttributes[] = {
+        setupTarget, {EDITOR_TEXT("types"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("catalog"), EDITOR_INTEGER_VALUE}};
+    static const EditorParameter pasteAttributes[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},
+                                                      {EDITOR_TEXT("clipboard-revision"), EDITOR_INTEGER_VALUE}};
+    static const EditorParameter editAttribute[] = {setupTarget,
+                                                    {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE},
+                                                    {EDITOR_TEXT("catalog"), EDITOR_INTEGER_VALUE},
+                                                    {EDITOR_TEXT("parameter"), EDITOR_OBJECT}};
+    const EditorString commonIds[] = {EDITOR_TEXT("object.attributes"),
+                                      EDITOR_TEXT("attribute.clipboard"),
+                                      EDITOR_TEXT("object.picture"),
+                                      EDITOR_TEXT("attribute.copy-values"),
+                                      EDITOR_TEXT("attribute.paste-attributes"),
+                                      EDITOR_TEXT("attribute.edit-value"),
+                                      EDITOR_TEXT("object.remove-picture"),
+                                      EDITOR_TEXT("object.load-picture")};
+    for (unsigned i = 0; i < 8; ++i)
+        data->setupCommon[i] = {data, commonIds[i],
+                                i == 2 || i >= 6 ? EditorString EDITOR_TEXT("builtin.snapshots")
+                                                 : EditorString EDITOR_TEXT("builtin.scene"),
+                                i};
+    const EditorParameter *queryArgs[] = {attributeArgs, nullptr, &setupTarget};
+    const uint32_t queryCounts[] = {2, 0, 1}, fieldCounts[] = {8, 2, 3};
+    const EditorParameter *queryFields[] = {attributeFields, clipboardFields, pictureFields};
+    for (unsigned i = 0; i < 3; ++i)
+        descriptors->queries.push_back(
+            {sizeof(EditorQueryDesc), commonIds[i], EDITOR_TEXT("example.setups"), queryArgs[i], queryCounts[i],
+             [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+                 auto &entry = *static_cast<Module::SetupCommon *>(data);
+                 ++entry.owner->setupCommonCounts[entry.index];
+                 auto next = *request;
+                 next.handler = entry.provider;
+                 return host->query(host->data, entry.id, &next, sink);
+             },
+             &data->setupCommon[i], EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, queryFields[i], fieldCounts[i]});
+    const EditorParameter *commandArgs[] = {copyAttributes, pasteAttributes, editAttribute, &setupTarget, &setupTarget};
+    const uint32_t commandCounts[] = {3, 2, 4, 1, 1};
+    const EditorEffect commandEffects[] = {EDITOR_SESSION_CHANGE, EDITOR_DOCUMENT_EDIT, EDITOR_SESSION_CHANGE,
+                                           EDITOR_DOCUMENT_EDIT, EDITOR_FILE_OPERATION};
+    for (unsigned i = 0; i < 5; ++i)
+        descriptors->commands.push_back(
+            {sizeof(EditorCommandDesc), commonIds[i + 3], EDITOR_TEXT("example.setups"), commonIds[i + 3],
+             commandArgs[i], commandCounts[i],
+             [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+                 auto &entry = *static_cast<Module::SetupCommon *>(data);
+                 ++entry.owner->setupCommonCounts[entry.index];
+                 auto next = *request;
+                 next.handler = entry.provider;
+                 return host->execute(host->data, entry.id, &next, sink);
+             },
+             &data->setupCommon[i + 3], EDITOR_DOCUMENT, commandEffects[i]});
+    static const EditorParameter commonCounts{EDITOR_TEXT("counts"), EDITOR_INTEGER_LIST};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("example.setup-common-counts"),
+                                    EDITOR_TEXT("example.setups"), nullptr, 0,
+                                    [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+                                        EditorValue value{EDITOR_TEXT("counts"), EDITOR_INTEGER_LIST};
+                                        value.integers = {static_cast<Module *>(data)->setupCommonCounts, 8};
+                                        return sink.write(sink.data, &value, 1);
+                                    },
+                                    data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, &commonCounts, 1});
     static const EditorParameter setupCounts[] = {{EDITOR_TEXT("pages"), EDITOR_INTEGER_VALUE},
                                                   {EDITOR_TEXT("lists"), EDITOR_INTEGER_VALUE},
                                                   {EDITOR_TEXT("opens"), EDITOR_INTEGER_VALUE}};

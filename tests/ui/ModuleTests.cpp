@@ -10,6 +10,8 @@
 #include "core/document/ToolCommands.h"
 #include "core/schematic/SchematicEdits.h"
 #include "features/layout/LayoutSceneData.h"
+#include "core/document/ObjectPictures.h"
+#include "core/runtime/Bitmaps.h"
 #include <fstream>
 #include <chrono>
 #include <filesystem>
@@ -143,6 +145,110 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(entity && state.History().UndoCount() == steps + 1);
             IM_CHECK_NO_RET(state.History().Undo() &&
                             std::memcmp(&before, &entity->GetWorldMatrix(), sizeof(before)) == 0);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(initial, error));
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+        });
+    };
+    setupTest = IM_REGISTER_TEST(engine, "modules", "setup_attributes_and_pictures_use_selected_providers");
+    setupTest->GuiFunc = MainThreadGui;
+    setupTest->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        auto &editor = workspace.Application();
+        const vdev::EditorClient client(editor.Host(), 0);
+        vdev::EditorConfiguration initial;
+        vdev::ObjectRef source{}, destination{};
+        uint64_t calls[8]{};
+        size_t steps = 0;
+        const char *queryIds[] = {"object.attributes", "attribute.clipboard", "object.picture"};
+        const char *commandIds[] = {"attribute.copy-values", "attribute.paste-attributes", "attribute.edit-value",
+                                    "object.remove-picture", "object.load-picture"};
+        OnMainThread(ctx, [&] {
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            auto *context = state.document->Context();
+            auto *first = CKBeObject::Cast(context->CreateObject(CKCID_3DENTITY, "External attributes source"));
+            auto *second = CKBeObject::Cast(context->CreateObject(CKCID_3DENTITY, "External attributes destination"));
+            IM_CHECK_NO_RET(first && second);
+            state.document->Include(first->GetID());
+            state.document->Include(second->GetID());
+            source = state.document->Reference(first->GetID());
+            destination = state.document->Reference(second->GetID());
+            const auto type = context->GetAttributeManager()->RegisterNewAttributeType(
+                "Setup module value", CKPGUID_INT, CKCID_BEOBJECT, CK_ATTRIBUT_USER);
+            IM_CHECK_NO_RET(type >= 0 && first->SetAttribute(type));
+            int value = 3;
+            first->GetAttributeParameter(type)->SetValue(&value);
+            std::vector<unsigned char> pixels(52 * 40 * 4, 255);
+            IM_CHECK_NO_RET(
+                vdev::SetObjectPicture(*state.document, second->GetID(), vdev::BitmapFromPixels(pixels.data(), 52, 40))
+                    .ok);
+            steps = state.History().UndoCount();
+            initial = editor.Configuration();
+            auto configured = initial;
+            for (auto &choice : configured.providers)
+                if ((choice.kind == "query" &&
+                     std::find(std::begin(queryIds), std::end(queryIds), choice.id) != std::end(queryIds)) ||
+                    (choice.kind == "command" &&
+                     std::find(std::begin(commandIds), std::end(commandIds), choice.id) != std::end(commandIds)))
+                    choice.provider = "example.setups";
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(configured, error));
+            const auto before = client.Query("example.setup-common-counts");
+            const auto *counts = vdev::EditorClient::Find(before, "counts");
+            IM_CHECK_NO_RET(counts && counts->integers.size() == 8);
+            std::copy(counts->integers.begin(), counts->integers.end(), calls);
+            state.events.Post(vdev::ShowObjectSetup{source});
+        });
+        ctx->Yield(4);
+        ctx->SetRef("//###setup3d");
+        ctx->ItemClick("**/Attribute");
+        ctx->ItemClick("**/Setup module value", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Copy Attribute Parameter Value");
+        OnMainThread(ctx, [&] {
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            state.events.Post(vdev::ShowObjectSetup{destination});
+        });
+        ctx->Yield(4);
+        ctx->SetRef("//###setup3d");
+        ctx->ItemClick("**/Attribute");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_V);
+        ctx->Yield(3);
+        ctx->ItemDoubleClick("**/3");
+        ctx->Yield(3);
+        ctx->SetRef("//Edit Parameter###AttributeValue");
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        ctx->SetRef("//###setup3d");
+        const auto parameter = ctx->ItemInfo("**/Parameter").RectFull;
+        ctx->MouseMoveToPos(ImVec2(parameter.GetCenter().x, parameter.Min.y - 30));
+        ctx->MouseClick(ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Remove Snapshot");
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps + 2 &&
+                            !state.document->Pictures().count(destination.object));
+            const auto load = client.Command("object.load-picture", {vdev::ObjectArgument("target", destination)});
+            IM_CHECK_NO_RET(load.status == EDITOR_QUEUED);
+            const auto input = client.Query("snapshot.input");
+            IM_CHECK_NO_RET(client
+                                .Command("snapshot.respond",
+                                         {vdev::IntegerArgument("input", vdev::EditorClient::Integer(input, "input")),
+                                          vdev::TextArgument("choice", "cancel")})
+                                .status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Completion(load.operation).status == EDITOR_CANCELLED);
+            const auto after = client.Query("example.setup-common-counts");
+            const auto *counts = vdev::EditorClient::Find(after, "counts");
+            IM_CHECK_NO_RET(counts && counts->integers.size() == 8);
+            for (unsigned i = 0; i < 8; ++i)
+                IM_CHECK_NO_RET(counts->integers[i] > calls[i]);
+            IM_CHECK_NO_RET(state.History().Undo() && state.History().Undo() && state.History().Undo());
+            IM_CHECK_NO_RET(state.History().UndoCount() + 1 == steps);
             std::string error;
             IM_CHECK_NO_RET(workspace.Configure(initial, error));
             const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
