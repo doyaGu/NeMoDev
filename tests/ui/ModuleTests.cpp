@@ -24,6 +24,74 @@ int LiveViews() {
 }
 } // namespace
 void RegisterModuleTests(ImGuiTestEngine *engine) {
+    auto *setupTest = IM_REGISTER_TEST(engine, "modules", "setup_queries_and_open_command");
+    setupTest->GuiFunc = MainThreadGui;
+    setupTest->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        auto &editor = workspace.Application();
+        vdev::EditorConfiguration initial;
+        vdev::ObjectRef target{};
+        size_t steps = 0;
+        uint64_t selection = 0, opens = 0, lists = 0, pages = 0;
+        bool dirty = false;
+        const auto counts = [&] { return vdev::EditorClient(editor.Host(), 0).Query("example.setup-counts"); };
+        OnMainThread(ctx, [&] {
+            const auto created = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(created.ok);
+            target = state.document->Reference(created.created);
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            initial = editor.Configuration();
+            auto configuration = initial;
+            for (auto &choice : configuration.providers)
+                if ((choice.kind == "query" && (choice.id == "setup.page" || choice.id == "setup.objects")) ||
+                    (choice.kind == "command" && choice.id == "object.open-setup"))
+                    choice.provider = "example.setups";
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(configuration, error));
+            const auto before = counts();
+            opens = vdev::EditorClient::Integer(before, "opens");
+            lists = vdev::EditorClient::Integer(before, "lists");
+            pages = vdev::EditorClient::Integer(before, "pages");
+            steps = state.History().UndoCount();
+            selection = state.objectSelection.Revision();
+            dirty = state.document->Dirty();
+            state.events.Post(vdev::ShowObjectSetup{target});
+        });
+        ctx->Yield(4);
+        auto *window = ctx->GetWindowByRef("//###setup3d");
+        IM_CHECK(window && window->WasActive && std::string(window->Name).rfind("External Setup###", 0) == 0);
+        IM_CHECK(ShowsObject(target.object));
+        ctx->SetRef("//###setup3d");
+        ctx->ItemClick("##name");
+        ctx->Yield(2);
+        ctx->KeyPress(ImGuiKey_Escape);
+        OnMainThread(ctx, [&] {
+            const auto after = counts();
+            IM_CHECK_NO_RET(vdev::EditorClient::Integer(after, "opens") == opens + 1);
+            IM_CHECK_NO_RET(vdev::EditorClient::Integer(after, "pages") > pages);
+            IM_CHECK_NO_RET(vdev::EditorClient::Integer(after, "lists") > lists);
+            auto stale = target;
+            ++stale.lifetime;
+            const auto shown = App().Setups().OpenSetups();
+            IM_CHECK_NO_RET(vdev::EditorClient(editor.Host(), 0)
+                                .Command("object.open-setup", {vdev::ObjectArgument("target", stale)})
+                                .status == EDITOR_STALE);
+            IM_CHECK_NO_RET(App().Setups().OpenSetups().size() == shown.size());
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.objectSelection.Revision() == selection &&
+                            state.document->Dirty() == dirty);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(initial, error));
+        });
+        ctx->Yield(3);
+        window = ctx->GetWindowByRef("//###setup3d");
+        IM_CHECK(window && std::string(window->Name).rfind("3D Frame Setup###", 0) == 0);
+        OnMainThread(ctx, [&] {
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            IM_CHECK_NO_RET(state.History().Undo());
+        });
+    };
     auto *test = IM_REGISTER_TEST(engine, "modules", "canvas_queries_and_commands");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {

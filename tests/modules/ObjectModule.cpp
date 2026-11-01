@@ -25,6 +25,7 @@ struct Module {
     uint64_t diagnosticScans = 0, diagnosticLinks = 0;
     uint64_t preferenceReads = 0, preferenceWrites = 0;
     uint64_t canvasReads = 0, canvasCameras = 0, canvasFolds = 0, canvasRefreshes = 0;
+    uint64_t setupPages = 0, setupLists = 0, setupOpens = 0;
     uint64_t pickReads = 0;
     uint64_t behaviorDrops = 0, behaviorFinishes = 0;
     EditorView pickView = 0;
@@ -1031,6 +1032,80 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                 {EDITOR_TEXT("refreshes"), EDITOR_INTEGER_VALUE, {}, {}, module.canvasRefreshes}};
             return sink.write ? sink.write(sink.data, values, 4) : EDITOR_INVALID;
         }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, canvasCounts, 4});
+    static const EditorParameter setupTarget{EDITOR_TEXT("target"), EDITOR_OBJECT};
+    static const EditorParameter setupPageArgs[] = {setupTarget, {EDITOR_TEXT("point"), EDITOR_INTEGER_VALUE, 1}};
+    static const EditorParameter setupPageFields[] = {setupTarget,
+                                                      {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE},
+                                                      {EDITOR_TEXT("name"), EDITOR_TEXT_VALUE},
+                                                      {EDITOR_TEXT("point"), EDITOR_OBJECT, 0, 1},
+                                                      {EDITOR_TEXT("grid"), EDITOR_OBJECT, 0, 1},
+                                                      {EDITOR_TEXT("layer"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("file-kind"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("filename"), EDITOR_TEXT_VALUE},
+                                                      {EDITOR_TEXT("behavioral"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("frame"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("attribute-drop"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("scene-scoped"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("current-scene"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("in-current-scene"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("initial-visible"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("initial-here"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("initial-value"), EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("setup.page"), EDITOR_TEXT("example.setups"), setupPageArgs, 2,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->setupPages;
+             auto next = *request;
+             next.handler = EDITOR_TEXT("builtin.setup");
+             return host->query(host->data, EditorString EDITOR_TEXT("setup.page"), &next,
+                                {&sink, [](void *data, const EditorValue *values, uint32_t count) {
+                                     std::vector<EditorValue> output(values, values + count);
+                                     for (auto &value : output)
+                                         if (std::string(value.key.data, value.key.size) == "title")
+                                             value.text = EDITOR_TEXT("External Setup");
+                                     const auto &sink = *static_cast<EditorSink *>(data);
+                                     return sink.write(sink.data, output.data(), uint32_t(output.size()));
+                                 }});
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, setupPageFields, uint32_t(std::size(setupPageFields))});
+    static const EditorParameter setupListArgs[] = {setupTarget,
+                                                    {EDITOR_TEXT("current-scene"), EDITOR_INTEGER_VALUE, 1}};
+    static const EditorParameter setupListFields[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},
+                                                      {EDITOR_TEXT("names"), EDITOR_TEXT_LIST}};
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("setup.objects"), EDITOR_TEXT("example.setups"), setupListArgs, 2,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->setupLists;
+             auto next = *request;
+             next.handler = EDITOR_TEXT("builtin.setup");
+             return host->query(host->data, EditorString EDITOR_TEXT("setup.objects"), &next, sink);
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, setupListFields, 2});
+    descriptors->commands.push_back(
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("object.open-setup"), EDITOR_TEXT("example.setups"),
+         EDITOR_TEXT("External Setup"), &setupTarget, 1,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->setupOpens;
+             auto next = *request;
+             next.handler = EDITOR_TEXT("builtin.setup-windows");
+             return host->execute(host->data, EditorString EDITOR_TEXT("object.open-setup"), &next, sink);
+         },
+         data, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE});
+    static const EditorParameter setupCounts[] = {{EDITOR_TEXT("pages"), EDITOR_INTEGER_VALUE},
+                                                  {EDITOR_TEXT("lists"), EDITOR_INTEGER_VALUE},
+                                                  {EDITOR_TEXT("opens"), EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("example.setup-counts"), EDITOR_TEXT("example.setups"), nullptr, 0,
+         [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+             const auto &m = *static_cast<Module *>(data);
+             const EditorValue values[] = {{EDITOR_TEXT("pages"), EDITOR_INTEGER_VALUE, {}, {}, m.setupPages},
+                                           {EDITOR_TEXT("lists"), EDITOR_INTEGER_VALUE, {}, {}, m.setupLists},
+                                           {EDITOR_TEXT("opens"), EDITOR_INTEGER_VALUE, {}, {}, m.setupOpens}};
+             return sink.write(sink.data, values, 3);
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, setupCounts, 3});
     static const EditorParameter preferenceArgs[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("value"), EDITOR_RECORD}};
     descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.apply"), EDITOR_TEXT("example.preferences"),
         EDITOR_TEXT("External General Preferences"), preferenceArgs, 2,
