@@ -99,13 +99,17 @@ void SchematicModel::Build(const ScriptSession &session, CKContext *context, con
 }
 
 void SchematicModel::Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure, bool open) {
+    Build(session.DisplayData(), session.ScriptId(), context, measure, open);
+}
+
+void SchematicModel::Build(const InterfaceData &data, CK_ID scriptId, CKContext *context, const TextMeasure &measure,
+                           bool open) {
     *this = SchematicModel();
-    const InterfaceData &data = session.Data();
     const BehaviorData &rootRecord = data.rootBehavior;
-    CKBehavior *root = context ? CKBehavior::Cast(context->GetObject(session.ScriptId())) : nullptr;
+    CKBehavior *root = context ? CKBehavior::Cast(context->GetObject(scriptId)) : nullptr;
     const bool rootIsScript = root && (root->GetType() & CKBEHAVIORTYPE_SCRIPT);
 
-    script.id = session.ScriptId();
+    script.id = scriptId;
     script.ref = {ElementKind::Script, script.id, script.id};
     script.name = NameOf(root);
     script.ownerName = root ? NameOf(root->GetOwner()) : std::string();
@@ -414,7 +418,8 @@ void SchematicModel::Build(const ScriptSession &session, CKContext *context, con
         const float height = data.header.vStartSize > 0.0f ? data.header.vStartSize : DEFAULT_START_HEIGHT;
         start.bounds = Rect(data.header.hStartPos, rootRecord.rect.vPos + data.header.vStartPos, width, height);
         CKBehaviorIO *startIo = root->GetInputCount() > 0 ? root->GetInput(0) : nullptr;
-        if (!resolve(LinkEndpoint(startIo ? startIo->GetID() : 0, 0, ENDPOINT_START_BIN), start.center))
+        start.endpoint = LinkEndpoint(startIo ? startIo->GetID() : 0, 0, ENDPOINT_START_BIN);
+        if (!resolve(start.endpoint, start.center))
             start.center = Point(start.bounds.Right(), start.bounds.CenterY());
         Grow(contentBounds, emptyBounds, start.bounds);
     }

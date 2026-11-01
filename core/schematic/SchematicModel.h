@@ -163,6 +163,7 @@ struct CommentItem {
 
 struct StartItem {
     ElementRef ref;
+    LinkEndpoint endpoint;
     bool present = false;
     Rect bounds;
     Point center;
@@ -179,6 +180,7 @@ class SchematicModel {
 public:
     void Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure = TextMeasure());
     void Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure, bool open);
+    void Build(const InterfaceData &data, CK_ID script, CKContext *context, const TextMeasure &measure, bool open);
 
     ScriptItem script;
     StartItem start;

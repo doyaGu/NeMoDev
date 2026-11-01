@@ -15,6 +15,7 @@ namespace vdev {
 class Clipboard {
     std::shared_ptr<ObjectReferences> m_Objects;
     DocumentToken m_Source{};
+    uint64_t m_Revision = 0;
 
 public:
     InterfaceData data;
@@ -24,6 +25,8 @@ public:
     std::vector<CK_ID> operations;
     // Attribute names (ANSI) for Paste Attributes; empty for other copies.
     std::vector<std::string> attributes;
+
+    uint64_t Revision() const { return m_Revision; }
 
     bool Empty() const {
         if (m_Objects && !m_Objects->IsValid()) return true;
@@ -40,6 +43,7 @@ public:
         sources.insert(sources.end(), replacement.operations.begin(), replacement.operations.end());
         replacement.m_Objects = document.RetainObjects(sources);
         replacement.m_Source = document.Token();
+        replacement.m_Revision = m_Revision + 1;
         auto previousSources = std::move(m_Objects);
         *this = std::move(replacement);
     }

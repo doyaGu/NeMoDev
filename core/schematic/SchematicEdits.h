@@ -17,8 +17,8 @@ namespace vdev {
 // graph translates its flattened subtree: descendant rects, operations,
 // Comments and the control points of links stored in those graphs.
 // Parameter cells are window-relative and move with their owner; Script
-// parameters keep the col>=9 / row>=0 clamp.
-void MoveElements(InterfaceData &data, const InterfaceData &original, bool rootIsScript,
+// parameters keep the col>=9 / row>=0 clamp. Returns whether a position changed.
+bool MoveElements(InterfaceData &data, const InterfaceData &original, bool rootIsScript,
                   const std::vector<ElementRef> &items, const ElementRef &primary, const Point &rawDelta);
 
 // Expands or folds a behavior graph (UI flag 0x200). When a graph without

@@ -21,6 +21,7 @@ void RefreshRecord(CKContext *context, BehaviorData &record) {
 } // namespace
 
 bool ScriptSession::Open(CKContext *context, CK_ID scriptId) {
+    ClearDisplayPreview();
     m_Context = context;
     m_Script = context ? context->GetObjectHandle(scriptId) : CKObjectHandle{};
     m_LoadMessage.clear();
@@ -66,6 +67,7 @@ bool ScriptSession::Open(CKContext *context, CK_ID scriptId) {
 }
 
 bool ScriptSession::Reconstruct(CKContext *context) {
+    ClearDisplayPreview();
     m_Context = context;
     CKBehavior *script = CKBehavior::Cast(context ? context->GetObjectByHandle(m_Script) : nullptr);
     if (!script) {
@@ -111,14 +113,31 @@ void ScriptSession::Restore(const InterfaceData &data) {
     replacement.observers.clear();
     RefreshRecord(m_Context, replacement.rootBehavior);
     for (auto &record : replacement.behaviors) RefreshRecord(m_Context, record);
+    ClearDisplayPreview();
     m_Data = std::move(replacement);
 }
 
 bool ScriptSession::FitContentHeight(float height) {
+    if (m_DisplayPreview)
+        return false;
     if (!IsCurrent() || ReadOnly() || !std::isfinite(height) || height <= 0.0f || height == m_Data.header.vSize) return false;
     m_Data.header.vSize = height;
     TouchUndoable();
     return true;
+}
+bool ScriptSession::PreviewDisplay(InterfaceData data) {
+    if (!IsCurrent() || ReadOnly() || data.rootBehavior.id != m_Script.Id)
+        return false;
+    data.observers.clear();
+    m_DisplayPreview = std::move(data);
+    ++m_ViewRevision;
+    return true;
+}
+void ScriptSession::ClearDisplayPreview() {
+    if (m_DisplayPreview) {
+        m_DisplayPreview.reset();
+        ++m_ViewRevision;
+    }
 }
 
 void ScriptSession::RefreshRuntimeState(CKContext *context) {

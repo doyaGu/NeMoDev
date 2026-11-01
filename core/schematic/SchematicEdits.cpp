@@ -78,8 +78,11 @@ Point SnappedDelta(const InterfaceData &original, const ElementRef &primary, con
     return Point(SnapDelta(raw.h), SnapDelta(raw.v));
 }
 
-void Translate(Point &point, const Point &from, const Point &delta) {
-    point = Point(from.h + delta.h, from.v + delta.v);
+bool Translate(Point &point, const Point &from, const Point &delta) {
+    const Point next(from.h + delta.h, from.v + delta.v);
+    const bool changed = point.h != next.h || point.v != next.v;
+    point = next;
+    return changed;
 }
 
 } // namespace
@@ -106,8 +109,13 @@ std::set<CK_ID> CollectSubtree(const InterfaceData &data, CK_ID graph) {
     return result;
 }
 
-void MoveElements(InterfaceData &data, const InterfaceData &original, bool rootIsScript,
+bool MoveElements(InterfaceData &data, const InterfaceData &original, bool rootIsScript,
                   const std::vector<ElementRef> &items, const ElementRef &primary, const Point &rawDelta) {
+    bool changed = false;
+    const auto assign = [&](auto &field, const auto &next) {
+        changed |= field != next;
+        field = next;
+    };
     const Point delta = SnappedDelta(original, primary, rawDelta);
 
     std::set<CK_ID> moved;
@@ -122,20 +130,20 @@ void MoveElements(InterfaceData &data, const InterfaceData &original, bool rootI
         BehaviorData *record = FindRecord(data, id);
         const BehaviorData *from = FindRecord(original, id);
         if (!record || !from) continue;
-        record->rect.hPos = from->rect.hPos + delta.h;
-        record->rect.vPos = from->rect.vPos + delta.v;
+        assign(record->rect.hPos, from->rect.hPos + delta.h);
+        assign(record->rect.vPos, from->rect.vPos + delta.v);
         // Elements stored by a moved graph are flattened Script pixels.
         for (size_t i = 0; i < record->operations.size() && i < from->operations.size(); ++i) {
-            record->operations[i].hPos = from->operations[i].hPos + delta.h;
-            record->operations[i].vPos = from->operations[i].vPos + delta.v;
+            assign(record->operations[i].hPos, from->operations[i].hPos + delta.h);
+            assign(record->operations[i].vPos, from->operations[i].vPos + delta.v);
         }
         for (size_t i = 0; i < record->comments.size() && i < from->comments.size(); ++i) {
-            record->comments[i].hPos = from->comments[i].hPos + delta.h;
-            record->comments[i].vPos = from->comments[i].vPos + delta.v;
+            assign(record->comments[i].hPos, from->comments[i].hPos + delta.h);
+            assign(record->comments[i].vPos, from->comments[i].vPos + delta.v);
         }
         for (size_t i = 0; i < record->links.size() && i < from->links.size(); ++i)
             for (size_t p = 0; p < record->links[i].points.size() && p < from->links[i].points.size(); ++p)
-                Translate(record->links[i].points[p], from->links[i].points[p], delta);
+                changed |= Translate(record->links[i].points[p], from->links[i].points[p], delta);
     }
 
     for (const auto &item : items) {
@@ -147,16 +155,16 @@ void MoveElements(InterfaceData &data, const InterfaceData &original, bool rootI
             Operation *operation = FindOperation(owner, item.object);
             const Operation *from = FindOperation(fromOwner, item.object);
             if (operation && from) {
-                operation->hPos = from->hPos + delta.h;
-                operation->vPos = from->vPos + delta.v;
+                assign(operation->hPos, from->hPos + delta.h);
+                assign(operation->vPos, from->vPos + delta.v);
             }
             break;
         }
         case ElementKind::Comment:
             if (owner && fromOwner && item.index >= 0 && item.index < static_cast<int>(owner->comments.size()) &&
                 item.index < static_cast<int>(fromOwner->comments.size())) {
-                owner->comments[item.index].hPos = fromOwner->comments[item.index].hPos + delta.h;
-                owner->comments[item.index].vPos = fromOwner->comments[item.index].vPos + delta.v;
+                assign(owner->comments[item.index].hPos, fromOwner->comments[item.index].hPos + delta.h);
+                assign(owner->comments[item.index].vPos, fromOwner->comments[item.index].vPos + delta.v);
             }
             break;
         case ElementKind::Link:
@@ -167,7 +175,7 @@ void MoveElements(InterfaceData &data, const InterfaceData &original, bool rootI
                 const Link &from = fromOwner->links[item.index];
                 for (size_t p = 0; p < link.points.size() && p < from.points.size(); ++p)
                     if (item.kind == ElementKind::Link || static_cast<int>(p) == item.sub)
-                        Translate(link.points[p], from.points[p], delta);
+                        changed |= Translate(link.points[p], from.points[p], delta);
             }
             break;
         case ElementKind::LocalParam:
@@ -185,18 +193,19 @@ void MoveElements(InterfaceData &data, const InterfaceData &original, bool rootI
                 column = std::max(column, ParameterDisplayGeometry::SCRIPT_MINIMUM_COLUMN);
                 row = std::max(row, 0);
             }
-            (*table)[item.index].hPos = column;
-            (*table)[item.index].vPos = row;
+            assign((*table)[item.index].hPos, column);
+            assign((*table)[item.index].vPos, row);
             break;
         }
         case ElementKind::Start:
             // Attached to the header: only the vertical position changes.
-            data.header.vStartPos = original.header.vStartPos + delta.v;
+            assign(data.header.vStartPos, original.header.vStartPos + delta.v);
             break;
         default:
             break;
         }
     }
+    return changed;
 }
 
 void SetBehaviorFolded(InterfaceData &data, CK_ID behavior, bool folded) {

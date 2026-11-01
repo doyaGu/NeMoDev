@@ -16,6 +16,8 @@ struct Selection {
     void Bind(Document *document) { m_Document = document; }
     void Validate();
     void Rebase();
+    // Accept a copied selection already checked by a document query.
+    void Assign(const std::vector<ElementAddress> &);
     const std::vector<ElementAddress> &Addresses() const { return m_Addresses; }
     std::uint64_t Revision() const { return m_Revision; }
 

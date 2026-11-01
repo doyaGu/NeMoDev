@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <optional>
 
 #include "core/interface/InterfaceData.h"
 
@@ -39,6 +40,12 @@ public:
     // Read access only. Undoable writes go through Edit::ScriptData or
     // EditScriptData; replacements outside undo go through Assign.
     const InterfaceData &Data() const { return m_Data; }
+    // The renderer may display a continuous edit before it is committed.
+    // Authoritative data, save points and Script revisions stay unchanged.
+    const InterfaceData &DisplayData() const { return m_DisplayPreview ? *m_DisplayPreview : m_Data; }
+    bool PreviewDisplay(InterfaceData data);
+    void ClearDisplayPreview();
+    bool HasDisplayPreview() const { return m_DisplayPreview.has_value(); }
 
     // Replaces display data outside undo, refreshing runtime fields and
     // recording the change. False for read-only sessions or another Script's
@@ -85,6 +92,7 @@ private:
     SessionOrigin m_Origin = SessionOrigin::LoadedChunk;
     std::string m_LoadMessage;
     InterfaceData m_Data;
+    std::optional<InterfaceData> m_DisplayPreview;
     std::uint64_t m_Revision = 0;
     std::uint64_t m_SavedRevision = 0;
     std::uint64_t m_ChangesOutsideUndo = 0;

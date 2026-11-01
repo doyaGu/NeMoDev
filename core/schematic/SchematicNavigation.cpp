@@ -19,6 +19,22 @@ void Selection::Rebase() {
     for (const auto &item : items) m_Addresses.push_back(ElementAddress::Capture(*m_Document, script, item));
     for (auto header : headers) m_Addresses.push_back(ElementAddress::Capture(*m_Document, header, HeaderOf(header)));
 }
+void Selection::Assign(const std::vector<ElementAddress> &addresses) {
+    Clear();
+    for (const auto &address : addresses) {
+        if (!address)
+            continue;
+        if (!script)
+            script = address.script.object;
+        if (address.script.object == script)
+            items.push_back(address.element);
+        else if (address.element.kind == ElementKind::Script)
+            headers.push_back(address.script.object);
+        else
+            continue;
+        m_Addresses.push_back(address);
+    }
+}
 void Selection::Validate() {
     if (!m_Document) { Clear(); return; }
     bool valid = true;
