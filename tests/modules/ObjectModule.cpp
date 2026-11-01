@@ -26,6 +26,7 @@ struct Module {
     uint64_t preferenceReads = 0, preferenceWrites = 0;
     uint64_t canvasReads = 0, canvasCameras = 0, canvasFolds = 0, canvasRefreshes = 0;
     uint64_t pickReads = 0;
+    uint64_t behaviorDrops = 0, behaviorFinishes = 0;
     EditorView pickView = 0;
     bool pickFailure = false;
     EditorStatus schematicRead = EDITOR_STALE;
@@ -1143,6 +1144,44 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                                          return EDITOR_OK;
                                      },
                                      data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
+    static const EditorParameter behaviorDrop[] = {
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, 1},     {EDITOR_TEXT("prototype"), EDITOR_INTEGER_VALUE, 1},
+        {EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST, 1}, {EDITOR_TEXT("ask"), EDITOR_INTEGER_VALUE, 1},
+        {EDITOR_TEXT("position"), EDITOR_REAL_LIST, 1},      {EDITOR_TEXT("ctrl"), EDITOR_INTEGER_VALUE, 1}};
+    static const EditorParameter behaviorFinish[] = {{EDITOR_TEXT("drop"), EDITOR_INTEGER_VALUE},
+                                                     {EDITOR_TEXT("accept"), EDITOR_INTEGER_VALUE},
+                                                     {EDITOR_TEXT("values"), EDITOR_OBJECT_LIST, 1}};
+    descriptors->commands.push_back(
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("scene.drop-behavior"), EDITOR_TEXT("example.authoring"),
+         EDITOR_TEXT("External behavior drop"), behaviorDrop, 6,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->behaviorDrops;
+             auto next = *request;
+             next.handler = EDITOR_TEXT("builtin.layout-authoring");
+             return host->execute(host->data, EditorString EDITOR_TEXT("scene.drop-behavior"), &next, sink);
+         },
+         data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_CHANGE});
+    descriptors->commands.push_back(
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("layout.finish-drop"), EDITOR_TEXT("example.authoring"),
+         EDITOR_TEXT("External behavior parameters"), behaviorFinish, 3,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->behaviorFinishes;
+             auto next = *request;
+             next.handler = EDITOR_TEXT("builtin.layout-authoring");
+             return host->execute(host->data, EditorString EDITOR_TEXT("layout.finish-drop"), &next, sink);
+         },
+         data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT});
+    static const EditorParameter behaviorCounts[] = {{EDITOR_TEXT("drops"), EDITOR_INTEGER_VALUE},
+                                                     {EDITOR_TEXT("finishes"), EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("example.authoring-counts"), EDITOR_TEXT("example.authoring"), nullptr, 0,
+         [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+             const auto &m = *static_cast<Module *>(data);
+             const EditorValue fields[] = {{EDITOR_TEXT("drops"), EDITOR_INTEGER_VALUE, {}, {}, m.behaviorDrops},
+                                           {EDITOR_TEXT("finishes"), EDITOR_INTEGER_VALUE, {}, {}, m.behaviorFinishes}};
+             return sink.write(sink.data, fields, 2);
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, behaviorCounts, 2});
     *out = {};
     out->size = sizeof(*out);
     out->version = EDITOR_VERSION;

@@ -1051,5 +1051,75 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         IM_CHECK(Read<bool>(ctx, [] { return App().Layout().UsesGpuViewport(); }));
     };
 
+    test = IM_REGISTER_TEST(engine, "modules", "layout_behavior_drop_and_parameters_use_selected_providers");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        vdev::EditorConfiguration previous;
+        vdev::ObjectRef owner{}, block{};
+        uint64_t prototype = 0, drops = 0, finishes = 0;
+        size_t history = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &editor = state.workspace->Application();
+            previous = editor.Configuration();
+            auto chosen = previous;
+            for (auto &provider : chosen.providers)
+                if (provider.kind == "command" &&
+                    (provider.id == "scene.drop-behavior" || provider.id == "layout.finish-drop"))
+                    provider.provider = "example.authoring";
+            std::string error;
+            IM_CHECK_NO_RET(state.workspace->Configure(chosen, error));
+            const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            owner = state.document->Reference(made.created);
+            history = state.History().UndoCount();
+            for (const auto &entry : state.catalog.Entries())
+                if (entry.name == "Rotate")
+                    prototype = (uint64_t(entry.guid.d1) << 32) | entry.guid.d2;
+            IM_CHECK_NO_RET(prototype);
+            const auto counts = editor.Query("example.authoring-counts", {editor.Scope(), nullptr, 0});
+            drops = vdev::EditorClient::Integer(counts, "drops");
+            finishes = vdev::EditorClient::Integer(counts, "finishes");
+            const EditorValue args[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {&owner, 1}},
+                                        vdev::IntegerArgument("prototype", prototype)};
+            const auto result = editor.Execute("scene.drop-behavior", {editor.Scope(), args, 2});
+            IM_CHECK_NO_RET(result.status == EDITOR_OK && state.document->EditOpen());
+            for (const auto &field : result.fields)
+                if (field.key == "created")
+                    block = field.object;
+        });
+        ctx->Yield(4);
+        IM_CHECK(ctx->GetWindowByRef("//###DropParameters"));
+        ctx->KeyPress(ImGuiKey_Enter);
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &editor = state.workspace->Application();
+            const auto counts = editor.Query("example.authoring-counts", {editor.Scope(), nullptr, 0});
+            IM_CHECK_NO_RET(vdev::EditorClient::Integer(counts, "drops") == drops + 1 &&
+                            vdev::EditorClient::Integer(counts, "finishes") == finishes + 1);
+            IM_CHECK_NO_RET(!state.document->EditOpen() && state.History().UndoCount() == history + 1 &&
+                            state.document->Resolve(block));
+            IM_CHECK_NO_RET(state.History().Undo() && !state.document->Resolve(block) && state.History().CanRedo());
+            const EditorValue args[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {&owner, 1}},
+                                        vdev::IntegerArgument("prototype", prototype)};
+            IM_CHECK_NO_RET(editor.Execute("scene.drop-behavior", {editor.Scope(), args, 2}).status == EDITOR_OK);
+        });
+        ctx->Yield(4);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &editor = state.workspace->Application();
+            const auto counts = editor.Query("example.authoring-counts", {editor.Scope(), nullptr, 0});
+            IM_CHECK_NO_RET(vdev::EditorClient::Integer(counts, "drops") == drops + 2 &&
+                            vdev::EditorClient::Integer(counts, "finishes") == finishes + 2);
+            IM_CHECK_NO_RET(!state.document->EditOpen() && state.History().UndoCount() == history &&
+                            state.History().CanRedo());
+            std::string error;
+            IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
+        });
+    };
 }
 } // namespace vdevuitest
