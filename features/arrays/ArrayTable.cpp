@@ -231,7 +231,7 @@ void ArrayTable::Draw(const EditorClient &client, ObjectRef object) {
             popup.clear();
             ImGui::CloseCurrentPopup();
         } else if (accept && !(action & EDITOR_INPUT_INVALID)) {
-            const auto result = client.Host()->finishEdit(client.Host()->data, dialog, 1);
+            const auto result = client.Host()->finishEdit(client.Host()->data, dialog, 1, nullptr);
             if (result == EDITOR_QUEUED || result == EDITOR_NO_CHANGE || result == EDITOR_STALE) {
                 dialog = 0;
                 popup.clear();

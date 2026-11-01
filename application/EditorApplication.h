@@ -48,6 +48,7 @@ struct EditorResponse {
     std::string message;
     std::vector<EditorField> fields;
     EditorOperation operation = 0;
+    uint64_t documentRevision = 0;
 };
 // Shared bounded value copying for internal clients of the public C interface.
 EditorStatus CopyEditorFields(std::vector<EditorField> &, const EditorValue *, uint32_t);
@@ -126,9 +127,10 @@ class EditorApplication {
     bool CompleteOperation(EditorOperation operation, EditorResponse result);
     EditorStatus BeginEdit(const std::string &property, EditorScope scope, ObjectRef target, EditorEdit &out);
     EditorStatus BeginEdit(const std::string &property, const EditorRequest &, EditorEdit &out);
+    EditorStatus BeginCommand(const std::string &command, const EditorRequest &, EditorEdit &out);
     EditorStatus UpdateEdit(EditorEdit edit, const std::string &text);
     EditorStatus UpdateEdit(EditorEdit edit, const EditorValue &value);
-    EditorStatus FinishEdit(EditorEdit edit, bool commit);
+    EditorStatus FinishEdit(EditorEdit edit, bool commit, EditorOperation *operation = nullptr);
     uint32_t DrawEdit(EditorEdit edit, EditorString label, uint32_t focus, EditorValueStyle style = EDITOR_VALUE_INLINE,
                       float width = 0, float height = 0);
     bool EditState(EditorEdit edit, std::string &value, EditorValueEditorDesc &editor) const;

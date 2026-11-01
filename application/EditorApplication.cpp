@@ -248,6 +248,7 @@ struct Module {
             if (d.size != sizeof(d) || !d.run || d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION ||
                 d.effect < EDITOR_DOCUMENT_EDIT || d.effect > EDITOR_RUNTIME_CONTROL ||
                 (d.preview && d.effect != EDITOR_DOCUMENT_EDIT) ||
+                (d.commitPreview && (!d.preview || d.effect != EDITOR_DOCUMENT_EDIT)) ||
                 ((d.effect == EDITOR_DOCUMENT_EDIT || d.effect == EDITOR_DOCUMENT_CHANGE) && d.area != EDITOR_DOCUMENT))
                 throw std::invalid_argument("Invalid command descriptor");
             d.id = Text(d.id, true);
@@ -439,6 +440,7 @@ struct EditorApplication::State {
         EditorValueEditors editors;
         std::vector<EditorField> arguments;
         void *preview = nullptr;
+        bool commandOnly = false;
     };
     std::map<EditorEdit, Draft> drafts;
     struct Pending {
@@ -446,6 +448,7 @@ struct EditorApplication::State {
         EditorScope scope;
         std::vector<EditorField> fields;
         EditorOperation operation = 0;
+        std::shared_ptr<Draft> preview;
     };
     std::deque<Pending> pending;
     EditorOperation activeOperation = 0;
@@ -557,6 +560,15 @@ struct EditorApplication::State {
         return EDITOR_OK;
     }
     std::vector<EditorField> DraftFields(const Draft &draft, const EditorField &value) const {
+        if (draft.commandOnly) {
+            auto fields = draft.arguments;
+            for (auto &field : fields)
+                if (field.key == "value") {
+                    field = value;
+                    field.key = "value";
+                }
+            return fields;
+        }
         auto owned = value;
         owned.key = draft.property.argument;
         std::vector<EditorField> fields{{"target", EDITOR_OBJECT, draft.object}, std::move(owned)};
@@ -648,7 +660,7 @@ struct EditorApplication::State {
         ++published;
     }
     EditorResponse Run(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields,
-                       EditorOperation operation = 0) {
+                       EditorOperation operation = 0, Draft *preview = nullptr) {
         EditorResponse result;
         if (!operation) {
             if (activeOperation) operation = activeOperation;
@@ -683,7 +695,9 @@ struct EditorApplication::State {
         ++executing;
         Output output{result.fields};
         try {
-            result.status = command.run(command.data, &host, &request, output.Sink());
+            result.status = preview && preview->preview && command.commitPreview
+                                ? command.commitPreview(command.data, &host, &request, preview->preview, output.Sink())
+                                : command.run(command.data, &host, &request, output.Sink());
             auto message = std::find_if(result.fields.begin(), result.fields.end(), [](const EditorField &field) {
                 return field.key == "message" && field.type == EDITOR_TEXT_VALUE;
             });
@@ -703,12 +717,19 @@ struct EditorApplication::State {
             (command.effect == EDITOR_DOCUMENT_EDIT && result.status == EDITOR_QUEUED))
             result.status = EDITOR_ERROR;
         cache.clear();
+        if (preview && preview->preview && (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE)) {
+            const auto released = Preview(*preview, preview->value, EDITOR_PREVIEW_RELEASE);
+            if ((released != EDITOR_OK && released != EDITOR_STALE) || preview->preview) {
+                result.status = EDITOR_ERROR;
+                result.message = "Cannot finish the command preview";
+            }
+        }
         if (edit) {
             if (result.status == EDITOR_OK) {
                 const auto committed = edit->Commit();
                 if (!committed.ok) {
                     result.status = committed.Unchanged() ? EDITOR_NO_CHANGE : EDITOR_ERROR;
-                    if (!committed.message.empty())
+                    if (!committed.message.empty() && (!committed.Unchanged() || result.message.empty()))
                         result.message = AnsiToUtf8(committed.message);
                 }
             } else if (!edit->Cancel()) {
@@ -716,6 +737,12 @@ struct EditorApplication::State {
                 result.message = "Command failed and could not be undone";
             }
         }
+        if (preview && preview->preview && !RestorePreview(*preview)) {
+            result.status = EDITOR_ERROR;
+            result.message = "Cannot restore the command preview";
+        }
+        if (doc && command.effect == EDITOR_DOCUMENT_EDIT)
+            result.documentRevision = doc->ChangeRevision();
         RefreshDocument();
         const auto record = operations.find(operation);
         if (record != operations.end() && result.status == EDITOR_QUEUED) record->second.asynchronous = true;
@@ -806,9 +833,13 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         try { return value ? static_cast<EditorApplication *>(p)->UpdateEdit(edit, *value) : EDITOR_INVALID; }
         catch (...) { return EDITOR_INVALID; }
     };
-    h.finishEdit = [](void *p, EditorEdit edit, uint32_t commit) -> EditorStatus {
+    h.finishEdit = [](void *p, EditorEdit edit, uint32_t commit, EditorOperation *operation) -> EditorStatus {
         try {
-            return static_cast<EditorApplication *>(p)->FinishEdit(edit, commit != 0);
+            if (operation)
+                *operation = 0;
+            if (commit > 1)
+                return EDITOR_INVALID;
+            return static_cast<EditorApplication *>(p)->FinishEdit(edit, commit != 0, operation);
         } catch (...) {
             return EDITOR_ERROR;
         }
@@ -901,20 +932,93 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         if (!s.Thread() || !s.active || !s.navigation || !s.drawing || s.querying || s.readOnlyCallbacks) return 0;
         try { return s.navigation->Shortcut(Id(action), true); } catch (...) { return 0; }
     };
+    h.beginCommand = [](void *p, EditorString id, const EditorRequest *request, EditorEdit *edit) -> EditorStatus {
+        if (!request || !edit)
+            return EDITOR_INVALID;
+        try {
+            return static_cast<EditorApplication *>(p)->BeginCommand(Id(id), *request, *edit);
+        } catch (...) {
+            return EDITOR_ERROR;
+        }
+    };
+    h.previewCommand = [](void *p, EditorString id, const EditorRequest *request, EditorPreviewAction action,
+                          void **state, EditorSink sink) -> EditorStatus {
+        try {
+            auto &s = *static_cast<EditorApplication *>(p)->m_State;
+            if (action < EDITOR_PREVIEW_UPDATE || action > EDITOR_PREVIEW_COMMIT)
+                return EDITOR_INVALID;
+            if (!request || !state || !s.Thread() || !s.executing || s.executing >= 16 || s.querying || s.checking ||
+                (action == EDITOR_PREVIEW_COMMIT ? !s.editing : !s.readOnlyCallbacks))
+                return EDITOR_REFUSED;
+            const auto selected = s.commands.find(Id(id));
+            const EditorCommandDesc *command = selected == s.commands.end() ? nullptr : selected->second;
+            if (request->handler.size) {
+                command = nullptr;
+                for (const auto &module : s.modules)
+                    for (const auto &candidate : module->commands)
+                        if (String(candidate.id) == Id(id) && String(candidate.provider) == String(request->handler))
+                            command = &candidate;
+            }
+            if (!command || !command->preview || !command->commitPreview)
+                return EDITOR_INVALID;
+            std::vector<EditorField> fields;
+            EditorStatus status = EDITOR_OK;
+            if (action == EDITOR_PREVIEW_UPDATE || action == EDITOR_PREVIEW_COMMIT) {
+                if (!s.NativeReady())
+                    return EDITOR_REFUSED;
+                status = s.Arguments(command->parameters, command->count, *request, fields, command->area);
+            } else {
+                // Scope closure and document replacement still have to free the
+                // previous provider's state, even after its objects have expired.
+                status = CopyEditorFields(fields, request->values, request->count);
+            }
+            if (status != EDITOR_OK)
+                return status;
+            const auto values = BorrowEditorFields(fields);
+            const EditorRequest validated{request->scope, values.data(), uint32_t(values.size()), request->handler,
+                                          request->operation};
+            ++s.executing;
+            EditorStatus result = EDITOR_ERROR;
+            try {
+                result = action == EDITOR_PREVIEW_COMMIT
+                             ? command->commitPreview(command->data, &s.host, &validated, *state, sink)
+                             : command->preview(command->data, &s.host, &validated, action, state);
+            } catch (...) {
+            }
+            --s.executing;
+            return result;
+        } catch (...) {
+            return EDITOR_ERROR;
+        }
+    };
     h.menu = [](void *p, EditorString location, EditorScope scope, ObjectRef target, EditorEdit *edit) -> EditorStatus {
-        auto &s=*static_cast<EditorApplication*>(p)->m_State;
-        if (!edit || !s.Thread() || !s.active || !s.navigation || !s.drawing || s.querying || s.readOnlyCallbacks) return EDITOR_REFUSED;
-        if (!s.scopes.count(scope.view) || scope.document != s.document) return EDITOR_STALE;
-        try { return s.navigation->Menu(Id(location),scope,target,*edit); } catch (...) { return EDITOR_ERROR; }
+        auto &s = *static_cast<EditorApplication *>(p)->m_State;
+        if (!edit || !s.Thread() || !s.active || !s.navigation || !s.drawing || s.querying || s.readOnlyCallbacks)
+            return EDITOR_REFUSED;
+        if (!s.scopes.count(scope.view) || scope.document != s.document)
+            return EDITOR_STALE;
+        try {
+            return s.navigation->Menu(Id(location), scope, target, *edit);
+        } catch (...) {
+            return EDITOR_ERROR;
+        }
     };
     const EditorParameter argument{EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE};
-    const EditorParameter fields[] = {{EDITOR_TEXT("status"), EDITOR_INTEGER_VALUE},
-                                      {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE},
-                                      {EDITOR_TEXT("written"), EDITOR_INTEGER_VALUE},
-                                      {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE},
-                                      {EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE}};
-    EditorQueryDesc query{sizeof(query), EDITOR_TEXT("application.operation"), EDITOR_TEXT("builtin.application"),
-                          &argument, 1, nullptr, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, fields, 5};
+    const EditorParameter fields[] = {
+        {EDITOR_TEXT("status"), EDITOR_INTEGER_VALUE},  {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("written"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE},   {EDITOR_TEXT("document-revision"), EDITOR_INTEGER_VALUE}};
+    EditorQueryDesc query{sizeof(query),
+                          EDITOR_TEXT("application.operation"),
+                          EDITOR_TEXT("builtin.application"),
+                          &argument,
+                          1,
+                          nullptr,
+                          m_State.get(),
+                          EDITOR_QUERY_EACH_READ,
+                          EDITOR_APPLICATION,
+                          fields,
+                          6};
     query.read = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) -> EditorStatus {
         auto &s = *static_cast<State *>(data);
         const auto found = s.operations.find(request->values[0].integer);
@@ -927,12 +1031,14 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
             if (field.key == "written" && field.type == EDITOR_INTEGER_VALUE) written = field.integer;
             if (field.key == "message" && field.type == EDITOR_TEXT_VALUE) message = field.text;
         }
-        const EditorValue values[] = {{EditorLiteral("status"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(result.status)},
-                                      {EditorLiteral("path"), EDITOR_TEXT_VALUE, {}, EditorText(path)},
-                                      {EditorLiteral("written"), EDITOR_INTEGER_VALUE, {}, {}, written},
-                                      {EditorLiteral("message"), EDITOR_TEXT_VALUE, {}, EditorText(message)},
-                                      {EditorLiteral("count"), EDITOR_INTEGER_VALUE, {}, {}, result.fields.size()}};
-        return sink.write ? sink.write(sink.data, values, 5) : EDITOR_INVALID;
+        const EditorValue values[] = {
+            {EditorLiteral("status"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(result.status)},
+            {EditorLiteral("path"), EDITOR_TEXT_VALUE, {}, EditorText(path)},
+            {EditorLiteral("written"), EDITOR_INTEGER_VALUE, {}, {}, written},
+            {EditorLiteral("message"), EDITOR_TEXT_VALUE, {}, EditorText(message)},
+            {EditorLiteral("count"), EDITOR_INTEGER_VALUE, {}, {}, result.fields.size()},
+            {EditorLiteral("document-revision"), EDITOR_INTEGER_VALUE, {}, {}, result.documentRevision}};
+        return sink.write ? sink.write(sink.data, values, 6) : EDITOR_INVALID;
     };
     const EditorParameter outputArgs[] = {argument, {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE}};
     const EditorParameter outputFields[] = {{EDITOR_TEXT("key"), EDITOR_TEXT_VALUE},
@@ -1320,7 +1426,9 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
 }
 bool EditorApplication::Configure(const EditorConfiguration &configuration, std::string &error) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || !s.drafts.empty() || s.drawing || s.querying || s.executing || s.notifying) {
+    if (!s.Thread() || !s.active || !s.drafts.empty() ||
+        std::any_of(s.pending.begin(), s.pending.end(), [](const auto &p) { return bool(p.preview); }) || s.drawing ||
+        s.querying || s.executing || s.notifying) {
         error = "Finish active callbacks and edits before changing configuration";
         return false;
     }
@@ -1793,6 +1901,47 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, const Edi
     s.drafts.emplace(out, std::move(draft));
     return EDITOR_OK;
 }
+EditorStatus EditorApplication::BeginCommand(const std::string &id, const EditorRequest &request, EditorEdit &out) {
+    auto &s = *m_State;
+    out = 0;
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying || !s.NativeReady() || !s.writable ||
+        !s.drafts.empty() || !s.pending.empty())
+        return EDITOR_REFUSED;
+    const auto selected = s.commands.find(id);
+    const auto *command = selected == s.commands.end() ? nullptr : selected->second;
+    if (request.handler.size) {
+        command = nullptr;
+        for (const auto &module : s.modules)
+            for (const auto &candidate : module->commands)
+                if (String(candidate.id) == id && String(candidate.provider) == String(request.handler))
+                    command = &candidate;
+    }
+    if (!command || !command->preview || !command->commitPreview || command->effect != EDITOR_DOCUMENT_EDIT)
+        return EDITOR_INVALID;
+    std::vector<EditorField> fields;
+    auto status = s.Arguments(command->parameters, command->count, request, fields, command->area);
+    if (status != EDITOR_OK)
+        return status;
+    const auto target = std::find_if(fields.begin(), fields.end(),
+                                     [](const auto &f) { return f.key == "target" && f.type == EDITOR_OBJECT; });
+    const auto value = std::find_if(fields.begin(), fields.end(), [](const auto &f) { return f.key == "value"; });
+    if (target == fields.end() || !target->object || value == fields.end())
+        return EDITOR_INVALID;
+    status = s.Check(*command, request.scope, fields);
+    if (status != EDITOR_OK)
+        return status;
+    State::Draft draft{};
+    draft.scope = request.scope;
+    draft.object = target->object;
+    draft.command = command;
+    draft.value = *value;
+    draft.property.type = value->type;
+    draft.arguments = std::move(fields);
+    draft.commandOnly = true;
+    out = s.next++;
+    s.drafts.emplace(out, std::move(draft));
+    return EDITOR_OK;
+}
 EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const std::string &text) {
     const EditorValue value{EditorLiteral("value"), EDITOR_TEXT_VALUE, {}, EditorText(text)};
     return UpdateEdit(edit, value);
@@ -1826,7 +1975,9 @@ EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const EditorValue &v
     found->second.value = std::move(fields.front());
     return EDITOR_OK;
 }
-EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit) {
+EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit, EditorOperation *operation) {
+    if (operation)
+        *operation = 0;
     auto &s = *m_State;
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
     auto found = s.drafts.find(edit);
@@ -1857,11 +2008,39 @@ EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit) {
         }
         return allowed;
     }
+    if (s.operations.size() >= s.completedOperations.size() + 256 || s.pending.size() >= 256)
+        return EDITOR_REFUSED;
+    const auto queue = [&](std::shared_ptr<State::Draft> preview = {}) {
+        const auto id = s.next++;
+        s.operations.emplace(id, State::Operation{EditorResponse{EDITOR_QUEUED}, true});
+        try {
+            s.pending.push_back({draft.command, draft.scope, std::move(fields), id, std::move(preview)});
+        } catch (...) {
+            s.operations.erase(id);
+            throw;
+        }
+        if (operation)
+            *operation = id;
+    };
+    if (draft.command->commitPreview) {
+        State::Draft copy = draft;
+        copy.preview = nullptr;
+        auto owned = std::shared_ptr<State::Draft>(new State::Draft(std::move(copy)), [&s](State::Draft *value) {
+            if (value->preview)
+                s.RestorePreview(*value);
+            delete value;
+        });
+        queue(owned);
+        owned->preview = found->second.preview;
+        found->second.preview = nullptr;
+        s.drafts.erase(found);
+        return EDITOR_QUEUED;
+    }
     if (!s.RestorePreview(found->second)) {
         s.drafts.erase(found);
         return EDITOR_ERROR;
     }
-    s.pending.push_back({draft.command, draft.scope, std::move(fields)});
+    queue();
     s.drafts.erase(found);
     return EDITOR_QUEUED;
 }
@@ -1941,6 +2120,8 @@ uint32_t EditorApplication::DrawEdit(EditorEdit edit, EditorString label, uint32
     if (!s.Thread() || !s.drawing) return EDITOR_INPUT_CANCEL;
     auto found = s.drafts.find(edit);
     if (found == s.drafts.end() || !s.Valid(found->second.scope)) return EDITOR_INPUT_CANCEL;
+    if (!found->second.editor)
+        return EDITOR_INPUT_INVALID;
     const auto property = found->second.property;
     const std::vector<EditorField> ownedValue{found->second.value};
     const auto value = BorrowEditorFields(ownedValue);
@@ -2036,7 +2217,8 @@ bool EditorApplication::EditState(EditorEdit edit, EditorField &value, EditorVal
     if (!s.Thread()) return false;
     const auto f = s.drafts.find(edit);
     if (f == s.drafts.end() || !s.Valid(f->second.scope)) return false;
-    value = f->second.value; editor = *f->second.editor;
+    value = f->second.value;
+    editor = f->second.editor ? *f->second.editor : EditorValueEditorDesc{};
     return true;
 }
 bool EditorApplication::EditState(EditorEdit edit, std::string &value, EditorValueEditorDesc &editor) const {
@@ -2089,7 +2271,7 @@ void EditorApplication::EndFrame() {
         auto pending = std::move(s.pending);
         s.pending.clear();
         for (auto &p : pending) {
-            auto result = s.Run(*p.command, p.scope, p.fields, p.operation);
+            auto result = s.Run(*p.command, p.scope, p.fields, p.operation, p.preview.get());
             if (report)
                 report(result);
         }

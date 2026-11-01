@@ -1045,11 +1045,11 @@ void SceneTreeView::Rows(const EditorClient &client, ImVec2 origin, ImVec2 room,
                 client.Host()->drawEdit(client.Host()->data, rename, EditorString EDITOR_TEXT("##rename"), renameFocus);
             renameFocus = false;
             if (action & EDITOR_INPUT_ACCEPT) {
-                if (client.Host()->finishEdit(client.Host()->data, rename, 1) != EDITOR_REFUSED) {
+                if (client.Host()->finishEdit(client.Host()->data, rename, 1, nullptr) != EDITOR_REFUSED) {
                     rename = 0;
                 }
             } else if (action & EDITOR_INPUT_CANCEL) {
-                client.Host()->finishEdit(client.Host()->data, rename, 0);
+                client.Host()->finishEdit(client.Host()->data, rename, 0, nullptr);
                 rename = 0;
             }
         }
@@ -1314,7 +1314,7 @@ void SceneTreeView::Dialogs(const EditorClient &client, EditorViewFrame &frame) 
                                {IntegerArgument("workset", renameWorkset), TextArgument("name", worksetName)});
                 renameWorkset = 0;
                 ImGui::CloseCurrentPopup();
-            } else if (rename && client.Host()->finishEdit(client.Host()->data, rename, 1) != EDITOR_REFUSED) {
+            } else if (rename && client.Host()->finishEdit(client.Host()->data, rename, 1, nullptr) != EDITOR_REFUSED) {
                 rename = 0;
                 ImGui::CloseCurrentPopup();
             }
@@ -1322,7 +1322,7 @@ void SceneTreeView::Dialogs(const EditorClient &client, EditorViewFrame &frame) 
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             if (rename) {
-                client.Host()->finishEdit(client.Host()->data, rename, 0);
+                client.Host()->finishEdit(client.Host()->data, rename, 0, nullptr);
             }
             rename = 0;
             renameWorkset = 0;

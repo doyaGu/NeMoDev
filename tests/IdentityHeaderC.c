@@ -106,3 +106,35 @@ EditorCommandDesc PreviewCommandFromC(void *data) {
     command.data = data;
     return command;
 }
+
+static EditorStatus EDITOR_CALL CommitPreviewFromC(void *data, const EditorHost *host, const EditorRequest *request,
+                                                   void *state, EditorSink sink) {
+    (void)host;
+    (void)request;
+    (void)sink;
+    return state == data ? EDITOR_OK : EDITOR_INVALID;
+}
+static EditorStatus EDITOR_CALL ContinuousPreviewFromC(void *data, const EditorHost *host, const EditorRequest *request,
+                                                       EditorPreviewAction action, void **state) {
+    if (action == EDITOR_PREVIEW_RELEASE) {
+        if (!state)
+            return EDITOR_INVALID;
+        *state = 0;
+        return EDITOR_OK;
+    }
+    return PreviewFromC(data, host, request, action, state);
+}
+EditorCommandDesc ContinuousCommandFromC(void *data) {
+    EditorCommandDesc command = PreviewCommandFromC(data);
+    command.preview = ContinuousPreviewFromC;
+    command.commitPreview = CommitPreviewFromC;
+    return command;
+}
+EditorStatus BeginCommandFromC(const EditorHost *host, EditorString command, const EditorRequest *request,
+                               EditorEdit *edit) {
+    return host->beginCommand(host->data, command, request, edit);
+}
+EditorStatus FinishCommandFromC(const EditorHost *host, EditorEdit edit, EditorOperation *operation) {
+    return host->finishEdit(host->data, edit, 1, operation);
+}
+uint32_t EditorCommandSizeFromC(void) { return (uint32_t)sizeof(EditorCommandDesc); }

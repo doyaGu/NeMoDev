@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 15u
+#define EDITOR_VERSION 16u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -128,11 +128,25 @@ typedef enum EditorEffect {
 } EditorEffect;
 // Optional live preview of a document edit. The host owns the interaction and
 // keeps state between updates. CANCEL restores the original state, frees the
-// provider's state and sets it to null. It also runs before the final command,
-// so only that command records Undo. No preview changes document history.
-typedef enum EditorPreviewAction { EDITOR_PREVIEW_UPDATE, EDITOR_PREVIEW_CANCEL } EditorPreviewAction;
+// provider's state and sets it to null. Without commitPreview, CANCEL also
+// precedes run. With commitPreview, the existing preview is recorded once.
+// No preview changes document history, Dirty or the document revision.
+typedef enum EditorPreviewAction {
+    EDITOR_PREVIEW_UPDATE,
+    EDITOR_PREVIEW_CANCEL,
+    // After commitPreview successfully records the live edit. Free state only.
+    EDITOR_PREVIEW_RELEASE,
+    // previewCommand dispatches this to the selected commitPreview callback.
+    EDITOR_PREVIEW_COMMIT
+} EditorPreviewAction;
 typedef EditorStatus(EDITOR_CALL *EditorCommandPreview)(void *, const struct EditorHost *, const EditorRequest *,
                                                         EditorPreviewAction, void **state);
+// Records an already previewed command in the host's document transaction.
+// State remains owned by the host: CANCEL follows failure, RELEASE follows
+// success. The host commits after RELEASE succeeds, so cleanup failure can
+// still roll back the recorded change. Retain state until one of these actions.
+typedef EditorStatus(EDITOR_CALL *EditorCommandPreviewCommit)(void *, const struct EditorHost *, const EditorRequest *,
+                                                              void *state, EditorSink);
 typedef struct EditorCommandDesc {
     uint32_t size;
     EditorString id, provider, title;
@@ -144,6 +158,7 @@ typedef struct EditorCommandDesc {
     EditorEffect effect;
     EditorCommandState state;
     EditorCommandPreview preview;
+    EditorCommandPreviewCommit commitPreview;
 } EditorCommandDesc;
 typedef enum EditorQueryRefresh { EDITOR_QUERY_DOCUMENT, EDITOR_QUERY_EACH_READ, EDITOR_QUERY_VERSIONED } EditorQueryRefresh;
 // Reads a published version, without native access or mutations. A changed
@@ -357,7 +372,9 @@ struct EditorHost {
     EditorStatus(EDITOR_CALL *execute)(void *, EditorString, const EditorRequest *, EditorSink);
     EditorStatus(EDITOR_CALL *beginEdit)(void *, EditorString, const EditorRequest *, EditorEdit *);
     EditorStatus(EDITOR_CALL *editValue)(void *, EditorEdit, const EditorValue *);
-    EditorStatus(EDITOR_CALL *finishEdit)(void *, EditorEdit, uint32_t commit);
+    // On a queued commit, operation receives the command completion ID. Null
+    // is allowed; cancellation and failure set a supplied output to zero.
+    EditorStatus(EDITOR_CALL *finishEdit)(void *, EditorEdit, uint32_t commit, EditorOperation *operation);
     uint32_t(EDITOR_CALL *drawEdit)(void *, EditorEdit, EditorString label, uint32_t focus);
     EditorStatus(EDITOR_CALL *watch)(void *, EditorView, EditorChanged, void *, EditorSubscription *);
     void(EDITOR_CALL *unwatch)(void *, EditorSubscription);
@@ -385,6 +402,13 @@ struct EditorHost {
     // Tests and consumes a configured chord during drawing. Later global
     // shortcuts cannot dispatch the same key again in this frame.
     uint32_t(EDITOR_CALL *shortcut)(void *, EditorString action);
+    // Starts a continuous command with captured arguments and a typed "value".
+    // editValue/finishEdit drive it; closing its scope cancels its live state.
+    EditorStatus(EDITOR_CALL *beginCommand)(void *, EditorString, const EditorRequest *, EditorEdit *);
+    // Delegation by command callbacks, including an explicitly named provider.
+    // Only callable within an existing preview or its committing command.
+    EditorStatus(EDITOR_CALL *previewCommand)(void *, EditorString, const EditorRequest *, EditorPreviewAction,
+                                              void **state, EditorSink);
     EditorStatus(EDITOR_CALL *menu)(void *, EditorString location, EditorScope, EditorObject, EditorEdit *);
     // Inline property input: begin on interaction, retain the typed draft,
     // finish once on accept/deactivation, and cancel on Escape. edit is owned

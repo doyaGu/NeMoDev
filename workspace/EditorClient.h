@@ -24,8 +24,13 @@ class EditorClient {
         return m_Host->beginEdit(m_Host->data, EditorLiteral(property), &request, &edit);
     }
     void CancelEdit(EditorEdit &edit) const {
-        if (edit) m_Host->finishEdit(m_Host->data, edit, 0);
+        if (edit)
+            m_Host->finishEdit(m_Host->data, edit, 0, nullptr);
         edit = 0;
+    }
+    EditorStatus BeginCommand(const char *command, const std::vector<EditorValue> &values, EditorEdit &edit) const {
+        const EditorRequest request{Scope(), values.data(), uint32_t(values.size())};
+        return m_Host->beginCommand(m_Host->data, EditorLiteral(command), &request, &edit);
     }
     EditorResponse Query(const char *id, const std::vector<EditorValue> &values = {}) const {
         return Call(id, values, false);
@@ -50,6 +55,9 @@ class EditorClient {
         }
         EditorResponse result;
         result.status = state;
+        result.operation = operation;
+        result.message = status.message;
+        result.documentRevision = Integer(status, "document-revision");
         for (uint64_t i = 0, count = Integer(status, "count"); i < count; ++i) {
             const auto field =
                 Query("application.operation-output", {Number("operation", operation), Number("index", i)});

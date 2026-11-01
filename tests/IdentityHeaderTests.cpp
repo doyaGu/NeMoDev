@@ -44,7 +44,12 @@ static_assert(__is_trivially_copyable(EditorValueEditorDesc), "Borrowed typed ed
 extern "C" EditorParameter NullableObjectFromC(void);
 extern "C" uint32_t EditorParameterSizeFromC(void);
 extern "C" EditorCommandDesc PreviewCommandFromC(void *);
-static_assert(EDITOR_VERSION == 15, "Editor live-preview property version");
+extern "C" EditorCommandDesc ContinuousCommandFromC(void *);
+extern "C" EditorStatus BeginCommandFromC(const EditorHost *, EditorString, const EditorRequest *, EditorEdit *);
+extern "C" EditorStatus FinishCommandFromC(const EditorHost *, EditorEdit, EditorOperation *);
+extern "C" uint32_t EditorCommandSizeFromC(void);
+static_assert(__is_standard_layout(EditorCommandDesc), "C command callbacks");
+static_assert(EDITOR_VERSION == 16, "Editor continuous command version");
 int main() {
     int previewValue = 17;
     void *previewState = nullptr;
@@ -53,6 +58,13 @@ int main() {
         command.preview(command.data, nullptr, nullptr, EDITOR_PREVIEW_UPDATE, &previewState) != EDITOR_OK ||
         previewState != &previewValue ||
         command.preview(command.data, nullptr, nullptr, EDITOR_PREVIEW_CANCEL, &previewState) != EDITOR_OK ||
+        previewState)
+        return 1;
+    const auto continuous = ContinuousCommandFromC(&previewValue);
+    if (sizeof(EditorCommandDesc) != EditorCommandSizeFromC() || !continuous.commitPreview ||
+        continuous.preview(continuous.data, nullptr, nullptr, EDITOR_PREVIEW_UPDATE, &previewState) != EDITOR_OK ||
+        continuous.commitPreview(continuous.data, nullptr, nullptr, previewState, {}) != EDITOR_OK ||
+        continuous.preview(continuous.data, nullptr, nullptr, EDITOR_PREVIEW_RELEASE, &previewState) != EDITOR_OK ||
         previewState)
         return 1;
     EditorHost host{};
@@ -64,6 +76,19 @@ int main() {
     EditorValue position{}; position.type=EDITOR_INTEGER_LIST; position.integers={&row,1};
     const EditorRequest request{{},&position,1}; EditorEdit edit=0;
     if (BeginPositionedEditFromC(&host,{},&request,&edit) != EDITOR_OK || edit != 17) return 1;
+    host.beginCommand = host.beginEdit;
+    edit = 0;
+    if (BeginCommandFromC(&host, {}, &request, &edit) != EDITOR_OK || edit != 17)
+        return 1;
+    host.finishEdit = [](void *, EditorEdit token, uint32_t commit, EditorOperation *operation) {
+        if (token != 17 || commit != 1 || !operation)
+            return EDITOR_INVALID;
+        *operation = 31;
+        return EDITOR_QUEUED;
+    };
+    EditorOperation operation = 0;
+    if (FinishCommandFromC(&host, edit, &operation) != EDITOR_QUEUED || operation != 31)
+        return 1;
     const auto nullable = NullableObjectFromC();
     if (nullable.type != EDITOR_OBJECT || nullable.optional || nullable.nullable != 1 || sizeof(EditorParameter) != EditorParameterSizeFromC()) return 1;
     if (sizeof(EditorValueInput) != EditorValueInputSizeFromC() || sizeof(EditorValueEditorDesc) != EditorValueEditorSizeFromC()) return 1;

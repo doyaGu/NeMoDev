@@ -39,7 +39,7 @@ void Draw(void *data, const EditorHost *host, EditorView id, EditorViewFrame *fr
     const auto revision = host->revision(host->data);
     if (object != view.object || revision != view.revision) {
         if (object != view.object && view.edit) {
-            host->finishEdit(host->data, view.edit, 0);
+            host->finishEdit(host->data, view.edit, 0, nullptr);
             view.edit = 0;
         }
         view.object = object;
@@ -70,16 +70,16 @@ void Draw(void *data, const EditorHost *host, EditorView id, EditorViewFrame *fr
     if (view.edit) {
         const auto action = host->drawEdit(host->data, view.edit, EditorString EDITOR_TEXT("##name"), 0);
         if (action & EDITOR_INPUT_CANCEL) {
-            host->finishEdit(host->data, view.edit, 0);
+            host->finishEdit(host->data, view.edit, 0, nullptr);
             view.edit = 0;
         } else if ((action & EDITOR_INPUT_ACCEPT) || ImGui::Button("Apply")) {
-            const auto result = host->finishEdit(host->data, view.edit, 1);
+            const auto result = host->finishEdit(host->data, view.edit, 1, nullptr);
             if (result != EDITOR_REFUSED)
                 view.edit = 0;
         } else {
             ImGui::SameLine();
             if (ImGui::Button("Cancel")) {
-                host->finishEdit(host->data, view.edit, 0);
+                host->finishEdit(host->data, view.edit, 0, nullptr);
                 view.edit = 0;
             }
         }
