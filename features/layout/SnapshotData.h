@@ -25,6 +25,18 @@ struct SnapshotData {
     uint64_t m_SourceVersion = 0;
     friend bool ReadSnapshots(const EditorClient &, SnapshotData &);
 };
+// The Setup preview is copied separately from the bitmap retained by document history.
+struct ObjectPictureData {
+    ObjectRef target{};
+    bool present = false;
+    std::vector<unsigned char> pixels;
+    uint64_t Revision() const { return m_ImageRevision; }
+
+private:
+    uint64_t m_SourceVersion = 0, m_ImageRevision = 0;
+    friend bool ReadObjectPicture(const EditorClient &, ObjectRef, ObjectPictureData &);
+};
+bool ReadObjectPicture(const EditorClient &, ObjectRef, ObjectPictureData &);
 // Failed or inconsistent reads leave the previous copy unchanged.
 bool ReadSnapshots(const EditorClient &, SnapshotData &);
 bool ReadSnapshot(const EditorClient &, SnapshotDrag, std::vector<unsigned char> &);

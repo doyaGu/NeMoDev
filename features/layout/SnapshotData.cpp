@@ -28,6 +28,33 @@ bool ReadSnapshot(const EditorClient &client, SnapshotDrag drag, std::vector<uns
     pixels = std::move(next);
     return true;
 }
+bool ReadObjectPicture(const EditorClient &client, ObjectRef target, ObjectPictureData &data) {
+    const auto version = client.Revision("object.picture");
+    if (version && version == data.m_SourceVersion && target == data.target)
+        return true;
+    const auto result = client.Query("object.picture", {ObjectArgument("target", target)});
+    const auto *echo = EditorClient::Find(result, "target"), *present = EditorClient::Find(result, "present"),
+               *pixels = EditorClient::Find(result, "pixels");
+    if (result.status != EDITOR_OK || !target || target.document != client.Scope().document || !echo ||
+        echo->type != EDITOR_OBJECT || echo->object != target || !present || present->type != EDITOR_INTEGER_VALUE ||
+        present->integer > 1 || !pixels || pixels->type != EDITOR_INTEGER_LIST ||
+        pixels->integers.size() != (present->integer ? size_t(SnapshotData::WIDTH * SnapshotData::HEIGHT) : 0))
+        return false;
+    ObjectPictureData next;
+    next.target = target;
+    next.present = present->integer != 0;
+    for (auto color : pixels->integers) {
+        if (color > UINT32_MAX)
+            return false;
+        next.pixels.insert(next.pixels.end(),
+                           {uint8_t(color), uint8_t(color >> 8), uint8_t(color >> 16), uint8_t(color >> 24)});
+    }
+    next.m_SourceVersion = client.Revision("object.picture");
+    next.m_ImageRevision =
+        data.m_ImageRevision + (data.target != target || data.present != next.present || data.pixels != next.pixels);
+    data = std::move(next);
+    return true;
+}
 bool ReadSnapshots(const EditorClient &client, SnapshotData &data) {
     const auto source = client.Revision("snapshot.slots");
     if (source && source == data.m_SourceVersion)

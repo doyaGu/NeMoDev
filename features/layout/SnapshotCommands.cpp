@@ -18,6 +18,7 @@
 #include <deque>
 #include <filesystem>
 #include <set>
+#include <utility>
 
 namespace vdev {
 namespace {
@@ -88,13 +89,16 @@ struct SnapshotCommands::Data {
     std::function<Document *()> current;
     SnapshotBuffer buffer;
     SaveFileOperations *fileOperations = nullptr;
-    enum Action { Take, Crop, Remove, Apply, Load, Save };
+    enum Action { Take, Crop, Remove, Apply, Load, Save, LoadPicture, RemovePicture };
     struct Entry {
         Data *owner;
         Action action;
-    } entries[6]{{this, Take}, {this, Crop}, {this, Remove}, {this, Apply}, {this, Load}, {this, Save}};
+    } entries[8]{{this, Take}, {this, Crop}, {this, Remove},      {this, Apply},
+                 {this, Load}, {this, Save}, {this, LoadPicture}, {this, RemovePicture}};
     struct Pending {
         EditorOperation operation = 0;
+        EditorScope scope{};
+        ObjectRef picture{};
         uint64_t input = 0;
         bool save = false, running = false, answered = false;
         int slot = -1;
@@ -140,6 +144,38 @@ struct SnapshotCommands::Data {
         if (!result.message.empty() && editor.report)
             editor.report(result);
     }
+    Document *PictureDocument(const Pending &job) const {
+        auto *doc = current();
+        const auto scope = editor.Scope(job.scope.view);
+        return doc && doc->IsOpen() && doc->Token() == job.picture.document && scope.document == job.scope.document &&
+                       (!job.scope.view || scope.view == job.scope.view) && doc->Resolve(job.picture)
+                   ? doc
+                   : nullptr;
+    }
+    static EditorStatus ReadPicture(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.current();
+        const auto target = Arg(*request, "target")->object;
+        if (!doc || doc->Token() != request->scope.document || !doc->Resolve(target))
+            return EDITOR_STALE;
+        const auto found = doc->Pictures().find(target.object);
+        const bool present = found != doc->Pictures().end() && bool(found->second);
+        EditorField pixels{"pixels", EDITOR_INTEGER_LIST};
+        if (present) {
+            std::vector<unsigned char> source;
+            int width = 0, height = 0;
+            if (!PixelsOfBitmap(found->second.get(), source, width, height))
+                return EDITOR_ERROR;
+            const auto image =
+                ShrinkImage(source.data(), width, height, width * 4, SnapshotBuffer::WIDTH, SnapshotBuffer::HEIGHT);
+            for (size_t i = 0; i < image.size(); i += 4)
+                pixels.integers.push_back(uint32_t(image[i]) | uint32_t(image[i + 1]) << 8 |
+                                          uint32_t(image[i + 2]) << 16 | 0xff000000u);
+        }
+        return Write(
+            sink,
+            {{"target", EDITOR_OBJECT, target}, {"present", EDITOR_INTEGER_VALUE, {}, {}, present}, std::move(pixels)});
+    }
     static EditorStatus ReadSlots(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         EditorField slots{"slots", EDITOR_RECORD};
@@ -173,7 +209,12 @@ struct SnapshotCommands::Data {
                             {"operation", EDITOR_INTEGER_VALUE, {}, {}, job.operation},
                             {"kind", EDITOR_INTEGER_VALUE, {}, {}, EDITOR_FILE_INPUT},
                             {"save", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(job.save)},
-                            {"title", EDITOR_TEXT_VALUE, {}, job.save ? "Save Bitmap" : "Load Bitmap"},
+                            {"title",
+                             EDITOR_TEXT_VALUE,
+                             {},
+                             job.save      ? "Save Bitmap"
+                             : job.picture ? "Load Snapshot"
+                                           : "Load Bitmap"},
                             {"initial", EDITOR_TEXT_VALUE},
                             {"extension", EDITOR_TEXT_VALUE},
                             {"filters", EDITOR_INTEGER_VALUE, {}, {}, job.filters.size()}});
@@ -270,6 +311,23 @@ struct SnapshotCommands::Data {
                 ++self.revision;
             return changed ? EDITOR_OK : EDITOR_NO_CHANGE;
         }
+        if (entry.action == LoadPicture || entry.action == RemovePicture) {
+            Pending job;
+            job.picture = Arg(*request, "target")->object;
+            job.scope = request->scope;
+            auto *doc = self.PictureDocument(job);
+            if (!doc)
+                return EDITOR_STALE;
+            if (entry.action == RemovePicture) {
+                const auto result = SetObjectPicture(*doc, job.picture.object, nullptr);
+                return result.ok ? EDITOR_OK : result.Unchanged() ? EDITOR_NO_CHANGE : EDITOR_ERROR;
+            }
+            job.operation = request->operation;
+            job.input = self.nextInput++;
+            job.filters = Filters(true);
+            self.pending.push_back(std::move(job));
+            return EDITOR_QUEUED;
+        }
         int slot = -1;
         const auto valid = self.Version(*request, slot, entry.action != Load);
         if (valid != EDITOR_OK)
@@ -324,11 +382,16 @@ struct SnapshotCommands::Data {
             !editor.NativeAvailable() || editor.HasEdits())
             return;
         auto &job = pending.front();
-        if (!job.save && buffer.Revision(job.slot) != job.revision) {
+        if (job.picture && !PictureDocument(job)) {
+            Finish(EDITOR_STALE);
+            return;
+        }
+        if (!job.picture && !job.save && buffer.Revision(job.slot) != job.revision) {
             Finish(EDITOR_STALE);
             return;
         }
         struct Result {
+            Bitmap picture;
             std::vector<unsigned char> pixels;
             bool saved = false;
             std::string error;
@@ -342,6 +405,13 @@ struct SnapshotCommands::Data {
             [copy, result, files] {
                 if (!copy.save) {
                     Bitmap bitmap{CKLoadBitmap(const_cast<CKSTRING>(copy.path.c_str()))};
+                    if (copy.picture) {
+                        if (!bitmap.handle)
+                            result->error = "Load Snapshot: " + copy.path + " cannot be read";
+                        else
+                            result->picture.handle = std::exchange(bitmap.handle, nullptr);
+                        return;
+                    }
                     std::vector<unsigned char> pixels;
                     int width = 0, height = 0;
                     if (!PixelsOfBitmap(bitmap.handle, pixels, width, height)) {
@@ -389,6 +459,20 @@ struct SnapshotCommands::Data {
                     Finish(EDITOR_CANCELLED);
                     return;
                 }
+                if (copy.picture) {
+                    auto *doc = PictureDocument(copy);
+                    if (!doc) {
+                        Finish(EDITOR_STALE);
+                        return;
+                    }
+                    const auto resultCode =
+                        SetObjectPicture(*doc, copy.picture.object, std::exchange(result->picture.handle, nullptr));
+                    Finish(resultCode.ok            ? EDITOR_OK
+                           : resultCode.Unchanged() ? EDITOR_NO_CHANGE
+                                                    : EDITOR_ERROR,
+                           resultCode.message);
+                    return;
+                }
                 if (buffer.Revision(copy.slot) != copy.revision) {
                     Finish(EDITOR_STALE);
                     return;
@@ -427,9 +511,10 @@ const std::vector<ProviderChoice> &SnapshotCommands::DefaultProviders() {
     static const auto providers = [] {
         std::vector<ProviderChoice> choices;
         for (auto *id : {"snapshot.take", "snapshot.capture", "snapshot.remove", "snapshot.apply", "snapshot.load",
-                         "snapshot.save", "snapshot.respond"})
+                         "snapshot.save", "snapshot.respond", "object.load-picture", "object.remove-picture"})
             choices.push_back({"command", id, "builtin.snapshots"});
-        for (auto *id : {"snapshot.slots", "snapshot.pixels", "snapshot.input", "snapshot.file-filter"})
+        for (auto *id :
+             {"snapshot.slots", "snapshot.pixels", "snapshot.input", "snapshot.file-filter", "object.picture"})
             choices.push_back({"query", id, "builtin.snapshots"});
         choices.push_back({"view", "snapshot.file-dialogs", "builtin.snapshot-dialogs"});
         return choices;
@@ -448,7 +533,14 @@ bool SnapshotCommands::Register(std::string &error) {
                                       {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1},
                                       {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE, 1},
                                       {EDITOR_TEXT("filter-index"), EDITOR_INTEGER_VALUE, 1}};
-    const EditorCommandDesc commands[] = {{sizeof(EditorCommandDesc), EDITOR_TEXT("snapshot.take"),
+    const EditorParameter object{EDITOR_TEXT("target"), EDITOR_OBJECT};
+    const EditorCommandDesc commands[] = {{sizeof(EditorCommandDesc), EDITOR_TEXT("object.load-picture"),
+                                           EDITOR_TEXT("builtin.snapshots"), EDITOR_TEXT("Load Snapshot"), &object, 1,
+                                           Data::Run, &m_Data->entries[6], EDITOR_DOCUMENT, EDITOR_FILE_OPERATION},
+                                          {sizeof(EditorCommandDesc), EDITOR_TEXT("object.remove-picture"),
+                                           EDITOR_TEXT("builtin.snapshots"), EDITOR_TEXT("Remove Snapshot"), &object, 1,
+                                           Data::Run, &m_Data->entries[7], EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+                                          {sizeof(EditorCommandDesc), EDITOR_TEXT("snapshot.take"),
                                            EDITOR_TEXT("builtin.snapshots"), EDITOR_TEXT("Take Snapshot"), nullptr, 0,
                                            Data::Run, &m_Data->entries[0], EDITOR_APPLICATION, EDITOR_RUNTIME_CONTROL},
                                           {sizeof(EditorCommandDesc), EDITOR_TEXT("snapshot.capture"),
@@ -480,7 +572,10 @@ bool SnapshotCommands::Register(std::string &error) {
                                           {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE}};
     const EditorParameter filterFields[] = {{EDITOR_TEXT("label"), EDITOR_TEXT_VALUE},
                                             {EDITOR_TEXT("pattern"), EDITOR_TEXT_VALUE}};
+    const EditorParameter pictureFields[] = {object, {EDITOR_TEXT("present"), EDITOR_INTEGER_VALUE}, pixels};
     const EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("object.picture"), EDITOR_TEXT("builtin.snapshots"), &object, 1,
+         Data::ReadPicture, m_Data.get(), EDITOR_QUERY_DOCUMENT, EDITOR_DOCUMENT, pictureFields, 3},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("snapshot.slots"), EDITOR_TEXT("builtin.snapshots"), nullptr, 0,
          Data::ReadSlots, m_Data.get(), EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, &slots, 1,
          [](void *data, const EditorHost *) { return static_cast<Data *>(data)->revision; }},

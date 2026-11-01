@@ -73,19 +73,28 @@ void WriteObjectPictures(Document &document, const ObjectPictures &pictures) {
 
 class ObjectPictureAction : public Action {
 public:
-    ObjectPictureAction(CK_ID object, std::shared_ptr<void> before, std::shared_ptr<void> after)
-        : m_Object(object), m_Before(std::move(before)), m_After(std::move(after)) {}
+    ObjectPictureAction(Document &document, CK_ID object, std::shared_ptr<void> before, std::shared_ptr<void> after)
+        : m_Object(document.Reference(object)), m_Before(std::move(before)), m_After(std::move(after)) {}
     bool Redo(Document &document) override { return Apply(document, m_After); }
     bool Undo(Document &document) override { return Apply(document, m_Before); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        if (const auto id = document.NativeId(m_Object, Document::ObjectScope::Existing))
+            objects.insert(id);
+    }
 
 private:
     bool Apply(Document &document, const std::shared_ptr<void> &picture) {
-        if (picture) document.m_Pictures[m_Object] = picture;
-        else document.m_Pictures.erase(m_Object);
+        const auto id = document.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (!id)
+            return false;
+        if (picture)
+            document.m_Pictures[id] = picture;
+        else
+            document.m_Pictures.erase(id);
         document.m_PicturesChanged = true;
         return true;
     }
-    CK_ID m_Object;
+    ObjectRef m_Object;
     std::shared_ptr<void> m_Before, m_After;
 };
 
@@ -101,7 +110,7 @@ EditResult SetObjectPicture(Document &document, CK_ID object, void *bitmap) {
     auto before = found != document.Pictures().end() ? found->second : nullptr;
     if (before == after) return EditResult::NoChange();
     Edit edit(document, "Object Picture");
-    if (!edit.Do(std::make_unique<ObjectPictureAction>(object, std::move(before), std::move(after))))
+    if (!edit.Do(std::make_unique<ObjectPictureAction>(document, object, std::move(before), std::move(after))))
         return edit.Fail("Object Picture failed");
     return edit.Commit();
 }

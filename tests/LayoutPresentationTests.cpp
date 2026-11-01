@@ -8,6 +8,7 @@
 #include "application/Preferences.h"
 #include "application/RuntimeOperation.h"
 #include "core/document/Document.h"
+#include "core/document/ObjectPictures.h"
 #include "core/document/SaveFileOperations.h"
 #include "core/document/ScriptSession.h"
 #include "core/graph/ScriptCommands.h"
@@ -15,6 +16,7 @@
 #include "core/layout/LayoutView.h"
 #include "core/layout/SnapshotBuffer.h"
 #include "core/runtime/CkRuntimeHost.h"
+#include "core/runtime/Bitmaps.h"
 #include <fstream>
 #include <limits>
 #include <thread>
@@ -300,9 +302,128 @@ void TestLayoutPresentation(CkRuntimeHost &runtime) {
               selection.Objects() == original.selected && selection.Locked() == original.locked,
           "bitmap file operations changed selection or history");
     Check(data.Revision(1) == revision, "unrelated snapshot slot changed");
+    // Object pictures share the asynchronous bitmap input, but stay tied to
+    // their original object and Setup scope rather than the Snapshot Buffer.
+    const auto pictureTarget = doc.Reference(first.created);
+    ObjectPictureData picture;
+    Check(ReadObjectPicture(client, pictureTarget, picture) && !picture.present, "empty object picture query");
+    const auto imagePath = (dir / "full-picture.bmp").u8string();
+    auto *fullBitmap = BitmapFromPixels(viewport.image.data(), 104, 80);
+    Check(fullBitmap && CKSaveBitmap(const_cast<CKSTRING>(imagePath.c_str()), fullBitmap), "save full picture fixture");
+    VxDeleteBitmap(fullBitmap);
+    const auto loadPicture = [&](const EditorClient &source, ObjectRef target, const char *choice,
+                                 const std::string &path = std::string()) {
+        const auto load = source.Command("object.load-picture", {ObjectArgument("target", target)});
+        Check(load.status == EDITOR_QUEUED, "object picture load did not queue");
+        const auto input = source.Query("snapshot.input");
+        Check(input.status == EDITOR_OK && EditorClient::Text(input, "title") == "Load Snapshot",
+              "object picture did not reuse file input");
+        Check(source.Command("snapshot.respond", {IntegerArgument("input", EditorClient::Integer(input, "input")),
+                                                  TextArgument("choice", choice), TextArgument("path", path)})
+                      .status == EDITOR_OK,
+              "answer object picture input");
+        return load.operation;
+    };
+    const auto pictureReads = viewport.reads;
+    const State beforePictures(doc, selection);
+    const auto cancelledPicture = loadPicture(client, pictureTarget, "cancel");
+    Check(client.Completion(cancelledPicture).status == EDITOR_CANCELLED && !operations.Busy(),
+          "cancelled object picture load started work");
+    const auto missingPicture = loadPicture(client, pictureTarget, "accept", (dir / "missing.bmp").u8string());
+    snapshots.Poll();
+    operations.Finish();
+    Check(client.Completion(missingPicture).status == EDITOR_ERROR && doc.Pictures().empty(),
+          "failed object picture load changed document");
+    beforePictures.Unchanged();
+    const auto loadedPicture = loadPicture(client, pictureTarget, "accept", imagePath);
+    snapshots.Poll();
+    operations.Finish();
+    attach();
+    Check(client.Completion(loadedPicture).status == EDITOR_OK &&
+              doc.History().UndoCount() == beforePictures.undo + 1 &&
+              ReadObjectPicture(client, pictureTarget, picture) && picture.present &&
+              picture.pixels == ShrinkImage(viewport.image.data(), 104, 80, 416, 52, 40),
+          "object picture load lost pixels or split Undo");
+    std::vector<unsigned char> fullPixels;
+    int pictureWidth = 0, pictureHeight = 0;
+    Check(PixelsOfBitmap(doc.Pictures().at(first.created).get(), fullPixels, pictureWidth, pictureHeight) &&
+              pictureWidth == 104 && pictureHeight == 80 && fullPixels == viewport.image,
+          "object picture load replaced stored image with a thumbnail");
+    const auto imageRevision = picture.Revision();
+    Check(ReadObjectPicture(client, pictureTarget, picture) && picture.Revision() == imageRevision,
+          "unchanged picture invalidated its UI texture");
+    doc.MarkTopologyChanged();
+    attach();
+    Check(ReadObjectPicture(client, pictureTarget, picture) && picture.Revision() == imageRevision,
+          "unrelated document update invalidated picture pixels");
+    const State loadedState(doc, selection);
+    for (int failure : {1, 2}) {
+        workerFailure = failure;
+        const auto rejectedPicture = loadPicture(client, pictureTarget, "accept", imagePath);
+        snapshots.Poll();
+        operations.Finish();
+        Check(client.Completion(rejectedPicture).status == EDITOR_ERROR &&
+                  ReadObjectPicture(client, pictureTarget, picture) && picture.Revision() == imageRevision,
+              "bitmap worker exception replaced an object picture");
+        loadedState.Unchanged();
+    }
+    workerFailure = 0;
+    const auto pictureScope = editor.OpenScope();
+    const EditorClient scoped(editor.Host(), pictureScope);
+    const auto closedScope = loadPicture(scoped, pictureTarget, "accept", imagePath);
+    snapshots.Poll();
+    editor.CloseScope(pictureScope);
+    operations.Finish();
+    Check(client.Completion(closedScope).status == EDITOR_STALE, "closed Setup received a loaded picture");
+    loadedState.Unchanged();
+    Check(client.Command("object.remove-picture", {ObjectArgument("target", pictureTarget)}).status == EDITOR_OK &&
+              doc.History().UndoCount() == loadedState.undo + 1 && doc.Pictures().empty() && doc.History().Undo(),
+          "object picture removal is not one reversible edit");
+    attach();
+    Check(ReadObjectPicture(client, pictureTarget, picture) && picture.present && doc.History().Undo(),
+          "picture load Undo failed");
+    attach();
+    Check(ReadObjectPicture(client, pictureTarget, picture) && !picture.present && doc.History().Redo(),
+          "picture load Redo failed");
+    attach();
+    Check(ReadObjectPicture(client, pictureTarget, picture) && picture.present && viewport.reads == pictureReads,
+          "object pictures used viewport readback or lost their image");
+    const auto copiedPicture = picture;
+    auto stalePicture = pictureTarget;
+    ++stalePicture.lifetime;
+    Check(!ReadObjectPicture(client, stalePicture, picture) && picture.target == copiedPicture.target &&
+              picture.pixels == copiedPicture.pixels &&
+              client.Command("object.remove-picture", {ObjectArgument("target", stalePicture)}).status == EDITOR_STALE,
+          "stale picture target changed document or previous projection");
+    auto *retired = doc.Context()->CreateObject(CKCID_OBJECT, "Retired picture target");
+    Check(retired != nullptr, "create retired picture target");
+    const auto retiredId = retired->GetID();
+    doc.Include(retiredId);
+    const auto retiredRef = doc.Reference(retiredId);
+    Check(SetObjectPicture(doc, retiredId, BitmapFromPixels(viewport.image.data(), 104, 80)).ok && doc.History().Undo(),
+          "prepare picture history for reused ID");
+    attach();
+    const auto retiredLoad = loadPicture(client, retiredRef, "accept", imagePath);
+    snapshots.Poll();
+    Check(doc.Context()->DestroyObject(retiredId, CK_DESTROY_FREEID) == CK_OK, "destroy picture target");
+    auto *replacement = doc.Context()->CreateObject(CKCID_OBJECT, "Replacement picture target");
+    Check(replacement && replacement->GetID() == retiredId, "reuse picture target ID");
+    doc.Include(replacement->GetID());
+    operations.Finish();
+    Check(client.Completion(retiredLoad).status == EDITOR_STALE && !doc.Pictures().count(retiredId) &&
+              !doc.History().Redo() && !doc.Pictures().count(retiredId),
+          "loaded or redone picture followed a reused native ID");
+    attach();
+    const auto obsoletePicture = loadPicture(client, pictureTarget, "accept", imagePath);
+    snapshots.Poll();
     const auto oldTarget = doc.Reference(first.created);
     Check(doc.New(&error), error.c_str());
     attach();
+    operations.DocumentChanged();
+    operations.Finish();
+    Check(client.Completion(obsoletePicture).status == EDITOR_STALE && doc.Pictures().empty() &&
+              !doc.History().CanUndo(),
+          "old document picture load changed the replacement document");
     presentation.Poll();
     Check(ReadSnapshots(client, data) && data.Has(0) && data.Has(2),
           "document replacement cleared application snapshots");
