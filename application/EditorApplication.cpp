@@ -457,6 +457,7 @@ struct EditorApplication::State {
         std::shared_ptr<Draft> preview;
         EditorOperation afterEdit = 0;
         std::string revisionArgument;
+        bool joinsEdit = false;
     };
     std::deque<Pending> pending;
     EditorOperation activeOperation = 0;
@@ -689,7 +690,8 @@ struct EditorApplication::State {
         if (command.area == EDITOR_DOCUMENT && native && (!doc || doc->Token() != scope.document))
             return EDITOR_STALE;
         if ((editing && command.effect != EDITOR_DOCUMENT_EDIT) ||
-            (doc && !editing && doc->EditOpen()) || executing >= 16) return EDITOR_REFUSED;
+            (doc && !editing && doc->EditOpen() && !navigation) || executing >= 16)
+            return EDITOR_REFUSED;
         if (!command.state) return EDITOR_OK;
         if (querying >= 16) return EDITOR_REFUSED;
         const auto values = BorrowEditorFields(fields);
@@ -2242,8 +2244,9 @@ EditorResponse EditorApplication::ApplyEdit(const PropertyBinding &property, Edi
 EditorResponse EditorApplication::ApplyEdit(const std::string &id, const EditorRequest &request) {
     auto &s = *m_State;
     EditorResponse result{EDITOR_REFUSED};
-    if (!s.Thread() || !s.NativeReady() || s.readOnlyCallbacks || s.drawing || s.querying || s.notifying ||
-        !s.drafts.empty() || !s.writable || !s.Valid(request.scope)) return result;
+    if (!s.Thread() || !s.NativeReady() || s.readOnlyCallbacks || s.querying || s.notifying || !s.drafts.empty() ||
+        !s.writable || !s.Valid(request.scope))
+        return result;
     auto *document = s.CurrentDocument();
     if (!document || !document->EditOpen()) return result;
     const auto selected = s.commands.find(id);
@@ -2257,6 +2260,20 @@ EditorResponse EditorApplication::ApplyEdit(const std::string &id, const EditorR
     std::vector<EditorField> checked;
     result.status = s.Arguments(command->parameters, command->count, request, checked);
     if (result.status != EDITOR_OK) return result;
+    if (s.drawing || (!s.executing && !s.pending.empty())) {
+        if (s.pending.size() >= 256 || s.operations.size() >= s.completedOperations.size() + 256)
+            return {EDITOR_REFUSED};
+        ++s.editing;
+        result.status = s.Check(*command, request.scope, checked);
+        --s.editing;
+        if (result.status != EDITOR_OK)
+            return result;
+        const auto id = s.next++;
+        s.operations.emplace(id, State::Operation{EditorResponse{EDITOR_QUEUED}, true});
+        s.operations.at(id).scope = request.scope;
+        s.pending.push_back({command, request.scope, std::move(checked), id, {}, 0, {}, true});
+        return {EDITOR_QUEUED, {}, {}, id};
+    }
     // Only document edits may join the native dialog's enclosing transaction.
     // External callers continue through execute/finishEdit and frame dispatch.
     ++s.editing;
@@ -2447,7 +2464,17 @@ void EditorApplication::EndFrame() {
                 }
                 p.fields = s.DraftFields(*p.preview, p.preview->value);
             }
+            if (p.joinsEdit) {
+                auto *doc = s.CurrentDocument();
+                if (!doc || doc->Token() != p.scope.document || !doc->EditOpen()) {
+                    s.Complete(p.operation, {EDITOR_STALE});
+                    continue;
+                }
+                ++s.editing;
+            }
             auto result = s.Run(*p.command, p.scope, p.fields, p.operation, p.preview.get());
+            if (p.joinsEdit)
+                --s.editing;
             if (report)
                 report(result);
         }

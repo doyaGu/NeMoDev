@@ -92,7 +92,26 @@ void TestLayoutAuthoring(vdev::CkRuntimeHost &runtime) {
         Check(doc.Resolve(script) && doc.Resolve(block), "drop navigation lost object lifetimes");
         ++shows;
     };
-    Check(authoring.Register(error) && editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
+    const EditorCommandDesc queueCommand{
+        sizeof(EditorCommandDesc),
+        EDITOR_TEXT("test.layout-queue"),
+        EDITOR_TEXT("test.layout"),
+        EDITOR_TEXT("Queue workspace input"),
+        nullptr,
+        0,
+        [](void *, const EditorHost *, const EditorRequest *, EditorSink) { return EDITOR_OK; },
+        nullptr,
+        EDITOR_WORKSPACE,
+        EDITOR_SESSION_CHANGE};
+    EditorModuleDesc queueModule{};
+    queueModule.size = sizeof(queueModule);
+    queueModule.version = EDITOR_VERSION;
+    queueModule.id = EDITOR_TEXT("test.layout");
+    queueModule.commands = &queueCommand;
+    queueModule.commandCount = 1;
+    Check(authoring.Register(error) && editor.Register(queueModule, error) &&
+              editor.Activate(EDITOR_IMGUI_VERSION, error),
+          error.c_str());
     auto sync = [&] { editor.Attach(doc.Token(), doc.TopologyRevision(), true, true); };
     sync();
     const EditorClient client(editor.Host(), 0);
@@ -180,6 +199,42 @@ void TestLayoutAuthoring(vdev::CkRuntimeHost &runtime) {
     Check(!doc.Resolve(Field(pending, "created").object), "cancelled behavior remained live");
     Check(client.Query("layout.drop-parameters").status == EDITOR_NO_CHANGE, "cancel left pending input");
 
+    const auto source = editor.OpenScope();
+    const EditorClient scoped(editor.Host(), source);
+    const auto scopedDrop =
+        scoped.Command("scene.drop-behavior", {ObjectsArgument("objects", one), IntegerArgument("prototype", rotate)});
+    Check(scopedDrop.status == EDITOR_OK && doc.EditOpen(), "scoped native dialog did not open");
+    const auto scopedInput = scoped.Query("layout.drop-parameters");
+    const EditorValue cancelArgs[] = {IntegerArgument("drop", EditorClient::Integer(scopedInput, "drop")),
+                                      IntegerArgument("accept", 0)};
+    editor.EnterDraw();
+    const auto queuedCancel = editor.ApplyEdit("layout.finish-drop", {scoped.Scope(), cancelArgs, 2});
+    editor.LeaveDraw();
+    Check(queuedCancel.status == EDITOR_QUEUED, "dialog cancellation was not queued from drawing");
+    editor.CloseScope(source);
+    authoring.Poll();
+    editor.EndFrame();
+    sync();
+    Check(!doc.EditOpen() && client.Completion(queuedCancel.operation).status == EDITOR_STALE &&
+              !doc.Resolve(Field(scopedDrop, "created").object),
+          "closed view retained its native dialog edit");
+    cancelled.CheckRestored();
+
+    const auto crowdedDrop = drop(one);
+    Check(crowdedDrop.status == EDITOR_OK && doc.EditOpen(), "open dialog before queue capacity test");
+    const auto crowdedInput = client.Query("layout.drop-parameters");
+    editor.EnterDraw();
+    for (int i = 0; i < 256; ++i)
+        Check(client.Command("test.layout-queue").status == EDITOR_QUEUED, "fill workspace input queue");
+    const auto refused = finish(EditorClient::Integer(crowdedInput, "drop"), true);
+    editor.LeaveDraw();
+    Check(refused.status == EDITOR_REFUSED && !refused.operation && doc.EditOpen(),
+          "full queue reported acceptance without submitting the native edit");
+    editor.EndFrame();
+    Check(finish(EditorClient::Integer(crowdedInput, "drop"), false).status == EDITOR_OK && !doc.EditOpen(),
+          "dialog could not be cancelled after queue refusal");
+    cancelled.CheckRestored();
+
     clean();
     const auto accepted = drop(one);
     Check(accepted.status == EDITOR_OK, "drop behavior for parameter edits");
@@ -209,9 +264,15 @@ void TestLayoutAuthoring(vdev::CkRuntimeHost &runtime) {
     ++wrong.back().lifetime;
     Check(finish(EditorClient::Integer(input, "drop"), true, wrong).status == EDITOR_STALE && doc.EditOpen(),
           "invalid draft partially committed");
-    Check(finish(EditorClient::Integer(input, "drop"), true, drafts).status == EDITOR_OK && !doc.EditOpen() &&
-              doc.History().UndoCount() == 1,
-          "drop and parameter edits were not one undo step");
+    editor.EnterDraw();
+    const auto queued = finish(EditorClient::Integer(input, "drop"), true, drafts);
+    editor.LeaveDraw();
+    Check(queued.status == EDITOR_QUEUED && queued.operation && doc.EditOpen() && !doc.History().UndoCount(),
+          "drawing applied the native dialog's edit immediately");
+    editor.EndFrame();
+    sync();
+    Check(client.Completion(queued.operation).status == EDITOR_OK && !doc.EditOpen() && doc.History().UndoCount() == 1,
+          "queued drop and parameter edits were not one undo step");
     for (auto *work : working)
         doc.Context()->DestroyObject(work->GetID());
     ParameterValueDescription after;

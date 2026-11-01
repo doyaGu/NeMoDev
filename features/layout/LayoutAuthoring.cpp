@@ -131,6 +131,7 @@ struct LayoutAuthoring::Data {
     const Preferences &preferences;
     std::function<SchematicNavigation &()> navigation;
     DocumentToken document{};
+    EditorView source = 0;
     ObjectRef block{}, script{};
     std::vector<ObjectRef> parameters;
     std::unique_ptr<Edit> edit;
@@ -152,6 +153,7 @@ struct LayoutAuthoring::Data {
         script = {};
         parameters.clear();
         document = {};
+        source = 0;
         drop = 0;
         ++revision;
     }
@@ -387,6 +389,7 @@ struct LayoutAuthoring::Data {
                                 (behavior->GetInputParameterCount() > 0 || behavior->IsUsingTarget());
             if (asking) {
                 self.document = doc->Token();
+                self.source = r->scope.view;
                 self.script = lastScript;
                 self.block = lastBlock;
                 for (auto *input : Inputs(behavior))
@@ -481,7 +484,8 @@ void LayoutAuthoring::DocumentClosing() { m_Data->Close(true); }
 void LayoutAuthoring::Poll() {
     auto &d = *m_Data;
     auto *doc = d.current();
-    if (d.edit && (!doc || doc->Token() != d.document || !doc->Resolve(d.block)))
+    if (d.edit &&
+        (!doc || doc->Token() != d.document || !doc->Resolve(d.block) || (d.source && !d.editor.Scope(d.source).view)))
         d.Close(false);
 }
 const std::vector<ProviderChoice> &LayoutAuthoring::DefaultProviders() {
