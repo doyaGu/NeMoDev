@@ -150,6 +150,95 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
         });
     };
+    setupTest = IM_REGISTER_TEST(engine, "modules", "layout_workspace_provider_restore_and_gpu_lifetime");
+    setupTest->GuiFunc = MainThreadGui;
+    setupTest->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        ImVec2 min, max;
+        IM_CHECK(App().Layout().ShownView(min, max));
+        ctx->MouseMoveToPos(Center(min, max));
+        ctx->KeyPress(ImGuiKey_X);
+        ctx->Yield(3);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        auto &app = workspace.Application();
+        const vdev::EditorClient client(app.Host(), 0);
+        vdev::EditorConfiguration initial;
+        EditorView original = 0;
+        unsigned dock = 0;
+        uint64_t history = 0, selection = 0, allocations = 0, uploads = 0, reads = 0;
+        bool dirty = false;
+        vdev::UiTexture *texture = nullptr;
+        vdev::SnapshotData snapshots;
+        int slot = -1;
+        std::vector<unsigned char> pixels;
+        OnMainThread(ctx, [&] {
+            original = workspace.Role("main.layout");
+            IM_CHECK_NO_RET(original);
+            initial = app.Configuration();
+            const auto *window = ImGui::FindWindowByName(workspace.WindowName(original).c_str());
+            IM_CHECK_NO_RET(window && window->DockId);
+            dock = window->DockId;
+            history = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            selection = state.objectSelection.Revision();
+            texture = App().Layout().GpuViewportTextureForTests();
+            IM_CHECK_NO_RET(texture && App().Layout().Tool() == vdev::LayoutTool::Translate);
+            const auto beforeRead = App().Layout().View().ReadbackFrames();
+            const auto taken = client.Command("snapshot.take");
+            IM_CHECK_NO_RET(taken.status == EDITOR_OK && App().Layout().View().ReadbackFrames() == beforeRead + 1);
+            slot = int(vdev::EditorClient::Integer(taken, "slot"));
+            IM_CHECK_NO_RET(vdev::ReadSnapshots(client, snapshots) && snapshots.Has(slot));
+            pixels = snapshots.Pixels(slot);
+            allocations = App().Layout().GpuViewportCreationsForTests();
+            uploads = App().Layout().ViewportUploadsForTests();
+            reads = App().Layout().View().ReadbackFrames();
+            auto configured = initial;
+            for (auto &choice : configured.providers)
+                if (choice.kind == "view" && choice.id == "layout.viewport")
+                    choice.provider = "example.layout-window";
+            IM_CHECK_NO_RET(
+                client.Command("example.layout-window-failure", {vdev::IntegerArgument("fail", 1)}).status ==
+                EDITOR_OK);
+            std::string error;
+            IM_CHECK_NO_RET(!workspace.Configure(configured, error));
+            IM_CHECK_NO_RET(workspace.Role("main.layout") == original && app.Scope(original).view &&
+                            App().Layout().GpuViewportTextureForTests() == texture);
+            IM_CHECK_NO_RET(
+                client.Command("example.layout-window-failure", {vdev::IntegerArgument("fail", 0)}).status ==
+                EDITOR_OK);
+            IM_CHECK_NO_RET(workspace.Configure(configured, error));
+            IM_CHECK_NO_RET(!app.Scope(original).view && !App().Layout().UsesGpuViewport() &&
+                            !App().Layout().View().Started());
+            IM_CHECK_NO_RET(workspace.WindowName(workspace.Role("main.layout")) == "External 3D Layout###3D Layout");
+        });
+        ctx->Yield(4);
+        ctx->SetRef("//3D Layout");
+        IM_CHECK(ctx->ItemExists("External Layout Window"));
+        IM_CHECK(Read<bool>(ctx, [&] {
+            const auto *window = ImGui::FindWindowByName(workspace.WindowName(workspace.Role("main.layout")).c_str());
+            return window && window->DockId == dock;
+        }));
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(initial, error));
+        });
+        ctx->Yield(5);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            const auto *window = ImGui::FindWindowByName(workspace.WindowName(workspace.Role("main.layout")).c_str());
+            return window && window->DockId == dock && workspace.Role("main.layout") != original &&
+                   App().Layout().UsesGpuViewport() && App().Layout().Tool() == vdev::LayoutTool::Translate &&
+                   App().Layout().GpuViewportCreationsForTests() == allocations + 1 &&
+                   App().Layout().ViewportUploadsForTests() == uploads &&
+                   App().Layout().View().ReadbackFrames() == reads && state.History().UndoCount() == history &&
+                   state.document->Dirty() == dirty && state.objectSelection.Revision() == selection;
+        }));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(vdev::ReadSnapshots(client, snapshots) && snapshots.Has(slot) &&
+                            snapshots.Pixels(slot) == pixels);
+            IM_CHECK_NO_RET(vdev::RemoveSnapshots(client, snapshots, {slot}).status == EDITOR_OK);
+        });
+    };
     setupTest = IM_REGISTER_TEST(engine, "modules", "setup_workspace_provider_restore_and_lifetime");
     setupTest->GuiFunc = MainThreadGui;
     setupTest->TestFunc = [](ImGuiTestContext *ctx) {

@@ -28,7 +28,7 @@ struct Module {
     uint64_t setupPages = 0, setupLists = 0, setupOpens = 0;
     uint64_t setupDetails = 0, setupProperties = 0, setupActions = 0;
     uint64_t setupCommonCounts[8]{};
-    bool failSetupWindowRestore = false;
+    bool failSetupWindowRestore = false, failLayoutWindowRestore = false;
     struct SetupCommon {
         Module *owner = nullptr;
         EditorString id{}, provider{};
@@ -1303,6 +1303,73 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
              return sink.write(sink.data, values, 3);
          },
          data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, setupCounts, 3});
+    struct LayoutWindowState {
+        Module *owner;
+        std::vector<SavedSetupValue> fields;
+    };
+    EditorViewDesc layoutWindow{};
+    layoutWindow.size = sizeof(layoutWindow);
+    layoutWindow.imguiVersion = EDITOR_IMGUI_VERSION;
+    layoutWindow.id = EDITOR_TEXT("layout.viewport");
+    layoutWindow.provider = EDITOR_TEXT("example.layout-window");
+    layoutWindow.title = EDITOR_TEXT("External 3D Layout");
+    layoutWindow.area = EDITOR_DOCUMENT;
+    layoutWindow.singleInstance = 1;
+    layoutWindow.stateVersion = 1;
+    layoutWindow.data = data;
+    static const EditorParameter layoutViewFields[] = {{EDITOR_TEXT("tool"), EDITOR_INTEGER_VALUE},
+                                                       {EDITOR_TEXT("started"), EDITOR_INTEGER_VALUE}};
+    layoutWindow.fields = layoutViewFields;
+    layoutWindow.fieldCount = 2;
+    layoutWindow.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &state = *static_cast<LayoutWindowState *>(data);
+        uint64_t tool = 25;
+        for (const auto &value : state.fields)
+            if (value.key == "tool")
+                tool = value.integer;
+        const EditorValue values[] = {{EDITOR_TEXT("tool"), EDITOR_INTEGER_VALUE, {}, {}, tool},
+                                      {EDITOR_TEXT("started"), EDITOR_INTEGER_VALUE, {}, {}, 0}};
+        return sink.write(sink.data, values, 2);
+    };
+    layoutWindow.pick = [](void *, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const EditorValue value{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST};
+        return sink.write(sink.data, &value, 1);
+    };
+    layoutWindow.create = [](void *data, const EditorHost *, EditorView) -> void * {
+        return new LayoutWindowState{static_cast<Module *>(data)};
+    };
+    layoutWindow.destroy = [](void *data) { delete static_cast<LayoutWindowState *>(data); };
+    layoutWindow.draw = [](void *, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        EditorImGuiWindow window(*frame);
+        if (window)
+            ImGui::Button("External Layout Window");
+    };
+    layoutWindow.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        auto &state = *static_cast<LayoutWindowState *>(data);
+        std::vector<EditorValue> values;
+        for (const auto &field : state.fields)
+            values.push_back(field.Borrow());
+        return sink.write(sink.data, values.data(), uint32_t(values.size()));
+    };
+    layoutWindow.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
+        auto &state = *static_cast<LayoutWindowState *>(data);
+        if (state.owner->failLayoutWindowRestore)
+            return EDITOR_ERROR;
+        state.fields.clear();
+        for (uint32_t i = 0; i < request->count; ++i)
+            state.fields.emplace_back(request->values[i]);
+        return EDITOR_OK;
+    };
+    descriptors->views.push_back(layoutWindow);
+    static const EditorParameter failLayout{EDITOR_TEXT("fail"), EDITOR_INTEGER_VALUE};
+    descriptors->commands.push_back(
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("example.layout-window-failure"), EDITOR_TEXT("example.layout-window"),
+         EDITOR_TEXT("Fail Layout Restore"), &failLayout, 1,
+         [](void *data, const EditorHost *, const EditorRequest *r, EditorSink) {
+             static_cast<Module *>(data)->failLayoutWindowRestore = r->values[0].integer != 0;
+             return EDITOR_OK;
+         },
+         data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
     EditorViewDesc setupWindow{};
     setupWindow.size = sizeof(setupWindow);
     setupWindow.imguiVersion = EDITOR_IMGUI_VERSION;
