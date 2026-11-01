@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 
 #include "core/runtime/CkRuntimeHost.h"
 #include "core/runtime/SdkCompat.h"
@@ -108,8 +109,15 @@ std::vector<CKBYTE> ParameterBytesFromText(CKContext *context, const CKGUID &typ
     // A scratch parameter of the type parses the text.
     CKParameterOut *scratch = context->CreateCKParameterOut((CKSTRING) "Breakpoint value", type, TRUE);
     if (!scratch) return bytes;
-    if (scratch->SetStringValue(const_cast<CKSTRING>(text.c_str())) == CK_OK) bytes = ValueOf(scratch);
-    context->DestroyObject(scratch);
+    const auto handle = context->GetObjectHandle(scratch->GetID());
+    const auto release = [context, handle](CKParameterOut *) {
+        if (auto *object = context->GetObjectByHandle(handle))
+            context->DestroyObject(object);
+    };
+    std::unique_ptr<CKParameterOut, decltype(release)> owner(scratch, release);
+    if (scratch->SetStringValue(const_cast<CKSTRING>(text.c_str())) == CK_OK &&
+        context->GetObjectByHandle(handle) == scratch)
+        bytes = ValueOf(scratch);
     return bytes;
 }
 
@@ -118,15 +126,25 @@ std::string ParameterTextFromBytes(CKContext *context, const CKGUID &type, const
     if (!context || bytes.empty()) return text;
     CKParameterOut *scratch = context->CreateCKParameterOut((CKSTRING) "Breakpoint value", type, TRUE);
     if (!scratch) return text;
-    if (scratch->SetValue(bytes.data(), static_cast<int>(bytes.size())) == CK_OK) {
+    const auto handle = context->GetObjectHandle(scratch->GetID());
+    const auto release = [context, handle](CKParameterOut *) {
+        if (auto *object = context->GetObjectByHandle(handle))
+            context->DestroyObject(object);
+    };
+    std::unique_ptr<CKParameterOut, decltype(release)> owner(scratch, release);
+    if (scratch->SetValue(bytes.data(), static_cast<int>(bytes.size())) == CK_OK &&
+        context->GetObjectByHandle(handle) == scratch) {
         const int size = scratch->GetStringValue(nullptr, FALSE);
-        if (size > 0 && size < 65536) {
-            text.resize(static_cast<size_t>(size));
-            scratch->GetStringValue(&text[0], FALSE);
-            text.resize(std::strlen(text.c_str()));
+        if (context->GetObjectByHandle(handle) == scratch && size > 0 && size < 65536) {
+            std::string buffer(size, '\xff');
+            const auto read = scratch->GetStringValue(&buffer[0], FALSE);
+            if (context->GetObjectByHandle(handle) == scratch && read > 0 && read <= size) {
+                const auto end = buffer.find('\0');
+                if (end != std::string::npos)
+                    text = buffer.substr(0, end);
+            }
         }
     }
-    context->DestroyObject(scratch);
     return text;
 }
 
