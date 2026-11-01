@@ -689,48 +689,31 @@ SchematicCanvas::Hit SchematicCanvas::HitAt(const ImVec2 &mouse) {
 // object a parameter under the mouse holds (assumed: sub_4D8D00 of a
 // parameter element), the element's own object, its Script, the Script's
 // owner.
-CK_ID SchematicCanvas::PickObjectAt(const ImVec2 &mouse, CK_CLASSID cid) {
-    if (!m_State.HasDocument() || ImGui::GetFrameCount() - m_PickFrame > 2 || mouse.x < m_PickMin.x ||
+EditorStatus SchematicCanvas::PickObjectsAt(const ImVec2 &mouse, EditorSink sink) {
+    const auto empty = [&] {
+        const EditorValue objects{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST};
+        return sink.write ? sink.write(sink.data, &objects, 1) : EDITOR_INVALID;
+    };
+    if (!Client().Scope().document.value || ImGui::GetFrameCount() - m_PickFrame > 1 || mouse.x < m_PickMin.x ||
         mouse.y < m_PickMin.y || mouse.x >= m_PickMax.x || mouse.y >= m_PickMax.y)
-        return 0;
+        return empty();
     const Hit hit = HitAt(mouse);
-    if (!hit.view) return 0;
-    CKContext *context = m_State.document->Context();
-    std::vector<CKObject *> candidates;
-    CKObject *element = context->GetObject(hit.ref.object);
-    CKParameter *parameter = nullptr;
-    if (hit.ref.kind == ElementKind::LocalParam || hit.ref.kind == ElementKind::Shortcut) {
-        parameter = CKParameter::Cast(element);
-    } else if (hit.ref.kind == ElementKind::Pin) {
-        CKBehavior *behavior = CKBehavior::Cast(element);
-        CKParameterOperation *operation = CKParameterOperation::Cast(element);
-        CKParameterIn *input = nullptr;
-        if (hit.ref.pin == PinKind::ParamIn)
-            input = behavior ? behavior->GetInputParameter(hit.ref.index)
-                  : operation ? (hit.ref.index == 0 ? operation->GetInParameter1() : operation->GetInParameter2())
-                              : nullptr;
-        else if (hit.ref.pin == PinKind::Target && behavior)
-            input = behavior->GetTargetParameter();
-        if (input) parameter = input->GetRealSource();
-        else if (hit.ref.pin == PinKind::ParamOut)
-            parameter = behavior ? static_cast<CKParameter *>(behavior->GetOutputParameter(hit.ref.index))
-                      : operation ? static_cast<CKParameter *>(operation->GetOutParameter())
-                                  : nullptr;
+    if (!hit.view)
+        return empty();
+    std::vector<EditorField> fields{{"target", EDITOR_OBJECT, hit.view->identity}};
+    if (hit.ref.IsValid()) {
+        const auto address = CapturePosition(hit.view->id, hit.ref);
+        if (!address)
+            return EDITOR_STALE;
+        fields.push_back(SchematicPosition(address));
     }
-    // An object parameter (its type has a class).
-    CKParameterManager *manager = context->GetParameterManager();
-    if (parameter && manager->TypeToClassID(parameter->GetType()) != 0) {
-        CK_ID held = 0;
-        if (parameter->GetDataSize() == static_cast<int>(sizeof(held))) parameter->GetValue(&held, FALSE);
-        candidates.push_back(context->GetObject(held));
-    }
-    candidates.push_back(element);
-    CKBehavior *script = CKBehavior::Cast(context->GetObject(hit.view->id));
-    candidates.push_back(script);
-    if (script) candidates.push_back(script->GetOwner());
-    for (CKObject *candidate : candidates)
-        if (candidate && CKIsChildClassOf(candidate, cid)) return candidate->GetID();
-    return 0;
+    const auto arguments = BorrowEditorFields(fields);
+    const auto result =
+        Client().Query("schematic.pick-objects", {arguments.data(), arguments.data() + arguments.size()});
+    if (result.status != EDITOR_OK)
+        return result.status;
+    const auto values = BorrowEditorFields(result.fields);
+    return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
 }
 
 void SchematicCanvas::ResetView() {
@@ -2204,8 +2187,8 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     m_PickMin = canvasMin;
     m_PickMax = canvasMax;
     m_PickFrame = ImGui::GetFrameCount();
-    m_State.objectPick[title] = [this](float x, float y, CK_CLASSID cid) { return PickObjectAt(ImVec2(x, y), cid); };
-    if (m_State.HasDocument()) AcceptBuildingBlockDrop();
+    if (Client().Scope().document.value)
+        AcceptBuildingBlockDrop();
     if (hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
         ImGui::SetWindowFocus();
 
@@ -2818,12 +2801,15 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
         canvas->RefreshStack();
         module.canvases.emplace(id, canvas.get());
         return canvas.release();
+    view.pick = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        return static_cast<SchematicCanvas *>(data)->PickObjectsAt(
+            ImVec2(float(request->values[0].real), float(request->values[1].real)), sink);
+    };
     };
     view.destroy = [](void *data) {
         auto *canvas = static_cast<SchematicCanvas *>(data);
         auto &module = *canvas->m_State.schematics->m_Data;
         canvas->CancelEdits();
-        module.state.objectPick.erase(module.state.workspace->WindowName(canvas->m_Instance));
         const auto range = module.canvases.equal_range(canvas->m_Instance);
         for (auto it = range.first; it != range.second; ++it)
             if (it->second == canvas) { module.canvases.erase(it); break; }

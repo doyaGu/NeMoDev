@@ -253,8 +253,8 @@ private:
     void ZoomScript(ScriptView &view, float scale);
     ScriptView *BoundaryAt(const ImVec2 &screen); // band whose bottom edge is under the mouse
     Hit HitAt(const ImVec2 &mouse);
-    // The parameter UIs' target button over the canvas (EditorState::objectPick).
-    CK_ID PickObjectAt(const ImVec2 &mouse, CK_CLASSID cid);
+    // The workspace's instance hit test. The query supplies candidates in pick order.
+    EditorStatus PickObjectsAt(const ImVec2 &mouse, EditorSink);
     ImVec2 m_PickMin, m_PickMax; // the canvas drawn last
     int m_PickFrame = -1;
     void ApplyFocus(const ImVec2 &size);

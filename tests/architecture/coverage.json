@@ -2255,9 +2255,9 @@
     },
     {
       "id": "schematic_view",
-      "name": "Schematic 绘制模型、搜索结果、完整引用的导航与视图选项",
+      "name": "Schematic 绘制模型、对象拾取、运行标记、搜索结果与实例导航",
       "owner": "每个 Schematic 视图实例；SchematicModelCommands 缓存原生读取的副本；EditorPanels 保存来源视图的搜索结果",
-      "lifetime": "视图在成功替换文档或脱离时重置；原生查询缓存按文档身份和源版本失效，分页搜索只保留最近一次结果；复制的快照像素不依赖原生资源；其他实例不被覆盖",
+      "lifetime": "视图在成功替换文档或脱离时重置；原生查询缓存按文档身份和源版本失效，分页搜索只保留最近一次结果；复制的快照像素不依赖原生资源；其他实例不被覆盖 拾取按视图实例及最近绘制位置查询完整对象引用；失败不穿透到其他窗口。运行标记只匹配同一模型版本与对象生命期。",
       "persistence": "导航和只读查询不制造创作 Undo；工作区只保存选项和平移缩放，对象引用和搜索结果不写入用户配置；切换失败保持。查询失败保留上次完整模型，旧索引逐项校验后移除。",
       "features": [
         "F11"
@@ -2277,7 +2277,7 @@
     {
       "id": "navigation",
       "name": "focus、EditorEvents、objectPick、SelectionFollower",
-      "owner": "Workspace 导航/选择机制",
+      "owner": "Workspace 实例导航、选择和视图拾取；旧 objectPick 只剩 Layout 原生适配",
       "lifetime": "替换为实例/作用域寻址；最后使用者迁完删除旧容器",
       "persistence": "不保存原生引用到用户配置",
       "features": [
