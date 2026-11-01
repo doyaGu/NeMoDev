@@ -1,5 +1,6 @@
 #include "features/scene/SceneCommands.h"
 #include "features/scene/SceneQueries.h"
+#include "features/scene/SceneViewData.h"
 #include "workspace/EditorClient.h"
 #include "features/objects/ObjectCommands.h"
 #include "core/level/LevelCommands.h"
@@ -25,8 +26,65 @@ std::vector<ObjectRef> Refs(const EditorResponse &r, const char *name) {
     const auto *f = EditorClient::Find(r, name);
     return f ? f->objects : std::vector<ObjectRef>{};
 }
+void TestAttributeProjectionCopies() {
+    // A provider may return malformed or changing pages. Keep the previous
+    // complete list in every failure case rather than exposing a partial list.
+    struct Pages {
+        int mode = 0;
+        std::string name = "Copied name";
+    } pages;
+    EditorHost host{};
+    host.data = &pages;
+    host.scope = [](void *, EditorView view) { return EditorScope{{123}, view}; };
+    host.query = [](void *data, EditorString, const EditorRequest *request, EditorSink sink) {
+        const auto &pages = *static_cast<Pages *>(data);
+        const auto first = request->values[1].integer;
+        const auto target = request->values[0].object;
+        EditorField row{std::to_string(first), EDITOR_RECORD};
+        row.fields = {{"type", EDITOR_INTEGER_VALUE, {}, {}, pages.mode == 4 ? 7 : first + 7},
+                      {"name", EDITOR_TEXT_VALUE, {}, pages.name},
+                      {"category", EDITOR_TEXT_VALUE, {}, "Category"},
+                      {"value", EDITOR_TEXT_VALUE, {}, "3"},
+                      {"parameter", EDITOR_OBJECT, {{123}, uint32_t(first + 10), 5}},
+                      {"parameter-name", EDITOR_TEXT_VALUE, {}, "Integer"}};
+        if (pages.mode == 5)
+            row.fields[4].object.document = {321};
+        if (pages.mode == 7)
+            row.fields.erase(row.fields.begin() + 3);
+        if (pages.mode == 9)
+            row.fields[4].object = {{123}, 0, 0};
+        EditorField rows{"rows", EDITOR_RECORD};
+        if (pages.mode != 6)
+            rows.fields.push_back(std::move(row));
+        const std::vector<EditorField> fields{
+            {"target", EDITOR_OBJECT, target},
+            {"catalog", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(pages.mode == 2 && first ? 12 : 11)},
+            {"document-revision", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(pages.mode == 1 && first ? 4 : 3)},
+            {"behavioral", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(pages.mode == 8 ? 2 : 1)},
+            {"available", EDITOR_INTEGER_VALUE, {}, {}, 1},
+            {"total", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(pages.mode == 3 && first ? 3 : 2)},
+            {"next", EDITOR_INTEGER_VALUE, {}, {}, pages.mode == 6 ? first : first + 1},
+            std::move(rows)};
+        const auto output = BorrowEditorFields(fields);
+        return sink.write(sink.data, output.data(), uint32_t(output.size()));
+    };
+    const EditorClient client(&host, 0);
+    const ObjectRef target{{123}, 1, 2};
+    ObjectAttributes copied;
+    Check(QueryObjectAttributes(client, target, copied) && copied.rows.size() == 2 &&
+              copied.rows[0].name == pages.name && copied.rows[1].parameter.object == 11,
+          "copy provider attribute pages");
+    pages.name = "Replacement name";
+    for (int mode = 1; mode <= 9; ++mode) {
+        pages.mode = mode;
+        Check(!QueryObjectAttributes(client, target, copied) && copied.rows.size() == 2 &&
+                  copied.rows.front().name == "Copied name" && copied.documentRevision == 3,
+              "malformed provider replaced a complete attribute projection");
+    }
+}
 } // namespace
 void TestSceneCommands(CkRuntimeHost &runtime) {
+    TestAttributeProjectionCopies();
     Document document(runtime);
     std::string error;
     Check(document.New(&error), error.c_str());
@@ -151,6 +209,92 @@ void TestSceneCommands(CkRuntimeHost &runtime) {
     Check(document.History().Undo(), "attribute undo failed");
     Check(ReadAttributeObjects(document, {int(index)}, {first.created}).front().value == "0",
           "attribute undo lost value");
+    // Setup reads attachment order and parameter identities, including attributes
+    // that the manager's global object list intentionally hides.
+    const EditorClient client(app.Host(), 0);
+    ObjectAttributes attached;
+    const auto state = document.ChangeRevision();
+    const auto steps = document.History().UndoCount();
+    const bool canRedo = document.History().CanRedo(), dirty = document.Dirty();
+    Check(
+        QueryObjectAttributes(client, a, attached) && attached.behavioral && attached.available &&
+            attached.rows.size() == 1 && attached.rows.front().type == index &&
+            attached.rows.front().name == "Scene Query Value" && attached.rows.front().value == "0" &&
+            attached.rows.front().parameter ==
+                document.Reference(CKBeObject::Cast(document.Resolve(a))->GetAttributeParameter(int(index))->GetID()) &&
+            document.ChangeRevision() == state && document.History().UndoCount() == steps &&
+            document.History().CanRedo() == canRedo && document.Dirty() == dirty,
+        "object attribute projection lost identity or changed document");
+    Check(query("object.attributes", {ObjectArgument("target", a), IntegerArgument("first", UINT64_MAX)}).status ==
+              EDITOR_INVALID,
+          "attribute page accepted an invalid offset");
+    const auto retained = attached;
+    auto staleTarget = a;
+    ++staleTarget.lifetime;
+    Check(!QueryObjectAttributes(client, staleTarget, attached) && attached.target == retained.target &&
+              attached.rows.front().parameter == retained.rows.front().parameter,
+          "failed object attribute query replaced copied data");
+    const std::vector<uint64_t> copiedTypes{index};
+    const auto typesArgument = [&](const std::vector<uint64_t> &types) {
+        return EditorValue{
+            EDITOR_TEXT("types"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {types.data(), uint32_t(types.size())}};
+    };
+    Check(command("attribute.copy-values",
+                  {ObjectArgument("target", a), typesArgument(copiedTypes), IntegerArgument("catalog", token)})
+                  .status == EDITOR_OK,
+          "copy Setup attribute values");
+    AttributeClipboard copied;
+    Check(QueryAttributeClipboard(client, copied) && copied.names == std::vector<std::string>{"Scene Query Value"},
+          "attribute clipboard projection");
+    const std::vector<uint64_t> invalidTypes{index, UINT64_MAX};
+    Check(command("attribute.copy-values",
+                  {ObjectArgument("target", a), typesArgument(invalidTypes), IntegerArgument("catalog", token)})
+                      .status == EDITOR_INVALID &&
+              Number(query("attribute.clipboard"), "revision") == copied.revision,
+          "invalid copy replaced the clipboard");
+    Check(command("attribute.set-text", {ObjectArgument("target", b), IntegerArgument("type", index),
+                                         IntegerArgument("catalog", token), TextArgument("text", "7")})
+                  .status == EDITOR_OK,
+          "set paste destination");
+    auto *material = document.Context()->CreateObject(CKCID_OBJECT, "Nonbehavioral paste destination");
+    Check(material != nullptr, "create invalid paste destination");
+    document.Include(material->GetID());
+    publish();
+    const auto pasteSteps = document.History().UndoCount();
+    const auto pasteRevision = document.ChangeRevision();
+    const auto pasteAttributes = [&](const std::vector<ObjectRef> &destinations, uint64_t version) {
+        return command("attribute.paste-attributes",
+                       {ObjectsArgument("objects", destinations), IntegerArgument("clipboard-revision", version)});
+    };
+    Check(pasteAttributes({b, document.Reference(material->GetID())}, copied.revision).status != EDITOR_OK &&
+              ReadAttributeObjects(document, {int(index)}, {second.created}).front().value == "7" &&
+              document.History().UndoCount() == pasteSteps && document.ChangeRevision() == pasteRevision,
+          "failed attribute paste retained an earlier destination's change");
+    Check(pasteAttributes({b}, copied.revision).status == EDITOR_OK &&
+              document.History().UndoCount() == pasteSteps + 1 &&
+              ReadAttributeObjects(document, {int(index)}, {second.created}).front().value == "0" &&
+              document.History().Undo() &&
+              ReadAttributeObjects(document, {int(index)}, {second.created}).front().value == "7" &&
+              document.History().Redo() &&
+              ReadAttributeObjects(document, {int(index)}, {second.created}).front().value == "0",
+          "attribute paste did not remain one reversible edit");
+    Check(command("attribute.copy-values",
+                  {ObjectArgument("target", b), typesArgument(copiedTypes), IntegerArgument("catalog", token)})
+                      .status == EDITOR_OK &&
+              pasteAttributes({a}, copied.revision).status == EDITOR_STALE,
+          "old attribute clipboard revision pasted replacement values");
+    Check(command("attribute.edit-value",
+                  {ObjectArgument("target", a), IntegerArgument("type", UINT64_MAX), IntegerArgument("catalog", token),
+                   ObjectArgument("parameter", retained.rows.front().parameter)})
+                  .status == EDITOR_INVALID,
+          "overflowed attribute index reached native editor");
+    auto wrongParameter = retained.rows.front().parameter;
+    ++wrongParameter.lifetime;
+    Check(command("attribute.edit-value",
+                  {ObjectArgument("target", a), IntegerArgument("type", index), IntegerArgument("catalog", token),
+                   ObjectArgument("parameter", wrongParameter)})
+                  .status == EDITOR_STALE,
+          "stale attribute parameter reached native editor");
     Check(
         command("attribute.delete-type", {IntegerArgument("type", index), IntegerArgument("catalog", token)}).status ==
             EDITOR_OK,
@@ -164,6 +308,30 @@ void TestSceneCommands(CkRuntimeHost &runtime) {
                                     IntegerArgument("catalog", token)})
                   .status == EDITOR_STALE,
           "reused type accepted stale catalog");
+    auto *attributes = document.Context()->GetAttributeManager();
+    auto *dynamic = CKBeObject::Cast(
+        document.Context()->CreateObject(CKCID_3DENTITY, "Dynamic Setup attributes", CK_OBJECTCREATION_DYNAMIC));
+    Check(dynamic != nullptr, "dynamic attribute query fixture");
+    document.Include(dynamic->GetID());
+    std::vector<CKAttributeType> hiddenTypes;
+    for (unsigned i = 0; i < 257; ++i) {
+        const auto name = "Setup paging hidden " + std::to_string(i);
+        const auto type = attributes->RegisterNewAttributeType(const_cast<CKSTRING>(name.c_str()), CKGUID(),
+                                                               CKCID_BEOBJECT, CK_ATTRIBUT_HIDDEN);
+        Check(type >= 0 && dynamic->SetAttribute(type), "hidden attribute query fixture");
+        hiddenTypes.push_back(type);
+    }
+    publish();
+    ObjectAttributes paged;
+    Check(QueryObjectAttributes(client, document.Reference(dynamic->GetID()), paged) &&
+              paged.rows.size() == hiddenTypes.size(),
+          "Setup omitted hidden or dynamic attributes, or lost a query page");
+    for (size_t i = 0; i < paged.rows.size(); ++i)
+        Check(paged.rows[i].type == uint64_t(dynamic->GetAttributeType(int(i))) && !paged.rows[i].parameter,
+              "Setup changed native attachment order or created a marker parameter");
+    for (auto type : hiddenTypes)
+        attributes->UnRegisterAttribute(type);
+    document.Context()->DestroyObject(dynamic, CK_DESTROY_FREEID);
     publish();
     auto plan = query("scene.delete-plan", {ObjectsArgument("objects", targets),
                                             ObjectArgument("group", document.Reference(group.created))});
