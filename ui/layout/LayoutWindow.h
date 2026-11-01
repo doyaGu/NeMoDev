@@ -27,10 +27,24 @@ namespace vdev {
 
 // Dev's 3D Layout tools: the command ids of its toolbar (Dev.exe sub_4B6C70)
 // and of its tool factory (sub_4C4530).
-enum class LayoutTool { Select = 25, Translate = 9, Scale = 10, Rotate = 11, Orbit = 20, Dolly = 23, Roll = 24,
-                        Fov = 26, Zoom = 27, Pan = 28, Fly = 68,
-                        // The Curve Setup's (EditorState::curveTool).
-                        AddPoints = 128, InsertPoints = 129, EditPoints = 130, DeletePoints = 131 };
+enum class LayoutTool {
+    Select = 25,
+    Translate = 9,
+    Scale = 10,
+    Rotate = 11,
+    Orbit = 20,
+    Dolly = 23,
+    Roll = 24,
+    Fov = 26,
+    Zoom = 27,
+    Pan = 28,
+    Fly = 68,
+    // The Curve Setup's point tools.
+    AddPoints = 128,
+    InsertPoints = 129,
+    EditPoints = 130,
+    DeletePoints = 131
+};
 
 // Dev's names in its menus and messages: the class (Dev.exe sub_5D3550: 3D
 // Frame, Portal, the light types, 2D Frame, Script; else the CK class) and
@@ -113,9 +127,7 @@ public:
     bool FullScreen() const { return m_View.FullScreen(); }
     // A camera, transform or 2D gesture or a selection rectangle going on
     // (Sticky Mode: with no button held).
-    bool Busy() const {
-        return m_Gesture.Active() || m_TransformGesture.Active() || m_Gesture2D.Active() || m_Selecting;
-    }
+    bool Busy() const { return m_GestureEdit || !m_PendingGesture.empty() || m_Selecting; }
     bool UsesGpuViewport() const { return m_GpuTexture != nullptr; }
 #ifdef VIRTOOLSDEV_UI_TESTS
     UiTexture *GpuViewportTextureForTests() const { return m_GpuTexture.get(); }
@@ -209,15 +221,14 @@ private:
     // sub_499870: a click or a rectangle).
     void SelectAll(bool invert);
     void ClearSelection();
-    void ApplyClick(CK_ID picked);
+    void ApplyClick(ObjectRef picked);
     void ApplyRect(const VxRect &rect);
-    void SetSelection(std::vector<CK_ID> objects, bool invert = false);
+    void SetSelection(std::vector<ObjectRef> objects, bool invert = false);
     void RestoreSelection(const std::vector<ObjectRef> &objects, bool locked);
     void LockSelection(bool locked);
-    void ValidateSelection();
     std::vector<CK_ID> AliveSelection() const;
     // Transformations.
-    TransformSettings &Settings();
+    LayoutTransformSettings &Settings();
     TransformSteps TransformStepsOf() const;
     bool BeginTransform(int x, int y);
     // The 2D entities (Dev.exe sub_4C4A70): a selected one's handle starts a
@@ -229,6 +240,8 @@ private:
     // The curve tools (Dev.exe sub_49ACC0, sub_49CD00, sub_49B870, sub_49B400).
     bool CurveToolActive() const;
     void SyncCurveTool();
+    void ClearCurveTool();
+    void PlayerClick(int x, int y, bool twice);
     void CurveClick(int x, int y, bool right);
     bool BeginCurveEdit(int x, int y);
     // Flycam (Y; Dev.exe sub_48C060): on until Y again or another tool; one
@@ -306,7 +319,6 @@ private:
     struct DocumentState {
         std::vector<CK_ID> playerSelection; // shown in Player Mode: the selection of Play
         CK_ID lastLevel = 0;                // the level shown (another: the composition changed)
-        CK_ID flyCamera = 0;                // the camera flown (the flight's state before: m_FlyUndo)
         // Duplicate / Paste waiting for the Copy Options.
         std::vector<ObjectRef> pendingCopy;
         ObjectRef copyTarget{};
@@ -336,12 +348,12 @@ private:
     EditorState &m_State;
     const EditorHost *m_EditorHost = nullptr;
     EditorClient Client() const { return {m_EditorHost, 0}; }
-    enum class AfterCommand { None, ShowScript, ScriptsAdded, SelectCreated, Group };
+    enum class AfterCommand { Zoom, None, ShowScript, ScriptsAdded, SelectCreated, Group };
     struct PendingCommand { EditorOperation operation; DocumentToken document; AfterCommand after; };
     std::vector<PendingCommand> m_Commands;
     LayoutSceneData m_GroupData, m_CameraData, m_ExplorerData;
     LayoutSelectionData m_SelectionData;
-    void Execute(const char *, const std::vector<EditorValue> & = {}, AfterCommand = AfterCommand::None);
+    EditorResponse Execute(const char *, const std::vector<EditorValue> & = {}, AfterCommand = AfterCommand::None);
     void Complete(const EditorResponse &, AfterCommand);
     void PollCommands();
     LayoutView m_View;
@@ -393,9 +405,13 @@ private:
     // Each transformation tool's settings (Dev's defaults: Translate X+Z in
     // the world, Rotate Y and Scale X+Y about each object's axis, the
     // hierarchy following).
-    TransformSettings m_Transform[3] = {{5, 1, 1, true, false}, {2, 0, 1, true, false}, {3, 0, 1, true, false}};
+    LayoutTransformSettings m_Transform[3] = {{5, 1, 1}, {2, 0, 1}, {3, 0, 1}};
     // Edit Points' own (Dev.exe byte_6418D4 / D5: X+Z in the world).
-    TransformSettings m_CurveEdit = {5, 1, 1, false, false};
+    LayoutTransformSettings m_CurveEdit = [] {
+        LayoutTransformSettings settings;
+        settings.hierarchy = false;
+        return settings;
+    }();
     int m_ScaleMode = 0;   // the Scale menu: 0 uniform, 1 volumetric, 2 the constrained axes (V)
     int m_PortalMode = 1;  // Create Portal: 0 portals around the selection, 1 a portal
     int m_ZoomMode = 0;    // Zoom: 0 zoom, 1 on selection, 2 on scene
@@ -414,25 +430,28 @@ private:
     // Gestures in the view: the camera tool being dragged (with its button),
     // the transformation (a curve point's with Edit Points), the select
     // tool's press (and whether it became a rectangle).
-    CameraGesture m_Gesture;
+    EditorEdit m_GestureEdit = 0;
+    unsigned m_GestureKind = 0, m_GestureAction = 0;
+    EditorResponse m_Interaction;
+    std::vector<EditorField> m_PendingGesture;
+    EditorOperation m_GestureSelection = 0;
+    bool GestureActive(unsigned kind) const {
+        return (m_GestureEdit || !m_PendingGesture.empty()) && m_GestureKind == kind;
+    }
+    EditorResponse InputState(int x = 0, int y = 0, bool pick = false, ObjectRef curve = {},
+                              bool ignoreUnpickable = false) const;
+    std::vector<EditorField> GestureFields(const EditorResponse &, unsigned kind, unsigned action, int x, int y,
+                                           const std::vector<ObjectRef> &, const LayoutTransformSettings &) const;
+    bool BeginGesture(std::vector<EditorField>, unsigned kind, unsigned action, EditorOperation selection = 0);
+    bool UpdateGesture(int x, int y, bool move, bool idle);
+    void FinishGesture();
     ImGuiMouseButton m_GestureButton = ImGuiMouseButton_Left;
-    TransformGesture m_TransformGesture;
-    Transform2DGesture m_Gesture2D;
     bool m_CurveEditing = false;
     bool m_Selecting = false;
     bool m_Rectangle = false;
     ImVec2 m_PressAt;
     // The right button went down in the view with nothing being dragged.
     bool m_RightPressed = false;
-    // The flight: its mode, where the offsets count from, the orbit's
-    // center, the buttons held, the camera's state before (the camera:
-    // m_Doc.flyCamera).
-    FlyMode m_FlyMode = FlyMode::Advance;
-    ImVec2 m_FlyStart, m_FlyLast;
-    VxVector m_FlyCenter;
-    double m_FlyTime = 0.0;
-    bool m_FlyLeft = false, m_FlyRight = false;
-    ObjectsGesture m_FlyUndo;
     // The shortcut menu open.
     ContextMenu m_Menu;
     // The Copy Options dialog's copy (what waits for it: m_Doc.pendingCopy).

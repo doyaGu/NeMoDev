@@ -43,15 +43,6 @@ constexpr const char *SNAPSHOT_PAYLOAD = "SCHEMATIC_SNAPSHOT";
 // Scripts in the Schematic. Kept for the session (Dev's own interface data
 // that would store them is not written by this editor).
 
-// The Curve Setup's Add / Insert / Edit / Delete Points: the 3D Layout's
-// curve tool (Dev.exe tools 128..131; 0: none) on curve; referential: the
-// plane Add Points puts points on (0 Guide, 1 View Plane).
-struct CurveTool {
-    CK_ID curve = 0;
-    int tool = 0;
-    int referential = 0;
-};
-
 // A window's own selection kept with the shared one (Dev keeps one selection
 // for its editors: the Level Manager's and the Hierarchy Manager's rows).
 // Pull: the shared selection changed since (another window set it), the
@@ -80,9 +71,6 @@ private:
 struct DocumentSession {
     EditorEvents events; // what windows ask of each other (EditorApp::DispatchEvents)
     ObjectClipboard objectClipboard;
-    // A 3D Layout transformation is being dragged (RealTime Notifications).
-    bool layoutTransforming = false;
-    CurveTool curveTool;
     Clipboard clipboard;
 
 };

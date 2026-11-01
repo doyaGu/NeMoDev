@@ -114,24 +114,27 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
     // Layout's tool on this curve (pressed again: off); Referential is the
     // plane Add Points puts points on.
     static const char *const tools[4] = {"Add Points", "Insert Points", "Edit Points", "Delete Points"};
-    CurveTool &tool = m_State.curveTool;
+    const EditorClient client(m_State.workspace->Application().Host(), setup.nameOwner);
+    const auto tool = client.Query("layout.curve-tool");
+    const auto *target = EditorClient::Find(tool, "target");
+    const auto toolId = EditorClient::Integer(tool, "tool");
+    auto plane = int(EditorClient::Integer(tool, "plane"));
     for (int i = 0; i < 4; ++i) {
-        const bool active = tool.curve == id && tool.tool == 128 + i;
+        const bool active = target && target->object == setup.reference && toolId == uint64_t(128 + i);
         if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
         if (ImGui::Button(tools[i], ImVec2(110, 0))) {
-            if (active) {
-                tool.tool = 0;
-            } else {
-                tool.curve = id;
-                tool.tool = 128 + i;
-            }
+            client.Command("layout.set-curve-tool",
+                           {ObjectArgument("target", setup.reference), IntegerArgument("tool", active ? 0 : 128 + i),
+                            IntegerArgument("plane", plane)});
         }
         if (active) ImGui::PopStyleColor();
     }
     ImGui::TextUnformatted("Referential");
     static const char *const referentials[2] = {"Guide", "View Plane"};
     ImGui::SetNextItemWidth(110);
-    TypeAheadCombo("##referential", &tool.referential, referentials, 2);
+    if (TypeAheadCombo("##referential", &plane, referentials, 2))
+        client.Command("layout.set-curve-tool", {ObjectArgument("target", target ? target->object : ObjectRef{}),
+                                                 IntegerArgument("tool", toolId), IntegerArgument("plane", plane)});
     // Show curve points (Dev.exe sub_4584A0 183): the 3D Layout draws the
     // curve's control points (its list +180).
     bool showPoints = !m_State.document->Layout().hiddenCurvePoints.count(id);

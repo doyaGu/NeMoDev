@@ -244,8 +244,13 @@ void SetupWindows::Draw(ImGuiID dock) {
     if (playing)
         m_Notify = prefs.Bool("3D Layout\\Player RealTime Notifications") &&
                    m_PlayFrames % std::max(1, prefs.Int("3D Layout\\Player RealTime Notifications FrameSkip")) == 0;
-    else
-        m_Notify = !m_State.layoutTransforming || prefs.Bool("3D Layout\\Author RealTime Notifications");
+    else {
+        const auto input = EditorClient(m_State.workspace->Application().Host(), 0).Query("layout.input");
+        const bool transforming =
+            EditorClient::Integer(input, "active") &&
+            (EditorClient::Integer(input, "kind") == 1 || EditorClient::Integer(input, "kind") == 2);
+        m_Notify = !transforming || prefs.Bool("3D Layout\\Author RealTime Notifications");
+    }
     // Layer Setup's Grid: the Grid Setup opened selects the layer.
     if (CKLayer *layer = m_Doc.gridLayer ? Get<CKLayer>(m_State, m_Doc.gridLayer) : nullptr) {
         CKGrid *grid = Get<CKGrid>(m_State, layer->GetOwner());

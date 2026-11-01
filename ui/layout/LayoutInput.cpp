@@ -10,44 +10,203 @@
 #include "imgui_internal.h"
 
 #include <algorithm>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <map>
 
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
-#include "core/level/ObjectEditCommands.h"
 #include "core/runtime/TextEncoding.h"
 
 namespace vdev {
 
+namespace {
+EditorField GestureOptions(const CameraSteps &camera, const LayoutTransformSettings &settings,
+                           const TransformSteps &transform, const Snap2D &snapping, const Preferences &preferences,
+                           int scaleMode, bool locked) {
+    EditorField result{"options", EDITOR_RECORD};
+    const auto real = [&](const char *key, float n) {
+        EditorField v{key, EDITOR_REAL_VALUE};
+        v.real = n;
+        result.fields.push_back(std::move(v));
+    };
+    const auto number = [&](const char *key, uint64_t n) {
+        result.fields.push_back({key, EDITOR_INTEGER_VALUE, {}, {}, n});
+    };
+    const auto vector = [&](const char *key, std::initializer_list<double> n) {
+        EditorField v{key, EDITOR_REAL_LIST};
+        v.reals = n;
+        result.fields.push_back(std::move(v));
+    };
+    real("camera-rotate", camera.rotate);
+    real("camera-translate", camera.translate);
+    real("camera-zoom", camera.zoom);
+    real("camera-ortho-zoom", camera.orthoZoom);
+    real("camera-roll", camera.roll);
+    real("camera-fov", camera.fov);
+    real("free-orbit-value", camera.freeOrbitValue);
+    real("object-translate", transform.translate);
+    real("object-rotate", transform.rotate);
+    real("object-scale", transform.scale);
+    real("snap-angle", transform.snapAngle);
+    real("snap-scale", transform.snapScale);
+    number("camera-rotate-constant", camera.rotateConstant);
+    number("camera-translate-constant", camera.translateConstant);
+    number("camera-zoom-constant", camera.zoomConstant);
+    number("camera-ortho-zoom-constant", camera.orthoZoomConstant);
+    number("camera-roll-constant", camera.rollConstant);
+    number("camera-fov-constant", camera.fovConstant);
+    number("translate-sticky", transform.translateSticky);
+    number("rotate-sticky", transform.rotateSticky);
+    number("scale-sticky", transform.scaleSticky);
+    number("hierarchy", settings.hierarchy);
+    number("snap", settings.snap);
+    number("homogenous", snapping.homogenous);
+    number("shift", ImGui::GetIO().KeyShift);
+    number("ctrl", ImGui::GetIO().KeyCtrl);
+    number("locked", locked);
+    number("free-orbit-type", camera.freeOrbitType);
+    number("orbit-selection-type", camera.orbitSelectionType);
+    number("axes", settings.axes);
+    number("referential", settings.referential);
+    number("pivot", settings.pivot);
+    number("scale-mode", scaleMode);
+    number("snap-mode", transform.snapMode);
+    number("snap-radius", transform.snapRadius);
+    number("snap-influence", snapping.influence);
+    real("fly-turn", preferences.Float("3D Layout\\Actions\\Camera Fly Turn Step"));
+    real("fly-advance", preferences.Float("3D Layout\\Actions\\Camera Fly Advance Step"));
+    number("fly-constant", preferences.Bool("3D Layout\\Actions\\Camera Navigate Constant Speed Mode"));
+    vector("world-min", {camera.worldMin.x, camera.worldMin.y, camera.worldMin.z});
+    vector("world-max", {camera.worldMax.x, camera.worldMax.y, camera.worldMax.z});
+    vector("world-step", {transform.worldStep.x, transform.worldStep.y, transform.worldStep.z});
+    vector("screen-step", {snapping.screenStep[0], snapping.screenStep[1]});
+    vector("screen-offset", {snapping.screenOffset[0], snapping.screenOffset[1]});
+    return result;
+}
+EditorField MotionValue(int x, int y, bool move = false, bool idle = false) {
+    const auto &io = ImGui::GetIO();
+    EditorField value{"value", EDITOR_RECORD}, at{"position", EDITOR_REAL_LIST}, time{"time", EDITOR_REAL_VALUE};
+    at.reals = {double(x), double(y)};
+    time.real = ImGui::GetTime();
+    value.fields = {std::move(at),
+                    std::move(time),
+                    {"shift", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(io.KeyShift)},
+                    {"ctrl", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(io.KeyCtrl)},
+                    {"move", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(move)},
+                    {"idle", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(idle)},
+                    {"buttons",
+                     EDITOR_INTEGER_VALUE,
+                     {},
+                     {},
+                     uint64_t((ImGui::IsMouseDown(ImGuiMouseButton_Left) ? 1 : 0) |
+                              (ImGui::IsMouseDown(ImGuiMouseButton_Right) ? 2 : 0))}};
+    return value;
+}
+} // namespace
+
+EditorResponse LayoutWindow::InputState(int x, int y, bool pick, ObjectRef curve, bool ignoreUnpickable) const {
+    EditorField position{"position", EDITOR_REAL_LIST};
+    if (pick)
+        position.reals = {double(x), double(y)};
+    const std::vector<EditorField> fields{
+        std::move(position),
+        {"shift", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ignoreUnpickable && ImGui::GetIO().KeyShift)},
+        {"curve", EDITOR_OBJECT, curve}};
+    const auto values = BorrowEditorFields(fields);
+    return Client().Query("layout.input", {values.data(), values.data() + values.size()});
+}
+
+bool LayoutWindow::BeginGesture(std::vector<EditorField> fields, unsigned kind, unsigned action,
+                                EditorOperation selection) {
+    m_GestureKind = kind;
+    m_GestureAction = action;
+    if (selection) {
+        m_PendingGesture = std::move(fields);
+        m_GestureSelection = selection;
+        return true;
+    }
+    const auto values = BorrowEditorFields(fields);
+    if (Client().BeginCommand("layout.edit-gesture", {values.data(), values.data() + values.size()}, m_GestureEdit) !=
+        EDITOR_OK)
+        return false;
+    for (const auto &field : fields)
+        if (field.key == "value") {
+            const std::vector<EditorField> owned{field};
+            const auto value = BorrowEditorFields(owned);
+            if (m_EditorHost->editValue(m_EditorHost->data, m_GestureEdit, value.data()) != EDITOR_OK) {
+                Client().CancelEdit(m_GestureEdit);
+                return false;
+            }
+        }
+    m_Interaction = InputState();
+    return true;
+}
+
+bool LayoutWindow::UpdateGesture(int x, int y, bool move, bool idle) {
+    const std::vector<EditorField> fields{MotionValue(x, y, move, idle)};
+    const auto value = BorrowEditorFields(fields);
+    if (!m_GestureEdit || m_EditorHost->editValue(m_EditorHost->data, m_GestureEdit, value.data()) != EDITOR_OK) {
+        CancelEdits();
+        return false;
+    }
+    m_Interaction = InputState();
+    UpdateCoordinates();
+    return true;
+}
+
+void LayoutWindow::FinishGesture() {
+    if (!m_GestureEdit)
+        return;
+    const auto status = m_EditorHost->finishEdit(m_EditorHost->data, m_GestureEdit, 1, nullptr);
+    if (status != EDITOR_QUEUED && status != EDITOR_OK && status != EDITOR_NO_CHANGE)
+        Client().CancelEdit(m_GestureEdit);
+    m_GestureEdit = 0;
+    m_CurveEditing = false;
+}
+
+std::vector<EditorField> LayoutWindow::GestureFields(const EditorResponse &input, unsigned kind, unsigned action, int x,
+                                                     int y, const std::vector<ObjectRef> &objects,
+                                                     const LayoutTransformSettings &settings) const {
+    const auto *target = EditorClient::Find(input, "target");
+    if (input.status != EDITOR_OK || !target || !target->object)
+        return {};
+    EditorField start{"start", EDITOR_REAL_LIST}, selected{"objects", EDITOR_OBJECT_LIST};
+    start.reals = {double(x), double(y)};
+    selected.objects = objects;
+    const auto &selection = m_SelectionData;
+    EditorField started{"started", EDITOR_REAL_VALUE};
+    started.real = ImGui::GetTime();
+    return {{"target", EDITOR_OBJECT, target->object},
+            {"kind", EDITOR_INTEGER_VALUE, {}, {}, kind},
+            {"action", EDITOR_INTEGER_VALUE, {}, {}, action},
+            std::move(start),
+            std::move(selected),
+            GestureOptions(Steps(), settings, TransformStepsOf(), Snap2DOf(), m_State.preferences, m_ScaleMode,
+                           selection.locked),
+            MotionValue(x, y),
+            started};
+}
+
 bool LayoutWindow::BeginCamera(CameraAction action, int x, int y, ImGuiMouseButton button) {
-    const ImGuiIO &io = ImGui::GetIO();
-    if (!m_Gesture.Begin(m_View, action, Steps(), x, y, m_State.objectSelection.Objects(), m_State.objectSelection.Locked(),
-                         io.KeyShift, io.KeyCtrl))
+    if (!ReadLayoutSelection(Client(), m_SelectionData))
+        return false;
+    auto fields = GestureFields(InputState(), 0, unsigned(action), x, y, m_SelectionData.objects, Settings());
+    if (fields.empty() || !BeginGesture(std::move(fields), 0, unsigned(action)))
         return false;
     m_GestureButton = button;
     return true;
 }
 
 void LayoutWindow::CancelEdits() {
-    auto *document = m_State.HasDocument() ? m_State.document.get() : nullptr;
-    m_Gesture.Cancel(document);
-    m_TransformGesture.Cancel(document);
-    m_Gesture2D.Cancel(document);
-    if (m_Tool == LayoutTool::Fly) {
-        if (document)
-            m_FlyUndo.Cancel(*document);
-        else
-            m_FlyUndo.Cancel(m_View.Context());
+    if (m_EditorHost)
+        Client().CancelEdit(m_GestureEdit);
+    m_PendingGesture.clear();
+    m_GestureSelection = 0;
+    if (m_Tool == LayoutTool::Fly)
         m_Tool = LayoutTool::Select;
-    }
     m_CurveEditing = false;
     m_Selecting = m_Rectangle = false;
     m_RightPressed = false;
     m_Capturing = 0;
-    m_State.layoutTransforming = false;
 }
 
 // The mouse in the view (Dev.exe sub_4B95C0): the left button drags the
@@ -55,7 +214,8 @@ void LayoutWindow::CancelEdits() {
 // zooms; the right button cancels a drag.
 void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     const ImGuiIO &io = ImGui::GetIO();
-    if (Busy() && (ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right))) {
+    if (Busy() && (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+                   (m_Tool != LayoutTool::Fly && ImGui::IsMouseClicked(ImGuiMouseButton_Right)))) {
         CancelEdits();
         return;
     }
@@ -64,43 +224,25 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
         FlyFrame(x, y);
         return;
     }
-    if (m_Gesture.Active()) {
-        if (!ImGui::IsMouseDown(m_GestureButton)) {
-            m_Gesture.End(m_State.HasDocument() ? m_State.document.get() : nullptr);
-        } else {
-            if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) m_Gesture.Move(x, y, io.KeyShift);
-            m_Gesture.Idle(io.KeyShift);
+    if (!m_PendingGesture.empty()) {
+        const auto result = Client().Completion(m_GestureSelection);
+        if (result.status == EDITOR_QUEUED)
+            return;
+        auto fields = std::move(m_PendingGesture);
+        m_PendingGesture.clear();
+        m_GestureSelection = 0;
+        if ((result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) ||
+            !BeginGesture(std::move(fields), m_GestureKind, m_GestureAction)) {
+            CancelEdits();
+            return;
         }
-        return;
     }
-    if (m_Gesture2D.Active()) {
-        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
-            m_Gesture2D.End(m_State.HasDocument() ? m_State.document.get() : nullptr);
-        else if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
-            m_Gesture2D.Move(x, y);
-            UpdateCoordinates();
-        }
-        return;
-    }
-    if (m_TransformGesture.Active()) {
-        if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            // Editing a curve's points: their move and the curve's update, one undo step.
-            std::unique_ptr<Edit> points;
-            if (m_CurveEditing && m_State.HasDocument()) points = std::make_unique<Edit>(*m_State.document, "Edit Points");
-            const bool moved = m_TransformGesture.End(m_State.HasDocument() ? m_State.document.get() : nullptr);
-            CKCurve *curve = CKCurve::Cast(m_State.host.Context()->GetObject(m_State.curveTool.curve));
-            if (points && moved && curve) {
-                std::vector<CK_ID> ids;
-                for (int i = 0; i < curve->GetControlPointCount(); ++i)
-                    if (CKCurvePoint *point = curve->GetControlPoint(i)) ids.push_back(point->GetID());
-                EditCurvePoints(*m_State.document, curve->GetID(), ids, 0, "Edit Points");
-            }
-            if (points) points->Commit();
-            m_CurveEditing = false;
-        } else if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
-            m_TransformGesture.Move(x, y);
-            UpdateCoordinates();
-        }
+    if (m_GestureEdit) {
+        const auto button = m_GestureKind == 0 ? m_GestureButton : ImGuiMouseButton_Left;
+        if (!ImGui::IsMouseDown(button))
+            FinishGesture();
+        else
+            UpdateGesture(x, y, io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f, m_GestureKind == 0);
         return;
     }
     if (m_Selecting) {
@@ -112,8 +254,11 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             if (m_Rectangle)
                 ApplyRect(VxRect(m_PressAt.x, m_PressAt.y, static_cast<float>(x), static_cast<float>(y)));
-            else
-                ApplyClick(m_View.Pick(static_cast<int>(m_PressAt.x), static_cast<int>(m_PressAt.y), io.KeyShift));
+            else {
+                const auto input = InputState(int(m_PressAt.x), int(m_PressAt.y), true, {}, true);
+                if (input.status == EDITOR_OK)
+                    ApplyClick(EditorClient::Find(input, "picked")->object);
+            }
             m_Selecting = m_Rectangle = false;
         } else if (std::fabs(x - m_PressAt.x) >= drag || std::fabs(y - m_PressAt.y) >= drag) {
             m_Rectangle = true;
@@ -138,11 +283,12 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
             m_PickingReferent = false;
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             m_PickingReferent = false;
-            const LayoutPickInfo info = m_View.PickInfo(x, y);
-            if (CKObject *picked = m_State.host.Context()->GetObject(info.entity3d)) {
-                Settings().referent = info.entity3d;
-                m_State.Log(LogLevel::Info, "Referent: " + DevObjectName(picked));
-            }
+            const auto input = InputState(x, y, true);
+            if (input.status == EDITOR_OK)
+                if (const auto *picked = EditorClient::Find(input, "entity"); picked && picked->object) {
+                    Settings().referent = picked->object;
+                    m_State.Log(LogLevel::Info, "Referent: " + EditorClient::Text(input, "name"));
+                }
         }
         return;
     }
@@ -150,8 +296,12 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     if (m_Tool == LayoutTool::Select && !m_PlayerMode && !ImGui::IsAnyMouseDown()) {
         if (m_HoverAt.x != x || m_HoverAt.y != y) {
             m_HoverAt = ImVec2(x, y);
-            const LayoutPickInfo info = m_View.PickInfo(static_cast<int>(x), static_cast<int>(y));
-            m_HoverEntity = info.entity3d != 0 || info.character != 0 || info.entity2d != 0;
+            const auto input = InputState(x, y, true);
+            const auto has = [&](const char *key) {
+                const auto *v = EditorClient::Find(input, key);
+                return v && bool(v->object);
+            };
+            m_HoverEntity = input.status == EDITOR_OK && (has("entity") || has("character") || has("sprite"));
         }
         if (m_HoverEntity) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     }
@@ -171,7 +321,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
             CurveClick(x, y, true);
     }
     if (m_PlayerMode && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        LayoutSendClick(m_State.host.Context(), m_View.PickInfo(x, y), true);
+        PlayerClick(x, y, true);
     } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         switch (m_Tool) {
         case LayoutTool::Select:
@@ -202,7 +352,8 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
         case LayoutTool::EditPoints: BeginCurveEdit(x, y); break;
         default: break;
         }
-        if (m_PlayerMode) LayoutSendClick(m_State.host.Context(), m_View.PickInfo(x, y), false);
+        if (m_PlayerMode)
+            PlayerClick(x, y, false);
     } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) && !m_PlayerMode) {
         // Dev.exe sub_4C4E30: Alt orbits (in the Orbit tool's mode), else it pans.
         if (io.KeyAlt)
@@ -212,7 +363,20 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     }
     if (io.MouseWheel != 0.0f && !m_PlayerMode) {
         const int notches = static_cast<int>(io.MouseWheel > 0.0f ? std::ceil(io.MouseWheel) : std::floor(io.MouseWheel));
-        WheelZoom(m_View, Steps(), notches, m_ZoomExtent);
+        const auto input = InputState();
+        const auto *target = EditorClient::Find(input, "target");
+        if (target && target->object) {
+            EditorField extent{"extent", EDITOR_REAL_VALUE}, count{"notches", EDITOR_REAL_VALUE};
+            extent.real = m_ZoomExtent;
+            count.real = notches;
+            std::vector<EditorField> args{{"target", EDITOR_OBJECT, target->object},
+                                          GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(),
+                                                         m_State.preferences, m_ScaleMode, false),
+                                          extent,
+                                          count};
+            const auto values = BorrowEditorFields(args);
+            Execute("layout.wheel-zoom", {values.data(), values.data() + values.size()});
+        }
     }
 }
 
@@ -229,15 +393,20 @@ void LayoutWindow::StartupOptions(const std::string &tool, const std::string &ca
     if (found != tools.end()) {
         Command(found->second);
     } else if (curveTool != curveTools.end()) {
-        CKContext *context = m_State.host.Context();
-        const XObjectPointerArray &curves = context->GetObjectListByType(CKCID_CURVE, TRUE);
-        if (curves.Size() > 0 && curves[0]) {
-            m_State.curveTool.curve = curves[0]->GetID();
-            m_State.curveTool.tool = curveTool->second;
+        LayoutSceneData scene;
+        const LayoutObjectRow *curve = nullptr;
+        if (ReadLayoutScene(Client(), "explorer", scene))
+            for (const auto &row : scene.rows)
+                if (row.cid == CKCID_CURVE) {
+                    curve = &row;
+                    break;
+                }
+        if (curve) {
+            Execute("layout.set-curve-tool", {ObjectArgument("target", curve->object),
+                                              IntegerArgument("tool", curveTool->second), IntegerArgument("plane", 0)});
             SyncCurveTool();
-        } else {
+        } else
             m_State.Log(LogLevel::Warning, "--layout-tool: no curve");
-        }
     } else if (!tool.empty()) {
         m_State.Log(LogLevel::Warning, "--layout-tool: unknown tool " + tool);
     }
@@ -251,11 +420,14 @@ void LayoutWindow::StartupOptions(const std::string &tool, const std::string &ca
 
 void LayoutWindow::StartupSelection(const std::vector<std::string> &names, const std::string &group,
                                     const std::vector<int> &commands) {
-    CKContext *context = m_State.host.Context();
-    std::vector<CK_ID> objects;
+    LayoutSceneData scene;
+    ReadLayoutScene(Client(), "explorer", scene);
+    std::vector<ObjectRef> objects;
     for (const std::string &name : names) {
-        CKObject *object = context ? context->GetObjectByNameAndParentClass(const_cast<CKSTRING>(name.c_str()), CKCID_RENDEROBJECT, nullptr) : nullptr;
-        if (object) objects.push_back(object->GetID());
+        const auto found = std::find_if(scene.rows.begin(), scene.rows.end(),
+                                        [&](const LayoutObjectRow &row) { return row.name == AnsiToUtf8(name); });
+        if (found != scene.rows.end())
+            objects.push_back(found->object);
         else m_State.Log(LogLevel::Warning, "--layout-select: no 2D or 3D entity named " + AnsiToUtf8(name));
     }
     if (!objects.empty()) SetSelection(objects);
@@ -270,112 +442,102 @@ void LayoutWindow::StartupDrop(const CKGUID &guid, float x, float y) {
 }
 #endif
 
-void LayoutWindow::SetSelection(std::vector<CK_ID> objects, bool invert) {
-    if (!m_State.HasDocument()) return;
-    if (m_State.objectSelection.Locked() || (!invert && objects == m_State.objectSelection.Objects())) return;
-    auto references = m_State.document->References(objects);
-    const EditorValue value{EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0,
-                             {references.data(), static_cast<uint32_t>(references.size())}};
-    auto &editor = m_State.workspace->Application();
-    editor.Execute(invert ? "selection.invert" : "selection.replace", {editor.Scope(), &value, 1});
+void LayoutWindow::SetSelection(std::vector<ObjectRef> objects, bool invert) {
+    LayoutSelectionData selection;
+    if (!ReadLayoutSelection(Client(), selection) || selection.locked || (!invert && objects == selection.objects))
+        return;
+    Execute(invert ? "selection.invert" : "selection.replace", {ObjectsArgument("objects", objects)});
 }
 
 void LayoutWindow::RestoreSelection(const std::vector<ObjectRef> &objects, bool locked) {
-    auto &editor = m_State.workspace->Application();
-    const EditorValue values[] = {
-        {EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), static_cast<uint32_t>(objects.size())}},
-        {EditorLiteral("locked"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(locked)}};
-    editor.Execute("selection.restore", {editor.Scope(), values, 2});
+    Execute("selection.restore", {ObjectsArgument("objects", objects), IntegerArgument("locked", locked)});
 }
 
-void LayoutWindow::LockSelection(bool locked) {
-    auto &editor = m_State.workspace->Application();
-    const EditorValue value{EditorLiteral("locked"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(locked)};
-    editor.Execute("selection.lock", {editor.Scope(), &value, 1});
-}
+void LayoutWindow::LockSelection(bool locked) { Execute("selection.lock", {IntegerArgument("locked", locked)}); }
 
-// Undone creations and deleted objects leave the selection.
-void LayoutWindow::ValidateSelection() {
-    if (m_State.document) m_State.objectSelection.Validate(*m_State.document);
-}
-
-// The selected objects still in the composition (not in the graveyard).
 std::vector<CK_ID> LayoutWindow::AliveSelection() const {
-    std::vector<CK_ID> alive;
-    if (!m_State.document) return alive;
-    for (ObjectRef ref : m_State.objectSelection.References())
-        if (const auto id = m_State.document->NativeId(ref)) alive.push_back(id);
-    return alive;
+    LayoutSelectionData selection;
+    std::vector<CK_ID> ids;
+    if (ReadLayoutSelection(Client(), selection))
+        for (auto object : selection.objects)
+            ids.push_back(object.object);
+    return ids;
 }
 
-void LayoutWindow::ClearSelection() {
-    SetSelection({});
-}
+void LayoutWindow::ClearSelection() { SetSelection({}); }
 
-// Ctrl+A / Ctrl+I: the 3D and 2D entities of the current scene, body parts
-// and private objects left out.
 void LayoutWindow::SelectAll(bool invert) {
-    CKContext *context = m_State.host.Context();
-    CKScene *scene = m_View.Scene();
-    if (!scene || m_State.objectSelection.Locked()) return;
-    std::vector<CK_ID> objects;
-    for (CK_CLASSID cid : {CKCID_3DENTITY, CKCID_2DENTITY}) {
-        CKObjectArray *array = CreateCKObjectArray();
-        scene->ComputeObjectList(array, cid, TRUE);
-        for (array->Reset(); !array->EndOfList(); array->Next()) {
-            CKObject *object = array->GetData(context);
-            if (!object || CKBodyPart::Cast(object) || object->IsPrivate() || m_View.IsInterfaceObject(object->GetID()))
-                continue;
-            objects.push_back(object->GetID());
-        }
-        DeleteCKObjectArray(array);
-    }
-    SetSelection(objects, invert);
+    const auto result = Client().Query("layout.input", {IntegerArgument("select", 1)});
+    if (result.status == EDITOR_OK)
+        if (const auto *objects = EditorClient::Find(result, "objects"))
+            SetSelection(objects->objects, invert);
 }
 
-// Dev.exe sub_499870: a click on a selected object keeps only it (or, alone
-// or with Ctrl, deselects it); on another object selects it (Ctrl adds it);
-// on nothing clears the selection (unless Ctrl).
-void LayoutWindow::ApplyClick(CK_ID picked) {
-    if (m_State.objectSelection.Locked()) return;
+void LayoutWindow::ApplyClick(ObjectRef picked) {
+    LayoutSelectionData selection;
+    if (!ReadLayoutSelection(Client(), selection) || selection.locked)
+        return;
     const bool ctrl = ImGui::GetIO().KeyCtrl;
-    std::vector<CK_ID> objects = m_State.objectSelection.Objects();
+    auto objects = selection.objects;
     if (!picked) {
-        if (!ctrl) objects.clear();
+        if (!ctrl)
+            objects.clear();
     } else if (std::find(objects.begin(), objects.end(), picked) != objects.end()) {
         if (objects.size() <= 1 || ctrl) objects.erase(std::remove(objects.begin(), objects.end(), picked), objects.end());
         else objects.assign(1, picked);
     } else {
-        if (!ctrl) objects.clear();
+        if (!ctrl)
+            objects.clear();
         objects.push_back(picked);
     }
-    SetSelection(objects);
+    SetSelection(std::move(objects));
 }
 
-// A rectangle replaces the selection (Ctrl adds to it).
 void LayoutWindow::ApplyRect(const VxRect &rect) {
-    if (m_State.objectSelection.Locked()) return;
-    std::vector<CK_ID> objects;
-    if (ImGui::GetIO().KeyCtrl) objects = m_State.objectSelection.Objects();
-    for (CK_ID id : m_View.RectPick(rect, m_State.preferences.Bool("3D Layout\\Strict Selection")))
-        if (std::find(objects.begin(), objects.end(), id) == objects.end()) objects.push_back(id);
-    SetSelection(objects);
+    LayoutSelectionData selection;
+    if (!ReadLayoutSelection(Client(), selection) || selection.locked)
+        return;
+    EditorField rectangle{"rectangle", EDITOR_REAL_LIST};
+    rectangle.reals = {rect.left, rect.top, rect.right, rect.bottom};
+    const std::vector<EditorField> fields{
+        rectangle,
+        {"select", EDITOR_INTEGER_VALUE, {}, {}, 2},
+        {"strict", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_State.preferences.Bool("3D Layout\\Strict Selection"))}};
+    const auto values = BorrowEditorFields(fields);
+    const auto result = Client().Query("layout.input", {values.data(), values.data() + values.size()});
+    const auto *picked = EditorClient::Find(result, "objects");
+    if (result.status != EDITOR_OK || !picked)
+        return;
+    auto objects = ImGui::GetIO().KeyCtrl ? selection.objects : std::vector<ObjectRef>{};
+    for (auto object : picked->objects)
+        if (std::find(objects.begin(), objects.end(), object) == objects.end())
+            objects.push_back(object);
+    SetSelection(std::move(objects));
+}
+
+void LayoutWindow::PlayerClick(int x, int y, bool twice) {
+    const auto input = InputState(x, y, true);
+    if (input.status != EDITOR_OK)
+        return;
+    std::vector<EditorField> fields{{"double-click", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(twice)}};
+    for (const char *key : {"entity", "sprite", "character"})
+        if (const auto *field = EditorClient::Find(input, key))
+            fields.push_back(*field);
+    const auto values = BorrowEditorFields(fields);
+    Execute("layout.player-click", {values.data(), values.data() + values.size()});
 }
 
 // Documentation "Axes Constraint": "when the current camera is set to the
 // Top View, only X and Z axis are available for Select and Translate" (the
 // Front view X and Y, the Right view Y and Z).
 int LayoutWindow::AllowedAxes() const {
-    CKCamera *camera = m_View.Camera();
-    if (!camera || (m_Tool != LayoutTool::Translate && m_Tool != LayoutTool::Select)) return 7;
-    const CK_ID id = camera->GetID();
-    if (id == m_View.ViewCamera(LayoutViewCamera::Top)) return 5;
-    if (id == m_View.ViewCamera(LayoutViewCamera::Front)) return 3;
-    if (id == m_View.ViewCamera(LayoutViewCamera::Right)) return 6;
-    return 7;
+    if (m_Tool != LayoutTool::Translate && m_Tool != LayoutTool::Select)
+        return 7;
+    const auto state = InputState();
+    return state.status == EDITOR_OK ? int(EditorClient::Integer(state, "allowed-axes")) : 7;
 }
 
-TransformSettings &LayoutWindow::Settings() {
+LayoutTransformSettings &LayoutWindow::Settings() {
     switch (m_Tool) {
     case LayoutTool::EditPoints: return m_CurveEdit;
     case LayoutTool::Rotate: return m_Transform[1];
@@ -389,64 +551,90 @@ TransformSettings &LayoutWindow::Settings() {
 // already, and the selection follows the mouse; on nothing, a selection
 // rectangle. A locked selection is moved from anywhere.
 bool LayoutWindow::BeginTransform(int x, int y) {
-    const ImGuiIO &io = ImGui::GetIO();
-    VxVector point;
-    const CK_ID picked = m_View.Pick(x, y, io.KeyShift, &point);
-    const bool locked = m_State.objectSelection.Locked();
-    if (!locked) {
-        if (!picked) return false;
-        if (!m_State.objectSelection.Contains(picked)) ApplyClick(picked);
+    const auto input = InputState(x, y, true, {}, true);
+    if (input.status != EDITOR_OK || !ReadLayoutSelection(Client(), m_SelectionData))
+        return false;
+    const auto *picked = EditorClient::Find(input, "picked");
+    auto objects = m_SelectionData.objects;
+    EditorOperation selection = 0;
+    if (!m_SelectionData.locked) {
+        if (!picked || !picked->object)
+            return false;
+        if (!m_SelectionData.Contains(picked->object.object)) {
+            if (!ImGui::GetIO().KeyCtrl)
+                objects.clear();
+            objects.push_back(picked->object);
+            const auto result = Client().Command("selection.replace", {ObjectsArgument("objects", objects)});
+            if (result.status == EDITOR_QUEUED)
+                selection = result.operation;
+            else if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE)
+                return false;
+        }
     }
-    const TransformAction action = m_Tool == LayoutTool::Rotate  ? TransformAction::Rotate
-                                   : m_Tool == LayoutTool::Scale ? TransformAction::Scale
-                                                                 : TransformAction::Translate;
-    CKObject *object = m_State.host.Context()->GetObject(picked);
-    // A 2D entity grabbed: the 2D entities move or scale (Dev.exe sub_491060,
-    // sub_496D60); Translate holds them on a single X or Y axis, Scale takes
-    // the X and Y axes constrained.
-    if (CK2dEntity::Cast(object) && m_State.objectSelection.Contains(picked)) {
+    const auto action = m_Tool == LayoutTool::Rotate  ? TransformAction::Rotate
+                        : m_Tool == LayoutTool::Scale ? TransformAction::Scale
+                                                      : TransformAction::Translate;
+    auto settings = Settings();
+    unsigned kind = 1;
+    if (EditorClient::Integer(input, "is-2d") && picked &&
+        std::find(objects.begin(), objects.end(), picked->object) != objects.end()) {
         if (action == TransformAction::Rotate) return false;
-        const TransformSettings &settings = Settings();
-        const int axes = action == TransformAction::Translate ? (settings.axes == 1 ? 1 : settings.axes == 2 ? 2 : 3)
-                                                              : (settings.axes & 3);
-        if (!axes) return false;
-        return m_Gesture2D.Begin(m_View, action, axes, settings.snap, Snap2DOf(), TransformStepsOf().snapScale,
-                                 m_State.objectSelection.Objects(), picked, x, y);
+        settings.axes = action == TransformAction::Translate ? (settings.axes == 1   ? 1
+                                                                : settings.axes == 2 ? 2
+                                                                                     : 3)
+                                                             : settings.axes & 3;
+        if (!settings.axes)
+            return false;
+        kind = 2;
+    } else if (action == TransformAction::Translate) {
+        const int allowed = int(EditorClient::Integer(input, "allowed-axes"));
+        settings.axes = (settings.axes & allowed) ? settings.axes & allowed : allowed;
     }
-    const bool grabbed = picked && m_State.objectSelection.Contains(picked) && CK3dEntity::Cast(object);
-    // Translate in a Top, Front or Right view: the axes of its plane only.
-    TransformSettings settings = Settings();
-    if (action == TransformAction::Translate) {
-        const int allowed = AllowedAxes();
-        settings.axes = (settings.axes & allowed) ? (settings.axes & allowed) : allowed;
+    auto fields = GestureFields(input, kind, unsigned(action), x, y, objects, settings);
+    if (fields.empty())
+        return false;
+    if (picked && picked->object && std::find(objects.begin(), objects.end(), picked->object) != objects.end()) {
+        if (kind == 2)
+            fields.push_back({"grabbed", EDITOR_OBJECT, picked->object});
+        else if (EditorClient::Integer(input, "is-3d"))
+            fields.push_back(*EditorClient::Find(input, "point"));
     }
-    return m_TransformGesture.Begin(m_View, action, settings, TransformStepsOf(), m_ScaleMode,
-                                    m_State.objectSelection.Objects(), x, y, grabbed ? &point : nullptr);
+    if (settings.referent) {
+        const auto state = Client().Query("object.details", {ObjectArgument("target", settings.referent)});
+        if (state.status == EDITOR_OK)
+            fields.push_back({"referent", EDITOR_OBJECT, settings.referent});
+        else if (state.status == EDITOR_STALE)
+            Settings().referent = {};
+    }
+    return BeginGesture(std::move(fields), kind, unsigned(action), selection);
 }
 
-// Dev.exe sub_4B5C60: the 2D entity under the mouse when it is selected and
-// shown; no handles with Translate (Dev's sub_4BDF40 and sub_4C4A70 skip
-// them then), the curve tools or the flight.
 int LayoutWindow::HandleAt(int x, int y, CK_ID *entity) const {
     if (m_Tool == LayoutTool::Translate || m_Tool == LayoutTool::Fly || CurveToolActive()) return 0;
-    const LayoutPickInfo info = m_View.PickInfo(x, y);
-    CK2dEntity *sprite = CK2dEntity::Cast(m_State.host.Context()->GetObject(info.entity2d));
-    if (!sprite || !m_State.objectSelection.Contains(sprite->GetID())) return 0;
-    if (entity) *entity = sprite->GetID();
-    return Handle2DAt(sprite, static_cast<float>(x), static_cast<float>(y));
+    const auto input = InputState(x, y, true);
+    if (input.status != EDITOR_OK)
+        return 0;
+    if (entity) {
+        const auto *sprite = EditorClient::Find(input, "sprite");
+        *entity = sprite ? sprite->object.object : 0;
+    }
+    return int(EditorClient::Integer(input, "handle"));
 }
 
-// Dev.exe sub_4C4A70: the top-left handle Translates on X and Y (in Sticky
-// Mode), the others Scale on both axes, Y or X; the tools' own Snap.
 bool LayoutWindow::BeginHandle(int x, int y) {
-    CK_ID entity = 0;
-    const int handle = HandleAt(x, y, &entity);
-    if (!handle) return false;
-    const TransformAction action = handle == 1 ? TransformAction::Translate : TransformAction::Scale;
-    const int axes = handle == 3 ? 2 : handle == 4 ? 1 : 3;
-    const TransformSettings &settings = handle == 1 ? m_Transform[0] : m_Transform[2];
-    return m_Gesture2D.Begin(m_View, action, axes, settings.snap, Snap2DOf(), TransformStepsOf().snapScale,
-                             m_State.objectSelection.Objects(), entity, x, y);
+    const auto input = InputState(x, y, true);
+    const int handle = int(EditorClient::Integer(input, "handle"));
+    if (input.status != EDITOR_OK || !handle || !ReadLayoutSelection(Client(), m_SelectionData))
+        return false;
+    const auto action = handle == 1 ? TransformAction::Translate : TransformAction::Scale;
+    auto settings = handle == 1 ? m_Transform[0] : m_Transform[2];
+    settings.axes = handle == 3 ? 2 : handle == 4 ? 1 : 3;
+    auto fields = GestureFields(input, 2, unsigned(action), x, y, m_SelectionData.objects, settings);
+    const auto *sprite = EditorClient::Find(input, "sprite");
+    if (fields.empty() || !sprite || !sprite->object)
+        return false;
+    fields.push_back({"grabbed", EDITOR_OBJECT, sprite->object});
+    return BeginGesture(std::move(fields), 2, unsigned(action));
 }
 
 // N / Shift+N: the next or previous camera of the combo.
@@ -460,14 +648,24 @@ void LayoutWindow::NextCamera(bool previous) {
 }
 
 void LayoutWindow::ZoomOn(bool scene) {
-    if (!ZoomOnObjects(m_View, m_State.objectSelection.Objects(), scene, &m_ZoomExtent) && !scene)
-        m_State.Log(LogLevel::Info, "Nothing selected");
+    const auto input = InputState();
+    const auto *target = EditorClient::Find(input, "target");
+    if (input.status != EDITOR_OK || !target || !target->object || !ReadLayoutSelection(Client(), m_SelectionData))
+        return;
+    const std::vector<EditorField> fields{{"target", EDITOR_OBJECT, target->object},
+                                          {"objects", EDITOR_OBJECT_LIST, {}, {}, 0, m_SelectionData.objects},
+                                          {"scene", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(scene)},
+                                          GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(),
+                                                         m_State.preferences, m_ScaleMode, m_SelectionData.locked)};
+    const auto values = BorrowEditorFields(fields);
+    Execute("layout.zoom-on", {values.data(), values.data() + values.size()}, AfterCommand::Zoom);
 }
 
 // Dev's 3D Layout keys (Dev.exe sub_4B95C0, WM_KEYUP).
 void LayoutWindow::Shortcuts() {
     const ImGuiIO &io = ImGui::GetIO();
-    if (io.WantTextInput || m_Gesture.Active() || m_TransformGesture.Active() || m_Gesture2D.Active() || m_Selecting) return;
+    if (io.WantTextInput || (Busy() && !GestureActive(3)))
+        return;
     auto pressed = [](ImGuiKey key) { return ImGui::IsKeyPressed(key, false); };
     // Dev.exe sub_4B95C0 (WM_KEYDOWN): Escape ends the Flycam, playing or not.
     if (m_Tool == LayoutTool::Fly && pressed(ImGuiKey_Escape)) Command(68);
@@ -498,9 +696,9 @@ void LayoutWindow::Shortcuts() {
         return;
     }
     if (!io.KeyShift && pressed(ImGuiKey_Delete)) DeleteSelection();
-    CKCamera *camera = m_View.Camera();
-    const bool perspective = camera && camera->GetProjectionType() == CK_PERSPECTIVEPROJECTION;
-    const bool targeted = CKTargetCamera::Cast(camera) && CKTargetCamera::Cast(camera)->GetTarget();
+    const auto camera = InputState();
+    const bool perspective = EditorClient::Integer(camera, "perspective") != 0;
+    const bool targeted = EditorClient::Integer(camera, "targeted") != 0;
     if (io.KeyShift) {
         if (pressed(ImGuiKey_Z)) ZoomOn(false);
         if (pressed(ImGuiKey_N)) NextCamera(true);
@@ -544,84 +742,23 @@ void LayoutWindow::Shortcuts() {
 // ------------------------------------------------------------------ flycam
 
 void LayoutWindow::BeginFly() {
-    CKCamera *camera = m_View.Camera();
-    if (!camera) return;
-    std::vector<CK_ID> moved{camera->GetID()};
-    if (CKTargetCamera *targeted = CKTargetCamera::Cast(camera))
-        if (CK3dEntity *target = targeted->GetTarget()) moved.push_back(target->GetID());
-    if (!m_FlyUndo.Begin(m_State.host.Context(), moved)) return;
+    if (!ReadLayoutSelection(Client(), m_SelectionData))
+        return;
+    const int x = int(ImGui::GetIO().MousePos.x - m_Origin.x - 76.0f * m_Scale);
+    const int y = int(ImGui::GetIO().MousePos.y - m_Origin.y - 21.0f * m_Scale);
+    auto fields = GestureFields(InputState(), 3, 0, x, y, m_SelectionData.objects, Settings());
+    if (fields.empty() || !BeginGesture(std::move(fields), 3, 0))
+        return;
     m_Tool = LayoutTool::Fly;
-    m_State.curveTool.tool = 0;
-    m_Doc.flyCamera = camera->GetID();
-    // Dev measures from where the cursor is when the flight begins.
-    m_FlyStart = m_FlyLast = ImVec2(ImGui::GetIO().MousePos.x - m_Origin.x - 76.0f * m_Scale,
-                                    ImGui::GetIO().MousePos.y - m_Origin.y - 21.0f * m_Scale);
-    m_FlyMode = FlyMode::Advance;
-    m_FlyLeft = m_FlyRight = false;
-    m_FlyTime = ImGui::GetTime();
 }
 
 void LayoutWindow::EndFly() {
     if (m_Tool != LayoutTool::Fly) return;
+    FinishGesture();
     m_Tool = LayoutTool::Select;
-    if (m_State.HasDocument())
-        m_FlyUndo.Commit(*m_State.document, "Fly Camera", !m_View.IsViewCamera(m_Doc.flyCamera));
-    else
-        m_FlyUndo.Begin(nullptr, {});
 }
 
-// Dev.exe sub_48C2C0: a button pressed or released chooses the mode (both,
-// with an object under the mouse and no Ctrl: Orbit around it) and the
-// offsets count from there.
-void LayoutWindow::FlyFrame(int x, int y) {
-    const ImGuiIO &io = ImGui::GetIO();
-    CKCamera *camera = m_View.Camera();
-    if (!camera || camera->GetID() != m_Doc.flyCamera) {
-        EndFly();
-        return;
-    }
-    const bool left = ImGui::IsMouseDown(ImGuiMouseButton_Left), right = ImGui::IsMouseDown(ImGuiMouseButton_Right);
-    if (left != m_FlyLeft || right != m_FlyRight) {
-        const bool leftPressed = left && !m_FlyLeft;
-        m_FlyLeft = left;
-        m_FlyRight = right;
-        FlyMode mode = left && right ? (leftPressed ? FlyMode::Look : FlyMode::Strafe)
-                       : left        ? FlyMode::Look
-                       : right       ? FlyMode::Strafe
-                                     : FlyMode::Advance;
-        if (left && right && !io.KeyCtrl) {
-            VxVector point;
-            CK3dEntity *entity = CK3dEntity::Cast(m_State.host.Context()->GetObject(m_View.Pick(x, y, false, &point)));
-            VxBbox box;
-            if (entity && entity->GetCurrentMesh()) {
-                m_FlyCenter = point;
-                mode = FlyMode::Orbit;
-            } else if (entity && LayoutBox(entity, box)) {
-                m_FlyCenter = box.GetCenter();
-                mode = FlyMode::Orbit;
-            }
-        }
-        m_FlyMode = mode;
-        m_FlyStart = m_FlyLast = ImVec2(static_cast<float>(x), static_cast<float>(y));
-        m_FlyTime = ImGui::GetTime();
-        return;
-    }
-    const Preferences &p = m_State.preferences;
-    FlySteps steps;
-    steps.turn = p.Float("3D Layout\\Actions\\Camera Fly Turn Step");
-    steps.advance = p.Float("3D Layout\\Actions\\Camera Fly Advance Step");
-    steps.constant = p.Bool("3D Layout\\Actions\\Camera Navigate Constant Speed Mode");
-    steps.worldMin = Steps().worldMin;
-    steps.worldMax = Steps().worldMax;
-    const ImVec2 from = steps.constant ? m_FlyStart : m_FlyLast;
-    m_FlyLast = ImVec2(static_cast<float>(x), static_cast<float>(y));
-    const double now = ImGui::GetTime();
-    const float seconds = static_cast<float>(now - m_FlyTime);
-    m_FlyTime = now;
-    const float nx = (from.x - x) / static_cast<float>(std::max(1, m_View.Width()));
-    const float ny = (from.y - y) / static_cast<float>(std::max(1, m_View.Height()));
-    Fly(m_View, m_FlyMode, nx, ny, seconds, steps, io.KeyShift, m_FlyCenter);
-}
+void LayoutWindow::FlyFrame(int x, int y) { UpdateGesture(x, y, true, true); }
 
 // -------------------------------------------------------------- curve tools
 
@@ -631,126 +768,64 @@ bool LayoutWindow::CurveToolActive() const {
 }
 
 // The Curve Setup chooses the tool; a curve gone ends it.
+void LayoutWindow::ClearCurveTool() {
+    const auto tool = Client().Query("layout.curve-tool");
+    if (tool.status != EDITOR_OK || !EditorClient::Integer(tool, "tool"))
+        return;
+    Execute("layout.set-curve-tool", {ObjectArgument("target", {}), IntegerArgument("tool", 0),
+                                      IntegerArgument("plane", EditorClient::Integer(tool, "plane"))});
+}
+
 void LayoutWindow::SyncCurveTool() {
-    CurveTool &tool = m_State.curveTool;
-    CKContext *context = m_State.host.Context();
-    const bool alive = m_State.HasDocument() && context && CKCurve::Cast(context->GetObject(tool.curve)) &&
-                       !m_State.document->IsDiscarded(tool.curve);
-    if (tool.tool && !alive) tool.tool = 0;
-    if (tool.tool >= 128 && tool.tool <= 131) {
-        if (static_cast<int>(m_Tool) != tool.tool && !m_TransformGesture.Active()) m_Tool = static_cast<LayoutTool>(tool.tool);
-    } else if (CurveToolActive() && !m_TransformGesture.Active()) {
+    const auto tool = Client().Query("layout.curve-tool");
+    if (tool.status != EDITOR_OK)
+        return;
+    const auto next = EditorClient::Integer(tool, "tool");
+    if (next >= 128 && next <= 131) {
+        if (static_cast<int>(m_Tool) != int(next) && !GestureActive(1))
+            m_Tool = LayoutTool(next);
+    } else if (CurveToolActive() && !GestureActive(1))
         m_Tool = LayoutTool::Select;
-    }
 }
 
-// Add Points (Dev.exe sub_49ACC0): a click on the first point closes an open
-// curve and ends the tool; elsewhere a point where the ray meets the
-// referential's plane, appended (left button) or first (right button:
-// CKCurve::InsertControlPoint before the first point). Insert Points
-// (sub_49CD00): a point on the curve, before the first control point
-// farther along it. Delete Points (sub_49B400): the point clicked; the
-// tool ends with the last.
 void LayoutWindow::CurveClick(int x, int y, bool right) {
-    CKContext *context = m_State.host.Context();
-    CKCurve *curve = CKCurve::Cast(context ? context->GetObject(m_State.curveTool.curve) : nullptr);
-    if (!curve || !m_State.HasDocument()) return;
-    const CK_ID curveId = curve->GetID();
-    const int count = curve->GetControlPointCount();
-    bool linear = count > 0;
-    std::vector<CK_ID> points;
-    for (int i = 0; i < count; ++i)
-        if (CKCurvePoint *point = curve->GetControlPoint(i)) {
-            points.push_back(point->GetID());
-            if (!point->IsLinear()) linear = false;
-        }
-    auto report = [this](const EditResult &result, const char *what) {
-        if (!result.ok && !result.message.empty()) m_State.Log(LogLevel::Warning, std::string(what) + ": " + AnsiToUtf8(result.message));
-    };
-    // The curve's points, not the curve, are picked (its own Pickable, saved with it, kept).
-    auto pickPoint = [&]() {
-        const CKBOOL pickable = curve->IsPickable();
-        curve->SetPickable(FALSE);
-        const CK_ID picked = m_View.Pick(x, y);
-        curve->SetPickable(pickable);
-        return picked;
-    };
-    switch (m_Tool) {
-    case LayoutTool::AddPoints: {
-        if (count > 1 && curve->IsOpen() && !points.empty() && pickPoint() == points.front()) {
-            report(EditObjectsState(*m_State.document, {curveId}, "Close Curve",
-                                    [](CKObject *o) {
-                                        CKCurve::Cast(o)->Close();
-                                        CKCurve::Cast(o)->Update();
-                                    }),
-                   "Close Curve");
-            m_State.curveTool.tool = 0;
-            return;
-        }
-        VxVector point, normal, hit;
-        if (m_State.curveTool.referential == 0) {
-            const VxMatrix guide = m_View.GuideMatrix();
-            point = VxVector(guide[3][0], guide[3][1], guide[3][2]);
-            normal = VxVector(guide[1][0], guide[1][1], guide[1][2]);
-        } else {
-            // View Plane: Camera Plane Distance in front of the camera.
-            CKCamera *camera = m_View.Camera();
-            if (!camera) return;
-            const bool ortho = camera->GetProjectionType() != CK_PERSPECTIVEPROJECTION;
-            const float distance = m_State.preferences.Float(ortho ? "3D Layout\\Actions\\Camera Plane Distance Ortho"
-                                                                   : "3D Layout\\Actions\\Camera Plane Distance");
-            VxVector up;
-            camera->GetOrientation(&normal, &up);
-            camera->GetPosition(&point);
-            point += normal * distance;
-        }
-        if (!m_View.RayOnPlane(x, y, point, normal, hit)) return;
-        report(AddCurvePointAt(*m_State.document, curveId, right ? 0 : count, hit, linear, "Add Points"),
-               "Add Points");
-        break;
-    }
-    case LayoutTool::InsertPoints: {
-        VxVector hit;
-        float along = 0.0f;
-        if (!m_View.CurveAt(x, y, curveId, hit, &along)) return;
-        const float distance = along * curve->GetLength();
-        int index = 0;
-        while (index < count && curve->GetControlPoint(index) && curve->GetControlPoint(index)->GetLength() <= distance)
-            ++index;
-        report(AddCurvePointAt(*m_State.document, curveId, index, hit, linear, "Insert Points"),
-               "Insert Points");
-        break;
-    }
-    case LayoutTool::DeletePoints: {
-        const CK_ID picked = pickPoint();
-        auto found = std::find(points.begin(), points.end(), picked);
-        if (!picked || found == points.end()) return;
-        points.erase(found);
-        report(EditCurvePoints(*m_State.document, curveId, points, picked, "Delete Points"), "Delete Points");
-        if (points.empty()) m_State.curveTool.tool = 0;
-        break;
-    }
-    default: break;
-    }
+    const auto tool = Client().Query("layout.curve-tool");
+    const auto *curve = EditorClient::Find(tool, "target");
+    if (tool.status != EDITOR_OK || !curve || !curve->object)
+        return;
+    const auto camera = InputState();
+    const bool ortho = !EditorClient::Integer(camera, "perspective");
+    const auto action = m_Tool == LayoutTool::AddPoints ? 0u : m_Tool == LayoutTool::InsertPoints ? 1u : 2u;
+    EditorField position{"position", EDITOR_REAL_LIST}, distance{"plane-distance", EDITOR_REAL_VALUE};
+    position.reals = {double(x), double(y)};
+    distance.real = m_State.preferences.Float(ortho ? "3D Layout\\Actions\\Camera Plane Distance Ortho"
+                                                    : "3D Layout\\Actions\\Camera Plane Distance");
+    const std::vector<EditorField> fields{
+        *curve,
+        {"action", EDITOR_INTEGER_VALUE, {}, {}, action},
+        position,
+        distance,
+        {"right", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(right)},
+        {"plane", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(tool, "plane")}};
+    const auto values = BorrowEditorFields(fields);
+    Execute("layout.curve-click", {values.data(), values.data() + values.size()});
 }
 
-// Edit Points (Dev.exe sub_49B870): a control point of the curve pressed is
-// dragged as Translate drags objects, with the tool's own constraints.
 bool LayoutWindow::BeginCurveEdit(int x, int y) {
-    CKContext *context = m_State.host.Context();
-    CKCurve *curve = CKCurve::Cast(context ? context->GetObject(m_State.curveTool.curve) : nullptr);
-    if (!curve || !m_State.HasDocument()) return false;
-    VxVector grabbed;
-    const CKBOOL pickable = curve->IsPickable();
-    curve->SetPickable(FALSE);
-    const CK_ID picked = m_View.Pick(x, y, false, &grabbed);
-    curve->SetPickable(pickable);
-    bool point = false;
-    for (int i = 0; i < curve->GetControlPointCount(); ++i)
-        if (curve->GetControlPoint(i) && curve->GetControlPoint(i)->GetID() == picked) point = true;
-    if (!point) return false;
-    m_CurveEditing = m_TransformGesture.Begin(m_View, TransformAction::Translate, m_CurveEdit, TransformStepsOf(), 0,
-                                              {picked}, x, y, &grabbed);
+    const auto tool = Client().Query("layout.curve-tool");
+    const auto *curve = EditorClient::Find(tool, "target");
+    if (tool.status != EDITOR_OK || !curve || !curve->object || !ReadLayoutSelection(Client(), m_SelectionData))
+        return false;
+    const auto input = InputState(x, y, true, curve->object);
+    const auto *picked = EditorClient::Find(input, "picked");
+    if (input.status != EDITOR_OK || !picked || !picked->object)
+        return false;
+    auto fields = GestureFields(input, 1, unsigned(TransformAction::Translate), x, y, {picked->object}, m_CurveEdit);
+    if (fields.empty())
+        return false;
+    fields.push_back({"curve", EDITOR_OBJECT, curve->object});
+    fields.push_back(*EditorClient::Find(input, "point"));
+    m_CurveEditing = BeginGesture(std::move(fields), 1, unsigned(TransformAction::Translate));
     return m_CurveEditing;
 }
 

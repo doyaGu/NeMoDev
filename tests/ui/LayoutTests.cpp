@@ -295,6 +295,29 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
     };
 
+    t = IM_REGISTER_TEST(engine, "layout", "unselected_transform_uses_new_selection");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK_SILENT(SelectEntity(ctx, found));
+        const auto before = WorldMatrix(ctx, found.entity);
+        auto &state = App().State();
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_D);
+        ctx->Yield(3);
+        IM_CHECK(state.objectSelection.Objects().empty());
+        const auto steps = state.History().UndoCount();
+        const auto dirty = state.document->Dirty();
+        ctx->KeyPress(ImGuiKey_X);
+        DragFrom(ctx, found.at, 50, 15);
+        IM_CHECK(state.objectSelection.Contains(found.entity));
+        IM_CHECK(!Same(WorldMatrix(ctx, found.entity), before));
+        IM_CHECK_EQ(state.History().UndoCount(), steps + 1);
+        Undo(ctx);
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
+        IM_CHECK_EQ(state.document->Dirty(), dirty);
+    };
+
     t = IM_REGISTER_TEST(engine, "layout", "transform_focus_loss_restores");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

@@ -11,17 +11,21 @@
 
 namespace vdev {
 
-void LayoutWindow::Execute(const char *id, const std::vector<EditorValue> &arguments, AfterCommand after) {
+EditorResponse LayoutWindow::Execute(const char *id, const std::vector<EditorValue> &arguments, AfterCommand after) {
     const auto client = Client();
     const auto result = client.Command(id, arguments);
     if (result.status == EDITOR_QUEUED) m_Commands.push_back({result.operation, client.Scope().document, after});
     else Complete(result, after);
+    return result;
 }
 void LayoutWindow::Complete(const EditorResponse &result, AfterCommand after) {
     if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) {
         if (!result.message.empty()) m_State.Log(LogLevel::Warning, result.message);
         return;
     }
+    if (after == AfterCommand::Zoom)
+        if (const auto *extent = EditorClient::Find(result, "extent"); extent && extent->type == EDITOR_REAL_VALUE)
+            m_ZoomExtent = float(extent->real);
     const auto *created = EditorClient::Find(result, "created");
     if (after == AfterCommand::ShowScript && created && created->type == EDITOR_OBJECT && created->object)
         ShowScriptInSchematic(created->object);

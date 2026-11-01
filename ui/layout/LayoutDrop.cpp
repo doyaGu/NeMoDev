@@ -266,9 +266,11 @@ void LayoutWindow::DocumentClosed() {
     if (m_Doc.dropEdit) m_Doc.dropEdit->Commit(); // the document goes with its history
     // A flight going on ends with the composition, not recorded.
     if (m_Tool == LayoutTool::Fly) m_Tool = LayoutTool::Select;
-    m_FlyUndo.Begin(nullptr, {});
     // The 3D Layout Explorer closes without restoring the selection it saved.
     m_Doc = DocumentState();
+    for (auto &settings : m_Transform)
+        settings.referent = {};
+    m_CurveEdit.referent = {};
     m_DropBox.Clear();
 }
 

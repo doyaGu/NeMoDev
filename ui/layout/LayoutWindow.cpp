@@ -224,7 +224,6 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
     ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
     // Every frame, shown or not: Player Mode starts with the selection of Play.
     ApplyPreferences();
-    m_State.layoutTransforming = m_TransformGesture.Active() || m_Gesture2D.Active();
     FullScreenCommands();
     // Alt+Enter is Dev's application's accelerator, whatever window has the focus.
     const ImGuiIO &io = ImGui::GetIO();
@@ -250,7 +249,6 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
         return;
     }
     SyncComposition();
-    ValidateSelection();
     SyncCurveTool();
     const std::vector<std::string> shapes = m_View.FrameShapeNames();
     if (shapes != m_State.layoutFrameShapes) m_State.layoutFrameShapes = shapes;
@@ -460,7 +458,7 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     // Transformation settings, shown with the transformation tools only, the
     // active tool's own (Dev.exe sub_492AC0, sub_496600).
     if (transforming) {
-        TransformSettings &settings = Settings();
+        LayoutTransformSettings &settings = Settings();
         static const Button axes[3] = {{12, 9, 79, 30, 100, {590, 592, 591, 591, 1187}, "Constrain X Axis (F5)"},
                                        {13, 31, 79, 52, 100, {596, 598, 597, 597, 1188}, "Constrain Y Axis (F6)"},
                                        {14, 53, 79, 74, 100, {602, 604, 603, 603, 1189}, "Constrain Z Axis (F7)"}};
@@ -642,7 +640,8 @@ void LayoutWindow::Command(int command) {
     case 56: if (m_Started) m_SnapshotOpen = true; break;
     default: break;
     }
-    if (!CurveToolActive()) m_State.curveTool.tool = 0;
+    if (!CurveToolActive())
+        ClearCurveTool();
     if (flying && m_Tool != LayoutTool::Fly) {
         const LayoutTool next = m_Tool;
         m_Tool = LayoutTool::Fly;
@@ -915,18 +914,21 @@ CameraSteps LayoutWindow::Steps() const {
 
 std::string LayoutWindow::ActionText() const {
     if (!m_LastUsed) return std::string();
-    CKCamera *camera = m_View.Camera();
-    const bool targeted = CKTargetCamera::Cast(camera) && CKTargetCamera::Cast(camera)->GetTarget();
-    if (m_Gesture.Active()) return CameraActionText(m_Gesture.Action(), true, targeted, m_Gesture.AroundSelection());
-    if (m_Gesture2D.Active())
-        return m_Gesture2D.Action() == TransformAction::Translate ? "Moving Objects" : "Scaling Objects (Free)";
-    if (m_TransformGesture.Active() && !m_CurveEditing) {
+    const bool targeted = EditorClient::Integer(InputState(), "targeted") != 0;
+    if (GestureActive(0))
+        return CameraActionText(CameraAction(m_GestureAction), true, targeted,
+                                EditorClient::Integer(m_Interaction, "around-selection") != 0);
+    if (GestureActive(2))
+        return TransformAction(m_GestureAction) == TransformAction::Translate ? "Moving Objects"
+                                                                              : "Scaling Objects (Free)";
+    if (GestureActive(1) && !m_CurveEditing) {
         static const char *const scaling[] = {"Scaling Objects (Uniform)", "Scaling Objects (Volumetric)",
                                               "Scaling Objects (Free)"};
-        switch (m_TransformGesture.Action()) {
+        switch (TransformAction(m_GestureAction)) {
         case TransformAction::Translate: return "Moving Objects";
         case TransformAction::Rotate: return "Rotating Objects";
-        case TransformAction::Scale: return scaling[std::clamp(m_TransformGesture.ScaleMode(), 0, 2)];
+        case TransformAction::Scale:
+            return scaling[std::clamp(m_ScaleMode, 0, 2)];
         }
     }
     if (m_Rectangle) return "Select Objects";
@@ -934,7 +936,8 @@ std::string LayoutWindow::ActionText() const {
     case LayoutTool::Fly: return "Navigation active";
     case LayoutTool::AddPoints: return "Add curve points";
     case LayoutTool::InsertPoints: return "Insert points on curve";
-    case LayoutTool::EditPoints: return m_TransformGesture.Active() ? "Moving curve points" : "Edit curve points";
+    case LayoutTool::EditPoints:
+        return GestureActive(1) ? "Moving curve points" : "Edit curve points";
     case LayoutTool::DeletePoints: return "Delete curve points";
     case LayoutTool::Dolly: return CameraActionText(CameraAction::Dolly, false, targeted, false);
     case LayoutTool::Zoom: return CameraActionText(CameraAction::Zoom, false, targeted, false);
@@ -959,34 +962,18 @@ bool LayoutWindow::Coordinates(std::string values[3]) const {
 // sub_48E630): the grabbed object's world position, its world matrix's
 // Euler angles in degrees, its scale; a 2D entity's position and no Z.
 void LayoutWindow::UpdateCoordinates() {
-    CKContext *context = m_State.host.Context();
-    auto format = [](float value) {
-        char text[32];
-        std::snprintf(text, sizeof(text), "%8.2f", value);
-        return std::string(text);
-    };
-    if (m_Gesture2D.Active()) {
-        CK2dEntity *entity = context ? CK2dEntity::Cast(context->GetObject(m_Gesture2D.Grabbed())) : nullptr;
-        if (!entity) return;
-        Vx2DVector position;
-        entity->GetPosition(position);
-        m_Coordinates[0] = format(position.x);
-        m_Coordinates[1] = format(position.y);
-        m_Coordinates[2] = "NA";
+    const auto *coordinates = EditorClient::Find(m_Interaction, "coordinates");
+    if (!coordinates || coordinates->type != EDITOR_REAL_LIST || coordinates->reals.size() < 2)
         return;
+    for (size_t i = 0; i < 3; ++i) {
+        if (i >= coordinates->reals.size())
+            m_Coordinates[i] = "NA";
+        else {
+            char text[32];
+            std::snprintf(text, sizeof(text), "%8.2f", coordinates->reals[i]);
+            m_Coordinates[i] = text;
+        }
     }
-    CK3dEntity *entity = context ? CK3dEntity::Cast(context->GetObject(m_TransformGesture.Grabbed())) : nullptr;
-    if (!entity) return;
-    VxVector v;
-    switch (m_TransformGesture.Action()) {
-    case TransformAction::Rotate:
-        Vx3DMatrixToEulerAngles(entity->GetWorldMatrix(), &v.x, &v.y, &v.z);
-        v *= 180.0f / PI;
-        break;
-    case TransformAction::Scale: entity->GetScale(&v, FALSE); break;
-    default: entity->GetPosition(&v); break;
-    }
-    for (int i = 0; i < 3; ++i) m_Coordinates[i] = format(v[i]);
 }
 
 std::string LayoutWindow::SelectionText() const {
