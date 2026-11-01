@@ -32,7 +32,6 @@ set(_editor_sources
         help/HelpBook.cpp
         help/HelpWindow.cpp
         render/UiRenderer.cpp
-        render/ImageFiles.cpp
         render/HtmlRenderer.cpp
         # Dev's look and the shared widgets.
         controls/DevTheme.cpp

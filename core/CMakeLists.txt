@@ -22,6 +22,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         runtime/CkArrays.cpp
         runtime/CkRuntimeHost.cpp
         runtime/Resources.cpp
+        runtime/ImageFiles.cpp
         runtime/SdkCompat.cpp
         runtime/TextEncoding.cpp
         # The composition: opening, Scripts, undo, saving and the file tools.
@@ -106,7 +107,7 @@ target_include_directories(VirtoolsDevCore PUBLIC ${VIRTOOLSDEV_SOURCE_DIR})
 target_include_directories(VirtoolsDevCore PRIVATE "${VIRTOOLS_SDK_PATH}/Source/RenderEngine/include")
 set_source_files_properties(layout/SdlGpuInterop.cpp PROPERTIES INCLUDE_DIRECTORIES
     "${VIRTOOLS_SDK_PATH}/Source/RenderEngine/src/CKRasterizer/CKSdlGpuRasterizer")
-target_link_libraries(VirtoolsDevCore PUBLIC CK2 VxMath)
+target_link_libraries(VirtoolsDevCore PUBLIC CK2 VxMath PRIVATE stb)
 target_compile_definitions(VirtoolsDevCore PRIVATE VIRTOOLS_CK2_FILENAME="$<TARGET_FILE_NAME:CK2>")
 if(WIN32)
     target_link_libraries(VirtoolsDevCore PRIVATE version advapi32)
