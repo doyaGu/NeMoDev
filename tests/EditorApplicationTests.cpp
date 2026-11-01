@@ -32,6 +32,7 @@ void TestDiagnosticCommands(vdev::CkRuntimeHost &host);
 void TestPreferencesCommands(vdev::CkRuntimeHost &host);
 void TestCanvasCommands(vdev::CkRuntimeHost &host);
 void TestGraphEditing(vdev::CkRuntimeHost &);
+void TestGestureCommands(vdev::CkRuntimeHost &, const std::string &);
 void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestObjectCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 namespace {
@@ -650,7 +651,7 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
 } // namespace
 int main(int argc, char **argv) {
     try {
-        Check(argc == 3, "module and environment fixture paths are required");
+        Check(argc == 4, "module, environment and gesture fixture paths are required");
         Registration();
         VersionedQueries();
         QueryProviderVersions();
@@ -687,6 +688,7 @@ int main(int argc, char **argv) {
         TestPreferencesCommands(runtime);
         TestCanvasCommands(runtime);
         TestGraphEditing(runtime);
+        TestGestureCommands(runtime, argv[3]);
         std::cout << "Module registration, object editing, undo and view lifetime checks passed\n";
         return 0;
     } catch (const std::exception &e) {
