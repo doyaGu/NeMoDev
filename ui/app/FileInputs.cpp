@@ -28,31 +28,41 @@ struct Fields {
         return EDITOR_OK;
     }
 };
+enum class InputSource { Document, Resource, Snapshot };
 struct FileInputs {
     SDL_Window *window;
     const EditorHost *host;
     EditorView view;
-    bool resource;
+    InputSource source;
+    const char *Prefix() const {
+        return source == InputSource::Resource ? "resource" : source == InputSource::Snapshot ? "snapshot" : "document";
+    }
+    std::string Name(const char *suffix) const { return std::string(Prefix()) + suffix; }
     FileDialogs dialogs;
     uint64_t shown = 0, answered = 0, exportInput = 0;
     Fields exportFields;
     BehaviorInfoFields behavior;
-    FileInputs(SDL_Window *window, const EditorHost *host, EditorView view, bool resource = false)
-        : window(window), host(host), view(view), resource(resource) {}
+    FileInputs(SDL_Window *window, const EditorHost *host, EditorView view, InputSource source = InputSource::Document)
+        : window(window), host(host), view(view), source(source) {}
     ~FileInputs() { dialogs.Close(); }
-    void Respond(uint64_t id, const char *choice, const std::string &path = {}, const std::string &message = {}, bool exportOptions = false) {
+    void Respond(uint64_t id, const char *choice, const std::string &path = {}, const std::string &message = {},
+                 bool exportOptions = false, int filterIndex = 1) {
         std::vector<EditorValue> values = {{EditorLiteral("input"), EDITOR_INTEGER_VALUE, {}, {}, id},
                                       {EditorLiteral("choice"), EDITOR_TEXT_VALUE, {}, EditorLiteral(choice)},
                                       {EditorLiteral("path"), EDITOR_TEXT_VALUE, {}, EditorText(path)},
                                       {EditorLiteral("message"), EDITOR_TEXT_VALUE, {}, EditorText(message)}};
+        if (source == InputSource::Snapshot)
+            values.push_back(
+                {EDITOR_TEXT("filter-index"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(std::max(0, filterIndex))});
         if (exportOptions) {
-            if (!resource) values.push_back({EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, {}, {}, behavior.hide ? 1u : 0u});
+            if (source == InputSource::Document)
+                values.push_back({EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, {}, {}, behavior.hide ? 1u : 0u});
             values.push_back({EDITOR_TEXT("author"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.author)});
             values.push_back({EDITOR_TEXT("version"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.version)});
             values.push_back({EDITOR_TEXT("description"), EDITOR_TEXT_VALUE, {}, EditorText(behavior.description)});
         }
         const EditorRequest request{host->scope(host->data, view), values.data(), uint32_t(values.size())};
-        host->execute(host->data, EditorLiteral(resource ? "resource.respond" : "document.respond"), &request, {});
+        host->execute(host->data, EditorText(Name(".respond")), &request, {});
         answered = id;
     }
     EditorStatus Query(const char *id, Fields &fields, const EditorValue *values = nullptr, uint32_t count = 0) {
@@ -62,7 +72,8 @@ struct FileInputs {
     void Draw() {
         dialogs.Dispatch();
         Fields fields;
-        if (Query(resource ? "resource.input" : "document.input", fields) != EDITOR_OK) return;
+        if (Query(Name(".input").c_str(), fields) != EDITOR_OK)
+            return;
         const auto id = fields.number["input"];
         if (answered == id) return;
         if (fields.number["kind"] == EDITOR_FILE_INPUT) {
@@ -77,7 +88,7 @@ struct FileInputs {
                 const EditorValue values[] = {{EditorLiteral("input"), EDITOR_INTEGER_VALUE, {}, {}, id},
                                               {EditorLiteral("index"), EDITOR_INTEGER_VALUE, {}, {}, i}};
                 Fields item;
-                if (Query(resource ? "resource.file-filter" : "document.file-filter", item, values, 2) != EDITOR_OK) {
+                if (Query(Name(".file-filter").c_str(), item, values, 2) != EDITOR_OK) {
                     Respond(id, "error");
                     return;
                 }
@@ -96,7 +107,7 @@ struct FileInputs {
             options.extension = extension.empty() ? nullptr : extension.c_str();
             dialogs.Request(options, [this, id](const FileDialogResult &result) {
                 if (result.status == FileDialogResult::Status::Selected)
-                    Respond(id, "accept", result.paths.front());
+                    Respond(id, "accept", result.paths.front(), {}, false, result.filterIndex);
                 else
                     Respond(id, result.status == FileDialogResult::Status::Error ? "error" : "cancel", {},
                             result.error);
@@ -111,7 +122,10 @@ struct FileInputs {
             if (exportInput != id) {
                 const EditorValue argument{EDITOR_TEXT("input"), EDITOR_INTEGER_VALUE, {}, {}, id};
                 exportFields = {};
-                if (Query(resource ? "resource.export-options" : "document.export-options", exportFields, &argument, 1) != EDITOR_OK) { Respond(id, "error"); return; }
+                if (Query(Name(".export-options").c_str(), exportFields, &argument, 1) != EDITOR_OK) {
+                    Respond(id, "error");
+                    return;
+                }
                 exportInput = id;
                 behavior.hide = exportFields.number["hide"] != 0;
                 behavior.name = exportFields.text["name"];
@@ -175,7 +189,7 @@ struct FileInputs {
 } // namespace
 
 namespace {
-bool RegisterInputs(EditorApplication &editor, SDL_Window *window, bool resource, std::string &error) {
+bool RegisterInputs(EditorApplication &editor, SDL_Window *window, InputSource source, std::string &error) {
     EditorViewDesc view{sizeof(view),
                         EDITOR_IMGUI_VERSION,
                         EDITOR_TEXT("document.file-dialogs"),
@@ -199,23 +213,37 @@ bool RegisterInputs(EditorApplication &editor, SDL_Window *window, bool resource
     module.views = &view;
     module.viewCount = 1;
     const EditorString resourceDependency = EDITOR_TEXT("resources.libraries");
-    if (resource) {
+    if (source == InputSource::Resource) {
         view.id = EDITOR_TEXT("resource.file-dialogs");
         view.provider = EDITOR_TEXT("builtin.resource-dialogs");
         view.title = EDITOR_TEXT("Resource dialogs");
         view.create = [](void *data, const EditorHost *host, EditorView id) -> void * {
-            return new FileInputs(static_cast<SDL_Window *>(data), host, id, true);
+            return new FileInputs(static_cast<SDL_Window *>(data), host, id, InputSource::Resource);
         };
         module.id = EDITOR_TEXT("resources.dialogs");
         module.dependencies = &resourceDependency;
+    }
+    const EditorString snapshotDependency = EDITOR_TEXT("layout.snapshots");
+    if (source == InputSource::Snapshot) {
+        view.id = EDITOR_TEXT("snapshot.file-dialogs");
+        view.provider = EDITOR_TEXT("builtin.snapshot-dialogs");
+        view.title = EDITOR_TEXT("Snapshot dialogs");
+        view.create = [](void *data, const EditorHost *host, EditorView id) -> void * {
+            return new FileInputs(static_cast<SDL_Window *>(data), host, id, InputSource::Snapshot);
+        };
+        module.id = EDITOR_TEXT("snapshots.dialogs");
+        module.dependencies = &snapshotDependency;
     }
     return editor.Register(module, error);
 }
 } // namespace
 bool RegisterFileInputs(EditorApplication &editor, SDL_Window *window, std::string &error) {
-    return RegisterInputs(editor, window, false, error);
+    return RegisterInputs(editor, window, InputSource::Document, error);
 }
 bool RegisterResourceInputs(EditorApplication &editor, SDL_Window *window, std::string &error) {
-    return RegisterInputs(editor, window, true, error);
+    return RegisterInputs(editor, window, InputSource::Resource, error);
+}
+bool RegisterSnapshotInputs(EditorApplication &editor, SDL_Window *window, std::string &error) {
+    return RegisterInputs(editor, window, InputSource::Snapshot, error);
 }
 } // namespace vdev

@@ -8,7 +8,7 @@ target_include_directories(NeMoDevObjectCommands PUBLIC "${VIRTOOLSDEV_SOURCE_DI
 target_link_libraries(NeMoDevObjectCommands PRIVATE VirtoolsDevCore PUBLIC NeMoDevEditorApplication)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/environment/EnvironmentCommands.cpp)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/diagnostics/DiagnosticCommands.cpp ../features/preferences/PreferencesCommands.cpp)
-target_sources(NeMoDevObjectCommands PRIVATE ../features/layout/LayoutCommands.cpp ../features/layout/LayoutGestures.cpp ../features/layout/LayoutPresentation.cpp)
+target_sources(NeMoDevObjectCommands PRIVATE ../features/layout/LayoutCommands.cpp ../features/layout/LayoutGestures.cpp ../features/layout/LayoutPresentation.cpp ../features/layout/SnapshotCommands.cpp)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/schematic/SchematicGraphCommands.cpp ../features/schematic/SchematicGeometry.cpp ../features/schematic/SchematicConnections.cpp ../features/schematic/SchematicCopying.cpp)
 
 target_sources(NeMoDevObjectCommands PRIVATE ../features/schematic/SchematicAuthoring.cpp ../features/schematic/SchematicParameterEdits.cpp ../features/schematic/SchematicScriptCommands.cpp ../features/schematic/SchematicModelCommands.cpp ../features/schematic/SchematicModelData.cpp)

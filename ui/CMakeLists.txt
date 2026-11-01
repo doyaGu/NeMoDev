@@ -61,6 +61,7 @@ set(_editor_sources
         layout/LayoutDrop.cpp
         layout/LayoutExplorer.cpp
         layout/LayoutSnapshot.cpp
+        ../features/layout/SnapshotData.cpp
         layout/LayoutFullScreen.cpp
         # Docked panels and managers.
         panels/EditorPanels.cpp
