@@ -68,12 +68,17 @@ def input_access(source, files, errors):
     migrated = {"ui/layout/LayoutDrop.cpp", "ui/layout/LayoutInput.cpp", "ui/layout/LayoutFullScreen.cpp", "ui/layout/LayoutSnapshot.cpp", "ui/schematic/SchematicLinking.cpp",
                 "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp",
                 "ui/schematic/SchematicDialogs.cpp", "ui/schematic/SchematicInput.cpp",
-                "ui/panels/EditorPanels.cpp", "ui/setup/SetupRenderPages.cpp", "ui/setup/SetupScenePages.cpp", "ui/setup/SetupObjectPages.cpp"}
+                "ui/panels/EditorPanels.cpp", "ui/setup/SetupRenderPages.cpp", "ui/setup/SetupScenePages.cpp", "ui/setup/SetupObjectPages.cpp", "ui/setup/SetupWindows.cpp"}
     for path in set(files) & migrated:
         text = (source / path).read_text(encoding="utf-8-sig")
         text = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', '', text, flags=re.S)
         if forbidden.search(text):
             errors.append(f"native mutation or query returned to migrated input: {path}")
+
+    if "ui/app/EditorApp.cpp" in files:
+        text = (source / "ui/app/EditorApp.cpp").read_text(encoding="utf-8-sig")
+        if re.search(r"\bm_Setups\.Draw\s*\(", text):
+            errors.append("Setup drawing returned to EditorApp")
 
     # These methods assemble UI from copied Layout state. The window's private
     # GPU target management is intentionally outside this list.
@@ -81,7 +86,7 @@ def input_access(source, files, errors):
         ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
              "TogglePreference", "ToggleGuide", "RightClick", "DebugData", "SelectionText", "Steps", "TransformStepsOf", "Snap2DOf")),
         ("ui/setup/SetupWindows.cpp", "SetupWindows", ("Client", "Register", "ApplyPreferences", "Open", "Show",
-            "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "Header", "Sidebar", "Picture", "DrawObjectPage", "ReplaceFile", "ReadDetails", "ReadProperties", "PreviewProperty", "PreviewIndexedProperty", "SetProperty", "EditObjectList")),
+            "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "PrepareFrame", "Save", "Restore", "Instances", "Navigate", "Header", "Sidebar", "Picture", "DrawObjectPage", "ReplaceFile", "ReadDetails", "ReadProperties", "PreviewProperty", "PreviewIndexedProperty", "SetProperty", "EditObjectList")),
         ("ui/setup/SetupObjectPages.cpp", "SetupWindows", ("AnimationPage", "ObjectAnimationPage", "MidiSoundPage", "SpriteTextPage", "KinematicChainPage", "LayerPage", "ParameterPage", "ParameterInPage", "OperationPage", "BehaviorPage", "BehaviorIOPage", "BehaviorLinkPage", "SynchroPage", "StatePage", "CriticalSectionPage", "InterfaceObjectsPage", "ParameterUsers", "ParameterValue", "ShowInSchematic", "OtherPage")),
         ("ui/app/EditorApp.cpp", "EditorApp", ("CreateObject",)),
         ("ui/layout/LayoutMenu.cpp", "LayoutWindow", ("CreatedObject",)))
