@@ -520,7 +520,8 @@ bool LayoutView::Render(int width, int height) {
 
 bool LayoutView::ReadPixels(std::vector<unsigned char> &pixels) {
     CKRenderContext *rc = RenderContext();
-    if (!rc || rc->IsFullScreen()) return false;
+    if (!rc)
+        return false;
     VxImageDescEx desc;
     int size = 0;
     GuardedCall([&] { size = rc->DumpToMemory(nullptr, VXBUFFER_BACKBUFFER, desc); }, &m_Host,
