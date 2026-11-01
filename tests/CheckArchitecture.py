@@ -80,6 +80,8 @@ def input_access(source, files, errors):
     methods = (
         ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
              "TogglePreference", "ToggleGuide", "RightClick", "DebugData", "SelectionText", "Steps", "TransformStepsOf", "Snap2DOf")),
+        ("ui/setup/SetupWindows.cpp", "SetupWindows", ("Client", "Register", "ApplyPreferences", "Open", "Show",
+            "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "Header", "Sidebar")),
         ("ui/app/EditorApp.cpp", "EditorApp", ("CreateObject",)),
         ("ui/layout/LayoutMenu.cpp", "LayoutWindow", ("CreatedObject",)))
     for path, owner, names in methods:
@@ -93,7 +95,8 @@ def input_access(source, files, errors):
                 depth += (text[end] == '{') - (text[end] == '}'); end += 1
             body = text[begin:end]
             if forbidden.search(body) or re.search(r"\bm_State\.(?:preferences|workspace)\b", body):
-                errors.append(f"native mutation or query returned to Layout presentation: {match.group(1)}")
+                area = "Setup window management" if owner == "SetupWindows" else "Layout presentation"
+                errors.append(f"native mutation or query returned to {area}: {match.group(1)}")
 
 
 

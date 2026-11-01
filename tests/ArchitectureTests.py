@@ -220,6 +220,18 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native/state access in workspace view: features/setup/SetupView.cpp", result.stderr)
 
+    def test_setup_window_management_cannot_regain_native_access(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for name in ("Open", "Show", "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "Header", "Sidebar"):
+            for body in ("m_State.document->Context();", "m_State.preferences.Bool(\"Name\");"):
+                with self.subTest(name=name, body=body):
+                    self.write("ui/setup/SetupWindows.cpp", "void SetupWindows::" + name + "() { " + body + " }")
+                    result = self.run_check()
+                    self.assertIn("native mutation or query returned to Setup window management: " + name, result.stderr)
+        self.write("ui/setup/SetupWindows.cpp", "void SetupWindows::DrawSetup() { ReadSetupPage(Client(), target, 0, page); }")
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_schematic_view_cannot_gain_indirect_native_access(self):
         self.write("features/schematic/SchematicView.h", '#include "core/model.h"\n')
         self.write("features/schematic/SchematicView.cpp", '#include "features/schematic/SchematicView.h"\n')
