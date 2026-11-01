@@ -520,7 +520,7 @@ private:
         int shortcutPick = -1;
         bool openQuickAdd = false;
         bool openScriptColor = false;
-        std::vector<CK_ID> colorScripts;
+        std::vector<ObjectRef> colorScripts;
         bool openRename = false;
         CK_ID renameObject = 0;
         bool openDelay = false;

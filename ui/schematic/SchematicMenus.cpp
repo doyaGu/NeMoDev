@@ -69,47 +69,46 @@ ParameterStyle NextStyle(int style) {
     }
 }
 
-std::string ObjectText(CKObject *object) {
-    if (!object) return "(none)";
-    const char *name = object->GetName();
-    return AnsiToUtf8(name ? name : "") + "  [" + std::to_string(object->GetID()) + ", " +
-           AnsiToUtf8(CKClassIDToString(object->GetClassID()) ? CKClassIDToString(object->GetClassID()) : "?") + "]";
-}
-
-// The .nms file dialog (the CK file API takes ANSI paths).
-FileDialogOptions BehaviorFileDialog(bool save, const std::string &suggestion) {
-    FileDialogOptions options;
-    options.save = save;
-    options.filter = L"Virtools behaviors (*.nms)\0*.nms\0All files (*.*)\0*.*\0";
-    options.extension = L"nms";
-    options.initial = Utf8ToWide(suggestion);
-    return options;
-}
-
 } // namespace
 
 // --------------------------------------------------------------- .nms
 
 void SchematicCanvas::SaveBehaviorsAs(const std::vector<CK_ID> &behaviors, const std::string &suggestion) {
-    if (!m_State.HasDocument() || behaviors.empty()) return;
-    const auto objects = m_State.document->References(behaviors);
-    const EditorValue values[] = {
-        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}},
-        {EDITOR_TEXT("initial"), EDITOR_TEXT_VALUE, {}, EditorText(suggestion)},
-        {EDITOR_TEXT("ask-description"), EDITOR_INTEGER_VALUE, {}, {}, 1}};
-    auto &editor = m_State.workspace->Application();
-    editor.Execute("script.export", {editor.Scope(m_Instance), values, 3});
+    std::vector<ObjectRef> objects;
+    for (auto id : behaviors) {
+        ObjectRef ref;
+        for (const auto &a : m_Navigation.selection.Addresses())
+            if (a.object.object == id)
+                ref = a.object;
+        if (!ref) {
+            const auto scripts = ScriptReferences({id});
+            if (!scripts.empty())
+                ref = scripts.front();
+        }
+        if (ref && std::find(objects.begin(), objects.end(), ref) == objects.end())
+            objects.push_back(ref);
+    }
+    if (objects.empty())
+        return;
+    Execute("script.export", {ObjectsArgument("objects", objects), TextArgument("initial", suggestion),
+                              IntegerArgument("ask-description", 1)});
 }
 
 void SchematicCanvas::SaveSelectionAsNms() {
-    if (!m_State.HasDocument()) return;
     std::vector<CK_ID> behaviors;
-    for (const auto &item : m_Navigation.selection.items)
-        if (item.kind == ElementKind::Behavior || item.kind == ElementKind::Script) behaviors.push_back(item.object);
-    for (CK_ID header : m_Navigation.selection.headers) behaviors.push_back(header);
-    if (behaviors.empty() && m_Doc.currentScript) behaviors.push_back(m_Doc.currentScript);
-    CKObject *first = behaviors.empty() ? nullptr : m_State.document->Context()->GetObject(behaviors.front());
-    SaveBehaviorsAs(behaviors, first && first->GetName() ? AnsiToUtf8(first->GetName()) + ".nms" : std::string());
+    for (const auto &a : m_Navigation.selection.Addresses())
+        if (a.element.kind == ElementKind::Behavior || a.element.kind == ElementKind::Script)
+            behaviors.push_back(a.object.object ? a.object.object : a.script.object);
+    if (behaviors.empty() && m_Doc.currentScript)
+        behaviors.push_back(m_Doc.currentScript);
+    std::string name;
+    if (!behaviors.empty()) {
+        const auto info = ObjectInfo(m_Navigation.selection.script ? m_Navigation.selection.script : behaviors.front(),
+                                     behaviors.front());
+        if (info.status == EDITOR_OK)
+            name = EditorClient::Text(info, "name");
+    }
+    SaveBehaviorsAs(behaviors, name.empty() ? "" : name + ".nms");
 }
 
 void SchematicCanvas::ImportBehaviorFile(CK_ID script, const Point &local) {
@@ -1213,10 +1212,10 @@ void SchematicCanvas::OpenQuickAdd(CK_ID script, const Point &local) {
 void SchematicCanvas::ScriptColorDialog() {
     if (m_Doc.openScriptColor) {
         m_Doc.openScriptColor = false;
-        if (!m_State.HasDocument() || m_Doc.colorScripts.empty()) return;
+        if (!Client().Scope().document.value || m_Doc.colorScripts.empty())
+            return;
         EditorField targets{"targets", EDITOR_OBJECT_LIST};
-        for (auto id : m_Doc.colorScripts)
-            targets.objects.push_back(m_State.document->Reference(id));
+        targets.objects = m_Doc.colorScripts;
         if (!BeginPropertyInput("schematic.script-color", targets.objects.front(), {targets})) return;
         ImGui::OpenPopup("Script Color");
     }
@@ -1316,17 +1315,19 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
     if (ImGui::MenuItem("Remove Initial Conditions", "Ctrl+Q")) InitialConditionsOfScripts(1);
     if (ImGui::MenuItem("Restore Initial Conditions", "Alt+Q")) InitialConditionsOfScripts(2);
     ImGui::Separator();
-    CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(script));
-    if (ImGui::MenuItem("Show Object In Level Manager", "(double-click on object name)") && behavior &&
-        behavior->GetOwner())
-        m_State.events.Post(ShowInLevelManager{m_State.document->Reference(behavior->GetOwner()->GetID())});
-    if (ImGui::MenuItem("Show Script In Level Manager")) m_State.events.Post(ShowInLevelManager{m_State.document->Reference(script)});
-    if (ImGui::MenuItem("Setup") && behavior && behavior->GetOwner())
-        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(behavior->GetOwner()->GetID())});
+    const auto header = Client().Query("schematic.script-header", {ObjectArgument("target", view.identity)});
+    const auto *owner = EditorClient::Find(header, "owner");
+    if (ImGui::MenuItem("Show Object In Level Manager", "(double-click on object name)", false,
+                        owner && bool(owner->object)))
+        Execute("scene.show-object", {ObjectArgument("target", owner->object)});
+    if (ImGui::MenuItem("Show Script In Level Manager"))
+        Execute("scene.show-object", {ObjectArgument("target", view.identity)});
+    if (ImGui::MenuItem("Setup", nullptr, false, owner && bool(owner->object)))
+        Execute("object.open-setup", {ObjectArgument("target", owner->object)});
     ImGui::Separator();
     if (ImGui::MenuItem("Load Snapshot for Script")) LoadSnapshotFor(script);
     if (view.model.script.snapshot && ImGui::MenuItem("Remove Script's Snapshot"))
-        SetScriptSnapshot(*m_State.document, script, nullptr);
+        SetSnapshotPixels(view.identity, {}, 0, 0);
     if (ImGui::MenuItem("Edit Priority", "Y")) OpenPriorityDialog();
     ImGui::Separator();
     if (ImGui::MenuItem("Sort By Name")) SortScripts(ScriptSort::Name);
@@ -1336,13 +1337,12 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
     if (ImGui::MenuItem("Invert Order")) SortScripts(ScriptSort::Invert);
     ImGui::Separator();
     if (ImGui::MenuItem("Set Color")) {
-        m_Doc.colorScripts = scripts;
+        m_Doc.colorScripts = ScriptReferences(scripts);
         m_Doc.openScriptColor = true;
     }
     if (ImGui::MenuItem("Remove Color")) {
         EditorField targets{"targets", EDITOR_OBJECT_LIST};
-        for (auto id : scripts)
-            targets.objects.push_back(m_State.document->Reference(id));
+        targets.objects = ScriptReferences(scripts);
         if (!targets.objects.empty()) {
             const std::vector<EditorField> fields{{"target", EDITOR_OBJECT, targets.objects.front()},
                                                   std::move(targets)};
@@ -1366,15 +1366,16 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
     // runtime graph when it was opened (a cleared or unreadable chunk is
     // rebuilt then) stays read-only; this tries again (as loading, not an
     // undo step).
-    ScriptSession *session = m_State.document->Session(script);
-    if (session && session->Origin() == SessionOrigin::LoadFailed) {
+    if (header.status == EDITOR_OK && EditorClient::Integer(header, "load-failed")) {
         ImGui::Separator();
-        if (ImGui::MenuItem("Rebuild Layout from Runtime")) {
-            session->Reconstruct(m_State.document->Context());
-            Invalidate();
-        }
-        if (ImGui::IsItemHovered() && !session->LoadMessage().empty())
-            ImGui::SetTooltip("%s", session->LoadMessage().c_str());
+        if (ImGui::MenuItem("Rebuild Layout from Runtime"))
+            Execute("schematic.rebuild-script",
+                    {ObjectArgument("target", view.identity),
+                     IntegerArgument("revision", EditorClient::Integer(header, "revision")),
+                     IntegerArgument("topology", EditorClient::Integer(header, "topology"))});
+        const auto message = EditorClient::Text(header, "message");
+        if (ImGui::IsItemHovered() && !message.empty())
+            ImGui::SetTooltip("%s", message.c_str());
     }
 }
 
@@ -1533,7 +1534,8 @@ void SchematicCanvas::ContextMenu() {
 }
 
 void SchematicCanvas::ContextMenuItems() {
-    ScriptView *view = m_Doc.menuHit.view && m_State.HasDocument() ? ViewFor(m_Doc.menuHit.view->id) : nullptr;
+    ScriptView *view =
+        m_Doc.menuHit.view && (Client().Scope().document.value != 0) ? ViewFor(m_Doc.menuHit.view->id) : nullptr;
     if (!view) {
         if (ImGui::MenuItem("Reset Schematic Zoom and Position", "R")) ResetView();
         return;

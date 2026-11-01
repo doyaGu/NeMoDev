@@ -15,6 +15,8 @@
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/ValueCommands.h"
 #include "core/graph/RuntimeGraph.h"
+#include "core/graph/ScriptCommands.h"
+#include "ui/schematic/Snapshots.h"
 #include "core/schematic/SchematicModelBuilder.h"
 #include "core/schematic/SchematicSearch.h"
 #include "core/schematic/SchematicEdits.h"
@@ -635,6 +637,46 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
             shown |= row.object == owner && level && row.min.y >= level->InnerClipRect.Min.y &&
                      row.max.y <= level->InnerClipRect.Max.y;
         IM_CHECK(shown);
+    };
+
+    t = IM_REGISTER_TEST(engine, "schematic", "script_header_snapshot_remove_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, SchematicRef().c_str());
+        const auto scripts = App().Canvas().ShownScripts();
+        IM_CHECK(!scripts.empty());
+        const auto script = scripts.front();
+        size_t before = 0;
+        bool dirty = false;
+        void *image = nullptr;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            before = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            const unsigned char pixels[] = {12, 23, 34, 255};
+            image = vdev::BitmapFromPixels(pixels, 1, 1);
+            IM_CHECK_NO_RET(image);
+            state.document->KeepBitmap(image);
+            IM_CHECK_NO_RET(vdev::SetScriptSnapshot(*state.document, script.script, image));
+        });
+        ctx->Yield(4);
+        ctx->MouseMoveToPos({script.headerMin.x + 40, script.headerMin.y + 8});
+        ctx->MouseClick(ImGuiMouseButton_Right);
+        ctx->Yield(3);
+        ctx->ItemClick("//$FOCUSED/Remove Script's Snapshot");
+        ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            auto &state = App().State();
+            return !state.document->Session(script.script)->Data().header.snapshot &&
+                   state.History().UndoCount() == before + 2;
+        }));
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.History().Undo());
+            IM_CHECK_NO_RET(state.document->Session(script.script)->Data().header.snapshot == image);
+            IM_CHECK_NO_RET(state.History().Undo());
+            IM_CHECK_NO_RET(state.History().UndoCount() == before && state.document->Dirty() == dirty);
+        });
     };
 
     // Shift+drag of an input parameter of a behavior of the Script onto the
