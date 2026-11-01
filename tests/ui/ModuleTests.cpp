@@ -92,6 +92,62 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(state.History().Undo());
         });
     };
+    setupTest = IM_REGISTER_TEST(engine, "modules", "setup_class_queries_and_action");
+    setupTest->GuiFunc = MainThreadGui;
+    setupTest->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        auto &editor = workspace.Application();
+        vdev::EditorConfiguration initial;
+        vdev::ObjectRef target{};
+        VxMatrix before;
+        size_t steps = 0;
+        uint64_t details = 0, properties = 0, actions = 0;
+        const auto counts = [&] { return vdev::EditorClient(editor.Host(), 0).Query("example.setup-class-counts"); };
+        OnMainThread(ctx, [&] {
+            auto *entity =
+                CK3dEntity::Cast(state.document->Context()->CreateObject(CKCID_3DOBJECT, "External class page"));
+            IM_CHECK_NO_RET(entity);
+            state.document->Include(entity->GetID());
+            VxVector position(12, 34, 56);
+            entity->SetPosition(&position);
+            before = entity->GetWorldMatrix();
+            target = state.document->Reference(entity->GetID());
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            initial = editor.Configuration();
+            auto configuration = initial;
+            for (auto &choice : configuration.providers)
+                if ((choice.kind == "query" && (choice.id == "setup.details" || choice.id == "setup.properties")) ||
+                    (choice.kind == "command" && choice.id == "setup.reset-world-matrix"))
+                    choice.provider = "example.setups";
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(configuration, error));
+            const auto old = counts();
+            details = vdev::EditorClient::Integer(old, "details");
+            properties = vdev::EditorClient::Integer(old, "properties");
+            actions = vdev::EditorClient::Integer(old, "actions");
+            steps = state.History().UndoCount();
+            state.events.Post(vdev::ShowObjectSetup{target});
+        });
+        ctx->Yield(4);
+        ctx->SetRef("//###setup3d");
+        ctx->ItemClick("**/Reset World Matrix");
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            const auto after = counts();
+            IM_CHECK_NO_RET(vdev::EditorClient::Integer(after, "details") > details &&
+                            vdev::EditorClient::Integer(after, "properties") > properties &&
+                            vdev::EditorClient::Integer(after, "actions") == actions + 1);
+            auto *entity = CK3dEntity::Cast(state.document->Resolve(target));
+            IM_CHECK_NO_RET(entity && state.History().UndoCount() == steps + 1);
+            IM_CHECK_NO_RET(state.History().Undo() &&
+                            std::memcmp(&before, &entity->GetWorldMatrix(), sizeof(before)) == 0);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(initial, error));
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+        });
+    };
     auto *test = IM_REGISTER_TEST(engine, "modules", "canvas_queries_and_commands");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {

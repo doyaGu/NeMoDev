@@ -26,6 +26,7 @@ struct Module {
     uint64_t preferenceReads = 0, preferenceWrites = 0;
     uint64_t canvasReads = 0, canvasCameras = 0, canvasFolds = 0, canvasRefreshes = 0;
     uint64_t setupPages = 0, setupLists = 0, setupOpens = 0;
+    uint64_t setupDetails = 0, setupProperties = 0, setupActions = 0;
     uint64_t pickReads = 0;
     uint64_t behaviorDrops = 0, behaviorFinishes = 0;
     EditorView pickView = 0;
@@ -1093,6 +1094,54 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
              return host->execute(host->data, EditorString EDITOR_TEXT("object.open-setup"), &next, sink);
          },
          data, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE});
+    static const EditorParameter detailArgs[] = {
+        setupTarget, {EDITOR_TEXT("section"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("indices"), EDITOR_INTEGER_LIST, 1}};
+    static const EditorParameter detailFields[] = {
+        setupTarget, {EDITOR_TEXT("document-revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("details"), EDITOR_RECORD}};
+    static const EditorParameter propertyArgs[] = {
+        setupTarget, {EDITOR_TEXT("properties"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("indices"), EDITOR_INTEGER_LIST, 1}};
+    static const EditorParameter propertyFields{EDITOR_TEXT("values"), EDITOR_RECORD};
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("setup.details"), EDITOR_TEXT("example.setups"), detailArgs, 3,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->setupDetails;
+             auto next = *request;
+             next.handler = EDITOR_TEXT("builtin.setup");
+             return host->query(host->data, EditorString EDITOR_TEXT("setup.details"), &next, sink);
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, detailFields, 3});
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("setup.properties"), EDITOR_TEXT("example.setups"), propertyArgs, 3,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->setupProperties;
+             auto next = *request;
+             next.handler = EDITOR_TEXT("builtin.setup");
+             return host->query(host->data, EditorString EDITOR_TEXT("setup.properties"), &next, sink);
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &propertyFields, 1});
+    descriptors->commands.push_back(
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("setup.reset-world-matrix"), EDITOR_TEXT("example.setups"),
+         EDITOR_TEXT("External matrix reset"), &setupTarget, 1,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             ++static_cast<Module *>(data)->setupActions;
+             auto next = *request;
+             next.handler = EDITOR_TEXT("builtin.setup");
+             return host->execute(host->data, EditorString EDITOR_TEXT("setup.reset-world-matrix"), &next, sink);
+         },
+         data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT});
+    static const EditorParameter classCounts[] = {{EDITOR_TEXT("details"), EDITOR_INTEGER_VALUE},
+                                                  {EDITOR_TEXT("properties"), EDITOR_INTEGER_VALUE},
+                                                  {EDITOR_TEXT("actions"), EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("example.setup-class-counts"), EDITOR_TEXT("example.setups"), nullptr, 0,
+         [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+             const auto &m = *static_cast<Module *>(data);
+             const EditorValue values[] = {{EDITOR_TEXT("details"), EDITOR_INTEGER_VALUE, {}, {}, m.setupDetails},
+                                           {EDITOR_TEXT("properties"), EDITOR_INTEGER_VALUE, {}, {}, m.setupProperties},
+                                           {EDITOR_TEXT("actions"), EDITOR_INTEGER_VALUE, {}, {}, m.setupActions}};
+             return sink.write(sink.data, values, 3);
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, classCounts, 3});
     static const EditorParameter setupCounts[] = {{EDITOR_TEXT("pages"), EDITOR_INTEGER_VALUE},
                                                   {EDITOR_TEXT("lists"), EDITOR_INTEGER_VALUE},
                                                   {EDITOR_TEXT("opens"), EDITOR_INTEGER_VALUE}};
