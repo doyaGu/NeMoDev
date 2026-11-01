@@ -1017,7 +1017,9 @@ struct ParameterDialog {
     std::unique_ptr<ParameterBox> box;
     EditorView view=0;
     EditorScope scope{};
-    ObjectRef target{}, bitmapOptions{};
+    ObjectRef target{}, bitmapOptions{}, attributeOwner{};
+    int attributeType = -1;
+    std::string attributeTypeName;
     std::vector<ObjectRef> objects;
     int kind=0;
     uint64_t bitmapRevision = 0;
@@ -1036,6 +1038,9 @@ struct ParameterDialog {
         ClearBitmapOptions();
         objects.clear();
         target = {};
+        attributeOwner = {};
+        attributeType = -1;
+        attributeTypeName.clear();
         scope = {};
         open = shown = false;
         view = 0;
@@ -1045,21 +1050,46 @@ struct ParameterDialog {
         ObjectRef target{};std::vector<ObjectRef> objects;int kind=0;
         for(uint32_t i=0;i<request->count;++i){const auto&v=request->values[i];const std::string key(v.key.data,v.key.size);
             if(key=="target")target=v.object;else if(key=="objects"&&v.objects.count)objects.assign(v.objects.data,v.objects.data+v.objects.count);else if(key=="kind")kind=int(v.integer);}
-        if (kind < 0 || kind > 3)
+        if (kind < 0 || kind > 4)
             return EDITOR_INVALID;
         for(auto object:objects)if(!d.state.document->Resolve(object))return EDITOR_STALE;
         auto *parameter=CKParameter::Cast(d.state.document->Resolve(target));
-        if(kind==0&&!parameter)return EDITOR_STALE;
+        if ((kind == 0 || kind == 4) && !parameter)
+            return EDITOR_STALE;
         if(kind==1&&!d.state.document->Resolve(target))return EDITOR_STALE;
         auto next=std::make_unique<ParameterBox>(d.state);
         bool added=false;
         ObjectRef bitmapOptions{};
+        ObjectRef attributeOwner{};
+        int attributeType = -1;
+        std::string attributeTypeName;
         const auto destroy = [&](CKParameterOut *value) {
             if (value)
                 d.state.document->Context()->DestroyObject(value);
         };
         std::unique_ptr<CKParameterOut, decltype(destroy)> ownedOptions(nullptr, destroy);
-        if (kind == 3) {
+        if (kind == 4) {
+            if (objects.size() != 1)
+                return EDITOR_INVALID;
+            auto *owner = CKBeObject::Cast(d.state.document->Resolve(objects.front()));
+            if (!owner)
+                return EDITOR_STALE;
+            for (int i = 0; i < owner->GetAttributeCount(); ++i)
+                if (owner->GetAttributeParameterByIndex(i) == parameter) {
+                    attributeType = owner->GetAttributeType(i);
+                    break;
+                }
+            if (attributeType < 0)
+                return EDITOR_STALE;
+            attributeOwner = objects.front();
+            auto *context = d.state.document->Context();
+            const auto *typeName = context->GetParameterManager()->ParameterTypeToName(parameter->GetType());
+            attributeTypeName = typeName ? AnsiToUtf8(typeName) : std::string();
+            const auto *name = parameter->GetName();
+            if (!name || !*name)
+                name = context->GetAttributeManager()->GetAttributeNameByType(attributeType);
+            added = next->Add(parameter, name ? name : "");
+        } else if (kind == 3) {
             auto *bitmap = d.state.document->Resolve(target);
             if (!bitmap || (!CKTexture::Cast(bitmap) && !CKSprite::Cast(bitmap)))
                 return EDITOR_STALE;
@@ -1087,6 +1117,9 @@ struct ParameterDialog {
         d.box = std::move(next);
         d.bitmapOptions = bitmapOptions;
         d.bitmapRevision = d.state.document->ChangeRevision();
+        d.attributeOwner = attributeOwner;
+        d.attributeType = attributeType;
+        d.attributeTypeName = std::move(attributeTypeName);
         d.objects = std::move(objects);
         d.target = target;
         d.kind = kind;
@@ -1144,18 +1177,29 @@ struct ParameterDialog {
                 d.shown = false;
             return status;
         }
-        if (d.kind == 0) {
-            if (!d.state.document->Resolve(d.target)) {
-                d.box->Clear();
-                d.open = false;
+        if (d.kind == 0 || d.kind == 4) {
+            auto *parameter = CKParameter::Cast(d.state.document->Resolve(d.target));
+            auto *owner = CKBeObject::Cast(d.state.document->Resolve(d.attributeOwner));
+            if (!parameter || (d.kind == 4 && (!owner || owner->GetAttributeParameter(d.attributeType) != parameter))) {
+                d.Clear();
                 return EDITOR_STALE;
             }
-            if (!d.box->Valid())
+            if (!d.box->Valid()) {
+                d.shown = false;
                 return EDITOR_INVALID;
+            }
             const bool changed = d.box->Changed();
-            auto *script = OwningScript(d.state.document->Resolve(d.target));
-            if (!d.box->Apply(script ? script->GetID() : 0) && changed)
+            auto *script = OwningScript(parameter);
+            size_t steps = 0;
+            if (d.kind == 4) {
+                EditGroup group(*d.state.document, "Edit Attribute");
+                steps = d.box->Apply(script ? script->GetID() : 0);
+            } else
+                steps = d.box->Apply(script ? script->GetID() : 0);
+            if (!steps && changed) {
+                d.shown = false;
                 return EDITOR_ERROR;
+            }
             d.box->Clear();
             d.open = false;
             return EDITOR_OK;
@@ -1173,7 +1217,8 @@ struct ParameterDialog {
     }
     void Draw(const EditorHost *host,EditorViewFrame &frame){
         if(!open){frame.close=1;return;}
-        const char *id = kind == 3   ? "Format Options###formatoptions"
+        const char *id = kind == 4   ? "Edit Parameter###AttributeValue"
+                         : kind == 3 ? "Format Options###formatoptions"
                          : kind == 0 ? "Edit Parameter###AttributeManagerValue"
                          : kind == 1 ? "Edit Parameter###LevelCopyOptions"
                                      : "Select Delete Options###DeleteOptions";
@@ -1182,7 +1227,7 @@ struct ParameterDialog {
                                                      kind == 3   ? "Format Options"
                                                      : kind == 2 ? "Select Delete Options"
                                                                  : "Edit Parameter",
-                                                     *box);
+                                                     *box, kind == 4 ? attributeTypeName.c_str() : nullptr);
         if (action == DialogAction::Cancel) {
             box->Clear();
             ClearBitmapOptions();
