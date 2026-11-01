@@ -23,6 +23,28 @@ struct SetupEditTests {
             if (setup.object == grid)
                 setup.layers = {0, 1};
     }
+    static bool BeginRenameAndPick(EditorApp &app, ObjectRef target) {
+        auto &windows = const_cast<SetupWindows &>(app.Setups());
+        for (auto &setup : windows.m_Doc.setups)
+            if (setup.reference == target) {
+                windows.m_PickSetup = target;
+                windows.m_PickSetupSlot = setup.slot;
+                setup.meshRows.insert(12345);
+                return windows.m_Workspace.Begin("object.name", target, setup.renameEdit, setup.nameOwner);
+            }
+        return false;
+    }
+    static bool CleanTarget(EditorApp &app, ObjectRef target) {
+        auto &windows = const_cast<SetupWindows &>(app.Setups());
+        for (const auto &setup : windows.m_Doc.setups)
+            if (setup.reference == target)
+                return !setup.renameEdit && setup.meshRows.empty() && !windows.m_PickSetup;
+        return false;
+    }
+    static bool NoPicker(EditorApp &app) {
+        const auto &windows = app.Setups();
+        return !windows.m_PickSetup && !windows.m_PortalPlace;
+    }
 };
 } // namespace vdev
 
@@ -53,6 +75,74 @@ bool Near(float a, float b) { return std::fabs(a - b) < 1e-3f; }
 
 void RegisterSetupTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "setup", "window_reuse_duplicate_and_picker_cleanup");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        vdev::ObjectRef first{}, second{}, third{};
+        size_t steps = 0;
+        uint64_t selection = 0;
+        bool dirty = false;
+        const bool showNew = state.preferences.Bool("3D Layout\\Show New Setups");
+        const auto setNew = [&](bool enabled) {
+            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const auto source = client.Query("preferences.values");
+            const EditorValue field{EDITOR_TEXT("3D Layout\\Show New Setups"), EDITOR_INTEGER_VALUE, {}, {}, enabled};
+            EditorValue value{EDITOR_TEXT("value"), EDITOR_RECORD};
+            value.fields = {&field, 1};
+            const auto result = client.Command(
+                "preferences.apply",
+                {vdev::IntegerArgument("revision", vdev::EditorClient::Integer(source, "revision")), value});
+            IM_CHECK_NO_RET(result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE);
+        };
+        OnMainThread(ctx, [&] {
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            const auto create = [&](const char *name) {
+                auto *object = state.document->Context()->CreateObject(CKCID_3DOBJECT, name);
+                state.document->Context()->GetCurrentLevel()->AddObject(object);
+                state.document->Include(object->GetID());
+                return state.document->Reference(object->GetID());
+            };
+            first = create("First Setup lifetime");
+            second = create("Second Setup lifetime");
+            third = create("Third Setup lifetime");
+            steps = state.History().UndoCount();
+            selection = state.objectSelection.Revision();
+            dirty = state.document->Dirty();
+            setNew(false);
+            state.events.Post(vdev::ShowObjectSetup{first});
+        });
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(vdev::SetupEditTests::BeginRenameAndPick(App(), first));
+            state.events.Post(vdev::ShowObjectSetup{second});
+        });
+        ctx->Yield(3);
+        IM_CHECK(!ShowsObject(first.object) && ShowsObject(second.object));
+        IM_CHECK(Read<bool>(ctx, [&] {
+            return vdev::SetupEditTests::CleanTarget(App(), second) && !state.workspace->Application().HasEdits();
+        }));
+        OnMainThread(ctx, [&] {
+            setNew(true);
+            state.events.Post(vdev::ShowObjectSetup{third});
+        });
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(second.object) && ShowsObject(third.object));
+        IM_CHECK(App().Setups().OpenSetups().size() == 2);
+        OnMainThread(ctx, [&] { state.events.Post(vdev::ShowObjectSetup{third}); });
+        ctx->Yield(3);
+        IM_CHECK(App().Setups().OpenSetups().size() == 2);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(vdev::SetupEditTests::BeginRenameAndPick(App(), third));
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            IM_CHECK_NO_RET(vdev::SetupEditTests::NoPicker(App()) && !state.workspace->Application().HasEdits());
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.objectSelection.Revision() == selection &&
+                            state.document->Dirty() == dirty);
+            setNew(showNew);
+        });
+    };
 
     t = IM_REGISTER_TEST(engine, "propertyedits", "position_drag_cancel_undo_redo");
     t->GuiFunc = MainThreadGui;
