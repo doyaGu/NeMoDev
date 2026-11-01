@@ -459,9 +459,10 @@ EditorStatus EditorWorkspace::PickRegions(EditorView id, const EditorPickRegion 
     view.pickFrame = ImGui::GetFrameCount();
     return EDITOR_OK;
 }
-ObjectRef EditorWorkspace::Pick(float x, float y, bool *handled) const {
+std::vector<ObjectRef> EditorWorkspace::Pick(float x, float y, bool *handled) const {
     if (handled) *handled=false;
-    if (!ImGui::GetCurrentContext()) return {};
+    if (!ImGui::GetCurrentContext() || !std::isfinite(x) || !std::isfinite(y))
+        return {};
     const auto &g=*ImGui::GetCurrentContext();
     // Native parameter picking deliberately passes over the modal editor.
     // Resolve the topmost visible view at the point, including docked tabs.
@@ -475,8 +476,17 @@ ObjectRef EditorWorkspace::Pick(float x, float y, bool *handled) const {
             const auto &view=entry.second;
             if(view.desc.kind!=EDITOR_WINDOW_VIEW||ImGui::FindWindowByName(WindowName(view.id).c_str())!=window)continue;
             if(handled)*handled=true;
+            if (view.desc.pick) {
+                if (view.drawnFrame < ImGui::GetFrameCount() - 1)
+                    return {};
+                auto result = m_Application.PickView(view.desc, view.data, m_Application.Scope(view.id), x, y);
+                return result.status == EDITOR_OK ? std::move(result.fields.front().objects) : std::vector<ObjectRef>{};
+            }
             if(ImGui::GetFrameCount()-view.pickFrame>1)return {};
-            for(const auto &region:view.picks)if(region.object.document==m_Application.Scope().document&&x>=region.left&&y>=region.top&&x<region.right&&y<region.bottom)return region.object;
+            for (const auto &region : view.picks)
+                if (region.object.document == m_Application.Scope().document && x >= region.left && y >= region.top &&
+                    x < region.right && y < region.bottom)
+                    return {region.object};
             return {};
         }
         // A legacy window at this point remains responsible for its own picker.
@@ -542,10 +552,13 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
             view.placement.dock, view.placement.x, view.placement.y, view.placement.width, view.placement.height,
             uint32_t(!view.pinned), 0};
         frame.initialDock = ViewDock(view);
+        // Picking can be requested by an editor drawn inside this same view.
+        view.drawnFrame = ImGui::GetFrameCount();
         try {
             Drawing drawing(m_Application);
             view.desc.draw(view.data, m_Application.Host(), view.id, &frame);
         } catch (...) {
+            view.drawnFrame = -1;
             m_Error = "View raised an exception";
         }
         if (grantFocus) view.focus = false;

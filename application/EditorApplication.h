@@ -98,6 +98,7 @@ class EditorApplication {
     EditorResponse SaveViewState(const EditorViewDesc &, void *data, EditorScope);
     EditorStatus RestoreViewState(const EditorViewDesc &, void *data, EditorScope, const std::vector<EditorField> &);
     EditorResponse InspectView(const EditorViewDesc &, void *data, EditorScope);
+    EditorResponse PickView(const EditorViewDesc &, void *data, EditorScope, float x, float y);
     uint64_t InspectRevision(const EditorViewDesc &, void *data);
     EditorStatus QueryRevision(const std::string &id, uint64_t &version);
     // Collect, validate, activate. No contribution becomes callable earlier.

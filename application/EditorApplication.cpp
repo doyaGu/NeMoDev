@@ -297,11 +297,13 @@ struct Module {
             editors.push_back(d);
         }
         for (uint32_t i = 0; i < source.viewCount; ++i) {
+            if (source.views[i].size != sizeof(EditorViewDesc))
+                throw std::invalid_argument("Invalid view descriptor size");
             auto d = source.views[i];
-            if (d.size != sizeof(d) || !d.create || !d.draw || !d.destroy ||
-                d.kind < EDITOR_WINDOW_VIEW || d.kind > EDITOR_OVERLAY_VIEW || d.singleInstance > 1 ||
-                d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION || (d.count && !d.navigate) ||
-                bool(d.saveState) != bool(d.restoreState) || bool(d.stateVersion) != bool(d.saveState))
+            if (!d.create || !d.draw || !d.destroy || d.kind < EDITOR_WINDOW_VIEW || d.kind > EDITOR_OVERLAY_VIEW ||
+                d.singleInstance > 1 || d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION ||
+                (d.count && !d.navigate) || bool(d.saveState) != bool(d.restoreState) ||
+                bool(d.stateVersion) != bool(d.saveState) || (d.pick && d.kind != EDITOR_WINDOW_VIEW))
                 throw std::invalid_argument("Invalid view descriptor");
             d.id = Text(d.id, true);
             d.provider = Text(d.provider, true);
@@ -1203,6 +1205,55 @@ EditorResponse EditorApplication::InspectView(const EditorViewDesc &desc, void *
     if (result.status != EDITOR_OK) result.fields.clear();
     return result;
 }
+EditorResponse EditorApplication::PickView(const EditorViewDesc &desc, void *data, EditorScope scope, float x,
+                                           float y) {
+    auto &s = *m_State;
+    EditorResponse result;
+    if (!s.Thread() || !s.NativeReady() || s.querying >= 16) {
+        result.status = EDITOR_REFUSED;
+        return result;
+    }
+    if (!s.Valid(scope, EDITOR_DOCUMENT)) {
+        result.status = EDITOR_STALE;
+        return result;
+    }
+    if (!std::isfinite(x) || !std::isfinite(y)) {
+        result.status = EDITOR_INVALID;
+        return result;
+    }
+    if (!desc.pick) {
+        result.status = EDITOR_NO_CHANGE;
+        return result;
+    }
+    EditorValue coordinates[2] = {{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("y"), EDITOR_REAL_VALUE}};
+    coordinates[0].real = x;
+    coordinates[1].real = y;
+    const EditorRequest request{scope, coordinates, 2};
+    Output output{result.fields};
+    ++s.querying;
+    ++s.readOnlyCallbacks;
+    try {
+        result.status = desc.pick(data, Host(), &request, output.Sink());
+    } catch (...) {
+        result.status = EDITOR_ERROR;
+    }
+    --s.readOnlyCallbacks;
+    --s.querying;
+    if (output.status != EDITOR_OK)
+        result.status = output.status;
+    if (result.status == EDITOR_OK) {
+        if (result.fields.size() != 1 || result.fields.front().key != "objects" ||
+            result.fields.front().type != EDITOR_OBJECT_LIST)
+            result.status = EDITOR_INVALID;
+        else if (!s.Valid(scope, EDITOR_DOCUMENT) ||
+                 !std::all_of(result.fields.front().objects.begin(), result.fields.front().objects.end(),
+                              [&](ObjectRef object) { return object && s.Current(object); }))
+            result.status = EDITOR_STALE;
+    }
+    if (result.status != EDITOR_OK)
+        result.fields.clear();
+    return result;
+}
 EditorStatus EditorApplication::QueryRevision(const std::string &id, uint64_t &version) {
     auto &s = *m_State;
     if (!s.Thread() || !s.active || s.readOnlyCallbacks || s.querying>=16) return EDITOR_REFUSED;
@@ -1269,10 +1320,11 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
                         }
                     }
                     if constexpr (std::is_same_v<Table, std::vector<EditorViewDesc>>) {
-                        if (!inserted.second && (d.kind != inserted.first->second->kind ||
-                                                 d.area != inserted.first->second->area ||
-                                                 d.singleInstance != inserted.first->second->singleInstance ||
-                                                 bool(d.navigate) != bool(inserted.first->second->navigate)))
+                        if (!inserted.second &&
+                            (d.kind != inserted.first->second->kind || d.area != inserted.first->second->area ||
+                             d.singleInstance != inserted.first->second->singleInstance ||
+                             bool(d.navigate) != bool(inserted.first->second->navigate) ||
+                             bool(d.pick) != bool(inserted.first->second->pick)))
                             throw std::invalid_argument("Incompatible view presentation");
                         if (!inserted.second) {
                             const auto &other = *inserted.first->second;

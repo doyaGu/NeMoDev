@@ -765,9 +765,9 @@ CK_ID ObjectUnderMouse(const EditorState &state, const ImVec2 &mouse, CK_CLASSID
     if (!cid) return 0;
     if (state.workspace && state.HasDocument()) {
         bool handled=false;
-        const auto ref = state.workspace->Pick(mouse.x, mouse.y, &handled);
-        if (auto *object = state.document->Resolve(ref))
-            return CKIsChildClassOf(object->GetClassID(), cid) ? object->GetID() : 0;
+        for (const auto ref : state.workspace->Pick(mouse.x, mouse.y, &handled))
+            if (auto *object = state.document->Resolve(ref); object && CKIsChildClassOf(object->GetClassID(), cid))
+                return object->GetID();
         if(handled)return 0;
     }
     ImGuiContext &g = *GImGui;

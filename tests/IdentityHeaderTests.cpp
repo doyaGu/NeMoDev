@@ -49,11 +49,25 @@ extern "C" EditorStatus BeginCommandFromC(const EditorHost *, EditorString, cons
 extern "C" EditorStatus FinishCommandFromC(const EditorHost *, EditorEdit, EditorOperation *);
 extern "C" uint32_t EditorCommandSizeFromC(void);
 static_assert(__is_standard_layout(EditorCommandDesc), "C command callbacks");
-static_assert(EDITOR_VERSION == 17, "Editor retained-reference query version");
+static_assert(EDITOR_VERSION == 18, "Editor instance picking version");
 extern "C" EditorQueryDesc RetainedQueryFromC(void *);
 extern "C" uint32_t EditorQuerySizeFromC(void);
+extern "C" EditorViewDesc PickViewFromC(EditorObject *);
 static_assert(__is_standard_layout(EditorQueryDesc), "C query flags");
 int main() {
+    EditorObject picked{{3}, 7, 11};
+    const auto view = PickViewFromC(&picked);
+    EditorObject result{};
+    const EditorSink pickSink{&result, [](void *data, const EditorValue *values, uint32_t count) {
+                                  if (count != 1 || values[0].type != EDITOR_OBJECT_LIST ||
+                                      values[0].objects.count != 1)
+                                      return EDITOR_INVALID;
+                                  *static_cast<EditorObject *>(data) = values[0].objects.data[0];
+                                  return EDITOR_OK;
+                              }};
+    if (view.size != sizeof(EditorViewDesc) || !view.pick ||
+        view.pick(view.data, nullptr, nullptr, pickSink) != EDITOR_OK || result != picked)
+        return 1;
     const auto retained = RetainedQueryFromC(nullptr);
     if (EditorQuerySizeFromC() != sizeof(EditorQueryDesc) || retained.size != sizeof(EditorQueryDesc) ||
         retained.flags != EDITOR_QUERY_RETAINED_REFERENCES || !retained.read)

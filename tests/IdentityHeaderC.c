@@ -160,3 +160,22 @@ EditorQueryDesc RetainedQueryFromC(void *data) {
     return query;
 }
 uint32_t EditorQuerySizeFromC(void) { return (uint32_t)sizeof(EditorQueryDesc); }
+
+static EditorStatus EDITOR_CALL PickFromC(void *data, const EditorHost *host, const EditorRequest *request,
+                                          EditorSink sink) {
+    EditorValue objects = {0};
+    (void)host;
+    (void)request;
+    objects.key = (EditorString)EDITOR_TEXT("objects");
+    objects.type = EDITOR_OBJECT_LIST;
+    objects.objects.data = (const EditorObject *)data;
+    objects.objects.count = 1;
+    return sink.write(sink.data, &objects, 1);
+}
+EditorViewDesc PickViewFromC(EditorObject *object) {
+    EditorViewDesc view = {0};
+    view.size = sizeof(view);
+    view.pick = PickFromC;
+    view.data = object;
+    return view;
+}

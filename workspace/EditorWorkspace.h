@@ -43,7 +43,7 @@ class EditorWorkspace : private EditorViewNavigation {
     void DockViews();
     EditorView Role(const std::string &role) const;
     const EditorResponse &Inspect(EditorView view);
-    ObjectRef Pick(float x, float y, bool *handled = nullptr) const;
+    std::vector<ObjectRef> Pick(float x, float y, bool *handled = nullptr) const;
     bool Interacting() const;
     bool Focus(EditorView view);
     EditorView Focused() const;
@@ -69,6 +69,7 @@ class EditorWorkspace : private EditorViewNavigation {
         std::string role;
         std::vector<EditorPickRegion> picks;
         int pickFrame = -1;
+        int drawnFrame = -1;
         EditorResponse inspection;
         uint64_t inspectionRevision = 0;
         DocumentToken inspectionDocument{};

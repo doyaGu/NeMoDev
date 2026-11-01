@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 17u
+#define EDITOR_VERSION 18u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -312,6 +312,13 @@ typedef struct EditorViewDesc {
     EditorQueryVersion inspectRevision;
     const EditorParameter *fields;
     uint32_t fieldCount;
+    // Optional hit test in screen coordinates (REAL arguments "x", "y").
+    // Returns one OBJECT_LIST named "objects", ordered by pick priority.
+    // The workspace selects this instance by window visibility, not title.
+    // Empty means no hit; failure never falls through to another window.
+    // Runs read-only on the editor thread; references belong to this scope.
+    // When supplied, replaces this view's rectangular pick regions.
+    EditorQuery pick;
 } EditorViewDesc;
 typedef struct EditorMenuDesc {
     EditorString id, action, location, label;
