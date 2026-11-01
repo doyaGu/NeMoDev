@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <type_traits>
@@ -9,14 +10,17 @@
 
 #include "imgui.h"
 
-#include "core/document/EditResult.h"
-#include "core/runtime/TextEncoding.h"
+#include "VxMath.h"
+#include "application/Preferences.h"
+#include "features/layout/SnapshotData.h"
+#include "ui/render/UiRenderer.h"
+#include "ui/controls/FileDialogs.h"
 #include "features/arrays/ArrayTable.h"
 #include "features/setup/SetupViewData.h"
-#include "ui/app/EditorState.h"
-#include "ui/controls/ParameterBox.h"
 
 namespace vdev {
+class EditorState;
+class EditorWorkspace;
 
 // Dev's Setup panels (screenshots: Grid, 2D Frame, 3D Object, Target Camera,
 // Point Light, Material, Mesh, Texture, Curve, Character, Sound, Array and
@@ -55,7 +59,6 @@ private:
     using Kind = SetupKind;
     struct Setup {
         Kind kind = Kind::Other;
-        CK_ID object = 0;
         ObjectRef reference{};
         SetupPageData page;
         EditorView nameOwner = 0;
@@ -77,7 +80,11 @@ private:
         // Mesh Setup: the channels selected, Add Channel's chooser.
         std::set<int> channelRows;
         bool openAddChannel = false;
-        std::set<CKAttributeType> attributeRows; // its rows selected
+        std::set<uint64_t> attributeRows; // its rows selected
+        uint64_t attributeCatalog = 0;
+        ObjectPictureData picture;
+        uint64_t pictureRevision = 0;
+        std::unique_ptr<UiTexture> pictureTexture;
         bool open = true;
         bool focus = false;
         int slot = 0; // other Setups of the type (Show New Setups): 1, 2, ...
@@ -191,7 +198,7 @@ private:
     // 3D Frame, Portal and Place Setup (World / Local transforms).
     void FramePage(ObjectRef target);
     void PlaceLinks(ObjectRef target);
-    void Report(const EditResult &result, const char *what);
+    void Warn(const std::string &);
     void Sprite3DPage(ObjectRef target);
     // Classes Dev has no Setup for (Dev.exe sub_4B0010 opens none): pages
     // after the class definitions (SDK headers).
@@ -299,7 +306,6 @@ private:
         ObjectRef front{};                         // the object of the Setup focused last
         std::map<ObjectRef, ShownTransform> shown; // refreshed when m_Notify
         ObjectRef gridLayer{};                     // a layer whose Grid Setup opens on it (Layer Setup)
-        CK_ID valueScript = 0; // the Script of the parameter edited (Parameter Setups)
     };
 
     EditorState &m_State;
@@ -307,12 +313,7 @@ private:
     Preferences m_Preferences;
     uint64_t m_PreferencesRevision = 0;
     DocumentState m_Doc;
-    // An attribute's value in Dev's Edit Parameter (its type shown).
-    ParameterBox m_AttributeBox{m_State};
     std::map<ObjectRef, std::string> m_FormatInfo, m_FormatInfoKey;
-    std::string m_AttributeType;
-    bool m_OpenAttributeValue = false;
-    void AttributeValueDialog();
     EditorEdit m_PropertyEdit = 0;
     EditorView m_CurrentOwner = 0, m_PropertyOwner = 0;
     ObjectRef m_PropertyTarget{}, m_PropertySetup{}, m_CurrentTarget{};

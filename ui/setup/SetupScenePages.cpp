@@ -1,6 +1,10 @@
 // The Setups of curves, characters, sounds, arrays, levels and scenes, 3D frames and sprites, places, 2D entities.
 
 #include "ui/setup/SetupWindows.h"
+#include "workspace/EditorWorkspace.h"
+#include "CKDefines.h"
+#include "CKEnums.h"
+#include "VxDefines.h"
 
 #include <algorithm>
 #include <cmath>
@@ -903,11 +907,6 @@ void SetupWindows::Sprite3DPage(ObjectRef target) {
     if (ObjectChoice("##material", CKCID_MATERIAL, material, data.Text("material-name"), &chosen, 190))
         PreviewValue(id, "sprite3d.material", chosen);
     ImGui::EndGroup();
-}
-
-void SetupWindows::Report(const EditResult &result, const char *what) {
-    if (!result.ok && !result.Unchanged() && !result.message.empty())
-        m_State.Log(LogLevel::Warning, std::string(what) + ": " + AnsiToUtf8(result.message));
 }
 
 } // namespace vdev

@@ -9,18 +9,14 @@
 
 #include "imgui.h"
 
-#include "CKAll.h"
+#include "VxMath.h"
 
-#include "ui/app/EditorState.h"
-#include "ui/controls/ObjectText.h"
-#include "core/runtime/TextEncoding.h"
+#include "features/setup/SetupViewData.h"
 
 namespace vdev {
 namespace setup {
 
 constexpr float RAD_TO_DEG = 57.29577951f;
-
-inline std::string NameOf(CKObject *object, const char *none = "-- None --") { return DisplayName(object, none); }
 
 inline ImU32 ToImColor(const VxColor &c) {
     return IM_COL32(static_cast<int>(c.r * 255), static_cast<int>(c.g * 255), static_cast<int>(c.b * 255), 255);

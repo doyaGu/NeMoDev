@@ -20,7 +20,7 @@ struct SetupEditTests {
     static void ChooseGridLayers(EditorApp &app, CK_ID grid) {
         auto &setups = const_cast<SetupWindows &>(app.Setups());
         for (auto &setup : setups.m_Doc.setups)
-            if (setup.object == grid)
+            if (setup.reference.object == grid)
                 setup.layers = {0, 1};
     }
     static bool BeginRenameAndPick(EditorApp &app, ObjectRef target) {

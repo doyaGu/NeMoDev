@@ -1,4 +1,3 @@
-#include <filesystem>
 // The classes without a Dev Setup (animations, Script objects, parameters, ...) and the Attribute page.
 
 #include "ui/setup/SetupWindows.h"
@@ -15,22 +14,13 @@
 
 #include "CKAll.h"
 
-#include "core/runtime/CkRuntimeHost.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/FileDialogs.h"
-#include "core/runtime/GridCompat.h"
-#include "core/level/LevelCommands.h"
-#include "core/level/ObjectEditCommands.h"
-#include "core/level/ObjectProperties.h"
-#include "core/level/SceneCommands.h"
-#include "core/graph/TopologyCommands.h"
-#include "ui/schematic/Snapshots.h"
-#include "ui/controls/ObjectText.h"
 #include "ui/controls/TypeAhead.h"
 #include "core/runtime/TextEncoding.h"
-#include "core/graph/ValueCommands.h"
 #include "ui/setup/SetupWindowsDetail.h"
+#include "features/scene/SceneViewData.h"
 
 namespace vdev {
 using namespace setup;
@@ -1092,145 +1082,130 @@ void SetupWindows::ParameterUsers(ObjectRef target) {
 }
 
 void SetupWindows::AttributePage(Setup &setup) {
-    auto *object = m_State.document->Resolve(setup.reference);
-    CKBeObject *beObject = CKBeObject::Cast(object);
-    if (!beObject) {
+    const auto client = Client(setup.nameOwner);
+    ObjectAttributes data;
+    if (!QueryObjectAttributes(client, setup.reference, data))
+        return;
+    if (!data.behavioral) {
         ImGui::TextDisabled("Only behavioral objects have attributes.");
         return;
     }
-    CKContext *context = m_State.document->Context();
-    CKAttributeManager *attributes = context->GetAttributeManager();
-    if (!attributes) return;
-    const CK_ID id = object->GetID();
+    if (!data.available)
+        return;
+    if (setup.attributeCatalog != data.catalog) {
+        setup.attributeRows.clear();
+        setup.attributeCatalog = data.catalog;
+    }
+    for (auto it = setup.attributeRows.begin(); it != setup.attributeRows.end();) {
+        const bool held =
+            std::any_of(data.rows.begin(), data.rows.end(), [&](const auto &row) { return row.type == *it; });
+        it = held ? std::next(it) : setup.attributeRows.erase(it);
+    }
+    AttributeClipboard clipboard;
+    QueryAttributeClipboard(client, clipboard);
     const float listHeight = std::max(80.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing() - 4);
-    // Documentation "Attribute Mode": sorted by Name or Category (a click on
-    // the header), the selected ones removed with DELETE.
     if (!ImGui::BeginTable("attributes", 4,
-                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable |
-                               ImGuiTableFlags_SortTristate,
-                           ImVec2(0, listHeight))) return;
+                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                               ImGuiTableFlags_Sortable | ImGuiTableFlags_SortTristate,
+                           ImVec2(0, listHeight)))
+        return;
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoSort, 24);
     ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 260);
     ImGui::TableSetupColumn("Category", ImGuiTableColumnFlags_WidthFixed, 180);
     ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_NoSort);
     ImGui::TableHeadersRow();
-    std::vector<int> order(static_cast<size_t>(beObject->GetAttributeCount()));
-    for (size_t i = 0; i < order.size(); ++i) order[i] = static_cast<int>(i);
-    if (ImGuiTableSortSpecs *specs = ImGui::TableGetSortSpecs())
-        if (specs->SpecsCount > 0) {
-            const bool byName = specs->Specs[0].ColumnIndex == 1;
-            const bool ascending = specs->Specs[0].SortDirection == ImGuiSortDirection_Ascending;
-            auto key = [&](int i) {
-                const CKAttributeType type = beObject->GetAttributeType(i);
-                const char *text = byName ? attributes->GetAttributeNameByType(type) : attributes->GetAttributeCategory(type);
-                return std::string(text ? text : "");
-            };
-            std::stable_sort(order.begin(), order.end(), [&](int a, int b) {
-                const int compared = _stricmp(key(a).c_str(), key(b).c_str());
-                return ascending ? compared < 0 : compared > 0;
-            });
-        }
-    for (auto it = setup.attributeRows.begin(); it != setup.attributeRows.end();)
-        it = beObject->HasAttribute(*it) ? std::next(it) : setup.attributeRows.erase(it);
+    std::vector<size_t> order;
+    for (size_t i = 0; i < data.rows.size(); ++i)
+        order.push_back(i);
+    if (auto *specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0) {
+        const bool byName = specs->Specs[0].ColumnIndex == 1,
+                   ascending = specs->Specs[0].SortDirection == ImGuiSortDirection_Ascending;
+        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+            const auto &first = byName ? data.rows[a].name : data.rows[a].category;
+            const auto &second = byName ? data.rows[b].name : data.rows[b].category;
+            const auto compared = ImStricmp(first.c_str(), second.c_str());
+            return ascending ? compared < 0 : compared > 0;
+        });
+    }
+    auto typesArgument = [&](const std::vector<uint64_t> &types) {
+        return EditorValue{
+            EDITOR_TEXT("types"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {types.data(), uint32_t(types.size())}};
+    };
+    auto remove = [&](const std::vector<uint64_t> &types) {
+        return RunSetupCommand("attribute.remove", {ObjectsArgument("objects", {setup.reference}), typesArgument(types),
+                                                    IntegerArgument("catalog", data.catalog)});
+    };
     auto removeSelected = [&] {
-        FlushPending();
-        Report(RemoveAttributes(*m_State.document, id, std::vector<CKAttributeType>(setup.attributeRows.begin(), setup.attributeRows.end())),
-               "Delete");
-        setup.attributeRows.clear();
+        const std::vector<uint64_t> types(setup.attributeRows.begin(), setup.attributeRows.end());
+        const auto result = remove(types);
+        if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE || result.status == EDITOR_QUEUED)
+            setup.attributeRows.clear();
     };
     auto copySelected = [&] {
-        std::vector<CK_ID> values;
-        std::vector<std::string> names;
-        for (CKAttributeType type : setup.attributeRows)
-            if (CKParameterOut *value = beObject->GetAttributeParameter(type)) {
-                const char *name = attributes->GetAttributeNameByType(type);
-                values.push_back(value->GetID());
-                names.push_back(name ? name : "");
-            }
-        m_State.clipboard.SetParameters(*m_State.document, std::move(values), std::move(names));
+        const std::vector<uint64_t> types(setup.attributeRows.begin(), setup.attributeRows.end());
+        RunSetupCommand("attribute.copy-values", {ObjectArgument("target", setup.reference), typesArgument(types),
+                                                  IntegerArgument("catalog", data.catalog)});
     };
-    for (int i : order) {
-        const CKAttributeType type = beObject->GetAttributeType(i);
-        ImGui::PushID(type);
+    auto paste = [&] {
+        RunSetupCommand("attribute.paste-attributes", {ObjectsArgument("objects", {setup.reference}),
+                                                       IntegerArgument("clipboard-revision", clipboard.revision)});
+    };
+    for (auto i : order) {
+        const auto &row = data.rows[i];
+        ImGui::PushID(int(row.type));
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        if (ImGui::SmallButton("x")) {
-            const EditResult result = RemoveAttribute(*m_State.document, id, type);
-            if (!result.ok) m_State.Log(LogLevel::Warning, "Remove Attribute: " + AnsiToUtf8(result.message));
-        }
+        if (ImGui::SmallButton("x"))
+            remove({row.type});
         ImGui::TableNextColumn();
-        const char *name = attributes->GetAttributeNameByType(type);
-        const bool selected = setup.attributeRows.count(type) != 0;
-        if (ImGui::Selectable(AnsiToUtf8(name ? name : "?").c_str(), selected)) {
-            if (!ImGui::GetIO().KeyCtrl) setup.attributeRows = {type};
-            else if (selected) setup.attributeRows.erase(type);
-            else setup.attributeRows.insert(type);
+        const bool selected = setup.attributeRows.count(row.type) != 0;
+        if (ImGui::Selectable(row.name.empty() ? "?" : row.name.c_str(), selected)) {
+            if (!ImGui::GetIO().KeyCtrl)
+                setup.attributeRows = {row.type};
+            else if (selected)
+                setup.attributeRows.erase(row.type);
+            else
+                setup.attributeRows.insert(row.type);
         }
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) setup.attributeRows = {type};
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected)
+            setup.attributeRows = {row.type};
         if (ImGui::BeginPopupContextItem("attributemenu")) {
             if (ImGui::MenuItem("Delete")) removeSelected();
-            if (ImGui::MenuItem("Copy Attribute Parameter Value")) copySelected();
+            if (ImGui::MenuItem("Copy Attribute Parameter Value"))
+                copySelected();
             ImGui::EndPopup();
         }
         ImGui::TableNextColumn();
-        const char *category = attributes->GetAttributeCategory(type);
-        ImGui::TextUnformatted(AnsiToUtf8(category ? category : "").c_str());
+        ImGui::TextUnformatted(row.category.c_str());
         ImGui::TableNextColumn();
-        if (CKParameterOut *value = beObject->GetAttributeParameterByIndex(i)) {
-            // The value's text (Dev.exe sub_44D4C0); a double click edits it
-            // in Dev's Edit Parameter (sub_4436E0: name hidden, type shown).
-            ImGui::Selectable(ParameterValueText(value).c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
-            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                CKParameterManager *manager = context->GetParameterManager();
-                const char *typeName = manager->ParameterTypeToName(value->GetType());
-                m_AttributeType = typeName ? typeName : "";
-                m_Doc.valueScript = 0;
-                m_AttributeBox.Clear();
-                if (m_AttributeBox.Add(value, value->GetName() ? value->GetName() : (name ? name : "")))
-                    m_OpenAttributeValue = true;
-            }
+        if (row.parameter) {
+            ImGui::Selectable(row.value.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick);
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                RunSetupCommand("attribute.edit-value",
+                                {ObjectArgument("target", setup.reference), IntegerArgument("type", row.type),
+                                 IntegerArgument("catalog", data.catalog), ObjectArgument("parameter", row.parameter)});
         }
         ImGui::PopID();
     }
-    // Elsewhere in the list: Paste Attributes, once attributes were copied.
-    if (!m_State.clipboard.attributes.empty() &&
-        ImGui::BeginPopupContextWindow("attributepaste", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-        if (ImGui::MenuItem("Paste Attributes", "Ctrl+V")) {
-            FlushPending();
-            Report(PasteAttributes(*m_State.document, id, m_State.clipboard.attributes, m_State.clipboard.parameters),
-                   "Paste Attributes");
-        }
+    if (!clipboard.names.empty() &&
+        ImGui::BeginPopupContextWindow("attributepaste",
+                                       ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        if (ImGui::MenuItem("Paste Attributes", "Ctrl+V"))
+            paste();
         ImGui::EndPopup();
     }
     ImGui::EndTable();
-    if (!setup.attributeRows.empty() && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-        !ImGui::GetIO().WantTextInput && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) &&
-        ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+    const bool keyboard = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+                          !ImGui::GetIO().WantTextInput &&
+                          !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    if (keyboard && !setup.attributeRows.empty() && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
         removeSelected();
-    if (!m_State.clipboard.attributes.empty() && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
-        !ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false)) {
-        FlushPending();
-        Report(PasteAttributes(*m_State.document, id, m_State.clipboard.attributes, m_State.clipboard.parameters),
-               "Paste Attributes");
-    }
-    // Dev: "Add Attribute" opens the attribute tree (Add Selected, More>>).
-    if (ImGui::Button("Add Attribute")) m_State.events.Post(OpenAddAttribute{{id}});
-    AttributeValueDialog();
-}
-
-void SetupWindows::AttributeValueDialog() {
-    const char *id = "Edit Parameter###AttributeValue";
-    if (m_OpenAttributeValue) {
-        ImGui::OpenPopup(id);
-        m_OpenAttributeValue = false;
-    }
-    const DialogAction action = EditParameterValueDialog(id, "Edit Parameter", m_AttributeBox, AnsiToUtf8(m_AttributeType).c_str());
-    if (action == DialogAction::Ok && m_State.HasDocument()) {
-        EditGroup group(*m_State.document, "Edit Attribute");
-        m_AttributeBox.Apply(m_Doc.valueScript);
-    }
-    if (action != DialogAction::None) m_AttributeBox.Clear();
+    if (keyboard && !clipboard.names.empty() && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false))
+        paste();
+    if (ImGui::Button("Add Attribute"))
+        RunSetupCommand("attribute.choose",
+                        {ObjectsArgument("objects", {setup.reference}), IntegerArgument("more", 0)});
 }
 
 } // namespace vdev

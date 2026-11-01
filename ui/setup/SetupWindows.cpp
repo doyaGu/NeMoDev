@@ -2,10 +2,11 @@
 #include "features/layout/SnapshotData.h"
 // Dev's Setup panels; layout after the Dev 2.5 screenshots the user gave
 // (Grid, 2D Frame, 3D Object, Target Camera, Point Light, Material, Mesh,
-// Texture, Curve, Character, Sound, Array and Group Setup). Values are read from CK every frame.
+// Texture, Curve, Character, Sound, Array and Group Setup). Pages use copied query data.
 
 #include "ui/setup/SetupWindows.h"
-#include "core/runtime/SdkCompat.h"
+#include "ui/app/EditorState.h"
+#include "workspace/EditorWorkspace.h"
 
 #include <algorithm>
 #include <cmath>
@@ -18,28 +19,22 @@
 #include "misc/cpp/imgui_stdlib.h"
 #include "imgui_internal.h"
 
-#include "CKAll.h"
 
-#include "core/runtime/CkRuntimeHost.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/FileDialogs.h"
 #include "ui/controls/TypeAhead.h"
-#include "core/runtime/GridCompat.h"
-#include "core/level/LevelCommands.h"
-#include "core/level/ObjectEditCommands.h"
-#include "core/level/SceneCommands.h"
 #include "ui/setup/SetupWindowsDetail.h"
 #include "ui/schematic/Snapshots.h"
-#include "core/runtime/TextEncoding.h"
-#include "core/graph/ValueCommands.h"
 
 namespace vdev {
 
 using namespace setup;
 
 // ---------------------------------------------------------------- frame
+
+void SetupWindows::Warn(const std::string &message) { m_State.Log(LogLevel::Warning, message); }
 
 EditorClient SetupWindows::Client(EditorView owner) const { return {m_Workspace.Application().Host(), owner}; }
 
@@ -107,7 +102,6 @@ EditorStatus SetupWindows::Show(ObjectRef requested) {
     Setup setup;
     setup.kind = page.kind;
     setup.page = page;
-    setup.object = target.object;
     setup.reference = target;
     setup.slot = slot;
     setup.focus = true;
@@ -128,6 +122,7 @@ void SetupWindows::ChangeTarget(Setup &setup, ObjectRef target, int point) {
         setup.array.Cancel(Client(setup.nameOwner));
         if (m_PickSetup == setup.reference && m_PickSetupSlot == setup.slot)
             m_PickSetup = {};
+        RetireTexture(std::move(setup.pictureTexture));
         m_Doc.shown.erase(setup.reference);
         Setup next;
         next.kind = setup.kind;
@@ -137,7 +132,6 @@ void SetupWindows::ChangeTarget(Setup &setup, ObjectRef target, int point) {
         next.sceneFilter = setup.sceneFilter;
         next.page = std::move(page);
         next.reference = target;
-        next.object = target.object;
         setup = std::move(next);
     }
     if (point >= 0) {
@@ -163,6 +157,7 @@ void SetupWindows::Close(Setup &setup) {
     setup.array.Cancel(Client(setup.nameOwner));
     if (m_PickSetup == setup.reference && m_PickSetupSlot == setup.slot)
         m_PickSetup = {};
+    RetireTexture(std::move(setup.pictureTexture));
     m_Doc.shown.erase(setup.reference);
     m_Workspace.CloseOwner(setup.nameOwner);
 }
@@ -742,47 +737,40 @@ void SetupWindows::ReplaceFile(Setup &setup, SetupFileKind kind) {
 }
 
 void SetupWindows::Picture(Setup &setup) {
-    const ImVec2 at = ImGui::GetCursorScreenPos();
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    // The picture (52 x 40, Dev.exe sub_441860 / sub_44CF90), else resvis.dll's
-    // place for it (bitmap 835).
+    const auto client = Client(setup.nameOwner);
+    const bool read = ReadObjectPicture(client, setup.reference, setup.picture);
+    if (read && (!setup.picture.present || setup.pictureRevision != setup.picture.Revision())) {
+        RetireTexture(std::move(setup.pictureTexture));
+        setup.pictureRevision = setup.picture.Revision();
+    }
+    if (read && setup.picture.present && !setup.pictureTexture) {
+        auto rgba = setup.picture.pixels;
+        for (size_t i = 0; i < rgba.size(); i += 4)
+            std::swap(rgba[i], rgba[i + 2]);
+        setup.pictureTexture = MainRenderer().CreateTexture(SnapshotData::WIDTH, SnapshotData::HEIGHT, rgba.data());
+    }
+    const auto at = ImGui::GetCursorScreenPos();
+    auto *draw = ImGui::GetWindowDrawList();
     const ImVec2 picture(at.x + 23, at.y + 12), pictureMax(picture.x + 52, picture.y + 40);
-    auto found = m_State.document->Pictures().find(setup.object);
-    ImTextureID texture = found != m_State.document->Pictures().end()
-        ? SnapshotTexture(found->second.get(), nullptr, found->second) : DevBitmap(835);
-    if (texture) dl->AddImage(texture, picture, pictureMax);
+    const auto texture = read && setup.pictureTexture ? setup.pictureTexture->Id() : DevBitmap(835);
+    if (texture)
+        draw->AddImage(texture, picture, pictureMax);
     ImGui::Dummy(ImVec2(98, 64));
-    // Its menu (Dev.exe sub_448CA0): Load Snapshot (an image file,
-    // CKLoadBitmap), Remove Snapshot (with a picture).
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("picturemenu");
     if (ImGui::BeginPopup("picturemenu")) {
-        if (ImGui::MenuItem("Load Snapshot")) {
-            FileDialogOptions options;
-            options.filter = L"Images (*.bmp;*.tga;*.jpg;*.png)\0*.bmp;*.tga;*.jpg;*.jpeg;*.png\0All files (*.*)\0*.*\0";
-            FlushPending();
-            m_State.RequestFile(options, [this, target = setup.reference](const FileDialogResult &result) {
-                if (result.status != FileDialogResult::Status::Selected || result.paths.empty() || !m_State.document ||
-                    !m_State.document->Resolve(target))
-                    return;
-                const std::string &path = result.paths.front();
-                if (void *bitmap = CKLoadBitmap(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str())))
-                    SetObjectPicture(*m_State.document, target.object, bitmap);
-                else
-                    m_State.Log(LogLevel::Warning, "Load Snapshot: cannot read " + path);
-            });
-        }
-        if (found != m_State.document->Pictures().end() && ImGui::MenuItem("Remove Snapshot"))
-            SetObjectPicture(*m_State.document, setup.object, nullptr);
+        if (ImGui::MenuItem("Load Snapshot"))
+            RunSetupCommand("object.load-picture", {ObjectArgument("target", setup.reference)});
+        if (read && setup.picture.present && ImGui::MenuItem("Remove Snapshot"))
+            RunSetupCommand("object.remove-picture", {ObjectArgument("target", setup.reference)});
         ImGui::EndPopup();
     }
-    // A Snapshot Buffer image dropped here is the object's picture (sub_448680, "Bitmap").
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD)) {
-            if (payload->DataSize == sizeof(SnapshotDrag)) {
-                SnapshotDrag drag;
-                std::memcpy(&drag, payload->Data, sizeof(drag));
-                ApplySnapshot(EditorClient(m_State.workspace->Application().Host(), 0), drag, setup.reference, false);
-            }
+        if (const auto *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD);
+            payload && payload->DataSize == sizeof(SnapshotDrag)) {
+            SnapshotDrag drag;
+            std::memcpy(&drag, payload->Data, sizeof(drag));
+            if (FlushPending())
+                ApplySnapshot(client, drag, setup.reference, false);
         }
         ImGui::EndDragDropTarget();
     }
@@ -858,7 +846,7 @@ void SetupWindows::PreviewProperty(ObjectRef target, const char *property, Edito
     m_PropertyActive = ImGui::GetActiveID();
     if (app.UpdateEdit(m_PropertyEdit, values.values.front()) != EDITOR_OK) {
         FinishProperty(false);
-        Report(EditResult::Error("The property edit failed"), property);
+        Warn(std::string(property) + ": The property edit failed");
         return;
     }
     if (!ImGui::IsAnyItemActive() && !ImGui::IsMouseDown(ImGuiMouseButton_Left) &&

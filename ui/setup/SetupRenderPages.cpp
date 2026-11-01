@@ -3,6 +3,12 @@
 // The Setups of the render objects: 3D entities, cameras, lights, sprites, materials, meshes, textures, grids.
 
 #include "ui/setup/SetupWindows.h"
+#include "workspace/EditorWorkspace.h"
+#include "CKDefines.h"
+#include "CKEnums.h"
+#include "CKCamera.h"
+#include "VxDefines.h"
+#include "editor/Scene.h"
 
 #include <algorithm>
 #include <cmath>
@@ -404,14 +410,16 @@ void SetupWindows::CameraPage(ObjectRef target) {
         // Documentation "Camera Setup": "Near clip must be smaller than far clip".
         if (nearClip < farClip)
             PreviewValue(id, "camera.near-clip", nearClip);
-        else m_State.Log(LogLevel::Warning, "Near clip must be smaller than far clip");
+        else
+            Warn("Near clip must be smaller than far clip");
     }
     page.Label(640, 170, 730, 190, "Far clip");
     if (page.EditSlider("##far", ImVec4(735, 170, 795, 190), ImVec4(645, 190, 770, 210), &farClip, 1.0f,
                         std::max(5000.0f, farClip), "%.2f", 1.0f)) {
         if (farClip > nearClip)
             PreviewValue(id, "camera.far-clip", farClip);
-        else m_State.Log(LogLevel::Warning, "Near clip must be smaller than far clip");
+        else
+            Warn("Near clip must be smaller than far clip");
     }
     page.End(800, 290);
 }
@@ -1012,7 +1020,7 @@ void SetupWindows::RunSlotCommand(Setup &setup, ObjectRef target, SlotCommand co
     const bool texture = data.Boolean("texture");
     const bool changing = command == SlotCommand::Add || command == SlotCommand::Replace || command == SlotCommand::ReplaceAlpha;
     if (changing && data.Boolean("movie")) {
-        m_State.Log(LogLevel::Warning, "Cannot modify avi");
+        Warn("Cannot modify avi");
         return;
     }
     const int slots = int(data.Integer("slots")), slot = int(data.Integer("slot"));
@@ -1054,7 +1062,7 @@ void SetupWindows::RunSlotCommand(Setup &setup, ObjectRef target, SlotCommand co
                 const auto args = BorrowEditorFields(fields);
                 const auto result = Client(owner).Command(id, args.values);
                 if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE)
-                    m_State.Log(LogLevel::Warning, "Image file operation failed");
+                    Warn("Image file operation failed");
                 for (auto &open : m_Doc.setups)
                     if (open.reference == target)
                         open.textureFrames = 1000;
@@ -1608,20 +1616,20 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
     constexpr int MAX_CHANNELS = 10;
     auto addChannel = [&] {
         if (int(data.Integer("channel-count")) >= MAX_CHANNELS)
-            m_State.Log(LogLevel::Warning, "Cannot add more than 10 channels!");
+            Warn("Cannot add more than 10 channels!");
         else
             setup.openAddChannel = true;
     };
     auto addChannelOf = [&](ObjectRef material) {
         if (int(data.Integer("channel-count")) >= MAX_CHANNELS) {
-            m_State.Log(LogLevel::Warning, "Cannot add more than 10 channels!");
+            Warn("Cannot add more than 10 channels!");
             return;
         }
         bool added = false;
         added = EditObjectList(id, "mesh.channels", {material});
         FlushPending();
         if (!added)
-            m_State.Log(LogLevel::Warning, "Add Channel: the channel cannot be added");
+            Warn("Add Channel: the channel cannot be added");
     };
     if (ImGui::BeginTable("channels", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
                           ImVec2(670, 220))) {
