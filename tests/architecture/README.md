@@ -1,6 +1,6 @@
 # Stage zero architecture checks
 
-`coverage.json` lists the 57 source groups,
+`coverage.json` lists the 58 source groups,
 32 feature/extension targets and 48 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
@@ -1804,3 +1804,20 @@ Release validation and the SDK/render source comparisons are recorded in
 `out/phase-five-layout-authoring`. Performance acceptance remains deferred with
 its original limits. Phase five and the remaining Setup/native value editor
 migration are still open; completed_phase remains three.
+
+
+### 阶段五：Setup 窗口与公共页面查询
+
+Setup 的分类、标题、名称列表、曲线控制点、Grid 层定位、文件名、属性页和初始条件按钮状态，以及变换显示数据，由 `SetupCommands` 的 `setup.target`、`setup.page`、`setup.objects` 和 `setup.transform` 查询给出。`SetupViewData` 只接受复制数据；读取失败、数组不一致或对象引用失效时保留原副本。分类与 Frame 判断不再各自留在窗口代码中。
+
+`object.open-setup` 由 Setup 窗口模块登记，启动恢复、对象创建后的导航和对象菜单使用同一个入口。内置窗口也读取当前配置选择的查询。SetupWindows 仍独自保存现有页签、筛选、当前控制点和前台目标，每个窗口的草稿沿用工作区作用域，没有增加另一份窗口表。窗口 ID、停靠位置和名称列表的精确类型、排序及场景筛选保持原行为。
+
+切换窗口目标时取消该窗口的属性、重命名和 DataArray 草稿，并清除对象专用行选择与拾取。关闭窗口和文档时清理相同状态。目标、前台窗口、变换缓存和拾取均使用完整对象引用；原生 ID 仅在类专用页面和文件布局读写中转换。读取偏好设置时使用查询的发布版本记录缓存，避免与设置数据自身的版本混用。
+
+应用层允许活动草稿期间执行工作区窗口导航，由相应窗口取消自己的草稿。文档修改和文档选区命令继续拒绝越过活动草稿。取消、错误线程、失效对象和文档替换仍受原检查约束。
+
+类专用页面、图片和文件替换仍保留现有原生适配，完整窗口绘制尚未迁移为工作区登记视图。它们执行离散原生操作前需要先完成属性修改，本轮保留这一顺序。没有增加第二套绘制、命令队列或回调状态。该部分仍列为阶段五待办。
+
+本轮新增公共查询、场景筛选、旧控制点索引、同 ID 对象重建、错误线程和损坏列表的回归；UI 覆盖窗口复用、多窗口、草稿与拾取清理，以及独立模块替换查询和打开命令。SDK 和 GPU 传输实现不改，性能验收继续暂缓，原定标准保留。
+
+验证：macOS arm64 Release 构建成功，全部 125 项非性能 CTest 通过且无跳过，架构检查测试 40 项通过。完整结果见 [Setup 窗口验证记录](baselines/setup-windows-macos-arm64-metal.json)。

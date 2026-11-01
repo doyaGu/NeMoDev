@@ -1,0 +1,290 @@
+{
+  "description": "阶段五：Setup 窗口管理与公共页面数据使用只读查询，打开入口统一为命令；类专用原生页面继续保留既有编辑顺序。SDK 不动，保留 GPU 快通道和通用回退，性能验收继续暂缓。",
+  "base_revision": "51bcf9a6611ee1d32f63601dd8b9f8a7d995a77b",
+  "changes": [
+    "SetupCommands 集中分类、标题、名称列表、场景筛选、曲线点与层定位、文件名、初始条件状态及变换查询；SetupViewData 复制并校验数据。",
+    "SetupWindows 独自保存页签与局部状态；打开、启动恢复和延迟导航统一走 object.open-setup，没有增加另一份窗口表或绘制流程。",
+    "切换目标或关闭窗口时取消对应的属性、重命名与表格草稿，清理对象专用行选择和拾取；窗口目标、前台目标、变换缓存和拾取使用完整对象引用。",
+    "内置名称列表、标题和变换查询可由独立模块替换；初始条件与属性拖放复用既有命令，拖放先校验长度。",
+    "工作区窗口导航可取消自己窗口的草稿；文档修改与选区命令继续等待活动草稿结束，未更改公共 Editor ABI。",
+    "偏好设置缓存保存查询发布版本，修正版本混用导致的多窗口设置刷新遗漏。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-setup-windows/build-final.log"
+    },
+    "full_ctest": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 26.28,
+      "log": "out/phase-five-setup-windows/full-final.log",
+      "junit": "out/phase-five-setup-windows/full-final.xml",
+      "inventory": "out/phase-five-setup-windows/ctest-inventory.json",
+      "excluded_label": "performance"
+    },
+    "architecture": {
+      "files": 1036,
+      "groups": 58,
+      "features": 32,
+      "states": 48,
+      "legacy_exposures": 41,
+      "completed_phase": 3,
+      "test_registration_checked": true,
+      "open_gaps": 20
+    },
+    "architecture_tests": {
+      "passed": 40,
+      "failed": 0,
+      "log": "out/phase-five-setup-windows/architecture-tests.log"
+    },
+    "junit_inventory": {
+      "result": "125 CTests passed without skips; all new UI cases and the representative NMO direct-open case executed",
+      "log": "out/phase-five-setup-windows/junit-verification.log"
+    },
+    "ui": {
+      "html": {
+        "registered": 257,
+        "executed": 3,
+        "not_selected": 254,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/html.xml",
+        "sha256": "93dd7ed8540eccf5aee877ba23ed558430ade25063b26ad7295ffd84cb5b371e"
+      },
+      "app": {
+        "registered": 257,
+        "executed": 25,
+        "not_selected": 232,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/app.xml",
+        "sha256": "a5a2a4bfe5eb360b8738f5b7c27f102e100ce51ccb98b320f6d9ab7d13586c0c"
+      },
+      "filemenu": {
+        "registered": 257,
+        "executed": 10,
+        "not_selected": 247,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/filemenu.xml",
+        "sha256": "3f9aa9dbba9d083cccdeafd53a82d6d688bd577c31773c5e67f801b2ffd5cb4c"
+      },
+      "schematic": {
+        "registered": 257,
+        "executed": 26,
+        "not_selected": 231,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/schematic.xml",
+        "sha256": "59d017bf635309de2c7f20eecb355ab902ded54f8820c2db62778b20b55de634"
+      },
+      "debugger": {
+        "registered": 257,
+        "executed": 10,
+        "not_selected": 247,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/debugger.xml",
+        "sha256": "7e3902ae573499065785fe9b903877703e66d6b392b552d444668d8abbb952d9"
+      },
+      "layout": {
+        "registered": 257,
+        "executed": 24,
+        "not_selected": 233,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/layout.xml",
+        "sha256": "11dfd91fca2b470ddb7d7c1d49c85a5cfac4c7abb4278b74c15c43e09cadaa03"
+      },
+      "level": {
+        "registered": 257,
+        "executed": 7,
+        "not_selected": 250,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/level.xml",
+        "sha256": "3d19728de34c1769df8f38eabc74548834bb5f6dbdc702b822649bc7c570da9a"
+      },
+      "setup": {
+        "registered": 257,
+        "executed": 18,
+        "not_selected": 239,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/setup.xml",
+        "sha256": "ac249db29a7bcf6093398e1bc46d8dc8432bb7a2b5509c4d79d62809c883a298"
+      },
+      "propertyedits": {
+        "registered": 257,
+        "executed": 7,
+        "not_selected": 250,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/propertyedits.xml",
+        "sha256": "b9bf76b9b0bfdc919c939b37bccfacb4e3e4f1a1ee579cac4207475809803dab"
+      },
+      "hierarchy": {
+        "registered": 257,
+        "executed": 8,
+        "not_selected": 249,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/hierarchy.xml",
+        "sha256": "8bab8097911ebdee8d5ba025e8bbd9ef8cb439bb7c7c365c9aac8bcfbe028806"
+      },
+      "blocks": {
+        "registered": 257,
+        "executed": 6,
+        "not_selected": 251,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/blocks.xml",
+        "sha256": "f44865e5cfa31b0db612a76fa32c2d7d82d4dcdaa1d791c34597d988b26b6b2f"
+      },
+      "attributes": {
+        "registered": 257,
+        "executed": 6,
+        "not_selected": 251,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/attributes.xml",
+        "sha256": "bb6a4cdbd3754f7e53660bd0d5afbff7deabcd1028f7acb62afe201f53cadedb"
+      },
+      "create": {
+        "registered": 257,
+        "executed": 6,
+        "not_selected": 251,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/create.xml",
+        "sha256": "43456dc730304fb879fa0eecf77325de40a7ce4661e187b12d68a0f1894f8c53"
+      },
+      "tools": {
+        "registered": 257,
+        "executed": 13,
+        "not_selected": 244,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/tools.xml",
+        "sha256": "fdb395ff30c5ccf86a84b7bf0c0b3f81b3858e317d519877f528eb71d58c47ab"
+      },
+      "sound": {
+        "registered": 257,
+        "executed": 2,
+        "not_selected": 255,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/sound.xml",
+        "sha256": "84875b3bc9da0c6cff8511b6d932248f9ed5255d257f18d1aac3a562bd80acb8"
+      },
+      "character": {
+        "registered": 257,
+        "executed": 2,
+        "not_selected": 255,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/character.xml",
+        "sha256": "8743f485cc5be77359c36b4b66dd79ea86a1b68b928655edc1766a8ca2418ac9"
+      },
+      "modules": {
+        "registered": 257,
+        "executed": 65,
+        "not_selected": 192,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-windows/ui/modules.xml",
+        "sha256": "6f106c09ae837d215eb31cdafe2a5f01c31bd130e49a8c65ec454bc48574a22e"
+      }
+    },
+    "native_print": [
+      {
+        "test": "VirtoolsDevUi.printCancel",
+        "result": "passed",
+        "junit": "out/phase-five-setup-windows/full-final.xml"
+      },
+      {
+        "test": "VirtoolsDevUi.printPages",
+        "result": "passed",
+        "junit": "out/phase-five-setup-windows/full-final.xml"
+      }
+    ],
+    "new_ui_cases": [
+      "window_reuse_duplicate_and_picker_cleanup",
+      "setup_queries_and_open_command"
+    ],
+    "native_regressions": [
+      "分类与动态标题",
+      "曲线点和目标相机跳转",
+      "名称排序、精确类型、私有对象和场景筛选",
+      "复制字符串与矩阵顺序",
+      "查询不改 Dirty 或 Undo/Redo",
+      "错误线程",
+      "损坏列表和矩阵保留原副本",
+      "同 ID 对象重建和文档替换",
+      "导航取消本窗口草稿，文档修改与选区继续受限"
+    ],
+    "sdk_gpu": {
+      "sdk_repositories": 16,
+      "sdk_unchanged": true,
+      "protected_gpu_sources": 6,
+      "gpu_sources_unchanged": true,
+      "sdk_runtime_files": 22,
+      "sdk_runtime_unchanged_from_previous_baseline": true,
+      "previous_runtime_baseline": "out/phase-five-layout-authoring/runtime-after.json",
+      "layout_window_unchanged": true
+    },
+    "gpu_functional_tests": "app 中 GPU 视口和通用回退回归全部通过；GPU 传输源码和 LayoutWindow 完全未改。",
+    "representative_nmo": "filemenu.open_nmo_populates_level_manager_as_new_import",
+    "source_sha256": {
+      "application/EditorApplication.cpp": "d556e9458a430352c7ad05db3c9164f72df5f270e929779ce97dcdf020d74eb7",
+      "features/defaults/DefaultWorkspace.cpp": "fad3b27d5e92e247c67cb6838f854f782c5b4c4ab472b48af70fbcfc94a77d3c",
+      "features/setup/SetupCommands.cpp": "324aaeea6b77f4db5ed2ea5e51f520c0e64c48703fb68364e466767b68e06c65",
+      "features/setup/SetupViewData.cpp": "cc425421489f3438a7aa9b7b7ddd8ba1c6a5ded54c924bc8f4334122ccf8f010",
+      "features/setup/SetupViewData.h": "b0d622ad628705a762ff3b9a1299144dbc7622ec488a4d5ae2e68965d8312fee",
+      "tests/ArchitectureTests.py": "8ace13c2f40e7e5a5e716b456e1b921ae88996453fb85823e1cc46ab6e00307a",
+      "tests/CheckArchitecture.py": "291a5ad1270d5a87d16ade6db9085c5656de8653037fd462e2c4401616d9e11b",
+      "tests/EditorApplicationTests.cpp": "26478cdff86a1a5d32bfeca6f01e86fb20cba29430ae38ebe554184ec1c62df3",
+      "tests/SetupEditTests.cpp": "7be305c5fee81d245025e947d34302268157da73d99eb9e5fc4e899d859ddd90",
+      "tests/SetupProjectionTests.cpp": "6147572c82647a03d0e17328e1551e593951753d66a13c703b26041f05d86ba6",
+      "tests/architecture/README.md": "3fa4f03bf7cc757b08ee9ce40d7f14c89dde61a12b671b57b45cbb30f4f082f7",
+      "tests/architecture/coverage.json": "5b274e1fa1bf3a7f141ce095e8751ba864b324faf33697444b93705219c74355",
+      "tests/modules/ObjectModule.cpp": "67af2e280045539350984c2787149d0cf8384e6c3e55d8a901c8fce4fa25d296",
+      "tests/ui/ModuleTests.cpp": "d94920035f16b8526b599230f25e36f49b1f445aca7a66f7d1c368e25456b08e",
+      "tests/ui/SetupTests.cpp": "8b67b9f98c3935639c64568f471ae2f6712fc295a3c9d57f83fb93a4dcf63abc",
+      "tests/ui/UiTests.cpp": "e90cae42b0033047ae31679f42aef401548dad926084eba9f9941b983ce2dde9",
+      "ui/CMakeLists.txt": "aa6c2b76de5199ad57836a6322f2de6ca2edfa9479d6fb4fab2c827de510e31d",
+      "ui/app/EditorApp.cpp": "ab661d530f419aee4eeab321ecad40c3b47a097c6a59e14bb910aa674b6e22d7",
+      "ui/app/EditorApp.h": "c7b426d13a0792a77aa1191e87e6ca8db7a14d14402163dd4024966aaa7c03ba",
+      "ui/app/EditorStartup.cpp": "b12f3cbf5e058daad5d9cf31ec17aa9c1b9c14254708354850855c44b07640fc",
+      "ui/setup/SetupObjectPages.cpp": "2b58b82d090a6eb8fcf541dacb6c3c6c7b8bc4f2d8d486ad1e754a29aef292e3",
+      "ui/setup/SetupWindows.cpp": "c66aad51a07657a36fb81d256dab3e3175f0deb60892f66f1c2e3dd81faaf8db",
+      "ui/setup/SetupWindows.h": "0daa3df5863e83a65c8ea82ac3d21af7592da5363b00c29ca5696ea64ef4d029",
+      "ui/setup/SetupWindowsDetail.h": "f936e8340710a5b982b912ee39ad436a33492c0069ef94bbd07334cac0ef4eb2"
+    },
+    "git_diff_check": "passed"
+  },
+  "resolved_during_validation": [
+    {
+      "finding": "查询版本与偏好设置数据版本混用，Show New Setups 修改后仍可能复用原窗口",
+      "fix": "缓存查询发布版本；多窗口 UI 回归通过"
+    },
+    {
+      "finding": "最初允许全部会话命令越过草稿，改变了选区跟随行为",
+      "fix": "仅允许工作区窗口导航；原有选区跟随和全部非性能回归通过",
+      "log": "out/phase-five-setup-windows/full-before-selection-fix.log"
+    }
+  ],
+  "remaining": [
+    "类专用 Setup 页面、图片和文件替换仍有原生适配",
+    "完整窗口绘制尚未迁移为工作区登记视图；保留离散原生操作前完成属性修改的顺序"
+  ],
+  "performance": {
+    "status": "deferred_at_user_request",
+    "thresholds_unchanged": true,
+    "timing_benchmarks_run": false
+  }
+}
