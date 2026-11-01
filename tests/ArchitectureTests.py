@@ -231,6 +231,22 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native/state access in workspace view: features/schematic/SchematicView.cpp", result.stderr)
 
+    def test_migrated_canvas_inputs_cannot_query_or_write_native_state(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for path, code in (
+            ("ui/layout/LayoutInput.cpp", "void Move() { m_State.document->Changed(); }"),
+            ("ui/layout/LayoutInput.cpp", "void Move() { m_View.Pick(1, 2); }"),
+            ("ui/schematic/SchematicLinking.cpp", "void Link() { EditGroup edit; }"),
+            ("ui/schematic/SchematicCanvas.cpp", "void SchematicCanvas::EndMove(bool commit) { m_State.document->Changed(); }")):
+            with self.subTest(path=path, code=code):
+                self.write(path, code)
+                result = self.run_check()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("native mutation or query returned to migrated input", result.stderr)
+                self.write(path, "// input uses copied query values\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_layout_projections_cannot_gain_native_or_mutable_state(self):
         for include in ('CKAll.h', 'core/document/Document.h', 'ui/app/EditorState.h'):
             with self.subTest(include=include):

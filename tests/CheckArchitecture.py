@@ -59,6 +59,36 @@ def include_graph(source, files, contents=None, all_access=False):
                    if (all_access or path.startswith("ui/")) and values}
 
 
+
+def input_access(source, files, errors):
+    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection)\b|\b(?:CKContext|EditScriptData|EditGroup)\b|"
+                           r"\bm_View\.(?:Context|Pick|PickInfo|RectPick|Camera|Scene)\s*\(")
+    migrated = {"BeginMove", "UpdateMove", "EndMove", "BeginGeometry", "UpdateGeometry", "GroupSelection",
+                "UngroupSelection", "Copy", "Cut", "Paste", "PasteClipboard", "Duplicate", "BeginCopyDrag",
+                "EndCopyDrag", "RetainHit", "EndpointOf", "EndLink", "ContinueConnection", "ReplaceSourceDialog",
+                "OpenOperationChoice", "ApplyOperationChoice", "UpdateLinkPaths", "EndDrawGraph", "SelectedPositions",
+                "GraphState"}
+    for path in files:
+        if path not in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp", "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp"}:
+            continue
+        text = (source / path).read_text(encoding="utf-8-sig")
+        text = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', '', text, flags=re.S)
+        if path in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp"}:
+            if forbidden.search(text):
+                errors.append(f"native mutation or query returned to migrated input: {path}")
+            continue
+        for function in migrated:
+            start = re.search(r"\bSchematicCanvas::" + function + r"\s*\([^)]*\)[^{]*\{", text)
+            if not start:
+                continue
+            depth, end = 1, start.end()
+            while depth and end < len(text):
+                depth += (text[end] == '{') - (text[end] == '}')
+                end += 1
+            if forbidden.search(text[start.end():end]):
+                errors.append(f"native mutation or query returned to migrated input: {path}:{function}")
+
+
 def baseline_exposures(source, revision):
     if not re.fullmatch(r"[0-9a-fA-F]{7,64}", revision):
         raise ValueError("baseline_revision must be a fixed Git commit")
@@ -106,6 +136,7 @@ def check(source, manifest, inventory=None, ui_tests=False):
         if identity not in owners.values():
             errors.append(f"empty source group: {identity}")
 
+    input_access(source, files, errors)
     graph, all_exposures = include_graph(source, files, all_access=True)
     exposures = {path: access for path, access in all_exposures.items() if path.startswith("ui/")}
     for path, access in all_exposures.items():

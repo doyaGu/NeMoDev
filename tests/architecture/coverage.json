@@ -1749,7 +1749,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "焦点丢失、隐藏与 Escape 的恢复已有回归；锁选择、跨视图拖拽及工具的视图登记仍待迁移"
+          "reason": "图布局、连线、相机、三维/二维变换、Fly 和曲线输入已走统一命令；锁选择、跨视图拖拽及工具的完整视图登记仍待收尾"
         }
       ]
     },
@@ -2309,10 +2309,10 @@
     },
     {
       "id": "interaction",
-      "name": "layoutTransforming、curveTool、active gesture、capture",
-      "owner": "DocumentSession 的交互；Workspace 输入捕获",
-      "lifetime": "Escape、焦点/视图关闭、正常结束",
-      "persistence": "Begin/Commit 一个编辑，Cancel 恢复；只浏览不改 Dirty",
+      "name": "Schematic 与 Layout 手势预览、曲线工具和输入捕获",
+      "owner": "EditorApplication 持有手势；Schematic/ Layout 命令保存恢复数据；LayoutGestures 保存曲线工具；视图保存鼠标输入",
+      "lifetime": "原文档和视图；确认在帧末提交，Escape、焦点丢失、关闭、失效与停止恢复",
+      "persistence": "显示预览不写入 Script 数据；原生变换预览不记 Dirty 或 Undo；确认直接用原快照记录一次，取消恢复原值；曲线工具与手势状态不保存入文件",
       "features": [
         "F13",
         "F14",
