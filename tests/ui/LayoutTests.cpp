@@ -137,6 +137,129 @@ std::vector<CK_ID> OthersSelected(CK_ID entity) {
 void RegisterLayoutTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
 
+    t = IM_REGISTER_TEST(engine, "layout", "workspace_close_restores_gesture_and_reopens_gpu_view");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK_SILENT(SelectEntity(ctx, found));
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        vdev::WorkspaceConfiguration initial;
+        EditorView source = 0;
+        size_t steps = 0;
+        bool dirty = false, redo = false;
+        uint64_t selection = 0, allocations = 0, uploads = 0, reads = 0;
+        OnMainThread(ctx, [&] {
+            initial = workspace.Configuration();
+            auto chosen = initial;
+            for (auto &view : chosen.views)
+                if (view.role == "main.layout")
+                    view.pinned = false;
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(chosen, error));
+            source = workspace.Role("main.layout");
+            IM_CHECK_NO_RET(source);
+            steps = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            redo = state.History().CanRedo();
+            IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, found.at, CKCID_3DENTITY) == found.entity);
+            selection = state.objectSelection.Revision();
+            allocations = App().Layout().GpuViewportCreationsForTests();
+            uploads = App().Layout().ViewportUploadsForTests();
+            reads = App().Layout().View().ReadbackFrames();
+        });
+        ctx->Yield(8);
+        ctx->WindowFocus("//3D Layout");
+        IM_CHECK_SILENT(SelectEntity(ctx, found));
+        OnMainThread(ctx, [&] {
+            selection = state.objectSelection.Revision();
+            allocations = App().Layout().GpuViewportCreationsForTests();
+            uploads = App().Layout().ViewportUploadsForTests();
+            reads = App().Layout().View().ReadbackFrames();
+        });
+        const auto before = WorldMatrix(ctx, found.entity);
+        ctx->MouseMoveToPos(found.at);
+        ctx->KeyPress(ImGuiKey_X);
+        ctx->Yield(2);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({found.at.x + 40, found.at.y});
+        IM_CHECK(!Same(WorldMatrix(ctx, found.entity), before));
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(workspace.Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Command("workspace.close-view", {vdev::IntegerArgument("view", source)}).status ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(!workspace.Application().Scope(source).view && !App().Layout().Busy() &&
+                            !App().Layout().UsesGpuViewport());
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.History().CanRedo() == redo &&
+                            state.document->Dirty() == dirty && state.objectSelection.Revision() == selection);
+        });
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(workspace.OpenRole("main.layout")); });
+        ctx->Yield(5);
+        ctx->WindowFocus("//3D Layout");
+        IM_CHECK(Read<bool>(ctx, [&] {
+            return workspace.Role("main.layout") != source && App().Layout().UsesGpuViewport() &&
+                   App().Layout().GpuViewportCreationsForTests() == allocations + 1 &&
+                   App().Layout().ViewportUploadsForTests() == uploads &&
+                   App().Layout().View().ReadbackFrames() == reads &&
+                   App().Layout().Tool() == vdev::LayoutTool::Translate;
+        }));
+        IM_CHECK_SILENT(SelectEntity(ctx, found));
+        ctx->MouseMoveToPos(found.at);
+        ctx->KeyPress(ImGuiKey_X);
+        ctx->Yield(2);
+        const auto reopened = WorldMatrix(ctx, found.entity);
+        DragFrom(ctx, found.at, 40, 0);
+        IM_CHECK(Read<size_t>(ctx, [&] { return state.History().UndoCount(); }) == steps + 1);
+        Undo(ctx);
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), reopened));
+        vdev::ObjectRef dropped{};
+        std::vector<vdev::ObjectRef> selected;
+        bool locked = false;
+        OnMainThread(ctx, [&] {
+            uint64_t prototype = 0;
+            for (const auto &entry : state.catalog.Entries())
+                if (entry.name == "Rotate")
+                    prototype = (uint64_t(entry.guid.d1) << 32) | entry.guid.d2;
+            IM_CHECK_NO_RET(prototype);
+            source = workspace.Role("main.layout");
+            const vdev::EditorClient client(workspace.Application().Host(), source);
+            steps = state.History().UndoCount();
+            redo = state.History().CanRedo();
+            dirty = state.document->Dirty();
+            selected = state.objectSelection.References();
+            locked = state.objectSelection.Locked();
+            const std::vector<vdev::ObjectRef> receivers{state.document->Reference(found.entity)};
+            const auto result = client.Command("scene.drop-behavior", {vdev::ObjectsArgument("objects", receivers),
+                                                                       vdev::IntegerArgument("prototype", prototype)});
+            IM_CHECK_NO_RET(result.status == EDITOR_OK && state.document->EditOpen());
+            if (const auto *created = vdev::EditorClient::Find(result, "created"))
+                dropped = created->object;
+            IM_CHECK_NO_RET(dropped);
+        });
+        ctx->Yield(4);
+        IM_CHECK(ctx->GetWindowByRef("//###DropParameters"));
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(workspace.Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Command("workspace.close-view", {vdev::IntegerArgument("view", source)}).status ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(!state.document->EditOpen() && !state.document->Resolve(dropped));
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.History().CanRedo() == redo &&
+                            state.document->Dirty() == dirty && state.objectSelection.References() == selected &&
+                            state.objectSelection.Locked() == locked);
+            IM_CHECK_NO_RET(!ImGui::GetTopMostPopupModal());
+            IM_CHECK_NO_RET(workspace.OpenRole("main.layout"));
+        });
+        ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(initial, error));
+        });
+    };
+
     t = IM_REGISTER_TEST(engine, "layout", "continuous_viewport_uploads");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
