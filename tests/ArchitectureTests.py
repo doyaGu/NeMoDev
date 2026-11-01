@@ -242,6 +242,16 @@ class ArchitectureTests(unittest.TestCase):
         self.write("ui/app/EditorApp.cpp", "void EditorApp::Frame() { m_Workspace.Draw(); }")
         self.assertEqual(self.run_check().returncode, 0)
 
+    def test_layout_drawing_uses_workspace(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        self.write("ui/app/EditorApp.cpp", "void EditorApp::Frame() { m_Layout.Draw(dock); }")
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Layout drawing returned to EditorApp", result.stderr)
+        self.write("ui/app/EditorApp.cpp", "void EditorApp::Frame() { m_Workspace.Draw(); }")
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_setup_class_pages_cannot_regain_native_access(self):
         self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
         self.manifest["features"][0]["source_groups"].append("ui")

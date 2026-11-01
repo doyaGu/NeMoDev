@@ -79,11 +79,13 @@ def input_access(source, files, errors):
         text = (source / "ui/app/EditorApp.cpp").read_text(encoding="utf-8-sig")
         if re.search(r"\bm_Setups\.Draw\s*\(", text):
             errors.append("Setup drawing returned to EditorApp")
+        if re.search(r"\bm_Layout\.Draw\s*\(", text):
+            errors.append("Layout drawing returned to EditorApp")
 
     # These methods assemble UI from copied Layout state. The window's private
     # GPU target management is intentionally outside this list.
     methods = (
-        ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
+        ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("Register", "SaveWindow", "RestoreWindow", "PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
              "TogglePreference", "ToggleGuide", "RightClick", "DebugData", "SelectionText", "Steps", "TransformStepsOf", "Snap2DOf")),
         ("ui/setup/SetupWindows.cpp", "SetupWindows", ("Client", "Register", "ApplyPreferences", "Open", "Show",
             "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "PrepareFrame", "Save", "Restore", "Instances", "Navigate", "Header", "Sidebar", "Picture", "DrawObjectPage", "ReplaceFile", "ReadDetails", "ReadProperties", "PreviewProperty", "PreviewIndexedProperty", "SetProperty", "EditObjectList")),
