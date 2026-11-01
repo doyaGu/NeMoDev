@@ -1,0 +1,349 @@
+{
+  "description": "阶段五：3D Layout 快照、Player/全屏及呈现数据使用只读查询与统一命令；SDK 不改，GPU 快通道保留，性能验收继续暂缓。",
+  "base_revision": "39ce34d9b7e6e6be76b536e99ce4a829ae26115c",
+  "changes": [
+    "LayoutPresentation 持有 Player/显示同步与完整对象引用；界面读取相机、选区文字、帧表示、拾取和调试信息，用户动作使用登记命令。",
+    "SnapshotCommands 持有跨文档的快照库、槽位版本及文件请求，内置和外部调用使用相同命令；删除 EditorState 的快照和帧表示镜像，以及窗口的原生 Player/Level 编号。",
+    "快照读写共用现有文件输入、运行时队列与原子文件发布；位图转换归入 core；旧拖拽、批量删除和载入失败不部分修改图像或文档。",
+    "全屏恢复根据实际窗口模式决定是否继续恢复 CK；显式读回支持全屏；快照捕获与对象编辑使用各自的取消时机。",
+    "新增故障注入及生命周期回归；纯 UI 入口和呈现查询的原生访问纳入架构检查。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-layout-presentation/build-final.log"
+    },
+    "full_ctest": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 31.01,
+      "log": "out/phase-five-layout-presentation/full-verified.log",
+      "junit": "out/phase-five-layout-presentation/full-verified.xml",
+      "inventory": "out/phase-five-layout-presentation/ctest-inventory.json",
+      "excluded_label": "performance"
+    },
+    "junit_inventory": {
+      "result": "All 125 selected tests passed without skips",
+      "log": "out/phase-five-layout-presentation/junit-verification.log"
+    },
+    "ui": {
+      "html": {
+        "registered": 252,
+        "executed": 3,
+        "not_selected": 249,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/html.xml",
+        "sha256": "fb41901c5137250f4b97f94cef855bb648d9e5dec1cbf22c8c3c39bc49b4f8fb"
+      },
+      "app": {
+        "registered": 252,
+        "executed": 25,
+        "not_selected": 227,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/app.xml",
+        "sha256": "c3da683688edbd18cde33bdb3d440520084be41689ea284025081453991cd555"
+      },
+      "filemenu": {
+        "registered": 252,
+        "executed": 10,
+        "not_selected": 242,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/filemenu.xml",
+        "sha256": "239b30d527285fe5ff8ab8dae745a4a0520a961e3e7238045b467dc8be5bf3c9"
+      },
+      "schematic": {
+        "registered": 252,
+        "executed": 26,
+        "not_selected": 226,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/schematic.xml",
+        "sha256": "b3bae525842d4d41d6e5b8a7cf67367d9d91c849820fc3aaa90f408155f6e26b"
+      },
+      "debugger": {
+        "registered": 252,
+        "executed": 10,
+        "not_selected": 242,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/debugger.xml",
+        "sha256": "132f0155beb1b0443694e061508c181137f29349b7af98b3e241ca73dcb15f1e"
+      },
+      "layout": {
+        "registered": 252,
+        "executed": 22,
+        "not_selected": 230,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/layout.xml",
+        "sha256": "8dc013ed41252696c6b9ffe4010d87819da2acdbd06fac4ca3ef3c630fe89d4a"
+      },
+      "level": {
+        "registered": 252,
+        "executed": 7,
+        "not_selected": 245,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/level.xml",
+        "sha256": "93ab2f0bbfd2ca5264994a1000275f6a2d7ee7ae9bea05f69e03c0450c20b9d9"
+      },
+      "setup": {
+        "registered": 252,
+        "executed": 17,
+        "not_selected": 235,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/setup.xml",
+        "sha256": "2ddb70c5b393ba232d99b9df704eee27061da8744279fbdd1f0f3f6fe15388c4"
+      },
+      "propertyedits": {
+        "registered": 252,
+        "executed": 7,
+        "not_selected": 245,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/propertyedits.xml",
+        "sha256": "aab1ff22b33f98cf56389459e53c4961e263c90216ab2d49981267721139d768"
+      },
+      "hierarchy": {
+        "registered": 252,
+        "executed": 8,
+        "not_selected": 244,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/hierarchy.xml",
+        "sha256": "146f7b32396e5426f4e408481f2975104582115600dae3200a148efeb4d58934"
+      },
+      "blocks": {
+        "registered": 252,
+        "executed": 6,
+        "not_selected": 246,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/blocks.xml",
+        "sha256": "0a82bf81f77873b3fb1137d57dfe5e06e7e701a2170ca5a322f40f6cf575ed94"
+      },
+      "attributes": {
+        "registered": 252,
+        "executed": 6,
+        "not_selected": 246,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/attributes.xml",
+        "sha256": "214ae7bd69ff6dfaf314c563e692925150234d7794bba72f0e953034fdd79f74"
+      },
+      "create": {
+        "registered": 252,
+        "executed": 6,
+        "not_selected": 246,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/create.xml",
+        "sha256": "c8a51762085133bb3e83462c292eb7dad1e8e7bfdb4176c6ccfff7ed9330164d"
+      },
+      "tools": {
+        "registered": 252,
+        "executed": 13,
+        "not_selected": 239,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/tools.xml",
+        "sha256": "71d670f8c5dfb06a6c1f7a12a001b19325d864c3325f526a13686b3224676d50"
+      },
+      "sound": {
+        "registered": 252,
+        "executed": 2,
+        "not_selected": 250,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/sound.xml",
+        "sha256": "6bc68ab61e5e44d7ee1862ed005526b845ae0ac1cef3576efc8928be870722ae"
+      },
+      "character": {
+        "registered": 252,
+        "executed": 2,
+        "not_selected": 250,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/character.xml",
+        "sha256": "a61673de4ca0247c4ec4a21e407922c3e1e60aee8d33bb35fe1410fda489ea6e"
+      },
+      "modules": {
+        "registered": 252,
+        "executed": 63,
+        "not_selected": 189,
+        "failures": 0,
+        "errors": 0,
+        "xml": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/modules.xml",
+        "sha256": "9edf1999b68504b757fb1609f3cef36b92261db2d31c406fb44fda5240b1be18"
+      }
+    },
+    "desktop_player": {
+      "registered": 252,
+      "executed": 4,
+      "not_selected": 248,
+      "failures": 0,
+      "errors": 0,
+      "xml": "out/phase-five-layout-presentation/player-bundle.xml",
+      "sha256": "f14c9be205b26beae7b0da749f51675662f7e212f05af3b59e833d8c9334cd01",
+      "launcher": "macOS LaunchServices；临时测试 bundle 使用同一份 Release 可执行文件、资源及库。",
+      "cases": [
+        "windowed_input_focus",
+        "fullscreen_default_mode",
+        "fullscreen_roundtrip_focus",
+        "snapshot_take_capture_cancel"
+      ],
+      "log": "out/phase-five-layout-presentation/player-bundle.log",
+      "stderr": "out/phase-five-layout-presentation/player-bundle.err"
+    },
+    "architecture": {
+      "files": 1027,
+      "groups": 57,
+      "features": 32,
+      "states": 47,
+      "legacy_exposures": 41,
+      "completed_phase": 3,
+      "test_registration_checked": true,
+      "open_gaps": 20
+    },
+    "architecture_checker": {
+      "passed": 37,
+      "failed": 0,
+      "log": "out/phase-five-layout-presentation/architecture-tests.log"
+    },
+    "new_native_cases": "NeMoDevEditor: TestLayoutPresentation；NeMoDevRuntimeOperation: application lifetime",
+    "new_regressions": [
+      "Player 与 IsPlaying 的区别、忙碌/错误线程拒绝查询",
+      "Take/Capture 只显式读回一次；图像和只读查询不额外读回",
+      "旧拖拽、旧文档目标、批量删除及捕获失败保留原状态",
+      "对象与 Script 图片各一步 Undo；文件操作不改变选择或 Undo/Redo",
+      "图片保存失败保留原文件，后台工作前/后的异常不会部分载入图像",
+      "发布完成后异常仍保留真实保存结果；取消和迟到答复不执行任务",
+      "应用图片任务跨文档切换，原有文档任务失效和队列顺序不变",
+      "实际全屏往返、失焦退出、解绑失败保留 GPU 目标；全屏快照只读回一次",
+      "Capture 跨窗口焦点移动、Escape 取消、关闭和原值/撤销历史保持"
+    ],
+    "public_headers": {
+      "version": 18,
+      "ctest": "NeMoDevIdentityHeaders",
+      "c_and_cpp": true,
+      "sdk_or_stl_dependency": false
+    },
+    "nmo_direct_open": "filemenu.open_nmo_populates_level_manager_as_new_import",
+    "intermediate_runs": [
+      {
+        "log": "out/phase-five-layout-presentation/full.log",
+        "result": "Debugger 测试协程直接查询被线程检查拒绝，改为主线程查询；新增原生模块补充分层登记。文件菜单一次退出崩溃，独立重跑及最终完整回归均通过。"
+      },
+      {
+        "log": "out/phase-five-layout-presentation/fullscreen-probe.log",
+        "result": "复现 SDL 已退出全屏但窗口同步超时导致 CK 未恢复；修改后同一桌面失焦场景通过。临时日志已从源代码删除。"
+      },
+      {
+        "log": "out/phase-five-layout-presentation/player-verified.log",
+        "result": "复现快照 Capture 被普通焦点变化清除；分开取消时机后真实捕获、Escape 取消及像素比较通过。"
+      },
+      {
+        "log": "out/phase-five-layout-presentation/player-final.log",
+        "result": "命令行后台启动未获焦点；原生按键按 GUI 帧松开可早于脚本帧。前台启动并等待实际响应后，原断言全部通过。"
+      }
+    ]
+  },
+  "source_integrity": {
+    "sdk_repositories": 16,
+    "sdk_before": "out/phase-five-layout-presentation/sdk-before.json",
+    "sdk_after": "out/phase-five-layout-presentation/sdk-after.json",
+    "sdk_revision_status_and_patch_unchanged": true,
+    "sdk_runtime_files": 22,
+    "runtime_before": "out/phase-five-layout-presentation/runtime-before.json",
+    "runtime_after": "out/phase-five-layout-presentation/runtime-after.json",
+    "runtime_files_unchanged": true,
+    "gpu_sources": {
+      "viewport_functions": {
+        "Upload": true,
+        "SelectViewportContext": true,
+        "ConfigureGpuViewport": true,
+        "ReleaseGpuViewport": true,
+        "RenderUnselectedViewport": true,
+        "RenderReadbackViewport": true,
+        "RenderGpuViewport": true,
+        "ReleaseTexture": true,
+        "ResetViewportAfterContextStop": true
+      },
+      "viewport_render_block": true,
+      "unchanged_files": {
+        "ui/render/UiRenderer.cpp": true,
+        "ui/render/UiRenderer.h": true,
+        "core/layout/SdlGpuInterop.cpp": true,
+        "core/layout/SdlGpuInterop.h": true,
+        "core/layout/LayoutView.h": true
+      },
+      "layout_view_except_explicit_capture_and_exit": true
+    },
+    "gpu_source_check": "out/phase-five-layout-presentation/gpu-source-check.json",
+    "layout_view_changes": [
+      "ReadPixels：允许明确请求的全屏读回",
+      "StopFullScreen：窗口同步等待后检查实际全屏标志"
+    ],
+    "build_sources_unchanged_after_tests": true,
+    "source_sha256": {
+      "application/CMakeLists.txt": "c16be518769bfddf1e404eaa0681bac8afc541f213b8d171eef02305efb5c75c",
+      "application/RuntimeOperation.cpp": "b448dd19fd6c2147220805b7c98632fff399a07fcc446b8e77983dff787eab92",
+      "application/RuntimeOperation.h": "5396b80601e7edc17fa9b26d7229b53f866b157fc7bb9905b81301e2690e4b17",
+      "core/CMakeLists.txt": "aa05e02c58233cfe2f4861ec87ffeaf9cec9994f8e73e84716a6383bc50a445a",
+      "core/layout/LayoutView.cpp": "01f084e53bc992981c9de857a8f8fdbca35a48aa19d3274643c1abbb72bf9060",
+      "core/runtime/Bitmaps.cpp": "c228010b88d4b808038bf625590b083c3ad95245f35d4efe03dd19e991cd3aa3",
+      "core/runtime/Bitmaps.h": "006cd29b4cb136fde6d965bdeee311078b3439c5e225fd58dc79ad99f8bae796",
+      "features/defaults/DefaultWorkspace.cpp": "42a8258c237d156447ed39aed9df7717e41e39e33742f5ee694905493474a42c",
+      "features/layout/LayoutPresentation.cpp": "88bc20b432850c46a451f8ff8024e6df130bcef447d57c8f52cf9b428b33ef4e",
+      "features/layout/LayoutPresentation.h": "90e0f6d8beee36ba3ae8ae3e4edcfa48cbe1fe7e1ff2e4e04d906ebbd2c5b996",
+      "features/layout/LayoutViewport.h": "e11d925d67b2ca9bd0a425d7fa7e4975c571a0a30826613b5a608614d772da7a",
+      "features/layout/SnapshotCommands.cpp": "b9b1a13a001645d0753fc049ae2d22dcade89a44dc66913a76016bad74dfa0f7",
+      "features/layout/SnapshotCommands.h": "41854be73e716988f749b55ba2e5ea4acea3e10670767b07a5ead2c23f86866a",
+      "features/layout/SnapshotData.cpp": "9c55c6f5c6ac8cc41ee54f3d93dd07a1a0bc5778cc7fe8f47ac4ef028e65fab1",
+      "features/layout/SnapshotData.h": "62baab631fb0e5cdfdca92a64c1dfc88f27c2099081462b23b8fb69c9be108ae",
+      "tests/ArchitectureTests.py": "e6f25e5bafd529411434b400242d53ead4021282c8fa00e630de35c3d896d12a",
+      "tests/CheckArchitecture.py": "9cdcfff7d9eebcf174f4488d2d008e1f51a92837a17106cf79cf169b1fb35641",
+      "tests/CheckLayering.cmake": "585077bab36a5ced83ad8e48d2895cf4a964023946c5c55fded3b04f90ef7aeb",
+      "tests/EditorApplicationTests.cpp": "2a849067f493149b963324bd3e1b382d3dbee3a52cdb892dda087ed51352e784",
+      "tests/LayoutPresentationTests.cpp": "979290f63d5afb373a490d138e31a85a20111e1d468dc70b3f795c9a5cad32c8",
+      "tests/RuntimeOperationTests.cpp": "763e8d2a046d24e0096d1507fa0acd13fdac347dfd79547e7b67903d5d412265",
+      "tests/ui/DebuggerTests.cpp": "1fc21777baf0ef3252536cc22f362f8e9d3a59fd528808822a33bd8d6ece55a9",
+      "tests/ui/GpuViewportTests.cpp": "f3ffe416934465d2cab12589693f3d7ef6a63b34b6b740fb70ceab0ff8036212",
+      "tests/ui/PlayerTests.cpp": "a36f7ef1d01fd54d8b87660ae179713e66af6fec0ee1ef05fbee2b6fc677f7dc",
+      "ui/CMakeLists.txt": "566b5b0d1f19af52d2a703bc072f768251eeae857985b141dabb79363794ff5b",
+      "ui/app/EditorApp.cpp": "57b17591c590932704b2097006373ed6abb5e1f8bcb8f826a7e96b91c9935678",
+      "ui/app/EditorApp.h": "0be30ed40230d16de1a9c23174b7ec542f0db48469c31435a489cec96d3e3477",
+      "ui/app/EditorState.h": "1ec795ea765b689d8294f9a47df7f432fc5883754b2f6ab7a7e28562e23b3a65",
+      "ui/app/FileInputs.cpp": "45c607a787869ac0e30505774134d7c63dd63e5820b486f6a2f048ebe2e2dcf8",
+      "ui/app/FileInputs.h": "cd9d7da7e61489ab7be865ba731158398e81d5804e38ee9963c2f673f2cade36",
+      "ui/layout/LayoutDrop.cpp": "646cab8710f2ff88302bb8716358d590214db2ee75eb11fb11f13b6601013681",
+      "ui/layout/LayoutFullScreen.cpp": "e29f9a667b743f1485785def44d58181ac916465502601520ab8debca69d1525",
+      "ui/layout/LayoutInput.cpp": "bfa0fec2b7b744c236de6b6ff426c5978bd940388e7c073c7b793556808def48",
+      "ui/layout/LayoutSnapshot.cpp": "884121d61f7783dedca076bed5eee2f6e33525f41624e79800318064a00e35ea",
+      "ui/layout/LayoutWindow.cpp": "d76a4c98eefef723999550446ee5c208cb797bf7f4638be6c472f66b8356e97b",
+      "ui/layout/LayoutWindow.h": "e72a7f66cda6c5a299cf360201db93e037afe0a3c768448483f7b2ae6dab3c8c",
+      "ui/schematic/SchematicCanvas.cpp": "bc423a3844ab78892fb43ce05ffbb80247e2217d65e71584c1e06f4512aeba55",
+      "ui/schematic/Snapshots.cpp": "083a397d9ae70bd0416035887a5f9c11f55c800560069285c37b4f8873dc970b",
+      "ui/schematic/Snapshots.h": "f0abbbf814abd546ff1fb434903d7871cf8080020317e1cc80a1009fca2ef885",
+      "ui/setup/SetupScenePages.cpp": "c450f37e72eb8f037f2efa05ebab8b4ffcab36f9e478a8c343b5877a42d9e8ee",
+      "ui/setup/SetupWindows.cpp": "ef55ef204dca7ededcc628ddea77f6842428f119b3818cbff1503951fc84dfbf"
+    }
+  },
+  "performance": {
+    "status": "deferred",
+    "acceptance_performed": false,
+    "thresholds_changed": false,
+    "note": "仅运行功能回归；未运行 viewportbaseline 时延验收或 CPU 探针，功能通过不代替性能验收。"
+  },
+  "remaining": [
+    "阶段五尚未全部完成，completed_phase 保持三。",
+    "继续迁移其余 Setup、Layout 创建/资源拖放及清单中的剩余入口；旧名称拾取表只剩 Layout 私有适配。"
+  ]
+}
