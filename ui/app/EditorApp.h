@@ -284,7 +284,7 @@ private:
                                           m_State.objectSelection};
     SchematicViews m_Schematics;
     EditorPanels m_Panels;
-    SetupWindows m_Setups{m_State, m_Workspace};
+    SetupWindows m_Setups{m_Workspace, m_State.fileDialogs};
     SceneCommands m_SceneCommands{m_Editor, [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
         m_State.objectClipboard, m_State.clipboard, [this]() -> SchematicNavigation & { return m_State.Schematic(); }, [this]() -> CKDependencies & { return m_State.CopyDependencies(); }};
     HtmlFonts m_HtmlFonts;

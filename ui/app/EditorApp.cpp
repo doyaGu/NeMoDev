@@ -527,7 +527,6 @@ void EditorApp::CloseDocumentViews() {
     m_Workspace.DocumentChanging();
     m_Editor.NativeAvailable(false);
     m_Outputs.Stop();
-    m_Setups.CloseAll();
     m_Panels.DocumentClosed();
     m_Layout.DocumentClosed(); // its working copies while they still exist
     m_Layout.ApplyLayoutData(LayoutInterfaceData(), {});
@@ -559,7 +558,7 @@ void EditorApp::RestoreDocument() {
 }
 
 bool EditorApp::DocumentInteractionActive() const {
-    return m_Schematics.Busy() || m_Layout.Busy() || m_Setups.HasPendingEdits() || m_Workspace.Interacting();
+    return m_Schematics.Busy() || m_Layout.Busy() || m_Workspace.Interacting();
 }
 
 
@@ -1046,9 +1045,6 @@ void EditorApp::Frame() {
     {
         m_LayoutPresentation.Poll();
         m_Layout.Draw(0, m_FocusSchematic <= 0);
-        // Setup tabs dock with the Schematic (Dev's tab row).
-        ImGuiWindow *schematic = ImGui::FindWindowByName(m_Schematics.Window().c_str());
-        m_Setups.Draw(schematic ? schematic->DockId : 0);
     }
     const auto &execution = m_Execution.State();
     m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"));

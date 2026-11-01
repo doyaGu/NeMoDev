@@ -72,6 +72,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"query", "parameter.vector3-value", "builtin.parameters"},
                                       {"command", "bitmap.edit-options", "builtin.parameters"},
                                       {"command", "object.open-setup", "builtin.setup-windows"},
+                                      {"command", "setup.navigate", "builtin.setup-windows"},
+                                      {"view", "object.setup", "builtin.setup-windows"},
                                       {"command", "object.rename", "builtin.objects"},
                                       {"command", "object.create-frame3d", "builtin.objects"},
                                       {"command", "resource.load", "builtin.documents"},
@@ -146,6 +148,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                     {"resource.file-dialogs", "", "", true},
                     {"snapshot.file-dialogs", "", "", true},
                     {"scene.hierarchy", "main.hierarchy", "resources"},
+                    {"object.setup", "", "editing", false, false, false, true},
                     {"scene.attributes", "main.attributes", "editing"},
                     {"resource.data", "", "resources", false, false, true},
                     {"runtime.debugger", "main.debugger", ""},
@@ -165,8 +168,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                      {"top", "resources", "layout", WorkspaceDirection::Right, .5f}};
     result.regions = {
         {"layout", "", "3D Layout"}, {"editing", "main.schematic", ""}, {"resources", "main.building-blocks", ""}};
-    result.legacyWindows = {{"3D Layout", "layout", false, true},
-                            {"###setup", "editing", true}};
+    result.legacyWindows = {{"3D Layout", "layout", false, true}};
     return result;
 }
 bool RegisterDefaultWorkspace(EditorApplication &editor, std::string &error) {

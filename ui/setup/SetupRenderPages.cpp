@@ -1011,6 +1011,7 @@ void SetupWindows::SaveFormatControls(ObjectRef target) {
 }
 
 void SetupWindows::RunSlotCommand(Setup &setup, ObjectRef target, SlotCommand command) {
+    const bool pending = m_PropertyEdit != 0;
     if (!FlushPending())
         return;
     SetupDetails description;
@@ -1039,7 +1040,7 @@ void SetupWindows::RunSlotCommand(Setup &setup, ObjectRef target, SlotCommand co
         const auto owner = m_CurrentOwner ? m_CurrentOwner : setup.nameOwner;
         ChooseFile(
             options,
-            [this, target, owner, slot, command,
+            [this, target, owner, slot, command, after = pending ? m_SubmittedEdit : 0,
              revision = description.documentRevision](const FileDialogResult &selection) {
                 if (selection.status != FileDialogResult::Status::Selected || selection.paths.empty())
                     return;
@@ -1060,12 +1061,13 @@ void SetupWindows::RunSlotCommand(Setup &setup, ObjectRef target, SlotCommand co
                         fields.push_back({"channels", EDITOR_INTEGER_VALUE, {}, {}, 14});
                 }
                 const auto args = BorrowEditorFields(fields);
-                const auto result = Client(owner).Command(id, args.values);
+                const auto result = after ? Client(owner).CommandAfterEdit(after, id, args.values, "document-revision")
+                                          : Client(owner).Command(id, args.values);
                 if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE)
                     Warn("Image file operation failed");
-                for (auto &open : m_Doc.setups)
-                    if (open.reference == target)
-                        open.textureFrames = 1000;
+                for (auto &open : m_Instances)
+                    if (open.second->reference == target)
+                        open.second->textureFrames = 1000;
             },
             command == SlotCommand::Add);
         return;

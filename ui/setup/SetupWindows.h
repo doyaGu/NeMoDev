@@ -19,7 +19,6 @@
 #include "features/setup/SetupViewData.h"
 
 namespace vdev {
-class EditorState;
 class EditorWorkspace;
 
 // Dev's Setup panels (screenshots: Grid, 2D Frame, 3D Object, Target Camera,
@@ -35,21 +34,19 @@ struct DevPage;
 
 class SetupWindows {
 public:
-    explicit SetupWindows(EditorState &state, EditorWorkspace &workspace) : m_State(state), m_Workspace(workspace) {}
+    explicit SetupWindows(EditorWorkspace &workspace, FileDialogs &files) : m_Workspace(workspace), m_Files(files) {}
     bool Register(std::string &error);
 
     // Opens (or brings forward) the Setup of an object.
     void Open(ObjectRef object);
     // Setups opened from now on show their Attribute page (capture mode).
     bool attributesFirst = false;
-    // dock: where a Setup opened for the first time docks (the Schematic's node).
-    void Draw(ImGuiID dock);
     void CloseAll();
-    bool HasPendingEdits() const { return m_PropertyEdit != 0; }
     // The Setups open, in their order (the 3D Layout's data saves them, Dev.exe
     // sub_4B4E50): the object, the Curve Setup's control point, the one in front.
     struct OpenSetup {
         ObjectRef object{}, other{};
+        EditorView view = 0;
         bool front = false;
     };
     std::vector<OpenSetup> OpenSetups() const;
@@ -58,12 +55,15 @@ private:
     friend struct SetupEditTests;
     using Kind = SetupKind;
     struct Setup {
+        SetupWindows *owner = nullptr;
         Kind kind = Kind::Other;
         ObjectRef reference{};
         SetupPageData page;
         EditorView nameOwner = 0;
         EditorEdit renameEdit = 0;
         bool openRename = false;
+        bool filePending = false;
+        uint64_t inspectionRevision = 1;
         bool attributes = false; // Attribute page shown
         // The header's Level / Current Scene filter (pressed: the current
         // scene's objects in the Name combo, Dev.exe sub_44DD30).
@@ -85,9 +85,6 @@ private:
         ObjectPictureData picture;
         uint64_t pictureRevision = 0;
         std::unique_ptr<UiTexture> pictureTexture;
-        bool open = true;
-        bool focus = false;
-        int slot = 0; // other Setups of the type (Show New Setups): 1, 2, ...
         // Texture Setup
         ObjectRef shownTexture{};
         int shownSlot = -1;
@@ -136,7 +133,12 @@ private:
 
     EditorClient Client(EditorView owner = 0) const;
     void ApplyPreferences();
-    EditorStatus Show(ObjectRef target);
+    EditorStatus Show(ObjectRef target, EditorSink);
+    EditorStatus Navigate(Setup &, ObjectRef, int);
+    std::vector<EditorView> Instances() const;
+    EditorStatus Save(const Setup &, EditorSink) const;
+    EditorStatus Restore(Setup &, const EditorRequest &);
+    void PrepareFrame();
     void ChangeTarget(Setup &, ObjectRef, int point = -1);
     void Close(Setup &);
     // Dev.exe sub_4A01F0 (RealTime Notifications): the Setups show the 3D
@@ -148,10 +150,10 @@ private:
         VxMatrix world, local;
         VxBbox box; // world bounding box
     };
-    bool m_Notify = true; // this frame refreshes m_Doc.shown
+    bool m_Notify = true; // this frame refreshes m_Shown
     int m_PlayFrames = 0;
     const ShownTransform &Shown(ObjectRef target);
-    void DrawSetup(Setup &setup, ImGuiID dock);
+    void DrawSetup(Setup &setup, EditorViewFrame &frame);
     void Header(Setup &, const SetupPageData &);
     void Sidebar(Setup &, const SetupPageData &);
     void Picture(Setup &);
@@ -199,6 +201,7 @@ private:
     void FramePage(ObjectRef target);
     void PlaceLinks(ObjectRef target);
     void Warn(const std::string &);
+    void Report(EditorStatus, const std::string &);
     void Sprite3DPage(ObjectRef target);
     // Classes Dev has no Setup for (Dev.exe sub_4B0010 opens none): pages
     // after the class definitions (SDK headers).
@@ -298,23 +301,18 @@ private:
     void CancelPending();
     void UsedByList(const char *id, const std::vector<EditorField> &rows, const ImVec2 &size);
 
-    // What names the open composition's objects (CK gives their ids to the
-    // next document's objects): made anew when it is closed; a field naming
-    // an object goes here.
-    struct DocumentState {
-        std::vector<Setup> setups;
-        ObjectRef front{};                         // the object of the Setup focused last
-        std::map<ObjectRef, ShownTransform> shown; // refreshed when m_Notify
-        ObjectRef gridLayer{};                     // a layer whose Grid Setup opens on it (Layer Setup)
-    };
-
-    EditorState &m_State;
     EditorWorkspace &m_Workspace;
+    FileDialogs &m_Files;
     Preferences m_Preferences;
     uint64_t m_PreferencesRevision = 0;
-    DocumentState m_Doc;
+    // Workspace owns each Setup; this index supports shared tools without a second owner.
+    std::map<EditorView, Setup *> m_Instances;
+    std::map<ObjectRef, ShownTransform> m_Shown;
+    ObjectRef m_GridLayer{};
+    int m_PreparedFrame = -1;
     std::map<ObjectRef, std::string> m_FormatInfo, m_FormatInfoKey;
     EditorEdit m_PropertyEdit = 0;
+    EditorOperation m_SubmittedEdit = 0;
     EditorView m_CurrentOwner = 0, m_PropertyOwner = 0;
     ObjectRef m_PropertyTarget{}, m_PropertySetup{}, m_CurrentTarget{};
     std::string m_PropertyKey;
@@ -325,12 +323,13 @@ private:
     // other place to be picked (a click in a window that answers, Escape or
     // a right click gives up).
     ObjectRef m_PortalPlace{};
+    EditorView m_PortalOwner = 0;
     void PortalPick();
     // The header's picker (Dev.exe sub_4436E0 20): the Setup of this object
     // takes the next object of its class clicked (Escape, a right click or
     // the picker again gives up).
     ObjectRef m_PickSetup{};
-    int m_PickSetupSlot = 0;
+    EditorView m_PickSetupView = 0;
     void SetupPick();
 };
 

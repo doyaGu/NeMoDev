@@ -426,9 +426,6 @@ void SetupWindows::ArrayPage(Setup &setup) {
     if (!FlushPending())
         return;
     auto &application = m_Workspace.Application();
-    if (!setup.nameOwner) setup.nameOwner = application.OpenScope();
-    application.EnterDraw();
-    struct Drawing { EditorApplication &application; ~Drawing() { application.LeaveDraw(); } } drawing{application};
     setup.array.Draw(EditorClient(application.Host(), setup.nameOwner), setup.reference);
 }
 
@@ -759,8 +756,10 @@ void SetupWindows::PlaceLinks(ObjectRef target) {
         }
         // Automatic Portal (Dev.exe sub_471C10 203): the next click picks the
         // other place (SetupWindows::PortalPick).
-        if (ImGui::MenuItem("Automatic Portal"))
+        if (ImGui::MenuItem("Automatic Portal")) {
             m_PortalPlace = target;
+            m_PortalOwner = m_CurrentOwner;
+        }
         if (ImGui::MenuItem("Attach New Place", nullptr, false, bool(next)))
             relink("Attach New Place", {}, {}, next, {});
         if (ImGui::MenuItem("Remove Place", nullptr, false, bool(row.place)))

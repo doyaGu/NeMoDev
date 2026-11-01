@@ -20,16 +20,16 @@ namespace vdev {
 struct SetupEditTests {
     static void ChooseGridLayers(EditorApp &app, CK_ID grid) {
         auto &setups = const_cast<SetupWindows &>(app.Setups());
-        for (auto &setup : setups.m_Doc.setups)
-            if (setup.reference.object == grid)
-                setup.layers = {0, 1};
+        for (auto &entry : setups.m_Instances)
+            if (entry.second->reference.object == grid)
+                entry.second->layers = {0, 1};
     }
     static bool BeginRenameAndPick(EditorApp &app, ObjectRef target) {
         auto &windows = const_cast<SetupWindows &>(app.Setups());
-        for (auto &setup : windows.m_Doc.setups)
-            if (setup.reference == target) {
+        for (auto &entry : windows.m_Instances)
+            if (auto &setup = *entry.second; setup.reference == target) {
                 windows.m_PickSetup = target;
-                windows.m_PickSetupSlot = setup.slot;
+                windows.m_PickSetupView = setup.nameOwner;
                 setup.meshRows.insert({target.document, 12345, 1});
                 return windows.m_Workspace.Begin("object.name", target, setup.renameEdit, setup.nameOwner);
             }
@@ -37,14 +37,23 @@ struct SetupEditTests {
     }
     static bool CleanTarget(EditorApp &app, ObjectRef target) {
         auto &windows = const_cast<SetupWindows &>(app.Setups());
-        for (const auto &setup : windows.m_Doc.setups)
-            if (setup.reference == target)
-                return !setup.renameEdit && setup.meshRows.empty() && !windows.m_PickSetup;
+        for (const auto &entry : windows.m_Instances)
+            if (const auto &setup = *entry.second; setup.reference == target)
+                return !setup.renameEdit && setup.meshRows.empty() && !windows.m_PickSetup && !windows.m_PickSetupView;
         return false;
     }
     static bool NoPicker(EditorApp &app) {
         const auto &windows = app.Setups();
-        return !windows.m_PickSetup && !windows.m_PortalPlace;
+        return !windows.m_PickSetup && !windows.m_PickSetupView && !windows.m_PortalPlace && !windows.m_PortalOwner;
+    }
+    static bool CanSave(EditorApp &app, CK_ID target) {
+        const auto &windows = app.Setups();
+        for (const auto &entry : windows.m_Instances)
+            if (entry.second->reference.object == target)
+                return windows.Save(*entry.second, {nullptr, [](void *, const EditorValue *, uint32_t) {
+                                                        return EDITOR_OK;
+                                                    }}) == EDITOR_OK;
+        return false;
     }
 };
 } // namespace vdev

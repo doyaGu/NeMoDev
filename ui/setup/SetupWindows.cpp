@@ -5,8 +5,10 @@
 // Texture, Curve, Character, Sound, Array and Group Setup). Pages use copied query data.
 
 #include "ui/setup/SetupWindows.h"
-#include "ui/app/EditorState.h"
 #include "workspace/EditorWorkspace.h"
+#include "editor/ImGuiDrawing.h"
+#include "editor/Scene.h"
+#include "CKDefines.h"
 
 #include <algorithm>
 #include <cmath>
@@ -34,30 +36,115 @@ using namespace setup;
 
 // ---------------------------------------------------------------- frame
 
-void SetupWindows::Warn(const std::string &message) { m_State.Log(LogLevel::Warning, message); }
+void SetupWindows::Report(EditorStatus status, const std::string &message) {
+    auto &app = m_Workspace.Application();
+    if (app.report)
+        app.report({status, message});
+}
+void SetupWindows::Warn(const std::string &message) { Report(EDITOR_REFUSED, message); }
 
 EditorClient SetupWindows::Client(EditorView owner) const { return {m_Workspace.Application().Host(), owner}; }
 
 bool SetupWindows::Register(std::string &error) {
     const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
-    const EditorCommandDesc command{sizeof(EditorCommandDesc),
-                                    EDITOR_TEXT("object.open-setup"),
-                                    EDITOR_TEXT("builtin.setup-windows"),
-                                    EDITOR_TEXT("Setup"),
-                                    &target,
-                                    1,
-                                    [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
-                                        return static_cast<SetupWindows *>(data)->Show(request->values[0].object);
-                                    },
-                                    this,
-                                    EDITOR_WORKSPACE,
-                                    EDITOR_SESSION_CHANGE};
+    const EditorParameter args[] = {target, {EDITOR_TEXT("point"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorParameter fields[] = {target,
+                                      {EDITOR_TEXT("other"), EDITOR_OBJECT},
+                                      {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE},
+                                      {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE}};
+    EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("object.open-setup"), EDITOR_TEXT("builtin.setup-windows"),
+         EDITOR_TEXT("Setup"), &target, 1,
+         [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+             return static_cast<SetupWindows *>(data)->Show(request->values[0].object, sink);
+         },
+         this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("setup.navigate"), EDITOR_TEXT("builtin.setup-windows"),
+         EDITOR_TEXT("Choose Setup Object"), &target, 1,
+         [](void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             return host->navigateView(host->data, EditorString EDITOR_TEXT("object.setup"), request->scope.view,
+                                       request, sink);
+         },
+         nullptr, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
+    EditorViewDesc view{};
+    view.size = sizeof(view);
+    view.imguiVersion = EDITOR_IMGUI_VERSION;
+    view.id = EDITOR_TEXT("object.setup");
+    view.provider = EDITOR_TEXT("builtin.setup-windows");
+    view.title = EDITOR_TEXT("Setup");
+    view.area = EDITOR_DOCUMENT;
+    view.documentBound = 1;
+    view.data = this;
+    view.create = [](void *data, const EditorHost *, EditorView id) -> void * {
+        auto &owner = *static_cast<SetupWindows *>(data);
+        auto setup = std::make_unique<Setup>();
+        setup->owner = &owner;
+        setup->nameOwner = id;
+        setup->attributes = owner.attributesFirst;
+        setup->page.title = "Setup";
+        owner.m_Instances.emplace(id, setup.get());
+        return setup.release();
+    };
+    view.destroy = [](void *data) {
+        auto *setup = static_cast<Setup *>(data);
+        auto &owner = *setup->owner;
+        owner.Close(*setup);
+        owner.m_Instances.erase(setup->nameOwner);
+        delete setup;
+    };
+    view.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        auto &setup = *static_cast<Setup *>(data);
+        auto &owner = *setup.owner;
+        owner.PrepareFrame();
+        owner.DrawSetup(setup, *frame);
+        if (owner.m_PropertyEdit && owner.m_PropertyOwner == setup.nameOwner && !ImGui::IsAnyItemActive() &&
+            !ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+            owner.FinishProperty(true);
+        owner.PortalPick();
+        owner.SetupPick();
+        frame->active = setup.renameEdit || (owner.m_PropertyEdit && owner.m_PropertyOwner == setup.nameOwner);
+    };
+    view.parameters = args;
+    view.count = 2;
+    view.navigate = [](void *data, const EditorHost *, const EditorRequest *request) {
+        auto &setup = *static_cast<Setup *>(data);
+        int point = -1;
+        for (uint32_t i = 0; i < request->count; ++i)
+            if (std::string(request->values[i].key.data, request->values[i].key.size) == "point" &&
+                request->values[i].integer)
+                point = int(request->values[i].integer - 1);
+        return setup.owner->Navigate(setup, request->values[0].object, point);
+    };
+    view.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &setup = *static_cast<Setup *>(data);
+        const EditorValue values[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT, setup.reference},
+                                      {EDITOR_TEXT("other"), EDITOR_OBJECT, setup.page.point},
+                                      {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(setup.kind)},
+                                      {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE, {}, EditorText(setup.page.title)}};
+        return sink.write(sink.data, values, 4);
+    };
+    view.fields = fields;
+    view.fieldCount = 4;
+    view.inspectRevision = [](void *data, const EditorHost *) {
+        return static_cast<Setup *>(data)->inspectionRevision;
+    };
+    view.stateVersion = 1;
+    view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &setup = *static_cast<Setup *>(data);
+        return setup.owner->Save(setup, sink);
+    };
+    view.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
+        auto &setup = *static_cast<Setup *>(data);
+        return setup.owner->Restore(setup, *request);
+    };
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("setup.windows");
-    module.commands = &command;
-    module.commandCount = 1;
+    module.commands = commands;
+    module.commandCount = 2;
+    module.views = &view;
+    module.viewCount = 1;
     return m_Workspace.Application().Register(module, error);
 }
 
@@ -75,7 +162,18 @@ void SetupWindows::ApplyPreferences() {
 
 void SetupWindows::Open(ObjectRef target) { Client().Command("object.open-setup", {ObjectArgument("target", target)}); }
 
-EditorStatus SetupWindows::Show(ObjectRef requested) {
+std::vector<EditorView> SetupWindows::Instances() const {
+    const auto state = Client().Query("workspace.instances");
+    const auto *types = EditorClient::Find(state, "types"), *views = EditorClient::Find(state, "views");
+    std::vector<EditorView> result;
+    if (state.status != EDITOR_OK || !types || !views || types->texts.size() != views->integers.size())
+        return result;
+    for (size_t i = 0; i < types->texts.size(); ++i)
+        if (types->texts[i] == "object.setup")
+            result.push_back(views->integers[i]);
+    return result;
+}
+EditorStatus SetupWindows::Show(ObjectRef requested, EditorSink sink) {
     ObjectRef target{};
     int point = -1;
     SetupPageData page;
@@ -84,30 +182,84 @@ EditorStatus SetupWindows::Show(ObjectRef requested) {
     ApplyPreferences();
     const bool showNew =
         m_Preferences.Bool("3D Layout\\Show New Setups") || (ImGui::GetCurrentContext() && ImGui::GetIO().KeyShift);
-    Setup *shown = nullptr;
-    int slot = 0;
-    for (Setup &setup : m_Doc.setups)
-        if (setup.open && setup.kind == page.kind) {
-            if (setup.reference == target || (!showNew && !shown))
-                shown = &setup;
-            if (setup.reference == target)
-                break;
-            slot = std::max(slot, setup.slot + 1);
+    EditorView chosen = 0;
+    for (auto view : Instances()) {
+        const auto info = Client().Inspect(view);
+        const auto *object = EditorClient::Find(info, "target");
+        if (info.status != EDITOR_OK || !object || EditorClient::Integer(info, "kind") != uint64_t(page.kind))
+            continue;
+        if (object->object == target) {
+            chosen = view;
+            break;
         }
-    if (shown) {
-        ChangeTarget(*shown, target, point);
-        shown->focus = true;
-        return EDITOR_OK;
+        if (!showNew && !chosen)
+            chosen = view;
     }
-    Setup setup;
+    const bool created = !chosen;
+    if (created) {
+        static const char *const roles[] = {"setup3d",
+                                            "setupcamera",
+                                            "setuplight",
+                                            "setup2d",
+                                            "setupmaterial",
+                                            "setupmesh",
+                                            "setuptexture",
+                                            "setupgrid",
+                                            "setupother",
+                                            "setupcurve",
+                                            "setupcharacter",
+                                            "setupsound",
+                                            "setuparray",
+                                            "setupgroup",
+                                            "setupscene",
+                                            "setupsprite3d",
+                                            "setupsprite2d",
+                                            "setupanimation",
+                                            "setupobjectanimation",
+                                            "setupmidi",
+                                            "setupspritetext",
+                                            "setupchain",
+                                            "setuplayer",
+                                            "setupparameter",
+                                            "setupparameterin",
+                                            "setupoperation",
+                                            "setupbehavior",
+                                            "setupbehaviorio",
+                                            "setupbehaviorlink",
+                                            "setupsynchro",
+                                            "setupstate",
+                                            "setupcriticalsection",
+                                            "setupinterfaceobjects"};
+        const std::string base = roles[unsigned(page.kind)];
+        std::string role = base;
+        for (unsigned i = 1; m_Workspace.Role(role); ++i)
+            role = base + "#" + std::to_string(i);
+        chosen = m_Workspace.Open("object.setup", role);
+    }
+    if (!chosen)
+        return EDITOR_ERROR;
+    const EditorValue values[] = {ObjectArgument("target", target),
+                                  IntegerArgument("point", point >= 0 ? uint64_t(point) + 1 : 0)};
+    const EditorRequest next{m_Workspace.Application().Scope(chosen), values, 2};
+    const auto status = m_Workspace.Application().Host()->navigateView(
+        m_Workspace.Application().Host()->data, EditorString EDITOR_TEXT("object.setup"), chosen, &next, sink);
+    if (created && status != EDITOR_OK && status != EDITOR_NO_CHANGE)
+        m_Workspace.Close(chosen);
+    return status;
+}
+EditorStatus SetupWindows::Navigate(Setup &setup, ObjectRef requested, int point) {
+    ObjectRef target{};
+    int selected = -1;
+    SetupPageData page;
+    if (!ReadSetupTarget(Client(), requested, target, selected) ||
+        !ReadSetupPage(Client(), target, point >= 0 ? point : selected, page))
+        return EDITOR_STALE;
+    if (setup.reference && setup.kind != page.kind)
+        return EDITOR_INVALID;
+    ChangeTarget(setup, target, point >= 0 ? point : selected);
     setup.kind = page.kind;
-    setup.page = page;
-    setup.reference = target;
-    setup.slot = slot;
-    setup.focus = true;
-    setup.attributes = attributesFirst;
-    if (point >= 0) setup.point = point;
-    m_Doc.setups.push_back(std::move(setup));
+    setup.page = std::move(page);
+    ++setup.inspectionRevision;
     return EDITOR_OK;
 }
 
@@ -120,13 +272,20 @@ void SetupWindows::ChangeTarget(Setup &setup, ObjectRef target, int point) {
             FinishProperty(false);
         m_Workspace.Finish(setup.renameEdit, false);
         setup.array.Cancel(Client(setup.nameOwner));
-        if (m_PickSetup == setup.reference && m_PickSetupSlot == setup.slot)
+        if (m_PickSetupView == setup.nameOwner) {
             m_PickSetup = {};
+            m_PickSetupView = 0;
+        }
         RetireTexture(std::move(setup.pictureTexture));
-        m_Doc.shown.erase(setup.reference);
+        if (m_PortalOwner == setup.nameOwner) {
+            m_PortalPlace = {};
+            m_PortalOwner = 0;
+        }
+        m_Shown.erase(setup.reference);
         Setup next;
         next.kind = setup.kind;
-        next.slot = setup.slot;
+        next.owner = this;
+        next.inspectionRevision = setup.inspectionRevision + 1;
         next.nameOwner = setup.nameOwner;
         next.attributes = setup.attributes;
         next.sceneFilter = setup.sceneFilter;
@@ -142,41 +301,214 @@ void SetupWindows::ChangeTarget(Setup &setup, ObjectRef target, int point) {
 
 std::vector<SetupWindows::OpenSetup> SetupWindows::OpenSetups() const {
     std::vector<OpenSetup> result;
-    for (const Setup &setup : m_Doc.setups) {
-        if (!setup.open || setup.page.target != setup.reference)
-            continue;
-        result.push_back({setup.reference, setup.page.point, setup.reference == m_Doc.front});
+    const auto focused = m_Workspace.LastFocused("object.setup");
+    for (auto view : Instances()) {
+        const auto state = Client().Inspect(view);
+        const auto *target = EditorClient::Find(state, "target"), *other = EditorClient::Find(state, "other");
+        if (state.status == EDITOR_OK && target && target->object)
+            result.push_back({target->object, other ? other->object : ObjectRef{}, view, view == focused});
     }
     return result;
 }
 
+EditorStatus SetupWindows::Save(const Setup &setup, EditorSink sink) const {
+    if (setup.renameEdit || setup.array.cell || setup.array.dialog || setup.array.openPopup || setup.array.openDelete ||
+        setup.openResize || setup.openSquare || setup.openGridRename || setup.confirmRemoveSlot || setup.filePending ||
+        setup.pickingColor || !setup.droppedAlpha.empty() || (m_PickSetup && m_PickSetupView == setup.nameOwner) ||
+        (m_PortalPlace && m_PortalOwner == setup.nameOwner))
+        return EDITOR_REFUSED;
+    std::vector<EditorField> fields{{"target", EDITOR_OBJECT, setup.reference},
+                                    {"point", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(setup.point)},
+                                    {"attributes", EDITOR_INTEGER_VALUE, {}, {}, setup.attributes},
+                                    {"scene-filter", EDITOR_INTEGER_VALUE, {}, {}, setup.sceneFilter},
+                                    {"material-custom", EDITOR_INTEGER_VALUE, {}, {}, setup.materialCustom},
+                                    {"attribute-catalog", EDITOR_INTEGER_VALUE, {}, {}, setup.attributeCatalog},
+                                    {"mesh-rows", EDITOR_OBJECT_LIST},
+                                    {"body-part-rows", EDITOR_OBJECT_LIST},
+                                    {"zoom", EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, setup.zoom},
+                                    {"scroll", EDITOR_REAL_LIST},
+                                    {"grid3d", EDITOR_INTEGER_VALUE, {}, {}, setup.grid3d}};
+    fields[6].objects.assign(setup.meshRows.begin(), setup.meshRows.end());
+    fields[7].objects.assign(setup.bodyPartRows.begin(), setup.bodyPartRows.end());
+    fields[9].reals = {setup.scroll.x, setup.scroll.y};
+    const auto integers = [&](const char *key, const auto &values) {
+        EditorField field{key, EDITOR_INTEGER_LIST};
+        for (auto value : values)
+            field.integers.push_back(uint64_t(value));
+        fields.push_back(std::move(field));
+    };
+    integers("channel-rows", setup.channelRows);
+    integers("attribute-rows", setup.attributeRows);
+    integers("layers", setup.layers);
+    integers("array-rows", setup.array.selected);
+    const auto number = [&](const char *key, int value) {
+        fields.push_back({key, EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(value))});
+    };
+    number("layer", setup.layer);
+    number("paint", setup.paint);
+    number("layer-type", setup.layerType);
+    number("classification", setup.classification);
+    number("array-anchor", setup.array.anchor);
+    number("array-column", setup.array.column);
+    number("array-focus-row", setup.array.focusRow);
+    number("array-focus-column", setup.array.focusColumn);
+    fields.push_back({"array-revision", EDITOR_INTEGER_VALUE, {}, {}, setup.array.revision});
+    const auto values = BorrowEditorFields(fields);
+    return sink.write(sink.data, values.data(), uint32_t(values.size()));
+}
+EditorStatus SetupWindows::Restore(Setup &setup, const EditorRequest &request) {
+    std::vector<EditorField> fields;
+    if (CopyEditorFields(fields, request.values, request.count) != EDITOR_OK)
+        return EDITOR_INVALID;
+    Setup next;
+    next.owner = this;
+    next.nameOwner = setup.nameOwner;
+    ObjectRef target{};
+    int point = 0;
+    bool hasTarget = false;
+    for (const auto &field : fields) {
+        if (field.key == "target") {
+            if (field.type != EDITOR_OBJECT || (field.object && field.object.document != request.scope.document))
+                return EDITOR_STALE;
+            target = field.object;
+            hasTarget = true;
+        } else if (field.key == "point") {
+            if (field.type != EDITOR_INTEGER_VALUE || field.integer > INT32_MAX)
+                return EDITOR_INVALID;
+            point = int(field.integer);
+        }
+    }
+    if (!hasTarget)
+        return EDITOR_INVALID;
+    if (target) {
+        const auto status = Navigate(next, target, point);
+        if (status != EDITOR_OK)
+            return status;
+    } else
+        next.page.title = "Setup";
+    for (const auto &field : fields) {
+        const auto &key = field.key;
+        if (key == "target" || key == "point")
+            continue;
+        if (key == "attributes" || key == "scene-filter" || key == "material-custom" || key == "grid3d") {
+            if (field.type != EDITOR_INTEGER_VALUE || field.integer > 1)
+                return EDITOR_INVALID;
+            if (key == "attributes")
+                next.attributes = field.integer;
+            if (key == "scene-filter")
+                next.sceneFilter = field.integer;
+            if (key == "material-custom")
+                next.materialCustom = field.integer;
+            if (key == "grid3d")
+                next.grid3d = field.integer;
+        } else if (key == "mesh-rows" || key == "body-part-rows") {
+            if (field.type != EDITOR_OBJECT_LIST)
+                return EDITOR_INVALID;
+            auto &rows = key == "mesh-rows" ? next.meshRows : next.bodyPartRows;
+            rows.insert(field.objects.begin(), field.objects.end());
+        } else if (key == "zoom") {
+            if (field.type != EDITOR_REAL_VALUE || !std::isfinite(float(field.real)) || field.real < 0 ||
+                field.real > 50)
+                return EDITOR_INVALID;
+            next.zoom = float(field.real);
+        } else if (key == "scroll") {
+            if (field.type != EDITOR_REAL_LIST || field.reals.size() != 2 || !std::isfinite(float(field.reals[0])) ||
+                !std::isfinite(float(field.reals[1])))
+                return EDITOR_INVALID;
+            next.scroll = {float(field.reals[0]), float(field.reals[1])};
+        } else if (key == "attribute-catalog" || key == "array-revision") {
+            if (field.type != EDITOR_INTEGER_VALUE)
+                return EDITOR_INVALID;
+            (key == "attribute-catalog" ? next.attributeCatalog : next.array.revision) = field.integer;
+        } else if (key == "channel-rows" || key == "attribute-rows" || key == "layers" || key == "array-rows") {
+            if (field.type != EDITOR_INTEGER_LIST)
+                return EDITOR_INVALID;
+            for (auto value : field.integers) {
+                if (value > INT32_MAX)
+                    return EDITOR_INVALID;
+                if (key == "channel-rows")
+                    next.channelRows.insert(int(value));
+                if (key == "attribute-rows")
+                    next.attributeRows.insert(value);
+                if (key == "layers")
+                    next.layers.insert(int(value));
+                if (key == "array-rows")
+                    next.array.selected.insert(int(value));
+            }
+        } else {
+            if (field.type != EDITOR_INTEGER_VALUE || int64_t(field.integer) < -1 || int64_t(field.integer) > INT32_MAX)
+                return EDITOR_INVALID;
+            const int value = int(int64_t(field.integer));
+            if (key == "layer")
+                next.layer = value;
+            else if (key == "paint")
+                next.paint = value;
+            else if (key == "layer-type")
+                next.layerType = value;
+            else if (key == "classification")
+                next.classification = value;
+            else if (key == "array-anchor")
+                next.array.anchor = value;
+            else if (key == "array-column")
+                next.array.column = value;
+            else if (key == "array-focus-row")
+                next.array.focusRow = value;
+            else if (key == "array-focus-column")
+                next.array.focusColumn = value;
+            else
+                return EDITOR_INVALID;
+        }
+    }
+    next.array.target = next.reference;
+    next.inspectionRevision = setup.inspectionRevision + 1;
+    setup = std::move(next);
+    return EDITOR_OK;
+}
+
 void SetupWindows::Close(Setup &setup) {
-    if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner)
-        FinishProperty(false);
-    m_Workspace.Finish(setup.renameEdit, false);
-    setup.array.Cancel(Client(setup.nameOwner));
-    if (m_PickSetup == setup.reference && m_PickSetupSlot == setup.slot)
+    if (m_PropertyOwner == setup.nameOwner) {
+        // The workspace has already closed this scope and restored its drafts.
+        m_PropertyEdit = 0;
+        m_SubmittedEdit = 0;
+        m_PropertyKey.clear();
+        m_PropertyTarget = {};
+        m_PropertySetup = {};
+        m_PropertyControl = m_PropertyActive = m_CancelledControl = 0;
+        m_PropertyOwner = 0;
+    }
+    setup.renameEdit = 0;
+    setup.array = ArrayTable{};
+    if (m_PickSetupView == setup.nameOwner) {
         m_PickSetup = {};
+        m_PickSetupView = 0;
+    }
     RetireTexture(std::move(setup.pictureTexture));
-    m_Doc.shown.erase(setup.reference);
-    m_Workspace.CloseOwner(setup.nameOwner);
+    m_Shown.erase(setup.reference);
+    m_Files.Cancel(&setup);
+    if (m_PortalOwner == setup.nameOwner) {
+        m_PortalPlace = {};
+        m_PortalOwner = 0;
+    }
 }
 
 void SetupWindows::CloseAll() {
+    for (auto id : Instances())
+        m_Workspace.Close(id);
     m_FormatInfo.clear();
     m_FormatInfoKey.clear();
+    m_Shown.clear();
+    m_GridLayer = {};
     CancelPending();
-    for (auto &setup : m_Doc.setups)
-        Close(setup);
-    m_Doc = DocumentState();
     m_PickSetup = {};
+    m_PickSetupView = 0;
     m_PortalPlace = {};
+    m_PortalOwner = 0;
     m_CurrentOwner = m_PropertyOwner = 0;
     m_CurrentTarget = m_PropertySetup = {};
 }
 
 const SetupWindows::ShownTransform &SetupWindows::Shown(ObjectRef target) {
-    auto [found, inserted] = m_Doc.shown.try_emplace(target);
+    auto [found, inserted] = m_Shown.try_emplace(target);
     if (inserted) {
         found->second.world.SetIdentity();
         found->second.local.SetIdentity();
@@ -198,8 +530,10 @@ const SetupWindows::ShownTransform &SetupWindows::Shown(ObjectRef target) {
     return found->second;
 }
 
-void SetupWindows::Draw(ImGuiID dock) {
-    if (m_Doc.setups.empty() && !m_PortalPlace && !m_PickSetup) return;
+void SetupWindows::PrepareFrame() {
+    if (m_PreparedFrame == ImGui::GetFrameCount())
+        return;
+    m_PreparedFrame = ImGui::GetFrameCount();
     // When the Setups take the transforms (RealTime Notifications).
     ApplyPreferences();
     const Preferences &prefs = m_Preferences;
@@ -218,43 +552,28 @@ void SetupWindows::Draw(ImGuiID dock) {
     }
     // Layer Setup's Grid: the Grid Setup opened selects the layer.
     SetupPageData layer;
-    if (m_Doc.gridLayer && ReadSetupPage(Client(), m_Doc.gridLayer, -1, layer))
-        for (Setup &setup : m_Doc.setups)
-            if (setup.reference == layer.grid && layer.layer >= 0)
-                setup.layer = layer.layer;
-    m_Doc.gridLayer = {};
-    if (!Client().Scope().document.value) {
-        CloseAll();
-        return;
-    }
+    if (m_GridLayer && ReadSetupPage(Client(), m_GridLayer, -1, layer))
+        for (auto &entry : m_Instances)
+            if (entry.second->reference == layer.grid && layer.layer >= 0)
+                entry.second->layer = layer.layer;
+    m_GridLayer = {};
     if (m_CancelledControl && ImGui::GetFrameCount() > m_CancelledFrame + 1 && !ImGui::IsAnyItemActive() &&
         !ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
         m_CancelledControl = 0;
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) CancelPending();
-    for (Setup &setup : m_Doc.setups)
-        if (setup.open) DrawSetup(setup, dock);
-    for (Setup &setup : m_Doc.setups)
-        if (!setup.open)
-            Close(setup);
-    m_Doc.setups.erase(std::remove_if(m_Doc.setups.begin(), m_Doc.setups.end(), [](const Setup &s) { return !s.open; }),
-                   m_Doc.setups.end());
-    if (m_PropertyEdit && !ImGui::IsAnyItemActive() && !ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
-        !ImGui::IsMouseDown(ImGuiMouseButton_Right))
-        FinishProperty(true);
-    PortalPick();
-    SetupPick();
 }
 
 void SetupWindows::SetupPick() {
     if (!m_PickSetup) return;
     Setup *picking = nullptr;
-    for (Setup &setup : m_Doc.setups)
-        if (setup.open && setup.reference == m_PickSetup && setup.slot == m_PickSetupSlot)
-            picking = &setup;
+    const auto found = m_Instances.find(m_PickSetupView);
+    if (found != m_Instances.end() && found->second->reference == m_PickSetup)
+        picking = found->second;
     SetupPageData page;
     if (!picking || !ReadSetupPage(Client(), picking->reference, picking->point, page) ||
         ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         m_PickSetup = {};
+        m_PickSetupView = 0;
         return;
     }
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -269,8 +588,9 @@ void SetupWindows::SetupPick() {
     const auto *picked = EditorClient::Find(result, "target");
     if (result.status != EDITOR_OK || !picked || picked->type != EDITOR_OBJECT || !picked->object)
         return;
-    ChangeTarget(*picking, picked->object);
+    Client(picking->nameOwner).Command("setup.navigate", {ObjectArgument("target", picked->object)});
     m_PickSetup = {};
+    m_PickSetupView = 0;
 }
 
 void SetupWindows::PortalPick() {
@@ -279,6 +599,7 @@ void SetupWindows::PortalPick() {
     if (!ReadSetupPage(Client(), m_PortalPlace, -1, page) || page.classId != CKCID_PLACE ||
         ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         m_PortalPlace = {};
+        m_PortalOwner = 0;
         return;
     }
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
@@ -286,6 +607,7 @@ void SetupWindows::PortalPick() {
     if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
     const auto place = m_PortalPlace;
     m_PortalPlace = {};
+    m_PortalOwner = 0;
     const auto mouse = ImGui::GetMousePos();
     const double xy[] = {mouse.x, mouse.y};
     EditorValue point{EDITOR_TEXT("point"), EDITOR_REAL_LIST};
@@ -293,69 +615,59 @@ void SetupWindows::PortalPick() {
     const auto picked = Client().Query("parameter.object-at", {point, IntegerArgument("class", CKCID_PLACE)});
     const auto *other = EditorClient::Find(picked, "target");
     if (picked.status != EDITOR_OK || !other || other->type != EDITOR_OBJECT || !other->object) {
-        m_State.Log(LogLevel::Info, "Automatic Portal: no place picked");
+        Report(EDITOR_OK, "Automatic Portal: no place picked");
         return;
     }
     FlushPending();
     const auto result = Client().Command("object.create-automatic-portal",
                                          {ObjectArgument("place", place), ObjectArgument("other", other->object)});
     if (result.status != EDITOR_QUEUED && !result.message.empty())
-        m_State.Log(result.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, "Automatic Portal: " + result.message);
+        Report(result.status, "Automatic Portal: " + result.message);
     for (const auto &field : result.fields) if (result.status == EDITOR_OK && field.key == "created") {
             const auto details = Client().Query("object.details", {ObjectArgument("target", field.object)});
-            m_State.Log(LogLevel::Info, "Automatic Portal: " + EditorClient::Text(details, "name"));
+            Report(EDITOR_OK, "Automatic Portal: " + EditorClient::Text(details, "name"));
     }
 }
 
-void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
-    {
-        auto &app = m_Workspace.Application();
-        if (!setup.nameOwner)
-            setup.nameOwner = app.OpenScope();
-        m_CurrentOwner = setup.nameOwner;
-        m_CurrentTarget = setup.reference;
-        if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner && m_PropertySetup != setup.reference)
-            FinishProperty(false);
-    }
-    SetupPageData page;
-    if (!ReadSetupPage(Client(), setup.reference, setup.point, page)) {
-        setup.open = false;
-        return;
-    }
-    setup.page = page;
-    static const char *const IDS[] = {"setup3d", "setupcamera", "setuplight", "setup2d", "setupmaterial",
-                                      "setupmesh", "setuptexture", "setupgrid", "setupother", "setupcurve",
-                                      "setupcharacter", "setupsound", "setuparray", "setupgroup", "setupscene", "setupsprite3d", "setupsprite2d",
-                                      "setupanimation", "setupobjectanimation", "setupmidi", "setupspritetext",
-                                      "setupchain", "setuplayer", "setupparameter", "setupparameterin", "setupoperation",
-                                      "setupbehavior", "setupbehaviorio", "setupbehaviorlink", "setupsynchro", "setupstate",
-                                      "setupcriticalsection", "setupinterfaceobjects"};
-    // The first Setup of a type keeps the type's window (its place in the layout).
-    std::string title = page.title + "###" + IDS[static_cast<int>(setup.kind)];
-    if (setup.slot) title += "#" + std::to_string(setup.slot);
-    if (dock) ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
-    if (setup.focus) {
-        ImGui::SetNextWindowFocus();
-        setup.focus = false;
-    }
-    if (!BeginDevWindow(title.c_str(), &setup.open)) {
-        ImGui::End();
-        return;
-    }
-    // Documentation "Setups": closed with Delete or the tab's "Close Window".
-    DevTabClose(&setup.open, "Close Window");
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
-        m_Doc.front = setup.reference;
-    Header(setup, page);
+void SetupWindows::DrawSetup(Setup &setup, EditorViewFrame &frame) {
+    m_CurrentOwner = setup.nameOwner;
+    m_CurrentTarget = setup.reference;
     if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner && m_PropertySetup != setup.reference)
         FinishProperty(false);
-    m_CurrentTarget = setup.reference;
-    if (page.target != setup.reference && !ReadSetupPage(Client(), setup.reference, setup.point, page)) {
-        setup.open = false;
+    SetupPageData page;
+    if (!setup.reference) {
+        EditorPrepareViewWindow(frame);
+        bool open = true;
+        if (BeginDevWindow(frame.window.data, &open)) {
+            ImGui::TextDisabled("Choose an object to open its Setup.");
+            const auto selection = Client(setup.nameOwner).Query("selection.objects");
+            const auto *objects = EditorClient::Find(selection, "objects");
+            ImGui::BeginDisabled(!objects || objects->objects.empty());
+            if (ImGui::Button("Open Selected Object") && objects && !objects->objects.empty())
+                Client(setup.nameOwner).Command("setup.navigate", {ObjectArgument("target", objects->objects.front())});
+            ImGui::EndDisabled();
+        }
+        frame.close = !open;
         ImGui::End();
         return;
     }
+    if (!ReadSetupPage(Client(), setup.reference, setup.point, page)) {
+        frame.close = 1;
+        return;
+    }
+    if (setup.page.point != page.point || setup.page.title != page.title)
+        ++setup.inspectionRevision;
     setup.page = page;
+    EditorPrepareViewWindow(frame);
+    bool open = true;
+    if (!BeginDevWindow(frame.window.data, &open)) {
+        frame.close = !open;
+        ImGui::End();
+        return;
+    }
+    DevTabClose(&open, "Close Window");
+    frame.close = !open;
+    Header(setup, page);
     ImGui::PushID(static_cast<int>(setup.kind));
     const bool attributes = setup.attributes;
     Sidebar(setup, page);
@@ -515,8 +827,28 @@ bool SetupWindows::ReadProperties(ObjectRef target, const std::vector<const char
 }
 void SetupWindows::ChooseFile(const FileDialogOptions &options, std::function<void(const FileDialogResult &)> accept,
                               bool multiple) {
-    if (FlushPending())
-        m_State.RequestFile(options, std::move(accept), multiple);
+    if (FlushPending()) {
+        const auto scope = Client(m_CurrentOwner).Scope();
+        const auto found = m_Instances.find(scope.view);
+        if (found == m_Instances.end())
+            return;
+        found->second->filePending = true;
+        m_Files.Request(
+            options,
+            [this, scope, accept = std::move(accept)](const FileDialogResult &result) {
+                const auto current = Client(scope.view).Scope();
+                if (current.document != scope.document || current.view != scope.view)
+                    return;
+                const auto source = m_Instances.find(scope.view);
+                if (source == m_Instances.end())
+                    return;
+                source->second->filePending = false;
+                if (result.status == FileDialogResult::Status::Error)
+                    Warn(result.error);
+                accept(result);
+            },
+            multiple, found->second);
+    }
 }
 EditorResponse SetupWindows::RunSetupCommand(const char *id, const std::vector<EditorValue> &arguments) {
     auto next = arguments;
@@ -533,16 +865,19 @@ EditorResponse SetupWindows::RunSetupCommand(const char *id, const std::vector<E
     const bool pending = m_PropertyEdit != 0;
     if (!FlushPending())
         return {EDITOR_REFUSED};
-    if (pending && revision != next.end() && target != next.end()) {
-        SetupDetails source;
-        if (!ReadDetails(target->object, "structure", source))
-            return {EDITOR_STALE};
-        revision->integer = source.documentRevision;
-    }
-    const auto result = Client(m_CurrentOwner).Command(id, next);
+    const auto client = Client(m_CurrentOwner);
+    const EditorRequest request{client.Scope(),
+                                next.data(),
+                                uint32_t(next.size()),
+                                {},
+                                0,
+                                pending ? m_SubmittedEdit : 0,
+                                pending && revision != next.end() ? EditorString EDITOR_TEXT("document-revision")
+                                                                  : EditorString{}};
+    const auto result = m_Workspace.Application().Execute(id, request);
     if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE && result.status != EDITOR_QUEUED &&
         !result.message.empty())
-        m_State.Log(LogLevel::Warning, result.message);
+        Warn(result.message);
     return result;
 }
 void SetupWindows::PreviewIndexedProperty(ObjectRef target, const char *property, EditorField value,
@@ -611,18 +946,18 @@ void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
     const float s = ImGui::GetFontSize() / 13.0f;
     static const int PICKER[5] = {719, 721, 720, 720, 719};
     static const int FILTER[5] = {1355, 1356, 1357, 1354, 1357};
-    const bool picking = m_PickSetup == setup.reference && m_PickSetupSlot == setup.slot;
+    const bool picking = m_PickSetup == setup.reference && m_PickSetupView == setup.nameOwner;
     if (DevBitmapButton("picker", ImVec2(stripMin.x + 40.0f * s, stripMin.y + 1.0f), PICKER, picking, true, s,
                         "Pick an entity of the same type")) {
         m_PickSetup = picking ? ObjectRef{} : setup.reference;
-        m_PickSetupSlot = setup.slot;
+        m_PickSetupView = picking ? 0 : setup.nameOwner;
     }
     if (DevBitmapButton("scenefilter", ImVec2(stripMin.x + 62.0f * s, stripMin.y + 1.0f), FILTER, setup.sceneFilter, true,
                         s, "Toggle Level/Current Scene Filter")) {
         setup.sceneFilter = !setup.sceneFilter;
         if (setup.sceneFilter && page.sceneScoped && page.currentScene && !page.inCurrentScene) {
             setup.sceneFilter = false;
-            m_State.Log(LogLevel::Warning, "Object not in current scene !");
+            Warn("Object not in current scene !");
         }
     }
     ImGui::SetCursorScreenPos(ImVec2(stripMin.x + 86.0f * s, stripMin.y + 3.0f));
@@ -635,7 +970,7 @@ void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
             TypeAhead typeAhead;
             for (const auto &row : rows)
                 if (typeAhead.Selectable(row.name.c_str(), row.object == setup.reference))
-                    ChangeTarget(setup, row.object);
+                    Client(setup.nameOwner).Command("setup.navigate", {ObjectArgument("target", row.object)});
         }
         ImGui::EndCombo();
     }
@@ -729,8 +1064,7 @@ void SetupWindows::ReplaceFile(Setup &setup, SetupFileKind kind) {
     options.filter = kind == SetupFileKind::Wave ? L"Wave files (*.wav)\0*.wav\0All files (*.*)\0*.*\0"
                                                  : L"MIDI files (*.mid)\0*.mid;*.midi\0All files (*.*)\0*.*\0";
     FlushPending();
-    m_State.RequestFile(options, [this, target = setup.reference,
-                                  owner = setup.nameOwner](const FileDialogResult &result) {
+    ChooseFile(options, [this, target = setup.reference, owner = setup.nameOwner](const FileDialogResult &result) {
         if (result.status == FileDialogResult::Status::Selected && !result.paths.empty())
             SetProperty(target, owner, "sound.file", EditorField{"value", EDITOR_TEXT_VALUE, {}, result.paths.front()});
     });
@@ -782,7 +1116,7 @@ bool SetupWindows::FinishProperty(bool commit) {
     if (!m_PropertyEdit)
         return true;
     auto &app = m_Workspace.Application();
-    const auto status = app.FinishEdit(m_PropertyEdit, commit);
+    const auto status = app.FinishEdit(m_PropertyEdit, commit, &m_SubmittedEdit);
     if (status == EDITOR_QUEUED || status == EDITOR_NO_CHANGE || status == EDITOR_STALE || status == EDITOR_CANCELLED ||
         status == EDITOR_ERROR) {
         if (!commit) {
@@ -800,10 +1134,7 @@ bool SetupWindows::FinishProperty(bool commit) {
         m_PropertyTarget = {};
         m_PropertyControl = 0;
     }
-    // Legacy Setup actions run outside registered drawing callbacks. Finish
-    // the property before such an action starts its own core command.
-    if (status == EDITOR_QUEUED)
-        app.EndFrame();
+
     return status == EDITOR_QUEUED || status == EDITOR_NO_CHANGE || status == EDITOR_STALE ||
            status == EDITOR_CANCELLED;
 }
@@ -827,7 +1158,7 @@ void SetupWindows::PreviewProperty(ObjectRef target, const char *property, Edito
             return;
     if (!m_PropertyEdit) {
         if (!m_CurrentOwner)
-            m_CurrentOwner = app.OpenScope();
+            return;
         m_PropertyOwner = m_CurrentOwner;
         const EditorValue context[] = {
             {EditorLiteral("target"), EDITOR_OBJECT, target},
@@ -867,8 +1198,7 @@ void SetupWindows::SetProperty(ObjectRef target, EditorView owner, const char *p
         app.FinishEdit(edit, false);
         return;
     }
-    if (app.FinishEdit(edit, true) == EDITOR_QUEUED)
-        app.EndFrame();
+    app.FinishEdit(edit, true);
 }
 
 bool SetupWindows::EditObjectList(ObjectRef reference, const char *property, const std::vector<ObjectRef> &add,
@@ -877,7 +1207,7 @@ bool SetupWindows::EditObjectList(ObjectRef reference, const char *property, con
         return false;
     auto &app = m_Workspace.Application();
     if (!m_CurrentOwner)
-        m_CurrentOwner = app.OpenScope();
+        return false;
     const EditorValue target{EditorLiteral("target"), EDITOR_OBJECT, reference};
     const auto query = "setup." + std::string(property) + "-value";
     const auto result = app.Query(query, {app.Scope(m_CurrentOwner), &target, 1});

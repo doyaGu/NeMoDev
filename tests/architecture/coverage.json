@@ -1341,8 +1341,6 @@
     {
       "file": "ui/setup/SetupWindows.cpp",
       "access": [
-        "editor-state",
-        "mutable-document",
         "native-sdk"
       ],
       "remove_by": 5

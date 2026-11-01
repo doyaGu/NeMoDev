@@ -498,7 +498,7 @@ void SetupWindows::LayerPage(ObjectRef target) {
     ImGui::BeginDisabled(!grid);
     if (ImGui::SmallButton(">") && grid) {
         Open(grid);
-        m_Doc.gridLayer = target;
+        m_GridLayer = target;
     }
     ImGui::EndDisabled();
     if (grid && ImGui::IsItemHovered()) ImGui::SetTooltip("Grid Setup");
