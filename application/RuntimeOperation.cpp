@@ -12,19 +12,20 @@ RuntimeOperation::~RuntimeOperation() {
     if (m_Future.valid()) m_Future.wait();
 }
 
-bool RuntimeOperation::Queue(std::string label, std::function<void()> work, Completion completed, Delivery delivery) {
+bool RuntimeOperation::Queue(std::string label, std::function<void()> work, Completion completed, Delivery delivery,
+                             Lifetime lifetime) {
     if (!work) return false;
     // Admission is repeated at dispatch, since an earlier task can change
     // the document or leave an Edit open before this request is reached.
     if (!Busy() && !m_Completing && m_Admission) {
         const std::string error = m_Admission(label);
         if (!error.empty()) {
-            Complete({CurrentDocument(), std::move(label), {}, std::move(completed), delivery}, error);
+            Complete({CurrentDocument(), std::move(label), {}, std::move(completed), delivery, lifetime}, error);
             return false;
         }
     }
     auto &queue = m_Completing ? m_Next : m_Pending;
-    queue.push_back({CurrentDocument(), std::move(label), std::move(work), std::move(completed), delivery});
+    queue.push_back({CurrentDocument(), std::move(label), std::move(work), std::move(completed), delivery, lifetime});
     return true;
 }
 
@@ -46,7 +47,10 @@ const std::string &RuntimeOperation::Label() const {
 }
 
 void RuntimeOperation::Complete(Task task, const std::string &error) {
-    if ((!task.document.IsCurrent() && task.delivery == Delivery::CurrentDocument) || !task.completed) return;
+    if ((!task.document.IsCurrent() && task.lifetime == Lifetime::Document &&
+         task.delivery == Delivery::CurrentDocument) ||
+        !task.completed)
+        return;
     struct Scope {
         bool &value;
         bool previous;
@@ -57,7 +61,7 @@ void RuntimeOperation::Complete(Task task, const std::string &error) {
 }
 
 void RuntimeOperation::Promote() {
-    if (m_Task.work && !m_Task.document.IsCurrent()) {
+    if (m_Task.work && m_Task.lifetime == Lifetime::Document && !m_Task.document.IsCurrent()) {
         Task expired = std::move(m_Task);
         m_Task = {};
         Complete(std::move(expired), "The document changed before the operation started");
@@ -66,7 +70,7 @@ void RuntimeOperation::Promote() {
         auto &queue = m_Next.empty() ? m_Pending : m_Next;
         Task task = std::move(queue.front());
         queue.pop_front();
-        if (!task.document.IsCurrent()) {
+        if (task.lifetime == Lifetime::Document && !task.document.IsCurrent()) {
             Complete(std::move(task), "The document changed before the operation started");
             continue;
         }

@@ -8,7 +8,7 @@
 
 namespace vdev {
 
-// Exclusive, document-scoped runtime tasks. Queue on the UI thread, Start after
+// Exclusive runtime tasks. Queue on the UI thread, Start after
 // rendering the frame, Poll before drawing the next. While Busy, the UI
 // must not access CK, its document, or runtime-backed panels/renderers.
 // Worker completion runs in Poll on the UI thread, after the worker exits.
@@ -29,6 +29,8 @@ class RuntimeOperation {
     };
     using Completion = std::function<void(const std::string &error)>;
     enum class Delivery { CurrentDocument, Always };
+    // Application resources such as the Snapshot Buffer survive document switches.
+    enum class Lifetime { Document, Application };
     // Checked on the UI thread when a task reaches the head of the queue.
     using Admission = std::function<std::string(const std::string &label)>;
     using Executor = std::function<void(const std::string &, const std::function<void()> &)>;
@@ -36,7 +38,7 @@ class RuntimeOperation {
         : m_Admission(std::move(admission)), m_Executor(std::move(executor)) {}
     ~RuntimeOperation();
     bool Queue(std::string label, std::function<void()> work, Completion completed,
-               Delivery delivery = Delivery::CurrentDocument);
+               Delivery delivery = Delivery::CurrentDocument, Lifetime lifetime = Lifetime::Document);
     bool CanQueue(const std::string &label) const { return !m_Admission || m_Admission(label).empty(); }
     DocumentScope CurrentDocument() const;
     void DocumentChanged();
@@ -54,6 +56,7 @@ class RuntimeOperation {
         std::function<void()> work;
         Completion completed;
         Delivery delivery = Delivery::CurrentDocument;
+        Lifetime lifetime = Lifetime::Document;
     };
     bool Active() const { return m_Task.work || m_Future.valid() || !m_StartError.empty(); }
     void Promote();

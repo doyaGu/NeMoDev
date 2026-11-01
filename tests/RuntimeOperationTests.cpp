@@ -126,6 +126,19 @@ int main() {
         CHECK(rejectedWork);
         CHECK(!gated.Queue("No work", {}, {}));
 
+        int applicationWork = 0, applicationCompletions = 0;
+        CHECK(operation.Queue(
+            "Application bitmap", [&] { ++applicationWork; },
+            [&](const std::string &error) {
+                CHECK(error.empty() && std::this_thread::get_id() == mainThread);
+                ++applicationCompletions;
+            },
+            vdev::RuntimeOperation::Delivery::CurrentDocument, vdev::RuntimeOperation::Lifetime::Application));
+        operation.Poll();
+        operation.DocumentChanged();
+        operation.Finish();
+        CHECK(applicationWork == 1 && applicationCompletions == 1);
+
         std::atomic<bool> finished{false};
         {
             vdev::RuntimeOperation closing;
