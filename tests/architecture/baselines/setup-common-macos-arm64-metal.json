@@ -1,0 +1,291 @@
+{
+  "description": "阶段五：Setup 公共 Attribute 页面和对象图片使用只读查询及统一命令，复用既有参数窗口与后台文件任务。SDK 不动，GPU 快通道保留，性能验收继续暂缓。",
+  "base_revision": "c1ab7d16ba0116f67317e1ad60c74de2ba9b3171",
+  "changes": [
+    "删除 Setup 本地原生属性编辑窗口，值编辑复用统一参数窗口；查询与修改可由独立模块替换。",
+    "对象属性通过既有 core 读取函数复制，保留附件顺序、隐藏类型和动态对象；复制粘贴检查目录与剪贴板版本。",
+    "对象图片加载复用 SnapshotCommands 的文件输入和后台队列，固定文档、对象与窗口作用域；文档图片保留原尺寸，UI 只缓存缩略预览。",
+    "图片历史使用完整对象引用并登记保留对象，失效目标不接受晚到加载或撤销重做。",
+    "公共 Setup 头移除 EditorState 和原生参数窗口依赖，收紧五个文件的间接访问清单，补充架构检查。",
+    "UI 测试启动失败时打印已有错误日志，避免初始化失败只返回退出码。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-setup-common/build-formatted.log"
+    },
+    "full_ctest": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 34.88,
+      "excluded_label": "performance",
+      "log": "out/phase-five-setup-common/full-final.log",
+      "junit": "out/phase-five-setup-common/full-final.xml",
+      "inventory": "out/phase-five-setup-common/ctest-inventory.json"
+    },
+    "architecture": {
+      "files": 1045,
+      "groups": 58,
+      "features": 32,
+      "states": 48,
+      "legacy_exposures": 41,
+      "completed_phase": 3,
+      "test_registration_checked": true,
+      "open_gaps": 20
+    },
+    "architecture_tests": {
+      "passed": 41,
+      "failed": 0,
+      "log": "out/phase-five-setup-common/architecture-tests-final.log"
+    },
+    "ui": {
+      "html": {
+        "registered": 261,
+        "executed": 3,
+        "not_selected": 258,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/html.xml",
+        "sha256": "7b44de825c718afeca132524f94334ffb2f73b47665f81e147c14d1793e0a64e"
+      },
+      "app": {
+        "registered": 261,
+        "executed": 25,
+        "not_selected": 236,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/app.xml",
+        "sha256": "e34265d5ff84be1d439ee489916b294ef5f1054ae8ca254285d109eca063a47b"
+      },
+      "filemenu": {
+        "registered": 261,
+        "executed": 10,
+        "not_selected": 251,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/filemenu.xml",
+        "sha256": "515cd091d6c1ddfcf3a575f2d470163833b7a1d3a1a48ab8f7dfa228b261d53b"
+      },
+      "schematic": {
+        "registered": 261,
+        "executed": 26,
+        "not_selected": 235,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/schematic.xml",
+        "sha256": "b0da9b30002ecacb6337db2d5da37487dba37570a7590651b80a0e2576b82bc1"
+      },
+      "debugger": {
+        "registered": 261,
+        "executed": 10,
+        "not_selected": 251,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/debugger.xml",
+        "sha256": "b42a58ff0f1d95a138eb42c373173e96fea9c96e2f25a49ce3e746de643228b4"
+      },
+      "layout": {
+        "registered": 261,
+        "executed": 24,
+        "not_selected": 237,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/layout.xml",
+        "sha256": "5b4ca40c247413a144f547b73378403cf11a39d66eb02b9217dfb982271dd8f5"
+      },
+      "level": {
+        "registered": 261,
+        "executed": 7,
+        "not_selected": 254,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/level.xml",
+        "sha256": "112c529a7308142e11b3564759b0c4ebdc9456539dc45a7dc8c433bd2b18c2dc"
+      },
+      "setup": {
+        "registered": 261,
+        "executed": 20,
+        "not_selected": 241,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/setup.xml",
+        "sha256": "8c66d75f5eab438841ced46e2c80bf48b19c0828799d5a6e1f7aa4a560821d67"
+      },
+      "propertyedits": {
+        "registered": 261,
+        "executed": 7,
+        "not_selected": 254,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/propertyedits.xml",
+        "sha256": "5363a9cd06ce240ac8c5aa7c536c1bb724e84a0065f05f1a9d15740acc344829"
+      },
+      "hierarchy": {
+        "registered": 261,
+        "executed": 8,
+        "not_selected": 253,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/hierarchy.xml",
+        "sha256": "bbb08e212692c036619ac27411911a556aa00dcb033690e4cb427e0fa1f784de"
+      },
+      "blocks": {
+        "registered": 261,
+        "executed": 6,
+        "not_selected": 255,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/blocks.xml",
+        "sha256": "c64335ac18061f2302673569ee506b0e98baa4095ec7183494439509704972a7"
+      },
+      "attributes": {
+        "registered": 261,
+        "executed": 6,
+        "not_selected": 255,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/attributes.xml",
+        "sha256": "f2518e429b427c1ffd984854ccecd5e32ad546349a451c8a2564476adb107745"
+      },
+      "create": {
+        "registered": 261,
+        "executed": 6,
+        "not_selected": 255,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/create.xml",
+        "sha256": "46f4a58e8d58d1fa92b23a4222f49e2194cffd4962755e9854390bba6751dcfc"
+      },
+      "tools": {
+        "registered": 261,
+        "executed": 13,
+        "not_selected": 248,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/tools.xml",
+        "sha256": "c8a2bb2680c6ecce9a86823678ca2d4278f67ebfec1c2f9ea3ba34d151d6777d"
+      },
+      "sound": {
+        "registered": 261,
+        "executed": 2,
+        "not_selected": 259,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/sound.xml",
+        "sha256": "ad5409920ae8e3e33e36685f667532e43b894b015c47ae5c75c5a53bce1628ba"
+      },
+      "character": {
+        "registered": 261,
+        "executed": 2,
+        "not_selected": 259,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/character.xml",
+        "sha256": "918662cf306b2a48d4f9ef84517b7fe3116074d7c4b012f963b8fa0e52632f43"
+      },
+      "modules": {
+        "registered": 261,
+        "executed": 67,
+        "not_selected": 194,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-common/ui/modules.xml",
+        "sha256": "9b61e7de24f81a62b927cd21c7a2b59a83307d6e83970a973830ed9e2e5a8134"
+      }
+    },
+    "native_print": [
+      {
+        "test": "VirtoolsDevUi.printCancel",
+        "result": "passed"
+      },
+      {
+        "test": "VirtoolsDevUi.printPages",
+        "result": "passed"
+      }
+    ],
+    "new_ui_cases": [
+      "attribute_value_cancel_undo_and_stale_owner",
+      "setup_attributes_and_pictures_use_selected_providers"
+    ],
+    "native_regressions": [
+      "对象属性查询不改选区、Dirty、Undo/Redo 和文档版本",
+      "隐藏属性、动态对象、无参数属性及 257 个附件分页保留顺序",
+      "分页数据版本、总数、字段、引用与进度不一致时保留旧副本",
+      "过期属性目录、参数引用、剪贴板版本与溢出类型索引拒绝执行",
+      "复制失败保留剪贴板，跨对象粘贴失败回滚之前的修改，成功只增加一步撤销",
+      "对象图片加载取消、缺失文件、插件工作前后抛异常均保留原状态",
+      "关闭来源窗口、目标销毁并复用 ID、文档替换后拒绝晚到图片",
+      "图片撤销不跟随复用的 ID；成功加载和删除保留一步 Undo/Redo",
+      "保留原尺寸图片；无关文档修改不改变预览版本；图片流程不读回 3D 视口"
+    ],
+    "sdk_gpu": {
+      "sdk_repositories": 16,
+      "sdk_unchanged": true,
+      "protected_gpu_sources": 6,
+      "gpu_sources_unchanged": true,
+      "layout_window_unchanged": true,
+      "sdk_runtime_files": 22,
+      "sdk_runtime_unchanged_from_previous_baseline": true,
+      "previous_runtime_baseline": "out/phase-five-setup-pages/runtime-after.json",
+      "protected_sha256": {
+        "ui/render/UiRenderer.cpp": "eeeb206eab24998189cb16e47f241efffb59560bc988cd383e5b03d530a703e9",
+        "ui/render/UiRenderer.h": "2b21132c135f1a5011b95879dfdc83d3e9a6eedc34242006b2c20ee944cbd7fc",
+        "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "core/layout/LayoutView.cpp": "01f084e53bc992981c9de857a8f8fdbca35a48aa19d3274643c1abbb72bf9060",
+        "core/layout/LayoutView.h": "2efc5a3fc8ca4463ee9bae47de3846680ec2654f841b52bb046207b730a28ae3",
+        "ui/layout/LayoutWindow.cpp": "2a8c9d9ae0516dc0e547df9b85725c8d5cb38203ab22e9e57eb1b54d82ce29ee"
+      }
+    },
+    "representative_nmo": "filemenu.open_nmo_populates_level_manager_as_new_import",
+    "source_sha256": {
+      "core/document/ObjectPictures.cpp": "df7ef0ba6fbe846db9fff67afd32b8885e41607f1c9f6c1559e7397c113b378b",
+      "core/level/AttributeQueries.cpp": "f8d8d84f0303666457ed6bf316ad92bb67b1a133b5b212181253a4fb94c254e6",
+      "core/level/AttributeQueries.h": "701a55a1bfd5865dd57918199f71f51bdd1a815a667c2381121187fb16505b1e",
+      "features/defaults/DefaultWorkspace.cpp": "5ce9362cbb6bf7cbb2a2b73a307108d515b367744b3918a2e4ef67c5c0b16f8b",
+      "features/layout/SnapshotCommands.cpp": "de909aff33627df701686ffb4a4887ad4852645748dbf48b64aea2afea110f75",
+      "features/layout/SnapshotData.cpp": "b1a48e094241735d71c2bce38d78c8f4b75a1a5db4f4f0be5892a2cdd1b341ae",
+      "features/layout/SnapshotData.h": "7a1e486de91506a76a0bebe3bbff34c7ad3bd42f60893e242ee54c583132d54d",
+      "features/scene/SceneCommands.cpp": "3dd583ad6ca051e483b604b44c2a051d1f113369bdd8869be6a1e0e897c90983",
+      "features/scene/SceneViewData.cpp": "2440d8bc691700ae5d7c4c7ada15bd79e4c32800bca619041eaefc246bf8c063",
+      "features/scene/SceneViewData.h": "7bd2ce8d5b0071754dc5fbb060234587da5e48706dc3bcc5e5cbba9ebb1c3119",
+      "tests/ArchitectureTests.py": "a57e9dba178f9f9b0c60f64a3ad450132dae9bb02cb4aa9edc11503b832e3c77",
+      "tests/CheckArchitecture.py": "ad268050ea9d93df574bf039d59e51ae7d2bb64e40369d91e387a750d0a45261",
+      "tests/LayoutPresentationTests.cpp": "b2dbe8704d588bfb2ace5802c3010c52b7f097e59a12f002893b9454e6031bba",
+      "tests/SceneCommandTests.cpp": "e98c8ff8d18ec632f757c4b06930b5f0eb2f3bc7991c4e5c92bd64fec77e4e65",
+      "tests/architecture/README.md": "784ef756d1dd2491de4873d115b892dad82c9ff287968c203c9824a0b7996d14",
+      "tests/architecture/coverage.json": "2a7617afc121e3de6665de8b9b60ca6e29b6f2fabbd53b7274f15a39d5f6e13f",
+      "tests/modules/ObjectModule.cpp": "01298bee1260ab599c930dbf1b8e492820ff7076e1b977511be93524d6ef672d",
+      "tests/ui/ModuleTests.cpp": "e28ef87852d8ea9f965c063b62e92b689ae4412de47d3fb5f45680090900a951",
+      "tests/ui/SetupTests.cpp": "1c3c3fdd782d79242efcb096a8065b78035bb47ef5f5a6010c3eedfb06a3fd39",
+      "ui/CMakeLists.txt": "30a6a33b445538f025780244e79619f37e1fa02239c1dae4323d6180c418c47e",
+      "ui/app/Main.cpp": "6b290f46147ba4ae02e92aec15b4f38328a7673df1d441a7fe0463d7a1e52827",
+      "ui/controls/ParameterBox.cpp": "e4cefdfa5b2b20a361dc7fbc38a14c493a7cb2fa1de9ed8421f2889e6fc3095f",
+      "ui/setup/SetupObjectPages.cpp": "9bf2d8421932fddb6ec1be2cf33ec702666c362c1964c5ca55860ff56707d853",
+      "ui/setup/SetupRenderPages.cpp": "d0e863538c6481fff6bbd595852dfe2e08b20f1b80c06146333faccfc14288f1",
+      "ui/setup/SetupScenePages.cpp": "78bf19ec51bc8a26ea3a98fdc1c78fd4b04839effb3d94c996436d32bbc6bd0e",
+      "ui/setup/SetupWindows.cpp": "870b91aa7ec17078139b3dc46b15547766881398306c35ea4f42a12487ebbabc",
+      "ui/setup/SetupWindows.h": "f5977ca70a91e5723bae89d0a441f30bbe6b55cecd2251306bd587c3902039b6",
+      "ui/setup/SetupWindowsDetail.h": "d49a39e833523580394a0230518f3353366a3e825c0107b370283a57b3812a29"
+    },
+    "git_diff_check": "passed"
+  },
+  "resolved_during_validation": [
+    {
+      "finding": "图片查询声明为自定版本刷新却未提供版本函数，模块初始化拒绝登记",
+      "fix": "使用现有文档刷新方式，无需新增版本函数或单独状态。"
+    }
+  ],
+  "remaining": [
+    "完整 Setup 窗口绘制尚未登记为工作区视图；保持原有草稿与离散操作的执行顺序。",
+    "剩余阶段五访问与 SDK 枚举、数学类型继续保留在覆盖清单中，完成阶段仍为三。"
+  ],
+  "performance": {
+    "status": "deferred_at_user_request",
+    "thresholds_unchanged": true,
+    "timing_benchmarks_run": false
+  }
+}
