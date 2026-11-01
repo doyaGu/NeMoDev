@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 16u
+#define EDITOR_VERSION 17u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -164,6 +164,12 @@ typedef enum EditorQueryRefresh { EDITOR_QUERY_DOCUMENT, EDITOR_QUERY_EACH_READ,
 // Reads a published version, without native access or mutations. A changed
 // version invalidates only this query's stored values, independently of documents.
 typedef uint64_t(EDITOR_CALL *EditorQueryVersion)(void *, const EditorHost *);
+typedef enum EditorQueryFlags {
+    // A retained view state can contain deleted objects or identities from a
+    // former document. The query must resolve each value before reading it.
+    // The request itself still needs the active document and a live view.
+    EDITOR_QUERY_RETAINED_REFERENCES = 1u << 0
+} EditorQueryFlags;
 typedef struct EditorQueryDesc {
     uint32_t size;
     EditorString id, provider;
@@ -176,6 +182,7 @@ typedef struct EditorQueryDesc {
     const EditorParameter *fields;
     uint32_t fieldCount;
     EditorQueryVersion revision; // required only for EDITOR_QUERY_VERSIONED
+    uint32_t flags;              // zero keeps the ordinary live-object checks
 } EditorQueryDesc;
 // A property connects a typed query field to a command argument.
 // Queries may receive additional position arguments (for example, table rows

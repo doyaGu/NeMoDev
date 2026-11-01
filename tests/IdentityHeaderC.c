@@ -138,3 +138,25 @@ EditorStatus FinishCommandFromC(const EditorHost *host, EditorEdit edit, EditorO
     return host->finishEdit(host->data, edit, 1, operation);
 }
 uint32_t EditorCommandSizeFromC(void) { return (uint32_t)sizeof(EditorCommandDesc); }
+
+static EditorStatus RetainedQueryRead(void *data, const EditorHost *host, const EditorRequest *request,
+                                      EditorSink sink) {
+    (void)data;
+    (void)host;
+    (void)request;
+    (void)sink;
+    return EDITOR_OK;
+}
+EditorQueryDesc RetainedQueryFromC(void *data) {
+    EditorQueryDesc query = {0};
+    query.size = sizeof(query);
+    query.id = (EditorString)EDITOR_TEXT("c.retained-query");
+    query.provider = (EditorString)EDITOR_TEXT("c.test");
+    query.read = RetainedQueryRead;
+    query.data = data;
+    query.area = EDITOR_DOCUMENT;
+    query.refresh = EDITOR_QUERY_EACH_READ;
+    query.flags = EDITOR_QUERY_RETAINED_REFERENCES;
+    return query;
+}
+uint32_t EditorQuerySizeFromC(void) { return (uint32_t)sizeof(EditorQueryDesc); }

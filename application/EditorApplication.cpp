@@ -264,6 +264,7 @@ struct Module {
             if (d.size != sizeof(d) || !d.read ||
                 (d.refresh < EDITOR_QUERY_DOCUMENT || d.refresh > EDITOR_QUERY_VERSIONED) ||
                 bool(d.revision) != (d.refresh == EDITOR_QUERY_VERSIONED) ||
+                (d.flags & ~uint32_t(EDITOR_QUERY_RETAINED_REFERENCES)) ||
                 (d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION))
                 throw std::invalid_argument("Invalid query descriptor");
             d.id = Text(d.id, true);
@@ -528,7 +529,8 @@ struct EditorApplication::State {
         });
     }
     EditorStatus Arguments(const EditorParameter *parameters, uint32_t count, const EditorRequest &request,
-                           std::vector<EditorField> &fields, EditorArea area = EDITOR_DOCUMENT) const {
+                           std::vector<EditorField> &fields, EditorArea area = EDITOR_DOCUMENT,
+                           bool liveReferences = true) const {
         if (!Thread() || !Valid(request.scope, area)) return EDITOR_STALE;
         if (request.count > count || Collect(&fields, request.values, request.count) != EDITOR_OK)
             return EDITOR_INVALID;
@@ -548,15 +550,21 @@ struct EditorApplication::State {
                 continue;
             }
             if (f->type == EDITOR_OBJECT &&
-                ((!f->object && !parameter.optional && !parameter.nullable) || (f->object &&
-                (f->object.document != document || (NativeReady() && !Current(f->object))))))
+                ((!f->object && !parameter.optional && !parameter.nullable) ||
+                 (f->object && liveReferences &&
+                  (f->object.document != document || (NativeReady() && !Current(f->object))))))
                 return EDITOR_STALE;
         }
-        if (!EveryField(fields, [&](const auto &field) {
-            const auto valid = [&](auto object) { return object.document == document && (!NativeReady() || Current(object)); };
-            if (field.type == EDITOR_OBJECT && field.object && !valid(field.object)) return false;
-            return field.type != EDITOR_OBJECT_LIST || std::all_of(field.objects.begin(), field.objects.end(), valid);
-        })) return EDITOR_STALE;
+        if (liveReferences && !EveryField(fields, [&](const auto &field) {
+                const auto valid = [&](auto object) {
+                    return object.document == document && (!NativeReady() || Current(object));
+                };
+                if (field.type == EDITOR_OBJECT && field.object && !valid(field.object))
+                    return false;
+                return field.type != EDITOR_OBJECT_LIST ||
+                       std::all_of(field.objects.begin(), field.objects.end(), valid);
+            }))
+            return EDITOR_STALE;
         return EDITOR_OK;
     }
     std::vector<EditorField> DraftFields(const Draft &draft, const EditorField &value) const {
@@ -1252,7 +1260,7 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
                     if constexpr (std::is_same_v<Table, std::vector<EditorQueryDesc>>) {
                         if (!inserted.second) {
                             const auto &other = *inserted.first->second;
-                            if (d.area != other.area || d.fieldCount != other.fieldCount)
+                            if (d.area != other.area || d.fieldCount != other.fieldCount || d.flags != other.flags)
                                 throw std::invalid_argument("Incompatible query fields");
                             for (uint32_t i = 0; i < d.fieldCount; ++i)
                                 if (d.fields[i].type != other.fields[i].type ||
@@ -1701,9 +1709,6 @@ const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const 
         return transient();
     }
     std::vector<EditorField> fields;
-    result.status = s.Arguments(found->second->parameters, found->second->count, request, fields, found->second->area);
-    if (result.status != EDITOR_OK)
-        return transient();
     const EditorQueryDesc *query = found->second;
     if (request.handler.size) {
         const auto handler = String(request.handler);
@@ -1717,6 +1722,10 @@ const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const 
             return transient();
         }
     }
+    result.status = s.Arguments(query->parameters, query->count, request, fields, query->area,
+                                !(query->flags & EDITOR_QUERY_RETAINED_REFERENCES));
+    if (result.status != EDITOR_OK)
+        return transient();
     uint64_t version = 0;
     if (query->refresh == EDITOR_QUERY_VERSIONED) {
         if (s.querying >= 16) { result.status = EDITOR_REFUSED; return transient(); }

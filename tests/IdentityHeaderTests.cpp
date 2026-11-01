@@ -49,8 +49,16 @@ extern "C" EditorStatus BeginCommandFromC(const EditorHost *, EditorString, cons
 extern "C" EditorStatus FinishCommandFromC(const EditorHost *, EditorEdit, EditorOperation *);
 extern "C" uint32_t EditorCommandSizeFromC(void);
 static_assert(__is_standard_layout(EditorCommandDesc), "C command callbacks");
-static_assert(EDITOR_VERSION == 16, "Editor continuous command version");
+static_assert(EDITOR_VERSION == 17, "Editor retained-reference query version");
+extern "C" EditorQueryDesc RetainedQueryFromC(void *);
+extern "C" uint32_t EditorQuerySizeFromC(void);
+static_assert(__is_standard_layout(EditorQueryDesc), "C query flags");
 int main() {
+    const auto retained = RetainedQueryFromC(nullptr);
+    if (EditorQuerySizeFromC() != sizeof(EditorQueryDesc) || retained.size != sizeof(EditorQueryDesc) ||
+        retained.flags != EDITOR_QUERY_RETAINED_REFERENCES || !retained.read)
+        return 1;
+
     int previewValue = 17;
     void *previewState = nullptr;
     const auto command = PreviewCommandFromC(&previewValue);
