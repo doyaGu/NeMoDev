@@ -486,14 +486,18 @@
       "name": "Layout 原生场景查询与修改",
       "patterns": [
         "features/layout/LayoutCommands.*",
-        "features/layout/LayoutGestures.*"
+        "features/layout/LayoutGestures.*",
+        "features/layout/LayoutPresentation.*",
+        "features/layout/SnapshotCommands.*"
       ]
     },
     {
       "id": "S56",
       "name": "Layout 只读场景数据",
       "patterns": [
-        "features/layout/LayoutSceneData.*"
+        "features/layout/LayoutSceneData.*",
+        "features/layout/LayoutViewport.h",
+        "features/layout/SnapshotData.*"
       ]
     },
     {
@@ -961,6 +965,7 @@
       "S09",
       "S10",
       "S13",
+      "S17",
       "S34",
       "S56"
     ],
