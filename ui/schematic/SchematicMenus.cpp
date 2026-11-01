@@ -17,6 +17,7 @@
 #include <string>
 
 #include "ui/schematic/SchematicCanvas.h"
+#include "features/schematic/SchematicPosition.h"
 
 #include "imgui.h"
 #include "misc/cpp/imgui_stdlib.h"
@@ -1023,20 +1024,9 @@ void SchematicCanvas::BeginDrawGraph() {
 
 void SchematicCanvas::EndDrawGraph(ScriptView &view, const Rect &local) {
     m_DrawGraphMode = false;
-    std::vector<CK_ID> members;
-    for (const auto &ref : ElementsInRect(view.model, local, true))
-        if (ref.kind == ElementKind::Behavior) {
-            const BehaviorItem *behavior = view.model.FindBehavior(ref.object);
-            // Only the outermost behaviors inside the rectangle.
-            bool nested = false;
-            for (CK_ID other : members) nested = nested || (behavior && behavior->parent == other);
-            if (behavior && !nested) members.push_back(behavior->id);
-        }
-    if (members.empty()) {
-        CreateGraphAt(view.id, Point(local.hPos, local.vPos));
-        return;
-    }
-    Report(GroupBehaviors(*m_State.document, view.id, members), "Draw Behavior Graph");
+    EditorField rect{"rect", EDITOR_REAL_LIST};
+    rect.reals = {local.hPos, local.vPos, local.hSize, local.vSize};
+    ExecuteGraph("schematic.draw-graph", view.id, 0, nullptr, {std::move(rect)});
 }
 
 void SchematicCanvas::AddThisAt(CK_ID script, const Point &local) {
@@ -1509,13 +1499,17 @@ void SchematicCanvas::LinkMenu(ScriptView &view, const LinkItem &link, const Poi
         }
         const Point point(SchematicGrid::SnapToGrid(local.h, SchematicGrid::SPACING),
                           SchematicGrid::SnapToGrid(local.v, SchematicGrid::SPACING));
-        const CK_ID owner = link.owner;
-        const int slot = link.slot;
-        EditScriptData(*m_State.document, view.id, "Insert Control Point", [&](InterfaceData &data) {
-            BehaviorData *record = FindRecord(data, owner);
-            if (record && slot < static_cast<int>(record->links.size()))
-                record->links[slot].InsertControlPoint(static_cast<int>(segment), point);
-        });
+        Hit hit;
+        hit.view = &view;
+        hit.ref = link.ref;
+        ElementAddress address;
+        RetainHit(hit, address);
+        if (address) {
+            EditorField at{"at", EDITOR_REAL_LIST};
+            at.reals = {point.h, point.v};
+            ExecuteGraph("schematic.insert-control-point", view.id, 0, nullptr,
+                         {SchematicPosition(address, "link"), at, {"index", EDITOR_INTEGER_VALUE, {}, {}, segment}});
+        }
     }
     if (!link.behaviorLink && link.conversion.empty() && ImGui::MenuItem("Add Parameter Operation in Link"))
         OpenOperationChoice(OperationChoice::InsertInLink, view.id, link.start, link.end, link.ref);

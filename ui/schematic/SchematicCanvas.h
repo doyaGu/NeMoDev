@@ -243,6 +243,8 @@ private:
     int m_PickFrame = -1;
     void ApplyFocus(const ImVec2 &size);
     void HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasMax, bool hovered, bool focused);
+    bool BeginGeometry(CK_ID script, uint64_t mode, const std::vector<ElementRef> &, const ElementRef &primary = {});
+    bool UpdateGeometry(EditorField);
     void BeginMove();
     void UpdateMove(const Point &world);
     void EndMove(bool commit);
@@ -255,15 +257,17 @@ private:
     // Link endpoint named by a hit: pins, Start, local parameters, shortcuts.
     CK_ID SelectedGraph() const;
     bool EndpointOf(const Hit &hit, LinkEndpoint &endpoint, bool &behaviorLink, Point &position) const;
+    ElementAddress EndpointAddress(CK_ID script, const LinkEndpoint &);
     void EndLink(const Hit &hit);
     // Links from the selected pins of the pressed kind (SchematicLinking.cpp); false: not a multi link.
-    bool MultiLink(const Hit &hit);
+    void RetainLinkSources();
+    void ContinueConnection(bool clearSelection = false);
     // Shift+drag of pins: export, re-import, border position (SchematicLinking.cpp).
     void BeginExportDrag();
     void UpdateExportDrag(const ImVec2 &mouse);
     void EndExportDrag(const ImVec2 &mouse);
     // Moved locals dropped across a graph border export (re-import) their input.
-    bool ExportMovedLocals();
+
     void AcceptBuildingBlockDrop();
     CK_ID GraphAt(ScriptView &view, const Point &local) const;
     void Report(const EditResult &result, const char *what);
@@ -313,7 +317,7 @@ private:
     void OpenOperationChoice(OperationChoice mode, CK_ID script, const LinkEndpoint &from, const LinkEndpoint &to,
                              const ElementRef &link = ElementRef());
     void OperationChoiceDialog();
-    void ApplyOperationChoice(const OperationSignature &signature);
+    void ApplyOperationChoice(const EditorField &choice);
     // Dev M: replace the selected operation, keeping its links where the types allow.
     void OpenModifyOperation();
     // Shortcut sources, in every Script of the composition, as one undo step.
@@ -368,9 +372,11 @@ private:
     const EditorHost *m_EditorHost = nullptr;
     std::vector<EditorField> m_InvalidRows;
     uint64_t m_InvalidRevision = 0;
-    enum class GraphFollow { None, Created, ClearSelection };
+    enum class GraphFollow { None, Created, ClearSelection, Geometry };
     struct GraphCommand {
         EditorOperation operation; DocumentToken document; ObjectRef script, owner; GraphFollow follow;
+        std::vector<ElementAddress> selection;
+        uint64_t documentRevision = 0;
     };
     std::vector<GraphCommand> m_GraphCommands;
     EditorResponse GraphState(uint32_t script, uint32_t object = 0);
@@ -391,7 +397,7 @@ private:
     CK_ID SelectedVariableBlock(PinKind kind) const;
     // Dev P: links of the selection switch between direct (no control point) and best path.
     void UpdateLinkPaths();
-    void RouteNewLink(CK_ID script, const LinkEndpoint &a, const LinkEndpoint &b);
+
     // Comment edges and the bottom-right corner of an expanded graph resize them.
     bool ResizeHandleAt(ScriptView &view, const Point &local, ElementRef &ref, int &edges) const;
     void SelectAdjacentScript(int step); // Shift+Up/Down
@@ -444,28 +450,24 @@ private:
         CK_ID reorderScript = 0; // Tool::Reorder
         ElementRef resizeRef;   // Tool::ResizeElement: comment or expanded graph
         CK_ID moveScript = 0;
-        InterfaceData moveOriginal;
-        std::vector<ElementRef> moveItems;
-        std::vector<std::pair<Rect, Rect>> moveLimits; // Move Item Coherence Test: item, its graph (at the press)
-        ElementRef movePrimary;
         bool moveChanged = false;
-        // The move or resize going on: one undo step when the mouse is
-        // released, taken back by Escape. Its Script's data is taken
-        // (ScriptData) when it first changes, so a click that moves nothing
-        // records nothing.
-        std::unique_ptr<Edit> gesture;
+        EditorEdit gesture = 0;
+        EditorField geometryValue;
+        std::vector<ElementAddress> geometrySelection;
+        uint64_t geometryRevision = 0;
         CK_ID linkScript = 0;
+        std::vector<ElementAddress> linkSources;
+        ElementAddress linkAddress, linkFixedAddress;
+        bool linkReverse = false;
+        std::vector<EditorField> connection;
         LinkEndpoint linkFrom;
         CK_ID relinkLink = 0; // Alt+drag of a linked I/O moves this link's end
         ElementRef relinkRef;
         CK_ID exportScript = 0; // Shift+drag export
         std::vector<PinItem> exportPins;
+        std::vector<ElementAddress> exportAddresses;
         CK_ID copyScript = 0; // Shift+drag copy
-        std::vector<CK_ID> copyBehaviors;
-        std::vector<Comment> copyComments;
-        // Locals (and shortcuts' sources) and operations copied too, at their place.
-        std::vector<std::pair<CK_ID, Point>> copyLocals, copyOperations;
-        InterfaceData copySource;
+        std::vector<EditorField> copySelection;
         Rect copyBounds;
         // Menus and dialogs: their targets and open requests.
         Hit menuHit;
@@ -490,10 +492,7 @@ private:
         CKGUID replacePrototype = CKGUID();
         CK_ID replaceSource = 0;
         bool openOperationChoice = false;
-        CK_ID choiceScript = 0;
-        LinkEndpoint choiceFrom, choiceTo;
-        ElementRef choiceLink;
-        std::vector<OperationSignature> choices;
+        std::vector<EditorField> choices;
         bool openDeleteScript = false;
         bool openDeleteGraphs = false;
         std::vector<ObjectRef> deleteScripts;
@@ -587,24 +586,17 @@ private:
     std::vector<Point> m_LinkPoints;
     int m_LinkEndedFrame = -1; // L ended a link this frame: not the link mode's L too
     // Its display data takes the control points (from: where the link began).
-    void SetNewLinkPoints(CK_ID script, const LinkEndpoint &from, const LinkEndpoint &to, const std::vector<Point> &points);
+
     // Ctrl+V of parameters (and operations) without behaviors.
-    void PasteParameters();
+    void PasteClipboard(bool shortcuts);
+    std::vector<EditorField> SelectedPositions();
     // New locals of the parameters' name, type and value, and new operations
     // of the operations' kind, each at its point (in the open graph there).
-    void CopyParametersTo(CK_ID script, const std::vector<std::pair<CK_ID, Point>> &locals,
-                          const std::vector<std::pair<CK_ID, Point>> &operations, const char *label);
     // A pIn's source replaced by a new link (documentation "Invalid or
     // existing pLinks"): asked first; a local linked to it alone goes with it.
     bool m_OpenReplaceSource = false;
-    CK_ID m_ReplaceScript = 0;
-    LinkEndpoint m_ReplaceFrom, m_ReplaceTo;
-    std::vector<Point> m_ReplacePoints;
-    bool m_ReplaceRoute = false;
+    std::string m_ReplaceInputName;
     void ReplaceSourceDialog();
-    CKParameterIn *InputOf(const LinkEndpoint &endpoint) const;
-    void CreateParameterLinkReplacing(CK_ID script, const LinkEndpoint &from, const LinkEndpoint &to,
-                                      const std::vector<Point> &points, bool route);
     // Shift+drag export
     // Shift+drag copy
     // Dialogs: target Script, graph and Script-local position.

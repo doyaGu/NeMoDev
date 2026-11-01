@@ -223,7 +223,10 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const auto preview = Find(block->behavior);
         IM_CHECK_SILENT(preview.has_value());
         IM_CHECK_GT(preview->min.x - block->min.x, 30.0f);
-        IM_CHECK(state.document->EditOpen());
+        IM_CHECK(!state.document->EditOpen());
+        IM_CHECK(state.workspace->Application().HasEdits());
+        IM_CHECK_EQ(state.History().UndoCount(), steps);
+        IM_CHECK_EQ(state.document->Dirty(), dirty);
         ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(3);
         const auto cancelled = Find(block->behavior);
         IM_CHECK_SILENT(cancelled.has_value());
@@ -267,7 +270,10 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->MouseDown(0);
         ctx->MouseMoveToPos(ImVec2(at.x + 60, at.y));
         ctx->Yield(3);
-        IM_CHECK(state.document->EditOpen());
+        IM_CHECK(!state.document->EditOpen());
+        IM_CHECK(state.workspace->Application().HasEdits());
+        IM_CHECK_EQ(state.History().UndoCount(), steps);
+        IM_CHECK_EQ(state.document->Dirty(), dirty);
         OnMainThread(ctx, [] { ImGui::SetWindowFocus("3D Layout"); });
         ctx->Yield(3);
         IM_CHECK(!state.document->EditOpen());

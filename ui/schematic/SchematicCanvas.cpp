@@ -433,10 +433,14 @@ void SchematicCanvas::SyncViews(ImFont *font) {
             // and the contents then need what they did, so undoing back to
             // the save point leaves the document unmodified.
             const float content = view.model.script.contentHeight, stored = session->Data().header.vSize;
-            const bool changed = view.revision != ~0ull && view.content > 0.0f && content != view.content;
-            view.content = content;
+            const bool preview = session->HasDisplayPreview();
+            const bool changed = !preview && view.revision != ~0ull && view.content > 0.0f && content != view.content;
+            if (!preview)
+                view.content = content;
             if (changed && view.model.script.open && stored > 0.0f && !session->ReadOnly() &&
-                (content > stored || (content < stored && m_State.preferences.Bool("Schematic\\Auto Resize Scripts")))) {
+                !session->HasDisplayPreview() &&
+                (content > stored ||
+                 (content < stored && m_State.preferences.Bool("Schematic\\Auto Resize Scripts")))) {
                 session->FitContentHeight(content);
                 view.model.Build(*session, document.Context(), measure, ScriptOpen(id));
             }
@@ -721,6 +725,9 @@ EditorResponse SchematicCanvas::GraphState(uint32_t script, uint32_t object) {
     ObjectRef target{};
     if (const auto *view = ViewFor(script)) target = view->identity;
     if (!target && m_Navigation.stackScript.object == script) target = m_Navigation.stackScript;
+    if (!target)
+        for (const auto &address : m_Navigation.selection.Addresses())
+            if (address.script.object == script) { target = address.script; break; }
     if (!target) return {};
     return Client().Query("schematic.script-state", {ObjectArgument("target", target), IntegerArgument("id", object)});
 }
@@ -757,10 +764,41 @@ void SchematicCanvas::ExecuteGraph(const char *id, uint32_t script, uint32_t obj
         target->object, objectKey && item ? item->object : ObjectRef{});
 }
 void SchematicCanvas::CompleteGraph(const EditorResponse &result, const GraphCommand &command) {
+    if (command.follow == GraphFollow::Geometry && result.documentRevision) {
+        const bool succeeded = result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE;
+        const bool keep =
+            succeeded ? (result.status == EDITOR_NO_CHANGE || EditorClient::Integer(result, "selection-unchanged"))
+                      : result.documentRevision == command.documentRevision;
+        if (keep) {
+            EditorField elements{"elements", EDITOR_RECORD};
+            for (const auto &address : command.selection)
+                elements.fields.push_back(SchematicPosition(address, std::to_string(elements.fields.size()).c_str()));
+            const std::vector<EditorField> fields{
+                elements, {"document-revision", EDITOR_INTEGER_VALUE, {}, {}, result.documentRevision}};
+            const auto values = BorrowEditorFields(fields);
+            const auto positions =
+                Client().Query("schematic.positions", {values.data(), values.data() + values.size()});
+            if (positions.status == EDITOR_OK) {
+                std::vector<ElementAddress> selection;
+                if (const auto *rows = EditorClient::Find(positions, "elements")) {
+                    const auto owned = BorrowEditorFields(rows->fields);
+                    for (const auto &value : owned.values) {
+                        ElementAddress address;
+                        if (ReadSchematicPosition(value, address))
+                            selection.push_back(address);
+                    }
+                }
+                m_Navigation.selection.Assign(selection);
+            }
+        } else if (succeeded)
+            m_Navigation.selection.Clear();
+    }
     if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) {
         if (!result.message.empty()) m_State.Log(LogLevel::Warning, result.message);
         return;
     }
+    if (!result.message.empty())
+        m_State.Log(LogLevel::Info, result.message);
     if (command.follow == GraphFollow::ClearSelection) m_Navigation.selection.Clear();
     if (command.follow == GraphFollow::Created)
         if (const auto *created = EditorClient::Find(result, "created"); created && created->type == EDITOR_OBJECT &&
@@ -939,10 +977,9 @@ bool SchematicCanvas::EndpointOf(const Hit &hit, LinkEndpoint &endpoint, bool &b
         }
         return false;
     case ElementKind::Start: {
-        CKBehavior *script = CKBehavior::Cast(m_State.document->Context()->GetObject(hit.view->id));
-        CKBehaviorIO *start = script && script->GetInputCount() > 0 ? script->GetInput(0) : nullptr;
-        if (!start) return false;
-        endpoint = LinkEndpoint(start->GetID(), 0, ENDPOINT_START_BIN);
+        if (!model.start.endpoint.id)
+            return false;
+        endpoint = model.start.endpoint;
         behaviorLink = true;
         position = model.start.center;
         return true;
@@ -963,160 +1000,133 @@ bool SchematicCanvas::EndpointOf(const Hit &hit, LinkEndpoint &endpoint, bool &b
     }
 }
 
+ElementAddress SchematicCanvas::EndpointAddress(CK_ID script, const LinkEndpoint &endpoint) {
+    auto *view = ViewFor(script);
+    if (!view)
+        return {};
+    const auto same = [&](const LinkEndpoint &other) {
+        return endpoint.id == other.id && endpoint.index == other.index && endpoint.type == other.type;
+    };
+    Hit hit;
+    hit.view = view;
+    if (same(view->model.start.endpoint))
+        hit.ref = view->model.start.ref;
+    for (const auto &pin : view->model.pins)
+        if (same(pin.endpoint)) {
+            hit.ref = pin.ref;
+            break;
+        }
+    if (!hit.ref.IsValid())
+        for (const auto &param : view->model.params)
+            if (same(
+                    LinkEndpoint(param.owner, param.slot, param.shortcut ? ENDPOINT_POUT_SHORTCUT : ENDPOINT_PLOCAL))) {
+                hit.ref = param.ref;
+                break;
+            }
+    ElementAddress address;
+    if (hit.ref.IsValid())
+        RetainHit(hit, address);
+    return address;
+}
+
+void SchematicCanvas::RetainLinkSources() {
+    m_Doc.linkSources.clear();
+    m_Doc.linkAddress = {};
+    m_Doc.linkFixedAddress = {};
+    if (!m_Doc.press.view)
+        return;
+    if (m_Doc.relinkLink) {
+        auto hit = m_Doc.press;
+        hit.ref = m_Doc.relinkRef;
+        RetainHit(hit, m_Doc.linkAddress);
+        m_Doc.linkFixedAddress = EndpointAddress(hit.view->id, m_Doc.linkFrom);
+    } else {
+        const bool group = IsSelected(m_Doc.linkScript, m_Doc.press.ref);
+        const auto items = group ? m_Navigation.selection.items : std::vector<ElementRef>{m_Doc.press.ref};
+        for (const auto &item : items) {
+            if (item.kind != m_Doc.press.ref.kind || (item.kind == ElementKind::Pin && item.pin != m_Doc.press.ref.pin))
+                continue;
+            auto hit = m_Doc.press;
+            hit.ref = item;
+            ElementAddress address;
+            RetainHit(hit, address);
+            if (address)
+                m_Doc.linkSources.push_back(address);
+        }
+    }
+}
+
 void SchematicCanvas::EndLink(const Hit &hit) {
     m_Tool = Tool::Idle;
     const bool relink = m_Doc.relinkLink != 0;
     m_Doc.relinkLink = 0;
-    if (!relink && MultiLink(hit)) return;
-    LinkEndpoint to;
-    bool behaviorLink = false;
-    Point position;
-    if (!hit.view || hit.view->id != m_Doc.linkScript || !EndpointOf(hit, to, behaviorLink, position)) return;
-    if (behaviorLink != m_LinkBehavior) {
-        m_State.Log(LogLevel::Warning, "Link: a behavior pin links to a behavior pin, a parameter to a parameter");
+    if (!hit.view || hit.view->id != m_Doc.linkScript || !m_PressAddress)
         return;
-    }
-    if (relink) {
-        // Delete the old link and create the new one as one undo step.
-        Edit edit(*m_State.document, "Move Link");
-        const EditResult removed = DeleteElements(*m_State.document, m_Doc.linkScript, {m_Doc.relinkRef});
-        if (!removed.ok) {
-            Report(removed, "Move link");
-            return;
-        }
-        const Preferences &preferences = m_State.preferences;
-        const EditResult created =
-            behaviorLink ? CreateBehaviorLink(*m_State.document, m_Doc.linkScript, m_Doc.linkFrom, to,
-                                              preferences.defaultLinkDelay, preferences.autoLoopLinkDelay)
-                         : CreateParameterLink(*m_State.document, m_Doc.linkScript, m_Doc.linkFrom, to);
-        if (!created.ok) {
-            Report(created, "Move link"); // the old link comes back with the edit
-            return;
-        }
-        edit.Commit();
-        m_Navigation.selection.Clear();
+    ElementAddress destination;
+    RetainHit(hit, destination);
+    if (!destination)
         return;
+    m_Doc.connection = {
+        {"target", EDITOR_OBJECT, m_PressAddress.script},
+        {"revision", EDITOR_INTEGER_VALUE, {}, {}, m_PressAddress.revision},
+        {"topology", EDITOR_INTEGER_VALUE, {}, {}, m_PressAddress.topology},
+        SchematicPosition(m_PressAddress, "from"),
+        SchematicPosition(destination, "to"),
+        {"alt", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ImGui::GetIO().KeyAlt)},
+        {"delay", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_State.preferences.defaultLinkDelay)},
+        {"auto-loop", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_State.preferences.autoLoopLinkDelay)},
+        {"route",
+         EDITOR_INTEGER_VALUE,
+         {},
+         {},
+         uint64_t(m_LinkPoints.empty() && m_State.preferences.searchBestPath != ImGui::GetIO().KeyCtrl)}};
+    EditorField selected{"selected", EDITOR_RECORD}, points{"points", EDITOR_REAL_LIST};
+    for (const auto &address : m_Doc.linkSources)
+        selected.fields.push_back(SchematicPosition(address, std::to_string(selected.fields.size()).c_str()));
+    for (const auto &point : m_LinkPoints) {
+        points.reals.push_back(point.h);
+        points.reals.push_back(point.v);
     }
-    const std::vector<Point> points = m_LinkPoints;
     m_LinkPoints.clear();
-    const bool route = points.empty() && (m_State.preferences.searchBestPath != ImGui::GetIO().KeyCtrl);
-    // A pIn that has a source: asked first.
-    if (!behaviorLink) {
-        CKParameterIn *input = InputOf(to) ? InputOf(to) : InputOf(m_Doc.linkFrom);
-        if (input && (input->GetDirectSource() || input->GetSharedSource())) {
-            m_ReplaceScript = m_Doc.linkScript;
-            m_ReplaceFrom = m_Doc.linkFrom;
-            m_ReplaceTo = to;
-            m_ReplacePoints = points;
-            m_ReplaceRoute = route;
-            m_OpenReplaceSource = true;
+    m_Doc.connection.push_back(std::move(selected));
+    m_Doc.connection.push_back(std::move(points));
+    if (relink) {
+        if (!m_Doc.linkAddress || !m_Doc.linkFixedAddress)
             return;
-        }
+        for (auto &field : m_Doc.connection)
+            if (field.key == "from")
+                field = SchematicPosition(m_Doc.linkFixedAddress, "from");
+        m_Doc.connection.push_back(SchematicPosition(m_Doc.linkAddress, "link"));
+        m_Doc.connection.push_back({"reverse", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_Doc.linkReverse)});
     }
-    // The link and its best path (RouteNewLink) or the points clicked: one undo step.
-    EditGroup group(*m_State.document, "Link");
-    const EditResult result =
-        behaviorLink ? CreateBehaviorLink(*m_State.document, m_Doc.linkScript, m_Doc.linkFrom, to,
-                                          m_State.preferences.defaultLinkDelay, m_State.preferences.autoLoopLinkDelay)
-                     : CreateParameterLink(*m_State.document, m_Doc.linkScript, m_Doc.linkFrom, to);
-    if (!result.ok && !behaviorLink) {
-        // Dev: incompatible types link through a parameter operation; one
-        // candidate is used directly, several are offered.
-        const auto conversions = ParameterLinkConversions(*m_State.document, m_Doc.linkScript, m_Doc.linkFrom, to);
-        if (conversions.size() == 1) {
-            const EditResult converted = CreateParameterLink(*m_State.document, m_Doc.linkScript, m_Doc.linkFrom,
-                                                             to, &conversions.front());
-            Report(converted, "Parameter operation link");
-            return;
-        }
-        if (!conversions.empty()) {
-            OpenOperationChoice(OperationChoice::NewLink, m_Doc.linkScript, m_Doc.linkFrom, to);
-            return;
-        }
+    ContinueConnection(relink);
+}
+
+void SchematicCanvas::ContinueConnection(bool clearSelection) {
+    const auto values = BorrowEditorFields(m_Doc.connection);
+    const auto state = Client().Query("schematic.connection", {values.data(), values.data() + values.size()});
+    if (state.status != EDITOR_OK) {
+        if (state.status == EDITOR_REFUSED)
+            m_State.Log(LogLevel::Warning, "Link: these endpoints cannot be connected");
+        return;
     }
-    Report(result, "Link");
-    // Dev "Search Best Path Link" (Ctrl while linking inverts it): the new
-    // link takes the best path, in the same undo step.
-    if (result.ok && route) RouteNewLink(m_Doc.linkScript, m_Doc.linkFrom, to);
-    if (result.ok && !points.empty()) SetNewLinkPoints(m_Doc.linkScript, m_Doc.linkFrom, to, points);
-}
-
-void SchematicCanvas::SetNewLinkPoints(CK_ID scriptId, const LinkEndpoint &from, const LinkEndpoint &to,
-                                       const std::vector<Point> &points) {
-    auto same = [](const LinkEndpoint &x, const LinkEndpoint &y) { return x.id == y.id && x.index == y.index && x.type == y.type; };
-    EditScriptData(*m_State.document, scriptId, "Link", [&](InterfaceData &data) {
-        auto visit = [&](BehaviorData &record) {
-            for (Link &link : record.links) {
-                if (!link.points.empty()) continue;
-                if (same(link.start, from) && same(link.end, to)) {
-                    link.points = points;
-                    return true;
-                }
-                if (same(link.start, to) && same(link.end, from)) {
-                    link.points.assign(points.rbegin(), points.rend());
-                    return true;
-                }
-            }
-            return false;
-        };
-        if (visit(data.rootBehavior)) return;
-        for (BehaviorData &record : data.behaviors)
-            if (visit(record)) return;
-    });
-}
-
-CKParameterIn *SchematicCanvas::InputOf(const LinkEndpoint &endpoint) const {
-    if (endpoint.type != ENDPOINT_PIN && endpoint.type != ENDPOINT_TARGET_PIN) return nullptr;
-    CKObject *owner = m_State.document->Context()->GetObject(endpoint.id);
-    if (CKBehavior *behavior = CKBehavior::Cast(owner))
-        return endpoint.type == ENDPOINT_TARGET_PIN ? behavior->GetTargetParameter()
-                                                    : endpoint.index < behavior->GetInputParameterCount()
-                                                          ? behavior->GetInputParameter(endpoint.index)
-                                                          : nullptr;
-    if (CKParameterOperation *operation = CKParameterOperation::Cast(owner))
-        return endpoint.index == 0 ? operation->GetInParameter1() : endpoint.index == 1 ? operation->GetInParameter2() : nullptr;
-    return nullptr;
-}
-
-void SchematicCanvas::CreateParameterLinkReplacing(CK_ID scriptId, const LinkEndpoint &from, const LinkEndpoint &to,
-                                                   const std::vector<Point> &points, bool route) {
-    CKParameterIn *input = InputOf(to) ? InputOf(to) : InputOf(from);
-    if (!input) return;
-    // A local that was the source of this input alone goes with the link.
-    CKParameterLocal *local = CKParameterLocal::Cast(input->GetDirectSource());
-    ElementRef localRef;
-    if (local) {
-        int uses = 0;
-        CKBehavior *graph = CKBehavior::Cast(local->GetOwner());
-        auto count = [&](CKBehavior *behavior) {
-            for (int i = 0; behavior && i < behavior->GetInputParameterCount(); ++i)
-                if (behavior->GetInputParameter(i) && behavior->GetInputParameter(i)->GetDirectSource() == local) ++uses;
-            if (behavior && behavior->GetTargetParameter() && behavior->GetTargetParameter()->GetDirectSource() == local) ++uses;
-        };
-        if (graph) {
-            for (int i = 0; i < graph->GetSubBehaviorCount(); ++i) count(graph->GetSubBehavior(i));
-            for (int i = 0; i < graph->GetParameterOperationCount(); ++i)
-                if (CKParameterOperation *operation = graph->GetParameterOperation(i)) {
-                    if (operation->GetInParameter1() && operation->GetInParameter1()->GetDirectSource() == local) ++uses;
-                    if (operation->GetInParameter2() && operation->GetInParameter2()->GetDirectSource() == local) ++uses;
-                }
-        }
-        if (uses == 1)
-            if (const ScriptView *view = ViewFor(scriptId))
-                for (const auto &param : view->model.params)
-                    if (param.ref.kind == ElementKind::LocalParam && param.ref.object == local->GetID()) localRef = param.ref;
+    if (EditorClient::Integer(state, "replace")) {
+        m_ReplaceInputName = EditorClient::Text(state, "input-name");
+        m_OpenReplaceSource = true;
+        return;
     }
-    EditGroup group(*m_State.document, "Link");
-    const EditResult result = CreateParameterLink(*m_State.document, scriptId, from, to);
-    Report(result, "Link");
-    if (!result.ok) return;
-    if (localRef.IsValid()) Report(DeleteElements(*m_State.document, scriptId, {localRef}), "Delete");
-    if (route) RouteNewLink(scriptId, from, to);
-    if (!points.empty()) SetNewLinkPoints(scriptId, from, to, points);
+    const auto *choices = EditorClient::Find(state, "choices");
+    if (choices && choices->fields.size() > 1) {
+        m_Doc.choices = choices->fields;
+        m_ChoiceMode = OperationChoice::NewLink;
+        m_ChoicePick = 0;
+        m_Doc.openOperationChoice = true;
+        return;
+    }
+    Execute("schematic.connect", {values.data(), values.data() + values.size()},
+            clearSelection ? GraphFollow::ClearSelection : GraphFollow::None);
 }
 
-// "There is already an existing link on a pIn": delete the previous link
-// (and its local), or cancel.
 void SchematicCanvas::ReplaceSourceDialog() {
     const char *id = "Link###ReplaceSource";
     if (m_OpenReplaceSource) {
@@ -1124,52 +1134,17 @@ void SchematicCanvas::ReplaceSourceDialog() {
         ImGui::OpenPopup(id);
     }
     if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    CKParameterIn *input = m_State.HasDocument() ? (InputOf(m_ReplaceTo) ? InputOf(m_ReplaceTo) : InputOf(m_ReplaceFrom)) : nullptr;
-    ImGui::Text("The parameter input <%s> is already linked.", input && input->GetName() ? AnsiToUtf8(input->GetName()).c_str() : "");
+    ImGui::Text("The parameter input <%s> is already linked.", m_ReplaceInputName.c_str());
     ImGui::TextUnformatted("Delete the previous link?");
     if (ImGui::Button("Delete Link", ImVec2(110, 0))) {
         ImGui::CloseCurrentPopup();
-        if (input) CreateParameterLinkReplacing(m_ReplaceScript, m_ReplaceFrom, m_ReplaceTo, m_ReplacePoints, m_ReplaceRoute);
+        m_Doc.connection.push_back({"replace", EDITOR_INTEGER_VALUE, {}, {}, 1});
+        const auto values = BorrowEditorFields(m_Doc.connection);
+        Execute("schematic.connect", {values.data(), values.data() + values.size()});
     }
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(110, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
-}
-
-void SchematicCanvas::RouteNewLink(CK_ID scriptId, const LinkEndpoint &a, const LinkEndpoint &b) {
-    auto same = [](const LinkEndpoint &x, const LinkEndpoint &y) {
-        return x.id == y.id && x.index == y.index && x.type == y.type;
-    };
-    ScriptSession *session = m_State.document->Session(scriptId);
-    if (!session) return;
-    CKBehavior *script = CKBehavior::Cast(m_State.document->Context()->GetObject(scriptId));
-    // Route on a copy first; commit only a found path.
-    InterfaceData copy = session->Data();
-    copy.observers.clear();
-    CK_ID owner = 0;
-    int slot = -1;
-    std::vector<Point> points;
-    auto visit = [&](BehaviorData &record) {
-        for (int i = 0; i < static_cast<int>(record.links.size()) && slot < 0; ++i) {
-            Link &link = record.links[i];
-            if (!link.points.empty() ||
-                !((same(link.start, a) && same(link.end, b)) || (same(link.start, b) && same(link.end, a))))
-                continue;
-            if (RouteSingleLink(copy, record, link, script) && !link.points.empty()) {
-                owner = record.id;
-                slot = i;
-                points = link.points;
-            }
-        }
-    };
-    visit(copy.rootBehavior);
-    for (auto &record : copy.behaviors) visit(record);
-    if (slot < 0) return;
-    // In the link's undo step (EndLink's group).
-    EditScriptData(*m_State.document, scriptId, "Link", [&](InterfaceData &data) {
-        if (BehaviorData *record = FindRecord(data, owner))
-            if (slot < static_cast<int>(record->links.size())) record->links[slot].points = points;
-    });
 }
 
 void SchematicCanvas::AcceptBuildingBlockDrop() {
@@ -1238,201 +1213,132 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
     ImGui::EndDragDropTarget();
 }
 
-void SchematicCanvas::Copy() {
-    const Selection &selection = m_Navigation.selection;
-    ScriptSession *session = m_State.HasDocument() ? m_State.document->Session(selection.script) : nullptr;
-    if (!session || selection.Empty()) return;
-    Clipboard clipboard;
-    clipboard.data = session->Data();
-    clipboard.data.observers.clear();
-    for (const auto &item : selection.items) {
-        if (item.kind == ElementKind::Behavior) clipboard.behaviors.push_back(item.object);
-        if (item.kind == ElementKind::Operation && item.object) clipboard.operations.push_back(item.object);
-        if ((item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut) && item.object)
-            clipboard.parameters.push_back(item.object);
-        if (item.kind == ElementKind::Pin && item.pin == PinKind::ParamOut) {
-            CKObject *owner = m_State.document->Context()->GetObject(item.object);
-            CKParameter *output = CKBehavior::Cast(owner) ? static_cast<CKParameter *>(
-                                                               CKBehavior::Cast(owner)->GetOutputParameter(item.index))
-                                  : CKParameterOperation::Cast(owner)
-                                      ? static_cast<CKParameter *>(CKParameterOperation::Cast(owner)->GetOutParameter())
-                                      : nullptr;
-            if (output) clipboard.parameters.push_back(output->GetID());
-        }
-        if (item.kind == ElementKind::Comment) {
-            const BehaviorData *record = FindRecord(clipboard.data, item.owner);
-            if (record && item.index >= 0 && item.index < static_cast<int>(record->comments.size()))
-                clipboard.comments.push_back(record->comments[item.index]);
-        }
+std::vector<EditorField> SchematicCanvas::SelectedPositions() {
+    const auto &selection = m_Navigation.selection;
+    if (selection.Empty())
+        return {};
+    EditorField elements{"elements", EDITOR_RECORD};
+    const ElementAddress *first = nullptr;
+    for (const auto &address : selection.Addresses()) {
+        if (address.script.object != selection.script) continue;
+        if (!address)
+            return {};
+        if (!first) first = &address;
+        elements.fields.push_back(SchematicPosition(address, std::to_string(elements.fields.size()).c_str()));
     }
-    if (clipboard.Empty()) {
-        m_State.Log(LogLevel::Info, "Copy: select behaviors, Comments or parameters");
-        return;
-    }
-    m_State.clipboard.Set(*m_State.document, std::move(clipboard));
-    m_State.Log(LogLevel::Info, "Copied " + std::to_string(m_State.clipboard.behaviors.size()) + " behaviors, " +
-                                    std::to_string(m_State.clipboard.comments.size()) + " Comments");
+    if (!first || elements.fields.size() != selection.items.size()) return {};
+    const auto state = Client().Query("schematic.script-state", {ObjectArgument("target", first->script)});
+    if (state.status != EDITOR_OK) return {};
+    return {{"target", EDITOR_OBJECT, first->script},
+            {"revision", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(state, "revision")},
+            {"topology", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(state, "topology")},
+            std::move(elements)};
 }
 
-void SchematicCanvas::PasteShortcuts() {
-    const Clipboard &clipboard = m_State.clipboard;
-    if (!m_State.HasDocument() || !clipboard.BelongsTo(*m_State.document)) return;
-    ScriptView *view = ViewFor(m_Doc.mouseScript);
-    const CK_ID graph = view ? GraphAt(*view, m_Doc.mouseLocal) : 0;
-    if (clipboard.parameters.empty() || !graph) {
-        m_State.Log(LogLevel::Info,
-                    "Paste shortcut: copy local parameters, outputs or attribute values, then point at an open graph");
+void SchematicCanvas::Copy() {
+    const auto fields = SelectedPositions();
+    if (fields.empty())
         return;
-    }
-    // A shortcut displays a parameter of another graph (sharedParams); no CK change.
-    const Point at = m_Doc.mouseLocal;
-    EditScriptData(*m_State.document, m_Doc.mouseScript, "Paste Shortcut", [&](InterfaceData &data) {
-        BehaviorData *record = FindRecord(data, graph);
-        if (!record) return;
-        int row = 0;
-        for (CK_ID id : clipboard.parameters) {
-            Parameter shortcut(id, static_cast<int>(std::floor((at.h - record->rect.hPos) / SchematicGrid::SPACING)),
-                               static_cast<int>(std::floor((at.v - record->rect.vPos) / SchematicGrid::SPACING)) + row++,
-                               PARAM_STYLE_NAME);
-            shortcut.sourceId = id;
-            if (record == &data.rootBehavior && view->rootIsScript) {
-                shortcut.hPos = std::max(shortcut.hPos, 9);
-                shortcut.vPos = std::max(shortcut.vPos, 0);
-            }
-            record->sharedParams.push_back(shortcut);
-        }
-    });
+    const auto values = BorrowEditorFields(fields);
+    Execute("schematic.copy", {values.data(), values.data() + values.size()});
 }
+
+void SchematicCanvas::PasteShortcuts() { PasteClipboard(true); }
 
 void SchematicCanvas::GroupSelection() {
-    if (!m_State.HasDocument()) return;
-    std::vector<CK_ID> behaviors;
+    EditorField objects{"objects", EDITOR_OBJECT_LIST};
     for (const auto &item : m_Navigation.selection.items)
-        if (item.kind == ElementKind::Behavior) behaviors.push_back(item.object);
-    if (behaviors.empty()) {
-        if (m_Doc.mouseScript) CreateGraphAt(m_Doc.mouseScript, m_Doc.mouseLocal);
+        if (item.kind == ElementKind::Behavior) {
+            const auto state = GraphState(m_Navigation.selection.script, item.object);
+            if (state.status != EDITOR_OK)
+                return;
+            const auto *object = EditorClient::Find(state, "object");
+            if (!object || !object->object)
+                return;
+            objects.objects.push_back(object->object);
+        }
+    if (objects.objects.empty()) {
+        if (m_Doc.mouseScript)
+            CreateGraphAt(m_Doc.mouseScript, m_Doc.mouseLocal);
         return;
     }
-    const CK_ID script = m_Navigation.selection.script;
-    const EditResult result = GroupBehaviors(*m_State.document, script, behaviors);
-    Report(result, "Create behavior graph");
-    if (result.ok) m_Navigation.selection.Set(script, ElementRef{ElementKind::Behavior, 0, result.created});
+    ExecuteGraph("schematic.group", m_Navigation.selection.script, 0, nullptr, {std::move(objects)},
+                 GraphFollow::Created);
 }
 
 void SchematicCanvas::UngroupSelection() {
-    if (!m_State.HasDocument()) return;
-    const Selection selection = m_Navigation.selection;
-    bool any = false;
-    for (const auto &item : selection.items)
+    EditorField objects{"objects", EDITOR_OBJECT_LIST};
+    for (const auto &item : m_Navigation.selection.items)
         if (item.kind == ElementKind::Behavior) {
-            any = true;
-            Report(UngroupGraph(*m_State.document, selection.script, item.object), "Delete graph");
+            const auto state = GraphState(m_Navigation.selection.script, item.object);
+            if (state.status != EDITOR_OK)
+                return;
+            const auto *object = EditorClient::Find(state, "object");
+            if (!object || !object->object)
+                return;
+            objects.objects.push_back(object->object);
         }
-    if (!any) m_State.Log(LogLevel::Info, "Shift+Del: select behavior graphs to remove while keeping their contents");
-    m_Navigation.selection.Clear();
+    if (objects.objects.empty()) {
+        m_State.Log(LogLevel::Info, "Shift+Del: select behavior graphs to remove while keeping their contents");
+        return;
+    }
+    ExecuteGraph("schematic.ungroup", m_Navigation.selection.script, 0, nullptr, {std::move(objects)},
+                 GraphFollow::ClearSelection);
 }
 
 void SchematicCanvas::Cut() {
-    Copy();
-    if (!m_State.clipboard.Empty()) DeleteSelection();
+    const auto fields = SelectedPositions();
+    if (fields.empty())
+        return;
+    const auto values = BorrowEditorFields(fields);
+    Execute("schematic.cut", {values.data(), values.data() + values.size()}, GraphFollow::ClearSelection);
 }
 
-void SchematicCanvas::Paste() {
-    const Clipboard &clipboard = m_State.clipboard;
-    if (clipboard.Empty() || !m_State.HasDocument() || !clipboard.BelongsTo(*m_State.document)) return;
-    if (clipboard.behaviors.empty() && clipboard.comments.empty()) {
-        // Parameters alone (documentation "Local Parameter"): new locals of
-        // their name, type and value; operations: new ones of theirs.
-        PasteParameters();
+void SchematicCanvas::Paste() { PasteClipboard(false); }
+void SchematicCanvas::PasteClipboard(bool shortcuts) {
+    const auto clipboard = Client().Query("schematic.clipboard");
+    if (clipboard.status != EDITOR_OK || !EditorClient::Integer(clipboard, "available"))
         return;
-    }
     CK_ID script = m_Doc.mouseScript;
     Point at = m_Doc.mouseLocal;
-    if (!script && !m_Views.empty()) {
+    if (!script && !m_Views.empty() && !shortcuts &&
+        (EditorClient::Integer(clipboard, "behaviors") || EditorClient::Integer(clipboard, "comments"))) {
         script = m_Views.front().id;
-        at = Point(m_Views.front().model.script.bounds.hPos + 200.0f, m_Views.front().model.script.bounds.vPos + 40.0f);
+        at = Point(m_Views.front().model.script.bounds.hPos + 200, m_Views.front().model.script.bounds.vPos + 40);
     }
-    ScriptView *view = ViewFor(script);
-    const CK_ID graph = view ? GraphAt(*view, at) : 0;
-    if (!graph) {
-        m_State.Log(LogLevel::Info, "Paste: point at an open Script or an expanded graph");
+    auto *view = ViewFor(script);
+    if (!view || !GraphAt(*view, at))
         return;
-    }
-    const EditResult result = PasteBehaviors(*m_State.document, clipboard.data, clipboard.behaviors,
-                                             clipboard.comments, script, graph, at);
-    Report(result, "Paste");
-    if (result.ok && result.created) m_Navigation.selection.Set(script, ElementRef{ElementKind::Behavior, graph, result.created});
-}
-
-void SchematicCanvas::PasteParameters() {
-    const Clipboard &clipboard = m_State.clipboard;
-    if (!m_State.HasDocument() || !clipboard.BelongsTo(*m_State.document)) return;
-    ScriptView *view = ViewFor(m_Doc.mouseScript);
-    const CK_ID graph = view ? GraphAt(*view, m_Doc.mouseLocal) : 0;
-    if (!graph) {
-        m_State.Log(LogLevel::Info, "Paste: point at an open Script or an expanded graph");
-        return;
-    }
-    // One under the other from the mouse.
-    Point at = m_Doc.mouseLocal;
-    std::vector<std::pair<CK_ID, Point>> locals, operations;
-    for (CK_ID id : clipboard.parameters) {
-        locals.emplace_back(id, at);
-        at.v += SchematicGrid::SPACING * 2.0f;
-    }
-    for (CK_ID id : clipboard.operations) {
-        operations.emplace_back(id, at);
-        at.v += SchematicGrid::SPACING * 4.0f;
-    }
-    CopyParametersTo(m_Doc.mouseScript, locals, operations, "Paste");
-}
-
-void SchematicCanvas::CopyParametersTo(CK_ID script, const std::vector<std::pair<CK_ID, Point>> &locals,
-                                       const std::vector<std::pair<CK_ID, Point>> &operations, const char *label) {
-    ScriptView *view = ViewFor(script);
-    if (!view || (locals.empty() && operations.empty())) return;
-    CKContext *context = m_State.document->Context();
-    EditGroup group(*m_State.document, label);
-    for (const auto &local : locals) {
-        CKParameter *source = CKParameter::Cast(context->GetObject(local.first));
-        const CK_ID graph = GraphAt(*view, local.second);
-        if (!source || !graph) continue;
-        const EditResult made = AddLocalParameter(*m_State.document, script, graph, source->GetName() ? source->GetName() : "",
-                                                  source->GetGUID(), local.second);
-        Report(made, label);
-        if (!made.ok) continue;
-        const std::vector<unsigned char> bytes = ParameterBytes(source);
-        if (!bytes.empty()) SetParameterBytes(*m_State.document, script, made.created, bytes);
-    }
-    for (const auto &operation : operations) {
-        CKParameterOperation *source = CKParameterOperation::Cast(context->GetObject(operation.first));
-        const CK_ID graph = GraphAt(*view, operation.second);
-        if (!source || !source->GetOutParameter() || !graph) continue;
-        const CKGUID none(0, 0);
-        const EditResult made = AddParameterOperation(
-            *m_State.document, script, graph, source->GetOperationGuid(), source->GetOutParameter()->GetGUID(),
-            source->GetInParameter1() ? source->GetInParameter1()->GetGUID() : none,
-            source->GetInParameter2() ? source->GetInParameter2()->GetGUID() : none, operation.second);
-        Report(made, label);
-    }
+    EditorField point{"at", EDITOR_REAL_LIST};
+    point.reals = {at.h, at.v};
+    ExecuteGraph(
+        shortcuts ? "schematic.paste-shortcuts" : "schematic.paste", script, 0, nullptr,
+        {point, {"clipboard-revision", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(clipboard, "revision")}},
+        GraphFollow::Created);
 }
 
 void SchematicCanvas::Duplicate() {
-    const Selection &selection = m_Navigation.selection;
-    ScriptView *view = ViewFor(selection.script);
-    if (!view || selection.Empty()) return;
-    // Next to the selection: one grid step plus its own offset (library choice).
+    const auto fields = SelectedPositions();
+    if (fields.empty())
+        return;
+    auto *view = ViewFor(m_Navigation.selection.script);
     float left = FLT_MAX, top = FLT_MAX;
-    for (const auto &item : selection.items)
-        if (const BehaviorItem *behavior = item.kind == ElementKind::Behavior ? view->model.FindBehavior(item.object) : nullptr) {
+    for (const auto &item : m_Navigation.selection.items)
+        if (const auto *behavior =
+                item.kind == ElementKind::Behavior ? view->model.FindBehavior(item.object) : nullptr) {
             left = std::min(left, behavior->box.hPos);
             top = std::min(top, behavior->box.vPos);
         }
     if (left == FLT_MAX) return;
-    Copy();
-    m_Doc.mouseScript = selection.script;
-    m_Doc.mouseLocal = Point(left + 40.0f, top + 40.0f);
-    Paste();
+    auto args = fields;
+    EditorField at{"at", EDITOR_REAL_LIST};
+    at.reals = {left + 40, top + 40};
+    args.push_back(std::move(at));
+    m_Doc.mouseScript = view->id;
+    m_Doc.mouseLocal = Point(left + 40, top + 40);
+    const auto values = BorrowEditorFields(args);
+    Execute("schematic.duplicate", {values.data(), values.data() + values.size()}, GraphFollow::Created,
+            view->identity);
 }
 
 void SchematicCanvas::Refresh() {
@@ -1548,91 +1454,45 @@ void SchematicCanvas::InsertBlockAt(const CKGUID &guid, CK_ID script, const Poin
 }
 
 void SchematicCanvas::BeginCopyDrag() {
-    const Selection &selection = m_Navigation.selection;
-    ScriptView *view = ViewFor(selection.script);
-    ScriptSession *session = m_State.document->Session(selection.script);
-    if (!view || !session) return;
-    m_Doc.copyBehaviors.clear();
-    m_Doc.copyComments.clear();
-    m_Doc.copyLocals.clear();
-    m_Doc.copyOperations.clear();
-    float left = FLT_MAX, top = FLT_MAX, right = -FLT_MAX, bottom = -FLT_MAX;
-    auto grow = [&](const Rect &r) {
-        left = std::min(left, r.hPos);
-        top = std::min(top, r.vPos);
-        right = std::max(right, r.Right());
-        bottom = std::max(bottom, r.Bottom());
-    };
-    for (const auto &item : selection.items) {
-        if (item.kind == ElementKind::Behavior) {
-            if (const BehaviorItem *behavior = view->model.FindBehavior(item.object)) {
-                m_Doc.copyBehaviors.push_back(item.object);
-                grow(behavior->box);
-            }
-        } else if ((item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut) && item.object) {
-            // Documentation "Schematic Keyboard Shortcuts": the selection
-            // dragged with Shift copied, its parameters too.
-            for (const ParamItem &param : view->model.params)
-                if (param.ref == item) {
-                    m_Doc.copyLocals.emplace_back(item.object, Point(param.bounds.hPos, param.bounds.vPos));
-                    grow(param.bounds);
-                    break;
-                }
-        } else if (item.kind == ElementKind::Operation && item.object) {
-            for (const OperationItem &operation : view->model.operations)
-                if (operation.ref == item) {
-                    m_Doc.copyOperations.emplace_back(item.object, Point(operation.bounds.hPos, operation.bounds.vPos));
-                    grow(operation.bounds);
-                    break;
-                }
-        } else if (item.kind == ElementKind::Comment) {
-            const BehaviorData *record = FindRecord(session->Data(), item.owner);
-            if (record && item.index >= 0 && item.index < static_cast<int>(record->comments.size())) {
-                m_Doc.copyComments.push_back(record->comments[item.index]);
-                grow(record->comments[item.index].GetRect());
-            }
-        }
-    }
-    if (m_Doc.copyBehaviors.empty() && m_Doc.copyComments.empty() && m_Doc.copyLocals.empty() && m_Doc.copyOperations.empty())
+    const auto fields = SelectedPositions();
+    if (fields.empty())
         return;
-    m_Doc.copySource = session->Data();
-    m_Doc.copySource.observers.clear();
-    m_Doc.copyScript = selection.script;
-    m_Doc.copyBounds = Rect(left, top, right - left, bottom - top);
+    const auto values = BorrowEditorFields(fields);
+    const auto state = Client().Query("schematic.copy-selection", {values.data(), values.data() + values.size()});
+    const auto *bounds = EditorClient::Find(state, "bounds");
+    if (state.status != EDITOR_OK || !bounds || bounds->reals.size() != 4)
+        return;
+    m_Doc.copyScript = m_Navigation.selection.script;
+    m_Doc.copySelection = fields;
+    m_Doc.copyBounds =
+        Rect(float(bounds->reals[0]), float(bounds->reals[1]), float(bounds->reals[2]), float(bounds->reals[3]));
     m_Tool = Tool::CopyDrag;
 }
 
 void SchematicCanvas::EndCopyDrag(const Point &world) {
     m_Tool = Tool::Idle;
-    ScriptView *view = ViewFor(m_Doc.copyScript);
-    if (!view) return;
+    auto *view = ViewFor(m_Doc.copyScript);
+    if (!view)
+        return;
     Point to(m_Doc.copyBounds.hPos + world.h - m_PressWorld.h, m_Doc.copyBounds.vPos + world.v - m_PressWorld.v);
-    // Released over another Script (documentation "Script": "drag the
-    // selection into another script"): the copy goes there.
-    CK_ID into = m_Doc.copyScript;
-    const Hit target = HitAt(ImGui::GetIO().MousePos);
+    const auto target = HitAt(ImGui::GetIO().MousePos);
     if (target.view && target.view->id != m_Doc.copyScript) {
         const Point press(m_PressWorld.h, m_PressWorld.v - view->offsetY);
         to = Point(m_Doc.copyBounds.hPos + target.local.h - press.h, m_Doc.copyBounds.vPos + target.local.v - press.v);
-        into = target.view->id;
         view = target.view;
     }
-    EditGroup group(*m_State.document, "Copy");
-    // The parameters and operations moved as the rest of the selection.
-    const float dh = to.h - m_Doc.copyBounds.hPos, dv = to.v - m_Doc.copyBounds.vPos;
-    auto moved = [&](const std::vector<std::pair<CK_ID, Point>> &items) {
-        std::vector<std::pair<CK_ID, Point>> placed;
-        for (const auto &item : items) placed.emplace_back(item.first, Point(item.second.h + dh, item.second.v + dv));
-        return placed;
-    };
-    CopyParametersTo(into, moved(m_Doc.copyLocals), moved(m_Doc.copyOperations), "Copy");
-    if (m_Doc.copyBehaviors.empty() && m_Doc.copyComments.empty()) return;
-    const CK_ID graph = GraphAt(*view, Point(to.h + 1.0f, to.v + 1.0f));
-    if (!graph) return;
-    const EditResult result = PasteBehaviors(*m_State.document, m_Doc.copySource, m_Doc.copyBehaviors,
-                                             m_Doc.copyComments, into, graph, to);
-    Report(result, "Copy");
-    if (result.ok && result.created) m_Navigation.selection.Set(into, ElementRef{ElementKind::Behavior, graph, result.created});
+    if (!view->model.script.open)
+        return;
+    auto fields = m_Doc.copySelection;
+    EditorField at{"at", EDITOR_REAL_LIST};
+    at.reals = {to.h, to.v};
+    fields.push_back(std::move(at));
+    fields.push_back({"destination", EDITOR_OBJECT, view->identity});
+    fields.push_back({"destination-revision", EDITOR_INTEGER_VALUE, {}, {}, view->revision});
+    const auto values = BorrowEditorFields(fields);
+    Execute("schematic.copy-elements", {values.data(), values.data() + values.size()}, GraphFollow::Created,
+            view->identity);
+    m_Doc.copySelection.clear();
 }
 
 void SchematicCanvas::SelectAll() {
@@ -1729,115 +1589,130 @@ void SchematicCanvas::DoubleClick(const Hit &hit) {
     }
 }
 
+bool SchematicCanvas::BeginGeometry(CK_ID script, uint64_t mode, const std::vector<ElementRef> &items,
+                                    const ElementRef &primary) {
+    auto *view = ViewFor(script);
+    if (!view || !m_EditorHost)
+        return false;
+    EditorField elements{"elements", EDITOR_RECORD};
+    for (const auto &item : items) {
+        Hit hit;
+        hit.view = view;
+        hit.ref = item;
+        ElementAddress address;
+        RetainHit(hit, address);
+        if (!address)
+            return false;
+        elements.fields.push_back(SchematicPosition(address, std::to_string(elements.fields.size()).c_str()));
+    }
+    std::vector<EditorField> args{{"target", EDITOR_OBJECT, view->identity},
+                                  {"mode", EDITOR_INTEGER_VALUE, {}, {}, mode},
+                                  std::move(elements),
+                                  {"coherence",
+                                   EDITOR_INTEGER_VALUE,
+                                   {},
+                                   {},
+                                   uint64_t(m_State.preferences.Bool("Schematic\\Move Item Coherence Test"))},
+                                  {"auto-resize",
+                                   EDITOR_INTEGER_VALUE,
+                                   {},
+                                   {},
+                                   uint64_t(m_State.preferences.Bool("Schematic\\Auto Resize Scripts"))}};
+    if (mode == 0) {
+        Hit hit;
+        hit.view = view;
+        hit.ref = primary;
+        ElementAddress address;
+        RetainHit(hit, address);
+        if (!address)
+            return false;
+        args.push_back(SchematicPosition(address, "primary"));
+    }
+    const auto values = BorrowEditorFields(args);
+    const auto state = Client().Query("schematic.geometry", {values.data(), values.data() + values.size()});
+    if (state.status != EDITOR_OK)
+        return false;
+    const auto initial = BorrowEditorFields(state.fields);
+    if (Client().BeginCommand("schematic.edit-geometry", {initial.data(), initial.data() + initial.size()},
+                              m_Doc.gesture) != EDITOR_OK)
+        return false;
+    m_Doc.geometryValue = *EditorClient::Find(state, "value");
+    m_Doc.geometrySelection = m_Navigation.selection.Addresses();
+    m_Doc.geometryRevision = EditorClient::Integer(GraphState(script), "document-revision");
+    m_Doc.moveScript = script;
+    m_Doc.moveChanged = false;
+    return true;
+}
+
+bool SchematicCanvas::UpdateGeometry(EditorField value) {
+    if (!m_Doc.gesture)
+        return false;
+    const std::vector<EditorField> owned{value};
+    const auto fields = BorrowEditorFields(owned);
+    const auto status = m_EditorHost->editValue(m_EditorHost->data, m_Doc.gesture, fields.data());
+    if (status != EDITOR_OK && status != EDITOR_NO_CHANGE) {
+        EndMove(false);
+        return false;
+    }
+    m_Doc.geometryValue = std::move(value);
+    return true;
+}
+
 void SchematicCanvas::BeginMove() {
-    if (!m_Doc.press.view || !m_State.HasDocument()) return;
-    ScriptSession *session = m_State.document->Session(m_Doc.press.view->id);
-    if (!session || session->ReadOnly()) return;
+    if (!m_Doc.press.view)
+        return;
     const CK_ID script = m_Doc.press.view->id;
     if (!IsSelected(script, m_Doc.press.ref)) m_Navigation.selection.Set(script, m_Doc.press.ref);
-    m_Doc.moveItems.clear();
+    std::vector<ElementRef> items;
     for (const auto &item : m_Navigation.selection.items)
-        if (Movable(item.kind)) m_Doc.moveItems.push_back(item);
-    if (m_Doc.moveItems.empty()) return;
-    m_Doc.moveScript = script;
-    m_Doc.moveOriginal = session->Data();
-    m_Doc.moveOriginal.observers.clear();
-    m_Doc.movePrimary = m_Doc.press.ref;
-    m_Doc.moveChanged = false;
-    m_Doc.gesture = std::make_unique<Edit>(*m_State.document, "Move", Edit::Marks::Scripts);
+        if (Movable(item.kind))
+            items.push_back(item);
+    if (items.empty() || !BeginGeometry(script, 0, items, m_Doc.press.ref))
+        return;
     m_Tool = Tool::Move;
-    // Dev.exe CUIKSchematicView_HandleMouseMove with Move Item Coherence Test
-    // (sub_52E550): what is moved stays inside the expanded Behavior Graph it
-    // belongs to, a grid step from its border; the move stops for all.
-    m_Doc.moveLimits.clear();
-    if (!m_State.preferences.Bool("Schematic\\Move Item Coherence Test")) return;
-    const SchematicModel &model = m_Doc.press.view->model;
-    auto moved = [&](CK_ID id) {
-        return std::any_of(m_Doc.moveItems.begin(), m_Doc.moveItems.end(),
-                           [&](const ElementRef &ref) { return ref.kind == ElementKind::Behavior && ref.object == id; });
-    };
-    // The innermost expanded graph holding owner that is not moved too.
-    auto container = [&](CK_ID owner, Rect &box) {
-        for (CK_ID id = owner; id && id != script;) {
-            const BehaviorItem *graph = model.FindBehavior(id);
-            if (!graph) return false;
-            if (moved(id)) return false;
-            if (graph->graph && !graph->folded) {
-                box = graph->box;
-                return true;
-            }
-            id = graph->parent;
-        }
-        return false;
-    };
-    for (const ElementRef &ref : m_Doc.moveItems) {
-        Rect item, box;
-        CK_ID owner = 0;
-        bool found = false;
-        if (ref.kind == ElementKind::Behavior) {
-            if (const BehaviorItem *behavior = model.FindBehavior(ref.object)) {
-                item = behavior->box;
-                owner = behavior->parent;
-                found = true;
-            }
-        }
-        for (const ParamItem &param : model.params)
-            if (!found && param.ref == ref) item = param.bounds, owner = param.owner, found = true;
-        for (const OperationItem &operation : model.operations)
-            if (!found && operation.ref == ref) item = operation.bounds, owner = operation.owner, found = true;
-        for (const CommentItem &comment : model.comments)
-            if (!found && comment.ref == ref) item = comment.bounds, owner = comment.owner, found = true;
-        if (found && container(owner, box)) m_Doc.moveLimits.push_back({item, box});
-    }
 }
 
 void SchematicCanvas::UpdateMove(const Point &world) {
-    ScriptView *view = ViewFor(m_Doc.moveScript);
-    if (!m_Doc.gesture || !view) return;
-    Point delta(world.h - m_PressWorld.h, world.v - m_PressWorld.v);
-    // Move Item Coherence Test: the largest move keeping every limited item
-    // inside its graph (none along an axis it already crosses).
-    const float step = SchematicGrid::SPACING;
-    for (const auto &limit : m_Doc.moveLimits) {
-        const Rect &item = limit.first, &box = limit.second;
-        const float minH = box.hPos + step - item.hPos, maxH = box.Right() - step - item.Right();
-        const float minV = box.vPos + step - item.vPos, maxV = box.Bottom() - step - item.Bottom();
-        delta.h = minH > maxH ? 0.0f : std::clamp(delta.h, std::min(0.0f, minH), std::max(0.0f, maxH));
-        delta.v = minV > maxV ? 0.0f : std::clamp(delta.v, std::min(0.0f, minV), std::max(0.0f, maxV));
-    }
-    InterfaceData *data = m_Doc.gesture->ScriptData(m_Doc.moveScript);
-    if (!data) return;
-    MoveElements(*data, m_Doc.moveOriginal, view->rootIsScript, m_Doc.moveItems, m_Doc.movePrimary, delta);
-    m_Doc.moveChanged = true;
+    if (!m_Doc.gesture)
+        return;
+    EditorField value{"value", EDITOR_RECORD}, delta{"delta", EDITOR_REAL_LIST};
+    delta.reals = {world.h - m_PressWorld.h, world.v - m_PressWorld.v};
+    value.fields.push_back(std::move(delta));
+    m_Doc.moveChanged = UpdateGeometry(std::move(value));
 }
 
 void SchematicCanvas::EndMove(bool commit) {
-    // Dev documentation "Link Options": with Search Best Path the links of
-    // a moved selection take the best path (Ctrl inverts it), in the move's step.
-    if (m_Doc.gesture && commit && !m_Doc.gesture->Empty() && m_Doc.moveScript &&
-        m_State.preferences.searchBestPath != ImGui::GetIO().KeyCtrl) {
-        std::set<CK_ID> moved;
-        for (const ElementRef &item : m_Doc.moveItems)
-            if (item.kind == ElementKind::Behavior || item.kind == ElementKind::Operation) moved.insert(item.object);
-        CKBehavior *script = CKBehavior::Cast(m_State.document->Context()->GetObject(m_Doc.moveScript));
-        if (!moved.empty() && script)
-            EditScriptData(*m_State.document, m_Doc.moveScript, "Move", [&](InterfaceData &data) {
-                auto visit = [&](BehaviorData &record) {
-                    for (Link &link : record.links) {
-                        if (!moved.count(link.start.id) && !moved.count(link.end.id)) continue;
-                        const std::vector<Point> before = link.points;
-                        link.points.clear();
-                        if (!RouteSingleLink(data, record, link, script)) link.points = before;
-                    }
-                };
-                visit(data.rootBehavior);
-                for (BehaviorData &record : data.behaviors) visit(record);
-            });
+    if (m_Doc.gesture && commit && m_Tool == Tool::Move) {
+        auto value = m_Doc.geometryValue;
+        value.fields.push_back({"route",
+                                EDITOR_INTEGER_VALUE,
+                                {},
+                                {},
+                                uint64_t(m_State.preferences.searchBestPath != ImGui::GetIO().KeyCtrl)});
+        if (const auto *view = ViewFor(m_Doc.moveScript)) {
+            const auto world = view->transform.ToWorld(ImGui::GetIO().MousePos);
+            EditorField drop{"drop", EDITOR_REAL_LIST};
+            drop.reals = {world.h, world.v - view->offsetY};
+            value.fields.push_back(std::move(drop));
+        }
+        commit = UpdateGeometry(std::move(value));
     }
-    // Locals dropped into another graph export instead (ExportMovedLocals ends the gesture).
-    if (m_Doc.gesture && commit && !m_Doc.gesture->Empty() && !ExportMovedLocals()) m_Doc.gesture->Commit();
-    m_Doc.gesture.reset(); // not committed: taken back
-    m_Doc.moveItems.clear();
+    if (m_Doc.gesture) {
+        EditorOperation operation = 0;
+        const auto status = m_EditorHost->finishEdit(m_EditorHost->data, m_Doc.gesture, commit ? 1 : 0, &operation);
+        if (status == EDITOR_QUEUED) {
+            GraphCommand command{operation, Client().Scope().document, {}, {}, GraphFollow::Geometry};
+            command.selection = m_Doc.geometrySelection;
+            command.documentRevision = m_Doc.geometryRevision;
+            m_GraphCommands.push_back(std::move(command));
+        }
+        if (status != EDITOR_OK && status != EDITOR_QUEUED && status != EDITOR_NO_CHANGE && status != EDITOR_CANCELLED)
+            Client().CancelEdit(m_Doc.gesture);
+        m_Doc.gesture = 0;
+    }
+    m_Doc.geometryValue = {};
+    m_Doc.geometrySelection.clear();
+    m_Doc.geometryRevision = 0;
     m_Doc.moveScript = 0;
     m_Tool = Tool::Idle;
 }
@@ -2206,14 +2081,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
         }
         DrawScript(drawList, view.model, view.offsetY, view.frame, view.transform, draw);
     }
-    const bool wasBusy = Busy();
     HandleInput(canvasMin, canvasMax, hovered, focused);
-    // A gesture changes its own display records while retaining the same
-    // elements. Other changes are checked before the next input is handled.
-    if (wasBusy || Busy()) {
-        m_Navigation.selection.Rebase();
-        RetainHit(m_Doc.press, m_PressAddress);
-    }
     if (!m_State.HasDocument() || m_Views.empty()) {
         const char *message = !m_State.HasDocument() ? "File > Open a composition (.cmo, .nmo, .vmo)"
                                                      : "Select an object or Script in the Level Manager";
@@ -2273,42 +2141,34 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
 namespace vdev {
 
 void SchematicCanvas::UpdateLinkPaths() {
-    const Selection &selection = m_Navigation.selection;
-    ScriptView *view = ViewFor(selection.script);
-    if (!view || !m_State.HasDocument()) return;
-    std::set<CK_ID> owners; // selected behaviors and operations
-    std::set<ElementRef> links;
+    const auto &selection = m_Navigation.selection;
+    auto *view = ViewFor(selection.script);
+    if (!view)
+        return;
+    std::set<CK_ID> owners;
+    std::set<ElementRef> selected;
     for (const auto &item : selection.items) {
-        if (item.kind == ElementKind::Link) links.insert(item);
+        if (item.kind == ElementKind::Link)
+            selected.insert(item);
         if (item.kind == ElementKind::Behavior || item.kind == ElementKind::Operation) owners.insert(item.object);
     }
-    std::vector<std::pair<CK_ID, int>> targets; // storing graph, slot
-    for (const auto &link : view->model.links) {
-        if (link.hidden) continue;
-        if (links.count(link.ref) || owners.count(link.start.id) || owners.count(link.end.id))
-            targets.emplace_back(link.owner, link.slot);
-    }
-    if (targets.empty()) {
+    EditorField elements{"elements", EDITOR_RECORD};
+    for (const auto &link : view->model.links)
+        if (!link.hidden && (selected.count(link.ref) || owners.count(link.start.id) || owners.count(link.end.id))) {
+            Hit hit;
+            hit.view = view;
+            hit.ref = link.ref;
+            ElementAddress address;
+            RetainHit(hit, address);
+            if (!address)
+                return;
+            elements.fields.push_back(SchematicPosition(address, std::to_string(elements.fields.size()).c_str()));
+        }
+    if (elements.fields.empty()) {
         m_State.Log(LogLevel::Info, "P: select links, or behaviors and operations whose links to update");
         return;
     }
-    CKBehavior *script = CKBehavior::Cast(m_State.document->Context()->GetObject(view->id));
-    int routed = 0, failed = 0;
-    EditScriptData(*m_State.document, view->id, "Update Link Path", [&](InterfaceData &data) {
-        for (const auto &target : targets) {
-            BehaviorData *record = FindRecord(data, target.first);
-            if (!record || target.second < 0 || target.second >= static_cast<int>(record->links.size())) continue;
-            Link &link = record->links[target.second];
-            if (!link.points.empty()) {
-                link.points.clear(); // direct path
-            } else if (RouteSingleLink(data, *record, link, script)) {
-                ++routed;
-            } else {
-                ++failed;
-            }
-        }
-    });
-    if (failed) m_State.Log(LogLevel::Info, "P: no path found for " + std::to_string(failed) + " link(s)");
+    ExecuteGraph("schematic.route-links", view->id, 0, nullptr, {elements});
 }
 
 bool SchematicCanvas::ResizeHandleAt(ScriptView &view, const Point &local, ElementRef &ref, int &edges) const {
@@ -2403,17 +2263,35 @@ namespace vdev {
 
 void SchematicCanvas::OpenOperationChoice(OperationChoice mode, CK_ID script, const LinkEndpoint &from,
                                           const LinkEndpoint &to, const ElementRef &link) {
-    m_Doc.choices = mode == OperationChoice::InsertInLink ? ParameterLinkOperations(*m_State.document, script, from, to)
-                                                      : ParameterLinkConversions(*m_State.document, script, from, to);
-    if (m_Doc.choices.empty()) {
+    auto *view = ViewFor(script);
+    if (!view || !link.IsValid())
+        return;
+    Hit hit;
+    hit.view = view;
+    hit.ref = link;
+    ElementAddress address;
+    RetainHit(hit, address);
+    if (!address)
+        return;
+    const auto source = EndpointAddress(script, from), destination = EndpointAddress(script, to);
+    if (!source || !destination)
+        return;
+    m_Doc.connection = {{"target", EDITOR_OBJECT, address.script},
+                        {"revision", EDITOR_INTEGER_VALUE, {}, {}, address.revision},
+                        {"topology", EDITOR_INTEGER_VALUE, {}, {}, address.topology},
+                        SchematicPosition(address, "link"),
+                        SchematicPosition(source, "from"),
+                        SchematicPosition(destination, "to"),
+                        {"mode", EDITOR_INTEGER_VALUE, {}, {}, mode == OperationChoice::InsertInLink ? 2u : 1u}};
+    const auto values = BorrowEditorFields(m_Doc.connection);
+    const auto state = Client().Query("schematic.connection", {values.data(), values.data() + values.size()});
+    const auto *choices = EditorClient::Find(state, "choices");
+    if (state.status != EDITOR_OK || !choices || choices->fields.empty()) {
         m_State.Log(LogLevel::Info, "No parameter operation fits these parameter types");
         return;
     }
+    m_Doc.choices = choices->fields;
     m_ChoiceMode = mode;
-    m_Doc.choiceScript = script;
-    m_Doc.choiceFrom = from;
-    m_Doc.choiceTo = to;
-    m_Doc.choiceLink = link;
     m_ChoicePick = 0;
     m_Doc.openOperationChoice = true;
 }
@@ -2435,8 +2313,11 @@ void SchematicCanvas::OperationChoiceDialog() {
     if (ImGui::BeginListBox("##choices", ImVec2(460, 260))) {
         TypeAhead typeAhead;
         for (int i = 0; i < static_cast<int>(m_Doc.choices.size()); ++i)
-            if (typeAhead.Selectable((AnsiToUtf8(m_Doc.choices[i].label) + "##" + std::to_string(i)).c_str(), i == m_ChoicePick,
-                                  ImGuiSelectableFlags_AllowDoubleClick)) {
+            if (typeAhead.Selectable(
+                    (EditorClient::Text(EditorResponse{EDITOR_OK, {}, m_Doc.choices[i].fields}, "label") + "##" +
+                     std::to_string(i))
+                        .c_str(),
+                    i == m_ChoicePick, ImGuiSelectableFlags_AllowDoubleClick)) {
                 m_ChoicePick = i;
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) go = true;
             }
@@ -2446,30 +2327,19 @@ void SchematicCanvas::OperationChoiceDialog() {
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
     if (go && m_ChoicePick >= 0 && m_ChoicePick < static_cast<int>(m_Doc.choices.size())) {
-        const OperationSignature signature = m_Doc.choices[m_ChoicePick];
+        const auto signature = m_Doc.choices[m_ChoicePick];
         ImGui::CloseCurrentPopup();
         ApplyOperationChoice(signature);
     }
     ImGui::EndPopup();
 }
 
-void SchematicCanvas::ApplyOperationChoice(const OperationSignature &signature) {
-    Document &document = *m_State.document;
-    const CK_ID script = m_Doc.choiceScript;
-    switch (m_ChoiceMode) {
-    case OperationChoice::NewLink:
-        Report(CreateParameterLink(document, script, m_Doc.choiceFrom, m_Doc.choiceTo, &signature), "Parameter operation link");
-        break;
-    case OperationChoice::ReplaceConversion:
-        // The link stays when it fails.
-        Report(ReplaceLinkConversion(document, script, m_Doc.choiceLink, m_Doc.choiceFrom, m_Doc.choiceTo, signature),
-               "Edit Parameter Operation Link");
-        break;
-    case OperationChoice::InsertInLink:
-        Report(InsertOperationInLink(document, script, m_Doc.choiceLink, m_Doc.choiceFrom, m_Doc.choiceTo, signature),
-               "Add Parameter Operation in Link");
-        break;
-    }
+void SchematicCanvas::ApplyOperationChoice(const EditorField &choice) {
+    for (const auto &field : choice.fields)
+        if (field.key == "signature")
+            m_Doc.connection.push_back(field);
+    const auto values = BorrowEditorFields(m_Doc.connection);
+    Execute("schematic.connect", {values.data(), values.data() + values.size()});
 }
 
 void SchematicCanvas::OpenModifyOperation() {
@@ -2866,8 +2736,24 @@ void SchematicCanvas::Invalidate() {
     m_PickFrame = -1;
 }
 void SchematicCanvas::RetainHit(const Hit &hit, ElementAddress &address) {
-    address = hit.view && m_State.HasDocument() ? ElementAddress::Capture(*m_State.document, hit.view->id,
-        hit.ref.IsValid() ? hit.ref : Selection::HeaderOf(hit.view->id)) : ElementAddress{};
+    address = {};
+    if (!hit.view || !m_EditorHost)
+        return;
+    const auto &view = *hit.view;
+    const auto ref = hit.ref.IsValid() ? hit.ref : Selection::HeaderOf(view.id);
+    const auto result =
+        Client().Query("schematic.position",
+                       {ObjectArgument("target", view.identity), IntegerArgument("revision", view.revision),
+                        IntegerArgument("topology", view.topology), IntegerArgument("kind", uint64_t(ref.kind)),
+                        IntegerArgument("owner-id", ref.owner), IntegerArgument("object-id", ref.object),
+                        IntegerArgument("index", uint64_t(int64_t(ref.index))),
+                        IntegerArgument("sub", uint64_t(int64_t(ref.sub))), IntegerArgument("pin", uint64_t(ref.pin))});
+    const auto *field = EditorClient::Find(result, "address");
+    if (result.status == EDITOR_OK && field) {
+        const std::vector<EditorField> owned{*field};
+        const auto values = BorrowEditorFields(owned);
+        ReadSchematicPosition(*values.data(), address);
+    }
 }
 void SchematicCanvas::ValidateNavigation() {
     const auto document = m_State.document ? m_State.document->Token() : DocumentToken{};

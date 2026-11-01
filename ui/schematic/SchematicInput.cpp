@@ -83,15 +83,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                                   : handleEdges == 1 ? ImGuiMouseCursor_ResizeEW
                                                      : ImGuiMouseCursor_ResizeNS);
         if (handleEdges && !spaceDown && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            ScriptSession *session = m_State.document->Session(hit.view->id);
-            if (session && !session->ReadOnly()) {
-                m_Doc.moveScript = hit.view->id;
-                m_Doc.moveOriginal = session->Data();
-                m_Doc.moveOriginal.observers.clear();
-                m_Doc.moveChanged = false;
-                m_Doc.gesture = std::make_unique<Edit>(
-                    *m_State.document, handle.kind == ElementKind::Behavior ? "Resize Graph" : "Resize Comment",
-                    Edit::Marks::Scripts);
+            if (BeginGeometry(hit.view->id, handle.kind == ElementKind::Behavior ? 2 : 3, {handle})) {
                 m_Doc.resizeRef = handle;
                 m_ResizeEdges = handleEdges;
                 m_PressWorld = hit.local;
@@ -101,19 +93,14 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 if (const BehaviorItem *graph = hit.view->model.FindBehavior(handle.object))
                     if (handle.kind == ElementKind::Behavior) m_ResizeStart = graph->box;
                 m_Navigation.selection.Set(hit.view->id, handle);
+                m_Doc.geometrySelection = m_Navigation.selection.Addresses();
                 m_Tool = Tool::ResizeElement;
                 break;
             }
         }
         if (edge && !spaceDown && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            ScriptSession *session = m_State.document->Session(edge->id);
-            if (session && !session->ReadOnly()) {
+            if (BeginGeometry(edge->id, 1, {})) {
                 m_Doc.resizeScript = edge->id;
-                m_Doc.moveScript = edge->id;
-                m_Doc.moveOriginal = session->Data();
-                m_Doc.moveOriginal.observers.clear();
-                m_Doc.moveChanged = false;
-                m_Doc.gesture = std::make_unique<Edit>(*m_State.document, "Resize Script", Edit::Marks::Scripts);
                 m_ResizeTop = edge->frame.ToScreen(0.0f, edge->model.script.bounds.vPos + edge->offsetY).y;
                 m_Tool = Tool::Resize;
                 break;
@@ -223,6 +210,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 m_LinkClick = true;
                 m_LinkPoints.clear();
                 m_Tool = Tool::Link;
+                RetainLinkSources();
                 break;
             }
             if (m_DragButton == ImGuiMouseButton_Left) {
@@ -283,6 +271,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                     if (!link.resolved || link.path.size() < 2 || (!same(link.start) && !same(link.end))) continue;
                     const bool movingEnd = same(link.end);
                     m_Doc.linkFrom = movingEnd ? link.start : link.end;
+                    m_Doc.linkReverse = !movingEnd;
                     m_LinkFromPoint = movingEnd ? link.path.front() : link.path.back();
                     m_LinkBehavior = link.behaviorLink;
                     m_Doc.relinkLink = 1;
@@ -294,6 +283,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 m_LinkClick = false;
                 m_LinkPoints.clear();
                 m_Tool = Tool::Link;
+                RetainLinkSources();
             } else {
                 m_Tool = Tool::Idle;
             }
@@ -303,6 +293,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
             m_LinkPoints.clear();
             m_Doc.relinkLink = 0;
             m_Tool = Tool::Link;
+            RetainLinkSources();
         } else if (io.KeyShift && m_Doc.press.view && IsSelected(m_Doc.press.view->id, m_Doc.press.ref) &&
                    (m_Doc.press.ref.kind == ElementKind::Behavior || m_Doc.press.ref.kind == ElementKind::Comment ||
                     m_Doc.press.ref.kind == ElementKind::LocalParam || m_Doc.press.ref.kind == ElementKind::Shortcut ||
@@ -332,19 +323,17 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     case Tool::Resize: {
         // Dev: dragging a Script boundary changes its height (header vSize, 20 px steps).
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
-        ScriptSession *session = m_State.document ? m_State.document->Session(m_Doc.resizeScript) : nullptr;
-        if (!session || !m_Doc.gesture) {
+        if (!m_Doc.gesture) {
             EndMove(false);
             m_Doc.resizeScript = 0;
             break;
         }
         const float raw = (mouse.y - m_ResizeTop) / m_View.zoom;
-        const float height = std::max(MIN_OPEN_SCRIPT_HEIGHT, std::round(raw / 20.0f) * 20.0f);
-        if (height != session->Data().header.vSize)
-            if (InterfaceData *data = m_Doc.gesture->ScriptData(m_Doc.resizeScript)) {
-                data->header.vSize = height;
-                m_Doc.moveChanged = true;
-            }
+        EditorField value{"value", EDITOR_RECORD}, size{"size", EDITOR_REAL_LIST};
+        size.reals = {0, raw};
+        value.fields.push_back(std::move(size));
+        if (!UpdateGeometry(std::move(value)))
+            break;
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             EndMove(true);
             m_Doc.resizeScript = 0;
@@ -406,25 +395,11 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         if (m_ResizeEdges & 1) width = std::max(minimum, snap(m_ResizeStart.hSize + local.h - m_PressWorld.h));
         if (m_ResizeEdges & 2) height = std::max(minimum, snap(m_ResizeStart.vSize + local.v - m_PressWorld.v));
         m_Doc.moveChanged = width != m_ResizeStart.hSize || height != m_ResizeStart.vSize;
-        // The data from the original each frame (back to it when the size comes back).
-        if (m_Doc.moveChanged || !m_Doc.gesture->Empty())
-            if (InterfaceData *data = m_Doc.gesture->ScriptData(m_Doc.moveScript)) {
-                *data = m_Doc.moveOriginal;
-                if (graph) {
-                    if (BehaviorData *record = FindRecord(*data, m_Doc.resizeRef.object)) {
-                        record->hExpandSize += width - m_ResizeStart.hSize;
-                        record->vExpandSize += height - m_ResizeStart.vSize;
-                    }
-                } else if (BehaviorData *record = FindRecord(*data, m_Doc.resizeRef.owner)) {
-                    if (m_Doc.resizeRef.index >= 0 && m_Doc.resizeRef.index < static_cast<int>(record->comments.size())) {
-                        Comment &comment = record->comments[m_Doc.resizeRef.index];
-                        Rect rect = comment.GetRect();
-                        rect.hSize = width;
-                        rect.vSize = height;
-                        comment.SetRect(rect);
-                    }
-                }
-            }
+        EditorField value{"value", EDITOR_RECORD}, size{"size", EDITOR_REAL_LIST};
+        size.reals = {width, height};
+        value.fields.push_back(std::move(size));
+        if (!UpdateGeometry(std::move(value)))
+            break;
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) EndMove(m_Doc.moveChanged);
         break;
     }
