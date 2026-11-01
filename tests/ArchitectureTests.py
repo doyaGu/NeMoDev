@@ -231,6 +231,35 @@ class ArchitectureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native/state access in workspace view: features/schematic/SchematicView.cpp", result.stderr)
 
+    def test_layout_projections_cannot_gain_native_or_mutable_state(self):
+        for include in ('CKAll.h', 'core/document/Document.h', 'ui/app/EditorState.h'):
+            with self.subTest(include=include):
+                if '/' in include:
+                    self.write(include, '#pragma once\n')
+                self.write('core/model.h', '#include "' + include + '"\n')
+                self.write('features/layout/LayoutSceneData.h', '#include "core/model.h"\n')
+                self.write('features/layout/LayoutSceneData.cpp', '#include "features/layout/LayoutSceneData.h"\n')
+                self.manifest['source_groups'] = [
+                    {'id': 'core', 'patterns': ['core/**', 'ui/**']},
+                    {'id': 'views', 'patterns': ['features/**']}]
+                self.manifest['features'][0]['source_groups'] = ['core', 'views']
+                self.manifest['dependencies'] = {'views': ['core']}
+                result = self.run_check()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('native/state access in workspace view: features/layout/LayoutSceneData.cpp', result.stderr)
+
+    def test_native_canvas_commands_do_not_reintroduce_editor_state(self):
+        self.write('ui/app/EditorState.h', '#pragma once\n')
+        self.write('features/schematic/SchematicGraphCommands.cpp', '#include "ui/app/EditorState.h"\n')
+        self.manifest['source_groups'] = [{'id': 'core', 'patterns': ['core/**', 'ui/**']},
+                                          {'id': 'commands', 'patterns': ['features/**']}]
+        self.manifest['features'][0]['source_groups'] = ['core', 'commands']
+        self.manifest['dependencies'] = {'commands': ['core']}
+        self.manifest['legacy_exposures'] = [{'file': 'ui/app/EditorState.h', 'access': ['editor-state'], 'remove_by': 5}]
+        result = self.run_check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('feature depends on legacy EditorState: features/schematic/SchematicGraphCommands.cpp', result.stderr)
+
     def test_definition_include_is_checked(self):
         self.write("core/properties.def", '#include "CKAll.h"\n')
         self.add_ui('#include "core/properties.def"\n')

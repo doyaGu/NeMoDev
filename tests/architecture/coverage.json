@@ -427,9 +427,10 @@
     },
     {
       "id": "S49",
-      "name": "Schematic 属性查询与修改",
+      "name": "Schematic 原生属性与图修改",
       "patterns": [
-        "features/schematic/**"
+        "features/schematic/SchematicCommands.*",
+        "features/schematic/SchematicGraphCommands.*"
       ]
     },
     {
@@ -467,6 +468,28 @@
       "name": "偏好查询与原生设置修改",
       "patterns": [
         "features/preferences/PreferencesCommands.*"
+      ]
+    },
+    {
+      "id": "S55",
+      "name": "Layout 原生场景查询与修改",
+      "patterns": [
+        "features/layout/LayoutCommands.*"
+      ]
+    },
+    {
+      "id": "S56",
+      "name": "Layout 只读场景数据",
+      "patterns": [
+        "features/layout/LayoutSceneData.*"
+      ]
+    },
+    {
+      "id": "S57",
+      "name": "Schematic 诊断视图与位置数据",
+      "patterns": [
+        "features/schematic/SchematicDiagnosticViews.*",
+        "features/schematic/SchematicPosition.h"
       ]
     }
   ],
@@ -591,7 +614,9 @@
       "S51",
       "S52",
       "S53",
-      "S54"
+      "S54",
+      "S55",
+      "S57"
     ],
     "S15": [
       "S01",
@@ -674,7 +699,8 @@
       "S27",
       "S28",
       "S33",
-      "S35"
+      "S35",
+      "S57"
     ],
     "S22": [
       "S01",
@@ -691,7 +717,8 @@
       "S26",
       "S27",
       "S28",
-      "S35"
+      "S35",
+      "S56"
     ],
     "S23": [
       "S01",
@@ -773,7 +800,10 @@
       "S49",
       "S50",
       "S52",
-      "S54"
+      "S54",
+      "S55",
+      "S56",
+      "S57"
     ],
     "S34": [
       "S01",
@@ -835,7 +865,8 @@
       "S48",
       "S49",
       "S52",
-      "S54"
+      "S54",
+      "S55"
     ],
     "S44": [
       "S01",
@@ -868,11 +899,13 @@
     ],
     "S49": [
       "S01",
+      "S02",
       "S05",
       "S06",
       "S07",
       "S13",
-      "S34"
+      "S34",
+      "S57"
     ],
     "S50": [
       "S03",
@@ -904,6 +937,26 @@
       "S13",
       "S17",
       "S34"
+    ],
+    "S55": [
+      "S01",
+      "S08",
+      "S09",
+      "S10",
+      "S13",
+      "S34",
+      "S56"
+    ],
+    "S56": [
+      "S34",
+      "S35"
+    ],
+    "S57": [
+      "S07",
+      "S27",
+      "S33",
+      "S34",
+      "S35"
     ]
   },
   "legacy_exposures": [
@@ -948,13 +1001,6 @@
       "access": [
         "editor-state",
         "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/EditorEvents.h",
-      "access": [
         "native-sdk"
       ],
       "remove_by": 5
@@ -1493,7 +1539,9 @@
         "S36",
         "S37",
         "S38",
-        "S39"
+        "S39",
+        "S55",
+        "S56"
       ],
       "tests": [
         "VirtoolsDev.LevelManagerCommands",
@@ -1570,7 +1618,8 @@
         "S49",
         "S33",
         "S35",
-        "S38"
+        "S38",
+        "S57"
       ],
       "tests": [
         "SchematicModelTests",
@@ -1579,7 +1628,9 @@
         "VirtoolsDevFileDialogs"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.schematic"
+        "VirtoolsDevUi.schematic",
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.debugger"
       ],
       "gaps": []
     },
@@ -1595,7 +1646,8 @@
         "S21",
         "S33",
         "S34",
-        "S49"
+        "S49",
+        "S57"
       ],
       "tests": [
         "VirtoolsDev.CrossGraphLinks",
@@ -1678,7 +1730,9 @@
         "S07",
         "S09",
         "S21",
-        "S22"
+        "S22",
+        "S55",
+        "S56"
       ],
       "tests": [
         "VirtoolsDev.LayoutGestures",
@@ -1703,7 +1757,9 @@
         "S09",
         "S13",
         "S22",
-        "S26"
+        "S26",
+        "S55",
+        "S56"
       ],
       "tests": [
         "VirtoolsDev.InputViewport"
@@ -1787,7 +1843,9 @@
         "S19",
         "S21",
         "S52",
-        "S53"
+        "S53",
+        "S49",
+        "S57"
       ],
       "tests": [
         "VirtoolsDev.EditorCommands",
@@ -1795,14 +1853,10 @@
       ],
       "ui_tests": [
         "VirtoolsDevUi.tools",
-        "VirtoolsDevUi.debugger"
+        "VirtoolsDevUi.debugger",
+        "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "独立诊断工具已迁移并补忙时缓存与过期修改拒绝回归；载入后连线检查、消息浏览等图内诊断仍随 Schematic 原生适配迁移"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F20",
@@ -1898,11 +1952,14 @@
         "S18",
         "S20",
         "S21",
-        "S22"
+        "S22",
+        "S55",
+        "S56"
       ],
       "tests": [
         "VirtoolsDev.ObjectReferenceLifetimes",
-        "VirtoolsDev.GraveyardCollection"
+        "VirtoolsDev.GraveyardCollection",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app"
@@ -2088,7 +2145,8 @@
         "S25",
         "S35",
         "S37",
-        "S43"
+        "S43",
+        "S57"
       ],
       "tests": [
         "NeMoDevEditor"
@@ -2274,7 +2332,7 @@
       "name": "clipboard、objectClipboard 及原生保留",
       "owner": "编辑会话和源 Document 依赖",
       "lifetime": "新复制先取得新依赖再放旧依赖；源会话关闭",
-      "persistence": "保留复制数据及 graveyard 来源；不因读剪贴板修改文档",
+      "persistence": "保留复制数据及 graveyard 来源；不因读剪贴板修改文档；ObjectClipboard 发布复制版本，粘贴前校验，拒绝使用已替换的来源",
       "features": [
         "F23"
       ]
@@ -2479,7 +2537,7 @@
       "id": "editor-queries",
       "name": "查询结果及文档变更订阅",
       "owner": "EditorApplication",
-      "lifetime": "文档版本或视图；结果按值复制，关闭视图取消订阅",
+      "lifetime": "查询及提供者版本或视图；结果按值复制，提供者切换使缓存版本失效，关闭视图取消订阅",
       "persistence": "不保存",
       "features": [
         "F29",
@@ -2663,10 +2721,10 @@
     },
     {
       "id": "loaded-link-validation",
-      "name": "载入后连线检查结果（EditorState.invalidLinks）",
-      "owner": "DocumentSession",
+      "name": "载入后连线检查结果及检查版本",
+      "owner": "SchematicGraphCommands",
       "lifetime": "原编辑文档；失效位置重新检查，切换失败保留",
-      "persistence": "仍由既有 Schematic 入口呈现和修改，随剩余图内原生适配迁移",
+      "persistence": "载入结果交给原生图查询所有者；诊断视图只保留复制的行和选中位置，删除走统一命令并可一步撤销",
       "features": [
         "F02",
         "F11",
@@ -2682,6 +2740,18 @@
       "features": [
         "F25",
         "F29"
+      ]
+    },
+    {
+      "id": "layout-scene-queries",
+      "name": "Layout 场景列表、菜单数据及原生查询版本",
+      "owner": "LayoutCommands / 每个 Layout 列表的只读副本",
+      "lifetime": "文档、Context、场景、相机、选择或运行帧变化；失败保留旧副本，命令在执行时重新校验完整引用",
+      "persistence": "不保存缓存；原 Layout 文件数据仍按既有方式捕获与恢复",
+      "features": [
+        "F08",
+        "F15",
+        "F16"
       ]
     }
   ],
