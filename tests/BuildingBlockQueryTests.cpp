@@ -2,6 +2,7 @@
 #include "core/runtime/TextEncoding.h"
 #include "editor/ImGuiDrawing.h"
 #include "features/resources/BuildingBlockQueries.h"
+#include "features/resources/BuildingBlockData.h"
 #include "workspace/BuildingBlockDrag.h"
 #include "workspace/EditorClient.h"
 #include <stdexcept>
@@ -32,6 +33,12 @@ void TestBuildingBlockQueries(vdev::CkRuntimeHost &runtime) {
         const auto value = IntegerArgument("first", first);
         return app.Query("catalog.building-blocks", {app.Scope(), &value, 1});
     };
+    BuildingBlockData data;
+    Check(data.Refresh(EditorClient(app.Host(), 0)) == EDITOR_OK && data.Entries().size() == catalog.Entries().size() &&
+              data.Revision() == catalog.Revision(),
+          "shared creation-menu catalog differs from resource catalog");
+    Check(data.Refresh(EditorClient(app.Host(), 0)) == EDITOR_OK && !data.Categories().children.empty(),
+          "unchanged resource catalog could not be reused");
     size_t first = 0;
     const auto total = catalog.Entries().size();
     Check(total > 128, "Building Block fixtures missing");

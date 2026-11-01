@@ -1,4 +1,5 @@
 #include "features/resources/BuildingBlockViews.h"
+#include "features/resources/BuildingBlockData.h"
 #include "editor/ImGuiDrawing.h"
 #include "editor/Resources.h"
 #include "imgui_internal.h"
@@ -21,17 +22,10 @@ std::string Lower(std::string text) {
         c = char(std::tolower(static_cast<unsigned char>(c)));
     return text;
 }
-struct Block {
-    uint64_t prototype = 0;
-    uint32_t version = 0;
-    bool targetable = false;
-    std::string name, category, description, author, compatible;
+struct Block : BuildingBlockInfo {
     std::string sort[6], searchCategory;
 };
-struct Category {
-    std::map<std::string, Category> children;
-    std::vector<size_t> entries;
-};
+using Category = BuildingBlockCategories;
 struct BlocksView {
     std::vector<Block> entries;
     Category categories;
@@ -54,71 +48,34 @@ struct BlocksView {
     EditorStatus Inspect(EditorSink) const;
 };
 EditorStatus BlocksView::Refresh(const EditorClient &client) {
-    const uint64_t version = client.Revision("catalog.building-blocks");
-    if (!version)
+    const auto current = client.Revision("catalog.building-blocks");
+    if (!current)
         return EDITOR_REFUSED;
+    if (current == sourceVersion)
+        return EDITOR_OK;
+    BuildingBlockData data;
+    const auto status = data.Refresh(client);
+    if (status != EDITOR_OK)
+        return status;
+    const auto version = data.SourceVersion();
     if (version == sourceVersion)
         return EDITOR_OK;
     std::vector<Block> next;
-    uint64_t first = 0, total = 0, catalogVersion = 0;
-    do {
-        const auto page = client.Query("catalog.building-blocks", {IntegerArgument("first", first)});
-        if (page.status != EDITOR_OK)
-            return page.status;
-        if (!first) catalogVersion = EditorClient::Integer(page, "revision");
-        if (EditorClient::Integer(page, "revision") != catalogVersion)
-            return EDITOR_STALE;
-        total = EditorClient::Integer(page, "total");
-        const auto *names = EditorClient::Find(page, "names"), *paths = EditorClient::Find(page, "categories"),
-                   *descriptions = EditorClient::Find(page, "descriptions"),
-                   *authors = EditorClient::Find(page, "authors"), *compatible = EditorClient::Find(page, "compatible"),
-                   *prototypes = EditorClient::Find(page, "prototypes"),
-                   *versions = EditorClient::Find(page, "versions"),
-                   *targetable = EditorClient::Find(page, "targetable");
-        if (!names || !paths || !descriptions || !authors || !compatible || !prototypes || !versions || !targetable)
-            return EDITOR_INVALID;
-        const auto count = names->texts.size();
-        if (paths->texts.size() != count || descriptions->texts.size() != count || authors->texts.size() != count ||
-            compatible->texts.size() != count || prototypes->integers.size() != count ||
-            versions->integers.size() != count || targetable->integers.size() != count || first + count > total ||
-            total > 1000000 || (!count && first < total))
-            return EDITOR_INVALID;
-        for (size_t i = 0; i < count; ++i) {
-            Block block;
-            block.prototype = prototypes->integers[i];
-            block.version = uint32_t(versions->integers[i]);
-            block.targetable = targetable->integers[i] != 0;
-            block.name = names->texts[i];
-            block.category = paths->texts[i];
-            block.description = descriptions->texts[i];
-            block.author = authors->texts[i];
-            block.compatible = compatible->texts[i];
-            block.sort[0] = Lower(block.name);
-            block.sort[1] = Lower(block.compatible);
-            block.sort[2] = block.targetable ? "1" : "0";
-            block.sort[3] = Lower(block.description);
-            char versionText[16];
-            std::snprintf(versionText, sizeof(versionText), "%08X", block.version);
-            block.sort[4] = versionText;
-            block.sort[5] = Lower(block.author);
-            block.searchCategory = Lower(block.category);
-            next.push_back(std::move(block));
-        }
-        first += count;
-    } while (first < total);
-    Category tree;
     std::set<uint64_t> live;
-    for (size_t i = 0; i < next.size(); ++i) {
-        live.insert(next[i].prototype);
-        Category *node = &tree;
-        const auto &path = next[i].category;
-        for (size_t start = 0; start <= path.size();) {
-            const auto end = std::min(path.find('/', start), path.size());
-            const auto part = path.substr(start, end - start);
-            node = &node->children[part.empty() ? "(Uncategorized)" : part];
-            start = end + 1;
-        }
-        node->entries.push_back(i);
+    for (const auto &entry : data.Entries()) {
+        Block block;
+        static_cast<BuildingBlockInfo &>(block) = entry;
+        block.sort[0] = Lower(block.name);
+        block.sort[1] = Lower(block.compatible);
+        block.sort[2] = block.targetable ? "1" : "0";
+        block.sort[3] = Lower(block.description);
+        char text[16];
+        std::snprintf(text, sizeof(text), "%08X", block.version);
+        block.sort[4] = text;
+        block.sort[5] = Lower(block.author);
+        block.searchCategory = Lower(block.category);
+        live.insert(block.prototype);
+        next.push_back(std::move(block));
     }
     for (auto it = chosen.begin(); it != chosen.end();) {
         if (!live.count(*it))
@@ -129,8 +86,8 @@ EditorStatus BlocksView::Refresh(const EditorClient &client) {
     if (!live.count(anchor))
         anchor = 0;
     entries = std::move(next);
-    categories = std::move(tree);
-    catalog = catalogVersion;
+    categories = data.Categories();
+    catalog = data.Revision();
     sourceVersion = version;
     listChanged = true;
     ++revision;

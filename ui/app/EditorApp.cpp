@@ -1137,6 +1137,63 @@ bool EditorApp::RegisterSceneNavigation(std::string &error){
         if(targets.size()==1)made=app.m_Layout.DropAsking(create);else{EditGroup group(*state.document,"Drop Behavior");made=create();}
         if(!made.second)return EDITOR_REFUSED;state.RememberBlock(guid);state.events.Post(ShowElement{*state.document, made.first,ElementRef{ElementKind::Behavior,made.first,made.second},made.second});return EDITOR_OK;};
     commands[5].run=[](void*data,const EditorHost*host,const EditorRequest*request,EditorSink sink){auto&app=*static_cast<EditorApp*>(data);return host->navigateView(host->data,EditorString EDITOR_TEXT("scene.level"),app.OpenSceneView("level"),request,sink);};
-    EditorModuleDesc module{};module.size=sizeof(module);module.version=EDITOR_VERSION;module.id=EDITOR_TEXT("scene.navigation");module.commands=commands;module.commandCount=6;return m_Editor.Register(module,error);
+    const EditorParameter prototypes{EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST};
+    const EditorCommandDesc remember{sizeof(EditorCommandDesc),
+                                     EDITOR_TEXT("building-block.remember"),
+                                     EDITOR_TEXT("builtin.navigation"),
+                                     EDITOR_TEXT("Remember Building Blocks"),
+                                     &prototypes,
+                                     1,
+                                     [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+                                         auto &state = static_cast<EditorApp *>(data)->m_State;
+                                         const auto &values = request->values[0].integers;
+                                         for (uint32_t i = 0; i < values.count; ++i) {
+                                             const CKGUID guid(CKDWORD(values.data[i] >> 32), CKDWORD(values.data[i]));
+                                             if (!state.catalog.Find(guid))
+                                                 return EDITOR_INVALID;
+                                         }
+                                         for (uint32_t i = 0; i < values.count; ++i)
+                                             state.RememberBlock(
+                                                 CKGUID(CKDWORD(values.data[i] >> 32), CKDWORD(values.data[i])));
+                                         return EDITOR_OK;
+                                     },
+                                     this,
+                                     EDITOR_WORKSPACE,
+                                     EDITOR_SESSION_CHANGE};
+    const EditorQueryDesc recent{sizeof(EditorQueryDesc),
+                                 EDITOR_TEXT("building-block.recent"),
+                                 EDITOR_TEXT("builtin.navigation"),
+                                 nullptr,
+                                 0,
+                                 [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+                                     const auto &state = static_cast<EditorApp *>(data)->m_State;
+                                     std::vector<uint64_t> values;
+                                     for (auto guid : state.recentBlocks)
+                                         values.push_back((uint64_t(guid.d1) << 32) | guid.d2);
+                                     const EditorValue result{EDITOR_TEXT("prototypes"),
+                                                              EDITOR_INTEGER_LIST,
+                                                              {},
+                                                              {},
+                                                              0,
+                                                              {},
+                                                              {values.data(), uint32_t(values.size())}};
+                                     return sink.write ? sink.write(sink.data, &result, 1) : EDITOR_INVALID;
+                                 },
+                                 this,
+                                 EDITOR_QUERY_EACH_READ,
+                                 EDITOR_WORKSPACE,
+                                 &prototypes,
+                                 1};
+    std::vector<EditorCommandDesc> all(std::begin(commands), std::end(commands));
+    all.push_back(remember);
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("scene.navigation");
+    module.commands = all.data();
+    module.commandCount = uint32_t(all.size());
+    module.queries = &recent;
+    module.queryCount = 1;
+    return m_Editor.Register(module, error);
 }
 } // namespace vdev
