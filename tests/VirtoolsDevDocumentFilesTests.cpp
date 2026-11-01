@@ -93,7 +93,9 @@ void Workflows() {
     CHECK(vdev::RenameLevelObject(document, document.Reference(frame.created), "Undo then redo after failed file operation").ok);
     CHECK(document.History().Undo());
     vdev::Selection schematicSelection;
-    schematicSelection.Bind(&document);
+    schematicSelection.Bind([&document](uint32_t script, const vdev::ElementRef &ref) {
+        return vdev::ElementAddress::Capture(document, script, ref);
+    });
     schematicSelection.Set(script.created, vdev::Selection::HeaderOf(script.created));
     state.objectSelection.Restore(*state.document, {frame.created});
     const auto context = document.Context();
@@ -214,7 +216,12 @@ void Workflows() {
     CHECK(state.RunRuntime("Old document request", [&] { staleWork = true; }, [&](bool) { staleCompletion = true; }));
     Drain(state);
     CHECK(detached && opened && !staleWork && !staleCompletion);
-    CHECK(document.Context() != context && (schematicSelection.Validate(), schematicSelection.Empty()) && state.objectSelection.Objects().empty());
+    schematicSelection.Validate([&document](const vdev::ElementAddress &address) {
+        uint32_t script = 0;
+        vdev::ElementRef ref;
+        return address.Resolve(document, script, ref);
+    });
+    CHECK(document.Context() != context && schematicSelection.Empty() && state.objectSelection.Objects().empty());
     CHECK(document.CreatedFrom() == vdev::Document::Origin::LoadedComposition && !document.Dirty());
     CHECK(!document.History().CanUndo() && !document.History().CanRedo());
 

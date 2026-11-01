@@ -1,6 +1,7 @@
 #pragma once
 #include "core/schematic/ElementAddress.h"
 #include <algorithm>
+#include <functional>
 #include <set>
 #include <vector>
 
@@ -11,10 +12,11 @@ namespace vdev {
 // colors, Save As, Copy, Delete, initial conditions, Execute).
 struct Selection {
     Selection() = default;
-    Selection(const Selection &) = default;
+    Selection(const Selection &other) { *this = other; }
     Selection &operator=(const Selection &);
-    void Bind(Document *document) { m_Document = document; }
-    void Validate();
+    using PositionReader = std::function<ElementAddress(uint32_t, const ElementRef &)>;
+    void Bind(PositionReader reader) { m_ReadPosition = std::move(reader); }
+    void Validate(const std::function<bool(const ElementAddress &)> &);
     void Rebase();
     // Accept a copied selection already checked by a document query.
     void Assign(const std::vector<ElementAddress> &);
@@ -101,7 +103,7 @@ struct Selection {
 
 private:
     std::uint64_t m_Revision = 0;
-    Document *m_Document = nullptr;
+    PositionReader m_ReadPosition;
     std::vector<ElementAddress> m_Addresses;
 };
 

@@ -254,7 +254,8 @@ void RetainedElementAddresses(CkRuntimeHost &host) {
         assert(retained.back().Resolve(document, resolved, element) && element == ref && resolved == scriptId);
     }
     Selection selection;
-    selection.Bind(&document);
+    selection.Bind(
+        [&](uint32_t script, const ElementRef &ref) { return ElementAddress::Capture(document, script, ref); });
     selection.Set(scriptId, slots.front());
     selection.Add(scriptId, behavior);
     SearchQuery query; query.text = "First"; query.kinds = SearchComments;
@@ -277,7 +278,11 @@ void RetainedElementAddresses(CkRuntimeHost &host) {
     const auto linksBefore = session->Data().rootBehavior.links.size();
     assert(RemoveInvalidLinks(document, {staleLink}) == 0);
     assert(session->Data().rootBehavior.links.size() == linksBefore);
-    selection.Validate();
+    selection.Validate([&](const ElementAddress &address) {
+        uint32_t script = 0;
+        ElementRef ref;
+        return address.Resolve(document, script, ref);
+    });
     assert(selection.items.size() == 1 && selection.items.front() == behavior);
     CK_ID resolved = 0; ElementRef element;
     assert(stable.Resolve(document, resolved, element));
@@ -307,7 +312,11 @@ void RetainedElementAddresses(CkRuntimeHost &host) {
     context->ClearAll();
     assert(navigation.HiddenIds(document).empty());
     assert(!stable.Resolve(document, resolved, element));
-    selection.Validate();
+    selection.Validate([&](const ElementAddress &address) {
+        uint32_t script = 0;
+        ElementRef ref;
+        return address.Resolve(document, script, ref);
+    });
     assert(selection.Empty());
     std::cout << "Retained Schematic positions passed\n";
 }

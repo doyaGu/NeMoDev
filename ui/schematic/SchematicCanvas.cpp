@@ -2552,7 +2552,7 @@ EditorView SchematicViews::CurrentId() const {
 SchematicCanvas &SchematicViews::Current() const {
     auto *canvas = Find(CurrentId());
     if (!canvas) throw std::logic_error("No Schematic view is open");
-    canvas->Navigation().selection.Bind(m_Data->state.document.get());
+    canvas->Navigation().selection.Bind([this](uint32_t script, const ElementRef &ref) { return m_Data->state.document ? ElementAddress::Capture(*m_Data->state.document, script, ref) : ElementAddress{}; });
     if (m_Data->state.document && canvas->m_Document != m_Data->state.document->Token()) canvas->ValidateNavigation();
     return *canvas;
 }
@@ -2705,7 +2705,7 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
 }
 SchematicCanvas::SchematicCanvas(EditorState &state, EditorView instance) : m_State(state), m_Instance(instance) {
     m_EditorHost = state.workspace->Application().Host();
-    m_Navigation.selection.Bind(state.document.get());
+    m_Navigation.selection.Bind([this](uint32_t script, const ElementRef &ref) { return m_State.document ? ElementAddress::Capture(*m_State.document, script, ref) : ElementAddress{}; });
     if (state.document) m_Document = state.document->Token();
 }
 SchematicCanvas::~SchematicCanvas() { m_State.fileDialogs.Cancel(this); }
@@ -2774,8 +2774,8 @@ void SchematicCanvas::ValidateNavigation() {
         Invalidate();
         RefreshStack();
     }
-    m_Navigation.selection.Bind(m_State.document.get());
-    m_Navigation.selection.Validate();
+    m_Navigation.selection.Bind([this](uint32_t script, const ElementRef &ref) { return m_State.document ? ElementAddress::Capture(*m_State.document, script, ref) : ElementAddress{}; });
+    m_Navigation.selection.Validate([this](const ElementAddress &address) { uint32_t script = 0; ElementRef ref; return m_State.document && address.Resolve(*m_State.document, script, ref); });
     if (!m_State.HasDocument()) { PublishNavigation(); return; }
     CK_ID script = 0;
     ElementRef ref;

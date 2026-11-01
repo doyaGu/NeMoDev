@@ -221,7 +221,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
     }
     auto close = [&](bool keep) {
         if (!keep && m_Schematics.Find(m_Doc.explorerView)) {
-            m_Doc.selectionBefore.Validate();
+            m_Doc.selectionBefore.Validate([this](const ElementAddress &address) { uint32_t script = 0; ElementRef ref; return m_State.document && address.Resolve(*m_State.document, script, ref); });
             ExplorerNavigation().selection = m_Doc.selectionBefore;
         }
         prefs.SetInt("Schematic Explorer\\Show In List", static_cast<int>(m_SearchKinds));
