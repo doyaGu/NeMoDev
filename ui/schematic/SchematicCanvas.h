@@ -1,3 +1,4 @@
+#include "features/schematic/SchematicScriptData.h"
 #pragma once
 
 #include <cstdint>
@@ -183,7 +184,7 @@ public:
     void ShowInvalidLinks();
     void OpenBreakpointList();
     void PickBreakpoint();
-    void GoToBreakpoint(CK_ID script, const ExtraData &data);
+    void GoToBreakpoint(const SchematicBreakpoint &);
     // Print Schematic (Dev.exe sub_5380F0): the Scripts shown, stacked from
     // the top at 100% (each with its own zoom). PrintSize: Dev's width (the
     // widest open Script less 100 pixels, at least 140) and the stack's
@@ -354,26 +355,22 @@ private:
     // (Shift+F9), Execute Script(s) (Alt+X).
     void ToggleBreakpointOfSelection();
     void BreakpointItems(); // inside a context menu
-    bool SelectionBreakpoint(ExtraDataType &type, CK_ID &object, CK_ID &owner) const;
+    bool SelectionBreakpoint(SchematicBreakpoint &) const;
+    std::vector<SchematicBreakpoint> Breakpoints() const;
     void OpenBreakpointConfig();
     // Loads a breakpoint's conditions into the Breakpoints Configuration.
-    void LoadBreakpointConfig(CK_ID script, ExtraDataType type, CK_ID object);
+    void LoadBreakpointConfig(const SchematicBreakpoint &);
     void BreakpointConfigDialog();
     void BreakpointListDialog();
     // Invalid Link Explorer's Delete: the links' records go (one undo step), the list found again.
     void ExecuteSelectedScripts();
-    struct ConditionRow {
-        CK_ID parameter = 0;
-        int comparison = 0;
-        int logical = 0;
-        std::string value;
-    };
+    using ConditionRow = BreakpointCondition;
     // Dev "Pick Schematic Parameter in Schematic" / "Pick Reference Parameter
     // in Schematic": the next click names the parameter of this condition row.
-    void PickConditionParameter(CK_ID parameter);
+    void PickConditionParameter(ObjectRef parameter);
     // The parameter a breakpoint condition can pick at hit: a local, a
     // shortcut's, a behavior's or an operation's parameter pin (0: none).
-    CK_ID ConditionParameterAt(const Hit &hit) const;
+    ObjectRef ConditionParameterAt(const Hit &hit);
     void LoadSnapshotFor(CK_ID script, const std::string &path = {});
     void SetSnapshotPixels(ObjectRef script, const std::vector<unsigned char> &, unsigned width, unsigned height);
     void ReplaceGraphDialog();
@@ -449,11 +446,10 @@ private:
         // Schematic Parameter in Schematic" / "Pick Reference Parameter in
         // Schematic": the next click names the parameter of this condition row.
         bool openBreakpointConfig = false;
-        CK_ID breakpointScript = 0;
-        ExtraDataType breakpointType = EXTRA_DATA_BEHAVIOR;
-        CK_ID breakpointObject = 0;
+        SchematicBreakpoint breakpoint;
+        EditorOperation breakpointCommit = 0, breakpointListCommit = 0;
         std::vector<ConditionRow> conditions;
-        std::vector<std::pair<CK_ID, std::string>> conditionParameters;
+        std::vector<BreakpointParameter> conditionParameters;
         int pickConditionRow = -1;
         bool pickReference = false;
         int conditionPick = -1;                // the condition row selected
@@ -463,7 +459,7 @@ private:
         bool pickBreakpoint = false;
         // Dev's Breakpoints (dialog 671): the list as it will be at Ok.
         bool openBreakpointList = false;
-        std::vector<Debugger::Breakpoint> listBreakpoints;
+        std::vector<SchematicBreakpoint> listBreakpoints, originalBreakpoints;
         int listPick = -1;
         ObjectRef pickShortcutFrom{}; // Set Shortcut Source: the next click picks the new source
         // Drags and gestures.

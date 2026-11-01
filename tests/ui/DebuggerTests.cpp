@@ -14,6 +14,9 @@
 
 #include "tests/ui/UiTests.h"
 #include "workspace/EditorClient.h"
+#include "core/graph/TopologyCommands.h"
+#include "core/document/ScriptSession.h"
+#include "core/schematic/SchematicEdits.h"
 
 namespace vdevuitest {
 
@@ -182,7 +185,8 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         // The list's rows are in its child window (vi::ListView).
         ImGuiWindow *rows = nullptr;
         for (ImGuiWindow *window : ctx->UiContext->Windows)
-            if (window->ParentWindow == list && std::strstr(window->Name, "##breakpoints")) rows = window;
+            if (window->ParentWindow == list && std::strstr(window->Name, "##breakpoints"))
+                rows = window;
         IM_CHECK_SILENT(rows != nullptr);
         ctx->SetRef(rows);
         ctx->ItemClick("$$0/##row");
@@ -196,6 +200,101 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         Undo(ctx);
         IM_CHECK(debugger.Breakpoints().empty());
         IM_CHECK(App().State().document->Dirty() == dirty);
+    };
+
+    t = IM_REGISTER_TEST(engine, "debugger", "breakpoint_configuration_cancel_and_single_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, SchematicRef().c_str());
+        const auto shown = App().Canvas().ShownBehaviors();
+        IM_CHECK(!shown.empty());
+        const auto script = shown.front().script;
+        CK_ID graph = 0, parameter = 0;
+        size_t before = 0;
+        bool dirty = false;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &doc = *state.document;
+            before = state.History().UndoCount();
+            dirty = doc.Dirty();
+            const auto created =
+                vdev::CreateBehaviorGraph(doc, script, script, "Breakpoint configuration regression", {260, 180});
+            IM_CHECK_NO_RET(created.ok);
+            graph = created.created;
+            const auto local = vdev::AddLocalParameter(doc, script, graph, "Condition", CKPGUID_INT, {300, 220});
+            IM_CHECK_NO_RET(local.ok);
+            parameter = local.created;
+            IM_CHECK_NO_RET(vdev::ToggleBreakpoint(doc, script, EXTRA_DATA_BEHAVIOR, graph));
+            ExtraSubData c;
+            c.id1 = parameter;
+            const int value = 7;
+            c.buffer.resize(sizeof(value));
+            std::memcpy(c.buffer.data(), &value, sizeof(value));
+            IM_CHECK_NO_RET(vdev::SetBreakpointConditions(doc, script, EXTRA_DATA_BEHAVIOR, graph, {c}));
+        });
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            App().Canvas().Navigation().selection.Set(script, {vdev::ElementKind::Behavior, script, graph});
+        });
+        const auto count = [&] {
+            return Read<size_t>(ctx, [&] {
+                const auto *b =
+                    vdev::FindBreakpoint(App().State().document->Session(script)->Data(), EXTRA_DATA_BEHAVIOR, graph);
+                return b ? b->subData.size() : size_t(-1);
+            });
+        };
+        const auto open = [&] {
+            ctx->WindowFocus(SchematicRef().c_str());
+            ctx->KeyPress(ImGuiMod_Shift | ImGuiKey_F9);
+            ctx->Yield(3);
+            ctx->SetRef("//###BreakpointsConfiguration");
+        };
+        const auto choose = [&] {
+            auto *dialog = ctx->GetWindowByRef("//###BreakpointsConfiguration");
+            IM_CHECK_NO_RET(dialog);
+            ImGuiWindow *rows = nullptr;
+            for (auto *w : ctx->UiContext->Windows)
+                if (w->ParentWindow == dialog && std::strstr(w->Name, "##conditions"))
+                    rows = w;
+            IM_CHECK_NO_RET(rows);
+            ctx->SetRef(rows);
+            ctx->ItemClick("$$0/##row");
+            ctx->SetRef(dialog);
+        };
+        const auto steps = Read<size_t>(ctx, [] { return App().State().History().UndoCount(); });
+        open();
+        choose();
+        ctx->ItemClick("Remove Condition");
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(count() == 1 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == steps);
+        open();
+        choose();
+        ctx->ItemClick("Remove Condition");
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(count() == 0 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == steps + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        ctx->Yield(3);
+        IM_CHECK(count() == 1);
+        // A configuration opened before an unrelated edit stays open and refuses the old version.
+        open();
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(vdev::EditScriptData(*App().State().document, script, "Change behind breakpoint dialog",
+                                                 [](InterfaceData &d) { d.header.color ^= 1; }));
+        });
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(ctx->GetWindowByRef("//###BreakpointsConfiguration")->WasActive);
+        IM_CHECK(count() == 1);
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(2);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            while (state.History().UndoCount() > before)
+                IM_CHECK_NO_RET(state.History().Undo());
+            IM_CHECK_NO_RET(state.document->Dirty() == dirty);
+        });
     };
 
     t = IM_REGISTER_TEST(engine, "debugger", "independent_registered_debugger_windows");

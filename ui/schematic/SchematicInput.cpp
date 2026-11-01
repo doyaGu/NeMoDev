@@ -38,10 +38,13 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     // Breakpoint": "Pick Schematic Parameter in Schematic", the name of the
     // parameter under the mouse).
     if (m_Doc.pickConditionRow >= 0 && hovered) {
-        const CK_ID under = ConditionParameterAt(hit);
-        CKObject *object = under ? m_State.document->Context()->GetObject(under) : nullptr;
-        ImGui::SetTooltip("%s in Schematic%s%s", m_Doc.pickReference ? "Pick Reference Parameter" : "Pick Schematic Parameter",
-                          object ? ": " : "", object ? AnsiToUtf8(object->GetName() ? object->GetName() : "?").c_str() : "");
+        const auto under = ConditionParameterAt(hit);
+        const auto info = under ? Client().Query("schematic.breakpoint-parameter", {ObjectArgument("parameter", under)})
+                                : EditorResponse{};
+        const auto name = EditorClient::Text(info, "name");
+        ImGui::SetTooltip("%s in Schematic%s%s",
+                          m_Doc.pickReference ? "Pick Reference Parameter" : "Pick Schematic Parameter",
+                          name.empty() ? "" : ": ", name.c_str());
     }
     m_Doc.hovered = hit.ref;
     m_Doc.hoveredScript = hit.view ? hit.view->id : 0;
@@ -132,7 +135,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 ToggleBreakpointOfSelection();
             } else if (m_Doc.pickConditionRow >= 0) {
                 // Breakpoint condition: a local, a shortcut or a behavior parameter.
-                const CK_ID picked = ConditionParameterAt(hit);
+                const auto picked = ConditionParameterAt(hit);
                 if (picked) PickConditionParameter(picked);
                 else m_State.Log(LogLevel::Info, "Pick a parameter: a local parameter, a shortcut or a parameter pin");
             } else if (m_Doc.pickShortcutFrom) {
@@ -375,7 +378,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 // Hidden Scripts keep their place after the shown ones.
                 for (CK_ID id : m_Navigation.visibleScripts)
                     if (std::find(order.begin(), order.end(), id) == order.end()) order.push_back(id);
-                m_Navigation.scriptOrder = m_State.document->References(order);
+                m_Navigation.scriptOrder = ScriptReferences(order);
                 RefreshStack();
             }
             m_Tool = Tool::Idle;
@@ -692,8 +695,8 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_RightArrow))) {
         const bool open = ImGui::IsKeyPressed(ImGuiKey_RightArrow);
         for (CK_ID script : selectedScripts) {
-            ScriptSession *session = m_State.document->Session(script);
-            if (session && ScriptOpen(script) != open) ToggleScriptOpen(script);
+            if (ScriptOpen(script) != open)
+                ToggleScriptOpen(script);
         }
         return;
     }

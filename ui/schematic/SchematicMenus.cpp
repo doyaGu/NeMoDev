@@ -142,148 +142,82 @@ void SchematicCanvas::ShowInvalidLinks() { Client().Command("schematic.open-inva
 
 // --------------------------------------------------------------- breakpoints
 
-// The breakpoint the selection names: a behavior, a behavior link (with its
-// graph), a local, a shortcut source or a behavior's parameter.
-bool SchematicCanvas::SelectionBreakpoint(ExtraDataType &type, CK_ID &object, CK_ID &owner) const {
-    const Selection &selection = m_Navigation.selection;
-    if (selection.items.size() != 1 || !m_State.HasDocument()) return false;
-    const ElementRef &item = selection.items[0];
-    owner = 0;
-    switch (item.kind) {
-    case ElementKind::Behavior:
-        type = EXTRA_DATA_BEHAVIOR;
-        object = item.object;
-        return true;
-    case ElementKind::Link: {
-        for (const auto &view : m_Views)
-            if (view.id == selection.script)
-                for (const auto &link : view.model.links)
-                    if (link.ref == item && link.behaviorLink) {
-                        type = EXTRA_DATA_CONNECTION;
-                        object = item.object;
-                        owner = item.owner;
-                        return true;
-                    }
+bool SchematicCanvas::SelectionBreakpoint(SchematicBreakpoint &b) const {
+    const auto &selected = m_Navigation.selection.Addresses();
+    if (selected.size() != 1)
         return false;
-    }
-    case ElementKind::LocalParam:
-    case ElementKind::Shortcut:
-        for (const auto &view : m_Views)
-            if (view.id == selection.script)
-                for (const auto &param : view.model.params)
-                    if (param.ref == item) {
-                        type = EXTRA_DATA_PARAMETER;
-                        object = param.parameter;
-                        return object != 0;
-                    }
-        return false;
-    case ElementKind::Pin: {
-        CKObject *pinOwner = m_State.document->Context()->GetObject(item.object);
-        CKBehavior *behavior = CKBehavior::Cast(pinOwner);
-        CKParameterOperation *operation = CKParameterOperation::Cast(pinOwner);
-        CKObject *parameter = nullptr;
-        if (behavior && item.pin == PinKind::ParamIn && item.index < behavior->GetInputParameterCount())
-            parameter = behavior->GetInputParameter(item.index);
-        if (behavior && item.pin == PinKind::ParamOut && item.index < behavior->GetOutputParameterCount())
-            parameter = behavior->GetOutputParameter(item.index);
-        // An operation's inputs (0, 1) and output.
-        if (operation && item.pin == PinKind::ParamIn)
-            parameter = item.index == 0 ? operation->GetInParameter1() : item.index == 1 ? operation->GetInParameter2() : nullptr;
-        if (operation && item.pin == PinKind::ParamOut) parameter = operation->GetOutParameter();
-        if (!parameter) return false;
-        type = EXTRA_DATA_PARAMETER;
-        object = parameter->GetID();
-        return true;
-    }
-    default:
-        return false;
-    }
+    const std::vector<EditorField> fields{SchematicPosition(selected.front(), "position")};
+    const auto values = BorrowEditorFields(fields);
+    const auto result = Client().Query("schematic.breakpoint-target", {values.data(), values.data() + values.size()});
+    const auto *row = EditorClient::Find(result, "breakpoint");
+    return result.status == EDITOR_OK && row && ReadBreakpoint(*row, b);
 }
-
+std::vector<SchematicBreakpoint> SchematicCanvas::Breakpoints() const {
+    const auto result = Client().Query("schematic.breakpoints");
+    std::vector<SchematicBreakpoint> out;
+    if (result.status != EDITOR_OK)
+        return out;
+    if (const auto *rows = EditorClient::Find(result, "breakpoints"))
+        for (const auto &row : rows->fields) {
+            SchematicBreakpoint b;
+            if (ReadBreakpoint(row, b))
+                out.push_back(std::move(b));
+        }
+    return out;
+}
 void SchematicCanvas::ToggleBreakpointOfSelection() {
-    ExtraDataType type;
-    CK_ID object = 0, owner = 0;
-    if (!SelectionBreakpoint(type, object, owner)) {
+    const auto &selected = m_Navigation.selection.Addresses();
+    if (selected.size() != 1) {
         m_State.Log(LogLevel::Info, "Cannot add breakpoint on picked item");
         return;
     }
-    if (!ToggleBreakpoint(*m_State.document, m_Navigation.selection.script, type, object, owner))
-        m_State.Log(LogLevel::Warning, "Breakpoint: the Script's display is read-only");
+    const std::vector<EditorField> fields{SchematicPosition(selected.front(), "position")};
+    const auto values = BorrowEditorFields(fields);
+    Execute("schematic.toggle-breakpoint", {values.data(), values.data() + values.size()});
 }
-
 void SchematicCanvas::BreakpointItems() {
-    ExtraDataType type;
-    CK_ID object = 0, owner = 0;
-    const bool named = SelectionBreakpoint(type, object, owner);
-    ScriptSession *session = named ? m_State.document->Session(m_Navigation.selection.script) : nullptr;
-    const bool present = session && FindBreakpoint(session->Data(), type, object);
+    SchematicBreakpoint b;
+    const bool named = SelectionBreakpoint(b);
+    bool present = false;
+    if (named) {
+        const auto all = Breakpoints();
+        present = std::any_of(all.begin(), all.end(), [&](const auto &v) {
+            return v.script == b.script && v.object == b.object && v.type == b.type;
+        });
+    }
     if (ImGui::MenuItem(present ? "Remove Breakpoint" : "Add Breakpoint", "F9", false, named))
         ToggleBreakpointOfSelection();
-    if (present && ImGui::MenuItem("Configure Breakpoint", "Shift+F9")) OpenBreakpointConfig();
+    if (present && ImGui::MenuItem("Configure Breakpoint", "Shift+F9"))
+        OpenBreakpointConfig();
 }
-
-namespace {
-
-// A breakpoint as the language pack names it ([Schematic]<Debug>).
-std::string BreakpointLabel(CKContext *context, const ExtraData &data) {
-    auto name = [&](CKObject *object) { return AnsiToUtf8(object && object->GetName() ? object->GetName() : "?"); };
-    CKObject *object = context ? context->GetObject(data.id1) : nullptr;
-    if (data.type == EXTRA_DATA_BEHAVIOR) return "Breakpoint on behavior <" + name(object) + ">";
-    if (data.type == EXTRA_DATA_PARAMETER) return "Breakpoint on parameter <" + name(object) + ">";
-    CKBehaviorLink *link = CKBehaviorLink::Cast(object);
-    CKBehaviorIO *in = link ? link->GetInBehaviorIO() : nullptr, *out = link ? link->GetOutBehaviorIO() : nullptr;
-    return "Breakpoint on link between <" + name(in ? in->GetOwner() : nullptr) + "> and <" +
-           name(out ? out->GetOwner() : nullptr) + ">";
+void SchematicCanvas::GoToBreakpoint(const SchematicBreakpoint &b) {
+    Client().Command("script.navigate", {ObjectArgument("target", b.script), ObjectArgument("focus-target", b.focus)});
 }
-
-// The behavior a parameter belongs to (an input's, an output's, a local's owner).
-CK_ID OwnerBehaviorOf(CKObject *parameter) {
-    CKObject *owner = nullptr;
-    if (CKParameterIn *in = CKParameterIn::Cast(parameter)) owner = in->GetOwner();
-    else if (CKParameter *value = CKParameter::Cast(parameter)) owner = value->GetOwner();
-    if (CKParameterOperation *operation = CKParameterOperation::Cast(owner)) owner = operation->GetOwner();
-    return CKBehavior::Cast(owner) ? owner->GetID() : 0;
-}
-
-} // namespace
-
-void SchematicCanvas::GoToBreakpoint(CK_ID script, const ExtraData &data) {
-    if (!m_State.HasDocument()) return;
-    CKContext *context = m_State.document->Context();
-    CK_ID focus = 0;
-    if (data.type == EXTRA_DATA_BEHAVIOR) focus = data.id1;
-    else if (data.type == EXTRA_DATA_PARAMETER) focus = OwnerBehaviorOf(context->GetObject(data.id1));
-    else if (CKBehaviorLink *link = CKBehaviorLink::Cast(context->GetObject(data.id1)))
-        if (link->GetInBehaviorIO() && link->GetInBehaviorIO()->GetOwner()) focus = link->GetInBehaviorIO()->GetOwner()->GetID();
-    m_State.events.Post(ShowElement{*m_State.document, script, ElementRef(), focus, m_Instance});
-}
-
 void SchematicCanvas::PickBreakpoint() {
     m_Doc.pickBreakpoint = true;
-    m_State.events.Post(FocusSchematic{});
+    Client().Command("workspace.focus-view", {IntegerArgument("view", m_Instance)});
 }
-
 void SchematicCanvas::ConfigureBreakpoints() {
-    ExtraDataType type;
-    CK_ID object = 0, owner = 0;
-    ScriptSession *session = SelectionBreakpoint(type, object, owner) ? m_State.document->Session(m_Navigation.selection.script) : nullptr;
-    if (session && FindBreakpoint(session->Data(), type, object)) {
-        LoadBreakpointConfig(m_Navigation.selection.script, type, object);
-        return;
-    }
-    const std::vector<Debugger::Breakpoint> all = m_State.debugger ? m_State.debugger->Breakpoints() : std::vector<Debugger::Breakpoint>();
+    SchematicBreakpoint selected;
+    const auto all = Breakpoints();
+    if (SelectionBreakpoint(selected))
+        for (const auto &b : all)
+            if (b.script == selected.script && b.object == selected.object && b.type == selected.type) {
+                LoadBreakpointConfig(b);
+                return;
+            }
     if (all.empty()) {
         m_State.Log(LogLevel::Info, "Configure Breakpoints: no breakpoint (F9 on a behavior, a link or a parameter)");
         return;
     }
-    LoadBreakpointConfig(all.front().script, all.front().data.type, all.front().data.id1);
+    LoadBreakpointConfig(all.front());
 }
-
 void SchematicCanvas::OpenBreakpointList() {
-    if (!m_State.debugger) return;
-    m_Doc.listBreakpoints = m_State.debugger->Breakpoints();
+    m_Doc.listBreakpoints = Breakpoints();
+    m_Doc.originalBreakpoints = m_Doc.listBreakpoints;
     m_Doc.listPick = -1;
     m_Doc.openBreakpointList = true;
+    m_Doc.breakpointListCommit = 0;
 }
 
 namespace {
@@ -292,13 +226,6 @@ const char *const COMPARISONS[] = {"=", "<>", "= parameter", "<> parameter", "<"
 const char *const LOGICALS[] = {"And", "Or", "Xor"};
 bool ByParameter(int comparison) { return comparison == 2 || comparison == 3 || comparison >= 8; }
 // <, <=, >, >= compare numbers only: a parameter of an int or float type (or derived).
-bool Ordered(CKContext *context, CK_ID parameter) {
-    CKObject *object = context ? context->GetObject(parameter) : nullptr;
-    CKParameterManager *manager = context ? context->GetParameterManager() : nullptr;
-    if (!object || !manager) return true;
-    const CKGUID type = ParameterType(object);
-    return manager->IsDerivedFrom(type, CKPGUID_INT) || manager->IsDerivedFrom(type, CKPGUID_FLOAT);
-}
 // The "parameter" comparison of a value one (Pick Reference Parameter).
 int ParameterComparison(int comparison) {
     static const int BY_PARAMETER[] = {2, 3, 2, 3, 8, 9, 10, 11, 8, 9, 10, 11};
@@ -308,59 +235,54 @@ int ParameterComparison(int comparison) {
 
 // Dev "Breakpoints Configuration" (Shift+F9): the selection's breakpoint.
 void SchematicCanvas::OpenBreakpointConfig() {
-    ExtraDataType type;
-    CK_ID object = 0, owner = 0;
-    if (!SelectionBreakpoint(type, object, owner)) return;
-    ScriptSession *session = m_State.document->Session(m_Navigation.selection.script);
-    if (!session || !FindBreakpoint(session->Data(), type, object)) {
+    SchematicBreakpoint b;
+    if (SelectionBreakpoint(b))
+        LoadBreakpointConfig(b);
+}
+
+void SchematicCanvas::LoadBreakpointConfig(const SchematicBreakpoint &b) {
+    const std::vector<EditorField> fields{BreakpointField(b)};
+    const auto values = BorrowEditorFields(fields);
+    const auto result = Client().Query("schematic.breakpoint-detail", {values.data(), values.data() + values.size()});
+    if (result.status != EDITOR_OK) {
         m_State.Log(LogLevel::Info, "Configure Breakpoint: add the breakpoint first (F9)");
         return;
     }
-    LoadBreakpointConfig(m_Navigation.selection.script, type, object);
-}
-
-void SchematicCanvas::LoadBreakpointConfig(CK_ID script, ExtraDataType type, CK_ID object) {
-    ScriptSession *session = m_State.document->Session(script);
-    const ExtraData *breakpoint = session ? FindBreakpoint(session->Data(), type, object) : nullptr;
-    if (!breakpoint) return;
-    CKContext *context = m_State.document->Context();
-    m_Doc.breakpointScript = script;
-    m_Doc.breakpointType = type;
-    m_Doc.breakpointObject = object;
-    // The parameters a condition may compare.
-    m_Doc.conditionParameters.clear();
-    auto add = [&](CKObject *parameter, const std::string &prefix) {
-        if (parameter)
-            m_Doc.conditionParameters.emplace_back(
-                parameter->GetID(), prefix + AnsiToUtf8(parameter->GetName() ? parameter->GetName() : ""));
-    };
-    if (type == EXTRA_DATA_PARAMETER) add(context->GetObject(object), "");
-    CKBehavior *behavior = type == EXTRA_DATA_BEHAVIOR ? CKBehavior::Cast(context->GetObject(object)) : nullptr;
-    if (type == EXTRA_DATA_CONNECTION)
-        if (CKBehaviorLink *link = CKBehaviorLink::Cast(context->GetObject(object)))
-            if (link->GetInBehaviorIO()) behavior = link->GetInBehaviorIO()->GetOwner();
-    if (behavior) {
-        for (int i = 0; i < behavior->GetInputParameterCount(); ++i) add(behavior->GetInputParameter(i), "pIn ");
-        for (int i = 0; i < behavior->GetOutputParameterCount(); ++i) add(behavior->GetOutputParameter(i), "pOut ");
-        for (int i = 0; i < behavior->GetLocalParameterCount(); ++i) add(behavior->GetLocalParameter(i), "Local ");
+    const auto *parameters = EditorClient::Find(result, "parameters"),
+               *conditions = EditorClient::Find(result, "conditions"),
+               *target = EditorClient::Find(result, "breakpoint");
+    SchematicBreakpoint current;
+    if (!parameters || !conditions || !target || !ReadBreakpoint(*target, current))
+        return;
+    std::vector<BreakpointParameter> candidates;
+    std::vector<ConditionRow> rows;
+    for (const auto &item : parameters->fields) {
+        EditorResponse r;
+        r.fields = item.fields;
+        const auto *ref = EditorClient::Find(r, "object");
+        if (!ref)
+            return;
+        candidates.push_back({ref->object, EditorClient::Text(r, "name"), bool(EditorClient::Integer(r, "ordered"))});
     }
-    m_Doc.conditions.clear();
-    for (const auto &condition : breakpoint->subData) {
+    for (const auto &item : conditions->fields) {
+        EditorResponse r;
+        r.fields = item.fields;
+        const auto *parameter = EditorClient::Find(r, "parameter"), *reference = EditorClient::Find(r, "reference");
+        if (!parameter || !reference)
+            return;
         ConditionRow row;
-        row.parameter = condition.id1;
-        row.comparison = std::max(0, std::min(11, static_cast<int>(condition.GetComparisonType())));
-        row.logical = std::max(0, std::min(2, static_cast<int>(condition.GetLogicalOperator())));
-        if (condition.UsesParameterReference()) {
-            CKObject *reference = context->GetObject(condition.id2);
-            row.value = AnsiToUtf8(reference && reference->GetName() ? reference->GetName() : "");
-            for (const auto &entry : m_Doc.conditionParameters)
-                if (entry.first == condition.id2) row.value = entry.second;
-        } else {
-            row.value = AnsiToUtf8(ParameterTextFromBytes(context, ParameterType(context->GetObject(condition.id1)),
-                                                          condition.buffer));
-        }
-        m_Doc.conditions.push_back(row);
+        row.parameter = parameter->object;
+        row.reference = reference->object;
+        row.comparison = int(EditorClient::Integer(r, "comparison"));
+        row.logical = int(EditorClient::Integer(r, "logical"));
+        row.value = EditorClient::Text(r, "value");
+        row.missing = EditorClient::Integer(r, "missing") != 0;
+        rows.push_back(std::move(row));
     }
+    m_Doc.breakpoint = std::move(current);
+    m_Doc.conditionParameters = std::move(candidates);
+    m_Doc.conditions = std::move(rows);
+    m_Doc.breakpointCommit = 0;
     m_Doc.conditionPick = m_Doc.conditions.empty() ? -1 : 0;
     m_Doc.openBreakpointConfig = true;
 }
@@ -385,35 +307,41 @@ void SchematicCanvas::BreakpointConfigDialog() {
     if (!vi::BeginDialog(id, "Breakpoints Configuration", vi::TemplateClient(units, s, pad), s, o)) return;
     const vi::TemplateLayout l = vi::LayoutTemplate(o, units, s, pad);
     vi::TemplatePanel(l);
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
+    const bool available = bool(Client().Scope().document.value);
     std::vector<ConditionRow> &rows = m_Doc.conditions;
     if (m_Doc.conditionPick >= static_cast<int>(rows.size())) m_Doc.conditionPick = -1;
-    const int pick = m_Doc.conditionPick;
-    auto nameOf = [&](CK_ID parameter) {
+    int pick = m_Doc.conditionPick;
+    const auto nameOf = [&](ObjectRef parameter) {
         for (const auto &entry : m_Doc.conditionParameters)
-            if (entry.first == parameter) return entry.second;
-        CKObject *object = context ? context->GetObject(parameter) : nullptr;
-        return AnsiToUtf8(object && object->GetName() ? object->GetName() : "");
+            if (entry.object == parameter)
+                return entry.name;
+        return std::string();
     };
-    // The breakpoint configured.
-    const std::vector<Debugger::Breakpoint> all = m_State.debugger ? m_State.debugger->Breakpoints() : std::vector<Debugger::Breakpoint>();
+    const auto ordered = [&](ObjectRef parameter) {
+        for (const auto &entry : m_Doc.conditionParameters)
+            if (entry.object == parameter)
+                return entry.ordered;
+        return false;
+    };
+    const auto all = Breakpoints();
     int current = -1;
     for (size_t i = 0; i < all.size(); ++i)
-        if (all[i].script == m_Doc.breakpointScript && all[i].data.type == m_Doc.breakpointType &&
-            all[i].data.id1 == m_Doc.breakpointObject)
-            current = static_cast<int>(i);
-    ExtraData shown;
-    shown.type = m_Doc.breakpointType;
-    shown.id1 = m_Doc.breakpointObject;
-    const int chosen = vi::Combo("##breakpoint", l.Min(5, 3), l.Max(5, 3, 445, 12), BreakpointLabel(context, shown),
-                                 [&] {
-                                     std::vector<std::string> labels;
-                                     for (const auto &breakpoint : all) labels.push_back(BreakpointLabel(context, breakpoint.data));
-                                     return labels;
-                                 },
-                                 current);
-    if (chosen >= 0 && chosen != current)
-        LoadBreakpointConfig(all[chosen].script, all[chosen].data.type, all[chosen].data.id1);
+        if (all[i].script == m_Doc.breakpoint.script && all[i].object == m_Doc.breakpoint.object &&
+            all[i].index == m_Doc.breakpoint.index && all[i].type == m_Doc.breakpoint.type)
+            current = int(i);
+    const auto chosen = vi::Combo(
+        "##breakpoint", l.Min(5, 3), l.Max(5, 3, 445, 12), m_Doc.breakpoint.label,
+        [&] {
+            std::vector<std::string> names;
+            for (const auto &b : all)
+                names.push_back(b.label);
+            return names;
+        },
+        current);
+    if (chosen >= 0 && chosen != current) {
+        LoadBreakpointConfig(all[size_t(chosen)]);
+        pick = m_Doc.conditionPick;
+    }
     // The conditions.
     std::vector<vi::ListColumn> columns{{"Schematic Parameter", 188.0f * s}, {"Condition", 70.0f * s},
                                         {"Reference Parameter", 201.0f * s}, {"Operation", 54.0f * s}, {"", 0.0f}};
@@ -424,7 +352,10 @@ void SchematicCanvas::BreakpointConfigDialog() {
         [&](int r, int c) -> std::string {
             const ConditionRow &condition = rows[r];
             switch (c) {
-            case 0: return condition.parameter ? nameOf(condition.parameter) : std::string();
+            case 0:
+                return condition.parameter ? nameOf(condition.parameter)
+                       : condition.missing ? "(missing parameter)"
+                                           : std::string();
             case 1: return COMPARISONS[std::max(0, std::min(11, condition.comparison))];
             case 2: return condition.value;
             case 3: return r > 0 ? LOGICALS[std::max(0, std::min(2, condition.logical))] : "";
@@ -432,7 +363,8 @@ void SchematicCanvas::BreakpointConfigDialog() {
             }
         },
         [&](int r) { return r == m_Doc.conditionPick; }, &twice, &column);
-    if (row >= 0) m_Doc.conditionPick = row;
+    if (row >= 0)
+        m_Doc.conditionPick = pick = row;
     auto editCell = [&](int r, int c) {
         if (r < 0 || c < 0 || c > 3 || (c == 3 && r == 0)) return;
         m_Doc.editRow = r;
@@ -449,18 +381,25 @@ void SchematicCanvas::BreakpointConfigDialog() {
             ConditionRow &condition = rows[r];
             if (c == 0 || (c == 2 && ByParameter(condition.comparison))) {
                 for (const auto &entry : m_Doc.conditionParameters) {
-                    ImGui::PushID(static_cast<int>(entry.first));
-                    if (ImGui::Selectable(entry.second.c_str(), c == 0 ? entry.first == condition.parameter : entry.second == condition.value)) {
-                        if (c == 0) condition.parameter = entry.first;
-                        else condition.value = entry.second;
+                    ImGui::PushID(static_cast<int>(entry.object.object));
+                    if (ImGui::Selectable(entry.name.c_str(), c == 0 ? entry.object == condition.parameter
+                                                                     : entry.object == condition.reference)) {
+                        if (c == 0) {
+                            condition.parameter = entry.object;
+                            condition.missing = false;
+                        } else {
+                            condition.reference = entry.object;
+                            condition.value = entry.name;
+                        }
                     }
                     ImGui::PopID();
                 }
             } else if (c == 1 || c == 3) {
                 const int count = c == 1 ? 12 : 3;
-                const bool ordered = c != 1 || Ordered(context, condition.parameter);
+                const bool numeric = c != 1 || ordered(condition.parameter);
                 for (int i = 0; i < count; ++i) {
-                    if (c == 1 && i >= 4 && !ordered) continue;
+                    if (c == 1 && i >= 4 && !numeric)
+                        continue;
                     const bool on = c == 1 ? condition.comparison == i : condition.logical == i;
                     if (ImGui::Selectable(c == 1 ? COMPARISONS[i] : LOGICALS[i], on)) (c == 1 ? condition.comparison : condition.logical) = i;
                 }
@@ -476,19 +415,21 @@ void SchematicCanvas::BreakpointConfigDialog() {
         ImGui::EndPopup();
     }
     // The buttons (always enabled in Dev: without a condition chosen they do nothing).
-    const bool picked = pick >= 0;
+    bool picked = pick >= 0;
     auto button = [&](const char *label, float y, bool enabled, float x = 5.0f) {
-        return vi::Button(label, l.Min(x, y), l.Max(x, y, 84, 10), label, context != nullptr) && enabled;
+        return vi::Button(label, l.Min(x, y), l.Max(x, y, 84, 10), label, available) && enabled;
     };
-    if (button("Add Condition", 20, context != nullptr)) {
+    if (button("Add Condition", 20, available)) {
         ConditionRow added;
-        if (!m_Doc.conditionParameters.empty()) added.parameter = m_Doc.conditionParameters.front().first;
+        if (!m_Doc.conditionParameters.empty())
+            added.parameter = m_Doc.conditionParameters.front().object;
         rows.push_back(added);
         m_Doc.conditionPick = static_cast<int>(rows.size()) - 1;
     }
     if (button("Remove Condition", 32, picked)) {
         rows.erase(rows.begin() + pick);
-        m_Doc.conditionPick = std::min(pick, static_cast<int>(rows.size()) - 1);
+        m_Doc.conditionPick = pick = std::min(pick, static_cast<int>(rows.size()) - 1);
+        picked = pick >= 0;
     }
     bool close = false;
     if (button("Pick Schematic Parameter", 44, picked, 6.0f)) {
@@ -503,50 +444,58 @@ void SchematicCanvas::BreakpointConfigDialog() {
         m_Doc.pickReference = true;
         close = true;
     }
-    if (button("Go To Breakpoint", 80, context != nullptr)) GoToBreakpoint(m_Doc.breakpointScript, shown);
-    auto goToParameter = [&](CK_ID parameter) {
-        if (const CK_ID behavior = parameter && context ? OwnerBehaviorOf(context->GetObject(parameter)) : 0)
-            m_State.events.Post(ShowElement{*m_State.document, m_Doc.breakpointScript, ElementRef(), behavior, m_Instance});
+    if (button("Go To Breakpoint", 80, available))
+        GoToBreakpoint(m_Doc.breakpoint);
+    auto goToParameter = [&](ObjectRef parameter) {
+        const auto result = Client().Query("schematic.breakpoint-parameter", {ObjectArgument("parameter", parameter)});
+        const auto *focus = EditorClient::Find(result, "focus-target"), *target = EditorClient::Find(result, "target");
+        if (result.status == EDITOR_OK && focus && focus->object && target && target->object)
+            Client().Command("script.navigate",
+                             {ObjectArgument("target", target->object), ObjectArgument("focus-target", focus->object)});
     };
     if (button("Go to Schematic Parameter", 92, picked && rows[pick].parameter)) goToParameter(rows[pick].parameter);
     if (button("Go To Reference Parameter", 104, picked && ByParameter(rows[pick].comparison))) {
-        for (const auto &entry : m_Doc.conditionParameters)
-            if (entry.second == rows[pick].value) goToParameter(entry.first);
+        goToParameter(rows[pick].reference);
     }
     vi::Text(l.Min(254, 126), l.Max(254, 126, 193, 13), "Double-click on cell to edit", false, vi::CENTER);
     // OK, Cancel.
     const float right = l.right - 60.0f * s;
     const bool cancel = vi::DialogButton("Cancel", ImVec2(right, l.buttonsY), s, ImGuiKey_Escape);
     const bool ok = vi::DialogButton("OK", ImVec2(right - 70.0f * s, l.buttonsY), s);
-    if (ok && context) {
-        std::vector<ExtraSubData> conditions;
-        bool valid = true;
+    if (m_Doc.breakpointCommit) {
+        const auto result = Client().Completion(m_Doc.breakpointCommit);
+        if (result.status != EDITOR_QUEUED) {
+            m_Doc.breakpointCommit = 0;
+            if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE)
+                close = true;
+            else
+                m_State.Log(LogLevel::Warning, result.message.empty()
+                                                   ? "The breakpoint changed; reopen its configuration"
+                                                   : result.message);
+        }
+    }
+    if (ok && available && !m_Doc.breakpointCommit) {
+        EditorField conditions{"conditions", EDITOR_RECORD};
         for (const auto &condition : rows) {
-            if (!condition.parameter) continue;
-            ExtraSubData data;
-            data.id1 = condition.parameter;
-            data.SetComparisonType(static_cast<ExtraDataComparisonType>(condition.comparison));
-            data.SetLogicalOperator(static_cast<ExtraDataLogicalOperator>(condition.logical));
-            if (data.UsesParameterReference()) {
-                // The reference parameter, by name among the candidates.
-                for (const auto &entry : m_Doc.conditionParameters)
-                    if (entry.second == condition.value) data.id2 = entry.first;
-                valid = valid && data.id2 != 0;
-            } else {
-                data.buffer = ParameterBytesFromText(context, ParameterType(context->GetObject(condition.parameter)),
-                                                     Utf8ToAnsi(condition.value));
-                valid = valid && !data.buffer.empty();
-            }
-            conditions.push_back(data);
+            EditorField row{std::to_string(conditions.fields.size()), EDITOR_RECORD};
+            row.fields = {{"parameter", EDITOR_OBJECT, condition.parameter},
+                          {"reference", EDITOR_OBJECT, condition.reference},
+                          {"missing", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(condition.missing)},
+                          {"comparison", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(condition.comparison)},
+                          {"logical", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(condition.logical)},
+                          {"value", EDITOR_TEXT_VALUE, {}, condition.value}};
+            conditions.fields.push_back(std::move(row));
         }
-        if (!valid) {
-            m_State.Log(LogLevel::Warning, "Configure Breakpoint: a value does not fit its parameter's type "
-                                           "(a \"parameter\" condition names one of the candidates)");
-        } else {
-            SetBreakpointConditions(*m_State.document, m_Doc.breakpointScript, m_Doc.breakpointType,
-                                    m_Doc.breakpointObject, conditions);
+        const std::vector<EditorField> fields{BreakpointField(m_Doc.breakpoint), conditions};
+        const auto values = BorrowEditorFields(fields);
+        const auto result =
+            Client().Command("schematic.configure-breakpoint", {values.data(), values.data() + values.size()});
+        if (result.status == EDITOR_QUEUED)
+            m_Doc.breakpointCommit = result.operation;
+        else if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE)
             close = true;
-        }
+        else
+            m_State.Log(LogLevel::Warning, result.message);
     }
     if (cancel || close) ImGui::CloseCurrentPopup();
     vi::EndDialog();
@@ -562,113 +511,123 @@ void SchematicCanvas::BreakpointListDialog() {
         ImGui::OpenPopup(id);
         m_Doc.openBreakpointList = false;
     }
-    if (!ImGui::IsPopupOpen(id)) return;
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const ImVec2 units(275.0f, 167.0f);
-    const float pad = 7.0f;
+    if (!ImGui::IsPopupOpen(id))
+        return;
+    const float s = ImGui::GetFontSize() / 13.f;
+    const ImVec2 units(275, 167);
     ImVec2 o;
-    if (!vi::BeginDialog(id, "Breakpoints", vi::TemplateClient(units, s, pad), s, o)) return;
-    const vi::TemplateLayout l = vi::LayoutTemplate(o, units, s, pad);
+    if (!vi::BeginDialog(id, "Breakpoints", vi::TemplateClient(units, s, 7), s, o))
+        return;
+    const auto l = vi::LayoutTemplate(o, units, s, 7);
     vi::TemplatePanel(l);
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-    std::vector<Debugger::Breakpoint> &list = m_Doc.listBreakpoints;
-    if (m_Doc.listPick >= static_cast<int>(list.size())) m_Doc.listPick = -1;
-    static const std::vector<vi::ListColumn> COLUMNS{{"BreakpointList", 0.0f}};
+    auto &list = m_Doc.listBreakpoints;
+    if (m_Doc.listPick >= int(list.size()))
+        m_Doc.listPick = -1;
+    static const std::vector<vi::ListColumn> columns{{"BreakpointList", 0}};
     bool twice = false;
     const int row = vi::ListView(
-        "##breakpoints", l.Min(5, 5), l.Max(5, 5, 265, 146), s, COLUMNS, static_cast<int>(list.size()),
-        [&](int r, int) { return BreakpointLabel(context, list[r].data); }, [&](int r) { return r == m_Doc.listPick; }, &twice,
-        nullptr, true);
-    if (row >= 0) m_Doc.listPick = row;
-    const int pick = m_Doc.listPick;
+        "##breakpoints", l.Min(5, 5), l.Max(5, 5, 265, 146), s, columns, int(list.size()),
+        [&](int r, int) { return list[size_t(r)].label; }, [&](int r) { return r == m_Doc.listPick; }, &twice, nullptr,
+        true);
+    if (row >= 0)
+        m_Doc.listPick = row;
+    int pick = m_Doc.listPick;
     if (vi::Button("Remove Breakpoint", l.Min(6, 154), l.Max(6, 154, 81, 10), "Remove Breakpoint", pick >= 0)) {
         list.erase(list.begin() + pick);
-        m_Doc.listPick = -1;
+        m_Doc.listPick = pick = -1;
     }
     if (vi::Button("Remove All", l.Min(95, 154), l.Max(95, 154, 81, 10), "Remove All", !list.empty())) {
         list.clear();
-        m_Doc.listPick = -1;
+        m_Doc.listPick = pick = -1;
     }
     bool close = false;
     if (vi::Button("Configure", l.Min(184, 154), l.Max(184, 154, 39, 10), "Configure", pick >= 0)) {
-        const Debugger::Breakpoint chosen = list[pick];
+        LoadBreakpointConfig(list[size_t(pick)]);
         close = true;
-        LoadBreakpointConfig(chosen.script, chosen.data.type, chosen.data.id1);
     }
     if ((vi::Button("Goto", l.Min(231, 154), l.Max(231, 154, 39, 10), "Goto", pick >= 0) || (row >= 0 && twice)) &&
-        m_Doc.listPick >= 0)
-        GoToBreakpoint(list[m_Doc.listPick].script, list[m_Doc.listPick].data);
-    const float right = l.right - 60.0f * s;
+        pick >= 0)
+        GoToBreakpoint(list[size_t(pick)]);
+    const float right = l.right - 60 * s;
     const bool cancel = vi::DialogButton("Cancel", ImVec2(right, l.buttonsY), s, ImGuiKey_Escape);
-    const bool ok = vi::DialogButton("Ok", ImVec2(right - 70.0f * s, l.buttonsY), s, ImGuiKey_Enter);
-    if (ok && m_State.debugger && m_State.HasDocument()) {
-        // The ones taken off the list.
-        std::vector<Debugger::Breakpoint> removed;
-        for (const auto &breakpoint : m_State.debugger->Breakpoints()) {
-            bool kept = false;
-            for (const auto &other : list)
-                kept |= other.script == breakpoint.script && other.data.type == breakpoint.data.type && other.data.id1 == breakpoint.data.id1;
-            if (!kept) removed.push_back(breakpoint);
+    const bool ok = vi::DialogButton("Ok", ImVec2(right - 70 * s, l.buttonsY), s, ImGuiKey_Enter);
+    if (m_Doc.breakpointListCommit) {
+        const auto result = Client().Completion(m_Doc.breakpointListCommit);
+        if (result.status != EDITOR_QUEUED) {
+            m_Doc.breakpointListCommit = 0;
+            if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE)
+                close = true;
+            else
+                m_State.Log(LogLevel::Warning,
+                            result.message.empty() ? "The breakpoint list changed; reopen it" : result.message);
         }
-        if (!removed.empty()) RemoveBreakpoints(*m_State.document, removed);
     }
-    if (ok || cancel || close) ImGui::CloseCurrentPopup();
+    if (ok && !m_Doc.breakpointListCommit) {
+        EditorField removed{"breakpoints", EDITOR_RECORD};
+        for (const auto &b : m_Doc.originalBreakpoints)
+            if (std::none_of(list.begin(), list.end(),
+                             [&](const auto &kept) { return kept.script == b.script && kept.index == b.index; }))
+                removed.fields.push_back(BreakpointField(b, std::to_string(removed.fields.size()).c_str()));
+        const std::vector<EditorField> fields{removed};
+        const auto values = BorrowEditorFields(fields);
+        const auto result =
+            Client().Command("schematic.remove-breakpoints", {values.data(), values.data() + values.size()});
+        if (result.status == EDITOR_QUEUED)
+            m_Doc.breakpointListCommit = result.operation;
+        else if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE)
+            close = true;
+        else
+            m_State.Log(LogLevel::Warning, result.message);
+    }
+    if (close || cancel)
+        ImGui::CloseCurrentPopup();
     vi::EndDialog();
 }
 
-CK_ID SchematicCanvas::ConditionParameterAt(const Hit &hit) const {
-    if (!hit.view || !m_State.HasDocument()) return 0;
-    if (hit.ref.kind == ElementKind::LocalParam || hit.ref.kind == ElementKind::Shortcut) {
-        for (const auto &param : hit.view->model.params)
-            if (param.ref == hit.ref) return param.parameter;
-        return 0;
-    }
-    if (hit.ref.kind != ElementKind::Pin) return 0;
-    CKObject *owner = m_State.document->Context()->GetObject(hit.ref.object);
-    CKObject *pin = nullptr;
-    if (CKBehavior *behavior = CKBehavior::Cast(owner)) {
-        if (hit.ref.pin == PinKind::ParamOut && hit.ref.index < behavior->GetOutputParameterCount())
-            pin = behavior->GetOutputParameter(hit.ref.index);
-        if (hit.ref.pin == PinKind::ParamIn && hit.ref.index < behavior->GetInputParameterCount())
-            pin = behavior->GetInputParameter(hit.ref.index);
-    }
-    if (CKParameterOperation *operation = CKParameterOperation::Cast(owner))
-        pin = hit.ref.pin == PinKind::ParamOut ? static_cast<CKObject *>(operation->GetOutParameter())
-                                               : static_cast<CKObject *>(hit.ref.index == 0 ? operation->GetInParameter1()
-                                                                                           : operation->GetInParameter2());
-    return pin ? pin->GetID() : 0;
+ObjectRef SchematicCanvas::ConditionParameterAt(const Hit &hit) {
+    if (!hit.view)
+        return {};
+    const auto result = ElementInfo(hit.view->id, hit.ref);
+    const auto *object = EditorClient::Find(result, "object");
+    if (result.status != EDITOR_OK || !object)
+        return {};
+    const auto parameter =
+        Client().Query("schematic.breakpoint-parameter", {ObjectArgument("parameter", object->object)});
+    return parameter.status == EDITOR_OK ? object->object : ObjectRef{};
 }
 
-void SchematicCanvas::PickConditionParameter(CK_ID parameter) {
-    const int row = m_Doc.pickConditionRow;
+void SchematicCanvas::PickConditionParameter(ObjectRef parameter) {
+    const auto row = m_Doc.pickConditionRow;
     m_Doc.pickConditionRow = -1;
-    CKObject *object = m_State.document->Context()->GetObject(parameter);
-    std::string name = AnsiToUtf8(object && object->GetName() ? object->GetName() : "");
-    bool known = false;
-    for (const auto &entry : m_Doc.conditionParameters)
-        if (entry.first == parameter) {
-            known = true;
-            name = entry.second;
-        }
-    if (!known) m_Doc.conditionParameters.emplace_back(parameter, name);
-    if (row >= 0 && row < static_cast<int>(m_Doc.conditions.size())) {
-        if (m_Doc.pickReference) {
-            // Of a type the Schematic Parameter's compares with.
-            CKContext *context = m_State.document->Context();
-            CKParameterManager *manager = context->GetParameterManager();
-            CKObject *compared = context->GetObject(m_Doc.conditions[row].parameter);
-            if (manager && compared && object &&
-                !manager->IsTypeCompatible(manager->ParameterGuidToType(ParameterType(compared)),
-                                           manager->ParameterGuidToType(ParameterType(object)))) {
-                m_State.Log(LogLevel::Warning, "Breakpoint: the reference parameter's type is not compatible");
-            } else {
-                m_Doc.conditions[row].value = name; // a reference parameter is named in Value
+    if (row < 0 || row >= int(m_Doc.conditions.size()))
+        return;
+    auto &condition = m_Doc.conditions[size_t(row)];
+    const auto result =
+        Client().Query("schematic.breakpoint-parameter",
+                       {ObjectArgument("parameter", parameter),
+                        ObjectArgument("compared", m_Doc.pickReference ? condition.parameter : ObjectRef{})});
+    if (result.status != EDITOR_OK)
+        return;
+    if (m_Doc.pickReference && !EditorClient::Integer(result, "compatible"))
+        m_State.Log(LogLevel::Warning, "Breakpoint: the reference parameter's type is not compatible");
+    else {
+        std::string name = EditorClient::Text(result, "name");
+        bool known = false;
+        for (const auto &candidate : m_Doc.conditionParameters)
+            if (candidate.object == parameter) {
+                known = true;
+                name = candidate.name;
             }
+        if (!known)
+            m_Doc.conditionParameters.push_back({parameter, name, bool(EditorClient::Integer(result, "ordered"))});
+        if (m_Doc.pickReference) {
+            condition.reference = parameter;
+            condition.value = name;
         } else {
-            m_Doc.conditions[row].parameter = parameter;
-            // A comparison of order needs numbers.
-            if (m_Doc.conditions[row].comparison >= 4 && !Ordered(m_State.document->Context(), parameter))
-                m_Doc.conditions[row].comparison = ByParameter(m_Doc.conditions[row].comparison) ? 2 : 0;
+            condition.parameter = parameter;
+            condition.missing = false;
+            if (condition.comparison >= 4 && !EditorClient::Integer(result, "ordered"))
+                condition.comparison = ByParameter(condition.comparison) ? 2 : 0;
         }
     }
     m_Doc.openBreakpointConfig = true;
