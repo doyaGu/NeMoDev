@@ -67,6 +67,13 @@ void TestSceneCommands(CkRuntimeHost &runtime) {
     const auto group = CreateGroup(document, "Projected Group", {first.created});
     Check(group.ok, "group fixture failed");
     publish();
+    const auto referencesUndo = document.History().UndoCount();
+    const std::vector<ObjectRef> references{b, a, b, document.Reference(script.created)};
+    const auto copiedReferences = command("scene.copy-references", {ObjectsArgument("objects", references)});
+    Check((copiedReferences.status == EDITOR_OK || copiedReferences.status == EDITOR_NO_CHANGE) &&
+              Refs(query("scene.clipboard"), "objects") == references &&
+              document.History().UndoCount() == referencesUndo,
+          "array reference copy lost ordering, duplicates or scripts, or changed undo history");
     const auto undo = document.History().UndoCount();
     const auto revision = document.TopologyRevision();
     const auto tree = query("scene.tree");

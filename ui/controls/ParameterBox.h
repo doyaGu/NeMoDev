@@ -1,4 +1,5 @@
 #pragma once
+#include "ui/controls/ObjectArrayInput.h"
 
 #include <memory>
 #include <set>
@@ -101,8 +102,7 @@ private:
         CK_CLASSID filterClass = 0;      // Object: the class listed
         bool derived = true;             // Object: with the derived classes
         std::string filter;              // Object: the Text Filter
-        std::set<int> chosen;            // Object Array: the items selected
-        int anchor = -1;                 // Object Array: the last item clicked
+        ObjectArrayInput arrayInput;
         ImVec2 drawnMin, drawnMax;       // where the row was drawn last (picking another row)
         std::vector<Row> members;        // Struct: a row per member
     };
@@ -151,7 +151,6 @@ private:
     bool m_PickClick = false; // clicked: until the next click (else until the button is released)
     bool m_PickToggle = false;
     int m_PickFrame = 0;
-    std::unique_ptr<ParameterBox> m_Chooser; // an Object Array's Add Object (Choose Object)
 };
 
 // Dev's Edit Parameters dialog around a box (Dev.exe sub_582930 and

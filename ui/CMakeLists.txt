@@ -42,6 +42,7 @@ set(_editor_sources
         controls/FileDialogs.cpp
         controls/ValueEditor.cpp
         controls/ParameterBox.cpp
+        controls/ObjectArrayInput.cpp
         controls/TypeAhead.cpp
         controls/BehaviorInfoFields.cpp
         # The Schematic.

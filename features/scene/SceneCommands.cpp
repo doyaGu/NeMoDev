@@ -149,6 +149,7 @@ struct SceneCommands::Data {
         Launch,
         SaveOptions,
         Copy,
+        CopyReferences,
         Paste,
         Move,
         WorksetCreate,
@@ -749,6 +750,14 @@ EditorStatus SceneCommands::Data::Run(void *data, const EditorHost *, const Edit
     case SaveOptions:
         result = SetSaveOptions(*doc, objects, value);
         break;
+    case CopyReferences: {
+        std::vector<CK_ID> references;
+        for (auto ref : Refs(*request, "objects"))
+            references.push_back(doc->NativeId(ref));
+        d.objectClipboard.SetObjects(*doc, std::move(references));
+        result = EditResult::NoChange();
+        break;
+    }
     case Copy: {
         std::vector<CK_ID> ordinary, scripts;
         for (auto id : objects) {
@@ -1246,6 +1255,7 @@ bool SceneCommands::Register(std::string &error) {
         {objects, {EDITOR_TEXT("target"), EDITOR_OBJECT, 1}, {EDITOR_TEXT("background"), EDITOR_INTEGER_VALUE}});
     add("scene.launch", "Launch Scene", Data::Launch, {target}, EDITOR_RUNTIME_CONTROL);
     add("scene.save-options", "Set Save Options", Data::SaveOptions, {objects, value});
+    add("scene.copy-references", "Copy Object References", Data::CopyReferences, {objects}, EDITOR_SESSION_CHANGE);
     add("scene.copy", "Copy Objects", Data::Copy, {objects}, EDITOR_SESSION_CHANGE);
     add("scene.clear-clipboard", "Clear Copied Objects", Data::ClearClipboard, {}, EDITOR_SESSION_CHANGE);
     add("scene.paste", "Paste Objects", Data::Paste, {objects, {EDITOR_TEXT("scene"), EDITOR_OBJECT, 1}});

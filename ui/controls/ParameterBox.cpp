@@ -687,179 +687,13 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
 // - (the keypad's) move the item down and up; the right click's menu: Add
 // Object, Copy Object(s), Paste Object(s) (at the item clicked, else at the
 // end).
-bool ParameterBox::ObjectArrayUi(Row &row, const EditorValueInput &input, const ImVec2 &at, float s) {
-    CKContext *context = m_State.host.Context();
-    std::vector<ObjectRef> values;
-    if (input.value.objects.count) values.assign(input.value.objects.data, input.value.objects.data + input.value.objects.count);
-    auto *array = &values;
-    bool changed = false;
-    const ImVec2 listMin(at.x + 15.0f * DLU_X * s, at.y + 5.0f * DLU_Y * s);
-    const ImVec2 listMax(listMin.x + 195.0f * DLU_X * s, listMin.y + 95.0f * DLU_Y * s);
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(listMin, listMax, vi::Color(9));
-    dl->AddRect(listMin, listMax, vi::Color(0));
-    // The columns (InsertColumn: 120 left, 40 right, 80 and 35 centered).
-    static const char *const HEADERS[4] = {"Name", "ID", "Class", "Dyn"};
-    const float widths[4] = {120.0f * s, 40.0f * s, 80.0f * s, 35.0f * s};
-    const float header = 16.0f * s, line = 15.0f * s;
-    dl->PushClipRect(ImVec2(listMin.x + 1.0f, listMin.y + 1.0f), ImVec2(listMax.x - 1.0f, listMax.y - 1.0f), true);
-    float x = listMin.x + 1.0f;
-    for (int c = 0; c < 4; ++c) {
-        const ImVec2 h0(x, listMin.y + 1.0f), h1(x + widths[c], listMin.y + 1.0f + header);
-        dl->AddRectFilled(h0, h1, vi::Color(7));
-        dl->AddLine(ImVec2(h1.x - 1.0f, h0.y), ImVec2(h1.x - 1.0f, h1.y), vi::Color(4));
-        dl->AddLine(ImVec2(h0.x, h1.y - 1.0f), ImVec2(h1.x, h1.y - 1.0f), vi::Color(4));
-        const float w = ImGui::CalcTextSize(HEADERS[c]).x;
-        const float tx = c == 0 ? h0.x + 4.0f * s : c == 1 ? h1.x - w - 4.0f * s : (h0.x + h1.x - w) * 0.5f;
-        dl->AddText(ImVec2(tx, h0.y + (header - ImGui::GetFontSize()) * 0.5f), vi::Color(0), HEADERS[c]);
-        x += widths[c];
-    }
-    dl->PopClipRect();
-    // The items, scrolled in a child under the header.
-    const ImVec2 itemsMin(listMin.x + 1.0f, listMin.y + 1.0f + header);
-    ImGui::SetCursorScreenPos(itemsMin);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 0, 0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
-    ImGui::BeginChild("##items", ImVec2(listMax.x - itemsMin.x - 1.0f, listMax.y - itemsMin.y - 1.0f), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_None);
-    ImDrawList *il = ImGui::GetWindowDrawList();
-    const ImGuiIO &io = ImGui::GetIO();
-    int menuAt = -1;
-    const int count = int(array->size());
-    for (int i = 0; i < count; ++i) {
-        CKObject *object = m_State.document->Resolve((*array)[i]);
-        const ImVec2 r0 = ImGui::GetCursorScreenPos(), r1(r0.x + widths[0] + widths[1] + widths[2] + widths[3], r0.y + line);
-        ImGui::PushID(i);
-        ImGui::InvisibleButton("##item", ImVec2(r1.x - r0.x, line), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !row.chosen.count(i))) {
-            if (io.KeyShift && row.anchor >= 0) {
-                if (!io.KeyCtrl) row.chosen.clear();
-                for (int k = std::min(row.anchor, i); k <= std::max(row.anchor, i); ++k) row.chosen.insert(k);
-            } else if (io.KeyCtrl) {
-                if (!row.chosen.erase(i)) row.chosen.insert(i);
-                row.anchor = i;
-            } else {
-                row.chosen = {i};
-                row.anchor = i;
-            }
-            ImGui::SetKeyboardFocusHere(-1);
-        }
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && object)
-            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) menuAt = i;
-        ImGui::PopID();
-        const bool selected = row.chosen.count(i) != 0;
-        if (selected) il->AddRectFilled(r0, r1, IM_COL32(10, 36, 106, 255));
-        const ImU32 ink = selected ? vi::Color(9) : vi::Color(0);
-        char id[32];
-        std::snprintf(id, sizeof(id), "%d", static_cast<int>(m_State.document->NativeId((*array)[i], Document::ObjectScope::Existing)));
-        const char *cells[4] = {object && object->GetName() ? object->GetName() : "", id,
-                                object ? CKClassIDToString(object->GetClassID()) : "",
-                                object && (object->GetObjectFlags() & CK_OBJECT_DYNAMIC) == CK_OBJECT_DYNAMIC ? "X" : "-"};
-        float cx = r0.x;
-        for (int c = 0; c < 4; ++c) {
-            const std::string text = c == 0 ? AnsiToUtf8(cells[0]) : std::string(cells[c] ? cells[c] : "");
-            const float w = ImGui::CalcTextSize(text.c_str()).x;
-            const float tx = c == 0 ? cx + 4.0f * s : c == 1 ? cx + widths[c] - w - 4.0f * s : cx + (widths[c] - w) * 0.5f;
-            il->PushClipRect(ImVec2(cx, r0.y), ImVec2(cx + widths[c] - 1.0f, r1.y), true);
-            il->AddText(ImVec2(tx, r0.y + (line - ImGui::GetFontSize()) * 0.5f), ink, text.c_str());
-            il->PopClipRect();
-            cx += widths[c];
-            il->AddLine(ImVec2(cx - 1.0f, r0.y), ImVec2(cx - 1.0f, r1.y), vi::Color(7)); // LVS_EX_GRIDLINES
-        }
-        il->AddLine(ImVec2(r0.x, r1.y - 1.0f), ImVec2(r1.x, r1.y - 1.0f), vi::Color(7));
-    }
-    // Below the items: the menu inserts at the end.
-    const ImVec2 rest = ImGui::GetCursorScreenPos();
-    const float restHeight = std::max(1.0f, ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - rest.y);
-    ImGui::InvisibleButton("##rest", ImVec2(std::max(1.0f, ImGui::GetContentRegionAvail().x), restHeight),
-                           ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) row.chosen.clear();
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) menuAt = count;
-    const bool focused = ImGui::IsWindowFocused();
-    // The selected items' IDs, in the list's order.
-    auto selection = [&] {
-        std::vector<CK_ID> ids;
-        for (int i : row.chosen)
-            if (i >= 0 && i < int(array->size())) if (auto id = m_State.document->NativeId((*array)[i])) ids.push_back(id);
-        return ids;
-    };
-    auto insert = [&](int position, const std::vector<CK_ID> &ids) {
-        for (CK_ID id : ids)
-            if (auto ref = m_State.document->Reference(id); m_State.document->Resolve(ref)) array->insert(array->begin() + std::clamp(position++, 0, int(array->size())), ref);
-        row.chosen.clear();
-        changed = true;
-    };
-    if (focused && !ImGui::IsAnyItemActive()) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !row.chosen.empty()) {
-            for (auto it = row.chosen.rbegin(); it != row.chosen.rend(); ++it)
-                if (*it >= 0 && *it < int(array->size())) array->erase(array->begin() + *it);
-            row.chosen.clear();
-            changed = true;
-        }
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C, false) && !row.chosen.empty())
-            m_State.objectClipboard.SetObjects(*m_State.document, selection());
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V, false)) insert(int(array->size()), m_State.objectClipboard.Objects(*m_State.document));
-        // + and -: the first selected item and the one below / above it change places.
-        const bool down = ImGui::IsKeyPressed(ImGuiKey_KeypadAdd), up = ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract);
-        if ((down || up) && !row.chosen.empty()) {
-            const int from = *row.chosen.begin(), to = from + (down ? 1 : -1);
-            if (to >= 0 && to < int(array->size())) {
-                std::swap((*array)[from], (*array)[to]);
-                row.chosen = {to};
-                row.anchor = to;
-                changed = true;
-            }
-        }
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor();
-    if (menuAt >= 0) {
-        ImGui::OpenPopup("##arraymenu");
-        row.anchor = menuAt; // where Add Object and Paste Object(s) insert
-    }
-    PushDevMenuStyle();
-    bool choose = false;
-    if (ImGui::BeginPopup("##arraymenu")) {
-        if (ImGui::MenuItem("Add Object")) choose = true;
-        ImGui::Separator();
-        if (ImGui::MenuItem("Copy Object(s)", nullptr, false, !row.chosen.empty()))
-            m_State.objectClipboard.SetObjects(*m_State.document, selection());
-        if (ImGui::MenuItem("Paste Object(s)", nullptr, false, !m_State.objectClipboard.Objects(*m_State.document).empty()))
-            insert(std::clamp(row.anchor, 0, int(array->size())), m_State.objectClipboard.Objects(*m_State.document));
-        ImGui::EndPopup();
-    }
-    PopDevMenuStyle();
-    // Add Object: CKContext::ChooseObject, Dev's CKUIM_CHOOSEOBJECT
-    // (Dev.exe CKUICallBackFct): the Edit Parameter dialog without its name
-    // and type on an "Object" parameter (CKPGUID_OBJECT: the Object UI with
-    // its class filter); OK inserts the object chosen.
-    const char *chooser = "Edit Parameter###ChooseObject";
-    if (choose) {
-        if (!m_Chooser) m_Chooser = std::make_unique<ParameterBox>(m_State);
-        m_Chooser->Clear();
-        if (CKParameterOut *object = context->CreateCKParameterOut((CKSTRING) "Object", CKPGUID_OBJECT, TRUE)) {
-            m_Chooser->Add(object, "Object");
-            context->DestroyObject(object);
-            ImGui::OpenPopup(chooser);
-        }
-    }
-    if (m_Chooser && !m_Chooser->Empty()) {
-        const DialogAction action = EditParameterValueDialog(chooser, "Edit Parameter", *m_Chooser);
-        if (action == DialogAction::Ok) {
-            const CK_ID chosen = ValueOf<CK_ID>(m_Chooser->Work(0));
-            if (chosen) insert(std::clamp(row.anchor, 0, int(array->size())), {chosen});
-        }
-        if (action != DialogAction::None || !m_Chooser->Empty()) m_InputAction |= EDITOR_INPUT_ACTIVE;
-        if (action != DialogAction::None) m_Chooser->Clear();
-    }
-    if (changed) {
-        auto value = input.value; value.objects = {array->data(), uint32_t(array->size())};
-        if (input.update.write(input.update.data, &value, 1) != EDITOR_OK) row.invalid = true;
-    }
-    return changed;
+bool ParameterBox::ObjectArrayUi(Row &row, const EditorValueInput &input, const ImVec2 &at, float) {
+    ImGui::SetCursorScreenPos(at);
+    const auto action = row.arrayInput.Draw(m_State.workspace->Application().Host(), input);
+    m_InputAction |= action;
+    if (action & EDITOR_INPUT_INVALID)
+        row.invalid = true;
+    return action & EDITOR_INPUT_CHANGED;
 }
 
 // The LOD Manager's LOD Options UI (dialog 2012, sub_24E6DE90 /
@@ -1211,6 +1045,32 @@ bool RegisterParameterDialogs(EditorApplication &editor,EditorState &state,std::
     auto *data=new ParameterDialog(state);
     const EditorParameter parameter{EDITOR_TEXT("target"),EDITOR_OBJECT};
     const EditorParameter objects{EDITOR_TEXT("objects"),EDITOR_OBJECT_LIST};
+    const EditorParameter pickArgs[] = {{EDITOR_TEXT("point"), EDITOR_REAL_LIST},
+                                        {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE}};
+    const EditorQueryDesc pick{
+        sizeof(EditorQueryDesc),
+        EDITOR_TEXT("parameter.object-at"),
+        EDITOR_TEXT("builtin.parameters"),
+        pickArgs,
+        2,
+        [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+            auto &state = *static_cast<EditorState *>(data);
+            const auto &point = request->values[0];
+            const auto cid = request->values[1].integer;
+            if (point.reals.count != 2 || !std::isfinite(point.reals.data[0]) || !std::isfinite(point.reals.data[1]) ||
+                cid > INT32_MAX)
+                return EDITOR_INVALID;
+            const auto id = ObjectUnderMouse(state, ImVec2(float(point.reals.data[0]), float(point.reals.data[1])),
+                                             CK_CLASSID(cid));
+            const EditorValue result{EDITOR_TEXT("target"), EDITOR_OBJECT,
+                                     state.document ? state.document->Reference(id) : ObjectRef{}};
+            return sink.write ? sink.write(sink.data, &result, 1) : EDITOR_INVALID;
+        },
+        &state,
+        EDITOR_QUERY_EACH_READ,
+        EDITOR_DOCUMENT,
+        &parameter,
+        1};
     const EditorParameter copy[]={objects,parameter};
     static int parameterKind=0,copyKind=1,deleteKind=2;
     const EditorCommandDesc commands[]={
@@ -1223,6 +1083,8 @@ bool RegisterParameterDialogs(EditorApplication &editor,EditorState &state,std::
     view.data=data;view.create=[](void*data,const EditorHost*,EditorView id)->void*{auto*d=static_cast<ParameterDialog*>(data);d->view=id;return d;};view.destroy=[](void*data){static_cast<ParameterDialog*>(data)->Clear();};
     view.draw=[](void*data,const EditorHost*host,EditorView,EditorViewFrame*frame){static_cast<ParameterDialog*>(data)->Draw(host,*frame);};view.parameters=args;view.count=3;view.navigate=ParameterDialog::Navigate;
     EditorModuleDesc module{};module.size=sizeof(module);module.version=EDITOR_VERSION;module.id=EDITOR_TEXT("parameters.dialogs");module.data=data;module.stop=[](void*data){delete static_cast<ParameterDialog*>(data);};module.commands=commands;module.commandCount=4;module.views=&view;module.viewCount=1;
+    module.queries = &pick;
+    module.queryCount = 1;
     if(editor.Register(module,error))return true;delete data;return false;
 }
 } // namespace vdev

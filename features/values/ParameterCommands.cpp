@@ -589,6 +589,51 @@ bool ParameterCommands::Register(EditorApplication &editor, std::string &error) 
         {EDITOR_TEXT("category"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("users"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("has-users"), EDITOR_INTEGER_VALUE}};
     queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.selection-choices"), EDITOR_TEXT("builtin.parameters"),
         selectionArgs, 2, Selections, this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, selectionFields, uint32_t(std::size(selectionFields))});
+    const EditorParameter recordRows{EDITOR_TEXT("rows"), EDITOR_RECORD};
+    const EditorParameter arrayObjects{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST};
+    queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.array-objects"), EDITOR_TEXT("builtin.parameters"),
+         &arrayObjects, 1,
+         [](void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
+             auto *doc = static_cast<ParameterCommands *>(data)->m_Current();
+             if (!doc || doc->Token() != r->scope.document)
+                 return EDITOR_STALE;
+             EditorField rows{"rows", EDITOR_RECORD};
+             const auto objects = r->values[0].objects;
+             for (uint32_t i = 0; i < objects.count; ++i) {
+                 auto *object = doc->Resolve(objects.data[i]);
+                 const auto *cid = object ? CKClassIDToString(object->GetClassID()) : nullptr;
+                 EditorField row{std::to_string(i), EDITOR_RECORD};
+                 row.fields = {{"name",
+                                EDITOR_TEXT_VALUE,
+                                {},
+                                object ? AnsiToUtf8(object->GetName() ? object->GetName() : "") : "<deleted object>"},
+                               {"class", EDITOR_TEXT_VALUE, {}, cid ? AnsiToUtf8(cid) : ""},
+                               {"dynamic", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(object && object->IsDynamic())}};
+                 rows.fields.push_back(std::move(row));
+             }
+             const std::vector<EditorField> fields{rows};
+             const auto values = BorrowEditorFields(fields);
+             return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
+         },
+         this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &recordRows, 1});
+    queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("parameter.object-classes"), EDITOR_TEXT("builtin.parameters"), nullptr,
+         0,
+         [](void *, const EditorHost *, const EditorRequest *, EditorSink sink) {
+             EditorField rows{"rows", EDITOR_RECORD};
+             for (const auto &entry : DerivedClasses(CKCID_OBJECT)) {
+                 EditorField row{std::to_string(rows.fields.size()), EDITOR_RECORD};
+                 row.fields = {{"id", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(entry.first)},
+                               {"name", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(entry.second)},
+                               {"default", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(entry.first == CKCID_OBJECT)}};
+                 rows.fields.push_back(std::move(row));
+             }
+             const std::vector<EditorField> fields{rows};
+             const auto values = BorrowEditorFields(fields);
+             return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
+         },
+         this, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &recordRows, 1});
     EditorModuleDesc module{};
     module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("parameters.editing");
     module.commands = commands.data(); module.commandCount = uint32_t(commands.size());
