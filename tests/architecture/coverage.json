@@ -819,7 +819,8 @@
       "S55",
       "S56",
       "S57",
-      "S21"
+      "S21",
+      "S17"
     ],
     "S34": [
       "S01",
@@ -1748,7 +1749,8 @@
         "S56"
       ],
       "tests": [
-        "VirtoolsDev.InputViewport"
+        "VirtoolsDev.InputViewport",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app"
@@ -1961,19 +1963,23 @@
     {
       "id": "F24",
       "name": "图像与快照",
-      "owner": "Image resources",
+      "owner": "SnapshotCommands / 文档图片 / UI 图像缓存",
       "source_groups": [
         "S01",
         "S11",
         "S20",
         "S22",
         "S23",
-        "S26"
+        "S26",
+        "S55",
+        "S56"
       ],
       "tests": [
         "VirtoolsDev.BitmapLifetimes",
         "VirtoolsDev.DocumentPictures",
-        "VirtoolsDev.DocumentLayoutMetadata"
+        "VirtoolsDev.DocumentLayoutMetadata",
+        "NeMoDevEditor",
+        "NeMoDevRuntimeOperation"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app"

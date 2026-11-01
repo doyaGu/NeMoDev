@@ -295,9 +295,9 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         // not only the input manager's key state or the frame count.
         const int points = Read<int>(ctx, CurvePoints);
         OnMainThread(ctx, [] { PushKey(EditorWindow(), SDL_SCANCODE_SPACE, true); });
-        ctx->Yield(3);
+        const bool reacted = Until(ctx, [=] { return CurvePoints() > points; });
         OnMainThread(ctx, [] { PushKey(EditorWindow(), SDL_SCANCODE_SPACE, false); });
-        IM_CHECK(Until(ctx, [=] { return CurvePoints() > points; }));
+        IM_CHECK(reacted);
         ImVec2 min, max;
         IM_CHECK(App().Layout().ShownView(min, max));
         const ImVec2 at = Center(min, max);
@@ -307,7 +307,8 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             PushMouse(EditorWindow(), at.x, at.y, true);
         });
         ctx->Yield(3);
-        IM_CHECK(Read<bool>(ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
+        IM_CHECK(Until(
+            ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
         const Vx2DVector mouse = Read<Vx2DVector>(ctx, [] { Vx2DVector p; Input()->GetMousePosition(p, FALSE); return p; });
         IM_CHECK(std::fabs(mouse.x - (at.x - min.x)) < 2 && std::fabs(mouse.y - (at.y - min.y)) < 2);
         session.StealFocus();
@@ -377,6 +378,25 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         IM_CHECK(ChooseMode(ctx));
         IM_CHECK(Start(ctx));
         NativeWindowInput nativeInput(ctx);
+        // A failed release must leave the editor and its imported target intact.
+        if (Read<bool>(ctx, [] { return App().Layout().UsesGpuViewport(); })) {
+            OnMainThread(ctx, [&] {
+                auto &layout = App().Layout();
+                const auto texture = layout.GpuViewportTextureForTests();
+                const auto handle = layout.GpuViewportHandleForTests();
+                const auto history = App().State().History().UndoCount();
+                const auto selected = App().State().objectSelection.References();
+                layout.FailNextGpuViewportReleaseForTests();
+                const auto result = vdev::EditorClient(App().State().workspace->Application().Host(), 0)
+                                        .Command("layout.toggle-fullscreen");
+                IM_CHECK(result.status == EDITOR_ERROR && !layout.FullScreen());
+                IM_CHECK(layout.GpuViewportTextureForTests() == texture &&
+                         layout.GpuViewportHandleForTests() == handle);
+                IM_CHECK(!(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN));
+                IM_CHECK(App().State().History().UndoCount() == history &&
+                         App().State().objectSelection.References() == selected);
+            });
+        }
         int width = 0, height = 0;
         OnMainThread(ctx, [&] { SDL_GetWindowSize(EditorWindow(), &width, &height); });
         for (int cycle = 0; cycle < 3; ++cycle) {
@@ -399,6 +419,23 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             const Image full = RenderedImage(ctx);
             IM_CHECK(Nonblank(full));
             IM_CHECK(SaveImage("fullscreen.png", full));
+            if (cycle == 0)
+                OnMainThread(ctx, [&] {
+                    const auto client = vdev::EditorClient(App().State().workspace->Application().Host(), 0);
+                    vdev::SnapshotData data;
+                    IM_CHECK(vdev::ReadSnapshots(client, data));
+                    const auto slot = data.FirstFree();
+                    IM_CHECK(slot >= 0);
+                    const auto reads = App().Layout().View().ReadbackFrames();
+                    const auto history = App().State().History().UndoCount();
+                    IM_CHECK(client.Command("snapshot.take").status == EDITOR_OK);
+                    IM_CHECK(App().Layout().View().ReadbackFrames() == reads + 1);
+                    IM_CHECK(vdev::ReadSnapshots(client, data) && data.Has(slot));
+                    IM_CHECK(data.Pixels(slot).size() ==
+                             size_t(vdev::SnapshotData::WIDTH * vdev::SnapshotData::HEIGHT * 4));
+                    IM_CHECK(vdev::RemoveSnapshots(client, data, {slot}).status == EDITOR_OK);
+                    IM_CHECK(App().State().History().UndoCount() == history);
+                });
 #if defined(_WIN32)
             IM_CHECK(DisplaysScene(full, beforeReadback));
             const Image displayed = DisplayedImage(ctx);
@@ -419,9 +456,9 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             }
             const int points = Read<int>(ctx, CurvePoints);
             OnMainThread(ctx, [] { PushKey(RenderWindow(), SDL_SCANCODE_SPACE, true); });
-            ctx->Yield(3);
+            const bool reacted = Until(ctx, [=] { return CurvePoints() > points; });
             OnMainThread(ctx, [] { PushKey(RenderWindow(), SDL_SCANCODE_SPACE, false); });
-            IM_CHECK(Until(ctx, [=] { return CurvePoints() > points; }));
+            IM_CHECK(reacted);
             const Image changed = RenderedImage(ctx);
             IM_CHECK(changed.width == full.width && changed.height == full.height && changed.pixels != full.pixels);
             IM_CHECK(SaveImage("fullscreen-after-input.png", changed));
@@ -443,7 +480,8 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
                 PushMouse(EditorWindow(), at.x, at.y, true);
             });
             ctx->Yield(3);
-            IM_CHECK(Read<bool>(ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
+            IM_CHECK(Until(
+                ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
             const Vx2DVector mouse = Read<Vx2DVector>(ctx, [] { Vx2DVector p; Input()->GetMousePosition(p, FALSE); return p; });
             IM_CHECK(std::fabs(mouse.x - (at.x - min.x)) < 2 && std::fabs(mouse.y - (at.y - min.y)) < 2);
             OnMainThread(ctx, [&] {
@@ -457,7 +495,8 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && SDL_GetKeyboardFocus() == RenderWindow(); }));
         OnMainThread(ctx, [] { PushKey(RenderWindow(), SDL_SCANCODE_F6, true); PushMouse(RenderWindow(), 100, 100, true); });
         ctx->Yield(3);
-        IM_CHECK(Read<bool>(ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
+        IM_CHECK(Until(
+            ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
         session.StealFocus();
         IM_CHECK(Until(ctx, [] { return !App().Layout().FullScreen() && !App().Layout().PlayerMode(); }));
         IM_CHECK(App().State().debugger->GetState() == vdev::Debugger::State::Paused);
@@ -518,7 +557,10 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         IM_CHECK(position.x == after.x && position.y == after.y && position.z == after.z);
         IM_CHECK_EQ(App().State().document->Dirty(), dirty);
         IM_CHECK_EQ(App().State().History().UndoCount(), steps);
-        OnMainThread(ctx, [=] { vdev::RemoveSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), Snapshots(), {slot, next}); });
+        OnMainThread(ctx, [=] {
+            vdev::RemoveSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), Snapshots(),
+                                  {slot, next});
+        });
     };
 }
 } // namespace vdevuitest
