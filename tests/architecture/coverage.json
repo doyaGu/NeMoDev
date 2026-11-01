@@ -1087,20 +1087,6 @@
       "remove_by": 5
     },
     {
-      "file": "ui/controls/DevIcons.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/DevIcons.h",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
       "file": "ui/controls/ObjectText.h",
       "access": [
         "native-sdk"
@@ -1292,13 +1278,6 @@
       "access": [
         "editor-state",
         "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/SchematicRenderer.cpp",
-      "access": [
         "native-sdk"
       ],
       "remove_by": 5

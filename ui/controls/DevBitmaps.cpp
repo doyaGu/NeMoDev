@@ -1,4 +1,5 @@
 #include "ui/controls/DevBitmaps.h"
+#include "ui/controls/DevIcons.h"
 #include "CKAll.h"
 #include "ui/render/UiRenderer.h"
 #include "core/runtime/Resources.h"
@@ -10,6 +11,23 @@
 #include <vector>
 
 namespace vdev {
+DevIcon IconForClass(int32_t cid) {
+    if (cid == CKCID_LEVEL)
+        return DevIcon::Level;
+    if (cid == CKCID_PLACE)
+        return DevIcon::Place;
+    if (cid == CKCID_SCENE)
+        return DevIcon::Scene;
+    if (cid == CKCID_BEHAVIOR)
+        return DevIcon::Script;
+    if (cid && CKIsChildClassOf(cid, CKCID_2DENTITY))
+        return DevIcon::Entity2D;
+    if (cid && CKIsChildClassOf(cid, CKCID_3DENTITY))
+        return DevIcon::Entity3D;
+    if (cid == CKCID_MATERIAL)
+        return DevIcon::Material;
+    return DevIcon::Object;
+}
 namespace {
 struct Bitmap { std::unique_ptr<UiTexture> view; ImVec2 size; bool tried = false; };
 enum Group { UI, PARAMETER, APP, GROUP_COUNT };

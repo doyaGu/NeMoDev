@@ -94,7 +94,17 @@ struct SchematicModelBuilder {
         script.ref = {ElementKind::Script, script.id, script.id};
         script.name = NameOf(root);
         script.ownerName = root ? NameOf(root->GetOwner()) : std::string();
-        script.ownerClass = root && root->GetOwner() ? root->GetOwner()->GetClassID() : 0;
+        if (auto *owner = root ? root->GetOwner() : nullptr) {
+            const auto cid = owner->GetClassID();
+            script.ownerKind = cid == CKCID_LEVEL                      ? SchematicOwnerKind::Level
+                               : cid == CKCID_PLACE                    ? SchematicOwnerKind::Place
+                               : cid == CKCID_SCENE                    ? SchematicOwnerKind::Scene
+                               : cid == CKCID_BEHAVIOR                 ? SchematicOwnerKind::Script
+                               : CKIsChildClassOf(cid, CKCID_2DENTITY) ? SchematicOwnerKind::Entity2D
+                               : CKIsChildClassOf(cid, CKCID_3DENTITY) ? SchematicOwnerKind::Entity3D
+                               : cid == CKCID_MATERIAL                 ? SchematicOwnerKind::Material
+                                                                       : SchematicOwnerKind::Object;
+        }
         if (CKScene *scene = root ? InitialConditionsScene(context) : nullptr)
             script.initialConditions = scene->IsObjectHere(root) && scene->GetObjectInitialValue(root);
         script.isScript = rootIsScript;

@@ -2,10 +2,14 @@
 
 #include <set>
 #include <string>
+#include <cstdint>
 
 #include "imgui.h"
 
 namespace vdev {
+enum class DevIcon;
+// Legacy native class classification, used by the remaining Layout adapter.
+DevIcon IconForClass(int32_t cid);
 
 // The ui group: Dev's interface bitmaps, those of resvis.dll (Dev.exe
 // sub_42A2E0 loads it) the editor draws, built into the program

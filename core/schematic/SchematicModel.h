@@ -9,12 +9,32 @@
 #include "core/interface/LinkEndpoint.h"
 #include "core/schematic/Geometry.h"
 #include <memory>
+#include <set>
 
 namespace vdev {
 
 struct SchematicSnapshot {
     uint32_t width = 0, height = 0;
     std::vector<unsigned char> pixels; // tightly packed BGRA, opaque
+};
+
+// The owner's category is copied with the drawing data; painting never asks
+// the native class registry to classify it.
+enum class SchematicOwnerKind {
+    Object = EDITOR_SCHEMATIC_OWNER_OBJECT,
+    Level = EDITOR_SCHEMATIC_OWNER_LEVEL,
+    Place = EDITOR_SCHEMATIC_OWNER_PLACE,
+    Scene = EDITOR_SCHEMATIC_OWNER_SCENE,
+    Script = EDITOR_SCHEMATIC_OWNER_SCRIPT,
+    Entity2D = EDITOR_SCHEMATIC_OWNER_ENTITY2D,
+    Entity3D = EDITOR_SCHEMATIC_OWNER_ENTITY3D,
+    Material = EDITOR_SCHEMATIC_OWNER_MATERIAL
+};
+
+struct SchematicActivity {
+    std::set<ElementRef> running, firing;
+    ElementRef current;
+    bool trace = false, active = false;
 };
 
 // Script header column width. Dev places Start at x=140 and clamps Script
@@ -32,7 +52,7 @@ struct ScriptItem {
     uint32_t id = 0;
     std::string name;
     std::string ownerName;
-    int32_t ownerClass = 0; // header icon
+    SchematicOwnerKind ownerKind = SchematicOwnerKind::Object;
     bool isScript = true; // false for a non-Script root (Building Block chunk)
     bool open = true;     // ScriptSession::IsOpen (view state)
     bool hidden = false;  // UI flag 0x20000

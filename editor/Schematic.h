@@ -28,4 +28,17 @@ typedef enum EditorSchematicPin {
     EDITOR_SCHEMATIC_PARAMETER_OUTPUT,
     EDITOR_SCHEMATIC_TARGET
 } EditorSchematicPin;
+
+// schematic.model copies this owner category for drawing; consumers do not
+// need the native class registry to choose the Script header's icon.
+typedef enum EditorSchematicOwnerKind {
+    EDITOR_SCHEMATIC_OWNER_OBJECT,
+    EDITOR_SCHEMATIC_OWNER_LEVEL,
+    EDITOR_SCHEMATIC_OWNER_PLACE,
+    EDITOR_SCHEMATIC_OWNER_SCENE,
+    EDITOR_SCHEMATIC_OWNER_SCRIPT,
+    EDITOR_SCHEMATIC_OWNER_ENTITY2D,
+    EDITOR_SCHEMATIC_OWNER_ENTITY3D,
+    EDITOR_SCHEMATIC_OWNER_MATERIAL
+} EditorSchematicOwnerKind;
 #endif

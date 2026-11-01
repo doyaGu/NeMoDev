@@ -9,6 +9,7 @@
 #include <map>
 
 #include "ui/controls/DevIcons.h"
+#include "ui/controls/DevBitmaps.h"
 #include "features/layout/LayoutSceneData.h"
 #include "core/layout/LayoutExplorer.h"
 #include "core/runtime/TextEncoding.h"

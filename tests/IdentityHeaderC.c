@@ -1,6 +1,7 @@
 #include "editor/Schematic.h"
 typedef char SchematicKindValues[(EDITOR_SCHEMATIC_START == 10) ? 1 : -1];
 typedef char SchematicPinValues[(EDITOR_SCHEMATIC_TARGET == 5) ? 1 : -1];
+typedef char SchematicOwnerValues[(EDITOR_SCHEMATIC_OWNER_MATERIAL == 7) ? 1 : -1];
 #include "editor/Scene.h"
 #include "editor/Resources.h"
 typedef char BuildingBlockDragLayout[(sizeof(EditorBuildingBlock) == 8 && sizeof(EditorBuildingBlockDragHeader) == 12) ? 1 : -1];

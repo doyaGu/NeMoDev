@@ -4,17 +4,6 @@
 
 namespace vdev {
 
-DevIcon IconForClass(CK_CLASSID cid) {
-    if (cid == CKCID_LEVEL) return DevIcon::Level;
-    if (cid == CKCID_PLACE) return DevIcon::Place;
-    if (cid == CKCID_SCENE) return DevIcon::Scene;
-    if (cid == CKCID_BEHAVIOR) return DevIcon::Script;
-    if (cid && CKIsChildClassOf(cid, CKCID_2DENTITY)) return DevIcon::Entity2D;
-    if (cid && CKIsChildClassOf(cid, CKCID_3DENTITY)) return DevIcon::Entity3D;
-    if (cid == CKCID_MATERIAL) return DevIcon::Material;
-    return DevIcon::Object;
-}
-
 void DrawDevIcon(ImDrawList *dl, const ImVec2 &at, float scale, DevIcon icon, ImU32 ink, ImU32 paper) {
     const auto Q = [&](float x, float y) { return ImVec2(at.x + x * scale, at.y + y * scale); };
     const float w = std::max(1.0f, scale);

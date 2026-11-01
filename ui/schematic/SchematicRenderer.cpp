@@ -151,8 +151,34 @@ public:
 };
 
 // Owner icon of the Script header (Dev's class bitmaps).
-void DrawOwnerIcon(const Painter &p, const Point &at, CK_CLASSID owner, ImU32 color) {
-    DrawDevIcon(p.dl, p.P(at), p.v.zoom, owner ? IconForClass(owner) : DevIcon::Object, color, p.s.bevelLight);
+void DrawOwnerIcon(const Painter &p, const Point &at, SchematicOwnerKind owner, ImU32 color) {
+    DevIcon icon = DevIcon::Object;
+    switch (owner) {
+    case SchematicOwnerKind::Level:
+        icon = DevIcon::Level;
+        break;
+    case SchematicOwnerKind::Place:
+        icon = DevIcon::Place;
+        break;
+    case SchematicOwnerKind::Scene:
+        icon = DevIcon::Scene;
+        break;
+    case SchematicOwnerKind::Script:
+        icon = DevIcon::Script;
+        break;
+    case SchematicOwnerKind::Entity2D:
+        icon = DevIcon::Entity2D;
+        break;
+    case SchematicOwnerKind::Entity3D:
+        icon = DevIcon::Entity3D;
+        break;
+    case SchematicOwnerKind::Material:
+        icon = DevIcon::Material;
+        break;
+    default:
+        break;
+    }
+    DrawDevIcon(p.dl, p.P(at), p.v.zoom, icon, color, p.s.bevelLight);
 }
 
 // The open/close triangle of a Script header: dark gray with a black edge.
@@ -195,10 +221,11 @@ void DrawScriptFrame(const Painter &p, const SchematicModel &model) {
     const ImU32 text = selected ? p.s.currentHeaderText : p.s.text;
     DrawHeaderTriangle(p, Point(header.hPos + 9.0f, header.vPos + 10.0f), script.open);
     const Rect clip(header.hPos + 2, header.vPos, header.hSize - 4, header.vSize);
-    p.Text(Point(header.hPos + 19, header.vPos + 3), p.o.trace && p.o.scriptActive ? IM_COL32(230, 0, 0, 255) : text, script.name,
+    p.Text(Point(header.hPos + 19, header.vPos + 3),
+           p.o.activity && p.o.activity->trace && p.o.activity->active ? IM_COL32(230, 0, 0, 255) : text, script.name,
            clip, 0.95f);
     if (script.open) {
-        DrawOwnerIcon(p, Point(header.hPos + 20, header.vPos + 23), script.ownerClass, text);
+        DrawOwnerIcon(p, Point(header.hPos + 20, header.vPos + 23), script.ownerKind, text);
         p.Text(Point(header.hPos + 35, header.vPos + 22), text, script.ownerName, clip, 0.9f);
         // Script snapshot (Dev "Load Snapshot for Script"), else its place (dotted frame).
         const Rect thumb(header.hPos + 20, header.vPos + 37, 49, 38);
@@ -419,7 +446,8 @@ void DrawLink(const Painter &p, const LinkItem &link) {
                                           : p.s.parameterLink;
     // Printing without Use Color for Links, every link is black (CUIKLink::DrawLink).
     if (p.o.print && !p.o.print->colorLinks) color = IM_COL32(0, 0, 0, 255);
-    if (p.o.activeLinks && p.o.activeLinks->count(link.ref.object)) color = IM_COL32(230, 0, 0, 255);
+    if (p.o.activity && p.o.activity->trace && p.o.activity->firing.count(link.ref))
+        color = IM_COL32(230, 0, 0, 255);
     const float thickness = 1.0f + (selected || p.Hovered(link.ref) ? 1.0f : 0.0f);
     p.Polyline(link.path, color, thickness, !link.behaviorLink);
     if (p.o.showControlPoints) {
@@ -681,12 +709,13 @@ void DrawScriptBody(ImDrawList *drawList, const SchematicModel &model, float off
     };
     for (const auto &behavior : model.behaviors) {
         if (!p.Visible(behavior.box)) continue;
-        const bool current = options.debugBehavior && options.debugBehavior == behavior.id;
-        if (current || (options.running && options.running->count(behavior.id))) {
+        const bool current =
+            options.activity && options.activity->current.IsValid() && options.activity->current == behavior.ref;
+        if (current || (options.activity && options.activity->running.count(behavior.ref))) {
             const Rect &b = behavior.box;
             p.dl->AddRect(p.P(b.hPos - 2, b.vPos - 2), p.P(b.Right() + 2, b.Bottom() + 2),
-                          current || options.trace ? IM_COL32(230, 0, 0, 255) : IM_COL32(255, 140, 0, 255), 0.0f, 0,
-                          current ? 3.0f : 2.0f);
+                          current || options.activity->trace ? IM_COL32(230, 0, 0, 255) : IM_COL32(255, 140, 0, 255),
+                          0.0f, 0, current ? 3.0f : 2.0f);
         }
         if (behavior.breakpoint) dot(Point(behavior.box.hPos + 6.0f, behavior.box.vPos + 6.0f));
     }

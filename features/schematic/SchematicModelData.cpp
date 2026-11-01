@@ -34,7 +34,7 @@ template <class A> void Fields(A &a, ScriptItem &v) {
     a("id", v.id);
     a("name", v.name);
     a("ownerName", v.ownerName);
-    a("ownerClass", v.ownerClass);
+    a("ownerKind", v.ownerKind);
     a("isScript", v.isScript);
     a("open", v.open);
     a("hidden", v.hidden);
@@ -297,7 +297,8 @@ bool ReadSchematicModel(const EditorField &field, SchematicModel &model) {
                 return false;
             items = &f;
         }
-    if (!in.valid || !items || items->type != EDITOR_RECORD)
+    if (!in.valid || !items || items->type != EDITOR_RECORD || next.script.ownerKind < SchematicOwnerKind::Object ||
+        next.script.ownerKind > SchematicOwnerKind::Material)
         return false;
     const auto append = [&](auto &list, const EditorField &v) {
         typename std::decay_t<decltype(list)>::value_type item{};
@@ -334,5 +335,51 @@ bool ReadSchematicModel(const EditorField &field, SchematicModel &model) {
     next.Reindex();
     model = std::move(next);
     return true;
+}
+SchematicActivity ReadSchematicActivity(const EditorResponse &execution, const EditorResponse &activity,
+                                        const ElementAddress &script,
+                                        const std::map<ElementRef, ElementAddress> &positions) {
+    SchematicActivity result;
+    if (!script || execution.status != EDITOR_OK || activity.status != EDITOR_OK)
+        return result;
+    const auto find = [](const EditorResponse &r, const char *key, EditorValueType type) -> const EditorField * {
+        const EditorField *found = nullptr;
+        for (const auto &f : r.fields)
+            if (f.key == key) {
+                if (found || f.type != type)
+                    return nullptr;
+                found = &f;
+            }
+        return found;
+    };
+    const auto *state = find(execution, "state", EDITOR_INTEGER_VALUE),
+               *trace = find(execution, "trace", EDITOR_INTEGER_VALUE),
+               *current = find(execution, "behavior", EDITOR_OBJECT),
+               *revision = find(activity, "revision", EDITOR_INTEGER_VALUE),
+               *topology = find(activity, "topology", EDITOR_INTEGER_VALUE),
+               *active = find(activity, "active", EDITOR_INTEGER_VALUE),
+               *running = find(activity, "running", EDITOR_OBJECT_LIST),
+               *firing = find(activity, "firing", EDITOR_OBJECT_LIST);
+    if (!state || state->integer == EDITOR_EXECUTION_STOPPED || state->integer > EDITOR_EXECUTION_PAUSED || !trace ||
+        trace->integer > 1 || !current || !revision || revision->integer != script.revision || !topology ||
+        topology->integer != script.topology || !active || active->integer > 1 || !running || !firing)
+        return result;
+    result.trace = trace->integer != 0;
+    result.active = active->integer != 0;
+    const std::set<ObjectRef> runningObjects(running->objects.begin(), running->objects.end()),
+        firingObjects(firing->objects.begin(), firing->objects.end());
+    for (const auto &entry : positions) {
+        const auto &a = entry.second;
+        if (a.script != script.script || !a.object || a.revision != script.revision || a.topology != script.topology)
+            continue;
+        if (a.element.kind == ElementKind::Behavior) {
+            if (runningObjects.count(a.object))
+                result.running.insert(a.element);
+            if (a.object == current->object)
+                result.current = a.element;
+        } else if (result.trace && a.element.kind == ElementKind::Link && firingObjects.count(a.object))
+            result.firing.insert(a.element);
+    }
+    return result;
 }
 } // namespace vdev

@@ -2219,6 +2219,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     }
     ApplyFocus(size);
     if (m_Doc.editAddress) {
+    const auto execution = Client().Query("runtime.state");
         const auto address = m_Doc.editAddress;
         if (ViewFor(address.script.object) && ValidPosition(address)) {
             m_Doc.editAddress = {};
@@ -2258,50 +2259,39 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
             selected.insert(view.model.script.ref);
         draw.selection = &selected;
         std::set<ElementRef> invalid;
-        for (const auto &row : m_InvalidRows) for (const auto &field : row.fields) if (field.key == "address" && field.type == EDITOR_RECORD) {
-            ObjectRef script{}, owner{}, object{}; uint64_t index = UINT64_MAX;
-            for (const auto &value : field.fields) {
-                if (value.key == "target" && value.type == EDITOR_OBJECT) script = value.object;
-                if (value.key == "owner" && value.type == EDITOR_OBJECT) owner = value.object;
-                if (value.key == "object" && value.type == EDITOR_OBJECT) object = value.object;
-                if (value.key == "index" && value.type == EDITOR_INTEGER_VALUE) index = value.integer;
-            }
-            if (script == view.identity && owner && index <= INT_MAX)
-                invalid.insert({ElementKind::Link, owner.object, object.object, int(index)});
-        }
+        for (const auto &row : m_InvalidRows)
+            for (const auto &field : row.fields)
+                if (field.key == "address") {
+                    ElementAddress address;
+                    if (!ReadSchematicPosition(field, address) || address.script != view.identity ||
+                        address.revision != view.revision || address.topology != view.topology)
+                        continue;
+                    auto key = address.element;
+                    key.object = 0;
+                    const auto retained = view.positions.find(key);
+                    if (retained != view.positions.end() && retained->second.owner == address.owner &&
+                        retained->second.object == address.object)
+                        invalid.insert(retained->second.element);
+                }
         draw.invalid = &invalid;
         draw.hovered = m_Doc.hoveredScript == view.id ? m_Doc.hovered : ElementRef();
         draw.current = view.id == m_Doc.currentScript;
         draw.scriptZoom = view.scale;
-        // Script Debugger: behaviors running now.
-        std::set<CK_ID> running, firing;
-        draw.running = nullptr;
-        draw.debugBehavior = 0;
-        draw.trace = false;
-        draw.activeLinks = nullptr;
-        draw.scriptActive = false;
-        const auto execution = Client().Query("runtime.state");
-        if (EditorClient::Integer(execution, "state") != EDITOR_EXECUTION_STOPPED && Client().Scope().document.value) {
-            const auto activity = Client().Query("schematic.activity", {ObjectArgument("target", view.identity)});
-            if (activity.status == EDITOR_OK) {
-                if (const auto *objects = EditorClient::Find(activity, "running"))
-                    for (auto object : objects->objects) running.insert(object.object);
-                draw.running = &running;
-                if (const auto *behavior = EditorClient::Find(execution, "behavior")) draw.debugBehavior = behavior->object.object;
-                if (EditorClient::Integer(execution, "trace")) {
-                    draw.trace = true;
-                    if (const auto *links = EditorClient::Find(activity, "firing"))
-                        for (auto object : links->objects) firing.insert(object.object);
-                    draw.activeLinks = &firing; draw.scriptActive = EditorClient::Integer(activity, "active") != 0;
-                }
-            }
-        }
+        EditorResponse activity;
+        if (execution.status == EDITOR_OK && EditorClient::Integer(execution, "state") != EDITOR_EXECUTION_STOPPED)
+            activity = Client().Query("schematic.activity", {ObjectArgument("target", view.identity)});
+        ElementAddress source;
+        source.script = view.identity;
+        source.revision = view.revision;
+        source.topology = view.topology;
+        const auto marks = ReadSchematicActivity(execution, activity, source, view.positions);
+        draw.activity = &marks;
         DrawScript(drawList, view.model, view.offsetY, view.frame, view.transform, draw);
     }
     HandleInput(canvasMin, canvasMax, hovered, focused);
-    if (!m_State.HasDocument() || m_Views.empty()) {
-        const char *message = !m_State.HasDocument() ? "File > Open a composition (.cmo, .nmo, .vmo)"
-                                                     : "Select an object or Script in the Level Manager";
+    if (!Client().Scope().document.value || m_Views.empty()) {
+        const char *message = !Client().Scope().document.value ? "File > Open a composition (.cmo, .nmo, .vmo)"
+                                                               : "Select an object or Script in the Level Manager";
         const ImVec2 textSize = ImGui::CalcTextSize(message);
         drawList->AddText(ImVec2(canvasMin.x + (size.x - textSize.x) * 0.5f, canvasMin.y + (size.y - textSize.y) * 0.5f),
                           IM_COL32(230, 230, 230, 255), message);
