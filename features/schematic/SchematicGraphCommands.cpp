@@ -1,5 +1,8 @@
 #include "features/schematic/SchematicGraphCommands.h"
 #include "features/schematic/SchematicPosition.h"
+#include "features/schematic/SchematicGeometry.h"
+#include "features/schematic/SchematicConnections.h"
+#include "features/schematic/SchematicCopying.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
 #include "core/document/LinkValidation.h"
@@ -7,6 +10,7 @@
 #include "core/runtime/TextEncoding.h"
 #include "core/schematic/SchematicEdits.h"
 #include "core/schematic/SchematicGrid.h"
+#include "core/schematic/SchematicHitTest.h"
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/RuntimeGraph.h"
 #include <algorithm>
@@ -31,34 +35,6 @@ EditorStatus Write(EditorSink sink, const std::vector<EditorField> &fields) {
     return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
 }
 std::string Name(CKObject *object) { return object ? AnsiToUtf8(object->GetName() ? object->GetName() : "") : std::string(); }
-bool DecodeAddress(const EditorValue &value, ElementAddress &address) {
-    if (value.type != EDITOR_RECORD) return false;
-    EditorRequest request{}; request.values = value.fields.data; request.count = value.fields.count;
-    for (uint32_t i = 0; i < request.count; ++i) {
-        const auto &field = request.values[i]; const std::string key(field.key.data, field.key.size);
-        if (key == "target" || key == "owner" || key == "object" || key == "endpoint") {
-            if (field.type != EDITOR_OBJECT) return false;
-            if (key == "target") address.script = field.object;
-            if (key == "owner") address.owner = field.object;
-            if (key == "object") address.object = field.object;
-            if (key == "endpoint") address.endpoint = field.object;
-        } else {
-            if (field.type != EDITOR_INTEGER_VALUE) return false;
-            const auto v = field.integer;
-            if (key == "kind") { if (v > uint64_t(ElementKind::Start)) return false; address.element.kind = ElementKind(v); }
-            else if (key == "pin") { if (v > uint64_t(PinKind::Target)) return false; address.element.pin = PinKind(v); }
-            else if (key == "index" || key == "sub") {
-                if (v != UINT64_MAX && v > INT_MAX) return false;
-                const auto index = v == UINT64_MAX ? -1 : int(v);
-                if (key == "index") address.element.index = index; else address.element.sub = index;
-            } else if (key == "revision") address.revision = v;
-            else if (key == "topology") address.topology = v;
-            else return false;
-        }
-    }
-    address.element.owner = address.owner.object; address.element.object = address.object.object;
-    return address.script && address.element.IsValid();
-}
 EditorStatus Result(Document &doc, const EditResult &result, EditorSink sink, const ElementAddress &address = {}) {
     if (sink.write) Write(sink, {{"message", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(result.message)},
         {"created", EDITOR_OBJECT, doc.Reference(result.created)}, SchematicPosition(address)});
@@ -68,11 +44,15 @@ EditorStatus Result(Document &doc, const EditResult &result, EditorSink sink, co
 struct SchematicGraphCommands::Data {
     std::function<Document *()> current;
     std::function<bool()> testTypes;
+    SchematicGeometry geometry;
+    SchematicConnections connections;
+    SchematicCopying copying;
     DocumentToken document{};
     std::vector<InvalidLink> invalid;
     uint64_t revision = 1;
-    Data(std::function<Document *()> current, std::function<bool()> testTypes)
-        : current(std::move(current)), testTypes(std::move(testTypes)) {}
+    Data(std::function<Document *()> current, std::function<bool()> testTypes, Clipboard &clipboard)
+        : current(current), testTypes(std::move(testTypes)), geometry(current), connections(current),
+          copying(std::move(current), clipboard) {}
     Document *DocumentOf(const EditorRequest &request) {
         auto *doc = current();
         if (!doc || !doc->IsOpen() || doc->Token() != request.scope.document) return nullptr;
@@ -105,10 +85,70 @@ struct SchematicGraphCommands::Data {
             const auto *root = OwningScript(object);
             if (!object || (object != script && !FindRecord(session->Data(), CK_ID(id)) && (!root || root != script)) || doc->IsDiscarded(CK_ID(id))) return EDITOR_STALE;
         }
-        return Write(sink, {{"target", EDITOR_OBJECT, target->object}, {"object", EDITOR_OBJECT, object ? doc->Reference(object->GetID()) : ObjectRef{}},
-            {"revision", EDITOR_INTEGER_VALUE, {}, {}, session->Revision()}, {"topology", EDITOR_INTEGER_VALUE, {}, {}, doc->TopologyRevision()},
-            {"readonly", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(session->ReadOnly())},
-            {"graph", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(CKBehavior::Cast(object) && (CKBehavior::Cast(object)->GetType() & CKBEHAVIORTYPE_BEHAVIOR))}});
+        return Write(sink, {{"target", EDITOR_OBJECT, target->object},
+                            {"object", EDITOR_OBJECT, object ? doc->Reference(object->GetID()) : ObjectRef{}},
+                            {"revision", EDITOR_INTEGER_VALUE, {}, {}, session->Revision()},
+                            {"topology", EDITOR_INTEGER_VALUE, {}, {}, doc->TopologyRevision()},
+                            {"readonly", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(session->ReadOnly())},
+                            {"document-revision", EDITOR_INTEGER_VALUE, {}, {}, doc->ChangeRevision()},
+                            {"graph",
+                             EDITOR_INTEGER_VALUE,
+                             {},
+                             {},
+                             uint64_t(CKBehavior::Cast(object) &&
+                                      (CKBehavior::Cast(object)->GetType() & CKBEHAVIORTYPE_BEHAVIOR))}});
+    }
+    static EditorStatus Positions(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.DocumentOf(*r);
+        if (!doc || doc->ChangeRevision() != Number(*r, "document-revision"))
+            return EDITOR_STALE;
+        const auto *elements = Arg(*r, "elements");
+        EditorField result{"elements", EDITOR_RECORD};
+        for (uint32_t i = 0; elements && i < elements->fields.count; ++i) {
+            ElementAddress previous;
+            if (!ReadSchematicPosition(elements->fields.data[i], previous))
+                return EDITOR_INVALID;
+            const auto script = doc->NativeId(previous.script);
+            if (!script || (previous.owner && !doc->Resolve(previous.owner)) ||
+                (previous.object && !doc->Resolve(previous.object)))
+                return EDITOR_STALE;
+            const auto address = ElementAddress::Capture(*doc, script, previous.element);
+            if (!address || address.endpoint != previous.endpoint)
+                return EDITOR_STALE;
+            result.fields.push_back(SchematicPosition(address, std::to_string(i).c_str()));
+        }
+        return Write(sink, {result});
+    }
+    static EditorStatus Position(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.DocumentOf(*request);
+        if (!doc)
+            return EDITOR_STALE;
+        const auto *target = Arg(*request, "target");
+        const auto script = target ? doc->NativeId(target->object) : 0;
+        auto *session = script ? doc->Session(script) : nullptr;
+        if (!session || session->Revision() != Number(*request, "revision") ||
+            doc->TopologyRevision() != Number(*request, "topology"))
+            return EDITOR_STALE;
+        const auto kind = Number(*request, "kind"), pin = Number(*request, "pin"), owner = Number(*request, "owner-id"),
+                   object = Number(*request, "object-id"), index = Number(*request, "index"),
+                   sub = Number(*request, "sub");
+        if (kind > uint64_t(ElementKind::Start) || pin > uint64_t(PinKind::Target) || owner > UINT32_MAX ||
+            object > UINT32_MAX || (index != UINT64_MAX && index > INT_MAX) || (sub != UINT64_MAX && sub > INT_MAX))
+            return EDITOR_INVALID;
+        ElementRef ref{ElementKind(kind),
+                       uint32_t(owner),
+                       uint32_t(object),
+                       index == UINT64_MAX ? -1 : int(index),
+                       sub == UINT64_MAX ? -1 : int(sub),
+                       PinKind(pin)};
+        const auto address = ElementAddress::Capture(*doc, script, ref);
+        uint32_t resolvedScript = 0;
+        ElementRef resolved;
+        if (!address.Resolve(*doc, resolvedScript, resolved))
+            return EDITOR_STALE;
+        return Write(sink, {SchematicPosition(address)});
     }
     static EditorStatus Fold(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data); auto *doc = self.DocumentOf(*request); if (!doc) return EDITOR_STALE;
@@ -153,6 +193,76 @@ struct SchematicGraphCommands::Data {
         }
         return Result(*doc, edit.Commit(), sink);
     }
+    static EditorStatus DrawGraph(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.DocumentOf(*r);
+        if (!doc || !self.Session(*doc, *r))
+            return EDITOR_STALE;
+        const auto script = Arg(*r, "target")->object.object;
+        const auto *rect = Arg(*r, "rect");
+        if (!rect || rect->reals.count != 4)
+            return EDITOR_INVALID;
+        for (uint32_t i = 0; i < 4; ++i)
+            if (!std::isfinite(rect->reals.data[i]) || std::abs(rect->reals.data[i]) > 100000000)
+                return EDITOR_INVALID;
+        if (rect->reals.data[2] < 0 || rect->reals.data[3] < 0)
+            return EDITOR_INVALID;
+        const Rect bounds(float(rect->reals.data[0]), float(rect->reals.data[1]), float(rect->reals.data[2]),
+                          float(rect->reals.data[3]));
+        SchematicModel model;
+        model.Build(*doc->Session(script), doc->Context(), {}, true);
+        std::vector<CK_ID> members;
+        for (const auto &ref : ElementsInRect(model, bounds, true))
+            if (ref.kind == ElementKind::Behavior)
+                if (const auto *behavior = model.FindBehavior(ref.object)) {
+                    const bool nested = std::find(members.begin(), members.end(), behavior->parent) != members.end();
+                    if (!nested)
+                        members.push_back(behavior->id);
+                }
+        if (!members.empty())
+            return Result(*doc, GroupBehaviors(*doc, script, members), sink);
+        const Point at(bounds.hPos, bounds.vPos);
+        const auto graph = model.GraphAt(at);
+        return Result(*doc, CreateBehaviorGraph(*doc, script, graph ? graph : script, "Behavior Graph", at), sink);
+    }
+    static EditorStatus Group(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.DocumentOf(*r);
+        if (!doc || !self.Session(*doc, *r))
+            return EDITOR_STALE;
+        const auto script = Arg(*r, "target")->object.object;
+        const auto *objects = Arg(*r, "objects");
+        std::vector<CK_ID> ids;
+        std::set<CK_ID> unique;
+        for (uint32_t i = 0; objects && i < objects->objects.count; ++i) {
+            auto *object = CKBehavior::Cast(doc->Resolve(objects->objects.data[i]));
+            if (!object || !OwningScript(object) || OwningScript(object)->GetID() != script)
+                return EDITOR_STALE;
+            if (!unique.insert(object->GetID()).second)
+                return EDITOR_INVALID;
+            ids.push_back(object->GetID());
+        }
+        if (ids.empty())
+            return EDITOR_NO_CHANGE;
+        if (!Number(*r, "ungroup"))
+            return Result(*doc, GroupBehaviors(*doc, script, ids), sink);
+        if (Number(*r, "ungroup") > 1)
+            return EDITOR_INVALID;
+        bool changed = false;
+        std::string message;
+        for (auto id : ids) {
+            const auto result = UngroupGraph(*doc, script, id);
+            changed |= result.ok;
+            if (!result.ok && !result.Unchanged())
+                message = result.message;
+        }
+        if (changed) {
+            auto result = EditResult::Applied();
+            result.message = message;
+            return Result(*doc, result, sink);
+        }
+        return Result(*doc, message.empty() ? EditResult::NoChange() : EditResult::Refused(message), sink);
+    }
     static EditorStatus DeleteElements(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data); auto *doc = self.DocumentOf(*request); if (!doc) return EDITOR_STALE;
         if (!self.Session(*doc, *request)) return EDITOR_STALE;
@@ -161,7 +271,8 @@ struct SchematicGraphCommands::Data {
         std::vector<ElementRef> items; std::set<ElementRef> unique; bool displayOnly = true;
         for (uint32_t i = 0; i < elements->fields.count; ++i) {
             ElementAddress address; CK_ID inScript = 0; ElementRef ref;
-            if (!DecodeAddress(elements->fields.data[i], address)) return EDITOR_INVALID;
+            if (!ReadSchematicPosition(elements->fields.data[i], address))
+                return EDITOR_INVALID;
             if (!address.Resolve(*doc, inScript, ref) || inScript != script) return EDITOR_STALE;
             if (!unique.insert(ref).second) return EDITOR_INVALID;
             displayOnly &= ref.kind == ElementKind::Comment || ref.kind == ElementKind::ControlPoint; items.push_back(ref);
@@ -294,20 +405,48 @@ struct SchematicGraphCommands::Data {
     static EditorStatus Messages(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) { return ReadMessages(data, request, sink, false); }
     static EditorStatus MessageUses(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) { return ReadMessages(data, request, sink, true); }
 };
-SchematicGraphCommands::SchematicGraphCommands(std::function<Document *()> current, std::function<bool()> testTypes)
-    : m_Data(std::make_unique<Data>(std::move(current), std::move(testTypes))) {}
+SchematicGraphCommands::SchematicGraphCommands(std::function<Document *()> current, std::function<bool()> testTypes,
+                                               Clipboard &clipboard)
+    : m_Data(std::make_unique<Data>(std::move(current), std::move(testTypes), clipboard)) {}
 SchematicGraphCommands::~SchematicGraphCommands() = default;
 void SchematicGraphCommands::LoadedLinks(const std::vector<InvalidLink> &links) {
     auto *doc = m_Data->current(); m_Data->document = doc ? doc->Token() : DocumentToken{};
     m_Data->invalid = links; ++m_Data->revision;
 }
 const std::vector<ProviderChoice> &SchematicGraphCommands::DefaultProviders() {
-    static const std::vector<ProviderChoice> choices{{"query", "schematic.invalid-links", "builtin.schematic-graph"},
-        {"query", "schematic.invalid-summary", "builtin.schematic-graph"}, {"query", "schematic.messages", "builtin.schematic-graph"},
-        {"command", "schematic.delete-invalid-links", "builtin.schematic-graph"}, {"query", "schematic.activity", "builtin.schematic-graph"},
-        {"query", "schematic.message-uses", "builtin.schematic-graph"}, {"query", "schematic.script-state", "builtin.schematic-graph"}, {"command", "schematic.toggle-fold", "builtin.schematic-graph"},
-        {"command", "schematic.toggle-targets", "builtin.schematic-graph"}, {"command", "schematic.create-graph", "builtin.schematic-graph"},
-        {"command", "schematic.delete-elements", "builtin.schematic-graph"}, {"command", "schematic.refresh-invalid-links", "builtin.schematic-graph"}};
+    static const std::vector<ProviderChoice> choices{
+        {"query", "schematic.invalid-links", "builtin.schematic-graph"},
+        {"query", "schematic.invalid-summary", "builtin.schematic-graph"},
+        {"query", "schematic.messages", "builtin.schematic-graph"},
+        {"command", "schematic.delete-invalid-links", "builtin.schematic-graph"},
+        {"query", "schematic.activity", "builtin.schematic-graph"},
+        {"query", "schematic.message-uses", "builtin.schematic-graph"},
+        {"query", "schematic.script-state", "builtin.schematic-graph"},
+        {"command", "schematic.toggle-fold", "builtin.schematic-graph"},
+        {"command", "schematic.toggle-targets", "builtin.schematic-graph"},
+        {"command", "schematic.create-graph", "builtin.schematic-graph"},
+        {"command", "schematic.group", "builtin.schematic-graph"},
+        {"command", "schematic.ungroup", "builtin.schematic-graph"},
+        {"command", "schematic.draw-graph", "builtin.schematic-graph"},
+        {"command", "schematic.delete-elements", "builtin.schematic-graph"},
+        {"command", "schematic.refresh-invalid-links", "builtin.schematic-graph"},
+        {"query", "schematic.clipboard", "builtin.schematic-copying"},
+        {"query", "schematic.copy-selection", "builtin.schematic-copying"},
+        {"command", "schematic.copy", "builtin.schematic-copying"},
+        {"command", "schematic.cut", "builtin.schematic-copying"},
+        {"command", "schematic.paste", "builtin.schematic-copying"},
+        {"command", "schematic.paste-shortcuts", "builtin.schematic-copying"},
+        {"command", "schematic.duplicate", "builtin.schematic-copying"},
+        {"command", "schematic.copy-elements", "builtin.schematic-copying"},
+        {"query", "schematic.connection", "builtin.schematic-connections"},
+        {"command", "schematic.route-links", "builtin.schematic-connections"},
+        {"command", "schematic.insert-control-point", "builtin.schematic-connections"},
+        {"command", "schematic.connect", "builtin.schematic-connections"},
+        {"command", "schematic.export-pins", "builtin.schematic-connections"},
+        {"query", "schematic.positions", "builtin.schematic-graph"},
+        {"query", "schematic.position", "builtin.schematic-graph"},
+        {"query", "schematic.geometry", "builtin.schematic-geometry"},
+        {"command", "schematic.edit-geometry", "builtin.schematic-geometry"}};
     return choices;
 }
 bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &error) {
@@ -318,29 +457,93 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
     const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
     const EditorParameter activity[] = {{EDITOR_TEXT("running"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("firing"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("active"), EDITOR_INTEGER_VALUE}};
     const EditorParameter scriptArgs[] = {target, {EDITOR_TEXT("id"), EDITOR_INTEGER_VALUE, 1}};
-    const EditorParameter scriptFields[] = {target, {EDITOR_TEXT("object"), EDITOR_OBJECT}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
-            {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("readonly"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("graph"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter scriptFields[] = {target,
+                                            {EDITOR_TEXT("object"), EDITOR_OBJECT},
+                                            {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+                                            {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE},
+                                            {EDITOR_TEXT("readonly"), EDITOR_INTEGER_VALUE},
+                                            {EDITOR_TEXT("graph"), EDITOR_INTEGER_VALUE},
+                                            {EDITOR_TEXT("document-revision"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter position[] = {target,
+                                        {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("owner-id"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("object-id"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("sub"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("pin"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter address{EDITOR_TEXT("address"), EDITOR_RECORD};
+    const EditorParameter positions[] = {{EDITOR_TEXT("elements"), EDITOR_RECORD},
+                                         {EDITOR_TEXT("document-revision"), EDITOR_INTEGER_VALUE}};
     const EditorQueryDesc queries[] = {
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.invalid-links"), EDITOR_TEXT("builtin.schematic-graph"), page, 2, Data::Invalid, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 4},
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.invalid-summary"), EDITOR_TEXT("builtin.schematic-graph"), nullptr, 0, Data::Summary, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 2},
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.messages"), EDITOR_TEXT("builtin.schematic-graph"), page, 2, Data::Messages, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 4},
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.activity"), EDITOR_TEXT("builtin.schematic-graph"), &target, 1, Data::Activity, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, activity, 3},
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.script-state"), EDITOR_TEXT("builtin.schematic-graph"), scriptArgs, 2, Data::ScriptState, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, scriptFields, 6},
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.message-uses"), EDITOR_TEXT("builtin.schematic-graph"), usesArgs, 3, Data::MessageUses, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 4}};
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.positions"), EDITOR_TEXT("builtin.schematic-graph"), positions,
+         2, Data::Positions, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, positions, 1},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.position"), EDITOR_TEXT("builtin.schematic-graph"), position,
+         9, Data::Position, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &address, 1},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.invalid-links"), EDITOR_TEXT("builtin.schematic-graph"), page,
+         2, Data::Invalid, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 4},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.invalid-summary"), EDITOR_TEXT("builtin.schematic-graph"),
+         nullptr, 0, Data::Summary, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 2},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.messages"), EDITOR_TEXT("builtin.schematic-graph"), page, 2,
+         Data::Messages, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 4},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.activity"), EDITOR_TEXT("builtin.schematic-graph"), &target, 1,
+         Data::Activity, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, activity, 3},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.script-state"), EDITOR_TEXT("builtin.schematic-graph"),
+         scriptArgs, 2, Data::ScriptState, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, scriptFields, 7},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.message-uses"), EDITOR_TEXT("builtin.schematic-graph"),
+         usesArgs, 3, Data::MessageUses, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 4}};
     const EditorParameter args[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("slots"), EDITOR_INTEGER_LIST}};
     const EditorParameter fold[] = {target, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("object"), EDITOR_OBJECT}};
     const EditorParameter targets[] = {fold[0], fold[1], fold[2], {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}};
     const EditorParameter create[] = {fold[0], fold[1], fold[2], {EDITOR_TEXT("owner"), EDITOR_OBJECT}, {EDITOR_TEXT("at"), EDITOR_REAL_LIST}};
     const EditorParameter elements[] = {fold[0], fold[1], fold[2], {EDITOR_TEXT("elements"), EDITOR_RECORD}};
+    const EditorParameter draw[] = {fold[0], fold[1], fold[2], {EDITOR_TEXT("rect"), EDITOR_REAL_LIST}};
+    const auto group = [](void *data, const EditorHost *host, const EditorRequest *r, EditorSink sink) {
+        std::vector<EditorValue> values(r->values, r->values + r->count);
+        values.push_back({EDITOR_TEXT("ungroup"), EDITOR_INTEGER_VALUE});
+        auto request = *r;
+        request.values = values.data();
+        request.count = uint32_t(values.size());
+        return Data::Group(data, host, &request, sink);
+    };
+    const auto ungroup = [](void *data, const EditorHost *host, const EditorRequest *r, EditorSink sink) {
+        std::vector<EditorValue> values(r->values, r->values + r->count);
+        values.push_back({EDITOR_TEXT("ungroup"), EDITOR_INTEGER_VALUE, {}, {}, 1});
+        auto request = *r;
+        request.values = values.data();
+        request.count = uint32_t(values.size());
+        return Data::Group(data, host, &request, sink);
+    };
     const EditorCommandDesc commands[] = {
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.delete-invalid-links"), EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Delete Invalid Links"), args, 2, Data::DeleteInvalid, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.toggle-fold"), EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Fold Graph"), fold, 4, Data::Fold, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.toggle-targets"), EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Target"), targets, 4, Data::Targets, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.create-graph"), EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Create Behavior Graph"), create, 5, Data::CreateGraph, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.delete-elements"), EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Delete"), elements, 4, Data::DeleteElements, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.refresh-invalid-links"), EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Refresh Invalid Links"), nullptr, 0, Data::ScanInvalid, m_Data.get(), EDITOR_DOCUMENT, EDITOR_RUNTIME_CONTROL}};
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.draw-graph"), EDITOR_TEXT("builtin.schematic-graph"),
+         EDITOR_TEXT("Draw Behavior Graph"), draw, 4, Data::DrawGraph, m_Data.get(), EDITOR_DOCUMENT,
+         EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.group"), EDITOR_TEXT("builtin.schematic-graph"),
+         EDITOR_TEXT("Group Behaviors"), targets, 4, group, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.ungroup"), EDITOR_TEXT("builtin.schematic-graph"),
+         EDITOR_TEXT("Ungroup Behaviors"), targets, 4, ungroup, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.delete-invalid-links"),
+         EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Delete Invalid Links"), args, 2, Data::DeleteInvalid,
+         m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.toggle-fold"), EDITOR_TEXT("builtin.schematic-graph"),
+         EDITOR_TEXT("Fold Graph"), fold, 4, Data::Fold, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.toggle-targets"), EDITOR_TEXT("builtin.schematic-graph"),
+         EDITOR_TEXT("Target"), targets, 4, Data::Targets, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.create-graph"), EDITOR_TEXT("builtin.schematic-graph"),
+         EDITOR_TEXT("Create Behavior Graph"), create, 5, Data::CreateGraph, m_Data.get(), EDITOR_DOCUMENT,
+         EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.delete-elements"), EDITOR_TEXT("builtin.schematic-graph"),
+         EDITOR_TEXT("Delete"), elements, 4, Data::DeleteElements, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.refresh-invalid-links"),
+         EDITOR_TEXT("builtin.schematic-graph"), EDITOR_TEXT("Refresh Invalid Links"), nullptr, 0, Data::ScanInvalid,
+         m_Data.get(), EDITOR_DOCUMENT, EDITOR_RUNTIME_CONTROL}};
     EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("schematic.graph");
-    module.queries = queries; module.queryCount = 6; module.commands = commands; module.commandCount = 6;
-    return editor.Register(module, error);
+    module.queries = queries;
+    module.queryCount = 8;
+    module.commands = commands;
+    module.commandCount = 9;
+    return editor.Register(module, error) && m_Data->geometry.Register(editor, error) &&
+           m_Data->connections.Register(editor, error) && m_Data->copying.Register(editor, error);
 }
 } // namespace vdev

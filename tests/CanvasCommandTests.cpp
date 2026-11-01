@@ -6,6 +6,7 @@
 #include "features/schematic/SchematicPosition.h"
 #include "workspace/EditorClient.h"
 #include "core/document/Document.h"
+#include "core/document/Clipboard.h"
 #include "core/document/Edit.h"
 #include "core/document/LinkValidation.h"
 #include "core/document/ScriptSession.h"
@@ -55,7 +56,8 @@ void TestCanvasCommands(vdev::CkRuntimeHost &runtime) {
     bool available = true; EditorApplication editor([&] { return &doc; }, [&] { return available; });
     SelectionCommands select([&] { return &doc; }, selection);
     LayoutCommands layout(editor, [&] { return &doc; }, [&]() -> LayoutView & { return view; }, selection);
-    SchematicGraphCommands schematic([&] { return &doc; }, [] { return true; });
+    Clipboard clipboard;
+    SchematicGraphCommands schematic([&] { return &doc; }, [] { return true; }, clipboard);
     Check(select.Register(editor, error) && layout.Register(error) && schematic.Register(editor, error) && editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
     auto sync = [&] { editor.Attach(doc.Token(), doc.TopologyRevision(), true, true); };
     sync(); const EditorClient client(editor.Host(), 0);

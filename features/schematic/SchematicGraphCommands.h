@@ -4,9 +4,10 @@
 
 namespace vdev {
 struct InvalidLink;
+class Clipboard;
 class SchematicGraphCommands {
 public:
-    SchematicGraphCommands(std::function<Document *()>, std::function<bool()> testParameterTypes);
+    SchematicGraphCommands(std::function<Document *()>, std::function<bool()> testParameterTypes, Clipboard &);
     ~SchematicGraphCommands();
     bool Register(EditorApplication &, std::string &error);
     void LoadedLinks(const std::vector<InvalidLink> &);

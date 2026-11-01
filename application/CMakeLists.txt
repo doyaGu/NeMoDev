@@ -9,7 +9,7 @@ target_link_libraries(NeMoDevObjectCommands PRIVATE VirtoolsDevCore PUBLIC NeMoD
 target_sources(NeMoDevObjectCommands PRIVATE ../features/environment/EnvironmentCommands.cpp)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/diagnostics/DiagnosticCommands.cpp ../features/preferences/PreferencesCommands.cpp)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/layout/LayoutCommands.cpp)
-target_sources(NeMoDevObjectCommands PRIVATE ../features/schematic/SchematicGraphCommands.cpp)
+target_sources(NeMoDevObjectCommands PRIVATE ../features/schematic/SchematicGraphCommands.cpp ../features/schematic/SchematicGeometry.cpp ../features/schematic/SchematicConnections.cpp ../features/schematic/SchematicCopying.cpp)
 
 if(WIN32)
     target_link_libraries(NeMoDevEditorApplication PRIVATE advapi32)

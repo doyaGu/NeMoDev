@@ -31,6 +31,7 @@ void TestEnvironmentCommands(vdev::CkRuntimeHost &host, const std::string &fixtu
 void TestDiagnosticCommands(vdev::CkRuntimeHost &host);
 void TestPreferencesCommands(vdev::CkRuntimeHost &host);
 void TestCanvasCommands(vdev::CkRuntimeHost &host);
+void TestGraphEditing(vdev::CkRuntimeHost &);
 void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestObjectCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 namespace {
@@ -685,6 +686,7 @@ int main(int argc, char **argv) {
         TestDiagnosticCommands(runtime);
         TestPreferencesCommands(runtime);
         TestCanvasCommands(runtime);
+        TestGraphEditing(runtime);
         std::cout << "Module registration, object editing, undo and view lifetime checks passed\n";
         return 0;
     } catch (const std::exception &e) {

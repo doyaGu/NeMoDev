@@ -430,7 +430,10 @@
       "name": "Schematic 原生属性与图修改",
       "patterns": [
         "features/schematic/SchematicCommands.*",
-        "features/schematic/SchematicGraphCommands.*"
+        "features/schematic/SchematicGraphCommands.*",
+        "features/schematic/SchematicGeometry.*",
+        "features/schematic/SchematicConnections.*",
+        "features/schematic/SchematicCopying.*"
       ]
     },
     {

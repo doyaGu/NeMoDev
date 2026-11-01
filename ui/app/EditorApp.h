@@ -274,8 +274,9 @@ private:
     ArrayCommands m_ArrayCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, m_State.clipboard};
     SetupCommands m_SetupCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
     SchematicCommands m_SchematicCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
-    SchematicGraphCommands m_SchematicGraph{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
-        [this] { return m_State.preferences.Bool("Schematic\\Test Parameter Link after Loading"); }};
+    SchematicGraphCommands m_SchematicGraph{
+        [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
+        [this] { return m_State.preferences.Bool("Schematic\\Test Parameter Link after Loading"); }, m_State.clipboard};
     SelectionCommands m_SelectionCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                                           m_State.objectSelection};
     SchematicViews m_Schematics;
