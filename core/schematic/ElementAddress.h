@@ -14,8 +14,8 @@ struct ElementAddress {
     ElementRef element;
     std::uint64_t revision = 0, topology = 0;
 
-    static ElementAddress Capture(Document &, CK_ID script, const ElementRef &);
-    bool Resolve(Document &, CK_ID &script, ElementRef &) const;
+    static ElementAddress Capture(Document &, uint32_t script, const ElementRef &);
+    bool Resolve(Document &, uint32_t &script, ElementRef &) const;
     explicit operator bool() const { return bool(script); }
 };
 } // namespace vdev

@@ -16,13 +16,14 @@ struct Selection {
     void Bind(Document *document) { m_Document = document; }
     void Validate();
     void Rebase();
+    const std::vector<ElementAddress> &Addresses() const { return m_Addresses; }
     std::uint64_t Revision() const { return m_Revision; }
 
-    CK_ID script = 0;
+    uint32_t script = 0;
     std::vector<ElementRef> items;
-    std::vector<CK_ID> headers; // the other Scripts whose header is selected
+    std::vector<uint32_t> headers; // the other Scripts whose header is selected
 
-    static ElementRef HeaderOf(CK_ID scriptId) { return {ElementKind::Script, scriptId, scriptId}; }
+    static ElementRef HeaderOf(uint32_t scriptId) { return {ElementKind::Script, scriptId, scriptId}; }
     bool Empty() const { return items.empty(); }
     // Only Script headers are selected.
     bool OnlyHeaders() const {
@@ -31,19 +32,19 @@ struct Selection {
             if (item.kind != ElementKind::Script) return false;
         return true;
     }
-    bool Contains(CK_ID inScript, const ElementRef &ref) const {
+    bool Contains(uint32_t inScript, const ElementRef &ref) const {
         if (ref.kind == ElementKind::Script && std::find(headers.begin(), headers.end(), inScript) != headers.end()) return true;
         return inScript == script && std::find(items.begin(), items.end(), ref) != items.end();
     }
     // The Scripts whose header is selected, the first one first.
-    std::vector<CK_ID> Scripts() const {
-        std::vector<CK_ID> scripts;
+    std::vector<uint32_t> Scripts() const {
+        std::vector<uint32_t> scripts;
         for (const ElementRef &item : items)
             if (item.kind == ElementKind::Script && script) {
                 scripts.push_back(script);
                 break;
             }
-        for (CK_ID other : headers)
+        for (uint32_t other : headers)
             if (std::find(scripts.begin(), scripts.end(), other) == scripts.end()) scripts.push_back(other);
         return scripts;
     }
@@ -54,13 +55,13 @@ struct Selection {
         m_Addresses.clear();
         ++m_Revision;
     }
-    void Set(CK_ID inScript, const ElementRef &ref) {
+    void Set(uint32_t inScript, const ElementRef &ref) {
         script = inScript;
         items.assign(1, ref);
         headers.clear();
         Rebase();
     }
-    void Add(CK_ID inScript, const ElementRef &ref) {
+    void Add(uint32_t inScript, const ElementRef &ref) {
         if (inScript != script && ref.kind == ElementKind::Script && OnlyHeaders()) {
             if (std::find(headers.begin(), headers.end(), inScript) == headers.end()) headers.push_back(inScript);
             Rebase();
@@ -69,7 +70,7 @@ struct Selection {
         if (inScript != script) Set(inScript, ref);
         else if (!Contains(inScript, ref)) { items.push_back(ref); Rebase(); }
     }
-    void Toggle(CK_ID inScript, const ElementRef &ref) {
+    void Toggle(uint32_t inScript, const ElementRef &ref) {
         if (inScript != script && ref.kind == ElementKind::Script && OnlyHeaders()) {
             auto found = std::find(headers.begin(), headers.end(), inScript);
             if (found != headers.end()) headers.erase(found);
@@ -133,12 +134,12 @@ struct SchematicNavigation {
     Selection selection;
     ViewOptions options;
     // The visible stack is a projection rebuilt from the document's Scripts.
-    std::vector<CK_ID> visibleScripts;
+    std::vector<uint32_t> visibleScripts;
     std::vector<ObjectRef> scriptOrder;
     std::set<ObjectRef> hiddenScripts;
     std::set<ObjectRef> closedScripts;
     ObjectRef stackScript{};
     FocusRequest focus;
-    std::set<CK_ID> HiddenIds(const Document &) const;
+    std::set<uint32_t> HiddenIds(const Document &) const;
 };
 } // namespace vdev

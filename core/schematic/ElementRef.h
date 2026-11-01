@@ -3,7 +3,7 @@
 #include <tuple>
 #include "editor/Schematic.h"
 
-#include "CKAll.h"
+#include <cstdint>
 
 namespace vdev {
 
@@ -35,8 +35,8 @@ enum class PinKind {
 // commands restore whole snapshots, so a revision change revalidates them.
 struct ElementRef {
     ElementKind kind = ElementKind::None;
-    CK_ID owner = 0;
-    CK_ID object = 0;
+    uint32_t owner = 0;
+    uint32_t object = 0;
     int index = -1;
     int sub = -1;
     PinKind pin = PinKind::None;

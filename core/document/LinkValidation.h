@@ -9,6 +9,7 @@
 namespace vdev {
 
 class Document;
+struct EditResult;
 
 // A stored link Dev treats as invalid after loading (Dev.exe
 // CUIKLink_ResolveAndValidateEndpoints, from ValidateAndFinalizeLinks and
@@ -34,5 +35,9 @@ std::vector<InvalidLink> FindInvalidLinks(Document &document, bool testParameter
 // as part of loading (no undo step); each Script changed is saved again.
 // Returns how many were removed.
 int RemoveInvalidLinks(Document &document, const std::vector<InvalidLink> &links);
+
+// An editor deletion: validate every retained position before touching any
+// Script, then remove the records in one recoverable edit.
+EditResult DeleteInvalidLinks(Document &document, const std::vector<InvalidLink> &links);
 
 } // namespace vdev

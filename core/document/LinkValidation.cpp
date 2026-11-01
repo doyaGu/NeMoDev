@@ -4,6 +4,8 @@
 #include <map>
 
 #include "core/document/Document.h"
+#include "core/document/Edit.h"
+#include "core/schematic/SchematicEdits.h"
 #include "core/graph/RuntimeGraph.h"
 #include "core/document/ScriptSession.h"
 
@@ -68,34 +70,57 @@ std::vector<InvalidLink> FindInvalidLinks(Document &document, bool testParameter
     return invalid;
 }
 
-int RemoveInvalidLinks(Document &document, const std::vector<InvalidLink> &links) {
-    // Per record, the slots from the last so that the others stay valid.
-    std::map<std::pair<CK_ID, CK_ID>, std::vector<int>> slots;
-    for (const InvalidLink &link : links) {
-        CK_ID script = 0;
-        ElementRef ref;
-        if (link.address.Resolve(document, script, ref)) slots[{script, ref.owner}].push_back(ref.index);
+namespace {
+using LinkSlots = std::map<CK_ID, std::map<CK_ID, std::vector<int>>>;
+LinkSlots ResolveLinks(Document &document, const std::vector<InvalidLink> &links) {
+    LinkSlots slots;
+    for (const auto &link : links) {
+        CK_ID script = 0; ElementRef ref;
+        if (link.address.Resolve(document, script, ref)) slots[script][ref.owner].push_back(ref.index);
     }
+    return slots;
+}
+int EraseLinks(InterfaceData &data, const std::map<CK_ID, std::vector<int>> &graphs) {
     int removed = 0;
-    for (auto &entry : slots) {
-        ScriptSession *session = document.Session(entry.first.first);
-        if (!session || session->ReadOnly()) continue;
-        InterfaceData data = session->Data();
-        BehaviorData *record = data.rootBehavior.id == entry.first.second ? &data.rootBehavior : nullptr;
-        for (BehaviorData &candidate : data.behaviors)
-            if (!record && candidate.id == entry.first.second) record = &candidate;
-        if (!record) continue;
-        std::vector<int> &indices = entry.second;
-        std::sort(indices.rbegin(), indices.rend());
-        const int before = removed;
-        for (int index : indices)
-            if (index >= 0 && index < static_cast<int>(record->links.size())) {
-                record->links.erase(record->links.begin() + index);
-                ++removed;
-            }
-        if (removed != before) session->Assign(data);
+    for (const auto &entry : graphs) {
+        auto *record = FindRecord(data, entry.first); if (!record) continue;
+        auto indices = entry.second;
+        std::sort(indices.rbegin(), indices.rend()); indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
+        for (auto index : indices) if (index >= 0 && size_t(index) < record->links.size()) {
+            record->links.erase(record->links.begin() + index); ++removed;
+        }
     }
     return removed;
+}
+} // namespace
+int RemoveInvalidLinks(Document &document, const std::vector<InvalidLink> &links) {
+    const auto slots = ResolveLinks(document, links); int removed = 0;
+    for (const auto &entry : slots) {
+        auto *session = document.Session(entry.first); if (!session || session->ReadOnly()) continue;
+        // Loading keeps the original per-graph assignment and revision behavior.
+        for (const auto &graph : entry.second) {
+            InterfaceData data = session->Data(); const auto count = EraseLinks(data, {{graph.first, graph.second}});
+            if (count && session->Assign(data)) removed += count;
+        }
+    }
+    return removed;
+}
+EditResult DeleteInvalidLinks(Document &document, const std::vector<InvalidLink> &links) {
+    for (const auto &link : links) {
+        CK_ID script = 0; ElementRef ref;
+        if (!link.address.Resolve(document, script, ref) || ref.kind != ElementKind::Link)
+            return EditResult::Refused("The invalid link selection has changed");
+        auto *session = document.Session(script);
+        if (!session || session->ReadOnly()) return EditResult::Refused("The Script display is read-only");
+    }
+    // Resolve the complete selection before ShowScript changes a revision.
+    const auto slots = ResolveLinks(document, links);
+    Edit edit(document, links.size() > 1 ? "Delete Invalid Links" : "Delete Invalid Link", Edit::Marks::Scripts);
+    for (const auto &entry : slots) {
+        InterfaceData after = document.Session(entry.first)->Data();
+        if (EraseLinks(after, entry.second) && !edit.ShowScript(entry.first, after)) return edit.Fail("Cannot remove the invalid links");
+    }
+    return edit.Commit();
 }
 
 } // namespace vdev

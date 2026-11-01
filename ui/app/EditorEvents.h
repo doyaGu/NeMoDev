@@ -26,7 +26,7 @@ struct ShowElement {
     ElementAddress address;
     ObjectRef focusBehavior{};
     EditorView view = 0;
-    ShowElement(Document &, CK_ID script, const ElementRef &ref = {}, CK_ID focus = 0, EditorView view = 0);
+    ShowElement(Document &, uint32_t script, const ElementRef &ref = {}, uint32_t focus = 0, EditorView view = 0);
 };
 
 // The object's Setup shown (SetupWindows::Open: that of its curve for a
@@ -44,7 +44,7 @@ struct ShowInLevelManager {
 // Dev's Add Attribute dialog for the objects (none: it only creates types);
 // more: opened with More>> (the Attribute Manager's Create Attribute).
 struct OpenAddAttribute {
-    std::vector<CK_ID> targets;
+    std::vector<uint32_t> targets;
     bool more = false;
 };
 

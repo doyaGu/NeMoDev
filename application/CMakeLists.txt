@@ -8,6 +8,7 @@ target_include_directories(NeMoDevObjectCommands PUBLIC "${VIRTOOLSDEV_SOURCE_DI
 target_link_libraries(NeMoDevObjectCommands PRIVATE VirtoolsDevCore PUBLIC NeMoDevEditorApplication)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/environment/EnvironmentCommands.cpp)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/diagnostics/DiagnosticCommands.cpp ../features/preferences/PreferencesCommands.cpp)
+target_sources(NeMoDevObjectCommands PRIVATE ../features/schematic/SchematicGraphCommands.cpp)
 
 if(WIN32)
     target_link_libraries(NeMoDevEditorApplication PRIVATE advapi32)
