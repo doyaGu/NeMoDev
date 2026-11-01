@@ -1,7 +1,7 @@
 # Stage zero architecture checks
 
 `coverage.json` lists the 57 source groups,
-32 feature/extension targets and 46 state families. It records CTest results,
+32 feature/extension targets and 48 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
 
@@ -1753,3 +1753,54 @@ readback/upload fallback 保留，快照仅在明确请求时读回。桌面回�
 阶段五仍需继续迁移其余 Setup、Layout 创建/资源拖放及既有清单中的剩余入口。
 旧名称拾取表仍只剩 Layout 的私有适配；本轮已将其拾取转为只读查询。
 `completed_phase` 保持三。性能验收继续暂缓，原有门槛不变。
+
+
+## Phase five: remaining Layout creation and resource drops
+
+LayoutAuthoring owns the native receiver lookup, material replacement and the
+pending behavior's Edit. `layout.creation` returns copied selection, camera and
+creation preferences. Create tools keep the Level Manager's single selection
+priority and use the existing `object.create-*` commands. Queued results now
+finish the same camera selection, log and Setup navigation as immediate results.
+
+`layout.drop-target` accepts a pixel position and the text kind `behavior`,
+`resource`, `attribute` or `material`; it returns full object references and
+copied hints. Querying never changes the drop highlight. The highlight has its
+own command and changes only when the target changes. Resource files still use
+`resource.load`, attributes use `attribute.add`, and material replacement uses
+the existing core edit through `layout.replace-material`. Image loads retain
+their existing non-undoable adoption; this migration does not turn them into
+new undo steps or clear earlier history.
+
+`scene.drop-behavior` serves both Level Manager and Layout drops. A single
+request owns its ordered prototype list; each accepted prototype retains its
+existing undo step, and only the last eligible prototype asks for values.
+`ask=0` asks for a single receiver, `ask=1` asks for the final behavior even for
+multiple receivers, and `ask=2` keeps defaults. Unknown prototypes, ambiguous
+receivers, invalid positions and stale object references fail before editing.
+Hidden Scripts retain their per-receiver refusal without blocking other valid
+receivers.
+
+The feature holds the pending Edit and parameter identities. Layout keeps a
+versioned query copy and the existing native value editor's working copies.
+That editor submits `layout.finish-drop` through the existing ApplyEdit path;
+its provider, nested parameter copies and core edit follow the same dispatch
+as other native value dialogs. The independent module regression replaces both
+placement and parameter confirmation, then forwards to the built-in provider.
+OK records placement and values once; Cancel restores the original selection,
+Undo/Redo and savepoint. Closing a document finishes its pending default values
+before native objects are released. No new editor C interface or SDK interface
+is introduced.
+
+The new native cases cover copied creation data, busy/wrong-thread access,
+invalid positions/prototypes, stale receivers and responses, parameter values,
+batch placement, hidden Scripts, material Undo/Redo and document replacement.
+Actual UI cases cover all four image modifier modes, malformed payload lengths,
+queued camera navigation and independent command providers. Architecture checks
+prevent direct native/document access from returning to these migrated inputs.
+
+Release validation and the SDK/render source comparisons are recorded in
+`baselines/layout-authoring-macos-arm64-metal.json`; raw logs remain under
+`out/phase-five-layout-authoring`. Performance acceptance remains deferred with
+its original limits. Phase five and the remaining Setup/native value editor
+migration are still open; completed_phase remains three.

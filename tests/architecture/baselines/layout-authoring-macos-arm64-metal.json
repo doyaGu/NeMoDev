@@ -1,0 +1,298 @@
+{
+  "description": "阶段五：3D Layout 剩余创建、Building Block、资源/属性/材质拖放迁移为只读查询与统一命令。SDK 不改，GPU 快通道保留，性能验收继续暂缓。",
+  "base_revision": "99565bcf09033b7eea539b19dc6ae99c64c88aee",
+  "changes": [
+    "LayoutAuthoring 持有原生拾取与接收对象选择、材质修改，以及等待参数确认的 Edit；LayoutDrop 不再直接读取 CKContext、可变文档或对象选区。",
+    "创建设置使用只读查询；仍复用 object.create-*，并处理排队完成后的相机切换和 Setup 导航。",
+    "Level Manager 与 Layout 使用同一个 scene.drop-behavior；按原型保留已有撤销粒度，放置与参数修改共同提交一步，取消保留原选区和 Undo/Redo。",
+    "资源和属性继续使用既有 resource.load / attribute.add；图像资源保留原有的非撤销载入行为。",
+    "参数数据按版本缓存；损坏拖放记录先校验长度；内部和独立模块的放置、参数确认使用同一登记命令。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-layout-authoring/build-final.log"
+    },
+    "full_ctest": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 25.41,
+      "log": "out/phase-five-layout-authoring/full-final.log",
+      "junit": "out/phase-five-layout-authoring/full-final.xml",
+      "inventory": "out/phase-five-layout-authoring/ctest-inventory.json",
+      "excluded_label": "performance"
+    },
+    "junit_inventory": {
+      "result": "All 125 selected tests passed without skips",
+      "log": "out/phase-five-layout-authoring/junit-verification.log"
+    },
+    "ui": {
+      "html": {
+        "registered": 255,
+        "executed": 3,
+        "not_selected": 252,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/html.xml",
+        "sha256": "4bce04609c907829d6239b3a4428288d020e56a22aa9219c8cfbcb00dba94893"
+      },
+      "app": {
+        "registered": 255,
+        "executed": 25,
+        "not_selected": 230,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/app.xml",
+        "sha256": "a5591b79e9ca4fb98309f4df9427a9cb925e14ab7dfaa136626c2ba8f084011b"
+      },
+      "filemenu": {
+        "registered": 255,
+        "executed": 10,
+        "not_selected": 245,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/filemenu.xml",
+        "sha256": "b7b177d72fbba68c2b93d942f21e28c702836c283c4196af2e163443cdc48cc3"
+      },
+      "schematic": {
+        "registered": 255,
+        "executed": 26,
+        "not_selected": 229,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/schematic.xml",
+        "sha256": "8c01c25063bf1ba4bd3f9b16527d6a90da1239276ef5daa31003c4c44e45c31d"
+      },
+      "debugger": {
+        "registered": 255,
+        "executed": 10,
+        "not_selected": 245,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/debugger.xml",
+        "sha256": "4e619620bf4aa5960d34da569f66d8645ab800fc2074eac6ff609a0f39ba5aaa"
+      },
+      "layout": {
+        "registered": 255,
+        "executed": 24,
+        "not_selected": 231,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/layout.xml",
+        "sha256": "8bce8f69086a8d30099788e24443ba28fb0a212f37ef03937fddbd09b42db835"
+      },
+      "level": {
+        "registered": 255,
+        "executed": 7,
+        "not_selected": 248,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/level.xml",
+        "sha256": "af9f00504f5463b6b79fbb2757b3b6ef9e8fbead10730fd9f7ff3a59dee58e64"
+      },
+      "setup": {
+        "registered": 255,
+        "executed": 17,
+        "not_selected": 238,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/setup.xml",
+        "sha256": "10b040374ab2bc994c1010f7beeb9f7867976fc1ae7308d2b56696bba4f85a52"
+      },
+      "propertyedits": {
+        "registered": 255,
+        "executed": 7,
+        "not_selected": 248,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/propertyedits.xml",
+        "sha256": "73aab5f828efa54e98ae14c8d7493475d16694f0fb4e3da89c322325b001af88"
+      },
+      "hierarchy": {
+        "registered": 255,
+        "executed": 8,
+        "not_selected": 247,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/hierarchy.xml",
+        "sha256": "35855f068feda7af8b5595e3c4e96e0a279bd3f963381d463c2667aa868ad438"
+      },
+      "blocks": {
+        "registered": 255,
+        "executed": 6,
+        "not_selected": 249,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/blocks.xml",
+        "sha256": "0ee1914282256a5f35262b807d6714a525650fd11e52b49773acb505dfc76c2c"
+      },
+      "attributes": {
+        "registered": 255,
+        "executed": 6,
+        "not_selected": 249,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/attributes.xml",
+        "sha256": "bbe8618aadfdcca7a26ea75cc4c4e00287897e7080dff581c99b457d37fe2510"
+      },
+      "create": {
+        "registered": 255,
+        "executed": 6,
+        "not_selected": 249,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/create.xml",
+        "sha256": "9ecf4cbc97af758924f94d6a206ac2139ed05cd45c324aa1f685de2593294fc5"
+      },
+      "tools": {
+        "registered": 255,
+        "executed": 13,
+        "not_selected": 242,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/tools.xml",
+        "sha256": "686a6ada2286ac1b4fbccde8bc895185298ec26cdace7fcd4dd9a971d732bd55"
+      },
+      "sound": {
+        "registered": 255,
+        "executed": 2,
+        "not_selected": 253,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/sound.xml",
+        "sha256": "c1cbbe3508850c2fb3323dc36995c603b6d00d7c117ddf539797e545590e0bf7"
+      },
+      "character": {
+        "registered": 255,
+        "executed": 2,
+        "not_selected": 253,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/character.xml",
+        "sha256": "dbeb2155ff2e04be6fb38d69690d026245af65f0e053d464663573853ce3c022"
+      },
+      "modules": {
+        "registered": 255,
+        "executed": 64,
+        "not_selected": 191,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-authoring/ui/modules.xml",
+        "sha256": "6c1fb84f210040e1723a3f1aa8d2a8e3b1cf5e5e3192727867e4738a27a325bb"
+      }
+    },
+    "new_native_cases": [
+      "只读创建设置与完整对象身份",
+      "错误线程和原生工作占用",
+      "非法原型/坐标与失效接收对象",
+      "取消保留 Redo、选择和保存点",
+      "参数确认、撤销和重做保留原值/新值",
+      "批量原型、隐藏 Script 与逐接收对象拒绝",
+      "材质替换及错误目标类型",
+      "文档关闭与旧对象引用失效"
+    ],
+    "required_ui_cases": [
+      "filemenu.open_nmo_populates_level_manager_as_new_import",
+      "layout.queued_camera_creation_finishes_navigation",
+      "layout.resource_image_modes_and_malformed_drags",
+      "modules.layout_behavior_drop_and_parameters_use_selected_providers"
+    ],
+    "architecture": {
+      "files": 1032,
+      "groups": 57,
+      "features": 32,
+      "states": 48,
+      "legacy_exposures": 41,
+      "completed_phase": 3,
+      "test_registration_checked": true,
+      "open_gaps": 20
+    },
+    "architecture_checker": {
+      "passed": 39,
+      "failed": 0,
+      "log": "out/phase-five-layout-authoring/architecture-tests.log"
+    }
+  },
+  "preservation": {
+    "sdk_repositories": 16,
+    "sdk_revision_status_and_patch_unchanged": true,
+    "sdk_before": "out/phase-five-layout-authoring/sdk-before.json",
+    "sdk_after": "out/phase-five-layout-authoring/sdk-after.json",
+    "sdk_runtime_files": 22,
+    "runtime_files_unchanged": true,
+    "runtime_before": "out/phase-five-layout-authoring/runtime-before.json",
+    "runtime_after": "out/phase-five-layout-authoring/runtime-after.json",
+    "core_sources_unchanged": true,
+    "protected_source_sha256": {
+      "ui/render/UiRenderer.cpp": "eeeb206eab24998189cb16e47f241efffb59560bc988cd383e5b03d530a703e9",
+      "ui/render/UiRenderer.h": "2b21132c135f1a5011b95879dfdc83d3e9a6eedc34242006b2c20ee944cbd7fc",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+      "core/layout/LayoutView.cpp": "01f084e53bc992981c9de857a8f8fdbca35a48aa19d3274643c1abbb72bf9060",
+      "core/layout/LayoutView.h": "2efc5a3fc8ca4463ee9bae47de3846680ec2654f841b52bb046207b730a28ae3"
+    },
+    "gpu_source_comparison": {
+      "viewport_functions": {
+        "Upload": true,
+        "SelectViewportContext": true,
+        "ConfigureGpuViewport": true,
+        "ReleaseGpuViewport": true,
+        "RenderUnselectedViewport": true,
+        "RenderReadbackViewport": true,
+        "RenderGpuViewport": true,
+        "ReleaseTexture": true,
+        "ResetViewportAfterContextStop": true
+      },
+      "viewport_render_block": true,
+      "unchanged_files": {
+        "ui/render/UiRenderer.cpp": true,
+        "ui/render/UiRenderer.h": true,
+        "core/layout/SdlGpuInterop.cpp": true,
+        "core/layout/SdlGpuInterop.h": true,
+        "core/layout/LayoutView.h": true
+      },
+      "layout_view_except_explicit_capture_and_exit": true
+    },
+    "gpu_functional_tests": "app 的原有 GPU 视口回归全部执行；新增排队创建回归确认零新增 viewport readback/upload/target creation。",
+    "source_sha256": {
+      "application/CMakeLists.txt": "568e3facad58bd97035bc8ae1730331526c3c4128b56ef0e955cec51546f4348",
+      "features/defaults/DefaultWorkspace.cpp": "9d845be228fd8c2f9e5f51c514c271f8f7b844f109a96368214d5870e756a173",
+      "features/layout/LayoutAuthoring.cpp": "49ec05b9805a44e2fbf67b54cf7beb6937e9629949615bd689ae28964c06a915",
+      "features/layout/LayoutAuthoring.h": "28016efffa48ad87bfa3ceba4a6fb1e69165ecea1d7cc2b73703dd22aff1619e",
+      "features/scene/SceneTreeView.cpp": "13b416838e6599626de64a4475b8749ddc362aaf8a697085ebb37cd35fd5fd39",
+      "tests/ArchitectureTests.py": "97ec9b18b93b73f504808934eb5b3efea50d340f11d49822e4ee4143e6c66d7c",
+      "tests/CheckArchitecture.py": "2e6528654bd5dec4ca868308e713ad41c1e335c2f548b7a828d57bceca86f06e",
+      "tests/CheckLayering.cmake": "5e73e36b9efaef1b067fd2f30bfb765a95557eab6cf004aa16f2416e45642478",
+      "tests/EditorApplicationTests.cpp": "27abc0001064952b72654f887aae1a9a14dbfb5da2e5b16f97e50afad4c310d4",
+      "tests/LayoutAuthoringTests.cpp": "55a8d0ec441ce0012aeaddc194cbe7267bc5d34210c30ac91d8386b905d6381e",
+      "tests/modules/ObjectModule.cpp": "2e3ec04daef4427d2ba81db2097fb95a3a57c0ea7a7c4e4d2d6655167e378209",
+      "tests/ui/LayoutDropTests.cpp": "9f1c75a0e3c1a1bac8a326c9597e39ec44e7afe4fb370fb4b026385706c26fea",
+      "tests/ui/ModuleTests.cpp": "6a075ca7b543a76edc43f2174241faf4a5221445eae6a6941f37599e930b16fe",
+      "tests/ui/UiTestRun.cpp": "1532951a9ad7706558fe8ff5aee4b3ad834103c8a3a374fba265fac184b14016",
+      "tests/ui/UiTests.h": "032174af1e562a5f7642c0111c0d73c6bd9d830b5b6eba9e66bba5f86eff862f",
+      "ui/CMakeLists.txt": "3226235cb37822ff935141e3b469e768e4052b0a42adfbb6a7567c71ed6819d5",
+      "ui/app/EditorApp.cpp": "c333e91566584202f33f2b3e1e087fb57df3c1451d269577bf2280c8b29c80d1",
+      "ui/app/EditorApp.h": "52410c8d72ccdd5764f43aab7f595e7cd17bd31cf7385db1c2cae314120712d7",
+      "ui/controls/ParameterBox.cpp": "0cdda78cc77cb786601b4f6795ffa540b81d89849f1f3d4f0061e1a7228b68b3",
+      "ui/controls/ParameterBox.h": "95094051360a8176837dae065544450f2666346068bf3a6b299cabae5d4567a8",
+      "ui/layout/LayoutDrop.cpp": "4c388dde3879d399870f1c6ed7ca4cb7f580222870a3592c1c29fd8bccf48c28",
+      "ui/layout/LayoutInput.cpp": "7d75c5266c34e3622d9fdf1d897997cc9de604797aa6b004491f33193db91f55",
+      "ui/layout/LayoutMenu.cpp": "1f7e13ab178705b1c246896d9d0434ac268c7a8ebdecee0017405a850e1a63de",
+      "ui/layout/LayoutWindow.cpp": "2a8c9d9ae0516dc0e547df9b85725c8d5cb38203ab22e9e57eb1b54d82ce29ee",
+      "ui/layout/LayoutWindow.h": "1e370a6847b86a17dcce3015de646264a8c75a9f9dfa6e55a78190b7eb545c3e"
+    }
+  },
+  "performance": {
+    "status": "deferred",
+    "acceptance_performed": false,
+    "thresholds_changed": false,
+    "note": "只运行功能回归和源代码/运行时文件对比，未执行 viewportbaseline 时延验收或 CPU 探针。"
+  },
+  "remaining": [
+    "阶段五尚未全部完成，completed_phase 仍为三。",
+    "继续迁移剩余 Setup、原生值编辑器及清单中的入口；Layout 的旧名称拾取路由仍为私有适配。"
+  ]
+}
