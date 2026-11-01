@@ -17,6 +17,7 @@
 #include "core/graph/RuntimeGraph.h"
 #include "core/graph/ScriptCommands.h"
 #include "ui/schematic/Snapshots.h"
+#include "ui/controls/ParameterBox.h"
 #include "core/schematic/SchematicModelBuilder.h"
 #include "core/schematic/SchematicSearch.h"
 #include "core/schematic/SchematicEdits.h"
@@ -77,6 +78,165 @@ bool WindowShown(ImGuiTestContext *ctx, const char *ref) {
 
 void RegisterSchematicTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "modules", "runtime_picking_uses_view_instances");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        auto &editor = workspace.Application();
+        vdev::EditorConfiguration previous;
+        EditorView views[2]{};
+        CK_ID scripts[2]{}, graphs[2]{}, owners[2]{}, held[2]{};
+        size_t baseline = 0, steps = 0;
+        uint64_t revision = 0, selection = 0;
+        bool dirty = false, configured = false;
+        OnMainThread(ctx, [&] {
+            previous = editor.Configuration();
+            auto configuration = previous;
+            auto provider =
+                std::find_if(configuration.providers.begin(), configuration.providers.end(),
+                             [](const auto &p) { return p.kind == "query" && p.id == "schematic.pick-objects"; });
+            if (provider == configuration.providers.end())
+                configuration.providers.push_back({"query", "schematic.pick-objects", "example.picking"});
+            else
+                provider->provider = "example.picking";
+            std::string error;
+            configured = workspace.Configure(configuration, error);
+            if (!configured) {
+                ctx->LogError("Cannot configure pick provider: %s", error.c_str());
+                return;
+            }
+            baseline = state.History().UndoCount();
+            for (int i = 0; i < 2; ++i) {
+                const auto frame = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+                const auto object = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+                IM_CHECK_NO_RET(frame.ok && object.ok);
+                owners[i] = frame.created;
+                held[i] = object.created;
+                const auto script = vdev::CreateScript(*state.document, owners[i], "Pick Script " + std::to_string(i));
+                IM_CHECK_NO_RET(script.ok);
+                scripts[i] = script.created;
+                const auto graph =
+                    vdev::CreateBehaviorGraph(*state.document, scripts[i], scripts[i], "Pick graph", {220, 140});
+                IM_CHECK_NO_RET(graph.ok);
+                graphs[i] = graph.created;
+                const auto local = vdev::AddLocalParameter(*state.document, scripts[i], scripts[i], "Held object",
+                                                           CKPGUID_3DENTITY, {260, 260});
+                IM_CHECK_NO_RET(local.ok);
+                auto *value = Object<CKParameter>(local.created);
+                const auto parameter = vdev::AddGraphPin(*state.document, scripts[i], graphs[i], vdev::PinKind::ParamIn,
+                                                         "Pick input", CKPGUID_3DENTITY);
+                auto *input = parameter.ok ? Object<CKParameterIn>(parameter.created) : nullptr;
+                IM_CHECK_NO_RET(value && input && value->SetValue(&held[i], sizeof(held[i])) == CK_OK &&
+                                input->SetDirectSource(value) == CK_OK);
+                IM_CHECK_NO_RET(
+                    vdev::EditScriptData(*state.document, scripts[i], "Fold pick fixture", [&](InterfaceData &data) {
+                        vdev::FindRecord(data, graphs[i])->folded = true;
+                        data.header.vSize = data.rootBehavior.rect.vSize = 360;
+                    }));
+                views[i] = workspace.Open("script.schematic");
+                IM_CHECK_NO_RET(views[i]);
+                App().Canvas(views[i]).Navigation().options.showAllScripts = false;
+                App().Canvas(views[i]).ShowScript(scripts[i], {vdev::ElementKind::Behavior, scripts[i], graphs[i]},
+                                                  graphs[i]);
+            }
+            steps = state.History().UndoCount();
+            revision = state.document->ChangeRevision();
+            selection = state.objectSelection.Revision();
+            dirty = state.document->Dirty();
+        });
+        IM_CHECK(configured && views[0] && views[1]);
+        ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            for (auto view : views) {
+                const auto name = workspace.WindowName(view);
+                if (auto *window = ImGui::FindWindowByName(name.c_str()))
+                    ImGui::SetWindowDock(window, 0, ImGuiCond_Always);
+                ImGui::SetWindowPos(name.c_str(), {80, 60});
+                ImGui::SetWindowSize(name.c_str(), {800, 600});
+            }
+        });
+        ctx->Yield(3);
+        for (int i = 0; i < 2; ++i) {
+            const auto window = "//" + workspace.WindowName(views[i]);
+            ctx->WindowFocus(window.c_str());
+            ctx->Yield(3);
+            std::optional<ImVec2> pin;
+            for (const auto &shown : App().Canvas(views[i]).ShownPins())
+                if (shown.owner == graphs[i] && shown.kind == vdev::PinKind::ParamIn && shown.index == 0)
+                    pin = shown.center;
+            IM_CHECK(pin.has_value());
+            ctx->MouseMoveToPos(*pin);
+            ctx->Yield(2);
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_3DENTITY) == held[i]);
+                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_BEHAVIOR) == graphs[i]);
+                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_BEOBJECT) == held[i]);
+                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_PARAMETER) == 0);
+                const auto picked = vdev::EditorClient(editor.Host(), 0).Query("example.pick-state");
+                IM_CHECK_NO_RET(vdev::EditorClient::Integer(picked, "reads") >= 4 &&
+                                vdev::EditorClient::Integer(picked, "view") == views[i]);
+                IM_CHECK_NO_RET(!state.objectPick.count(workspace.WindowName(views[i])));
+                const vdev::EditorClient client(editor.Host(), 0);
+                IM_CHECK_NO_RET(client.Command("example.pick-failure", {vdev::IntegerArgument("value", 1)}).status ==
+                                EDITOR_OK);
+                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_3DENTITY) == 0);
+                IM_CHECK_NO_RET(client.Command("example.pick-failure", {vdev::IntegerArgument("value", 0)}).status ==
+                                EDITOR_OK);
+                editor.NativeAvailable(false);
+                const auto busyPick = vdev::ObjectUnderMouse(state, *pin, CKCID_3DENTITY);
+                editor.NativeAvailable(true);
+                IM_CHECK_NO_RET(busyPick == 0);
+                IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.document->ChangeRevision() == revision &&
+                                state.objectSelection.Revision() == selection && state.document->Dirty() == dirty);
+            });
+            const auto shown = App().Canvas(views[i]).ShownScripts();
+            IM_CHECK(!shown.empty());
+            const auto header = ImVec2(shown.front().headerMin.x + 40, shown.front().headerMin.y + 8);
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, header, CKCID_3DENTITY) == owners[i]);
+                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, header, CKCID_BEHAVIOR) == scripts[i]);
+                if (i == 0) {
+                    // An unfilled print must retain the behavior's outline.
+                    const auto content = App().Canvas(views[i]).CapturePrint();
+                    IM_CHECK_NO_RET(content);
+                    const auto model =
+                        vdev::BuildSchematicModel(*state.document->Session(scripts[i]), state.document->Context(), {});
+                    const auto *box = model.FindBehavior(graphs[i]);
+                    IM_CHECK_NO_RET(box);
+                    std::vector<unsigned char> pixels;
+                    std::string error;
+                    constexpr int width = 640, height = 480;
+                    IM_CHECK_NO_RET(content->Render(0, 0, width, height, 1, {}, pixels, error));
+                    const int left = int(std::floor(box->box.hPos)),
+                              top = int(std::ceil(box->box.vPos - model.script.bounds.vPos)) + 8,
+                              bottom = int(std::floor(box->box.Bottom() - model.script.bounds.vPos)) - 8;
+                    IM_CHECK_NO_RET(left > 2 && left + 2 < width && top >= 0 && bottom < height && bottom > top);
+                    size_t ink = 0;
+                    for (int y = top; y < bottom; ++y)
+                        for (int x = left - 2; x <= left + 2; ++x) {
+                            const auto at = size_t(y * width + x) * 4;
+                            ink += pixels[at] < 160 && pixels[at + 1] < 160 && pixels[at + 2] < 160;
+                        }
+                    IM_CHECK_NO_RET(ink >= size_t(bottom - top) / 2);
+                    IM_CHECK_NO_RET(state.History().UndoCount() == steps &&
+                                    state.document->ChangeRevision() == revision &&
+                                    state.objectSelection.Revision() == selection && state.document->Dirty() == dirty);
+                }
+            });
+        }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(workspace.Close(views[1]) && workspace.Close(views[0]));
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(previous, error));
+            while (state.History().UndoCount() > baseline)
+                IM_CHECK_NO_RET(state.History().Undo());
+            workspace.Focus(workspace.Role("main.schematic"));
+        });
+        ctx->Yield(4);
+    };
 
     t = IM_REGISTER_TEST(engine, "schematic", "priority_selection_single_undo");
     t->GuiFunc = MainThreadGui;

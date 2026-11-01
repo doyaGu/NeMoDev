@@ -25,6 +25,9 @@ struct Module {
     uint64_t diagnosticScans = 0, diagnosticLinks = 0;
     uint64_t preferenceReads = 0, preferenceWrites = 0;
     uint64_t canvasReads = 0, canvasCameras = 0, canvasFolds = 0, canvasRefreshes = 0;
+    uint64_t pickReads = 0;
+    EditorView pickView = 0;
+    bool pickFailure = false;
     EditorStatus schematicRead = EDITOR_STALE;
 };
 struct FileView {
@@ -1105,6 +1108,41 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
         return sink.write ? sink.write(sink.data, fields, 4) : EDITOR_INVALID;
     };
     descriptors->views.push_back(preferencesView);
+    static const EditorParameter pickArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT},
+                                               {EDITOR_TEXT("address"), EDITOR_RECORD, 1}};
+    static const EditorParameter pickObjects{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST};
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.pick-objects"), EDITOR_TEXT("example.picking"), pickArgs, 2,
+         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+             auto &module = *static_cast<Module *>(data);
+             ++module.pickReads;
+             module.pickView = request->scope.view;
+             if (module.pickFailure)
+                 return EDITOR_ERROR;
+             auto nested = *request;
+             nested.handler = EDITOR_TEXT("builtin.schematic-graph");
+             return host->query(host->data, EditorString EDITOR_TEXT("schematic.pick-objects"), &nested, sink);
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &pickObjects, 1});
+    static const EditorParameter pickState[] = {{EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE},
+                                                {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back(
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("example.pick-state"), EDITOR_TEXT("example.picking"), nullptr, 0,
+         [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+             const auto &module = *static_cast<Module *>(data);
+             const EditorValue fields[] = {{EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE, {}, {}, module.pickReads},
+                                           {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, module.pickView}};
+             return sink.write(sink.data, fields, 2);
+         },
+         data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, pickState, 2});
+    static const EditorParameter failPick{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE};
+    descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("example.pick-failure"),
+                                     EDITOR_TEXT("example.picking"), EDITOR_TEXT("Inject pick failure"), &failPick, 1,
+                                     [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+                                         static_cast<Module *>(data)->pickFailure = request->values[0].integer != 0;
+                                         return EDITOR_OK;
+                                     },
+                                     data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
     *out = {};
     out->size = sizeof(*out);
     out->version = EDITOR_VERSION;
