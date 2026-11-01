@@ -488,7 +488,8 @@
         "features/layout/LayoutCommands.*",
         "features/layout/LayoutGestures.*",
         "features/layout/LayoutPresentation.*",
-        "features/layout/SnapshotCommands.*"
+        "features/layout/SnapshotCommands.*",
+        "features/layout/LayoutAuthoring.*"
       ]
     },
     {

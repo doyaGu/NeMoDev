@@ -147,7 +147,7 @@ def check(source, manifest, inventory=None, ui_tests=False):
         if path.startswith("features/") and "editor-state" in access:
             errors.append(f"feature depends on legacy EditorState: {path}")
         if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/runtime/", "features/environment/", "features/diagnostics/", "features/preferences/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/", "features/schematic/", "features/layout/")) and not re.match(
-                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/SetupCommands|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits|ModelCommands|ScriptCommands)|layout/(?:Layout(?:Commands|Gestures|Presentation)|SnapshotCommands))\.(?:h|cpp)$", path):
+                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/SetupCommands|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits|ModelCommands|ScriptCommands)|layout/(?:Layout(?:Commands|Gestures|Presentation|Authoring)|SnapshotCommands))\.(?:h|cpp)$", path):
             errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
     observed = set()
     for path, dependencies in graph.items():
