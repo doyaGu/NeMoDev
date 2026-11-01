@@ -1,3 +1,4 @@
+#include "core/schematic/SchematicModelBuilder.h"
 #include "core/graph/ExportCommands.h"
 
 #include <algorithm>
@@ -520,7 +521,7 @@ std::vector<EditResult> ExportPinsAt(Document &document, CK_ID script, const std
     ScriptSession *session = document.Session(script);
     if (!session || pins.empty()) return refused;
     SchematicModel model;
-    model.Build(*session, document.Context());
+    model = BuildSchematicModel(*session, document.Context());
     if (!model.script.open) return refused;
     CK_ID into = model.GraphAt(at);
     if (!into) into = script;

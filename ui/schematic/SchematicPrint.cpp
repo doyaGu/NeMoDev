@@ -186,15 +186,6 @@ std::unique_ptr<SchematicPrintContent> SchematicCanvas::CapturePrint() const {
     snapshot->options.showHeaders = m_Navigation.options.showHeaders;
     for (const auto &view : m_Views) {
         PrintedSchematic::Script script{view.model, view.offsetY, view.scale, view.stackTop, view.anchor};
-        if (script.model.script.snapshot) {
-            std::vector<unsigned char> pixels;
-            int width = 0, height = 0;
-            if (!PixelsOfBitmap(script.model.script.snapshot, pixels, width, height)) return {};
-            auto copy = std::shared_ptr<void>(BitmapFromPixels(pixels.data(), width, height), VxDeleteBitmap);
-            if (!copy) return {};
-            script.model.script.snapshot = copy.get();
-            script.model.script.snapshotOwner = std::move(copy);
-        }
         if (view.model.script.open)
             snapshot->width = std::max(snapshot->width, view.model.script.bounds.hSize - 100.0f);
         snapshot->scripts.push_back(std::move(script));

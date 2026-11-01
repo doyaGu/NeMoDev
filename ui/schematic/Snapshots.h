@@ -5,15 +5,16 @@
 #include <vector>
 
 #include "imgui.h"
-#include "CKTypes.h"
+#include <cstdint>
 
 namespace vdev {
 class UiTexture;
+struct SchematicSnapshot;
 class Document;
 class SnapshotBuffer;
 
 // Convert a session Snapshot Buffer slot to a document picture edit.
-void SetObjectPictureFromSnapshot(Document &document, CK_ID object, const SnapshotBuffer &buffer, int slot);
+void SetObjectPictureFromSnapshot(Document &document, uint32_t object, const SnapshotBuffer &buffer, int slot);
 
 // Script snapshots (Dev "Load Snapshot for Script"): an image file read with
 // the image reader, scaled down to fit width x height (aspect kept), as a 32-bit DIB
@@ -28,6 +29,7 @@ bool PixelsOfBitmap(void *bitmap, std::vector<unsigned char> &bgra, int &width, 
 
 // The editor texture of a bitmap handle, made on first use; size in pixels.
 // Null when the handle cannot be read.
+ImTextureID SnapshotTexture(const std::shared_ptr<const SchematicSnapshot> &, ImVec2 *size);
 ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size, const std::shared_ptr<void> &owner = {});
 #ifdef VIRTOOLSDEV_UI_TESTS
 size_t SnapshotTextureCountForTests();

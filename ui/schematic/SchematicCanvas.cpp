@@ -1,3 +1,4 @@
+#include "core/schematic/SchematicModelBuilder.h"
 #include <climits>
 #include <stdexcept>
 #include "workspace/BuildingBlockDrag.h"
@@ -426,7 +427,7 @@ void SchematicCanvas::SyncViews(ImFont *font) {
             const TextMeasure measure = [font](const std::string &text) {
                 return font ? font->CalcTextSizeA(WORLD_FONT_SIZE, FLT_MAX, 0.0f, text.c_str()).x : 0.0f;
             };
-            view.model.Build(*session, document.Context(), measure, ScriptOpen(id));
+            view.model = BuildSchematicModel(*session, document.Context(), measure, ScriptOpen(id));
             // Dev.exe sub_4FB3A0, after its contents change: a Script grows to
             // what they need, and shrinks to it with Auto Resize Scripts. The
             // height belongs to the edit: undo restores the data before it,
@@ -442,7 +443,7 @@ void SchematicCanvas::SyncViews(ImFont *font) {
                 (content > stored ||
                  (content < stored && m_State.preferences.Bool("Schematic\\Auto Resize Scripts")))) {
                 session->FitContentHeight(content);
-                view.model.Build(*session, document.Context(), measure, ScriptOpen(id));
+                view.model = BuildSchematicModel(*session, document.Context(), measure, ScriptOpen(id));
             }
             CKBehavior *script = CKBehavior::Cast(document.Context()->GetObject(id));
             view.rootIsScript = script && (script->GetType() & CKBEHAVIORTYPE_SCRIPT);

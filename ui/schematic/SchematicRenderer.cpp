@@ -205,7 +205,7 @@ void DrawScriptFrame(const Painter &p, const SchematicModel &model) {
         // Printing without Print Bitmaps, the bitmaps are left out (sub_4F9E80).
         if (thumb.Bottom() < header.Bottom() && (!p.o.print || p.o.print->bitmaps)) {
             ImVec2 size;
-            const ImTextureID texture = script.snapshot ? SnapshotTexture(script.snapshot, &size, script.snapshotOwner) : ImTextureID();
+            const ImTextureID texture = script.snapshot ? SnapshotTexture(script.snapshot, &size) : ImTextureID();
             if (texture && size.x > 0 && size.y > 0) {
                 const float scale = std::min({1.0f, thumb.hSize / size.x, thumb.vSize / size.y});
                 const float w = size.x * scale, h = size.y * scale;
@@ -603,58 +603,69 @@ void DrawScriptBody(ImDrawList *drawList, const SchematicModel &model, float off
 
     // Dev draws graph by graph: a graph's own contents, then each expanded
     // child graph (its opaque frame over them) with its contents.
-    std::map<CK_ID, CK_ID> behaviorParent, operationGraph;
+    std::map<uint32_t, uint32_t> behaviorParent, operationGraph;
     for (const auto &behavior : model.behaviors) behaviorParent[behavior.id] = behavior.parent;
     for (const auto &operation : model.operations) operationGraph[operation.id] = operation.owner;
     // The graph a pin is drawn with: an open graph's own pins go with its
     // frame; others with the graph holding their behavior or operation.
-    auto pinGraph = [&](const PinItem &pin) -> CK_ID {
-        if (model.IsOpenGraph(pin.owner)) return pin.owner;
+    auto pinGraph = [&](const PinItem &pin) -> uint32_t {
+        if (model.IsOpenGraph(pin.owner))
+            return pin.owner;
         auto behavior = behaviorParent.find(pin.owner);
-        if (behavior != behaviorParent.end()) return behavior->second;
+        if (behavior != behaviorParent.end())
+            return behavior->second;
         auto operation = operationGraph.find(pin.owner);
         return operation != operationGraph.end() ? operation->second : model.script.id;
     };
-    std::map<CK_ID, std::vector<const BehaviorItem *>> openChildren;
+    std::map<uint32_t, std::vector<const BehaviorItem *>> openChildren;
     for (const auto &behavior : model.behaviors)
         if (model.IsOpenGraph(behavior.id) && behavior.id != model.script.id) openChildren[behavior.parent].push_back(&behavior);
-    std::function<void(CK_ID)> level = [&](CK_ID graph) {
+    std::function<void(uint32_t)> level = [&](uint32_t graph) {
         for (const auto &comment : model.comments)
-            if (comment.owner == graph && p.Visible(comment.bounds)) DrawComment(p, comment);
+            if (comment.owner == graph && p.Visible(comment.bounds))
+                DrawComment(p, comment);
         // Dev draws links over the local parameter texts ("OnClick" in 2D Text.cmo).
         for (const auto &param : model.params)
             if (param.owner == graph && IsParamShown(param, options.showLocalParams) && p.Visible(param.display))
                 DrawParam(p, param);
         for (const auto &link : model.links) {
-            if (link.owner != graph || !IsLinkShown(link, options.showLocalParams)) continue;
+            if (link.owner != graph || !IsLinkShown(link, options.showLocalParams))
+                continue;
             if (link.path.size() >= 2 && (link.start.type == ENDPOINT_START_BIN || link.end.type == ENDPOINT_START_BIN)) {
                 LinkItem anchored = link;
-                if (link.start.type == ENDPOINT_START_BIN) anchored.path.front() = fromFrame(link.path.front());
-                if (link.end.type == ENDPOINT_START_BIN) anchored.path.back() = fromFrame(link.path.back());
+                if (link.start.type == ENDPOINT_START_BIN)
+                    anchored.path.front() = fromFrame(link.path.front());
+                if (link.end.type == ENDPOINT_START_BIN)
+                    anchored.path.back() = fromFrame(link.path.back());
                 DrawLink(p, anchored);
             } else {
                 DrawLink(p, link);
             }
         }
         for (const auto &operation : model.operations)
-            if (operation.owner == graph && p.Visible(operation.bounds)) DrawOperation(p, operation);
+            if (operation.owner == graph && p.Visible(operation.bounds))
+                DrawOperation(p, operation);
         for (const auto &behavior : model.behaviors)
-            if (behavior.parent == graph && !model.IsOpenGraph(behavior.id) && p.Visible(behavior.box)) DrawBehavior(p, behavior);
+            if (behavior.parent == graph && !model.IsOpenGraph(behavior.id) && p.Visible(behavior.box))
+                DrawBehavior(p, behavior);
         for (const auto &pin : model.pins)
-            if (pin.owner != graph && pinGraph(pin) == graph) DrawPin(p, pin);
+            if (pin.owner != graph && pinGraph(pin) == graph)
+                DrawPin(p, pin);
         auto children = openChildren.find(graph);
         if (children != openChildren.end())
             for (const BehaviorItem *child : children->second) {
-                if (p.Visible(child->box)) DrawOpenGraph(p, *child);
+                if (p.Visible(child->box))
+                    DrawOpenGraph(p, *child);
                 level(child->id);
             }
         // The graph's own pins, on its frame.
         for (const auto &pin : model.pins)
-            if (pin.owner == graph && graph != model.script.id) DrawPin(p, pin);
+            if (pin.owner == graph && graph != model.script.id)
+                DrawPin(p, pin);
     };
     level(model.script.id);
     // Anything held by a graph that is not displayed (defensive): drawn last.
-    std::set<CK_ID> drawn{model.script.id};
+    std::set<uint32_t> drawn{model.script.id};
     for (const auto &behavior : model.behaviors)
         if (model.IsOpenGraph(behavior.id)) drawn.insert(behavior.id);
     for (const auto &link : model.links)

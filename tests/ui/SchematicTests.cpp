@@ -13,7 +13,7 @@
 #include "core/document/ScriptSession.h"
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/ValueCommands.h"
-#include "core/schematic/SchematicModel.h"
+#include "core/schematic/SchematicModelBuilder.h"
 #include "core/schematic/SchematicSearch.h"
 #include "core/schematic/SchematicEdits.h"
 #include "tests/ui/UiTests.h"
@@ -780,7 +780,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
             if (!made.ok) return;
             local = made.created;
             vdev::SchematicModel model;
-            model.Build(*state.document->Session(script), context);
+            model = BuildSchematicModel(*state.document->Session(script), context);
             int slot = -1;
             for (const auto &param : model.params)
                 if (param.parameter == local) slot = param.slot;
@@ -1046,7 +1046,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         vdev::ElementRef element;
         OnMainThread(ctx, [&] {
             vdev::SchematicModel model;
-            model.Build(*state.document->Session(point->first), state.document->Context(), {}, true);
+            model = BuildSchematicModel(*state.document->Session(point->first), state.document->Context(), {}, true);
             for (const auto &p : model.params)
                 if (p.name == "UI command local") {
                     parameter = p.parameter;

@@ -15,7 +15,7 @@
 #include "core/document/Document.h"
 #include "core/schematic/SchematicHitTest.h"
 #include "core/schematic/LinkRouting.h"
-#include "core/schematic/SchematicModel.h"
+#include "core/schematic/SchematicModelBuilder.h"
 #include "core/schematic/SchematicSearch.h"
 #include "core/schematic/SchematicNavigation.h"
 #include "core/document/Edit.h"
@@ -77,7 +77,7 @@ void SyntheticScriptModel(CKContext *context) {
     assert(session.Origin() == SessionOrigin::Reconstructed && !session.Dirty());
 
     SchematicModel model;
-    model.Build(session, context);
+    model = BuildSchematicModel(session, context);
     assert(model.script.open && model.start.present);
     assert(model.unresolvedEndpoints == 0);
     assert(model.FindBehavior(graph->GetID()) && model.FindBehavior(block->GetID()));
@@ -105,23 +105,23 @@ void SyntheticScriptModel(CKContext *context) {
     CKParameterIn *disabled = block->CreateInputParameter((CKSTRING)"Disabled", CKPGUID_INT);
     assert(disabled);
     disabled->Enable(FALSE);
-    model.Build(session, context);
+    model = BuildSchematicModel(session, context);
     assert(CountPins(model, block->GetID(), PinKind::ParamIn) == 1);
     disabled->Enable(TRUE);
-    model.Build(session, context);
+    model = BuildSchematicModel(session, context);
     assert(CountPins(model, block->GetID(), PinKind::ParamIn) == 2);
 
     // Expanding the graph shows its contents inside the expanded frame.
     InterfaceData expanded = session.Data();
     expanded.FindBehavior(graph->GetID())->folded = false;
     assert(session.Assign(expanded));
-    model.Build(session, context);
+    model = BuildSchematicModel(session, context);
     assert(model.FindBehavior(inner->GetID()) && model.IsOpenGraph(graph->GetID()));
     assert(model.FindBehavior(inner->GetID())->depth == 2);
 
     // A closed Script (view state) draws its header only.
     session.SetOpen(false);
-    model.Build(session, context);
+    model = BuildSchematicModel(session, context);
     assert(!model.script.open && model.behaviors.empty() && model.links.empty() && !model.start.present);
     context->ClearAll();
     std::cout << "Synthetic Script model passed\n";
@@ -434,7 +434,7 @@ int SampleListModels(CkRuntimeHost &host, const std::string &listPath) {
             const bool assigned = session->Assign(expanded);
             if (!assigned) ++inconsistentScripts;
             SchematicModel model;
-            model.Build(*session, host.Context());
+            model = BuildSchematicModel(*session, host.Context());
             // Shown parameter input pins are enabled; hidden links end at a
             // disabled input.
             for (const auto &pin : model.pins) {

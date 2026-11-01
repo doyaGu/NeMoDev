@@ -1,3 +1,4 @@
+#include "core/schematic/SchematicModelBuilder.h"
 #include "features/schematic/SchematicGraphCommands.h"
 #include "features/schematic/SchematicPosition.h"
 #include "features/schematic/SchematicGeometry.h"
@@ -214,7 +215,7 @@ struct SchematicGraphCommands::Data {
         const Rect bounds(float(rect->reals.data[0]), float(rect->reals.data[1]), float(rect->reals.data[2]),
                           float(rect->reals.data[3]));
         SchematicModel model;
-        model.Build(*doc->Session(script), doc->Context(), {}, true);
+        model = BuildSchematicModel(*doc->Session(script), doc->Context(), {}, true);
         std::vector<CK_ID> members;
         for (const auto &ref : ElementsInRect(model, bounds, true))
             if (ref.kind == ElementKind::Behavior)

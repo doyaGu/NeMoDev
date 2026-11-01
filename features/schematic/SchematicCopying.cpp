@@ -4,7 +4,7 @@
 #include "core/document/ScriptSession.h"
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/ValueCommands.h"
-#include "core/schematic/SchematicModel.h"
+#include "core/schematic/SchematicModelBuilder.h"
 #include "core/schematic/SchematicEdits.h"
 #include "core/schematic/SchematicGrid.h"
 #include "core/runtime/TextEncoding.h"
@@ -72,7 +72,7 @@ EditorStatus Capture(Document &doc, CK_ID script, const EditorValue *elements, C
     out.clipboard.data = session->Data();
     out.clipboard.data.observers.clear();
     SchematicModel model;
-    model.Build(*session, doc.Context(), {}, true);
+    model = BuildSchematicModel(*session, doc.Context(), {}, true);
     bool any = false;
     const auto grow = [&](const Rect &box) {
         if (!any) {
@@ -278,7 +278,7 @@ struct SchematicCopying::Data {
         }
         auto *dest = doc->Session(destination);
         SchematicModel model;
-        model.Build(*dest, doc->Context(), {}, true);
+        model = BuildSchematicModel(*dest, doc->Context(), {}, true);
         if (!model.script.open)
             return EDITOR_REFUSED;
         const auto &source = entry.action == Drag ? copied.clipboard : self.clipboard;

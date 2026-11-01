@@ -1,4 +1,5 @@
 #include "ui/schematic/Snapshots.h"
+#include "core/schematic/SchematicModel.h"
 #include "ui/render/UiRenderer.h"
 #include "core/runtime/TextEncoding.h"
 #include "CKAll.h"
@@ -23,11 +24,14 @@ namespace {
 struct Texture {
     std::unique_ptr<UiTexture> view;
     ImVec2 size;
-    std::weak_ptr<void> owner;
+    std::weak_ptr<const void> owner;
     bool tracked = false;
 };
 std::vector<std::unique_ptr<UiTexture>> &Retired() { static std::vector<std::unique_ptr<UiTexture>> value; return value; }
-std::map<void *, Texture> &Textures() { static std::map<void *, Texture> value; return value; }
+std::map<const void *, Texture> &Textures() {
+    static std::map<const void *, Texture> value;
+    return value;
+}
 std::map<unsigned long long, Texture> &PixelTextures() { static std::map<unsigned long long, Texture> value; return value; }
 }
 void *BitmapFromPixels(const void *bgra, int width, int height) {
@@ -94,6 +98,32 @@ void ReleaseRetiredTextures() {
 #ifdef VIRTOOLSDEV_UI_TESTS
 size_t SnapshotTextureCountForTests() { return Textures().size(); }
 #endif
+ImTextureID SnapshotTexture(const std::shared_ptr<const SchematicSnapshot> &image, ImVec2 *size) {
+    if (!image || !MainRenderer().Started() || image->pixels.size() != size_t(image->width) * image->height * 4)
+        return {};
+    auto found = Textures().find(image.get());
+    if (found != Textures().end() &&
+        (found->second.owner.owner_before(image) || image.owner_before(found->second.owner))) {
+        RetireTexture(std::move(found->second.view));
+        Textures().erase(found);
+        found = Textures().end();
+    }
+    if (found == Textures().end()) {
+        Texture texture;
+        texture.owner = image;
+        texture.tracked = true;
+        auto pixels = image->pixels;
+        for (size_t i = 0; i < pixels.size(); i += 4)
+            std::swap(pixels[i], pixels[i + 2]);
+        texture.view = MainRenderer().CreateTexture(image->width, image->height, pixels.data());
+        if (texture.view)
+            texture.size = {float(image->width), float(image->height)};
+        found = Textures().emplace(image.get(), std::move(texture)).first;
+    }
+    if (size)
+        *size = found->second.size;
+    return found->second.view ? found->second.view->Id() : ImTextureID();
+}
 ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size, const std::shared_ptr<void> &owner) {
     if (!bitmap || !MainRenderer().Started()) return ImTextureID();
     auto found = Textures().find(bitmap);

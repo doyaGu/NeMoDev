@@ -6,11 +6,16 @@
 #include <vector>
 
 #include "core/schematic/ElementRef.h"
-#include "core/interface/InterfaceData.h"
+#include "core/interface/LinkEndpoint.h"
+#include "core/schematic/Geometry.h"
+#include <memory>
 
 namespace vdev {
 
-class ScriptSession;
+struct SchematicSnapshot {
+    uint32_t width = 0, height = 0;
+    std::vector<unsigned char> pixels; // tightly packed BGRA, opaque
+};
 
 // Script header column width. Dev places Start at x=140 and clamps Script
 // parameters to x>=180 (2*20+140); the header column itself is a library
@@ -24,18 +29,17 @@ constexpr float MIN_OPEN_SCRIPT_HEIGHT = 40.0f;
 
 struct ScriptItem {
     ElementRef ref;
-    CK_ID id = 0;
+    uint32_t id = 0;
     std::string name;
     std::string ownerName;
-    CK_CLASSID ownerClass = 0; // header icon
+    int32_t ownerClass = 0; // header icon
     bool isScript = true; // false for a non-Script root (Building Block chunk)
     bool open = true;     // ScriptSession::IsOpen (view state)
     bool hidden = false;  // UI flag 0x20000
     bool initialConditions = false; // the current scene holds an initial value (header "IC")
-    CKDWORD color = 0;
+    uint32_t color = 0;
     int priority = 0; // the Script's (the header's "Priority = %d" with Show Priorities)
-    void *snapshot = nullptr; // header SDK bitmap, borrowed from the session
-    std::shared_ptr<void> snapshotOwner;
+    std::shared_ptr<const SchematicSnapshot> snapshot;
     Rect header;          // header column
     Rect bounds;          // whole Script area in Script-local pixels
     float contentHeight = 0.0f; // the height its contents need (open Scripts)
@@ -43,8 +47,8 @@ struct ScriptItem {
 
 struct BehaviorItem {
     ElementRef ref;
-    CK_ID id = 0;
-    CK_ID parent = 0;
+    uint32_t id = 0;
+    uint32_t parent = 0;
     int depth = 0;
     std::string name;
     std::string prototype;
@@ -71,7 +75,7 @@ struct BehaviorItem {
 
 struct PinItem {
     ElementRef ref;
-    CK_ID owner = 0; // behavior or operation
+    uint32_t owner = 0; // behavior or operation
     PinKind kind = PinKind::None;
     int index = 0;
     LinkEndpoint endpoint;
@@ -84,7 +88,7 @@ struct PinItem {
 
 struct LinkItem {
     ElementRef ref;
-    CK_ID owner = 0;
+    uint32_t owner = 0;
     int slot = -1;
     bool behaviorLink = false;
     bool highlight = false;
@@ -105,8 +109,8 @@ struct LinkItem {
 
 struct OperationItem {
     ElementRef ref;
-    CK_ID owner = 0;
-    CK_ID id = 0;
+    uint32_t owner = 0;
+    uint32_t id = 0;
     std::string name;
     Rect bounds;
 };
@@ -123,7 +127,7 @@ inline int ParamDisplayMode(int style) {
 
 struct ParamItem {
     ElementRef ref;
-    CK_ID owner = 0;
+    uint32_t owner = 0;
     int slot = -1;
     bool shortcut = false;
     bool shortcutSource = false; // a local some shortcut of the Script displays (Dev's black icon)
@@ -132,7 +136,7 @@ struct ParamItem {
     // Collapsed and linked straight (no control point) to a parameter input:
     // what Dev's Show/Hide Local Parameters hides (Dev documentation).
     bool directInput = false;
-    CK_ID parameter = 0; // local id, or shortcut source id
+    uint32_t parameter = 0; // local id, or shortcut source id
     ParameterStyle style = PARAM_STYLE_NAME;
     bool breakpoint = false;
     std::string name;
@@ -154,7 +158,7 @@ inline bool IsLinkShown(const LinkItem &link, bool showLocalParams) {
 
 struct CommentItem {
     ElementRef ref;
-    CK_ID owner = 0;
+    uint32_t owner = 0;
     int slot = -1;
     std::string text;
     bool collapsed = false;
@@ -178,10 +182,6 @@ using TextMeasure = std::function<float(const std::string &utf8)>;
 // cells are converted with their owning window origin). Strings are UTF-8.
 class SchematicModel {
 public:
-    void Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure = TextMeasure());
-    void Build(const ScriptSession &session, CKContext *context, const TextMeasure &measure, bool open);
-    void Build(const InterfaceData &data, CK_ID script, CKContext *context, const TextMeasure &measure, bool open);
-
     ScriptItem script;
     StartItem start;
     std::vector<BehaviorItem> behaviors;
@@ -193,19 +193,23 @@ public:
     Rect contentBounds;
     int unresolvedEndpoints = 0;
 
-    const BehaviorItem *FindBehavior(CK_ID id) const;
+    void MeasureText(const TextMeasure &);
+    void Reindex();
+
+    const BehaviorItem *FindBehavior(uint32_t id) const;
     const PinItem *FindPin(const LinkEndpoint &endpoint) const;
     // Graphs whose contents are displayed (open Script root, expanded graphs).
-    bool IsOpenGraph(CK_ID id) const {
+    bool IsOpenGraph(uint32_t id) const {
         auto found = m_OpenGraphs.find(id);
         return found != m_OpenGraphs.end() && found->second;
     }
     // Deepest open graph containing a Script-local point.
-    CK_ID GraphAt(const Point &point) const;
+    uint32_t GraphAt(const Point &point) const;
 
-private:
-    std::map<CK_ID, size_t> m_BehaviorIndex;
-    std::map<CK_ID, bool> m_OpenGraphs;
+  private:
+    friend struct SchematicModelBuilder;
+    std::map<uint32_t, size_t> m_BehaviorIndex;
+    std::map<uint32_t, bool> m_OpenGraphs;
 };
 
 } // namespace vdev

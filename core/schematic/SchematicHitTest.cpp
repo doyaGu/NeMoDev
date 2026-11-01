@@ -57,7 +57,7 @@ public:
         Visit(model.script.id, time);
     }
     // Time a graph's contents are drawn at; its own pins come after its subtree.
-    float ContentsTime(CK_ID graph) const {
+    float ContentsTime(uint32_t graph) const {
         auto found = m_Pre.find(graph);
         return found != m_Pre.end() ? found->second + 0.5f : 0.5f;
     }
@@ -90,20 +90,20 @@ public:
     }
 
 private:
-    void Visit(CK_ID graph, int &time) {
-        m_Pre[graph] = time++;
-        auto children = m_Children.find(graph);
-        if (children != m_Children.end())
-            for (const BehaviorItem *child : children->second) {
-                m_Frames.emplace_back(time, child);
-                Visit(child->id, time);
-            }
-        m_Post[graph] = time++;
-    }
+  void Visit(uint32_t graph, int &time) {
+      m_Pre[graph] = time++;
+      auto children = m_Children.find(graph);
+      if (children != m_Children.end())
+          for (const BehaviorItem *child : children->second) {
+              m_Frames.emplace_back(time, child);
+              Visit(child->id, time);
+          }
+      m_Post[graph] = time++;
+  }
     const SchematicModel &m_Model;
-    std::map<CK_ID, CK_ID> m_Parent, m_OperationGraph;
-    std::map<CK_ID, std::vector<const BehaviorItem *>> m_Children;
-    std::map<CK_ID, int> m_Pre, m_Post;
+    std::map<uint32_t, uint32_t> m_Parent, m_OperationGraph;
+    std::map<uint32_t, std::vector<const BehaviorItem *>> m_Children;
+    std::map<uint32_t, int> m_Pre, m_Post;
     std::vector<std::pair<int, const BehaviorItem *>> m_Frames; // frame drawing time, graph
 };
 

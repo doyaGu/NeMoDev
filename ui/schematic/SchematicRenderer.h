@@ -38,12 +38,12 @@ struct DrawOptions {
     bool current = false;        // the current Script: dotted frame on its header
     float scriptZoom = 1.0f;     // the Script's own zoom, shown in its header when not 100%
     // Script Debugger: running behaviors (CKBehavior::IsActive) and the debug context's behavior.
-    const std::set<CK_ID> *running = nullptr;
-    CK_ID debugBehavior = 0;
+    const std::set<uint32_t> *running = nullptr;
+    uint32_t debugBehavior = 0;
     // Trace Mode (documentation: "all active scripts, behaviors and links
     // are drawn in red"): the behavior links firing, the Script active.
     bool trace = false;
-    const std::set<CK_ID> *activeLinks = nullptr;
+    const std::set<uint32_t> *activeLinks = nullptr;
     bool scriptActive = false;
     const std::set<ElementRef> *selection = nullptr;
     // Links found invalid after loading and kept: Dev's Invalid Link Color.

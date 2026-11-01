@@ -1,3 +1,4 @@
+#include "core/schematic/SchematicModelBuilder.h"
 #include "features/schematic/SchematicConnections.h"
 #include "features/schematic/SchematicPosition.h"
 #include "core/document/Document.h"
@@ -223,7 +224,7 @@ EditorStatus Prepare(Document *doc, const EditorRequest &r, Connection &c) {
     if (Number(r, "mode") > 2 || Number(r, "delay") > INT_MAX)
         return EDITOR_INVALID;
     c.mode = unsigned(Number(r, "mode"));
-    c.model.Build(*session, doc->Context(), {}, true);
+    c.model = BuildSchematicModel(*session, doc->Context(), {}, true);
     if (const auto *link = Arg(r, "link"); link && link->fields.count) {
         auto status = Resolve(*doc, link, c.script, c.link);
         if (status != EDITOR_OK)
@@ -564,7 +565,7 @@ struct SchematicConnections::Data {
             if (std::abs(at->reals.data[i]) > std::numeric_limits<float>::max())
                 return EDITOR_INVALID;
         SchematicModel model;
-        model.Build(*session, doc->Context(), {}, true);
+        model = BuildSchematicModel(*session, doc->Context(), {}, true);
         std::vector<PinItem> pins;
         std::set<ElementRef> unique;
         for (uint32_t i = 0; elements && i < elements->fields.count; ++i) {

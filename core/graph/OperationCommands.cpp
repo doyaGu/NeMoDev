@@ -6,7 +6,7 @@
 #include "core/document/Document.h"
 #include "core/document/ScriptSession.h"
 #include "core/graph/TopologyCommands.h"
-#include "core/schematic/SchematicModel.h"
+#include "core/schematic/SchematicModelBuilder.h"
 
 namespace vdev {
 
@@ -16,7 +16,7 @@ namespace {
 bool ModelOf(Document &document, CK_ID script, SchematicModel &model) {
     ScriptSession *session = document.Session(script);
     if (!session) return false;
-    model.Build(*session, document.Context());
+    model = BuildSchematicModel(*session, document.Context());
     return true;
 }
 

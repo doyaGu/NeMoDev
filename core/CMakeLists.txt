@@ -44,6 +44,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         schematic/ElementAddress.cpp
         schematic/SchematicNavigation.cpp
         schematic/SchematicModel.cpp
+        schematic/SchematicModelBuilder.cpp
         schematic/SchematicHitTest.cpp
         schematic/SchematicSearch.cpp
         schematic/SchematicEdits.cpp

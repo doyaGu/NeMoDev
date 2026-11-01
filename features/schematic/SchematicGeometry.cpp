@@ -5,7 +5,7 @@
 #include "core/document/ScriptSession.h"
 #include "core/graph/ExportCommands.h"
 #include "core/runtime/TextEncoding.h"
-#include "core/schematic/SchematicModel.h"
+#include "core/schematic/SchematicModelBuilder.h"
 #include "core/schematic/SchematicEdits.h"
 #include "core/schematic/LinkRouting.h"
 #include <algorithm>
@@ -126,7 +126,7 @@ EditorStatus Prepare(Document *doc, const EditorRequest &request, Geometry &g, b
     g.before = session->Data();
     g.before.observers.clear();
     SchematicModel model;
-    model.Build(*session, doc->Context(), {}, true);
+    model = BuildSchematicModel(*session, doc->Context(), {}, true);
     if (g.mode == 1)
         g.size = Rect(0, 0, 0, g.before.header.vSize);
     if (g.mode == 2) {
@@ -372,7 +372,7 @@ struct SchematicGeometry::Data {
             return EDITOR_NO_CHANGE;
         std::string message;
         SchematicModel model;
-        model.Build(after, g.script.object, doc->Context(), {}, true);
+        model = BuildSchematicModel(after, g.script.object, doc->Context(), {}, true);
         if (g.mode == 0 && hasDrop && !g.elements.empty()) {
             const auto graph = g.elements.front().owner,
                        into = model.GraphAt(drop) ? model.GraphAt(drop) : g.script.object;
@@ -426,7 +426,7 @@ struct SchematicGeometry::Data {
         // Content fitting is part of this edit, never a write from rendering.
         if (g.mode != 1) {
             SchematicModel final;
-            final.Build(after, g.script.object, doc->Context(), {}, true);
+            final = BuildSchematicModel(after, g.script.object, doc->Context(), {}, true);
             const auto content = final.script.contentHeight, stored = after.header.vSize;
             if (stored > 0 && (content > stored || (g.autoResize && content < stored)))
                 after.header.vSize = content;

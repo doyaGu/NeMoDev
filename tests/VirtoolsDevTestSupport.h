@@ -46,7 +46,7 @@
 #include "core/graph/RuntimeGraph.h"
 #include "core/document/Document.h"
 #include "core/schematic/SchematicEdits.h"
-#include "core/schematic/SchematicModel.h"
+#include "core/schematic/SchematicModelBuilder.h"
 #include "core/graph/BehaviorCommands.h"
 #include "core/level/SceneCommands.h"
 #include "core/graph/ShortcutCommands.h"
@@ -366,7 +366,7 @@ inline EditResult ExpectUndoRoundTrip(Document &document, const std::string &wha
 
 inline SchematicModel BuildModel(Document &document, CK_ID script) {
     SchematicModel model;
-    model.Build(*document.Session(script), document.Context());
+    model = BuildSchematicModel(*document.Session(script), document.Context());
     return model;
 }
 

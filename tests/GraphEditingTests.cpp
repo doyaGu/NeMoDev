@@ -5,7 +5,7 @@
 #include "core/document/ScriptSession.h"
 #include "core/graph/ScriptCommands.h"
 #include "core/graph/TopologyCommands.h"
-#include "core/schematic/SchematicModel.h"
+#include "core/schematic/SchematicModelBuilder.h"
 #include "core/schematic/SchematicEdits.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include "editor/ImGuiDrawing.h"
@@ -77,7 +77,7 @@ void TestGraphEditing(vdev::CkRuntimeHost &runtime) {
     };
     const auto local = [&](CK_ID id) {
         SchematicModel model;
-        model.Build(*doc.Session(script.created), doc.Context(), {}, true);
+        model = BuildSchematicModel(*doc.Session(script.created), doc.Context(), {}, true);
         for (const auto &p : model.params)
             if (p.parameter == id && p.ref.kind == ElementKind::LocalParam)
                 return address(p.ref);
@@ -252,7 +252,7 @@ void TestGraphEditing(vdev::CkRuntimeHost &runtime) {
         Check(request("schematic.toggle-fold", fold).status == EDITOR_OK, "fold copied element's parent");
     }
     SchematicModel foldedModel;
-    foldedModel.Build(*doc.Session(script.created), doc.Context(), {}, true);
+    foldedModel = BuildSchematicModel(*doc.Session(script.created), doc.Context(), {}, true);
     Check(!foldedModel.FindBehavior(inner.created), "copy fixture is still visible");
     auto hiddenCopy = base(script.created);
     EditorField hiddenElements{"elements", EDITOR_RECORD};
@@ -327,7 +327,7 @@ void TestGraphEditing(vdev::CkRuntimeHost &runtime) {
     Check(doc.History().Undo() && !doc.IsDiscarded(a.created) && graphA()->GetParent() == root(),
           "ungroup undo lost original graph");
     SchematicModel forRectangle;
-    forRectangle.Build(*doc.Session(script.created), doc.Context(), {}, true);
+    forRectangle = BuildSchematicModel(*doc.Session(script.created), doc.Context(), {}, true);
     const auto *rectangleMember = forRectangle.FindBehavior(b.created);
     Check(rectangleMember, "find rectangle member");
     const Rect rectangle = rectangleMember->box;
