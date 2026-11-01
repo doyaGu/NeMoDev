@@ -85,6 +85,10 @@ foreach (_source IN LISTS _sources)
                  (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme|TypeAhead)\\.h$")))
             list(APPEND _errors "${_source}: scene view includes native or legacy editor state ${_path}")
         endif()
+        if(_source MATCHES "^features/setup/" AND NOT _source MATCHES "^features/setup/Setup(Commands|Queries|ObjectQueries|SceneQueries|RenderQueries|Actions)\\.(h|cpp)$" AND
+                _path MATCHES "^(core/|ui/|CK|Vx|SDL)")
+            list(APPEND _errors "${_source}: Setup view includes native or legacy editor state ${_path}")
+        endif()
         if(_source MATCHES "^features/runtime/" AND
                 (_path MATCHES "^(core/|CK|Vx|SDL)" OR
                  (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme)\\.h$")))

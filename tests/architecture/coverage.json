@@ -424,7 +424,12 @@
       "id": "S48",
       "name": "Setup 原生页面查询、预览与修改",
       "patterns": [
-        "features/setup/SetupCommands.*"
+        "features/setup/SetupCommands.*",
+        "features/setup/SetupQueries.*",
+        "features/setup/SetupObjectQueries.cpp",
+        "features/setup/SetupSceneQueries.cpp",
+        "features/setup/SetupRenderQueries.cpp",
+        "features/setup/SetupActions.cpp"
       ]
     },
     {
@@ -693,7 +698,6 @@
       "S01",
       "S05",
       "S08",
-      "S10",
       "S12",
       "S13",
       "S14",
@@ -919,7 +923,10 @@
       "S08",
       "S13",
       "S34",
-      "S58"
+      "S58",
+      "S57",
+      "S07",
+      "S10"
     ],
     "S49": [
       "S01",
@@ -1719,7 +1726,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "窗口分类、标题、对象列表、变换与拾取使用只读查询，打开入口统一为 object.open-setup；类专用页面、图片及文件替换仍有原生适配，绘制尚未迁移为工作区登记视图"
+          "reason": "类专用页面使用只读投影与统一命令；剩余公共 Attribute 页面、图片仍有原生适配，完整绘制尚未迁移为工作区登记视图"
         }
       ]
     },

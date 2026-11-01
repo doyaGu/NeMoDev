@@ -68,7 +68,7 @@ def input_access(source, files, errors):
     migrated = {"ui/layout/LayoutDrop.cpp", "ui/layout/LayoutInput.cpp", "ui/layout/LayoutFullScreen.cpp", "ui/layout/LayoutSnapshot.cpp", "ui/schematic/SchematicLinking.cpp",
                 "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp",
                 "ui/schematic/SchematicDialogs.cpp", "ui/schematic/SchematicInput.cpp",
-                "ui/panels/EditorPanels.cpp"}
+                "ui/panels/EditorPanels.cpp", "ui/setup/SetupRenderPages.cpp", "ui/setup/SetupScenePages.cpp"}
     for path in set(files) & migrated:
         text = (source / path).read_text(encoding="utf-8-sig")
         text = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', '', text, flags=re.S)
@@ -81,7 +81,8 @@ def input_access(source, files, errors):
         ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
              "TogglePreference", "ToggleGuide", "RightClick", "DebugData", "SelectionText", "Steps", "TransformStepsOf", "Snap2DOf")),
         ("ui/setup/SetupWindows.cpp", "SetupWindows", ("Client", "Register", "ApplyPreferences", "Open", "Show",
-            "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "Header", "Sidebar")),
+            "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "Header", "Sidebar", "DrawObjectPage", "ReplaceFile", "ReadDetails", "ReadProperties", "PreviewProperty", "PreviewIndexedProperty", "SetProperty", "EditObjectList")),
+        ("ui/setup/SetupObjectPages.cpp", "SetupWindows", ("AnimationPage", "ObjectAnimationPage", "MidiSoundPage", "SpriteTextPage", "KinematicChainPage", "LayerPage", "ParameterPage", "ParameterInPage", "OperationPage", "BehaviorPage", "BehaviorIOPage", "BehaviorLinkPage", "SynchroPage", "StatePage", "CriticalSectionPage", "InterfaceObjectsPage", "ParameterUsers", "ParameterValue", "ShowInSchematic", "OtherPage")),
         ("ui/app/EditorApp.cpp", "EditorApp", ("CreateObject",)),
         ("ui/layout/LayoutMenu.cpp", "LayoutWindow", ("CreatedObject",)))
     for path, owner, names in methods:
@@ -154,7 +155,7 @@ def check(source, manifest, inventory=None, ui_tests=False):
         if path.startswith("features/") and "editor-state" in access:
             errors.append(f"feature depends on legacy EditorState: {path}")
         if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/runtime/", "features/environment/", "features/diagnostics/", "features/preferences/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/", "features/schematic/", "features/layout/")) and not re.match(
-                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/SetupCommands|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits|ModelCommands|ScriptCommands)|layout/(?:Layout(?:Commands|Gestures|Presentation|Authoring)|SnapshotCommands))\.(?:h|cpp)$", path):
+                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/Setup(?:Commands|Queries|ObjectQueries|SceneQueries|RenderQueries|Actions)|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits|ModelCommands|ScriptCommands)|layout/(?:Layout(?:Commands|Gestures|Presentation|Authoring)|SnapshotCommands))\.(?:h|cpp)$", path):
             errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
     observed = set()
     for path, dependencies in graph.items():

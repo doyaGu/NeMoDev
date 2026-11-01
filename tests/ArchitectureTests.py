@@ -232,6 +232,20 @@ class ArchitectureTests(unittest.TestCase):
         self.write("ui/setup/SetupWindows.cpp", "void SetupWindows::DrawSetup() { ReadSetupPage(Client(), target, 0, page); }")
         self.assertEqual(self.run_check().returncode, 0)
 
+    def test_setup_class_pages_cannot_regain_native_access(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for path, name in (("SetupRenderPages", "MeshPage"), ("SetupScenePages", "SoundPage"),
+                           ("SetupObjectPages", "BehaviorPage")):
+            with self.subTest(page=name):
+                file = "ui/setup/" + path + ".cpp"
+                self.write(file, "void SetupWindows::" + name + "() { m_State.document->Context(); }")
+                result = self.run_check()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("native mutation or query returned", result.stderr)
+                self.write(file, "void SetupWindows::" + name + "() { ReadDetails(target, page, copy); }")
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_schematic_view_cannot_gain_indirect_native_access(self):
         self.write("features/schematic/SchematicView.h", '#include "core/model.h"\n')
         self.write("features/schematic/SchematicView.cpp", '#include "features/schematic/SchematicView.h"\n')
