@@ -18,6 +18,9 @@
 #include <stdexcept>
 #include <thread>
 
+void TestSetupProjections(vdev::Document &, vdev::EditorApplication &);
+bool RegisterSetupProjectionTests(vdev::EditorApplication &, std::string &);
+
 namespace {
 using namespace vdev;
 void Check(bool ok, const char *message) {
@@ -224,11 +227,16 @@ void TestSetupEdits(vdev::CkRuntimeHost &runtime) {
     module.editorCount = uint32_t(std::size(editors));
     EditorConfiguration defaults;
     defaults.providers = {{"command", "setup.camera.fov-set", "builtin.setup"},
-                          {"query", "setup.camera.fov-value", "builtin.setup"}};
-    Check(commands.Register(app, error) && failure.Register(app, error) && replacement.Register(app, error) &&
-              app.Register(module, error) && app.Activate(EDITOR_IMGUI_VERSION, error, defaults),
+                          {"query", "setup.camera.fov-value", "builtin.setup"},
+                          {"query", "setup.objects", "builtin.setup"},
+                          {"query", "setup.transform", "builtin.setup"}};
+    Check(commands.Register(app, error) && RegisterSetupProjectionTests(app, error) && failure.Register(app, error) &&
+              replacement.Register(app, error) && app.Register(module, error) &&
+              app.Activate(EDITOR_IMGUI_VERSION, error, defaults),
           error.c_str());
     const auto sync = [&] { app.Attach(doc.Token(), doc.TopologyRevision(), true, true); };
+    sync();
+    TestSetupProjections(doc, app);
     sync();
     auto owner = app.OpenScope();
     auto scope = app.Scope(owner);
@@ -621,7 +629,8 @@ void TestSetupEdits(vdev::CkRuntimeHost &runtime) {
     saved();
     auto custom = defaults;
     for (auto &provider : custom.providers)
-        provider.provider = "test.setup";
+        if (provider.id == "setup.camera.fov-value" || provider.id == "setup.camera.fov-set")
+            provider.provider = "test.setup";
     Check(app.Configure(custom, error), error.c_str());
     Check(begin("camera.fov", camera) == EDITOR_OK && update(Real(fov + .5)) == EDITOR_OK && camera->GetFov() == fov,
           "replacement inherited builtin preview");
