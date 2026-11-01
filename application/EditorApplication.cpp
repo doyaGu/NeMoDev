@@ -1162,6 +1162,22 @@ void *EditorApplication::CreateView(const EditorViewDesc &desc, EditorView id) {
     --s.readOnlyCallbacks;
     return data;
 }
+bool EditorApplication::ClosingView(const EditorViewDesc &desc, void *data, EditorView id) {
+    auto &s = *m_State;
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.drawing || !s.scopes.count(id))
+        return false;
+    if (!desc.closing)
+        return true;
+    ++s.executing;
+    try {
+        desc.closing(data, Host(), id);
+        --s.executing;
+        return true;
+    } catch (...) {
+        --s.executing;
+        return false;
+    }
+}
 bool EditorApplication::DestroyView(const EditorViewDesc &desc, void *data) {
     auto &s = *m_State;
     if (!s.Thread()) return false;
@@ -1257,8 +1273,8 @@ EditorResponse EditorApplication::InspectView(const EditorViewDesc &desc, void *
     if (result.status != EDITOR_OK) result.fields.clear();
     return result;
 }
-EditorResponse EditorApplication::PickView(const EditorViewDesc &desc, void *data, EditorScope scope, float x,
-                                           float y) {
+EditorResponse EditorApplication::PickView(const EditorViewDesc &desc, void *data, EditorScope scope, float x, float y,
+                                           uint32_t objectClass) {
     auto &s = *m_State;
     EditorResponse result;
     if (!s.Thread() || !s.NativeReady() || s.querying >= 16) {
@@ -1277,10 +1293,12 @@ EditorResponse EditorApplication::PickView(const EditorViewDesc &desc, void *dat
         result.status = EDITOR_NO_CHANGE;
         return result;
     }
-    EditorValue coordinates[2] = {{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("y"), EDITOR_REAL_VALUE}};
+    EditorValue coordinates[3] = {{EDITOR_TEXT("x"), EDITOR_REAL_VALUE},
+                                  {EDITOR_TEXT("y"), EDITOR_REAL_VALUE},
+                                  {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE, {}, {}, objectClass}};
     coordinates[0].real = x;
     coordinates[1].real = y;
-    const EditorRequest request{scope, coordinates, 2};
+    const EditorRequest request{scope, coordinates, objectClass ? 3u : 2u};
     Output output{result.fields};
     ++s.querying;
     ++s.readOnlyCallbacks;

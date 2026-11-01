@@ -43,7 +43,7 @@ class EditorWorkspace : private EditorViewNavigation {
     void DockViews();
     EditorView Role(const std::string &role) const;
     const EditorResponse &Inspect(EditorView view);
-    std::vector<ObjectRef> Pick(float x, float y, bool *handled = nullptr) const;
+    std::vector<ObjectRef> Pick(float x, float y, bool *handled = nullptr, uint32_t objectClass = 0) const;
     bool Interacting() const;
     bool Focus(EditorView view);
     EditorView Focused() const;
@@ -75,12 +75,13 @@ class EditorWorkspace : private EditorViewNavigation {
         uint64_t inspectionRevision = 0;
         DocumentToken inspectionDocument{};
         bool inspected = false;
+        std::vector<unsigned> windows; // top-level windows begun by this view
     };
     EditorStatus Navigate(const EditorViewDesc &, EditorView, const EditorRequest &, EditorSink) override;
     EditorStatus Inspect(EditorView, EditorSink) override;
     EditorStatus PickRegions(EditorView, const EditorPickRegion *, uint32_t) override;
     EditorView Create(const EditorViewDesc &desc);
-    void Destroy(EditorView view);
+    void Destroy(EditorView view, bool prepared = false);
     static EditorStatus OpenCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus FocusCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus CloseCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);

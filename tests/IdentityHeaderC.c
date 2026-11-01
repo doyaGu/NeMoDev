@@ -187,3 +187,15 @@ EditorRequest RequestAfterEditFromC(EditorOperation edit) {
     request.revisionArgument = (EditorString)EDITOR_TEXT("document-revision");
     return request;
 }
+
+static void EDITOR_CALL ClosingFromC(void *data, const EditorHost *host, EditorView view) {
+    (void)host;
+    *(uint32_t *)data = (uint32_t)view;
+}
+EditorViewDesc ClosingViewFromC(uint32_t *value) {
+    EditorViewDesc view = {0};
+    view.size = sizeof(view);
+    view.closing = ClosingFromC;
+    view.data = value;
+    return view;
+}

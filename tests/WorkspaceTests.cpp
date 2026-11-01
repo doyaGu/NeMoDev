@@ -12,7 +12,8 @@ std::string Text(EditorString value) { return {value.data ? value.data : "", val
 struct Browser;
 struct Provider {
     std::map<EditorView, Browser *> views;
-    unsigned created = 0, destroyed = 0;
+    unsigned created = 0, destroyed = 0, closing = 0;
+    bool closingScopeAlive = false;
     bool failCreate = false, failRestore = false, failSave = false, saveObject = false;
     EditorStatus mutation = EDITOR_OK;
     EditorStatus inspectionMutation = EDITOR_OK;
@@ -94,6 +95,11 @@ EditorViewDesc Description(Provider &provider, const char *name, const char *typ
         return sink.write(sink.data,&value,1);
     };
     desc.inspectRevision=[](void*data,const EditorHost*){uint64_t version=0;for(auto c:static_cast<Browser*>(data)->topic)version=version*131+uint8_t(c);return version;};
+    desc.closing = [](void *data, const EditorHost *host, EditorView id) {
+        auto &view = *static_cast<Browser *>(data);
+        ++view.provider.closing;
+        view.provider.closingScopeAlive = host->scope(host->data, id).view == id;
+    };
     return desc;
 }
 }
@@ -263,22 +269,28 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     first.saveObject = true;
     Check(!workspace.Configure(replacement, error) && first.views.count(id), "native references escaped in saved view state");
     first.saveObject = false;
+    Check(first.closing == 0, "failed replacement closed the source view");
     Check(workspace.Configure(replacement, error), error.c_str());
+    Check(first.closing == 1 && first.closingScopeAlive, "replacement closing callback lost its scope");
     Check(first.views.empty() && second.views.size() == 1 && second.views.begin()->second->topic == "second topic",
           "provider replacement lost navigation");
     const auto old = id;
     id = second.views.begin()->first;
     Check(id != old && !app.Scope(old).view && open("stale", old).status == EDITOR_STALE, "replaced instance scope survived");
+    const auto closingBefore = second.closing;
     second.failSave = true;
     Check(!workspace.Close(id) && second.views.count(id), "failed state capture closed a view");
+    Check(second.closing == closingBefore, "failed close state capture ran closing callback");
     second.failSave = false;
     Check(workspace.Close(id) && !app.Scope(id).view, "view close retained its scope");
+    Check(second.closing == closingBefore + 1 && second.closingScopeAlive,
+          "view closed without its live closing callback");
     Check(!workspace.Configure(badVersion, error), "incompatible closed-view state was accepted");
     Check(open("throw").status == EDITOR_ERROR && second.views.empty(), "failed reopening retained a new view");
     const auto reopened = workspace.Open("test.browser");
     Check(reopened && second.views.at(reopened)->topic == "second topic", "close/reopen lost state");
     auto boundLayout = workspace.Configuration();
-    boundLayout.views.push_back({"test.bound", "", "", false, false, false, true});
+    boundLayout.views.push_back({"test.bound", "", "", false, false, false, WorkspaceWindowId::Role});
     Check(workspace.Configure(boundLayout, error), error.c_str());
     const auto bound = workspace.Open("test.bound", "bound.object");
     Check(bound && workspace.WindowName(bound) == "Browser###bound.object", "bound window role identity");

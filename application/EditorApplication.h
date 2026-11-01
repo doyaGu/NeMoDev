@@ -95,10 +95,12 @@ class EditorApplication {
     void ViewNavigation(EditorViewNavigation *navigation);
     void *CreateView(const EditorViewDesc &, EditorView);
     bool DestroyView(const EditorViewDesc &, void *data);
+    bool ClosingView(const EditorViewDesc &, void *, EditorView);
     EditorResponse SaveViewState(const EditorViewDesc &, void *data, EditorScope);
     EditorStatus RestoreViewState(const EditorViewDesc &, void *data, EditorScope, const std::vector<EditorField> &);
     EditorResponse InspectView(const EditorViewDesc &, void *data, EditorScope);
-    EditorResponse PickView(const EditorViewDesc &, void *data, EditorScope, float x, float y);
+    EditorResponse PickView(const EditorViewDesc &, void *data, EditorScope, float x, float y,
+                            uint32_t objectClass = 0);
     uint64_t InspectRevision(const EditorViewDesc &, void *data);
     EditorStatus QueryRevision(const std::string &id, uint64_t &version);
     // Collect, validate, activate. No contribution becomes callable earlier.

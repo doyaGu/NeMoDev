@@ -11,13 +11,19 @@
 // Keeps Begin/End balanced even when drawing returns early or throws. Styling
 // and size preparation remain in the view, including custom dialog title bars.
 inline void EditorPrepareViewWindow(const EditorViewFrame &frame) {
-        if (frame.restorePlacement) {
+    if (frame.restorePlacement) {
+        // Setting a position requests undocking, even when a dock ID is
+        // also supplied. Docked windows take their geometry from the node.
+        if (!frame.dock) {
             ImGui::SetNextWindowPos({frame.x, frame.y});
             ImGui::SetNextWindowSize({frame.width, frame.height});
-            ImGui::SetNextWindowDockID(frame.dock);
         }
-        if (!frame.restorePlacement && frame.initialDock) ImGui::SetNextWindowDockID(frame.initialDock, ImGuiCond_FirstUseEver);
-        if (frame.focus) ImGui::SetNextWindowFocus();
+        ImGui::SetNextWindowDockID(frame.dock);
+    }
+    if (!frame.restorePlacement && frame.initialDock)
+        ImGui::SetNextWindowDockID(frame.initialDock, ImGuiCond_FirstUseEver);
+    if (frame.focus)
+        ImGui::SetNextWindowFocus();
 }
 class EditorImGuiWindow {
   public:

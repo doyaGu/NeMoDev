@@ -148,7 +148,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                     {"resource.file-dialogs", "", "", true},
                     {"snapshot.file-dialogs", "", "", true},
                     {"scene.hierarchy", "main.hierarchy", "resources"},
-                    {"object.setup", "", "editing", false, false, false, true},
+                    {"object.setup", "", "editing", false, false, false, WorkspaceWindowId::Role},
                     {"scene.attributes", "main.attributes", "editing"},
                     {"resource.data", "", "resources", false, false, true},
                     {"runtime.debugger", "main.debugger", ""},

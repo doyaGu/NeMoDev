@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 19u
+#define EDITOR_VERSION 20u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -249,6 +249,10 @@ typedef struct EditorValueInput {
 typedef uint32_t(EDITOR_CALL *EditorDrawValue)(void *, const EditorHost *, const EditorValueInput *);
 typedef void *(EDITOR_CALL *EditorCreateView)(void *, const EditorHost *, EditorView);
 typedef void(EDITOR_CALL *EditorDestroyView)(void *);
+// Called for an actual close, after replacement views are prepared and before
+// the source scope expires. May cancel the view's edits and restore temporary
+// selection. It is never called while a failed replacement is rolled back.
+typedef void(EDITOR_CALL *EditorClosingView)(void *, const EditorHost *, EditorView);
 // The workspace owns the window name and focus request. Window views use the
 // drawing adapter to begin/end this window; overlays keep their own popups.
 // A close request takes effect after drawing. The name is borrowed and NUL terminated.
@@ -320,6 +324,7 @@ typedef struct EditorViewDesc {
     const EditorParameter *fields;
     uint32_t fieldCount;
     // Optional hit test in screen coordinates (REAL arguments "x", "y").
+    // Object pickers also supply an optional INTEGER "class" filter.
     // Returns one OBJECT_LIST named "objects", ordered by pick priority.
     // The workspace selects this instance by window visibility, not title.
     // Empty means no hit; failure never falls through to another window.
@@ -330,6 +335,7 @@ typedef struct EditorViewDesc {
     // Its replacement state may contain checked ObjectRefs; that state is never
     // retained across documents. Other views save only document-independent values.
     uint32_t documentBound;
+    EditorClosingView closing;
 } EditorViewDesc;
 typedef struct EditorMenuDesc {
     EditorString id, action, location, label;

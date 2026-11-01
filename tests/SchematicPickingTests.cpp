@@ -60,12 +60,16 @@ struct PickProbe {
     EditorStatus status = EDITOR_OK, mutation = EDITOR_OK;
     unsigned calls = 0;
     bool throwing = false;
+    uint32_t objectClass = 0;
     static EditorStatus Read(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<PickProbe *>(data);
         ++self.calls;
-        Check(request->count == 2 && request->values[0].type == EDITOR_REAL_VALUE && request->values[0].real == 24 &&
-                  request->values[1].real == 48,
+        Check(request->count == (self.objectClass ? 3u : 2u) && request->values[0].type == EDITOR_REAL_VALUE &&
+                  request->values[0].real == 24 && request->values[1].real == 48,
               "view pick lost screen coordinates");
+        if (self.objectClass)
+            Check(request->values[2].type == EDITOR_INTEGER_VALUE && request->values[2].integer == self.objectClass,
+                  "view pick lost object class filter");
         const EditorRequest edit{request->scope, nullptr, 0};
         self.mutation = host->execute(host->data, EditorString EDITOR_TEXT("schematic.refresh"), &edit, {});
         // Read-only view callbacks may use the same registered document queries.
@@ -92,6 +96,10 @@ void ViewPicking(EditorApplication &app, Document &doc, ObjectRef script) {
     const auto pick = [&] { return app.PickView(view, &probe, app.Scope(scope), 24, 48); };
     Check(pick().status == EDITOR_OK && probe.calls == 1 && probe.mutation == EDITOR_REFUSED,
           "instance picker bypassed read-only execution");
+    probe.objectClass = CKCID_MATERIAL;
+    Check(app.PickView(view, &probe, app.Scope(scope), 24, 48, probe.objectClass).status == EDITOR_OK,
+          "class-aware view pick failed");
+    probe.objectClass = 0;
     probe.throwing = true;
     Check(pick().status == EDITOR_ERROR, "pick exception escaped");
     probe.throwing = false;

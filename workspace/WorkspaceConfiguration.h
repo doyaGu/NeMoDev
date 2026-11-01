@@ -2,10 +2,12 @@
 #include "application/EditorApplication.h"
 
 namespace vdev {
+enum class WorkspaceWindowId { Instance, Role, Named };
 struct WorkspaceViewPlacement {
     std::string type, role, region;
     bool startup = false, pinned = false, keepOnReset = false;
-    bool useRoleAsWindowId = false;
+    WorkspaceWindowId windowId = WorkspaceWindowId::Instance;
+    std::string windowName;
 };
 enum class WorkspaceDirection { Left, Right, Up, Down };
 struct WorkspaceSplit {
