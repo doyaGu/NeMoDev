@@ -80,6 +80,7 @@ LayoutWindow::~LayoutWindow() {
 }
 
 bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
+    m_EditorHost = m_State.workspace->Application().Host();
     CancelEdits();
     if (!ReleaseTexture()) {
         // Keep the borrowed SDL texture alive until the old Context, and with
@@ -212,12 +213,13 @@ void LayoutWindow::SyncComposition() {
         m_View.CompositionChanged();
         m_Doc.lastLevel = levelId;
         // Dev empties the Selection Groups combo for a new composition.
-        m_Group = 0;
+        m_Group = {};
         m_GroupRevision = ~0u;
     }
 }
 
 void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
+    PollCommands();
     // Set again by the view while the composition keeps the cursor.
     ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
     // Every frame, shown or not: Player Mode starts with the selection of Play.
@@ -401,8 +403,9 @@ void LayoutWindow::TopBar(const ImVec2 &origin, float width) {
     // Available Cameras (id 19): Dev's views, then the composition's cameras.
     ImGui::SetCursorScreenPos(ImVec2(origin.x + 202.0f * s, origin.y + 1.0f * s));
     ImGui::SetNextItemWidth(140.0f * s);
-    CKCamera *current = m_View.Camera();
-    const std::string currentName = current && current->GetName() ? AnsiToUtf8(current->GetName()) : std::string();
+    auto &cameras = m_CameraData; const bool camerasReady = ReadLayoutScene(Client(), "cameras", cameras);
+    const auto *current = camerasReady ? cameras.Find(cameras.camera.object) : nullptr;
+    const std::string currentName = current ? current->name : std::string();
     ImGui::PopStyleColor(); // the list keeps the menu's text color
     ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(236, 236, 236, 255));
     const bool open = ImGui::BeginCombo("##cameras", currentName.c_str());
@@ -410,12 +413,10 @@ void LayoutWindow::TopBar(const ImVec2 &origin, float width) {
     if (ImGui::IsItemHovered() && !open) ImGui::SetTooltip("Available Cameras");
     if (open) {
         TypeAhead typeAhead;
-        CKContext *context = m_State.host.Context();
-        for (CK_ID id : m_View.Cameras()) {
-            CKObject *camera = context->GetObject(id);
-            const std::string name = camera && camera->GetName() ? AnsiToUtf8(camera->GetName()) : std::string("?");
-            ImGui::PushID(static_cast<int>(id));
-            if (typeAhead.Selectable(name.c_str(), current && current->GetID() == id)) m_View.SetCamera(id);
+        if (camerasReady) for (const auto &camera : cameras.rows) {
+            ImGui::PushID(int(camera.object.object));
+            if (typeAhead.Selectable(camera.name.c_str(), current && current->object == camera.object))
+                Execute("layout.set-camera", {ObjectArgument("target", camera.object)});
             ImGui::PopID();
         }
         ImGui::EndCombo();
@@ -635,7 +636,9 @@ void LayoutWindow::Command(int command) {
         auto &editor = m_State.workspace->Application(); editor.Execute("preferences.open", {editor.Scope(), nullptr, 0}); break;
     }
     case 41: OpenExplorer(); break;
-    case 180: Duplicate(AliveSelection()); break; // the shortcut menu's Duplicate
+    case 180: {
+        LayoutSelectionData selection; if (ReadLayoutSelection(Client(), selection)) Duplicate(selection.objects); break;
+    } // the shortcut menu's Duplicate
     case 56: if (m_Started) m_SnapshotOpen = true; break;
     default: break;
     }

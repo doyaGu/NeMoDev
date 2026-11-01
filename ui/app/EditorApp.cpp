@@ -150,7 +150,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
         !m_SchematicGraph.Register(m_Editor, error) || !RegisterSchematicDiagnosticViews(m_Editor, error) ||
         !RegisterArrayValueEditors(m_Editor, error) || !RegisterObjectViews(m_Editor, error) ||
-        !m_SceneCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
+        !m_SceneCommands.Register(error) || !m_LayoutCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
         !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
         m_State.Log(LogLevel::Error, error);
         return false;
@@ -465,7 +465,7 @@ void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenR
     // NMO opens are imports into a new composition. Keep its editor state,
     // just as Import File does, rather than restoring the library's layout.
     if (m_State.document->CreatedFrom() == Document::Origin::LoadedComposition) {
-        m_Layout.ApplyLayoutData(result.layout);
+        m_Layout.ApplyLayoutData(result.layout, m_LayoutCommands.ProjectInterface(result.layout));
         ReopenSetups(result.layout);
         m_SchematicGraph.LoadedLinks(result.invalid);
         if (result.removed) m_State.Log(LogLevel::Warning, std::to_string(result.removed) + " invalid link(s) removed after loading");
@@ -512,7 +512,7 @@ void EditorApp::CloseDocumentViews() {
     m_Setups.CloseAll();
     m_Panels.DocumentClosed();
     m_Layout.DocumentClosed(); // its working copies while they still exist
-    m_Layout.ApplyLayoutData(LayoutInterfaceData());
+    m_Layout.ApplyLayoutData(LayoutInterfaceData(), {});
     m_Schematics.DocumentClosed();
     ReleaseSnapshotTextures(); // the document frees its bitmaps
     UpdateTitle();
@@ -532,7 +532,7 @@ void EditorApp::RestoreDocument() {
                     m_State.document->TopologyRevision(), true, m_State.HasDocument());
     std::string error;
     if (!m_Layout.Start(m_Window, &error)) throw std::runtime_error("3D Layout: " + error);
-    m_Layout.ApplyLayoutData(m_DetachedLayout, false);
+    m_Layout.ApplyLayoutData(m_DetachedLayout, m_LayoutCommands.ProjectInterface(m_DetachedLayout), false);
     ReopenSetups(m_DetachedLayout);
     m_Schematics.Invalidate();
     UpdateTitle();
@@ -968,6 +968,7 @@ void EditorApp::Frame() {
     m_Environment.Poll();
     m_Diagnostics.Poll();
     m_Preferences.Poll();
+    m_LayoutCommands.Poll();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }

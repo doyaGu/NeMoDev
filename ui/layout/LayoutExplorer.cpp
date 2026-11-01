@@ -9,6 +9,7 @@
 #include <map>
 
 #include "ui/controls/DevIcons.h"
+#include "features/layout/LayoutSceneData.h"
 #include "core/layout/LayoutExplorer.h"
 #include "core/runtime/TextEncoding.h"
 
@@ -32,25 +33,16 @@ std::string Lower(std::string text) {
 
 // Dev.exe sub_4C3D10 (6): after a selection change the combo shows the first
 // group holding exactly the objects selected, else nothing.
-void LayoutWindow::SyncGroup() {
-    CKContext *context = m_State.host.Context();
-    if (m_Group) {
-        CKObject *group = context ? context->GetObject(m_Group) : nullptr;
-        if (!CKGroup::Cast(group) || (m_State.HasDocument() && m_State.document->IsDiscarded(m_Group)))
-            m_Group = 0;
-    }
-    if (m_GroupRevision == m_State.objectSelection.Revision()) return;
-    m_GroupRevision = m_State.objectSelection.Revision();
-    m_Group = m_State.HasDocument() ? MatchingGroup(context, SceneGroups(context, m_View.Scene()), AliveSelection()) : 0;
-}
-
 void LayoutWindow::SelectionGroups(const ImVec2 &at, float width) {
-    CKContext *context = m_State.host.Context();
-    const bool usable = m_Started && m_State.HasDocument() && m_View.Scene();
-    if (usable) SyncGroup();
+    auto &groups = m_GroupData; auto &selection = m_SelectionData;
+    const bool usable = m_Started && ReadLayoutScene(Client(), "groups", groups) && groups.scene && ReadLayoutSelection(Client(), selection);
+    if (usable) {
+        if (m_Group && (!groups.Find(m_Group.object) || groups.Find(m_Group.object)->object != m_Group)) m_Group = {};
+        if (m_GroupRevision != selection.revision) { m_GroupRevision = unsigned(selection.revision); m_Group = groups.matchingGroup; }
+    }
     if (!m_GroupEditing) {
-        CKObject *group = usable && m_Group ? context->GetObject(m_Group) : nullptr;
-        CopyText(m_GroupText, sizeof(m_GroupText), group ? DevObjectName(group) : std::string());
+        const auto *group = usable && m_Group ? groups.Find(m_Group.object) : nullptr;
+        CopyText(m_GroupText, sizeof(m_GroupText), group ? group->name : std::string());
     }
     const float arrow = ImGui::GetFrameHeight();
     ImGui::SetCursorScreenPos(at);
@@ -69,11 +61,9 @@ void LayoutWindow::SelectionGroups(const ImVec2 &at, float width) {
     if (ImGui::BeginPopup("##grouplist")) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
         int listed = 0;
-        for (CK_ID id : usable ? SceneGroups(context, m_View.Scene()) : std::vector<CK_ID>()) {
-            CKObject *group = context->GetObject(id);
-            if (!group) continue;
-            ImGui::PushID(static_cast<int>(id));
-            if (ImGui::Selectable(DevObjectName(group).c_str(), id == m_Group)) ChooseGroup(id);
+        for (const auto &group : groups.rows) {
+            ImGui::PushID(int(group.object.object));
+            if (ImGui::Selectable(group.name.c_str(), group.object == m_Group)) ChooseGroup(group.object);
             ImGui::PopID();
             ++listed;
         }
@@ -86,114 +76,73 @@ void LayoutWindow::SelectionGroups(const ImVec2 &at, float width) {
 // Dev.exe sub_4B95C0 (0x7E8, Enter in the combo): the name of a group listed
 // selects it, another name makes a group of the selection.
 void LayoutWindow::EnterGroup(const std::string &name) {
-    CKContext *context = m_State.host.Context();
-    CKScene *scene = m_View.Scene();
-    if (name.empty() || !m_State.HasDocument() || !scene) return;
-    // CB_FINDSTRINGEXACT: the whole name, any case.
-    for (CK_ID id : SceneGroups(context, scene)) {
-        CKObject *group = context->GetObject(id);
-        if (group && _stricmp(DevObjectName(group).c_str(), name.c_str()) == 0) {
-            ChooseGroup(id);
-            return;
-        }
-    }
-    const std::vector<CK_ID> selection = AliveSelection();
-    if (selection.empty()) return;
-    const EditResult result =
-        CreateSelectionGroup(*m_State.document, scene->GetID(), Utf8ToAnsi(name), selection);
-    if (result.ok) {
-        m_Group = result.created;
-        m_GroupRevision = m_State.objectSelection.Revision();
-    } else {
-        m_State.Log(LogLevel::Warning, "Selection Groups: " + AnsiToUtf8(result.message));
-    }
+    if (name.empty() || !ReadLayoutScene(Client(), "groups", m_GroupData)) return;
+    for (const auto &group : m_GroupData.rows) if (Lower(group.name) == Lower(name)) { ChooseGroup(group.object); return; }
+    LayoutSelectionData selection;
+    if (ReadLayoutSelection(Client(), selection))
+        Execute("layout.create-selection-group", {TextArgument("name", name), ObjectsArgument("objects", selection.objects)}, AfterCommand::Group);
 }
 
 // Dev.exe sub_4B95C0 (id 18, CBN_SELCHANGE): not while the selection is
 // locked; the group's 3D and 2D entities replace the selection.
-void LayoutWindow::ChooseGroup(CK_ID id) {
-    if (m_State.objectSelection.Locked()) return;
-    const std::vector<CK_ID> objects = GroupSelection(m_State.host.Context(), id);
-    if (objects.empty()) return;
-    m_Group = id;
-    SetSelection(objects);
-    m_GroupRevision = ~0u; // matched again, as Dev's selection notification does
+void LayoutWindow::ChooseGroup(ObjectRef group) {
+    Execute("layout.choose-group", {ObjectArgument("target", group)});
+    m_GroupRevision = ~0u;
 }
 
 // Dev.exe sub_4B46C0: a group that exists is shown and its objects are
 // selected, else the objects saved are; then the lock.
-void LayoutWindow::ApplyLayoutData(const LayoutInterfaceData &data, bool restoreSelection) {
-    m_Interface = data;
-    m_Group = 0;
-    m_GroupRevision = ~0u;
-    if (!data.present || !m_State.HasDocument()) return;
-    CKContext *context = m_State.host.Context();
-    std::vector<CK_ID> objects;
-    if (CKGroup *group = CKGroup::Cast(context->GetObject(data.group))) {
-        for (int i = 0; i < group->GetObjectCount(); ++i)
-            if (CKBeObject *member = group->GetObject(i)) objects.push_back(member->GetID());
-    } else {
-        for (CK_ID id : data.selection)
-            if (context->GetObject(id)) objects.push_back(id);
-    }
-    if (restoreSelection) m_State.objectSelection.Restore(*m_State.document, objects, data.locked);
-    if (context->GetObject(data.group)) {
-        m_Group = data.group;
-        m_GroupRevision = m_State.objectSelection.Revision();
-    }
-    // The lists (core ReadLayoutLists), the camera.
-    if (!data.cameras.empty() && CKCamera::Cast(context->GetObject(data.cameras.front())))
-        m_View.SetCamera(data.cameras.front());
+void LayoutWindow::ApplyLayoutData(const LayoutInterfaceData &data, const LayoutRestoreData &restore, bool restoreSelection) {
+    m_Interface = data; m_Group = {}; m_GroupRevision = ~0u;
+    if (data.present && Client().Scope().document.value)
+        Execute("layout.restore-interface", {IntegerArgument("restore-selection", restoreSelection), ObjectArgument("group", restore.group),
+            ObjectArgument("camera", restore.camera), ObjectsArgument("objects", restore.selection), IntegerArgument("locked", restore.locked)}, AfterCommand::Group);
 }
 
 // Dev.exe sub_4B4E50: the group shown, else the selection; the lock.
 LayoutInterfaceData LayoutWindow::LayoutData() const {
-    LayoutInterfaceData data = m_Interface;
-    data.present = true;
-    data.group = m_Group;
-    data.selection = AliveSelection();
-    data.locked = m_State.objectSelection.Locked();
-    // The saver supplies the document's per-object lists. This capture only
-    // contributes view state and preserves the file's unedited fields.
-    // The camera, unless one of the 3D Layout's own views (not saved).
-    CKCamera *camera = m_View.Camera();
-    data.cameras.assign(1, camera && !m_View.IsViewCamera(camera->GetID()) ? camera->GetID() : 0);
+    LayoutInterfaceData data = m_Interface; data.present = true;
+    LayoutSelectionData selection; LayoutSceneData scene, groups;
+    if (ReadLayoutSelection(Client(), selection)) {
+        data.selection.clear(); for (auto object : selection.objects) data.selection.push_back(object.object);
+        data.locked = selection.locked;
+    }
+    if (ReadLayoutScene(Client(), "groups", groups)) {
+        const auto *group = groups.Find(m_Group.object);
+        data.group = group && group->object == m_Group ? m_Group.object : 0;
+    }
+    if (ReadLayoutScene(Client(), "cameras", scene)) data.cameras.assign(1, scene.savedCamera.object);
     return data;
 }
 
 // ------------------------------------------------------------ 3D Layout Explorer
 
 void LayoutWindow::OpenExplorer() {
-    if (m_Doc.explorerOpen) {
-        ImGui::SetWindowFocus("3D Layout Explorer");
-        return;
-    }
-    if (!m_State.HasDocument() || !m_View.Scene()) return;
-    m_Doc.explorerOpen = true;
-    m_Doc.explorerSaved = m_State.objectSelection.References();
-    m_Doc.explorerSavedLock = m_State.objectSelection.Locked();
-    m_Doc.explorerAnchor = m_Doc.explorerFocus = 0;
-    m_Doc.explorerListRevision = ~0u; // OnInitDialog: the 3D Layout's selection (sub_59EC90)
-    m_ExplorerTyped.clear();
+    if (m_Doc.explorerOpen) { ImGui::SetWindowFocus("3D Layout Explorer"); return; }
+    LayoutSceneData scene; LayoutSelectionData selection;
+    if (!ReadLayoutScene(Client(), "explorer", scene) || !scene.scene || !ReadLayoutSelection(Client(), selection)) return;
+    m_Doc.explorerOpen = true; m_Doc.explorerSaved = selection.objects; m_Doc.explorerSavedLock = selection.locked;
+    m_Doc.explorerAnchor = m_Doc.explorerFocus = {};
+    m_Doc.explorerListRevision = ~0u; m_ExplorerTyped.clear();
 }
 
 // Select keeps the selection; Cancel gives back the selection and the lock
 // of the opening (Dev.exe sub_59E270, IDCANCEL). Both keep the types shown.
 void LayoutWindow::CloseExplorer(bool cancel) {
-    if (cancel && m_State.HasDocument()) {
+    if (cancel && Client().Scope().document.value) {
         std::vector<ObjectRef> saved;
         for (auto object : m_Doc.explorerSaved)
-            if (m_State.document->Resolve(object)) saved.push_back(object);
-        RestoreSelection(saved, m_Doc.explorerSavedLock);
+            if (Client().Query("object.details", {ObjectArgument("target", object)}).status == EDITOR_OK) saved.push_back(object);
+        Execute("selection.restore", {ObjectsArgument("objects", saved), IntegerArgument("locked", m_Doc.explorerSavedLock)});
     }
     m_Doc.explorerOpen = false;
 }
 
 void LayoutWindow::ExplorerWindow() {
     if (!m_Doc.explorerOpen) return;
-    CKContext *context = m_State.host.Context();
-    CKScene *scene = m_View.Scene();
-    if (!m_State.HasDocument() || !scene) {
+    auto &scene = m_ExplorerData; auto &selection = m_SelectionData;
+    if (!ReadLayoutScene(Client(), "explorer", scene, {IntegerArgument("shown", m_ExplorerShown), TextArgument("filter", std::string(m_ExplorerFilter))}) ||
+        !scene.scene || !ReadLayoutSelection(Client(), selection)) {
         m_Doc.explorerOpen = false;
         return;
     }
@@ -216,47 +165,29 @@ void LayoutWindow::ExplorerWindow() {
     }
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     auto place = [&](float x, float y) { ImGui::SetCursorScreenPos(ImVec2(origin.x + x * dx, origin.y + y * dy)); };
-    ObjectSelection &selection = m_State.objectSelection;
-    const bool locked = selection.Locked();
-
-    // The list: the scene's objects of the types shown whose name holds the
-    // filter, sorted by name.
-    struct Row {
-        CK_ID id;
-        std::string name;
-        CK_CLASSID cid;
-    };
-    std::vector<Row> rows;
-    const std::string filter = Lower(m_ExplorerFilter);
-    for (const auto &entry : ExplorerObjects(context, scene, m_ExplorerShown)) {
-        if (m_State.document->IsDiscarded(entry.first) || m_View.IsInterfaceObject(entry.first)) continue;
-        CKObject *object = context->GetObject(entry.first);
-        std::string name = DevObjectName(object);
-        if (!filter.empty() && Lower(name).find(filter) == std::string::npos) continue;
-        rows.push_back({entry.first, std::move(name), object->GetClassID()});
-    }
-    std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return _stricmp(a.name.c_str(), b.name.c_str()) < 0; });
-    auto indexOf = [&](CK_ID id) {
+    const bool locked = selection.locked;
+    const auto &rows = scene.rows;
+    auto indexOf = [&](ObjectRef id) {
         for (size_t k = 0; k < rows.size(); ++k)
-            if (rows[k].id == id) return static_cast<int>(k);
+            if (rows[k].object == id) return static_cast<int>(k);
         return -1;
     };
-    auto listed = [&](CK_ID id) { return std::find(m_Doc.explorerList.begin(), m_Doc.explorerList.end(), id) != m_Doc.explorerList.end(); };
+    auto listed = [&](ObjectRef id) { return std::find(m_Doc.explorerList.begin(), m_Doc.explorerList.end(), id) != m_Doc.explorerList.end(); };
     // sub_59EC90: the list shows the 3D Layout's selection again after each
     // change of it (and when the types shown change), with its count.
     auto restore = [&] {
         m_Doc.explorerList.clear();
-        for (const Row &row : rows)
-            if (selection.Contains(row.id)) m_Doc.explorerList.push_back(row.id);
+        for (const auto &row : rows)
+            if (selection.Contains(row.object.object)) m_Doc.explorerList.push_back(row.object);
         m_Doc.explorerCount = static_cast<int>(m_Doc.explorerList.size());
-        m_Doc.explorerListRevision = selection.Revision();
+        m_Doc.explorerListRevision = selection.revision;
     };
-    if (m_Doc.explorerListRevision != selection.Revision()) restore();
+    if (m_Doc.explorerListRevision != selection.revision) restore();
     // The list in its order.
-    auto ordered = [&](const std::vector<CK_ID> &ids) {
-        std::vector<CK_ID> result;
-        for (const Row &row : rows)
-            if (std::find(ids.begin(), ids.end(), row.id) != ids.end()) result.push_back(row.id);
+    auto ordered = [&](const std::vector<ObjectRef> &ids) {
+        std::vector<ObjectRef> result;
+        for (const auto &row : rows)
+            if (std::find(ids.begin(), ids.end(), row.object) != ids.end()) result.push_back(row.object);
         return result;
     };
     // sub_59EF40: the 3D Layout's selection made the list's (NM_CLICK and the
@@ -267,8 +198,8 @@ void LayoutWindow::ExplorerWindow() {
             return;
         }
         m_Doc.explorerList = ordered(m_Doc.explorerList);
-        SetSelection(m_Doc.explorerList);
-        restore();
+        Execute("selection.replace", {ObjectsArgument("objects", m_Doc.explorerList), IntegerArgument("render-only", 1)});
+        ReadLayoutSelection(Client(), selection); restore();
     };
 
     place(0, 2);
@@ -284,12 +215,12 @@ void LayoutWindow::ExplorerWindow() {
     // The list view's selection by the mouse: alone, Ctrl toggles, Shift the
     // items from the anchor (with Ctrl added to the others).
     auto pick = [&](int i, bool shift, bool ctrl) {
-        const CK_ID id = rows[static_cast<size_t>(i)].id;
+        const auto id = rows[static_cast<size_t>(i)].object;
         const int anchor = shift ? indexOf(m_Doc.explorerAnchor) : -1;
         if (anchor >= 0) {
             if (!ctrl) m_Doc.explorerList.clear();
             for (int k = std::min(anchor, i); k <= std::max(anchor, i); ++k)
-                if (!listed(rows[static_cast<size_t>(k)].id)) m_Doc.explorerList.push_back(rows[static_cast<size_t>(k)].id);
+                if (!listed(rows[static_cast<size_t>(k)].object)) m_Doc.explorerList.push_back(rows[static_cast<size_t>(k)].object);
         } else if (ctrl) {
             auto found = std::find(m_Doc.explorerList.begin(), m_Doc.explorerList.end(), id);
             if (found != m_Doc.explorerList.end()) m_Doc.explorerList.erase(found);
@@ -320,9 +251,9 @@ void LayoutWindow::ExplorerWindow() {
         else if (ImGui::IsKeyPressed(ImGuiKey_PageUp)) to = focus < 0 ? 0 : std::max(0, focus - page);
         if (to >= 0) {
             if (io.KeyCtrl && !io.KeyShift) {
-                m_Doc.explorerFocus = rows[static_cast<size_t>(to)].id;
+                m_Doc.explorerFocus = rows[static_cast<size_t>(to)].object;
             } else {
-                if (!io.KeyShift || indexOf(m_Doc.explorerAnchor) < 0) m_Doc.explorerAnchor = rows[static_cast<size_t>(to)].id;
+                if (!io.KeyShift || indexOf(m_Doc.explorerAnchor) < 0) m_Doc.explorerAnchor = rows[static_cast<size_t>(to)].object;
                 pick(to, io.KeyShift, io.KeyCtrl);
                 clicked = true;
             }
@@ -347,7 +278,7 @@ void LayoutWindow::ExplorerWindow() {
                 for (int n = 0; n <= last; ++n) {
                     const int k = (start + n) % (last + 1);
                     if (Lower(rows[static_cast<size_t>(k)].name).compare(0, prefix.size(), prefix) == 0) {
-                        m_Doc.explorerAnchor = rows[static_cast<size_t>(k)].id;
+                        m_Doc.explorerAnchor = rows[static_cast<size_t>(k)].object;
                         pick(k, false, false);
                         clicked = true;
                         scrollToFocus = true;
@@ -358,10 +289,10 @@ void LayoutWindow::ExplorerWindow() {
         }
     }
     for (size_t i = 0; i < rows.size(); ++i) {
-        const Row &row = rows[i];
-        ImGui::PushID(static_cast<int>(row.id));
+        const auto &row = rows[i];
+        ImGui::PushID(static_cast<int>(row.object.object));
         const ImVec2 at = ImGui::GetCursorScreenPos();
-        const bool selected = listed(row.id);
+        const bool selected = listed(row.object);
         if (ImGui::Selectable("##row", selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(0.0f, rowHeight))) {
             clicked = true;
             pick(static_cast<int>(i), io.KeyShift, io.KeyCtrl);
@@ -371,20 +302,20 @@ void LayoutWindow::ExplorerWindow() {
             // The list view selects the item clicked when it is not (here
             // the 3D Layout's selection too, Dev leaves it).
             if (!selected) {
-                m_Doc.explorerList.assign(1, row.id);
-                m_Doc.explorerAnchor = row.id;
+                m_Doc.explorerList.assign(1, row.object);
+                m_Doc.explorerAnchor = row.object;
                 clicked = true;
             }
-            m_Doc.explorerFocus = row.id;
+            m_Doc.explorerFocus = row.object;
             rightClicked = true;
         }
-        if (scrollToFocus && row.id == m_Doc.explorerFocus) ImGui::SetScrollHereY();
+        if (scrollToFocus && row.object == m_Doc.explorerFocus) ImGui::SetScrollHereY();
         DrawDevIcon(ImGui::GetWindowDrawList(), ImVec2(at.x + 2.0f * m_Scale, at.y + (rowHeight - 10.0f * iconScale) * 0.5f),
                     iconScale, IconForClass(row.cid), IM_COL32(0, 0, 0, 255), IM_COL32(230, 230, 230, 255));
         ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 16.0f * m_Scale, at.y + 1.0f * m_Scale),
                                             ImGui::GetColorU32(ImGuiCol_Text), row.name.c_str());
         // The focused item's dotted frame while the list has the focus.
-        if (listFocused && row.id == m_Doc.explorerFocus) {
+        if (listFocused && row.object == m_Doc.explorerFocus) {
             const ImVec2 b(at.x + ImGui::GetContentRegionAvail().x, at.y + rowHeight);
             for (float x = at.x; x < b.x; x += 2.0f) {
                 ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, at.y), ImVec2(x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 255));
@@ -406,13 +337,13 @@ void LayoutWindow::ExplorerWindow() {
     // selection becomes the list's (objects not listed leave it); while
     // locked the list shows the selection again (sub_59EC90).
     if (clicked) apply();
-    std::vector<CK_ID> listedSelected = ordered(m_Doc.explorerList);
+    std::vector<ObjectRef> listedSelected = ordered(m_Doc.explorerList);
     // NM_DBLCLK, NM_RCLICK: Show Setup with one item selected.
-    if (doubleClicked && listedSelected.size() == 1) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(listedSelected.front())});
+    if (doubleClicked && listedSelected.size() == 1) Execute("object.open-setup", {ObjectArgument("target", listedSelected.front())});
     if (rightClicked && listedSelected.size() == 1) ImGui::OpenPopup("##explorermenu");
     if (ImGui::BeginPopup("##explorermenu")) {
         if (ImGui::MenuItem("Show Setup") && listedSelected.size() == 1)
-            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(listedSelected.front())});
+            Execute("object.open-setup", {ObjectArgument("target", listedSelected.front())});
         ImGui::EndPopup();
     }
     ImGui::EndChild();
@@ -436,10 +367,7 @@ void LayoutWindow::ExplorerWindow() {
                                 {"Frames", EXPLORER_FRAMES, 88},         {"Curves", EXPLORER_CURVES, 99},
                                 {"Scripted Objects", EXPLORER_SCRIPTED, 110}};
     // The types of the 3D Layout's selection the list shows (sub_59EC90, +2560).
-    std::vector<CK_ID> layoutListed;
-    for (const Row &row : rows)
-        if (selection.Contains(row.id)) layoutListed.push_back(row.id);
-    const unsigned selectedTypes = SelectedTypes(context, layoutListed);
+    const unsigned selectedTypes = scene.selectedTypes;
     bool typesChanged = false;
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f * m_Scale, 0.0f));
     for (const Box &box : boxes) {
@@ -483,10 +411,10 @@ void LayoutWindow::ExplorerWindow() {
     if (listButton("Invert", 341)) listAction = 3;
     if (listAction && !locked) {
         // The list's items, then sub_59EF40.
-        std::vector<CK_ID> objects;
-        for (const Row &row : rows) {
-            const bool was = listed(row.id);
-            if (listAction == 1 || (listAction == 3 && !was)) objects.push_back(row.id);
+        std::vector<ObjectRef> objects;
+        for (const auto &row : rows) {
+            const bool was = listed(row.object);
+            if (listAction == 1 || (listAction == 3 && !was)) objects.push_back(row.object);
         }
         m_Doc.explorerList = objects;
         apply();

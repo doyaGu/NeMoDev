@@ -242,13 +242,9 @@ void LayoutWindow::StartupOptions(const std::string &tool, const std::string &ca
         m_State.Log(LogLevel::Warning, "--layout-tool: unknown tool " + tool);
     }
     if (camera.empty()) return;
-    CKContext *context = m_State.host.Context();
-    for (CK_ID id : m_View.Cameras()) {
-        CKObject *object = context->GetObject(id);
-        if (object && object->GetName() && camera == object->GetName()) {
-            m_View.SetCamera(id);
-            return;
-        }
+    LayoutSceneData cameras;
+    if (ReadLayoutScene(Client(), "cameras", cameras)) for (const auto &row : cameras.rows) if (row.name == camera) {
+        Execute("layout.set-camera", {ObjectArgument("target", row.object)}); return;
     }
     m_State.Log(LogLevel::Warning, "--layout-view: no camera named " + AnsiToUtf8(camera));
 }
@@ -455,14 +451,12 @@ bool LayoutWindow::BeginHandle(int x, int y) {
 
 // N / Shift+N: the next or previous camera of the combo.
 void LayoutWindow::NextCamera(bool previous) {
-    const std::vector<CK_ID> cameras = m_View.Cameras();
-    if (cameras.empty()) return;
-    CKCamera *current = m_View.Camera();
-    const int count = static_cast<int>(cameras.size());
-    int index = 0;
-    for (int i = 0; i < count; ++i)
-        if (current && cameras[i] == current->GetID()) index = i;
-    m_View.SetCamera(cameras[(index + (previous ? count - 1 : 1)) % count]);
+    auto &cameras = m_CameraData;
+    if (!ReadLayoutScene(Client(), "cameras", cameras) || cameras.rows.empty()) return;
+    size_t index = 0;
+    for (size_t i = 0; i < cameras.rows.size(); ++i) if (cameras.rows[i].object == cameras.camera) index = i;
+    index = (index + (previous ? cameras.rows.size() - 1 : 1)) % cameras.rows.size();
+    Execute("layout.set-camera", {ObjectArgument("target", cameras.rows[index].object)});
 }
 
 void LayoutWindow::ZoomOn(bool scene) {
@@ -487,16 +481,14 @@ void LayoutWindow::Shortcuts() {
         if (pressed(ImGuiKey_D)) ClearSelection();
         if (pressed(ImGuiKey_I)) SelectAll(true);
         if (pressed(ImGuiKey_C)) {
-            std::vector<CK_ID> copied;
-            for (CK_ID id : AliveSelection())
-                if (!CKCurvePoint::Cast(m_State.host.Context()->GetObject(id))) copied.push_back(id);
-            m_State.objectClipboard.SetObjects(*m_State.document, std::move(copied));
+            LayoutSelectionData selection;
+            if (ReadLayoutSelection(Client(), selection)) Execute("layout.copy", {ObjectsArgument("objects", selection.objects)});
         }
-        if (pressed(ImGuiKey_V) && m_State.HasDocument()) {
-            std::vector<CK_ID> alive;
-            for (CK_ID id : m_State.objectClipboard.Objects(*m_State.document))
-                if (m_State.host.Context()->GetObject(id)) alive.push_back(id);
-            if (!alive.empty()) Duplicate(alive);
+        if (pressed(ImGuiKey_V)) {
+            const auto clipboard = Client().Query("scene.clipboard");
+            if (clipboard.status == EDITOR_OK)
+                if (const auto *objects = EditorClient::Find(clipboard, "objects"); objects && objects->type == EDITOR_OBJECT_LIST)
+                    Duplicate(objects->objects, EditorClient::Integer(clipboard, "revision"));
         }
         if (pressed(ImGuiKey_G)) {
             auto &editor = m_State.workspace->Application();

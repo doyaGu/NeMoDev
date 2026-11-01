@@ -12,6 +12,7 @@
 #include "features/values/ParameterCommands.h"
 #include "features/environment/EnvironmentCommands.h"
 #include "features/diagnostics/DiagnosticCommands.h"
+#include "features/layout/LayoutCommands.h"
 #include "features/schematic/SchematicGraphCommands.h"
 #include "workspace/EditorWorkspace.h"
 #include <functional>
@@ -284,6 +285,9 @@ private:
         m_State.objectClipboard, m_State.clipboard, [this]() -> SchematicNavigation & { return m_State.Schematic(); }, [this]() -> CKDependencies & { return m_State.CopyDependencies(); }};
     HtmlFonts m_HtmlFonts;
     LayoutWindow m_Layout{m_State};
+    LayoutCommands m_LayoutCommands{m_Editor,
+        [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
+        [this]() -> LayoutView & { return m_Layout.View(); }, m_State.objectSelection};
 #ifdef VIRTOOLSDEV_UI_TESTS
     ParameterBox m_StartupValue{m_State}; // --edit-value
     int m_StartupValueState = 0;          // 1: to open, 2: open

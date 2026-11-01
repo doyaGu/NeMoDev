@@ -18,6 +18,8 @@
 #include "ui/controls/ParameterBox.h"
 #include "ui/controls/ValueEditor.h"
 #include "workspace/ResourceDrag.h"
+#include "features/layout/LayoutSceneData.h"
+#include "workspace/EditorClient.h"
 
 
 
@@ -141,7 +143,7 @@ public:
     // The composition's 3D Layout data (Dev.exe sub_4B46C0 on opening, sub_4B4E50
     // on saving): the selection group shown, the selection, the lock; the
     // rest is kept as the file had it.
-    void ApplyLayoutData(const LayoutInterfaceData &data, bool restoreSelection = true);
+    void ApplyLayoutData(const LayoutInterfaceData &data, const LayoutRestoreData &, bool restoreSelection = true);
     LayoutInterfaceData LayoutData() const;
 
 private:
@@ -241,24 +243,25 @@ private:
     // the character, mesh, material, texture, place) and the current camera
     // when it is not a default view.
     struct MenuObject {
-        CK_ID object = 0;
+        ObjectRef object{};
         std::string cls, name; // UTF-8
+        std::vector<LayoutScriptRow> scripts;
     };
     struct ContextMenu {
         std::vector<MenuObject> objects;
-        CK_ID camera = 0;     // the current camera's entry
-        CK_ID frame = 0;      // the 3D Frame under the mouse (Change Representation)
+        ObjectRef camera{}, frame{}, initialTarget{};
+        std::vector<std::string> frameShapes;
         bool initial = false; // one of them has initial conditions in the scene
     };
     void OpenContextMenu(int x, int y);
     void ContextMenuPopup();
     void InitialConditionsOn(int action);
-    void CreateScriptOn(CK_ID object);
+    void CreateScriptOn(ObjectRef object);
     void CreateScriptsOnSelection();
-    void ShowScriptInSchematic(CK_ID script);
+    void ShowScriptInSchematic(ObjectRef script);
     void ResetCamera();
     void SetRepresentation(int representation);
-    void Duplicate(const std::vector<CK_ID> &objects);
+    void Duplicate(const std::vector<ObjectRef> &objects, uint64_t clipboardRevision = 0);
     // Dev's Copy Options (Dev.exe sub_5BDD60 with mode -1): asked before
     // Duplicate and Paste copy the objects.
     void CopyOptionsDialog();
@@ -282,8 +285,7 @@ private:
     // name makes a group of the selection, on a group's name selects it.
     void SelectionGroups(const ImVec2 &at, float width);
     void EnterGroup(const std::string &name);
-    void ChooseGroup(CK_ID group);
-    void SyncGroup();
+    void ChooseGroup(ObjectRef group);
     // The 3D Layout Explorer (Dev.exe sub_59D400, dialog 734): modeless.
     void OpenExplorer();
     void ExplorerWindow();
@@ -306,7 +308,9 @@ private:
         CK_ID lastLevel = 0;                // the level shown (another: the composition changed)
         CK_ID flyCamera = 0;                // the camera flown (the flight's state before: m_FlyUndo)
         // Duplicate / Paste waiting for the Copy Options.
-        std::vector<CK_ID> pendingCopy;
+        std::vector<ObjectRef> pendingCopy;
+        ObjectRef copyTarget{};
+        uint64_t copyClipboardRevision = 0;
         bool openCopyOptions = false;
         // A drop waiting for its Edit Parameters: the drop and the values set
         // there, one undo step at OK, taken back by Cancel.
@@ -320,16 +324,26 @@ private:
         bool explorerOpen = false;
         std::vector<ObjectRef> explorerSaved;
         bool explorerSavedLock = false;
-        CK_ID explorerAnchor = 0;
+        ObjectRef explorerAnchor{};
         bool explorerRefused = false;
-        std::vector<CK_ID> explorerList;
+        std::vector<ObjectRef> explorerList;
         unsigned explorerListRevision = ~0u;
         int explorerCount = 0;
-        CK_ID explorerFocus = 0;
+        ObjectRef explorerFocus{};
     };
 
     // ------------------------------------------------- state
     EditorState &m_State;
+    const EditorHost *m_EditorHost = nullptr;
+    EditorClient Client() const { return {m_EditorHost, 0}; }
+    enum class AfterCommand { None, ShowScript, ScriptsAdded, SelectCreated, Group };
+    struct PendingCommand { EditorOperation operation; DocumentToken document; AfterCommand after; };
+    std::vector<PendingCommand> m_Commands;
+    LayoutSceneData m_GroupData, m_CameraData, m_ExplorerData;
+    LayoutSelectionData m_SelectionData;
+    void Execute(const char *, const std::vector<EditorValue> & = {}, AfterCommand = AfterCommand::None);
+    void Complete(const EditorResponse &, AfterCommand);
+    void PollCommands();
     LayoutView m_View;
     bool m_Started = false;
     std::string m_StartError;
@@ -436,7 +450,7 @@ private:
 #endif
     // Selection Groups: the group shown (Dev.exe view +60), the combo's
     // text, whether it is being typed in, the selection it was matched with.
-    CK_ID m_Group = 0;
+    ObjectRef m_Group{};
     char m_GroupText[256] = "";
     bool m_GroupEditing = false;
     unsigned m_GroupRevision = ~0u;

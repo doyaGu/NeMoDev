@@ -1,4 +1,3 @@
-#include "core/layout/LayoutCommands.h"
 // The 3D Layout's shortcut menu (Dev.exe sub_4C1BB0) and the commands it
 // runs (sub_4B95C0, WM_COMMAND).
 
@@ -8,94 +7,84 @@
 
 #include <algorithm>
 
-#include "core/level/ObjectEditCommands.h"
-#include "core/level/SceneCommands.h"
-#include "core/runtime/TextEncoding.h"
 #include "ui/controls/ValueEditor.h"
 
 namespace vdev {
 
-void LayoutWindow::OpenContextMenu(int x, int y) {
-    CKContext *context = m_State.host.Context();
-    if (!context || !m_State.HasDocument()) return;
-    // Dev opens it in a scene only (here also the level scene of a
-    // composition not launched).
-    CKScene *scene = InitialConditionsScene(context);
-    if (!scene) return;
-    const LayoutPickInfo info = m_View.PickInfo(x, y);
-
-    m_Menu = ContextMenu();
-    auto add = [&](CKObject *object, const std::string &cls) {
-        if (object) m_Menu.objects.push_back({object->GetID(), cls.empty() ? DevClassName(object) : cls, DevObjectName(object)});
-    };
-    auto initial = [&](CKObject *object) {
-        CKSceneObject *sceneObject = CKSceneObject::Cast(object);
-        if (sceneObject && scene->GetObjectInitialValue(sceneObject)) m_Menu.initial = true;
-    };
-    if (CKObject *sprite = context->GetObject(info.entity2d)) {
-        add(sprite, "");
-        initial(sprite);
+void LayoutWindow::Execute(const char *id, const std::vector<EditorValue> &arguments, AfterCommand after) {
+    const auto client = Client();
+    const auto result = client.Command(id, arguments);
+    if (result.status == EDITOR_QUEUED) m_Commands.push_back({result.operation, client.Scope().document, after});
+    else Complete(result, after);
+}
+void LayoutWindow::Complete(const EditorResponse &result, AfterCommand after) {
+    if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) {
+        if (!result.message.empty()) m_State.Log(LogLevel::Warning, result.message);
+        return;
     }
-    CKObject *entity = context->GetObject(info.entity3d);
-    CKObject *character = context->GetObject(info.character);
-    if (entity) {
-        if (!character) initial(entity);
-        if (CKCurvePoint *point = CKCurvePoint::Cast(entity)) {
-            add(point->GetCurve(), ""); // the point's curve
-        } else if (CKGrid::Cast(entity)) {
-            add(entity, ""); // Dev: its grid editor
-            add(entity, "Grid 3D");
-        } else {
-            add(entity, "");
+    const auto *created = EditorClient::Find(result, "created");
+    if (after == AfterCommand::ShowScript && created && created->type == EDITOR_OBJECT && created->object)
+        ShowScriptInSchematic(created->object);
+    if (after == AfterCommand::ScriptsAdded)
+        if (const auto *objects = EditorClient::Find(result, "objects"); objects && objects->type == EDITOR_OBJECT_LIST)
+            m_State.Log(LogLevel::Info, std::to_string(objects->objects.size()) + " scripts added to selection.");
+    if (after == AfterCommand::Group && created && created->type == EDITOR_OBJECT && created->object) {
+        m_Group = created->object;
+        LayoutSelectionData selection;
+        if (ReadLayoutSelection(Client(), selection)) m_GroupRevision = unsigned(selection.revision);
+    }
+    if (after == AfterCommand::SelectCreated)
+        if (const auto *objects = EditorClient::Find(result, "copies"); objects && objects->type == EDITOR_OBJECT_LIST) {
+            for (const auto object : objects->objects)
+                if (Client().Query("object.details", {ObjectArgument("target", object)}).status != EDITOR_OK) return;
+            Execute("selection.lock", {IntegerArgument("locked", 0)});
+            Execute("selection.replace", {ObjectsArgument("objects", objects->objects), IntegerArgument("render-only", 1)});
         }
+}
+void LayoutWindow::PollCommands() {
+    auto pending = std::move(m_Commands); m_Commands.clear();
+    for (const auto &command : pending) {
+        if (command.document != Client().Scope().document) continue;
+        const auto result = Client().Completion(command.operation);
+        if (result.status == EDITOR_QUEUED) m_Commands.push_back(command);
+        else Complete(result, command.after);
     }
-    if (character) {
-        add(character, "");
-        initial(character);
-    }
-    // A private mesh (an interface object's) hides its material and texture.
-    CKObject *mesh = context->GetObject(info.mesh);
-    const bool hidden = mesh && mesh->IsPrivate();
-    if (mesh && !hidden) add(mesh, "");
-    if (!hidden) {
-        CKObject *material = context->GetObject(info.material);
-        CKObject *texture = context->GetObject(info.texture);
-        if (material && !material->IsPrivate()) add(material, "");
-        if (texture && !texture->IsPrivate()) add(texture, "");
-    }
-    if (CK3dEntity *placed = CK3dEntity::Cast(entity)) add(placed->GetReferencePlace(), "");
-    CKCamera *camera = m_View.Camera();
-    if (camera && !m_View.IsViewCamera(camera->GetID())) {
-        add(camera, "Current Camera");
-        m_Menu.camera = camera->GetID();
-    }
-    CK3dEntity *frame = CK3dEntity::Cast(entity);
-    m_Menu.frame = frame && (frame->GetFlags() & CK_3DENTITY_FRAME) ? frame->GetID() : 0;
+}
+
+void LayoutWindow::OpenContextMenu(int x, int y) {
+    LayoutSceneData scene;
+    if (x < 0 || y < 0 || !ReadLayoutScene(Client(), "context", scene,
+        {IntegerArgument("x", uint64_t(x)), IntegerArgument("y", uint64_t(y))}) || !scene.scene) return;
+    m_Menu = {};
+    for (const auto &row : scene.rows) m_Menu.objects.push_back({row.object,
+        row.kind.empty() ? row.className : row.kind, row.name, row.scripts});
+    m_Menu.camera = scene.savedCamera; m_Menu.frame = scene.frame; m_Menu.initial = scene.initial;
+    m_Menu.initialTarget = scene.initialTarget; m_Menu.frameShapes = std::move(scene.frameShapes);
     ImGui::OpenPopup("##layoutmenu");
 }
 
 void LayoutWindow::ContextMenuPopup() {
     if (!ImGui::BeginPopup("##layoutmenu")) return;
-    CKContext *context = m_State.host.Context();
-    if (!context || !m_State.HasDocument()) {
+    if (!Client().Scope().document.value || (!m_Menu.objects.empty() &&
+        m_Menu.objects.front().object.document != Client().Scope().document)) {
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         return;
     }
     const std::vector<MenuObject> objects = m_Menu.objects;
-    const bool selection = !AliveSelection().empty();
+    LayoutSelectionData selected;
+    const bool selection = ReadLayoutSelection(Client(), selected) && !selected.objects.empty();
     char text[1024];
     // The objects' Setups ("%s Setup (%s)"), the camera's after a separator.
     for (size_t i = 0; i < objects.size(); ++i) {
         if (objects[i].object == m_Menu.camera && objects.size() > 1) ImGui::Separator();
         std::snprintf(text, sizeof(text), "%s Setup (%s)##setup%d", objects[i].cls.c_str(), objects[i].name.c_str(),
                       static_cast<int>(i));
-        if (ImGui::MenuItem(text) && context->GetObject(objects[i].object))
-            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(objects[i].object)});
+        if (ImGui::MenuItem(text)) Execute("object.open-setup", {ObjectArgument("target", objects[i].object)});
     }
     if (m_Menu.frame && ImGui::BeginMenu("Change Representation")) {
         if (ImGui::MenuItem("No Representation")) SetRepresentation(0);
-        const std::vector<std::string> shapes = m_View.FrameShapeNames();
+        const auto &shapes = m_Menu.frameShapes;
         for (size_t i = 0; i < shapes.size(); ++i) {
             ImGui::PushID(static_cast<int>(i));
             if (ImGui::MenuItem(shapes[i].c_str())) SetRepresentation(static_cast<int>(i) + 1);
@@ -108,27 +97,18 @@ void LayoutWindow::ContextMenuPopup() {
     if (ImGui::BeginMenu("Select Camera")) {
         // The default views, then the composition's cameras ("name (class)"):
         // 20 at most.
-        CKCamera *current = m_View.Camera();
-        int count = 0;
-        bool separated = false;
-        for (CK_ID id : m_View.Cameras()) {
-            CKObject *camera = context->GetObject(id);
-            if (!camera) continue;
-            const bool view = m_View.IsViewCamera(id);
-            if (!view && !separated) {
-                ImGui::Separator();
-                separated = true;
-            }
-            if (count >= 20) {
-                ImGui::MenuItem(">> Use camera combo for more...", nullptr, false, false);
-                break;
-            }
-            std::string label = DevObjectName(camera);
-            if (!view) label += " (" + DevClassName(camera) + ")";
-            ImGui::PushID(static_cast<int>(id));
-            if (ImGui::MenuItem(label.c_str(), nullptr, current == camera)) m_View.SetCamera(id);
-            ImGui::PopID();
-            ++count;
+        LayoutSceneData scene;
+        ReadLayoutScene(Client(), "cameras", scene);
+        int count = 0; bool separated = false;
+        for (const auto &camera : scene.rows) {
+            if (!camera.view && !separated) { ImGui::Separator(); separated = true; }
+            if (count >= 20) { ImGui::MenuItem(">> Use camera combo for more...", nullptr, false, false); break; }
+            std::string label = camera.name;
+            if (!camera.view) label += " (" + camera.className + ")";
+            ImGui::PushID(int(camera.object.object));
+            if (ImGui::MenuItem(label.c_str(), nullptr, scene.camera == camera.object))
+                Execute("layout.set-camera", {ObjectArgument("target", camera.object)});
+            ImGui::PopID(); ++count;
         }
         ImGui::EndMenu();
     }
@@ -149,30 +129,26 @@ void LayoutWindow::ContextMenuPopup() {
         }
         if (ImGui::MenuItem("Create Scripts on Selection", nullptr, false, selection)) CreateScriptsOnSelection();
         int scripts = 0;
-        for (const MenuObject &entry : objects)
-            if (CKBeObject *owner = CKBeObject::Cast(context->GetObject(entry.object))) scripts += owner->GetScriptCount();
+        for (const auto &entry : objects) scripts += int(entry.scripts.size());
         if (ImGui::BeginMenu("Show Script", scripts > 0)) {
             // "'%s' on %s (%s)": 40 at most.
             int shown = 0;
             bool separated = false, more = false;
             for (size_t i = 0; i < objects.size() && !more; ++i) {
-                CKBeObject *owner = CKBeObject::Cast(context->GetObject(objects[i].object));
-                if (!owner || !owner->GetScriptCount()) continue;
+                if (objects[i].scripts.empty()) continue;
                 if (objects[i].object == m_Menu.camera && scripts > 1 && !separated && shown < 40) {
                     ImGui::Separator();
                     separated = true;
                 }
-                for (int s = 0; s < owner->GetScriptCount(); ++s) {
-                    CKBehavior *script = owner->GetScript(s);
-                    if (!script) continue;
+                for (const auto &script : objects[i].scripts) {
                     if (shown >= 40) {
                         ImGui::MenuItem(">> Use schematic for more...", nullptr, false, false);
                         more = true;
                         break;
                     }
-                    std::snprintf(text, sizeof(text), "'%s' on %s (%s)##show%d", DevObjectName(script).c_str(),
+                    std::snprintf(text, sizeof(text), "'%s' on %s (%s)##show%d", script.name.c_str(),
                                   objects[i].name.c_str(), objects[i].cls.c_str(), shown);
-                    if (ImGui::MenuItem(text)) ShowScriptInSchematic(script->GetID());
+                    if (ImGui::MenuItem(text)) ShowScriptInSchematic(script.object);
                     ++shown;
                 }
             }
@@ -184,7 +160,7 @@ void LayoutWindow::ContextMenuPopup() {
     if (ImGui::MenuItem("Clear Selection", "Ctrl+D")) ClearSelection();
     if (ImGui::MenuItem("Invert Selection", "Ctrl+I")) SelectAll(true);
     ImGui::Separator();
-    if (ImGui::MenuItem("Duplicate", nullptr, false, selection)) Duplicate(AliveSelection());
+    if (ImGui::MenuItem("Duplicate", nullptr, false, selection)) Duplicate(selected.objects);
     ImGui::Separator();
     if (ImGui::MenuItem("Delete", "Del", false, selection)) DeleteSelection();
     ImGui::EndPopup();
@@ -193,72 +169,34 @@ void LayoutWindow::ContextMenuPopup() {
 // Dev (commands 177..179): the first object of the menu, or the character
 // after it when that object is a body part.
 void LayoutWindow::InitialConditionsOn(int action) {
-    if (m_Menu.objects.empty() || !m_State.HasDocument()) return;
-    CKContext *context = m_State.host.Context();
-    CK_ID target = m_Menu.objects[0].object;
-    if (CK3dEntity::Cast(context->GetObject(target)) && m_Menu.objects.size() > 1 &&
-        CKCharacter::Cast(context->GetObject(m_Menu.objects[1].object)))
-        target = m_Menu.objects[1].object;
-
-    static const InitialConditions actions[3] = {InitialConditions::Set, InitialConditions::Restore,
-                                                 InitialConditions::Remove};
-    const EditResult result =
-        ApplyInitialConditions(*m_State.document, {target}, actions[std::clamp(action, 0, 2)]);
-
-    if (!result.ok && !result.message.empty()) m_State.Log(LogLevel::Warning, AnsiToUtf8(result.message));
+    if (!m_Menu.initialTarget) return;
+    const std::vector<ObjectRef> objects{m_Menu.initialTarget};
+    Execute("scene.initial-conditions", {ObjectsArgument("objects", objects),
+        IntegerArgument("mode", uint64_t(std::clamp(action, 0, 2))), IntegerArgument("hierarchy", 0)});
 }
 
 // Dev (commands 160..165): a Script on the object, shown in the Schematic.
-void LayoutWindow::CreateScriptOn(CK_ID object) {
-    if (!m_State.HasDocument() || !m_State.host.Context()->GetObject(object)) return;
-    const auto references = m_State.document->References({object});
-    const EditorValue targets{EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0,
-                               {references.data(), static_cast<uint32_t>(references.size())}};
-    auto &editor = m_State.workspace->Application();
-    const auto result = editor.Execute("script.create", {editor.Scope(), &targets, 1});
-    if (result.status != EDITOR_OK) {
-        if (result.status != EDITOR_QUEUED && result.status != EDITOR_NO_CHANGE)
-            m_State.Log(LogLevel::Warning, "Create Script: " + result.message);
-        return;
-    }
-    for (const auto &field : result.fields)
-        if (field.key == "created" && field.object) ShowScriptInSchematic(field.object.object);
+void LayoutWindow::CreateScriptOn(ObjectRef object) {
+    if (object) Execute("script.create", {ObjectsArgument("objects", std::vector<ObjectRef>{object})}, AfterCommand::ShowScript);
 }
 
 // Dev (command 172): a Script on each selected object; "%d scripts added to selection.".
 void LayoutWindow::CreateScriptsOnSelection() {
-    if (!m_State.HasDocument()) return;
-    std::vector<CK_ID> owners;
-    for (CK_ID id : AliveSelection())
-        if (CKBeObject::Cast(m_State.host.Context()->GetObject(id))) owners.push_back(id);
-    const auto references = m_State.document->References(owners);
-    const EditorValue targets{EditorLiteral("objects"), EDITOR_OBJECT_LIST, {}, {}, 0,
-                               {references.data(), static_cast<uint32_t>(references.size())}};
-    auto &editor = m_State.workspace->Application();
-    const auto result = editor.Execute("script.create", {editor.Scope(), &targets, 1});
-    size_t steps = 0;
-    if (result.status == EDITOR_OK)
-        for (const auto &field : result.fields) if (field.key == "objects") steps = field.objects.size();
-    if (steps) m_State.Log(LogLevel::Info, std::to_string(steps) + " scripts added to selection.");
+    LayoutSelectionData selection;
+    if (ReadLayoutSelection(Client(), selection) && !selection.objects.empty())
+        Execute("script.create", {ObjectsArgument("objects", selection.objects)}, AfterCommand::ScriptsAdded);
 }
 
-void LayoutWindow::ShowScriptInSchematic(CK_ID script) {
-    m_State.events.Post(ShowElement{*m_State.document, script});
+void LayoutWindow::ShowScriptInSchematic(ObjectRef script) {
+    if (script) Execute("script.navigate", {ObjectArgument("target", script)});
 }
 
 // Command 150; one undo step, the default views' not marking the
 // composition modified.
 void LayoutWindow::ResetCamera() {
-    CKCamera *camera = m_View.Camera();
-    if (!camera) return;
-    std::vector<CK_ID> moved{camera->GetID()};
-    if (CKTargetCamera *targeted = CKTargetCamera::Cast(camera))
-        if (CK3dEntity *target = targeted->GetTarget()) moved.push_back(target->GetID());
-    ObjectsGesture gesture;
-    if (!gesture.Begin(m_State.host.Context(), moved)) return;
-    m_View.ResetCamera();
-    if (m_State.HasDocument())
-        gesture.Commit(*m_State.document, "Reset Current Camera Settings", !m_View.IsViewCamera(camera->GetID()));
+    LayoutSceneData scene;
+    if (ReadLayoutScene(Client(), "cameras", scene) && scene.camera)
+        Execute("layout.reset-camera", {ObjectArgument("target", scene.camera)});
 }
 
 // Dev.exe sub_4C53C0: the selected 3D Frames take the representation. Here
@@ -267,26 +205,25 @@ void LayoutWindow::ResetCamera() {
 // selection alone, a frame not selected did not change though the menu was
 // shown for it).
 void LayoutWindow::SetRepresentation(int representation) {
-    CKContext *context = m_State.host.Context();
-    const std::vector<CK_ID> selection = AliveSelection();
-    std::vector<CK_ID> frames;
-    if (std::find(selection.begin(), selection.end(), m_Menu.frame) == selection.end()) {
-        if (context->GetObject(m_Menu.frame)) frames.push_back(m_Menu.frame);
-    } else {
-        for (CK_ID id : selection) {
-            CK3dEntity *entity = CK3dEntity::Cast(context->GetObject(id));
-            if (entity && (entity->GetFlags() & CK_3DENTITY_FRAME)) frames.push_back(id);
-        }
-    }
-    SetFrameRepresentation(*m_State.document, frames, representation);
+    LayoutSelectionData selection;
+    if (ReadLayoutSelection(Client(), selection)) Execute("layout.frame-representation",
+        {ObjectArgument("target", m_Menu.frame), ObjectsArgument("objects", selection.objects),
+         IntegerArgument("value", uint64_t(representation))});
 }
 
 // Dev.exe sub_5BDD60 (mode -1): the "Copy Options" parameter dialog, the
 // session's copy dependencies kept with OK.
-void LayoutWindow::Duplicate(const std::vector<CK_ID> &objects) {
-    if (!m_State.HasDocument() || objects.empty()) return;
+void LayoutWindow::Duplicate(const std::vector<ObjectRef> &objects, uint64_t clipboardRevision) {
+    LayoutSceneData scene;
+    if (objects.empty() || !ReadLayoutScene(Client(), "groups", scene) || !scene.scene) return;
+    const auto options = Client().Query("scene.copy-options"); if (options.status != EDITOR_OK) return;
     m_Doc.pendingCopy = objects;
-    m_CopyOptions = m_State.CopyDependencies();
+    m_Doc.copyTarget = scene.scene; m_Doc.copyClipboardRevision = clipboardRevision;
+    if (const auto *values = EditorClient::Find(options, "options")) {
+        m_CopyOptions.Resize(int(values->integers.size()));
+        for (size_t i = 0; i < values->integers.size(); ++i) m_CopyOptions[int(i)] = CKDWORD(values->integers[i]);
+    }
+    m_CopyOptions.m_Flags = CK_DEPENDENCIES_FLAGS(EditorClient::Integer(options, "flags"));
     m_Doc.openCopyOptions = true;
 }
 
@@ -308,29 +245,22 @@ void LayoutWindow::CopyOptionsDialog() {
         m_Doc.pendingCopy.clear();
         return;
     }
-    m_State.CopyDependencies() = m_CopyOptions;
-    const std::vector<CK_ID> objects = std::move(m_Doc.pendingCopy);
-    m_Doc.pendingCopy.clear();
-    if (!m_State.HasDocument() || objects.empty()) return;
-    std::vector<std::pair<CK_ID, CK_ID>> copies;
-    const EditResult result =
-        DuplicateObjects(*m_State.document, objects, &copies, &m_State.CopyDependencies());
-    if (!result.ok) {
-        m_State.Log(LogLevel::Warning, AnsiToUtf8(result.message));
-        return;
-    }
-    std::vector<CK_ID> made;
-    for (const auto &copy : copies) {
-        made.push_back(copy.second);
-    }
-    LockSelection(false);
-    SetSelection(made);
+    const auto objects = std::move(m_Doc.pendingCopy); m_Doc.pendingCopy.clear();
+    if (objects.empty()) return;
+    std::vector<uint64_t> dependencies;
+    for (int i = 0; i < m_CopyOptions.Size(); ++i) dependencies.push_back(m_CopyOptions[i]);
+    const EditorValue options{EDITOR_TEXT("options"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {dependencies.data(), uint32_t(dependencies.size())}};
+    std::vector<EditorValue> arguments{ObjectArgument("target", m_Doc.copyTarget), IntegerArgument("custom", 1),
+        IntegerArgument("flags", m_CopyOptions.m_Flags), options};
+    if (m_Doc.copyClipboardRevision) arguments.push_back(IntegerArgument("clipboard-revision", m_Doc.copyClipboardRevision));
+    else arguments.push_back(ObjectsArgument("objects", objects));
+    Execute(m_Doc.copyClipboardRevision ? "scene.duplicate-clipboard" : "scene.duplicate", arguments, AfterCommand::SelectCreated);
 }
 
 void LayoutWindow::DeleteSelection() {
-    const std::vector<CK_ID> objects = AliveSelection();
-    // The Level Manager's Delete dialog.
-    if (!objects.empty()) m_State.events.Post(ConfirmDeleteObjects{m_State.document->References(objects)});
+    LayoutSelectionData selection;
+    if (ReadLayoutSelection(Client(), selection) && !selection.objects.empty())
+        Execute("object.confirm-delete", {ObjectsArgument("objects", selection.objects)});
 }
 
 } // namespace vdev

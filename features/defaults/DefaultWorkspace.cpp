@@ -3,6 +3,7 @@
 #include "features/schematic/SchematicCommands.h"
 #include "features/diagnostics/DiagnosticCommands.h"
 #include "features/preferences/PreferencesCommands.h"
+#include "features/layout/LayoutCommands.h"
 #include "features/schematic/SchematicGraphCommands.h"
 
 namespace vdev {
@@ -114,6 +115,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.push_back({"query", "scene.clipboard", "builtin.scene"});
     result.contributions.providers.push_back({"command", "scene.clear-clipboard", "builtin.scene"});
     result.contributions.providers.push_back({"command", "scene.duplicate-clipboard", "builtin.scene"});
+    const auto &layout = LayoutCommands::DefaultProviders();
+    result.contributions.providers.insert(result.contributions.providers.end(), layout.begin(), layout.end());
     const auto &graph = SchematicGraphCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), graph.begin(), graph.end());
     result.contributions.providers.push_back({"view", "schematic.invalid-links", "builtin.schematic-diagnostics"});
