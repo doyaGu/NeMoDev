@@ -76,7 +76,8 @@ void TestGestureCommands(vdev::CkRuntimeHost &runtime, const std::string &module
     SchematicGraphCommands schematic([&] { return &doc; }, [] { return true; }, clipboard);
     SelectionCommands selections([&] { return &doc; }, selection);
     EditorConfiguration builtins;
-    builtins.providers = {{"command", "schematic.edit-geometry", "builtin.schematic-geometry"},
+    builtins.providers = {{"command", "schematic.edit-parameters", "builtin.schematic-parameters"},
+                          {"command", "schematic.edit-geometry", "builtin.schematic-geometry"},
                           {"command", "layout.edit-gesture", "builtin.layout-gestures"}};
     Check(layout.Register(error) && schematic.Register(app, error) && selections.Register(app, error) &&
               app.Load(modulePath, error) && app.Activate(EDITOR_IMGUI_VERSION, error, builtins),
@@ -192,7 +193,8 @@ void TestGestureCommands(vdev::CkRuntimeHost &runtime, const std::string &module
     };
     // The independent module forwards every preview phase using only Editor.h.
     EditorConfiguration external;
-    external.providers = {{"command", "schematic.edit-geometry", "example.gestures"},
+    external.providers = {{"command", "schematic.edit-parameters", "builtin.schematic-parameters"},
+                          {"command", "schematic.edit-geometry", "example.gestures"},
                           {"command", "layout.edit-gesture", "example.gestures"}};
     Check(app.Configure(external, error), error.c_str());
     auto failure = [&](unsigned mode) {

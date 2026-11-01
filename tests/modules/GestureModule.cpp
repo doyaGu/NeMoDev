@@ -8,8 +8,8 @@ struct Module {
     struct Command {
         Module *module;
         EditorString id, provider;
-    } entries[2];
-    EditorCommandDesc commands[3]{};
+    } entries[3];
+    EditorCommandDesc commands[4]{};
 };
 EditorStatus Preview(void *data, const EditorHost *host, const EditorRequest *request, EditorPreviewAction action,
                      void **state) {
@@ -83,6 +83,10 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
         {EDITOR_TEXT("curve"), EDITOR_OBJECT, 1, 1},   {EDITOR_TEXT("start"), EDITOR_REAL_LIST},
         {EDITOR_TEXT("point"), EDITOR_REAL_LIST, 1},   {EDITOR_TEXT("options"), EDITOR_RECORD},
         {EDITOR_TEXT("value"), EDITOR_RECORD},         {EDITOR_TEXT("started"), EDITOR_REAL_VALUE, 1}};
+    static const EditorParameter parameters[] = {
+        {EDITOR_TEXT("target"), EDITOR_OBJECT},          {EDITOR_TEXT("object"), EDITOR_OBJECT},
+        {EDITOR_TEXT("mode"), EDITOR_INTEGER_VALUE},     {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("value"), EDITOR_RECORD}};
     static const EditorParameter failure{EDITOR_TEXT("mode"), EDITOR_INTEGER_VALUE};
     static const EditorParameter fields[] = {{EDITOR_TEXT("updates"), EDITOR_INTEGER_VALUE},
                                              {EDITOR_TEXT("cancels"), EDITOR_INTEGER_VALUE},
@@ -91,6 +95,20 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     auto *m = new Module;
     m->entries[0] = {m, EDITOR_TEXT("schematic.edit-geometry"), EDITOR_TEXT("builtin.schematic-geometry")};
     m->entries[1] = {m, EDITOR_TEXT("layout.edit-gesture"), EDITOR_TEXT("builtin.layout-gestures")};
+    m->entries[2] = {m, EDITOR_TEXT("schematic.edit-parameters"), EDITOR_TEXT("builtin.schematic-parameters")};
+    m->commands[3] = {sizeof(EditorCommandDesc),
+                      m->entries[2].id,
+                      EDITOR_TEXT("example.gestures"),
+                      EDITOR_TEXT("External Parameters"),
+                      parameters,
+                      6,
+                      Run,
+                      &m->entries[2],
+                      EDITOR_DOCUMENT,
+                      EDITOR_DOCUMENT_EDIT,
+                      nullptr,
+                      Preview,
+                      Commit};
     m->commands[0] = {sizeof(EditorCommandDesc),
                       m->entries[0].id,
                       EDITOR_TEXT("example.gestures"),
@@ -142,7 +160,7 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->version = EDITOR_VERSION;
     out->id = EDITOR_TEXT("example.gestures");
     out->commands = m->commands;
-    out->commandCount = 3;
+    out->commandCount = 4;
     out->queries = &query;
     out->queryCount = 1;
     out->data = m;
