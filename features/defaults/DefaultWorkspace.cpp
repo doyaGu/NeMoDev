@@ -110,6 +110,9 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.insert(result.contributions.providers.end(), diagnostics.begin(), diagnostics.end());
     const auto &preferences = PreferencesCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), preferences.begin(), preferences.end());
+    result.contributions.providers.push_back({"query", "scene.clipboard", "builtin.scene"});
+    result.contributions.providers.push_back({"command", "scene.clear-clipboard", "builtin.scene"});
+    result.contributions.providers.push_back({"command", "scene.duplicate-clipboard", "builtin.scene"});
     result.views = {{"document.file-dialogs", "", "", true},
                     {"document.output-dialogs", "", "", true},
                     {"environment.folder-dialogs", "", "", true},

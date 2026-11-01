@@ -172,7 +172,9 @@ struct SceneCommands::Data {
         Duplicate,
         Export,
         AttributeAddSelected,
-        CopyDrag
+        CopyDrag,
+        ClearClipboard,
+        DuplicateClipboard
     };
     struct Command {
         Data *owner;
@@ -189,6 +191,7 @@ struct SceneCommands::Data {
     static EditorStatus Attributes(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Parameters(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus CopyOptions(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus ClipboardContents(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus MovePlan(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus DeletePlan(void *, const EditorHost *, const EditorRequest *, EditorSink);
     uint64_t CatalogVersion(Document &doc) const;
@@ -628,6 +631,10 @@ EditorStatus SceneCommands::Data::Run(void *data, const EditorHost *, const Edit
         }
     }
     switch (command.action) {
+    case ClearClipboard:
+        d.objectClipboard.SetObjects(*doc, {});
+        result = EditResult::Applied();
+        break;
     case Visibility:
         if (mode > 2) {
             return EDITOR_INVALID;
@@ -1068,7 +1075,11 @@ EditorStatus SceneCommands::Data::Run(void *data, const EditorHost *, const Edit
         }
         break;
     }
-    case Duplicate: {
+    case Duplicate:
+    case DuplicateClipboard: {
+        if (command.action == DuplicateClipboard && Number(*request, "clipboard-revision") != d.objectClipboard.Revision()) return EDITOR_STALE;
+        const auto &sources = command.action == DuplicateClipboard ? d.objectClipboard.Objects(*doc) : objects;
+        if (command.action == DuplicateClipboard && sources.empty()) return EDITOR_STALE;
         CKDependencies options = d.copyOptions();
         if (Number(*request, "custom")) {
             const auto *values = Arg(*request, "options");
@@ -1085,7 +1096,7 @@ EditorStatus SceneCommands::Data::Run(void *data, const EditorHost *, const Edit
             }
         }
         std::vector<CK_ID> ordinary, scripts;
-        for (auto id : objects) {
+        for (auto id : sources) {
             (CKBehavior::Cast(context->GetObject(id)) ? scripts : ordinary).push_back(id);
         }
         std::vector<EditResult> results;
@@ -1113,6 +1124,9 @@ EditorStatus SceneCommands::Data::Run(void *data, const EditorHost *, const Edit
         result = merge(results);
         if (result.ok) {
             d.copyOptions() = options;
+            const auto copies = doc->References(fresh);
+            const EditorValue output{EDITOR_TEXT("copies"), EDITOR_OBJECT_LIST, {}, {}, 0, {copies.data(), uint32_t(copies.size())}};
+            if (sink.write) sink.write(sink.data, &output, 1);
         }
         break;
     }
@@ -1209,7 +1223,10 @@ bool SceneCommands::Register(std::string &error) {
         d.commands.push_back({&d, action});
         commands.push_back({sizeof(EditorCommandDesc), EditorLiteral(id), EDITOR_TEXT("builtin.scene"),
                             EditorLiteral(title), schemas.back().data(), uint32_t(schemas.back().size()), Data::Run,
-                            &d.commands.back(), EDITOR_DOCUMENT, effect});
+                            &d.commands.back(), EDITOR_DOCUMENT, effect,
+                            [](void *data, const EditorHost *, const EditorRequest *) {
+                                return static_cast<Data::Command *>(data)->owner->editor.NativeAvailable() ? EDITOR_OK : EDITOR_REFUSED;
+                            }});
     };
     add("scene.visibility", "Show/Hide Objects", Data::Visibility, {objects, mode});
     add("scene.priority", "Edit Priority", Data::Priority, {objects, value});
@@ -1230,6 +1247,7 @@ bool SceneCommands::Register(std::string &error) {
     add("scene.launch", "Launch Scene", Data::Launch, {target}, EDITOR_RUNTIME_CONTROL);
     add("scene.save-options", "Set Save Options", Data::SaveOptions, {objects, value});
     add("scene.copy", "Copy Objects", Data::Copy, {objects}, EDITOR_SESSION_CHANGE);
+    add("scene.clear-clipboard", "Clear Copied Objects", Data::ClearClipboard, {}, EDITOR_SESSION_CHANGE);
     add("scene.paste", "Paste Objects", Data::Paste, {objects, {EDITOR_TEXT("scene"), EDITOR_OBJECT, 1}});
     add("scene.duplicate", "Copy Objects", Data::Duplicate,
         {objects,
@@ -1237,6 +1255,9 @@ bool SceneCommands::Register(std::string &error) {
          {EDITOR_TEXT("custom"), EDITOR_INTEGER_VALUE, 1},
          {EDITOR_TEXT("flags"), EDITOR_INTEGER_VALUE, 1},
          {EDITOR_TEXT("options"), EDITOR_INTEGER_LIST, 1}});
+    add("scene.duplicate-clipboard", "Copy Objects", Data::DuplicateClipboard,
+        {target, {EDITOR_TEXT("clipboard-revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("custom"), EDITOR_INTEGER_VALUE, 1},
+         {EDITOR_TEXT("flags"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("options"), EDITOR_INTEGER_LIST, 1}});
     add("scene.export", "Save Objects as...", Data::Export, {objects}, EDITOR_FILE_OPERATION);
     add("attribute.add-selected", "Add Attributes", Data::AttributeAddSelected,
         {objects, catalog, {EDITOR_TEXT("types"), EDITOR_INTEGER_LIST}});
@@ -1325,6 +1346,7 @@ bool SceneCommands::Register(std::string &error) {
         {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST},  {EDITOR_TEXT("leave"), EDITOR_OBJECT_LIST},
         {EDITOR_TEXT("destroy"), EDITOR_OBJECT_LIST},  {EDITOR_TEXT("members"), EDITOR_OBJECT_LIST},
         {EDITOR_TEXT("groups"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE}};
+    const EditorParameter clipboardFields[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}};
     EditorQueryDesc queries[] = {
         {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.tree"), EDITOR_TEXT("builtin.scene"), treeArgs.data(),
          uint32_t(treeArgs.size()), Data::Tree, &d, EDITOR_QUERY_VERSIONED, EDITOR_DOCUMENT, treeFields.data(),
@@ -1342,7 +1364,9 @@ bool SceneCommands::Register(std::string &error) {
         {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.delete-plan"), EDITOR_TEXT("builtin.scene"), deleteArgs, 3,
          Data::DeletePlan, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, deleteFields, 6},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.move-plan"), EDITOR_TEXT("builtin.scene"), moveArgs, 3,
-         Data::MovePlan, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, moveFields, 2}};
+         Data::MovePlan, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, moveFields, 2},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.clipboard"), EDITOR_TEXT("builtin.scene"), nullptr, 0,
+         Data::ClipboardContents, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, clipboardFields, 3}};
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
@@ -1350,7 +1374,7 @@ bool SceneCommands::Register(std::string &error) {
     module.commands = commands.data();
     module.commandCount = uint32_t(commands.size());
     module.queries = queries;
-    module.queryCount = 7;
+    module.queryCount = uint32_t(std::size(queries));
     return d.editor.Register(module, error);
 }
 } // namespace vdev
@@ -1373,6 +1397,14 @@ EditorStatus SceneCommands::Data::CopyOptions(void *data, const EditorHost *, co
         {EDITOR_TEXT("flags"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(options.m_Flags)},
         {EDITOR_TEXT("options"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {values.data(), uint32_t(values.size())}}};
     return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+}
+EditorStatus SceneCommands::Data::ClipboardContents(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+    auto &self = *static_cast<Data *>(data); auto *doc = self.DocumentOf(*request); if (!doc) return EDITOR_STALE;
+    const auto objects = doc->References(self.objectClipboard.Objects(*doc)), scripts = doc->References(self.objectClipboard.Scripts(*doc));
+    const EditorValue fields[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}},
+        {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST, {}, {}, 0, {scripts.data(), uint32_t(scripts.size())}},
+        {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, {}, {}, self.objectClipboard.Revision()}};
+    return sink.write ? sink.write(sink.data, fields, 3) : EDITOR_INVALID;
 }
 EditorStatus SceneCommands::Data::DeletePlan(void *data, const EditorHost *, const EditorRequest *request,
                                              EditorSink sink) {

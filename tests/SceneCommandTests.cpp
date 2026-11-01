@@ -162,6 +162,42 @@ void TestSceneCommands(CkRuntimeHost &runtime) {
                                             ObjectArgument("group", document.Reference(group.created))});
     Check(plan.status == EDITOR_OK && Refs(plan, "members") == targets && Refs(plan, "destroy").empty(),
           "group delete became destruction");
+    // Layout paste follows the copied source, even after a different selection
+    // or a reversible delete has moved that source into the graveyard.
+    Check(command("scene.copy", {ObjectsArgument("objects", std::vector<ObjectRef>{b})}).status == EDITOR_OK,
+          "copy Layout source");
+    const auto retainedClipboard = query("scene.clipboard");
+    Check(retainedClipboard.status == EDITOR_OK && Refs(retainedClipboard, "objects") == std::vector<ObjectRef>{b},
+          "clipboard projection lost its source");
+    const auto clipboardVersion = Number(retainedClipboard, "revision");
+    const auto sceneTarget = document.Reference(document.Context()->GetCurrentScene()->GetID());
+    const auto paste = [&] { return command("scene.duplicate-clipboard", {ObjectArgument("target", sceneTarget),
+        IntegerArgument("clipboard-revision", clipboardVersion)}); };
+    const auto cloneSteps = document.History().UndoCount();
+    const auto cloned = paste();
+    const auto copies = Refs(cloned, "copies");
+    Check(cloned.status == EDITOR_OK && copies.size() == 1 && document.Resolve(copies.front()) &&
+        document.History().UndoCount() == cloneSteps + 1, "clipboard duplication lost its result or split undo");
+    Check(document.History().Undo(), "undo clipboard duplication");
+    const auto retired = CreateLayoutObject(document, LayoutObject::Frame3D);
+    Check(retired.ok, "create retained clipboard source");
+    const auto retiredRef = document.Reference(retired.created);
+    Check(command("scene.copy", {ObjectsArgument("objects", std::vector<ObjectRef>{retiredRef})}).status == EDITOR_OK,
+        "copy retained source");
+    const auto retainedVersion = Number(query("scene.clipboard"), "revision");
+    Check(document.History().Undo() && !document.Resolve(retiredRef) && document.Context()->GetObject(retired.created),
+        "undone clipboard source was not retained");
+    Check(command("scene.duplicate-clipboard", {ObjectArgument("target", sceneTarget),
+        IntegerArgument("clipboard-revision", retainedVersion)}).status == EDITOR_OK,
+        "retained clipboard source could not be pasted after undo");
+    Check(document.History().Undo(), "undo retained source paste");
+    Check(command("scene.copy", {ObjectsArgument("objects", std::vector<ObjectRef>{a})}).status == EDITOR_OK, "replace clipboard");
+    const auto staleSteps = document.History().UndoCount(); const auto staleRevision = document.ChangeRevision();
+    Check(paste().status == EDITOR_STALE && document.History().UndoCount() == staleSteps &&
+        document.ChangeRevision() == staleRevision && Refs(retainedClipboard, "objects") == std::vector<ObjectRef>{b},
+        "old clipboard revision duplicated a different source or changed an owned query");
+    Check(command("scene.clear-clipboard").status == EDITOR_OK && Refs(query("scene.clipboard"), "objects").empty(),
+          "clearing clipboard did not clear the shared source");
     uint64_t version = 0;
     Check(app.Host()->queryRevision(app.Host()->data, EditorString EDITOR_TEXT("scene.tree"), &version) == EDITOR_OK &&
               version,

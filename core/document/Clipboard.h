@@ -56,6 +56,7 @@ public:
 // clipboard. Its contents and retention always change together.
 class ObjectClipboard {
 public:
+    uint64_t Revision() const { return m_Revision; }
     void SetObjects(Document &document, std::vector<CK_ID> objects) {
         Set(document, Kind::Objects, std::move(objects));
     }
@@ -73,6 +74,7 @@ private:
         m_Objects = std::move(objects);
         m_Kind = kind;
         m_Retained = std::move(retained);
+        ++m_Revision;
     }
     const std::vector<CK_ID> &Get(const Document &document, Kind kind) const {
         static const std::vector<CK_ID> empty;
@@ -82,6 +84,7 @@ private:
     std::shared_ptr<ObjectReferences> m_Retained;
     std::vector<CK_ID> m_Objects;
     Kind m_Kind = Kind::Scripts;
+    uint64_t m_Revision = 0;
 };
 
 } // namespace vdev
