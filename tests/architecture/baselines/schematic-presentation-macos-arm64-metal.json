@@ -1,0 +1,281 @@
+{
+  "description": "阶段五第十一批：Schematic 运行时对象拾取与呈现使用只读数据，SDK 和 GPU 快通道不变，性能验收继续暂缓。",
+  "changes": [
+    "视图登记只读拾取函数，工作区按实例和可见窗口路由；Schematic 删除窗口名称拾取登记，保留原有矩形拾取行为。",
+    "schematic.pick-objects 解析保留的位置，返回参数持有对象、元素、Script、所属对象的有序完整引用，参数编辑器继续应用原有类型筛选。",
+    "旧对象生命期、引脚端点、位置版本、文档或视图失效，以及错误线程、原生任务、失败和异常均安全结束，不穿透其他窗口。",
+    "运行标记按模型版本和对象生命期匹配图形元素；Script 所属对象分类随模型复制，公开枚举由 C/C++ 共用。",
+    "Schematic 绘制与图标源码通过无 SDK 编译和链接；打印绘制列表初始化像素密度，恢复空心图形边线。",
+    "位置读取接受自身写出的可选导航目标，保留 invalid-link 等呈现位置的解码；无效分类不会替换完整模型。",
+    "Dev C 接口更新为 18；回调输出、对象引用和只读执行受宿主检查，描述大小在复制前检查，旧模块需要重编译。",
+    "SchematicCanvas 和 SchematicDialogs 整体禁止直接原生访问，删除逐函数检查清单及五项无用依赖，旧 UI 访问记录从 44 减至 41。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-schematic-presentation/build-verified.log"
+    },
+    "full_ctest": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 34.85,
+      "log": "out/phase-five-schematic-presentation/full-verified.log",
+      "junit": "out/phase-five-schematic-presentation/full-verified.xml",
+      "inventory": "out/phase-five-schematic-presentation/ctest-inventory.json",
+      "excluded_label": "performance"
+    },
+    "junit_inventory": {
+      "result": "All 125 selected tests passed without skips",
+      "log": "out/phase-five-schematic-presentation/junit-verification.log"
+    },
+    "ui": {
+      "modules": {
+        "registered": 252,
+        "executed": 63,
+        "not_selected": 189,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/modules.xml",
+        "sha256": "7b632ba25f414f8b0805e5c6fae67057dd1f4edb7a1721915c9b1a48320adfee"
+      },
+      "schematic": {
+        "registered": 252,
+        "executed": 26,
+        "not_selected": 226,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/schematic.xml",
+        "sha256": "8cbfa253e4dfdbe25e15797d6c29bc9a4aa6f31f71d34fc8a2edd850b12decbf"
+      },
+      "layout": {
+        "registered": 252,
+        "executed": 22,
+        "not_selected": 230,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/layout.xml",
+        "sha256": "6845edc058db55c66be9beaf5ce495904904e9f8ae7f2fd37cd6ec7feb7b2a54"
+      },
+      "debugger": {
+        "registered": 252,
+        "executed": 10,
+        "not_selected": 242,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/debugger.xml",
+        "sha256": "caee4c180c308e5ad88bd6eaa351e3be4735bc904b9ffa4a6b921240542f569e"
+      },
+      "app": {
+        "registered": 252,
+        "executed": 25,
+        "not_selected": 227,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/app.xml",
+        "sha256": "fd8ffcd9d51e2adb3f6ca645c43314893ca84de26f4e6c0f7a1460844bf589e5"
+      },
+      "filemenu": {
+        "registered": 252,
+        "executed": 10,
+        "not_selected": 242,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/filemenu.xml",
+        "sha256": "5dfd6bb4135a18d160f49183bfdd4812c34926dc3c17889db58545ee34fa307e"
+      },
+      "tools": {
+        "registered": 252,
+        "executed": 13,
+        "not_selected": 239,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/tools.xml",
+        "sha256": "dcfbf2bdb51ab15a184f6561c38c50d212093bc87d3b1a90a892f85d8659072b"
+      },
+      "setup": {
+        "registered": 252,
+        "executed": 17,
+        "not_selected": 235,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/setup.xml",
+        "sha256": "96a99411b1ad775ba06570c2ac1049b4bd7d08324f5c4164180496a70d584920"
+      },
+      "propertyedits": {
+        "registered": 252,
+        "executed": 7,
+        "not_selected": 245,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/macos-arm64/virtoolsdev-ui/propertyedits.xml",
+        "sha256": "6af0628b7f2c5dcff6fa496133a693021c24eefe4256e4b150fd8a131c3a2a88"
+      }
+    },
+    "gpu_functional_cases": [
+      "gpu_viewport_reuses_one_imported_texture",
+      "gpu_viewport_is_opaque",
+      "gpu_viewport_resize_rebuilds_once",
+      "gpu_viewport_snapshot_reads_only_on_request",
+      "gpu_viewport_failure_latches_cpu_fallback",
+      "gpu_viewport_release_failure_preserves_owner"
+    ],
+    "nmo_direct_open": "filemenu.open_nmo_populates_level_manager_as_new_import",
+    "architecture_checker": {
+      "passed": 36,
+      "failed": 0,
+      "log": "out/phase-five-schematic-presentation/architecture-tests.log"
+    },
+    "sdk_free_drawing": {
+      "target": "NeMoDevSchematicDrawingTests",
+      "sources": [
+        "ui/schematic/SchematicRenderer.cpp",
+        "ui/controls/DevIcons.cpp"
+      ],
+      "compile_and_link_without_sdk": true,
+      "commands": "out/phase-five-schematic-presentation/drawing-target.txt",
+      "ctest": "NeMoDevSchematicDrawing"
+    },
+    "public_headers": {
+      "version": 18,
+      "ctest": "NeMoDevIdentityHeaders",
+      "c_and_cpp": true,
+      "sdk_or_stl_dependency": false
+    },
+    "new_native_cases": "NeMoDevEditor: TestSchematicPicking",
+    "new_ui_case": "modules.runtime_picking_uses_view_instances",
+    "intermediate_runs": [
+      {
+        "log": "out/phase-five-schematic-presentation/native-first.log",
+        "result": "新增查询后旧登记数量遗漏最后一项，改为按数组长度登记。"
+      },
+      {
+        "log": "out/phase-five-schematic-presentation/native-second.log",
+        "result": "活动连线测试改为激活来源端点，并按真实记录位置捕获连线。"
+      },
+      {
+        "log": "out/phase-five-schematic-presentation/focused-third.log",
+        "result": "纯绘制测试暴露未初始化像素密度导致无边线；打印与测试均修正。新增界面测试移入实际加载外部模块的测试组。"
+      },
+      {
+        "log": "out/phase-five-schematic-presentation/picking-diagnostic.log",
+        "result": "测试将图放在 Script 默认 80 像素高度之外，显式设置测试范围并使用独立实例过滤。"
+      },
+      {
+        "log": "out/phase-five-schematic-presentation/focused-seventh.log",
+        "result": "修正后原生和模块界面回归全部通过，随后最终完整回归 125/125 通过。"
+      }
+    ]
+  },
+  "architecture": {
+    "files": 1016,
+    "groups": 57,
+    "features": 32,
+    "states": 47,
+    "legacy_exposures": 41,
+    "completed_phase": 3,
+    "test_registration_checked": true,
+    "open_gaps": 20
+  },
+  "sdk": {
+    "repositories": 16,
+    "sources_changed": false,
+    "differences": [],
+    "before_log": "out/phase-five-schematic-presentation/sdk-before.json",
+    "after_log": "out/phase-five-schematic-presentation/sdk-after.json",
+    "before_sha256": "d2cf05adec5b5154b9161e7bfef7f0d0f2c0c5d40b4b8ba3b0563c8703744a7c",
+    "after_sha256": "d2cf05adec5b5154b9161e7bfef7f0d0f2c0c5d40b4b8ba3b0563c8703744a7c",
+    "runtime_files": 22,
+    "runtime_sha256": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "lib/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "lib/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libCK2.0.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libCK2.dylib": "b19b2aff03bd05bf1b8aaad70afc449b5881c33fa65f264ad77ba5b1644b9f9d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCK2_3D.dylib": "1feb780fcd47ff7e1f849ffa481a516c887ac036048b31aff99f77b6804c3868",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "be90b1a5cc006c48d906426bf9ce25cc3a67d46970e016dde58b5eefb62f580a"
+    }
+  },
+  "source": {
+    "base_revision": "df86528f2b3795b1d74b3173caadf16b2fa5bb6d",
+    "build_source_sha256": {
+      "application/EditorApplication.cpp": "c85a3db6952e75c8b9a6d81c557d92c25b8d319092ec92cac5ef85768cf97ffa",
+      "application/EditorApplication.h": "99e728de3131964c50d6f9591889b197c1f68eab633f1e66cb94184c0746b839",
+      "core/level/LevelTree.h": "e49e70b14071e71d0872c2287f0e4a73e6489ac35b9cd7f05211b8ebaea6f171",
+      "core/schematic/SchematicModel.h": "a8a71dbc28838de03ad823f818f1d1d9a4817ef37d79f2d5744366db4c96cef8",
+      "core/schematic/SchematicModelBuilder.cpp": "29652b0675f241937b615188c69045b91b1150e0132a264aa9cdc133284944b5",
+      "core/schematic/SchematicNavigation.h": "5c377da37131d81ac1c4058b9e6f5504a7ccb549caf923abf63fb8ca7d0815f4",
+      "editor/Editor.h": "1d1641313fdf266542720693b7a54d6ff4bd2cf770e39494b8d4af8abf7a4c10",
+      "editor/Schematic.h": "494fe06da9c91f726131a54733d4ac13972fb14ff5d6a402661f9a902632c31e",
+      "features/schematic/SchematicGraphCommands.cpp": "08de0504b8485b5789bed5c0997dfb36001d469d0c26d5c3ab4ec0accf9277e3",
+      "features/schematic/SchematicModelData.cpp": "49cdec525d8ece98ba47566d29ae7b6e936bb4966d64b568a32ad6bd88bdc3ad",
+      "features/schematic/SchematicModelData.h": "bb4c232e60655636e6d0500f3926ede2e37c7003c9a144b47e9067291dfac5cc",
+      "features/schematic/SchematicPosition.h": "f37902d916151891f9b9796a0f2ca39cd84032b064ea142fc13a24a737177851",
+      "tests/ArchitectureTests.py": "44ffc80b92ac784980690fed0aa9a04bdc7e66c6d6484af8142a938202057dc9",
+      "tests/CMakeLists.txt": "5cb2311e84705da1fcf7a47b3ddc88c490b7babd7faa43aa7664b319c0f7838c",
+      "tests/CheckArchitecture.py": "368f1d4ca5dd972d04655e8fd134bf7605f5ac3872e0a2e93e20b813686f9c64",
+      "tests/EditorApplicationTests.cpp": "b1e4ecd23f723217876b3064411439f06d1a2e21b738e9af1dcb72433c19c4f1",
+      "tests/IdentityHeaderC.c": "4e2bbdb493b4b7a86aac283c5e6aad6a84bcfa047a412d8bfcf1c56d37d7e4a0",
+      "tests/IdentityHeaderTests.cpp": "c93cd8dfae0fe1d3623efdf522c0cbcdafd9148f03c4dc5193bbc8f700773d61",
+      "tests/modules/ObjectModule.cpp": "ea4146bacf15c99019cac9df220b6d02e25bd62cd379128f86e3d5f755abc80b",
+      "tests/ui/ModuleTests.cpp": "6033c5525e490eb5d39ec94d5a959b75151e76ad679a6ce6cf64325dce0d8825",
+      "tests/ui/SchematicTests.cpp": "75320e0cac0d00e97eafa689ea86ff920e12e8dc6b240365c8ae36f4749081bb",
+      "ui/CMakeLists.txt": "c13a0910cfd9604a0d38c000734b3e6af6bd0fb5805675cae7a0acb0bb073cab",
+      "ui/app/EditorStartup.cpp": "60be96ae332d83b0ee4b64d2e1d9badde89f9c563051a257f398142ff16d0e9e",
+      "ui/controls/DevBitmaps.cpp": "73e60eade3794d8084991c5378b01897af52020795a82c1448b09593677a708e",
+      "ui/controls/DevBitmaps.h": "4e45c7e53a687bd8c8b695f57532db51a79d3671b1f3dcf765dc59730a62556c",
+      "ui/controls/DevIcons.cpp": "59d23811ba05e64a20b650fb3bc443e09c31570d382f2ada265b0d5b81f680b0",
+      "ui/controls/DevIcons.h": "27d6713c2c36870f37e9472875e2cdae201a88c7e099ae10c861f38327e2aed2",
+      "ui/controls/ParameterBox.cpp": "a930021ba57add8c8d91f99083bdf7ddb407a0d00351315bf90d5a81dca3d6d0",
+      "ui/layout/LayoutExplorer.cpp": "975d79e41cbe8ff697a61929407f495ad9cd0a562444eadf03642b0640202b27",
+      "ui/schematic/SchematicCanvas.cpp": "da25c01dbfda66c062b2afdaa5621cec641191cb014ee4522a4ed9420ecf6959",
+      "ui/schematic/SchematicCanvas.h": "cd410dc650ee0766f85df837321c4e247743999543b91128297dc40b72628675",
+      "ui/schematic/SchematicInput.cpp": "e0907daa308b160aa34d7c114a83c49204a179f9ae4984ed7cea736ee5476d3b",
+      "ui/schematic/SchematicMenus.cpp": "fd122cd93abae62ea28bc17238b5027a3e6bade6418431d4e75db823e426375f",
+      "ui/schematic/SchematicPrint.cpp": "5a24a670317d83b71ccb5272b906ef6474447a7a0cf0ff10353fb64d1596784e",
+      "ui/schematic/SchematicRenderer.cpp": "084ab97ed801101e8c5be78fc6640e667e31aab5e0c4744a378027ebb0885d5c",
+      "ui/schematic/SchematicRenderer.h": "126a90193197dff6ff6ca7d408237d8f4c1f7b6bcee6c7388864eb2fcf9852fb",
+      "workspace/EditorWorkspace.cpp": "aa5b9b82746c17253cf716193878fa37f407e8235d18e9d1aa06739e672cb268",
+      "workspace/EditorWorkspace.h": "ebf8ad27a45f5a5797a9092e6a64acb1bff8ebeb705ad655498fa6d5f597021f",
+      "tests/SchematicDrawingTests.cpp": "ae9ae986180aaabd7701412d1869558c53a16e8cfac3428d1fcf7d100678f0c1",
+      "tests/SchematicPickingTests.cpp": "0c293e1adb2ead2a53140d3275ab687981fa3b6bc36f5b870ea6922c36e85a91"
+    },
+    "build_sources_unchanged_after_tests": true,
+    "gpu_render_transfer_source_changed": false,
+    "gpu_source_sha256": {
+      "ui/layout/LayoutWindow.cpp": "f9c244cb4671eb17e3ea21c8ea8a89e130b96635c034cc1c89ad55623950bafb",
+      "ui/render/UiRenderer.cpp": "eeeb206eab24998189cb16e47f241efffb59560bc988cd383e5b03d530a703e9",
+      "ui/render/UiRenderer.h": "2b21132c135f1a5011b95879dfdc83d3e9a6eedc34242006b2c20ee944cbd7fc",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/LayoutView.cpp": "a2ac96f4954d8469eda72cf9f4853ff0440b16be4938ace29391c1e5cfe8de0d"
+    },
+    "editor_interface_version": 18
+  },
+  "performance": {
+    "status": "deferred",
+    "acceptance_performed": false,
+    "thresholds_changed": false,
+    "note": "仅运行功能回归；未运行 viewportbaseline 时延验收或 CPU 探针，功能通过不代替性能验收。"
+  },
+  "remaining": [
+    "阶段五尚未完成，completed_phase 保持三。",
+    "Layout 快照、Player/全屏、原生呈现适配、Setup 与其余二十项既有待办继续迁移；旧名称拾取表只剩 Layout 使用。"
+  ]
+}
