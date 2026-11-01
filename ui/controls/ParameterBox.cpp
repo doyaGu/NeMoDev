@@ -2,7 +2,7 @@
 // templates (Managers\CK2UI.dll dialogs 134 to 2012, in dialog units of MS
 // Sans Serif 8: 1.5 x 1.625 pixels).
 #include "ui/controls/ParameterBox.h"
-
+#include "core/level/SetupCommands.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1017,25 +1017,61 @@ struct ParameterDialog {
     std::unique_ptr<ParameterBox> box;
     EditorView view=0;
     EditorScope scope{};
-    ObjectRef target{};
+    ObjectRef target{}, bitmapOptions{};
     std::vector<ObjectRef> objects;
     int kind=0;
+    uint64_t bitmapRevision = 0;
     bool open=false,shown=false;
     ParameterDialog(EditorState &s):state(s),box(std::make_unique<ParameterBox>(s)){}
-    void Clear(){box->Clear();objects.clear();target={};scope={};open=shown=false;view=0;}
+    ~ParameterDialog() { Clear(); }
+    void ClearBitmapOptions() {
+        if (bitmapOptions && state.document)
+            if (auto *parameter =
+                    state.document->Resolve(bitmapOptions, CKCID_PARAMETER, Document::ObjectScope::Existing))
+                state.document->Context()->DestroyObject(parameter);
+        bitmapOptions = {};
+    }
+    void Clear() {
+        box->Clear();
+        ClearBitmapOptions();
+        objects.clear();
+        target = {};
+        scope = {};
+        open = shown = false;
+        view = 0;
+    }
     static EditorStatus Navigate(void *data,const EditorHost *host,const EditorRequest *request){
         auto &d=*static_cast<ParameterDialog*>(data);if(!d.state.document||d.state.document->Token()!=request->scope.document)return EDITOR_STALE;
         ObjectRef target{};std::vector<ObjectRef> objects;int kind=0;
         for(uint32_t i=0;i<request->count;++i){const auto&v=request->values[i];const std::string key(v.key.data,v.key.size);
             if(key=="target")target=v.object;else if(key=="objects"&&v.objects.count)objects.assign(v.objects.data,v.objects.data+v.objects.count);else if(key=="kind")kind=int(v.integer);}
-        if(kind<0||kind>2)return EDITOR_INVALID;
+        if (kind < 0 || kind > 3)
+            return EDITOR_INVALID;
         for(auto object:objects)if(!d.state.document->Resolve(object))return EDITOR_STALE;
         auto *parameter=CKParameter::Cast(d.state.document->Resolve(target));
         if(kind==0&&!parameter)return EDITOR_STALE;
         if(kind==1&&!d.state.document->Resolve(target))return EDITOR_STALE;
         auto next=std::make_unique<ParameterBox>(d.state);
         bool added=false;
-        if(kind==0)added=next->Add(parameter,parameter->GetName()?parameter->GetName():"");
+        ObjectRef bitmapOptions{};
+        const auto destroy = [&](CKParameterOut *value) {
+            if (value)
+                d.state.document->Context()->DestroyObject(value);
+        };
+        std::unique_ptr<CKParameterOut, decltype(destroy)> ownedOptions(nullptr, destroy);
+        if (kind == 3) {
+            auto *bitmap = d.state.document->Resolve(target);
+            if (!bitmap || (!CKTexture::Cast(bitmap) && !CKSprite::Cast(bitmap)))
+                return EDITOR_STALE;
+            auto *options = ReadBitmapOptions(*d.state.document, bitmap);
+            if (!options)
+                return EDITOR_REFUSED;
+            ownedOptions.reset(options);
+            options->ModifyObjectFlags(CK_OBJECT_PRIVATE, 0);
+            bitmapOptions = d.state.document->Reference(options->GetID());
+            added = next->Add(options, "Format Options");
+        } else if (kind == 0)
+            added = next->Add(parameter, parameter->GetName() ? parameter->GetName() : "");
         else {
             CKDependencies options;
             if(kind==1)options=d.state.CopyDependencies();
@@ -1046,7 +1082,16 @@ struct ParameterDialog {
             added=next->AddDependencies(kind==1?"Copy options":"Delete Options",kind==1?CKPGUID_COPYDEPENDENCIES:CKPGUID_DELETEDEPENDENCIES,options);
         }
         if(!added)return EDITOR_ERROR;
-        d.box=std::move(next);d.objects=std::move(objects);d.target=target;d.kind=kind;d.scope=request->scope;
+        d.box->Clear();
+        d.ClearBitmapOptions();
+        d.box = std::move(next);
+        d.bitmapOptions = bitmapOptions;
+        d.bitmapRevision = d.state.document->ChangeRevision();
+        d.objects = std::move(objects);
+        d.target = target;
+        d.kind = kind;
+        d.scope = request->scope;
+        ownedOptions.release();
         d.open=true;d.shown=false;return EDITOR_OK;
     }
     static EditorStatus Open(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink){
@@ -1057,7 +1102,64 @@ struct ParameterDialog {
     }
     static EditorStatus Accept(void *data,const EditorHost *host,const EditorRequest *request,EditorSink sink){
         auto&d=*static_cast<ParameterDialog*>(data);if(!d.open||!d.state.document||d.state.document->Token()!=d.scope.document||request->scope.view!=d.view)return EDITOR_STALE;
-        if(d.kind==0){if(!d.state.document->Resolve(d.target)){d.box->Clear();d.open=false;return EDITOR_STALE;}if(!d.box->Valid())return EDITOR_INVALID;const bool changed=d.box->Changed();if(!d.box->Apply(0)&&changed)return EDITOR_ERROR;d.box->Clear();d.open=false;return EDITOR_OK;}
+        if (d.kind == 3) {
+            if (!d.state.document->Resolve(d.target) || d.state.document->ChangeRevision() != d.bitmapRevision ||
+                !d.box->Valid() || !d.box->Count()) {
+                d.Clear();
+                return EDITOR_STALE;
+            }
+            auto *work = d.box->Work(0);
+            if (!work)
+                return EDITOR_INVALID;
+            const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, d.target};
+            const EditorRequest read{request->scope, &target, 1};
+            EditorResponse projection;
+            auto status =
+                host->query(host->data, EditorString EDITOR_TEXT("setup.bitmap.format-options-value"), &read,
+                            {&projection, [](void *p, const EditorValue *values, uint32_t count) {
+                                 return CopyEditorFields(static_cast<EditorResponse *>(p)->fields, values, count);
+                             }});
+            if (status != EDITOR_OK) {
+                d.shown = false;
+                return status;
+            }
+            std::vector<EditorField> fields{{"target", EDITOR_OBJECT, d.target}};
+            for (auto &field : projection.fields) {
+                if (field.key == "schema")
+                    continue;
+                if (field.key == "value")
+                    field = {"value", EDITOR_OBJECT, d.state.document->Reference(work->GetID())};
+                fields.push_back(std::move(field));
+            }
+            const auto values = BorrowEditorFields(fields);
+            const EditorRequest write{
+                request->scope, values.data(), uint32_t(values.values.size()), {}, request->operation};
+            status =
+                host->execute(host->data, EditorString EDITOR_TEXT("setup.bitmap.format-options-set"), &write, sink);
+            if (status == EDITOR_OK || status == EDITOR_NO_CHANGE) {
+                d.box->Clear();
+                d.ClearBitmapOptions();
+                d.open = false;
+            } else
+                d.shown = false;
+            return status;
+        }
+        if (d.kind == 0) {
+            if (!d.state.document->Resolve(d.target)) {
+                d.box->Clear();
+                d.open = false;
+                return EDITOR_STALE;
+            }
+            if (!d.box->Valid())
+                return EDITOR_INVALID;
+            const bool changed = d.box->Changed();
+            auto *script = OwningScript(d.state.document->Resolve(d.target));
+            if (!d.box->Apply(script ? script->GetID() : 0) && changed)
+                return EDITOR_ERROR;
+            d.box->Clear();
+            d.open = false;
+            return EDITOR_OK;
+        }
         CKDependencies options;if(!d.box->Dependencies(0,options))return EDITOR_INVALID;
         std::vector<uint64_t> flags;for(int i=0;i<options.Size();++i)flags.push_back(options[i]);
         const EditorValue values[]={ObjectsArgument("objects",d.objects),ObjectArgument("target",d.target),IntegerArgument("custom",1),IntegerArgument("flags",uint64_t(options.m_Flags)),
@@ -1071,11 +1173,25 @@ struct ParameterDialog {
     }
     void Draw(const EditorHost *host,EditorViewFrame &frame){
         if(!open){frame.close=1;return;}
-        const char*id=kind==0?"Edit Parameter###AttributeManagerValue":kind==1?"Edit Parameter###LevelCopyOptions":"Select Delete Options###DeleteOptions";
+        const char *id = kind == 3   ? "Format Options###formatoptions"
+                         : kind == 0 ? "Edit Parameter###AttributeManagerValue"
+                         : kind == 1 ? "Edit Parameter###LevelCopyOptions"
+                                     : "Select Delete Options###DeleteOptions";
         if(!shown){ImGui::OpenPopup(id);shown=true;}
-        const auto action=EditParameterValueDialog(id,kind==2?"Select Delete Options":"Edit Parameter",*box);
-        if(action==DialogAction::Cancel){box->Clear();open=false;frame.close=1;}
-        else if(action==DialogAction::Ok){EditorClient client(host,view);client.Command("parameter.accept");}
+        const auto action = EditParameterValueDialog(id,
+                                                     kind == 3   ? "Format Options"
+                                                     : kind == 2 ? "Select Delete Options"
+                                                                 : "Edit Parameter",
+                                                     *box);
+        if (action == DialogAction::Cancel) {
+            box->Clear();
+            ClearBitmapOptions();
+            open = false;
+            frame.close = 1;
+        } else if (action == DialogAction::Ok) {
+            EditorClient client(host, view);
+            client.Command("parameter.accept");
+        }
         frame.active=open;
     }
 };
@@ -1111,17 +1227,37 @@ bool RegisterParameterDialogs(EditorApplication &editor,EditorState &state,std::
         &parameter,
         1};
     const EditorParameter copy[]={objects,parameter};
-    static int parameterKind=0,copyKind=1,deleteKind=2;
-    const EditorCommandDesc commands[]={
-        {sizeof(EditorCommandDesc),EDITOR_TEXT("parameter.edit"),EDITOR_TEXT("builtin.parameters"),EDITOR_TEXT("Edit Parameter"),&parameter,1,ParameterDialog::Open,&parameterKind,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.copy-options"),EDITOR_TEXT("builtin.parameters"),EDITOR_TEXT("Copy Options"),copy,2,ParameterDialog::Open,&copyKind,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc),EDITOR_TEXT("object.confirm-delete"),EDITOR_TEXT("builtin.parameters"),EDITOR_TEXT("Select Delete Options"),&objects,1,ParameterDialog::Open,&deleteKind,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc),EDITOR_TEXT("parameter.accept"),EDITOR_TEXT("builtin.parameters"),EDITOR_TEXT("Edit Parameter"),nullptr,0,ParameterDialog::Accept,data,EDITOR_DOCUMENT,EDITOR_DOCUMENT_CHANGE}};
+    static int parameterKind = 0, copyKind = 1, deleteKind = 2, bitmapKind = 3;
+    const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("bitmap.edit-options"), EDITOR_TEXT("builtin.parameters"),
+         EDITOR_TEXT("Format Options"), &parameter, 1, ParameterDialog::Open, &bitmapKind, EDITOR_DOCUMENT,
+         EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.edit"), EDITOR_TEXT("builtin.parameters"),
+         EDITOR_TEXT("Edit Parameter"), &parameter, 1, ParameterDialog::Open, &parameterKind, EDITOR_DOCUMENT,
+         EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("scene.copy-options"), EDITOR_TEXT("builtin.parameters"),
+         EDITOR_TEXT("Copy Options"), copy, 2, ParameterDialog::Open, &copyKind, EDITOR_DOCUMENT,
+         EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("object.confirm-delete"), EDITOR_TEXT("builtin.parameters"),
+         EDITOR_TEXT("Select Delete Options"), &objects, 1, ParameterDialog::Open, &deleteKind, EDITOR_DOCUMENT,
+         EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("parameter.accept"), EDITOR_TEXT("builtin.parameters"),
+         EDITOR_TEXT("Edit Parameter"), nullptr, 0, ParameterDialog::Accept, data, EDITOR_DOCUMENT,
+         EDITOR_DOCUMENT_CHANGE}};
     const EditorParameter args[]={{EDITOR_TEXT("target"),EDITOR_OBJECT,1},{EDITOR_TEXT("objects"),EDITOR_OBJECT_LIST,1},{EDITOR_TEXT("kind"),EDITOR_INTEGER_VALUE}};
     EditorViewDesc view{};view.size=sizeof(view);view.imguiVersion=EDITOR_IMGUI_VERSION;view.id=EDITOR_TEXT("parameter.dialog");view.provider=EDITOR_TEXT("builtin.parameters");view.title=EDITOR_TEXT("Edit Parameter");view.kind=EDITOR_OVERLAY_VIEW;view.singleInstance=1;view.area=EDITOR_DOCUMENT;
     view.data=data;view.create=[](void*data,const EditorHost*,EditorView id)->void*{auto*d=static_cast<ParameterDialog*>(data);d->view=id;return d;};view.destroy=[](void*data){static_cast<ParameterDialog*>(data)->Clear();};
     view.draw=[](void*data,const EditorHost*host,EditorView,EditorViewFrame*frame){static_cast<ParameterDialog*>(data)->Draw(host,*frame);};view.parameters=args;view.count=3;view.navigate=ParameterDialog::Navigate;
-    EditorModuleDesc module{};module.size=sizeof(module);module.version=EDITOR_VERSION;module.id=EDITOR_TEXT("parameters.dialogs");module.data=data;module.stop=[](void*data){delete static_cast<ParameterDialog*>(data);};module.commands=commands;module.commandCount=4;module.views=&view;module.viewCount=1;
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("parameters.dialogs");
+    module.data = data;
+    module.stop = [](void *data) { delete static_cast<ParameterDialog *>(data); };
+    module.commands = commands;
+    module.commandCount = 5;
+    module.views = &view;
+    module.viewCount = 1;
     module.queries = &pick;
     module.queryCount = 1;
     if(editor.Register(module,error))return true;delete data;return false;

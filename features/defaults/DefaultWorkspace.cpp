@@ -70,6 +70,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"command", "parameter.integer-set", "builtin.parameters"},
                                       {"command", "parameter.vector3-set", "builtin.parameters"},
                                       {"query", "parameter.vector3-value", "builtin.parameters"},
+                                      {"command", "bitmap.edit-options", "builtin.parameters"},
                                       {"command", "object.open-setup", "builtin.setup-windows"},
                                       {"command", "object.rename", "builtin.objects"},
                                       {"command", "object.create-frame3d", "builtin.objects"},
