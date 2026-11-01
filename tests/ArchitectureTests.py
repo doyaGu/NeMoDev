@@ -247,6 +247,37 @@ class ArchitectureTests(unittest.TestCase):
                 self.write(path, "// input uses copied query values\n")
         self.assertEqual(self.run_check().returncode, 0)
 
+    def test_schematic_authoring_inputs_cannot_regain_native_access(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for path, function in (
+            ("ui/schematic/SchematicCanvas.cpp", "AddComment"),
+            ("ui/schematic/SchematicCanvas.cpp", "OpenValueDialog"),
+            ("ui/schematic/SchematicDialogs.cpp", "LocalParameterDialog"),
+            ("ui/schematic/SchematicDialogs.cpp", "ParametersDialog"),
+            ("ui/schematic/SchematicDialogs.cpp", "BlockMenus"),
+            ("ui/schematic/SchematicMenus.cpp", "ParameterMenu"),
+            ("ui/schematic/SchematicMenus.cpp", "ReplaceGraphDialog"),
+            ("ui/schematic/SchematicMenus.cpp", "ImportBehaviorFile")):
+            with self.subTest(path=path, function=function):
+                self.write(path, "void SchematicCanvas::" + function + "() { m_State.document->Context(); }")
+                result = self.run_check()
+                self.assertIn("native mutation or query returned to migrated input", result.stderr)
+                self.write(path, "// uses copied query values and commands\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
+    def test_parameter_dialog_and_array_control_cannot_import_native_state(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        self.write("core/model.h", '#include "CKAll.h"\n')
+        for path in ("ui/schematic/SchematicParameterDialog.cpp", "ui/controls/ObjectArrayInput.cpp"):
+            with self.subTest(path=path):
+                self.write(path, '#include "core/model.h"\n')
+                result = self.run_check()
+                self.assertIn("unrecorded native/state exposure: " + path, result.stderr)
+                self.write(path, "// pure copied fields\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_layout_projections_cannot_gain_native_or_mutable_state(self):
         for include in ('CKAll.h', 'core/document/Document.h', 'ui/app/EditorState.h'):
             with self.subTest(include=include):

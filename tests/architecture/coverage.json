@@ -187,7 +187,8 @@
         "ui/controls/ParameterBox.*",
         "ui/controls/ValueEditor.*",
         "ui/controls/ObjectText.h",
-        "ui/controls/BehaviorInfoDialog.*"
+        "ui/controls/BehaviorInfoDialog.*",
+        "ui/controls/ObjectArrayInput.*"
       ]
     },
     {
@@ -245,7 +246,8 @@
         "!ui/controls/ValueEditor.*",
         "!ui/controls/ObjectText.h",
         "!ui/controls/BehaviorInfoDialog.*",
-        "!ui/controls/FileDialogs.*"
+        "!ui/controls/FileDialogs.*",
+        "!ui/controls/ObjectArrayInput.*"
       ]
     },
     {
@@ -433,7 +435,9 @@
         "features/schematic/SchematicGraphCommands.*",
         "features/schematic/SchematicGeometry.*",
         "features/schematic/SchematicConnections.*",
-        "features/schematic/SchematicCopying.*"
+        "features/schematic/SchematicCopying.*",
+        "features/schematic/SchematicAuthoring.*",
+        "features/schematic/SchematicParameterEdits.*"
       ]
     },
     {
@@ -627,6 +631,7 @@
       "S02",
       "S03",
       "S04",
+      "S05",
       "S13",
       "S14",
       "S27",
@@ -704,6 +709,7 @@
       "S28",
       "S33",
       "S35",
+      "S41",
       "S57"
     ],
     "S22": [
@@ -907,8 +913,10 @@
       "S05",
       "S06",
       "S07",
+      "S12",
       "S13",
       "S34",
+      "S44",
       "S57"
     ],
     "S50": [
@@ -1691,7 +1699,8 @@
       "ui_tests": [
         "VirtoolsDevUi.attributes",
         "VirtoolsDevUi.sound",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.schematic"
       ],
       "gaps": []
     },
@@ -2437,7 +2446,7 @@
     },
     {
       "id": "file_operations",
-      "name": "文档与资源文件操作、对象/NMS 导出、输入请求及最近保存路径",
+      "name": "文档、资源与图文件操作、对象/NMS 导出、输入请求及最近保存路径",
       "owner": "DocumentCommands",
       "lifetime": "操作完成或取消；旧输入按操作和文档编号拒绝；退出时原生任务返回后结束",
       "persistence": "临时流程不保存；等待输入无原生写入；最终结果登记到 EditorApplication",
@@ -2615,7 +2624,7 @@
       "name": "文件候选、资源批次、重复名提示和原生导出报告",
       "owner": "DocumentFiles",
       "lifetime": "准备至提交或丢弃；重复名取消、文档作用域失效及异常都结束候选",
-      "persistence": "候选成功后才切换文档；批次持有文件路径及对象引用；实际写出结果交给 DocumentCommands 登记，不依赖发起视图",
+      "persistence": "候选成功后才切换文档；批次持有文件路径及对象引用；实际写出结果交给 DocumentCommands 登记，不依赖发起视图；图导入和替换固定 Script/图引用及版本，晚到文件答复不能越过已关闭的来源视图",
       "features": [
         "F02",
         "F03",
@@ -2694,9 +2703,9 @@
     {
       "id": "parameter-dialog-values",
       "name": "参数对话框的工作副本、交互开始值与输入校验",
-      "owner": "ParameterBox 的对应实例",
-      "lifetime": "对话框关闭、文档替换或原生生命周期失效；Apply 成功后保留副本以继续编辑",
-      "persistence": "原生工作副本沿用已有内存管理；查询、嵌套编辑器与修改命令在打开时固定。每个可描述子树只保存一份对象引用，成员按路径访问；单次交互取消恢复开始值，Apply 合成一步，失败整体回滚。原生专用值经同一命令使用既有复制和状态保存",
+      "owner": "SchematicParameterEdits 持有原生工作副本；SchematicParameterDialog 保存复制输入；其余窗口沿用 ParameterBox",
+      "lifetime": "原文档和来源视图；确认、取消、关闭、失效或模块停止释放原生工作副本；Apply 完成后重新读取",
+      "persistence": "预览只改工作副本，不写原文档或 Dirty；名称、类型、值和不兼容连线在同一命令内提交，输入批次和设置回调仍合成一步 Undo。嵌套控件取消只恢复当前交互；整个对话框取消不改历史或 Redo。对象数组共用只读列表和选择控件。其余窗口的 ParameterBox 继续复用相同值编辑器与修改命令。",
       "features": [
         "F13",
         "F14"

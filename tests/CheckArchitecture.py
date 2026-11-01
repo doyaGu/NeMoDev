@@ -61,15 +61,26 @@ def include_graph(source, files, contents=None, all_access=False):
 
 
 def input_access(source, files, errors):
-    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection)\b|\b(?:CKContext|EditScriptData|EditGroup)\b|"
+    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|EditScriptData|EditGroup)\b|"
                            r"\bm_View\.(?:Context|Pick|PickInfo|RectPick|Camera|Scene)\s*\(")
     migrated = {"BeginMove", "UpdateMove", "EndMove", "BeginGeometry", "UpdateGeometry", "GroupSelection",
                 "UngroupSelection", "Copy", "Cut", "Paste", "PasteClipboard", "Duplicate", "BeginCopyDrag",
                 "EndCopyDrag", "RetainHit", "EndpointOf", "EndLink", "ContinueConnection", "ReplaceSourceDialog",
                 "OpenOperationChoice", "ApplyOperationChoice", "UpdateLinkPaths", "EndDrawGraph", "SelectedPositions",
-                "GraphState"}
+                "GraphState", "AuthoringArguments", "ExecuteAuthoring", "ObjectInfo", "ElementInfo", "LoadParameterTypes",
+                "RememberBlocks", "RecentBlocks", "OpenParameterEditor", "BeginRename", "SelectedGraph",
+                "SelectedVariableBlock", "AddGraphIo", "OpenGraphParameterPicker", "OpenLocalParameterPicker",
+                "OpenOperationPicker", "InsertBlockAt", "AddComment", "OpenValueDialog", "OpenParametersDialog",
+                "OpenParametersOf", "OpenModifyOperation", "ConvertToShortcutSource", "BeginPickShortcutSource",
+                "RetargetAllShortcuts", "RefreshOperationChoices", "OperationDialog", "LocalParameterDialog",
+                "ParametersDialog", "OpenSettingsDialog", "EditElement", "CommentEditor", "DelayDialog", "OpenLinkDelay",
+                "ImportBehaviorFile", "OpenReplaceBlock", "LoadReplacements", "ReplaceBlockDialog", "ReplaceGraphDialog",
+                "ReplaceWithFile", "SetParamStyle", "ToggleCommentIcon", "SpaceAction", "AddThisAt", "GoToShortcutSource",
+                "CkPropertiesDialog", "ShortcutAnalysisDialog", "QuickAddDialog", "OpenQuickAdd", "ParameterMenu",
+                "BlockMenus", "BlockCategoryMenu", "BehaviorMenu", "OpenHtmlHelp", "CompleteGraph", "ContextMenuItems",
+                "DoubleClick", "BodyMenu"}
     for path in files:
-        if path not in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp", "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp"}:
+        if path not in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp", "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp", "ui/schematic/SchematicDialogs.cpp"}:
             continue
         text = (source / path).read_text(encoding="utf-8-sig")
         text = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', '', text, flags=re.S)
@@ -143,7 +154,7 @@ def check(source, manifest, inventory=None, ui_tests=False):
         if path.startswith("features/") and "editor-state" in access:
             errors.append(f"feature depends on legacy EditorState: {path}")
         if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/runtime/", "features/environment/", "features/diagnostics/", "features/preferences/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/", "features/schematic/", "features/layout/")) and not re.match(
-                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/SetupCommands|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying)|layout/Layout(?:Commands|Gestures))\.(?:h|cpp)$", path):
+                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/SetupCommands|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits)|layout/Layout(?:Commands|Gestures))\.(?:h|cpp)$", path):
             errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
     observed = set()
     for path, dependencies in graph.items():
