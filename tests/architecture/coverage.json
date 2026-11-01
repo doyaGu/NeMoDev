@@ -1535,7 +1535,8 @@
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.level",
         "VirtoolsDevUi.create",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.blocks"
       ],
       "gaps": []
     },
@@ -1949,7 +1950,11 @@
         "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.app"
+        "VirtoolsDevUi.app",
+        "VirtoolsDevUi.layout",
+        "VirtoolsDevUi.blocks",
+        "VirtoolsDevUi.attributes",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {

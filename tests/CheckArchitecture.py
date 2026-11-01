@@ -63,9 +63,9 @@ def include_graph(source, files, contents=None, all_access=False):
 
 
 def input_access(source, files, errors):
-    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|debugger|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|CKObject|CKBehavior|CKParameter(?:In|Out|Local|Operation|Manager)?|ScriptSession|EditScriptData|EditGroup|SearchDocument|ToggleBreakpoint|FindBreakpoint|SetBreakpointConditions|RemoveBreakpoints|SetScriptSnapshot|LoadScriptSnapshot|LoadSnapshotBitmap|objectPick)\b|"
+    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|debugger|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|CKObject|CKBehavior|CKParameter(?:In|Out|Local|Operation|Manager)?|ScriptSession|CK(?:BeObject|3dEntity|2dEntity|Material|Mesh|ObjectDeclaration)|DropBuildingBlockOn|DropBuildingBlockInto|ReplaceMeshMaterial|EditScriptData|EditGroup|SearchDocument|ToggleBreakpoint|FindBreakpoint|SetBreakpointConditions|RemoveBreakpoints|SetScriptSnapshot|LoadScriptSnapshot|LoadSnapshotBitmap|objectPick)\b|"
                            r"\bm_View\.(?:Context|Pick|PickInfo|RectPick|Camera|Scene)\s*\(")
-    migrated = {"ui/layout/LayoutInput.cpp", "ui/layout/LayoutFullScreen.cpp", "ui/layout/LayoutSnapshot.cpp", "ui/schematic/SchematicLinking.cpp",
+    migrated = {"ui/layout/LayoutDrop.cpp", "ui/layout/LayoutInput.cpp", "ui/layout/LayoutFullScreen.cpp", "ui/layout/LayoutSnapshot.cpp", "ui/schematic/SchematicLinking.cpp",
                 "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp",
                 "ui/schematic/SchematicDialogs.cpp", "ui/schematic/SchematicInput.cpp",
                 "ui/panels/EditorPanels.cpp"}
@@ -77,13 +77,17 @@ def input_access(source, files, errors):
 
     # These methods assemble UI from copied Layout state. The window's private
     # GPU target management is intentionally outside this list.
-    path = "ui/layout/LayoutWindow.cpp"
-    if path in files:
+    methods = (
+        ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
+             "TogglePreference", "ToggleGuide", "RightClick", "DebugData", "SelectionText", "Steps", "TransformStepsOf", "Snap2DOf")),
+        ("ui/app/EditorApp.cpp", "EditorApp", ("CreateObject",)),
+        ("ui/layout/LayoutMenu.cpp", "LayoutWindow", ("CreatedObject",)))
+    for path, owner, names in methods:
+        if path not in files:
+            continue
         text = (source / path).read_text(encoding="utf-8-sig")
         text = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', '', text, flags=re.S)
-        names = ("PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
-                 "TogglePreference", "ToggleGuide", "RightClick", "DebugData", "SelectionText", "Steps", "TransformStepsOf", "Snap2DOf")
-        for match in re.finditer(r"LayoutWindow::(" + "|".join(names) + r")\([^)]*\)[^{]*\{", text):
+        for match in re.finditer(owner + r"::(" + "|".join(names) + r")\([^)]*\)[^{]*\{", text):
             begin = match.end(); end = begin; depth = 1
             while end < len(text) and depth:
                 depth += (text[end] == '{') - (text[end] == '}'); end += 1

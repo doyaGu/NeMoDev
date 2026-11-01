@@ -377,6 +377,23 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn('native/state access in workspace view: features/layout/LayoutSceneData.cpp', result.stderr)
 
+    def test_layout_drop_cannot_regain_native_queries_or_document_edits(self):
+        self.add_ui("// Window include remains listed until its other fields migrate.\n")
+        for body in ("m_State.document->Context();", "m_View.PickInfo(1, 2);",
+                     "EditGroup edit(*m_State.document, label);", "m_State.objectSelection.Objects();",
+                     "CKMaterial *material;", "ReplaceMeshMaterial(doc, mesh, from, to);"):
+            self.write("ui/layout/LayoutDrop.cpp", "void Drop() { " + body + " }\n")
+            result = self.run_check()
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("native mutation or query returned to migrated input: ui/layout/LayoutDrop.cpp", result.stderr)
+
+    def test_layout_creation_cannot_regain_native_queries(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for body in ("m_State.document->Context();", "m_State.objectSelection.Objects();", "m_State.preferences.Bool(key);"):
+            self.write("ui/app/EditorApp.cpp", "void EditorApp::CreateObject(int kind) { " + body + " }\n")
+            self.assertIn("native mutation or query returned to Layout presentation: CreateObject", self.run_check().stderr)
+
     def test_native_canvas_commands_do_not_reintroduce_editor_state(self):
         self.write('ui/app/EditorState.h', '#pragma once\n')
         self.write('features/schematic/SchematicGraphCommands.cpp', '#include "ui/app/EditorState.h"\n')
