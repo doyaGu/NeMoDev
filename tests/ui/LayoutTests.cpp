@@ -646,6 +646,51 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         IM_CHECK(!App().State().document->Dirty());
     };
 
+    t = IM_REGISTER_TEST(engine, "layout", "paste_uses_copied_source_after_selection_changes");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        auto &state = App().State(); auto &editor = state.workspace->Application();
+        vdev::ObjectRef source{}, other{}; size_t steps = 0; bool dirty = false;
+        OnMainThread(ctx, [&] {
+            const auto a = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            const auto b = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(a.ok && b.ok);
+            source = state.document->Reference(a.created); other = state.document->Reference(b.created);
+            Object<CKObject>(a.created)->SetName("Layout clipboard source"); Object<CKObject>(b.created)->SetName("Other Layout selection");
+            state.document->MarkTopologyChanged();
+            const vdev::EditorClient client(editor.Host(), 0);
+            const auto unlocked = client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status;
+            IM_CHECK_NO_RET(unlocked == EDITOR_OK || unlocked == EDITOR_NO_CHANGE);
+            IM_CHECK_NO_RET(client.Command("selection.replace", {vdev::ObjectsArgument("objects", std::vector<vdev::ObjectRef>{source})}).status == EDITOR_OK);
+            steps = state.History().UndoCount(); dirty = state.document->Dirty();
+        }); ctx->Yield(3);
+        ImVec2 min, max; IM_CHECK(Read<bool>(ctx, [&] { return App().Layout().ShownView(min, max); }));
+        ctx->MouseMoveToPos(Center(min, max)); ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_C); ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(editor.Host(), 0);
+            const auto copied = client.Query("scene.clipboard"); const auto *objects = vdev::EditorClient::Find(copied, "objects");
+            IM_CHECK_NO_RET(copied.status == EDITOR_OK && objects && objects->objects == std::vector<vdev::ObjectRef>{source});
+            IM_CHECK_NO_RET(client.Command("selection.replace", {vdev::ObjectsArgument("objects", std::vector<vdev::ObjectRef>{other})}).status == EDITOR_OK);
+        });
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_V); ctx->Yield(3);
+        const auto *options = ctx->GetWindowByRef("//###CopyOptions"); IM_CHECK(options && options->WasActive);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+        IM_CHECK(Read<bool>(ctx, [&] { return state.History().UndoCount() == steps && state.document->Dirty() == dirty &&
+            state.objectSelection.References() == std::vector<vdev::ObjectRef>{other}; }));
+        ctx->WindowFocus("//3D Layout"); ctx->MouseMoveToPos(Center(min, max)); ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_V); ctx->Yield(3);
+        ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(6);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            const auto &selected = state.objectSelection.References();
+            auto *copy = selected.size() == 1 ? state.document->Resolve(selected.front()) : nullptr;
+            return state.History().UndoCount() == steps + 1 && copy && selected.front() != source && selected.front() != other &&
+                std::string(copy->GetName() ? copy->GetName() : "").find("Layout clipboard source") != std::string::npos;
+        }));
+        Undo(ctx);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(state.History().Undo() && state.History().Undo()); });
+        ctx->Yield(3);
+    };
+
     // Del on the selected entity: the Level Manager's Select Delete Options,
     // OK (Enter) destroys it, out of the selection, and clears the undo
     // steps (Dev). Last: the entity is gone.

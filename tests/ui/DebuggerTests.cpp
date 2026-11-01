@@ -389,12 +389,16 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         Settle(ctx);
         auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
         auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
-        EditorView unused = 0, memory = 0, versions = 0, links = 0;
+        EditorView unused = 0, memory = 0, versions = 0, links = 0, invalid = 0, messages = 0;
         OnMainThread(ctx, [&] {
             editor.Execute("diagnostics.open-unused", {editor.Scope(), nullptr, 0});
             editor.Execute("diagnostics.open-memory", {editor.Scope(), nullptr, 0});
             editor.Execute("diagnostics.open-versions", {editor.Scope(), nullptr, 0});
             unused = workspace.Role("main.unused"); memory = workspace.Role("main.memory"); versions = workspace.Role("main.versions");
+            const vdev::EditorClient canvas(editor.Host(), workspace.Role("main.schematic"));
+            IM_CHECK_NO_RET(canvas.Command("schematic.open-invalid-links").status == EDITOR_OK &&
+                            canvas.Command("schematic.open-messages").status == EDITOR_OK);
+            invalid = workspace.Role("main.invalid-links"); messages = workspace.Role("main.messages");
         });
         bool ready = false;
         for (int i = 0; i < 150 && !ready; ++i) {
@@ -406,12 +410,14 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         }
         IM_CHECK(ready);
         OnMainThread(ctx, [&] { editor.Execute("environment.open-link-options", {editor.Scope(), nullptr, 0}); links = workspace.Role("main.link-options"); }); ctx->Yield(3);
-        vdev::EditorResponse beforeUnused, beforeMemory, beforeVersions, beforeLinks;
+        vdev::EditorResponse beforeUnused, beforeMemory, beforeVersions, beforeLinks, beforeInvalid, beforeMessages;
         size_t undo = 0; bool redo = false, dirty = false; vdev::ObjectRef selection{};
         OnMainThread(ctx, [&] {
             const vdev::EditorClient client(editor.Host(), 0);
             beforeUnused = client.Inspect(unused); beforeMemory = client.Inspect(memory); beforeVersions = client.Inspect(versions); beforeLinks = client.Inspect(links);
-            IM_CHECK_NO_RET(beforeUnused.status == EDITOR_OK && beforeMemory.status == EDITOR_OK && beforeVersions.status == EDITOR_OK && beforeLinks.status == EDITOR_OK);
+            beforeInvalid = client.Inspect(invalid); beforeMessages = client.Inspect(messages);
+            IM_CHECK_NO_RET(beforeUnused.status == EDITOR_OK && beforeMemory.status == EDITOR_OK && beforeVersions.status == EDITOR_OK &&
+                beforeLinks.status == EDITOR_OK && beforeInvalid.status == EDITOR_OK && beforeMessages.status == EDITOR_OK);
             undo = state.History().UndoCount(); redo = state.History().CanRedo(); dirty = state.document->Dirty(); selection = editor.Selection();
             IM_CHECK_NO_RET(state.RunRuntime("Diagnostic projection regression", [gate] {
                 std::unique_lock<std::mutex> lock(gate->mutex); gate->entered = true;
@@ -422,14 +428,20 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         OnRuntimeThread(ctx, [&] {
             const vdev::EditorClient client(editor.Host(), 0);
             IM_CHECK_NO_RET(client.Inspect(unused).fields == beforeUnused.fields && client.Inspect(memory).fields == beforeMemory.fields &&
-                client.Inspect(versions).fields == beforeVersions.fields && client.Inspect(links).fields == beforeLinks.fields);
+                client.Inspect(versions).fields == beforeVersions.fields && client.Inspect(links).fields == beforeLinks.fields &&
+                client.Inspect(invalid).fields == beforeInvalid.fields && client.Inspect(messages).fields == beforeMessages.fields);
             IM_CHECK_NO_RET(vdev::EditorClient(editor.Host(), unused).Command("diagnostics.scan-unused").status == EDITOR_REFUSED);
+            IM_CHECK_NO_RET(client.Command("schematic.refresh-invalid-links").status == EDITOR_REFUSED &&
+                client.Query("schematic.messages").status == EDITOR_REFUSED &&
+                client.Query("layout.scene", {vdev::TextArgument("section", std::string("cameras"))}).status == EDITOR_REFUSED);
             IM_CHECK_NO_RET(client.Command("diagnostics.close-tools").status == EDITOR_OK && client.Command("environment.close-managers").status == EDITOR_OK);
+            IM_CHECK_NO_RET(workspace.Close(invalid) && workspace.Close(messages));
         });
         gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(3);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && state.document->Dirty() == dirty && editor.Selection() == selection);
             IM_CHECK_NO_RET(!workspace.Role("main.unused") && !workspace.Role("main.memory") && !workspace.Role("main.versions") && !workspace.Role("main.link-options"));
+            IM_CHECK_NO_RET(!workspace.Role("main.invalid-links") && !workspace.Role("main.messages"));
             IM_CHECK_NO_RET(!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId));
         });
     };

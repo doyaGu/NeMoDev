@@ -24,6 +24,7 @@ struct Module {
     uint64_t environmentFolders = 0, environmentPaths = 0;
     uint64_t diagnosticScans = 0, diagnosticLinks = 0;
     uint64_t preferenceReads = 0, preferenceWrites = 0;
+    uint64_t canvasReads = 0, canvasCameras = 0, canvasFolds = 0, canvasRefreshes = 0;
     EditorStatus schematicRead = EDITOR_STALE;
 };
 struct FileView {
@@ -968,6 +969,64 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     descriptors->queries.push_back({sizeof(EditorQueryDesc),EDITOR_TEXT("example.array-count"),EDITOR_TEXT("example.arrays"),nullptr,0,
         [](void *data,const EditorHost *,const EditorRequest *,EditorSink sink) { auto &m=*static_cast<Module *>(data);
             const EditorValue fields[]={{EDITOR_TEXT("writes"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayWrites,2}}, {EDITOR_TEXT("reads"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayReads,2}}, {EDITOR_TEXT("draws"),EDITOR_INTEGER_LIST,{},{},0,{},{m.arrayDraws,2}}}; return sink.write(sink.data,fields,3); },data,EDITOR_QUERY_EACH_READ,EDITOR_APPLICATION,arrayCounts,3});
+    static const EditorParameter layoutArgs[] = {{EDITOR_TEXT("section"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("x"), EDITOR_INTEGER_VALUE, 1},
+        {EDITOR_TEXT("y"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("shown"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("filter"), EDITOR_TEXT_VALUE, 1},
+        {EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, 1}};
+    static const EditorParameter layoutFields[] = {{EDITOR_TEXT("scene"), EDITOR_OBJECT}, {EDITOR_TEXT("camera"), EDITOR_OBJECT},
+        {EDITOR_TEXT("saved-camera"), EDITOR_OBJECT}, {EDITOR_TEXT("frame"), EDITOR_OBJECT}, {EDITOR_TEXT("initial-target"), EDITOR_OBJECT},
+        {EDITOR_TEXT("initial"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("matching-group"), EDITOR_OBJECT}, {EDITOR_TEXT("selected-types"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("rows"), EDITOR_RECORD}, {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("frame-shapes"), EDITOR_TEXT_LIST}};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("layout.scene"), EDITOR_TEXT("example.canvas"), layoutArgs, 7,
+        [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            ++static_cast<Module *>(data)->canvasReads; auto next = *request; next.handler = EDITOR_TEXT("builtin.layout");
+            return host->query(host->data, EditorString EDITOR_TEXT("layout.scene"), &next, {&sink,
+                [](void *data, const EditorValue *values, uint32_t count) {
+                    std::vector<EditorValue> result(values, values + count), rows, fields; std::string label;
+                    for (auto &value : result) if (std::string(value.key.data, value.key.size) == "rows" && value.fields.count) {
+                        rows.assign(value.fields.data, value.fields.data + value.fields.count);
+                        fields.assign(rows.front().fields.data, rows.front().fields.data + rows.front().fields.count);
+                        for (auto &field : fields) if (std::string(field.key.data, field.key.size) == "name") {
+                            label = "External " + std::string(field.text.data, field.text.size); field.text = {label.data(), uint32_t(label.size())};
+                        }
+                        rows.front().fields = {fields.data(), uint32_t(fields.size())}; value.fields = {rows.data(), uint32_t(rows.size())};
+                    }
+                    auto &sink = *static_cast<EditorSink *>(data);
+                    return sink.write ? sink.write(sink.data, result.data(), uint32_t(result.size())) : EDITOR_INVALID;
+                }});
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, layoutFields, 13});
+    static const EditorParameter cameraTarget{EDITOR_TEXT("target"), EDITOR_OBJECT};
+    descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("layout.set-camera"), EDITOR_TEXT("example.canvas"),
+        EDITOR_TEXT("External camera selection"), &cameraTarget, 1,
+        [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            ++static_cast<Module *>(data)->canvasCameras; auto next = *request; next.handler = EDITOR_TEXT("builtin.layout");
+            return host->execute(host->data, EditorString EDITOR_TEXT("layout.set-camera"), &next, sink);
+        }, data, EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE});
+    static const EditorParameter foldArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("object"), EDITOR_OBJECT}};
+    descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.toggle-fold"), EDITOR_TEXT("example.canvas"),
+        EDITOR_TEXT("External graph fold"), foldArgs, 4,
+        [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            ++static_cast<Module *>(data)->canvasFolds; auto next = *request; next.handler = EDITOR_TEXT("builtin.schematic-graph");
+            return host->execute(host->data, EditorString EDITOR_TEXT("schematic.toggle-fold"), &next, sink);
+        }, data, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT});
+    descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.refresh-invalid-links"), EDITOR_TEXT("example.canvas"),
+        EDITOR_TEXT("External link check"), nullptr, 0,
+        [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+            ++static_cast<Module *>(data)->canvasRefreshes; auto next = *request; next.handler = EDITOR_TEXT("builtin.schematic-graph");
+            return host->execute(host->data, EditorString EDITOR_TEXT("schematic.refresh-invalid-links"), &next, sink);
+        }, data, EDITOR_DOCUMENT, EDITOR_RUNTIME_CONTROL});
+    static const EditorParameter canvasCounts[] = {{EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("cameras"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("folds"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("refreshes"), EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("example.canvas-counts"), EDITOR_TEXT("example.canvas"), nullptr, 0,
+        [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const auto &module = *static_cast<Module *>(data);
+            const EditorValue values[] = {{EDITOR_TEXT("reads"), EDITOR_INTEGER_VALUE, {}, {}, module.canvasReads},
+                {EDITOR_TEXT("cameras"), EDITOR_INTEGER_VALUE, {}, {}, module.canvasCameras},
+                {EDITOR_TEXT("folds"), EDITOR_INTEGER_VALUE, {}, {}, module.canvasFolds},
+                {EDITOR_TEXT("refreshes"), EDITOR_INTEGER_VALUE, {}, {}, module.canvasRefreshes}};
+            return sink.write ? sink.write(sink.data, values, 4) : EDITOR_INVALID;
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, canvasCounts, 4});
     static const EditorParameter preferenceArgs[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("value"), EDITOR_RECORD}};
     descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.apply"), EDITOR_TEXT("example.preferences"),
         EDITOR_TEXT("External General Preferences"), preferenceArgs, 2,

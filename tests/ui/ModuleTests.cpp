@@ -3,10 +3,12 @@
 #include "core/graph/ScriptCommands.h"
 #include "core/document/BehaviorDescription.h"
 #include "core/document/FileCommands.h"
+#include "core/document/LinkValidation.h"
 #include "ui/render/UiRenderer.h"
 #include "ui/schematic/Snapshots.h"
 #include "core/document/ToolCommands.h"
 #include "core/schematic/SchematicEdits.h"
+#include "features/layout/LayoutSceneData.h"
 #include <fstream>
 #include <chrono>
 #include <filesystem>
@@ -21,7 +23,141 @@ int LiveViews() {
 }
 } // namespace
 void RegisterModuleTests(ImGuiTestEngine *engine) {
-    auto *test = IM_REGISTER_TEST(engine, "modules", "schematic_changes_reach_external_views");
+    auto *test = IM_REGISTER_TEST(engine, "modules", "canvas_queries_and_commands");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        vdev::EditorConfiguration initial; vdev::ObjectRef script{}, graph{}, camera{};
+        EditorView schematic = 0, diagnostic = 0;
+        size_t steps = 0; bool dirty = false; uint64_t selection = 0;
+        OnMainThread(ctx, [&] {
+            initial = editor.Configuration(); steps = state.History().UndoCount(); dirty = state.document->Dirty();
+            selection = state.objectSelection.Revision();
+            auto config = initial;
+            for (auto &choice : config.providers)
+                if ((choice.kind == "query" && choice.id == "layout.scene") ||
+                    (choice.kind == "command" && (choice.id == "layout.set-camera" || choice.id == "schematic.toggle-fold" ||
+                                                   choice.id == "schematic.refresh-invalid-links"))) choice.provider = "example.canvas";
+            std::string error; IM_CHECK_NO_RET(workspace.Configure(config, error));
+            const vdev::EditorClient client(editor.Host(), 0);
+            vdev::LayoutSceneData data;
+            IM_CHECK_NO_RET(vdev::ReadLayoutScene(client, "cameras", data) && !data.rows.empty());
+            IM_CHECK_NO_RET(data.rows.front().name.rfind("External ", 0) == 0);
+            camera = data.camera;
+        });
+        const auto count = [&](const char *key) { return Read<uint64_t>(ctx, [&] {
+            return vdev::EditorClient::Integer(editor.Query("example.canvas-counts", {editor.Scope(), nullptr, 0}), key);
+        }); };
+        const auto reads = count("reads"), cameras = count("cameras"), folds = count("folds"), refreshes = count("refreshes");
+        ImVec2 min, max;
+        IM_CHECK(Read<bool>(ctx, [&] { return App().Layout().ShownView(min, max); }));
+        ctx->WindowFocus("//3D Layout"); ctx->MouseMoveToPos(Center(min, max)); ctx->KeyPress(ImGuiKey_N); ctx->Yield(4);
+        IM_CHECK_EQ(count("cameras"), cameras + 1); IM_CHECK(count("reads") > reads);
+        IM_CHECK(Read<bool>(ctx, [&] { return App().Layout().View().Camera()->GetID() != camera.object &&
+            state.History().UndoCount() == steps && state.document->Dirty() == dirty && state.objectSelection.Revision() == selection; }));
+        OnMainThread(ctx, [&] {
+            const auto made = vdev::CreateScript(*state.document, state.document->Context()->GetCurrentLevel()->GetID(), "External canvas");
+            IM_CHECK_NO_RET(made.ok); script = state.document->Reference(made.created);
+            const auto child = vdev::CreateBehaviorGraph(*state.document, made.created, made.created, "External fold", Point(80, 80));
+            IM_CHECK_NO_RET(child.ok); graph = state.document->Reference(child.created);
+            schematic = workspace.Open("script.schematic"); IM_CHECK_NO_RET(schematic);
+            App().Canvas(schematic).ShowScript(script.object);
+            App().Canvas(schematic).ToggleFold(script.object, graph.object);
+        });
+        ctx->Yield(4); IM_CHECK_EQ(count("folds"), folds + 1);
+        IM_CHECK(Read<bool>(ctx, [&] { return state.History().UndoCount() == steps + 3 &&
+            vdev::FindRecord(state.document->Session(script.object)->Data(), graph.object)->folded; }));
+        Undo(ctx);
+        IM_CHECK(Read<bool>(ctx, [&] { return !vdev::FindRecord(state.document->Session(script.object)->Data(), graph.object)->folded; }));
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(editor.Host(), schematic);
+            IM_CHECK_NO_RET(client.Command("schematic.open-invalid-links").status == EDITOR_OK);
+            diagnostic = workspace.Role("main.invalid-links"); IM_CHECK_NO_RET(diagnostic);
+            const auto inspected = workspace.Inspect(diagnostic);
+            IM_CHECK_NO_RET(inspected.status == EDITOR_OK && vdev::EditorClient::Integer(inspected, "schematic") == schematic);
+        });
+        ctx->Yield(4);
+        const auto window = "//" + workspace.WindowName(diagnostic);
+        ctx->WindowFocus(window.c_str()); ctx->ItemClick((window + "/Refresh/##dialogbutton").c_str()); ctx->Yield(4);
+        IM_CHECK_EQ(count("refreshes"), refreshes + 1);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps + 2);
+            IM_CHECK_NO_RET(workspace.Close(diagnostic) && workspace.Close(schematic));
+            std::string error; IM_CHECK_NO_RET(workspace.Configure(initial, error));
+            const vdev::EditorClient client(editor.Host(), 0);
+            IM_CHECK_NO_RET(client.Command("layout.set-camera", {vdev::ObjectArgument("target", camera)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(state.History().Undo() && state.History().Undo());
+        });
+        ctx->Yield(3);
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "schematic_diagnostics_keep_their_source_view");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        EditorView first = 0, second = 0, messages = 0, invalid = 0;
+        CK_ID script = 0, senderId = 0; size_t steps = 0;
+        OnMainThread(ctx, [&] {
+            steps = state.History().UndoCount(); first = workspace.Role("main.schematic");
+            const auto made = vdev::CreateScript(*state.document, state.document->Context()->GetCurrentLevel()->GetID(), "Canvas diagnostics");
+            IM_CHECK_NO_RET(made.ok); script = made.created;
+            const auto child = vdev::CreateBehaviorGraph(*state.document, script, script, "Canvas sender", Point(80, 80));
+            IM_CHECK_NO_RET(child.ok); senderId = child.created;
+            auto data = state.document->Session(script)->Data(); auto *root = Object<CKBehavior>(script);
+            auto *chunk = GenerateInterfaceChunk(data, root); IM_CHECK_NO_RET(chunk); root->SetInterfaceChunk(chunk);
+            auto *sender = Object<CKBehavior>(senderId); sender->ModifyFlags(CKBEHAVIOR_MESSAGESENDER, 0);
+            const auto type = state.document->Context()->GetMessageManager()->AddMessageType("Canvas diagnostic message");
+            auto *input = sender->CreateInputParameter("Message", CKPGUID_MESSAGE);
+            auto *value = sender->CreateLocalParameter("Message value", CKPGUID_MESSAGE);
+            IM_CHECK_NO_RET(input && value && value->SetValue(&type, sizeof(type)) == CK_OK && input->SetDirectSource(value) == CK_OK);
+            state.document->MarkTopologyChanged(); state.document->RefreshScripts();
+            IM_CHECK_NO_RET(vdev::EditScriptData(*state.document, script, "Invalid diagnostic fixture", [=](InterfaceData &data) {
+                Link link; link.start = LinkEndpoint(script, 0, ENDPOINT_BIN); link.end = LinkEndpoint(UINT32_MAX - 1, 0, ENDPOINT_BIN);
+                data.rootBehavior.links.push_back(link);
+            }));
+            second = workspace.Open("script.schematic"); IM_CHECK_NO_RET(second && second != first);
+            App().Canvas(second).ShowScript(script); workspace.Focus(second);
+            const vdev::EditorClient client(editor.Host(), second);
+            IM_CHECK_NO_RET(client.Command("schematic.refresh-invalid-links").status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Command("schematic.open-invalid-links").status == EDITOR_OK &&
+                client.Command("schematic.open-messages").status == EDITOR_OK);
+            invalid = workspace.Role("main.invalid-links"); messages = workspace.Role("main.messages");
+            IM_CHECK_NO_RET(invalid && messages);
+        }); ctx->Yield(6);
+        OnMainThread(ctx, [&] {
+            const auto a = workspace.Inspect(messages), b = workspace.Inspect(invalid);
+            const auto *rows = vdev::EditorClient::Find(b, "rows");
+            IM_CHECK_NO_RET(a.status == EDITOR_OK && b.status == EDITOR_OK && rows && rows->fields.size() == 1 &&
+                vdev::EditorClient::Integer(a, "schematic") == second && vdev::EditorClient::Integer(b, "schematic") == second);
+        });
+        const auto messageWindow = "//" + workspace.WindowName(messages), invalidWindow = "//" + workspace.WindowName(invalid);
+        ctx->WindowFocus(messageWindow.c_str());
+        ctx->ItemClick((messageWindow + "/**/Canvas diagnostic message  (1)").c_str()); ctx->Yield(3);
+        ctx->ItemClick((messageWindow + "/**/Canvas sender   (Canvas diagnostics)").c_str()); ctx->Yield(3);
+        auto firstSelection = Read<uint64_t>(ctx, [&] { return App().Canvas(first).Navigation().selection.Revision(); });
+        ctx->ItemClick((messageWindow + "/Goto").c_str()); ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [&] { return App().Canvas(second).Navigation().selection.script == script &&
+            App().Canvas(second).Navigation().selection.items.front().object == senderId &&
+            App().Canvas(first).Navigation().selection.Revision() == firstSelection; }));
+        ctx->WindowFocus(invalidWindow.c_str()); ctx->ItemClick((invalidWindow + "/Delete All").c_str()); ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [&] { return state.document->Session(script)->Data().rootBehavior.links.empty() &&
+            state.History().UndoCount() == steps + 4; }));
+        Undo(ctx);
+        IM_CHECK(Read<bool>(ctx, [&] { return state.document->Session(script)->Data().rootBehavior.links.size() == 1; }));
+        firstSelection = Read<uint64_t>(ctx, [&] { return App().Canvas(first).Navigation().selection.Revision(); });
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(workspace.Close(second)); }); ctx->Yield(3);
+        ctx->WindowFocus(messageWindow.c_str()); ctx->ItemClick((messageWindow + "/Goto").c_str()); ctx->Yield(4);
+        IM_CHECK(Read<bool>(ctx, [&] { return !vdev::EditorClient::Text(workspace.Inspect(messages), "message").empty(); }));
+        IM_CHECK_EQ(Read<uint64_t>(ctx, [&] { return App().Canvas(first).Navigation().selection.Revision(); }), firstSelection);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(workspace.Close(messages) && workspace.Close(invalid));
+            IM_CHECK_NO_RET(state.History().Undo() && state.History().Undo() && state.History().Undo());
+        }); ctx->Yield(3);
+    };
+
+    test = IM_REGISTER_TEST(engine, "modules", "schematic_changes_reach_external_views");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
