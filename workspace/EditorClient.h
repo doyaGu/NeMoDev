@@ -38,6 +38,10 @@ class EditorClient {
     EditorResponse Command(const char *id, const std::vector<EditorValue> &values = {}) const {
         return Call(id, values, true);
     }
+    EditorResponse CommandAfterEdit(EditorOperation edit, const char *id, const std::vector<EditorValue> &values,
+                                    const char *revisionArgument = nullptr) const {
+        return Call(id, values, true, edit, revisionArgument);
+    }
     EditorResponse Inspect(EditorView view) const {
         EditorResponse result;
         result.status = m_Host->queryView(m_Host->data, view, Sink(result));
@@ -135,9 +139,16 @@ class EditorClient {
                     return EDITOR_OK;
                 }};
     }
-    EditorResponse Call(const char *id, const std::vector<EditorValue> &values, bool command) const {
+    EditorResponse Call(const char *id, const std::vector<EditorValue> &values, bool command,
+                        EditorOperation afterEdit = 0, const char *revisionArgument = nullptr) const {
         EditorResponse result;
-        const EditorRequest request{Scope(), values.data(), uint32_t(values.size())};
+        const EditorRequest request{Scope(),
+                                    values.data(),
+                                    uint32_t(values.size()),
+                                    {},
+                                    0,
+                                    afterEdit,
+                                    revisionArgument ? EditorLiteral(revisionArgument) : EditorString{}};
         result.status = command ? m_Host->execute(m_Host->data, EditorLiteral(id), &request, Sink(result))
                                 : m_Host->query(m_Host->data, EditorLiteral(id), &request, Sink(result));
         return result;

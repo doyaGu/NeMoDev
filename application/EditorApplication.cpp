@@ -433,6 +433,7 @@ struct EditorApplication::State {
     ObjectRef selection{};
     std::set<EditorView> scopes;
     EditorViewNavigation *navigation = nullptr;
+    bool runningPending = false;
     struct Draft {
         EditorScope scope;
         ObjectRef object;
@@ -445,6 +446,7 @@ struct EditorApplication::State {
         std::vector<EditorField> arguments;
         void *preview = nullptr;
         bool commandOnly = false;
+        bool deferred = false;
     };
     std::map<EditorEdit, Draft> drafts;
     struct Pending {
@@ -453,6 +455,8 @@ struct EditorApplication::State {
         std::vector<EditorField> fields;
         EditorOperation operation = 0;
         std::shared_ptr<Draft> preview;
+        EditorOperation afterEdit = 0;
+        std::string revisionArgument;
     };
     std::deque<Pending> pending;
     EditorOperation activeOperation = 0;
@@ -460,6 +464,7 @@ struct EditorApplication::State {
         EditorResponse result;
         bool documentEdit = false, asynchronous = false;
         std::string callbackError;
+        EditorScope scope{};
     };
     std::map<EditorOperation, Operation> operations;
     std::deque<EditorOperation> completedOperations;
@@ -594,8 +599,40 @@ struct EditorApplication::State {
         }
         return fields;
     }
+    bool ActiveDrafts() const {
+        return std::any_of(drafts.begin(), drafts.end(),
+                           [&](const auto &entry) { return !runningPending || !entry.second.deferred; });
+    }
+    EditorStatus RefreshDraft(Draft &draft) {
+        if (!Valid(draft.scope) || !Current(draft.object))
+            return EDITOR_STALE;
+        const auto arguments = BorrowEditorFields(draft.arguments);
+        const EditorRequest request{draft.scope, arguments.data(), uint32_t(arguments.size()),
+                                    EditorText(draft.property.queryProvider)};
+        std::vector<EditorField> fields;
+        const EditorSink sink{&fields, [](void *data, const EditorValue *values, uint32_t count) {
+                                  std::vector<EditorField> copied;
+                                  const auto result = CopyEditorFields(copied, values, count);
+                                  if (result == EDITOR_OK) {
+                                      auto &output = *static_cast<std::vector<EditorField> *>(data);
+                                      output.insert(output.end(), std::make_move_iterator(copied.begin()),
+                                                    std::make_move_iterator(copied.end()));
+                                  }
+                                  return result;
+                              }};
+        const auto status = host.query(host.data, EditorText(draft.property.query), &request, sink);
+        if (status != EDITOR_OK)
+            return status;
+        if (std::none_of(fields.begin(), fields.end(), [&](const auto &field) {
+                return field.key == draft.property.field && field.type == draft.property.type;
+            }))
+            return EDITOR_INVALID;
+        draft.fields = std::move(fields);
+        draft.deferred = false;
+        return EDITOR_OK;
+    }
     EditorStatus Preview(Draft &draft, const EditorField &value, EditorPreviewAction action) {
-        if (!draft.command->preview || (action == EDITOR_PREVIEW_CANCEL && !draft.preview))
+        if (draft.deferred || !draft.command->preview || (action == EDITOR_PREVIEW_CANCEL && !draft.preview))
             return EDITOR_OK;
         if (action == EDITOR_PREVIEW_UPDATE && !NativeReady())
             return EDITOR_REFUSED;
@@ -640,7 +677,7 @@ struct EditorApplication::State {
         // Window navigation can close the owner of a draft. Document session
         // changes, including selection, still wait for the draft to finish.
         const bool navigation = !native && command.area == EDITOR_WORKSPACE;
-        if ((native && !NativeReady()) || (!fromDraft && !drafts.empty() && !navigation))
+        if ((native && !NativeReady()) || (!fromDraft && ActiveDrafts() && !navigation))
             return EDITOR_REFUSED;
         if (!NativeReady() && !EveryField(fields, [](const auto &field) {
             return !(field.type == EDITOR_OBJECT && field.object) && !(field.type == EDITOR_OBJECT_LIST && !field.objects.empty());
@@ -683,6 +720,7 @@ struct EditorApplication::State {
                 if (operations.size() >= completedOperations.size() + 256) { result.status = EDITOR_REFUSED; return result; }
                 operation = next++;
                 operations.emplace(operation, Operation{EditorResponse{EDITOR_QUEUED}, command.effect == EDITOR_DOCUMENT_EDIT});
+                operations.at(operation).scope = scope;
             }
         }
         result.operation = operation;
@@ -1885,7 +1923,7 @@ EditorStatus EditorApplication::CanEdit(const std::string &property, EditorScope
         return EDITOR_STALE;
     if (!s.properties.count(property))
         return EDITOR_INVALID;
-    if (!s.NativeReady() || !s.writable || !s.drafts.empty() || !s.pending.empty())
+    if (!s.NativeReady() || !s.writable || !s.drafts.empty() || (!s.pending.empty() && !s.drawing))
         return EDITOR_REFUSED;
     const auto *doc = s.CurrentDocument();
     if (!doc || doc->EditOpen())
@@ -1920,23 +1958,55 @@ EditorResponse EditorApplication::Execute(const std::string &id, const EditorReq
     std::vector<EditorField> fields;
     result.status = s.Arguments(command->parameters, command->count, request, fields, command->area);
     if (result.status != EDITOR_OK) return result;
-    result.status = s.Check(*command, request.scope, fields);
+    auto admission = *command;
+    if (request.afterEdit)
+        admission.state = nullptr;
+    result.status = s.Check(admission, request.scope, fields);
     if (result.status != EDITOR_OK) return result;
     const bool deferred = s.drawing || s.querying || s.notifying || (!s.executing && !s.pending.empty());
+    const auto revisionArgument = String(request.revisionArgument);
+    if (request.afterEdit) {
+        const auto parent = std::find_if(s.pending.begin(), s.pending.end(), [&](const auto &pending) {
+            return pending.operation == request.afterEdit && pending.scope.document == request.scope.document &&
+                   pending.command->effect == EDITOR_DOCUMENT_EDIT;
+        });
+        const auto recorded = s.operations.find(request.afterEdit);
+        if (recorded == s.operations.end() || !recorded->second.documentEdit ||
+            recorded->second.scope.document != request.scope.document)
+            return {EDITOR_STALE};
+        if (parent == s.pending.end()) {
+            if (recorded->second.result.status != EDITOR_OK && recorded->second.result.status != EDITOR_NO_CHANGE)
+                return {recorded->second.result.status == EDITOR_QUEUED ? EDITOR_STALE
+                                                                        : recorded->second.result.status};
+        } else if (!deferred)
+            return {EDITOR_STALE};
+        if (!revisionArgument.empty() && std::none_of(fields.begin(), fields.end(), [&](const auto &field) {
+                return field.key == revisionArgument && field.type == EDITOR_INTEGER_VALUE;
+            }))
+            return {EDITOR_INVALID};
+    } else if (!revisionArgument.empty())
+        return {EDITOR_INVALID};
     if (s.operations.size() >= s.completedOperations.size() + 256 || s.pending.size() >= 256) {
         result.status = EDITOR_REFUSED;
         result.message = "Too many pending commands";
         return result;
     }
     const EditorOperation operation = !deferred && s.activeOperation ? s.activeOperation : s.next++;
-    if (!s.operations.count(operation))
+    if (!s.operations.count(operation)) {
         s.operations.emplace(operation, State::Operation{EditorResponse{EDITOR_QUEUED}, command->effect == EDITOR_DOCUMENT_EDIT});
+        s.operations.at(operation).scope = request.scope;
+    }
     if (deferred) {
-        s.pending.push_back({command, request.scope, std::move(fields), operation});
+        s.pending.push_back(
+            {command, request.scope, std::move(fields), operation, {}, request.afterEdit, revisionArgument});
         result.status = EDITOR_QUEUED;
         result.operation = operation;
         return result;
     }
+    if (request.afterEdit)
+        for (auto &field : fields)
+            if (field.key == revisionArgument)
+                field.integer = s.operations.at(request.afterEdit).result.documentRevision;
     return s.Run(*command, request.scope, fields, operation);
 }
 bool EditorApplication::CompleteOperation(EditorOperation operation, EditorResponse result) {
@@ -1971,6 +2041,7 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, const Edi
     if (value == result.fields.end()) return EDITOR_INVALID;
     State::Draft draft{request.scope, target, p, s.commands.at(p.command), s.editors.at(p.editor), *value, std::move(result.fields), s.editors, std::move(arguments)};
     out = s.next++;
+    draft.deferred = !s.pending.empty();
     s.drafts.emplace(out, std::move(draft));
     return EDITOR_OK;
 }
@@ -2086,6 +2157,7 @@ EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit, EditorO
     const auto queue = [&](std::shared_ptr<State::Draft> preview = {}) {
         const auto id = s.next++;
         s.operations.emplace(id, State::Operation{EditorResponse{EDITOR_QUEUED}, true});
+        s.operations.at(id).scope = draft.scope;
         try {
             s.pending.push_back({draft.command, draft.scope, std::move(fields), id, std::move(preview)});
         } catch (...) {
@@ -2095,6 +2167,12 @@ EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit, EditorO
         if (operation)
             *operation = id;
     };
+    if (draft.deferred) {
+        auto owned = std::make_shared<State::Draft>(draft);
+        queue(std::move(owned));
+        s.drafts.erase(found);
+        return EDITOR_QUEUED;
+    }
     if (draft.command->commitPreview) {
         State::Draft copy = draft;
         copy.preview = nullptr;
@@ -2341,13 +2419,50 @@ void EditorApplication::EndFrame() {
     if (!s.Thread() || s.drawing || s.querying || s.executing || s.notifying)
         return;
     if (!s.pending.empty()) {
+        struct PendingRun {
+            State &state;
+            explicit PendingRun(State &state) : state(state) { state.runningPending = true; }
+            ~PendingRun() { state.runningPending = false; }
+        } running(s);
         auto pending = std::move(s.pending);
         s.pending.clear();
         for (auto &p : pending) {
+            if (p.afterEdit) {
+                const auto parent = s.operations.find(p.afterEdit);
+                if (parent == s.operations.end() ||
+                    (parent->second.result.status != EDITOR_OK && parent->second.result.status != EDITOR_NO_CHANGE)) {
+                    s.Complete(p.operation,
+                               {parent == s.operations.end() ? EDITOR_STALE : parent->second.result.status});
+                    continue;
+                }
+                for (auto &field : p.fields)
+                    if (field.key == p.revisionArgument)
+                        field.integer = parent->second.result.documentRevision;
+            }
+            if (p.preview && p.preview->deferred) {
+                const auto status = s.RefreshDraft(*p.preview);
+                if (status != EDITOR_OK) {
+                    s.Complete(p.operation, {status});
+                    continue;
+                }
+                p.fields = s.DraftFields(*p.preview, p.preview->value);
+            }
             auto result = s.Run(*p.command, p.scope, p.fields, p.operation, p.preview.get());
             if (report)
                 report(result);
         }
+    }
+    for (auto it = s.drafts.begin(); it != s.drafts.end();) {
+        if (!it->second.deferred) {
+            ++it;
+            continue;
+        }
+        const auto status = s.RefreshDraft(it->second);
+        if (status != EDITOR_OK || s.Preview(it->second, it->second.value, EDITOR_PREVIEW_UPDATE) != EDITOR_OK) {
+            s.RestorePreview(it->second);
+            it = s.drafts.erase(it);
+        } else
+            ++it;
     }
     s.RefreshDocument();
     if (s.delivered == s.published)

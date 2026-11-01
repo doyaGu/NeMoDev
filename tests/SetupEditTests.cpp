@@ -13,6 +13,7 @@
 #include "editor/ImGuiDrawing.h"
 #include "features/setup/SetupCommands.h"
 #include "features/setup/SetupViewData.h"
+#include "workspace/EditorClient.h"
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -310,6 +311,48 @@ void TestSetupEdits(vdev::CkRuntimeHost &runtime) {
     Check(begin("camera.fov", camera) == EDITOR_OK && update(Real(fov)) == EDITOR_OK, "unchanged camera");
     accept();
     Check(count() == 0 && doc.History().CanRedo(), "unchanged preview lost redo");
+    // A registered window can finish one control and start another in the same
+    // draw. Re-read the next property's metadata after the first queued commit.
+    app.EnterDraw();
+    Check(begin("camera.fov", camera) == EDITOR_OK && update(Real(fov + .2)) == EDITOR_OK &&
+              app.FinishEdit(edit, true) == EDITOR_QUEUED,
+          "queue first control");
+    Check(begin("camera.fov", camera) == EDITOR_OK && update(Real(fov + .4)) == EDITOR_OK &&
+              app.FinishEdit(edit, true) == EDITOR_QUEUED,
+          "queue next one-shot control");
+    Check(camera->GetFov() == fov && count() == 0, "queued controls mutated during drawing");
+    app.LeaveDraw();
+    app.EndFrame();
+    sync();
+    Check(std::fabs(camera->GetFov() - (fov + .4)) < 1e-5 && count() == 2 && doc.History().Undo() &&
+              std::fabs(camera->GetFov() - (fov + .2)) < 1e-5 && doc.History().Undo() && camera->GetFov() == fov,
+          "same-frame controls lost ordering or merged undo steps");
+    app.EnterDraw();
+    Check(begin("camera.fov", camera) == EDITOR_OK && update(Real(fov + .2)) == EDITOR_OK &&
+              app.FinishEdit(edit, true) == EDITOR_QUEUED,
+          "queue before drag");
+    Check(begin("camera.fov", camera) == EDITOR_OK && update(Real(fov + .3)) == EDITOR_OK, "start next drag");
+    const EditorValue blockedTarget = ObjectArgument("target", doc.Reference(camera->GetID()));
+    Check(app.Execute("setup.reset-world-matrix", {scope, &blockedTarget, 1}).status == EDITOR_REFUSED,
+          "staged drag admitted another native action");
+    app.LeaveDraw();
+    app.EndFrame();
+    sync();
+    Check(count() == 1 && std::fabs(camera->GetFov() - (fov + .3)) < 1e-5, "next drag preview was lost");
+    cancel();
+    Check(std::fabs(camera->GetFov() - (fov + .2)) < 1e-5 && doc.History().Undo() && camera->GetFov() == fov,
+          "cancelled next drag undid the preceding control");
+    app.EnterDraw();
+    Check(begin("camera.fov", camera) == EDITOR_OK && update(Real(fov + .2)) == EDITOR_OK &&
+              app.FinishEdit(edit, true) == EDITOR_QUEUED && begin("camera.fov", camera) == EDITOR_OK &&
+              update(Real(fov + .3)) == EDITOR_OK,
+          "stage closing controls");
+    app.CloseScope(owner);
+    app.LeaveDraw();
+    app.EndFrame();
+    Check(count() == 0 && camera->GetFov() == fov && !app.HasEdits(), "closed view committed deferred controls");
+    owner = app.OpenScope();
+    scope = app.Scope(owner);
     Check(begin("camera.fov", camera) == EDITOR_OK && update(Real(fov + .4)) == EDITOR_OK, "close owner preview");
     app.CloseScope(owner);
     Check(camera->GetFov() == fov && !app.HasEdits(), "closing owner did not restore preview");
@@ -509,6 +552,63 @@ void TestSetupEdits(vdev::CkRuntimeHost &runtime) {
     Check(mesh->GetChannelCount() == 1 && mesh->GetChannelMaterial(0) == material &&
               (mesh->IsChannelLit(0) != FALSE) == lit,
           "cancel channel collection");
+    auto *queuedTexture = CKTexture::Cast(create(CKCID_TEXTURE));
+    Check(queuedTexture && queuedTexture->Create(2, 2, 32), "create queued image fixture");
+    queuedTexture->SetPixel(0, 0, 0xff102030);
+    const auto queuedTarget = doc.Reference(queuedTexture->GetID());
+    const bool wasTransparent = queuedTexture->IsTransparent();
+    saved();
+    app.EnterDraw();
+    Check(begin("texture.transparent", queuedTexture) == EDITOR_OK && update(Int(!wasTransparent)) == EDITOR_OK,
+          "preview before indexed action");
+    EditorOperation beforeAction = 0;
+    Check(app.FinishEdit(edit, true, &beforeAction) == EDITOR_QUEUED && beforeAction, "queue indexed action's edit");
+    const EditorValue indexedArgs[] = {ObjectArgument("target", queuedTarget), IntegerArgument("slot", 0),
+                                       IntegerArgument("document-revision", doc.ChangeRevision())};
+    std::string revisionField = "document-revision";
+    EditorRequest indexedRequest{scope, indexedArgs, 3, {}, 0, beforeAction, EditorText(revisionField)};
+    auto otherScope = app.OpenScope();
+    indexedRequest.scope = app.Scope(otherScope);
+    ++indexedRequest.scope.document.value;
+    Check(app.Execute("setup.slot-invert", indexedRequest).status == EDITOR_STALE, "edit dependency crossed documents");
+    indexedRequest.scope = app.Scope(otherScope);
+    const auto indexedAction = app.Execute("setup.slot-invert", indexedRequest);
+    Check(indexedAction.status == EDITOR_QUEUED, "queue another window's indexed action after edit");
+    revisionField.assign("replaced after submission");
+    app.LeaveDraw();
+    app.EndFrame();
+    sync();
+    Check(count() == 2 && queuedTexture->GetPixel(0, 0) == 0xffefdfcf &&
+              (queuedTexture->IsTransparent() != FALSE) != wasTransparent &&
+              EditorClient(app.Host(), 0).Completion(indexedAction.operation).status == EDITOR_OK,
+          "indexed action used the pre-commit document revision");
+    app.CloseScope(otherScope);
+    Check(doc.History().Undo() && queuedTexture->GetPixel(0, 0) == 0xff102030 && doc.History().Undo() &&
+              (queuedTexture->IsTransparent() != FALSE) == wasTransparent,
+          "dependent action and property lost separate undo steps");
+    saved();
+    app.EnterDraw();
+    Check(begin("texture.transparent", queuedTexture) == EDITOR_OK && update(Int(!wasTransparent)) == EDITOR_OK &&
+              app.FinishEdit(edit, true, &beforeAction) == EDITOR_QUEUED,
+          "edit before delayed image input");
+    app.LeaveDraw();
+    app.EndFrame();
+    sync();
+    const EditorValue delayedArgs[] = {ObjectArgument("target", queuedTarget), IntegerArgument("slot", 0),
+                                       IntegerArgument("document-revision", 0)};
+    const EditorClient sourceClient(app.Host(), owner);
+    Check(sourceClient.CommandAfterEdit(beforeAction, "setup.slot-invert", {delayedArgs, delayedArgs + 3},
+                                        "document-revision")
+                      .status == EDITOR_OK &&
+              count() == 2,
+          "delayed image input could not use its completed edit revision");
+    Check(sourceClient.CommandAfterEdit(beforeAction, "setup.slot-invert", {delayedArgs, delayedArgs + 3},
+                                        "document-revision")
+                      .status == EDITOR_STALE &&
+              count() == 2,
+          "delayed action ignored a change after its source edit");
+    Check(doc.History().Undo() && doc.History().Undo(), "undo delayed image input");
+    saved();
     auto *texture = CKTexture::Cast(create(CKCID_TEXTURE));
     auto format = MakeSaveFormat(doc.Context(), "bmp");
     Check(!format.empty(), "bitmap format fixture");
