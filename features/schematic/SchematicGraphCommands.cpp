@@ -7,6 +7,7 @@
 #include "features/schematic/SchematicAuthoring.h"
 #include "features/schematic/SchematicParameterEdits.h"
 #include "features/schematic/SchematicModelCommands.h"
+#include "features/schematic/SchematicScriptCommands.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
 #include "core/document/LinkValidation.h"
@@ -54,12 +55,14 @@ struct SchematicGraphCommands::Data {
     SchematicAuthoring authoring;
     SchematicParameterEdits parameters;
     SchematicModelCommands models;
+    SchematicScriptCommands scripts;
     DocumentToken document{};
     std::vector<InvalidLink> invalid;
     uint64_t revision = 1;
     Data(std::function<Document *()> current, std::function<bool()> testTypes, Clipboard &clipboard)
         : current(current), testTypes(std::move(testTypes)), geometry(current), connections(current),
-          copying(current, clipboard), authoring(current), parameters(current), models(std::move(current)) {}
+          copying(current, clipboard), authoring(current), parameters(current), models(current),
+          scripts(std::move(current)) {}
     Document *DocumentOf(const EditorRequest &request) {
         auto *doc = current();
         if (!doc || !doc->IsOpen() || doc->Token() != request.scope.document) return nullptr;
@@ -464,6 +467,8 @@ const std::vector<ProviderChoice> &SchematicGraphCommands::DefaultProviders() {
         choices.insert(choices.end(), parameters.begin(), parameters.end());
         const auto &model = SchematicModelCommands::DefaultProviders();
         choices.insert(choices.end(), model.begin(), model.end());
+        const auto &scripts = SchematicScriptCommands::DefaultProviders();
+        choices.insert(choices.end(), scripts.begin(), scripts.end());
         return choices;
     }();
     return choices;
@@ -565,6 +570,6 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
     return editor.Register(module, error) && m_Data->geometry.Register(editor, error) &&
            m_Data->connections.Register(editor, error) && m_Data->copying.Register(editor, error) &&
            m_Data->authoring.Register(editor, error) && m_Data->parameters.Register(editor, error) &&
-           m_Data->models.Register(editor, error);
+           m_Data->models.Register(editor, error) && m_Data->scripts.Register(editor, error);
 }
 } // namespace vdev

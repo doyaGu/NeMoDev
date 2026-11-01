@@ -3,6 +3,7 @@
 #include "core/schematic/SchematicNavigation.h"
 #include "core/schematic/SchematicSearch.h"
 #include "features/schematic/SchematicModelData.h"
+#include "features/schematic/SchematicScriptData.h"
 #include <type_traits>
 
 static_assert(std::is_same_v<decltype(vdev::ScriptItem::id), uint32_t>);

@@ -11,7 +11,7 @@ target_sources(NeMoDevObjectCommands PRIVATE ../features/diagnostics/DiagnosticC
 target_sources(NeMoDevObjectCommands PRIVATE ../features/layout/LayoutCommands.cpp ../features/layout/LayoutGestures.cpp)
 target_sources(NeMoDevObjectCommands PRIVATE ../features/schematic/SchematicGraphCommands.cpp ../features/schematic/SchematicGeometry.cpp ../features/schematic/SchematicConnections.cpp ../features/schematic/SchematicCopying.cpp)
 
-target_sources(NeMoDevObjectCommands PRIVATE ../features/schematic/SchematicAuthoring.cpp ../features/schematic/SchematicParameterEdits.cpp ../features/schematic/SchematicModelCommands.cpp ../features/schematic/SchematicModelData.cpp)
+target_sources(NeMoDevObjectCommands PRIVATE ../features/schematic/SchematicAuthoring.cpp ../features/schematic/SchematicParameterEdits.cpp ../features/schematic/SchematicScriptCommands.cpp ../features/schematic/SchematicModelCommands.cpp ../features/schematic/SchematicModelData.cpp)
 
 if(WIN32)
     target_link_libraries(NeMoDevEditorApplication PRIVATE advapi32)
