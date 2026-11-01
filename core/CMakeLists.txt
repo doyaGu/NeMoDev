@@ -60,6 +60,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         graph/ShortcutCommands.cpp
         graph/BehaviorCommands.cpp
         graph/ValueCommands.cpp
+        graph/ParameterPicking.cpp
         graph/ParameterValues.cpp
         graph/SpecializedParameterValues.cpp
         graph/ParameterSelections.cpp
