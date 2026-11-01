@@ -3,6 +3,7 @@
 #include "features/schematic/SchematicGeometry.h"
 #include "features/schematic/SchematicConnections.h"
 #include "features/schematic/SchematicCopying.h"
+#include "features/schematic/SchematicAuthoring.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
 #include "core/document/LinkValidation.h"
@@ -47,12 +48,13 @@ struct SchematicGraphCommands::Data {
     SchematicGeometry geometry;
     SchematicConnections connections;
     SchematicCopying copying;
+    SchematicAuthoring authoring;
     DocumentToken document{};
     std::vector<InvalidLink> invalid;
     uint64_t revision = 1;
     Data(std::function<Document *()> current, std::function<bool()> testTypes, Clipboard &clipboard)
         : current(current), testTypes(std::move(testTypes)), geometry(current), connections(current),
-          copying(std::move(current), clipboard) {}
+          copying(current, clipboard), authoring(std::move(current)) {}
     Document *DocumentOf(const EditorRequest &request) {
         auto *doc = current();
         if (!doc || !doc->IsOpen() || doc->Token() != request.scope.document) return nullptr;
@@ -414,39 +416,44 @@ void SchematicGraphCommands::LoadedLinks(const std::vector<InvalidLink> &links) 
     m_Data->invalid = links; ++m_Data->revision;
 }
 const std::vector<ProviderChoice> &SchematicGraphCommands::DefaultProviders() {
-    static const std::vector<ProviderChoice> choices{
-        {"query", "schematic.invalid-links", "builtin.schematic-graph"},
-        {"query", "schematic.invalid-summary", "builtin.schematic-graph"},
-        {"query", "schematic.messages", "builtin.schematic-graph"},
-        {"command", "schematic.delete-invalid-links", "builtin.schematic-graph"},
-        {"query", "schematic.activity", "builtin.schematic-graph"},
-        {"query", "schematic.message-uses", "builtin.schematic-graph"},
-        {"query", "schematic.script-state", "builtin.schematic-graph"},
-        {"command", "schematic.toggle-fold", "builtin.schematic-graph"},
-        {"command", "schematic.toggle-targets", "builtin.schematic-graph"},
-        {"command", "schematic.create-graph", "builtin.schematic-graph"},
-        {"command", "schematic.group", "builtin.schematic-graph"},
-        {"command", "schematic.ungroup", "builtin.schematic-graph"},
-        {"command", "schematic.draw-graph", "builtin.schematic-graph"},
-        {"command", "schematic.delete-elements", "builtin.schematic-graph"},
-        {"command", "schematic.refresh-invalid-links", "builtin.schematic-graph"},
-        {"query", "schematic.clipboard", "builtin.schematic-copying"},
-        {"query", "schematic.copy-selection", "builtin.schematic-copying"},
-        {"command", "schematic.copy", "builtin.schematic-copying"},
-        {"command", "schematic.cut", "builtin.schematic-copying"},
-        {"command", "schematic.paste", "builtin.schematic-copying"},
-        {"command", "schematic.paste-shortcuts", "builtin.schematic-copying"},
-        {"command", "schematic.duplicate", "builtin.schematic-copying"},
-        {"command", "schematic.copy-elements", "builtin.schematic-copying"},
-        {"query", "schematic.connection", "builtin.schematic-connections"},
-        {"command", "schematic.route-links", "builtin.schematic-connections"},
-        {"command", "schematic.insert-control-point", "builtin.schematic-connections"},
-        {"command", "schematic.connect", "builtin.schematic-connections"},
-        {"command", "schematic.export-pins", "builtin.schematic-connections"},
-        {"query", "schematic.positions", "builtin.schematic-graph"},
-        {"query", "schematic.position", "builtin.schematic-graph"},
-        {"query", "schematic.geometry", "builtin.schematic-geometry"},
-        {"command", "schematic.edit-geometry", "builtin.schematic-geometry"}};
+    static const std::vector<ProviderChoice> choices = [] {
+        std::vector<ProviderChoice> choices{
+            {"query", "schematic.invalid-links", "builtin.schematic-graph"},
+            {"query", "schematic.invalid-summary", "builtin.schematic-graph"},
+            {"query", "schematic.messages", "builtin.schematic-graph"},
+            {"command", "schematic.delete-invalid-links", "builtin.schematic-graph"},
+            {"query", "schematic.activity", "builtin.schematic-graph"},
+            {"query", "schematic.message-uses", "builtin.schematic-graph"},
+            {"query", "schematic.script-state", "builtin.schematic-graph"},
+            {"command", "schematic.toggle-fold", "builtin.schematic-graph"},
+            {"command", "schematic.toggle-targets", "builtin.schematic-graph"},
+            {"command", "schematic.create-graph", "builtin.schematic-graph"},
+            {"command", "schematic.group", "builtin.schematic-graph"},
+            {"command", "schematic.ungroup", "builtin.schematic-graph"},
+            {"command", "schematic.draw-graph", "builtin.schematic-graph"},
+            {"command", "schematic.delete-elements", "builtin.schematic-graph"},
+            {"command", "schematic.refresh-invalid-links", "builtin.schematic-graph"},
+            {"query", "schematic.clipboard", "builtin.schematic-copying"},
+            {"query", "schematic.copy-selection", "builtin.schematic-copying"},
+            {"command", "schematic.copy", "builtin.schematic-copying"},
+            {"command", "schematic.cut", "builtin.schematic-copying"},
+            {"command", "schematic.paste", "builtin.schematic-copying"},
+            {"command", "schematic.paste-shortcuts", "builtin.schematic-copying"},
+            {"command", "schematic.duplicate", "builtin.schematic-copying"},
+            {"command", "schematic.copy-elements", "builtin.schematic-copying"},
+            {"query", "schematic.connection", "builtin.schematic-connections"},
+            {"command", "schematic.route-links", "builtin.schematic-connections"},
+            {"command", "schematic.insert-control-point", "builtin.schematic-connections"},
+            {"command", "schematic.connect", "builtin.schematic-connections"},
+            {"command", "schematic.export-pins", "builtin.schematic-connections"},
+            {"query", "schematic.positions", "builtin.schematic-graph"},
+            {"query", "schematic.position", "builtin.schematic-graph"},
+            {"query", "schematic.geometry", "builtin.schematic-geometry"},
+            {"command", "schematic.edit-geometry", "builtin.schematic-geometry"}};
+        const auto &authoring = SchematicAuthoring::DefaultProviders();
+        choices.insert(choices.end(), authoring.begin(), authoring.end());
+        return choices;
+    }();
     return choices;
 }
 bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &error) {
@@ -544,6 +551,7 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
     module.commands = commands;
     module.commandCount = 9;
     return editor.Register(module, error) && m_Data->geometry.Register(editor, error) &&
-           m_Data->connections.Register(editor, error) && m_Data->copying.Register(editor, error);
+           m_Data->connections.Register(editor, error) && m_Data->copying.Register(editor, error) &&
+           m_Data->authoring.Register(editor, error);
 }
 } // namespace vdev

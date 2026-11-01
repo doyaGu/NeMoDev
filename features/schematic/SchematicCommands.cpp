@@ -59,6 +59,12 @@ EditorStatus SchematicCommands::Read(void *data, const EditorHost *, const Edito
     if (!doc) return EDITOR_STALE;
     const auto targets = Targets(*doc, *request);
     if (targets.empty() || (entry.comment && targets.size() != 1)) return EDITOR_STALE;
+    if (const auto *revision = Argument(*request, "revision"))
+        if (revision->integer && doc->Session(targets.front().object)->Revision() != revision->integer)
+            return EDITOR_STALE;
+    if (const auto *topology = Argument(*request, "topology"))
+        if (topology->integer && doc->TopologyRevision() != topology->integer)
+            return EDITOR_STALE;
     EditorField value{"value", entry.comment ? EDITOR_TEXT_VALUE : EDITOR_REAL_LIST};
     if (entry.comment) {
         const auto *comment = CommentAt(*doc, *request);
@@ -158,6 +164,9 @@ const std::vector<ProviderChoice> &SchematicCommands::DefaultProviders() {
 EditorStatus SchematicCommands::Replace(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto *doc = static_cast<SchematicCommands *>(data)->m_Current();
     if (!doc || doc->Token() != request->scope.document) return EDITOR_STALE;
+    if (const auto *revision = Argument(*request, "revision"))
+        if (revision->integer && doc->ChangeRevision() != revision->integer)
+            return EDITOR_STALE;
     const auto *scripts = Argument(*request, "scripts"), *objects = Argument(*request, "objects"),
                *prototypes = Argument(*request, "prototypes");
     const auto count = objects->objects.count;
@@ -194,7 +203,9 @@ bool SchematicCommands::Register(EditorApplication &app, std::string &error) {
     const EditorParameter queryArgs[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT},
                                          {EDITOR_TEXT("owner"), EDITOR_OBJECT, 1, 1},
                                          {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE, 1},
-                                         {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST, 1}};
+                                         {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST, 1},
+                                         {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, 1},
+                                         {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE, 1}};
     std::vector<EditorCommandDesc> commands;
     std::vector<EditorQueryDesc> queries;
     std::vector<EditorPropertyDesc> properties;
@@ -220,7 +231,7 @@ bool SchematicCommands::Register(EditorApplication &app, std::string &error) {
                             EditorLiteral(labels[i]), arguments[i].data(), uint32_t(arguments[i].size()), Write,
                             &m_Entries[i], EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT, Check});
         queries.push_back({sizeof(EditorQueryDesc), EditorLiteral(queryIds[i]), EDITOR_TEXT("builtin.schematic"),
-                           queryArgs, 4, Read, &m_Entries[i], EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields[i].data(),
+                           queryArgs, 6, Read, &m_Entries[i], EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields[i].data(),
                            uint32_t(fields[i].size())});
         properties.push_back(
             {sizeof(EditorPropertyDesc), EditorLiteral(ids[i]), EditorLiteral(labels[i]), EditorLiteral(queryIds[i]),
@@ -229,9 +240,12 @@ bool SchematicCommands::Register(EditorApplication &app, std::string &error) {
     }
     const EditorParameter resetArgs[] = {queryArgs[0], queryArgs[3]};
     const EditorParameter replaceArgs[] = {{EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST},
-        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST}};
-    commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.replace-blocks"), EDITOR_TEXT("builtin.schematic"),
-        EDITOR_TEXT("Replace Building Blocks"), replaceArgs, 3, Replace, this, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT});
+                                           {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},
+                                           {EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST},
+                                           {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, 1}};
+    commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.replace-blocks"),
+                        EDITOR_TEXT("builtin.schematic"), EDITOR_TEXT("Replace Building Blocks"), replaceArgs, 4,
+                        Replace, this, EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT});
     commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("schematic.reset-color"),
                         EDITOR_TEXT("builtin.schematic"), EDITOR_TEXT("Remove Color"), resetArgs, 2, Write,
                         &m_Entries[2], EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT, Check});
