@@ -5,7 +5,7 @@
 
 模块导出 `NeMoDevModule(const EditorHost *, EditorModuleDesc *)`。内置功能也提交同一种
 `EditorModuleDesc`，没有另一条注册路径。命令、查询、编辑器、视图的用途标识与具体实现标识分开；
-同一用途有多个实现时，必须在配置中明确选择，登记顺序不会覆盖已有实现。当前 `EDITOR_VERSION` 为 15，模块与宿主使用相同版本重新编译。
+同一用途有多个实现时，必须在配置中明确选择，登记顺序不会覆盖已有实现。当前 `EDITOR_VERSION` 为 16，模块与宿主使用相同版本重新编译。
 模块描述、参数和文字在注册时复制。注册失败不会留下部分项目。依赖缺失、依赖环、参数不一致、
 重复标识、绘制版本或布局不匹配会使启用失败。
 
@@ -40,6 +40,16 @@ Setup 属性通过 `setup.*` 登记，同一属性的 `*-value` 查询和 `*-set
 回调在编辑器线程执行，期间可读取查询，不能重入修改命令。运行时任务的准入继续拒绝未结束的编辑。
 提供预览的回调数据必须保留到宿主停止；模块停止前，宿主先清理草稿。
 
+连续命令通过 `beginCommand` 固定参数，随后使用相同的 `editValue`、`finishEdit`。
+它须声明非空对象 `target`、可编辑的 `value`、`preview` 和 `commitPreview`，并使用可撤销编辑类别。
+`beginCommand` 只建立草稿；首次 `editValue` 建立原生预览。`commitPreview` 将已经预览的结果加入
+宿主现有的外层 `Edit`，不恢复后重新执行手势。成功后 `EDITOR_PREVIEW_RELEASE` 只释放状态并清空指针，
+宿主再提交外层编辑；回调失败、抛异常或释放失败均取消该编辑。取消和释放均须完成自己的清理。
+没有 `commitPreview` 的属性保持原有的“恢复后执行命令”方式。
+活动或等待提交的连续命令阻止配置切换。关闭作用域、切换文档和停止时，同一宿主清理活动及排队状态。
+`previewCommand` 仅供回调委托给指定实现，支持 UPDATE、CANCEL、RELEASE 和 COMMIT；
+回调之外、错误线程或超出递归上限的调用会被拒绝。内置实现与外部实现使用相同入口。
+
 Setup 的场景环境保留专用恢复方式；图像保存格式及其选项只恢复自身数据，保留旧文件中的格式字节。
 没有图像槽位的位图属性使用值记录，避免整对象加载改变无关的 Current Slot。其他对象沿用现有状态记录及完整的引用生命期。
 材质状态单独保存效果参数的数据；参数值撤销记录以材质、效果和成员路径定位，效果重建参数后仍能连续撤销。
@@ -56,7 +66,7 @@ Schematic 连续工具统一在 Escape 时取消，包括框选建图；隐藏�
 Layout 的相机、三维变换和二维句柄共用取消入口，在 Escape、右键、隐藏、失焦和停止前恢复原值。
 正交视图的轨道拖动取消后恢复原来的相机选择；重复 Begin 不丢弃已有拖动。
 系统文件对话框导致失焦时只取消连续工具，参数工作副本和属性对话框继续保留。
-本批没有改变编辑器 C 接口版本。
+原有属性取消流程保留；连续图编辑与 Layout 手势使用版本 16 的命令入口。
 
 DataArray 的行列操作通过 `array.*` 命令执行，表格只读取 `array.table`、单元格和列的值查询。
 `beginEdit` 和 `drawProperty` 接收 `EditorRequest*`，其中除 `target` 外可传入位置参数。
@@ -78,6 +88,8 @@ DataArray 的行列操作通过 `array.*` 命令执行，表格只读取 `array.
 
 每个已接受命令返回整数 `operation`，包括尚待帧末执行的请求。通过 `application.operation`
 查询 `status`、`path`、`written`、`message` 和结果字段数 `count`；最近 256 个完成结果保留在应用中。
+`finishEdit` 的可选 `operation` 输出返回排队编号，取消或失败将其清零；
+`application.operation` 的 `document-revision` 是外层编辑结束后的文档版本。
 `application.operation-output` 按操作编号和索引读取字段的键、类型及对应值，包含批量创建的对象引用；
 结果中的对象引用仍不持有对象。等待中的操作拒绝读取结果字段，已淘汰的编号返回失效。
 异步提供者返回 `EDITOR_QUEUED`，结束后在编辑器线程调用 `completeOperation`；文档编辑由宿主提交后结束。
@@ -109,7 +121,28 @@ DataArray 的行列操作通过 `array.*` 命令执行，表格只读取 `array.
 绘制模块必须使用宿主的同一份 ImGui 实现和编译配置。启用时校验 ImGui 版本与公开结构的布局尺寸，
 模块不得另行静态链接第二份 ImGui。测试模块分别针对普通宿主和开启测试引擎的宿主独立编译。
 
-阶段零至三已完成，阶段四继续统一交互编辑。名字、基本值、组合和专用值、DataArray 表格及 Setup 属性已使用共享草稿和修改入口。
-Schematic 模型、导航、搜索、剪贴板及图编辑的视图登记和模块迁移仍在阶段四清单中。
+名字、基本值、组合和专用值、DataArray 表格及 Setup 属性已使用共享草稿和修改入口。
+Schematic 模型、导航、搜索和剩余图工具的视图登记与模块迁移继续列在阶段五清单中。
 Setup 的窗口绘制与离散工具、Layout 呈现适配，以及生产模块发现、打包和配置保存仍按后续阶段迁移。
 GPU 视口继续使用现有纹理导入和 backbuffer 路径，模块接口不增加图像传输或逐帧资源操作。
+
+Schematic 的连续编辑由 `schematic.geometry` 准备参数，`schematic.edit-geometry` 执行。
+`mode` 为 0 移动、1 Script 高度、2 图尺寸、3 注释尺寸；`value` 包含二维 `delta` 或 `size`，
+提交时可另带 `route` 和二维 `drop`。目标、元素位置、Script 与拓扑版本在开始时固定。
+ScriptSession 只为绘制保存显示副本，查询与保存仍读取原值；预览和取消均不改 Dirty、历史及内容版本。
+元素几何提交后，视图仅在 `document-revision` 仍相同时通过 `schematic.positions` 更新自己的选区位置；
+发生后续编辑、Undo 或对象重建后不得重用旧索引。
+
+| 用途 | 查询与命令 | 参数要点 |
+| --- | --- | --- |
+| 分组、解组、框选建图 | `schematic.group`、`schematic.ungroup`、`schematic.draw-graph` | 完整对象引用或二维 `rect`，批次预先校验 |
+| 连接、移动连接、类型转换与插入运算 | `schematic.connection`、`schematic.connect` | 保留 `from`、`to` 与可选 `link` 位置；运算由复制的 GUID 列表选择 |
+| 路由、控制点、导出引脚 | `schematic.route-links`、`schematic.insert-control-point`、`schematic.export-pins` | 位置记录、控制点序号及二维坐标；失效位置拒绝修改 |
+| 剪贴板与拖动复制 | `schematic.clipboard`、`schematic.copy-selection`、`schematic.copy/cut/paste/paste-shortcuts/duplicate/copy-elements` | 共享同一原生剪贴板；粘贴固定剪贴板版本，跨 Script 拖动另带目标版本 |
+| 3D 输入与连续手势 | `layout.input`、`layout.edit-gesture` | `kind` 为 0 相机、1 三维变换、2 二维变换、3 Fly；完整对象引用、起点、选项和鼠标状态 |
+| 曲线工具与离散输入 | `layout.curve-tool`、`layout.set-curve-tool`、`layout.curve-click`、`layout.wheel-zoom`、`layout.zoom-on`、`layout.player-click` | 工具状态属于 Layout 原生实现；视图只保存输入、草稿与完成编号 |
+
+3D 变换继续复用已有相机、变换、二维和对象状态记录算法。连续命令保存开始时的相机、曲线、
+参照对象和全部被修改对象的完整引用；停止或取消恢复原值，确认只形成一步 Undo。
+点击未选中的对象时先完成选择命令，再以该对象开始变换。视口资源、GPU 快通道、fallback
+和显式截图读回维持现有流程。阶段五仍在迁移，正式性能验收暂缓且原门槛不变。
