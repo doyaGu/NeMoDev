@@ -58,6 +58,7 @@ void RegisterViewportBaselineTests(ImGuiTestEngine *engine);
 void RegisterFileMenuTests(ImGuiTestEngine *engine);
 void RegisterSchematicTests(ImGuiTestEngine *engine);
 void RegisterLayoutTests(ImGuiTestEngine *engine);
+void RegisterLayoutDropTests(ImGuiTestEngine *engine);
 void RegisterLevelTests(ImGuiTestEngine *engine);
 void RegisterSetupTests(ImGuiTestEngine *engine);
 void RegisterHierarchyTests(ImGuiTestEngine *engine);

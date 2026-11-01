@@ -84,6 +84,7 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     vdevuitest::RegisterFileMenuTests(engine);
     vdevuitest::RegisterSchematicTests(engine);
     vdevuitest::RegisterLayoutTests(engine);
+    vdevuitest::RegisterLayoutDropTests(engine);
     vdevuitest::RegisterLevelTests(engine);
     vdevuitest::RegisterSetupTests(engine);
     vdevuitest::RegisterHierarchyTests(engine);
