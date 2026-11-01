@@ -1,5 +1,3 @@
-#include "core/level/ArrayCommands.h"
-#include "core/layout/LayoutCommands.h"
 // The Setups of curves, characters, sounds, arrays, levels and scenes, 3D frames and sprites, places, 2D entities.
 
 #include "ui/setup/SetupWindows.h"
@@ -14,43 +12,42 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
-#include "CKAll.h"
-
-#include "core/runtime/CkRuntimeHost.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/FileDialogs.h"
 #include "ui/controls/TypeAhead.h"
-#include "core/runtime/GridCompat.h"
-#include "core/level/LevelCommands.h"
-#include "core/level/ObjectEditCommands.h"
-#include "core/level/ObjectProperties.h"
-#include "core/level/SetupCommands.h"
-#include "core/level/SceneCommands.h"
-#include "ui/schematic/Snapshots.h"
 #include "core/runtime/TextEncoding.h"
-#include "core/graph/ValueCommands.h"
 #include "ui/setup/SetupWindowsDetail.h"
 
 namespace vdev {
-
 using namespace setup;
 
-// ---------------------------------------------------------------- Curve Setup
-
-void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
-    if (!curve) return;
-    const CK_ID id = curve->GetID();
-    const int count = curve->GetControlPointCount();
-    setup.point = std::max(0, std::min(setup.point, count - 1));
-    CKCurvePoint *point = count ? curve->GetControlPoint(setup.point) : nullptr;
+void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "curve", description, {uint64_t(std::max(0, setup.point))}))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"curve.open", "curve.step-count", "curve.fitting"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
+    const int count = int(data.Integer("count"));
+    setup.point = int(data.Integer("index"));
+    const auto point = data.Object("point");
+    SetupDetails pointData;
+    if (point && !ReadProperties(point,
+                                 {"curvepoint.position", "curvepoint.bias", "curvepoint.tension",
+                                  "curvepoint.continuity", "curvepoint.linear"},
+                                 pointData))
+        return;
+    const auto pointValues = pointData.Values();
     // Position / Orientation / Scale, and the current point's position.
     // Dev's second object position (sub_449270 40..43): the point's.
-    Entity3DPage(curve, true, false, [&](const DevPage &page) {
+    Entity3DPage(target, true, false, [&](const DevPage &page) {
         page.Label(620, 2, 800, 20, "Current Point Position");
         page.Line(625, 20, 626, 97);
-        VxVector p(0, 0, 0);
-        if (point) point->GetPosition(&p);
+        const auto p = VectorOf(pointValues, "curvepoint.position");
         float v[3] = {p.x, p.y, p.z};
         const char *axes[] = {"X :", "Y :", "Z :"};
         ImGui::BeginDisabled(!point);
@@ -60,7 +57,7 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
             page.Label(640, y, 665, y + 20, axes[i]);
             page.Place(670, y, 740, y + 20);
             if (ImGui::DragFloat("##point", &v[i], 0.01f, 0.0f, 0.0f, "%.4f") && point)
-                LiveSet(point->GetID(), properties::CurvePointPosition, VxVector(v[0], v[1], v[2]));
+                PreviewValue(point, "curvepoint.position", VxVector(v[0], v[1], v[2]));
             ImGui::PopID();
         }
         ImGui::EndDisabled();
@@ -69,42 +66,36 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
     // Left: player visibility, type, steps, fitting, length.
     ImGui::SetCursorPos(ImVec2(8, lower));
     ImGui::BeginGroup();
-    bool shown = m_State.document->Layout().playerShown.count(id) != 0;
+    bool shown = data.Boolean("player-shown");
     // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player Mode
     // (not the object's visibility).
     if (ImGui::Checkbox("Show In Player Mode", &shown))
-        SetLayoutMembership(*m_State.document, LayoutList::PlayerShown, id, shown, "Show In Player Mode");
+        RunSetupCommand("setup.player-shown", {ObjectArgument("target", target), IntegerArgument("value", shown)});
     ImGui::Dummy(ImVec2(1, 6));
     Group("Curve type");
-    bool linear = count > 0;
-    for (int i = 0; i < count; ++i)
-        if (CKCurvePoint *p = curve->GetControlPoint(i))
-            if (!p->IsLinear()) linear = false;
-    std::vector<CK_ID> points;
-    for (int i = 0; i < count; ++i)
-        if (CKCurvePoint *p = curve->GetControlPoint(i)) points.push_back(p->GetID());
+    const bool linear = data.Boolean("linear");
     auto setLinear = [&](bool on) {
-        EditObjectsState(*m_State.document, points, on ? "Linear Curve" : "Spline Curve",
-                         [on](CKObject *o) { CKCurvePoint::Cast(o)->SetLinear(on); });
+        RunSetupCommand("setup.curve-linear", {ObjectArgument("target", target), IntegerArgument("value", on)});
     };
     if (ImGui::RadioButton("Spline", !linear) && linear) setLinear(false);
     ImGui::SameLine();
     if (ImGui::RadioButton("Linear", linear) && !linear) setLinear(true);
-    const bool open = curve->IsOpen() != 0;
-    if (ImGui::RadioButton("Open", open) && !open) LiveSet(id, properties::CurveOpen, true);
+    const bool open = values.Boolean("curve.open");
+    if (ImGui::RadioButton("Open", open) && !open)
+        PreviewValue(id, "curve.open", true);
     ImGui::SameLine();
     if (ImGui::RadioButton("Close", !open) && open)
-        LiveSet(id, properties::CurveOpen, false);
+        PreviewValue(id, "curve.open", false);
     ImGui::Dummy(ImVec2(1, 6));
-    int steps = curve->GetStepCount();
+    int steps = int(values.Integer("curve.step-count"));
     ImGui::SetNextItemWidth(120);
     if (ImGui::SliderInt("Step count", &steps, 1, 1000))
-        LiveSet(id, properties::CurveStepCount, steps);
-    float fitting = curve->GetFittingCoeff();
+        PreviewValue(id, "curve.step-count", steps);
+    float fitting = float(values.Real("curve.fitting"));
     ImGui::SetNextItemWidth(120);
     if (ImGui::SliderFloat("Fitting Coef", &fitting, -1.0f, 1.0f, "%.3f"))
-        LiveSet(id, properties::CurveFitting, fitting);
-    ImGui::Text("Curve length :  %.4f", curve->GetLength());
+        PreviewValue(id, "curve.fitting", fitting);
+    ImGui::Text("Curve length :  %.4f", data.Real("length"));
     ImGui::EndGroup();
     // Middle: Modify Curve.
     ImGui::SameLine(330);
@@ -114,13 +105,13 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
     // Layout's tool on this curve (pressed again: off); Referential is the
     // plane Add Points puts points on.
     static const char *const tools[4] = {"Add Points", "Insert Points", "Edit Points", "Delete Points"};
-    const EditorClient client(m_State.workspace->Application().Host(), setup.nameOwner);
+    const auto client = Client(setup.nameOwner);
     const auto tool = client.Query("layout.curve-tool");
-    const auto *target = EditorClient::Find(tool, "target");
+    const auto *toolTarget = EditorClient::Find(tool, "target");
     const auto toolId = EditorClient::Integer(tool, "tool");
     auto plane = int(EditorClient::Integer(tool, "plane"));
     for (int i = 0; i < 4; ++i) {
-        const bool active = target && target->object == setup.reference && toolId == uint64_t(128 + i);
+        const bool active = toolTarget && toolTarget->object == setup.reference && toolId == uint64_t(128 + i);
         if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
         if (ImGui::Button(tools[i], ImVec2(110, 0))) {
             client.Command("layout.set-curve-tool",
@@ -133,13 +124,15 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
     static const char *const referentials[2] = {"Guide", "View Plane"};
     ImGui::SetNextItemWidth(110);
     if (TypeAheadCombo("##referential", &plane, referentials, 2))
-        client.Command("layout.set-curve-tool", {ObjectArgument("target", target ? target->object : ObjectRef{}),
-                                                 IntegerArgument("tool", toolId), IntegerArgument("plane", plane)});
+        client.Command("layout.set-curve-tool",
+                       {ObjectArgument("target", toolTarget ? toolTarget->object : ObjectRef{}),
+                        IntegerArgument("tool", toolId), IntegerArgument("plane", plane)});
     // Show curve points (Dev.exe sub_4584A0 183): the 3D Layout draws the
     // curve's control points (its list +180).
-    bool showPoints = !m_State.document->Layout().hiddenCurvePoints.count(id);
+    bool showPoints = data.Boolean("points-shown");
     if (ImGui::Checkbox("Show curve points", &showPoints))
-        SetLayoutMembership(*m_State.document, LayoutList::HiddenCurvePoints, id, !showPoints, "Show curve points");
+        RunSetupCommand("setup.curve-points-shown",
+                        {ObjectArgument("target", target), IntegerArgument("value", showPoints)});
     ImGui::EndGroup();
     // Right: the current control point.
     ImGui::SameLine(560);
@@ -154,29 +147,34 @@ void SetupWindows::CurvePage(Setup &setup, CKCurve *curve) {
     ImGui::SameLine();
     if (ImGui::Button(">|")) setup.point = std::max(0, count - 1);
     ImGui::BeginDisabled(!point);
-    const CK_ID pointId = point ? point->GetID() : 0;
-    auto tcb = [&](const ObjectProperty<float> &property) {
-        float value = point ? property.get(point) : 0.0f;
+    auto tcb = [&](const char *property, const char *label) {
+        float value = point ? float(pointValues.Real(property)) : 0;
         ImGui::SetNextItemWidth(160);
-        if (ImGui::SliderFloat(property.label, &value, -10.0f, 10.0f, "%.3f") && point) LiveSet(pointId, property, value);
+        if (ImGui::SliderFloat(label, &value, -10, 10, "%.3f") && point)
+            PreviewValue(point, property, value);
     };
-    tcb(properties::CurvePointBias);
-    tcb(properties::CurvePointTension);
-    tcb(properties::CurvePointContinuity);
-    bool segment = point && point->IsLinear();
+    tcb("curvepoint.bias", "Bias");
+    tcb("curvepoint.tension", "Tension");
+    tcb("curvepoint.continuity", "Continuity");
+    bool segment = point && pointValues.Boolean("curvepoint.linear");
     if (ImGui::Checkbox("Next Segment Is Linear", &segment) && point)
-        LiveSet(pointId, properties::CurvePointLinear, segment);
-    ImGui::Text("Point distance on curve :  %.4f", point ? point->GetLength() : 0.0f);
+        PreviewValue(point, "curvepoint.linear", segment);
+    ImGui::Text("Point distance on curve :  %.4f", data.Real("point-length"));
     ImGui::EndDisabled();
     ImGui::EndGroup();
 }
 
-// ---------------------------------------------------------------- Character Setup
-
-void SetupWindows::CharacterPage(Setup &setup, CKCharacter *character) {
-    if (!character) return;
-    const CK_ID id = character->GetID();
-    Entity3DPage(character, true, false);
+void SetupWindows::CharacterPage(Setup &setup, ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "character", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"entity3d.pickable"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
+    Entity3DPage(target, true, false);
     const float lower = ImGui::GetCursorPosY();
     ImGui::SetCursorPos(ImVec2(8, lower));
     ImGui::BeginGroup();
@@ -190,32 +188,35 @@ void SetupWindows::CharacterPage(Setup &setup, CKCharacter *character) {
         ImGui::TableSetupColumn("Current Mesh");
         ImGui::TableSetupColumn("Vertices", ImGuiTableColumnFlags_WidthFixed, 70);
         ImGui::TableHeadersRow();
-        CKBodyPart *root = character->GetRootBodyPart();
+        const auto root = data.Object("root");
         // The rows (Dev.exe sub_44F330): a click selects (Ctrl: adds or
         // takes off), a double click opens the Body Part Setup; the menu:
         // Show Body Part Setup, Remove Body Part; elsewhere Add Body Part.
-        std::set<CK_ID> &rows = setup.bodyPartRows;
+        auto &rows = setup.bodyPartRows;
         for (auto it = rows.begin(); it != rows.end();) {
-            CKBodyPart *part = Get<CKBodyPart>(m_State, *it);
-            it = part && part->GetCharacter() == character ? std::next(it) : rows.erase(it);
+            const bool held = std::any_of(data.Rows("bodies").begin(), data.Rows("bodies").end(), [&](const auto &row) {
+                return SetupFields(row.fields).Object("target") == *it;
+            });
+            it = held ? std::next(it) : rows.erase(it);
         }
         auto removeParts = [&] {
             if (rows.empty()) return;
             FlushPending();
-            Report(RemoveBodyParts(*m_State.document, id, std::vector<CK_ID>(rows.begin(), rows.end())), "Remove Body Part");
+            RunSetupCommand("setup.character-remove-parts",
+                            {ObjectArgument("target", target), ObjectsArgument("objects", {rows.begin(), rows.end()})});
             rows.clear();
         };
-        for (int i = 0; i < character->GetBodyPartCount(); ++i) {
-            CKBodyPart *part = character->GetBodyPart(i);
-            if (!part) continue;
+        for (size_t i = 0; i < data.Rows("bodies").size(); ++i) {
+            const SetupFields part(data.Rows("bodies")[i].fields);
             ImGui::PushID(i);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            const CK_ID partId = part->GetID();
+            const auto partId = part.Object("target");
             const bool selected = rows.count(partId) != 0;
-            const std::string name = NameOf(part) + (part == root ? "  (Root)" : "");
+            const std::string name = part.Text("name") + (partId == root ? "  (Root)" : "");
             if (typeAhead.Selectable(name.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(partId)});
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                    Open(partId);
                 else if (!ImGui::GetIO().KeyCtrl) rows = {partId};
                 else if (selected) rows.erase(partId);
                 else rows.insert(partId);
@@ -223,18 +224,17 @@ void SetupWindows::CharacterPage(Setup &setup, CKCharacter *character) {
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) rows = {partId};
             if (ImGui::BeginPopupContextItem("bodypartmenu")) {
                 if (ImGui::MenuItem("Show Body Part Setup", nullptr, false, rows.size() == 1))
-                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(*rows.begin())});
+                    Open(*rows.begin());
                 ImGui::Separator();
                 if (ImGui::MenuItem("Remove Body Part", "Delete", false, !rows.empty())) removeParts();
                 ImGui::EndPopup();
             }
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(NameOf(part->GetParent()).c_str());
+            ImGui::TextUnformatted(part.Text("parent-name").c_str());
             ImGui::TableNextColumn();
-            CKMesh *mesh = part->GetCurrentMesh();
-            ImGui::TextUnformatted(NameOf(mesh).c_str());
+            ImGui::TextUnformatted(part.Text("mesh-name").c_str());
             ImGui::TableNextColumn();
-            ImGui::Text("%d", mesh ? mesh->GetVertexCount() : 0);
+            ImGui::Text("%d", int(part.Integer("vertices")));
             ImGui::PopID();
         }
         if (ImGui::BeginPopupContextWindow("bodypartsmenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
@@ -253,13 +253,14 @@ void SetupWindows::CharacterPage(Setup &setup, CKCharacter *character) {
     if (ImGui::BeginPopup("Add Body Part")) {
         TypeAhead typeAhead;
         bool any = false;
-        for (CKObject *object : ObjectsOf(*m_State.document, CKCID_BODYPART, true)) {
-            if (CKBodyPart::Cast(object)->GetCharacter()) continue;
+        for (const auto &value : data.Rows("available")) {
+            const SetupFields object(value.fields);
             any = true;
-            ImGui::PushID(static_cast<int>(object->GetID()));
-            if (typeAhead.Selectable(NameOf(object).c_str())) {
+            ImGui::PushID(int(object.Object("target").object));
+            if (typeAhead.Selectable(object.Text("name").c_str())) {
                 FlushPending();
-                Report(AddBodyParts(*m_State.document, id, {object->GetID()}), "Add Body Part");
+                RunSetupCommand("setup.character-add-parts", {ObjectArgument("target", target),
+                                                              ObjectsArgument("objects", {object.Object("target")})});
                 ImGui::CloseCurrentPopup();
             }
             ImGui::PopID();
@@ -270,66 +271,69 @@ void SetupWindows::CharacterPage(Setup &setup, CKCharacter *character) {
     ImGui::EndGroup();
     ImGui::SameLine(740);
     ImGui::BeginGroup();
-    bool pickable = character->IsPickable() != 0;
+    bool pickable = values.Boolean("entity3d.pickable");
     if (ImGui::Checkbox("Pickable", &pickable))
-        LiveSet(id, properties::Entity3DPickable, pickable);
+        PreviewValue(id, "entity3d.pickable", pickable);
     ImGui::TextDisabled("(Hold shift to pick it anyway)");
     ImGui::Dummy(ImVec2(1, 8));
-    ImGui::Text("Body parts:  %d", character->GetBodyPartCount());
-    ImGui::Text("Animations:  %d", character->GetAnimationCount());
-    ImGui::Text("Active:      %s", NameOf(character->GetActiveAnimation()).c_str());
+    ImGui::Text("Body parts:  %d", int(data.Rows("bodies").size()));
+    ImGui::Text("Animations:  %d", int(data.Rows("animations").size()));
+    ImGui::Text("Active:      %s", data.Text("active-name").c_str());
     ImGui::Dummy(ImVec2(1, 8));
     // The character's animations; double-click opens the Animation Setup.
-    std::vector<CKObject *> animations;
-    for (int i = 0; i < character->GetAnimationCount(); ++i)
-        if (CKAnimation *animation = character->GetAnimation(i)) animations.push_back(animation);
-    UsedBy("Animations", animations, 150);
+    UsedByRows("Animations", data.Rows("animations"), 150);
     ImGui::EndGroup();
 }
 
-// ---------------------------------------------------------------- Sound Setup
-
-void SetupWindows::SoundPage(CKWaveSound *sound) {
-    if (!sound) return;
-    const CK_ID id = sound->GetID();
-    CKWaveFormat format;
-    std::memset(&format, 0, sizeof(format));
-    sound->GetSoundFormat(format);
-    const bool source = sound->GetSource() != nullptr;
-    const bool point = sound->GetType() == CK_WAVESOUND_POINT;
+void SetupWindows::SoundPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "sound", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target,
+                        {"wavesound.streaming", "sound.save-options", "wavesound.type", "wavesound.loop",
+                         "wavesound.gain", "wavesound.pitch", "wavesound.pan", "wavesound.attached",
+                         "wavesound.position", "wavesound.direction", "wavesound.cone", "wavesound.distance"},
+                        propertyData))
+        return;
+    const auto values = propertyData.Values();
+    const bool source = data.Boolean("source");
+    const bool point = values.Integer("wavesound.type") == CK_WAVESOUND_POINT;
     // Left: the sound file, save options, type.
     ImGui::BeginGroup();
     Group("Sound Info");
-    ImGui::Text("Sampling rate :  %d Hz", static_cast<int>(format.nSamplesPerSec));
-    ImGui::Text("Sample size :    %d bits", static_cast<int>(format.wBitsPerSample));
-    ImGui::Text("Channels :       %d (%s)", static_cast<int>(format.nChannels), format.nChannels > 1 ? "Stereo" : "Mono");
+    ImGui::Text("Sampling rate :  %d Hz", int(data.Integer("sample-rate")));
+    ImGui::Text("Sample size :    %d bits", int(data.Integer("sample-bits")));
+    ImGui::Text("Channels :       %d (%s)", int(data.Integer("channels")),
+                data.Integer("channels") > 1 ? "Stereo" : "Mono");
     // Documentation "Sound Setup": "Sound duration (in minutes:seconds:milliseconds)".
     {
-        const int length = std::max(0, static_cast<int>(sound->GetSoundLength()));
+        const int length = std::max(0, int(data.Integer("length")));
         ImGui::Text("Duration :       %d:%02d:%03d", length / 60000, (length / 1000) % 60, length % 1000);
     }
     // Streamed (documentation "Sound Setup": "Enables streaming"): the
     // sound made again from its file (SetFileStreaming, recreated).
-    bool streamed = sound->GetFileStreaming() != 0;
+    bool streamed = values.Boolean("wavesound.streaming") != 0;
     if (ImGui::Checkbox("Streamed", &streamed))
-        LiveSet(id, properties::WaveSoundStreaming, streamed);
+        PreviewValue(id, "wavesound.streaming", streamed);
     ImGui::Dummy(ImVec2(1, 6));
     const char *saves[] = {"External", "Include Original File", "Use Global"};
-    int save = std::max(0, std::min(2, static_cast<int>(sound->GetSaveOptions())));
+    int save = std::max(0, std::min(2, static_cast<int>(values.Integer("sound.save-options"))));
     ImGui::SetNextItemWidth(170);
     if (TypeAheadCombo("Save Options", &save, saves, 3))
-        LiveSet(id, properties::SoundSaveOptions, save);
+        PreviewValue(id, "sound.save-options", save);
     ImGui::Dummy(ImVec2(1, 6));
     Group("Type");
     if (ImGui::RadioButton("Background", !point) && point)
-        LiveSet(id, properties::WaveSoundType, CK_WAVESOUND_BACKGROUND);
+        PreviewValue(id, "wavesound.type", CK_WAVESOUND_BACKGROUND);
     ImGui::SameLine();
     if (ImGui::RadioButton("Point", point) && !point)
-        LiveSet(id, properties::WaveSoundType, CK_WAVESOUND_POINT);
+        PreviewValue(id, "wavesound.type", CK_WAVESOUND_POINT);
     if (point && source) {
-        VxVector position, direction;
-        float distance = 0.0f;
-        sound->GetSound3DInformation(position, direction, distance);
+        const auto position = VectorOf(data, "listener-position");
+        const float distance = float(data.Real("distance"));
         ImGui::Text("Distance to listener :  %.3f", distance);
         ImGui::Text("Sound position :  %.2f  %.2f  %.2f", position.x, position.y, position.z);
         ImGui::Text("Relative angle :  %.1f", std::atan2(position.x, position.z) * RAD_TO_DEG);
@@ -341,34 +345,37 @@ void SetupWindows::SoundPage(CKWaveSound *sound) {
     ImGui::SameLine(330);
     ImGui::BeginGroup();
     Group("Misc");
-    bool loop = sound->GetLoopMode() != 0;
-    if (ImGui::Checkbox("Loop", &loop)) LiveSet(id, properties::WaveSoundLoop, loop);
+    bool loop = values.Boolean("wavesound.loop") != 0;
+    if (ImGui::Checkbox("Loop", &loop))
+        PreviewValue(id, "wavesound.loop", loop);
     ImGui::BeginDisabled(!source);
-    if (ImGui::Button("Play", ImVec2(60, 0))) GuardedCall([&] { sound->Play(); }, &m_State.document->Host(), "Play");
+    if (ImGui::Button("Play", ImVec2(60, 0)))
+        RunSetupCommand("setup.sound-play", {ObjectArgument("target", target)});
     ImGui::SameLine();
     // Pause (documentation: "Plays, pauses or stops"); again: on from there.
-    if (ImGui::Button(sound->IsPaused() ? "Resume" : "Pause", ImVec2(60, 0)))
-        GuardedCall([&] { sound->IsPaused() ? sound->Resume() : sound->Pause(); }, &m_State.document->Host(), "Pause");
+    if (ImGui::Button(data.Boolean("paused") ? "Resume" : "Pause", ImVec2(60, 0)))
+        RunSetupCommand("setup.sound-pause", {ObjectArgument("target", target)});
     ImGui::SameLine();
-    if (ImGui::Button("Stop", ImVec2(60, 0))) GuardedCall([&] { sound->Stop(); }, &m_State.document->Host(), "Stop");
+    if (ImGui::Button("Stop", ImVec2(60, 0)))
+        RunSetupCommand("setup.sound-stop", {ObjectArgument("target", target)});
     ImGui::EndDisabled();
     if (!source) ImGui::TextDisabled("(no sound device)");
     ImGui::Dummy(ImVec2(1, 6));
     Group("2D");
-    float gain = sound->GetGain();
+    float gain = values.Real("wavesound.gain");
     ImGui::SetNextItemWidth(160);
     if (ImGui::SliderFloat("Gain", &gain, 0.0f, 1.0f, "%.3f"))
-        LiveSet(id, properties::WaveSoundGain, gain);
-    float pitch = sound->GetPitch();
+        PreviewValue(id, "wavesound.gain", gain);
+    float pitch = values.Real("wavesound.pitch");
     ImGui::SetNextItemWidth(160);
     if (ImGui::SliderFloat("Pitch", &pitch, 0.5f, 2.0f, "%.3f"))
-        LiveSet(id, properties::WaveSoundPitch, pitch);
+        PreviewValue(id, "wavesound.pitch", pitch);
     // Pan (documentation: "Background Sounds only"): -1 left to 1 right.
     ImGui::BeginDisabled(point);
-    float pan = sound->GetPan();
+    float pan = values.Real("wavesound.pan");
     ImGui::SetNextItemWidth(160);
     if (ImGui::SliderFloat("Pan", &pan, -1.0f, 1.0f, "%.3f"))
-        LiveSet(id, properties::WaveSoundPan, pan);
+        PreviewValue(id, "wavesound.pan", pan);
     ImGui::EndDisabled();
     ImGui::EndGroup();
     // Right: 3D settings (point sounds).
@@ -376,27 +383,23 @@ void SetupWindows::SoundPage(CKWaveSound *sound) {
     ImGui::BeginGroup();
     Group("3D");
     ImGui::BeginDisabled(!point);
-    CK3dEntity *attached = sound->GetAttachedEntity();
-    VxVector position, direction;
-    sound->GetPosition(position);
-    sound->GetDirection(direction);
-    CK_ID chosen = 0;
+    const auto attached = data.Object("attached");
+    const auto position = VectorOf(values, "wavesound.position"), direction = VectorOf(values, "wavesound.direction");
+    ObjectRef chosen{};
     ImGui::TextUnformatted("Attached Object");
-    if (ObjectCombo("##attached", CKCID_3DENTITY, attached, &chosen, 200))
-        LiveSet(id, properties::WaveSoundAttached, chosen);
+    if (ObjectChoice("##attached", CKCID_3DENTITY, attached, data.Text("attached-name"), &chosen, 200))
+        PreviewValue(id, "wavesound.attached", chosen);
     auto vector3 = [&](const char *label, VxVector value, bool isPosition) {
         float v[3] = {value.x, value.y, value.z};
         ImGui::SetNextItemWidth(240);
         if (ImGui::DragFloat3(label, v, 0.01f, 0.0f, 0.0f, "%.3f")) {
-            LiveSet(id, isPosition ? properties::WaveSoundPosition : properties::WaveSoundDirection,
-                    VxVector(v[0], v[1], v[2]));
+            PreviewValue(id, isPosition ? "wavesound.position" : "wavesound.direction", VxVector(v[0], v[1], v[2]));
         }
     };
     vector3("Relative Position", position, true);
     vector3("Relative Orientation", direction, false);
-    float inside = 0, outside = 0, outsideGain = 0;
-    sound->GetCone(&inside, &outside, &outsideGain);
-    float cone[3] = {inside, outside, outsideGain};
+    const auto coneValue = VectorOf(values, "wavesound.cone");
+    float cone[3] = {coneValue.x, coneValue.y, coneValue.z};
     bool coneChanged = false;
     ImGui::SetNextItemWidth(120);
     coneChanged |= ImGui::SliderFloat("Cone inside angle", &cone[0], 0.0f, 360.0f, "%.1f");
@@ -405,44 +408,51 @@ void SetupWindows::SoundPage(CKWaveSound *sound) {
     ImGui::SetNextItemWidth(120);
     coneChanged |= ImGui::SliderFloat("Outside gain", &cone[2], 0.0f, 1.0f, "%.3f");
     if (coneChanged)
-        LiveSet(id, properties::WaveSoundCone, VxVector(cone[0], cone[1], cone[2]));
-    float minimum = 0, maximum = 0;
-    CKDWORD behavior = 1;
-    sound->GetMinMaxDistance(&minimum, &maximum, &behavior);
-    float range[2] = {minimum, maximum};
+        PreviewValue(id, "wavesound.cone", VxVector(cone[0], cone[1], cone[2]));
+    const auto distance = Vector2Of(values, "wavesound.distance");
+    float range[2] = {distance.x, distance.y};
     ImGui::SetNextItemWidth(160);
     if (ImGui::DragFloat2("Min / Max distance", range, 0.1f, 0.0f, 100000.0f, "%.2f"))
-        LiveSet(id, properties::WaveSoundDistance, Vx2DVector(range[0], range[1]));
+        PreviewValue(id, "wavesound.distance", Vx2DVector(range[0], range[1]));
     ImGui::EndDisabled();
     ImGui::EndGroup();
 }
 
-// ---------------------------------------------------------------- Array Setup
-
 void SetupWindows::ArrayPage(Setup &setup) {
-    if (!m_State.workspace || !FlushPending()) return;
-    auto &application = m_State.workspace->Application();
+    if (!FlushPending())
+        return;
+    auto &application = m_Workspace.Application();
     if (!setup.nameOwner) setup.nameOwner = application.OpenScope();
     application.EnterDraw();
     struct Drawing { EditorApplication &application; ~Drawing() { application.LeaveDraw(); } } drawing{application};
     setup.array.Draw(EditorClient(application.Host(), setup.nameOwner), setup.reference);
 }
 
-void SetupWindows::ScenePage(CKObject *object) {
-    CKScene *scene = CKScene::Cast(object);
-    if (CKLevel *level = CKLevel::Cast(object)) scene = level->GetLevelScene();
-    if (!scene) {
+void SetupWindows::ScenePage(ObjectRef target) {
+    SetupDetails description;
+    if (!ReadDetails(target, "scene", description))
+        return;
+    const auto data = description.Values();
+    const auto id = data.Object("scene");
+    if (!id) {
         ImGui::TextDisabled("The level has no level scene.");
         return;
     }
-    const CK_ID id = scene->GetID();
+    SetupDetails propertyData;
+    if (!ReadProperties(id,
+                        {"scene.ambient", "scene.fog", "scene.background", "scene.use-environment", "scene.fog-mode",
+                         "scene.fog-start", "scene.fog-end", "scene.fog-density", "scene.background-image",
+                         "scene.starting-camera"},
+                        propertyData))
+        return;
+    const auto values = propertyData.Values();
     const float top = ImGui::GetCursorPosY();
     // Colors: large swatches; a click opens the color picker.
     ImGui::SetCursorPos(ImVec2(8, top));
     ImGui::BeginGroup();
     Group("Colors");
-    auto color = [&](const char *label, CKDWORD value, const char *field) {
-        const VxColor c(static_cast<CKDWORD>(value));
+    auto color = [&](const char *label, const char *field) {
+        const auto c = ColorOf(values, field);
         const float alpha = c.a;
         ImGui::PushID(label);
         ImGui::SetCursorPosX(38);
@@ -454,35 +464,35 @@ void SetupWindows::ScenePage(CKObject *object) {
         if (ImGui::BeginPopup("picker")) {
             float rgb[3] = {c.r, c.g, c.b};
             if (ImGui::ColorPicker3("##picker", rgb))
-                PreviewColor(id, field, VxColor(rgb[0], rgb[1], rgb[2], alpha));
+                PreviewValue(id, field, VxColor(rgb[0], rgb[1], rgb[2], alpha));
             ImGui::EndPopup();
         }
         ImGui::PopID();
         ImGui::Dummy(ImVec2(1, 4));
     };
-    color("Ambient", scene->GetAmbientLight(), "scene.ambient");
-    color("Fog", scene->GetFogColor(), "scene.fog");
-    color("Background", scene->GetBackgroundColor(), "scene.background");
+    color("Ambient", "scene.ambient");
+    color("Fog", "scene.fog");
+    color("Background", "scene.background");
     ImGui::EndGroup();
     const float lower = ImGui::GetCursorPosY() + 12.0f;
     // Use settings at Scene Start (top right).
     ImGui::SetCursorPos(ImVec2(450, top));
-    bool use = scene->EnvironmentSettings() != FALSE;
+    bool use = values.Boolean("scene.use-environment");
     if (ImGui::Checkbox("Use settings at Scene Start", &use))
-        PreviewInteger(id, "scene.use-environment", use);
+        PreviewValue(id, "scene.use-environment", use);
     // Fog Settings (bottom left).
     ImGui::SetCursorPos(ImVec2(8, lower));
     ImGui::BeginGroup();
     Group("Fog Settings");
     const char *types[] = {"None", "Exponential", "Exponential Squared", "Linear"};
-    int type = std::max(0, std::min(3, static_cast<int>(scene->GetFogMode())));
+    int type = std::max(0, std::min(3, static_cast<int>(values.Integer("scene.fog-mode"))));
     ImGui::SetCursorPosX(38);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Type:");
     ImGui::SameLine(180);
     ImGui::SetNextItemWidth(190);
     if (TypeAheadCombo("##fogtype", &type, types, 4))
-        PreviewInteger(id, "scene.fog-mode", type);
+        PreviewValue(id, "scene.fog-mode", type);
     if (type != 0) {
         auto number = [&](const char *label, float value, float step, const char *field) {
             ImGui::PushID(label);
@@ -492,13 +502,13 @@ void SetupWindows::ScenePage(CKObject *object) {
             ImGui::SameLine(180);
             ImGui::SetNextItemWidth(190);
             if (ImGui::DragFloat("##value", &value, step, 0.0f, 0.0f, "%.3f"))
-                PreviewReal(id, field, value);
+                PreviewValue(id, field, value);
             ImGui::PopID();
         };
-        number("Fog Start:", scene->GetFogStart(), 0.5f, "scene.fog-start");
-        number("Fog End:", scene->GetFogEnd(), 0.5f, "scene.fog-end");
-        number("Fog Density:", scene->GetFogDensity(), 0.001f, "scene.fog-density");
-        if (scene->GetFogStart() > scene->GetFogEnd())
+        number("Fog Start:", float(values.Real("scene.fog-start")), 0.5f, "scene.fog-start");
+        number("Fog End:", float(values.Real("scene.fog-end")), 0.5f, "scene.fog-end");
+        number("Fog Density:", float(values.Real("scene.fog-density")), 0.001f, "scene.fog-density");
+        if (float(values.Real("scene.fog-start")) > float(values.Real("scene.fog-end")))
             ImGui::TextColored(ImVec4(0.6f, 0.0f, 0.0f, 1.0f), "Fog Start must be smaller than Fog End");
     }
     ImGui::EndGroup();
@@ -506,31 +516,34 @@ void SetupWindows::ScenePage(CKObject *object) {
     ImGui::SetCursorPos(ImVec2(450, lower));
     ImGui::BeginGroup();
     Group("Other Settings");
-    CK_ID chosen = 0;
+    ObjectRef chosen{};
     ImGui::SetCursorPosX(480);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Background Image");
     ImGui::SameLine(210);
-    if (ObjectCombo("##background", CKCID_TEXTURE, scene->GetBackgroundTexture(), &chosen, 210))
-        PreviewObject(id, "scene.background-image", chosen);
+    if (ObjectChoice("##background", CKCID_TEXTURE, data.Object("background"), data.Text("background-name"), &chosen,
+                     210))
+        PreviewValue(id, "scene.background-image", chosen);
     ImGui::SetCursorPosX(480);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("Starting Camera");
     ImGui::SameLine(210);
-    if (ObjectCombo("##camera", CKCID_CAMERA, scene->GetStartingCamera(), &chosen, 210))
-        PreviewObject(id, "scene.starting-camera", chosen);
+    if (ObjectChoice("##camera", CKCID_CAMERA, data.Object("camera"), data.Text("camera-name"), &chosen, 210))
+        PreviewValue(id, "scene.starting-camera", chosen);
     ImGui::EndGroup();
 }
 
-// ---------------------------------------------------------------- 3D Frame / 3D Sprite Setup
-
-// Dev 3D Frame Setup (screenshot): Position / Orientation / Scale in World
-// and, for an entity with a parent, Local columns (documentation, Place
-// Setup screenshot); Show In Player Mode; Frame Representation.
-void SetupWindows::FramePage(CK3dEntity *frame) {
-    if (!frame) return;
-    const CK_ID id = frame->GetID();
-    CK3dEntity *parent = frame->GetParent();
+void SetupWindows::FramePage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "frame", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"entity3d.pickable"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
+    const auto parent = data.Object("parent");
     const float top = ImGui::GetCursorPosY();
     float bottom = top;
     const char *axes[] = {"X :", "Y :", "Z :"};
@@ -570,12 +583,12 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
         }
         bottom = std::max(bottom, ImGui::GetCursorPosY());
     };
-    const ShownTransform &transform = Shown(frame);
+    const ShownTransform &transform = Shown(target);
     const VxVector wp = Translation(transform.world), lp = Translation(transform.local);
     float pw[3] = {wp.x, wp.y, wp.z}, pl[3] = {lp.x, lp.y, lp.z};
     group(
         0, "Position", "Reset World Matrix",
-        [&] { Act("Reset World Matrix", [&] { return ResetWorldMatrix(*m_State.document, id); }); }, pw, pl,
+        [&] { RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)}); }, pw, pl,
         "Set Position", "position", 1.0f);
     float ow[3] = {0, 0, 0}, ol[3] = {0, 0, 0};
     Vx3DMatrixToEulerAngles(transform.world, &ow[0], &ow[1], &ow[2]);
@@ -587,35 +600,34 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
     group(300, "Orientation", nullptr, nullptr, ow, ol, "Set Orientation", "orientation", RAD_TO_DEG);
     const VxVector ws = ScaleOf(transform.world), ls = ScaleOf(transform.local);
     float sw[3] = {ws.x, ws.y, ws.z}, sl[3] = {ls.x, ls.y, ls.z};
-    CKPlace *place = CKPlace::Cast(frame);
-    const bool portal = !place && (frame->GetFlags() & CK_3DENTITY_PORTAL) != 0;
+    const bool place = data.Boolean("place"), portal = data.Boolean("portal");
     group(
         600, "Scale", place ? "Set as Unit" : nullptr,
-        [&] { Act("Set as Unit", [&] { return SetScaleToUnit(*m_State.document, id); }); }, sw, sl, "Set Scale",
-        "scale", 1.0f);
+        [&] { RunSetupCommand("setup.scale-unit", {ObjectArgument("target", target)}); }, sw, sl, "Set Scale", "scale",
+        1.0f);
     ImGui::SetCursorPos(ImVec2(0, bottom + 4));
     ImGui::Separator();
     if (place) {
-        PlaceLinks(place);
+        PlaceLinks(target);
         return;
     }
     ImGui::SetCursorPosX(40);
     ImGui::BeginGroup();
     if (portal) {
         // Portal Setup: Pickable.
-        bool pickable = frame->IsPickable() != 0;
+        bool pickable = values.Boolean("entity3d.pickable");
         if (ImGui::Checkbox("Pickable", &pickable))
-            LiveSet(id, properties::Entity3DPickable, pickable);
+            PreviewValue(id, "entity3d.pickable", pickable);
         ImGui::SameLine();
         ImGui::TextDisabled("(Hold shift to pick it anyway)");
         ImGui::EndGroup();
         return;
     }
-    bool shown = m_State.document->Layout().playerShown.count(id) != 0;
+    bool shown = data.Boolean("player-shown");
     // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player Mode
     // (not the object's visibility).
     if (ImGui::Checkbox("Show In Player Mode", &shown))
-        SetLayoutMembership(*m_State.document, LayoutList::PlayerShown, id, shown, "Show In Player Mode");
+        RunSetupCommand("setup.player-shown", {ObjectArgument("target", target), IntegerArgument("value", shown)});
     // Dev keeps the representation in the 3D Layout's own table (Dev.exe
     // sub_4C53C0): "No Representation" or one of its "Virtools_Frame_*"
     // meshes, drawn by the 3D Layout only. It is not object state: the
@@ -623,20 +635,25 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
     ImGui::TextUnformatted("Frame Representation:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(250);
-    const auto presentation = EditorClient(m_State.workspace->Application().Host(), 0).Query("layout.presentation");
+    const auto presentation = Client().Query("layout.presentation");
     const auto *shapeNames = EditorClient::Find(presentation, "frame-shapes");
     const std::vector<std::string> emptyShapes;
     const auto &shapes = shapeNames && shapeNames->type == EDITOR_TEXT_LIST ? shapeNames->texts : emptyShapes;
-    auto found = m_State.document->Layout().representations.find(id);
-    const int representation = found != m_State.document->Layout().representations.end() ? found->second : 1;
+    const int representation = int(data.Integer("representation"));
     const bool known = representation >= 0 && representation <= static_cast<int>(shapes.size());
     const std::string current = representation == 0 ? "No Representation" : known ? shapes[representation - 1] : "";
     if (ImGui::BeginCombo("##representation", current.c_str())) {
         TypeAhead typeAhead;
-        if (typeAhead.Selectable("No Representation", representation == 0)) SetFrameRepresentation(*m_State.document, {id}, 0);
+        if (typeAhead.Selectable("No Representation", representation == 0))
+            RunSetupCommand(
+                "layout.frame-representation",
+                {ObjectArgument("target", target), ObjectsArgument("objects", {target}), IntegerArgument("value", 0)});
         for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
             ImGui::PushID(i);
-            if (typeAhead.Selectable(shapes[i].c_str(), representation == i + 1)) SetFrameRepresentation(*m_State.document, {id}, i + 1);
+            if (typeAhead.Selectable(shapes[i].c_str(), representation == i + 1))
+                RunSetupCommand("layout.frame-representation",
+                                {ObjectArgument("target", target), ObjectsArgument("objects", {target}),
+                                 IntegerArgument("value", i + 1)});
             ImGui::PopID();
         }
         ImGui::EndCombo();
@@ -644,37 +661,21 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
     ImGui::EndGroup();
 }
 
-// Place Setup "Portals and other Places" (documentation; language pack
-// [Setups]<Scene>): the places seen from this one and the portal each is
-// seen through (None: always visible), with the portal's activation. Each
-// change of the links is one undo step (SetPlaceLinks); Active is the
-// portal's Activate At Scene Start flag (Level Manager Activate).
-void SetupWindows::PlaceLinks(CKPlace *place) {
-    const CK_ID id = place->GetID();
-    CKContext *context = m_State.document->Context();
-    std::vector<CKObject *> places;
-    for (CKObject *object : ObjectsOf(*m_State.document, CKCID_PLACE, true))
-        if (object != place) places.push_back(object);
-    std::vector<CKObject *> portals;
-    for (CKObject *object : ObjectsOf(*m_State.document, CKCID_3DENTITY, true))
-        if (CK3dEntity::Cast(object)->GetFlags() & CK_3DENTITY_PORTAL) portals.push_back(object);
-    CKScene *scene = InitialConditionsScene(context);
-    // Links are changed as a whole list (SetPlaceLinks, one undo step).
-    auto relink = [&](const char *label, CK_ID fromPlace, CK_ID fromPortal, CK_ID toPlace, CK_ID toPortal) {
-        std::vector<PlaceLink> list = PlaceLinksOf(place);
-        auto at = std::find_if(list.begin(), list.end(), [&](const PlaceLink &link) {
-            return fromPlace && link.place == fromPlace && link.portal == fromPortal;
-        });
-        if (at != list.end()) {
-            if (toPlace) *at = {toPlace, toPortal};
-            else list.erase(at);
-        } else if (toPlace) {
-            list.push_back({toPlace, toPortal});
-        }
-        Report(SetPlaceLinks(*m_State.document, id, list, label), label);
+void SetupWindows::PlaceLinks(ObjectRef target) {
+    SetupDetails description;
+    if (!ReadDetails(target, "place", description))
+        return;
+    const auto data = description.Values();
+    const auto &places = data.Rows("places"), &portals = data.Rows("portals");
+    const auto scene = data.Object("scene");
+    auto relink = [&](const char *, ObjectRef fromPlace, ObjectRef fromPortal, ObjectRef toPlace, ObjectRef toPortal) {
+        RunSetupCommand("setup.place-link",
+                        {ObjectArgument("target", target), ObjectArgument("from-place", fromPlace),
+                         ObjectArgument("from-portal", fromPortal), ObjectArgument("to-place", toPlace),
+                         ObjectArgument("to-portal", toPortal)});
     };
     struct Link {
-        CK_ID place = 0, portal = 0;
+        ObjectRef place{}, portal{};
     };
     std::vector<Link> links;
     int hoveredRow = -1;
@@ -685,43 +686,47 @@ void SetupWindows::PlaceLinks(CKPlace *place) {
         ImGui::TableSetupColumn("Through Portal");
         ImGui::TableSetupColumn("Active", ImGuiTableColumnFlags_WidthFixed, 90);
         ImGui::TableHeadersRow();
-        for (int i = 0; i < place->GetPortalCount(); ++i) {
-            CK3dEntity *portal = nullptr;
-            CKPlace *other = place->GetPortal(i, &portal);
-            const CK_ID otherId = other ? other->GetID() : 0, portalId = portal ? portal->GetID() : 0;
+        for (size_t i = 0; i < data.Rows("links").size(); ++i) {
+            const SetupFields current(data.Rows("links")[i].fields);
+            const auto other = current.Object("place"), portal = current.Object("portal");
+            const auto otherId = other, portalId = portal;
             links.push_back({otherId, portalId});
             ImGui::PushID(i);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginCombo("##place", NameOf(other).c_str())) {
+            if (ImGui::BeginCombo("##place", current.Text("place-name").c_str())) {
                 TypeAhead typeAhead;
-                for (CKObject *candidate : places)
-                    if (typeAhead.Selectable(NameOf(candidate).c_str(), candidate == other) && candidate != other)
-                        relink("Visible Place", otherId, portalId, candidate->GetID(), portalId);
+                for (const auto &value : places) {
+                    const SetupFields candidate(value.fields);
+                    const auto ref = candidate.Object("target");
+                    if (typeAhead.Selectable(candidate.Text("name").c_str(), ref == other) && ref != other)
+                        relink("Visible Place", otherId, portalId, ref, portalId);
+                }
                 ImGui::EndCombo();
             }
             ImGui::TableNextColumn();
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::BeginCombo("##portal", NameOf(portal).c_str())) {
+            if (ImGui::BeginCombo("##portal", current.Text("portal-name").c_str())) {
                 TypeAhead typeAhead;
-                if (typeAhead.Selectable("-- None --", !portal) && portal) relink("Through Portal", otherId, portalId, otherId, 0);
-                for (CKObject *candidate : portals)
-                    if (typeAhead.Selectable(NameOf(candidate).c_str(), candidate == portal) && candidate != portal)
-                        relink("Through Portal", otherId, portalId, otherId, candidate->GetID());
+                if (typeAhead.Selectable("-- None --", !portal) && portal)
+                    relink("Through Portal", otherId, portalId, otherId, {});
+                for (const auto &value : portals) {
+                    const SetupFields candidate(value.fields);
+                    const auto ref = candidate.Object("target");
+                    if (typeAhead.Selectable(candidate.Text("name").c_str(), ref == portal) && ref != portal)
+                        relink("Through Portal", otherId, portalId, otherId, ref);
+                }
                 ImGui::EndCombo();
             }
             ImGui::TableNextColumn();
             // Active: the portal's Activate At Scene Start flag (blue / red in Dev's 3D Layout).
-            bool active = portal && scene && (scene->GetObjectFlags(portal) & CK_SCENEOBJECT_START_ACTIVATE);
-            ImGui::BeginDisabled(!portal || !scene || !scene->IsObjectHere(portal));
+            bool active = current.Boolean("active");
+            ImGui::BeginDisabled(!current.Boolean("active-enabled"));
             if (ImGui::Checkbox("##active", &active))
-                Report(ModifySceneFlags(*m_State.document, {portalId},
-                                        active ? CK_SCENEOBJECT_START_ACTIVATE : CK_SCENEOBJECT_START_DEACTIVATE,
-                                        active ? CK_SCENEOBJECT_START_DEACTIVATE | CK_SCENEOBJECT_START_LEAVE
-                                               : CK_SCENEOBJECT_START_ACTIVATE | CK_SCENEOBJECT_START_LEAVE,
-                                        active ? "Activate" : "Deactivate"),
-                       "Portal Active");
+                RunSetupCommand("scene.flags",
+                                {ObjectsArgument("objects", {portalId}), ObjectArgument("target", portalId),
+                                 ObjectArgument("scene", scene), IntegerArgument("mode", active ? 3 : 4)});
             ImGui::EndDisabled();
             ImGui::PopID();
         }
@@ -737,40 +742,48 @@ void SetupWindows::PlaceLinks(CKPlace *place) {
     if (ImGui::BeginPopup("placemenu")) {
         const Link row = m_PlaceMenuRow >= 0 && m_PlaceMenuRow < static_cast<int>(links.size()) ? links[m_PlaceMenuRow] : Link();
         // A new link to a place not linked yet; its portal is None.
-        CK_ID next = 0;
-        for (CKObject *candidate : places) {
+        ObjectRef next{};
+        for (const auto &value : places) {
+            const auto candidate = SetupFields(value.fields).Object("target");
             bool linked = false;
-            for (const Link &link : links) linked = linked || link.place == candidate->GetID();
+            for (const auto &link : links)
+                linked = linked || link.place == candidate;
             if (!linked) {
-                next = candidate->GetID();
+                next = candidate;
                 break;
             }
         }
         // Automatic Portal (Dev.exe sub_471C10 203): the next click picks the
         // other place (SetupWindows::PortalPick).
-        if (ImGui::MenuItem("Automatic Portal")) m_PortalPlace = m_State.document->Reference(place->GetID());
-        if (ImGui::MenuItem("Attach New Place", nullptr, false, next != 0)) relink("Attach New Place", 0, 0, next, 0);
-        if (ImGui::MenuItem("Remove Place", nullptr, false, row.place != 0)) relink("Remove Place", row.place, row.portal, 0, 0);
+        if (ImGui::MenuItem("Automatic Portal"))
+            m_PortalPlace = target;
+        if (ImGui::MenuItem("Attach New Place", nullptr, false, bool(next)))
+            relink("Attach New Place", {}, {}, next, {});
+        if (ImGui::MenuItem("Remove Place", nullptr, false, bool(row.place)))
+            relink("Remove Place", row.place, row.portal, {}, {});
         ImGui::Separator();
-        if (ImGui::MenuItem("Place Setup", nullptr, false, row.place != 0))
-            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(row.place)});
-        if (ImGui::MenuItem("Portal Setup", nullptr, false, row.portal != 0))
-            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(row.portal)});
+        if (ImGui::MenuItem("Place Setup", nullptr, false, bool(row.place)))
+            Open(row.place);
+        if (ImGui::MenuItem("Portal Setup", nullptr, false, bool(row.portal)))
+            Open(row.portal);
         ImGui::EndPopup();
     }
     PopDevMenuStyle();
 }
 
-void SetupWindows::Report(const EditResult &result, const char *what) {
-    if (!result.ok && !result.Unchanged() && !result.message.empty()) m_State.Log(LogLevel::Warning, std::string(what) + ": " + AnsiToUtf8(result.message));
-}
-
-// Dev 3D Sprite Setup (screenshot; language pack [3D Sprite Setup]):
-// Position, Orientation (World), Scale X / Y (the sprite size), Sprite
-// Type, Pickable, Offset, UVMapping, Material.
-void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
-    if (!sprite) return;
-    const CK_ID id = sprite->GetID();
+void SetupWindows::Sprite3DPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "sprite3d", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target,
+                        {"sprite3d.mode", "entity3d.pickable", "sprite3d.offset", "sprite3d.uv", "sprite3d.material",
+                         "sprite3d.size"},
+                        propertyData))
+        return;
+    const auto values = propertyData.Values();
     const float top = ImGui::GetCursorPosY();
     float bottom = top;
     const char *axes[] = {"X :", "Y :", "Z :"};
@@ -799,20 +812,19 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
         }
         bottom = std::max(bottom, ImGui::GetCursorPosY());
     };
-    const ShownTransform &shown = Shown(sprite);
+    const ShownTransform &shown = Shown(target);
     const VxVector position = Translation(shown.world);
     float p[3] = {position.x, position.y, position.z};
     group(
         0, "Position", "Reset World Matrix",
-        [&] { Act("Reset World Matrix", [&] { return ResetWorldMatrix(*m_State.document, id); }); }, p, 3,
-        "Set Position", "World", "entity3d.world-position", 1.0f);
+        [&] { RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)}); }, p, 3, "Set Position",
+        "World", "entity3d.world-position", 1.0f);
     float e[3] = {0, 0, 0};
     Vx3DMatrixToEulerAngles(shown.world, &e[0], &e[1], &e[2]);
     for (float &angle : e) angle *= RAD_TO_DEG;
     group(300, "Orientation", nullptr, nullptr, e, 3, "Set Orientation", "World", "entity3d.world-orientation",
           RAD_TO_DEG);
-    Vx2DVector size;
-    sprite->GetSize(size);
+    const auto size = Vector2Of(values, "sprite3d.size");
     float sz[2] = {size.x, size.y};
     group(600, "Scale", nullptr, nullptr, sz, 2, "Set Size", " ", "sprite3d.size", 1.0f);
     ImGui::SetCursorPos(ImVec2(0, bottom + 4));
@@ -823,17 +835,17 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
     ImGui::BeginGroup();
     Group("Sprite Type");
     const char *types[] = {"Billboard", "X Rotate", "Y Rotate", "Orientable"};
-    const int mode = static_cast<int>(sprite->GetMode());
+    const int mode = static_cast<int>(values.Integer("sprite3d.mode"));
     for (int t = 0; t < 4; ++t) {
         bool on = mode == t;
         ImGui::SetCursorPosX(40);
         if (ImGui::Checkbox(types[t], &on) && on && mode != t)
-            LiveSet(id, properties::Sprite3DMode, t);
+            PreviewValue(id, "sprite3d.mode", t);
     }
-    bool pickable = sprite->IsPickable() != 0;
+    bool pickable = values.Boolean("entity3d.pickable");
     ImGui::SetCursorPosX(40);
     if (ImGui::Checkbox("Pickable", &pickable))
-        LiveSet(id, properties::Entity3DPickable, pickable);
+        PreviewValue(id, "entity3d.pickable", pickable);
     ImGui::SetCursorPosX(68);
     ImGui::TextUnformatted("(Hold shift to pick it anyway)");
     ImGui::EndGroup();
@@ -841,8 +853,7 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
     ImGui::SetCursorPos(ImVec2(308, lower));
     ImGui::BeginGroup();
     Group("Offset");
-    Vx2DVector offset;
-    sprite->GetOffset(offset);
+    const auto offset = Vector2Of(values, "sprite3d.offset");
     float off[2] = {offset.x, offset.y};
     for (int i = 0; i < 2; ++i) {
         ImGui::PushID(i);
@@ -851,19 +862,18 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
         ImGui::SameLine(75);
         ImGui::SetNextItemWidth(90);
         if (ImGui::DragFloat("##offset", &off[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-            LiveSet(id, properties::Sprite3DOffset, Vx2DVector(off[0], off[1]));
+            PreviewValue(id, "sprite3d.offset", Vx2DVector(off[0], off[1]));
         ImGui::PopID();
     }
     ImGui::Dummy(ImVec2(1, 6));
     Group("UVMapping");
-    VxRect uv;
-    sprite->GetUVMapping(uv);
+    const auto uv = RectOf(values, "sprite3d.uv");
     float r[4] = {uv.left, uv.top, uv.right, uv.bottom};
     auto uvField = [&](int index) {
         ImGui::PushID(index);
         ImGui::SetNextItemWidth(90);
         if (ImGui::DragFloat("##uv", &r[index], 0.001f, 0.0f, 0.0f, "%.4f"))
-            LiveSet(id, properties::Sprite3DUv, VxRect(r[0], r[1], r[2], r[3]));
+            PreviewValue(id, "sprite3d.uv", VxRect(r[0], r[1], r[2], r[3]));
         ImGui::PopID();
     };
     for (int row = 0; row < 2; ++row) {
@@ -882,16 +892,22 @@ void SetupWindows::Sprite3DPage(CKSprite3D *sprite) {
     ImGui::BeginGroup();
     Group("Material:");
     ImGui::SameLine();
-    CKMaterial *material = sprite->GetMaterial();
+    const auto material = data.Object("material");
     ImGui::BeginDisabled(!material);
-    if (ImGui::SmallButton(">") && material) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(material->GetID())});
+    if (ImGui::SmallButton(">") && material)
+        Open(material);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Material Setup");
     ImGui::SameLine();
-    CK_ID chosen = 0;
-    if (ObjectCombo("##material", CKCID_MATERIAL, material, &chosen, 190))
-        LiveSet(id, properties::Sprite3DMaterial, chosen);
+    ObjectRef chosen{};
+    if (ObjectChoice("##material", CKCID_MATERIAL, material, data.Text("material-name"), &chosen, 190))
+        PreviewValue(id, "sprite3d.material", chosen);
     ImGui::EndGroup();
+}
+
+void SetupWindows::Report(const EditResult &result, const char *what) {
+    if (!result.ok && !result.Unchanged() && !result.message.empty())
+        m_State.Log(LogLevel::Warning, std::string(what) + ": " + AnsiToUtf8(result.message));
 }
 
 } // namespace vdev

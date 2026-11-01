@@ -9,9 +9,7 @@
 
 #include "imgui.h"
 
-#include "core/level/LevelCommands.h"
-#include "core/level/ObjectEditCommands.h"
-#include "core/level/ObjectProperties.h"
+#include "core/document/EditResult.h"
 #include "core/runtime/TextEncoding.h"
 #include "features/arrays/ArrayTable.h"
 #include "features/setup/SetupViewData.h"
@@ -68,9 +66,9 @@ private:
         // scene's objects in the Name combo, Dev.exe sub_44DD30).
         bool sceneFilter = true;
         // 3D Object Setup: the Object Meshes selected, Add Mesh's chooser.
-        std::set<CK_ID> meshRows;
+        std::set<ObjectRef> meshRows;
         // Character Setup: the body parts' rows selected; Add Body Part asked.
-        std::set<CK_ID> bodyPartRows;
+        std::set<ObjectRef> bodyPartRows;
         bool openAddBodyPart = false;
         bool openAddMesh = false;
         // Material Setup: Custom chosen in Mode (Dev's combo keeps it while
@@ -84,7 +82,7 @@ private:
         bool focus = false;
         int slot = 0; // other Setups of the type (Show New Setups): 1, 2, ...
         // Texture Setup
-        CK_ID shownTexture = 0;
+        ObjectRef shownTexture{};
         int shownSlot = -1;
         int textureFrames = 0;
         // Texture / 2D Sprite Setup: the previews' zoom (0: Best Fit), the
@@ -100,6 +98,8 @@ private:
         // An image dropped on the alpha preview with Ctrl or Shift: its
         // channels' menu (Dev.exe sub_48AC30 825..828).
         std::string droppedAlpha;
+        int droppedAlphaSlot = 0;
+        uint64_t droppedAlphaRevision = 0;
         bool openResize = false;
         int resizeWidth = 0, resizeHeight = 0;
         // Remove slot asked ("Remove current texture slot ?").
@@ -113,11 +113,15 @@ private:
         int squareX = -1, squareY = -1;
         bool openSquare = false;   // the Square Value dialog (a square double-clicked)
         int squareValue = 0;
+        std::vector<ObjectRef> squareTargets;
+        uint64_t squareRevision = 0;
         int layerType = 0;         // the Global Layer List's row chosen (F2, menu)
         int classification = -1;   // the Global Classification List's row chosen
         bool openGridRename = false;
         bool renamingClassification = false;
         std::string gridRenameText;
+        uint64_t gridRenameRevision = 0;
+        int gridRenameIndex = 0;
         // Curve Setup: the current control point
         int point = 0;
         ArrayTable array;
@@ -139,149 +143,115 @@ private:
     };
     bool m_Notify = true; // this frame refreshes m_Doc.shown
     int m_PlayFrames = 0;
-    const ShownTransform &Shown(CK3dEntity *entity);
+    const ShownTransform &Shown(ObjectRef target);
     void DrawSetup(Setup &setup, ImGuiID dock);
     void Header(Setup &, const SetupPageData &);
     void Sidebar(Setup &, const SetupPageData &);
     void Picture(Setup &);
     void ReplaceFile(Setup &, SetupFileKind);
     void DrawObjectPage(Setup &);
-    void AttributePage(Setup &setup, CKObject *object);
+    void AttributePage(Setup &setup);
     // sized: Scale and World Size (fourth: what replaces World Size, drawn
     // at Dev's x 620); details: meshes, Pickable.
-    void Entity3DPage(CK3dEntity *entity, bool sized, bool details,
+    void Entity3DPage(ObjectRef target, bool sized, bool details,
                       const std::function<void(const setup::DevPage &page)> &fourth = nullptr, Setup *setup = nullptr);
-    void CameraPage(CKCamera *camera);
-    void LightPage(CKLight *light);
+    void CameraPage(ObjectRef target);
+    void LightPage(ObjectRef target);
     // sprite: the lower part of the 2D Sprite Setup (Cropping instead of
     // Material and UVMapping).
-    void Entity2DPage(CK2dEntity *entity, bool sprite = false);
-    void SpritePage(Setup &setup, CKSprite *sprite);
+    void Entity2DPage(ObjectRef target, bool sprite = false);
+    void SpritePage(Setup &setup, ObjectRef target);
     // A Texture / 2D Sprite Setup preview (the image key, in a box side
     // wide, zoomed) and its slot menu (Dev.exe sub_485C10 / sub_476FA0):
     // the image's, or (alpha) the alpha channel's.
-    void SlotPreview(Setup &setup, CKObject *bitmap, unsigned long long key, int width, int height, float side, bool alpha);
-    void SlotMenu(Setup &setup, CKObject *bitmap, bool alpha);
+    bool ReadPixels(ObjectRef, const char *, uint64_t, int &, int &, std::vector<uint32_t> &) const;
+    void SlotPreview(Setup &setup, ObjectRef target, unsigned long long key, int width, int height, float side,
+                     bool alpha);
+    void SlotMenu(Setup &setup, ObjectRef target, bool alpha);
     // The Image Format save option's format (Dev's Image Saver, Dev.exe
     // sub_5889B0): a bitmap reader that saves, with its default options;
     // whether the alpha channel goes with it.
-    void SaveFormatControls(CKObject *bitmap);
+    void SaveFormatControls(ObjectRef target);
     // The slot menu's commands, and their keys (Dev.exe sub_485C10 /
     // sub_476FA0, sub_487640: O add, R replace, Shift+R replace alpha, S
     // save, n / p the next / previous slot, + - / * the zoom).
     enum class SlotCommand { Add, Replace, ReplaceAlpha, Save, SaveAlpha, Next, Previous, ZoomIn, ZoomOut, Zoom1, ZoomFit };
-    void RunSlotCommand(Setup &setup, CKObject *bitmap, SlotCommand command);
-    void SlotKeys(Setup &setup, CKObject *bitmap);
-    void RemoveSlotDialog(Setup &setup, CKObject *bitmap);
-    void MaterialPage(Setup &setup, CKMaterial *material);
-    void MeshPage(Setup &setup, CKMesh *mesh);
-    void TexturePage(Setup &setup, CKTexture *texture);
-    void GridPage(Setup &setup, CKGrid *grid);
-    void CurvePage(Setup &setup, CKCurve *curve);
-    void CharacterPage(Setup &setup, CKCharacter *character);
-    void SoundPage(CKWaveSound *sound);
+    void RunSlotCommand(Setup &setup, ObjectRef target, SlotCommand command);
+    void SlotKeys(Setup &setup, ObjectRef target);
+    void RemoveSlotDialog(Setup &setup, ObjectRef target);
+    void MaterialPage(Setup &setup, ObjectRef target);
+    void MeshPage(Setup &setup, ObjectRef target);
+    void TexturePage(Setup &setup, ObjectRef target);
+    void GridPage(Setup &setup, ObjectRef target);
+    void CurvePage(Setup &setup, ObjectRef target);
+    void CharacterPage(Setup &setup, ObjectRef target);
+    void SoundPage(ObjectRef target);
     void ArrayPage(Setup &setup);
-    void ScenePage(CKObject *object);
+    void ScenePage(ObjectRef target);
     // 3D Frame, Portal and Place Setup (World / Local transforms).
-    void FramePage(CK3dEntity *frame);
-    void PlaceLinks(CKPlace *place);
+    void FramePage(ObjectRef target);
+    void PlaceLinks(ObjectRef target);
     void Report(const EditResult &result, const char *what);
-    void Sprite3DPage(CKSprite3D *sprite);
+    void Sprite3DPage(ObjectRef target);
     // Classes Dev has no Setup for (Dev.exe sub_4B0010 opens none): pages
     // after the class definitions (SDK headers).
-    void AnimationPage(CKAnimation *animation);
-    void ObjectAnimationPage(CKObjectAnimation *animation);
-    void MidiSoundPage(CKMidiSound *sound);
-    void SpriteTextPage(CKSpriteText *text);
+    void AnimationPage(ObjectRef target);
+    void ObjectAnimationPage(ObjectRef target);
+    void MidiSoundPage(ObjectRef target);
+    void SpriteTextPage(ObjectRef target);
     // A name and a button opening the object's Setup.
-    void SetupLink(const char *label, CKObject *object);
     // The classes that are not behavioral objects (Dev has no Setup for them
     // either): pages after their class definitions (SDK headers).
-    void KinematicChainPage(CKKinematicChain *chain);
-    void LayerPage(CKLayer *layer);
+    void KinematicChainPage(ObjectRef target);
+    void LayerPage(ObjectRef target);
     // Local and output parameters (CKParameter), input parameters.
-    void ParameterPage(CKParameter *parameter);
-    void ParameterInPage(CKParameterIn *input);
-    void OperationPage(CKParameterOperation *operation);
-    void BehaviorPage(CKBehavior *behavior);
-    void BehaviorIOPage(CKBehaviorIO *io);
-    void BehaviorLinkPage(CKBehaviorLink *link);
-    void SynchroPage(CKSynchroObject *synchro);
-    void StatePage(CKStateObject *state);
-    void CriticalSectionPage(CKCriticalSectionObject *section);
-    void InterfaceObjectsPage(CKInterfaceObjectManager *manager);
+    void ParameterPage(ObjectRef target);
+    void ParameterInPage(ObjectRef target);
+    void OperationPage(ObjectRef target);
+    void BehaviorPage(ObjectRef target);
+    void BehaviorIOPage(ObjectRef target);
+    void BehaviorLinkPage(ObjectRef target);
+    void SynchroPage(ObjectRef target);
+    void StatePage(ObjectRef target);
+    void CriticalSectionPage(ObjectRef target);
+    void InterfaceObjectsPage(ObjectRef target);
     // The behaviors whose parameters hold the object (Synchro, State,
     // Critical Section, Kinematic Chain parameters); a double click shows
     // the behavior's Setup.
-    void ParameterUsers(CKObject *object);
+    void ParameterUsers(ObjectRef target);
     // The parameter's value text and Edit Value... (Dev's Edit Parameter).
-    void ParameterValue(CKParameter *value, bool editable);
+    void ParameterValue(const SetupFields &, bool editable);
     // Shows the behavior's Script in the Schematic with the element selected
     // (the behavior when ref is empty).
-    void ShowInSchematic(CKBehavior *behavior, const ElementRef &ref = ElementRef());
-    void OtherPage(CKObject *object);
+    void ShowInSchematic(const SetupFields &);
+    void OtherPage(ObjectRef target);
 
-    // Edits: a change applied now; consecutive changes of one control (a
-    // drag, typing) form one undo step, recorded when no control is active.
-    // Setup controls submit typed values to the same property draft as modules.
-    void PreviewProperty(CK_ID object, const char *property, EditorField value, std::vector<uint64_t> indices = {},
+    bool ReadDetails(ObjectRef target, const char *section, SetupDetails &data,
+                     const std::vector<uint64_t> &indices = {}) const;
+    bool ReadProperties(ObjectRef target, const std::vector<const char *> &, SetupDetails &data,
+                        const std::vector<uint64_t> &indices = {}) const;
+    void SetupLink(const char *label, ObjectRef target, const std::string &name);
+    void UsedByRows(const char *title, const std::vector<EditorField> &, float height);
+    bool ObjectChoice(const char *label, uint32_t classId, ObjectRef current, const std::string &name,
+                      ObjectRef *chosen, float width = 190.0f);
+    EditorResponse RunSetupCommand(const char *, const std::vector<EditorValue> & = {});
+    void ChooseFile(const FileDialogOptions &, std::function<void(const FileDialogResult &)>, bool multiple = false);
+    void PreviewProperty(ObjectRef target, const char *property, EditorField value, std::vector<uint64_t> indices = {},
                          ObjectRef relative = {}, std::vector<ObjectRef> targets = {});
-    void PreviewReal(CK_ID id, const char *property, float value) {
-        EditorField field;
-        field.key = "value";
-        field.type = EDITOR_REAL_VALUE;
-        field.real = value;
-        PreviewProperty(id, property, std::move(field));
-    }
-    void PreviewColor(CK_ID id, const char *property, VxColor value) {
-        EditorField field{"value", EDITOR_REAL_LIST};
-        field.reals = {value.r, value.g, value.b, value.a};
-        PreviewProperty(id, property, std::move(field));
-    }
-    void PreviewInteger(CK_ID id, const char *property, int64_t value, std::vector<uint64_t> indices = {}) {
-        EditorField field{"value", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(value)};
-        PreviewProperty(id, property, std::move(field), std::move(indices));
-    }
-    void PreviewObject(CK_ID id, const char *property, CK_ID value, std::vector<uint64_t> indices = {}) {
-        EditorField field{"value", EDITOR_OBJECT, m_State.document->Reference(value)};
-        PreviewProperty(id, property, std::move(field), std::move(indices));
-    }
-    void PreviewFont(CK_ID id, const SpriteTextFont &font) {
-        EditorField value{"value", EDITOR_RECORD};
-        value.fields = {{"face", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(font.face)},
-                        {"size", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(font.size))},
-                        {"weight", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(font.weight))},
-                        {"italic", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(font.italic)},
-                        {"underline", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(font.underline)}};
-        PreviewProperty(id, "spritetext.font", std::move(value));
-    }
-    bool EditObjectList(CK_ID id, const char *property, const std::vector<CK_ID> &add,
-                        const std::vector<CK_ID> &remove = {});
-    bool FinishProperty(bool commit);
-    void SetProperty(ObjectRef target, EditorView owner, const char *property, EditorField value);
-    void PreviewNumbers(CK_ID object, const char *property, const float *values, int count, float divisor = 1.0f) {
-        EditorField field;
-        field.key = "value";
-        field.type = EDITOR_REAL_LIST;
-        for (int i = 0; i < count; ++i)
-            field.reals.push_back(values[i] / divisor);
-        PreviewProperty(object, property, std::move(field));
-    }
-    template <typename T> void LiveSet(CK_ID object, const ObjectProperty<T> &property, std::common_type_t<T> value) {
-        EditorField field;
-        field.key = "value";
-        if constexpr (std::is_same_v<T, CK_ID>) {
+    template <class T> void PreviewValue(ObjectRef target, const char *property, const T &value) {
+        EditorField field{"value"};
+        if constexpr (std::is_same_v<T, ObjectRef>) {
             field.type = EDITOR_OBJECT;
-            field.object = m_State.document->Reference(value);
-        } else if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, int>) {
+            field.object = value;
+        } else if constexpr (std::is_integral_v<T> || std::is_enum_v<T>) {
             field.type = EDITOR_INTEGER_VALUE;
             field.integer = uint64_t(int64_t(value));
-        } else if constexpr (std::is_same_v<T, float>) {
+        } else if constexpr (std::is_floating_point_v<T>) {
             field.type = EDITOR_REAL_VALUE;
             field.real = value;
         } else if constexpr (std::is_same_v<T, std::string>) {
             field.type = EDITOR_TEXT_VALUE;
-            field.text = AnsiToUtf8(value);
+            field.text = value;
         } else {
             field.type = EDITOR_REAL_LIST;
             if constexpr (std::is_same_v<T, VxColor>)
@@ -293,19 +263,33 @@ private:
             else
                 field.reals = {value.x, value.y};
         }
-        PreviewProperty(object, ObjectPropertyId(&property), std::move(field));
+        PreviewProperty(target, property, std::move(field));
     }
-    // An action (core SetupCommands): the edit being made recorded first,
-    // then the action's undo step; a refusal logged.
-    template <typename Command> void Act(const char *what, Command command) {
-        if (!FlushPending()) return;
-        Report(command(), what);
+    void PreviewNumbers(ObjectRef target, const char *property, const float *numbers, int count, float divisor = 1.0f) {
+        EditorField value{"value", EDITOR_REAL_LIST};
+        for (int i = 0; i < count; ++i)
+            value.reals.push_back(numbers[i] / divisor);
+        PreviewProperty(target, property, std::move(value));
     }
+    void PreviewFont(ObjectRef target, const SetupFont &font) {
+        EditorField value{"value", EDITOR_RECORD};
+        value.fields = {{"face", EDITOR_TEXT_VALUE, {}, font.face},
+                        {"size", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(font.size))},
+                        {"weight", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(font.weight))},
+                        {"italic", EDITOR_INTEGER_VALUE, {}, {}, font.italic},
+                        {"underline", EDITOR_INTEGER_VALUE, {}, {}, font.underline}};
+        PreviewProperty(target, "spritetext.font", std::move(value));
+    }
+    bool EditObjectList(ObjectRef target, const char *property, const std::vector<ObjectRef> &add,
+                        const std::vector<ObjectRef> &remove = {});
+    // Indexed edits must still describe the same source rows when editing starts.
+    void PreviewIndexedProperty(ObjectRef target, const char *property, EditorField value,
+                                std::vector<uint64_t> indices, uint64_t revision, std::vector<ObjectRef> targets = {});
+    bool FinishProperty(bool commit);
+    void SetProperty(ObjectRef target, EditorView owner, const char *property, EditorField value);
     bool FlushPending();
     void CancelPending();
-    void UsedBy(const char *title, const std::vector<CKObject *> &users, float height);
-    void UsedByList(const char *id, const std::vector<CKObject *> &users, const ImVec2 &size);
-    bool ObjectCombo(const char *label, CK_CLASSID cid, CKObject *current, CK_ID *chosen, float width = 190.0f);
+    void UsedByList(const char *id, const std::vector<EditorField> &rows, const ImVec2 &size);
 
     // What names the open composition's objects (CK gives their ids to the
     // next document's objects): made anew when it is closed; a field naming
@@ -325,16 +309,7 @@ private:
     DocumentState m_Doc;
     // An attribute's value in Dev's Edit Parameter (its type shown).
     ParameterBox m_AttributeBox{m_State};
-    // The Image Format's options being edited (SaveFormatControls: Edit
-    // Parameter of the reader's option parameter,
-    // CKPluginManager::GetReaderOptionData; after m_State, which it keeps)
-    // and Dev's lines on what the format gives (the image saved and read
-    // back in a state chunk: its size, the times), made again when the
-    // format changes.
-    ParameterBox m_FormatBox{m_State};
-    CK_ID m_FormatParameter = 0;
-    bool m_OpenFormatOptions = false;
-    std::map<CK_ID, std::string> m_FormatInfo, m_FormatInfoKey;
+    std::map<ObjectRef, std::string> m_FormatInfo, m_FormatInfoKey;
     std::string m_AttributeType;
     bool m_OpenAttributeValue = false;
     void AttributeValueDialog();

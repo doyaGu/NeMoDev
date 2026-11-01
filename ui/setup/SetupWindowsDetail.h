@@ -62,56 +62,26 @@ struct DevPage {
     void End(float x, float y) const;
 };
 
-template <typename T> T *Get(EditorState &state, CK_ID id) {
-    return state.HasDocument() ? T::Cast(state.document->Context()->GetObject(id)) : nullptr;
+inline VxVector VectorOf(SetupFields values, const char *key) {
+    const auto &v = values.Reals(key);
+    return v.size() == 3 ? VxVector(float(v[0]), float(v[1]), float(v[2])) : VxVector(0, 0, 0);
 }
-
-// The composition's objects of a class (and of its derived classes when
-// derived), by name: not the deleted ones (Document::LiveObjects).
-inline std::vector<CKObject *> ObjectsOf(const Document &document, CK_CLASSID cid, bool derived) {
-    std::vector<CKObject *> objects;
-    for (CKObject *object : document.LiveObjects(cid, derived))
-        if (!object->IsPrivate() && !object->IsDynamic()) objects.push_back(object);
-    std::sort(objects.begin(), objects.end(), [](CKObject *a, CKObject *b) {
-        return _stricmp(a->GetName() ? a->GetName() : "", b->GetName() ? b->GetName() : "") < 0;
-    });
-    return objects;
+inline Vx2DVector Vector2Of(SetupFields values, const char *key) {
+    const auto &v = values.Reals(key);
+    return v.size() == 2 ? Vx2DVector(float(v[0]), float(v[1])) : Vx2DVector(0, 0);
 }
-
-inline const char *PixelFormatName(VX_PIXELFORMAT format) {
-    const char *name = VxPixelFormat2String(format);
-    return name && *name ? name : "Unknown";
+inline VxRect RectOf(SetupFields values, const char *key) {
+    const auto &v = values.Reals(key);
+    return v.size() == 4 ? VxRect(float(v[0]), float(v[1]), float(v[2]), float(v[3])) : VxRect(0, 0, 0, 0);
+}
+inline VxColor ColorOf(SetupFields values, const char *key) {
+    const auto &v = values.Reals(key);
+    return v.size() == 4 ? VxColor(float(v[0]), float(v[1]), float(v[2]), float(v[3])) : VxColor(0, 0, 0, 1);
 }
 
 // The render driver of the first render context (else driver 0) takes
 // textures of the format (VxDriverDesc::TextureFormats): Dev's "*" after a
 // Desired Video Format.
-inline bool DriverTakesFormat(CKContext *context, VX_PIXELFORMAT format) {
-    CKRenderManager *renderer = context ? context->GetRenderManager() : nullptr;
-    if (!renderer) return false;
-    int driver = 0;
-    if (renderer->GetRenderContextCount() > 0 && renderer->GetRenderContext(0)) driver = renderer->GetRenderContext(0)->GetDriverIndex();
-    VxDriverDesc *desc = driver >= 0 && driver < renderer->GetRenderDriverCount() ? renderer->GetRenderDriverDescription(driver) : nullptr;
-    if (!desc) return false;
-    for (int i = 0; i < desc->TextureFormats.Size(); ++i)
-        if (VxImageDesc2PixelFormat(desc->TextureFormats[i]) == format) return true;
-    return false;
-}
-
-// Dev's Video Memory Information (documentation "Texture Setup": "height x
-// width in pixels, color depth in bits, video format in bits per argb
-// component").
-inline void VideoMemoryLines(bool inVideo, bool described, const VxImageDescEx &desc) {
-    if (!inVideo) {
-        ImGui::TextUnformatted("Not In Video Memory");
-        return;
-    }
-    ImGui::TextUnformatted("In Video Memory");
-    if (!described) return;
-    ImGui::Text("%d x %d x %d bits", desc.Width, desc.Height, desc.BitsPerPixel);
-    ImGui::Text("%s", PixelFormatName(VxImageDesc2PixelFormat(desc)));
-}
-
 inline VxVector Translation(const VxMatrix &m) {
     return VxVector(m[3][0], m[3][1], m[3][2]);
 }

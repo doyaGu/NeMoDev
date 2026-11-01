@@ -168,6 +168,8 @@ void SetupWindows::Close(Setup &setup) {
 }
 
 void SetupWindows::CloseAll() {
+    m_FormatInfo.clear();
+    m_FormatInfoKey.clear();
     CancelPending();
     for (auto &setup : m_Doc.setups)
         Close(setup);
@@ -178,8 +180,7 @@ void SetupWindows::CloseAll() {
     m_CurrentTarget = m_PropertySetup = {};
 }
 
-const SetupWindows::ShownTransform &SetupWindows::Shown(CK3dEntity *entity) {
-    const auto target = m_State.document->Reference(entity->GetID());
+const SetupWindows::ShownTransform &SetupWindows::Shown(ObjectRef target) {
     auto [found, inserted] = m_Doc.shown.try_emplace(target);
     if (inserted) {
         found->second.world.SetIdentity();
@@ -400,56 +401,206 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
     ImGui::End();
 }
 
-// Class-specific pages retain their existing native editors until their own migration.
+// Class pages consume copied descriptions and submit edits through the workspace.
 void SetupWindows::DrawObjectPage(Setup &setup) {
-    auto *object = m_State.document->Resolve(setup.reference);
-    if (!object)
-        return;
     if (setup.attributes) {
-        AttributePage(setup, object);
+        AttributePage(setup);
     } else {
         switch (setup.kind) {
         case Kind::Entity3D:
             // 3D Frame Setup for frames, portals and places, 3D Object Setup for the others.
             if (setup.page.frame) {
-                FramePage(CK3dEntity::Cast(object));
+                FramePage(setup.reference);
             } else {
-                Entity3DPage(CK3dEntity::Cast(object), true, true, nullptr, &setup);
+                Entity3DPage(setup.reference, true, true, nullptr, &setup);
             }
             break;
-        case Kind::Sprite3D: Sprite3DPage(CKSprite3D::Cast(object)); break;
-        case Kind::Sprite2D: SpritePage(setup, CKSprite::Cast(object)); break;
-        case Kind::Curve: CurvePage(setup, CKCurve::Cast(object)); break;
-        case Kind::Character: CharacterPage(setup, CKCharacter::Cast(object)); break;
-        case Kind::Sound: SoundPage(CKWaveSound::Cast(object)); break;
+        case Kind::Sprite3D:
+            Sprite3DPage(setup.reference);
+            break;
+        case Kind::Sprite2D:
+            SpritePage(setup, setup.reference);
+            break;
+        case Kind::Curve:
+            CurvePage(setup, setup.reference);
+            break;
+        case Kind::Character:
+            CharacterPage(setup, setup.reference);
+            break;
+        case Kind::Sound:
+            SoundPage(setup.reference);
+            break;
         case Kind::Array: ArrayPage(setup); break;
-        case Kind::Scene: ScenePage(object); break;
-        case Kind::Camera: CameraPage(CKCamera::Cast(object)); break;
-        case Kind::Light: LightPage(CKLight::Cast(object)); break;
-        case Kind::Entity2D: Entity2DPage(CK2dEntity::Cast(object)); break;
-        case Kind::Material: MaterialPage(setup, CKMaterial::Cast(object)); break;
-        case Kind::Mesh: MeshPage(setup, CKMesh::Cast(object)); break;
-        case Kind::Texture: TexturePage(setup, CKTexture::Cast(object)); break;
-        case Kind::Grid: GridPage(setup, CKGrid::Cast(object)); break;
-        case Kind::Animation: AnimationPage(CKAnimation::Cast(object)); break;
-        case Kind::ObjectAnimation: ObjectAnimationPage(CKObjectAnimation::Cast(object)); break;
-        case Kind::MidiSound: MidiSoundPage(CKMidiSound::Cast(object)); break;
-        case Kind::SpriteText: SpriteTextPage(CKSpriteText::Cast(object)); break;
-        case Kind::KinematicChain: KinematicChainPage(CKKinematicChain::Cast(object)); break;
-        case Kind::Layer: LayerPage(CKLayer::Cast(object)); break;
-        case Kind::Parameter: ParameterPage(CKParameter::Cast(object)); break;
-        case Kind::ParameterIn: ParameterInPage(CKParameterIn::Cast(object)); break;
-        case Kind::Operation: OperationPage(CKParameterOperation::Cast(object)); break;
-        case Kind::Behavior: BehaviorPage(CKBehavior::Cast(object)); break;
-        case Kind::BehaviorIO: BehaviorIOPage(CKBehaviorIO::Cast(object)); break;
-        case Kind::BehaviorLink: BehaviorLinkPage(CKBehaviorLink::Cast(object)); break;
-        case Kind::Synchro: SynchroPage(CKSynchroObject::Cast(object)); break;
-        case Kind::State: StatePage(CKStateObject::Cast(object)); break;
-        case Kind::CriticalSection: CriticalSectionPage(CKCriticalSectionObject::Cast(object)); break;
-        case Kind::InterfaceObjects: InterfaceObjectsPage(InterfaceObjectManagerOf(object)); break;
-        default: OtherPage(object); break;
+        case Kind::Scene:
+            ScenePage(setup.reference);
+            break;
+        case Kind::Camera:
+            CameraPage(setup.reference);
+            break;
+        case Kind::Light:
+            LightPage(setup.reference);
+            break;
+        case Kind::Entity2D:
+            Entity2DPage(setup.reference);
+            break;
+        case Kind::Material:
+            MaterialPage(setup, setup.reference);
+            break;
+        case Kind::Mesh:
+            MeshPage(setup, setup.reference);
+            break;
+        case Kind::Texture:
+            TexturePage(setup, setup.reference);
+            break;
+        case Kind::Grid:
+            GridPage(setup, setup.reference);
+            break;
+        case Kind::Animation:
+            AnimationPage(setup.reference);
+            break;
+        case Kind::ObjectAnimation:
+            ObjectAnimationPage(setup.reference);
+            break;
+        case Kind::MidiSound:
+            MidiSoundPage(setup.reference);
+            break;
+        case Kind::SpriteText:
+            SpriteTextPage(setup.reference);
+            break;
+        case Kind::KinematicChain:
+            KinematicChainPage(setup.reference);
+            break;
+        case Kind::Layer:
+            LayerPage(setup.reference);
+            break;
+        case Kind::Parameter:
+            ParameterPage(setup.reference);
+            break;
+        case Kind::ParameterIn:
+            ParameterInPage(setup.reference);
+            break;
+        case Kind::Operation:
+            OperationPage(setup.reference);
+            break;
+        case Kind::Behavior:
+            BehaviorPage(setup.reference);
+            break;
+        case Kind::BehaviorIO:
+            BehaviorIOPage(setup.reference);
+            break;
+        case Kind::BehaviorLink:
+            BehaviorLinkPage(setup.reference);
+            break;
+        case Kind::Synchro:
+            SynchroPage(setup.reference);
+            break;
+        case Kind::State:
+            StatePage(setup.reference);
+            break;
+        case Kind::CriticalSection:
+            CriticalSectionPage(setup.reference);
+            break;
+        case Kind::InterfaceObjects:
+            InterfaceObjectsPage(setup.reference);
+            break;
+        default:
+            OtherPage(setup.reference);
+            break;
         }
     }
+}
+
+bool SetupWindows::ReadDetails(ObjectRef target, const char *section, SetupDetails &data,
+                               const std::vector<uint64_t> &indices) const {
+    return ReadSetupDetails(Client(m_CurrentOwner), target, section, data, indices);
+}
+bool SetupWindows::ReadProperties(ObjectRef target, const std::vector<const char *> &properties, SetupDetails &data,
+                                  const std::vector<uint64_t> &indices) const {
+    return ReadSetupProperties(Client(m_CurrentOwner), target, properties, data, indices);
+}
+void SetupWindows::ChooseFile(const FileDialogOptions &options, std::function<void(const FileDialogResult &)> accept,
+                              bool multiple) {
+    if (FlushPending())
+        m_State.RequestFile(options, std::move(accept), multiple);
+}
+EditorResponse SetupWindows::RunSetupCommand(const char *id, const std::vector<EditorValue> &arguments) {
+    auto next = arguments;
+    auto revision = std::find_if(next.begin(), next.end(), [](const auto &arg) {
+        return std::string(arg.key.data, arg.key.size) == "document-revision";
+    });
+    auto target = std::find_if(next.begin(), next.end(),
+                               [](const auto &arg) { return std::string(arg.key.data, arg.key.size) == "target"; });
+    if (revision != next.end() && target != next.end()) {
+        SetupDetails source;
+        if (!ReadDetails(target->object, "structure", source) || source.documentRevision != revision->integer)
+            return {EDITOR_STALE};
+    }
+    const bool pending = m_PropertyEdit != 0;
+    if (!FlushPending())
+        return {EDITOR_REFUSED};
+    if (pending && revision != next.end() && target != next.end()) {
+        SetupDetails source;
+        if (!ReadDetails(target->object, "structure", source))
+            return {EDITOR_STALE};
+        revision->integer = source.documentRevision;
+    }
+    const auto result = Client(m_CurrentOwner).Command(id, next);
+    if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE && result.status != EDITOR_QUEUED &&
+        !result.message.empty())
+        m_State.Log(LogLevel::Warning, result.message);
+    return result;
+}
+void SetupWindows::PreviewIndexedProperty(ObjectRef target, const char *property, EditorField value,
+                                          std::vector<uint64_t> indices, uint64_t revision,
+                                          std::vector<ObjectRef> targets) {
+    SetupDetails current;
+    if (!ReadDetails(target, "structure", current) || current.documentRevision != revision) {
+        CancelPending();
+        return;
+    }
+    PreviewProperty(target, property, std::move(value), std::move(indices), {}, std::move(targets));
+}
+void SetupWindows::SetupLink(const char *label, ObjectRef target, const std::string &name) {
+    ImGui::PushID(label);
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine(110);
+    ImGui::BeginDisabled(!target);
+    if (ImGui::SmallButton(">") && target)
+        Open(target);
+    ImGui::EndDisabled();
+    if (target && ImGui::IsItemHovered())
+        ImGui::SetTooltip("Setup");
+    ImGui::SameLine();
+    ImGui::TextUnformatted(name.c_str());
+    ImGui::PopID();
+}
+void SetupWindows::UsedByRows(const char *title, const std::vector<EditorField> &rows, float height) {
+    Group(title);
+    UsedByList(title, rows, ImVec2(280, height));
+}
+bool SetupWindows::ObjectChoice(const char *label, uint32_t classId, ObjectRef current, const std::string &name,
+                                ObjectRef *chosen, float width) {
+    ImGui::SetNextItemWidth(width);
+    bool changed = false;
+    if (ImGui::BeginCombo(label, name.c_str())) {
+        TypeAhead ahead;
+        if (ahead.Selectable("-- None --", !current)) {
+            *chosen = {};
+            changed = true;
+        }
+        std::vector<SetupObjectRow> rows;
+        if (ReadSetupChoices(Client(m_CurrentOwner), classId, rows))
+            for (const auto &row : rows) {
+                ImGui::PushID(int(row.object.object));
+                if (ahead.Selectable(row.name.c_str(), row.object == current)) {
+                    *chosen = row.object;
+                    changed = true;
+                }
+                ImGui::PopID();
+            }
+        ImGui::EndCombo();
+    }
+    return changed;
 }
 
 // Dev's dark strip: the Name list of the objects of the same class.
@@ -575,11 +726,8 @@ void SetupWindows::Sidebar(Setup &setup, const SetupPageData &page) {
 }
 
 void SetupWindows::ReplaceFile(Setup &setup, SetupFileKind kind) {
-    auto *object = m_State.document->Resolve(setup.reference);
-    if (!object)
-        return;
     if (kind == SetupFileKind::Texture || kind == SetupFileKind::Sprite) {
-        RunSlotCommand(setup, object, SlotCommand::Replace);
+        RunSlotCommand(setup, setup.reference, SlotCommand::Replace);
         return;
     }
     FileDialogOptions options;
@@ -643,9 +791,9 @@ void SetupWindows::Picture(Setup &setup) {
 // ---------------------------------------------------------------- edits
 
 bool SetupWindows::FinishProperty(bool commit) {
-    if (!m_PropertyEdit || !m_State.workspace)
+    if (!m_PropertyEdit)
         return true;
-    auto &app = m_State.workspace->Application();
+    auto &app = m_Workspace.Application();
     const auto status = app.FinishEdit(m_PropertyEdit, commit);
     if (status == EDITOR_QUEUED || status == EDITOR_NO_CHANGE || status == EDITOR_STALE || status == EDITOR_CANCELLED ||
         status == EDITOR_ERROR) {
@@ -671,9 +819,9 @@ bool SetupWindows::FinishProperty(bool commit) {
     return status == EDITOR_QUEUED || status == EDITOR_NO_CHANGE || status == EDITOR_STALE ||
            status == EDITOR_CANCELLED;
 }
-void SetupWindows::PreviewProperty(CK_ID id, const char *property, EditorField value, std::vector<uint64_t> indices,
-                                   ObjectRef relative, std::vector<ObjectRef> targets) {
-    if (!property || !m_State.workspace || !m_State.HasDocument())
+void SetupWindows::PreviewProperty(ObjectRef target, const char *property, EditorField value,
+                                   std::vector<uint64_t> indices, ObjectRef relative, std::vector<ObjectRef> targets) {
+    if (!property || !target || target.document != Client().Scope().document)
         return;
     const auto control = ImGui::GetItemID();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape))
@@ -684,8 +832,7 @@ void SetupWindows::PreviewProperty(CK_ID id, const char *property, EditorField v
             return;
         m_CancelledControl = 0;
     }
-    auto &app = m_State.workspace->Application();
-    const auto target = m_State.document->Reference(id);
+    auto &app = m_Workspace.Application();
     const auto key = "setup." + std::string(property);
     if (m_PropertyEdit && (m_PropertyTarget != target || m_PropertyKey != key || m_PropertyControl != control))
         if (!FinishProperty(true))
@@ -720,9 +867,9 @@ void SetupWindows::PreviewProperty(CK_ID id, const char *property, EditorField v
 }
 
 void SetupWindows::SetProperty(ObjectRef target, EditorView owner, const char *property, EditorField value) {
-    if (!m_State.workspace || !m_State.HasDocument() || !m_State.document->Resolve(target) || !FlushPending())
+    if (!target || target.document != m_Workspace.Application().Scope(owner).document || !FlushPending())
         return;
-    auto &app = m_State.workspace->Application();
+    auto &app = m_Workspace.Application();
     EditorEdit edit = 0;
     if (app.BeginEdit("setup." + std::string(property), app.Scope(owner), target, edit) != EDITOR_OK)
         return;
@@ -736,14 +883,14 @@ void SetupWindows::SetProperty(ObjectRef target, EditorView owner, const char *p
         app.EndFrame();
 }
 
-bool SetupWindows::EditObjectList(CK_ID id, const char *property, const std::vector<CK_ID> &add,
-                                  const std::vector<CK_ID> &remove) {
-    if (!m_State.workspace || !FlushPending())
+bool SetupWindows::EditObjectList(ObjectRef reference, const char *property, const std::vector<ObjectRef> &add,
+                                  const std::vector<ObjectRef> &remove) {
+    if (!FlushPending())
         return false;
-    auto &app = m_State.workspace->Application();
+    auto &app = m_Workspace.Application();
     if (!m_CurrentOwner)
         m_CurrentOwner = app.OpenScope();
-    const EditorValue target{EditorLiteral("target"), EDITOR_OBJECT, m_State.document->Reference(id)};
+    const EditorValue target{EditorLiteral("target"), EDITOR_OBJECT, reference};
     const auto query = "setup." + std::string(property) + "-value";
     const auto result = app.Query(query, {app.Scope(m_CurrentOwner), &target, 1});
     if (result.status != EDITOR_OK)
@@ -755,39 +902,35 @@ bool SetupWindows::EditObjectList(CK_ID id, const char *property, const std::vec
     EditorField desired = *value;
     desired.objects.erase(
         std::remove_if(desired.objects.begin(), desired.objects.end(),
-                       [&](auto ref) { return std::find(remove.begin(), remove.end(), ref.object) != remove.end(); }),
+                       [&](auto ref) { return std::find(remove.begin(), remove.end(), ref) != remove.end(); }),
         desired.objects.end());
     for (auto object : add) {
-        const auto ref = m_State.document->Reference(object);
+        const auto ref = object;
         if (std::find(desired.objects.begin(), desired.objects.end(), ref) == desired.objects.end())
             desired.objects.push_back(ref);
     }
-    PreviewProperty(id, property, std::move(desired));
+    PreviewProperty(reference, property, std::move(desired));
     return FinishProperty(true);
 }
 
 void SetupWindows::CancelPending() { FinishProperty(false); }
 bool SetupWindows::FlushPending() { return FinishProperty(true); }
 
-// Dev "Used By" lists; double-click opens the user's Setup.
-void SetupWindows::UsedBy(const char *title, const std::vector<CKObject *> &users, float height) {
-    Group(title);
-    UsedByList(title, users, ImVec2(280, height));
-}
-
-void SetupWindows::UsedByList(const char *id, const std::vector<CKObject *> &users, const ImVec2 &size) {
+// Dev "Used By" lists; double-click and the menu both navigate by full identity.
+void SetupWindows::UsedByList(const char *id, const std::vector<EditorField> &rows, const ImVec2 &size) {
     if (ImGui::BeginChild(id, size, ImGuiChildFlags_Borders)) {
-        TypeAhead typeAhead;
-        for (CKObject *user : users) {
-            const char *cls = CKClassIDToString(user->GetClassID());
-            const std::string text = NameOf(user) + " (" + (cls ? cls : "?") + ")";
-            ImGui::PushID(static_cast<int>(user->GetID()));
-            if (typeAhead.Selectable(text.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
+        TypeAhead ahead;
+        for (const auto &value : rows) {
+            const SetupFields row(value.fields);
+            const auto target = row.Object("target");
+            const auto text = row.Text("name") + " (" + row.Text("class-name") + ")";
+            ImGui::PushID(int(target.object));
+            if (ahead.Selectable(text.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(user->GetID())});
-            // Its menu (documentation: "right-click and select Show Setup").
+                Open(target);
             if (ImGui::BeginPopupContextItem("usermenu")) {
-                if (ImGui::MenuItem("Show Setup")) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(user->GetID())});
+                if (ImGui::MenuItem("Show Setup"))
+                    Open(target);
                 ImGui::EndPopup();
             }
             ImGui::PopID();
@@ -881,24 +1024,5 @@ void DevPage::End(float x, float y) const {
 }
 
 } // namespace setup
-
-bool SetupWindows::ObjectCombo(const char *label, CK_CLASSID cid, CKObject *current, CK_ID *chosen, float width) {
-    ImGui::SetNextItemWidth(width);
-    bool picked = false;
-    if (ImGui::BeginCombo(label, NameOf(current).c_str())) {
-        TypeAhead typeAhead;
-        if (typeAhead.Selectable("-- None --", !current)) {
-            *chosen = 0;
-            picked = true;
-        }
-        for (CKObject *object : ObjectsOf(*m_State.document, cid, true))
-            if (typeAhead.Selectable(NameOf(object).c_str(), object == current)) {
-                *chosen = object->GetID();
-                picked = true;
-            }
-        ImGui::EndCombo();
-    }
-    return picked;
-}
 
 } // namespace vdev

@@ -33,100 +33,67 @@
 #include "ui/setup/SetupWindowsDetail.h"
 
 namespace vdev {
-
 using namespace setup;
 
-// ---------------------------------------------------------------- classes without a Dev Setup
-// Dev.exe opens no Setup for these classes (sub_4B0010 has no editor for
-// them); the pages follow their class definitions (SDK headers).
-
-namespace {
-
-const char *ControllerName(CKAnimController *controller) {
-    if (!controller) return "-";
-    switch (controller->GetType()) {
-    case CKANIMATION_LINPOS_CONTROL:
-    case CKANIMATION_LINROT_CONTROL:
-    case CKANIMATION_LINSCL_CONTROL:
-    case CKANIMATION_LINSCLAXIS_CONTROL: return "Linear";
-    case CKANIMATION_TCBPOS_CONTROL:
-    case CKANIMATION_TCBROT_CONTROL:
-    case CKANIMATION_TCBSCL_CONTROL:
-    case CKANIMATION_TCBSCLAXIS_CONTROL: return "TCB";
-    case CKANIMATION_BEZIERPOS_CONTROL:
-    case CKANIMATION_BEZIERSCL_CONTROL: return "Bezier";
-    case CKANIMATION_MORPH_CONTROL: return "Morph";
-    default: return "?";
-    }
-}
-
-// "TCB (12)": the controller type and its key count.
-std::string KeysOf(CKAnimController *controller) {
-    if (!controller) return "-";
-    return std::string(ControllerName(controller)) + " (" + std::to_string(controller->GetKeyCount()) + ")";
-}
-
-} // namespace
-
-void SetupWindows::SetupLink(const char *label, CKObject *object) {
-    ImGui::PushID(label);
-    ImGui::TextUnformatted(label);
-    ImGui::SameLine(110);
-    ImGui::BeginDisabled(!object);
-    if (ImGui::SmallButton(">") && object) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
-    ImGui::EndDisabled();
-    if (object && ImGui::IsItemHovered()) ImGui::SetTooltip("Setup");
-    ImGui::SameLine();
-    ImGui::TextUnformatted(NameOf(object).c_str());
-    ImGui::PopID();
-}
-
-// Animation and Keyed Animation Setup (CKAnimation, CKKeyedAnimation): length,
-// frame rate, play options, the transition and secondary modes stored in the
-// animation, the merge factor; keyed animations list their object animations.
-void SetupWindows::AnimationPage(CKAnimation *animation) {
-    if (!animation) return;
-    const CK_ID id = animation->GetID();
-    CKKeyedAnimation *keyed = CKKeyedAnimation::Cast(animation);
-    auto flag = [&](const ObjectProperty<bool> &property) {
-        bool on = property.get(animation);
-        if (ImGui::Checkbox(property.label, &on)) LiveSet(id, property, on);
+void SetupWindows::AnimationPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "animation", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target,
+                        {"animation.length", "animation.linked", "animation.frame-rate", "animation.can-be-interrupted",
+                         "animation.align-orientation", "animation.merge-factor", "animation.transition-preset",
+                         "animation.transition-from-now", "animation.transition-warp-from-current",
+                         "animation.transition-to-start", "animation.transition-warp-to-start",
+                         "animation.transition-warp-to-best", "animation.transition-warp-to-same-position",
+                         "animation.transition-use-velocity", "animation.transition-loop-if-equal",
+                         "animation.secondary-preset", "animation.secondary-play", "animation.secondary-warp"},
+                        propertyData))
+        return;
+    const auto values = propertyData.Values();
+    const bool keyed = data.Boolean("keyed");
+    auto flag = [&](const char *property, const char *label) {
+        bool on = values.Boolean(property);
+        if (ImGui::Checkbox(label, &on))
+            PreviewValue(id, property, on);
     };
     // Left: the animation.
     ImGui::BeginGroup();
     Group("Animation");
-    float length = animation->GetLength();
+    float length = float(values.Real("animation.length"));
     ImGui::SetNextItemWidth(120);
     if (ImGui::DragFloat("Length (frames)", &length, 0.5f, 1.0f, 100000.0f, "%.1f"))
-        LiveSet(id, properties::AnimationLength, length);
-    ImGui::Text("Current frame:  %.2f  (step %.3f)", animation->GetFrame(), animation->GetStep());
+        PreviewValue(id, "animation.length", length);
+    ImGui::Text("Current frame:  %.2f  (step %.3f)", data.Real("frame"), data.Real("step"));
     ImGui::Dummy(ImVec2(1, 6));
-    bool linked = animation->IsLinkedToFrameRate() != 0;
-    float fps = animation->GetLinkedFrameRate();
+    bool linked = values.Boolean("animation.linked");
+    float fps = float(values.Real("animation.frame-rate"));
     if (ImGui::Checkbox("Linked to frame rate", &linked))
-        LiveSet(id, properties::AnimationLinked, linked);
+        PreviewValue(id, "animation.linked", linked);
     ImGui::BeginDisabled(!linked);
     ImGui::SetNextItemWidth(120);
     if (ImGui::DragFloat("Frames per second", &fps, 0.1f, 1.0f, 1000.0f, "%.1f"))
-        LiveSet(id, properties::AnimationFrameRate, fps);
+        PreviewValue(id, "animation.frame-rate", fps);
     ImGui::EndDisabled();
     ImGui::Dummy(ImVec2(1, 6));
-    SetupLink("Character", animation->GetCharacter());
-    SetupLink("Root Entity", animation->GetRootEntity());
+    SetupLink("Character", data.Object("character"), data.Text("character-name"));
+    SetupLink("Root Entity", data.Object("root"), data.Text("root-name"));
     ImGui::EndGroup();
     // Middle: play options and merging.
     ImGui::SameLine(330);
     ImGui::BeginGroup();
     Group("Play Options");
-    flag(properties::AnimationCanBeInterrupted);
-    flag(properties::AnimationAlignOrientation);
+    flag("animation.can-be-interrupted", "Can be interrupted");
+    flag("animation.align-orientation", "Character takes its orientation");
     ImGui::Dummy(ImVec2(1, 6));
     Group("Merge");
-    if (animation->IsMerged()) {
-        float factor = animation->GetMergeFactor();
+    if (data.Boolean("merged")) {
+        float factor = float(values.Real("animation.merge-factor"));
         ImGui::SetNextItemWidth(160);
         if (ImGui::SliderFloat("Merge Factor", &factor, 0.0f, 1.0f, "%.3f")) {
-            LiveSet(id, properties::AnimationMergeFactor, factor);
+            PreviewValue(id, "animation.merge-factor", factor);
         }
     } else {
         ImGui::TextDisabled("Not a merged animation");
@@ -138,26 +105,27 @@ void SetupWindows::AnimationPage(CKAnimation *animation) {
     ImGui::SameLine(640);
     ImGui::BeginGroup();
     Group("Transition Mode");
-    flag(properties::AnimationTransitionPreset);
-    const std::pair<const char *, const ObjectProperty<bool> *> transitions[] = {
-        {"Break (from now)", &properties::AnimationTransitionFromNow},
-        {"Warp from current", &properties::AnimationTransitionWarpFromCurrent},
-        {"To start", &properties::AnimationTransitionToStart},
-        {"Warp to start", &properties::AnimationTransitionWarpToStart},
-        {"Warp to best", &properties::AnimationTransitionWarpToBest},
-        {"Warp to same position", &properties::AnimationTransitionWarpToSamePosition},
-        {"Use velocity", &properties::AnimationTransitionUseVelocity},
-        {"Loop if equal", &properties::AnimationTransitionLoopIfEqual}};
+    flag("animation.transition-preset", "Preset (ignore the modes asked for)");
+    const std::pair<const char *, const char *> transitions[] = {
+        {"Break (from now)", "animation.transition-from-now"},
+        {"Warp from current", "animation.transition-warp-from-current"},
+        {"To start", "animation.transition-to-start"},
+        {"Warp to start", "animation.transition-warp-to-start"},
+        {"Warp to best", "animation.transition-warp-to-best"},
+        {"Warp to same position", "animation.transition-warp-to-same-position"},
+        {"Use velocity", "animation.transition-use-velocity"},
+        {"Loop if equal", "animation.transition-loop-if-equal"}};
     for (int i = 0; i < 8; ++i) {
         if (i % 2) ImGui::SameLine(190);
-        const ObjectProperty<bool> &property = *transitions[i].second;
-        bool on = property.get(animation);
-        if (ImGui::Checkbox(transitions[i].first, &on)) LiveSet(id, property, on);
+        const char *property = transitions[i].second;
+        bool on = values.Boolean(property);
+        if (ImGui::Checkbox(transitions[i].first, &on))
+            PreviewValue(id, property, on);
     }
     ImGui::Dummy(ImVec2(1, 6));
     Group("Secondary Animation");
-    flag(properties::AnimationSecondaryPreset);
-    const CKDWORD secondary = static_cast<CKDWORD>(animation->GetSecondaryAnimationMode());
+    flag("animation.secondary-preset", "Preset##secondary");
+    const CKDWORD secondary = uint32_t(data.Integer("secondary"));
     const CKDWORD playMask = CKSECONDARYANIMATION_ONESHOT | CKSECONDARYANIMATION_LOOP | CKSECONDARYANIMATION_LASTFRAME |
                              CKSECONDARYANIMATION_LOOPNTIMES;
     const std::pair<const char *, CKDWORD> plays[] = {{"One shot", CKSECONDARYANIMATION_ONESHOT},
@@ -168,11 +136,11 @@ void SetupWindows::AnimationPage(CKAnimation *animation) {
         if (i % 2) ImGui::SameLine(190);
         const CKDWORD bit = plays[i].second;
         if (ImGui::RadioButton(plays[i].first, (secondary & playMask) == bit) && (secondary & playMask) != bit)
-            LiveSet(id, properties::AnimationSecondaryPlay, static_cast<int>(bit));
+            PreviewValue(id, "animation.secondary-play", static_cast<int>(bit));
     }
     bool warp = (secondary & CKSECONDARYANIMATION_DOWARP) != 0;
     if (ImGui::Checkbox("Warp when starting or stopping", &warp))
-        LiveSet(id, properties::AnimationSecondaryWarp, warp);
+        PreviewValue(id, "animation.secondary-warp", warp);
     ImGui::EndGroup();
     if (!keyed) return;
     // The object animations of a keyed animation: double-click opens the
@@ -193,119 +161,122 @@ void SetupWindows::AnimationPage(CKAnimation *animation) {
         ImGui::TableSetupColumn("Off-Axis Scale", ImGuiTableColumnFlags_WidthFixed, 100);
         ImGui::TableSetupColumn("Morph", ImGuiTableColumnFlags_WidthFixed, 90);
         ImGui::TableHeadersRow();
-        for (int i = 0; i < keyed->GetAnimationCount(); ++i) {
-            CKObjectAnimation *part = keyed->GetAnimation(i);
-            if (!part) continue;
+        for (size_t i = 0; i < data.Rows("animations").size(); ++i) {
+            const SetupFields part(data.Rows("animations")[i].fields);
             ImGui::PushID(i);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            CK3dEntity *entity = part->Get3dEntity();
-            if (ImGui::SmallButton(">") && entity) m_State.events.Post(ShowObjectSetup{m_State.document->Reference(entity->GetID())});
+            const auto entity = part.Object("entity");
+            if (ImGui::SmallButton(">") && entity)
+                Open(entity);
             ImGui::SameLine();
-            ImGui::TextUnformatted(NameOf(entity).c_str());
+            ImGui::TextUnformatted(part.Text("entity-name").c_str());
             ImGui::TableNextColumn();
-            if (typeAhead.Selectable(NameOf(part).c_str(), false, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
+            if (typeAhead.Selectable(part.Text("name").c_str(), false,
+                                     ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(part->GetID())});
+                Open(part.Object("target"));
             ImGui::TableNextColumn();
-            ImGui::Text("%.1f", part->GetLength());
+            ImGui::Text("%.1f", part.Real("length"));
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(KeysOf(part->GetPositionController()).c_str());
+            ImGui::TextUnformatted(part.Text("position-keys").c_str());
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(KeysOf(part->GetRotationController()).c_str());
+            ImGui::TextUnformatted(part.Text("rotation-keys").c_str());
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(KeysOf(part->GetScaleController()).c_str());
+            ImGui::TextUnformatted(part.Text("scale-keys").c_str());
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(KeysOf(part->GetScaleAxisController()).c_str());
+            ImGui::TextUnformatted(part.Text("axis-keys").c_str());
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(KeysOf(part->GetMorphController()).c_str());
+            ImGui::TextUnformatted(part.Text("morph-keys").c_str());
             ImGui::PopID();
         }
         ImGui::EndTable();
     }
 }
 
-// Object Animation Setup (CKObjectAnimation): the animated entity, length,
-// the information ignored when playing, the key controllers, sharing and
-// merging, and the keyed animations using it.
-void SetupWindows::ObjectAnimationPage(CKObjectAnimation *animation) {
-    if (!animation) return;
-    const CK_ID id = animation->GetID();
-    const CKDWORD flags = animation->GetFlags();
+void SetupWindows::ObjectAnimationPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "object-animation", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target,
+                        {"objectanimation.length", "objectanimation.merge-factor", "objectanimation.ignore-position",
+                         "objectanimation.ignore-rotation", "objectanimation.ignore-scale",
+                         "objectanimation.ignore-off-axis-scale", "objectanimation.ignore-morph"},
+                        propertyData))
+        return;
+    const auto values = propertyData.Values();
     ImGui::BeginGroup();
     Group("Object Animation");
-    SetupLink("Entity", animation->Get3dEntity());
-    float length = animation->GetLength();
+    SetupLink("Entity", data.Object("entity"), data.Text("entity-name"));
+    float length = float(values.Real("objectanimation.length"));
     ImGui::SetNextItemWidth(120);
     if (ImGui::DragFloat("Length (frames)", &length, 0.5f, 1.0f, 100000.0f, "%.1f"))
-        LiveSet(id, properties::ObjectAnimationLength, length);
-    ImGui::Text("Current step:  %.3f", animation->GetCurrentStep());
+        PreviewValue(id, "objectanimation.length", length);
+    ImGui::Text("Current step:  %.3f", data.Real("step"));
     ImGui::Dummy(ImVec2(1, 6));
-    CKObjectAnimation *shared = animation->Shared();
-    SetupLink("Shares data of", shared != animation ? shared : nullptr);
-    if (animation->IsMerged()) {
-        float factor = animation->GetMergeFactor();
+    SetupLink("Shares data of", data.Object("shared"), data.Text("shared-name"));
+    if (data.Boolean("merged")) {
+        float factor = float(values.Real("objectanimation.merge-factor"));
         ImGui::SetNextItemWidth(160);
         if (ImGui::SliderFloat("Merge Factor", &factor, 0.0f, 1.0f, "%.3f"))
-            LiveSet(id, properties::ObjectAnimationMergeFactor, factor);
+            PreviewValue(id, "objectanimation.merge-factor", factor);
     }
     ImGui::EndGroup();
     // Middle: CK_OBJECTANIMATION_FLAGS.
     ImGui::SameLine(330);
     ImGui::BeginGroup();
     Group("Ignore");
-    const std::pair<const char *, const ObjectProperty<bool> *> ignored[] = {
-        {"Position", &properties::ObjectAnimationIgnorePosition},
-        {"Rotation", &properties::ObjectAnimationIgnoreRotation},
-        {"Scale", &properties::ObjectAnimationIgnoreScale},
-        {"Off-Axis Scale", &properties::ObjectAnimationIgnoreOffAxisScale},
-        {"Morph", &properties::ObjectAnimationIgnoreMorph}};
+    const std::pair<const char *, const char *> ignored[] = {
+        {"Position", "objectanimation.ignore-position"},
+        {"Rotation", "objectanimation.ignore-rotation"},
+        {"Scale", "objectanimation.ignore-scale"},
+        {"Off-Axis Scale", "objectanimation.ignore-off-axis-scale"},
+        {"Morph", "objectanimation.ignore-morph"}};
     for (const auto &entry : ignored) {
-        bool on = entry.second->get(animation);
-        if (ImGui::Checkbox(entry.first, &on)) LiveSet(id, *entry.second, on);
+        bool on = values.Boolean(entry.second);
+        if (ImGui::Checkbox(entry.first, &on))
+            PreviewValue(id, entry.second, on);
     }
     ImGui::EndGroup();
     // Right: the controllers.
     ImGui::SameLine(560);
     ImGui::BeginGroup();
     Group("Keys");
-    ImGui::Text("Position:        %s", KeysOf(animation->GetPositionController()).c_str());
-    ImGui::Text("Rotation:        %s", KeysOf(animation->GetRotationController()).c_str());
-    ImGui::Text("Scale:           %s", KeysOf(animation->GetScaleController()).c_str());
-    ImGui::Text("Off-Axis Scale:  %s", KeysOf(animation->GetScaleAxisController()).c_str());
-    ImGui::Text("Morph:           %s", KeysOf(animation->GetMorphController()).c_str());
-    if (animation->HasMorphInfo())
-        ImGui::Text("Morph vertices:  %d%s", animation->GetMorphVertexCount(),
-                    animation->HasMorphNormalInfo() ? "  (with normals)" : "");
+    ImGui::Text("Position:        %s", data.Text("position-keys").c_str());
+    ImGui::Text("Rotation:        %s", data.Text("rotation-keys").c_str());
+    ImGui::Text("Scale:           %s", data.Text("scale-keys").c_str());
+    ImGui::Text("Off-Axis Scale:  %s", data.Text("axis-keys").c_str());
+    ImGui::Text("Morph:           %s", data.Text("morph-keys").c_str());
+    if (data.Boolean("morph"))
+        ImGui::Text("Morph vertices:  %d%s", int(data.Integer("morph-count")),
+                    data.Boolean("morph-normals") ? "  (with normals)" : "");
     ImGui::EndGroup();
     ImGui::Separator();
-    std::vector<CKObject *> users;
-    for (CKObject *object : ObjectsOf(*m_State.document, CKCID_KEYEDANIMATION, true)) {
-        CKKeyedAnimation *owner = CKKeyedAnimation::Cast(object);
-        for (int i = 0; i < owner->GetAnimationCount(); ++i)
-            if (owner->GetAnimation(i) == animation) {
-                users.push_back(owner);
-                break;
-            }
-    }
-    UsedBy("Used By", users, 150);
+    UsedByRows("Used By", data.Rows("users"), 150);
 }
 
-// Midi Sound Setup (CKMidiSound): the file, its save options, playback.
-void SetupWindows::MidiSoundPage(CKMidiSound *sound) {
-    if (!sound) return;
-    const CK_ID id = sound->GetID();
-    CKContext *context = m_State.document->Context();
+void SetupWindows::MidiSoundPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "midi", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"sound.save-options"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
     ImGui::BeginGroup();
     Group("Midi File");
-    const char *file = sound->GetSoundFileName();
-    ImGui::TextUnformatted(file && *file ? AnsiToUtf8(file).c_str() : "-- None --");
+    const auto file = data.Text("file");
+    ImGui::TextUnformatted(!file.empty() ? file.c_str() : "-- None --");
     if (ImGui::Button("Change File...", ImVec2(130, 0))) {
         FileDialogOptions options;
         options.filter = L"Midi files (*.mid;*.midi;*.rmi)\0*.mid;*.midi;*.rmi\0All files (*.*)\0*.*\0";
         FlushPending();
-        m_State.RequestFile(options, [this, target = m_State.document->Reference(id),
-                                      owner = m_CurrentOwner](const FileDialogResult &result) {
+        ChooseFile(options, [this, target, owner = m_CurrentOwner](const FileDialogResult &result) {
             if (result.status != FileDialogResult::Status::Selected)
                 return;
             const std::string chosen = result.paths.front();
@@ -314,64 +285,72 @@ void SetupWindows::MidiSoundPage(CKMidiSound *sound) {
     }
     ImGui::Dummy(ImVec2(1, 6));
     const char *saves[] = {"External", "Include Original File", "Use Global"};
-    int save = std::max(0, std::min(2, static_cast<int>(sound->GetSaveOptions())));
+    int save = std::max(0, std::min(2, static_cast<int>(values.Integer("sound.save-options"))));
     ImGui::SetNextItemWidth(170);
     if (TypeAheadCombo("Save Options", &save, saves, 3))
-        LiveSet(id, properties::SoundSaveOptions, save);
+        PreviewValue(id, "sound.save-options", save);
     ImGui::EndGroup();
     ImGui::SameLine(330);
     ImGui::BeginGroup();
     Group("Playback");
     // The Midi Manager plays the file; without it (or a file) there is nothing to play.
-    const bool playable = context->GetManagerByGuid(MIDI_MANAGER_GUID) && file && *file;
+    const bool playable = data.Boolean("playable");
     ImGui::BeginDisabled(!playable);
-    if (ImGui::Button(sound->IsPlaying() && !sound->IsPaused() ? "Pause" : "Play", ImVec2(60, 0)))
-        GuardedCall([&] {
-            if (sound->IsPlaying()) sound->Pause(!sound->IsPaused());
-            else sound->Play();
-        }, &m_State.document->Host(), "Play");
+    if (ImGui::Button(data.Boolean("playing") && !data.Boolean("paused") ? "Pause" : "Play", ImVec2(60, 0)))
+        RunSetupCommand("setup.sound-play", {ObjectArgument("target", target)});
     ImGui::SameLine();
-    if (ImGui::Button("Stop", ImVec2(60, 0))) GuardedCall([&] { sound->Stop(); }, &m_State.document->Host(), "Stop");
+    if (ImGui::Button("Stop", ImVec2(60, 0)))
+        RunSetupCommand("setup.sound-stop", {ObjectArgument("target", target)});
     ImGui::EndDisabled();
-    if (!playable) ImGui::TextDisabled(file && *file ? "(no Midi Manager)" : "(no file)");
-    ImGui::Text("State:      %s", sound->IsPaused() ? "Paused" : sound->IsPlaying() ? "Playing" : "Stopped");
-    ImGui::Text("Position:   %u", static_cast<unsigned>(playable ? sound->GetCurrentPos() : 0));
+    if (!playable)
+        ImGui::TextDisabled(!file.empty() ? "(no Midi Manager)" : "(no file)");
+    ImGui::Text("State:      %s", data.Boolean("paused") ? "Paused" : data.Boolean("playing") ? "Playing" : "Stopped");
+    ImGui::Text("Position:   %u", static_cast<unsigned>(data.Integer("position")));
     ImGui::EndGroup();
 }
 
-// Sprite Text Setup (CKSpriteText): the text, its font, colors and alignment
-// above the 2D layout of the 2D Sprite Setup (the sprite's image is the
-// rendered text).
-void SetupWindows::SpriteTextPage(CKSpriteText *text) {
-    if (!text) return;
-    const CK_ID id = text->GetID();
-    SpriteTextFont font;
-    const bool hasFont = ReadSpriteTextFont(text, &font);
+void SetupWindows::SpriteTextPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "sprite-text", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target,
+                        {"spritetext.text", "spritetext.color", "spritetext.background-color", "spritetext.alignment",
+                         "spritetext.font"},
+                        propertyData))
+        return;
+    const auto values = propertyData.Values();
+    const auto fontValues = values.Record("spritetext.font");
+    SetupFont font{fontValues.Text("face"), int(fontValues.Integer("size")), int(fontValues.Integer("weight")),
+                   fontValues.Boolean("italic"), fontValues.Boolean("underline")};
+    const bool hasFont = data.Boolean("has-font");
     auto typed = [&](const char *label, const std::string &value, bool multiline, bool fontFace) {
-        std::string shown = AnsiToUtf8(value);
+        std::string shown = value;
         const bool changed = multiline ? ImGui::InputTextMultiline(label, &shown, ImVec2(300, 70))
                                        : (ImGui::SetNextItemWidth(160), ImGui::InputText(label, &shown));
         if (changed) {
             if (fontFace) {
                 auto changedFont = font;
-                changedFont.face = Utf8ToAnsi(shown);
+                changedFont.face = shown;
                 PreviewFont(id, changedFont);
             } else
-                LiveSet(id, properties::SpriteTextText, Utf8ToAnsi(shown));
+                PreviewValue(id, "spritetext.text", shown);
         }
     };
     ImGui::BeginGroup();
     Group("Text");
-    typed("##text", text->GetText() ? text->GetText() : "", true, false);
+    typed("##text", values.Text("spritetext.text"), true, false);
     ImGui::EndGroup();
     ImGui::SameLine(340);
     ImGui::BeginGroup();
     Group("Font");
-    auto setFont = [&](const char *, const SpriteTextFont &changed) { PreviewFont(id, changed); };
+    auto setFont = [&](const char *, const SetupFont &changed) { PreviewFont(id, changed); };
     if (!hasFont)
         ImGui::TextDisabled("(no font yet)");
     typed("Face", font.face, false, true);
-    SpriteTextFont edited = font;
+    SetupFont edited = font;
     ImGui::SetNextItemWidth(100);
     if (ImGui::DragInt("Size", &edited.size, 0.2f, 1, 512)) setFont("Font Size", edited);
     edited = font;
@@ -390,26 +369,29 @@ void SetupWindows::SpriteTextPage(CKSpriteText *text) {
     ImGui::SameLine(640);
     ImGui::BeginGroup();
     Group("Colors");
-    auto color = [&](const ObjectProperty<VxColor> &property) {
-        const VxColor value = property.get(text);
-        float c[4] = {value.r, value.g, value.b, value.a};
-        if (ImGui::ColorEdit4(property.label, c, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaPreviewHalf))
-            LiveSet(id, property, VxColor(c[0], c[1], c[2], c[3]));
+    auto color = [&](const char *property, const char *label) {
+        const auto &value = values.Reals(property);
+        float c[4] = {0, 0, 0, 1};
+        if (value.size() == 4)
+            for (int i = 0; i < 4; ++i)
+                c[i] = float(value[i]);
+        if (ImGui::ColorEdit4(label, c, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaPreviewHalf))
+            PreviewValue(id, property, VxColor(c[0], c[1], c[2], c[3]));
     };
-    color(properties::SpriteTextColor);
-    color(properties::SpriteTextBackgroundColor);
+    color("spritetext.color", "Text Color");
+    color("spritetext.background-color", "Background Color");
     ImGui::Dummy(ImVec2(1, 6));
     // CKSPRITETEXT_ALIGNMENT: a horizontal and a vertical choice
     // (CKSPRITETEXT_CENTER centers both ways).
     Group("Alignment");
-    CKDWORD align = static_cast<CKDWORD>(properties::SpriteTextAlignment.get(text));
+    CKDWORD align = static_cast<CKDWORD>(values.Integer("spritetext.alignment"));
     if (align & CKSPRITETEXT_CENTER) align = CKSPRITETEXT_HCENTER | CKSPRITETEXT_VCENTER;
     const CKDWORD horizontal = CKSPRITETEXT_LEFT | CKSPRITETEXT_HCENTER | CKSPRITETEXT_RIGHT;
     const CKDWORD vertical = CKSPRITETEXT_TOP | CKSPRITETEXT_VCENTER | CKSPRITETEXT_BOTTOM;
     auto choice = [&](const char *label, CKDWORD bit, CKDWORD group) {
         if (ImGui::RadioButton(label, (align & bit) != 0) && !(align & bit)) {
             const CKDWORD changed = (align & ~group) | bit;
-            LiveSet(id, properties::SpriteTextAlignment, static_cast<int>(changed));
+            PreviewValue(id, "spritetext.alignment", static_cast<int>(changed));
         }
     };
     choice("Left", CKSPRITETEXT_LEFT, horizontal);
@@ -424,175 +406,48 @@ void SetupWindows::SpriteTextPage(CKSpriteText *text) {
     choice("Bottom", CKSPRITETEXT_BOTTOM, vertical);
     ImGui::EndGroup();
     ImGui::Separator();
-    Entity2DPage(text, true);
+    Entity2DPage(target, true);
 }
 
-namespace {
-
-// The Script a behavior belongs to (its topmost parent).
-CKBehavior *ScriptOf(CKBehavior *behavior) {
-    while (behavior && behavior->GetParent()) behavior = behavior->GetParent();
-    return behavior;
-}
-
-// The behavior a parameter belongs to: its owner, or its operation's.
-CKBehavior *BehaviorOf(CKObject *parameter) {
-    CKObject *owner = nullptr;
-    if (CKParameter *p = CKParameter::Cast(parameter)) owner = p->GetOwner();
-    else if (CKParameterIn *in = CKParameterIn::Cast(parameter)) owner = in->GetOwner();
-    if (CKParameterOperation *operation = CKParameterOperation::Cast(owner)) return operation->GetOwner();
-    return CKBehavior::Cast(owner);
-}
-
-std::string ValueText(CKParameter *parameter) { return ParameterValueText(parameter); }
-
-std::string TypeName(CKContext *context, CKParameterType type) {
-    const char *name = context->GetParameterManager()->ParameterTypeToName(type);
-    return name && *name ? AnsiToUtf8(name) : std::string("?");
-}
-
-std::string GuidText(const CKGUID &guid) {
-    char text[32];
-    std::snprintf(text, sizeof(text), "0x%08x, 0x%08x", static_cast<unsigned>(guid.d1), static_cast<unsigned>(guid.d2));
-    return text;
-}
-
-// "Name (Owner)": a pin, an IO or a parameter with what it belongs to.
-std::string OwnedName(CKObject *object, CKObject *owner) {
-    return NameOf(object, "-- None --") + (owner ? " (" + NameOf(owner) + ")" : std::string());
-}
-
-// The object a parameter holds (object parameters), else null.
-CKObject *ValueObjectOf(CKParameter *parameter) {
-    return parameter && parameter->GetParameterClassID() ? parameter->GetValueObject(FALSE) : nullptr;
-}
-
-} // namespace
-
-void SetupWindows::ShowInSchematic(CKBehavior *behavior, const ElementRef &ref) {
-    CKBehavior *script = ScriptOf(behavior);
-    const bool shown = script && m_State.document->FindScript(script->GetID());
-    ImGui::BeginDisabled(!shown);
-    if (ImGui::Button("Show in Schematic") && shown)
-        m_State.events.Post(ShowElement{*m_State.document,
-            script->GetID(),
-            ref.IsValid() || behavior == script || !behavior->GetParent()
-                ? ref
-                : ElementRef{ElementKind::Behavior, behavior->GetParent()->GetID(), behavior->GetID()},
-            behavior != script ? behavior->GetID() : 0});
-    ImGui::EndDisabled();
-}
-
-void SetupWindows::ParameterUsers(CKObject *object) {
-    CKContext *context = m_State.document->Context();
-    struct User {
-        CKObject *parameter;
-        CKBehavior *behavior;
-    };
-    // The input parameters getting it, then the locals and outputs holding
-    // it that are not their sources (a Building Block's own local, as IK
-    // Position's chain).
-    std::vector<User> users;
-    std::vector<CKParameter *> sources;
-    const XObjectPointerArray &inputs = context->GetObjectListByType(CKCID_PARAMETERIN, TRUE);
-    for (int i = 0; i < inputs.Size(); ++i) {
-        CKParameterIn *input = CKParameterIn::Cast(inputs[i]);
-        if (!input || m_State.document->IsDiscarded(input->GetID())) continue; // a deleted Building Block's
-        CKParameter *source = input->GetRealSource();
-        if (ValueObjectOf(source) != object) continue;
-        users.push_back({input, BehaviorOf(input)});
-        sources.push_back(source);
-    }
-    const XObjectPointerArray &parameters = context->GetObjectListByType(CKCID_PARAMETER, TRUE);
-    for (int i = 0; i < parameters.Size(); ++i) {
-        CKParameter *parameter = CKParameter::Cast(parameters[i]);
-        if (parameter && !m_State.document->IsDiscarded(parameter->GetID()) && ValueObjectOf(parameter) == object &&
-            std::find(sources.begin(), sources.end(), parameter) == sources.end())
-            users.push_back({parameter, BehaviorOf(parameter)});
-    }
-    Group("Used By");
-    if (!ImGui::BeginTable("users", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                           ImVec2(760, 150)))
+void SetupWindows::KinematicChainPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "kinematic", description))
         return;
-    TypeAhead typeAhead;
-    ImGui::TableSetupScrollFreeze(0, 1);
-    ImGui::TableSetupColumn("Behavior", ImGuiTableColumnFlags_WidthFixed, 220);
-    ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthFixed, 180);
-    ImGui::TableSetupColumn("Script");
-    ImGui::TableHeadersRow();
-    for (const User &user : users) {
-        ImGui::PushID(static_cast<int>(user.parameter->GetID()));
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        if (typeAhead.Selectable(NameOf(user.behavior).c_str(), false,
-                              ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
-            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && user.behavior)
-            m_State.events.Post(ShowObjectSetup{m_State.document->Reference(user.behavior->GetID())});
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(NameOf(user.parameter, "<Unnamed>").c_str());
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(NameOf(ScriptOf(user.behavior)).c_str());
-        ImGui::PopID();
-    }
-    ImGui::EndTable();
-}
-
-void SetupWindows::ParameterValue(CKParameter *value, bool editable) {
-    CKContext *context = m_State.document->Context();
-    ImGui::TextUnformatted("Value");
-    ImGui::SameLine(110);
-    const std::string text = value ? ValueText(value) : std::string("-- None --");
-    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 380.0f);
-    ImGui::TextUnformatted(text.size() > 2000 ? (text.substr(0, 2000) + "...").c_str() : text.c_str());
-    ImGui::PopTextWrapPos();
-    if (CKObject *object = ValueObjectOf(value)) SetupLink("Object", object);
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 110.0f);
-    ImGui::BeginDisabled(!value || !editable);
-    if (ImGui::Button("Edit Value...", ImVec2(110, 0)) && value) {
-        // Dev's Edit Parameter around the parameter (its type shown).
-        m_AttributeType = TypeName(context, value->GetType());
-        m_AttributeBox.Clear();
-        CKBehavior *script = ScriptOf(BehaviorOf(value));
-        m_Doc.valueScript = script ? script->GetID() : 0;
-        if (m_AttributeBox.Add(value, value->GetName() ? value->GetName() : "")) m_OpenAttributeValue = true;
-    }
-    ImGui::EndDisabled();
-}
-
-// Kinematic Chain Setup (CKKinematicChain): its start and end effectors (body
-// parts, the end one below the start one), the chain between them.
-void SetupWindows::KinematicChainPage(CKKinematicChain *chain) {
-    if (!chain) return;
-    const CK_ID id = chain->GetID();
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"kinematic.start", "kinematic.end"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
     ImGui::BeginGroup();
     Group("Kinematic Chain");
-    CK_ID chosen = 0;
+    ObjectRef chosen{};
     ImGui::TextUnformatted("Start Effector");
     ImGui::SameLine(110);
-    if (ObjectCombo("##start", CKCID_BODYPART, chain->GetStartEffector(), &chosen)) {
-        LiveSet(id, properties::KinematicStart, chosen);
+    if (ObjectChoice("##start", CKCID_BODYPART, data.Object("start"), data.Text("start-name"), &chosen)) {
+        PreviewValue(id, "kinematic.start", chosen);
         FlushPending();
     }
     ImGui::SameLine();
-    ImGui::BeginDisabled(!chain->GetStartEffector());
-    if (ImGui::SmallButton(">##startsetup") && chain->GetStartEffector())
-        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(chain->GetStartEffector()->GetID())});
+    ImGui::BeginDisabled(!data.Object("start"));
+    if (ImGui::SmallButton(">##startsetup") && data.Object("start"))
+        Open(data.Object("start"));
     ImGui::EndDisabled();
     ImGui::TextUnformatted("End Effector");
     ImGui::SameLine(110);
-    if (ObjectCombo("##end", CKCID_BODYPART, chain->GetEndEffector(), &chosen)) {
-        LiveSet(id, properties::KinematicEnd, chosen);
+    if (ObjectChoice("##end", CKCID_BODYPART, data.Object("end"), data.Text("end-name"), &chosen)) {
+        PreviewValue(id, "kinematic.end", chosen);
         FlushPending();
     }
     ImGui::SameLine();
-    ImGui::BeginDisabled(!chain->GetEndEffector());
-    if (ImGui::SmallButton(">##endsetup") && chain->GetEndEffector())
-        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(chain->GetEndEffector()->GetID())});
+    ImGui::BeginDisabled(!data.Object("end"));
+    if (ImGui::SmallButton(">##endsetup") && data.Object("end"))
+        Open(data.Object("end"));
     ImGui::EndDisabled();
-    const bool complete = chain->GetStartEffector() && chain->GetEndEffector();
-    const int bodies = complete ? chain->GetChainBodyCount() : 0;
+    const bool complete = data.Object("start") && data.Object("end");
+    const int bodies = complete ? int(data.Integer("body-count")) : 0;
     ImGui::Dummy(ImVec2(1, 6));
-    ImGui::Text("Chain Length:   %s", complete ? std::to_string(chain->GetChainLength()).c_str() : "-");
+    ImGui::Text("Chain Length:   %s", complete ? std::to_string(data.Real("length")).c_str() : "-");
     ImGui::Text("Body Parts:     %d", bodies);
     if (complete && bodies <= 0) ImGui::TextDisabled("The end effector is not below the start effector.");
     ImGui::EndGroup();
@@ -607,47 +462,58 @@ void SetupWindows::KinematicChainPage(CKKinematicChain *chain) {
         ImGui::TableSetupColumn("Body Part");
         ImGui::TableHeadersRow();
         for (int i = 0; i < bodies; ++i) {
-            CKBodyPart *part = chain->GetEffector(i);
+            const SetupFields part(data.Rows("bodies")[size_t(i)].fields);
+            const auto body = part.Object("target");
             ImGui::PushID(i);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::Text("%d", i);
             ImGui::TableNextColumn();
-            if (typeAhead.Selectable(NameOf(part).c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && part &&
+            if (typeAhead.Selectable(part.Text("name").c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && body &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(part->GetID())});
+                Open(body);
             ImGui::PopID();
         }
         ImGui::EndTable();
     }
     ImGui::EndGroup();
     ImGui::Separator();
-    ParameterUsers(chain);
+    ParameterUsers(target);
 }
 
-// Layer Setup (CKLayer): its grid, type and visibility, its squares' values
-// (painted in the Grid Setup).
-void SetupWindows::LayerPage(CKLayer *layer) {
-    if (!layer) return;
-    CKContext *context = m_State.document->Context();
-    CKGridManager *manager = static_cast<CKGridManager *>(context->GetManagerByGuid(GRID_MANAGER_GUID));
-    CKGrid *grid = CKGrid::Cast(context->GetObject(layer->GetOwner()));
-    const int width = grid ? grid->GetWidth() : 0, length = grid ? grid->GetLength() : 0;
-    VxColor color(1.0f, 1.0f, 0.0f, 1.0f);
-    if (manager) manager->GetAssociatedColor(layer->GetType(), &color);
+void SetupWindows::LayerPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "layer", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"layer.visible"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
+    const auto grid = data.Object("grid");
+    const int width = int(data.Integer("width")), length = int(data.Integer("length"));
+    const auto &squares = data.Integers("squares");
+    if (width < 0 || length < 0 || uint64_t(width) * uint64_t(length) != squares.size())
+        return;
+    const auto &channels = data.Reals("color");
+    if (channels.size() != 4)
+        return;
+    VxColor color{float(channels[0]), float(channels[1]), float(channels[2]), float(channels[3])};
+    const auto square = [&](int x, int y) { return int(int64_t(squares[size_t(y) * size_t(width) + size_t(x)])); };
     ImGui::BeginGroup();
     Group("Layer");
     ImGui::TextUnformatted("Grid");
     ImGui::SameLine(110);
     ImGui::BeginDisabled(!grid);
     if (ImGui::SmallButton(">") && grid) {
-        m_State.events.Post(ShowObjectSetup{m_State.document->Reference(grid->GetID())});
-        m_Doc.gridLayer = m_State.document->Reference(layer->GetID());
+        Open(grid);
+        m_Doc.gridLayer = target;
     }
     ImGui::EndDisabled();
     if (grid && ImGui::IsItemHovered()) ImGui::SetTooltip("Grid Setup");
     ImGui::SameLine();
-    ImGui::TextUnformatted(NameOf(grid).c_str());
+    ImGui::TextUnformatted(data.Text("grid-name").c_str());
     ImGui::TextUnformatted("Type");
     ImGui::SameLine(110);
     const ImVec2 swatch = ImGui::GetCursorScreenPos();
@@ -655,20 +521,21 @@ void SetupWindows::LayerPage(CKLayer *layer) {
                                               ToImColor(color));
     ImGui::Dummy(ImVec2(24, 15));
     ImGui::SameLine();
-    const char *type = manager ? manager->GetTypeName(layer->GetType()) : nullptr;
-    ImGui::Text("%s  (%d)", type ? AnsiToUtf8(type).c_str() : "?", layer->GetType());
+    ImGui::Text("%s  (%d)", data.Text("type-name").c_str(), int(data.Integer("type")));
     ImGui::TextUnformatted("Format");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(layer->GetFormat() == CKGRID_LAYER_FORMAT_NORMAL ? "Normal" : std::to_string(layer->GetFormat()).c_str());
-    bool visible = layer->IsVisible() != 0;
+    ImGui::TextUnformatted(int(data.Integer("format")) == CKGRID_LAYER_FORMAT_NORMAL
+                               ? "Normal"
+                               : std::to_string(int(data.Integer("format"))).c_str());
+    bool visible = values.Boolean("layer.visible");
     if (ImGui::Checkbox("Visible", &visible))
-        LiveSet(layer->GetID(), properties::LayerVisible, visible);
+        PreviewValue(target, "layer.visible", visible);
     // The values: how many squares have one, their range.
     int filled = 0, low = 255, high = 0;
     for (int y = 0; y < length; ++y)
         for (int x = 0; x < width; ++x) {
             int value = 0;
-            layer->GetValue2(x, y, &value);
+            value = square(x, y);
             if (value > 0) ++filled;
             low = std::min(low, value);
             high = std::max(high, value);
@@ -691,7 +558,7 @@ void SetupWindows::LayerPage(CKLayer *layer) {
     for (int y = 0; y < length; ++y)
         for (int x = 0; x < width; ++x) {
             int value = 0;
-            layer->GetValue2(x, y, &value);
+            value = square(x, y);
             const float k = std::max(0, std::min(255, value)) / 255.0f;
             const ImVec2 a(origin.x + x * cell, origin.y + (length - 1 - y) * cell);
             dl->AddRectFilled(a, ImVec2(a.x + cell, a.y + cell),
@@ -706,7 +573,7 @@ void SetupWindows::LayerPage(CKLayer *layer) {
         const int y = length - 1 - static_cast<int>((mouse.y - origin.y) / cell);
         int value = 0;
         if (x >= 0 && x < width && y >= 0 && y < length) {
-            layer->GetValue2(x, y, &value);
+            value = square(x, y);
             ImGui::SetTooltip("X : %d    Y : %d    Value : %d", x, y, value);
         }
     }
@@ -715,33 +582,27 @@ void SetupWindows::LayerPage(CKLayer *layer) {
     ImGui::EndGroup();
 }
 
-// Local and output parameters (CKParameterLocal, CKParameterOut): type,
-// owner, value; an output lists its destinations.
-void SetupWindows::ParameterPage(CKParameter *parameter) {
-    if (!parameter) return;
-    CKContext *context = m_State.document->Context();
-    CKParameterLocal *local = CKParameterLocal::Cast(parameter);
-    CKParameterOut *output = CKParameterOut::Cast(parameter);
-    CKBehavior *behavior = BehaviorOf(parameter);
-    bool setting = false;
-    if (local && behavior)
-        for (int i = 0; i < behavior->GetLocalParameterCount(); ++i)
-            if (behavior->GetLocalParameter(i) == local) setting = behavior->IsLocalParameterSetting(i) != 0;
+void SetupWindows::ParameterPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "parameter", description))
+        return;
+    const auto data = description.Values();
     ImGui::BeginGroup();
-    Group(local ? (local->IsMyselfParameter() ? "This Parameter" : setting ? "Setting" : "Local Parameter")
-                : output ? "Output Parameter" : "Parameter");
+    Group(data.Text("heading").c_str());
     ImGui::TextUnformatted("Type");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(TypeName(context, parameter->GetType()).c_str());
-    SetupLink("Owner", parameter->GetOwner());
-    if (behavior && behavior != parameter->GetOwner()) SetupLink("Behavior", behavior);
+    ImGui::TextUnformatted(data.Text("type-name").c_str());
+    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
+    if (data.Object("behavior") && data.Object("behavior") != data.Object("owner"))
+        SetupLink("Behavior", data.Object("behavior"), data.Text("behavior-name"));
     ImGui::Dummy(ImVec2(1, 6));
     // The value of a This parameter is its owner (CKParameterLocal::SetOwner).
-    ParameterValue(parameter, !(local && local->IsMyselfParameter()));
+    ParameterValue(data, data.Boolean("editable"));
     ImGui::Dummy(ImVec2(1, 6));
-    ShowInSchematic(behavior);
+    ShowInSchematic(data);
     ImGui::EndGroup();
-    if (output) {
+    if (data.Boolean("output")) {
         ImGui::SameLine(560);
         ImGui::BeginGroup();
         Group("Destinations");
@@ -752,76 +613,71 @@ void SetupWindows::ParameterPage(CKParameter *parameter) {
             ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthFixed, 170);
             ImGui::TableSetupColumn("Owner");
             ImGui::TableHeadersRow();
-            for (int i = 0; i < output->GetDestinationCount(); ++i) {
-                CKParameter *destination = output->GetDestination(i);
-                if (!destination) continue;
+            for (size_t i = 0; i < data.Rows("destinations").size(); ++i) {
+                const SetupFields destination(data.Rows("destinations")[i].fields);
                 ImGui::PushID(i);
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                if (typeAhead.Selectable(NameOf(destination).c_str(), false,
-                                      ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
+                if (typeAhead.Selectable(destination.Text("name").c_str(), false,
+                                         ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                     ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(destination->GetID())});
+                    Open(destination.Object("target"));
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(NameOf(destination->GetOwner()).c_str());
+                ImGui::TextUnformatted(destination.Text("owner-name").c_str());
                 ImGui::PopID();
             }
             ImGui::EndTable();
         }
         ImGui::EndGroup();
     }
-    AttributeValueDialog();
 }
 
-// Input parameters (CKParameterIn): type, owner, where the value comes from.
-void SetupWindows::ParameterInPage(CKParameterIn *input) {
-    if (!input) return;
-    CKContext *context = m_State.document->Context();
-    CKBehavior *behavior = BehaviorOf(input);
+void SetupWindows::ParameterInPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "parameter-input", description))
+        return;
+    const auto data = description.Values();
     ImGui::BeginGroup();
-    Group(input->IsEnabled() ? "Input Parameter" : "Input Parameter (disabled)");
+    Group(data.Boolean("enabled") ? "Input Parameter" : "Input Parameter (disabled)");
     ImGui::TextUnformatted("Type");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(TypeName(context, input->GetType()).c_str());
-    SetupLink("Owner", input->GetOwner());
-    if (behavior && behavior != input->GetOwner()) SetupLink("Behavior", behavior);
+    ImGui::TextUnformatted(data.Text("type-name").c_str());
+    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
+    if (data.Object("behavior") && data.Object("behavior") != data.Object("owner"))
+        SetupLink("Behavior", data.Object("behavior"), data.Text("behavior-name"));
     ImGui::Dummy(ImVec2(1, 6));
     Group("Source");
-    CKParameter *direct = input->GetDirectSource();
-    CKParameterIn *shared = input->GetSharedSource();
-    CKParameter *real = input->GetRealSource();
-    SetupLink("Linked to", direct);
-    SetupLink("Shares with", shared);
-    if (real && real != direct) SetupLink("Real source", real);
+    SetupLink("Linked to", data.Object("direct"), data.Text("direct-name"));
+    SetupLink("Shares with", data.Object("shared"), data.Text("shared-name"));
+    if (data.Object("value") && data.Object("value") != data.Object("direct"))
+        SetupLink("Real source", data.Object("value"), data.Text("value-name"));
     ImGui::Dummy(ImVec2(1, 6));
     // The value is the source's; only a local of its own (Dev's value
     // holder) is edited from here.
-    ParameterValue(real, EditableValueOf(input) != nullptr);
+    ParameterValue(data, data.Boolean("editable"));
     ImGui::Dummy(ImVec2(1, 6));
-    ShowInSchematic(behavior);
+    ShowInSchematic(data);
     ImGui::EndGroup();
-    AttributeValueDialog();
 }
 
-// Parameter Operation Setup (CKParameterOperation): the operation, its two
-// inputs and its output.
-void SetupWindows::OperationPage(CKParameterOperation *operation) {
-    if (!operation) return;
-    CKContext *context = m_State.document->Context();
-    CKParameterManager *manager = context->GetParameterManager();
+void SetupWindows::OperationPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "operation", description))
+        return;
+    const auto data = description.Values();
     ImGui::BeginGroup();
     Group("Parameter Operation");
-    const char *name = manager->OperationGuidToName(operation->GetOperationGuid());
     ImGui::TextUnformatted("Operation");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(name && *name ? AnsiToUtf8(name).c_str() : "?");
+    ImGui::TextUnformatted(data.Text("operation").c_str());
     ImGui::TextUnformatted("GUID");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(GuidText(operation->GetOperationGuid()).c_str());
-    SetupLink("Owner", operation->GetOwner());
+    ImGui::TextUnformatted(data.Text("guid").c_str());
+    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
     ImGui::Dummy(ImVec2(1, 6));
-    CKBehavior *owner = operation->GetOwner();
-    ShowInSchematic(owner, owner ? ElementRef{ElementKind::Operation, owner->GetID(), operation->GetID()} : ElementRef());
+    ShowInSchematic(data);
     ImGui::EndGroup();
     ImGui::SameLine(420);
     ImGui::BeginGroup();
@@ -833,82 +689,80 @@ void SetupWindows::OperationPage(CKParameterOperation *operation) {
         ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 120);
         ImGui::TableSetupColumn("Value");
         ImGui::TableHeadersRow();
-        auto row = [&](const char *label, CKObject *pin, CKParameterType type, CKParameter *value) {
-            ImGui::PushID(label);
+        for (const auto &value : data.Rows("operands")) {
+            const SetupFields row(value.fields);
+            ImGui::PushID(value.key.c_str());
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(label);
+            ImGui::TextUnformatted(row.Text("label").c_str());
             ImGui::TableNextColumn();
-            if (typeAhead.Selectable(NameOf(pin).c_str(), false,
-                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
-                pin && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(pin->GetID())});
+            if (typeAhead.Selectable(row.Text("name").c_str(), false,
+                                     ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
+                row.Object("target") && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                Open(row.Object("target"));
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(pin ? TypeName(context, type).c_str() : "");
+            ImGui::TextUnformatted(row.Text("type-name").c_str());
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(value ? ValueText(value).c_str() : "");
+            ImGui::TextUnformatted(row.Text("value-text").c_str());
             ImGui::PopID();
-        };
-        CKParameterIn *a = operation->GetInParameter1(), *b = operation->GetInParameter2();
-        CKParameterOut *result = operation->GetOutParameter();
-        row("Input 1", a, a ? a->GetType() : 0, a ? a->GetRealSource() : nullptr);
-        row("Input 2", b, b ? b->GetType() : 0, b ? b->GetRealSource() : nullptr);
-        row("Output", result, result ? result->GetType() : 0, result);
+        }
         ImGui::EndTable();
     }
     ImGui::TextDisabled("Double-click a parameter to show its Setup.");
     ImGui::EndGroup();
 }
 
-// Script, Behavior Graph and Building Block Setup (CKBehavior): what it is,
-// where it is, its priority, flags and contents.
-void SetupWindows::BehaviorPage(CKBehavior *behavior) {
-    if (!behavior) return;
-    CKContext *context = m_State.document->Context();
-    CKBehavior *script = ScriptOf(behavior);
-    const bool graph = behavior->GetType() != CKBEHAVIORTYPE_BASE;
+void SetupWindows::BehaviorPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "behavior", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"behavior.priority"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
+    const auto script = data.Object("script");
+    const bool graph = data.Boolean("graph");
     ImGui::BeginGroup();
-    Group(behavior->GetType() == CKBEHAVIORTYPE_SCRIPT ? "Script" : graph ? "Behavior Graph" : "Building Block");
-    if (!graph || behavior->GetPrototypeGuid() != CKGUID()) {
-        const char *prototype = behavior->GetPrototypeName();
+    Group(data.Text("heading").c_str());
+    if (data.Boolean("prototype")) {
         ImGui::TextUnformatted("Prototype");
         ImGui::SameLine(110);
-        ImGui::TextUnformatted(prototype && *prototype ? AnsiToUtf8(prototype).c_str() : "-");
+        ImGui::TextUnformatted(data.Text("prototype-name").c_str());
         ImGui::TextUnformatted("GUID");
         ImGui::SameLine(110);
-        ImGui::TextUnformatted(GuidText(behavior->GetPrototypeGuid()).c_str());
+        ImGui::TextUnformatted(data.Text("guid").c_str());
         ImGui::TextUnformatted("Version");
         ImGui::SameLine(110);
-        ImGui::Text("0x%08x", static_cast<unsigned>(behavior->GetVersion()));
+        ImGui::Text("0x%08x", static_cast<unsigned>(data.Integer("version")));
     }
-    SetupLink("Owner", behavior->GetOwner());
-    if (behavior != script) {
-        SetupLink("Script", script);
-        if (behavior->GetParent() != script) SetupLink("Parent", behavior->GetParent());
+    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
+    if (target != script) {
+        SetupLink("Script", script, data.Text("script-name"));
+        if (data.Object("parent") != script)
+            SetupLink("Parent", data.Object("parent"), data.Text("parent-name"));
     }
     // Priority (Dev's Edit Priority, Y): one undo step, in the Script.
     ImGui::TextUnformatted("Priority");
     ImGui::SameLine(110);
-    int priority = behavior->GetPriority();
-    const bool editable = script && m_State.document->FindScript(script->GetID());
+    int priority = int(values.Integer("behavior.priority"));
+    const bool editable = data.Boolean("schematic-enabled");
     ImGui::BeginDisabled(!editable);
     ImGui::SetNextItemWidth(90);
     if (ImGui::InputInt("##priority", &priority, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable)
-        PreviewInteger(behavior->GetID(), "behavior.priority", priority);
+        PreviewValue(target, "behavior.priority", priority);
     ImGui::EndDisabled();
     ImGui::TextUnformatted("Active");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(behavior->IsActive() ? "Yes" : "No");
-    if (behavior->IsUsingTarget()) {
-        CKParameterIn *target = behavior->GetTargetParameter();
-        SetupLink("Target", target);
-    }
-    const char *compatible = CKClassIDToString(behavior->GetCompatibleClassID());
+    ImGui::TextUnformatted(data.Boolean("active") ? "Yes" : "No");
+    if (data.Boolean("using-target"))
+        SetupLink("Target", data.Object("target-parameter"), data.Text("target-parameter-name"));
     ImGui::TextUnformatted("Applies to");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(compatible ? compatible : "?");
+    ImGui::TextUnformatted(data.Text("compatible").c_str());
     ImGui::Dummy(ImVec2(1, 6));
-    ShowInSchematic(behavior);
+    ShowInSchematic(data);
     ImGui::EndGroup();
     // Middle: CK_BEHAVIOR_FLAGS (shown, set by CK and the prototype).
     ImGui::SameLine(330);
@@ -933,7 +787,7 @@ void SetupWindows::BehaviorPage(CKBehavior *behavior) {
         {CKBEHAVIOR_LOCKED, "Locked"},
         {CKBEHAVIOR_LAUNCHEDONCE, "Launched Once"},
     };
-    const CKDWORD flags = behavior->GetFlags();
+    const CKDWORD flags = uint32_t(data.Integer("flags"));
     ImGui::BeginDisabled();
     for (const auto &flag : FLAGS) {
         bool on = (flags & flag.first) != 0;
@@ -945,15 +799,15 @@ void SetupWindows::BehaviorPage(CKBehavior *behavior) {
     ImGui::SameLine(610);
     ImGui::BeginGroup();
     Group("Contents");
-    ImGui::Text("Inputs:                %d", behavior->GetInputCount());
-    ImGui::Text("Outputs:               %d", behavior->GetOutputCount());
-    ImGui::Text("Input Parameters:      %d", behavior->GetInputParameterCount());
-    ImGui::Text("Output Parameters:     %d", behavior->GetOutputParameterCount());
-    ImGui::Text("Local Parameters:      %d", behavior->GetLocalParameterCount());
+    ImGui::Text("Inputs:                %d", int(data.Integer("inputs")));
+    ImGui::Text("Outputs:               %d", int(data.Integer("outputs")));
+    ImGui::Text("Input Parameters:      %d", int(data.Integer("input-parameters")));
+    ImGui::Text("Output Parameters:     %d", int(data.Integer("output-parameters")));
+    ImGui::Text("Local Parameters:      %d", int(data.Integer("local-parameters")));
     if (graph) {
-        ImGui::Text("Behaviors:             %d", behavior->GetSubBehaviorCount());
-        ImGui::Text("Behavior Links:        %d", behavior->GetSubBehaviorLinkCount());
-        ImGui::Text("Parameter Operations:  %d", behavior->GetParameterOperationCount());
+        ImGui::Text("Behaviors:             %d", int(data.Rows("behaviors").size()));
+        ImGui::Text("Behavior Links:        %d", int(data.Integer("links")));
+        ImGui::Text("Parameter Operations:  %d", int(data.Integer("operations")));
     }
     // A graph's behaviors; a double click shows one's Setup.
     if (graph) {
@@ -967,20 +821,19 @@ void SetupWindows::BehaviorPage(CKBehavior *behavior) {
             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 130);
             ImGui::TableSetupColumn("Priority");
             ImGui::TableHeadersRow();
-            for (int i = 0; i < behavior->GetSubBehaviorCount(); ++i) {
-                CKBehavior *child = behavior->GetSubBehavior(i);
-                if (!child) continue;
+            for (int i = 0; i < int(data.Rows("behaviors").size()); ++i) {
+                const SetupFields child(data.Rows("behaviors")[size_t(i)].fields);
                 ImGui::PushID(i);
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                if (typeAhead.Selectable(NameOf(child).c_str(), false,
-                                      ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
+                if (typeAhead.Selectable(child.Text("name").c_str(), false,
+                                         ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                     ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    m_State.events.Post(ShowObjectSetup{m_State.document->Reference(child->GetID())});
+                    Open(child.Object("target"));
                 ImGui::TableNextColumn();
-                ImGui::TextUnformatted(child->GetType() == CKBEHAVIORTYPE_BASE ? "Building Block" : "Behavior Graph");
+                ImGui::TextUnformatted(child.Boolean("base") ? "Building Block" : "Behavior Graph");
                 ImGui::TableNextColumn();
-                ImGui::Text("%d", child->GetPriority());
+                ImGui::Text("%d", int(child.Integer("priority")));
                 ImGui::PopID();
             }
             ImGui::EndTable();
@@ -989,31 +842,23 @@ void SetupWindows::BehaviorPage(CKBehavior *behavior) {
     ImGui::EndGroup();
 }
 
-// Behavior IO Setup (CKBehaviorIO): an input or output of a behavior and the
-// links starting or ending at it.
-void SetupWindows::BehaviorIOPage(CKBehaviorIO *io) {
-    if (!io) return;
-    CKBehavior *owner = io->GetOwner();
-    const bool input = (io->GetType() & CK_BEHAVIORIO_IN) != 0;
+void SetupWindows::BehaviorIOPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "behavior-io", description))
+        return;
+    const auto data = description.Values();
+    const bool input = data.Boolean("input");
     ImGui::BeginGroup();
     Group(input ? "Behavior Input" : "Behavior Output");
-    SetupLink("Owner", owner);
+    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
     ImGui::TextUnformatted("Active");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(io->IsActive() ? "Yes" : "No");
+    ImGui::TextUnformatted(data.Boolean("active") ? "Yes" : "No");
     ImGui::Dummy(ImVec2(1, 6));
-    ShowInSchematic(owner);
+    ShowInSchematic(data);
     ImGui::EndGroup();
     // The links are those of the owner's graph and, inside a graph, its own.
-    std::vector<CKBehaviorLink *> links;
-    for (CKBehavior *graph : {owner ? owner->GetParent() : nullptr, owner}) {
-        if (!graph || graph->GetType() == CKBEHAVIORTYPE_BASE) continue;
-        for (int i = 0; i < graph->GetSubBehaviorLinkCount(); ++i)
-            if (CKBehaviorLink *link = graph->GetSubBehaviorLink(i))
-                if ((link->GetInBehaviorIO() == io || link->GetOutBehaviorIO() == io) &&
-                    std::find(links.begin(), links.end(), link) == links.end())
-                    links.push_back(link);
-    }
     ImGui::SameLine(330);
     ImGui::BeginGroup();
     Group("Links");
@@ -1025,19 +870,19 @@ void SetupWindows::BehaviorIOPage(CKBehaviorIO *io) {
         ImGui::TableSetupColumn("To", ImGuiTableColumnFlags_WidthFixed, 230);
         ImGui::TableSetupColumn("Delay");
         ImGui::TableHeadersRow();
-        for (CKBehaviorLink *link : links) {
-            CKBehaviorIO *from = link->GetInBehaviorIO(), *to = link->GetOutBehaviorIO();
-            ImGui::PushID(static_cast<int>(link->GetID()));
+        for (const auto &value : data.Rows("links")) {
+            const SetupFields link(value.fields);
+            ImGui::PushID(int(link.Object("target").object));
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            if (typeAhead.Selectable(OwnedName(from, from ? from->GetOwner() : nullptr).c_str(), false,
-                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
+            if (typeAhead.Selectable(link.Text("from").c_str(), false,
+                                     ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(link->GetID())});
+                Open(link.Object("target"));
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(OwnedName(to, to ? to->GetOwner() : nullptr).c_str());
+            ImGui::TextUnformatted(link.Text("to").c_str());
             ImGui::TableNextColumn();
-            ImGui::Text("%d", link->GetInitialActivationDelay());
+            ImGui::Text("%d", int(link.Integer("delay")));
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -1045,57 +890,67 @@ void SetupWindows::BehaviorIOPage(CKBehaviorIO *io) {
     ImGui::EndGroup();
 }
 
-// Behavior Link Setup (CKBehaviorLink): its ends and its delay (Dev's Link
-// Delay, in frames).
-void SetupWindows::BehaviorLinkPage(CKBehaviorLink *link) {
-    if (!link) return;
-    CKBehaviorIO *from = link->GetInBehaviorIO(), *to = link->GetOutBehaviorIO();
-    CKBehavior *start = from ? from->GetOwner() : nullptr;
-    CKBehavior *script = ScriptOf(start ? start : to ? to->GetOwner() : nullptr);
+void SetupWindows::BehaviorLinkPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "behavior-link", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"behavior-link.delay"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
     ImGui::BeginGroup();
     Group("Behavior Link");
-    SetupLink("From", from);
+    SetupLink("From", data.Object("from"), data.Text("from-name"));
     ImGui::SameLine();
-    ImGui::TextDisabled("%s", start ? ("of " + NameOf(start)).c_str() : "");
-    SetupLink("To", to);
+    ImGui::TextDisabled("%s", data.Object("start") ? ("of " + data.Text("start-name")).c_str() : "");
+    SetupLink("To", data.Object("to"), data.Text("to-name"));
     ImGui::SameLine();
-    ImGui::TextDisabled("%s", to && to->GetOwner() ? ("of " + NameOf(to->GetOwner())).c_str() : "");
+    ImGui::TextDisabled("%s", data.Object("end") ? ("of " + data.Text("end-name")).c_str() : "");
     ImGui::Dummy(ImVec2(1, 6));
     ImGui::TextUnformatted("Delay");
     ImGui::SameLine(110);
-    int delay = link->GetInitialActivationDelay();
-    const bool editable = script && m_State.document->FindScript(script->GetID());
+    int delay = int(values.Integer("behavior-link.delay"));
+    const bool editable = data.Boolean("schematic-enabled");
     ImGui::BeginDisabled(!editable);
     ImGui::SetNextItemWidth(90);
     if (ImGui::InputInt("##delay", &delay, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable)
-        PreviewInteger(link->GetID(), "behavior-link.delay", delay);
+        PreviewValue(target, "behavior-link.delay", delay);
     ImGui::EndDisabled();
     ImGui::SameLine();
     ImGui::TextUnformatted("frames");
     ImGui::TextUnformatted("Current Delay");
     ImGui::SameLine(110);
-    ImGui::Text("%d", link->GetActivationDelay());
+    ImGui::Text("%d", int(data.Integer("current-delay")));
     ImGui::Dummy(ImVec2(1, 6));
-    if (start) ShowInSchematic(start);
+    if (data.Object("start"))
+        ShowInSchematic(data);
     ImGui::EndGroup();
 }
 
-// Synchro Setup (CKSynchroObject, the Rendez Vous building block's object):
-// how many objects the rendez-vous waits for, those arrived.
-void SetupWindows::SynchroPage(CKSynchroObject *synchro) {
-    if (!synchro) return;
-    const CK_ID id = synchro->GetID();
+void SetupWindows::SynchroPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "synchro", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"synchro.users"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
     ImGui::BeginGroup();
     Group("Rendez-Vous");
     ImGui::TextUnformatted("Number Of Users");
     ImGui::SameLine(160);
-    int users = synchro->GetRendezVousNumberOfWaiters();
+    int users = int(values.Integer("synchro.users"));
     ImGui::SetNextItemWidth(90);
     if (ImGui::DragInt("##users", &users, 0.1f, 0, 10000))
-        LiveSet(id, properties::SynchroUsers, users);
-    const int arrived = synchro->GetRendezVousNumberOfArrivedObjects();
+        PreviewValue(id, "synchro.users", users);
+    const int arrived = int(data.Rows("arrived").size());
     ImGui::Text("Arrived:  %d", arrived);
-    if (ImGui::Button("Reset", ImVec2(90, 0))) synchro->Reset();
+    if (ImGui::Button("Reset", ImVec2(90, 0)))
+        RunSetupCommand("setup.synchro-reset", {ObjectArgument("target", target)});
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Forgets the objects arrived");
     ImGui::EndGroup();
     ImGui::SameLine(330);
@@ -1104,70 +959,140 @@ void SetupWindows::SynchroPage(CKSynchroObject *synchro) {
     if (ImGui::BeginChild("arrived", ImVec2(280, 120), ImGuiChildFlags_Borders)) {
         TypeAhead typeAhead;
         for (int i = 0; i < arrived; ++i) {
-            CKBeObject *object = synchro->GetRendezVousArrivedObject(i);
+            const SetupFields object(data.Rows("arrived")[size_t(i)].fields);
+            const auto arrivedObject = object.Object("target");
             ImGui::PushID(i);
-            if (typeAhead.Selectable(NameOf(object).c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && object &&
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                m_State.events.Post(ShowObjectSetup{m_State.document->Reference(object->GetID())});
+            if (typeAhead.Selectable(object.Text("name").c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
+                arrivedObject && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                Open(arrivedObject);
             ImGui::PopID();
         }
     }
     ImGui::EndChild();
     ImGui::EndGroup();
     ImGui::Separator();
-    ParameterUsers(synchro);
+    ParameterUsers(target);
 }
 
-// State Setup (CKStateObject, Enter / Leave State and Is In State): whether
-// the state is entered.
-void SetupWindows::StatePage(CKStateObject *state) {
-    if (!state) return;
+void SetupWindows::StatePage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "state", description))
+        return;
+    const auto data = description.Values();
+    SetupDetails propertyData;
+    if (!ReadProperties(target, {"state.active"}, propertyData))
+        return;
+    const auto values = propertyData.Values();
     Group("State");
-    bool active = state->IsStateActive() != 0;
+    bool active = values.Boolean("state.active");
     if (ImGui::Checkbox("Active (entered)", &active))
-        LiveSet(state->GetID(), properties::StateActive, active);
+        PreviewValue(target, "state.active", active);
     ImGui::Separator();
-    ParameterUsers(state);
+    ParameterUsers(target);
 }
 
-// Critical Section Setup (CKCriticalSectionObject, Enter / Leave Critical
-// Section): CK does not tell which object is inside; Reset lets it go.
-void SetupWindows::CriticalSectionPage(CKCriticalSectionObject *section) {
-    if (!section) return;
+void SetupWindows::CriticalSectionPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "critical-section", description))
+        return;
+    const auto data = description.Values();
     Group("Critical Section");
-    if (ImGui::Button("Reset", ImVec2(90, 0))) section->Reset();
+    if (ImGui::Button("Reset", ImVec2(90, 0)))
+        RunSetupCommand("setup.critical-section-reset", {ObjectArgument("target", target)});
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lets the object inside the critical section go");
     ImGui::Separator();
-    ParameterUsers(section);
+    ParameterUsers(target);
 }
 
-// Interface Objects Setup (CKInterfaceObjectManager): the editor data an
-// interface stored in the composition, by its GUID.
-void SetupWindows::InterfaceObjectsPage(CKInterfaceObjectManager *manager) {
-    if (!manager) return;
+void SetupWindows::InterfaceObjectsPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "interface-objects", description))
+        return;
+    const auto data = description.Values();
     Group("Interface Objects");
     ImGui::TextUnformatted("GUID");
     ImGui::SameLine(110);
-    ImGui::TextUnformatted(GuidText(manager->GetGuid()).c_str());
+    ImGui::TextUnformatted(data.Text("guid").c_str());
     ImGui::TextUnformatted("Chunks");
     ImGui::SameLine(110);
-    ImGui::Text("%d", manager->GetChunkCount());
-    for (int i = 0; i < manager->GetChunkCount(); ++i)
-        if (CKStateChunk *chunk = manager->GetChunk(i))
-            ImGui::BulletText("Chunk %d: %d bytes", i, chunk->GetDataSize());
+    ImGui::Text("%d", int(data.Integer("count")));
+    const auto &sizes = data.Integers("sizes");
+    for (size_t i = 0; i < sizes.size(); ++i)
+        if (int64_t(sizes[i]) >= 0)
+            ImGui::BulletText("Chunk %d: %d bytes", int(i), int(sizes[i]));
 }
 
-void SetupWindows::OtherPage(CKObject *object) {
-    const char *cls = CKClassIDToString(object->GetClassID());
-    ImGui::Text("%s  (%s, ID %u)", NameOf(object).c_str(), cls ? cls : "?", static_cast<unsigned>(object->GetID()));
+void SetupWindows::OtherPage(ObjectRef target) {
+    const auto id = target;
+    SetupDetails description;
+    if (!ReadDetails(target, "other", description))
+        return;
+    const auto data = description.Values();
+    ImGui::Text("%s  (%s, ID %u)", data.Text("name").c_str(), data.Text("class-name").c_str(), unsigned(target.object));
     ImGui::TextDisabled("This class has no specific Setup page; see its attributes.");
 }
 
-// Dev Attribute page: the object's attributes (category, value), Add / Remove;
-// rows selected with a click (Ctrl: added or taken off), their menu (Dev.exe
-// sub_4436E0: Delete, Copy Attribute Parameter Value; elsewhere Paste
-// Attributes, sub_448E40).
-void SetupWindows::AttributePage(Setup &setup, CKObject *object) {
+void SetupWindows::ShowInSchematic(const SetupFields &data) {
+    ImGui::BeginDisabled(!data.Boolean("schematic-enabled"));
+    if (ImGui::Button("Show in Schematic")) {
+        const auto values = BorrowEditorFields(data.Rows("position"));
+        RunSetupCommand("script.navigate", {values.data(), values.data() + values.values.size()});
+    }
+    ImGui::EndDisabled();
+}
+void SetupWindows::ParameterValue(const SetupFields &data, bool editable) {
+    ImGui::TextUnformatted("Value");
+    ImGui::SameLine(110);
+    const auto text = data.Text("value-text");
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 380.0f);
+    ImGui::TextUnformatted(text.size() > 2000 ? (text.substr(0, 2000) + "...").c_str() : text.c_str());
+    ImGui::PopTextWrapPos();
+    if (data.Object("value-object"))
+        SetupLink("Object", data.Object("value-object"), data.Text("value-object-name"));
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 110.0f);
+    ImGui::BeginDisabled(!data.Object("value") || !editable);
+    if (ImGui::Button("Edit Value...", ImVec2(110, 0)))
+        RunSetupCommand("parameter.edit", {ObjectArgument("target", data.Object("value"))});
+    ImGui::EndDisabled();
+}
+void SetupWindows::ParameterUsers(ObjectRef target) {
+    SetupDetails description;
+    if (!ReadDetails(target, "parameter-users", description))
+        return;
+    const auto data = description.Values();
+    Group("Used By");
+    if (!ImGui::BeginTable("users", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
+                           ImVec2(760, 150)))
+        return;
+    TypeAhead ahead;
+    ImGui::TableSetupScrollFreeze(0, 1);
+    ImGui::TableSetupColumn("Behavior", ImGuiTableColumnFlags_WidthFixed, 220);
+    ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthFixed, 180);
+    ImGui::TableSetupColumn("Script");
+    ImGui::TableHeadersRow();
+    for (const auto &value : data.Rows("users")) {
+        const SetupFields row(value.fields);
+        ImGui::PushID(int(row.Object("target").object));
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        if (ahead.Selectable(row.Text("behavior-name").c_str(), false,
+                             ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
+            ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && row.Object("behavior"))
+            Open(row.Object("behavior"));
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(row.Text("name").c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(row.Text("script-name").c_str());
+        ImGui::PopID();
+    }
+    ImGui::EndTable();
+}
+
+void SetupWindows::AttributePage(Setup &setup) {
+    auto *object = m_State.document->Resolve(setup.reference);
     CKBeObject *beObject = CKBeObject::Cast(object);
     if (!beObject) {
         ImGui::TextDisabled("Only behavioral objects have attributes.");
@@ -1294,7 +1219,6 @@ void SetupWindows::AttributePage(Setup &setup, CKObject *object) {
     AttributeValueDialog();
 }
 
-// OK writes the value (the parameter box's undo steps, one "Edit Attribute").
 void SetupWindows::AttributeValueDialog() {
     const char *id = "Edit Parameter###AttributeValue";
     if (m_OpenAttributeValue) {

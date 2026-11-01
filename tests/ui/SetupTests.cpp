@@ -29,7 +29,7 @@ struct SetupEditTests {
             if (setup.reference == target) {
                 windows.m_PickSetup = target;
                 windows.m_PickSetupSlot = setup.slot;
-                setup.meshRows.insert(12345);
+                setup.meshRows.insert({target.document, 12345, 1});
                 return windows.m_Workspace.Begin("object.name", target, setup.renameEdit, setup.nameOwner);
             }
         return false;
