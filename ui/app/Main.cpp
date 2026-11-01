@@ -143,9 +143,17 @@ int main(int argc, char **argv) {
     int exitCode = 0;
     if (!app.Initialize(window, runtime, vdev::WideToUtf8(line.fileToOpen), line.editorModules
 #ifdef VIRTOOLSDEV_UI_TESTS
-                        , line.startup
+                        ,
+                        line.startup
 #endif
-                        )) exitCode = 1;
+                        )) {
+        exitCode = 1;
+#ifdef VIRTOOLSDEV_UI_TESTS
+        for (const auto &entry : app.State().eventLog.Entries())
+            if (entry.level == vdev::LogLevel::Error)
+                std::fprintf(stderr, "%s\n", entry.text.c_str());
+#endif
+    }
 #ifdef VIRTOOLSDEV_UI_TESTS
     std::unique_ptr<vdev::UiTestRun> tests;
     if (!exitCode && line.UiTests()) tests = std::make_unique<vdev::UiTestRun>(app, line.uiTests, line.uiResults, line.uiShow);
