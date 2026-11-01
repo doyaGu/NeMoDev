@@ -21,20 +21,14 @@
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/TypeAhead.h"
 #include "core/schematic/LinkRouting.h"
-#include "core/level/SceneCommands.h"
 #include "ui/schematic/SchematicCanvasDetail.h"
-#include "core/graph/ShortcutCommands.h"
-#include "core/schematic/SchematicEdits.h"
 #include "core/schematic/SchematicGrid.h"
 #include "core/schematic/SchematicHitTest.h"
-#include "core/graph/OperationCommands.h"
-#include "core/graph/ScriptCommands.h"
 #include "ui/schematic/Snapshots.h"
 #include "core/runtime/TextEncoding.h"
 #include "workspace/EditorClient.h"
 #include "features/schematic/SchematicDiagnosticViews.h"
 #include "features/schematic/SchematicPosition.h"
-#include "core/graph/ValueCommands.h"
 
 namespace vdev {
 
@@ -831,7 +825,8 @@ void SchematicCanvas::AddComment(CK_ID script, const Point &local) {
 
 void SchematicCanvas::DeleteSelection(bool graphsConfirmed) {
     Selection &selection = m_Navigation.selection;
-    if (selection.Empty() || !m_State.HasDocument()) return;
+    if (selection.Empty() || !Client().Scope().document.value)
+        return;
     // Dev.exe sub_50E430: behavior graphs (behaviors that are no Building
     // Block) are deleted once "Confirm Graph(es) Deletion" is answered.
     if (!graphsConfirmed)
@@ -852,14 +847,6 @@ void SchematicCanvas::DeleteSelection(bool graphsConfirmed) {
         if (onlyPins || address.element.kind != ElementKind::Pin)
             elements.fields.push_back(SchematicPosition(address, std::to_string(elements.fields.size()).c_str()));
     ExecuteGraph("schematic.delete-elements", selection.script, 0, nullptr, {std::move(elements)}, GraphFollow::ClearSelection);
-}
-
-void SchematicCanvas::Report(const EditResult &result, const char *what) {
-    if (result.ok) {
-        if (!result.message.empty()) m_State.Log(LogLevel::Info, AnsiToUtf8(result.message));
-    } else if (!result.Unchanged()) { // nothing to do is not reported
-        m_State.Log(LogLevel::Warning, std::string(what) + ": " + AnsiToUtf8(result.message));
-    }
 }
 
 EditorResponse SchematicCanvas::GraphState(uint32_t script, uint32_t object) {
@@ -1448,7 +1435,7 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
         int slot = -1;
         memcpy(&slot, payload->Data, sizeof(slot));
         const Hit hit = HitAt(ImGui::GetIO().MousePos);
-        if (!hit.view || !m_State.HasDocument() || !m_State.snapshots.Has(slot)) {
+        if (!hit.view || !Client().Scope().document.value || !m_State.snapshots.Has(slot)) {
             m_State.Log(LogLevel::Info, "Drop snapshots on a Script");
         } else {
             // Scaled into the header's snapshot place (48 x 36) as Load Snapshot does: 47 x 36.
@@ -2022,7 +2009,7 @@ void SchematicCanvas::Toolbar() {
     dl->AddRectFilled(stripMin, ImVec2(stripMin.x + ImGui::GetContentRegionAvail().x, stripMin.y + stripHeight),
                       DEV_CHROME);
     PushDarkChrome();
-    const bool document = m_State.HasDocument();
+    const bool document = Client().Scope().document.value != 0;
     const CK_ID script = ToolbarScript();
     float x = 9.0f;
     auto at = [&](float y) { return ImVec2(IM_ROUND(stripMin.x + x * s), IM_ROUND(stripMin.y + y * s)); };
@@ -2202,7 +2189,6 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     }
     ApplyFocus(size);
     if (m_Doc.editAddress) {
-    const auto execution = Client().Query("runtime.state");
         const auto address = m_Doc.editAddress;
         if (ViewFor(address.script.object) && ValidPosition(address)) {
             m_Doc.editAddress = {};
@@ -2233,6 +2219,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     const auto invalidSummary = Client().Query("schematic.invalid-summary");
     if (invalidSummary.status == EDITOR_OK && EditorClient::Integer(invalidSummary, "revision") != m_InvalidRevision)
         ReadSchematicRows(Client(), "schematic.invalid-links", m_InvalidRows, m_InvalidRevision);
+    const auto execution = Client().Query("runtime.state");
     for (const auto &view : m_Views) {
         std::set<ElementRef> selected;
         if (m_Navigation.selection.script == view.id)
@@ -2801,10 +2788,6 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
         canvas->RefreshStack();
         module.canvases.emplace(id, canvas.get());
         return canvas.release();
-    view.pick = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
-        return static_cast<SchematicCanvas *>(data)->PickObjectsAt(
-            ImVec2(float(request->values[0].real), float(request->values[1].real)), sink);
-    };
     };
     view.destroy = [](void *data) {
         auto *canvas = static_cast<SchematicCanvas *>(data);
@@ -2817,6 +2800,10 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     };
     view.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
         static_cast<SchematicCanvas *>(data)->Draw(*frame);
+    };
+    view.pick = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        return static_cast<SchematicCanvas *>(data)->PickObjectsAt(
+            ImVec2(float(request->values[0].real), float(request->values[1].real)), sink);
     };
     view.parameters = schematicNavigation;
     view.count = uint32_t(std::size(schematicNavigation));

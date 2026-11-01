@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "CKAll.h"
+#include "core/schematic/SchematicNavigation.h"
 
 namespace vdev {
 
@@ -36,7 +37,6 @@ SceneContents ListSceneContents(CKContext *context, CKScene *scene, CKLevel *lev
 
 // Dev's Script header sorts (documentation): the stack's order by name, by
 // the owner's name, by color, by the owner's class, or the order inverted.
-enum class ScriptSort { Name, Owner, Color, ClassId, Invert };
 std::vector<CK_ID> SortScripts(Document &document, std::vector<CK_ID> order, ScriptSort sort);
 
 } // namespace vdev

@@ -6,6 +6,8 @@
 #include <vector>
 
 namespace vdev {
+// Script stack order, shared by the copied view state and the native sorter.
+enum class ScriptSort { Name, Owner, Color, ClassId, Invert };
 // Selection is confined to one Script at a time, but Script headers: with
 // a header selected, Ctrl or Shift and a click on others' select them too
 // (headers; Dev acts on "one or several scripts": Expand, Hide Selected,

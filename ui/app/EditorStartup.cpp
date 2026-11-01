@@ -6,7 +6,7 @@
 #endif
 #include "ui/app/EditorApp.h"
 #include "ui/schematic/Snapshots.h"
-
+#include "core/graph/TopologyCommands.h"
 
 #include <cstdio>
 #include <cstring>

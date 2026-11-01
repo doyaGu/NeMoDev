@@ -1,4 +1,3 @@
-#include "features/schematic/SchematicScriptData.h"
 #pragma once
 
 #include <cstdint>
@@ -8,18 +7,13 @@
 #include <vector>
 
 #include "ui/app/EditorState.h"
-#include "core/graph/BehaviorCommands.h"
-#include "core/graph/Debugger.h"
-#include "core/document/LinkValidation.h"
-#include "core/level/LevelTree.h"
-#include "core/catalog/ParameterCatalog.h"
-#include "core/graph/TopologyCommands.h"
+#include "features/schematic/SchematicScriptData.h"
 #include "ui/schematic/SchematicParameterDialog.h"
 #include "features/resources/BuildingBlockData.h"
 #include "features/schematic/SchematicModelData.h"
 #include "features/schematic/SchematicPosition.h"
-#include "ui/controls/ValueEditor.h"
 #include "core/schematic/SchematicModel.h"
+#include "core/schematic/SchematicNavigation.h"
 #include "ui/schematic/SchematicRenderer.h"
 #include "core/schematic/SchematicSearch.h"
 #include "workspace/EditorClient.h"
@@ -286,7 +280,6 @@ private:
 
     void AcceptBuildingBlockDrop();
     CK_ID GraphAt(ScriptView &view, const Point &local) const;
-    void Report(const EditResult &result, const char *what);
     void RenameDialog();
     void DelayDialog();
     void OpenLinkDelay(CK_ID script, const ElementRef &);

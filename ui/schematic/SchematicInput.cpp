@@ -14,16 +14,10 @@
 
 #include "ui/controls/DevTheme.h"
 #include "core/schematic/LinkRouting.h"
-#include "core/level/SceneCommands.h"
 #include "ui/schematic/SchematicCanvasDetail.h"
-#include "core/graph/ShortcutCommands.h"
-#include "core/schematic/SchematicEdits.h"
 #include "core/schematic/SchematicGrid.h"
 #include "core/schematic/SchematicHitTest.h"
-#include "core/graph/ScriptCommands.h"
-#include "ui/schematic/Snapshots.h"
 #include "core/runtime/TextEncoding.h"
-#include "core/graph/ValueCommands.h"
 
 namespace vdev {
 

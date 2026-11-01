@@ -1,6 +1,7 @@
 #include "tests/ui/UiTests.h"
 #include "features/objects/ObjectViews.h"
 #include "core/graph/ScriptCommands.h"
+#include "core/graph/TopologyCommands.h"
 #include "core/document/BehaviorDescription.h"
 #include "core/document/FileCommands.h"
 #include "core/document/LinkValidation.h"
