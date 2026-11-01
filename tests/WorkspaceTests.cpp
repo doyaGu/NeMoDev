@@ -17,15 +17,21 @@ struct Provider {
     EditorStatus mutation = EDITOR_OK;
     EditorStatus inspectionMutation = EDITOR_OK;
     unsigned inspections = 0;
+    ObjectRef reference{};
 };
-struct Browser { Provider &provider; EditorView id; std::string topic; };
+struct Browser {
+    Provider &provider;
+    EditorView id;
+    std::string topic;
+    ObjectRef target{};
+};
 void *Create(void *data, const EditorHost *host, EditorView id) {
     auto &provider = *static_cast<Provider *>(data);
     const EditorValue type{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("test.browser")};
     const EditorRequest request{host->scope(host->data, id), &type, 1};
     provider.mutation = host->execute(host->data, EditorString EDITOR_TEXT("workspace.open-view"), &request, {});
     if (provider.failCreate) return nullptr;
-    auto *view = new Browser{provider, id, {}};
+    auto *view = new Browser{provider, id, {}, provider.reference};
     provider.views.emplace(id, view);
     ++provider.created;
     return view;
@@ -125,7 +131,40 @@ void TestWorkspace(CkRuntimeHost &runtime) {
         const auto values = BorrowEditorFields(fields);
         return sink.write(sink.data, values.data(), uint32_t(values.size()));
     };
-    const EditorViewDesc views[] = {a, b, c, d, e, f, recordView};
+    Provider boundFirst, boundSecond;
+    auto *object = document.Context()->CreateObject(CKCID_OBJECT, "Bound view target");
+    Check(object != nullptr, "bound view object");
+    document.Include(object->GetID());
+    boundFirst.reference = document.Reference(object->GetID());
+    auto boundA = Description(boundFirst, "test.bound-first", "test.bound");
+    boundA.area = EDITOR_DOCUMENT;
+    boundA.documentBound = 1;
+    boundA.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &view = *static_cast<Browser *>(data);
+        const EditorValue values[] = {{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, {}, EditorText(view.topic)},
+                                      {EDITOR_TEXT("target"), EDITOR_OBJECT, view.target}};
+        return sink.write(sink.data, values, 2);
+    };
+    boundA.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
+        auto &view = *static_cast<Browser *>(data);
+        if (view.provider.failRestore)
+            return EDITOR_ERROR;
+        for (uint32_t i = 0; i < request->count; ++i) {
+            const auto &value = request->values[i];
+            if (Text(value.key) == "target")
+                view.target = value.object;
+            if (Text(value.key) == "topic")
+                view.topic = Text(value.text);
+        }
+        return EDITOR_OK;
+    };
+    auto boundB = boundA;
+    boundB.provider = EDITOR_TEXT("test.bound-second");
+    boundB.data = &boundSecond;
+    auto unbound = boundB;
+    unbound.provider = EDITOR_TEXT("test.bound-unbound");
+    unbound.documentBound = 0;
+    const EditorViewDesc views[] = {a, b, c, d, e, f, recordView, boundA, boundB, unbound};
     const EditorParameter arguments[] = {{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, 1},
         {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
     const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("test.navigate"),
@@ -152,6 +191,7 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     EditorConfiguration config;
     config.providers.push_back({"view", "test.browser", "test.first"});
     config.providers.push_back({"view", "test.other", "test.third"});
+    config.providers.push_back({"view", "test.bound", "test.bound-first"});
     Check(app.Activate(EDITOR_IMGUI_VERSION, error, config), error.c_str());
     app.Attach(document.Token(), document.TopologyRevision(), true, true);
     {
@@ -237,6 +277,49 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     Check(open("throw").status == EDITOR_ERROR && second.views.empty(), "failed reopening retained a new view");
     const auto reopened = workspace.Open("test.browser");
     Check(reopened && second.views.at(reopened)->topic == "second topic", "close/reopen lost state");
+    auto boundLayout = workspace.Configuration();
+    boundLayout.views.push_back({"test.bound", "", "", false, false, false, true});
+    Check(workspace.Configure(boundLayout, error), error.c_str());
+    const auto bound = workspace.Open("test.bound", "bound.object");
+    Check(bound && workspace.WindowName(bound) == "Browser###bound.object", "bound window role identity");
+    boundFirst.views.at(bound)->topic = "Preserved document window";
+    workspace.Focus(bound);
+    Check(workspace.LastFocused("test.bound") == bound, "last focused instance");
+    auto boundConfig = app.Configuration();
+    for (auto &choice : boundConfig.providers)
+        if (choice.id == "test.bound")
+            choice.provider = "test.bound-second";
+    boundSecond.failRestore = true;
+    Check(!workspace.Configure(boundConfig, error) && boundFirst.views.count(bound) && boundSecond.views.empty() &&
+              workspace.LastFocused("test.bound") == bound,
+          "failed document view restore lost original");
+    boundSecond.failRestore = false;
+    auto unboundConfig = boundConfig;
+    for (auto &choice : unboundConfig.providers)
+        if (choice.id == "test.bound")
+            choice.provider = "test.bound-unbound";
+    Check(!workspace.Configure(unboundConfig, error) && boundFirst.views.count(bound),
+          "view replacement changed document lifetime");
+    ++boundFirst.views.at(bound)->target.lifetime;
+    Check(!workspace.Configure(boundConfig, error) && boundFirst.views.count(bound),
+          "stale object reference was restored");
+    --boundFirst.views.at(bound)->target.lifetime;
+    Check(workspace.Configure(boundConfig, error) && boundFirst.views.empty() && boundSecond.views.size() == 1,
+          "document view replacement failed");
+    const auto changedBound = boundSecond.views.begin()->first;
+    Check(changedBound != bound && boundSecond.views.begin()->second->target == boundFirst.reference &&
+              boundSecond.views.begin()->second->topic == "Preserved document window" &&
+              workspace.LastFocused("test.bound") == changedBound &&
+              workspace.WindowName(changedBound) == "Browser###bound.object",
+          "document view replacement lost target state focus or window identity");
+    workspace.DocumentChanging();
+    Check(boundSecond.views.empty() && !app.Scope(changedBound).view && !workspace.LastFocused("test.bound") &&
+              !second.views.empty(),
+          "document change closed permanent windows or retained bound ones");
+    const auto freshBound = workspace.Open("test.bound");
+    Check(freshBound && boundSecond.views.at(freshBound)->topic.empty(),
+          "bound state survived close across document scopes");
+    Check(workspace.Close(freshBound), "close fresh document view");
     const auto nativeView = workspace.Open("test.native");
     Check(nativeView != 0, "document view did not open");
     native = false;

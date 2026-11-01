@@ -5,6 +5,7 @@ namespace vdev {
 struct WorkspaceViewPlacement {
     std::string type, role, region;
     bool startup = false, pinned = false, keepOnReset = false;
+    bool useRoleAsWindowId = false;
 };
 enum class WorkspaceDirection { Left, Right, Up, Down };
 struct WorkspaceSplit {

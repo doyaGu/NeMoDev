@@ -47,6 +47,7 @@ class EditorWorkspace : private EditorViewNavigation {
     bool Interacting() const;
     bool Focus(EditorView view);
     EditorView Focused() const;
+    EditorView LastFocused(const std::string &type) const;
     std::string WindowName(EditorView view) const;
     bool Close(EditorView view);
     void CloseAll();
@@ -95,6 +96,7 @@ class EditorWorkspace : private EditorViewNavigation {
     EditorApplication &m_Application;
     std::map<EditorView, View> m_Views;
     EditorView m_LastFocusRequest = 0;
+    std::map<std::string, EditorView> m_LastFocused;
     WorkspaceConfiguration m_Configuration;
     std::map<std::string, unsigned> m_RegionDocks;
     uint64_t m_ViewsRevision = 1;

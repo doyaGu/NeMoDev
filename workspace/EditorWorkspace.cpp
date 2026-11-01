@@ -15,6 +15,39 @@ struct Drawing {
     ~Drawing() { app.LeaveDraw(); }
 };
 std::string Text(EditorString value) { return std::string(value.data ? value.data : "", value.size); }
+bool OwnsWindow(const ImGuiWindow *owner, const ImGuiWindow *window) {
+    if (!owner)
+        return false;
+    for (; window; window = window->ParentWindow)
+        if (window == owner)
+            return true;
+    return false;
+}
+int OwnedPopup(const ImGuiWindow *window, bool modalOnly = false) {
+    const auto &popups = ImGui::GetCurrentContext()->OpenPopupStack;
+    for (int i = 0; i < popups.Size; ++i) {
+        const auto &popup = popups[i];
+        if (modalOnly && (!popup.Window || !(popup.Window->Flags & ImGuiWindowFlags_Modal)))
+            continue;
+        if (OwnsWindow(window, popup.Window) || (!popup.Window && OwnsWindow(window, popup.RestoreNavWindow)))
+            return i;
+    }
+    return popups.Size;
+}
+void CloseWindowInput(ImGuiWindow *window) {
+    auto &context = *ImGui::GetCurrentContext();
+    if (OwnsWindow(window, context.ActiveIdWindow)) {
+        // ClearActiveID saves text for the next draw. A destroyed view must not
+        // apply that text when another instance reuses its window ID.
+        const auto active = context.ActiveId;
+        ImGui::ClearActiveID();
+        if (context.InputTextDeactivatedState.ID == active)
+            context.InputTextDeactivatedState.ID = 0;
+    }
+    const auto popup = OwnedPopup(window);
+    if (popup < context.OpenPopupStack.Size)
+        ImGui::ClosePopupToLevel(popup, false);
+}
 } // namespace
 EditorWorkspace::EditorWorkspace(EditorApplication &application) : m_Application(application) {
     m_Application.ViewNavigation(this);
@@ -406,15 +439,31 @@ EditorStatus EditorWorkspace::Navigate(const EditorViewDesc &desc, EditorView id
 }
 std::string EditorWorkspace::WindowName(EditorView id) const {
     const auto found = m_Views.find(id);
-    return found == m_Views.end() || found->second.desc.kind == EDITOR_OVERLAY_VIEW ? std::string() :
-        Text(found->second.desc.title) + "###editor-view-" + std::to_string(id);
+    return found == m_Views.end() || found->second.desc.kind == EDITOR_OVERLAY_VIEW ? std::string() : [&] {
+        const auto &view = found->second;
+        std::string title = Text(view.desc.title);
+        if (view.inspected)
+            for (const auto &field : view.inspection.fields)
+                if (field.key == "title" && field.type == EDITOR_TEXT_VALUE && !field.text.empty() &&
+                    field.text.find('\0') == std::string::npos)
+                    title = field.text;
+        const auto *placement = Placement(view);
+        return title + "###" +
+               (placement && placement->useRoleAsWindowId && !view.role.empty() ? view.role
+                                                                                : "editor-view-" + std::to_string(id));
+    }();
 }
 bool EditorWorkspace::Focus(EditorView id) {
     const auto found = m_Views.find(id);
     if (found == m_Views.end()) return false;
     found->second.focus = true;
+    m_LastFocused[Text(found->second.desc.id)] = id;
     m_LastFocusRequest = id;
     return true;
+}
+EditorView EditorWorkspace::LastFocused(const std::string &type) const {
+    const auto found = m_LastFocused.find(type);
+    return found != m_LastFocused.end() && m_Views.count(found->second) ? found->second : 0;
 }
 EditorView EditorWorkspace::Focused() const {
     if (!ImGui::GetCurrentContext()) return 0;
@@ -504,7 +553,7 @@ bool EditorWorkspace::Close(EditorView id) {
     const auto &view = found->second;
     if (view.pinned) return false;
     if (view.desc.area == EDITOR_DOCUMENT && !m_Application.NativeAvailable()) return false;
-    if (view.desc.singleInstance) {
+    if (view.desc.singleInstance && !view.desc.documentBound) {
         SavedView saved{0, {}, {}};
         if (view.desc.saveState) {
             const auto state = m_Application.SaveViewState(view.desc, view.data, m_Application.Scope(id));
@@ -524,11 +573,16 @@ void EditorWorkspace::Destroy(EditorView id) {
     auto found = m_Views.find(id);
     if (found == m_Views.end())
         return;
+    const auto name = WindowName(id);
+    if (ImGui::GetCurrentContext() && !name.empty())
+        CloseWindowInput(ImGui::FindWindowByName(name.c_str()));
     if (m_LastFocusRequest == id) m_LastFocusRequest = 0;
     m_Application.CloseScope(id);
     if (!m_Application.DestroyView(found->second.desc, found->second.data)) {
         m_Error = "View could not be closed";
     }
+    if (LastFocused(Text(found->second.desc.id)) == id)
+        m_LastFocused.erase(Text(found->second.desc.id));
     m_Views.erase(found);
     ++m_ViewsRevision;
 }
@@ -536,6 +590,7 @@ void EditorWorkspace::CloseAll() {
     while (!m_Views.empty())
         Destroy(m_Views.begin()->first);
     m_ClosedStates.clear();
+    m_LastFocused.clear();
 }
 void EditorWorkspace::Draw(bool nativeAvailable) {
     UpdateRegionDocks();
@@ -547,6 +602,11 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
         if (!nativeAvailable && view.desc.area == EDITOR_DOCUMENT) continue;
         const bool grantFocus = (view.focus || view.id == focus) && !ImGui::GetTopMostPopupModal();
         if (view.id == focus && grantFocus) focusDrawn = true;
+        if (view.desc.inspect &&
+            std::any_of(view.desc.fields, view.desc.fields + view.desc.fieldCount, [](const auto &field) {
+                return Text(field.key) == "title" && field.type == EDITOR_TEXT_VALUE;
+            }))
+            Inspect(view.id);
         const auto name = WindowName(view.id);
         EditorViewFrame frame{EditorText(name), uint32_t(grantFocus), 0, uint32_t(view.placement.apply),
             view.placement.dock, view.placement.x, view.placement.y, view.placement.width, view.placement.height,
@@ -561,8 +621,12 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
             view.drawnFrame = -1;
             m_Error = "View raised an exception";
         }
+        if (Focused() == view.id)
+            m_LastFocused[Text(view.desc.id)] = view.id;
         if (grantFocus) view.focus = false;
-        view.active = frame.active != 0;
+        const auto *window = name.empty() ? nullptr : ImGui::FindWindowByName(name.c_str());
+        view.active = frame.active != 0 || (view.desc.documentBound &&
+                                            OwnedPopup(window, true) < ImGui::GetCurrentContext()->OpenPopupStack.Size);
         view.placement.apply = false;
         if (frame.close)
             closed.push_back(view.id);
@@ -622,6 +686,13 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
             if (Text(description.id) != Text(entry.second.desc.id) ||
                 Text(description.provider) == Text(entry.second.desc.provider)) continue;
             const auto &old = entry.second;
+            if (old.desc.documentBound != description.documentBound)
+                return rollback();
+            const auto oldName = WindowName(old.id);
+            if (old.desc.documentBound && (old.active || (ImGui::GetCurrentContext() && !oldName.empty() &&
+                                                          OwnedPopup(ImGui::FindWindowByName(oldName.c_str())) <
+                                                              ImGui::GetCurrentContext()->OpenPopupStack.Size)))
+                return rollback();
             if (old.desc.area == EDITOR_DOCUMENT && !m_Application.NativeAvailable()) return rollback();
             const auto state = m_Application.SaveViewState(old.desc, old.data, m_Application.Scope(old.id));
             if (state.status != EDITOR_OK && state.status != EDITOR_NO_CHANGE) return rollback();
@@ -675,7 +746,10 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
     for (auto &replacement : replacements) {
         if (replacement.old == pendingFocus || (!pendingFocus && replacement.old == focused))
             replacementFocus = replacement.next.id;
+        const bool lastFocused = replacement.old && LastFocused(Text(replacement.next.desc.id)) == replacement.old;
         if (replacement.old) Destroy(replacement.old);
+        if (lastFocused)
+            m_LastFocused[Text(replacement.next.desc.id)] = replacement.next.id;
         m_Views.emplace(replacement.next.id, std::move(replacement.next));
         ++m_ViewsRevision;
         for (auto &assignment : assigned) if (assignment.first == replacement.old) assignment.first = replacement.next.id;
@@ -925,8 +999,14 @@ namespace vdev {
 void EditorWorkspace::DocumentChanging() {
     std::vector<EditorView> close;
     for (const auto &item : m_Views)
-        if (item.second.desc.area == EDITOR_DOCUMENT && item.second.desc.kind == EDITOR_OVERLAY_VIEW)
+        if (item.second.desc.area == EDITOR_DOCUMENT &&
+            (item.second.desc.kind == EDITOR_OVERLAY_VIEW || item.second.desc.documentBound))
             close.push_back(item.first);
-    for (auto id : close) Close(id);
+    for (auto id : close) {
+        const auto found = m_Views.find(id);
+        if (found != m_Views.end())
+            m_ClosedStates.erase(Text(found->second.desc.id));
+        Destroy(id);
+    }
 }
 } // namespace vdev
