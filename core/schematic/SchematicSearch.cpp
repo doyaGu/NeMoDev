@@ -209,8 +209,16 @@ std::vector<SearchResult> SearchDocument(Document &document, const SearchQuery &
         searchComments(data->rootBehavior);
         for (const auto &record : data->behaviors) searchComments(record);
     }
-    for (auto &result : results)
+    for (auto &result : results) {
         result.address = ElementAddress::Capture(document, result.script, result.ref);
+        result.focusReference = document.Reference(result.focus);
+        result.objectReference = document.Reference(result.object);
+        const auto *script = document.FindScript(result.script);
+        result.scriptName = script ? AnsiToUtf8(script->name) : "";
+        auto *object = document.Resolve(result.objectReference);
+        result.objectName = NameOf(object);
+        result.objectClass = object ? object->GetClassID() : 0;
+    }
     return results;
 }
 

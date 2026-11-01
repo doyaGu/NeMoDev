@@ -4,12 +4,12 @@
 #include <utility>
 #include <vector>
 
-#include "core/document/EditResult.h"
 #include "core/schematic/ElementAddress.h"
 
 namespace vdev {
 
 class Document;
+struct EditResult;
 
 // The Schematic Explorer's "Show in List" (Dev.exe dialog 732, the type
 // mask of sub_5B5A80 / sub_5B6C20).
@@ -36,39 +36,42 @@ enum SearchKind : unsigned {
 enum class SearchFilter { None, Type, Value };
 
 // Schematic Explorer query (Dev UI reference section 8.1): text matches
-// names, prototype names, operation names and Comment text; a nonzero CK_ID
+// names, prototype names, operation names and Comment text; a nonzero uint32_t
 // matches that object exactly. Without either nothing matches unless
 // listAll (Dev's list: every element of the kinds, the text and CK ID
 // filters narrowing it); listAll's text is not case sensitive (Dev lowers
 // both).
 struct SearchQuery {
     std::string text;
-    CK_ID id = 0;
+    uint32_t id = 0;
     unsigned kinds = SearchAll;
     bool caseSensitive = false;
     bool listAll = false;
     // Dev's Parse only visible Items: only these Scripts (onlyScripts set).
     bool onlyScripts = false;
-    std::vector<CK_ID> scripts;
+    std::vector<uint32_t> scripts;
     SearchFilter filter = SearchFilter::None;
     int type = -1;        // CKParameterType of Type and Value
     bool derived = false; // the types derived from type too
-    CK_ID value = 0;      // a CKParameter of type holding Value's value
+    uint32_t value = 0;   // a CKParameter of type holding Value's value
 };
 
 struct SearchResult {
-    CK_ID script = 0;
+    uint32_t script = 0;
     ElementRef ref;
     // The behavior that must be visible to show the element (its owner for
     // pins, the storing graph for other elements).
-    CK_ID focus = 0;
+    uint32_t focus = 0;
     std::string kind;
     std::string label;
     std::string detail;
     // The CK object the element shows (the behavior, the parameter, the
     // operation; a shortcut's source), 0 for Comments.
-    CK_ID object = 0;
+    uint32_t object = 0;
     ElementAddress address;
+    ObjectRef focusReference{}, objectReference{};
+    std::string scriptName, objectName;
+    int32_t objectClass = 0;
 };
 
 // Opens every Script session of the document as needed.
@@ -77,7 +80,7 @@ std::vector<SearchResult> SearchDocument(Document &document, const SearchQuery &
 // The Schematic Explorer's Replace Value (Dev.exe sub_5B9600): each
 // parameter (Script, parameter) of value's type takes value's value; one
 // undo step.
-EditResult ReplaceParameterValues(Document &document, const std::vector<std::pair<CK_ID, CK_ID>> &parameters,
-                                  CK_ID value);
+EditResult ReplaceParameterValues(Document &document, const std::vector<std::pair<uint32_t, uint32_t>> &parameters,
+                                  uint32_t value);
 
 } // namespace vdev
