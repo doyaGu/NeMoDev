@@ -51,6 +51,24 @@ struct SceneAttributeRow {
 };
 std::vector<SceneAttributeRow> QueryAttributeObjects(const EditorClient &, const SceneAttributeCatalog &,
                                                      const std::set<uint64_t> &, const std::vector<ObjectRef> & = {});
+struct ObjectAttributeRow {
+    uint64_t type = 0;
+    ObjectRef parameter{};
+    std::string name, category, value, parameterName;
+};
+struct ObjectAttributes {
+    ObjectRef target{};
+    uint64_t catalog = 0, documentRevision = 0;
+    bool behavioral = false, available = false;
+    std::vector<ObjectAttributeRow> rows;
+};
+struct AttributeClipboard {
+    uint64_t revision = 0;
+    std::vector<std::string> names;
+};
+// Failed or inconsistent reads leave the previous copy unchanged.
+bool QueryObjectAttributes(const EditorClient &, ObjectRef, ObjectAttributes &);
+bool QueryAttributeClipboard(const EditorClient &, AttributeClipboard &);
 // A tree retains non-render rows locally. Only externally changed selection
 // revisions replace them; completion versions distinguish its own deferred click.
 class SceneSelection {

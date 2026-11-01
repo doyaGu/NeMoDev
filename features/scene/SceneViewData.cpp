@@ -141,6 +141,80 @@ std::vector<SceneAttributeRow> QueryAttributeObjects(const EditorClient &client,
     } while (first < total);
     return rows;
 }
+bool QueryObjectAttributes(const EditorClient &client, ObjectRef target, ObjectAttributes &output) {
+    ObjectAttributes next;
+    next.target = target;
+    uint64_t first = 0, count = 0;
+    std::set<uint64_t> types;
+    do {
+        const auto page =
+            client.Query("object.attributes", {ObjectArgument("target", target), IntegerArgument("first", first)});
+        const auto *echo = EditorClient::Find(page, "target"), *rows = EditorClient::Find(page, "rows");
+        const auto *catalog = EditorClient::Find(page, "catalog"),
+                   *revision = EditorClient::Find(page, "document-revision");
+        const auto *behavioral = EditorClient::Find(page, "behavioral"),
+                   *available = EditorClient::Find(page, "available");
+        const auto *total = EditorClient::Find(page, "total"), *end = EditorClient::Find(page, "next");
+        if (page.status != EDITOR_OK || !target || target.document != client.Scope().document || !echo ||
+            echo->type != EDITOR_OBJECT || echo->object != target || !rows || rows->type != EDITOR_RECORD || !catalog ||
+            catalog->type != EDITOR_INTEGER_VALUE || !revision || revision->type != EDITOR_INTEGER_VALUE ||
+            !behavioral || behavioral->type != EDITOR_INTEGER_VALUE || behavioral->integer > 1 || !available ||
+            available->type != EDITOR_INTEGER_VALUE || available->integer > 1 || !total ||
+            total->type != EDITOR_INTEGER_VALUE || total->integer > 1000000 || !end ||
+            end->type != EDITOR_INTEGER_VALUE || end->integer > total->integer || end->integer < first ||
+            rows->fields.size() != end->integer - first ||
+            ((!behavioral->integer || !available->integer) && total->integer) ||
+            (end->integer == first && end->integer != total->integer))
+            return false;
+        if (first && (count != total->integer || next.catalog != catalog->integer ||
+                      next.documentRevision != revision->integer || next.behavioral != bool(behavioral->integer) ||
+                      next.available != bool(available->integer)))
+            return false;
+        next.catalog = catalog->integer;
+        next.documentRevision = revision->integer;
+        count = total->integer;
+        next.behavioral = behavioral->integer != 0;
+        next.available = available->integer != 0;
+        for (size_t i = 0; i < rows->fields.size(); ++i) {
+            const auto &row = rows->fields[i];
+            if (row.type != EDITOR_RECORD || row.fields.size() != 6 || row.key != std::to_string(first + i))
+                return false;
+            const auto field = [&](const char *key, EditorValueType type) -> const EditorField * {
+                for (const auto &f : row.fields)
+                    if (f.key == key && f.type == type)
+                        return &f;
+                return nullptr;
+            };
+            const auto *id = field("type", EDITOR_INTEGER_VALUE), *parameter = field("parameter", EDITOR_OBJECT),
+                       *name = field("name", EDITOR_TEXT_VALUE), *category = field("category", EDITOR_TEXT_VALUE),
+                       *value = field("value", EDITOR_TEXT_VALUE),
+                       *parameterName = field("parameter-name", EDITOR_TEXT_VALUE);
+            if (!id || id->integer > INT32_MAX || !types.insert(id->integer).second || !parameter ||
+                (parameter->object && parameter->object.document != target.document) || !name || !category || !value ||
+                !parameterName)
+                return false;
+            if (!parameter->object &&
+                (parameter->object.document.value || parameter->object.object || parameter->object.lifetime))
+                return false;
+            next.rows.push_back(
+                {id->integer, parameter->object, name->text, category->text, value->text, parameterName->text});
+        }
+        first = end->integer;
+        if (first == total->integer)
+            break;
+    } while (true);
+    output = std::move(next);
+    return true;
+}
+bool QueryAttributeClipboard(const EditorClient &client, AttributeClipboard &output) {
+    const auto result = client.Query("attribute.clipboard");
+    const auto *revision = EditorClient::Find(result, "revision"), *names = EditorClient::Find(result, "names");
+    if (result.status != EDITOR_OK || !revision || revision->type != EDITOR_INTEGER_VALUE || !names ||
+        names->type != EDITOR_TEXT_LIST)
+        return false;
+    output = {revision->integer, names->texts};
+    return true;
+}
 void SceneSelection::Pull(const EditorClient &client) {
     const auto state = client.Query("selection.objects");
     if (state.status != EDITOR_OK) {

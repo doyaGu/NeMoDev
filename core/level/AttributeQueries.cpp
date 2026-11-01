@@ -62,6 +62,43 @@ AttributeCatalog ReadAttributeCatalog(const Document &document, const std::vecto
     return result;
 }
 
+namespace {
+AttributeObjectInfo AttributeValue(const Document &document, CKAttributeManager &attributes,
+                                   CKParameterManager &parameters, CKBeObject &object, CKAttributeType type) {
+    AttributeObjectInfo info;
+    info.object = object.GetID();
+    info.reference = document.Reference(info.object);
+    info.type = type;
+    info.name = object.GetName() ? object.GetName() : "";
+    if (const auto *name = attributes.GetAttributeNameByType(type))
+        info.attributeName = name;
+    if (const auto *category = attributes.GetAttributeCategory(type))
+        info.category = category;
+    if (auto *value = object.GetAttributeParameter(type)) {
+        info.parameter = value->GetID();
+        info.parameterReference = document.Reference(info.parameter);
+        info.value = ParameterText(value);
+        if (const auto *name = parameters.ParameterTypeToName(value->GetType()))
+            info.parameterName = name;
+    }
+    return info;
+}
+} // namespace
+std::vector<AttributeObjectInfo> ReadObjectAttributes(const Document &document, CK_ID id) {
+    if (!document.IsOpen() || !document.IsLive(id))
+        return {};
+    auto *context = document.Context();
+    auto *object = CKBeObject::Cast(context->GetObject(id));
+    auto *attributes = context->GetAttributeManager();
+    auto *parameters = context->GetParameterManager();
+    if (!object || !attributes || !parameters)
+        return {};
+    std::vector<AttributeObjectInfo> result;
+    for (int i = 0; i < object->GetAttributeCount(); ++i)
+        result.push_back(AttributeValue(document, *attributes, *parameters, *object, object->GetAttributeType(i)));
+    return result;
+}
+
 std::vector<AttributeObjectInfo> ReadAttributeObjects(const Document &document, const std::vector<CKAttributeType> &types,
                                                      const std::vector<CK_ID> &targets) {
     std::vector<AttributeObjectInfo> result;
@@ -73,18 +110,7 @@ std::vector<AttributeObjectInfo> ReadAttributeObjects(const Document &document, 
         if (!attributes->IsAttributeIndexValid(type)) continue;
         auto append = [&](CKBeObject *object) {
             if (!object || object->IsDynamic() || !document.IsLive(object->GetID()) || !object->HasAttribute(type)) return;
-            AttributeObjectInfo info;
-            info.object = object->GetID();
-            info.reference = document.Reference(info.object);
-            info.type = type;
-            info.name = object->GetName() ? object->GetName() : "";
-            if (auto *value = object->GetAttributeParameter(type)) {
-                info.parameter = value->GetID();
-                info.parameterReference = document.Reference(info.parameter);
-                info.value = ParameterText(value);
-                if (const char *name = parameters->ParameterTypeToName(value->GetType())) info.parameterName = name;
-            }
-            result.push_back(std::move(info));
+            result.push_back(AttributeValue(document, *attributes, *parameters, *object, type));
         };
         if (targets.empty()) {
             const auto &objects = attributes->GetGlobalAttributeListPtr(type);

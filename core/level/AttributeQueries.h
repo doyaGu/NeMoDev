@@ -37,11 +37,13 @@ struct AttributeObjectInfo {
     ObjectRef reference{}, parameterReference{};
     CKAttributeType type = -1;
     CK_ID object = 0, parameter = 0;
-    std::string name, value, parameterName;
+    std::string name, value, parameterName, attributeName, category;
 };
 // Only the requested types. Empty objects lists all objects in native order;
 // otherwise only those IDs are queried, in input order. Dynamic and discarded
 // objects are omitted. A parameterless attribute still has a row.
 std::vector<AttributeObjectInfo> ReadAttributeObjects(const Document &document, const std::vector<CKAttributeType> &types,
                                                      const std::vector<CK_ID> &objects = {});
+// Attached attributes in object order, including hidden types and dynamic objects.
+std::vector<AttributeObjectInfo> ReadObjectAttributes(const Document &, CK_ID object);
 } // namespace vdev
