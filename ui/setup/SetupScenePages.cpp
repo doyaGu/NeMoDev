@@ -623,7 +623,10 @@ void SetupWindows::FramePage(CK3dEntity *frame) {
     ImGui::TextUnformatted("Frame Representation:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(250);
-    const std::vector<std::string> &shapes = m_State.layoutFrameShapes;
+    const auto presentation = EditorClient(m_State.workspace->Application().Host(), 0).Query("layout.presentation");
+    const auto *shapeNames = EditorClient::Find(presentation, "frame-shapes");
+    const std::vector<std::string> emptyShapes;
+    const auto &shapes = shapeNames && shapeNames->type == EDITOR_TEXT_LIST ? shapeNames->texts : emptyShapes;
     auto found = m_State.document->Layout().representations.find(id);
     const int representation = found != m_State.document->Layout().representations.end() ? found->second : 1;
     const bool known = representation >= 0 && representation <= static_cast<int>(shapes.size());

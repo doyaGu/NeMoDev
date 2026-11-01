@@ -20,8 +20,7 @@
 #include "workspace/ResourceDrag.h"
 #include "features/layout/LayoutSceneData.h"
 #include "workspace/EditorClient.h"
-
-
+#include "features/layout/LayoutViewport.h"
 
 namespace vdev {
 
@@ -60,8 +59,8 @@ std::string DevObjectName(CKObject *object);
 // shortcut menu; LayoutDrop.cpp: drag and drop;
 // LayoutExplorer.cpp: Selection Groups and the 3D Layout Explorer;
 // LayoutSnapshot.cpp: the Snapshot Buffer.
-class LayoutWindow {
-public:
+class LayoutWindow : public LayoutViewport {
+  public:
     explicit LayoutWindow(EditorState &state);
     ~LayoutWindow();
     LayoutWindow(const LayoutWindow &) = delete;
@@ -83,6 +82,9 @@ public:
     // composition plays, the Player Mode preferences, no navigation but the
     // left button's tools, no shortcut menu, clicks sent to the objects.
     bool PlayerMode() const;
+    bool CapturePixels(std::vector<unsigned char> &, int &width, int &height) override;
+    bool EnterFullScreen(const LayoutScreenMode &, std::string &error) override;
+    bool ExitFullScreen(bool activateEditor, std::string &error) override;
 #ifdef VIRTOOLSDEV_UI_TESTS
     // The view's rectangle on screen when it was drawn at the last frame
     // (the UI tests click in it); false when it was not.
@@ -124,7 +126,7 @@ public:
     std::pair<CK_ID, CK_ID> DropAsking(const std::function<std::pair<CK_ID, CK_ID>()> &drop);
     // The view is fullscreen (the editor's window is hidden behind it but
     // keeps going: the composition plays on).
-    bool FullScreen() const { return m_View.FullScreen(); }
+    bool FullScreen() const;
     // A camera, transform or 2D gesture or a selection rectangle going on
     // (Sticky Mode: with no button held).
     bool Busy() const { return m_GestureEdit || !m_PendingGesture.empty() || m_Selecting; }
@@ -176,6 +178,7 @@ private:
     };
     void SyncComposition();
     void ApplyPreferences();
+    void TogglePreference(const char *key);
     // Alt+Enter (Dev.exe sub_5C5CB0, command 0x803C): fullscreen in Player
     // Mode with the Fullscreen Render Device and Render Mode, windowed again.
     // Leaving Player Mode leaves fullscreen and puts the editor's window
@@ -317,8 +320,6 @@ private:
     // next document's objects): made anew when it is closed (DocumentClosed);
     // a field naming an object goes here.
     struct DocumentState {
-        std::vector<CK_ID> playerSelection; // shown in Player Mode: the selection of Play
-        CK_ID lastLevel = 0;                // the level shown (another: the composition changed)
         // Duplicate / Paste waiting for the Copy Options.
         std::vector<ObjectRef> pendingCopy;
         ObjectRef copyTarget{};
@@ -360,6 +361,10 @@ private:
     bool m_Started = false;
     std::string m_StartError;
     SDL_Window * m_MainWindow = nullptr; // ImGui's coordinates are its client's
+    Preferences m_Preferences;
+    uint64_t m_PreferencesRevision = 0;
+    EditorResponse m_Presentation;
+    uint64_t m_Composition = 0;
     bool m_PlayerMode = false;   // the Player Mode preferences are applied
     DocumentState m_Doc;
     // Fullscreen: the editor's window placement before, the keys of the

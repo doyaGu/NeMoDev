@@ -143,15 +143,18 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) ||
         !RegisterRuntimeViews(m_Editor, error) || !m_Environment.Register(error) ||
         !RegisterEnvironmentViews(m_Editor, error) || !RegisterEnvironmentInputs(m_Editor, window, error) ||
-        !m_Diagnostics.Register(error) || !RegisterDiagnosticViews(m_Editor, error) ||
-        !m_Preferences.Register(error) || !RegisterPreferencesView(m_Editor, error) || !m_Outputs.Register(error) ||
+        !m_Diagnostics.Register(error) || !RegisterDiagnosticViews(m_Editor, error) || !m_Preferences.Register(error) ||
+        !RegisterPreferencesView(m_Editor, error) || !m_Outputs.Register(error) ||
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
         !m_SchematicGraph.Register(m_Editor, error) || !RegisterSchematicDiagnosticViews(m_Editor, error) ||
         !RegisterArrayValueEditors(m_Editor, error) || !RegisterObjectViews(m_Editor, error) ||
-        !m_SceneCommands.Register(error) || !m_LayoutCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
-        !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
+        !m_SceneCommands.Register(error) || !m_LayoutCommands.Register(error) ||
+        !m_LayoutPresentation.Register(error) ||
+        !RegisterSceneViews(m_Editor, error) ||
+        !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) ||
+        !RegisterSceneNavigation(error)) {
         m_State.Log(LogLevel::Error, error);
         return false;
     }
@@ -181,6 +184,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     m_Layout.createObject = [this](LayoutObject kind) { CreateObject(kind); };
 
     std::string layoutError;
+    m_LayoutPresentation.Poll();
     if (!m_Layout.Start(window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     EditorView lastResource = 0;
     const auto openResource = [&](const std::string &resource) {
@@ -398,7 +402,9 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
     using A = DocumentCommands::Action;
     if (result.action == A::New && result.status == EDITOR_OK) {
         std::string error;
-        if (!m_Layout.Start(m_Window, &error)) m_State.Log(LogLevel::Warning, "3D Layout: " + error);
+        m_LayoutPresentation.Poll();
+        if (!m_Layout.Start(m_Window, &error))
+            m_State.Log(LogLevel::Warning, "3D Layout: " + error);
     }
     if (!result.message.empty())
         m_State.Log(result.status == EDITOR_ERROR ? LogLevel::Error : LogLevel::Info, result.message);
@@ -460,6 +466,7 @@ bool EditorApp::OpenFile(const std::string &path) {
 
 void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result) {
     std::string layoutError;
+    m_LayoutPresentation.Poll();
     if (!m_Layout.Start(m_Window, &layoutError)) m_State.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     RememberRecentFile(path);
     // NMO opens are imports into a new composition. Keep its editor state,
@@ -531,6 +538,7 @@ void EditorApp::RestoreDocument() {
     m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
                     m_State.document->TopologyRevision(), true, m_State.HasDocument());
     std::string error;
+    m_LayoutPresentation.Poll();
     if (!m_Layout.Start(m_Window, &error)) throw std::runtime_error("3D Layout: " + error);
     m_Layout.ApplyLayoutData(m_DetachedLayout, m_LayoutCommands.ProjectInterface(m_DetachedLayout), false);
     ReopenSetups(m_DetachedLayout);
@@ -1038,6 +1046,7 @@ void EditorApp::Frame() {
 #endif
     if (m_ShowExplorer) m_Panels.ExplorerPanel(&m_ShowExplorer);
     {
+        m_LayoutPresentation.Poll();
         m_Layout.Draw(0, m_FocusSchematic <= 0);
         // Setup tabs dock with the Schematic (Dev's tab row).
         ImGuiWindow *schematic = ImGui::FindWindowByName(m_Schematics.Window().c_str());

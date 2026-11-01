@@ -41,23 +41,6 @@ VxVector Vector(const std::string &text) {
     return VxVector(Component(text, 0, '|'), Component(text, 1, '|'), Component(text, 2, '|'));
 }
 
-bool SameDisplay(const LayoutDisplay &a, const LayoutDisplay &b) {
-    return a.shading == b.shading && a.textured == b.textured && a.wireframe == b.wireframe &&
-           a.showFrames == b.showFrames && a.showCurves == b.showCurves && a.showWorldAxis == b.showWorldAxis &&
-           a.showLights == b.showLights && a.showCameras == b.showCameras && a.showObjectAxis == b.showObjectAxis &&
-           a.showPortals == b.showPortals && a.showGrid == b.showGrid && a.ignoreCameraAspect == b.ignoreCameraAspect &&
-           a.gridOrientation == b.gridOrientation && a.gridSections[0] == b.gridSections[0] &&
-           a.gridSections[1] == b.gridSections[1] && a.gridStep[0] == b.gridStep[0] && a.gridStep[1] == b.gridStep[1] &&
-           a.gridColor == b.gridColor && a.gridDir == b.gridDir && a.gridUp == b.gridUp && a.gridRight == b.gridRight &&
-           a.constantObjectAxis == b.constantObjectAxis && a.objectAxisZoom == b.objectAxisZoom &&
-           a.constantFrame == b.constantFrame && a.constantCamera == b.constantCamera && a.constantLight == b.constantLight &&
-           a.constantCurvePoint == b.constantCurvePoint && a.frameZoom == b.frameZoom && a.cameraZoom == b.cameraZoom &&
-           a.lightZoom == b.lightZoom && a.curvePointZoom == b.curvePointZoom &&
-           a.showScreenGrid == b.showScreenGrid && a.homogenousScreenGrid == b.homogenousScreenGrid &&
-           a.screenStep[0] == b.screenStep[0] && a.screenStep[1] == b.screenStep[1] &&
-           a.screenOffset[0] == b.screenOffset[0] && a.screenOffset[1] == b.screenOffset[1];
-}
-
 // Dev's colors (screenshots): the top bar strip, the left toolbar.
 const ImU32 TOP_BAR = IM_COL32(65, 65, 65, 255);
 const ImU32 TOP_BAR_BORDER = IM_COL32(157, 157, 157, 255);
@@ -81,6 +64,7 @@ LayoutWindow::~LayoutWindow() {
 
 bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
     m_EditorHost = m_State.workspace->Application().Host();
+    m_Capturing = 0;
     CancelEdits();
     if (!ReleaseTexture()) {
         // Keep the borrowed SDL texture alive until the old Context, and with
@@ -91,7 +75,7 @@ bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
     m_MainWindow = window;
     ApplyPreferences();
     std::string message;
-    m_Started = m_View.Start(m_State.preferences.Text("3D Layout\\Author Mode\\Device Driver"), &message,
+    m_Started = m_View.Start(Utf8ToAnsi(m_Preferences.Text("3D Layout\\Author Mode\\Device Driver")), &message,
                              MainRenderer().Device());
     SelectViewportContext();
     if (!m_Started) m_StartError = message;
@@ -104,15 +88,18 @@ bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
         if (!m_Started || ImGui::GetFrameCount() - m_ViewFrame > 2 || x < m_ViewMin.x || y < m_ViewMin.y ||
             x >= m_ViewMax.x || y >= m_ViewMax.y)
             return 0;
-        const LayoutPickInfo info = m_View.PickInfo(static_cast<int>(x - m_ViewMin.x), static_cast<int>(y - m_ViewMin.y));
-        CKCamera *camera = m_View.Camera();
-        const CK_ID shown = camera && !m_View.IsViewCamera(camera->GetID()) ? camera->GetID() : 0;
-        return LayoutPickObject(m_State.host.Context(), info, cid, shown);
+        EditorValue px{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, py{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
+        px.real = int(x - m_ViewMin.x);
+        py.real = int(y - m_ViewMin.y);
+        const auto result = Client().Query("layout.pick-object", {px, py, IntegerArgument("class", uint64_t(cid))});
+        const auto *picked = EditorClient::Find(result, "object");
+        return result.status == EDITOR_OK && picked && picked->type == EDITOR_OBJECT ? picked->object.object : 0;
     };
     return m_Started;
 }
 
 void LayoutWindow::Stop() {
+    m_Capturing = 0;
     CancelEdits();
     m_State.objectPick.erase("3D Layout");
     const bool released = ReleaseTexture();
@@ -125,94 +112,33 @@ void LayoutWindow::Stop() {
 // Dev's CUIKApp +0x100: set by Play (sub_5CD5D0), cleared by Pause and
 // Stop (sub_5CD3D0) and when the context no longer plays (sub_5CD650).
 bool LayoutWindow::PlayerMode() const {
-    CKContext *context = m_State.host.Context();
-    return context && context->IsPlaying() && m_State.debugger &&
-           m_State.debugger->GetState() == Debugger::State::Running;
+    return EditorClient::Integer(Client().Query("layout.presentation"), "player") != 0;
 }
-
+bool LayoutWindow::FullScreen() const {
+    return EditorClient::Integer(Client().Query("layout.presentation"), "fullscreen") != 0;
+}
 void LayoutWindow::ApplyPreferences() {
-    const Preferences &p = m_State.preferences;
-    // Dev.exe sub_4A11D0: Play enters Player Mode (Step One Frame does not:
-    // its frame is played within the command), showing the selection with
-    // Automatic Show Selection; stopping goes back to Author Mode.
-    const bool player = PlayerMode();
-    const bool changed = player != m_PlayerMode;
-    if (changed) {
-        m_PlayerMode = player;
-        const bool autoShow = player && p.Bool("3D Layout\\Player Mode\\Auto Show Selection");
-        m_Doc.playerSelection = autoShow ? m_State.objectSelection.Objects() : std::vector<CK_ID>();
-        // Author Mode is windowed.
-        if (!player) LeaveFullScreen();
+    const auto revision = Client().Revision("preferences.values");
+    if (!revision || revision != m_PreferencesRevision) {
+        const auto values = Client().Query("preferences.values");
+        const auto *record = EditorClient::Find(values, "value");
+        std::string error;
+        if (values.status == EDITOR_OK && record && record->type == EDITOR_RECORD &&
+            m_Preferences.ReadValues(record->fields, error))
+            m_PreferencesRevision = EditorClient::Integer(values, "revision");
     }
-    // The Setups' Show In Player Mode, and the selection of Play.
-    std::vector<CK_ID> shown;
-    if (player) {
-        shown.assign(m_State.document->Layout().playerShown.begin(), m_State.document->Layout().playerShown.end());
-        shown.insert(shown.end(), m_Doc.playerSelection.begin(), m_Doc.playerSelection.end());
-    }
-    m_View.SetPlayerShown(shown);
-    const std::string mode = player ? "3D Layout\\Player Mode\\" : "3D Layout\\Author Mode\\";
-    LayoutDisplay display;
-    display.shading = static_cast<VxShadeType>(std::clamp(p.Int(mode + "Render Type Index"), 0, 3));
-    display.textured = p.Bool(mode + "Render Type Textured");
-    display.wireframe = p.Bool(mode + "Render Type Wireframe");
-    display.showFrames = p.Bool(mode + "Show Frames");
-    display.showCurves = p.Bool(mode + "Show Curves");
-    display.showLights = p.Bool(mode + "Show Lights");
-    display.showCameras = p.Bool(mode + "Show Cameras");
-    display.showPortals = p.Bool(mode + "Show Portals");
-    // The objects' axes stay (Dev.exe sub_4A1E00 +484); the world axis and
-    // the Screen Guide are Author Mode's; the reference guide shows in Player
-    // Mode when Show Reference Guides is on too (sub_4A11D0 +524).
-    display.showObjectAxis = p.Bool("3D Layout\\Author Mode\\Show ObjectAxis");
-    display.showWorldAxis = !player && p.Bool("3D Layout\\Author Mode\\Show WorldAxis");
-    display.showGrid =
-        p.Bool("3D Layout\\Author Mode\\Show Grid") && (!player || p.Bool("3D Layout\\Player Mode\\Show Grid"));
-    display.ignoreCameraAspect = p.Bool("3D Layout\\Environment\\Ignore Camera Aspect Ratio");
-    display.constantObjectAxis = p.Int("3D Layout\\Interface Objects\\Constant Object Axis");
-    display.objectAxisZoom = p.Float("3D Layout\\Interface Objects\\Object Axis Zoom Percentage");
-    display.constantFrame = p.Bool("3D Layout\\Interface Objects\\Constant Frame");
-    display.constantCamera = p.Bool("3D Layout\\Interface Objects\\Constant Camera");
-    display.constantLight = p.Bool("3D Layout\\Interface Objects\\Constant Light");
-    display.constantCurvePoint = p.Bool("3D Layout\\Interface Objects\\Constant Curve Point");
-    display.frameZoom = p.Float("3D Layout\\Interface Objects\\Frame Zoom Percentage");
-    display.cameraZoom = p.Float("3D Layout\\Interface Objects\\Camera Zoom Percentage");
-    display.lightZoom = p.Float("3D Layout\\Interface Objects\\Light Zoom Percentage");
-    display.curvePointZoom = p.Float("3D Layout\\Interface Objects\\Curve Point Zoom Percentage");
-    display.gridOrientation = p.Int("3D Layout\\Reference Grid\\Orientation");
-    const std::string sections = p.Text("3D Layout\\Reference Grid\\Sections"), step = p.Text("3D Layout\\Reference Grid\\Step");
-    display.gridSections[0] = std::max(1, static_cast<int>(Component(sections, 0, ';')));
-    display.gridSections[1] = std::max(1, static_cast<int>(Component(sections, 1, ';')));
-    display.gridStep[0] = Component(step, 0, ';');
-    display.gridStep[1] = Component(step, 1, ';');
-    display.gridColor = static_cast<CKDWORD>(p.Int("3D Layout\\Reference Grid\\Color"));
-    display.gridDir = Vector(p.Text("3D Layout\\Reference Grid\\Orientation Dir"));
-    display.gridUp = Vector(p.Text("3D Layout\\Reference Grid\\Orientation Up"));
-    display.gridRight = Vector(p.Text("3D Layout\\Reference Grid\\Orientation Right"));
-    display.showScreenGrid = !player && p.Bool("3D Layout\\Show Screen Grid");
-    display.homogenousScreenGrid = p.Bool("3D Layout\\Homogenous Screen Grid");
-    const std::string screenStep = p.Text("3D Layout\\Screen Step"), screenOffset = p.Text("3D Layout\\Screen Offset");
-    display.screenStep[0] = Component(screenStep, 0, '|');
-    display.screenStep[1] = Component(screenStep, 1, '|');
-    display.screenOffset[0] = Component(screenOffset, 0, '|');
-    display.screenOffset[1] = Component(screenOffset, 1, '|');
-    if (!SameDisplay(display, m_View.Display())) m_View.SetDisplay(display);
-    // Automatic switching to FullScreen Mode (Dev.exe sub_4A11D0 +464).
-    if (changed && player && p.Bool("3D Layout\\Player Mode\\Auto FullScreen")) ToggleFullScreen();
+    m_Presentation = Client().Query("layout.presentation");
+    m_PlayerMode = m_Presentation.status == EDITOR_OK && EditorClient::Integer(m_Presentation, "player");
 }
 
 // Dev makes its interface objects again after ClearAll and adds its render
 // context to each new level; here the window notices the level change.
 void LayoutWindow::SyncComposition() {
-    if (!m_View.Started()) return;
-    CKContext *context = m_State.host.Context();
-    CKLevel *level = context ? context->GetCurrentLevel() : nullptr;
-    const CK_ID levelId = level ? level->GetID() : 0;
-    const bool lost = !m_View.InterfaceAlive();
-    if (levelId != m_Doc.lastLevel || lost) {
-        m_View.CompositionChanged();
-        m_Doc.lastLevel = levelId;
-        // Dev empties the Selection Groups combo for a new composition.
+    if (m_Presentation.status != EDITOR_OK)
+        return;
+    const auto revision = EditorClient::Integer(m_Presentation, "composition");
+    if (revision != m_Composition) {
+        m_Composition = revision;
         m_Group = {};
         m_GroupRevision = ~0u;
     }
@@ -220,6 +146,8 @@ void LayoutWindow::SyncComposition() {
 
 void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
     PollCommands();
+    if (!ReadLayoutSelection(Client(), m_SelectionData))
+        m_SelectionData = {};
     // Set again by the view while the composition keeps the cursor.
     ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
     // Every frame, shown or not: Player Mode starts with the selection of Play.
@@ -240,6 +168,7 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     if (!visible) {
+        m_Capturing = 0;
         CancelEdits();
         ImGui::End();
         ExplorerWindow();
@@ -250,8 +179,6 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
     }
     SyncComposition();
     SyncCurveTool();
-    const std::vector<std::string> shapes = m_View.FrameShapeNames();
-    if (shapes != m_State.layoutFrameShapes) m_State.layoutFrameShapes = shapes;
     // Dev's status bar shows the 3D Layout's action after it was used last.
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
         if ((Busy() || m_Tool == LayoutTool::Fly) && ImGui::IsKeyPressed(ImGuiKey_Escape)) CancelEdits();
@@ -442,8 +369,10 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     static const Button lock = {58, 30, 25, 51, 46, {692, 694, 693, 693, 692}, "Lock Selection (Spacebar)"};
     static const Button mode = {61, 52, 24, 73, 45, {1152, 1153, 1151, 1150, 1151}, "Selection Mode"};
     if (ToolbarButton(select, m_Tool == LayoutTool::Select)) Command(select.command);
-    if (ToolbarButton(lock, m_State.objectSelection.Locked())) Command(lock.command);
-    if (ToolbarButton(mode, m_State.preferences.Bool("3D Layout\\Strict Selection"))) Command(mode.command);
+    if (ToolbarButton(lock, m_SelectionData.locked))
+        Command(lock.command);
+    if (ToolbarButton(mode, m_Preferences.Bool("3D Layout\\Strict Selection")))
+        Command(mode.command);
     line(49);
     // Transformations.
     static const Button move = {9, 8, 55, 29, 76, {699, 701, 700, 700, 699}, "Select and Translate (X)"};
@@ -515,7 +444,8 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     static const Button guide = {29, 31, 166, 52, 187, {1258, 1259, 1260, 1260, 1258}, "Toggle Reference Guide (G)"};
     static const Button screenGuide = {67, 53, 166, 74, 187, {678, 680, 679, 679, 678}, "Toggle Screen Guide (Shift+G)"};
     if (ToolbarButton(guide, m_View.Display().showGrid)) Command(guide.command);
-    if (ToolbarButton(screenGuide, m_State.preferences.Bool("3D Layout\\Show Screen Grid"))) Command(screenGuide.command);
+    if (ToolbarButton(screenGuide, m_Preferences.Bool("3D Layout\\Show Screen Grid")))
+        Command(screenGuide.command);
     line(191);
     // Creation.
     static const Button creates[8] = {{31, 9, 197, 30, 218, {615, 617, 616, 616, 615}, "Create Camera (1)"},
@@ -526,7 +456,7 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
                                       {75, 53, 218, 74, 239, {621, 622, 623, 623, 621}, "Create 2D Frame (6)"},
                                       {80, 9, 239, 30, 260, {1324, 1325, 1326, 1326, 1324}, "Create Material (7)"},
                                       {81, 31, 239, 52, 260, {1327, 1328, 1329, 1329, 1327}, "Create Texture (8)"}};
-    const bool document = m_State.HasDocument();
+    const bool document = Client().Scope().document.value != 0;
     for (const Button &button : creates)
         if (ToolbarButton(button, false, document)) Command(button.command);
     static const Button portal = {77, 53, 239, 74, 260, {}, "Create Portal (9)"};
@@ -534,9 +464,8 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     if (MenuButton(portal, portals, m_PortalMode, false, document)) Command(portals[m_PortalMode].command);
     line(264);
     // Navigation.
-    CKCamera *camera = m_View.Camera();
-    const bool perspective = camera && camera->GetProjectionType() == CK_PERSPECTIVEPROJECTION;
-    const bool targeted = CKTargetCamera::Cast(camera) && CKTargetCamera::Cast(camera)->GetTarget();
+    const bool perspective = EditorClient::Integer(m_Presentation, "perspective");
+    const bool targeted = EditorClient::Integer(m_Presentation, "targeted");
     static const Button dolly = {23, 9, 270, 30, 291, {664, 666, 665, 665, 664}, "Camera Dolly (D)"};
     static const Button fov = {26, 31, 270, 52, 291, {674, 676, 675, 675, 674}, "Camera Field of View (F)"};
     static const Button zoom = {27, 53, 270, 74, 291, {}, "Camera Zoom (Z)"};
@@ -573,12 +502,12 @@ void LayoutWindow::Command(int command) {
         break;
     case 58:
         // Dev locks a non-empty selection only.
-        if (m_State.objectSelection.Locked() || !m_State.objectSelection.Objects().empty())
-            LockSelection(!m_State.objectSelection.Locked());
+        if (m_SelectionData.locked || !m_SelectionData.objects.empty())
+            LockSelection(!m_SelectionData.locked);
         break;
     case 61:
         // Selection Mode: Dev's "Strict Selection" (+540), RectPick's Intersect.
-        m_State.preferences.SetBool("3D Layout\\Strict Selection", !m_State.preferences.Bool("3D Layout\\Strict Selection"));
+        TogglePreference("3D Layout\\Strict Selection");
         break;
     case 12: case 13: case 14: {
         // Not an axis the view refuses (AllowedAxes).
@@ -615,9 +544,8 @@ void LayoutWindow::Command(int command) {
     case 79:
         // Automatic Portals (documentation "Automatic Portals"): a portal
         // between each two contiguous places.
-        if (m_State.HasDocument()) {
-            auto &editor = m_State.workspace->Application();
-            const auto made = editor.Execute("object.create-automatic-portals", {editor.Scope(), nullptr, 0});
+        if (Client().Scope().document.value) {
+            const auto made = Client().Command("object.create-automatic-portals");
             if (made.status != EDITOR_QUEUED)
                 m_State.Log(made.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, "Automatic Portals: " + made.message);
         }
@@ -631,7 +559,8 @@ void LayoutWindow::Command(int command) {
     case 28: m_Tool = LayoutTool::Pan; break;
     case 49: case 50: m_Tool = LayoutTool::Orbit; break;
     case 40: {
-        auto &editor = m_State.workspace->Application(); editor.Execute("preferences.open", {editor.Scope(), nullptr, 0}); break;
+        Execute("preferences.open");
+        break;
     }
     case 41: OpenExplorer(); break;
     case 180: {
@@ -655,11 +584,7 @@ void LayoutWindow::Command(int command) {
 // and the screen guide the Interface page, the reference guide its page,
 // snap the Snap & Align page, the sphere the Rendering page.
 void LayoutWindow::RightClick(int command) {
-    auto openPreferences = [this](const char *page) {
-        auto &editor = m_State.workspace->Application();
-        const EditorValue argument{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, EditorLiteral(page)};
-        editor.Execute("preferences.open", {editor.Scope(), &argument, 1});
-    };
+    auto openPreferences = [this](const char *page) { Execute("preferences.open", {TextArgument("page", page)}); };
     switch (command) {
     case 9: case 10: case 11: case 20: case 23: case 24: case 26: case 27: case 28: case 68: case 25:
         openPreferences("actions");
@@ -675,11 +600,28 @@ void LayoutWindow::RightClick(int command) {
 }
 
 // G / Shift+G (Dev.exe sub_4B95C0): the guide flips and Dev stores it at once.
-void LayoutWindow::ToggleGuide(bool screen) {
-    Preferences &p = m_State.preferences;
-    const char *key = screen ? "3D Layout\\Show Screen Grid" : "3D Layout\\Author Mode\\Show Grid";
-    p.SetBool(key, !p.Bool(key));
+void LayoutWindow::TogglePreference(const char *key) {
+    const auto values = Client().Query("preferences.values");
+    if (values.status != EDITOR_OK)
+        return;
+    const auto *record = EditorClient::Find(values, "value");
+    if (!record || record->type != EDITOR_RECORD)
+        return;
+    const auto found = std::find_if(record->fields.begin(), record->fields.end(),
+                                    [key](const EditorField &field) { return field.key == key; });
+    if (found == record->fields.end() || found->type != EDITOR_INTEGER_VALUE)
+        return;
+    EditorField changed{"value", EDITOR_RECORD};
+    changed.fields = {*found};
+    changed.fields.front().integer = !found->integer;
+    const std::vector<EditorField> fields{
+        {"revision", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(values, "revision")}, std::move(changed)};
+    const auto args = BorrowEditorFields(fields);
+    Execute("preferences.apply", {args.data(), args.data() + args.size()});
     ApplyPreferences();
+}
+void LayoutWindow::ToggleGuide(bool screen) {
+    TogglePreference(screen ? "3D Layout\\Show Screen Grid" : "3D Layout\\Author Mode\\Show Grid");
 }
 
 // ------------------------------------------------------------------- view
@@ -690,7 +632,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     // renders at that size, centered in a larger view; a smaller view gets
     // scrollbars (the horizontal one first, as Dev) and shows the part
     // scrolled to. at / size: the render context's rectangle on the screen.
-    const std::string screenSize = m_State.preferences.Text("3D Layout\\Environment\\Screen Size");
+    const std::string screenSize = m_Preferences.Text("3D Layout\\Environment\\Screen Size");
     const int fixedW = static_cast<int>(Component(screenSize, 0, '|')), fixedH = static_cast<int>(Component(screenSize, 1, '|'));
     ImVec2 at = viewAt, size = viewSize, visible = viewSize;
     bool hBar = false, vBar = false;
@@ -741,7 +683,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     // Dev.exe sub_4B95C0 (WM_SETCURSOR): in Player Mode without Update
     // Cursor In Player Mode the view leaves the cursor to the composition's
     // Building Blocks (Main.cpp does not put the arrow back).
-    if (m_PlayerMode && ImGui::IsItemHovered() && !m_State.preferences.Bool("3D Layout\\Player Mode\\Update Cursor"))
+    if (m_PlayerMode && ImGui::IsItemHovered() && !m_Preferences.Bool("3D Layout\\Player Mode\\Update Cursor"))
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     if (m_Started && m_Capturing) CaptureInput(at);
     else if (m_Started) ViewInput(at, ImGui::IsItemHovered());
@@ -758,10 +700,6 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
         return;
     }
     ContextMenuPopup();
-    m_View.SetSelection(m_State.objectSelection.Objects());
-    m_View.SetCones(std::vector<CK_ID>(m_State.document->Layout().cones.begin(), m_State.document->Layout().cones.end()));
-    m_View.SetRepresentations(m_State.document->Layout().representations);
-    m_View.SetHiddenCurvePoints(m_State.document->Layout().hiddenCurvePoints);
     dl->PushClipRect(viewAt, visibleMax, true);
     const bool resized = width != m_View.Width() || height != m_View.Height();
     bool targetReleased = true;
@@ -787,13 +725,14 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
         dl->AddRect(ImVec2(at.x + m_PressAt.x, at.y + m_PressAt.y), mouse, IM_COL32(255, 255, 255, 255));
     }
-    if (debugData || m_State.preferences.Bool("3D Layout\\Debug Mode")) {
+    if (debugData || m_Preferences.Bool("3D Layout\\Debug Mode")) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
         DebugData(at, static_cast<int>(mouse.x - at.x), static_cast<int>(mouse.y - at.y));
     }
     dl->PopClipRect();
     // Lock Selection: "a thin green border around the preview pane".
-    if (m_State.objectSelection.Locked()) dl->AddRect(viewAt, visibleMax, IM_COL32(0, 255, 0, 255), 0.0f, 0, 2.0f);
+    if (m_SelectionData.locked)
+        dl->AddRect(viewAt, visibleMax, IM_COL32(0, 255, 0, 255), 0.0f, 0, 2.0f);
 }
 
 // Dev.exe sub_4A01F0: the mouse (and the frame rate while playing), then
@@ -803,94 +742,29 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
 // colors of prelit meshes), the material, the texture. Unnamed objects are
 // "Unknown" (Dev's string 51).
 void LayoutWindow::DebugData(const ImVec2 &at, int x, int y) {
-    CKContext *context = m_State.host.Context();
-    if (!context) return;
-    const ImGuiIO &io = ImGui::GetIO();
-    // Keep Dev's displayed mouse/modifier bit values across platforms.
+    EditorValue px{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, py{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
+    px.real = x;
+    py.real = y;
+    const auto result = Client().Query("layout.debug-data", {px, py});
+    if (result.status != EDITOR_OK)
+        return;
+    const auto &io = ImGui::GetIO();
     const int buttons = (ImGui::IsMouseDown(ImGuiMouseButton_Left) ? 1 : 0) |
                         (ImGui::IsMouseDown(ImGuiMouseButton_Right) ? 2 : 0) | (io.KeyShift ? 4 : 0) |
                         (io.KeyCtrl ? 8 : 0) | (ImGui::IsMouseDown(ImGuiMouseButton_Middle) ? 16 : 0);
-    char line[512];
-    std::string text;
-    if (context->IsPlaying())
-        std::snprintf(line, sizeof(line), "X:%5d Y:%5d M:%3d  FPS:%5d\n", x, y, buttons, static_cast<int>(io.Framerate + 0.5f));
+    char line[128];
+    if (EditorClient::Integer(m_Presentation, "playing"))
+        std::snprintf(line, sizeof(line), "X:%5d Y:%5d M:%3d  FPS:%5d\n", x, y, buttons, int(io.Framerate + 0.5f));
     else
         std::snprintf(line, sizeof(line), "X:%5d Y:%5d M:%3d\n", x, y, buttons);
-    text += line;
-    const bool inside = x >= 0 && y >= 0 && x < m_View.Width() && y < m_View.Height();
-    const LayoutPickInfo info = inside ? m_View.PickInfo(x, y) : LayoutPickInfo();
-    // 32 characters (cut as wide characters, not ANSI bytes: a double-byte one stays whole), UTF-8.
-    auto name = [](CKObject *object) {
-        return WideToUtf8(AnsiToWide(object->GetName() ? object->GetName() : "Unknown").substr(0, 32));
-    };
-    auto entry = [&](CK_ID id, bool marks) {
-        CKObject *object = context->GetObject(id);
-        if (!object) return;
-        text += DevClassName(object) + ": " + name(object);
-        if (marks && m_State.objectSelection.Contains(id)) text += " (S)";
-        if (marks && m_View.DropTarget() == id) text += " (D)";
-        text += '\n';
-    };
-    entry(info.entity2d, true);
-    entry(info.character, true);
-    entry(info.entity3d, true);
-    CKMesh *mesh = CKMesh::Cast(context->GetObject(info.mesh));
-    if (mesh) {
-        text += DevClassName(mesh) + ": " + name(mesh) + "\n";
-        if (info.face >= 0 && info.face < mesh->GetFaceCount()) {
-            VxVector normal = mesh->GetFaceNormal(info.face);
-            normal.Normalize();
-            int index[3] = {0, 0, 0};
-            mesh->GetFaceVertexIndex(info.face, index[0], index[1], index[2]);
-            int nearest = index[0];
-            float best = -1.0f;
-            for (int k = 0; k < 3; ++k) {
-                VxVector position;
-                mesh->GetVertexPosition(index[k], &position);
-                const float distance = SquareMagnitude(position - info.point);
-                if (best < 0.0f || distance < best) best = distance, nearest = index[k];
-            }
-            std::snprintf(line, sizeof(line), "U=%lf V=%lf Base Material\n", info.u, info.v);
-            text += line;
-            for (int channel = 0; channel < mesh->GetChannelCount(); ++channel) {
-                float u = 0.0f, v = 0.0f;
-                mesh->GetVertexTextureCoordinates(nearest, &u, &v, channel);
-                std::snprintf(line, sizeof(line), "U=%lf V=%lf channel=%d\n", u, v, channel);
-                text += line;
-            }
-            std::snprintf(line, sizeof(line), "Face: %7d  Normal: %.4f %.4f %.4f \nNearest Vertex: %6d\n", info.face,
-                          normal.x, normal.y, normal.z, nearest);
-            text += line;
-            if (mesh->GetLitMode() == VX_PRELITMESH) {
-                const CKDWORD diffuse = mesh->GetVertexColor(nearest), specular = mesh->GetVertexSpecularColor(nearest);
-                std::snprintf(line, sizeof(line), "Vertex Diffuse  R:%4d G:%4d B:%4d A:%4d\n", (diffuse >> 16) & 255,
-                              (diffuse >> 8) & 255, diffuse & 255, diffuse >> 24);
-                text += line;
-                std::snprintf(line, sizeof(line), "Vertex Specular R:%4d G:%4d B:%4d A:%4d\n", (specular >> 16) & 255,
-                              (specular >> 8) & 255, specular & 255, specular >> 24);
-                text += line;
-            }
-        }
-    }
-    if (CKObject *material = context->GetObject(info.material))
-        text += DevClassName(material) + ": " + AnsiToUtf8(name(material)) + "\n";
-    if (CKObject *texture = context->GetObject(info.texture)) {
-        text += DevClassName(texture) + ": " + AnsiToUtf8(name(texture));
-        if (mesh) {
-            std::snprintf(line, sizeof(line), "  U:%.2f V:%.2f\n", info.u, info.v);
-            text += line;
-        } else {
-            text += '\n';
-        }
-    }
-    // Dev's sprite text: Arial, white, from (10, 10) of the view.
-    ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 10.0f * m_Scale, at.y + 10.0f * m_Scale), IM_COL32(255, 255, 255, 255),
-                                        text.c_str());
+    const auto text = line + EditorClient::Text(result, "text");
+    ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 10.0f * m_Scale, at.y + 10.0f * m_Scale),
+                                        IM_COL32(255, 255, 255, 255), text.c_str());
 }
 
 // "3D Layout\Actions\..." and the World Size (Interface page).
 CameraSteps LayoutWindow::Steps() const {
-    const Preferences &p = m_State.preferences;
+    const Preferences &p = m_Preferences;
     CameraSteps steps;
     steps.rotate = p.Float("3D Layout\\Actions\\Camera Rotate Step");
     steps.translate = p.Float("3D Layout\\Actions\\Camera Translate Step");
@@ -977,16 +851,12 @@ void LayoutWindow::UpdateCoordinates() {
 }
 
 std::string LayoutWindow::SelectionText() const {
-    const std::vector<CK_ID> &objects = m_State.objectSelection.Objects();
-    if (objects.empty()) return "Nothing selected";
-    if (objects.size() > 1) return std::to_string(objects.size()) + " objects selected";
-    CKObject *object = m_State.host.Context() ? m_State.host.Context()->GetObject(objects.front()) : nullptr;
-    return "'" + AnsiToUtf8(object && object->GetName() ? object->GetName() : "") + "' selected";
+    return EditorClient::Text(Client().Query("layout.presentation"), "selection-text");
 }
 
 // "3D Layout\Actions\Object ..." and the Snap & Align steps.
 TransformSteps LayoutWindow::TransformStepsOf() const {
-    const Preferences &p = m_State.preferences;
+    const Preferences &p = m_Preferences;
     TransformSteps steps;
     steps.translate = p.Float("3D Layout\\Actions\\Object Translate Step");
     steps.rotate = p.Float("3D Layout\\Actions\\Object Rotate Step");
@@ -1004,7 +874,7 @@ TransformSteps LayoutWindow::TransformStepsOf() const {
 
 // "3D Layout\Snap\..." for 2D entities and the Screen Guide (Interface page).
 Snap2D LayoutWindow::Snap2DOf() const {
-    const Preferences &p = m_State.preferences;
+    const Preferences &p = m_Preferences;
     Snap2D snap;
     snap.mode = p.Int("3D Layout\\Snap\\Mode");
     snap.influence = p.Int("3D Layout\\Snap\\Translation Influence (Sprites)");
@@ -1139,6 +1009,85 @@ void LayoutWindow::ResetViewportAfterContextStop() {
     if (m_Texture)
         RetireTexture(std::move(m_Texture));
     m_TextureWidth = m_TextureHeight = 0;
+}
+
+// Private window and GPU resource operations used by the Layout commands.
+bool LayoutWindow::CapturePixels(std::vector<unsigned char> &pixels, int &width, int &height) {
+    if (!m_Started || m_View.Width() <= 0 || m_View.Height() <= 0)
+        return false;
+    if ((UsesGpuViewport() || m_View.FullScreen()) && !m_View.ReadPixels(m_Pixels))
+        return false;
+    if (m_Pixels.size() != size_t(m_View.Width()) * size_t(m_View.Height()) * 4)
+        return false;
+    pixels = m_Pixels;
+    width = m_View.Width();
+    height = m_View.Height();
+    return true;
+}
+bool LayoutWindow::EnterFullScreen(const LayoutScreenMode &mode, std::string &error) {
+    m_Capturing = 0;
+    // Fullscreen presents the render window normally; remove the editor-owned
+    // virtual backbuffer before the Context changes mode or is recreated.
+    if (!ReleaseGpuViewport()) {
+        error = "3D Layout: cannot release the GPU viewport";
+        return false;
+    }
+    m_ViewportContext = nullptr;
+    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
+    m_Switching = true;
+    VxDisplayMode nativeMode;
+    nativeMode.Width = mode.width;
+    nativeMode.Height = mode.height;
+    nativeMode.Bpp = mode.bitsPerPixel;
+    nativeMode.RefreshRate = mode.refreshRate;
+    const bool full = m_View.GoFullScreen(mode.driver, nativeMode);
+    if (full && m_MainWindow && !(SDL_GetWindowFlags(m_MainWindow) & SDL_WINDOW_HIDDEN))
+        m_MainHiddenForFullScreen = SDL_HideWindow(m_MainWindow);
+    m_Switching = false;
+    SelectViewportContext();
+    if (!full)
+        error = "3D Layout: cannot enter fullscreen";
+    return full;
+}
+bool LayoutWindow::ExitFullScreen(bool activateEditor, std::string &error) {
+    m_Capturing = 0;
+    m_PendingToggle = m_PendingDeactivate = false;
+    if (!m_View.FullScreen())
+        return true;
+    if (!ReleaseGpuViewport()) {
+        error = "3D Layout: cannot release the GPU viewport";
+        return false;
+    }
+    m_ViewportContext = nullptr;
+    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
+    m_Switching = true;
+    const bool stopped = m_View.StopFullScreen();
+    m_Switching = false;
+    SelectViewportContext();
+    if (!stopped) {
+        error = "3D Layout: cannot leave fullscreen";
+        return false;
+    }
+    if (m_MainWindow && m_MainHiddenForFullScreen) {
+        // Showing the editor after another application takes focus must not
+        // activate it and immediately take that application's focus back.
+        const char *hint = SDL_GetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN);
+        const bool hadHint = hint != nullptr;
+        const std::string previous = hint ? hint : "";
+        if (!activateEditor)
+            SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+        SDL_ShowWindow(m_MainWindow);
+        if (!activateEditor) {
+            if (hadHint)
+                SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, previous.c_str());
+            else
+                SDL_ResetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN);
+        }
+        m_MainHiddenForFullScreen = false;
+    }
+    if (m_MainWindow && activateEditor)
+        SDL_RaiseWindow(m_MainWindow);
+    return true;
 }
 
 } // namespace vdev

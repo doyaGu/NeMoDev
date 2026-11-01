@@ -13,6 +13,7 @@
 #include "features/environment/EnvironmentCommands.h"
 #include "features/diagnostics/DiagnosticCommands.h"
 #include "features/layout/LayoutCommands.h"
+#include "features/layout/LayoutPresentation.h"
 #include "features/schematic/SchematicGraphCommands.h"
 #include "workspace/EditorWorkspace.h"
 #include <functional>
@@ -289,6 +290,15 @@ private:
     LayoutCommands m_LayoutCommands{m_Editor,
         [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
         [this]() -> LayoutView & { return m_Layout.View(); }, m_State.objectSelection};
+    LayoutPresentation m_LayoutPresentation{m_Editor,
+                                            [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
+                                            [this]() -> LayoutView & { return m_Layout.View(); },
+                                            m_Layout,
+                                            m_State.objectSelection,
+                                            m_State.preferences,
+                                            [this] { return m_Execution.State().state == EDITOR_EXECUTION_RUNNING; }};
+
+
 #ifdef VIRTOOLSDEV_UI_TESTS
     ParameterBox m_StartupValue{m_State}; // --edit-value
     int m_StartupValueState = 0;          // 1: to open, 2: open

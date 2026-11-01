@@ -87,11 +87,11 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         ctx->ItemClick(PLAY);
         IM_CHECK(WaitFor(ctx, 60, [&] { return debugger.Frames() > 3; }));
         IM_CHECK(debugger.GetState() == vdev::Debugger::State::Running);
-        IM_CHECK(App().Layout().PlayerMode());
+        IM_CHECK(Read<bool>(ctx, [] { return App().Layout().PlayerMode(); }));
         ctx->ItemClick(PLAY);
         ctx->Yield(2);
         IM_CHECK(debugger.GetState() == vdev::Debugger::State::Paused);
-        IM_CHECK(!App().Layout().PlayerMode());
+        IM_CHECK(Read<bool>(ctx, [] { return !App().Layout().PlayerMode(); }));
         const int paused = debugger.Frames();
         ctx->Yield(10);
         IM_CHECK_EQ(debugger.Frames(), paused);

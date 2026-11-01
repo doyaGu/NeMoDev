@@ -309,7 +309,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         const int frames = App().State().debugger->Frames();
         ctx->Yield(12);
         IM_CHECK_EQ(App().State().debugger->Frames(), frames);
-        IM_CHECK(!App().Layout().PlayerMode());
+        IM_CHECK(Read<bool>(ctx, [] { return !App().Layout().PlayerMode(); }));
         IM_CHECK(Released(ctx));
         // Closing the other window returns focus through the window manager;
         // RaiseWindow alone may be refused by desktop focus-stealing policy.
@@ -353,7 +353,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return RenderWindow(); }));
             IM_CHECK(Until(ctx, [] { return !App().Layout().FullScreen() && SDL_GetKeyboardFocus() == EditorWindow(); }));
         } else {
-            IM_CHECK(!App().Layout().FullScreen());
+            IM_CHECK(Read<bool>(ctx, [] { return !App().Layout().FullScreen(); }));
             bool warned = false;
             for (size_t i = logged; i < App().State().eventLog.Entries().size(); ++i)
                 warned |= App().State().eventLog.Entries()[i].text.find("unavailable fullscreen mode") != std::string::npos;
@@ -420,7 +420,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             IM_CHECK(SaveImage("fullscreen-after-input.png", changed));
             AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return RenderWindow(); }));
             IM_CHECK(Until(ctx, [] { return !App().Layout().FullScreen() && SDL_GetKeyboardFocus() == EditorWindow(); }));
-            IM_CHECK(App().Layout().PlayerMode());
+            IM_CHECK(Read<bool>(ctx, [] { return App().Layout().PlayerMode(); }));
             IM_CHECK(Read<bool>(ctx, [=] {
                 int w = 0, h = 0; SDL_GetWindowSize(EditorWindow(), &w, &h);
                 return w == width && h == height && (SDL_GetWindowFlags(RenderWindow()) & SDL_WINDOW_HIDDEN) &&

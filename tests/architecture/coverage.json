@@ -2463,7 +2463,7 @@
     {
       "id": "viewport",
       "name": "CK 渲染 Context、interface cameras、UI-owned target 与 imported handle",
-      "owner": "视口私有实现及 UiRenderer",
+      "owner": "LayoutView 与 UiRenderer 持有 Context/纹理；LayoutPresentation 同步 Player 和显示设置；LayoutWindow 私有实现执行模式切换",
       "lifetime": "viewport/native generation、resize/fullscreen、安全关闭",
       "persistence": "非文档创作对象；保留既有不保存标记",
       "features": [

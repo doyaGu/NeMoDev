@@ -175,15 +175,15 @@ std::vector<EditorField> LayoutWindow::GestureFields(const EditorResponse &input
     const auto &selection = m_SelectionData;
     EditorField started{"started", EDITOR_REAL_VALUE};
     started.real = ImGui::GetTime();
-    return {{"target", EDITOR_OBJECT, target->object},
-            {"kind", EDITOR_INTEGER_VALUE, {}, {}, kind},
-            {"action", EDITOR_INTEGER_VALUE, {}, {}, action},
-            std::move(start),
-            std::move(selected),
-            GestureOptions(Steps(), settings, TransformStepsOf(), Snap2DOf(), m_State.preferences, m_ScaleMode,
-                           selection.locked),
-            MotionValue(x, y),
-            started};
+    return {
+        {"target", EDITOR_OBJECT, target->object},
+        {"kind", EDITOR_INTEGER_VALUE, {}, {}, kind},
+        {"action", EDITOR_INTEGER_VALUE, {}, {}, action},
+        std::move(start),
+        std::move(selected),
+        GestureOptions(Steps(), settings, TransformStepsOf(), Snap2DOf(), m_Preferences, m_ScaleMode, selection.locked),
+        MotionValue(x, y),
+        started};
 }
 
 bool LayoutWindow::BeginCamera(CameraAction action, int x, int y, ImGuiMouseButton button) {
@@ -369,11 +369,11 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
             EditorField extent{"extent", EDITOR_REAL_VALUE}, count{"notches", EDITOR_REAL_VALUE};
             extent.real = m_ZoomExtent;
             count.real = notches;
-            std::vector<EditorField> args{{"target", EDITOR_OBJECT, target->object},
-                                          GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(),
-                                                         m_State.preferences, m_ScaleMode, false),
-                                          extent,
-                                          count};
+            std::vector<EditorField> args{
+                {"target", EDITOR_OBJECT, target->object},
+                GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(), m_Preferences, m_ScaleMode, false),
+                extent,
+                count};
             const auto values = BorrowEditorFields(args);
             Execute("layout.wheel-zoom", {values.data(), values.data() + values.size()});
         }
@@ -502,7 +502,7 @@ void LayoutWindow::ApplyRect(const VxRect &rect) {
     const std::vector<EditorField> fields{
         rectangle,
         {"select", EDITOR_INTEGER_VALUE, {}, {}, 2},
-        {"strict", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_State.preferences.Bool("3D Layout\\Strict Selection"))}};
+        {"strict", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_Preferences.Bool("3D Layout\\Strict Selection"))}};
     const auto values = BorrowEditorFields(fields);
     const auto result = Client().Query("layout.input", {values.data(), values.data() + values.size()});
     const auto *picked = EditorClient::Find(result, "objects");
@@ -656,7 +656,7 @@ void LayoutWindow::ZoomOn(bool scene) {
                                           {"objects", EDITOR_OBJECT_LIST, {}, {}, 0, m_SelectionData.objects},
                                           {"scene", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(scene)},
                                           GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(),
-                                                         m_State.preferences, m_ScaleMode, m_SelectionData.locked)};
+                                                         m_Preferences, m_ScaleMode, m_SelectionData.locked)};
     const auto values = BorrowEditorFields(fields);
     Execute("layout.zoom-on", {values.data(), values.data() + values.size()}, AfterCommand::Zoom);
 }
@@ -798,8 +798,8 @@ void LayoutWindow::CurveClick(int x, int y, bool right) {
     const auto action = m_Tool == LayoutTool::AddPoints ? 0u : m_Tool == LayoutTool::InsertPoints ? 1u : 2u;
     EditorField position{"position", EDITOR_REAL_LIST}, distance{"plane-distance", EDITOR_REAL_VALUE};
     position.reals = {double(x), double(y)};
-    distance.real = m_State.preferences.Float(ortho ? "3D Layout\\Actions\\Camera Plane Distance Ortho"
-                                                    : "3D Layout\\Actions\\Camera Plane Distance");
+    distance.real = m_Preferences.Float(ortho ? "3D Layout\\Actions\\Camera Plane Distance Ortho"
+                                              : "3D Layout\\Actions\\Camera Plane Distance");
     const std::vector<EditorField> fields{
         *curve,
         {"action", EDITOR_INTEGER_VALUE, {}, {}, action},

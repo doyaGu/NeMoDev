@@ -4,6 +4,7 @@
 #include "features/diagnostics/DiagnosticCommands.h"
 #include "features/preferences/PreferencesCommands.h"
 #include "features/layout/LayoutCommands.h"
+#include "features/layout/LayoutPresentation.h"
 #include "features/schematic/SchematicGraphCommands.h"
 
 namespace vdev {
@@ -117,6 +118,9 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.push_back({"command", "scene.duplicate-clipboard", "builtin.scene"});
     const auto &layout = LayoutCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), layout.begin(), layout.end());
+    const auto &presentation = LayoutPresentation::DefaultProviders();
+    result.contributions.providers.insert(result.contributions.providers.end(), presentation.begin(),
+                                          presentation.end());
     const auto &graph = SchematicGraphCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), graph.begin(), graph.end());
     result.contributions.providers.push_back({"view", "schematic.invalid-links", "builtin.schematic-diagnostics"});
