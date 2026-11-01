@@ -287,6 +287,22 @@ class ArchitectureTests(unittest.TestCase):
         self.manifest["features"][0]["source_groups"].append("features")
         self.assertIn("native/state access in workspace view: features/schematic/SchematicScriptData.h", self.run_check().stderr)
 
+    def test_layout_snapshot_and_fullscreen_inputs_cannot_regain_native_access(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for path, text in (
+            ("ui/layout/LayoutSnapshot.cpp", "void Take() { m_State.document->Context(); }"),
+            ("ui/layout/LayoutSnapshot.cpp", "void Remove() { m_State.host.Context(); }"),
+            ("ui/layout/LayoutFullScreen.cpp", "void Click() { m_View.PickInfo(0, 0); }"),
+            ("ui/layout/LayoutWindow.cpp", "void LayoutWindow::ApplyPreferences() { m_State.preferences.SetBool(key, true); }"),
+            ("ui/layout/LayoutWindow.cpp", "bool LayoutWindow::PlayerMode() const { return m_State.debugger->GetState(); }")):
+            with self.subTest(path=path):
+                self.write(path, text)
+                result = self.run_check()
+                self.assertIn("native mutation or query returned to", result.stderr)
+                self.write(path, "// Query and command UI only.\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_schematic_picking_and_presentation_cannot_regain_native_access(self):
         self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
         self.manifest["features"][0]["source_groups"].append("ui")
