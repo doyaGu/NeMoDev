@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "core/level/ObjectProperties.h"
+#include "core/level/LevelCommands.h"
 #include "core/level/SceneCommands.h"
 #include "core/level/SetupCommands.h"
 #include "core/runtime/GridCompat.h"
@@ -75,6 +76,93 @@ bool Near(float a, float b) { return std::fabs(a - b) < 1e-3f; }
 
 void RegisterSetupTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "setup", "attribute_value_cancel_undo_and_stale_owner");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        vdev::ObjectRef target{};
+        CKAttributeType type = -1;
+        size_t steps = 0;
+        int parameters = 0;
+        bool dirty = false;
+        const auto count = [&] { return state.document->Context()->GetObjectListByType(CKCID_PARAMETER, TRUE).Size(); };
+        const auto value = [&] {
+            int result = -1;
+            if (auto *object = CKBeObject::Cast(state.document->Resolve(target)))
+                if (auto *parameter = object->GetAttributeParameter(type))
+                    parameter->GetValue(&result);
+            return result;
+        };
+        OnMainThread(ctx, [&] {
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            auto *object = CKBeObject::Cast(state.document->Context()->CreateObject(CKCID_3DENTITY, "Setup attribute"));
+            IM_CHECK_NO_RET(object);
+            state.document->Include(object->GetID());
+            target = state.document->Reference(object->GetID());
+            type = state.document->Context()->GetAttributeManager()->RegisterNewAttributeType(
+                "Setup UI value", CKPGUID_INT, CKCID_BEOBJECT, CK_ATTRIBUT_USER);
+            IM_CHECK_NO_RET(type >= 0 && object->SetAttribute(type));
+            int initial = 3;
+            object->GetAttributeParameter(type)->SetValue(&initial);
+            steps = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            parameters = count();
+            state.events.Post(vdev::ShowObjectSetup{target});
+        });
+        ctx->Yield(4);
+        ctx->SetRef(SETUP);
+        ctx->ItemClick("**/Attribute");
+        const auto rowValue = "**/$$" + std::to_string(type) + "/3";
+        const auto open = [&] {
+            ctx->SetRef(SETUP);
+            ctx->ItemDoubleClick(rowValue.c_str());
+            ctx->Yield(3);
+            ctx->SetRef("//Edit Parameter###AttributeValue");
+        };
+        const auto input = [&](const char *text) {
+            ctx->ItemClick("**/##number");
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+            ctx->KeyChars(text);
+            ctx->Yield(2);
+        };
+        open();
+        input("17");
+        IM_CHECK_EQ(Read<int>(ctx, value), 3);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(value() == 3 && count() == parameters && state.History().UndoCount() == steps &&
+                            state.document->Dirty() == dirty);
+        });
+        open();
+        input("21");
+        ctx->ItemClick("**/OK/##dialogbutton");
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(value() == 21 && state.History().UndoCount() == steps + 1 && count() == parameters);
+            IM_CHECK_NO_RET(state.History().Undo() && value() == 3 && state.document->Dirty() == dirty);
+            IM_CHECK_NO_RET(state.History().Redo() && value() == 21);
+            IM_CHECK_NO_RET(state.History().Undo() && value() == 3);
+        });
+        ctx->Yield(2);
+        open();
+        input("55");
+        OnMainThread(ctx, [&] {
+            auto *owner = CKBeObject::Cast(state.document->Resolve(target));
+            IM_CHECK_NO_RET(owner && owner->RemoveAttribute(type) && owner->SetAttribute(type));
+            int replacement = 9;
+            owner->GetAttributeParameter(type)->SetValue(&replacement);
+        });
+        ctx->ItemClick("**/OK/##dialogbutton");
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(value() == 9 && count() == parameters && state.History().UndoCount() == steps &&
+                            state.document->Dirty() == dirty);
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+        });
+    };
 
     t = IM_REGISTER_TEST(engine, "setup", "window_reuse_duplicate_and_picker_cleanup");
     t->GuiFunc = MainThreadGui;
