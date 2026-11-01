@@ -439,7 +439,9 @@
         "features/schematic/SchematicAuthoring.*",
         "features/schematic/SchematicParameterEdits.*",
         "features/schematic/SchematicModelCommands.*",
-        "features/schematic/SchematicModelData.*"
+        "features/schematic/SchematicModelData.*",
+        "features/schematic/SchematicScriptCommands.*",
+        "features/schematic/SchematicScriptData.h"
       ]
     },
     {
@@ -922,7 +924,8 @@
       "S34",
       "S44",
       "S57",
-      "S08"
+      "S08",
+      "S04"
     ],
     "S50": [
       "S03",
@@ -1811,7 +1814,8 @@
         "S06",
         "S08",
         "S19",
-        "S21"
+        "S21",
+        "S49"
       ],
       "tests": [
         "VirtoolsDev.InitialConditionsScenes",
@@ -1825,7 +1829,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "补关闭前 debug frame 结束及旧条件目标"
+          "reason": "补齐关闭前 debug frame 结束的组合测试；旧断点、条件目标和索引失效已由统一命令回归覆盖"
         }
       ]
     },
@@ -2431,9 +2435,9 @@
     },
     {
       "id": "file_operations",
-      "name": "文档、资源与图文件操作、对象/NMS 导出、输入请求及最近保存路径",
+      "name": "文档、资源、图与 Script 快照文件操作、对象/NMS 导出和输入请求",
       "owner": "DocumentCommands",
-      "lifetime": "操作完成或取消；旧输入按操作和文档编号拒绝；退出时原生任务返回后结束",
+      "lifetime": "操作完成或取消；旧输入按操作和文档编号拒绝；退出时原生任务返回后结束；图和 Script 快照等待文件选择时，来源视图关闭即取消",
       "persistence": "临时流程不保存；等待输入无原生写入；最终结果登记到 EditorApplication",
       "features": [
         "F02",
@@ -2609,7 +2613,7 @@
       "name": "文件候选、资源批次、重复名提示和原生导出报告",
       "owner": "DocumentFiles",
       "lifetime": "准备至提交或丢弃；重复名取消、文档作用域失效及异常都结束候选",
-      "persistence": "候选成功后才切换文档；批次持有文件路径及对象引用；实际写出结果交给 DocumentCommands 登记，不依赖发起视图；图导入和替换固定 Script/图引用及版本，晚到文件答复不能越过已关闭的来源视图",
+      "persistence": "候选成功后才切换文档；批次持有文件路径及对象引用；实际写出结果交给 DocumentCommands 登记，不依赖发起视图；图导入和替换固定 Script/图引用及版本，晚到文件答复不能越过已关闭的来源视图；Script 快照解码复用原实现，在运行时任务中校验原 Script 身份和版本后才写入，失败保留选区与历史",
       "features": [
         "F02",
         "F03",
@@ -2750,6 +2754,17 @@
         "F08",
         "F15",
         "F16"
+      ]
+    },
+    {
+      "id": "breakpoint-drafts",
+      "name": "断点配置条件、候选参数及列表中拟移除的记录",
+      "owner": "每个 Schematic 视图实例保存副本；SchematicScriptCommands 查询和修改原生数据",
+      "lifetime": "随原文档和来源视图；取消不提交，再次打开重新查询；文档或视图关闭清除副本及等待操作",
+      "persistence": "只保存完整对象引用和 Script 版本内的 ExtraData 记录位置，不保存原生指针或工作参数；确认经统一命令提交一步 Undo，失效目标整批拒绝。列表只移除打开时选定的记录，目标已丢失的旧断点仍可查看和删除；缺失条件参数不得在确认时被静默清除。",
+      "features": [
+        "F11",
+        "F18"
       ]
     }
   ],

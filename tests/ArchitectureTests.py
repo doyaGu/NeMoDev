@@ -266,6 +266,27 @@ class ArchitectureTests(unittest.TestCase):
                 self.write(path, "// uses copied query values and commands\n")
         self.assertEqual(self.run_check().returncode, 0)
 
+    def test_script_header_and_breakpoints_cannot_regain_native_access(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for function in ("ScriptHeaderMenu", "SaveBehaviorsAs", "ScriptColorDialog", "SelectionBreakpoint", "BreakpointConfigDialog", "BreakpointListDialog", "ConditionParameterAt", "LoadSnapshotFor", "SetSnapshotPixels", "DropFile"):
+            self.write("ui/schematic/SchematicMenus.cpp", "void SchematicCanvas::" + function + "() { m_State.document->Context(); }")
+            self.assertIn("native mutation or query returned to migrated input", self.run_check().stderr)
+        self.write("ui/schematic/SchematicMenus.cpp", "void SchematicCanvas::ToggleBreakpointOfSelection() { ToggleBreakpoint(doc); }")
+        self.assertIn("native mutation or query returned to migrated input", self.run_check().stderr)
+        self.write("ui/schematic/SchematicMenus.cpp", "// Queries and commands.\n")
+        self.write("ui/schematic/SchematicInput.cpp", "void Input() { m_State.document->Reference(id); }")
+        self.assertIn("native mutation or query returned to migrated input", self.run_check().stderr)
+        self.write("ui/schematic/SchematicInput.cpp", "// Copied references.\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
+    def test_breakpoint_data_cannot_import_native_implementation(self):
+        self.write("features/schematic/SchematicScriptData.h", '#include "features/schematic/SchematicScriptCommands.h"\n')
+        self.write("features/schematic/SchematicScriptCommands.h", "// Native registration.\n")
+        self.manifest["source_groups"].append({"id": "features", "patterns": ["features/**"]})
+        self.manifest["features"][0]["source_groups"].append("features")
+        self.assertIn("native/state access in workspace view: features/schematic/SchematicScriptData.h", self.run_check().stderr)
+
     def test_parameter_dialog_and_array_control_cannot_import_native_state(self):
         self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
         self.manifest["features"][0]["source_groups"].append("ui")
