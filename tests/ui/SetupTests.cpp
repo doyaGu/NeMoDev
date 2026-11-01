@@ -284,12 +284,86 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         ctx->MouseDown(0);
         ctx->MouseMoveToPos({at.x + 35, at.y});
         IM_CHECK(!Near(Position(ctx, row->object).x, before.x));
-        OnMainThread(ctx, [] { const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll(); });
+        OnMainThread(ctx, [] {
+            auto &workspace = *App().State().workspace;
+            const auto view = workspace.Role("setup3d");
+            IM_CHECK_NO_RET(view);
+            const vdev::EditorClient client(workspace.Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Command("workspace.close-view", {vdev::IntegerArgument("view", view)}).status ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(!workspace.Application().Scope(view).view);
+        });
         ctx->MouseUp(0);
         ctx->Yield(3);
         IM_CHECK(Near(Position(ctx, row->object).x, before.x));
         IM_CHECK(App().State().History().UndoCount() == count && !App().State().document->Dirty());
         IM_CHECK(Read<bool>(ctx, [] { return !App().State().workspace->Application().HasEdits(); }));
+    };
+    t = IM_REGISTER_TEST(engine, "setup", "workspace_close_cancels_rename_and_reopens_cleanly");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        const auto row = OpenSetup(ctx);
+        IM_CHECK_SILENT(row.has_value() && SetupShown(ctx));
+        const auto original = ObjectName(ctx, row->object);
+        ctx->SetRef(SETUP);
+        ctx->ItemClick("picker/##bitmap");
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            return vdev::SetupEditTests::NoPicker(App()) && vdev::SetupEditTests::CanSave(App(), row->object);
+        }));
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        size_t undo = 0;
+        std::string redo;
+        uint64_t selection = 0;
+        bool dirty = false, canRedo = false;
+        EditorView other = 0;
+        OnMainThread(ctx, [&] {
+            undo = state.History().UndoCount();
+            redo = state.History().RedoLabel();
+            canRedo = state.History().CanRedo();
+            dirty = state.document->Dirty();
+            selection = state.objectSelection.Revision();
+            other = workspace.Open("object.setup", "setup-close-other");
+            IM_CHECK_NO_RET(other);
+        });
+        ctx->Yield(3);
+        ctx->WindowFocus(SETUP);
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(3);
+        ctx->ItemInput("//###setuprename/##name");
+        ctx->KeyCharsReplace("Uncommitted Setup name");
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(workspace.Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Command("workspace.close-view", {vdev::IntegerArgument("view", other)}).status ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(ImGui::GetTopMostPopupModal());
+            const auto view = workspace.Role("setup3d");
+            IM_CHECK_NO_RET(view);
+            IM_CHECK_NO_RET(client.Command("workspace.close-view", {vdev::IntegerArgument("view", view)}).status ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(!workspace.Application().Scope(view).view && !workspace.Application().HasEdits());
+            IM_CHECK_NO_RET(!ImGui::GetTopMostPopupModal() && !ImGui::GetActiveID());
+            IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().RedoLabel() == redo &&
+                            state.History().CanRedo() == canRedo && state.document->Dirty() == dirty &&
+                            state.objectSelection.Revision() == selection);
+        });
+        ctx->Yield(3);
+        IM_CHECK(ObjectName(ctx, row->object) == original);
+        IM_CHECK(ShowSetup(ctx, row->object, SETUP));
+        ctx->WindowFocus(SETUP);
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(3);
+        ctx->ItemInputValue("//###setuprename/##name", "Accepted Setup name");
+        ctx->Yield(3);
+        IM_CHECK(ObjectName(ctx, row->object) == "Accepted Setup name");
+        IM_CHECK(Read<size_t>(ctx, [&] { return state.History().UndoCount(); }) == undo + 1);
+        Undo(ctx);
+        IM_CHECK(ObjectName(ctx, row->object) == original);
+        Redo(ctx);
+        IM_CHECK(ObjectName(ctx, row->object) == "Accepted Setup name");
+        Undo(ctx);
     };
     t = IM_REGISTER_TEST(engine, "propertyedits", "switch_object_during_preview_restores_original");
     t->GuiFunc = MainThreadGui;
