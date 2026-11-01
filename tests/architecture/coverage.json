@@ -720,10 +720,6 @@
       "S57"
     ],
     "S22": [
-      "S01",
-      "S03",
-      "S05",
-      "S07",
       "S08",
       "S09",
       "S10",
@@ -972,7 +968,8 @@
       "S15",
       "S17",
       "S34",
-      "S56"
+      "S56",
+      "S07"
     ],
     "S56": [
       "S34",
@@ -2336,7 +2333,7 @@
       "name": "BB/资源/属性/对象/Snapshot 拖拽 payload",
       "owner": "Workspace 输入交互，源数据归原所有者",
       "lifetime": "drop/cancel、源视图/会话结束、来源数据版本变化",
-      "persistence": "Building Blocks 和资源文件拖拽均由 ImGui 持有源行及完整有序数据；资源路径使用带长度的 UTF-8，不截断、不依赖 EditorState；对象和属性仍携带完整身份，接收后执行原有命令",
+      "persistence": "Building Blocks、资源文件、属性、对象和快照使用持有源数据的拖放记录；3D Layout 接收方校验长度并只提交完整对象引用；原生拾取、材质修改和 Building Block 放置归 LayoutAuthoring，资源加载仍归 DocumentCommands",
       "features": [
         "F23"
       ]
@@ -2757,6 +2754,17 @@
       "features": [
         "F11",
         "F18"
+      ]
+    },
+    {
+      "id": "layout-behavior-drop",
+      "name": "Building Block 放置与参数确认",
+      "owner": "LayoutAuthoring 持有 Edit 和完整参数引用；LayoutWindow 只持有查询版本及原生值编辑器的临时副本",
+      "lifetime": "放置到确认/取消；文档关闭先提交既有默认值并释放临时副本，文档失效清理",
+      "persistence": "放置与参数通过统一命令共同记录一步撤销；取消恢复原文档、选区与 Undo/Redo",
+      "features": [
+        "F08",
+        "F23"
       ]
     }
   ],

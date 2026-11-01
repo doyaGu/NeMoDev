@@ -1,21 +1,8 @@
+// Resource and behavior drops use copied receivers and registered commands.
+#include "ui/layout/LayoutWindow.h"
 #include "ui/schematic/Snapshots.h"
 #include "workspace/BuildingBlockDrag.h"
-// Building Blocks and Data Resources files dragged onto the 3D Layout
-// (Dev.exe sub_4C0A30 and the functions it calls).
-
-#include "ui/layout/LayoutWindow.h"
-
-#include <algorithm>
-#include <cfloat>
 #include <cstring>
-
-#include "core/schematic/SchematicEdits.h"
-#include "core/document/ScriptSession.h"
-#include "core/runtime/TextEncoding.h"
-#include "core/document/ToolCommands.h"
-#include "core/graph/TopologyCommands.h"
-#include "core/level/LevelCommands.h"
-#include "core/graph/ValueCommands.h"
 
 namespace vdev {
 namespace {
@@ -33,6 +20,7 @@ EditorResponse LayoutWindow::DropInfo(int x, int y, const char *kind, uint64_t p
                           {px, py, TextArgument("kind", std::string(kind)), IntegerArgument("prototype", prototype),
                            IntegerArgument("ctrl", ImGui::GetIO().KeyCtrl), ObjectArgument("source", source)});
 }
+
 void LayoutWindow::HighlightDrop(ObjectRef target) {
     if (target == m_DropHighlight)
         return;
@@ -40,6 +28,7 @@ void LayoutWindow::HighlightDrop(ObjectRef target) {
     if (result.status == EDITOR_OK || result.status == EDITOR_QUEUED)
         m_DropHighlight = target;
 }
+
 void LayoutWindow::DropTarget(const ImVec2 &at) {
     m_DropText.clear();
     ObjectRef highlight{};
@@ -55,23 +44,14 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
         std::vector<EditorBuildingBlock> blocks;
         if (ReadBuildingBlockDrag(payload->Data, size_t(payload->DataSize), source, blocks)) {
             if (payload->IsDelivery()) {
-                HighlightDrop({});
-                for (const auto &each : blocks)
-                    DropBuildingBlock(x, y, CKGUID(each.first, each.second));
+                std::vector<uint64_t> prototypes;
+                for (const auto block : blocks)
+                    prototypes.push_back((uint64_t(block.first) << 32) | block.second);
+                DropBuildingBlocks(x, y, prototypes);
             } else {
-                const CKGUID guid(source.first, source.second);
-                const LayoutPickInfo info = m_View.PickInfo(x, y);
-                auto *declaration = CKGetObjectDeclarationFromGuid(guid);
-                const auto cid = declaration ? declaration->GetCompatibleClassId() : CKCID_BEOBJECT;
-                const bool multiple =
-                    m_State.objectSelection.Objects().size() > 1 && (m_State.objectSelection.Contains(info.entity3d) ||
-                                                                     m_State.objectSelection.Contains(info.character));
-                const auto target = BlockTarget(info, cid, io.KeyCtrl);
-                if (multiple)
-                    m_DropText = "Drop Behavior on Multi-Selection";
-                else if (auto *object = m_State.host.Context()->GetObject(target))
-                    m_DropText = "Drop Behavior on " + DevObjectName(object);
-                highlight = m_State.document->Reference(multiple ? info.entity3d : target);
+                const auto info = DropInfo(x, y, "behavior", (uint64_t(source.first) << 32) | source.second);
+                highlight = ObjectField(info, "highlight");
+                m_DropText = EditorClient::Text(info, "text");
             }
         }
     }
@@ -144,105 +124,21 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
     ImGui::EndDragDropTarget();
     HighlightDrop(highlight);
 }
-// Dev.exe sub_4BFD20: the object a Building Block goes to, by the class it
-// applies to; Ctrl on a body part keeps the body part rather than its
-// character; else the first object there.
-CK_ID LayoutWindow::BlockTarget(const LayoutPickInfo &info, CK_CLASSID cid, bool ctrl) const {
-    CKContext *context = m_State.host.Context();
-    const CK_ID character = info.character && !ctrl ? info.character : 0;
-    CK_ID target = 0;
-    switch (cid) {
-    case CKCID_SCENE: target = m_View.Scene() ? m_View.Scene()->GetID() : 0; break;
-    case CKCID_LEVEL: target = context->GetCurrentLevel() ? context->GetCurrentLevel()->GetID() : 0; break;
-    case CKCID_2DENTITY:
-    case CKCID_SPRITE: target = info.entity2d; break;
-    case CKCID_MATERIAL: target = info.material; break;
-    case CKCID_TEXTURE: target = info.texture; break;
-    case CKCID_MESH:
-    case CKCID_PATCHMESH: target = info.mesh; break;
-    case CKCID_BEOBJECT:
-    case CKCID_RENDEROBJECT: target = character ? character : info.entity3d ? info.entity3d : info.entity2d; break;
-    case CKCID_3DENTITY:
-    case CKCID_3DOBJECT:
-    case CKCID_BODYPART: target = character ? character : info.entity3d; break;
-    case CKCID_CHARACTER: target = info.character; break;
-    default: target = info.entity3d; break;
-    }
-    for (CK_ID id : {info.entity3d, info.character, info.entity2d, info.mesh, info.material, info.texture})
-        if (!target) target = id;
-    return target;
-}
 
-// A dropped Building Block: on the object under the mouse, or, when it is
-// in a selection of several, on each selected object of its class (Dev.exe
-// sub_4C2F30). Dev then asks for the Building Block's parameters; here the
-// Schematic shows it with its defaults. One undo step.
-void LayoutWindow::DropBuildingBlock(int x, int y, const CKGUID &guid) {
-    if (!m_State.HasDocument()) return;
-    CKContext *context = m_State.host.Context();
-    CKObjectDeclaration *declaration = CKGetObjectDeclarationFromGuid(guid);
-    if (!declaration) return;
-    const CK_CLASSID cid = declaration->GetCompatibleClassId();
-    const LayoutPickInfo info = m_View.PickInfo(x, y);
-    std::vector<CK_ID> targets;
-    const bool multiple = m_State.objectSelection.Objects().size() > 1 &&
-                          (m_State.objectSelection.Contains(info.entity3d) || m_State.objectSelection.Contains(info.character));
-    if (multiple) {
-        for (CK_ID id : AliveSelection())
-            if (CKIsChildClassOf(context->GetObject(id), cid)) targets.push_back(id);
-        if (targets.empty()) {
-            m_State.Log(LogLevel::Warning, "Incompatible Class, cannot add behavior to selection.");
-            return;
-        }
-    } else if (const CK_ID target = BlockTarget(info, cid, ImGui::GetIO().KeyCtrl)) {
-        targets.push_back(target);
-    } else {
-        return;
-    }
-    // A drop still asking: its values stay as they are.
-    if (m_Doc.dropEdit) m_Doc.dropEdit->Commit();
-    CK_ID script = 0, block = 0;
-    auto drop = std::make_unique<Edit>(*m_State.document, "Drop Behavior");
-    for (CK_ID id : targets) DropBlockOn(id, guid, script, block);
-    // Dev asks for the inputs of the Building Block (of the last one dropped).
-    CKBehavior *dropped = block ? CKBehavior::Cast(context->GetObject(block)) : nullptr;
-    if (dropped && (dropped->GetInputParameterCount() > 0 || dropped->IsUsingTarget())) {
-        m_Doc.dropBlock = block;
-        m_Doc.dropScript = script;
-        m_Doc.dropEdit = std::move(drop); // the values set join the drop, Cancel takes it back
-        m_Doc.openDropParameters = true;
-    } else {
-        drop->Commit();
-    }
-    if (!block) return;
-    m_State.RememberBlock(guid);
-    m_State.events.Post(ShowElement{*m_State.document, script, ElementRef{ElementKind::Behavior, script, block}, block});
-}
-
-// Dev.exe sub_4C3510 (DropBuildingBlockOn): the object's first Script shown
-// in the Schematic, else a new "<object> Script"; the refusals logged.
-bool LayoutWindow::DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, CK_ID &block) {
-    CKContext *context = m_State.host.Context();
-    CKBeObject *owner = CKBeObject::Cast(context->GetObject(object));
-    if (!owner || CKBehavior::Cast(owner)) return false;
-    CK_ID into = 0;
-    bool insertRefused = false;
-    const EditResult dropped =
-        DropBuildingBlockOn(*m_State.document, object, guid, m_State.Schematic().HiddenIds(*m_State.document), &into, &insertRefused);
-    if (!dropped.ok) {
-        if (!insertRefused) {
-            m_State.Log(LogLevel::Warning, AnsiToUtf8(dropped.message));
-            return false;
-        }
-        CKObjectDeclaration *declaration = CKGetObjectDeclarationFromGuid(guid);
-        m_State.Log(LogLevel::Warning, "Incompatible Class, cannot add behavior <" +
-                                           AnsiToUtf8(declaration && declaration->GetName() ? declaration->GetName() : "") +
-                                           "> to object <" + DevObjectName(owner) + ">: " + AnsiToUtf8(dropped.message));
-        return false;
-    }
-    script = into;
-    block = dropped.created;
-    return true;
+void LayoutWindow::DropBuildingBlocks(int x, int y, const std::vector<uint64_t> &prototypes) {
+    HighlightDrop({});
+    const double point[] = {double(x), double(y)};
+    EditorValue position{EDITOR_TEXT("position"), EDITOR_REAL_LIST};
+    position.reals = {point, 2};
+    const EditorValue blocks{EDITOR_TEXT("prototypes"),
+                             EDITOR_INTEGER_LIST,
+                             {},
+                             {},
+                             0,
+                             {},
+                             {prototypes.data(), uint32_t(prototypes.size())}};
+    Execute("scene.drop-behavior",
+            {position, blocks, IntegerArgument("ctrl", ImGui::GetIO().KeyCtrl), IntegerArgument("ask", 1)});
 }
 
 void LayoutWindow::DropResources(int x, int y, const std::vector<ResourceFile> &files) {
@@ -270,13 +166,12 @@ void LayoutWindow::DropResources(int x, int y, const std::vector<ResourceFile> &
              {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {classes.data(), uint32_t(classes.size())}},
              ObjectsArgument("targets", targets->objects)});
 }
+
 void LayoutWindow::DocumentClosed() {
     m_Capturing = 0;
     CancelEdits();
-    if (m_Doc.dropEdit) m_Doc.dropEdit->Commit(); // the document goes with its history
-    // A flight going on ends with the composition, not recorded.
-    if (m_Tool == LayoutTool::Fly) m_Tool = LayoutTool::Select;
-    // The 3D Layout Explorer closes without restoring the selection it saved.
+    if (m_Tool == LayoutTool::Fly)
+        m_Tool = LayoutTool::Select;
     m_Doc = DocumentState();
     for (auto &settings : m_Transform)
         settings.referent = {};
@@ -284,57 +179,59 @@ void LayoutWindow::DocumentClosed() {
     m_DropHighlight = {};
     m_DropBox.Clear();
 }
-std::pair<CK_ID, CK_ID> LayoutWindow::DropAsking(const std::function<std::pair<CK_ID, CK_ID>()> &drop) {
-    if (!m_State.HasDocument()) return {0, 0};
-    // A drop still asking: its values stay as they are.
-    if (m_Doc.dropEdit) m_Doc.dropEdit->Commit();
-    m_Doc.dropEdit.reset();
-    m_Doc.dropBlock = 0;
-    auto edit = std::make_unique<Edit>(*m_State.document, "Drop Behavior");
-    const std::pair<CK_ID, CK_ID> made = drop();
-    CKBehavior *dropped = made.second ? CKBehavior::Cast(m_State.host.Context()->GetObject(made.second)) : nullptr;
-    if (dropped && (dropped->GetInputParameterCount() > 0 || dropped->IsUsingTarget())) {
-        m_Doc.dropBlock = made.second;
-        m_Doc.dropScript = made.first;
-        m_Doc.dropEdit = std::move(edit);
-        m_Doc.openDropParameters = true;
-    } else {
-        edit->Commit();
-    }
-    return made;
-}
+
 void LayoutWindow::DropParametersDialog() {
-    CKContext *context = m_State.host.Context();
-    CKBehavior *block = m_Doc.dropBlock && m_State.HasDocument() ? CKBehavior::Cast(context->GetObject(m_Doc.dropBlock)) : nullptr;
-    if (!block) {
-        if (m_Doc.dropEdit) m_Doc.dropEdit->Commit();
-        m_Doc.dropEdit.reset();
-        m_Doc.dropBlock = 0;
-        m_Doc.openDropParameters = false;
+    const auto revision = Client().Revision("layout.drop-parameters");
+    if (revision != m_Doc.dropRevision) {
+        m_Doc.dropInput = Client().Query("layout.drop-parameters");
+        m_Doc.dropRevision = revision;
+    }
+    const auto &input = m_Doc.dropInput;
+    const auto drop = EditorClient::Integer(input, "drop");
+    if (input.status != EDITOR_OK || !drop) {
+        m_Doc.drop = 0;
         m_DropBox.Clear();
         return;
     }
     const char *id = "###DropParameters";
-    if (m_Doc.openDropParameters && m_OpenPopups) {
+    if (drop != m_Doc.drop && m_OpenPopups) {
         m_DropBox.Clear();
-        m_DropBox.AddInputs(block);
+        const auto *inputs = EditorClient::Find(input, "inputs");
+        bool added = inputs != nullptr;
+        if (inputs)
+            for (const auto &row : inputs->fields) {
+                const EditorField *object = nullptr, *name = nullptr;
+                for (const auto &field : row.fields) {
+                    if (field.key == "object")
+                        object = &field;
+                    if (field.key == "name")
+                        name = &field;
+                }
+                if (!object || !name || !m_DropBox.Add(object->object, name->text)) {
+                    added = false;
+                    break;
+                }
+            }
+        if (!added) {
+            const EditorValue args[] = {IntegerArgument("drop", drop), IntegerArgument("accept", 0)};
+            Complete(m_CommandEditor.ApplyEdit("layout.finish-drop", {Client().Scope(), args, 2}), AfterCommand::None);
+            m_DropBox.Clear();
+            return;
+        }
         ImGui::OpenPopup(id);
-        m_Doc.openDropParameters = false;
+        m_Doc.drop = drop;
     }
-    const std::string title = AnsiToUtf8(block->GetName() ? block->GetName() : "") + " - Edit Parameters";
-    const DialogAction action = EditParametersDialog(id, title, m_DropBox, false);
-    if (action == DialogAction::Ok) {
-        // The values set join the drop's undo step.
-        m_DropBox.Apply(m_Doc.dropScript);
-        if (m_Doc.dropEdit) m_Doc.dropEdit->Commit();
-        m_Doc.dropEdit.reset();
-        m_Doc.dropBlock = 0;
-        m_DropBox.Clear();
-    } else if (action == DialogAction::Cancel) {
-        m_DropBox.Clear();
-        m_Doc.dropEdit.reset(); // taken back
-        m_Doc.dropBlock = 0;
-    }
+    const auto action = EditParametersDialog(id, EditorClient::Text(input, "title"), m_DropBox, false);
+    if (action != DialogAction::Ok && action != DialogAction::Cancel)
+        return;
+    std::vector<ObjectRef> values;
+    if (action == DialogAction::Ok)
+        for (size_t i = 0; i < m_DropBox.Count(); ++i)
+            values.push_back(m_DropBox.WorkReference(i));
+    const EditorValue args[] = {IntegerArgument("drop", drop), IntegerArgument("accept", action == DialogAction::Ok),
+                                ObjectsArgument("values", values)};
+    Complete(m_CommandEditor.ApplyEdit("layout.finish-drop", {Client().Scope(), args, 3}), AfterCommand::None);
+    m_DropBox.Clear();
+    m_Doc.drop = 0;
 }
-
 } // namespace vdev

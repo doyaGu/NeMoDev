@@ -62,7 +62,7 @@ std::string DevObjectName(CKObject *object);
 // LayoutSnapshot.cpp: the Snapshot Buffer.
 class LayoutWindow : public LayoutViewport {
   public:
-    explicit LayoutWindow(EditorState &state);
+    LayoutWindow(EditorState &state, EditorApplication &editor);
     ~LayoutWindow();
     LayoutWindow(const LayoutWindow &) = delete;
     LayoutWindow &operator=(const LayoutWindow &) = delete;
@@ -121,11 +121,6 @@ class LayoutWindow : public LayoutViewport {
     // A creation tool (the Create menu's commands).
     std::function<void(LayoutObject kind)> createObject;
     void CreatedObject(const EditorResponse &);
-    // A Building Block dropped elsewhere (a Level Manager row, Dev.exe
-    // sub_578C30) asks for its inputs as a drop here does: drop makes it
-    // (its Script and block; 0 when refused) in one undo step, committed
-    // with OK, taken back by Cancel. Returns drop's.
-    std::pair<CK_ID, CK_ID> DropAsking(const std::function<std::pair<CK_ID, CK_ID>()> &drop);
     // The view is fullscreen (the editor's window is hidden behind it but
     // keeps going: the composition plays on).
     bool FullScreen() const;
@@ -231,7 +226,6 @@ private:
     void SetSelection(std::vector<ObjectRef> objects, bool invert = false);
     void RestoreSelection(const std::vector<ObjectRef> &objects, bool locked);
     void LockSelection(bool locked);
-    std::vector<CK_ID> AliveSelection() const;
     // Transformations.
     LayoutTransformSettings &Settings();
     TransformSteps TransformStepsOf() const;
@@ -291,9 +285,7 @@ private:
     void DropTarget(const ImVec2 &at);
     EditorResponse DropInfo(int x, int y, const char *kind, uint64_t prototype = 0, ObjectRef source = {}) const;
     void HighlightDrop(ObjectRef);
-    CK_ID BlockTarget(const LayoutPickInfo &info, CK_CLASSID cid, bool ctrl) const;
-    void DropBuildingBlock(int x, int y, const CKGUID &guid);
-    bool DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, CK_ID &block);
+    void DropBuildingBlocks(int x, int y, const std::vector<uint64_t> &);
     void DropResources(int x, int y, const std::vector<ResourceFile> &files);
     // Dev's "%s - Edit Parameters" after the drop (Dev.exe sub_4BFD20,
     // dialog 714): OK keeps the Building Block with the values set, Cancel
@@ -331,9 +323,9 @@ private:
         bool openCopyOptions = false;
         // A drop waiting for its Edit Parameters: the drop and the values set
         // there, one undo step at OK, taken back by Cancel.
-        CK_ID dropBlock = 0, dropScript = 0;
-        std::unique_ptr<Edit> dropEdit;
-        bool openDropParameters = false;
+        uint64_t drop = 0;
+        uint64_t dropRevision = 0;
+        EditorResponse dropInput;
         // The 3D Layout Explorer open: the selection and lock to restore with
         // Cancel, the list's anchor for Shift clicks, the list's own
         // selection (the 3D Layout's again at each change of it, sub_59EC90,
@@ -351,6 +343,7 @@ private:
 
     // ------------------------------------------------- state
     EditorState &m_State;
+    EditorApplication &m_CommandEditor;
     const EditorHost *m_EditorHost = nullptr;
     EditorClient Client() const { return {m_EditorHost, 0}; }
     enum class AfterCommand { Zoom, None, ShowScript, ScriptsAdded, SelectCreated, Group, Created };

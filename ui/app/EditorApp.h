@@ -288,13 +288,16 @@ private:
     SceneCommands m_SceneCommands{m_Editor, [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
         m_State.objectClipboard, m_State.clipboard, [this]() -> SchematicNavigation & { return m_State.Schematic(); }, [this]() -> CKDependencies & { return m_State.CopyDependencies(); }};
     HtmlFonts m_HtmlFonts;
-    LayoutWindow m_Layout{m_State};
+    LayoutWindow m_Layout{m_State, m_Editor};
     LayoutCommands m_LayoutCommands{m_Editor,
         [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
         [this]() -> LayoutView & { return m_Layout.View(); }, m_State.objectSelection};
     LayoutAuthoring m_LayoutAuthoring{m_Editor,
-        [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
-        [this]() -> LayoutView & { return m_Layout.View(); }, m_State.objectSelection, m_State.preferences};
+                                      [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
+                                      [this]() -> LayoutView & { return m_Layout.View(); },
+                                      m_State.objectSelection,
+                                      m_State.preferences,
+                                      [this]() -> SchematicNavigation & { return m_State.Schematic(); }};
     LayoutPresentation m_LayoutPresentation{m_Editor,
                                             [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                                             [this]() -> LayoutView & { return m_Layout.View(); },

@@ -457,15 +457,6 @@ void LayoutWindow::RestoreSelection(const std::vector<ObjectRef> &objects, bool 
 
 void LayoutWindow::LockSelection(bool locked) { Execute("selection.lock", {IntegerArgument("locked", locked)}); }
 
-std::vector<CK_ID> LayoutWindow::AliveSelection() const {
-    LayoutSelectionData selection;
-    std::vector<CK_ID> ids;
-    if (ReadLayoutSelection(Client(), selection))
-        for (auto object : selection.objects)
-            ids.push_back(object.object);
-    return ids;
-}
-
 void LayoutWindow::ClearSelection() { SetSelection({}); }
 
 void LayoutWindow::SelectAll(bool invert) {

@@ -52,7 +52,8 @@ const char *const REFERENTIALS[] = {"Local", "World", "View", "Parent", "Ref. Gu
 
 } // namespace
 
-LayoutWindow::LayoutWindow(EditorState &state) : m_State(state), m_View(state.host) {}
+LayoutWindow::LayoutWindow(EditorState &state, EditorApplication &editor)
+    : m_State(state), m_CommandEditor(editor), m_View(state.host) {}
 
 LayoutWindow::~LayoutWindow() {
     CancelEdits();
@@ -690,8 +691,8 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     if (m_Started) DropTarget(at);
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (m_Started && m_StartupDropFrames > 0 && --m_StartupDropFrames == 0)
-        DropBuildingBlock(static_cast<int>(m_StartupDropAt.x - at.x), static_cast<int>(m_StartupDropAt.y - at.y),
-                          m_StartupDrop);
+        DropBuildingBlocks(static_cast<int>(m_StartupDropAt.x - at.x), static_cast<int>(m_StartupDropAt.y - at.y),
+                           {(uint64_t(m_StartupDrop.d1) << 32) | m_StartupDrop.d2});
 #endif
     if (!m_Started) {
         dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), LEFT_BAR);

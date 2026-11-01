@@ -667,10 +667,17 @@ void SceneTreeView::Drop(const EditorClient &client, size_t index) {
             std::vector<EditorBuildingBlock> blocks;
             if (ReadBuildingBlockDrag(payload->Data, size_t(payload->DataSize), source, blocks)) {
                 const auto objects = Targets(row);
-                for (const auto &block : blocks)
-                    client.Command("scene.drop-behavior",
-                                   {ObjectsArgument("objects", objects),
-                                    IntegerArgument("prototype", (uint64_t(block.first) << 32) | block.second)});
+                std::vector<uint64_t> prototypes;
+                for (const auto block : blocks)
+                    prototypes.push_back((uint64_t(block.first) << 32) | block.second);
+                const EditorValue list{EDITOR_TEXT("prototypes"),
+                                       EDITOR_INTEGER_LIST,
+                                       {},
+                                       {},
+                                       0,
+                                       {},
+                                       {prototypes.data(), uint32_t(prototypes.size())}};
+                client.Command("scene.drop-behavior", {ObjectsArgument("objects", objects), list});
             }
         }
     }

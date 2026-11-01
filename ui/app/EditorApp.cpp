@@ -58,7 +58,15 @@ EditorApp::EditorApp(HtmlFonts fonts)
         if (!result.message.empty() && result.status != EDITOR_NO_CHANGE)
             m_State.Log(result.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, result.message);
     };
-
+    m_LayoutAuthoring.rememberBehavior = [this](uint64_t prototype) {
+        m_State.RememberBlock(CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype)));
+    };
+    m_LayoutAuthoring.showBehavior = [this](ObjectRef script, ObjectRef block) {
+        if (m_State.HasDocument() && m_State.document->Resolve(script) && m_State.document->Resolve(block))
+            m_State.events.Post(ShowElement{*m_State.document, script.object,
+                                            ElementRef{ElementKind::Behavior, script.object, block.object},
+                                            block.object});
+    };
 }
 
 void EditorApp::HandleEvent(const SDL_Event &event) {
@@ -514,6 +522,7 @@ void EditorApp::RememberRecentFile(const std::string &path) {
 }
 
 void EditorApp::CloseDocumentViews() {
+    m_LayoutAuthoring.DocumentClosing();
     m_Workspace.DocumentChanging();
     m_Editor.NativeAvailable(false);
     m_Outputs.Stop();
@@ -960,6 +969,7 @@ void EditorApp::Frame() {
     m_Diagnostics.Poll();
     m_Preferences.Poll();
     m_LayoutCommands.Poll();
+    m_LayoutAuthoring.Poll();
     m_Snapshots.Poll();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
@@ -1097,14 +1107,12 @@ std::set<CK_ID> EditorApp::LevelSelection() {
 bool EditorApp::RegisterSceneNavigation(std::string &error){
     const EditorParameter target{EDITOR_TEXT("target"),EDITOR_OBJECT};
     const EditorParameter show[]={target,{EDITOR_TEXT("focus"),EDITOR_INTEGER_VALUE,1}};
-    const EditorParameter drop[]={{EDITOR_TEXT("objects"),EDITOR_OBJECT_LIST},{EDITOR_TEXT("prototype"),EDITOR_INTEGER_VALUE}};
     const EditorParameter expand{EDITOR_TEXT("expand"),EDITOR_INTEGER_VALUE};
     EditorCommandDesc commands[]={
         {sizeof(EditorCommandDesc),EDITOR_TEXT("object.open-setup"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Setup"),&target,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.show-object"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Show in Level Manager"),&target,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("script.show"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Show Script"),show,2,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("script.refresh"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Refresh Scripts"),nullptr,0,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.drop-behavior"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Drop Behavior"),drop,2,nullptr,this,EDITOR_DOCUMENT,EDITOR_DOCUMENT_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.expand-level"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Expand Level Manager"),&expand,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE}};
     commands[0].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
         auto &app=*static_cast<EditorApp*>(data);const auto id=app.m_State.document->NativeId(request->values[0].object);if(!id)return EDITOR_STALE;app.m_Setups.Open(id);return EDITOR_OK;};
@@ -1116,20 +1124,11 @@ bool EditorApp::RegisterSceneNavigation(std::string &error){
         const auto view=app.m_Schematics.Find(request->scope.view)?request->scope.view:app.m_Schematics.CurrentId();
         return app.m_Schematics.Show(ElementAddress::Capture(*app.m_State.document,id,Selection::HeaderOf(id)),{},focus,view);};
     commands[3].run=[](void*data,const EditorHost*,const EditorRequest*,EditorSink){static_cast<EditorApp*>(data)->m_Panels.RefreshStack();return EDITOR_OK;};
-    commands[4].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
-        auto &app=*static_cast<EditorApp*>(data);auto &state=app.m_State;std::vector<ObjectRef> targets;
-        const auto &objects=request->values[0].objects;for(uint32_t i=0;i<objects.count;++i){if(!state.document->Resolve(objects.data[i]))return EDITOR_STALE;targets.push_back(objects.data[i]);}
-        const auto prototype=request->values[1].integer;const CKGUID guid(CKDWORD(prototype>>32),CKDWORD(prototype));
-        auto create=[&]()->std::pair<CK_ID,CK_ID>{CK_ID script=0,block=0;
-            for(auto ref:targets){auto*object=state.document->Resolve(ref);EditResult result=EditResult::NoChange();
-                if(auto*behavior=CKBehavior::Cast(object)){if(state.Schematic().hiddenScripts.count(state.document->Reference(behavior->GetID()))){state.Log(LogLevel::Warning,"Cannot drop on script with hidden graph!");continue;}script=behavior->GetID();result=DropBuildingBlockInto(*state.document,script,guid);}
-                else if(object)result=DropBuildingBlockOn(*state.document,object->GetID(),guid,state.Schematic().HiddenIds(*state.document),&script);
-                if(result.ok)block=result.created;else if(!result.message.empty())state.Log(LogLevel::Warning,AnsiToUtf8(result.message));}
-            return {script,block};};
-        std::pair<CK_ID,CK_ID> made;
-        if(targets.size()==1)made=app.m_Layout.DropAsking(create);else{EditGroup group(*state.document,"Drop Behavior");made=create();}
-        if(!made.second)return EDITOR_REFUSED;state.RememberBlock(guid);state.events.Post(ShowElement{*state.document, made.first,ElementRef{ElementKind::Behavior,made.first,made.second},made.second});return EDITOR_OK;};
-    commands[5].run=[](void*data,const EditorHost*host,const EditorRequest*request,EditorSink sink){auto&app=*static_cast<EditorApp*>(data);return host->navigateView(host->data,EditorString EDITOR_TEXT("scene.level"),app.OpenSceneView("level"),request,sink);};
+    commands[4].run = [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+        auto &app = *static_cast<EditorApp *>(data);
+        return host->navigateView(host->data, EditorString EDITOR_TEXT("scene.level"), app.OpenSceneView("level"),
+                                  request, sink);
+    };
     const EditorParameter prototypes{EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST};
     const EditorCommandDesc remember{sizeof(EditorCommandDesc),
                                      EDITOR_TEXT("building-block.remember"),

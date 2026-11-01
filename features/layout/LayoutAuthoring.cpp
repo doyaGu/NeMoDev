@@ -2,12 +2,17 @@
 #include "application/ObjectSelection.h"
 #include "application/Preferences.h"
 #include "core/document/Document.h"
+#include "core/document/Edit.h"
+#include "core/graph/ParameterValues.h"
+#include "core/graph/ValueCommands.h"
 #include "core/layout/LayoutView.h"
 #include "core/layout/LayoutExplorer.h"
 #include "core/level/LevelCommands.h"
+#include "core/schematic/SchematicNavigation.h"
 #include "core/runtime/TextEncoding.h"
 #include <algorithm>
 #include <cmath>
+#include <set>
 #include <string_view>
 
 namespace vdev {
@@ -100,14 +105,36 @@ BehaviorDropTargets BehaviorReceivers(Document &doc, LayoutView &view, const Lay
         result.objects.push_back(result.target);
     return result;
 }
+std::vector<CKParameter *> Inputs(CKBehavior *block) {
+    std::vector<CKParameter *> inputs;
+    const auto add = [&](CKParameterIn *input) {
+        if (!input || (input->GetObjectFlags() & CK_PARAMETERIN_DISABLED))
+            return;
+        auto *holder = EditableValueOf(input);
+        if (holder && !holder->IsMyselfParameter())
+            inputs.push_back(holder);
+    };
+    if (block->IsUsingTarget())
+        add(block->GetTargetParameter());
+    for (int i = 0; i < block->GetInputParameterCount(); ++i)
+        add(block->GetInputParameter(i));
+    return inputs;
+}
 } // namespace
 
 struct LayoutAuthoring::Data {
+    LayoutAuthoring &owner;
     EditorApplication &editor;
     std::function<Document *()> current;
     std::function<LayoutView &()> view;
     ObjectSelection &selection;
     const Preferences &preferences;
+    std::function<SchematicNavigation &()> navigation;
+    DocumentToken document{};
+    ObjectRef block{}, script{};
+    std::vector<ObjectRef> parameters;
+    std::unique_ptr<Edit> edit;
+    uint64_t drop = 0, nextDrop = 1, revision = 1;
     Document *Doc(const EditorRequest &r) const {
         auto *doc = current();
         return doc && doc->IsOpen() && doc->Token() == r.scope.document ? doc : nullptr;
@@ -118,6 +145,20 @@ struct LayoutAuthoring::Data {
             if (doc.Resolve(ref))
                 result.push_back(ref);
         return result;
+    }
+    void Clear() {
+        edit.reset();
+        block = {};
+        script = {};
+        parameters.clear();
+        document = {};
+        drop = 0;
+        ++revision;
+    }
+    void Close(bool commit) {
+        if (edit && commit)
+            edit->Commit();
+        Clear();
     }
     static EditorStatus Creation(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
@@ -234,19 +275,224 @@ struct LayoutAuthoring::Data {
                                           Arg(*r, "to").object.object),
                       sink);
     }
+    static EditorStatus Drop(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.Doc(*r);
+        if (!doc)
+            return EDITOR_STALE;
+        const auto ask = Arg(*r, "ask").integer;
+        const auto &position = Arg(*r, "position").reals;
+        if (ask > 2 || Arg(*r, "ctrl").integer > 1 ||
+            (position.count &&
+             (position.count != 2 || !std::isfinite(position.data[0]) || !std::isfinite(position.data[1]) ||
+              position.data[0] < INT32_MIN || position.data[0] > INT32_MAX || position.data[1] < INT32_MIN ||
+              position.data[1] > INT32_MAX)))
+            return EDITOR_INVALID;
+        std::vector<uint64_t> prototypes;
+        const auto &list = Arg(*r, "prototypes").integers;
+        if (list.count > 4096)
+            return EDITOR_INVALID;
+        if (list.count)
+            prototypes.assign(list.data, list.data + list.count);
+        else
+            prototypes.push_back(Arg(*r, "prototype").integer);
+        if (prototypes.size() > 4096)
+            return EDITOR_INVALID;
+        for (auto prototype : prototypes)
+            if (!CKGetObjectDeclarationFromGuid(CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype))))
+                return EDITOR_INVALID;
+        const auto &objects = Arg(*r, "objects").objects;
+        if (objects.count > 65536 || (objects.count && position.count) || (list.count && Arg(*r, "prototype").integer))
+            return EDITOR_INVALID;
+        std::vector<ObjectRef> targets;
+        std::set<ObjectRef> included;
+        for (uint32_t i = 0; i < objects.count; ++i) {
+            auto *object = doc->Resolve(objects.data[i]);
+            if (!object)
+                return EDITOR_STALE;
+            if (included.insert(objects.data[i]).second)
+                targets.push_back(objects.data[i]);
+        }
+        LayoutPickInfo info;
+        std::vector<ObjectRef> selected;
+        if (position.count) {
+            if (self.view().Context() != doc->Context())
+                return EDITOR_STALE;
+            info = self.view().PickInfo(int(position.data[0]), int(position.data[1]));
+            selected = self.Selected(*doc);
+        }
+        std::vector<std::vector<ObjectRef>> receivers;
+        size_t total = 0;
+        for (auto prototype : prototypes) {
+            auto picked = targets;
+            if (position.count) {
+                auto *declaration =
+                    CKGetObjectDeclarationFromGuid(CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype)));
+                picked = doc->References(BehaviorReceivers(*doc, self.view(), info, declaration->GetCompatibleClassId(),
+                                                           Arg(*r, "ctrl").integer != 0, selected)
+                                             .objects);
+            }
+            total += picked.size();
+            if (total > 65536)
+                return EDITOR_INVALID;
+            receivers.push_back(std::move(picked));
+        }
+        if (!total)
+            return Result(EditResult::Refused("Incompatible Class, cannot add behavior to selection."), sink);
+        size_t lastReceiver = receivers.size() - 1;
+        while (receivers[lastReceiver].empty())
+            --lastReceiver;
+        if (self.view().Context() == doc->Context())
+            self.view().SetDropTarget(0);
+        std::string messages;
+        ObjectRef lastBlock{}, lastScript{};
+        for (size_t index = 0; index < prototypes.size(); ++index) {
+            const auto prototype = prototypes[index];
+            const auto &targets = receivers[index];
+            auto edit = std::make_unique<Edit>(*doc, "Drop Behavior", Edit::Marks::Nested);
+            CK_ID script = 0, block = 0;
+            for (auto ref : targets) {
+                auto *object = doc->Resolve(ref);
+                if (!object)
+                    return Result(edit->Fail("Drop target is no longer available"), sink);
+                if (CKBehavior::Cast(object) && self.navigation().hiddenScripts.count(ref)) {
+                    if (!messages.empty())
+                        messages += '\n';
+                    messages += "Cannot drop on script with hidden graph!";
+                    continue;
+                }
+                const auto id = object->GetID();
+                CK_ID into = 0;
+                const CKGUID guid(CKDWORD(prototype >> 32), CKDWORD(prototype));
+                const auto result = CKBehavior::Cast(object)
+                                        ? (into = id, DropBuildingBlockInto(*doc, id, guid))
+                                        : DropBuildingBlockOn(*doc, id, guid, self.navigation().HiddenIds(*doc), &into);
+                if (result.ok) {
+                    script = into;
+                    block = result.created;
+                } else if (!result.message.empty()) {
+                    if (!messages.empty())
+                        messages += '\n';
+                    messages += AnsiToUtf8(result.message);
+                }
+                if (result.Status() == EditStatus::Error)
+                    return Result(edit->Fail(result.message), sink);
+            }
+            if (!block)
+                continue;
+            lastBlock = doc->Reference(block);
+            lastScript = doc->Reference(script);
+            auto *behavior = CKBehavior::Cast(doc->Resolve(lastBlock));
+            const bool asking = index == lastReceiver && ask != 2 && (ask == 1 || targets.size() == 1) &&
+                                (behavior->GetInputParameterCount() > 0 || behavior->IsUsingTarget());
+            if (asking) {
+                self.document = doc->Token();
+                self.script = lastScript;
+                self.block = lastBlock;
+                for (auto *input : Inputs(behavior))
+                    self.parameters.push_back(doc->Reference(input->GetID()));
+                self.drop = self.nextDrop++;
+                ++self.revision;
+                self.edit = std::move(edit);
+            } else
+                edit->Commit();
+            if (self.owner.rememberBehavior)
+                self.owner.rememberBehavior(prototype);
+            if (self.owner.showBehavior)
+                self.owner.showBehavior(lastScript, lastBlock);
+        }
+        const auto status = Write(sink, {{"script", EDITOR_OBJECT, lastScript},
+                                         {"created", EDITOR_OBJECT, lastBlock},
+                                         {"message", EDITOR_TEXT_VALUE, {}, messages}});
+        return status != EDITOR_OK ? status : lastBlock ? EDITOR_OK : EDITOR_REFUSED;
+    }
+    static EditorStatus Parameters(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.Doc(*r);
+        auto *block = doc ? CKBehavior::Cast(doc->Resolve(self.block)) : nullptr;
+        if (!doc || doc->Token() != self.document || !block || !self.edit)
+            return EDITOR_NO_CHANGE;
+        EditorField inputs{"inputs", EDITOR_RECORD};
+        for (const auto ref : self.parameters) {
+            auto *parameter = doc->Resolve(ref, CKCID_PARAMETER);
+            if (!parameter)
+                return EDITOR_STALE;
+            EditorField row{std::to_string(inputs.fields.size()), EDITOR_RECORD};
+            row.fields = {
+                {"object", EDITOR_OBJECT, ref},
+                {"name", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(parameter->GetName() ? parameter->GetName() : "")}};
+            inputs.fields.push_back(std::move(row));
+        }
+        return Write(sink, {{"drop", EDITOR_INTEGER_VALUE, {}, {}, self.drop},
+                            {"block", EDITOR_OBJECT, self.block},
+                            {"script", EDITOR_OBJECT, self.script},
+                            {"title",
+                             EDITOR_TEXT_VALUE,
+                             {},
+                             AnsiToUtf8(block->GetName() ? block->GetName() : "") + " - Edit Parameters"},
+                            std::move(inputs)});
+    }
+    static EditorStatus Finish(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.Doc(*r);
+        if (!doc || doc->Token() != self.document || !self.edit || Arg(*r, "drop").integer != self.drop)
+            return EDITOR_STALE;
+        if (Arg(*r, "accept").integer > 1)
+            return EDITOR_INVALID;
+        if (!Arg(*r, "accept").integer) {
+            const bool restored = self.edit->Cancel();
+            self.Clear();
+            return restored ? EDITOR_OK : EDITOR_ERROR;
+        }
+        const auto &values = Arg(*r, "values").objects;
+        auto *block = CKBehavior::Cast(doc->Resolve(self.block));
+        if (values.count != self.parameters.size() || !block)
+            return EDITOR_STALE;
+        const auto inputs = Inputs(block);
+        if (inputs.size() != self.parameters.size())
+            return EDITOR_STALE;
+        for (uint32_t i = 0; i < values.count; ++i) {
+            auto *target = CKParameter::Cast(doc->Resolve(self.parameters[i]));
+            auto *source = CKParameter::Cast(doc->Resolve(values.data[i]));
+            if (!target || !source || target != inputs[i] || target->GetGUID() != source->GetGUID())
+                return EDITOR_STALE;
+        }
+        for (uint32_t i = 0; i < values.count; ++i) {
+            const auto copied = CopyParameterValue(*doc, self.parameters[i], values.data[i], self.script.object);
+            if (!copied.ok && !copied.Unchanged()) {
+                const auto failed = self.edit->Fail(copied.message);
+                self.Clear();
+                return Result(failed, sink);
+            }
+        }
+        const auto result = self.edit->Commit();
+        self.Clear();
+        return Result(result, sink);
+    }
 };
 
 LayoutAuthoring::LayoutAuthoring(EditorApplication &editor, std::function<Document *()> current,
                                  std::function<LayoutView &()> view, ObjectSelection &selection,
-                                 const Preferences &preferences)
-    : m_Data(std::make_unique<Data>(Data{editor, std::move(current), std::move(view), selection, preferences})) {}
+                                 const Preferences &preferences, std::function<SchematicNavigation &()> navigation)
+    : m_Data(std::make_unique<Data>(
+          Data{*this, editor, std::move(current), std::move(view), selection, preferences, std::move(navigation)})) {}
 LayoutAuthoring::~LayoutAuthoring() = default;
+void LayoutAuthoring::DocumentClosing() { m_Data->Close(true); }
+void LayoutAuthoring::Poll() {
+    auto &d = *m_Data;
+    auto *doc = d.current();
+    if (d.edit && (!doc || doc->Token() != d.document || !doc->Resolve(d.block)))
+        d.Close(false);
+}
 const std::vector<ProviderChoice> &LayoutAuthoring::DefaultProviders() {
     static const std::vector<ProviderChoice> providers{
         {"query", "layout.creation", "builtin.layout-authoring"},
         {"query", "layout.drop-target", "builtin.layout-authoring"},
+        {"query", "layout.drop-parameters", "builtin.layout-authoring"},
         {"command", "layout.highlight-drop", "builtin.layout-authoring"},
-        {"command", "layout.replace-material", "builtin.layout-authoring"}};
+        {"command", "layout.replace-material", "builtin.layout-authoring"},
+        {"command", "scene.drop-behavior", "builtin.layout-authoring"},
+        {"command", "layout.finish-drop", "builtin.layout-authoring"}};
     return providers;
 }
 bool LayoutAuthoring::Register(std::string &error) {
@@ -265,28 +511,47 @@ bool LayoutAuthoring::Register(std::string &error) {
         {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},   {EDITOR_TEXT("mesh"), EDITOR_OBJECT},
         {EDITOR_TEXT("material"), EDITOR_OBJECT},       {EDITOR_TEXT("text"), EDITOR_TEXT_VALUE},
         {EDITOR_TEXT("multiple"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter parameterFields[] = {{EDITOR_TEXT("drop"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("block"), EDITOR_OBJECT},
+                                               {EDITOR_TEXT("script"), EDITOR_OBJECT},
+                                               {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE},
+                                               {EDITOR_TEXT("inputs"), EDITOR_RECORD}};
     const EditorQueryDesc queries[] = {
         {sizeof(EditorQueryDesc), EDITOR_TEXT("layout.creation"), EDITOR_TEXT("builtin.layout-authoring"), nullptr, 0,
          Data::Creation, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, creationFields, 6},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("layout.drop-target"), EDITOR_TEXT("builtin.layout-authoring"), pickArgs,
-         6, Data::Pick, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, pickFields, 7}};
+         6, Data::Pick, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, pickFields, 7},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("layout.drop-parameters"), EDITOR_TEXT("builtin.layout-authoring"),
+         nullptr, 0, Data::Parameters, m_Data.get(), EDITOR_QUERY_VERSIONED, EDITOR_DOCUMENT, parameterFields, 5,
+         [](void *data, const EditorHost *) { return static_cast<Data *>(data)->revision; }}};
     const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT, 0, 1};
     const EditorParameter material[] = {
         {EDITOR_TEXT("mesh"), EDITOR_OBJECT}, {EDITOR_TEXT("from"), EDITOR_OBJECT}, {EDITOR_TEXT("to"), EDITOR_OBJECT}};
+    const EditorParameter drop[] = {
+        {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, 1},     {EDITOR_TEXT("prototype"), EDITOR_INTEGER_VALUE, 1},
+        {EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST, 1}, {EDITOR_TEXT("ask"), EDITOR_INTEGER_VALUE, 1},
+        {EDITOR_TEXT("position"), EDITOR_REAL_LIST, 1},      {EDITOR_TEXT("ctrl"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorParameter finish[] = {{EDITOR_TEXT("drop"), EDITOR_INTEGER_VALUE},
+                                      {EDITOR_TEXT("accept"), EDITOR_INTEGER_VALUE},
+                                      {EDITOR_TEXT("values"), EDITOR_OBJECT_LIST, 1}};
     const EditorCommandDesc commands[] = {
         {sizeof(EditorCommandDesc), EDITOR_TEXT("layout.highlight-drop"), EDITOR_TEXT("builtin.layout-authoring"),
          EDITOR_TEXT("Drop Target"), &target, 1, Data::Highlight, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("layout.replace-material"), EDITOR_TEXT("builtin.layout-authoring"),
          EDITOR_TEXT("Replace Material"), material, 3, Data::Material, m_Data.get(), EDITOR_DOCUMENT,
-         EDITOR_DOCUMENT_EDIT}};
+         EDITOR_DOCUMENT_EDIT},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("scene.drop-behavior"), EDITOR_TEXT("builtin.layout-authoring"),
+         EDITOR_TEXT("Drop Behavior"), drop, 6, Data::Drop, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("layout.finish-drop"), EDITOR_TEXT("builtin.layout-authoring"),
+         EDITOR_TEXT("Drop Behavior"), finish, 3, Data::Finish, m_Data.get(), EDITOR_DOCUMENT, EDITOR_DOCUMENT_EDIT}};
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("layout.authoring");
     module.commands = commands;
-    module.commandCount = 2;
+    module.commandCount = 4;
     module.queries = queries;
-    module.queryCount = 2;
+    module.queryCount = 3;
     return m_Data->editor.Register(module, error);
 }
 } // namespace vdev
