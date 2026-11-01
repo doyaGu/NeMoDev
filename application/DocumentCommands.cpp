@@ -779,25 +779,26 @@ bool DocumentCommands::Register(std::string &error) {
     struct Description {
         const char *id, *title;
         A action;
+        const char *location = nullptr;
     };
-    const Description descriptions[] = {{"document.new", "New Composition", A::New},
-                                        {"document.open", "Load Composition...", A::Open},
-                                        {"document.save", "Save Composition", A::Save},
-                                        {"document.save-as", "Save As...", A::SaveAs},
-                                        {"document.save-version", "Save Version", A::SaveVersion},
-                                        {"document.revert", "Revert to Saved", A::Revert},
-                                        {"document.close", "Close", A::Close},
-                                        {"application.quit", "Exit", A::Quit},
-                                        {"document.merge", "Merge Composition...", A::Merge},
-                                        {"document.merge-scene", "Merge Composition as New Scene...", A::MergeScene},
-                                        {"document.import", "Import File", A::Import},
-                                        {"document.import-character", "Character", A::ImportCharacter},
-                                        {"document.import-place", "Place", A::ImportPlace},
-                                        {"document.import-scene", "Scene", A::ImportScene},
-                                        {"document.export-player", "Export to Virtools Player...", A::Player},
-                                        {"history.undo", "Undo (3d Layout/Schematic only)", A::Undo},
-                                        {"history.redo", "Redo (3d Layout/Schematic only)", A::Redo},
-                                        {"history.purge", "Purge Undo", A::Purge},
+    const Description descriptions[] = {{"document.new", "New Composition", A::New, "file.new"},
+                                        {"document.open", "Load Composition...", A::Open, "file.document"},
+                                        {"document.save", "Save Composition", A::Save, "file.document"},
+                                        {"document.save-as", "Save As...", A::SaveAs, "file.document"},
+                                        {"document.save-version", "Save Version", A::SaveVersion, "file.document"},
+                                        {"document.revert", "Revert to Saved", A::Revert, "file.document"},
+                                        {"document.close", "Close", A::Close, "file.close"},
+                                        {"application.quit", "Exit", A::Quit, "file.close"},
+                                        {"document.merge", "Merge Composition...", A::Merge, "file.merge"},
+                                        {"document.merge-scene", "Merge Composition as New Scene...", A::MergeScene, "file.merge"},
+                                        {"document.import", "Import File", A::Import, "resources.import"},
+                                        {"document.import-character", "Character", A::ImportCharacter, "resources.import-as"},
+                                        {"document.import-place", "Place", A::ImportPlace, "resources.import-as"},
+                                        {"document.import-scene", "Scene", A::ImportScene, "resources.import-as"},
+                                        {"document.export-player", "Export to Virtools Player...", A::Player, "file.export"},
+                                        {"history.undo", "Undo (3d Layout/Schematic only)", A::Undo, "file.history"},
+                                        {"history.redo", "Redo (3d Layout/Schematic only)", A::Redo, "file.history"},
+                                        {"history.purge", "Purge Undo", A::Purge, "file.history"},
                                         {"resource.load", "Load resources", A::LoadResources},
                                         {"resource.drop", "Drop resources", A::DropResources},
                                         {"script.load", "Load Script...", A::LoadScripts},
@@ -900,16 +901,9 @@ bool DocumentCommands::Register(std::string &error) {
     std::vector<EditorMenuDesc> menus;
     int order = 0;
     for (const auto &description : descriptions) {
-        const auto action = description.action;
-        if (action >= A::LoadResources && action <= A::ExportBehaviors) continue;
-        const char *location = action == A::New                                           ? "file.new"
-                               : action >= A::Undo                                        ? "file.history"
-                               : action == A::Close || action == A::Quit                  ? "file.close"
-                               : action == A::Merge || action == A::MergeScene            ? "file.merge"
-                               : action == A::Import                                      ? "resources.import"
-                               : action >= A::ImportCharacter && action <= A::ImportScene ? "resources.import-as"
-                               : action == A::Player                                      ? "file.export"
-                                                                                          : "file.document";
+        const char *location = description.location;
+        if (!location)
+            continue;
         menuIds.emplace_back(std::string("menu.") + description.id);
         menus.push_back({EditorText(menuIds.back()), EditorLiteral(description.id), EditorLiteral(location),
                          EditorLiteral(description.title), order++});
