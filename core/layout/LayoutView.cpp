@@ -616,8 +616,14 @@ bool LayoutView::GoFullScreen(int driver, const VxDisplayMode &mode) {
 bool LayoutView::StopFullScreen() {
     CKRenderContext *rc = RenderContext();
     if (!rc || !m_Window || !rc->IsFullScreen()) return true;
-    if (!SDL_SetWindowFullscreen(m_Window, false) || !SDL_SyncWindow(m_Window) ||
-        (SDL_GetWindowFlags(m_Window) & SDL_WINDOW_FULLSCREEN)) return false;
+    if (!SDL_SetWindowFullscreen(m_Window, false))
+        return false;
+    // Sync also waits for position/size requests, which can time out after
+    // focus moves elsewhere even though the fullscreen transition completed.
+    // Finish restoring CK once the window itself is no longer fullscreen.
+    SDL_SyncWindow(m_Window);
+    if (SDL_GetWindowFlags(m_Window) & SDL_WINDOW_FULLSCREEN)
+        return false;
     CKERROR result = CKERR_INVALIDRENDERCONTEXT;
     const bool completed = GuardedCall([&] { result = rc->StopFullScreen(); }, &m_Host, "CKRenderContext::StopFullScreen");
     if (!completed || result != CK_OK || rc->IsFullScreen()) return false;
