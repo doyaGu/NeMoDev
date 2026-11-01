@@ -18,4 +18,4 @@ if(WIN32)
     target_link_libraries(NeMoDevEditorApplication PRIVATE advapi32)
 endif()
 
-target_sources(NeMoDevObjectCommands PRIVATE ../features/setup/SetupQueries.cpp ../features/setup/SetupRenderQueries.cpp ../features/setup/SetupObjectQueries.cpp ../features/setup/SetupSceneQueries.cpp)
+target_sources(NeMoDevObjectCommands PRIVATE ../features/setup/SetupQueries.cpp ../features/setup/SetupRenderQueries.cpp ../features/setup/SetupObjectQueries.cpp ../features/setup/SetupSceneQueries.cpp ../features/setup/SetupActions.cpp)

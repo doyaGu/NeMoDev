@@ -1240,6 +1240,10 @@ const std::vector<ProviderChoice> &SetupCommands::DefaultProviders() {
         for (const auto *id : {"setup.target", "setup.page", "setup.objects", "setup.transform", "setup.details",
                                "setup.choices", "setup.properties"})
             result.push_back({"query", id, "builtin.setup"});
+        std::vector<EditorCommandDesc> commands;
+        AppendSetupPageCommands(commands, nullptr);
+        for (const auto &command : commands)
+            result.push_back({"command", std::string(command.id.data, command.id.size), "builtin.setup"});
         return result;
     }();
     return providers;
@@ -1318,6 +1322,7 @@ bool SetupCommands::Register(EditorApplication &app, std::string &error) {
     queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("setup.transform"), EDITOR_TEXT("builtin.setup"), &target,
                        1, Data::Transform, &data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, transformFields, 3});
     AppendSetupPageQueries(queries, &data.current);
+    AppendSetupPageCommands(commands, &data.current);
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
