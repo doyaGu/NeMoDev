@@ -379,6 +379,8 @@ struct EditorHost {
     EditorStatus(EDITOR_CALL *pickRegions)(void *, EditorView, const EditorPickRegion *, uint32_t);
     // A cheap published query version. Arguments remain validated when the
     // projection is read; views invalidate their local parameters separately.
+    // Compare for equality only. A provider change also changes this version;
+    // it is independent of revision fields in the returned data.
     EditorStatus(EDITOR_CALL *queryRevision)(void *, EditorString, uint64_t *);
     // Tests and consumes a configured chord during drawing. Later global
     // shortcuts cannot dispatch the same key again in this frame.

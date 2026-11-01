@@ -57,11 +57,17 @@ struct CheckView {
             const auto end = EditorClient::Integer(page, "next"), total = EditorClient::Integer(page, "total");
             const auto published = EditorClient::Integer(page, "revision");
             if (!items || end < first || end > total || (end == first && end < total) || (expected && published != expected)) return false;
-            if (!force && first == 0 && published == revision) { version = current; return true; }
             expected = published; next.insert(next.end(), items->fields.begin(), items->fields.end());
             if (end == total) break;
             first = end;
         } while (true);
+        // A different query provider, or another diagnostic's scan, may
+        // publish a new cache version without changing these rows. Keep this
+        // instance's exclusions, selection and sort in that case.
+        if (!force && revision == expected && rows == next) {
+            version = current; report = EditorClient::Text(page, "report"); bytes = EditorClient::Integer(page, "bytes");
+            return true;
+        }
         rows = std::move(next); revision = expected; version = current;
         report = EditorClient::Text(page, "report"); bytes = EditorClient::Integer(page, "bytes");
         order.resize(rows.size()); for (size_t i = 0; i < order.size(); ++i) order[i] = i;

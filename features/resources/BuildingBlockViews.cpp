@@ -39,7 +39,7 @@ struct BlocksView {
     std::vector<size_t> shown;
     std::string filter, category;
     std::map<std::string, bool> expanded;
-    uint64_t catalog = 0, revision = 1, anchor = 0;
+    uint64_t catalog = 0, sourceVersion = 0, revision = 1, anchor = 0;
     int sortColumn = 0;
     bool descending = false, listChanged = true, restoreExpanded = false;
 
@@ -57,15 +57,16 @@ EditorStatus BlocksView::Refresh(const EditorClient &client) {
     const uint64_t version = client.Revision("catalog.building-blocks");
     if (!version)
         return EDITOR_REFUSED;
-    if (version == catalog)
+    if (version == sourceVersion)
         return EDITOR_OK;
     std::vector<Block> next;
-    uint64_t first = 0, total = 0;
+    uint64_t first = 0, total = 0, catalogVersion = 0;
     do {
         const auto page = client.Query("catalog.building-blocks", {IntegerArgument("first", first)});
         if (page.status != EDITOR_OK)
             return page.status;
-        if (EditorClient::Integer(page, "revision") != version)
+        if (!first) catalogVersion = EditorClient::Integer(page, "revision");
+        if (EditorClient::Integer(page, "revision") != catalogVersion)
             return EDITOR_STALE;
         total = EditorClient::Integer(page, "total");
         const auto *names = EditorClient::Find(page, "names"), *paths = EditorClient::Find(page, "categories"),
@@ -129,7 +130,8 @@ EditorStatus BlocksView::Refresh(const EditorClient &client) {
         anchor = 0;
     entries = std::move(next);
     categories = std::move(tree);
-    catalog = version;
+    catalog = catalogVersion;
+    sourceVersion = version;
     listChanged = true;
     ++revision;
     return EDITOR_OK;

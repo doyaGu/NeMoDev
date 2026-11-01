@@ -148,10 +148,14 @@ bool SelectionCommands::Register(EditorApplication &editor, std::string &error) 
                           0,
                           Read,
                           this,
-                          EDITOR_QUERY_EACH_READ,
+                          EDITOR_QUERY_VERSIONED,
                           EDITOR_APPLICATION,
                           fields,
-                          3};
+                          3,
+                          [](void *data, const EditorHost *) {
+                              const auto &selection = static_cast<SelectionCommands *>(data)->m_Selection;
+                              return (uint64_t(selection.Revision()) << 1) | uint64_t(selection.Locked());
+                          }};
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;

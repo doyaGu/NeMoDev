@@ -345,6 +345,40 @@ void VersionedQueries() {
     worker.join();
     Check(wrongThread == EDITOR_REFUSED, "worker read a borrowed projection");
 }
+void QueryProviderVersions() {
+    uint64_t values[] = {1, 2};
+    const EditorParameter field{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE};
+    EditorQueryDesc queries[3]{};
+    for (unsigned i = 0; i < 3; ++i) {
+        queries[i] = {sizeof(EditorQueryDesc), i == 2 ? EditorString EDITOR_TEXT("test.other-query") : EditorString EDITOR_TEXT("test.source-query"),
+            i == 1 ? EditorString EDITOR_TEXT("test.second") : EditorString EDITOR_TEXT("test.first"), nullptr, 0,
+            [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+                const EditorValue result{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, *static_cast<uint64_t *>(data)};
+                return sink.write(sink.data, &result, 1);
+            }, values + (i == 1 ? 1 : 0), EDITOR_QUERY_VERSIONED, EDITOR_WORKSPACE, &field, 1,
+            [](void *, const EditorHost *) -> uint64_t { return 7; }};
+    }
+    auto module = TextModule(); module.queries = queries; module.queryCount = 3;
+    EditorApplication app({}); std::string error;
+    Check(app.Register(module, error), error.c_str());
+    EditorConfiguration config; config.providers.push_back({"query", "test.source-query", "test.first"});
+    Check(app.Activate(EDITOR_IMGUI_VERSION, error, config), error.c_str());
+    uint64_t first = 0, same = 0, other = 0, next = 0;
+    Check(app.QueryRevision("test.source-query", first) == EDITOR_OK && first &&
+        app.QueryRevision("test.source-query", same) == EDITOR_OK && first == same &&
+        app.QueryRevision("test.other-query", other) == EDITOR_OK, "stable query version changed");
+    const auto before = app.Query("test.source-query", {app.Scope(), nullptr, 0});
+    config.providers[0].provider = "test.second"; Check(app.Configure(config, error), error.c_str());
+    Check(app.QueryRevision("test.source-query", next) == EDITOR_OK && next != first,
+        "switching providers with the same published version retained a stale projection");
+    const auto after = app.Query("test.source-query", {app.Scope(), nullptr, 0});
+    Check(before.fields[0].integer == 1 && after.fields[0].integer == 2, "query provider switch changed an owned result or used old data");
+    Check(app.QueryRevision("test.other-query", same) == EDITOR_OK && same == other,
+        "unrelated query version changed with another provider");
+    config.providers[0].provider = "test.first"; Check(app.Configure(config, error), error.c_str());
+    Check(app.QueryRevision("test.source-query", same) == EDITOR_OK && same != next,
+        "restoring a query provider reused the previous provider version");
+}
 void Registration() {
     EditorApplication app({});
     std::string error;
@@ -617,6 +651,7 @@ int main(int argc, char **argv) {
         Check(argc == 3, "module and environment fixture paths are required");
         Registration();
         VersionedQueries();
+        QueryProviderVersions();
         MenuChecks();
         PreviewRegistration();
         OwnedValueDrawing();

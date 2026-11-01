@@ -29,7 +29,7 @@ struct ResourceView {
     std::vector<Folder> folders;
     std::vector<File> files;
     std::set<std::string> selected, expanded;
-    uint64_t catalog = 0, revision = 1, cid = 0;
+    uint64_t catalog = 0, sourceVersion = 0, revision = 1, cid = 0;
     bool restoreExpanded = true;
     EditorStatus Refresh(const EditorClient &);
     EditorStatus ReadFiles(const EditorClient &, const std::string &path);
@@ -89,13 +89,12 @@ EditorStatus ResourceView::Refresh(const EditorClient &client) {
     const auto version = client.Revision("resource.library");
     if (!version)
         return EDITOR_REFUSED;
-    if (version == catalog)
+    if (version == sourceVersion)
         return EDITOR_OK;
     const auto info = client.Query("resource.library", {TextArgument("path", library)});
     if (info.status != EDITOR_OK)
         return info.status;
-    if (EditorClient::Integer(info, "revision") != version)
-        return EDITOR_STALE;
+    const auto catalogVersion = EditorClient::Integer(info, "revision");
     ResourceView next = *this;
     next.title = EditorClient::Text(info, "title");
     next.folders.clear();
@@ -105,7 +104,7 @@ EditorStatus ResourceView::Refresh(const EditorClient &client) {
             client.Query("resource.folders", {TextArgument("path", library), IntegerArgument("first", first)});
         if (page.status != EDITOR_OK)
             return page.status;
-        if (EditorClient::Integer(page, "revision") != version)
+        if (EditorClient::Integer(page, "revision") != catalogVersion)
             return EDITOR_STALE;
         total = EditorClient::Integer(page, "total");
         const auto *names = EditorClient::Find(page, "names"), *classes = EditorClient::Find(page, "classes"),
@@ -130,10 +129,12 @@ EditorStatus ResourceView::Refresh(const EditorClient &client) {
     if (std::none_of(next.folders.begin(), next.folders.end(),
                      [&](const Folder &entry) { return entry.path == next.folder; }))
         next.folder = next.folders.front().path;
-    next.catalog = version;
+    next.catalog = catalogVersion;
+    next.sourceVersion = version;
     const auto status = next.ReadFiles(client, next.folder);
     if (status != EDITOR_OK)
         return status;
+    if (client.Revision("resource.library") != version) return EDITOR_STALE;
     *this = std::move(next);
     return EDITOR_OK;
 }

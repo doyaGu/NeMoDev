@@ -481,6 +481,11 @@ struct EditorApplication::State {
         uint64_t version = 0;
     };
     std::map<const EditorQueryDesc *, std::vector<Cached>> cache;
+    struct QueryRevision {
+        const EditorQueryDesc *source = nullptr;
+        uint64_t value = 0, published = 0;
+    };
+    std::map<std::string, QueryRevision> queryRevisions;
     EditorResponse queryResult;
     struct Watch {
         EditorScope scope;
@@ -1099,7 +1104,11 @@ EditorStatus EditorApplication::QueryRevision(const std::string &id, uint64_t &v
     catch (...) { --s.querying; --s.readOnlyCallbacks; return EDITOR_ERROR; }
     --s.querying;
     --s.readOnlyCallbacks;
-    version = value;
+    auto &revision = s.queryRevisions[id];
+    if (revision.source != &desc || revision.value != value) {
+        revision.source = &desc; revision.value = value; ++revision.published;
+    }
+    version = revision.published;
     return EDITOR_OK;
 }
 
