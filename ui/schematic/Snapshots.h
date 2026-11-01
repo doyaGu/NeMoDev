@@ -6,6 +6,7 @@
 
 #include "imgui.h"
 #include <cstdint>
+#include "core/runtime/Bitmaps.h"
 
 namespace vdev {
 class UiTexture;
@@ -15,12 +16,6 @@ class SnapshotBuffer;
 
 // Convert a session Snapshot Buffer slot to a document picture edit.
 void SetObjectPictureFromSnapshot(Document &document, uint32_t object, const SnapshotBuffer &buffer, int slot);
-
-// A 32-bit DIB section of BGRA rows (opaque), for SDK bitmaps;
-// null on failure.
-void *BitmapFromPixels(const void *bgra, int width, int height);
-// The pixels of a bitmap handle as top-down BGRA rows; false when it cannot be read.
-bool PixelsOfBitmap(void *bitmap, std::vector<unsigned char> &bgra, int &width, int &height);
 
 // The editor texture of a bitmap handle, made on first use; size in pixels.
 // Null when the handle cannot be read.

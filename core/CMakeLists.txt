@@ -22,6 +22,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         runtime/CkArrays.cpp
         runtime/CkRuntimeHost.cpp
         runtime/Resources.cpp
+        runtime/Bitmaps.cpp
         runtime/ImageFiles.cpp
         runtime/SdkCompat.cpp
         runtime/TextEncoding.cpp
