@@ -30,7 +30,7 @@ add_test(NAME NeMoDevArchitectureChecker COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/ArchitectureTests.py")
 add_test(NAME NeMoDevViewportMeasurement COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/ViewportMeasurementTests.py")
-add_executable(NeMoDevIdentityHeaderTests IdentityHeaderTests.cpp IdentityHeaderC.c)
+add_executable(NeMoDevIdentityHeaderTests IdentityHeaderTests.cpp IdentityHeaderC.c SchematicHeaderTests.cpp)
 target_include_directories(NeMoDevIdentityHeaderTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(NeMoDevIdentityHeaderTests PRIVATE c_std_11 cxx_std_17)
 add_test(NAME NeMoDevIdentityHeaders COMMAND NeMoDevIdentityHeaderTests)

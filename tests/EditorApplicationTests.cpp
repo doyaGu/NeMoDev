@@ -34,6 +34,7 @@ void TestPreferencesCommands(vdev::CkRuntimeHost &host);
 void TestCanvasCommands(vdev::CkRuntimeHost &host);
 void TestGraphEditing(vdev::CkRuntimeHost &);
 void TestSchematicAuthoring(vdev::CkRuntimeHost &, const std::string &);
+void TestSchematicProjections(vdev::CkRuntimeHost &);
 void TestGestureCommands(vdev::CkRuntimeHost &, const std::string &);
 void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestObjectCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
@@ -691,6 +692,7 @@ int main(int argc, char **argv) {
         TestPreferencesCommands(runtime);
         TestCanvasCommands(runtime);
         TestGraphEditing(runtime);
+        TestSchematicProjections(runtime);
         TestSchematicAuthoring(runtime, argv[3]);
         TestGestureCommands(runtime, argv[3]);
         std::cout << "Module registration, object editing, undo and view lifetime checks passed\n";

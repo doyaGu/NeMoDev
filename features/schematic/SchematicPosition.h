@@ -38,9 +38,9 @@ inline bool ReadSchematicPosition(const EditorValue &value, ElementAddress &addr
                     return false;
                 address.element.pin = PinKind(v);
             } else if (key == "index" || key == "sub") {
-                if (v != UINT64_MAX && v > INT_MAX)
+                if (v != UINT64_MAX && !(key == "index" && v == UINT64_MAX - 1) && v > INT_MAX)
                     return false;
-                const auto index = v == UINT64_MAX ? -1 : int(v);
+                const auto index = v == UINT64_MAX ? -1 : v == UINT64_MAX - 1 ? -2 : int(v);
                 if (key == "index")
                     address.element.index = index;
                 else
@@ -56,6 +56,12 @@ inline bool ReadSchematicPosition(const EditorValue &value, ElementAddress &addr
     address.element.owner = address.owner.object;
     address.element.object = address.object.object;
     return address.script && address.element.IsValid();
+}
+
+inline bool ReadSchematicPosition(const EditorField &field, ElementAddress &address) {
+    const std::vector<EditorField> owned{field};
+    const auto values = BorrowEditorFields(owned);
+    return ReadSchematicPosition(*values.data(), address);
 }
 
 inline EditorField SchematicPosition(const ElementAddress &address, const char *key = "address", ObjectRef focus = {}) {
