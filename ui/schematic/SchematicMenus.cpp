@@ -131,178 +131,19 @@ void SchematicCanvas::ImportBehaviorFile(CK_ID script, const Point &local) {
     });
 }
 
-// Dev Message Explorer (H): every message type with the Building Blocks
-// that send (CKBEHAVIOR_MESSAGESENDER) or wait for it
-// (CKBEHAVIOR_MESSAGERECEIVER), by the value of their Message inputs.
-// Double-click shows a Building Block in the Schematic.
-// Dev's Invalid Link Explorer (dialog 749): the invalid links kept after
-// loading, by Script and the behavior (graph) holding them; Goto shows the
-// Script with the link selected, Delete and Delete All take them off.
-void SchematicCanvas::LinkErrorsExplorer() {
-    m_State.RefreshInvalidLinks();
-    if (m_State.invalidLinks.empty()) m_ShowLinkErrors = false;
-    if (!m_ShowLinkErrors || !m_State.HasDocument()) return;
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const ImVec2 units(268.0f, 158.0f);
-    const float pad = 2.0f;
-    ImVec2 o;
-    if (!vi::BeginWindow("Invalid Link Explorer", "Invalid Link Explorer", vi::TemplateClient(units, s, pad), s, o)) {
-        vi::EndWindow();
-        return;
-    }
-    const vi::TemplateLayout l = vi::LayoutTemplate(o, units, s, pad);
-    vi::TemplatePanel(l);
-    CKContext *context = m_State.document->Context();
-    const std::vector<InvalidLink> &links = m_State.invalidLinks;
-    if (m_LinkErrorPick >= 0) {
-        CK_ID script = 0;
-        ElementRef ref;
-        m_LinkErrorPick = -1;
-        if (m_LinkErrorAddress.Resolve(*m_State.document, script, ref))
-            for (size_t i = 0; i < links.size(); ++i)
-                if (links[i].script == script && links[i].graph == ref.owner && links[i].slot == ref.index)
-                    m_LinkErrorPick = int(i);
-    }
-    static const std::vector<vi::ListColumn> COLUMNS{{"In Script", 184.0f * 1.0f}, {"In Behavior", 184.0f}, {"", 0.0f}};
-    std::vector<vi::ListColumn> columns = COLUMNS;
-    for (vi::ListColumn &column : columns) column.width *= s;
-    bool twice = false;
-    const int row = vi::ListView(
-        "##invalidlinks", l.Min(4, 4), l.Max(4, 4, 260, 134), s, columns, static_cast<int>(links.size()),
-        [&](int r, int c) {
-            CKObject *object = context->GetObject(c == 0 ? links[r].script : links[r].graph);
-            return c < 2 && object && object->GetName() ? AnsiToUtf8(object->GetName()) : std::string();
-        },
-        [&](int r) { return r == m_LinkErrorPick; }, &twice);
-    if (row >= 0) { m_LinkErrorPick = row; m_LinkErrorAddress = links[row].address; }
-    const bool picked = m_LinkErrorPick >= 0;
-    auto show = [&](const InvalidLink &link) {
-        m_State.events.Post(ShowElement{*m_State.document, link.script, {ElementKind::Link, link.graph, link.link, link.slot}, link.graph, m_Instance});
-    };
-    if ((vi::Button("Goto", l.Min(7, 143), l.Max(7, 143, 71, 10), "Goto", picked) || (row >= 0 && twice)) && picked)
-        show(links[m_LinkErrorPick]);
-    if (vi::Button("Delete", l.Min(100, 143), l.Max(100, 143, 71, 10), "Delete", picked)) {
-        const InvalidLink link = links[m_LinkErrorPick];
-        m_LinkErrorPick = -1;
-        DeleteInvalidLinks({link});
-    } else if (vi::Button("Delete All", l.Min(193, 143), l.Max(193, 143, 71, 10), "Delete All", !links.empty())) {
-        const std::vector<InvalidLink> all = links;
-        m_LinkErrorPick = -1;
-        DeleteInvalidLinks(all);
-    }
-    if (vi::DialogButton("Close", ImVec2(l.right - 60.0f * s, l.buttonsY), s)) m_ShowLinkErrors = false;
-    vi::EndWindow();
+bool SchematicCanvas::DiagnosticOpen(bool invalid) const {
+    const auto role = invalid ? "main.invalid-links" : "main.messages";
+    return EditorClient::Integer(Client().Query("workspace.role", {{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EditorLiteral(role)}}), "view") != 0;
 }
-
-void SchematicCanvas::DeleteInvalidLinks(const std::vector<InvalidLink> &links) {
-    if (links.empty() || !m_State.HasDocument()) return;
-    Edit edit(*m_State.document, links.size() > 1 ? "Delete Invalid Links" : "Delete Invalid Link", Edit::Marks::Scripts);
-    for (const InvalidLink &link : links) edit.ScriptData(link.script); // the displays before
-    const int removed = RemoveInvalidLinks(*m_State.document, links);
-    Report(edit.Commit(), "Delete Invalid Link");
-    if (removed > 0)
-        m_State.invalidLinks =
-            FindInvalidLinks(*m_State.document, m_State.preferences.Bool("Schematic\\Test Parameter Link after Loading"));
+void SchematicCanvas::ToggleDiagnostic(bool invalid) {
+    const auto role = invalid ? "main.invalid-links" : "main.messages";
+    const auto result = Client().Query("workspace.role", {{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EditorLiteral(role)}});
+    const auto view = EditorClient::Integer(result, "view");
+    if (view) Client().Command("workspace.close-view", {IntegerArgument("view", view)});
+    else Client().Command(invalid ? "schematic.open-invalid-links" : "schematic.open-messages");
 }
-
-void SchematicCanvas::MessageExplorer() {
-    if (!m_ShowMessages || !m_State.HasDocument()) return;
-    ImGui::SetNextWindowSize(ImVec2(560, 420), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("Message Explorer", &m_ShowMessages)) {
-        ImGui::End();
-        return;
-    }
-    CKContext *context = m_State.document->Context();
-    CKMessageManager *messages = context->GetMessageManager();
-    CKParameterManager *manager = context->GetParameterManager();
-    const CKParameterType messageType = manager ? manager->ParameterGuidToType(CKPGUID_MESSAGE) : -1;
-    struct Use {
-        CK_ID script, behavior, parent;
-        bool sender;
-    };
-    std::map<int, std::vector<Use>> uses;
-    for (const auto &info : m_State.document->Scripts()) {
-        ScriptSession *session = m_State.document->Session(info.id);
-        CKBehavior *script = CKBehavior::Cast(context->GetObject(info.id));
-        if (!script) continue;
-        std::vector<CKBehavior *> pending{script};
-        while (!pending.empty()) {
-            CKBehavior *behavior = pending.back();
-            pending.pop_back();
-            for (int i = 0; i < behavior->GetSubBehaviorCount(); ++i) pending.push_back(behavior->GetSubBehavior(i));
-            const CKDWORD flags = behavior->GetFlags();
-            if (!(flags & (CKBEHAVIOR_MESSAGESENDER | CKBEHAVIOR_MESSAGERECEIVER))) continue;
-            for (int i = 0; i < behavior->GetInputParameterCount(); ++i) {
-                CKParameterIn *input = behavior->GetInputParameter(i);
-                if (!input || input->GetType() != messageType) continue;
-                CKParameter *source = input->GetRealSource();
-                int value = -1;
-                if (source) source->GetValue(&value);
-                const BehaviorData *record = session ? FindRecord(session->Data(), behavior->GetID()) : nullptr;
-                uses[value].push_back({info.id, behavior->GetID(), record ? record->parentId : info.id,
-                                       (flags & CKBEHAVIOR_MESSAGESENDER) != 0});
-            }
-        }
-    }
-    // Dev's layout (documentation "Message Explorer"): the messages; for the
-    // one selected the Building Blocks sending it and those receiving it;
-    // a double click or Goto centers the Schematic on the one selected.
-    const int count = messages ? messages->GetMessageTypeCount() : 0;
-    auto show = [&](const Use &use) {
-        m_State.events.Post(ShowElement{*m_State.document, use.script, ElementRef{ElementKind::Behavior, use.parent, use.behavior}, use.behavior, m_Instance});
-    };
-    const float listWidth = std::max(160.0f, ImGui::GetContentRegionAvail().x * 0.4f);
-    const float height = std::max(80.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing());
-    ImGui::BeginChild("messagelist", ImVec2(listWidth, height), ImGuiChildFlags_Borders);
-    ImGui::TextDisabled("Messages");
-    for (int type = 0; type < count; ++type) {
-        const char *name = messages->GetMessageTypeName(type);
-        auto found = uses.find(type);
-        ImGui::PushID(type);
-        const std::string label = AnsiToUtf8(name ? name : "") + (found != uses.end() ? "  (" + std::to_string(found->second.size()) + ")" : "");
-        if (ImGui::Selectable(label.c_str(), m_MessagePick == type)) {
-            m_MessagePick = type;
-            m_MessageUse = 0;
-        }
-        ImGui::PopID();
-    }
-    ImGui::EndChild();
-    ImGui::SameLine();
-    ImGui::BeginGroup();
-    const float half = (height - ImGui::GetStyle().ItemSpacing.y) * 0.5f;
-    auto list = [&](const char *id, const char *title, bool senders) {
-        ImGui::BeginChild(id, ImVec2(0, half), ImGuiChildFlags_Borders);
-        ImGui::TextDisabled("%s", title);
-        auto found = uses.find(m_MessagePick);
-        if (found != uses.end())
-            for (const Use &use : found->second) {
-                if (use.sender != senders) continue;
-                CKObject *behavior = context->GetObject(use.behavior);
-                const ScriptInfo *info = m_State.document->FindScript(use.script);
-                ImGui::PushID(static_cast<int>(use.behavior));
-                const std::string label = AnsiToUtf8(behavior && behavior->GetName() ? behavior->GetName() : "") + "   (" +
-                                          (info ? AnsiToUtf8(info->name) : std::string()) + ")";
-                if (ImGui::Selectable(label.c_str(), m_MessageUse == use.behavior, ImGuiSelectableFlags_AllowDoubleClick)) {
-                    m_MessageUse = use.behavior;
-                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) show(use);
-                }
-                ImGui::PopID();
-            }
-        ImGui::EndChild();
-    };
-    list("senders", "Senders", true);
-    list("receivers", "Receivers", false);
-    ImGui::EndGroup();
-    const std::vector<Use> *chosen = uses.count(m_MessagePick) ? &uses[m_MessagePick] : nullptr;
-    const Use *picked = nullptr;
-    if (chosen)
-        for (const Use &use : *chosen)
-            if (use.behavior == m_MessageUse) picked = &use;
-    ImGui::BeginDisabled(!picked);
-    if (ImGui::Button("Goto", ImVec2(90, 0)) && picked) show(*picked);
-    ImGui::EndDisabled();
-    ImGui::End();
-}
+void SchematicCanvas::ShowMessageExplorer() { Client().Command("schematic.open-messages"); }
+void SchematicCanvas::ShowInvalidLinks() { Client().Command("schematic.open-invalid-links"); }
 
 // --------------------------------------------------------------- breakpoints
 
@@ -840,15 +681,12 @@ void SchematicCanvas::PickConditionParameter(CK_ID parameter) {
 
 // Dev "Execute Script(s)" (Alt+X): the selected Scripts, else the current one.
 void SchematicCanvas::ExecuteSelectedScripts() {
-    if (!m_State.debugger || !m_State.HasDocument()) return;
-    std::vector<CK_ID> scripts = m_Navigation.selection.Scripts();
+    std::vector<uint32_t> scripts = m_Navigation.selection.Scripts();
     if (scripts.empty() && m_Doc.currentScript) scripts.push_back(m_Doc.currentScript);
-    const auto objects = m_State.document->References(scripts);
-    const EditorValue value{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}};
-    auto &editor = m_State.workspace->Application();
-    editor.Execute("runtime.execute-scripts", {editor.Scope(m_Instance), &value, 1});
+    const auto objects = ScriptReferences(scripts);
+    Execute("runtime.execute-scripts", {ObjectsArgument("objects", objects)});
     RefreshValues();
-    editor.Execute("runtime.open-debugger", {editor.Scope(m_Instance), nullptr, 0});
+    Execute("runtime.open-debugger");
 }
 
 // --------------------------------------------------------------- snapshot
@@ -1079,17 +917,12 @@ void SchematicCanvas::ConfirmScriptDeletion() {
         m_Doc.openDeleteScript = false;
     }
     if (!ImGui::BeginPopupModal("Confirm Script(s) Deletion", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    const std::vector<CK_ID> scripts = m_Doc.deleteScripts;
-    CKObject *script = m_State.HasDocument() && !scripts.empty() ? m_State.document->Context()->GetObject(scripts.front()) : nullptr;
+    const auto scripts = m_Doc.deleteScripts;
+    const auto details = scripts.empty() ? EditorResponse{} : Client().Query("object.details", {ObjectArgument("target", scripts.front())});
     if (scripts.size() > 1) ImGui::Text("Delete the %d Scripts selected?", static_cast<int>(scripts.size()));
-    else ImGui::Text("Delete the Script <%s>?", script ? AnsiToUtf8(script->GetName() ? script->GetName() : "").c_str() : "");
+    else ImGui::Text("Delete the Script <%s>?", EditorClient::Text(details, "name").c_str());
     if (ImGui::Button("OK", ImVec2(100, 0))) {
-        {
-            EditGroup group(*m_State.document, scripts.size() > 1 ? "Delete Scripts" : "Delete Script");
-            for (CK_ID each : scripts)
-                if (m_State.document->Context()->GetObject(each)) Report(DeleteScript(*m_State.document, each), "Delete Script");
-        }
-        m_Navigation.selection.Clear();
+        Execute("script.delete", {ObjectsArgument("objects", scripts)}, GraphFollow::ClearSelection);
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
@@ -1479,11 +1312,11 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
     }
     if (ImGui::MenuItem("Save As...", "Alt+S")) SaveBehaviorsAs({script}, view.model.script.name + ".nms");
     if (ImGui::MenuItem("Copy", "Ctrl+C")) {
-        m_State.objectClipboard.SetScripts(*m_State.document, {script});
+        const auto objects = ScriptReferences({script}); Execute("scene.copy", {ObjectsArgument("objects", objects)});
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Delete", "Delete")) {
-        m_Doc.deleteScripts = {script};
+        m_Doc.deleteScripts = ScriptReferences({script});
         m_Doc.openDeleteScript = true;
     }
     ImGui::Separator();
@@ -1539,11 +1372,11 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
     if (ImGui::MenuItem("Rename", "F2", false, scripts.size() == 1)) BeginRename();
     if (ImGui::MenuItem("Save As...", "Alt+S")) SaveBehaviorsAs(scripts, view.model.script.name + ".nms");
     if (ImGui::MenuItem("Copy")) {
-        m_State.objectClipboard.SetScripts(*m_State.document, scripts);
+        const auto objects = ScriptReferences(scripts); Execute("scene.copy", {ObjectsArgument("objects", objects)});
     }
     ImGui::Separator();
     if (ImGui::MenuItem("Delete")) {
-        m_Doc.deleteScripts = scripts;
+        m_Doc.deleteScripts = ScriptReferences(scripts);
         m_Doc.openDeleteScript = true;
     }
     // The editor's own: a Script whose layout could not be made from the

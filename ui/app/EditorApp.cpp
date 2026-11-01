@@ -5,6 +5,7 @@
 #include "features/environment/EnvironmentViews.h"
 #include "features/diagnostics/DiagnosticViews.h"
 #include "features/preferences/PreferencesView.h"
+#include "features/schematic/SchematicDiagnosticViews.h"
 #include "core/document/OutputFiles.h"
 #include "ui/panels/EventLogView.h"
 #include <stdexcept>
@@ -147,6 +148,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
+        !m_SchematicGraph.Register(m_Editor, error) || !RegisterSchematicDiagnosticViews(m_Editor, error) ||
         !RegisterArrayValueEditors(m_Editor, error) || !RegisterObjectViews(m_Editor, error) ||
         !m_SceneCommands.Register(error) || !RegisterSceneViews(m_Editor, error) ||
         !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) || !RegisterSceneNavigation(error)) {
@@ -465,7 +467,7 @@ void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenR
     if (m_State.document->CreatedFrom() == Document::Origin::LoadedComposition) {
         m_Layout.ApplyLayoutData(result.layout);
         ReopenSetups(result.layout);
-        m_State.invalidLinks = result.invalid;
+        m_SchematicGraph.LoadedLinks(result.invalid);
         if (result.removed) m_State.Log(LogLevel::Warning, std::to_string(result.removed) + " invalid link(s) removed after loading");
         if (!result.invalid.empty())
             m_State.Log(LogLevel::Warning, std::to_string(result.invalid.size()) + " invalid link(s): see the Links with Errors Explorer");
@@ -971,7 +973,6 @@ void EditorApp::Frame() {
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     if (m_State.HasDocument()) m_State.objectSelection.Validate(*m_State.document);
     m_Schematics.Validate();
-    m_State.RefreshInvalidLinks();
     m_Editor.Attach(m_State.HasDocument() ? m_State.document->Token() : DocumentToken{},
                     m_State.HasDocument() ? m_State.document->TopologyRevision() : 0, true,
                     m_State.HasDocument());

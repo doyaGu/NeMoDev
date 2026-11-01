@@ -80,9 +80,6 @@ private:
 struct DocumentSession {
     EditorEvents events; // what windows ask of each other (EditorApp::DispatchEvents)
     ObjectClipboard objectClipboard;
-    // The invalid links found after loading and kept (Dev's Links with
-    // Errors Explorer; Remove Invalid Link after Loading removes them).
-    std::vector<InvalidLink> invalidLinks;
     // A 3D Layout transformation is being dragged (RealTime Notifications).
     bool layoutTransforming = false;
     CurveTool curveTool;
@@ -162,7 +159,6 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
 
     void Log(LogLevel level, const std::string &text) override { eventLog.Append(level, text); }
     void RuntimeLog(LogLevel level, const std::string &text) { eventLog.Post(level, text); }
-    void RefreshInvalidLinks();
     void DrainRuntimeLog() { eventLog.Drain(); }
     bool RunRuntime(const std::string &label, std::function<void()> work, std::function<void(bool)> completed = {});
     void PollRuntimeOperations();

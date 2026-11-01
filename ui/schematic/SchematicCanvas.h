@@ -18,6 +18,7 @@
 #include "core/schematic/SchematicModel.h"
 #include "ui/schematic/SchematicRenderer.h"
 #include "core/schematic/SchematicSearch.h"
+#include "workspace/EditorClient.h"
 
 namespace vdev {
 
@@ -58,7 +59,7 @@ public:
     void RefreshValues() {
         for (auto &view : m_Views) view.revision = ~0ull;
     }
-    void ShowMessageExplorer() { m_ShowMessages = true; }
+    void ShowMessageExplorer();
     // Shows a parameter where the Schematic displays it (Parameter Debugger "Go to source").
     void GoToParameter(CK_ID parameter) { GoToShortcutSource(parameter); }
     // A file dropped at a screen point (EditorApp::DropFiles); false when unused.
@@ -175,7 +176,7 @@ public:
     // Goto (the breakpoint's element shown).
     void ConfigureBreakpoints();
     // The Invalid Link Explorer shown (its toolbar icon's).
-    void ShowInvalidLinks() { m_ShowLinkErrors = true; }
+    void ShowInvalidLinks();
     void OpenBreakpointList();
     void PickBreakpoint();
     void GoToBreakpoint(CK_ID script, const ExtraData &data);
@@ -321,8 +322,6 @@ private:
     // .nms behavior files (Dev Save As... Alt+S, Import Behavior Graph).
     void SaveSelectionAsNms();          // selected behaviors, else the current Script
     void FindDialog();
-    int m_MessagePick = -1;  // Message Explorer: the message chosen
-    CK_ID m_MessageUse = 0;  // its sender or receiver chosen
     bool m_OpenFind = false, m_FindClosed = false, m_FindHidden = false, m_FindBackward = false;
     std::string m_FindText;
     CK_ID m_FoundScript = 0;
@@ -343,7 +342,6 @@ private:
     void BreakpointConfigDialog();
     void BreakpointListDialog();
     // Invalid Link Explorer's Delete: the links' records go (one undo step), the list found again.
-    void DeleteInvalidLinks(const std::vector<InvalidLink> &links);
     void ExecuteSelectedScripts();
     struct ConditionRow {
         CK_ID parameter = 0;
@@ -364,13 +362,25 @@ private:
     CKGUID m_ReplaceGuid;
     bool m_ReplaceAll = false;
     // Dev "Message - Sender and Receiver Retrieval" (H).
-    void MessageExplorer();
-    bool m_ShowMessages = false;
-    // Dev's Invalid Link Explorer (dialog 749, EditorState::invalidLinks).
-    void LinkErrorsExplorer();
-    bool m_ShowLinkErrors = false;
-    int m_LinkErrorPick = -1;
-    ElementAddress m_LinkErrorAddress;
+    EditorClient Client() const { return {m_EditorHost, m_Instance}; }
+    bool DiagnosticOpen(bool invalid) const;
+    void ToggleDiagnostic(bool invalid);
+    const EditorHost *m_EditorHost = nullptr;
+    std::vector<EditorField> m_InvalidRows;
+    uint64_t m_InvalidRevision = 0;
+    enum class GraphFollow { None, Created, ClearSelection };
+    struct GraphCommand {
+        EditorOperation operation; DocumentToken document; ObjectRef script, owner; GraphFollow follow;
+    };
+    std::vector<GraphCommand> m_GraphCommands;
+    EditorResponse GraphState(uint32_t script, uint32_t object = 0);
+    std::vector<ObjectRef> ScriptReferences(const std::vector<uint32_t> &) const;
+    void Execute(const char *, const std::vector<EditorValue> & = {}, GraphFollow = GraphFollow::None,
+                 ObjectRef script = {}, ObjectRef owner = {});
+    void ExecuteGraph(const char *command, uint32_t script, uint32_t object, const char *objectKey,
+                      std::vector<EditorField> extra = {}, GraphFollow follow = GraphFollow::None);
+    void CompleteGraph(const EditorResponse &, const GraphCommand &);
+    void PollGraphCommands();
     void BeginPickShortcutSource(CK_ID from);
     void RetargetAllShortcuts(CK_ID from, CK_ID to);
     void ReplaceOperation(CK_ID script, CK_ID operation, const OperationSignature &signature);
@@ -486,7 +496,7 @@ private:
         std::vector<OperationSignature> choices;
         bool openDeleteScript = false;
         bool openDeleteGraphs = false;
-        std::vector<CK_ID> deleteScripts;
+        std::vector<ObjectRef> deleteScripts;
         CK_ID modifyOperation = 0; // the Add Parameter Operation dialog replaces this operation
         bool openSettings = false;
         CK_ID settingsBehavior = 0;

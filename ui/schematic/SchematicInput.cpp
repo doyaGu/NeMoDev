@@ -669,7 +669,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     }
     if (ImGui::IsKeyPressed(ImGuiKey_P)) UpdateLinkPaths();
     if (ImGui::IsKeyPressed(ImGuiKey_M)) OpenModifyOperation(); // Dev: Modify Parameter Operation
-    if (ImGui::IsKeyPressed(ImGuiKey_H)) m_ShowMessages = !m_ShowMessages; // Dev: Message Explorer
+    if (ImGui::IsKeyPressed(ImGuiKey_H)) ToggleDiagnostic(false); // Dev: Message Explorer
     if (ImGui::IsKeyPressed(ImGuiKey_Y)) OpenPriorityDialog();
     if (ImGui::IsKeyPressed(ImGuiKey_S)) OpenSettingsDialog(); // Dev: Edit Settings
     // Dev link mode: L links with clicks; A / Z switch auto-link on / off.

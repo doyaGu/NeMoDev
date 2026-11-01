@@ -305,9 +305,6 @@ void EditorApp::OpenStartupDialog(const std::string &name) {
         if (name == "breakpoints") m_Schematics.Current().OpenBreakpointList();
         else m_Schematics.Current().ConfigureBreakpoints();
     } else if (name == "invalidlinks") {
-        // A link of the first Script listed as invalid (the explorer's look).
-        if (m_State.invalidLinks.empty() && !m_State.Schematic().visibleScripts.empty())
-            m_State.invalidLinks.push_back({m_State.Schematic().visibleScripts.front(), m_State.Schematic().visibleScripts.front(), -1, 0, true, "capture"});
         m_Schematics.Current().ShowInvalidLinks();
     }
 }

@@ -96,18 +96,6 @@ void EditorState::ClearDocumentState() {
     static_cast<DocumentSession &>(*this) = DocumentSession();
 }
 
-void EditorState::RefreshInvalidLinks() {
-    if (!HasDocument()) return;
-    for (const auto &link : invalidLinks) {
-        CK_ID script = 0;
-        ElementRef ref;
-        if (!link.address.Resolve(*document, script, ref)) {
-            invalidLinks = FindInvalidLinks(*document, preferences.Bool("Schematic\\Test Parameter Link after Loading"));
-            break;
-        }
-    }
-}
-
 void EditorState::ReplacingDocument(bool replaceContext) {
     if (documentViews) documentViews->DetachDocument(replaceContext);
 }

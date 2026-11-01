@@ -646,12 +646,13 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->MouseMoveToPos(point->second);
         ctx->KeyPress(ImGuiKey_H);
         ctx->Yield(3);
-        IM_CHECK(WindowShown(ctx, "//Message Explorer"));
+        const auto window = "//" + App().State().workspace->WindowName(App().State().workspace->Role("main.messages"));
+        IM_CHECK(WindowShown(ctx, window.c_str()));
         ctx->WindowFocus(SchematicRef().c_str());
         ctx->MouseMoveToPos(point->second);
         ctx->KeyPress(ImGuiKey_H);
         ctx->Yield(3);
-        IM_CHECK(!WindowShown(ctx, "//Message Explorer"));
+        IM_CHECK(!WindowShown(ctx, window.c_str()));
     };
 
     // A Building Block grouped into a behavior graph, the graph deleted (Del):
