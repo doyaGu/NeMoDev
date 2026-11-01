@@ -1,6 +1,8 @@
 #include "tests/ui/UiTests.h"
 #include "core/runtime/SdkCompat.h"
 #include "ui/render/UiRenderer.h"
+#include "core/layout/SnapshotBuffer.h"
+#include "features/layout/SnapshotData.h"
 
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -10,6 +12,11 @@
 
 namespace vdevuitest {
 namespace {
+vdev::SnapshotData Snapshots() {
+    vdev::SnapshotData data;
+    vdev::ReadSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), data);
+    return data;
+}
 constexpr const char *PLAY = "//##StatusBar/play/##bitmap";
 
 SDL_Window *EditorWindow() {
@@ -475,23 +482,23 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         const Image before = RenderedImage(ctx);
         IM_CHECK(Nonblank(before));
         IM_CHECK(SaveImage("windowed.png", before));
-        const int slot = App().State().snapshots.FirstFree();
+        const int slot = Read<vdev::SnapshotData>(ctx, Snapshots).FirstFree();
         IM_CHECK_GE(slot, 0);
         ctx->ItemClick("//3D Layout/$$56/##tool");
         ctx->WindowMove("//Snapshot Buffer", ImVec2(20, 20));
         ctx->ItemClick("//Snapshot Buffer/Take");
         ctx->Yield(3);
-        IM_CHECK(App().State().snapshots.Has(slot));
+        IM_CHECK(Read<vdev::SnapshotData>(ctx, Snapshots).Has(slot));
         const auto expected = vdev::ShrinkImage(before.pixels.data(), before.width, before.height, before.width * 4,
             vdev::SnapshotBuffer::WIDTH, vdev::SnapshotBuffer::HEIGHT);
-        IM_CHECK(App().State().snapshots.Pixels(slot) == expected);
+        IM_CHECK(Read<vdev::SnapshotData>(ctx, Snapshots).Pixels(slot) == expected);
         IM_CHECK(SaveImage("snapshot-take.png", {vdev::SnapshotBuffer::WIDTH, vdev::SnapshotBuffer::HEIGHT, expected}));
-        const int next = App().State().snapshots.FirstFree();
+        const int next = Read<vdev::SnapshotData>(ctx, Snapshots).FirstFree();
         ctx->ItemClick("//Snapshot Buffer/Capture");
         ctx->Yield(3);
         ctx->KeyPress(ImGuiKey_Escape);
         ctx->Yield(3);
-        IM_CHECK_EQ(App().State().snapshots.FirstFree(), next);
+        IM_CHECK_EQ(Read<vdev::SnapshotData>(ctx, Snapshots).FirstFree(), next);
         ctx->ItemClick("//Snapshot Buffer/Capture");
         ctx->Yield(3);
         ImVec2 min, max;
@@ -501,17 +508,17 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         const ImVec2 at = ImGui::GetIO().MousePos;
         ctx->MouseClick(0);
         ctx->Yield(3);
-        IM_CHECK(App().State().snapshots.Has(next));
+        IM_CHECK(Read<vdev::SnapshotData>(ctx, Snapshots).Has(next));
         const auto crop = vdev::CaptureArea(before.pixels.data(), before.width, before.height, before.width * 4,
             static_cast<int>(at.x - min.x), static_cast<int>(at.y - min.y));
-        IM_CHECK(App().State().snapshots.Pixels(next) == crop);
+        IM_CHECK(Read<vdev::SnapshotData>(ctx, Snapshots).Pixels(next) == crop);
         IM_CHECK(SaveImage("snapshot-capture.png", {vdev::SnapshotBuffer::WIDTH, vdev::SnapshotBuffer::HEIGHT, crop}));
         ctx->ItemClick("//Snapshot Buffer/Close");
         const VxVector after = Position(ctx, entity.entity);
         IM_CHECK(position.x == after.x && position.y == after.y && position.z == after.z);
         IM_CHECK_EQ(App().State().document->Dirty(), dirty);
         IM_CHECK_EQ(App().State().History().UndoCount(), steps);
-        OnMainThread(ctx, [=] { App().State().snapshots.Remove(slot); App().State().snapshots.Remove(next); });
+        OnMainThread(ctx, [=] { vdev::RemoveSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), Snapshots(), {slot, next}); });
     };
 }
 } // namespace vdevuitest

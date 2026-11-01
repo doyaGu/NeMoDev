@@ -21,6 +21,7 @@
 #include "features/layout/LayoutSceneData.h"
 #include "workspace/EditorClient.h"
 #include "features/layout/LayoutViewport.h"
+#include "features/layout/SnapshotData.h"
 
 namespace vdev {
 
@@ -365,6 +366,7 @@ private:
     uint64_t m_PreferencesRevision = 0;
     EditorResponse m_Presentation;
     uint64_t m_Composition = 0;
+    SnapshotData m_Snapshots;
     bool m_PlayerMode = false;   // the Player Mode preferences are applied
     DocumentState m_Doc;
     // Fullscreen: the editor's window placement before, the keys of the

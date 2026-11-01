@@ -1,4 +1,5 @@
 #include <filesystem>
+#include "features/layout/SnapshotData.h"
 // Dev's Setup panels; layout after the Dev 2.5 screenshots the user gave
 // (Grid, 2D Frame, 3D Object, Target Camera, Point Light, Material, Mesh,
 // Texture, Curve, Character, Sound, Array and Group Setup). Values are read from CK every frame.
@@ -647,9 +648,12 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
     // A Snapshot Buffer image dropped here is the object's picture (sub_448680, "Bitmap").
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD)) {
-            int slot = -1;
-            std::memcpy(&slot, payload->Data, sizeof(slot));
-            SetObjectPictureFromSnapshot(*m_State.document, object->GetID(), m_State.snapshots, slot);
+            if (payload->DataSize == sizeof(SnapshotDrag)) {
+                SnapshotDrag drag;
+                std::memcpy(&drag, payload->Data, sizeof(drag));
+                ApplySnapshot(EditorClient(m_State.workspace->Application().Host(), 0), drag,
+                              m_State.document->Reference(object->GetID()), false);
+            }
         }
         ImGui::EndDragDropTarget();
     }

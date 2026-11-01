@@ -5,6 +5,7 @@
 #include "features/preferences/PreferencesCommands.h"
 #include "features/layout/LayoutCommands.h"
 #include "features/layout/LayoutPresentation.h"
+#include "features/layout/SnapshotCommands.h"
 #include "features/schematic/SchematicGraphCommands.h"
 
 namespace vdev {
@@ -121,6 +122,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     const auto &presentation = LayoutPresentation::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), presentation.begin(),
                                           presentation.end());
+    const auto &snapshots = SnapshotCommands::DefaultProviders();
+    result.contributions.providers.insert(result.contributions.providers.end(), snapshots.begin(), snapshots.end());
     const auto &graph = SchematicGraphCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), graph.begin(), graph.end());
     result.contributions.providers.push_back({"view", "schematic.invalid-links", "builtin.schematic-diagnostics"});
@@ -132,6 +135,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                     {"script.schematic", "main.schematic", "editing", true, true},
                     {"resource.building-blocks", "main.building-blocks", "resources", true, true},
                     {"resource.file-dialogs", "", "", true},
+                    {"snapshot.file-dialogs", "", "", true},
                     {"scene.hierarchy", "main.hierarchy", "resources"},
                     {"scene.attributes", "main.attributes", "editing"},
                     {"resource.data", "", "resources", false, false, true},

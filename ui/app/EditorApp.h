@@ -14,6 +14,7 @@
 #include "features/diagnostics/DiagnosticCommands.h"
 #include "features/layout/LayoutCommands.h"
 #include "features/layout/LayoutPresentation.h"
+#include "features/layout/SnapshotCommands.h"
 #include "features/schematic/SchematicGraphCommands.h"
 #include "workspace/EditorWorkspace.h"
 #include <functional>
@@ -297,7 +298,8 @@ private:
                                             m_State.objectSelection,
                                             m_State.preferences,
                                             [this] { return m_Execution.State().state == EDITOR_EXECUTION_RUNNING; }};
-
+    SnapshotCommands m_Snapshots{m_Editor, m_State.runtimeOperation, m_Layout,
+                                 [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
 
 #ifdef VIRTOOLSDEV_UI_TESTS
     ParameterBox m_StartupValue{m_State}; // --edit-value

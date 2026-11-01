@@ -1,4 +1,5 @@
 #include <climits>
+#include "features/layout/SnapshotData.h"
 #include <stdexcept>
 #include "workspace/BuildingBlockDrag.h"
 #include "workspace/ResourceDrag.h"
@@ -1432,18 +1433,14 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
     }
     // A 3D Layout snapshot (Dev.exe sub_53BF70, "Bitmap"): the Script's snapshot.
     if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD)) {
-        int slot = -1;
-        memcpy(&slot, payload->Data, sizeof(slot));
         const Hit hit = HitAt(ImGui::GetIO().MousePos);
-        if (!hit.view || !Client().Scope().document.value || !m_State.snapshots.Has(slot)) {
+        if (!hit.view || !Client().Scope().document.value) {
             m_State.Log(LogLevel::Info, "Drop snapshots on a Script");
-        } else {
-            // Scaled into the header's snapshot place (48 x 36) as Load Snapshot does: 47 x 36.
-            const int height = 36;
-            const int width = std::min(48, (SnapshotBuffer::WIDTH * height + SnapshotBuffer::HEIGHT / 2) / SnapshotBuffer::HEIGHT);
-            const std::vector<unsigned char> pixels = ShrinkImage(m_State.snapshots.Pixels(slot).data(), SnapshotBuffer::WIDTH,
-                                                                  SnapshotBuffer::HEIGHT, SnapshotBuffer::WIDTH * 4, width, height);
-            SetSnapshotPixels(hit.view->identity, pixels, width, height);
+        } else if (payload->DataSize == sizeof(SnapshotDrag)) {
+            SnapshotDrag drag;
+            std::memcpy(&drag, payload->Data, sizeof(drag));
+            Execute("snapshot.apply", {IntegerArgument("slot", drag.slot), IntegerArgument("revision", drag.revision),
+                                       ObjectArgument("target", hit.view->identity), IntegerArgument("script", 1)});
         }
     }
     ImGui::EndDragDropTarget();

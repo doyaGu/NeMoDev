@@ -1,86 +1,30 @@
 // The 3D Layout's Snapshot Buffer (Dev.exe sub_5BBB20, dialog 733; the
-// buffer itself sub_4C5860, EditorState::snapshots).
+// buffer itself sub_4C5860, SnapshotCommands).
 #include "ui/layout/LayoutWindow.h"
 
 
 #include <algorithm>
-#include <filesystem>
-#include <cstring>
 
 #include "ui/controls/DevBitmaps.h"
-#include "ui/controls/FileDialogs.h"
 #include "ui/schematic/Snapshots.h"
-#include "core/runtime/TextEncoding.h"
 
 namespace vdev {
 
 namespace {
-
-// Dev.exe sub_5D55F0: the bitmap readers' types, for loading all of them
-// first ("All Known Types (.bmp;.tga)"); extensions: each entry's.
-std::string BitmapFilter(bool load, std::vector<std::string> *extensions) {
-    std::vector<std::pair<std::string, std::string>> types; // description, extension
-    CKPluginManager *plugins = CKGetPluginManager();
-    for (int i = 0; plugins && i < plugins->GetPluginCount(CKPLUGIN_BITMAP_READER); ++i) {
-        CKPluginEntry *reader = plugins->GetPluginInfo(CKPLUGIN_BITMAP_READER, i);
-        if (!reader || !reader->m_PluginInfo.m_Extension.m_Data[0]) continue;
-        const std::string extension = reader->m_PluginInfo.m_Extension.m_Data;
-        std::string lower = extension;
-        for (char &c : lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
-        if (lower.find("vmo") != std::string::npos || lower.find("nms") != std::string::npos ||
-            lower.find("cmo") != std::string::npos)
-            continue;
-        const char *description = reader->m_PluginInfo.m_Description.CStr();
-        types.emplace_back(description ? description : "", extension);
-    }
-    std::string filter;
-    if (load && !types.empty()) {
-        std::string all, patterns;
-        for (const auto &type : types) {
-            all += "." + type.second + ";";
-            patterns += "*." + type.second + ";";
-        }
-        all.pop_back();
-        patterns.pop_back();
-        filter += "All Known Types (" + all + ")";
-        filter += '\0';
-        filter += patterns;
-        filter += '\0';
-        if (extensions) extensions->push_back("");
-    }
-    for (const auto &type : types) {
-        filter += type.first + " (*." + type.second + ")";
-        filter += '\0';
-        filter += "*." + type.second;
-        filter += '\0';
-        if (extensions) extensions->push_back(type.second);
-    }
-    filter += '\0';
-    return filter;
-}
-
-ImTextureID SlotTexture(const SnapshotBuffer &buffer, int slot, unsigned *revisions) {
+ImTextureID SlotTexture(const SnapshotData &buffer, int slot, unsigned *revisions) {
     const unsigned long long key = 0x534E415000000000ull | static_cast<unsigned>(slot);
     if (revisions[slot] != buffer.Revision(slot) || !CachedPixelTexture(key)) {
         revisions[slot] = buffer.Revision(slot);
-        const std::vector<unsigned char> &pixels = buffer.Pixels(slot);
-        return PixelTexture(key, SnapshotBuffer::WIDTH, SnapshotBuffer::HEIGHT, pixels.data(), SnapshotBuffer::WIDTH * 4,
-                            false);
+        return PixelTexture(key, SnapshotData::WIDTH, SnapshotData::HEIGHT, buffer.Pixels(slot).data(),
+                            SnapshotData::WIDTH * 4, false);
     }
     return CachedPixelTexture(key);
 }
-
 } // namespace
 
 // Take (Dev.exe sub_4A1C70, sub_4C5B20): the whole view stretched into the
 // first empty slot.
-void LayoutWindow::TakeSnapshot() {
-    if (UsesGpuViewport() && !m_View.ReadPixels(m_Pixels)) return;
-    if (!m_Started || m_Pixels.empty() || m_View.Width() <= 0 || m_View.Height() <= 0) return;
-    std::vector<unsigned char> image = ShrinkImage(m_Pixels.data(), m_View.Width(), m_View.Height(), m_View.Width() * 4,
-                                                   SnapshotBuffer::WIDTH, SnapshotBuffer::HEIGHT);
-    if (m_State.snapshots.Put(std::move(image)) < 0) m_State.Log(LogLevel::Warning, "No more room for Snapshots");
-}
+void LayoutWindow::TakeSnapshot() { Execute("snapshot.take"); }
 
 // Capture (Dev.exe sub_5BC110): once the buttons are released a 104 x 80
 // box follows the mouse; the left button captures what is under it, the
@@ -100,56 +44,20 @@ void LayoutWindow::CaptureInput(const ImVec2 &at) {
         m_Capturing = 0;
     } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         m_Capturing = 0;
-        if (UsesGpuViewport() && !m_View.ReadPixels(m_Pixels)) return;
-        if (m_Pixels.empty()) return;
-        std::vector<unsigned char> image =
-            CaptureArea(m_Pixels.data(), m_View.Width(), m_View.Height(), m_View.Width() * 4,
-                        static_cast<int>(mouse.x - at.x), static_cast<int>(mouse.y - at.y));
-        if (m_State.snapshots.Put(std::move(image)) < 0) m_State.Log(LogLevel::Warning, "No more room for Snapshots");
+        EditorValue x{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, y{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
+        x.real = int(mouse.x - at.x);
+        y.real = int(mouse.y - at.y);
+        Execute("snapshot.capture", {x, y});
     }
 }
 
 // Load Bitmap (Dev.exe sub_5BC900): an image read by CK's bitmap readers
 // (CKLoadBitmap), stretched to the slot (ImageList_Replace).
 void LayoutWindow::LoadSnapshot(int slot) {
-    const std::wstring filter = AnsiToWide(BitmapFilter(true, nullptr));
-    FileDialogOptions options;
-    options.filter = filter.c_str();
-    options.title = L"Load Bitmap";
-    m_State.fileDialogs.Request(options, [this, slot](const FileDialogResult &result) {
-        if (result.status == FileDialogResult::Status::Error) { m_State.Log(LogLevel::Error, result.error); return; }
-        if (result.status != FileDialogResult::Status::Selected) return;
-        const std::string &file = result.paths.front();
-        BITMAP_HANDLE bitmap = CKLoadBitmap(const_cast<CKSTRING>(file.c_str()));
-        std::vector<unsigned char> pixels;
-        int width = 0, height = 0;
-        const bool loaded = bitmap && PixelsOfBitmap(bitmap, pixels, width, height);
-        if (bitmap) VxDeleteBitmap(bitmap);
-        if (!loaded) { m_State.Log(LogLevel::Warning, "Load Bitmap: " + file + " cannot be read"); return; }
-        m_State.snapshots.Put(ShrinkImage(pixels.data(), width, height, width * 4, SnapshotBuffer::WIDTH, SnapshotBuffer::HEIGHT), slot);
-    });
+    Execute("snapshot.load", {IntegerArgument("slot", slot), IntegerArgument("revision", m_Snapshots.Revision(slot))});
 }
-
 void LayoutWindow::SaveSnapshot(int slot) {
-    if (!m_State.snapshots.Has(slot)) return;
-    std::vector<std::string> extensions;
-    const std::wstring filter = AnsiToWide(BitmapFilter(false, &extensions));
-    FileDialogOptions options;
-    options.save = true;
-    options.filter = filter.c_str();
-    options.title = L"Save Bitmap";
-    m_State.fileDialogs.Request(options, [this, extensions, pixels = m_State.snapshots.Pixels(slot)](const FileDialogResult &result) {
-        if (result.status == FileDialogResult::Status::Error) { m_State.Log(LogLevel::Error, result.error); return; }
-        if (result.status != FileDialogResult::Status::Selected) return;
-        std::string path = result.paths.front();
-        const size_t type = result.filterIndex > 0 ? static_cast<size_t>(result.filterIndex - 1) : 0;
-        if (type < extensions.size() && !extensions[type].empty() && std::filesystem::u8path(path).extension().empty())
-            path += "." + extensions[type];
-        BITMAP_HANDLE bitmap = BitmapFromPixels(pixels.data(), SnapshotBuffer::WIDTH, SnapshotBuffer::HEIGHT);
-        const bool saved = bitmap && CKSaveBitmap(const_cast<CKSTRING>(path.c_str()), bitmap);
-        if (bitmap) VxDeleteBitmap(bitmap);
-        if (!saved) m_State.Log(LogLevel::Warning, "Save as...: " + path + " cannot be written");
-    });
+    Execute("snapshot.save", {IntegerArgument("slot", slot), IntegerArgument("revision", m_Snapshots.Revision(slot))});
 }
 
 // The dialog: the 36 slots at Dev's places (sub_5BBF90: from (10, 10),
@@ -157,7 +65,9 @@ void LayoutWindow::SaveSnapshot(int slot) {
 // (resvis.dll 929); Take, Capture and Close below.
 void LayoutWindow::SnapshotWindow() {
     if (!m_SnapshotOpen) return;
-    SnapshotBuffer &buffer = m_State.snapshots;
+    if (!ReadSnapshots(Client(), m_Snapshots))
+        return;
+    const auto &buffer = m_Snapshots;
     const float s = m_Scale;
     const ImGuiStyle &style = ImGui::GetStyle();
     const float footer = ImGui::GetFrameHeight() + style.ItemSpacing.y * 2.0f;
@@ -180,9 +90,9 @@ void LayoutWindow::SnapshotWindow() {
     auto selected = [&](int slot) {
         return std::find(m_SnapshotSelection.begin(), m_SnapshotSelection.end(), slot) != m_SnapshotSelection.end();
     };
-    for (int slot = 0; slot < SnapshotBuffer::COUNT; ++slot) {
+    for (int slot = 0; slot < SnapshotData::COUNT; ++slot) {
         const ImVec2 at(origin.x + (10.0f + 56.0f * (slot % 6)) * s, origin.y + (10.0f + 48.0f * (slot / 6)) * s);
-        const ImVec2 size(SnapshotBuffer::WIDTH * s, SnapshotBuffer::HEIGHT * s);
+        const ImVec2 size(SnapshotData::WIDTH * s, SnapshotData::HEIGHT * s);
         ImGui::SetCursorScreenPos(at);
         ImGui::PushID(slot);
         ImGui::InvisibleButton("##slot", size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
@@ -203,9 +113,10 @@ void LayoutWindow::SnapshotWindow() {
         }
         // Dragged onto a Script header in the Schematic: its snapshot.
         if (buffer.Has(slot) && ImGui::BeginDragDropSource()) {
-            ImGui::SetDragDropPayload(SNAPSHOT_PAYLOAD, &slot, sizeof(slot));
+            const SnapshotDrag drag{uint32_t(slot), buffer.Revision(slot)};
+            ImGui::SetDragDropPayload(SNAPSHOT_PAYLOAD, &drag, sizeof(drag));
             if (ImTextureID texture = SlotTexture(buffer, slot, m_SnapshotRevisions))
-                ImGui::Image(texture, ImVec2(SnapshotBuffer::WIDTH * 1.0f, SnapshotBuffer::HEIGHT * 1.0f));
+                ImGui::Image(texture, ImVec2(SnapshotData::WIDTH * 1.0f, SnapshotData::HEIGHT * 1.0f));
             ImGui::EndDragDropSource();
         }
         ImGui::PopID();
@@ -226,13 +137,14 @@ void LayoutWindow::SnapshotWindow() {
         if (ImGui::MenuItem("Load bitmap")) LoadSnapshot(slot);
         if (buffer.Has(slot)) {
             if (ImGui::MenuItem("Save as...")) SaveSnapshot(slot);
-            if (ImGui::MenuItem("Delete", "Del")) buffer.Remove(slot);
+            if (ImGui::MenuItem("Delete", "Del"))
+                RemoveSnapshots(Client(), buffer, {slot});
         }
         ImGui::EndPopup();
     }
     // Del deletes the slots selected (LVN_KEYDOWN).
     if (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Delete))
-        for (int slot : m_SnapshotSelection) buffer.Remove(slot);
+        RemoveSnapshots(Client(), buffer, m_SnapshotSelection);
     // Take, Capture, Close (Dev's custom buttons 1, 2 and 4).
     const float buttonWidth = 80.0f * s;
     ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + 304.0f * s + style.ItemSpacing.y));

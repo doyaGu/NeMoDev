@@ -80,15 +80,18 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
     // A Snapshot Buffer image (Dev.exe sub_4C0F60 "Bitmap", sub_4C0930): the
     // picture of the character or 3D entity under the mouse.
     if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-        const LayoutPickInfo info = m_View.PickInfo(x, y);
-        const CK_ID target = info.character ? info.character : info.entity3d;
+        const auto input = InputState(x, y, true);
+        const auto *character = EditorClient::Find(input, "character"), *entity = EditorClient::Find(input, "entity");
+        const auto target = character && character->object ? character->object : entity ? entity->object : ObjectRef{};
         if (payload->IsDelivery()) {
-            int slot = -1;
-            std::memcpy(&slot, payload->Data, sizeof(slot));
-            if (target) SetObjectPictureFromSnapshot(*m_State.document, target, m_State.snapshots, slot);
-        } else {
-            m_View.SetDropTarget(target);
-        }
+            if (payload->DataSize == sizeof(SnapshotDrag) && target) {
+                SnapshotDrag drag;
+                std::memcpy(&drag, payload->Data, sizeof(drag));
+                const auto result = ApplySnapshot(Client(), drag, target, false);
+                Complete(result, AfterCommand::None);
+            }
+        } else
+            m_View.SetDropTarget(target.object);
     }
     // An attribute from the Attribute Manager: on the object under the mouse,
     // or the selection it is in.
@@ -262,6 +265,7 @@ void LayoutWindow::DropResources(int x, int y, const std::vector<ResourceFile> &
 }
 
 void LayoutWindow::DocumentClosed() {
+    m_Capturing = 0;
     CancelEdits();
     if (m_Doc.dropEdit) m_Doc.dropEdit->Commit(); // the document goes with its history
     // A flight going on ends with the composition, not recorded.

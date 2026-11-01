@@ -1,6 +1,8 @@
 #include "tests/ui/UiTests.h"
 
 #include "ui/render/UiRenderer.h"
+#include "core/layout/SnapshotBuffer.h"
+#include "features/layout/SnapshotData.h"
 
 #include "CKRasterizer.h"
 #include <SDL3/SDL.h>
@@ -14,6 +16,11 @@
 
 namespace vdevuitest {
 namespace {
+vdev::SnapshotData Snapshots() {
+    vdev::SnapshotData data;
+    vdev::ReadSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), data);
+    return data;
+}
 
 void Background(CKDWORD color) {
     CKScene *scene = App().State().document->Context()->GetCurrentLevel()->GetLevelScene();
@@ -163,18 +170,13 @@ void RegisterGpuViewportTests(ImGuiTestEngine *engine) {
         const auto before = Read<std::uint64_t>(ctx, [] {
             return App().Layout().View().ReadbackFrames();
         });
-        const int slot = Read<int>(ctx, [] {
-            return App().State().snapshots.FirstFree();
-        });
+        const int slot = Read<int>(ctx, [] { return Snapshots().FirstFree(); });
         IM_CHECK(slot >= 0);
         ctx->ItemClick("//3D Layout/$$56/##tool");
         ctx->ItemClick("//Snapshot Buffer/Take");
         IM_CHECK(Read<bool>(ctx, [&] {
-            return App().State().snapshots.Has(slot) &&
-                   App().Layout().View().ReadbackFrames() == before + 1 &&
-                   Pixel(App().State().snapshots.Pixels(slot),
-                         vdev::SnapshotBuffer::WIDTH, 1, 1,
-                         {0xB1, 0x79, 0x32, 0xFF});
+            return Snapshots().Has(slot) && App().Layout().View().ReadbackFrames() == before + 1 &&
+                   Pixel(Snapshots().Pixels(slot), vdev::SnapshotBuffer::WIDTH, 1, 1, {0xB1, 0x79, 0x32, 0xFF});
         }));
         ctx->Yield(10);
         IM_CHECK_EQ(Read<std::uint64_t>(ctx, [] {
@@ -182,7 +184,8 @@ void RegisterGpuViewportTests(ImGuiTestEngine *engine) {
         }), before + 1);
         ctx->ItemClick("//Snapshot Buffer/Close");
         OnMainThread(ctx, [slot, background] {
-            App().State().snapshots.Remove(slot);
+            vdev::RemoveSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), Snapshots(),
+                                  {slot});
             Background(background);
         });
     };

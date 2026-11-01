@@ -21,7 +21,6 @@
 #include "core/document/Edit.h"
 #include "core/document/Document.h"
 #include "core/document/LinkValidation.h"
-#include "core/layout/SnapshotBuffer.h"
 #include "core/document/UndoHistory.h"
 #include "application/ObjectSelection.h"
 #include "application/EventLog.h"
@@ -35,9 +34,6 @@
 namespace vdev {
 
 // Drag-and-drop payload: the CKGUID of a Building Block prototype.
-// Drag-and-drop payload of the Snapshot Buffer: the slot (an int) of
-// EditorState::snapshots.
-constexpr const char *SNAPSHOT_PAYLOAD = "SCHEMATIC_SNAPSHOT";
 // Dev Worksets: "an user interface only item" (Dev documentation, Level
 // Manager name column) grouping objects and Scripts to show or hide their
 // Scripts in the Schematic. Kept for the session (Dev's own interface data
@@ -118,7 +114,7 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
     // Setup): DropAttribute, its lines logged.
     void DropAttributeOn(const std::vector<CK_ID> &objects, const EditorAttributePayload &attribute);
     // The 3D Layout's Snapshot Buffer (Dev keeps it for the session).
-    SnapshotBuffer snapshots;
+
     // Dev's Copy Options (the session's copy dependencies, Dev.exe
     // stru_647D7C): CK's default ones until the dialog changes them.
     CKDependencies copyDependencies;

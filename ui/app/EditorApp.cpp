@@ -151,8 +151,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_SchematicGraph.Register(m_Editor, error) || !RegisterSchematicDiagnosticViews(m_Editor, error) ||
         !RegisterArrayValueEditors(m_Editor, error) || !RegisterObjectViews(m_Editor, error) ||
         !m_SceneCommands.Register(error) || !m_LayoutCommands.Register(error) ||
-        !m_LayoutPresentation.Register(error) ||
-        !RegisterSceneViews(m_Editor, error) ||
+        !m_LayoutPresentation.Register(error) || !m_Snapshots.Register(error) ||
+        !RegisterSnapshotInputs(m_Editor, window, error) || !RegisterSceneViews(m_Editor, error) ||
         !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) ||
         !RegisterSceneNavigation(error)) {
         m_State.Log(LogLevel::Error, error);
@@ -358,6 +358,7 @@ void EditorApp::Shutdown() {
         m_State.FinishRuntimeOperations();
     }
     m_State.debugger = nullptr;
+    m_Snapshots.Stop();
     m_Execution.Stop();
     m_State.files.Execution(nullptr);
     m_State.documentViews = nullptr;
@@ -977,6 +978,7 @@ void EditorApp::Frame() {
     m_Diagnostics.Poll();
     m_Preferences.Poll();
     m_LayoutCommands.Poll();
+    m_Snapshots.Poll();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_State.DispatchFileRequests();
     if (m_State.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }

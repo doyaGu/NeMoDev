@@ -14,9 +14,6 @@ struct SchematicSnapshot;
 class Document;
 class SnapshotBuffer;
 
-// Convert a session Snapshot Buffer slot to a document picture edit.
-void SetObjectPictureFromSnapshot(Document &document, uint32_t object, const SnapshotBuffer &buffer, int slot);
-
 // The editor texture of a bitmap handle, made on first use; size in pixels.
 // Null when the handle cannot be read.
 ImTextureID SnapshotTexture(const std::shared_ptr<const SchematicSnapshot> &, ImVec2 *size);
