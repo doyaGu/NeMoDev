@@ -205,6 +205,7 @@ bool SelectEntity(ImGuiTestContext *ctx, InView &found);
 // combo opened, chars typed in its list (the type-ahead's highlight), Enter
 // (choose: the highlighted item chosen) or Escape (nothing chosen).
 bool ShowsObject(CK_ID object);
+bool ShowsObject(ImGuiTestContext *ctx, CK_ID object);
 // The object's Setup opened as the Level Manager's Enter does
 // (ShowObjectSetup), its window (ref) shown and made the reference
 // of the test's items; false when it is not. OpenSetupOf: that of the

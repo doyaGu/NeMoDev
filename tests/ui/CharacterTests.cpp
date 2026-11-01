@@ -52,7 +52,7 @@ void RegisterCharacterTests(ImGuiTestEngine *engine) {
         ctx->LogInfo("body part '%s'", label.c_str());
         ctx->ItemDoubleClick(("**/" + label).c_str());
         ctx->Yield(3);
-        IM_CHECK(ShowsObject(part));
+        IM_CHECK(ShowsObject(ctx, part));
     };
 }
 

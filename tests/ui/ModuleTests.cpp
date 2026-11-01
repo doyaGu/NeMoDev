@@ -64,7 +64,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         auto *window = ctx->GetWindowByRef("//###setup3d");
         IM_CHECK(window && window->WasActive && std::string(window->Name).rfind("External Setup###", 0) == 0);
-        IM_CHECK(ShowsObject(target.object));
+        IM_CHECK(ShowsObject(ctx, target.object));
         ctx->SetRef("//###setup3d");
         ctx->ItemClick("##name");
         ctx->Yield(2);

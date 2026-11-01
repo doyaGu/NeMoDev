@@ -181,11 +181,16 @@ bool ShowsObject(CK_ID object) {
     return false;
 }
 
+bool ShowsObject(ImGuiTestContext *ctx, CK_ID object) {
+    return Read<bool>(ctx, [object] { return ShowsObject(object); });
+}
+
 bool ShowSetup(ImGuiTestContext *ctx, CK_ID id, const char *ref) {
     OnMainThread(ctx, [id] { App().State().events.Post(vdev::ShowObjectSetup{App().State().document->Reference(id)}); });
     ctx->Yield(3);
     ImGuiWindow *window = ctx->GetWindowByRef(ref);
-    if (!window || !window->WasActive || !ShowsObject(id)) return false;
+    if (!window || !window->WasActive || !ShowsObject(ctx, id))
+        return false;
     ctx->LogInfo("%s: '%s'", ref, ObjectName(ctx, id).c_str());
     ctx->SetRef(ref);
     return true;

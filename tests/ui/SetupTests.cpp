@@ -208,7 +208,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             state.events.Post(vdev::ShowObjectSetup{second});
         });
         ctx->Yield(3);
-        IM_CHECK(!ShowsObject(first.object) && ShowsObject(second.object));
+        IM_CHECK(!ShowsObject(ctx, first.object) && ShowsObject(ctx, second.object));
         IM_CHECK(Read<bool>(ctx, [&] {
             return vdev::SetupEditTests::CleanTarget(App(), second) && !state.workspace->Application().HasEdits();
         }));
@@ -217,11 +217,11 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             state.events.Post(vdev::ShowObjectSetup{third});
         });
         ctx->Yield(3);
-        IM_CHECK(ShowsObject(second.object) && ShowsObject(third.object));
-        IM_CHECK(App().Setups().OpenSetups().size() == 2);
+        IM_CHECK(ShowsObject(ctx, second.object) && ShowsObject(ctx, third.object));
+        IM_CHECK(Read<size_t>(ctx, [] { return App().Setups().OpenSetups().size(); }) == 2);
         OnMainThread(ctx, [&] { state.events.Post(vdev::ShowObjectSetup{third}); });
         ctx->Yield(3);
-        IM_CHECK(App().Setups().OpenSetups().size() == 2);
+        IM_CHECK(Read<size_t>(ctx, [] { return App().Setups().OpenSetups().size(); }) == 2);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(vdev::SetupEditTests::BeginRenameAndPick(App(), third));
             const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
@@ -307,7 +307,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         ctx->MouseUp(0);
         ctx->Yield(3);
-        IM_CHECK(ShowsObject(other) && !ShowsObject(row->object));
+        IM_CHECK(ShowsObject(ctx, other) && !ShowsObject(ctx, row->object));
         IM_CHECK(Near(Position(ctx, row->object).x, before.x));
         IM_CHECK(App().State().History().UndoCount() == count && !App().State().document->Dirty());
     };
@@ -534,7 +534,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         const std::optional<LevelRow> row = OpenSetup(ctx);
         IM_CHECK_SILENT(row.has_value());
         IM_CHECK(SetupShown(ctx));
-        IM_CHECK(ShowsObject(row->object));
+        IM_CHECK(ShowsObject(ctx, row->object));
     };
 
     // The Position's X typed in: the object moves there, one undo step, the
@@ -627,13 +627,13 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         ImGuiWindow *setup = ctx->GetWindowByRef(window);
         IM_CHECK_SILENT(setup && setup->WasActive);
-        IM_CHECK(ShowsObject(first));
+        IM_CHECK(ShowsObject(ctx, first));
         ctx->LogInfo("%s: choosing '%s'", window, name.c_str());
         ctx->SetRef(window);
         ctx->ComboClick(("##name/" + name).c_str());
         ctx->Yield(3);
-        IM_CHECK(ShowsObject(other));
-        IM_CHECK(!ShowsObject(first));
+        IM_CHECK(ShowsObject(ctx, other));
+        IM_CHECK(!ShowsObject(ctx, first));
     };
 
     // The Camera Setup: the Field Of View typed in (degrees), then the
@@ -814,10 +814,12 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         ctx->MouseClick(0);
         ctx->Yield(3);
         bool shown = false, kept = false;
-        for (const vdev::SetupWindows::OpenSetup &setup : App().Setups().OpenSetups()) {
-            shown = shown || setup.object.object == target;
-            kept = kept || setup.object.object == entity;
-        }
+        OnMainThread(ctx, [&] {
+            for (const auto &setup : App().Setups().OpenSetups()) {
+                shown = shown || setup.object.object == target;
+                kept = kept || setup.object.object == entity;
+            }
+        });
         IM_CHECK(shown && !kept);
         OnMainThread(ctx, [&] {
             auto&document=*App().State().document;

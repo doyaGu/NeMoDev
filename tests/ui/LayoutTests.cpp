@@ -462,7 +462,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(!menu.setup.empty());
         ctx->ItemClick(("//$FOCUSED/" + menu.setup).c_str());
         ctx->Yield(3);
-        IM_CHECK(ShowsObject(found.entity));
+        IM_CHECK(ShowsObject(ctx, found.entity));
     };
 
     // The shortcut menu's Create Script on > the entity: a new Script on

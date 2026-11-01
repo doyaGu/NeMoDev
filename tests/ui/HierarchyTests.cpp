@@ -244,7 +244,7 @@ void RegisterHierarchyTests(ImGuiTestEngine *engine) {
         IM_CHECK(RowOf(row.object) && RowOf(row.object)->selected);
         ctx->ItemClick("//$FOCUSED/Setup");
         ctx->Yield(3);
-        IM_CHECK(ShowsObject(row.object));
+        IM_CHECK(ShowsObject(ctx, row.object));
     };
 
     // The shortcut menu's Set Initial Conditions on Hierarchy on an entity
