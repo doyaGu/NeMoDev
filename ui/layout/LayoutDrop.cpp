@@ -18,68 +18,82 @@
 #include "core/graph/ValueCommands.h"
 
 namespace vdev {
+namespace {
+ObjectRef ObjectField(const EditorResponse &r, const char *key) {
+    const auto *value = EditorClient::Find(r, key);
+    return value && value->type == EDITOR_OBJECT ? value->object : ObjectRef{};
+}
+} // namespace
 
+EditorResponse LayoutWindow::DropInfo(int x, int y, const char *kind, uint64_t prototype, ObjectRef source) const {
+    EditorValue px{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, py{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
+    px.real = x;
+    py.real = y;
+    return Client().Query("layout.drop-target",
+                          {px, py, TextArgument("kind", std::string(kind)), IntegerArgument("prototype", prototype),
+                           IntegerArgument("ctrl", ImGui::GetIO().KeyCtrl), ObjectArgument("source", source)});
+}
+void LayoutWindow::HighlightDrop(ObjectRef target) {
+    if (target == m_DropHighlight)
+        return;
+    const auto result = Execute("layout.highlight-drop", {ObjectArgument("target", target)});
+    if (result.status == EDITOR_OK || result.status == EDITOR_QUEUED)
+        m_DropHighlight = target;
+}
 void LayoutWindow::DropTarget(const ImVec2 &at) {
     m_DropText.clear();
-    m_View.SetDropTarget(0);
-    if (!ImGui::BeginDragDropTarget()) return;
-    const ImGuiIO &io = ImGui::GetIO();
-    const int x = static_cast<int>(io.MousePos.x - at.x), y = static_cast<int>(io.MousePos.y - at.y);
-    CKContext *context = m_State.host.Context();
-    if (const ImGuiPayload *payload =
+    ObjectRef highlight{};
+    if (!ImGui::BeginDragDropTarget()) {
+        HighlightDrop({});
+        return;
+    }
+    const auto &io = ImGui::GetIO();
+    const int x = int(io.MousePos.x - at.x), y = int(io.MousePos.y - at.y);
+    if (const auto *payload =
             ImGui::AcceptDragDropPayload(EDITOR_BUILDING_BLOCK_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
         EditorBuildingBlock source{};
         std::vector<EditorBuildingBlock> blocks;
         if (ReadBuildingBlockDrag(payload->Data, size_t(payload->DataSize), source, blocks)) {
-            const CKGUID guid(source.first, source.second);
             if (payload->IsDelivery()) {
-                // Several Building Blocks dragged: each dropped (the last asks for its inputs).
+                HighlightDrop({});
                 for (const auto &each : blocks)
                     DropBuildingBlock(x, y, CKGUID(each.first, each.second));
             } else {
-                // Dev's <Action Info>: "Drop Behavior on %s", "Drop Behavior on Multi-Selection".
+                const CKGUID guid(source.first, source.second);
                 const LayoutPickInfo info = m_View.PickInfo(x, y);
-                CKObjectDeclaration *declaration = CKGetObjectDeclarationFromGuid(guid);
-                const CK_CLASSID cid = declaration ? declaration->GetCompatibleClassId() : CKCID_BEOBJECT;
+                auto *declaration = CKGetObjectDeclarationFromGuid(guid);
+                const auto cid = declaration ? declaration->GetCompatibleClassId() : CKCID_BEOBJECT;
                 const bool multiple =
                     m_State.objectSelection.Objects().size() > 1 && (m_State.objectSelection.Contains(info.entity3d) ||
                                                                      m_State.objectSelection.Contains(info.character));
-                const CK_ID target = BlockTarget(info, cid, io.KeyCtrl);
+                const auto target = BlockTarget(info, cid, io.KeyCtrl);
                 if (multiple)
                     m_DropText = "Drop Behavior on Multi-Selection";
-                else if (CKObject *object = context->GetObject(target))
+                else if (auto *object = m_State.host.Context()->GetObject(target))
                     m_DropText = "Drop Behavior on " + DevObjectName(object);
-                m_View.SetDropTarget(multiple ? info.entity3d : target);
+                highlight = m_State.document->Reference(multiple ? info.entity3d : target);
             }
         }
     }
-    if (const ImGuiPayload *payload =
+    if (const auto *payload =
             ImGui::AcceptDragDropPayload(EDITOR_RESOURCE_FILE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
         uint32_t source = 0;
         std::vector<ResourceFile> files;
-        if (!ReadResourceDrag(payload->Data, size_t(payload->DataSize), source, files)) {
-            ImGui::EndDragDropTarget();
-            return;
-        }
-        const auto &file = files[source];
-        if (payload->IsDelivery()) {
-            DropResources(x, y, files);
-        } else {
-            const LayoutPickInfo info = m_View.PickInfo(x, y);
-            m_View.SetDropTarget(info.character ? info.character : info.entity3d);
-            // Images (Dev.exe sub_4C0F60): a texture, Shift a 3D sprite, Ctrl a 2D
-            // sprite, both a 2D Entity (with the language pack's hint 369; Dev
-            // shows the 3D sprite's, 368).
-            if (file.cid == CKCID_TEXTURE || file.cid == CKCID_SPRITE || file.cid == CKCID_SPRITE3D)
-                m_DropText = io.KeyShift && io.KeyCtrl ? "Drop as 2D Entity (Release CTRL or SHIFT for more)"
-                             : io.KeyShift ? "Drop as 3D Sprite (Release SHIFT or hold CTRL for more)"
-                             : io.KeyCtrl  ? "Drop as 2D Sprite (Release CTRL or hold SHIFT for more)"
-                                           : "Drop as Texture (Hold CTRL or SHIFT for more)";
+        if (ReadResourceDrag(payload->Data, size_t(payload->DataSize), source, files)) {
+            if (payload->IsDelivery())
+                DropResources(x, y, files);
+            else {
+                highlight = ObjectField(DropInfo(x, y, "resource"), "highlight");
+                const auto cid = files[source].cid;
+                if (cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D)
+                    m_DropText = io.KeyShift && io.KeyCtrl ? "Drop as 2D Entity (Release CTRL or SHIFT for more)"
+                                 : io.KeyShift             ? "Drop as 3D Sprite (Release SHIFT or hold CTRL for more)"
+                                 : io.KeyCtrl              ? "Drop as 2D Sprite (Release CTRL or hold SHIFT for more)"
+                                                           : "Drop as Texture (Hold CTRL or SHIFT for more)";
+            }
         }
     }
-    // A Snapshot Buffer image (Dev.exe sub_4C0F60 "Bitmap", sub_4C0930): the
-    // picture of the character or 3D entity under the mouse.
-    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+    if (const auto *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
         const auto input = InputState(x, y, true);
         const auto *character = EditorClient::Find(input, "character"), *entity = EditorClient::Find(input, "entity");
         const auto target = character && character->object ? character->object : entity ? entity->object : ObjectRef{};
@@ -87,56 +101,49 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
             if (payload->DataSize == sizeof(SnapshotDrag) && target) {
                 SnapshotDrag drag;
                 std::memcpy(&drag, payload->Data, sizeof(drag));
-                const auto result = ApplySnapshot(Client(), drag, target, false);
-                Complete(result, AfterCommand::None);
+                Complete(ApplySnapshot(Client(), drag, target, false), AfterCommand::None);
             }
         } else
-            m_View.SetDropTarget(target.object);
+            highlight = target;
     }
-    // An attribute from the Attribute Manager: on the object under the mouse,
-    // or the selection it is in.
-    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_ATTRIBUTE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-        const LayoutPickInfo info = m_View.PickInfo(x, y);
-        const CK_ID target = info.entity2d ? info.entity2d : info.character ? info.character : info.entity3d;
-        const bool multiple = target && m_State.objectSelection.Objects().size() > 1 && m_State.objectSelection.Contains(target);
-        if (payload->IsDelivery()) {
-            EditorAttributePayload attribute;
-            std::memcpy(&attribute, payload->Data, sizeof(attribute));
-            if (target) m_State.DropAttributeOn(multiple ? AliveSelection() : std::vector<CK_ID>{target}, attribute);
-        } else {
-            m_View.SetDropTarget(target);
-            if (multiple) m_DropText = "Drop Attribute on Multi-Selection";
-            else if (CKObject *object = context->GetObject(target)) m_DropText = "Drop Attribute on " + DevObjectName(object);
+    if (const auto *payload =
+            ImGui::AcceptDragDropPayload(EDITOR_ATTRIBUTE_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+        if (payload->DataSize == sizeof(EditorAttributePayload)) {
+            const auto info = DropInfo(x, y, "attribute");
+            if (payload->IsDelivery()) {
+                EditorAttributePayload attribute;
+                std::memcpy(&attribute, payload->Data, sizeof(attribute));
+                const auto *objects = EditorClient::Find(info, "objects");
+                if (objects && !objects->objects.empty())
+                    Execute("attribute.add",
+                            {ObjectsArgument("objects", objects->objects),
+                             IntegerArgument("type", uint64_t(attribute.type)),
+                             IntegerArgument("catalog", attribute.catalog), ObjectArgument("source", attribute.value)});
+            } else {
+                highlight = ObjectField(info, "highlight");
+                m_DropText = EditorClient::Text(info, "text");
+            }
         }
     }
-    // A material from the Level Manager (Dev.exe sub_4C0A30): on the 3D
-    // entity's mesh it replaces the material of the face under the mouse.
-    const ImGuiPayload *dragged = ImGui::GetDragDropPayload();
-    CK_ID material = 0;
-    if (dragged && dragged->IsDataType(EDITOR_OBJECT_PAYLOAD) && dragged->DataSize == sizeof(ObjectRef)) {
-        ObjectRef reference{}; std::memcpy(&reference, dragged->Data, sizeof(reference));
-        material = m_State.document->NativeId(reference);
-        if (!CKMaterial::Cast(context->GetObject(material))) material = 0;
-    }
-    if (material) {
-        const LayoutPickInfo info = m_View.PickInfo(x, y);
-        CK3dEntity *entity = CK3dEntity::Cast(context->GetObject(info.entity3d));
-        CKMesh *mesh = entity ? entity->GetCurrentMesh() : nullptr;
-        if (mesh && info.material)
-            if (const ImGuiPayload *payload =
+    if (const auto *dragged = ImGui::GetDragDropPayload();
+        dragged && dragged->IsDataType(EDITOR_OBJECT_PAYLOAD) && dragged->DataSize == sizeof(ObjectRef)) {
+        ObjectRef source;
+        std::memcpy(&source, dragged->Data, sizeof(source));
+        const auto info = DropInfo(x, y, "material", 0, source);
+        const auto mesh = ObjectField(info, "mesh"), material = ObjectField(info, "material");
+        if (mesh && material)
+            if (const auto *payload =
                     ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-                if (!payload->IsDelivery()) {
-                    m_View.SetDropTarget(entity->GetID());
-                } else if (m_State.HasDocument()) {
-                    const EditResult result =
-                        ReplaceMeshMaterial(*m_State.document, mesh->GetID(), info.material, material);
-                    if (!result.ok) m_State.Log(LogLevel::Info, "Replace Material: " + AnsiToUtf8(result.message));
-                }
+                if (!payload->IsDelivery())
+                    highlight = ObjectField(info, "highlight");
+                else
+                    Execute("layout.replace-material", {ObjectArgument("mesh", mesh), ObjectArgument("from", material),
+                                                        ObjectArgument("to", source)});
             }
     }
     ImGui::EndDragDropTarget();
+    HighlightDrop(highlight);
 }
-
 // Dev.exe sub_4BFD20: the object a Building Block goes to, by the class it
 // applies to; Ctrl on a body part keeps the body part rather than its
 // character; else the first object there.
@@ -238,32 +245,31 @@ bool LayoutWindow::DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, 
     return true;
 }
 
-// A Data Resources file (Dev.exe sub_4C0A30): loaded as on the level, its
-// Scripts and animations given to the object under the mouse; images are a
-// texture, Shift a 3D sprite, Ctrl a 2D sprite, both a 2D Entity (sub_4BF320).
 void LayoutWindow::DropResources(int x, int y, const std::vector<ResourceFile> &files) {
-    if (!m_State.HasDocument()) return;
-    const LayoutPickInfo info = m_View.PickInfo(x, y);
-    const ImGuiIO &io = ImGui::GetIO();
+    const auto info = DropInfo(x, y, "resource");
+    if (info.status != EDITOR_OK)
+        return;
+    const auto &io = ImGui::GetIO();
     std::vector<EditorString> paths;
     std::vector<uint64_t> classes;
     for (const auto &file : files) {
-        CK_CLASSID cid = file.cid;
+        auto cid = file.cid;
         if (cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D)
-            cid = io.KeyShift && io.KeyCtrl ? CKCID_2DENTITY : io.KeyShift ? CKCID_SPRITE3D
-                  : io.KeyCtrl ? CKCID_SPRITE : CKCID_TEXTURE;
+            cid = io.KeyShift && io.KeyCtrl ? CKCID_2DENTITY
+                  : io.KeyShift             ? CKCID_SPRITE3D
+                  : io.KeyCtrl              ? CKCID_SPRITE
+                                            : CKCID_TEXTURE;
         paths.push_back(EditorText(file.path));
-        classes.push_back(uint64_t(cid));
+        classes.push_back(cid);
     }
-    const auto target = m_State.document->Reference(info.character ? info.character : info.entity3d ? info.entity3d : info.entity2d);
-    const EditorValue values[] = {
-        {EDITOR_TEXT("paths"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {paths.data(), uint32_t(paths.size())}},
-        {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {classes.data(), uint32_t(classes.size())}},
-        {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST, {}, {}, 0, {&target, target ? 1u : 0u}}};
-    auto &editor = m_State.workspace->Application();
-    editor.Execute("resource.load", {editor.Scope(), values, 3});
+    const auto *targets = EditorClient::Find(info, "objects");
+    if (!targets)
+        return;
+    Execute("resource.load",
+            {{EDITOR_TEXT("paths"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {paths.data(), uint32_t(paths.size())}},
+             {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {classes.data(), uint32_t(classes.size())}},
+             ObjectsArgument("targets", targets->objects)});
 }
-
 void LayoutWindow::DocumentClosed() {
     m_Capturing = 0;
     CancelEdits();
@@ -275,9 +281,9 @@ void LayoutWindow::DocumentClosed() {
     for (auto &settings : m_Transform)
         settings.referent = {};
     m_CurveEdit.referent = {};
+    m_DropHighlight = {};
     m_DropBox.Clear();
 }
-
 std::pair<CK_ID, CK_ID> LayoutWindow::DropAsking(const std::function<std::pair<CK_ID, CK_ID>()> &drop) {
     if (!m_State.HasDocument()) return {0, 0};
     // A drop still asking: its values stay as they are.
@@ -297,7 +303,6 @@ std::pair<CK_ID, CK_ID> LayoutWindow::DropAsking(const std::function<std::pair<C
     }
     return made;
 }
-
 void LayoutWindow::DropParametersDialog() {
     CKContext *context = m_State.host.Context();
     CKBehavior *block = m_Doc.dropBlock && m_State.HasDocument() ? CKBehavior::Cast(context->GetObject(m_Doc.dropBlock)) : nullptr;

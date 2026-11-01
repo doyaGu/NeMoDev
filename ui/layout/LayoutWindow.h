@@ -289,6 +289,8 @@ private:
     // Building Blocks and Data Resources files dropped on the view (Dev.exe
     // sub_4C0A30, sub_4BFD20, sub_4C2F30, sub_4C0F60).
     void DropTarget(const ImVec2 &at);
+    EditorResponse DropInfo(int x, int y, const char *kind, uint64_t prototype = 0, ObjectRef source = {}) const;
+    void HighlightDrop(ObjectRef);
     CK_ID BlockTarget(const LayoutPickInfo &info, CK_CLASSID cid, bool ctrl) const;
     void DropBuildingBlock(int x, int y, const CKGUID &guid);
     bool DropBlockOn(CK_ID object, const CKGUID &guid, CK_ID &script, CK_ID &block);
@@ -468,6 +470,7 @@ private:
     // Drag and drop: the status bar while something is dragged over the
     // view; the --drop-block drop waiting for the view.
     std::string m_DropText;
+    ObjectRef m_DropHighlight{};
     ParameterBox m_DropBox{m_State};
     ParameterBox m_CopyBox{m_State}; // Copy Options
 #ifdef VIRTOOLSDEV_UI_TESTS
