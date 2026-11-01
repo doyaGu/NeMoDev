@@ -278,6 +278,27 @@ class ArchitectureTests(unittest.TestCase):
                 self.write(path, "// pure copied fields\n")
         self.assertEqual(self.run_check().returncode, 0)
 
+    def test_schematic_model_data_cannot_import_the_native_builder(self):
+        self.write("core/schematic/SchematicModelBuilder.h", "// Native builder forward declarations.\n")
+        self.write("features/schematic/SchematicModelData.cpp", '#include "core/schematic/SchematicModelBuilder.h"\n')
+        self.manifest["source_groups"].append({"id": "views", "patterns": ["features/**"]})
+        self.manifest["features"][0]["source_groups"].append("views")
+        self.manifest["dependencies"] = {"views": ["core"]}
+        result = self.run_check()
+        self.assertIn("native/state access in workspace view: features/schematic/SchematicModelData.cpp", result.stderr)
+
+    def test_schematic_navigation_and_search_cannot_regain_native_access(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for function in ("RefreshStack", "ReadModel", "CapturePosition", "ValidateNavigation", "ApplyFocus", "Navigate", "FindNext", "SortScripts"):
+            self.write("ui/schematic/SchematicCanvas.cpp", "void SchematicCanvas::" + function + "() { m_State.document->Context(); }")
+            self.assertIn("native mutation or query returned to migrated input", self.run_check().stderr)
+        self.write("ui/schematic/SchematicCanvas.cpp", "// Queries and commands.\n")
+        self.write("ui/panels/EditorPanels.cpp", "void Explorer() { SearchDocument(document, query); }")
+        self.assertIn("native mutation or query returned to migrated input", self.run_check().stderr)
+        self.write("ui/panels/EditorPanels.cpp", "// Copied search results.\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_layout_projections_cannot_gain_native_or_mutable_state(self):
         for include in ('CKAll.h', 'core/document/Document.h', 'ui/app/EditorState.h'):
             with self.subTest(include=include):

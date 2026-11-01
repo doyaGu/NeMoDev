@@ -14,7 +14,8 @@ import tarfile
 CODE_SUFFIXES = {".h", ".hpp", ".c", ".cpp", ".cxx", ".mm", ".def"}
 RESTRICTED = {"ui/app/EditorState.h": "editor-state",
               "core/document/Document.h": "mutable-document",
-              "core/document/ScriptSession.h": "mutable-document"}
+              "core/document/ScriptSession.h": "mutable-document",
+              "core/schematic/SchematicModelBuilder.h": "native-sdk"}
 
 
 def source_files(source):
@@ -61,7 +62,7 @@ def include_graph(source, files, contents=None, all_access=False):
 
 
 def input_access(source, files, errors):
-    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|EditScriptData|EditGroup)\b|"
+    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|EditScriptData|EditGroup|SearchDocument)\b|"
                            r"\bm_View\.(?:Context|Pick|PickInfo|RectPick|Camera|Scene)\s*\(")
     migrated = {"BeginMove", "UpdateMove", "EndMove", "BeginGeometry", "UpdateGeometry", "GroupSelection",
                 "UngroupSelection", "Copy", "Cut", "Paste", "PasteClipboard", "Duplicate", "BeginCopyDrag",
@@ -78,13 +79,16 @@ def input_access(source, files, errors):
                 "ReplaceWithFile", "SetParamStyle", "ToggleCommentIcon", "SpaceAction", "AddThisAt", "GoToShortcutSource",
                 "CkPropertiesDialog", "ShortcutAnalysisDialog", "QuickAddDialog", "OpenQuickAdd", "ParameterMenu",
                 "BlockMenus", "BlockCategoryMenu", "BehaviorMenu", "OpenHtmlHelp", "CompleteGraph", "ContextMenuItems",
-                "DoubleClick", "BodyMenu"}
+                "DoubleClick", "BodyMenu", "ShowScript", "RefreshStack", "SyncViews", "CapturePosition", "ValidPosition",
+                "ReadModel", "ApplyNavigation", "ApplyFocus", "Refresh", "ToggleScriptOpen", "ScriptOpen",
+                "MoveHighlightedScript", "ValidateNavigation", "Navigate", "PublishNavigation", "FindNext",
+                "FindSelected", "FindDialog", "SortScripts"}
     for path in files:
-        if path not in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp", "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp", "ui/schematic/SchematicDialogs.cpp"}:
+        if path not in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp", "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp", "ui/schematic/SchematicDialogs.cpp", "ui/panels/EditorPanels.cpp"}:
             continue
         text = (source / path).read_text(encoding="utf-8-sig")
         text = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', '', text, flags=re.S)
-        if path in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp"}:
+        if path in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp", "ui/panels/EditorPanels.cpp"}:
             if forbidden.search(text):
                 errors.append(f"native mutation or query returned to migrated input: {path}")
             continue
@@ -154,7 +158,7 @@ def check(source, manifest, inventory=None, ui_tests=False):
         if path.startswith("features/") and "editor-state" in access:
             errors.append(f"feature depends on legacy EditorState: {path}")
         if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/runtime/", "features/environment/", "features/diagnostics/", "features/preferences/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/", "features/schematic/", "features/layout/")) and not re.match(
-                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/SetupCommands|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits)|layout/Layout(?:Commands|Gestures))\.(?:h|cpp)$", path):
+                r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/SetupCommands|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits|ModelCommands)|layout/Layout(?:Commands|Gestures))\.(?:h|cpp)$", path):
             errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
     observed = set()
     for path, dependencies in graph.items():

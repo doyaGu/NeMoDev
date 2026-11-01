@@ -437,7 +437,9 @@
         "features/schematic/SchematicConnections.*",
         "features/schematic/SchematicCopying.*",
         "features/schematic/SchematicAuthoring.*",
-        "features/schematic/SchematicParameterEdits.*"
+        "features/schematic/SchematicParameterEdits.*",
+        "features/schematic/SchematicModelCommands.*",
+        "features/schematic/SchematicModelData.*"
       ]
     },
     {
@@ -655,8 +657,6 @@
       "S34"
     ],
     "S18": [
-      "S03",
-      "S05",
       "S07",
       "S13",
       "S14",
@@ -665,7 +665,9 @@
       "S21",
       "S27",
       "S33",
-      "S34"
+      "S34",
+      "S35",
+      "S57"
     ],
     "S19": [
       "S27",
@@ -710,7 +712,8 @@
       "S33",
       "S35",
       "S41",
-      "S57"
+      "S57",
+      "S49"
     ],
     "S22": [
       "S01",
@@ -734,7 +737,8 @@
       "S01",
       "S11",
       "S13",
-      "S26"
+      "S26",
+      "S07"
     ],
     "S24": [
       "S17",
@@ -917,7 +921,8 @@
       "S13",
       "S34",
       "S44",
-      "S57"
+      "S57",
+      "S08"
     ],
     "S50": [
       "S03",
@@ -1244,13 +1249,6 @@
       "remove_by": 5
     },
     {
-      "file": "ui/schematic/SchematicCanvasDetail.h",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
       "file": "ui/schematic/SchematicDialogs.cpp",
       "access": [
         "editor-state",
@@ -1303,21 +1301,7 @@
       "remove_by": 5
     },
     {
-      "file": "ui/schematic/SchematicRenderer.h",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
       "file": "ui/schematic/Snapshots.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/Snapshots.h",
       "access": [
         "native-sdk"
       ],
@@ -1637,7 +1621,8 @@
         "SchematicModelTests",
         "VirtoolsDev.Edits",
         "NeMoDevEditor",
-        "VirtoolsDevFileDialogs"
+        "VirtoolsDevFileDialogs",
+        "NeMoDevIdentityHeaders"
       ],
       "ui_tests": [
         "VirtoolsDevUi.schematic",
@@ -2287,10 +2272,10 @@
     },
     {
       "id": "schematic_view",
-      "name": "可见 Script 投影、完整引用的锚点/隐藏/排序/开合、平移缩放和查找位置",
-      "owner": "每个 Schematic 视图实例",
-      "lifetime": "成功替换或实例脱离；其他实例不被覆盖",
-      "persistence": "导航不制造创作 Undo；工作区保存选项和平移缩放，不将文档对象引用写入用户配置；真正换文档时重置，切换失败保持",
+      "name": "Schematic 绘制模型、搜索结果、完整引用的导航与视图选项",
+      "owner": "每个 Schematic 视图实例；SchematicModelCommands 缓存原生读取的副本；EditorPanels 保存来源视图的搜索结果",
+      "lifetime": "视图在成功替换文档或脱离时重置；原生查询缓存按文档身份和源版本失效，分页搜索只保留最近一次结果；复制的快照像素不依赖原生资源；其他实例不被覆盖",
+      "persistence": "导航和只读查询不制造创作 Undo；工作区只保存选项和平移缩放，对象引用和搜索结果不写入用户配置；切换失败保持。查询失败保留上次完整模型，旧索引逐项校验后移除。",
       "features": [
         "F11"
       ]
@@ -2705,7 +2690,7 @@
       "name": "参数对话框的工作副本、交互开始值与输入校验",
       "owner": "SchematicParameterEdits 持有原生工作副本；SchematicParameterDialog 保存复制输入；其余窗口沿用 ParameterBox",
       "lifetime": "原文档和来源视图；确认、取消、关闭、失效或模块停止释放原生工作副本；Apply 完成后重新读取",
-      "persistence": "预览只改工作副本，不写原文档或 Dirty；名称、类型、值和不兼容连线在同一命令内提交，输入批次和设置回调仍合成一步 Undo。嵌套控件取消只恢复当前交互；整个对话框取消不改历史或 Redo。对象数组共用只读列表和选择控件。其余窗口的 ParameterBox 继续复用相同值编辑器与修改命令。",
+      "persistence": "预览只改工作副本，不写原文档或 Dirty；名称、类型、值和不兼容连线在同一命令内提交，输入批次和设置回调仍合成一步 Undo。嵌套控件取消只恢复当前交互；整个对话框取消不改历史或 Redo。对象数组共用只读列表和选择控件。其余窗口的 ParameterBox 继续复用相同值编辑器与修改命令。 Explorer 筛选值和替换值复用 ParameterBox 的动态工作参数，确认只更新工作值；实际替换走统一命令，关闭窗口或来源视图后释放。",
       "features": [
         "F13",
         "F14"
