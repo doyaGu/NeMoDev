@@ -150,6 +150,84 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
         });
     };
+    setupTest = IM_REGISTER_TEST(engine, "modules", "setup_workspace_provider_restore_and_lifetime");
+    setupTest->GuiFunc = MainThreadGui;
+    setupTest->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        auto &app = workspace.Application();
+        const vdev::EditorClient client(app.Host(), 0);
+        vdev::ObjectRef target{};
+        vdev::EditorConfiguration initial;
+        EditorView original = 0, external = 0;
+        size_t steps = 0;
+        uint64_t selection = 0;
+        bool dirty = false;
+        OnMainThread(ctx, [&] {
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            auto *object = state.document->Context()->CreateObject(CKCID_3DENTITY, "Workspace Setup target");
+            IM_CHECK_NO_RET(object);
+            state.document->Include(object->GetID());
+            target = state.document->Reference(object->GetID());
+            initial = app.Configuration();
+            steps = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            selection = state.objectSelection.Revision();
+            state.events.Post(vdev::ShowObjectSetup{target});
+        });
+        ctx->Yield(4);
+        ctx->SetRef("//###setup3d");
+        ctx->ItemClick("**/Attribute");
+        ctx->Yield(2);
+        OnMainThread(ctx, [&] {
+            original = workspace.Role("setup3d");
+            IM_CHECK_NO_RET(original);
+            auto configured = initial;
+            for (auto &choice : configured.providers)
+                if (choice.kind == "view" && choice.id == "object.setup")
+                    choice.provider = "example.setup-window";
+            std::string error;
+            IM_CHECK_NO_RET(client.Command("example.setup-window-failure", {vdev::IntegerArgument("fail", 1)}).status ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(!workspace.Configure(configured, error));
+            IM_CHECK_NO_RET(workspace.Role("setup3d") == original && app.Scope(original).view &&
+                            App().Setups().OpenSetups().size() == 1);
+            IM_CHECK_NO_RET(client.Command("example.setup-window-failure", {vdev::IntegerArgument("fail", 0)}).status ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(workspace.Configure(configured, error));
+            external = workspace.Role("setup3d");
+            IM_CHECK_NO_RET(external && external != original && !app.Scope(original).view);
+            const auto shown = App().Setups().OpenSetups();
+            IM_CHECK_NO_RET(shown.size() == 1 && shown.front().object == target && shown.front().front);
+        });
+        ctx->Yield(4);
+        auto *window = ctx->GetWindowByRef("//###setup3d");
+        IM_CHECK(window && window->WasActive);
+        ctx->SetRef("//###setup3d");
+        IM_CHECK(ctx->ItemExists("External Setup Window"));
+        IM_CHECK(Read<bool>(ctx, [&] { return workspace.WindowName(external).rfind("External Setup###", 0) == 0; }));
+        IM_CHECK(ShowsObject(ctx, target.object));
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(initial, error));
+            const auto restored = workspace.Role("setup3d");
+            IM_CHECK_NO_RET(restored && restored != external && !app.Scope(external).view);
+            const auto shown = App().Setups().OpenSetups();
+            IM_CHECK_NO_RET(shown.size() == 1 && shown.front().object == target && shown.front().front);
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.document->Dirty() == dirty &&
+                            state.objectSelection.Revision() == selection);
+        });
+        ctx->Yield(4);
+        ctx->SetRef("//###setup3d");
+        IM_CHECK(ctx->ItemExists("**/Add Attribute"));
+        OnMainThread(ctx, [&] {
+            const auto restored = workspace.Role("setup3d");
+            IM_CHECK_NO_RET(client.Command("workspace.close-view", {vdev::IntegerArgument("view", restored)}).status ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(App().Setups().OpenSetups().empty() && !app.Scope(restored).view);
+        });
+    };
     setupTest = IM_REGISTER_TEST(engine, "modules", "setup_attributes_and_pictures_use_selected_providers");
     setupTest->GuiFunc = MainThreadGui;
     setupTest->TestFunc = [](ImGuiTestContext *ctx) {

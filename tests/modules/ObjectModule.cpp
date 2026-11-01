@@ -28,6 +28,7 @@ struct Module {
     uint64_t setupPages = 0, setupLists = 0, setupOpens = 0;
     uint64_t setupDetails = 0, setupProperties = 0, setupActions = 0;
     uint64_t setupCommonCounts[8]{};
+    bool failSetupWindowRestore = false;
     struct SetupCommon {
         Module *owner = nullptr;
         EditorString id{}, provider{};
@@ -39,6 +40,74 @@ struct Module {
     bool pickFailure = false;
     EditorStatus schematicRead = EDITOR_STALE;
 };
+struct SavedSetupValue {
+    std::string key, text;
+    EditorValueType type{};
+    EditorObject object{};
+    uint64_t integer = 0;
+    double real = 0;
+    std::vector<EditorObject> objects;
+    std::vector<uint64_t> integers;
+    std::vector<double> reals;
+    explicit SavedSetupValue(const EditorValue &value)
+        : key(value.key.data, value.key.size), text(value.text.data ? value.text.data : "", value.text.size),
+          type(value.type), object(value.object), integer(value.integer), real(value.real) {
+        if (value.objects.count)
+            objects.assign(value.objects.data, value.objects.data + value.objects.count);
+        if (value.integers.count)
+            integers.assign(value.integers.data, value.integers.data + value.integers.count);
+        if (value.reals.count)
+            reals.assign(value.reals.data, value.reals.data + value.reals.count);
+    }
+    EditorValue Borrow() const {
+        EditorValue value{};
+        value.key = {key.c_str(), uint32_t(key.size())};
+        value.type = type;
+        value.object = object;
+        value.text = {text.c_str(), uint32_t(text.size())};
+        value.integer = integer;
+        value.real = real;
+        value.objects = {objects.data(), uint32_t(objects.size())};
+        value.integers = {integers.data(), uint32_t(integers.size())};
+        value.reals = {reals.data(), uint32_t(reals.size())};
+        return value;
+    }
+};
+struct SetupWindow {
+    Module *owner;
+    std::vector<SavedSetupValue> state;
+    EditorObject target{}, other{};
+    uint64_t kind = 0;
+};
+EditorStatus ReadSetupWindow(SetupWindow &view, const EditorHost *host, EditorScope scope, EditorObject target,
+                             uint64_t point) {
+    struct Page {
+        EditorObject other{};
+        uint64_t kind = 0;
+    } page;
+    const EditorValue values[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT, target},
+                                  {EDITOR_TEXT("point"), EDITOR_INTEGER_VALUE, {}, {}, point}};
+    const EditorRequest request{scope, values, 2};
+    const auto status = host->query(host->data, EditorString EDITOR_TEXT("setup.page"), &request,
+                                    {&page, [](void *data, const EditorValue *values, uint32_t count) {
+                                         auto &page = *static_cast<Page *>(data);
+                                         for (uint32_t i = 0; i < count; ++i) {
+                                             const std::string key(values[i].key.data, values[i].key.size);
+                                             if (key == "point")
+                                                 page.other = values[i].object;
+                                             if (key == "kind")
+                                                 page.kind = values[i].integer;
+                                         }
+                                         return EDITOR_OK;
+                                     }});
+    if (status == EDITOR_OK) {
+        view.target = target;
+        view.other = page.other;
+        view.kind = page.kind;
+    }
+    return status;
+}
+
 struct FileView {
     uint64_t answered = 0;
 };
@@ -1234,6 +1303,97 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
              return sink.write(sink.data, values, 3);
          },
          data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, setupCounts, 3});
+    EditorViewDesc setupWindow{};
+    setupWindow.size = sizeof(setupWindow);
+    setupWindow.imguiVersion = EDITOR_IMGUI_VERSION;
+    setupWindow.id = EDITOR_TEXT("object.setup");
+    setupWindow.provider = EDITOR_TEXT("example.setup-window");
+    setupWindow.title = EDITOR_TEXT("External Setup");
+    setupWindow.area = EDITOR_DOCUMENT;
+    setupWindow.documentBound = 1;
+    setupWindow.data = data;
+    setupWindow.create = [](void *data, const EditorHost *, EditorView) -> void * {
+        return new SetupWindow{static_cast<Module *>(data)};
+    };
+    setupWindow.destroy = [](void *data) { delete static_cast<SetupWindow *>(data); };
+    setupWindow.draw = [](void *, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        EditorImGuiWindow window(*frame);
+        if (window)
+            ImGui::Button("External Setup Window");
+    };
+    static const EditorParameter setupNavigation[] = {setupTarget, {EDITOR_TEXT("point"), EDITOR_INTEGER_VALUE, 1}};
+    setupWindow.parameters = setupNavigation;
+    setupWindow.count = 2;
+    setupWindow.navigate = [](void *data, const EditorHost *host, const EditorRequest *request) {
+        auto &view = *static_cast<SetupWindow *>(data);
+        const auto target = request->values[0].object;
+        uint64_t point = 0;
+        if (request->count > 1)
+            point = request->values[1].integer;
+        const auto status = ReadSetupWindow(view, host, request->scope, target, point ? point - 1 : 0);
+        if (status == EDITOR_OK) {
+            view.state.clear();
+            for (uint32_t i = 0; i < request->count; ++i) {
+                auto value = request->values[i];
+                if (std::string(value.key.data, value.key.size) == "point")
+                    value.integer = point ? point - 1 : 0;
+                view.state.emplace_back(value);
+            }
+        }
+        return status;
+    };
+    static const EditorParameter setupWindowFields[] = {setupTarget,
+                                                        {EDITOR_TEXT("other"), EDITOR_OBJECT},
+                                                        {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE},
+                                                        {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE}};
+    setupWindow.fields = setupWindowFields;
+    setupWindow.fieldCount = 4;
+    setupWindow.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &view = *static_cast<SetupWindow *>(data);
+        const EditorValue values[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT, view.target},
+                                      {EDITOR_TEXT("other"), EDITOR_OBJECT, view.other},
+                                      {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, {}, {}, view.kind},
+                                      {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("External Setup")}};
+        return sink.write(sink.data, values, 4);
+    };
+    setupWindow.stateVersion = 1;
+    setupWindow.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        std::vector<EditorValue> values;
+        for (const auto &value : static_cast<SetupWindow *>(data)->state)
+            values.push_back(value.Borrow());
+        return sink.write(sink.data, values.data(), uint32_t(values.size()));
+    };
+    setupWindow.restoreState = [](void *data, const EditorHost *host, const EditorRequest *request) {
+        auto &view = *static_cast<SetupWindow *>(data);
+        if (view.owner->failSetupWindowRestore)
+            return EDITOR_ERROR;
+        EditorObject target{};
+        uint64_t point = 0;
+        for (uint32_t i = 0; i < request->count; ++i) {
+            const std::string key(request->values[i].key.data, request->values[i].key.size);
+            if (key == "target")
+                target = request->values[i].object;
+            if (key == "point")
+                point = request->values[i].integer;
+        }
+        const auto status = ReadSetupWindow(view, host, request->scope, target, point);
+        if (status != EDITOR_OK)
+            return status;
+        view.state.clear();
+        for (uint32_t i = 0; i < request->count; ++i)
+            view.state.emplace_back(request->values[i]);
+        return EDITOR_OK;
+    };
+    descriptors->views.push_back(setupWindow);
+    static const EditorParameter setupFailure{EDITOR_TEXT("fail"), EDITOR_INTEGER_VALUE};
+    descriptors->commands.push_back(
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("example.setup-window-failure"), EDITOR_TEXT("example.setup-window"),
+         EDITOR_TEXT("Fail Setup Restore"), &setupFailure, 1,
+         [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+             static_cast<Module *>(data)->failSetupWindowRestore = request->values[0].integer != 0;
+             return EDITOR_OK;
+         },
+         data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
     static const EditorParameter preferenceArgs[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("value"), EDITOR_RECORD}};
     descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.apply"), EDITOR_TEXT("example.preferences"),
         EDITOR_TEXT("External General Preferences"), preferenceArgs, 2,
