@@ -256,6 +256,12 @@ bool ParameterBox::Add(CK_ID target, const std::string &label, const CKGUID &typ
     return Add(CKParameter::Cast(m_State.document->Context()->GetObject(target)), label, type);
 }
 
+bool ParameterBox::Add(ObjectRef target, const std::string &label) {
+    if (!m_State.HasDocument())
+        return false;
+    return Add(CKParameter::Cast(m_State.document->Resolve(target, CKCID_PARAMETER)), Utf8ToAnsi(label));
+}
+
 bool ParameterBox::Add(CKParameter *target, const std::string &label, const CKGUID &type) {
     CKContext *context = m_State.host.Context();
     if (!context || !target) return false;

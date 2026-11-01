@@ -41,6 +41,8 @@ public:
     // Resolve a live parameter only when opening its native value editor.
     bool Retarget(size_t row, CKParameter *target);
     bool Add(CK_ID target, const std::string &label, const CKGUID &type = CKGUID());
+    // Copied query rows use full identities and UTF-8 names.
+    bool Add(ObjectRef target, const std::string &label);
     // Dev.exe sub_582930's rows for a Building Block (its Target first) or
     // a parameter operation: each input whose value holder is a local
     // parameter (not <This>, the input not disabled), named after the local.
