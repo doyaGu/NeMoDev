@@ -1,0 +1,349 @@
+{
+  "description": "阶段五：完整 3D Layout 登记为工作区视图，统一绘制、停靠、提供者替换和窗口生命周期。保留手势、快照、Player/全屏、创建和资源拖放。SDK 不动，性能验收继续暂缓。",
+  "base_revision": "2bb67f814f2be5345d12738fcb7fb3f3a8d7840d",
+  "changes": [
+    "内置 layout.viewport 与独立模块通过同一组视图回调创建、绘制、检查、拾取、保存、恢复和关闭；EditorApp 移除单独绘制入口，默认工作区删除最后一项旧窗口登记。",
+    "工作区拥有 Layout 实例及其辅助窗口输入、弹窗、聚焦和停靠；实例拥有工具、手势、Explorer、Snapshot Buffer 和参数副本。原有 LayoutView 及 GPU 资源适配不更换。",
+    "来源作用域有效时先执行关闭回调，取消预览、临时选区和原生参数编辑，再取消作用域并销毁窗口。提供者候选恢复失败不清理旧视图或释放原目标。",
+    "保持 Layout 原有窗口标识，允许显示标题独立改变；停靠窗口只恢复停靠节点，防止 ImGui 因坐标恢复而解除停靠。",
+    "绘制内的原生参数确认加入既有帧末队列，参数副本保留至完成；来源视图结束时取消待确认放置，文档关闭仍提交既有默认值。",
+    "视图拾取传递原有类筛选，移除 EditorState 中最后的 objectPick 窗口名称表。GPU 快通道与 readback/upload 函数保持原实现。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-layout-view/build-tenth.log",
+      "preceding_full_build": "out/phase-five-layout-view/build-eighth.log",
+      "window_initialization_build": "out/phase-five-layout-view/build-ninth.log"
+    },
+    "editor_interface": 20,
+    "focused_ctest": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "log": "out/phase-five-layout-view/focused-final.log",
+      "junit": "out/phase-five-layout-view/focused-final.xml"
+    },
+    "full_ctest": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 31.15,
+      "excluded_label": "performance",
+      "log": "out/phase-five-layout-view/full-final.log",
+      "junit": "out/phase-five-layout-view/full-final.xml",
+      "inventory": "out/phase-five-layout-view/ctest-inventory.json"
+    },
+    "architecture": {
+      "files": 1047,
+      "groups": 58,
+      "features": 32,
+      "states": 48,
+      "legacy_exposures": 41,
+      "completed_phase": 3,
+      "test_registration_checked": true,
+      "open_gaps": 19
+    },
+    "architecture_tests": {
+      "passed": 43,
+      "failed": 0,
+      "log": "out/phase-five-layout-view/architecture-tests-final.log"
+    },
+    "ui": {
+      "app": {
+        "registered": 265,
+        "executed": 25,
+        "not_selected": 240,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/app.xml",
+        "sha256": "098b7641ec639f965d9f6d3e39b67b4de533327dd7f28b0c78ee250c2d918546"
+      },
+      "attributes": {
+        "registered": 265,
+        "executed": 6,
+        "not_selected": 259,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/attributes.xml",
+        "sha256": "ad60f39d85c51b288ab0221db6343ab1a6fe26661fcae2e13e574512f2901cea"
+      },
+      "blocks": {
+        "registered": 265,
+        "executed": 6,
+        "not_selected": 259,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/blocks.xml",
+        "sha256": "8927f61469d71a35fd55e08ac429483a7898ab0c87311f6074a235a1ae22d24a"
+      },
+      "character": {
+        "registered": 265,
+        "executed": 2,
+        "not_selected": 263,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/character.xml",
+        "sha256": "540b338ba2721b475cd2348f3b5e348664c314560d6facb4397df8395dd865e6"
+      },
+      "create": {
+        "registered": 265,
+        "executed": 6,
+        "not_selected": 259,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/create.xml",
+        "sha256": "5a0255e82bae975937551a1ea7636cf11736ca9e729d27a1fcb295bd13a2ddd1"
+      },
+      "debugger": {
+        "registered": 265,
+        "executed": 10,
+        "not_selected": 255,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/debugger.xml",
+        "sha256": "13b04037a7410d149b84c1c95757c03543e196000a65941dd3f879437ada9e2c"
+      },
+      "filemenu": {
+        "registered": 265,
+        "executed": 10,
+        "not_selected": 255,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/filemenu.xml",
+        "sha256": "906768b1e1310c7acbcb8e67fc201744d8ab69344880a804fa5e76c21c1037b2"
+      },
+      "hierarchy": {
+        "registered": 265,
+        "executed": 8,
+        "not_selected": 257,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/hierarchy.xml",
+        "sha256": "b791c54cf0d88b690ab1466281611b75cfc8b43760ce531e9d6a860f985e44d1"
+      },
+      "html": {
+        "registered": 265,
+        "executed": 3,
+        "not_selected": 262,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/html.xml",
+        "sha256": "1f2ef8c3406603bb87e462a142a1aebcd867cbdfc76c1fe43b8c254c70e94bcc"
+      },
+      "layout": {
+        "registered": 265,
+        "executed": 25,
+        "not_selected": 240,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/layout.xml",
+        "sha256": "b7f890553d10b17c3b33f18c97fe8db3661bcbec5a51c65503708cbb9f7ff9e6"
+      },
+      "level": {
+        "registered": 265,
+        "executed": 7,
+        "not_selected": 258,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/level.xml",
+        "sha256": "a59de9364a5d68c714ea7427a528565b79647e84704b2cbe52bd2dba296df049"
+      },
+      "modules": {
+        "registered": 265,
+        "executed": 69,
+        "not_selected": 196,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/modules.xml",
+        "sha256": "f7836d9146056eee6a0c0ae5ba746bf76c1f309e20f187709e08d2001ba633fa"
+      },
+      "propertyedits": {
+        "registered": 265,
+        "executed": 7,
+        "not_selected": 258,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/propertyedits.xml",
+        "sha256": "a4e67934afa5a2a99cfbc521910d9ffc25d9c6d47bc2f0e2743d4c6c218f051d"
+      },
+      "schematic": {
+        "registered": 265,
+        "executed": 26,
+        "not_selected": 239,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/schematic.xml",
+        "sha256": "c702d4f852286e7c55e6eeae4bf204dc8c163ba80160d0ae41ca20674b9ae7f0"
+      },
+      "setup": {
+        "registered": 265,
+        "executed": 21,
+        "not_selected": 244,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/setup.xml",
+        "sha256": "0dee92488dc98f50dafd5a3bfcc87c20f8d9f57799a64c7318c313ce507b7924"
+      },
+      "sound": {
+        "registered": 265,
+        "executed": 2,
+        "not_selected": 263,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/sound.xml",
+        "sha256": "9ea28257f47c36acf7196d40b7c96ebd79ab2e3308cf44018e59f9f6ecc17b67"
+      },
+      "tools": {
+        "registered": 265,
+        "executed": 13,
+        "not_selected": 252,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-layout-view/ui/tools.xml",
+        "sha256": "ca5785b2c8c0555517a72d54a0ba4a70fb2d9d21627c3ccaa680f59e4cecd9ad"
+      }
+    },
+    "ui_executed": 246,
+    "native_player": {
+      "passed": 4,
+      "failed": 0,
+      "errors": 0,
+      "cases": [
+        "windowed_input_focus",
+        "fullscreen_default_mode",
+        "fullscreen_roundtrip_focus",
+        "snapshot_take_capture_cancel"
+      ],
+      "sample": "local-samples/data/BBSamples/3D Transformations/Add Control Point.cmo",
+      "launch": "macOS LaunchServices，独立测试应用窗口，SDL/Metal",
+      "log": "out/phase-five-layout-view/player-bundle.log",
+      "stderr": "out/phase-five-layout-view/player-bundle.err",
+      "junit": "out/phase-five-layout-view/player-bundle.xml"
+    },
+    "native_print_tests": {
+      "passed": 2,
+      "names": [
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ]
+    },
+    "regressions": [
+      "独立编译模块替换完整 Layout，恢复失败保留原作用域与 GPU 目标；恢复工具、窗口标识、停靠位置和快照像素。",
+      "手势预览中关闭恢复原对象、选区、Dirty 和 Undo/Redo；重开只创建一个目标，下一次拖动只产生一步撤销。",
+      "待确认 Building Block 参数弹窗中关闭 Layout，取消原生 Edit、回收临时行为、清理弹窗并保持原选区与历史。",
+      "参数确认在绘制期间排队，保留临时参数至命令完成；队列已满明确拒绝，之后仍可取消；来源作用域结束返回过期结果并取消原生 Edit。",
+      "C/C++ 公共头回调消费、关闭回调在有效作用域内恰好执行一次；失败保存与候选恢复不提前清理旧实例。",
+      "带类筛选的视图拾取、GPU 快通道、fallback、截图单次显式读回、创建、资源拖放和既有 Setup/Hierarchy 行为通过。",
+      "原生 Player 输入/焦点、默认全屏模式、全屏往返及快照采集与取消通过。"
+    ],
+    "sdk_gpu": {
+      "sdk_repositories": 16,
+      "sdk_unchanged": true,
+      "sdk_before": "out/phase-five-layout-view/sdk-before.json",
+      "sdk_after": "out/phase-five-layout-view/sdk-after.json",
+      "sdk_runtime_files": 22,
+      "sdk_runtime_unchanged_from_previous_baseline": true,
+      "previous_runtime_baseline": "out/phase-five-setup-views/runtime-after.json",
+      "current_runtime": "out/phase-five-layout-view/runtime-after.json",
+      "protected_gpu_sources": 6,
+      "gpu_sources_unchanged": true,
+      "protected_sha256": {
+        "ui/render/UiRenderer.cpp": "eeeb206eab24998189cb16e47f241efffb59560bc988cd383e5b03d530a703e9",
+        "ui/render/UiRenderer.h": "2b21132c135f1a5011b95879dfdc83d3e9a6eedc34242006b2c20ee944cbd7fc",
+        "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "core/layout/LayoutView.cpp": "01f084e53bc992981c9de857a8f8fdbca35a48aa19d3274643c1abbb72bf9060",
+        "core/layout/LayoutView.h": "2efc5a3fc8ca4463ee9bae47de3846680ec2654f841b52bb046207b730a28ae3"
+      },
+      "protected_render_sections": 10,
+      "render_sections_unchanged": true,
+      "render_sections_sha256": {
+        "SelectViewportContext": "4351f02982e69be92bde9fca4a951139f1731ff2cda19ec746b29acf7f909118",
+        "ConfigureGpuViewport": "705b3a1806863686e3dcf9d19497e2d80760fe6182250f00c4950e08b4342489",
+        "ReleaseGpuViewport": "b279dd0af90a0a249a12f4d0b1409c087300c32caff1a8ed90afb712ab832e25",
+        "RenderUnselectedViewport": "74cfe74cde75043277830e8353814437b501579ed3c0bd55e6e64f596842ee7a",
+        "RenderReadbackViewport": "53247e3a94893cc0e25baf7fa4a56729d23281983056a60873df36495e10d081",
+        "RenderGpuViewport": "6dea09d52b21a9fd47bd1330a41313e049bad9a49caed5196a18ecf06dcee77b",
+        "ReleaseTexture": "37291e3d407a46f6a856db6f7704e7a1bdbb57044f74103e2512837eabd3e3d2",
+        "ResetViewportAfterContextStop": "dc1b272f0fa82aaaae2f83daa286228d8855611c9db8aae9a5d31253d1f6c7f3",
+        "Upload": "f175a0d9d698fdd9167cb69bc49cc5a68ee43ea573e081f21e2599ecb8c3bad8",
+        "Viewport.render": "11b096952ba55c0b4216952ce3efa139557a4ccaefb96e081787f38d69604890"
+      },
+      "render_sections_before": "out/phase-five-layout-view/gpu-path-before.json",
+      "render_sections_after": "out/phase-five-layout-view/gpu-path-after.json"
+    },
+    "representative_nmo": {
+      "case": "filemenu.open_nmo_populates_level_manager_as_new_import",
+      "fixture": "回归测试生成的合法 NMO，验证直接打开等同新建后导入；不代表另行测试了原始游戏关卡文件"
+    },
+    "source_sha256": {
+      "application/EditorApplication.cpp": "d017ba67e2c85196867b03e5fddc64a02c84c77d129d8f6373dfe213f8393021",
+      "application/EditorApplication.h": "a8985ddf63670d7431c4455936ef7d3f72343b98365a24f76a9e808ad07fe5b4",
+      "editor/Editor.h": "5e118fe8f29f9990a018442b95829163069ee4ecab63807c5b3b41f97c857273",
+      "editor/ImGuiDrawing.h": "16e2935ef379867d012003780dd59a2e4dfac01adcb90f2aca9335810d2e2f4a",
+      "features/defaults/DefaultWorkspace.cpp": "d71403791a297713e45ef90a351bb08fbabce374a540c7f3d94296a984cfb077",
+      "features/layout/LayoutAuthoring.cpp": "fdf53ad5a73f2868c0c2b5cfaf789c390416821b66cbe76b29a2134639fe9ab8",
+      "tests/ArchitectureTests.py": "8abb6f207521677f334a88ababf7e575a3a40024f0039cb6967472b4bf4569da",
+      "tests/CheckArchitecture.py": "84c82da4923c0d930e57468fca776a57cc6f1c1724dff21e8ebacfdfa0f27c91",
+      "tests/IdentityHeaderC.c": "af10d05eff01f28dda8e4668b583228968ab7eafe234b9552e9acee7de909a90",
+      "tests/IdentityHeaderTests.cpp": "686da1db3d4888bac2583ae41b5c2d3fa091b30a5115f1788cddaf5e19246200",
+      "tests/LayoutAuthoringTests.cpp": "5de160db497293190d448b7165afea8a9302f00bda1e764fd5b86410a6aefe53",
+      "tests/SchematicPickingTests.cpp": "23060b57fa0e868528bb36f4d66a0c52fadbe4d6700ddb5d59c01519aacfe8c4",
+      "tests/WorkspaceTests.cpp": "f2a3647c04bbac57b5cb660564d92574b0ad2f67d060871e2890633b74e1db40",
+      "tests/architecture/README.md": "5c356292ea768f1a4cf44410697008dfab4e93eba278ddd360695fb5f93a5eeb",
+      "tests/architecture/coverage.json": "888c4f5c36391bf55298d149846c3134b8debae05783d595a617e5335a66b78b",
+      "tests/modules/ObjectModule.cpp": "b4f57fd64fd16fbc8dddcf7f0a08176dc1761fc2a6752a3b7fb322538a0c9915",
+      "tests/ui/LayoutTests.cpp": "70689587fd1ca4fd4ca72ec0a94e2f8972be9699255baa6eeee92e268e4f655d",
+      "tests/ui/ModuleTests.cpp": "9538aeb1d491a45981b77718df7523e127eaded1c017c0ec491d8988bfa300ce",
+      "tests/ui/SchematicTests.cpp": "5e4f379a3f38078bcd7af90f2e8cad32240415d9cd0080e801c7216a2b70813e",
+      "tests/ui/WorkspaceTests.cpp": "09451892ac54cbd29c70a65b1f702de2abd2ee06b799be7941250919cb9a77b6",
+      "ui/app/EditorApp.cpp": "2f29ee5be8e6e9bce13e9f965f2558dcd5118184c9cf75ed3fa5d9ef48828451",
+      "ui/app/EditorState.h": "80d5b08bd868fa4bc29a605f4fa699c6436225488e7ab783df1496647ffb04eb",
+      "ui/controls/ParameterBox.cpp": "e36d0dd869595466b32cb43cf48a9a1448d1903cd5beb0cf786fa61a1b49a231",
+      "ui/controls/ParameterBox.h": "4856d16cc195fd2fc912a3c53e05d25b046a84ec67667b76d50bb7d0e294ba59",
+      "ui/layout/LayoutDrop.cpp": "b1fccfcd4cac84537103783895b4f200ac8cc5eaf229d60a6bd8214e81336405",
+      "ui/layout/LayoutExplorer.cpp": "52450c3ff50e4a5ee1352b169f45fb40ae03b985ed8a2b46f52365602d111c9f",
+      "ui/layout/LayoutFullScreen.cpp": "fee9cf64644fef6bf1b989207d3cac4158fcc81d37f9926fd4c813f6db294c54",
+      "ui/layout/LayoutInput.cpp": "937f3c195e6fb78b559d9872190879117ea62ede987aba18048d86aaf017461c",
+      "ui/layout/LayoutMenu.cpp": "08cafec03b8c3787f1a465a8fe05207ec63373c504f78654f3608b2701902352",
+      "ui/layout/LayoutSnapshot.cpp": "5b6fdff2940c1eeee82052fc788224f03536e288566d77e186526e59e411dab3",
+      "ui/layout/LayoutWindow.cpp": "9336016604fdff736be790fa2990f251243b94c741aee4fe9b6369b3d690b891",
+      "ui/layout/LayoutWindow.h": "5804ab27551113a579c5155a26bc6c91fa52bdf2ca9d94572b09ec15d9b69062",
+      "workspace/EditorWorkspace.cpp": "bcf21a2737d33ed4b6461a4fd33fff6f9ece5ff2a789843fdb614b6cbf35af06",
+      "workspace/EditorWorkspace.h": "9e2e3638e75848796923d2ca262e7116226c2a86c6c4a719183ec90511a0c4fa",
+      "workspace/WorkspaceConfiguration.h": "b690297bc2cf8332f6cbc13f6fb93a9d1fd4299d5008d6b26170827de6dcb899"
+    },
+    "git_diff_check": "passed"
+  },
+  "resolved_during_validation": [
+    {
+      "finding": "停靠视图恢复时同时设置坐标和停靠节点，ImGui 将其解除停靠，遮挡其他窗口并改变键盘焦点。",
+      "fix": "只给浮动窗口恢复坐标和尺寸，停靠窗口保留节点；外部 Layout 往返断言停靠节点，Hierarchy F2 顺序回归重新通过。"
+    },
+    {
+      "finding": "Layout 参数确认改为绘制回调后不能立即加入原生 Edit；过早释放工作参数会使帧末确认失效。",
+      "fix": "复用 ApplyEdit 和既有帧末队列，在完成前保留参数副本；关闭时在作用域有效期间直接取消。"
+    },
+    {
+      "finding": "Layout 的参数弹窗在主窗口结束后绘制，按主窗口父子关系清理会遗漏它。",
+      "fix": "工作区记录每次绘制的顶层辅助窗口，统一结束所属输入和弹窗；补测待确认放置中关闭。"
+    },
+    {
+      "finding": "排队分支满载时，原生参数确认曾可能带着参数校验成功状态返回而未提交。",
+      "fix": "队列满时明确返回拒绝，回归验证不产生操作、原生 Edit 仍可取消。"
+    }
+  ],
+  "remaining": [
+    "阶段五其他迁移与跨视图、锁选择的剩余组合检查继续保留在覆盖清单。",
+    "完成阶段保持三；正式性能验收继续暂缓，原定门槛不变。"
+  ],
+  "performance": {
+    "status": "deferred_at_user_request",
+    "thresholds_unchanged": true,
+    "timing_benchmarks_run": false
+  }
+}

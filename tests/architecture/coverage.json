@@ -1733,15 +1733,17 @@
       "tests": [
         "VirtoolsDev.LayoutGestures",
         "VirtoolsDev.ViewProjections",
-        "VirtoolsDev.InputViewport"
+        "VirtoolsDev.InputViewport",
+        "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.layout"
+        "VirtoolsDevUi.layout",
+        "VirtoolsDevUi.modules"
       ],
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "图布局、连线、相机、三维/二维变换、Fly 和曲线输入已走统一命令；锁选择、跨视图拖拽及工具的完整视图登记仍待收尾"
+          "reason": "图布局、连线、相机、三维/二维变换、Fly 和曲线输入已走统一命令；完整 3D Layout 已登记工作区视图，保留手势取消、快照、Player/全屏、创建和资源拖放；锁选择与跨视图拖拽的剩余组合检查仍待收尾"
         }
       ]
     },
@@ -2301,10 +2303,10 @@
     },
     {
       "id": "navigation",
-      "name": "focus、EditorEvents、objectPick、SelectionFollower",
-      "owner": "Workspace 实例导航、选择和视图拾取；旧 objectPick 只剩 Layout 原生适配",
-      "lifetime": "替换为实例/作用域寻址；最后使用者迁完删除旧容器",
-      "persistence": "不保存原生引用到用户配置",
+      "name": "focus、EditorEvents、SelectionFollower 与视图拾取",
+      "owner": "Workspace 拥有实例导航、聚焦和视图拾取；查询及命令通过来源视图作用域寻址",
+      "lifetime": "实例与文档作用域；关闭先清理输入和弹窗，再取消作用域及等待操作",
+      "persistence": "标题与实例身份分离；Setup 保留角色标识，Layout 保留既有窗口标识；旧 objectPick 表已删除，不保存原生引用到用户配置",
       "features": [
         "F29"
       ]
@@ -2326,11 +2328,12 @@
       "name": "视图实例的对象引用、行选区、筛选、展开与编辑草稿",
       "owner": "对应视图或交互实例",
       "lifetime": "关闭实例、目标失效或成功替换文档；失败的文件操作保留原状态",
-      "persistence": "目标使用完整对象引用；工作区拥有 Setup 实例、绘制、窗口角色、前台选择和关闭流程，每个 Setup 保存页签、筛选、曲线点、行选区及只读图像缓存，SetupWindows 仅保留非拥有索引和共享工具缓存；切换对象或关闭窗口时取消该窗口的草稿、弹窗、文件输入和拾取；更换提供者仅在当前文档内迁移经校验的完整对象引用，失败保留原窗口，文档切换前销毁这些实例；UI 纹理按帧末流程释放",
+      "persistence": "目标使用完整对象引用；工作区拥有 Setup 实例、绘制、窗口角色、前台选择和关闭流程，每个 Setup 保存页签、筛选、曲线点、行选区及只读图像缓存，SetupWindows 仅保留非拥有索引和共享工具缓存；切换对象或关闭窗口时取消该窗口的草稿、弹窗、文件输入和拾取；更换提供者仅在当前文档内迁移经校验的完整对象引用，失败保留原窗口，文档切换前销毁这些实例；UI 纹理按帧末流程释放；完整 Layout 实例也归工作区，独立保存工具、手势输入、Explorer、Snapshot Buffer 和拖放参数副本；更换提供者只恢复与文档无关的显示设置，关闭先取消交互并恢复临时选区，随后停止呈现并按帧末流程释放纹理",
       "features": [
         "F09",
         "F10",
-        "F14"
+        "F14",
+        "F15"
       ]
     },
     {
@@ -2485,9 +2488,9 @@
     {
       "id": "viewport",
       "name": "CK 渲染 Context、interface cameras、UI-owned target 与 imported handle",
-      "owner": "LayoutView 与 UiRenderer 持有 Context/纹理；LayoutPresentation 同步 Player 和显示设置；LayoutWindow 私有实现执行模式切换",
-      "lifetime": "viewport/native generation、resize/fullscreen、安全关闭",
-      "persistence": "非文档创作对象；保留既有不保存标记",
+      "owner": "LayoutView 与 UiRenderer 持有 Context/纹理；LayoutPresentation 同步 Player 和显示设置；工作区拥有 Layout 窗口实例，LayoutWindow 私有原生适配执行模式切换",
+      "lifetime": "窗口关闭、viewport/native generation、resize/fullscreen；提供者替换候选准备完成前保留原目标，失败不停止原呈现",
+      "persistence": "非文档创作对象；保留既有不保存标记；GPU 目标按帧末流程释放，渲染与通用 readback/upload 函数保持原实现",
       "features": [
         "F16"
       ]
@@ -2774,9 +2777,9 @@
     {
       "id": "layout-behavior-drop",
       "name": "Building Block 放置与参数确认",
-      "owner": "LayoutAuthoring 持有 Edit 和完整参数引用；LayoutWindow 只持有查询版本及原生值编辑器的临时副本",
-      "lifetime": "放置到确认/取消；文档关闭先提交既有默认值并释放临时副本，文档失效清理",
-      "persistence": "放置与参数通过统一命令共同记录一步撤销；取消恢复原文档、选区与 Undo/Redo",
+      "owner": "LayoutAuthoring 持有 Edit、来源窗口作用域和完整参数引用；Layout 工作区实例只持有查询版本及原生值编辑器的临时副本",
+      "lifetime": "放置到确认/取消；来源视图关闭取消并恢复原状态；文档关闭先提交既有默认值并释放临时副本，文档失效清理",
+      "persistence": "放置与参数通过统一命令共同记录一步撤销；绘制中确认排入既有帧末队列，完成前保留临时参数；取消恢复原文档、选区与 Undo/Redo",
       "features": [
         "F08",
         "F23"
