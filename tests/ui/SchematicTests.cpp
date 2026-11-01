@@ -481,6 +481,39 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(App().State().Schematic().stackScript, App().State().document->Reference(results[0].script));
     };
 
+    t = IM_REGISTER_TEST(engine, "schematic", "projected_link_control_point_selection");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, SchematicRef().c_str());
+        const auto block = FirstBlock();
+        IM_CHECK(block.has_value());
+        int slot = -1;
+        OnMainThread(ctx, [&] {
+            auto &document = *App().State().document;
+            IM_CHECK_NO_RET(
+                vdev::EditScriptData(document, block->script, "Control point fixture", [&](InterfaceData &data) {
+                    slot = int(data.rootBehavior.links.size());
+                    Link link;
+                    link.start = LinkEndpoint(block->script, 0, ENDPOINT_START_BIN);
+                    link.end = LinkEndpoint(block->behavior, 0, ENDPOINT_BIN);
+                    link.points.push_back({300, 160});
+                    data.rootBehavior.links.push_back(link);
+                }));
+        });
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto &selection = App().Canvas().Navigation().selection;
+            selection.Set(block->script, {vdev::ElementKind::Link, block->script, 0, slot});
+            IM_CHECK_NO_RET(selection.Addresses().size() == 1 && bool(selection.Addresses().front()));
+            selection.Set(block->script, {vdev::ElementKind::ControlPoint, block->script, 0, slot, 0});
+            IM_CHECK_NO_RET(selection.Addresses().size() == 1 && bool(selection.Addresses().front()) &&
+                            selection.Addresses().front().element.kind == vdev::ElementKind::ControlPoint);
+            IM_CHECK_NO_RET(App().State().History().Undo());
+            App().Canvas().ValidateNavigation();
+            IM_CHECK_NO_RET(selection.Empty());
+        });
+    };
+
     // Ctrl+F in the Schematic: Find, the first Building Block's name, Find
     // Next: it is selected; F3 again: another element with the name, or past
     // the end (nothing selected).

@@ -15,6 +15,8 @@
 #include "core/graph/TopologyCommands.h"
 #include "ui/schematic/SchematicParameterDialog.h"
 #include "features/resources/BuildingBlockData.h"
+#include "features/schematic/SchematicModelData.h"
+#include "features/schematic/SchematicPosition.h"
 #include "ui/controls/ValueEditor.h"
 #include "core/schematic/SchematicModel.h"
 #include "ui/schematic/SchematicRenderer.h"
@@ -58,6 +60,7 @@ public:
     void DocumentClosed();
     // Rebuilds the models (values shown while the Script Debugger runs).
     void RefreshValues() {
+        ++m_ModelRefresh;
         for (auto &view : m_Views) view.revision = ~0ull;
     }
     void ShowMessageExplorer();
@@ -193,9 +196,11 @@ private:
         CK_ID id = 0;
         ObjectRef identity{};
         SchematicModel model;
+        std::map<ElementRef, ElementAddress> positions;
         std::uint64_t revision = ~0ull;
         std::uint64_t topology = ~0ull;
         std::uint64_t viewRevision = ~0ull;
+        std::uint64_t sourceVersion = 0, refresh = 0;
         float content = 0.0f; // the contents' height at the last build
         float offsetY = 0.0f;
         bool rootIsScript = true;
@@ -227,6 +232,15 @@ private:
     std::vector<CK_ID> ToolbarScripts() const;
 
     void SyncViews(ImFont *font);
+    ElementAddress CapturePosition(uint32_t, const ElementRef &);
+    bool ValidPosition(const ElementAddress &) const;
+    bool ReadModel(ScriptView &, const EditorField &, ImFont *);
+    void ApplyNavigation(const ElementAddress &, const std::vector<ObjectRef> &, bool, bool);
+    std::vector<ObjectRef> m_AllScripts, m_VisibleScripts, m_FocusParents;
+    std::vector<EditorField> m_ScriptRows;
+    uint64_t m_Topology = 0, m_ContentRevision = 0, m_ScriptsRevision = 0, m_ModelRefresh = 1;
+    bool m_SceneExcluded = false;
+
     ScriptView *ViewFor(CK_ID script);
     ScriptView *ViewAtScreen(const ImVec2 &screen);
     void UpdateTransforms();
@@ -423,6 +437,7 @@ private:
     // and their open requests. Made anew when the composition is closed
     // (DocumentClosed); a field naming an object goes here.
     struct DocumentState {
+        ElementAddress editAddress;
         CK_ID currentScript = 0; // last Script clicked or selected (Dev's dark header)
         CK_ID mouseScript = 0;
         Point mouseLocal; // last Script-local mouse position over mouseScript

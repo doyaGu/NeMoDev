@@ -1095,9 +1095,13 @@ void SchematicCanvas::OpenHtmlHelpOf(const BuildingBlockEntry &bb) {
 
 // Dev's Script header sorts (documentation): the order of the stack.
 void SchematicCanvas::SortScripts(ScriptSort sort) {
-    if (!m_State.HasDocument()) return;
-    m_Navigation.scriptOrder = m_State.document->References(vdev::SortScripts(*m_State.document, m_Navigation.visibleScripts, sort));
-    RefreshStack();
+    const auto result = Client().Query("schematic.sort-scripts", {ObjectsArgument("objects", m_VisibleScripts),
+                                                                  IntegerArgument("mode", uint64_t(sort))});
+    if (result.status == EDITOR_OK)
+        if (const auto *objects = EditorClient::Find(result, "objects")) {
+            m_Navigation.scriptOrder = objects->objects;
+            RefreshStack();
+        }
 }
 
 // ------------------------------------------------------------- dialogs
