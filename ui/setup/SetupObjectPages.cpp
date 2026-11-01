@@ -642,7 +642,7 @@ void SetupWindows::LayerPage(CKLayer *layer) {
     ImGui::BeginDisabled(!grid);
     if (ImGui::SmallButton(">") && grid) {
         m_State.events.Post(ShowObjectSetup{m_State.document->Reference(grid->GetID())});
-        m_Doc.gridLayer = layer->GetID();
+        m_Doc.gridLayer = m_State.document->Reference(layer->GetID());
     }
     ImGui::EndDisabled();
     if (grid && ImGui::IsItemHovered()) ImGui::SetTooltip("Grid Setup");

@@ -637,8 +637,8 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         bool shown = false, kept = false;
         for (const vdev::SetupWindows::OpenSetup &setup : App().Setups().OpenSetups()) {
-            shown = shown || setup.object == target;
-            kept = kept || setup.object == entity;
+            shown = shown || setup.object.object == target;
+            kept = kept || setup.object.object == entity;
         }
         IM_CHECK(shown && !kept);
         OnMainThread(ctx, [&] {

@@ -136,7 +136,7 @@ void EditorApp::RunStartupActions(bool opened) {
                         object = list[i];
             }
             if (object)
-                m_Setups.Open(object->GetID());
+                m_Setups.Open(m_State.document->Reference(object->GetID()));
             else
                 m_State.Log(LogLevel::Warning, "--setup: no object named " + AnsiToUtf8(name));
         }

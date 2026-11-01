@@ -14,6 +14,7 @@
 #include "core/level/ObjectProperties.h"
 #include "core/runtime/TextEncoding.h"
 #include "features/arrays/ArrayTable.h"
+#include "features/setup/SetupViewData.h"
 #include "ui/app/EditorState.h"
 #include "ui/controls/ParameterBox.h"
 
@@ -32,10 +33,11 @@ struct DevPage;
 
 class SetupWindows {
 public:
-    explicit SetupWindows(EditorState &state) : m_State(state) {}
+    explicit SetupWindows(EditorState &state, EditorWorkspace &workspace) : m_State(state), m_Workspace(workspace) {}
+    bool Register(std::string &error);
 
     // Opens (or brings forward) the Setup of an object.
-    void Open(CK_ID object);
+    void Open(ObjectRef object);
     // Setups opened from now on show their Attribute page (capture mode).
     bool attributesFirst = false;
     // dock: where a Setup opened for the first time docks (the Schematic's node).
@@ -45,20 +47,19 @@ public:
     // The Setups open, in their order (the 3D Layout's data saves them, Dev.exe
     // sub_4B4E50): the object, the Curve Setup's control point, the one in front.
     struct OpenSetup {
-        CK_ID object = 0, other = 0;
+        ObjectRef object{}, other{};
         bool front = false;
     };
     std::vector<OpenSetup> OpenSetups() const;
 
 private:
     friend struct SetupEditTests;
-    enum class Kind { Entity3D, Camera, Light, Entity2D, Material, Mesh, Texture, Grid, Other, Curve, Character, Sound, Array, Group, Scene, Sprite3D, Sprite2D,
-                      Animation, ObjectAnimation, MidiSound, SpriteText, KinematicChain, Layer, Parameter, ParameterIn,
-                      Operation, Behavior, BehaviorIO, BehaviorLink, Synchro, State, CriticalSection, InterfaceObjects };
+    using Kind = SetupKind;
     struct Setup {
         Kind kind = Kind::Other;
         CK_ID object = 0;
         ObjectRef reference{};
+        SetupPageData page;
         EditorView nameOwner = 0;
         EditorEdit renameEdit = 0;
         bool openRename = false;
@@ -122,7 +123,11 @@ private:
         ArrayTable array;
     };
 
-    static Kind KindOf(CKObject *object);
+    EditorClient Client(EditorView owner = 0) const;
+    void ApplyPreferences();
+    EditorStatus Show(ObjectRef target);
+    void ChangeTarget(Setup &, ObjectRef, int point = -1);
+    void Close(Setup &);
     // Dev.exe sub_4A01F0 (RealTime Notifications): the Setups show the 3D
     // entities' transforms of the last notification. Without Realtime Setup
     // Updates a 3D Layout transformation notifies when it ends; in Player
@@ -135,10 +140,12 @@ private:
     bool m_Notify = true; // this frame refreshes m_Doc.shown
     int m_PlayFrames = 0;
     const ShownTransform &Shown(CK3dEntity *entity);
-    std::string TitleOf(const Setup &setup, CKObject *object) const;
     void DrawSetup(Setup &setup, ImGuiID dock);
-    void Header(Setup &setup, CKObject *object);
-    void Sidebar(Setup &setup, CKObject *object);
+    void Header(Setup &, const SetupPageData &);
+    void Sidebar(Setup &, const SetupPageData &);
+    void Picture(Setup &);
+    void ReplaceFile(Setup &, SetupFileKind);
+    void DrawObjectPage(Setup &);
     void AttributePage(Setup &setup, CKObject *object);
     // sized: Scale and World Size (fourth: what replaces World Size, drawn
     // at Dev's x 620); details: meshes, Pickable.
@@ -305,13 +312,16 @@ private:
     // an object goes here.
     struct DocumentState {
         std::vector<Setup> setups;
-        CK_ID front = 0;                       // the object of the Setup focused last
-        std::map<CK_ID, ShownTransform> shown; // refreshed when m_Notify
-        CK_ID gridLayer = 0;   // a layer whose Grid Setup opens on it (Layer Setup)
+        ObjectRef front{};                         // the object of the Setup focused last
+        std::map<ObjectRef, ShownTransform> shown; // refreshed when m_Notify
+        ObjectRef gridLayer{};                     // a layer whose Grid Setup opens on it (Layer Setup)
         CK_ID valueScript = 0; // the Script of the parameter edited (Parameter Setups)
     };
 
     EditorState &m_State;
+    EditorWorkspace &m_Workspace;
+    Preferences m_Preferences;
+    uint64_t m_PreferencesRevision = 0;
     DocumentState m_Doc;
     // An attribute's value in Dev's Edit Parameter (its type shown).
     ParameterBox m_AttributeBox{m_State};
@@ -343,7 +353,7 @@ private:
     // The header's picker (Dev.exe sub_4436E0 20): the Setup of this object
     // takes the next object of its class clicked (Escape, a right click or
     // the picker again gives up).
-    CK_ID m_PickSetup = 0;
+    ObjectRef m_PickSetup{};
     int m_PickSetupSlot = 0;
     void SetupPick();
 };

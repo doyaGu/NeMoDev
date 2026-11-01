@@ -78,18 +78,6 @@ inline std::vector<CKObject *> ObjectsOf(const Document &document, CK_CLASSID ci
     return objects;
 }
 
-// Dev (sub_4B0010) opens the 3D Frame Setup for 3D entities flagged
-// CK_3DENTITY_FRAME (and its variants for portals and places), the 3D Object
-// Setup for the other 3D entities and 3D objects.
-inline bool IsFrame(CKObject *object) {
-    CK3dEntity *entity = CK3dEntity::Cast(object);
-    if (!entity) return false;
-    if (CKPlace::Cast(object)) return true;
-    const CK_CLASSID cid = object->GetClassID();
-    if (cid != CKCID_3DENTITY && cid != CKCID_3DOBJECT) return false;
-    return (entity->GetFlags() & (CK_3DENTITY_FRAME | CK_3DENTITY_PORTAL)) != 0;
-}
-
 inline const char *PixelFormatName(VX_PIXELFORMAT format) {
     const char *name = VxPixelFormat2String(format);
     return name && *name ? name : "Unknown";

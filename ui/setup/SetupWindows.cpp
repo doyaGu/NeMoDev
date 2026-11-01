@@ -41,227 +41,193 @@ using namespace setup;
 
 // ---------------------------------------------------------------- frame
 
-SetupWindows::Kind SetupWindows::KindOf(CKObject *object) {
-    if (!object) return Kind::Other;
-    const CK_CLASSID cid = object->GetClassID();
-    if (cid == CKCID_LEVEL || CKIsChildClassOf(cid, CKCID_SCENE)) return Kind::Scene;
-    if (CKIsChildClassOf(cid, CKCID_GRID)) return Kind::Grid;
-    if (CKIsChildClassOf(cid, CKCID_CURVE)) return Kind::Curve;
-    if (CKIsChildClassOf(cid, CKCID_CHARACTER)) return Kind::Character;
-    if (CKIsChildClassOf(cid, CKCID_SPRITE3D)) return Kind::Sprite3D;
-    if (CKIsChildClassOf(cid, CKCID_SPRITETEXT)) return Kind::SpriteText;
-    if (CKIsChildClassOf(cid, CKCID_SPRITE)) return Kind::Sprite2D;
-    if (CKIsChildClassOf(cid, CKCID_ANIMATION)) return Kind::Animation;
-    if (CKIsChildClassOf(cid, CKCID_OBJECTANIMATION)) return Kind::ObjectAnimation;
-    if (CKIsChildClassOf(cid, CKCID_MIDISOUND)) return Kind::MidiSound;
-    if (CKIsChildClassOf(cid, CKCID_CAMERA)) return Kind::Camera;
-    if (CKIsChildClassOf(cid, CKCID_LIGHT)) return Kind::Light;
-    if (CKIsChildClassOf(cid, CKCID_3DENTITY)) return Kind::Entity3D;
-    if (CKIsChildClassOf(cid, CKCID_2DENTITY)) return Kind::Entity2D;
-    if (CKIsChildClassOf(cid, CKCID_MATERIAL)) return Kind::Material;
-    if (CKIsChildClassOf(cid, CKCID_MESH)) return Kind::Mesh;
-    if (CKIsChildClassOf(cid, CKCID_TEXTURE)) return Kind::Texture;
-    if (CKIsChildClassOf(cid, CKCID_WAVESOUND)) return Kind::Sound;
-    if (CKIsChildClassOf(cid, CKCID_DATAARRAY)) return Kind::Array;
-    if (CKIsChildClassOf(cid, CKCID_GROUP)) return Kind::Group;
-    if (CKIsChildClassOf(cid, CKCID_KINEMATICCHAIN)) return Kind::KinematicChain;
-    if (CKIsChildClassOf(cid, CKCID_LAYER)) return Kind::Layer;
-    if (CKIsChildClassOf(cid, CKCID_PARAMETER)) return Kind::Parameter;
-    if (CKIsChildClassOf(cid, CKCID_PARAMETERIN)) return Kind::ParameterIn;
-    if (CKIsChildClassOf(cid, CKCID_PARAMETEROPERATION)) return Kind::Operation;
-    if (CKIsChildClassOf(cid, CKCID_BEHAVIOR)) return Kind::Behavior;
-    if (CKIsChildClassOf(cid, CKCID_BEHAVIORIO)) return Kind::BehaviorIO;
-    if (CKIsChildClassOf(cid, CKCID_BEHAVIORLINK)) return Kind::BehaviorLink;
-    if (CKIsChildClassOf(cid, CKCID_SYNCHRO)) return Kind::Synchro;
-    if (CKIsChildClassOf(cid, CKCID_STATE)) return Kind::State;
-    if (CKIsChildClassOf(cid, CKCID_CRITICALSECTION)) return Kind::CriticalSection;
-    if (CKIsChildClassOf(cid, CKCID_INTERFACEOBJECTMANAGER)) return Kind::InterfaceObjects;
-    return Kind::Other;
+EditorClient SetupWindows::Client(EditorView owner) const { return {m_Workspace.Application().Host(), owner}; }
+
+bool SetupWindows::Register(std::string &error) {
+    const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
+    const EditorCommandDesc command{sizeof(EditorCommandDesc),
+                                    EDITOR_TEXT("object.open-setup"),
+                                    EDITOR_TEXT("builtin.setup-windows"),
+                                    EDITOR_TEXT("Setup"),
+                                    &target,
+                                    1,
+                                    [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+                                        return static_cast<SetupWindows *>(data)->Show(request->values[0].object);
+                                    },
+                                    this,
+                                    EDITOR_WORKSPACE,
+                                    EDITOR_SESSION_CHANGE};
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("setup.windows");
+    module.commands = &command;
+    module.commandCount = 1;
+    return m_Workspace.Application().Register(module, error);
 }
 
-std::string SetupWindows::TitleOf(const Setup &setup, CKObject *object) const {
-    // Dev titles: "3D Object Setup", "Target Camera Setup", "Point Light Setup", ...
-    if (CKLight *light = CKLight::Cast(object)) {
-        const VXLIGHT_TYPE type = light->GetType();
-        const char *kind = type == VX_LIGHTSPOT ? "Spot" : type == VX_LIGHTDIREC ? "Directional" : "Point";
-        return std::string(CKTargetLight::Cast(object) ? "Target " : "") + kind + " Light Setup";
+void SetupWindows::ApplyPreferences() {
+    const auto revision = Client().Revision("preferences.values");
+    if (!revision || revision != m_PreferencesRevision) {
+        const auto values = Client().Query("preferences.values");
+        const auto *record = EditorClient::Find(values, "value");
+        std::string error;
+        if (values.status == EDITOR_OK && record && record->type == EDITOR_RECORD &&
+            m_Preferences.ReadValues(record->fields, error))
+            m_PreferencesRevision = Client().Revision("preferences.values");
     }
-    const CK_CLASSID cid = object ? object->GetClassID() : 0;
-    if (cid == CKCID_3DENTITY && (CK3dEntity::Cast(object)->GetFlags() & CK_3DENTITY_PORTAL)) return "Portal Setup";
-    if (IsFrame(object)) return "3D Frame Setup";
-    if (CKBehavior *behavior = CKBehavior::Cast(object))
-        return behavior->GetType() == CKBEHAVIORTYPE_SCRIPT     ? "Script Setup"
-               : behavior->GetType() == CKBEHAVIORTYPE_BEHAVIOR ? "Behavior Graph Setup"
-                                                                : "Building Block Setup";
-    if (CKParameterLocal *local = CKParameterLocal::Cast(object))
-        return local->IsMyselfParameter() ? "This Parameter Setup" : "Local Parameter Setup";
-    switch (cid) {
-    case CKCID_PLACE: return "Place Setup";
-    case CKCID_BODYPART: return "Body Part Setup";
-    case CKCID_3DOBJECT:
-    case CKCID_3DENTITY: return "3D Object Setup";
-    case CKCID_2DENTITY: return "2D Frame Setup";
-    case CKCID_TARGETCAMERA: return "Target Camera Setup";
-    case CKCID_CAMERA: return "Camera Setup";
-    case CKCID_CURVE: return "Curve Setup";
-    case CKCID_CHARACTER: return "Character Setup";
-    case CKCID_WAVESOUND: return "Sound Setup";
-    case CKCID_DATAARRAY: return "Array Setup";
-    case CKCID_GROUP: return "Group Setup";
-    case CKCID_LEVEL: return "Level Setup";
-    case CKCID_SPRITE3D: return "3D Sprite Setup";
-    case CKCID_SPRITE: return "2D Sprite Setup";
-    case CKCID_SCENE: return "Scene Setup";
-    case CKCID_SPRITETEXT: return "Sprite Text Setup";
-    case CKCID_ANIMATION: return "Animation Setup";
-    case CKCID_KEYEDANIMATION: return "Keyed Animation Setup";
-    case CKCID_OBJECTANIMATION: return "Object Animation Setup";
-    case CKCID_MIDISOUND: return "Midi Sound Setup";
-    case CKCID_KINEMATICCHAIN: return "Kinematic Chain Setup";
-    case CKCID_LAYER: return "Layer Setup";
-    case CKCID_PARAMETEROUT: return "Output Parameter Setup";
-    case CKCID_PARAMETER: return "Parameter Setup";
-    case CKCID_PARAMETERIN: return "Input Parameter Setup";
-    case CKCID_PARAMETEROPERATION: return "Parameter Operation Setup";
-    case CKCID_BEHAVIORIO: return "Behavior IO Setup";
-    case CKCID_BEHAVIORLINK: return "Behavior Link Setup";
-    case CKCID_SYNCHRO: return "Synchro Setup";
-    case CKCID_STATE: return "State Setup";
-    case CKCID_CRITICALSECTION: return "Critical Section Setup";
-    case CKCID_INTERFACEOBJECTMANAGER: return "Interface Objects Setup";
-    default: break;
-    }
-    const char *name = cid ? CKClassIDToString(cid) : nullptr;
-    (void)setup;
-    return std::string(name ? name : "Object") + " Setup";
 }
 
-void SetupWindows::Open(CK_ID id) {
-    CKObject *object = m_State.HasDocument() ? m_State.document->Context()->GetObject(id) : nullptr;
-    if (!object) return;
-    // Dev (sub_4B0010): a curve point opens the Setup of its curve, the
-    // target of a target camera or light the Setup of that camera or light.
+void SetupWindows::Open(ObjectRef target) { Client().Command("object.open-setup", {ObjectArgument("target", target)}); }
+
+EditorStatus SetupWindows::Show(ObjectRef requested) {
+    ObjectRef target{};
     int point = -1;
-    if (CKCurvePoint *curvePoint = CKCurvePoint::Cast(object))
-        if (CKCurve *curve = curvePoint->GetCurve()) {
-            for (int i = 0; i < curve->GetControlPointCount(); ++i)
-                if (curve->GetControlPoint(i) == curvePoint) point = i;
-            object = curve;
-        }
-    if (CK3dEntity *entity = CK3dEntity::Cast(object)) {
-        const CKDWORD flags = entity->GetFlags();
-        const CK_CLASSID owner = (flags & CK_3DENTITY_TARGETCAMERA) ? CKCID_TARGETCAMERA
-                                 : (flags & CK_3DENTITY_TARGETLIGHT) ? CKCID_TARGETLIGHT : 0;
-        const XObjectPointerArray &list = owner ? m_State.document->Context()->GetObjectListByType(owner, TRUE)
-                                                : XObjectPointerArray();
-        for (int i = 0; i < list.Size(); ++i) {
-            CKTargetCamera *camera = CKTargetCamera::Cast(list[i]);
-            CKTargetLight *light = CKTargetLight::Cast(list[i]);
-            if ((camera && camera->GetTarget() == entity) || (light && light->GetTarget() == entity)) {
-                object = list[i];
-                break;
-            }
-        }
-    }
-    id = object->GetID();
-    const Kind kind = KindOf(object);
-    // Dev.exe sub_4B0010: the Setup already showing the object, else (Do not
-    // open setups of the same type: Show New Setups off) the first Setup of
-    // its type shows it; otherwise a new Setup opens.
-    // Shift held (Dev: Shift+drag of a Setup's tab) opens an additional one.
-    const bool showNew = m_State.preferences.Bool("3D Layout\\Show New Setups") || ImGui::GetIO().KeyShift;
+    SetupPageData page;
+    if (!ReadSetupTarget(Client(), requested, target, point) || !ReadSetupPage(Client(), target, point, page))
+        return EDITOR_STALE;
+    ApplyPreferences();
+    const bool showNew =
+        m_Preferences.Bool("3D Layout\\Show New Setups") || (ImGui::GetCurrentContext() && ImGui::GetIO().KeyShift);
     Setup *shown = nullptr;
     int slot = 0;
     for (Setup &setup : m_Doc.setups)
-        if (setup.kind == kind) {
-            if (setup.object == id || (!showNew && !shown)) shown = &setup;
-            if (setup.object == id) break;
+        if (setup.open && setup.kind == page.kind) {
+            if (setup.reference == target || (!showNew && !shown))
+                shown = &setup;
+            if (setup.reference == target)
+                break;
             slot = std::max(slot, setup.slot + 1);
         }
     if (shown) {
-        shown->object = id;
-        shown->reference = m_State.document->Reference(id);
-        shown->open = true;
+        ChangeTarget(*shown, target, point);
         shown->focus = true;
-        if (point >= 0) shown->point = point;
-        return;
+        return EDITOR_OK;
     }
     Setup setup;
-    setup.kind = kind;
-    setup.object = id;
-    setup.reference = m_State.document->Reference(id);
+    setup.kind = page.kind;
+    setup.page = page;
+    setup.object = target.object;
+    setup.reference = target;
     setup.slot = slot;
     setup.focus = true;
     setup.attributes = attributesFirst;
     if (point >= 0) setup.point = point;
-    m_Doc.setups.push_back(setup);
+    m_Doc.setups.push_back(std::move(setup));
+    return EDITOR_OK;
+}
+
+void SetupWindows::ChangeTarget(Setup &setup, ObjectRef target, int point) {
+    if (setup.reference != target) {
+        SetupPageData page;
+        if (!ReadSetupPage(Client(), target, point, page))
+            return;
+        if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner)
+            FinishProperty(false);
+        m_Workspace.Finish(setup.renameEdit, false);
+        setup.array.Cancel(Client(setup.nameOwner));
+        if (m_PickSetup == setup.reference && m_PickSetupSlot == setup.slot)
+            m_PickSetup = {};
+        m_Doc.shown.erase(setup.reference);
+        Setup next;
+        next.kind = setup.kind;
+        next.slot = setup.slot;
+        next.nameOwner = setup.nameOwner;
+        next.attributes = setup.attributes;
+        next.sceneFilter = setup.sceneFilter;
+        next.page = std::move(page);
+        next.reference = target;
+        next.object = target.object;
+        setup = std::move(next);
+    }
+    if (point >= 0) {
+        setup.point = point;
+        ReadSetupPage(Client(), setup.reference, setup.point, setup.page);
+    }
 }
 
 std::vector<SetupWindows::OpenSetup> SetupWindows::OpenSetups() const {
     std::vector<OpenSetup> result;
-    if (!m_State.HasDocument()) return result;
-    CKContext *context = m_State.document->Context();
     for (const Setup &setup : m_Doc.setups) {
-        if (!setup.open || !m_State.document->Resolve(setup.reference)) continue;
-        OpenSetup open;
-        open.object = setup.object;
-        if (CKCurve *curve = CKCurve::Cast(context->GetObject(setup.object)))
-            if (setup.point >= 0 && setup.point < curve->GetControlPointCount())
-                if (CKCurvePoint *point = curve->GetControlPoint(setup.point)) open.other = point->GetID();
-        open.front = setup.object == m_Doc.front;
-        result.push_back(open);
+        if (!setup.open || setup.page.target != setup.reference)
+            continue;
+        result.push_back({setup.reference, setup.page.point, setup.reference == m_Doc.front});
     }
     return result;
 }
 
+void SetupWindows::Close(Setup &setup) {
+    if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner)
+        FinishProperty(false);
+    m_Workspace.Finish(setup.renameEdit, false);
+    setup.array.Cancel(Client(setup.nameOwner));
+    if (m_PickSetup == setup.reference && m_PickSetupSlot == setup.slot)
+        m_PickSetup = {};
+    m_Doc.shown.erase(setup.reference);
+    m_Workspace.CloseOwner(setup.nameOwner);
+}
+
 void SetupWindows::CloseAll() {
     CancelPending();
-    if (m_State.workspace)
-        for (auto &setup : m_Doc.setups) {
-            if (setup.kind == Kind::Array)
-                setup.array.Cancel(EditorClient(m_State.workspace->Application().Host(), setup.nameOwner));
-            m_State.workspace->CloseOwner(setup.nameOwner);
-        }
+    for (auto &setup : m_Doc.setups)
+        Close(setup);
     m_Doc = DocumentState();
+    m_PickSetup = {};
+    m_PortalPlace = {};
+    m_CurrentOwner = m_PropertyOwner = 0;
+    m_CurrentTarget = m_PropertySetup = {};
 }
 
 const SetupWindows::ShownTransform &SetupWindows::Shown(CK3dEntity *entity) {
-    auto found = m_Doc.shown.find(entity->GetID());
-    if (found == m_Doc.shown.end() || m_Notify) {
-        ShownTransform &shown = m_Doc.shown[entity->GetID()];
-        shown.world = entity->GetWorldMatrix();
-        shown.local = entity->GetLocalMatrix();
-        shown.box = entity->GetBoundingBox(FALSE);
-        return shown;
+    const auto target = m_State.document->Reference(entity->GetID());
+    auto [found, inserted] = m_Doc.shown.try_emplace(target);
+    if (inserted) {
+        found->second.world.SetIdentity();
+        found->second.local.SetIdentity();
+        found->second.box = VxBbox(VxVector(0, 0, 0), VxVector(0, 0, 0));
+    }
+    if (inserted || m_Notify) {
+        SetupTransformData data;
+        if (ReadSetupTransform(Client(), target, data)) {
+            for (int i = 0; i < 16; ++i) {
+                found->second.world[i / 4][i % 4] = data.world[i];
+                found->second.local[i / 4][i % 4] = data.local[i];
+            }
+            for (int i = 0; i < 3; ++i) {
+                found->second.box.Min[i] = data.box[i];
+                found->second.box.Max[i] = data.box[i + 3];
+            }
+        }
     }
     return found->second;
 }
 
 void SetupWindows::Draw(ImGuiID dock) {
+    if (m_Doc.setups.empty() && !m_PortalPlace && !m_PickSetup) return;
     // When the Setups take the transforms (RealTime Notifications).
-    const Preferences &prefs = m_State.preferences;
-    const bool playing = m_State.debugger && m_State.debugger->GetState() == Debugger::State::Running;
+    ApplyPreferences();
+    const Preferences &prefs = m_Preferences;
+    const auto runtime = Client().Query("runtime.state");
+    const bool playing = runtime.status == EDITOR_OK && EditorClient::Integer(runtime, "state") == 1;
     m_PlayFrames = playing ? m_PlayFrames + 1 : 0;
     if (playing)
         m_Notify = prefs.Bool("3D Layout\\Player RealTime Notifications") &&
                    m_PlayFrames % std::max(1, prefs.Int("3D Layout\\Player RealTime Notifications FrameSkip")) == 0;
     else {
-        const auto input = EditorClient(m_State.workspace->Application().Host(), 0).Query("layout.input");
+        const auto input = Client().Query("layout.input");
         const bool transforming =
             EditorClient::Integer(input, "active") &&
             (EditorClient::Integer(input, "kind") == 1 || EditorClient::Integer(input, "kind") == 2);
         m_Notify = !transforming || prefs.Bool("3D Layout\\Author RealTime Notifications");
     }
     // Layer Setup's Grid: the Grid Setup opened selects the layer.
-    if (CKLayer *layer = m_Doc.gridLayer ? Get<CKLayer>(m_State, m_Doc.gridLayer) : nullptr) {
-        CKGrid *grid = Get<CKGrid>(m_State, layer->GetOwner());
-        for (int i = 0; grid && i < grid->GetLayerCount(); ++i)
-            if (grid->GetLayerByIndex(i) == layer)
-                for (Setup &setup : m_Doc.setups)
-                    if (setup.object == grid->GetID()) setup.layer = i;
-    }
-    m_Doc.gridLayer = 0;
-    if (!m_State.HasDocument()) {
+    SetupPageData layer;
+    if (m_Doc.gridLayer && ReadSetupPage(Client(), m_Doc.gridLayer, -1, layer))
+        for (Setup &setup : m_Doc.setups)
+            if (setup.reference == layer.grid && layer.layer >= 0)
+                setup.layer = layer.layer;
+    m_Doc.gridLayer = {};
+    if (!Client().Scope().document.value) {
         CloseAll();
         return;
     }
@@ -272,13 +238,8 @@ void SetupWindows::Draw(ImGuiID dock) {
     for (Setup &setup : m_Doc.setups)
         if (setup.open) DrawSetup(setup, dock);
     for (Setup &setup : m_Doc.setups)
-        if (!setup.open) {
-            if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner)
-                FinishProperty(false);
-            if (setup.kind == Kind::Array)
-                setup.array.Cancel(EditorClient(m_State.workspace->Application().Host(), setup.nameOwner));
-            m_State.workspace->CloseOwner(setup.nameOwner);
-        }
+        if (!setup.open)
+            Close(setup);
     m_Doc.setups.erase(std::remove_if(m_Doc.setups.begin(), m_Doc.setups.end(), [](const Setup &s) { return !s.open; }),
                    m_Doc.setups.end());
     if (m_PropertyEdit && !ImGui::IsAnyItemActive() && !ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
@@ -292,59 +253,67 @@ void SetupWindows::SetupPick() {
     if (!m_PickSetup) return;
     Setup *picking = nullptr;
     for (Setup &setup : m_Doc.setups)
-        if (setup.object == m_PickSetup && setup.slot == m_PickSetupSlot) picking = &setup;
-    CKObject *object = picking ? m_State.document->Context()->GetObject(picking->object) : nullptr;
-    if (!object || ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-        m_PickSetup = 0;
+        if (setup.open && setup.reference == m_PickSetup && setup.slot == m_PickSetupSlot)
+            picking = &setup;
+    SetupPageData page;
+    if (!picking || !ReadSetupPage(Client(), picking->reference, picking->point, page) ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        m_PickSetup = {};
         return;
     }
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     ImGui::SetTooltip("Pick an entity");
     if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
-    const CK_ID picked = ObjectUnderMouse(m_State, ImGui::GetMousePos(), object->GetClassID());
-    if (!picked) return; // a click elsewhere (the picker itself) is not a pick
-    if (m_PropertyEdit && m_PropertyOwner == picking->nameOwner)
-        FinishProperty(false);
-    else
-        FlushPending();
-    picking->object = picked;
-    picking->reference = m_State.document->Reference(picked);
-    m_PickSetup = 0;
+    const auto mouse = ImGui::GetMousePos();
+    const double xy[] = {mouse.x, mouse.y};
+    EditorValue point{EDITOR_TEXT("point"), EDITOR_REAL_LIST};
+    point.reals = {xy, 2};
+    const auto result =
+        Client(picking->nameOwner).Query("parameter.object-at", {point, IntegerArgument("class", page.classId)});
+    const auto *picked = EditorClient::Find(result, "target");
+    if (result.status != EDITOR_OK || !picked || picked->type != EDITOR_OBJECT || !picked->object)
+        return;
+    ChangeTarget(*picking, picked->object);
+    m_PickSetup = {};
 }
 
 void SetupWindows::PortalPick() {
     if (!m_PortalPlace) return;
-    if (!m_State.document->Resolve(m_PortalPlace, CKCID_PLACE) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-        ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    SetupPageData page;
+    if (!ReadSetupPage(Client(), m_PortalPlace, -1, page) || page.classId != CKCID_PLACE ||
+        ImGui::IsKeyPressed(ImGuiKey_Escape) || ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
         m_PortalPlace = {};
         return;
     }
     ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     ImGui::SetTooltip("Pick a place");
     if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) return;
-    const ObjectRef place = m_PortalPlace;
+    const auto place = m_PortalPlace;
     m_PortalPlace = {};
-    const CK_ID other = ObjectUnderMouse(m_State, ImGui::GetMousePos(), CKCID_PLACE);
-    if (!other) {
+    const auto mouse = ImGui::GetMousePos();
+    const double xy[] = {mouse.x, mouse.y};
+    EditorValue point{EDITOR_TEXT("point"), EDITOR_REAL_LIST};
+    point.reals = {xy, 2};
+    const auto picked = Client().Query("parameter.object-at", {point, IntegerArgument("class", CKCID_PLACE)});
+    const auto *other = EditorClient::Find(picked, "target");
+    if (picked.status != EDITOR_OK || !other || other->type != EDITOR_OBJECT || !other->object) {
         m_State.Log(LogLevel::Info, "Automatic Portal: no place picked");
         return;
     }
     FlushPending();
-    auto &editor = m_State.workspace->Application();
-    const EditorValue values[] = {{EditorLiteral("place"), EDITOR_OBJECT, place},
-        {EditorLiteral("other"), EDITOR_OBJECT, m_State.document->Reference(other)}};
-    const auto result = editor.Execute("object.create-automatic-portal", {editor.Scope(), values, 2});
+    const auto result = Client().Command("object.create-automatic-portal",
+                                         {ObjectArgument("place", place), ObjectArgument("other", other->object)});
     if (result.status != EDITOR_QUEUED && !result.message.empty())
         m_State.Log(result.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, "Automatic Portal: " + result.message);
     for (const auto &field : result.fields) if (result.status == EDITOR_OK && field.key == "created") {
-        CKObject *portal = m_State.document->Resolve(field.object);
-        m_State.Log(LogLevel::Info, std::string("Automatic Portal: ") + AnsiToUtf8(portal && portal->GetName() ? portal->GetName() : ""));
+            const auto details = Client().Query("object.details", {ObjectArgument("target", field.object)});
+            m_State.Log(LogLevel::Info, "Automatic Portal: " + EditorClient::Text(details, "name"));
     }
 }
 
 void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
-    if (m_State.workspace) {
-        auto &app = m_State.workspace->Application();
+    {
+        auto &app = m_Workspace.Application();
         if (!setup.nameOwner)
             setup.nameOwner = app.OpenScope();
         m_CurrentOwner = setup.nameOwner;
@@ -352,11 +321,12 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
         if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner && m_PropertySetup != setup.reference)
             FinishProperty(false);
     }
-    CKObject *object = m_State.document->Resolve(setup.reference);
-    if (!object) {
+    SetupPageData page;
+    if (!ReadSetupPage(Client(), setup.reference, setup.point, page)) {
         setup.open = false;
         return;
     }
+    setup.page = page;
     static const char *const IDS[] = {"setup3d", "setupcamera", "setuplight", "setup2d", "setupmaterial",
                                       "setupmesh", "setuptexture", "setupgrid", "setupother", "setupcurve",
                                       "setupcharacter", "setupsound", "setuparray", "setupgroup", "setupscene", "setupsprite3d", "setupsprite2d",
@@ -365,7 +335,7 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
                                       "setupbehavior", "setupbehaviorio", "setupbehaviorlink", "setupsynchro", "setupstate",
                                       "setupcriticalsection", "setupinterfaceobjects"};
     // The first Setup of a type keeps the type's window (its place in the layout).
-    std::string title = TitleOf(setup, object) + "###" + IDS[static_cast<int>(setup.kind)];
+    std::string title = page.title + "###" + IDS[static_cast<int>(setup.kind)];
     if (setup.slot) title += "#" + std::to_string(setup.slot);
     if (dock) ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
     if (setup.focus) {
@@ -378,19 +348,21 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
     }
     // Documentation "Setups": closed with Delete or the tab's "Close Window".
     DevTabClose(&setup.open, "Close Window");
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) m_Doc.front = setup.object;
-    Header(setup, object);
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+        m_Doc.front = setup.reference;
+    Header(setup, page);
     if (m_PropertyEdit && m_PropertyOwner == setup.nameOwner && m_PropertySetup != setup.reference)
         FinishProperty(false);
     m_CurrentTarget = setup.reference;
-    object = m_State.document->Context()->GetObject(setup.object);
-    if (!object) {
+    if (page.target != setup.reference && !ReadSetupPage(Client(), setup.reference, setup.point, page)) {
+        setup.open = false;
         ImGui::End();
         return;
     }
+    setup.page = page;
     ImGui::PushID(static_cast<int>(setup.kind));
     const bool attributes = setup.attributes;
-    Sidebar(setup, object);
+    Sidebar(setup, page);
     if (attributes != setup.attributes && m_PropertyOwner == setup.nameOwner)
         FinishProperty(false);
     ImGui::SameLine();
@@ -399,15 +371,47 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 5));
     // Dev Group Setup has the Attribute page only.
     if (setup.kind == Kind::Group) setup.attributes = true;
-    if (setup.kind == Kind::Array && setup.attributes && m_State.workspace && setup.nameOwner)
-        setup.array.Cancel(EditorClient(m_State.workspace->Application().Host(), setup.nameOwner));
+    if (setup.kind == Kind::Array && setup.attributes && setup.nameOwner)
+        setup.array.Cancel(Client(setup.nameOwner));
+    DrawObjectPage(setup);
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+    ImGui::EndChild();
+    ImGui::PopID();
+    // An attribute from the Attribute Manager anywhere in the Setup: on its object.
+    if (page.attributeDrop) {
+        ImGuiWindow *window = ImGui::GetCurrentWindow();
+        if (ImGui::BeginDragDropTargetCustom(window->Rect(), window->ID)) {
+            if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_ATTRIBUTE_PAYLOAD)) {
+                if (payload->DataSize == sizeof(EditorAttributePayload)) {
+                    EditorAttributePayload attribute;
+                    std::memcpy(&attribute, payload->Data, sizeof(attribute));
+                    FlushPending();
+                    Client(setup.nameOwner)
+                        .Command("attribute.add", {ObjectsArgument("objects", {setup.reference}),
+                                                   IntegerArgument("type", uint64_t(attribute.type)),
+                                                   IntegerArgument("catalog", attribute.catalog),
+                                                   ObjectArgument("source", attribute.value)});
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+    }
+    ImGui::End();
+}
+
+// Class-specific pages retain their existing native editors until their own migration.
+void SetupWindows::DrawObjectPage(Setup &setup) {
+    auto *object = m_State.document->Resolve(setup.reference);
+    if (!object)
+        return;
     if (setup.attributes) {
         AttributePage(setup, object);
     } else {
         switch (setup.kind) {
         case Kind::Entity3D:
             // 3D Frame Setup for frames, portals and places, 3D Object Setup for the others.
-            if (IsFrame(object)) {
+            if (setup.page.frame) {
                 FramePage(CK3dEntity::Cast(object));
             } else {
                 Entity3DPage(CK3dEntity::Cast(object), true, true, nullptr, &setup);
@@ -446,28 +450,10 @@ void SetupWindows::DrawSetup(Setup &setup, ImGuiID dock) {
         default: OtherPage(object); break;
         }
     }
-    ImGui::PopStyleVar();
-    ImGui::PopStyleColor();
-    ImGui::EndChild();
-    ImGui::PopID();
-    // An attribute from the Attribute Manager anywhere in the Setup: on its object.
-    if (CKBeObject::Cast(object) && !CKBehavior::Cast(object)) {
-        ImGuiWindow *window = ImGui::GetCurrentWindow();
-        if (ImGui::BeginDragDropTargetCustom(window->Rect(), window->ID)) {
-            if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_ATTRIBUTE_PAYLOAD)) {
-                EditorAttributePayload attribute;
-                std::memcpy(&attribute, payload->Data, sizeof(attribute));
-                FlushPending();
-                m_State.DropAttributeOn({setup.object}, attribute);
-            }
-            ImGui::EndDragDropTarget();
-        }
-    }
-    ImGui::End();
 }
 
 // Dev's dark strip: the Name list of the objects of the same class.
-void SetupWindows::Header(Setup &setup, CKObject *object) {
+void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
     const ImVec2 stripMin = ImGui::GetCursorScreenPos();
     const float stripHeight = ImGui::GetFrameHeight() + 6.0f;
     ImGui::GetWindowDrawList()->AddRectFilled(
@@ -477,23 +463,18 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
     // the Level / Current Scene filter (pressed: the current scene) before
     // the Name combo.
     const float s = ImGui::GetFontSize() / 13.0f;
-    CKContext *context = m_State.document->Context();
     static const int PICKER[5] = {719, 721, 720, 720, 719};
     static const int FILTER[5] = {1355, 1356, 1357, 1354, 1357};
-    const bool picking = m_PickSetup == setup.object && m_PickSetupSlot == setup.slot;
+    const bool picking = m_PickSetup == setup.reference && m_PickSetupSlot == setup.slot;
     if (DevBitmapButton("picker", ImVec2(stripMin.x + 40.0f * s, stripMin.y + 1.0f), PICKER, picking, true, s,
                         "Pick an entity of the same type")) {
-        m_PickSetup = picking ? 0 : setup.object;
+        m_PickSetup = picking ? ObjectRef{} : setup.reference;
         m_PickSetupSlot = setup.slot;
     }
-    CKLevel *level = context->GetCurrentLevel();
-    CKScene *current = context->GetCurrentScene();
-    CKSceneObject *sceneObject = CKSceneObject::Cast(object);
-    const bool scoped = sceneObject && level && !CKScene::Cast(object) && !CKPlace::Cast(object) && !CKLevel::Cast(object);
     if (DevBitmapButton("scenefilter", ImVec2(stripMin.x + 62.0f * s, stripMin.y + 1.0f), FILTER, setup.sceneFilter, true,
                         s, "Toggle Level/Current Scene Filter")) {
         setup.sceneFilter = !setup.sceneFilter;
-        if (setup.sceneFilter && scoped && current && !sceneObject->IsInScene(current)) {
+        if (setup.sceneFilter && page.sceneScoped && page.currentScene && !page.inCurrentScene) {
             setup.sceneFilter = false;
             m_State.Log(LogLevel::Warning, "Object not in current scene !");
         }
@@ -502,26 +483,21 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
     ImGui::TextUnformatted("Name");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(200.0f);
-    if (ImGui::BeginCombo("##name", NameOf(object).c_str())) {
-        // The objects of the scene the filter gives (the level scene when
-        // the object is not in the current one), Dev.exe sub_44DD30.
-        CKScene *scene = level ? level->GetLevelScene() : nullptr;
-        if (scoped && setup.sceneFilter && current && sceneObject->IsInScene(current)) scene = current;
-        TypeAhead typeAhead;
-        for (CKObject *other : ObjectsOf(*m_State.document, object->GetClassID(), false)) {
-            CKSceneObject *candidate = CKSceneObject::Cast(other);
-            if (scoped && scene && other != object && candidate && !candidate->IsInScene(scene)) continue;
-            if (typeAhead.Selectable(NameOf(other).c_str(), other == object)) {
-                setup.object = other->GetID();
-                setup.reference = m_State.document->Reference(setup.object);
-            }
+    if (ImGui::BeginCombo("##name", page.name.c_str())) {
+        std::vector<SetupObjectRow> rows;
+        if (ReadSetupObjects(Client(setup.nameOwner), setup.reference, setup.sceneFilter, rows)) {
+            TypeAhead typeAhead;
+            for (const auto &row : rows)
+                if (typeAhead.Selectable(row.name.c_str(), row.object == setup.reference))
+                    ChangeTarget(setup, row.object);
         }
         ImGui::EndCombo();
     }
     // F2: the object renamed (the setup's window focused).
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
-        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && m_State.workspace->Shortcut("object.name")) {
-        setup.openRename = m_State.workspace->Begin("object.name", setup.reference, setup.renameEdit, setup.nameOwner);
+        !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) &&
+        m_Workspace.Shortcut("object.name")) {
+        setup.openRename = m_Workspace.Begin("object.name", setup.reference, setup.renameEdit, setup.nameOwner);
     }
     if (setup.openRename) {
         setup.openRename = false;
@@ -529,98 +505,101 @@ void SetupWindows::Header(Setup &setup, CKObject *object) {
     }
     if (ImGui::BeginPopupModal("Rename###setuprename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::SetNextItemWidth(260);
-        const bool entered = m_State.workspace->DrawInput(setup.renameEdit, "##name", ImGui::IsWindowAppearing());
+        const bool entered = m_Workspace.DrawInput(setup.renameEdit, "##name", ImGui::IsWindowAppearing());
         if (ImGui::Button("OK", ImVec2(80, 0)) || entered) {
             FlushPending();
-            if (m_State.workspace->Finish(setup.renameEdit, true)) ImGui::CloseCurrentPopup();
+            if (m_Workspace.Finish(setup.renameEdit, true))
+                ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !setup.renameEdit) {
-            m_State.workspace->Finish(setup.renameEdit, false);
+            m_Workspace.Finish(setup.renameEdit, false);
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
     }
-    // The file (documentation: "The object can be replaced by clicking on
-    // the folder"): the slot's image, the sound's file.
-    if (CKTexture *texture = CKTexture::Cast(object)) {
+    if (page.fileKind != SetupFileKind::None) {
         ImGui::SameLine();
         ImGui::TextUnformatted("   Filename");
         ImGui::SameLine();
-        const char *file = texture->GetSlotFileName(texture->GetCurrentSlot());
-        ImGui::TextUnformatted(file && *file ? AnsiToUtf8(file).c_str() : "-");
+        ImGui::TextUnformatted(page.filename.empty() ? "-" : page.filename.c_str());
         ImGui::SameLine();
-        if (ImGui::SmallButton("...##texturefile")) RunSlotCommand(setup, texture, SlotCommand::Replace);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replace the slot's image");
-    }
-    // A 2D sprite's image file, as a texture's (documentation "Setups":
-    // "Textures, Sprite or Sounds").
-    CKSprite *sprite = CKSpriteText::Cast(object) ? nullptr : CKSprite::Cast(object);
-    if (sprite) {
-        ImGui::SameLine();
-        ImGui::TextUnformatted("   Filename");
-        ImGui::SameLine();
-        const char *file = sprite->GetSlotFileName(sprite->GetCurrentSlot());
-        ImGui::TextUnformatted(file && *file ? AnsiToUtf8(file).c_str() : "-");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("...##spritefile")) RunSlotCommand(setup, sprite, SlotCommand::Replace);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replace the slot's image");
-    }
-    if (CKWaveSound *sound = CKWaveSound::Cast(object)) {
-        ImGui::SameLine();
-        ImGui::TextUnformatted("   Filename");
-        ImGui::SameLine();
-        const char *file = sound->GetSoundFileName();
-        ImGui::TextUnformatted(file && *file ? AnsiToUtf8(file).c_str() : "-");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("...##soundfile")) {
-            FileDialogOptions options;
-            options.filter = L"Wave files (*.wav)\0*.wav\0All files (*.*)\0*.*\0";
-            FlushPending();
-            m_State.RequestFile(
-                options, [this, target = setup.reference, owner = setup.nameOwner](const FileDialogResult &result) {
-                    if (result.status != FileDialogResult::Status::Selected)
-                        return;
-                    const std::string chosen = result.paths.front();
-                    SetProperty(target, owner, "sound.file", EditorField{"value", EDITOR_TEXT_VALUE, {}, chosen});
-                });
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replace the sound's file");
-    }
-    if (CKMidiSound *midi = CKMidiSound::Cast(object)) {
-        ImGui::SameLine();
-        ImGui::TextUnformatted("   Filename");
-        ImGui::SameLine();
-        const char *file = midi->GetSoundFileName();
-        ImGui::TextUnformatted(file && *file ? AnsiToUtf8(file).c_str() : "-");
-        ImGui::SameLine();
-        if (ImGui::SmallButton("...##midifile")) {
-            FileDialogOptions options;
-            options.filter = L"MIDI files (*.mid)\0*.mid;*.midi\0All files (*.*)\0*.*\0";
-            FlushPending();
-            m_State.RequestFile(
-                options, [this, target = setup.reference, owner = setup.nameOwner](const FileDialogResult &result) {
-                    if (result.status != FileDialogResult::Status::Selected)
-                        return;
-                    const std::string chosen = result.paths.front();
-                    SetProperty(target, owner, "sound.file", EditorField{"value", EDITOR_TEXT_VALUE, {}, chosen});
-                });
-        }
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Replace the MIDI file");
+        const char *id = page.fileKind == SetupFileKind::Texture  ? "...##texturefile"
+                         : page.fileKind == SetupFileKind::Sprite ? "...##spritefile"
+                         : page.fileKind == SetupFileKind::Wave   ? "...##soundfile"
+                                                                  : "...##midifile";
+        if (ImGui::SmallButton(id))
+            ReplaceFile(setup, page.fileKind);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(page.fileKind == SetupFileKind::Wave   ? "Replace the sound's file"
+                              : page.fileKind == SetupFileKind::Midi ? "Replace the MIDI file"
+                                                                     : "Replace the slot's image");
     }
     PopDarkChrome();
     ImGui::SetCursorScreenPos(ImVec2(stripMin.x, stripMin.y + stripHeight + 2.0f));
 }
 
 // Dev's left column: the object's picture, Parameter / Attribute, initial conditions.
-void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
+void SetupWindows::Sidebar(Setup &setup, const SetupPageData &page) {
     ImGui::BeginChild("sidebar", ImVec2(104, 0), ImGuiChildFlags_None);
+    Picture(setup);
+    // Animations are scene objects, not behavioral objects: no attributes.
+    const bool behavioral = page.behavioral;
+    if (!behavioral)
+        setup.attributes = false;
+    if (setup.kind != Kind::Group && behavioral && ImGui::Button("Parameter", ImVec2(92, 0)))
+        setup.attributes = false;
+    if (behavioral && ImGui::Button("Attribute", ImVec2(92, 0)))
+        setup.attributes = true;
+    ImGui::Dummy(ImVec2(1, 18));
+    auto ic = [&](const char *label, uint64_t mode, bool enabled) {
+        ImGui::BeginDisabled(!enabled);
+        if (ImGui::Button(label, ImVec2(92, 0))) {
+            FlushPending();
+            Client(setup.nameOwner)
+                .Command("scene.initial-conditions",
+                         {ObjectsArgument("objects", {setup.reference}), IntegerArgument("mode", mode)});
+        }
+        ImGui::EndDisabled();
+    };
+    // Dev's Scene and Place Setups have no initial conditions buttons, nor
+    // the pages of the objects that are not in scenes.
+    if (!page.initialVisible) {
+        ImGui::EndChild();
+        return;
+    }
+    ic("Set IC", 0, page.initialHere);
+    ic("Remove IC", 2, page.initialValue);
+    ic("Restore IC", 1, page.initialValue);
+    ImGui::EndChild();
+}
+
+void SetupWindows::ReplaceFile(Setup &setup, SetupFileKind kind) {
+    auto *object = m_State.document->Resolve(setup.reference);
+    if (!object)
+        return;
+    if (kind == SetupFileKind::Texture || kind == SetupFileKind::Sprite) {
+        RunSlotCommand(setup, object, SlotCommand::Replace);
+        return;
+    }
+    FileDialogOptions options;
+    options.filter = kind == SetupFileKind::Wave ? L"Wave files (*.wav)\0*.wav\0All files (*.*)\0*.*\0"
+                                                 : L"MIDI files (*.mid)\0*.mid;*.midi\0All files (*.*)\0*.*\0";
+    FlushPending();
+    m_State.RequestFile(options, [this, target = setup.reference,
+                                  owner = setup.nameOwner](const FileDialogResult &result) {
+        if (result.status == FileDialogResult::Status::Selected && !result.paths.empty())
+            SetProperty(target, owner, "sound.file", EditorField{"value", EDITOR_TEXT_VALUE, {}, result.paths.front()});
+    });
+}
+
+void SetupWindows::Picture(Setup &setup) {
     const ImVec2 at = ImGui::GetCursorScreenPos();
     ImDrawList *dl = ImGui::GetWindowDrawList();
     // The picture (52 x 40, Dev.exe sub_441860 / sub_44CF90), else resvis.dll's
     // place for it (bitmap 835).
     const ImVec2 picture(at.x + 23, at.y + 12), pictureMax(picture.x + 52, picture.y + 40);
-    auto found = m_State.document->Pictures().find(object->GetID());
+    auto found = m_State.document->Pictures().find(setup.object);
     ImTextureID texture = found != m_State.document->Pictures().end()
         ? SnapshotTexture(found->second.get(), nullptr, found->second) : DevBitmap(835);
     if (texture) dl->AddImage(texture, picture, pictureMax);
@@ -633,16 +612,19 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
             FileDialogOptions options;
             options.filter = L"Images (*.bmp;*.tga;*.jpg;*.png)\0*.bmp;*.tga;*.jpg;*.jpeg;*.png\0All files (*.*)\0*.*\0";
             FlushPending();
-            m_State.RequestFile(options, [this, id = object->GetID()](const FileDialogResult &result) {
-                if (result.status != FileDialogResult::Status::Selected || m_State.document->IsDiscarded(id)) return;
+            m_State.RequestFile(options, [this, target = setup.reference](const FileDialogResult &result) {
+                if (result.status != FileDialogResult::Status::Selected || result.paths.empty() || !m_State.document ||
+                    !m_State.document->Resolve(target))
+                    return;
                 const std::string &path = result.paths.front();
                 if (void *bitmap = CKLoadBitmap(const_cast<CKSTRING>(std::filesystem::u8path(path).string().c_str())))
-                    SetObjectPicture(*m_State.document, id, bitmap);
-                else m_State.Log(LogLevel::Warning, "Load Snapshot: cannot read " + path);
+                    SetObjectPicture(*m_State.document, target.object, bitmap);
+                else
+                    m_State.Log(LogLevel::Warning, "Load Snapshot: cannot read " + path);
             });
         }
         if (found != m_State.document->Pictures().end() && ImGui::MenuItem("Remove Snapshot"))
-            SetObjectPicture(*m_State.document, object->GetID(), nullptr);
+            SetObjectPicture(*m_State.document, setup.object, nullptr);
         ImGui::EndPopup();
     }
     // A Snapshot Buffer image dropped here is the object's picture (sub_448680, "Bitmap").
@@ -651,42 +633,11 @@ void SetupWindows::Sidebar(Setup &setup, CKObject *object) {
             if (payload->DataSize == sizeof(SnapshotDrag)) {
                 SnapshotDrag drag;
                 std::memcpy(&drag, payload->Data, sizeof(drag));
-                ApplySnapshot(EditorClient(m_State.workspace->Application().Host(), 0), drag,
-                              m_State.document->Reference(object->GetID()), false);
+                ApplySnapshot(EditorClient(m_State.workspace->Application().Host(), 0), drag, setup.reference, false);
             }
         }
         ImGui::EndDragDropTarget();
     }
-    // Animations are scene objects, not behavioral objects: no attributes.
-    const bool behavioral = CKBeObject::Cast(object) != nullptr;
-    if (!behavioral) setup.attributes = false;
-    if (setup.kind != Kind::Group && behavioral && ImGui::Button("Parameter", ImVec2(92, 0))) setup.attributes = false;
-    if (behavioral && ImGui::Button("Attribute", ImVec2(92, 0))) setup.attributes = true;
-    ImGui::Dummy(ImVec2(1, 18));
-    CKContext *context = m_State.document->Context();
-    CKScene *scene = InitialConditionsScene(context);
-    CKSceneObject *sceneObject = CKSceneObject::Cast(object);
-    const bool here = scene && sceneObject && scene->IsObjectHere(sceneObject);
-    const bool initial = here && scene->GetObjectInitialValue(sceneObject);
-    auto ic = [&](const char *label, InitialConditions what, bool enabled) {
-        ImGui::BeginDisabled(!enabled);
-        if (ImGui::Button(label, ImVec2(92, 0))) {
-            const EditResult result = ApplyInitialConditions(*m_State.document, {object->GetID()}, what);
-            m_State.Log(result.ok ? LogLevel::Info : LogLevel::Warning,
-                        std::string(label) + (result.ok ? "" : ": " + AnsiToUtf8(result.message)));
-        }
-        ImGui::EndDisabled();
-    };
-    // Dev's Scene and Place Setups have no initial conditions buttons, nor
-    // the pages of the objects that are not in scenes.
-    if (setup.kind == Kind::Scene || CKPlace::Cast(object) || !CKSceneObject::Cast(object)) {
-        ImGui::EndChild();
-        return;
-    }
-    ic("Set IC", InitialConditions::Set, here);
-    ic("Remove IC", InitialConditions::Remove, initial);
-    ic("Restore IC", InitialConditions::Restore, initial);
-    ImGui::EndChild();
 }
 
 // ---------------------------------------------------------------- edits

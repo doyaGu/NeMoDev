@@ -176,7 +176,8 @@ bool SelectEntity(ImGuiTestContext *ctx, InView &found) {
 
 bool ShowsObject(CK_ID object) {
     for (const vdev::SetupWindows::OpenSetup &setup : App().Setups().OpenSetups())
-        if (setup.object == object) return true;
+        if (setup.object.object == object)
+            return true;
     return false;
 }
 

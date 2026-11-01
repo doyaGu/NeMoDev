@@ -155,10 +155,11 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !RegisterPreferencesView(m_Editor, error) || !m_Outputs.Register(error) ||
         !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
         !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
-        !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
-        !m_SchematicGraph.Register(m_Editor, error) || !RegisterSchematicDiagnosticViews(m_Editor, error) ||
-        !RegisterArrayValueEditors(m_Editor, error) || !RegisterObjectViews(m_Editor, error) ||
-        !m_SceneCommands.Register(error) || !m_LayoutCommands.Register(error) || !m_LayoutAuthoring.Register(error) ||
+        !m_SetupCommands.Register(m_Editor, error) || !m_Setups.Register(error) ||
+        !m_SchematicCommands.Register(m_Editor, error) || !m_SchematicGraph.Register(m_Editor, error) ||
+        !RegisterSchematicDiagnosticViews(m_Editor, error) || !RegisterArrayValueEditors(m_Editor, error) ||
+        !RegisterObjectViews(m_Editor, error) || !m_SceneCommands.Register(error) ||
+        !m_LayoutCommands.Register(error) || !m_LayoutAuthoring.Register(error) ||
         !m_LayoutPresentation.Register(error) || !m_Snapshots.Register(error) ||
         !RegisterSnapshotInputs(m_Editor, window, error) || !RegisterSceneViews(m_Editor, error) ||
         !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) ||
@@ -578,10 +579,11 @@ void EditorApp::ReopenSetups(const LayoutInterfaceData &data) {
         CKGUID guid;
         if (!object || !LayoutSetupGuid(object, guid)) continue;
         const CK_ID shown = CKCurve::Cast(object) && CKCurvePoint::Cast(context->GetObject(setup.other)) ? setup.other : setup.object;
-        m_Setups.Open(shown);
+        m_Setups.Open(m_State.document->Reference(shown));
         if (setup.values[2]) front = shown;
     }
-    if (front) m_Setups.Open(front);
+    if (front)
+        m_Setups.Open(m_State.document->Reference(front));
 }
 
 // The 3D Layout's data with the Setups open (sub_4B4E50: the GUID, the
@@ -594,9 +596,11 @@ LayoutInterfaceData EditorApp::LayoutDataToSave() const {
     int order = 2;
     for (const SetupWindows::OpenSetup &open : m_Setups.OpenSetups()) {
         LayoutInterfaceData::Setup setup;
-        if (!LayoutSetupGuid(context->GetObject(open.object), setup.guid)) continue;
-        setup.object = open.object;
-        setup.other = open.other;
+        const auto id = m_State.document->NativeId(open.object);
+        if (!LayoutSetupGuid(context->GetObject(id), setup.guid))
+            continue;
+        setup.object = id;
+        setup.other = m_State.document->NativeId(open.other);
         setup.values[0] = 2; // the docked state Dev's files hold most
         setup.values[1] = order++;
         setup.values[2] = open.front ? 1 : 0;
@@ -896,7 +900,7 @@ void EditorApp::DispatchEvents() {
             else m_Schematics.Show(show->address, show->focusBehavior, true, show->view);
         } else if (const ShowObjectSetup *setup = std::get_if<ShowObjectSetup>(&event)) {
             if (m_State.HasDocument())
-                if (const auto id = m_State.document->NativeId(setup->object)) m_Setups.Open(id);
+                m_Setups.Open(setup->object);
         } else if (const ShowInLevelManager *row = std::get_if<ShowInLevelManager>(&event)) {
             if (m_State.HasDocument())
                 if (const auto id = m_State.document->NativeId(row->object)) {
@@ -1109,22 +1113,29 @@ bool EditorApp::RegisterSceneNavigation(std::string &error){
     const EditorParameter show[]={target,{EDITOR_TEXT("focus"),EDITOR_INTEGER_VALUE,1}};
     const EditorParameter expand{EDITOR_TEXT("expand"),EDITOR_INTEGER_VALUE};
     EditorCommandDesc commands[]={
-        {sizeof(EditorCommandDesc),EDITOR_TEXT("object.open-setup"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Setup"),&target,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.show-object"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Show in Level Manager"),&target,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("script.show"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Show Script"),show,2,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("script.refresh"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Refresh Scripts"),nullptr,0,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc),EDITOR_TEXT("scene.expand-level"),EDITOR_TEXT("builtin.navigation"),EDITOR_TEXT("Expand Level Manager"),&expand,1,nullptr,this,EDITOR_DOCUMENT,EDITOR_SESSION_CHANGE}};
-    commands[0].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
-        auto &app=*static_cast<EditorApp*>(data);const auto id=app.m_State.document->NativeId(request->values[0].object);if(!id)return EDITOR_STALE;app.m_Setups.Open(id);return EDITOR_OK;};
-    commands[1].run=[](void*data,const EditorHost*host,const EditorRequest*request,EditorSink sink){
-        auto &app=*static_cast<EditorApp*>(data);return host->navigateView(host->data,EditorString EDITOR_TEXT("scene.level"),app.OpenSceneView("level"),request,sink);};
-    commands[2].run=[](void*data,const EditorHost*,const EditorRequest*request,EditorSink){
-        auto &app=*static_cast<EditorApp*>(data);const auto id=app.m_State.document->NativeId(request->values[0].object);if(!id)return EDITOR_STALE;
+    commands[0].run = [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+        auto &app=*static_cast<EditorApp*>(data);
+        return host->navigateView(host->data, EditorString EDITOR_TEXT("scene.level"), app.OpenSceneView("level"),
+                                  request, sink);
+    };
+    commands[1].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+        auto &app=*static_cast<EditorApp*>(data);
+        const auto id = app.m_State.document->NativeId(request->values[0].object);
+        if (!id)
+            return EDITOR_STALE;
         const bool focus=request->values[1].integer!=0;
         const auto view=app.m_Schematics.Find(request->scope.view)?request->scope.view:app.m_Schematics.CurrentId();
-        return app.m_Schematics.Show(ElementAddress::Capture(*app.m_State.document,id,Selection::HeaderOf(id)),{},focus,view);};
-    commands[3].run=[](void*data,const EditorHost*,const EditorRequest*,EditorSink){static_cast<EditorApp*>(data)->m_Panels.RefreshStack();return EDITOR_OK;};
-    commands[4].run = [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+        return app.m_Schematics.Show(ElementAddress::Capture(*app.m_State.document,id,Selection::HeaderOf(id)),{},focus,view);
+    };
+    commands[2].run = [](void *data, const EditorHost *, const EditorRequest *, EditorSink) {
+        static_cast<EditorApp *>(data)->m_Panels.RefreshStack();
+        return EDITOR_OK;
+    };
+    commands[3].run = [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
         auto &app = *static_cast<EditorApp *>(data);
         return host->navigateView(host->data, EditorString EDITOR_TEXT("scene.level"), app.OpenSceneView("level"),
                                   request, sink);
