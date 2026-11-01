@@ -4,6 +4,7 @@
 #include "features/schematic/SchematicConnections.h"
 #include "features/schematic/SchematicCopying.h"
 #include "features/schematic/SchematicAuthoring.h"
+#include "features/schematic/SchematicParameterEdits.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
 #include "core/document/LinkValidation.h"
@@ -49,12 +50,13 @@ struct SchematicGraphCommands::Data {
     SchematicConnections connections;
     SchematicCopying copying;
     SchematicAuthoring authoring;
+    SchematicParameterEdits parameters;
     DocumentToken document{};
     std::vector<InvalidLink> invalid;
     uint64_t revision = 1;
     Data(std::function<Document *()> current, std::function<bool()> testTypes, Clipboard &clipboard)
         : current(current), testTypes(std::move(testTypes)), geometry(current), connections(current),
-          copying(current, clipboard), authoring(std::move(current)) {}
+          copying(current, clipboard), authoring(current), parameters(std::move(current)) {}
     Document *DocumentOf(const EditorRequest &request) {
         auto *doc = current();
         if (!doc || !doc->IsOpen() || doc->Token() != request.scope.document) return nullptr;
@@ -452,6 +454,8 @@ const std::vector<ProviderChoice> &SchematicGraphCommands::DefaultProviders() {
             {"command", "schematic.edit-geometry", "builtin.schematic-geometry"}};
         const auto &authoring = SchematicAuthoring::DefaultProviders();
         choices.insert(choices.end(), authoring.begin(), authoring.end());
+        const auto &parameters = SchematicParameterEdits::DefaultProviders();
+        choices.insert(choices.end(), parameters.begin(), parameters.end());
         return choices;
     }();
     return choices;
@@ -552,6 +556,6 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
     module.commandCount = 9;
     return editor.Register(module, error) && m_Data->geometry.Register(editor, error) &&
            m_Data->connections.Register(editor, error) && m_Data->copying.Register(editor, error) &&
-           m_Data->authoring.Register(editor, error);
+           m_Data->authoring.Register(editor, error) && m_Data->parameters.Register(editor, error);
 }
 } // namespace vdev
