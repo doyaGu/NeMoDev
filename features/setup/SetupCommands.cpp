@@ -1,4 +1,5 @@
 #include "features/setup/SetupCommands.h"
+#include "features/setup/SetupQueries.h"
 #include "features/setup/SetupViewData.h"
 #include "core/level/SceneCommands.h"
 #include <algorithm>
@@ -1236,7 +1237,8 @@ const std::vector<ProviderChoice> &SetupCommands::DefaultProviders() {
             result.push_back({"command", entry->id + "-set", "builtin.setup"});
             result.push_back({"query", entry->id + "-value", "builtin.setup"});
         }
-        for (const auto *id : {"setup.target", "setup.page", "setup.objects", "setup.transform"})
+        for (const auto *id : {"setup.target", "setup.page", "setup.objects", "setup.transform", "setup.details",
+                               "setup.choices", "setup.properties"})
             result.push_back({"query", id, "builtin.setup"});
         return result;
     }();
@@ -1315,6 +1317,7 @@ bool SetupCommands::Register(EditorApplication &app, std::string &error) {
                        2, Data::SetupObjects, &data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, objectFields, 2});
     queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("setup.transform"), EDITOR_TEXT("builtin.setup"), &target,
                        1, Data::Transform, &data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, transformFields, 3});
+    AppendSetupPageQueries(queries, &data.current);
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;

@@ -120,4 +120,106 @@ bool ReadSetupTransform(const EditorClient &client, ObjectRef target, SetupTrans
     data = next;
     return true;
 }
+const EditorField *SetupFields::Find(const char *key) const {
+    if (m_Fields)
+        for (const auto &field : *m_Fields)
+            if (field.key == key)
+                return &field;
+    return nullptr;
+}
+int64_t SetupFields::Integer(const char *key) const {
+    const auto *field = Find(key);
+    return field && field->type == EDITOR_INTEGER_VALUE ? int64_t(field->integer) : 0;
+}
+double SetupFields::Real(const char *key) const {
+    const auto *field = Find(key);
+    return field && field->type == EDITOR_REAL_VALUE ? field->real : 0;
+}
+std::string SetupFields::Text(const char *key) const {
+    const auto *field = Find(key);
+    return field && field->type == EDITOR_TEXT_VALUE ? field->text : std::string();
+}
+ObjectRef SetupFields::Object(const char *key) const {
+    const auto *field = Find(key);
+    return field && field->type == EDITOR_OBJECT ? field->object : ObjectRef{};
+}
+#define VDEV_SETUP_FIELD_LIST(Method, Type, Kind, Member)                                                              \
+    const std::vector<Type> &SetupFields::Method(const char *key) const {                                              \
+        static const std::vector<Type> empty;                                                                          \
+        const auto *field = Find(key);                                                                                 \
+        return field && field->type == Kind ? field->Member : empty;                                                   \
+    }
+VDEV_SETUP_FIELD_LIST(Objects, ObjectRef, EDITOR_OBJECT_LIST, objects)
+VDEV_SETUP_FIELD_LIST(Integers, uint64_t, EDITOR_INTEGER_LIST, integers)
+VDEV_SETUP_FIELD_LIST(Reals, double, EDITOR_REAL_LIST, reals)
+VDEV_SETUP_FIELD_LIST(Texts, std::string, EDITOR_TEXT_LIST, texts)
+VDEV_SETUP_FIELD_LIST(Rows, EditorField, EDITOR_RECORD, fields)
+#undef VDEV_SETUP_FIELD_LIST
+
+bool ReadSetupDetails(const EditorClient &client, ObjectRef target, const char *section, SetupDetails &data,
+                      const std::vector<uint64_t> &indices) {
+    const EditorValue index{
+        EDITOR_TEXT("indices"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {indices.data(), uint32_t(indices.size())}};
+    const auto result =
+        client.Query("setup.details", {ObjectArgument("target", target),
+                                       {EDITOR_TEXT("section"), EDITOR_TEXT_VALUE, {}, EditorLiteral(section)},
+                                       index});
+    const auto *record = Field(result, "details", EDITOR_RECORD);
+    const auto *revision = Field(result, "document-revision", EDITOR_INTEGER_VALUE);
+    ObjectRef echoed{};
+    if (result.status != EDITOR_OK || !record || !revision ||
+        !Object(result, "target", client.Scope().document, echoed) || echoed != target)
+        return false;
+    SetupDetails next;
+    next.target = target;
+    next.documentRevision = revision->integer;
+    next.fields = record->fields;
+    data = std::move(next);
+    return true;
+}
+
+bool ReadSetupProperties(const EditorClient &client, ObjectRef target, const std::vector<const char *> &properties,
+                         SetupDetails &data, const std::vector<uint64_t> &indices) {
+    std::vector<EditorString> names;
+    for (auto *name : properties)
+        names.push_back(EditorLiteral(name));
+    EditorValue requested{EDITOR_TEXT("properties"), EDITOR_TEXT_LIST};
+    requested.texts = {names.data(), uint32_t(names.size())};
+    const EditorValue index{
+        EDITOR_TEXT("indices"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {indices.data(), uint32_t(indices.size())}};
+    const auto result = client.Query("setup.properties", {ObjectArgument("target", target), requested, index});
+    const auto *values = Field(result, "values", EDITOR_RECORD);
+    if (result.status != EDITOR_OK || !values || values->fields.size() != properties.size())
+        return false;
+    for (auto *name : properties)
+        if (!SetupFields(values->fields).Find(name))
+            return false;
+    SetupDetails next;
+    next.target = target;
+    next.fields = values->fields;
+    data = std::move(next);
+    return true;
+}
+
+bool ReadSetupChoices(const EditorClient &client, uint32_t classId, std::vector<SetupObjectRow> &rows) {
+    const auto result = client.Query("setup.choices", {IntegerArgument("class", classId)});
+    const auto *objects = Field(result, "objects", EDITOR_OBJECT_LIST),
+               *names = Field(result, "names", EDITOR_TEXT_LIST),
+               *classes = Field(result, "classes", EDITOR_INTEGER_LIST);
+    if (result.status != EDITOR_OK || !objects || !names || !classes ||
+        objects->objects.size() != names->texts.size() || objects->objects.size() != classes->integers.size())
+        return false;
+    std::vector<SetupObjectRow> next;
+    std::set<ObjectRef> seen;
+    for (size_t i = 0; i < objects->objects.size(); ++i) {
+        const auto object = objects->objects[i];
+        if (!object || object.document != client.Scope().document || classes->integers[i] > INT32_MAX ||
+            !seen.insert(object).second)
+            return false;
+        next.push_back({object, names->texts[i], uint32_t(classes->integers[i])});
+    }
+    rows = std::move(next);
+    return true;
+}
+
 } // namespace vdev
