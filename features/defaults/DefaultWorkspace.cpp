@@ -5,6 +5,7 @@
 #include "features/preferences/PreferencesCommands.h"
 #include "features/layout/LayoutCommands.h"
 #include "features/layout/LayoutPresentation.h"
+#include "features/layout/LayoutAuthoring.h"
 #include "features/layout/SnapshotCommands.h"
 #include "features/schematic/SchematicGraphCommands.h"
 
@@ -122,6 +123,8 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     const auto &presentation = LayoutPresentation::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), presentation.begin(),
                                           presentation.end());
+    const auto &authoring = LayoutAuthoring::DefaultProviders();
+    result.contributions.providers.insert(result.contributions.providers.end(), authoring.begin(), authoring.end());
     const auto &snapshots = SnapshotCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), snapshots.begin(), snapshots.end());
     const auto &graph = SchematicGraphCommands::DefaultProviders();

@@ -27,6 +27,17 @@ void LayoutWindow::Complete(const EditorResponse &result, AfterCommand after) {
         if (const auto *extent = EditorClient::Find(result, "extent"); extent && extent->type == EDITOR_REAL_VALUE)
             m_ZoomExtent = float(extent->real);
     const auto *created = EditorClient::Find(result, "created");
+    if (after == AfterCommand::Created && created && created->object) {
+        const auto details = Client().Query("object.details", {ObjectArgument("target", created->object)});
+        if (details.status != EDITOR_OK)
+            return;
+        m_State.Log(LogLevel::Info,
+                    EditorClient::Text(details, "class") + " '" + EditorClient::Text(details, "name") + "' created.");
+        if (EditorClient::Integer(result, "camera"))
+            Execute("layout.set-camera", {ObjectArgument("target", created->object)});
+        if (EditorClient::Integer(Client().Query("layout.creation"), "show-setup"))
+            Execute("object.open-setup", {ObjectArgument("target", created->object)});
+    }
     if (after == AfterCommand::ShowScript && created && created->type == EDITOR_OBJECT && created->object)
         ShowScriptInSchematic(created->object);
     if (after == AfterCommand::ScriptsAdded)
@@ -44,6 +55,12 @@ void LayoutWindow::Complete(const EditorResponse &result, AfterCommand after) {
             Execute("selection.lock", {IntegerArgument("locked", 0)});
             Execute("selection.replace", {ObjectsArgument("objects", objects->objects), IntegerArgument("render-only", 1)});
         }
+}
+void LayoutWindow::CreatedObject(const EditorResponse &result) {
+    if (result.status == EDITOR_QUEUED)
+        m_Commands.push_back({result.operation, Client().Scope().document, AfterCommand::Created});
+    else
+        Complete(result, AfterCommand::Created);
 }
 void LayoutWindow::PollCommands() {
     auto pending = std::move(m_Commands); m_Commands.clear();

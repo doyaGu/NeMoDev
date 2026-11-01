@@ -14,6 +14,7 @@
 #include "features/diagnostics/DiagnosticCommands.h"
 #include "features/layout/LayoutCommands.h"
 #include "features/layout/LayoutPresentation.h"
+#include "features/layout/LayoutAuthoring.h"
 #include "features/layout/SnapshotCommands.h"
 #include "features/schematic/SchematicGraphCommands.h"
 #include "workspace/EditorWorkspace.h"
@@ -291,6 +292,9 @@ private:
     LayoutCommands m_LayoutCommands{m_Editor,
         [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
         [this]() -> LayoutView & { return m_Layout.View(); }, m_State.objectSelection};
+    LayoutAuthoring m_LayoutAuthoring{m_Editor,
+        [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
+        [this]() -> LayoutView & { return m_Layout.View(); }, m_State.objectSelection, m_State.preferences};
     LayoutPresentation m_LayoutPresentation{m_Editor,
                                             [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
                                             [this]() -> LayoutView & { return m_Layout.View(); },

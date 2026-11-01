@@ -150,7 +150,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !m_SetupCommands.Register(m_Editor, error) || !m_SchematicCommands.Register(m_Editor, error) ||
         !m_SchematicGraph.Register(m_Editor, error) || !RegisterSchematicDiagnosticViews(m_Editor, error) ||
         !RegisterArrayValueEditors(m_Editor, error) || !RegisterObjectViews(m_Editor, error) ||
-        !m_SceneCommands.Register(error) || !m_LayoutCommands.Register(error) ||
+        !m_SceneCommands.Register(error) || !m_LayoutCommands.Register(error) || !m_LayoutAuthoring.Register(error) ||
         !m_LayoutPresentation.Register(error) || !m_Snapshots.Register(error) ||
         !RegisterSnapshotInputs(m_Editor, window, error) || !RegisterSceneViews(m_Editor, error) ||
         !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) ||
@@ -794,48 +794,30 @@ void EditorApp::LogUndoTop() {
 #endif
 
 void EditorApp::CreateObject(LayoutObject kind) {
-    if (!m_State.HasDocument()) return;
-    // Create Portal: around the object selected (the 3D Layout's selection is the Level Manager's).
-    CK_ID selection = 0;
-    if (LevelSelection().size() == 1) selection = *LevelSelection().begin();
-    else if (m_State.objectSelection.Objects().size() == 1) selection = m_State.objectSelection.Objects().front();
-    // Dev places new objects by the 3D Layout's camera.
-    CKCamera *view = m_Layout.View().Camera();
-    LayoutObjectOptions options;
-    options.showCone = kind == LayoutObject::Camera ? m_State.preferences.Bool("3D Layout\\Auto Show Camera Cone")
-                                                  : m_State.preferences.Bool("3D Layout\\Auto Show Light Cone");
-    options.showInPlayerMode = m_State.preferences.Bool("3D Layout\\Auto Show Entities In Player Mode");
-    static const char *commands[] = {"object.create-camera", "object.create-light", "object.create-frame3d",
-                                     "object.create-curve", "object.create-grid", "object.create-frame2d",
+    const EditorClient client(m_Editor.Host(), 0);
+    const auto creation = client.Query("layout.creation");
+    if (creation.status != EDITOR_OK)
+        return;
+    ObjectRef selected{};
+    for (const auto &field : m_Workspace.Inspect(m_Workspace.Role("main.level")).fields)
+        if (field.key == "selection" && field.objects.size() == 1)
+            selected = field.objects.front();
+    if (!selected)
+        if (const auto *target = EditorClient::Find(creation, "target"))
+            selected = target->object;
+    const auto *camera = EditorClient::Find(creation, "camera");
+    static const char *commands[] = {"object.create-camera",   "object.create-light",   "object.create-frame3d",
+                                     "object.create-curve",    "object.create-grid",    "object.create-frame2d",
                                      "object.create-material", "object.create-texture", "object.create-portal"};
     const auto index = static_cast<size_t>(kind);
     if (index >= sizeof(commands) / sizeof(commands[0])) return;
-    const EditorValue values[] = {
-        {EditorLiteral("target"), EDITOR_OBJECT, m_State.document->Reference(selection)},
-        {EditorLiteral("camera"), EDITOR_OBJECT, m_State.document->Reference(view ? view->GetID() : 0)},
-        {EditorLiteral("show-cone"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(options.showCone)},
-        {EditorLiteral("show-in-player"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(options.showInPlayerMode)}};
-    const auto result = m_Editor.Execute(commands[index], {m_Editor.Scope(), values, 4});
-    if (result.status != EDITOR_OK) {
-        if (result.status != EDITOR_NO_CHANGE && result.status != EDITOR_QUEUED)
-            m_State.Log(LogLevel::Warning, "Create: " + result.message);
-        return;
-    }
-    ObjectRef created{};
-    for (const auto &field : result.fields) if (field.key == "created") created = field.object;
-    if (!created) return;
-    const EditorValue target{EditorLiteral("target"), EDITOR_OBJECT, created};
-    const auto details = m_Editor.Query("object.details", {m_Editor.Scope(), &target, 1});
-    if (details.status != EDITOR_OK) return;
-    std::string name, type;
-    for (const auto &field : details.fields) {
-        if (field.key == "name") name = field.text;
-        if (field.key == "class") type = field.text;
-    }
-    m_State.Log(LogLevel::Info, type + " '" + name + "' created.");
-    for (const auto &field : result.fields)
-        if (field.key == "camera" && field.integer) m_Layout.View().SetCamera(created.object);
-    if (m_State.preferences.Bool("3D Layout\\Auto Show Setup")) m_State.events.Post(ShowObjectSetup{created});
+    const auto result = client.Command(
+        commands[index],
+        {ObjectArgument("target", selected), ObjectArgument("camera", camera ? camera->object : ObjectRef{}),
+         IntegerArgument("show-cone",
+                         EditorClient::Integer(creation, kind == LayoutObject::Camera ? "camera-cone" : "light-cone")),
+         IntegerArgument("show-in-player", EditorClient::Integer(creation, "show-player"))});
+    m_Layout.CreatedObject(result);
 }
 
 bool EditorApp::Busy() const {

@@ -120,6 +120,7 @@ class LayoutWindow : public LayoutViewport {
 
     // A creation tool (the Create menu's commands).
     std::function<void(LayoutObject kind)> createObject;
+    void CreatedObject(const EditorResponse &);
     // A Building Block dropped elsewhere (a Level Manager row, Dev.exe
     // sub_578C30) asks for its inputs as a drop here does: drop makes it
     // (its Script and block; 0 when refused) in one undo step, committed
@@ -350,7 +351,7 @@ private:
     EditorState &m_State;
     const EditorHost *m_EditorHost = nullptr;
     EditorClient Client() const { return {m_EditorHost, 0}; }
-    enum class AfterCommand { Zoom, None, ShowScript, ScriptsAdded, SelectCreated, Group };
+    enum class AfterCommand { Zoom, None, ShowScript, ScriptsAdded, SelectCreated, Group, Created };
     struct PendingCommand { EditorOperation operation; DocumentToken document; AfterCommand after; };
     std::vector<PendingCommand> m_Commands;
     LayoutSceneData m_GroupData, m_CameraData, m_ExplorerData;
