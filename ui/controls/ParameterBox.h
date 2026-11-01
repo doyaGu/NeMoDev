@@ -54,6 +54,10 @@ public:
     // A row of a dependencies value of no parameter (Dev's Copy Options and
     // Select Delete Options, Dev.exe sub_5BDD60 / sub_5BF7B0: a parameter
     // of the type holding them); Dependencies reads the row back.
+    bool AddDefault(uint64_t type, const std::string &label);
+    bool AddDraft(const ParameterBox &, const std::string &label);
+    bool CopyDraft(const ParameterBox &);
+    ObjectRef WorkReference(size_t row = 0) const;
     bool AddDependencies(const std::string &label, const CKGUID &type, const CKDependencies &value);
     bool Dependencies(size_t row, CKDependencies &value) const;
     // The rows' size in pixels at scale. minimum: the name column at least

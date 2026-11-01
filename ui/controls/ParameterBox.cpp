@@ -85,6 +85,39 @@ void ParameterBox::Clear() {
     m_PickWork = 0;
 }
 
+bool ParameterBox::AddDefault(uint64_t type, const std::string &label) {
+    const CKGUID guid(CKDWORD(type >> 32), CKDWORD(type));
+    if (auto *work = Work(0); work && work->GetGUID() == guid)
+        return true;
+    Clear();
+    auto *context = m_State.host.Context();
+    if (!context || context->GetParameterManager()->ParameterGuidToType(guid) < 0)
+        return false;
+    auto *work = context->CreateCKParameterOut(Utf8ToAnsi(label).c_str(), guid, TRUE);
+    if (!work)
+        return false;
+    Row row;
+    row.owned = true;
+    row.label = label;
+    InitRow(row, work);
+    AddRow(std::move(row));
+    return true;
+}
+bool ParameterBox::AddDraft(const ParameterBox &source, const std::string &label) {
+    return Add(source.Work(0), Utf8ToAnsi(label));
+}
+bool ParameterBox::CopyDraft(const ParameterBox &source) {
+    auto *to = Work(0), *from = source.Work(0);
+    if (!to || !from || !to->IsDynamic() || !from->IsDynamic() || to->GetGUID() != from->GetGUID() ||
+        to->CopyValue(from, FALSE) != CK_OK)
+        return false;
+    InitRow(m_Rows.front(), to);
+    return true;
+}
+ObjectRef ParameterBox::WorkReference(size_t row) const {
+    return row < m_Rows.size() ? m_Rows[row].workReference : ObjectRef{};
+}
+
 bool ParameterBox::AddDependencies(const std::string &label, const CKGUID &type, const CKDependencies &value) {
     CKContext *context = m_State.host.Context();
     if (!context) return false;

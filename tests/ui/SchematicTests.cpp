@@ -9,10 +9,12 @@
 #include <cmath>
 #include <optional>
 #include <string>
+#include <tuple>
 
 #include "core/document/ScriptSession.h"
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/ValueCommands.h"
+#include "core/graph/RuntimeGraph.h"
 #include "core/schematic/SchematicModelBuilder.h"
 #include "core/schematic/SchematicSearch.h"
 #include "core/schematic/SchematicEdits.h"
@@ -479,6 +481,70 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->KeyPress(ImGuiKey_F3);
         ctx->Yield(3);
         IM_CHECK_EQ(App().State().Schematic().stackScript, App().State().document->Reference(results[0].script));
+    };
+
+    t = IM_REGISTER_TEST(engine, "schematic", "explorer_value_drafts_cancel_and_release");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, SchematicRef().c_str());
+        const auto shown = App().Canvas().ShownBehaviors();
+        IM_CHECK(!shown.empty());
+        // Inspecting a Canvas from the test coroutine cannot discard its drawing.
+        IM_CHECK(App().Canvas().ShownBehaviors().size() == shown.size());
+        const auto before = Read<std::tuple<int, size_t, bool>>(ctx, [] {
+            auto &state = App().State();
+            return std::make_tuple(state.document->Context()->GetObjectsCountByClassID(CKCID_PARAMETEROUT),
+                                   state.History().UndoCount(), state.document->Dirty());
+        });
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_F);
+        ctx->Yield(3);
+        ctx->ItemClick("//Schematic Explorer/##filtermode/##combo");
+        ctx->ItemClick("**/Filter Value");
+        ctx->ItemClick("//Schematic Explorer/##type/##combo");
+        const auto typePopup = std::string("//") + ctx->GetWindowByRef("//$FOCUSED")->Name + "/**/Float";
+        ctx->ItemClick(typePopup.c_str());
+        ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, "//Schematic Explorer"));
+        const auto filter = Read<vdev::ObjectRef>(ctx, [] {
+            auto &document = *App().State().document;
+            auto *value = document.Context()->GetObjectByNameAndClass("Filter Value", CKCID_PARAMETEROUT);
+            return value ? document.Reference(value->GetID()) : vdev::ObjectRef{};
+        });
+        IM_CHECK(bool(filter));
+        const auto value = [&] {
+            return Read<std::string>(
+                ctx, [&] { return vdev::ParameterText(CKParameter::Cast(App().State().document->Resolve(filter))); });
+        };
+        const auto original = value();
+        const auto edit = [&](const char *text, bool accept) {
+            ctx->ItemClick("//Schematic Explorer/editvalue");
+            ctx->Yield(2);
+            ctx->SetRef("//Edit Parameter###ExplorerValue");
+            ctx->ItemClick("**/##number");
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+            ctx->KeyChars(text);
+            ctx->Yield(2);
+            ctx->ItemClick(accept ? "**/OK/##dialogbutton" : "**/Cancel/##dialogbutton");
+            ctx->Yield(3);
+        };
+        edit("12", false);
+        IM_CHECK(value() == original);
+        edit("12", true);
+        IM_CHECK(value() != original);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            auto &state = App().State();
+            return state.History().UndoCount() == std::get<1>(before) &&
+                   state.document->Dirty() == std::get<2>(before) &&
+                   state.document->Context()->GetObjectsCountByClassID(CKCID_PARAMETEROUT) == std::get<0>(before) + 2;
+        }));
+        ctx->ItemClick("//Schematic Explorer/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(Read<bool>(ctx, [&] {
+            auto &state = App().State();
+            return !state.document->Resolve(filter) && state.History().UndoCount() == std::get<1>(before) &&
+                   state.document->Dirty() == std::get<2>(before) &&
+                   state.document->Context()->GetObjectsCountByClassID(CKCID_PARAMETEROUT) == std::get<0>(before);
+        }));
     };
 
     t = IM_REGISTER_TEST(engine, "schematic", "projected_link_control_point_selection");

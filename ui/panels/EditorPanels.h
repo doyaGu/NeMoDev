@@ -1,15 +1,15 @@
 #pragma once
 
 #include <map>
+#include <optional>
+#include "workspace/EditorClient.h"
 #include <set>
 #include <string>
 #include <vector>
 
 #include "ui/app/EditorState.h"
 #include "ui/controls/ParameterBox.h"
-#include "core/graph/TopologyCommands.h"
 #include "core/schematic/SchematicSearch.h"
-#include "core/document/ToolCommands.h"
 #include "ui/controls/ValueEditor.h"
 
 namespace vdev {
@@ -39,14 +39,22 @@ public:
     // object) name objects of the next one after ClearAll.
     void DocumentClosed();
 private:
-    void Report(const EditResult &result, const char *what);
     void RunSearch();
     // The Schematic Explorer's parts: the rows chosen made the Schematic's
     // selection; the tree view; the parameters of the Parameter Filter.
     void ExplorerSelect();
     SchematicNavigation &ExplorerNavigation();
     void ExplorerTree(const ImVec2 &min, const ImVec2 &max);
-    CKParameter *ExplorerValue(bool replace);
+    ParameterBox *ExplorerValue(bool replace);
+    EditorClient Client() const;
+    bool ReadSearch(bool tree, std::vector<SearchResult> &);
+    void Command(const char *, const std::vector<EditorField> &);
+    void Rename(const SearchResult &);
+    void Poll();
+    std::vector<EditorField> m_ParameterTypes;
+    uint64_t m_TypesRevision = 0;
+    std::vector<std::pair<EditorOperation, bool>> m_Pending;
+
     int m_ExplorerRename = -1; // the row F2 renames (-2: the tree's node)
     std::string m_ExplorerRenameText;
 
@@ -54,21 +62,19 @@ private:
     // next document's objects): made anew when it is closed; a field naming
     // an object goes here.
     struct DocumentState {
-        CK_ID treeScript = 0, treeBehavior = 0;
+        std::optional<SearchResult> treeTarget;
         // The Schematic Explorer's results (made again when the query or
         // the composition changes), the rows chosen (Shift's anchor), the
         // Schematic's selection when it opened (Cancel gives it back), the
-        // parameters holding the Parameter Filter's value and replace value.
+        // addresses copied from the search query.
         std::vector<SearchResult> results;
         int currentResult = -1;
         std::set<int> chosen;
         int anchor = -1;
         Selection selectionBefore;
         EditorView explorerView = 0;
-        CK_ID filterValue = 0, replaceValue = 0;
+
         std::string resultsKey;
-        // The Script Debugger's Debug Context combos (the debugger's object
-        // and Script, or the ones chosen to lock it to).
     };
 
     EditorState &m_State;
@@ -83,15 +89,13 @@ private:
     bool m_SearchAllScripts = false;
     bool m_SearchTree = false;
     int m_SearchFilter = 0;
-    int m_SearchType = -1;
+    uint64_t m_SearchType = 0;
     bool m_SearchDerived = false;
     bool m_FocusSearch = false;
     bool m_ExplorerShown = false;
-    ParameterBox m_ExplorerBox{m_State};
+    ParameterBox m_ExplorerBox{m_State}, m_FilterValue{m_State}, m_ReplaceValue{m_State};
     bool m_ExplorerEditReplace = false;
     bool m_OpenExplorerValue = false;
-    // Script Debugger: the Debug Log shown, the edits' text, the reached
-    // breakpoints (blinking since, Goto's last one).
 };
 
 } // namespace vdev

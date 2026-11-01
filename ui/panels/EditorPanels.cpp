@@ -19,20 +19,22 @@
 #include "misc/cpp/imgui_stdlib.h"
 
 #include "ui/schematic/SchematicCanvas.h"
-#include "core/schematic/SchematicEdits.h"
+#include "features/schematic/SchematicPosition.h"
+#include "workspace/EditorWorkspace.h"
 #include "core/runtime/TextEncoding.h"
-#include "core/graph/ScriptCommands.h"
-#include "core/graph/RuntimeGraph.h"
-#include "core/graph/ValueCommands.h"
-#include "core/graph/TopologyCommands.h"
-#include "ui/controls/ValueEditor.h"
 
 namespace vdev {
 
 void EditorPanels::DocumentClosed() {
     m_ExplorerBox.Clear();
-    m_Doc = DocumentState();
-
+    m_FilterValue.Clear();
+    m_ReplaceValue.Clear();
+    m_Doc = {};
+    m_Pending.clear();
+    m_ParameterTypes.clear();
+    m_TypesRevision = 0;
+    m_ExplorerShown = false;
+    m_OpenExplorerValue = false;
 }
 
 void EditorPanels::FindNext(int direction) {
@@ -44,13 +46,12 @@ void EditorPanels::FindNext(int direction) {
     m_Doc.currentResult = m_Doc.currentResult < 0 ? (direction > 0 ? 0 : count - 1)
                                           : ((m_Doc.currentResult + direction) % count + count) % count;
     const SearchResult &result = m_Doc.results[m_Doc.currentResult];
-    m_Schematics.Show(result.address, m_State.document->Reference(result.focus), true, m_Doc.explorerView);
+    m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
 }
 
 void EditorPanels::ShowScript(CK_ID script, const ElementRef &ref, CK_ID focusBehavior, bool focus) {
-    if (!m_State.HasDocument()) return;
-    const auto address = ElementAddress::Capture(*m_State.document, script, ref.IsValid() ? ref : Selection::HeaderOf(script));
-    m_Schematics.Show(address, m_State.document->Reference(focusBehavior), focus);
+    if (auto *canvas = m_Schematics.Find(m_Doc.explorerView ? m_Doc.explorerView : m_Schematics.CurrentId()))
+        canvas->ShowScript(script, ref, focusBehavior, focus);
 }
 void EditorPanels::RefreshStack() { m_Schematics.RefreshStacks(); }
 
@@ -59,38 +60,140 @@ SchematicNavigation &EditorPanels::ExplorerNavigation() {
     return canvas ? canvas->Navigation() : m_Schematics.Current().Navigation();
 }
 
+EditorClient EditorPanels::Client() const {
+    return EditorClient(m_State.workspace->Application().Host(),
+                        m_Doc.explorerView ? m_Doc.explorerView : m_Schematics.CurrentId());
+}
+bool EditorPanels::ReadSearch(bool tree, std::vector<SearchResult> &out) {
+    const auto inspected = Client().Inspect(m_Doc.explorerView);
+    const auto *visible = EditorClient::Find(inspected, "scripts");
+    if (inspected.status != EDITOR_OK || !visible)
+        return false;
+    auto *value = tree ? nullptr : ExplorerValue(false);
+    std::vector<EditorField> args{
+        {"text", EDITOR_TEXT_VALUE, {}, tree ? "" : m_SearchText},
+        {"id", EDITOR_INTEGER_VALUE, {}, {}, tree ? 0 : uint64_t(std::max(0, std::atoi(m_SearchIdText.c_str())))},
+        {"kinds", EDITOR_INTEGER_VALUE, {}, {}, tree ? uint64_t(SearchScripts | SearchBehaviors) : m_SearchKinds},
+        {"all", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_SearchAllScripts)},
+        {"scripts", EDITOR_OBJECT_LIST},
+        {"filter", EDITOR_INTEGER_VALUE, {}, {}, tree ? 0 : uint64_t(m_SearchFilter)},
+        {"type", EDITOR_INTEGER_VALUE, {}, {}, m_SearchType},
+        {"derived", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_SearchDerived)},
+        {"value", EDITOR_OBJECT, value ? value->WorkReference() : ObjectRef{}},
+        {"first", EDITOR_INTEGER_VALUE}};
+    args[4].objects = visible->objects;
+    std::vector<SearchResult> rows;
+    uint64_t first = 0, total = 0, revision = 0, topology = 0, scripts = 0;
+    do {
+        args.back().integer = first;
+        const auto values = BorrowEditorFields(args);
+        const auto page = Client().Query("schematic.search", {values.data(), values.data() + values.size()});
+        const auto *items = EditorClient::Find(page, "rows");
+        if (page.status != EDITOR_OK || !items)
+            return false;
+        const auto count = EditorClient::Integer(page, "total"), next = EditorClient::Integer(page, "next");
+        if (next < first || next > count || next - first != items->fields.size() || (next == first && first < count))
+            return false;
+        if (!first) {
+            total = count;
+            revision = EditorClient::Integer(page, "document-revision");
+            topology = EditorClient::Integer(page, "topology");
+            scripts = EditorClient::Integer(page, "scripts-revision");
+        } else if (total != count || revision != EditorClient::Integer(page, "document-revision") ||
+                   topology != EditorClient::Integer(page, "topology") ||
+                   scripts != EditorClient::Integer(page, "scripts-revision"))
+            return false;
+        for (const auto &item : items->fields) {
+            EditorResponse r;
+            r.fields = item.fields;
+            const auto *address = EditorClient::Find(r, "address"), *focus = EditorClient::Find(r, "focus-target"),
+                       *object = EditorClient::Find(r, "object");
+            SearchResult row;
+            if (!address || !focus || !object || !ReadSchematicPosition(*address, row.address))
+                return false;
+            row.script = row.address.script.object;
+            row.ref = row.address.element;
+            row.focusReference = focus->object;
+            row.focus = focus->object.object;
+            row.objectReference = object->object;
+            row.object = object->object.object;
+            row.label = EditorClient::Text(r, "label");
+            row.kind = EditorClient::Text(r, "kind");
+            row.detail = EditorClient::Text(r, "detail");
+            row.scriptName = EditorClient::Text(r, "script-name");
+            row.objectName = EditorClient::Text(r, "object-name");
+            row.objectClass = int32_t(EditorClient::Integer(r, "class"));
+            rows.push_back(std::move(row));
+        }
+        first = next;
+    } while (first < total);
+    out = std::move(rows);
+    return true;
+}
+void EditorPanels::Command(const char *id, const std::vector<EditorField> &fields) {
+    const auto values = BorrowEditorFields(fields);
+    const auto result = Client().Command(id, {values.data(), values.data() + values.size()});
+    if (result.status == EDITOR_QUEUED)
+        m_Pending.emplace_back(result.operation, std::string(id) == "schematic.replace-search-values");
+    else if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE)
+        m_State.Log(LogLevel::Warning,
+                    result.message.empty() ? "The Schematic target changed; select it again" : result.message);
+}
+void EditorPanels::Rename(const SearchResult &result) {
+    Command("object.rename",
+            {{"target", EDITOR_OBJECT, result.objectReference}, {"name", EDITOR_TEXT_VALUE, {}, m_ExplorerRenameText}});
+    m_Doc.resultsKey.clear();
+}
+void EditorPanels::Poll() {
+    for (auto it = m_Pending.begin(); it != m_Pending.end();) {
+        const auto result = Client().Completion(it->first);
+        if (result.status == EDITOR_QUEUED) {
+            ++it;
+            continue;
+        }
+        if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE)
+            m_State.Log(LogLevel::Warning,
+                        result.message.empty() ? "The Schematic target changed; select it again" : result.message);
+        else if (it->second)
+            m_FilterValue.CopyDraft(m_ReplaceValue);
+        m_Doc.resultsKey.clear();
+        it = m_Pending.erase(it);
+    }
+}
+
 void EditorPanels::RunSearch() {
-    if (!m_State.HasDocument()) {
+    if (!Client().Scope().document.value) {
         m_Doc.results.clear();
         return;
     }
-    SearchQuery query;
-    query.listAll = true;
-    query.text = m_SearchText;
-    query.id = static_cast<CK_ID>(std::max(0, std::atoi(m_SearchIdText.c_str())));
-    query.kinds = m_SearchKinds;
-    query.onlyScripts = !m_SearchAllScripts;
-    query.scripts = ExplorerNavigation().visibleScripts;
-    query.filter = static_cast<SearchFilter>(m_SearchFilter);
-    query.type = m_SearchType;
-    query.derived = m_SearchDerived;
-    if (CKParameter *value = ExplorerValue(false)) query.value = value->GetID();
-    // The same query on the same composition keeps the results (and the rows chosen).
-    const Document &document = *m_State.document;
-    std::string key = query.text + '\x1f' + m_SearchIdText + '\x1f' + std::to_string(query.kinds) + '\x1f' +
-                      std::to_string(query.onlyScripts) + std::to_string(m_SearchFilter) + std::to_string(query.type) +
-                      std::to_string(query.derived) + '\x1f' + std::to_string(document.TopologyRevision()) + '\x1f' +
-                      std::to_string(document.ScriptsRevision());
-    if (query.onlyScripts)
-        for (CK_ID script : query.scripts) key += ',' + std::to_string(script);
-    if (m_SearchFilter == 2)
-        if (CKParameter *value = ExplorerValue(false)) key += '\x1f' + ParameterText(value);
-    for (const auto &script : document.Scripts())
-        if (auto *session = m_State.document->ExistingSession(script.id))
-            key += ":" + std::to_string(script.id) + ":" + std::to_string(session->Revision());
-    if (key == m_Doc.resultsKey) return;
-    m_Doc.resultsKey = key;
-    m_Doc.results = SearchDocument(*m_State.document, query);
+    const auto metadata = Client().Query("schematic.stack");
+    if (metadata.status != EDITOR_OK)
+        return;
+    auto *value = ExplorerValue(false);
+    std::string key = m_SearchText + '\x1f' + m_SearchIdText + '\x1f' + std::to_string(m_SearchKinds) + ":" +
+                      std::to_string(m_SearchAllScripts) + ":" + std::to_string(m_SearchFilter) + ":" +
+                      std::to_string(m_SearchType) + ":" + std::to_string(m_SearchDerived) + ":" +
+                      std::to_string(Client().Scope().document.value) + ":" +
+                      std::to_string(EditorClient::Integer(metadata, "topology")) + ":" +
+                      std::to_string(EditorClient::Integer(metadata, "scripts-revision")) + ":" +
+                      std::to_string(EditorClient::Integer(metadata, "document-revision"));
+    if (!m_SearchAllScripts)
+        for (auto id : ExplorerNavigation().visibleScripts)
+            key += "," + std::to_string(id);
+    if (m_SearchFilter == 2 && value)
+        key += '\x1f' + value->Text(0);
+    if (const auto *rows = EditorClient::Find(metadata, "rows"))
+        for (const auto &row : rows->fields)
+            for (const auto &f : row.fields)
+                if (f.key == "revision")
+                    key += ":" + std::to_string(f.integer);
+    if (key == m_Doc.resultsKey)
+        return;
+    std::vector<SearchResult> results;
+    if (!ReadSearch(false, results))
+        return;
+    m_Doc.results = std::move(results);
+    m_Doc.resultsKey = std::move(key);
     m_Doc.currentResult = -1;
     m_Doc.chosen.clear();
     m_Doc.anchor = -1;
@@ -99,34 +202,48 @@ void EditorPanels::RunSearch() {
 // The Parameter Filter's value (Edit Value) or replace value (Edit Replace
 // Value): parameters of the Type chosen the Explorer keeps (dynamic, not
 // saved; Dev.exe sub_5B95A0 sets their type).
-CKParameter *EditorPanels::ExplorerValue(bool replace) {
-    if (!m_State.HasDocument()) return nullptr;
-    CKContext *context = m_State.document->Context();
-    CKParameterManager *manager = context->GetParameterManager();
-    if (!manager) return nullptr;
-    if (m_SearchType < 0) m_SearchType = manager->ParameterGuidToType(CKPGUID_FLOAT);
-    CK_ID &id = replace ? m_Doc.replaceValue : m_Doc.filterValue;
-    CKParameter *parameter = CKParameter::Cast(context->GetObject(id));
-    if (!parameter) {
-        parameter = context->CreateCKParameterOut(const_cast<CKSTRING>(replace ? "Replace Value" : "Filter Value"),
-                                                  manager->ParameterTypeToGuid(m_SearchType), TRUE);
-        id = parameter ? parameter->GetID() : 0;
+ParameterBox *EditorPanels::ExplorerValue(bool replace) {
+    if (!Client().Scope().document.value)
+        return nullptr;
+    const auto revision = m_State.workspace->Application().Revision();
+    if (m_ParameterTypes.empty() || m_TypesRevision != revision) {
+        const auto types = Client().Query("schematic.parameter-types");
+        if (types.status == EDITOR_OK)
+            if (const auto *items = EditorClient::Find(types, "types")) {
+                m_ParameterTypes = items->fields;
+                m_TypesRevision = revision;
+            }
     }
-    if (parameter && parameter->GetType() != m_SearchType) parameter->SetType(m_SearchType);
-    return parameter;
+    if (!m_SearchType)
+        for (const auto &row : m_ParameterTypes) {
+            EditorResponse r;
+            r.fields = row.fields;
+            const auto type = EditorClient::Integer(r, "type");
+            if (!m_SearchType || EditorClient::Text(r, "name") == "Float")
+                m_SearchType = type;
+            if (EditorClient::Text(r, "name") == "Float")
+                break;
+        }
+    auto &box = replace ? m_ReplaceValue : m_FilterValue;
+    return box.AddDefault(m_SearchType, replace ? "Replace Value" : "Filter Value") ? &box : nullptr;
 }
 
 // The rows chosen: the Schematic's selection (Dev.exe sub_5B6B40), those of
 // the Script of the row clicked last (a selection is in one Script).
 void EditorPanels::ExplorerSelect() {
-    if (m_Doc.anchor < 0 || m_Doc.anchor >= static_cast<int>(m_Doc.results.size())) return;
-    const CK_ID script = m_Doc.results[m_Doc.anchor].script;
-    ExplorerNavigation().selection.Clear();
-    for (int row : m_Doc.chosen) {
-        const SearchResult &result = m_Doc.results[row];
-        if (result.script == script && result.ref.kind != ElementKind::Script) ExplorerNavigation().selection.Add(script, result.ref);
-    }
-    if (ExplorerNavigation().selection.Empty()) ExplorerNavigation().selection.script = script;
+    if (m_Doc.anchor < 0 || m_Doc.anchor >= int(m_Doc.results.size()))
+        return;
+    const auto script = m_Doc.results[size_t(m_Doc.anchor)].script;
+    std::vector<ElementAddress> selected;
+    for (auto row : m_Doc.chosen)
+        if (row >= 0 && row < int(m_Doc.results.size())) {
+            const auto &result = m_Doc.results[size_t(row)];
+            if (result.script == script && result.ref.kind != ElementKind::Script)
+                selected.push_back(result.address);
+        }
+    ExplorerNavigation().selection.Assign(selected);
+    if (selected.empty())
+        ExplorerNavigation().selection.script = script;
 }
 
 // Dev's tree view (sub_5B79E0): the Scripts and their behaviors; a click
@@ -135,54 +252,51 @@ void EditorPanels::ExplorerTree(const ImVec2 &min, const ImVec2 &max) {
     ImGui::SetCursorScreenPos(min);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, vi::Color(7));
     ImGui::PushStyleColor(ImGuiCol_Text, vi::Color(0));
-    ImGui::BeginChild("##tree", ImVec2(max.x - min.x, max.y - min.y), ImGuiChildFlags_Borders);
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-    std::function<void(CK_ID, CKBehavior *)> node = [&](CK_ID script, CKBehavior *behavior) {
-        if (!behavior) return;
-        ImGui::PushID(static_cast<int>(behavior->GetID()));
-        const bool leaf = behavior->GetSubBehaviorCount() == 0;
-        const bool chosen = m_Doc.treeBehavior == behavior->GetID();
-        const bool open = ImGui::TreeNodeEx("##node", ImGuiTreeNodeFlags_SpanAvailWidth | (leaf ? ImGuiTreeNodeFlags_Leaf : 0) |
-                                                          (chosen ? ImGuiTreeNodeFlags_Selected : 0),
-                                            "%s", AnsiToUtf8(behavior->GetName() ? behavior->GetName() : "").c_str());
+    ImGui::BeginChild("##tree", {max.x - min.x, max.y - min.y}, ImGuiChildFlags_Borders);
+    std::vector<SearchResult> rows;
+    ReadSearch(true, rows);
+    std::function<void(const SearchResult &)> draw = [&](const SearchResult &row) {
+        ImGui::PushID(int(row.object));
+        const bool leaf = std::none_of(rows.begin(), rows.end(), [&](const SearchResult &other) {
+            return other.ref.kind != ElementKind::Script && other.address.owner == row.objectReference;
+        });
+        const bool selected = m_Doc.treeTarget && m_Doc.treeTarget->objectReference == row.objectReference;
+        const bool open = ImGui::TreeNodeEx("##node",
+                                            ImGuiTreeNodeFlags_SpanAvailWidth | (leaf ? ImGuiTreeNodeFlags_Leaf : 0) |
+                                                (selected ? ImGuiTreeNodeFlags_Selected : 0),
+                                            "%s", row.label.c_str());
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-            m_Doc.treeScript = script;
-            m_Doc.treeBehavior = behavior->GetID();
-            CKBehavior *parent = behavior->GetParent();
-            const bool isScript = behavior->GetID() == script;
-            ShowScript(script, isScript ? ElementRef() : ElementRef{ElementKind::Behavior, parent ? parent->GetID() : 0, behavior->GetID()},
-                       parent ? parent->GetID() : 0);
+            m_Doc.treeTarget = row;
+            m_Schematics.Show(row.address, row.focusReference, true, m_Doc.explorerView);
         }
         if (open) {
-            for (int i = 0; i < behavior->GetSubBehaviorCount(); ++i) node(script, behavior->GetSubBehavior(i));
+            for (const auto &child : rows)
+                if (child.ref.kind != ElementKind::Script && child.address.owner == row.objectReference)
+                    draw(child);
             ImGui::TreePop();
         }
         ImGui::PopID();
     };
-    if (context)
-        for (const ScriptInfo &info : m_State.document->Scripts())
-            if (m_SearchAllScripts ||
-                std::find(ExplorerNavigation().visibleScripts.begin(), ExplorerNavigation().visibleScripts.end(), info.id) != ExplorerNavigation().visibleScripts.end())
-                node(info.id, CKBehavior::Cast(context->GetObject(info.id)));
-    // F2: the node chosen renamed.
-    CKObject *chosenNode = context ? context->GetObject(m_Doc.treeBehavior) : nullptr;
-    if (chosenNode && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
-        ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
+    for (const auto &row : rows)
+        if (row.ref.kind == ElementKind::Script)
+            draw(row);
+    if (m_Doc.treeTarget && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+        !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
         m_ExplorerRename = -2;
-        m_ExplorerRenameText = AnsiToUtf8(chosenNode->GetName() ? chosenNode->GetName() : "");
+        m_ExplorerRenameText = m_Doc.treeTarget->objectName;
         ImGui::OpenPopup("Rename###explorertreerename");
     }
     if (ImGui::BeginPopupModal("Rename###explorertreerename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+        if (ImGui::IsWindowAppearing())
+            ImGui::SetKeyboardFocusHere();
         const bool entered = ImGui::InputText("##name", &m_ExplorerRenameText, ImGuiInputTextFlags_EnterReturnsTrue);
-        if ((entered || ImGui::Button("OK", ImVec2(80, 0))) && chosenNode) {
-            Report(RenameObject(*m_State.document, m_Doc.treeScript, m_Doc.treeBehavior, Utf8ToAnsi(m_ExplorerRenameText)),
-                   "Rename");
-            m_Doc.resultsKey.clear();
+        if ((entered || ImGui::Button("OK", {80, 0})) && m_Doc.treeTarget) {
+            Rename(*m_Doc.treeTarget);
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        if (ImGui::Button("Cancel", {80, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+            ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
     ImGui::EndChild();
@@ -198,6 +312,9 @@ void EditorPanels::ExplorerTree(const ImVec2 &min, const ImVec2 &max) {
 // Value); Select keeps the selection made, Cancel gives the Schematic's back.
 void EditorPanels::ExplorerPanel(bool *open) {
     if (m_ExplorerShown && !m_Schematics.Find(m_Doc.explorerView)) {
+        m_ExplorerBox.Clear();
+        m_FilterValue.Clear();
+        m_ReplaceValue.Clear();
         m_ExplorerShown = false;
         *open = false;
         return;
@@ -221,14 +338,27 @@ void EditorPanels::ExplorerPanel(bool *open) {
     }
     auto close = [&](bool keep) {
         if (!keep && m_Schematics.Find(m_Doc.explorerView)) {
-            m_Doc.selectionBefore.Validate([this](const ElementAddress &address) { uint32_t script = 0; ElementRef ref; return m_State.document && address.Resolve(*m_State.document, script, ref); });
-            ExplorerNavigation().selection = m_Doc.selectionBefore;
+            m_Doc.selectionBefore.Validate([&](const ElementAddress &address) {
+                EditorField elements{"elements", EDITOR_RECORD};
+                elements.fields = {SchematicPosition(address, "0")};
+                const std::vector<EditorField> owned{elements};
+                const auto values = BorrowEditorFields(owned);
+                const auto result =
+                    EditorClient(m_State.workspace->Application().Host(), m_Doc.explorerView)
+                        .Query("schematic.validate-positions", {values.data(), values.data() + values.size()});
+                const auto *valid = EditorClient::Find(result, "elements");
+                return result.status == EDITOR_OK && valid && valid->fields.size() == 1;
+            });
+            ExplorerNavigation().selection.Assign(m_Doc.selectionBefore.Addresses());
         }
         prefs.SetInt("Schematic Explorer\\Show In List", static_cast<int>(m_SearchKinds));
         prefs.SetBool("Schematic Explorer\\Parse All Items", m_SearchAllScripts);
         prefs.SetBool("Schematic Explorer\\Tree View", m_SearchTree);
         prefs.SetInt("Schematic Explorer\\Parameter Filter", m_SearchFilter);
         prefs.SetBool("Schematic Explorer\\Derived", m_SearchDerived);
+        m_ExplorerBox.Clear();
+        m_FilterValue.Clear();
+        m_ReplaceValue.Clear();
         m_ExplorerShown = false;
         *open = false;
     };
@@ -239,8 +369,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
     const vi::TemplateLayout l = vi::LayoutTemplate(o, units, s, PAD);
     vi::TemplatePanel(l);
     RunSearch();
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-    CKParameterManager *manager = context ? context->GetParameterManager() : nullptr;
+    Poll();
     auto text = [&](float x, float y, float w, float h, const char *label, bool bold = false, vi::Align align = vi::LEFT) {
         vi::Text(l.Min(x, y), l.Max(x, y, w, h), label, bold, align);
     };
@@ -259,17 +388,18 @@ void EditorPanels::ExplorerPanel(bool *open) {
             "##items", l.Min(0, 13), l.Max(0, 13, 230, 210), s, COLUMNS, count,
             [&](int r, int c) -> std::string {
                 const SearchResult &result = m_Doc.results[r];
-                if (c == 0) return result.label;
-                if (c == 2) return result.kind;
-                const ScriptInfo *script = m_State.document->FindScript(result.script);
-                return script ? AnsiToUtf8(script->name) : std::string();
+                if (c == 0)
+                    return result.label;
+                if (c == 2)
+                    return result.kind;
+                return result.scriptName;
             },
             [&](int r) { return m_Doc.chosen.count(r) != 0; }, &twice, nullptr, false, nullptr,
             // Documentation "Schematic Explorer": "Icons in front of an item is
             // the element type" (Dev's class icons).
             [&](int r) -> ImTextureID {
-                CKObject *object = context && m_Doc.results[r].object ? context->GetObject(m_Doc.results[r].object) : nullptr;
-                return object ? DevIconImage(DevClassIconId(object->GetClassID())) : ImTextureID();
+                const auto cid = m_Doc.results[r].objectClass;
+                return cid ? DevIconImage(DevClassIconId(cid)) : ImTextureID();
             });
         if (clicked >= 0) {
             const ImGuiIO &io = ImGui::GetIO();
@@ -287,7 +417,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
             ExplorerSelect();
             if (twice) {
                 const SearchResult &result = m_Doc.results[clicked];
-                m_Schematics.Show(result.address, m_State.document->Reference(result.focus), true, m_Doc.explorerView);
+                m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
             }
         }
         // Its menu (Dev.exe sub_5B8520): Edit, the first row chosen's dialog
@@ -299,11 +429,11 @@ void EditorPanels::ExplorerPanel(bool *open) {
         if (ImGui::BeginPopup("explorermenu")) {
             if (ImGui::MenuItem("Edit", nullptr, false, first >= 0 && first < count)) {
                 const SearchResult &result = m_Doc.results[first];
-                m_Schematics.Show(result.address, m_State.document->Reference(result.focus), true, m_Doc.explorerView);
-                if (auto *canvas = m_Schematics.Find(m_Doc.explorerView)) {
-                    CK_ID script = 0; ElementRef ref;
-                    if (result.address.Resolve(*m_State.document, script, ref)) canvas->EditElement(script, ref);
-                }
+                m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
+                auto values = SchematicPosition(result.address).fields;
+                if (result.focusReference)
+                    values.push_back({"focus-target", EDITOR_OBJECT, result.focusReference});
+                Command("script.edit-element", values);
                 m_State.events.Post(FocusSchematic{});
             }
             ImGui::EndPopup();
@@ -312,8 +442,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
             ImGui::IsKeyPressed(ImGuiKey_F2, false) && first >= 0 && first < count && m_Doc.results[first].object &&
             m_Doc.results[first].ref.kind != ElementKind::Comment) {
             m_ExplorerRename = first;
-            CKObject *object = context ? context->GetObject(m_Doc.results[first].object) : nullptr;
-            m_ExplorerRenameText = AnsiToUtf8(object && object->GetName() ? object->GetName() : "");
+            m_ExplorerRenameText = m_Doc.results[first].objectName;
             ImGui::OpenPopup("Rename###explorerrename");
         }
         if (ImGui::BeginPopupModal("Rename###explorerrename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -321,7 +450,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
             const bool entered = ImGui::InputText("##name", &m_ExplorerRenameText, ImGuiInputTextFlags_EnterReturnsTrue);
             if ((entered || ImGui::Button("OK", ImVec2(80, 0))) && m_ExplorerRename >= 0 && m_ExplorerRename < count) {
                 const SearchResult &result = m_Doc.results[m_ExplorerRename];
-                Report(RenameObject(*m_State.document, result.script, result.object, Utf8ToAnsi(m_ExplorerRenameText)), "Rename");
+                Rename(result);
                 m_Doc.resultsKey.clear();
                 ImGui::CloseCurrentPopup();
             }
@@ -394,46 +523,32 @@ void EditorPanels::ExplorerPanel(bool *open) {
         ExplorerSelect();
     }
     // In the tree: the node chosen.
-    CKBehavior *treeNode = m_State.HasDocument() ? CKBehavior::Cast(m_State.document->Context()->GetObject(m_Doc.treeBehavior)) : nullptr;
-    if (vi::Button("GoTo", l.Min(53, 239), l.Max(53, 239, 46, 10), "GoTo", listing ? !m_Doc.chosen.empty() : treeNode != nullptr)) {
+    const auto *treeNode = m_Doc.treeTarget ? &*m_Doc.treeTarget : nullptr;
+    if (vi::Button("GoTo", l.Min(53, 239), l.Max(53, 239, 46, 10), "GoTo",
+                   listing ? !m_Doc.chosen.empty() : treeNode != nullptr)) {
         if (listing) {
-            const SearchResult &result = m_Doc.results[*m_Doc.chosen.begin()];
+            const auto &row = m_Doc.results[size_t(*m_Doc.chosen.begin())];
             m_Doc.currentResult = *m_Doc.chosen.begin();
-            m_Schematics.Show(result.address, m_State.document->Reference(result.focus), true, m_Doc.explorerView);
+            m_Schematics.Show(row.address, row.focusReference, true, m_Doc.explorerView);
             ExplorerSelect();
-        } else if (treeNode) {
-            CKBehavior *parent = treeNode->GetParent();
-            const bool isScript = treeNode->GetID() == m_Doc.treeScript;
-            ShowScript(m_Doc.treeScript,
-                       isScript ? ElementRef() : ElementRef{ElementKind::Behavior, parent ? parent->GetID() : 0, treeNode->GetID()},
-                       parent ? parent->GetID() : 0);
-        }
+        } else if (treeNode)
+            m_Schematics.Show(treeNode->address, treeNode->focusReference, true, m_Doc.explorerView);
     }
-    // Delete: the rows chosen (the tree's node), each Script's elements one
-    // command, Scripts with them; one undo step.
-    if (vi::Button("Delete", l.Min(53, 251), l.Max(53, 251, 46, 10), "Delete", listing ? !m_Doc.chosen.empty() : treeNode != nullptr)) {
-        std::map<CK_ID, std::vector<ElementRef>> elements;
-        std::vector<CK_ID> scripts;
-        if (listing) {
-            for (int r : m_Doc.chosen) {
-                if (m_Doc.results[r].ref.kind == ElementKind::Script) scripts.push_back(m_Doc.results[r].script);
-                else elements[m_Doc.results[r].script].push_back(m_Doc.results[r].ref);
-            }
-        } else if (treeNode) {
-            CKBehavior *parent = treeNode->GetParent();
-            if (treeNode->GetID() == m_Doc.treeScript) scripts.push_back(m_Doc.treeScript);
-            else elements[m_Doc.treeScript].push_back(ElementRef{ElementKind::Behavior, parent ? parent->GetID() : 0, treeNode->GetID()});
-        }
-        EditGroup group(*m_State.document, "Delete");
-        for (const auto &entry : elements) {
-            if (std::find(scripts.begin(), scripts.end(), entry.first) != scripts.end()) continue;
-            const EditResult result = DeleteElements(*m_State.document, entry.first, entry.second);
-            if (!result.ok && !result.Unchanged()) m_State.Log(LogLevel::Warning, "Delete: " + AnsiToUtf8(result.message));
-        }
-        for (CK_ID script : scripts) Report(DeleteScript(*m_State.document, script), "Delete Script");
+    if (vi::Button("Delete", l.Min(53, 251), l.Max(53, 251, 46, 10), "Delete",
+                   listing ? !m_Doc.chosen.empty() : treeNode != nullptr)) {
+        EditorField elements{"elements", EDITOR_RECORD};
+        const auto add = [&](const SearchResult &row) {
+            elements.fields.push_back(SchematicPosition(row.address, std::to_string(elements.fields.size()).c_str()));
+        };
+        if (listing)
+            for (int row : m_Doc.chosen)
+                add(m_Doc.results[size_t(row)]);
+        else if (treeNode)
+            add(*treeNode);
+        Command("schematic.delete-search-results", {elements});
         ExplorerNavigation().selection.Clear();
         m_Doc.chosen.clear();
-        m_Doc.treeBehavior = m_Doc.treeScript = 0;
+        m_Doc.treeTarget.reset();
         m_Doc.resultsKey.clear();
     }
 
@@ -447,61 +562,54 @@ void EditorPanels::ExplorerPanel(bool *open) {
     if (mode >= 0) m_SearchFilter = mode;
     const bool typed = m_SearchFilter >= 1 && listing, valued = m_SearchFilter == 2 && listing;
     text(212, 238, 22, 10, "Type:");
-    CKParameter *value = ExplorerValue(false);
-    CKParameter *replace = ExplorerValue(true);
-    if (manager) {
-        const char *typeName = m_SearchType >= 0 ? manager->ParameterTypeToName(m_SearchType) : nullptr;
-        if (!typed) ImGui::BeginDisabled();
-        std::vector<int> types;
-        const int chosenType = vi::Combo(
-            "##type", l.Min(237, 236), l.Max(237, 236, 105, 12), typeName ? AnsiToUtf8(typeName) : std::string(),
-            [&] {
-                std::vector<std::string> names;
-                for (int t = 0; t < manager->GetParameterTypesCount(); ++t) {
-                    const char *name = manager->IsParameterTypeToBeShown(t) ? manager->ParameterTypeToName(t) : nullptr;
-                    if (name && *name) names.push_back(AnsiToUtf8(name));
-                }
-                return names;
-            },
-            -1);
-        if (chosenType >= 0)
-            for (int t = 0, shown = 0; t < manager->GetParameterTypesCount(); ++t) {
-                const char *name = manager->IsParameterTypeToBeShown(t) ? manager->ParameterTypeToName(t) : nullptr;
-                if (!name || !*name) continue;
-                if (shown++ == chosenType) {
-                    m_SearchType = t;
-                    value = ExplorerValue(false);
-                    replace = ExplorerValue(true);
-                }
-            }
-        if (!typed) ImGui::EndDisabled();
+    auto *value = ExplorerValue(false), *replace = ExplorerValue(true);
+    std::string currentType;
+    std::vector<std::string> names;
+    for (const auto &row : m_ParameterTypes) {
+        EditorResponse r;
+        r.fields = row.fields;
+        auto name = EditorClient::Text(r, "name");
+        names.push_back(name);
+        if (EditorClient::Integer(r, "type") == m_SearchType)
+            currentType = name;
     }
+    ImGui::BeginDisabled(!typed);
+    const auto chosenType =
+        vi::Combo("##type", l.Min(237, 236), l.Max(237, 236, 105, 12), currentType, [&] { return names; }, -1);
+    if (chosenType >= 0 && size_t(chosenType) < m_ParameterTypes.size()) {
+        EditorResponse r;
+        r.fields = m_ParameterTypes[size_t(chosenType)].fields;
+        m_SearchType = EditorClient::Integer(r, "type");
+        value = ExplorerValue(false);
+        replace = ExplorerValue(true);
+    }
+    ImGui::EndDisabled();
     vi::CheckButton("Derived", l.Min(290, 251), l.Max(290, 251, 52, 10), m_SearchDerived, "Derived", typed);
     if (vi::Button("editvalue", l.Min(115, 251), l.Max(115, 251, 75, 10), "Edit Value", valued && value)) {
         m_ExplorerBox.Clear();
-        if (m_ExplorerBox.Add(value, "Filter Value")) {
+        if (m_ExplorerBox.AddDraft(*value, "Filter Value")) {
             m_ExplorerEditReplace = false;
             m_OpenExplorerValue = true;
         }
     }
-    text(196, 251, 85, 10, value && valued ? AnsiToUtf8(ParameterText(value)).c_str() : "");
+    text(196, 251, 85, 10, value && valued ? AnsiToUtf8(value->Text(0)).c_str() : "");
     if (vi::Button("editreplace", l.Min(115, 264), l.Max(115, 264, 75, 10), "Edit Replace Value", valued && replace)) {
         m_ExplorerBox.Clear();
-        if (m_ExplorerBox.Add(replace, "Replace Value")) {
+        if (m_ExplorerBox.AddDraft(*replace, "Replace Value")) {
             m_ExplorerEditReplace = true;
             m_OpenExplorerValue = true;
         }
     }
-    text(196, 264, 85, 10, replace && valued ? AnsiToUtf8(ParameterText(replace)).c_str() : "");
+    text(196, 264, 85, 10, replace && valued ? AnsiToUtf8(replace->Text(0)).c_str() : "");
     // Replace Value (Dev.exe sub_5B9600): every parameter listed takes the
     // replace value, which the filter then looks for.
     if (vi::Button("replacevalue", l.Min(285, 264), l.Max(285, 264, 57, 10), "Replace Value", valued && replace && value)) {
-        std::vector<std::pair<CK_ID, CK_ID>> parameters;
-        for (const SearchResult &result : m_Doc.results)
-            if (result.object) parameters.emplace_back(result.script, result.object);
-        const EditResult result = ReplaceParameterValues(*m_State.document, parameters, replace->GetID());
-        if (!result.ok && !result.Unchanged()) m_State.Log(LogLevel::Warning, "Replace Value: " + AnsiToUtf8(result.message));
-        value->CopyValue(replace, FALSE);
+        EditorField elements{"elements", EDITOR_RECORD};
+        for (const auto &row : m_Doc.results)
+            if (row.objectReference)
+                elements.fields.push_back(
+                    SchematicPosition(row.address, std::to_string(elements.fields.size()).c_str()));
+        Command("schematic.replace-search-values", {elements, {"value", EDITOR_OBJECT, replace->WorkReference()}});
     }
     // Edit Value / Edit Replace Value: Dev's Edit Parameter on the value.
     const char *dialog = "Edit Parameter###ExplorerValue";
@@ -509,21 +617,19 @@ void EditorPanels::ExplorerPanel(bool *open) {
         ImGui::OpenPopup(dialog);
         m_OpenExplorerValue = false;
     }
-    const char *typeName = manager && m_SearchType >= 0 ? manager->ParameterTypeToName(m_SearchType) : nullptr;
+    const char *typeName = currentType.c_str();
     const DialogAction action = EditParameterValueDialog(dialog, "Edit Parameter", m_ExplorerBox, typeName);
     if (action == DialogAction::Ok)
-        if (CKParameter *target = m_ExplorerEditReplace ? replace : value)
-            if (CKParameter *work = m_ExplorerBox.Work(0)) target->CopyValue(work, FALSE);
-    if (action != DialogAction::None) m_ExplorerBox.Clear();
+        if (auto *target = m_ExplorerEditReplace ? replace : value)
+            target->CopyDraft(m_ExplorerBox);
+    if (action != DialogAction::None) {
+        m_ExplorerBox.Clear();
+        m_Doc.resultsKey.clear();
+    }
 
     if (vi::DialogButton("Select", ImVec2(l.right - 130.0f * s, l.buttonsY), s, ImGuiKey_Enter)) close(true);
     else if (vi::DialogButton("Cancel", ImVec2(l.right - 60.0f * s, l.buttonsY), s, ImGuiKey_Escape)) close(false);
     vi::EndWindow();
-}
-
-void EditorPanels::Report(const EditResult &result, const char *what) {
-    if (!result.Unchanged()) m_State.Log(result.ok ? LogLevel::Info : LogLevel::Warning,
-        std::string(what) + ": " + AnsiToUtf8(result.message));
 }
 
 } // namespace vdev
