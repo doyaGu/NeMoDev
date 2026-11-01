@@ -7,6 +7,9 @@
 
 namespace vdev {
 
+std::string DevClassName(CKObject *object);
+std::string DevObjectName(CKObject *object);
+
 // The 3D Layout's Selection Groups (Dev.exe sub_4C3D10, the top bar's combo,
 // id 18): the groups of the scene, in the order the scene lists them.
 std::vector<CK_ID> SceneGroups(CKContext *context, CKScene *scene);

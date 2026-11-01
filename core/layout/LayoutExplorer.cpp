@@ -1,8 +1,50 @@
 #include "core/layout/LayoutExplorer.h"
 
 #include <algorithm>
+#include <cstdio>
+#include "core/runtime/TextEncoding.h"
 
 namespace vdev {
+
+std::string DevClassName(CKObject *object) {
+    if (!object) return "Object";
+    const CK_CLASSID cid = object->GetClassID();
+    auto named = [](CK_CLASSID id) {
+        const char *name = CKClassIDToString(id);
+        return std::string(name ? name : "Object");
+    };
+    if (cid == CKCID_3DENTITY) {
+        const CKDWORD flags = CK3dEntity::Cast(object)->GetFlags();
+        if (flags & CK_3DENTITY_FRAME) return "3D Frame";
+        if (flags & CK_3DENTITY_TARGETLIGHT) return named(CKCID_TARGETLIGHT);
+        if (flags & CK_3DENTITY_TARGETCAMERA) return named(CKCID_TARGETCAMERA);
+        if (flags & CK_3DENTITY_PORTAL) return "Portal";
+        return named(cid);
+    }
+    if (cid == CKCID_2DENTITY) return "2D Frame";
+    if (CKLight *light = CKLight::Cast(object)) {
+        switch (light->GetType()) {
+        case VX_LIGHTPOINT: return "Point Light";
+        case VX_LIGHTSPOT: return "Spot Light";
+        case VX_LIGHTDIREC: return "Directional Light";
+        case VX_LIGHTPARA: return "Parallel Light";
+        default: return named(cid);
+        }
+    }
+    if (CKBehavior *behavior = CKBehavior::Cast(object))
+        if (behavior->GetType() & CKBEHAVIORTYPE_SCRIPT) return "Script";
+    return named(cid);
+}
+
+std::string DevObjectName(CKObject *object) {
+    if (!object) return "None";
+    if (object->GetName()) return AnsiToUtf8(object->GetName());
+    char text[96];
+    const char *cls = CKClassIDToString(object->GetClassID());
+    std::snprintf(text, sizeof(text), "%s_%x", cls ? cls : "Object", static_cast<unsigned>(object->GetID()));
+    return text;
+}
+
 
 std::vector<CK_ID> SceneGroups(CKContext *context, CKScene *scene) {
     std::vector<CK_ID> groups;
