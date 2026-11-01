@@ -1473,11 +1473,7 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
             const int width = std::min(48, (SnapshotBuffer::WIDTH * height + SnapshotBuffer::HEIGHT / 2) / SnapshotBuffer::HEIGHT);
             const std::vector<unsigned char> pixels = ShrinkImage(m_State.snapshots.Pixels(slot).data(), SnapshotBuffer::WIDTH,
                                                                   SnapshotBuffer::HEIGHT, SnapshotBuffer::WIDTH * 4, width, height);
-            if (void *bitmap = BitmapFromPixels(pixels.data(), width, height)) {
-                m_State.document->KeepBitmap(bitmap);
-                if (!SetScriptSnapshot(*m_State.document, hit.view->id, bitmap))
-                    m_State.Log(LogLevel::Warning, "Snapshot: the Script's display is read-only");
-            }
+            SetSnapshotPixels(hit.view->identity, pixels, width, height);
         }
     }
     ImGui::EndDragDropTarget();

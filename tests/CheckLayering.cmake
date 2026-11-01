@@ -67,7 +67,7 @@ foreach (_source IN LISTS _sources)
                 NOT (_source STREQUAL "application/DocumentFiles.h" AND
                      _path MATCHES "^core/(document/(Document|DocumentSaver|LinkValidation)|runtime/CkRuntimeHost)\\.h$") AND
                 NOT (_source STREQUAL "application/DocumentFiles.cpp" AND
-                     _path MATCHES "^core/(document/(ToolCommands|ExportCommands|FileCommands|OutputFiles|ScriptSession)|graph/(NmsCommands|ReplaceCommands|RuntimeGraph)|runtime/TextEncoding)\\.h$") AND
+                     _path MATCHES "^core/(document/(ToolCommands|ExportCommands|FileCommands|OutputFiles|ScriptSession)|graph/(NmsCommands|ReplaceCommands|RuntimeGraph|ScriptCommands)|runtime/TextEncoding)\\.h$") AND
                 NOT (_source STREQUAL "application/OutputCommands.cpp" AND
                      _path STREQUAL "core/document/FileCommands.h") AND
                 NOT (_source STREQUAL "application/ExecutionCommands.cpp" AND

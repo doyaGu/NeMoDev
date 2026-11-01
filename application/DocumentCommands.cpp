@@ -47,6 +47,7 @@ struct DocumentCommands::State {
         DocumentFiles::ResourceLoad resources;
         DocumentFiles::ExportRequest exportRequest;
         DocumentFiles::GraphRequest graphRequest;
+        DocumentFiles::SnapshotRequest snapshotRequest;
         EditorView view = 0;
         std::string initial;
         bool askOptions = false, askDescription = false;
@@ -68,6 +69,7 @@ struct DocumentCommands::State {
         return action == Action::New || action == Action::Open || action == Action::Close || action == Action::Quit;
     }
     static bool GraphFile(Action action) { return action == Action::ImportGraph || action == Action::ReplaceGraph; }
+    static bool SourceViewRequired(Action action) { return GraphFile(action) || action == Action::LoadSnapshot; }
     std::string CurrentPath() const {
         return !lastSaved.empty() ? lastSaved : HasDocument() ? current()->SourcePath() : std::string();
     }
@@ -87,6 +89,10 @@ struct DocumentCommands::State {
             } else if (file == Input::File::Behaviors) {
                 input->extension = "nms";
                 input->filters = {{"Virtools Behaviors (*.nms)", "*.nms"}, {"All files (*.*)", "*.*"}};
+            } else if (file == Input::File::Image) {
+                input->filters = {{"Images (*.bmp;*.png;*.jpg;*.jpeg;*.gif;*.tif;*.tiff)",
+                                   "*.bmp;*.png;*.jpg;*.jpeg;*.gif;*.tif;*.tiff"},
+                                  {"All files (*.*)", "*.*"}};
             } else if (file == Input::File::Composition) {
                 input->extension = "cmo";
                 input->filters = {{"Virtools compositions (*.cmo;*.nmo;*.vmo)", "*.cmo;*.nmo;*.vmo"},
@@ -229,6 +235,10 @@ struct DocumentCommands::State {
             }
         } else if (command.action == Action::LoadScripts) {
             operation->resources.targets.push_back(Field(*request, "target")->object);
+        } else if (command.action == Action::LoadSnapshot) {
+            operation->snapshotRequest.script = Field(*request, "target")->object;
+            operation->snapshotRequest.revision = Field(*request, "revision")->integer;
+            operation->snapshotRequest.topology = Field(*request, "topology")->integer;
         } else if (GraphFile(command.action)) {
             auto &graph = operation->graphRequest;
             graph.script = Field(*request, "target")->object;
@@ -269,6 +279,10 @@ struct DocumentCommands::State {
         return EDITOR_QUEUED;
     }
     bool ValidArguments(Action action, const EditorRequest &request) const {
+        if (action == Action::LoadSnapshot) {
+            if (const auto *path = Field(request, "path"); path && Text(path->text).find('\0') != std::string::npos)
+                return false;
+        }
         if (GraphFile(action)) {
             const auto *point = Field(request, "at");
             if (!point || point->reals.count != 2)
@@ -522,6 +536,24 @@ struct DocumentCommands::State {
             operation->resources.files = {{result.path, CKCID_BEHAVIOR}};
             LoadResources();
             return;
+        case Action::LoadSnapshot:
+            if (result.path.empty()) {
+                Ask(Input::Kind::File, Input::File::Image, false, "Load Snapshot for Script");
+                return;
+            }
+            operation->snapshotRequest.path = result.path;
+            if (!files.LoadScriptSnapshot(
+                    operation->snapshotRequest, [this, operation](const DocumentFiles::SnapshotResult &snapshot) {
+                        operation->result.message = AnsiToUtf8(snapshot.edit.message);
+                        Finish(operation, snapshot.stop == DocumentFiles::LoadResult::Stop::Stale ? EDITOR_STALE
+                                          : !snapshot.completed                                   ? EDITOR_ERROR
+                                          : snapshot.edit.ok                                      ? EDITOR_OK
+                                          : snapshot.edit.Unchanged()                             ? EDITOR_NO_CHANGE
+                                          : snapshot.edit.Status() == EditStatus::Refused         ? EDITOR_REFUSED
+                                                                                                  : EDITOR_ERROR);
+                    }))
+                Finish(operation, EDITOR_REFUSED);
+            return;
         case Action::ImportGraph:
         case Action::ReplaceGraph:
             if (result.path.empty()) {
@@ -601,7 +633,8 @@ struct DocumentCommands::State {
     EditorStatus RespondToInput(uint64_t id, const std::string &choice, const std::string &path) {
         if (!active || !input || input->id != id) return EDITOR_STALE;
         const auto operation = active;
-        if (GraphFile(operation->result.action) && operation->view && !editor.Scope(operation->view).document.value) {
+        if (SourceViewRequired(operation->result.action) && operation->view &&
+            !editor.Scope(operation->view).document.value) {
             Finish(operation, EDITOR_CANCELLED);
             return EDITOR_CANCELLED;
         }
@@ -752,7 +785,7 @@ std::string DocumentCommands::CurrentFilePath() const {
     return m_State->CurrentPath();
 }
 void DocumentCommands::Poll() {
-    if (m_State->active && m_State->input && m_State->GraphFile(m_State->active->result.action) &&
+    if (m_State->active && m_State->input && m_State->SourceViewRequired(m_State->active->result.action) &&
         m_State->active->view && !m_State->editor.Scope(m_State->active->view).document.value)
         m_State->Finish(m_State->active, EDITOR_CANCELLED);
     if (m_State->active && !m_State->active->scope.IsCurrent() && !m_State->runtime.Busy())
@@ -781,31 +814,33 @@ bool DocumentCommands::Register(std::string &error) {
         A action;
         const char *location = nullptr;
     };
-    const Description descriptions[] = {{"document.new", "New Composition", A::New, "file.new"},
-                                        {"document.open", "Load Composition...", A::Open, "file.document"},
-                                        {"document.save", "Save Composition", A::Save, "file.document"},
-                                        {"document.save-as", "Save As...", A::SaveAs, "file.document"},
-                                        {"document.save-version", "Save Version", A::SaveVersion, "file.document"},
-                                        {"document.revert", "Revert to Saved", A::Revert, "file.document"},
-                                        {"document.close", "Close", A::Close, "file.close"},
-                                        {"application.quit", "Exit", A::Quit, "file.close"},
-                                        {"document.merge", "Merge Composition...", A::Merge, "file.merge"},
-                                        {"document.merge-scene", "Merge Composition as New Scene...", A::MergeScene, "file.merge"},
-                                        {"document.import", "Import File", A::Import, "resources.import"},
-                                        {"document.import-character", "Character", A::ImportCharacter, "resources.import-as"},
-                                        {"document.import-place", "Place", A::ImportPlace, "resources.import-as"},
-                                        {"document.import-scene", "Scene", A::ImportScene, "resources.import-as"},
-                                        {"document.export-player", "Export to Virtools Player...", A::Player, "file.export"},
-                                        {"history.undo", "Undo (3d Layout/Schematic only)", A::Undo, "file.history"},
-                                        {"history.redo", "Redo (3d Layout/Schematic only)", A::Redo, "file.history"},
-                                        {"history.purge", "Purge Undo", A::Purge, "file.history"},
-                                        {"resource.load", "Load resources", A::LoadResources},
-                                        {"resource.drop", "Drop resources", A::DropResources},
-                                        {"script.load", "Load Script...", A::LoadScripts},
-                                        {"schematic.import-graph", "Import Behavior Graph", A::ImportGraph},
-                                        {"schematic.replace-file-graph", "Replace with File Graph", A::ReplaceGraph},
-                                        {"object.export", "Save Objects as...", A::ExportObjects},
-                                        {"script.export", "Save behaviors as...", A::ExportBehaviors}};
+    const Description descriptions[] = {
+        {"document.new", "New Composition", A::New, "file.new"},
+        {"document.open", "Load Composition...", A::Open, "file.document"},
+        {"document.save", "Save Composition", A::Save, "file.document"},
+        {"document.save-as", "Save As...", A::SaveAs, "file.document"},
+        {"document.save-version", "Save Version", A::SaveVersion, "file.document"},
+        {"document.revert", "Revert to Saved", A::Revert, "file.document"},
+        {"document.close", "Close", A::Close, "file.close"},
+        {"application.quit", "Exit", A::Quit, "file.close"},
+        {"document.merge", "Merge Composition...", A::Merge, "file.merge"},
+        {"document.merge-scene", "Merge Composition as New Scene...", A::MergeScene, "file.merge"},
+        {"document.import", "Import File", A::Import, "resources.import"},
+        {"document.import-character", "Character", A::ImportCharacter, "resources.import-as"},
+        {"document.import-place", "Place", A::ImportPlace, "resources.import-as"},
+        {"document.import-scene", "Scene", A::ImportScene, "resources.import-as"},
+        {"document.export-player", "Export to Virtools Player...", A::Player, "file.export"},
+        {"history.undo", "Undo (3d Layout/Schematic only)", A::Undo, "file.history"},
+        {"history.redo", "Redo (3d Layout/Schematic only)", A::Redo, "file.history"},
+        {"history.purge", "Purge Undo", A::Purge, "file.history"},
+        {"resource.load", "Load resources", A::LoadResources},
+        {"resource.drop", "Drop resources", A::DropResources},
+        {"script.load", "Load Script...", A::LoadScripts},
+        {"schematic.import-graph", "Import Behavior Graph", A::ImportGraph},
+        {"schematic.replace-file-graph", "Replace with File Graph", A::ReplaceGraph},
+        {"object.export", "Save Objects as...", A::ExportObjects},
+        {"script.export", "Save behaviors as...", A::ExportBehaviors},
+        {"schematic.load-snapshot", "Load Snapshot for Script", A::LoadSnapshot}};
     std::vector<EditorCommandDesc> commands;
     const EditorParameter path{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1};
     const EditorParameter resources[] = {{EDITOR_TEXT("paths"), EDITOR_TEXT_LIST},
@@ -820,6 +855,10 @@ bool DocumentCommands::Register(std::string &error) {
                                      {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE},
                                      {EDITOR_TEXT("at"), EDITOR_REAL_LIST},
                                      path};
+    const EditorParameter snapshot[] = {script[0],
+                                        {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE},
+                                        path};
     const EditorParameter objects[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, path,
         {EDITOR_TEXT("initial"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, 1},
         {EDITOR_TEXT("ask-options"), EDITOR_INTEGER_VALUE, 1}};
@@ -843,6 +882,10 @@ bool DocumentCommands::Register(std::string &error) {
         if (command.action == A::LoadResources) { descriptor.parameters = resources; descriptor.count = 3; }
         if (command.action == A::DropResources) { descriptor.parameters = drop; descriptor.count = 5; }
         if (command.action == A::LoadScripts) { descriptor.parameters = script; descriptor.count = 2; }
+        if (command.action == A::LoadSnapshot) {
+            descriptor.parameters = snapshot;
+            descriptor.count = 4;
+        }
         if (State::GraphFile(command.action)) {
             descriptor.parameters = graph;
             descriptor.count = 6;

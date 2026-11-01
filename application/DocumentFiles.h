@@ -115,6 +115,17 @@ class DocumentFiles {
     };
     bool DescribeExport(const ExportRequest &request, std::function<void(bool, const ExportInfo &)> completed);
     bool Export(ExportRequest request, std::function<void(const ExportResult &)> completed);
+    struct SnapshotRequest {
+        ObjectRef script{};
+        uint64_t revision = 0, topology = 0;
+        std::string path;
+    };
+    struct SnapshotResult {
+        EditResult edit = EditResult::NoChange();
+        bool completed = false;
+        LoadResult::Stop stop = LoadResult::Stop::Failed;
+    };
+    bool LoadScriptSnapshot(SnapshotRequest request, std::function<void(const SnapshotResult &)> completed);
     struct GraphRequest {
         ObjectRef script{}, graph{};
         uint64_t revision = 0, topology = 0;

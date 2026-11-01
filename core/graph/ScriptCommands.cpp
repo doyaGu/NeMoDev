@@ -2,6 +2,11 @@
 
 #include <memory>
 #include <string>
+#include <algorithm>
+#include <cstring>
+#include <SDL3/SDL.h>
+#include "core/runtime/ImageFiles.h"
+#include "core/runtime/TextEncoding.h"
 
 #include "core/runtime/CkRuntimeHost.h"
 #include "core/graph/RuntimeGraph.h"
@@ -173,6 +178,63 @@ bool SetScriptSnapshot(Document &document, CK_ID script, void *bitmap) {
                           [bitmap, owner = document.BitmapOwner(bitmap)](InterfaceData &data) {
                               data.header.SetSnapshot(bitmap, owner);
                           });
+}
+
+void *LoadSnapshotBitmap(const std::wstring &path, int maxWidth, int maxHeight, std::string *error) {
+    std::vector<unsigned char> source;
+    int width = 0, height = 0;
+    if (maxWidth <= 0 || maxHeight <= 0 || !ReadImageRgba(WideToUtf8(path), source, width, height)) {
+        if (error)
+            *error = "Cannot decode the snapshot image";
+        return nullptr;
+    }
+    const double scale = std::min(1.0, std::min(double(maxWidth) / width, double(maxHeight) / height));
+    const int w = std::max(1, int(width * scale + 0.5)), h = std::max(1, int(height * scale + 0.5));
+    SDL_Surface *input = SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_RGBA32, source.data(), width * 4);
+    SDL_Surface *output = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_BGRA32);
+    if (!input || !output || !SDL_BlitSurfaceScaled(input, nullptr, output, nullptr, SDL_SCALEMODE_LINEAR)) {
+        SDL_DestroySurface(input);
+        SDL_DestroySurface(output);
+        if (error)
+            *error = "Cannot scale the snapshot image";
+        return nullptr;
+    }
+    std::vector<unsigned char> bgra(static_cast<size_t>(w) * h * 4);
+    for (int row = 0; row < h; ++row)
+        std::memcpy(bgra.data() + static_cast<size_t>(row) * w * 4,
+                    static_cast<unsigned char *>(output->pixels) + static_cast<size_t>(row) * output->pitch,
+                    static_cast<size_t>(w) * 4);
+    for (size_t i = 3; i < bgra.size(); i += 4)
+        bgra[i] = 255;
+    SDL_DestroySurface(input);
+    SDL_DestroySurface(output);
+    void *bitmap = [&] {
+        VxImageDescEx image;
+        image.Width = w;
+        image.Height = h;
+        image.BitsPerPixel = 32;
+        image.BytesPerLine = w * 4;
+        image.RedMask = 0xff0000;
+        image.GreenMask = 0xff00;
+        image.BlueMask = 0xff;
+        image.AlphaMask = 0xff000000;
+        image.Image = bgra.data();
+        return VxCreateBitmap(image);
+    }();
+    if (!bitmap && error)
+        *error = "Cannot create the snapshot bitmap";
+    return bitmap;
+}
+EditResult LoadScriptSnapshot(Document &document, CK_ID script, const std::string &path) {
+    auto *session = document.Session(script);
+    if (!session || session->ReadOnly())
+        return EditResult::Refused("The Script is read-only");
+    std::string error;
+    auto *bitmap = LoadSnapshotBitmap(Utf8ToWide(path), 48, 36, &error);
+    if (!bitmap)
+        return EditResult::Error(error);
+    auto owner = document.KeepBitmap(bitmap);
+    return SetScriptSnapshot(document, script, bitmap) ? EditResult::Applied() : EditResult::NoChange();
 }
 
 } // namespace vdev

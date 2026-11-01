@@ -16,12 +16,7 @@ class SnapshotBuffer;
 // Convert a session Snapshot Buffer slot to a document picture edit.
 void SetObjectPictureFromSnapshot(Document &document, uint32_t object, const SnapshotBuffer &buffer, int slot);
 
-// Script snapshots (Dev "Load Snapshot for Script"): an image file read with
-// the image reader, scaled down to fit width x height (aspect kept), as a 32-bit DIB
-// section (the bitmap handle InterfaceChunks store). Null on failure.
-void *LoadSnapshotBitmap(const std::wstring &path, int width, int height, std::string *error);
-
-// A 32-bit DIB section of BGRA rows (opaque), as LoadSnapshotBitmap makes;
+// A 32-bit DIB section of BGRA rows (opaque), for SDK bitmaps;
 // null on failure.
 void *BitmapFromPixels(const void *bgra, int width, int height);
 // The pixels of a bitmap handle as top-down BGRA rows; false when it cannot be read.

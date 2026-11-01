@@ -37,6 +37,7 @@ void CopyScriptDisplay(Document &document, CKBehavior *original, CKBehavior *cop
 // adopted with Document::KeepBitmap; display/undo owners retain it; null removes it).
 // Display data only.
 bool SetScriptSnapshot(Document &document, CK_ID script, void *bitmap);
+EditResult LoadScriptSnapshot(Document &, CK_ID script, const std::string &path);
 
 // Replaces ids of a Script's display data through map (records, links and
 // their endpoints, operations, shortcut sources); ids not in map stay.

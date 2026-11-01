@@ -687,28 +687,40 @@ void SchematicCanvas::ExecuteSelectedScripts() {
 // --------------------------------------------------------------- snapshot
 
 // Dev "Load Snapshot for Script": an image scaled into the header's snapshot place.
-void SchematicCanvas::LoadSnapshotFor(CK_ID script) {
-    if (!m_State.HasDocument()) return;
-    // Read with WIC: the wide path, any name.
-    FileDialogOptions options;
-    options.filter = L"Images (*.bmp;*.png;*.jpg;*.jpeg;*.gif;*.tif)\0*.bmp;*.png;*.jpg;*.jpeg;*.gif;*.tif;*.tiff\0All files (*.*)\0*.*\0";
-    const auto scriptRef = m_State.document->Reference(script);
-    RequestFile(options, [this, scriptRef](const FileDialogResult &selection) {
-        if (selection.status != FileDialogResult::Status::Selected) return;
-        const auto script = m_State.document->NativeId(scriptRef);
-        if (!script) return;
-        const std::wstring path = Utf8ToWide(selection.paths.front());
-    std::string error;
-    // The header's snapshot place is 49 x 38 pixels (library layout).
-    void *bitmap = LoadSnapshotBitmap(path, 48, 36, &error);
-    if (!bitmap) {
-        m_State.Log(LogLevel::Error, "Load Snapshot for Script: " + error);
+void SchematicCanvas::LoadSnapshotFor(CK_ID script, const std::string &path) {
+    const auto scripts = ScriptReferences({script});
+    if (scripts.empty())
         return;
-    }
-    m_State.document->KeepBitmap(bitmap);
-    if (!SetScriptSnapshot(*m_State.document, script, bitmap))
-        m_State.Log(LogLevel::Warning, "Load Snapshot for Script: the Script's display is read-only");
-    });
+    const auto header = Client().Query("schematic.script-header", {ObjectArgument("target", scripts.front())});
+    if (header.status != EDITOR_OK)
+        return;
+    std::vector<EditorValue> args{ObjectArgument("target", scripts.front()),
+                                  IntegerArgument("revision", EditorClient::Integer(header, "revision")),
+                                  IntegerArgument("topology", EditorClient::Integer(header, "topology"))};
+    if (!path.empty())
+        args.push_back(TextArgument("path", path));
+    Execute("schematic.load-snapshot", args);
+}
+void SchematicCanvas::SetSnapshotPixels(ObjectRef script, const std::vector<unsigned char> &bytes, unsigned width,
+                                        unsigned height) {
+    if (bytes.size() != size_t(width) * height * 4)
+        return;
+    const auto header = Client().Query("schematic.script-header", {ObjectArgument("target", script)});
+    if (header.status != EDITOR_OK)
+        return;
+    EditorField pixels{"pixels", EDITOR_INTEGER_LIST};
+    for (size_t i = 0; i < bytes.size(); i += 4)
+        pixels.integers.push_back(uint32_t(bytes[i]) | uint32_t(bytes[i + 1]) << 8 | uint32_t(bytes[i + 2]) << 16 |
+                                  uint32_t(bytes[i + 3]) << 24);
+    const std::vector<EditorField> fields{
+        {"target", EDITOR_OBJECT, script},
+        {"revision", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(header, "revision")},
+        {"topology", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(header, "topology")},
+        {"width", EDITOR_INTEGER_VALUE, {}, {}, width},
+        {"height", EDITOR_INTEGER_VALUE, {}, {}, height},
+        pixels};
+    const auto values = BorrowEditorFields(fields);
+    Execute("schematic.set-script-snapshot", {values.data(), values.data() + values.size()});
 }
 
 // Dev drag and drop: an image on a Script sets its snapshot; an .nms file on
@@ -716,21 +728,14 @@ void SchematicCanvas::LoadSnapshotFor(CK_ID script) {
 // Script it is imported (Import Behavior Graph).
 bool SchematicCanvas::DropFile(const std::wstring &path, const std::string &ansiPath, const ImVec2 &screen) {
     const Hit hit = HitAt(screen);
-    if (!hit.view || !m_State.HasDocument()) return false;
+    if (!hit.view || !(Client().Scope().document.value != 0))
+        return false;
     std::wstring extension = path.substr(path.find_last_of(L'.') == std::wstring::npos ? path.size() : path.find_last_of(L'.'));
     for (auto &c : extension) c = static_cast<wchar_t>(towlower(c));
     const CK_ID script = hit.view->id;
     if (extension == L".bmp" || extension == L".png" || extension == L".jpg" || extension == L".jpeg" ||
         extension == L".gif" || extension == L".tif" || extension == L".tiff") {
-        std::string error;
-        void *bitmap = LoadSnapshotBitmap(path, 48, 36, &error);
-        if (!bitmap) {
-            m_State.Log(LogLevel::Error, "Snapshot: " + error);
-            return true;
-        }
-        m_State.document->KeepBitmap(bitmap);
-        if (!SetScriptSnapshot(*m_State.document, script, bitmap))
-            m_State.Log(LogLevel::Warning, "Snapshot: the Script's display is read-only");
+        LoadSnapshotFor(script, WideToUtf8(path));
         return true;
     }
     if (extension == L".nms") {

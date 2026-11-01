@@ -5,6 +5,7 @@
 #include "core/document/FileCommands.h"
 #include "core/document/OutputFiles.h"
 #include "core/graph/NmsCommands.h"
+#include "core/graph/ScriptCommands.h"
 #include "core/graph/ReplaceCommands.h"
 #include "core/graph/RuntimeGraph.h"
 #include "core/document/ScriptSession.h"
@@ -405,6 +406,41 @@ bool DocumentFiles::DescribeExport(const ExportRequest &request,
     }, [info, valid, completed = std::move(completed)](bool ok) {
         if (completed) completed(ok && *valid, *info);
     });
+}
+
+bool DocumentFiles::LoadScriptSnapshot(SnapshotRequest request, std::function<void(const SnapshotResult &)> completed) {
+    auto result = std::make_shared<SnapshotResult>();
+    const auto scope = m_Runtime.CurrentDocument();
+    return Run(
+        "Loading Script snapshot",
+        [this, request, result, scope] {
+            auto *doc = Current();
+            auto *session = doc && doc->Resolve(request.script) && doc->FindScript(request.script.object)
+                                ? doc->Session(request.script.object)
+                                : nullptr;
+            if (!scope.IsCurrent() || !session || session->Revision() != request.revision ||
+                doc->TopologyRevision() != request.topology) {
+                result->stop = LoadResult::Stop::Stale;
+                result->edit = EditResult::Refused("The Script changed before loading its snapshot");
+                return;
+            }
+            result->edit = vdev::LoadScriptSnapshot(*doc, request.script.object, request.path);
+            result->completed = true;
+        },
+        [result, scope, completed = std::move(completed)](bool ok) {
+            const bool changed = result->completed;
+            result->completed = changed || ok;
+            if (!scope.IsCurrent())
+                result->stop = LoadResult::Stop::Stale;
+            if (!ok && !changed)
+                result->edit = EditResult::Error("The snapshot operation failed");
+            else if (!ok)
+                result->edit.message +=
+                    (result->edit.message.empty() ? "" : "; ") +
+                    std::string("The snapshot operation completed before the runtime reported a failure");
+            if (completed)
+                completed(*result);
+        });
 }
 
 bool DocumentFiles::EditGraph(GraphRequest request, std::function<void(const GraphResult &)> completed) {

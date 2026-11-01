@@ -374,7 +374,8 @@ private:
     // The parameter a breakpoint condition can pick at hit: a local, a
     // shortcut's, a behavior's or an operation's parameter pin (0: none).
     CK_ID ConditionParameterAt(const Hit &hit) const;
-    void LoadSnapshotFor(CK_ID script);
+    void LoadSnapshotFor(CK_ID script, const std::string &path = {});
+    void SetSnapshotPixels(ObjectRef script, const std::vector<unsigned char> &, unsigned width, unsigned height);
     void ReplaceGraphDialog();
     void ReplaceWithFile(CK_ID script, CK_ID graph);
     bool IsBuildingBlockAt(const Hit &hit) const;

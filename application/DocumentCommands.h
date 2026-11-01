@@ -34,7 +34,8 @@ class DocumentCommands {
         ExportBehaviors,
         Undo,
         Redo,
-        Purge
+        Purge,
+        LoadSnapshot
     };
     struct Settings {
         DocumentFiles::OpenOptions open;
@@ -48,7 +49,7 @@ class DocumentCommands {
             ObjectExport = EDITOR_OBJECT_EXPORT_INPUT,
             BehaviorExport = EDITOR_BEHAVIOR_EXPORT_INPUT
         };
-        enum class File { Composition, Import, Player, Objects, Behaviors };
+        enum class File { Composition, Import, Player, Objects, Behaviors, Image };
         uint64_t id = 0;
         EditorOperation operation = 0;
         Kind kind = Kind::File;
