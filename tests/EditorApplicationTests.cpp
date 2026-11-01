@@ -23,6 +23,7 @@ void TestSetupEdits(vdev::CkRuntimeHost &host);
 void TestSchematicEdits(vdev::CkRuntimeHost &host);
 void TestGraphChangeNotifications(vdev::CkRuntimeHost &host, const std::string &modulePath);
 void TestDocumentCommands(vdev::CkRuntimeHost &host);
+void TestGraphFileCommands(vdev::CkRuntimeHost &);
 void TestDocumentTransitions(vdev::CkRuntimeHost &host);
 void TestOutputCommands(vdev::CkRuntimeHost &host);
 void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
@@ -667,6 +668,7 @@ int main(int argc, char **argv) {
         Check(runtime.Start(path ? path : ".", {}, &error), error.c_str());
         Edits(runtime, argv[1]);
         TestDocumentCommands(runtime);
+        TestGraphFileCommands(runtime);
         TestDocumentTransitions(runtime);
         TestOutputCommands(runtime);
         TestWorkspace(runtime);

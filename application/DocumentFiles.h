@@ -115,6 +115,21 @@ class DocumentFiles {
     };
     bool DescribeExport(const ExportRequest &request, std::function<void(bool, const ExportInfo &)> completed);
     bool Export(ExportRequest request, std::function<void(const ExportResult &)> completed);
+    struct GraphRequest {
+        ObjectRef script{}, graph{};
+        uint64_t revision = 0, topology = 0;
+        float h = 0, v = 0;
+        bool replace = false;
+        std::string path;
+    };
+    struct GraphResult {
+        EditResult edit = EditResult::NoChange();
+        ObjectRef created{}, owner{};
+        uint64_t documentRevision = 0;
+        bool completed = false;
+        LoadResult::Stop stop = LoadResult::Stop::Failed;
+    };
+    bool EditGraph(GraphRequest request, std::function<void(const GraphResult &)> completed);
     struct WebPage {
         std::string path, title;
         int width = 320, height = 240;

@@ -4,6 +4,10 @@
 #include "core/document/ExportCommands.h"
 #include "core/document/FileCommands.h"
 #include "core/document/OutputFiles.h"
+#include "core/graph/NmsCommands.h"
+#include "core/graph/ReplaceCommands.h"
+#include "core/graph/RuntimeGraph.h"
+#include "core/document/ScriptSession.h"
 #include <fstream>
 #include "core/runtime/TextEncoding.h"
 
@@ -401,6 +405,51 @@ bool DocumentFiles::DescribeExport(const ExportRequest &request,
     }, [info, valid, completed = std::move(completed)](bool ok) {
         if (completed) completed(ok && *valid, *info);
     });
+}
+
+bool DocumentFiles::EditGraph(GraphRequest request, std::function<void(const GraphResult &)> completed) {
+    auto result = std::make_shared<GraphResult>();
+    const auto scope = m_Runtime.CurrentDocument();
+    return Run(
+        request.replace ? "Replacing behavior graph" : "Importing behavior graph",
+        [this, request, result, scope] {
+            auto *doc = Current();
+            auto *script = doc ? CKBehavior::Cast(doc->Resolve(request.script)) : nullptr;
+            auto *graph = doc ? CKBehavior::Cast(doc->Resolve(request.graph)) : nullptr;
+            auto *session = script && doc->FindScript(script->GetID()) ? doc->Session(script->GetID()) : nullptr;
+            if (!scope.IsCurrent() || !graph || !session || (graph != script && OwningScript(graph) != script) ||
+                session->Revision() != request.revision || doc->TopologyRevision() != request.topology) {
+                result->stop = LoadResult::Stop::Stale;
+                result->edit = EditResult::Refused("The target graph changed before loading");
+                return;
+            }
+            if (session->ReadOnly()) {
+                result->edit = EditResult::Refused("The Script is read-only");
+                return;
+            }
+            result->edit = request.replace ? ReplaceWithFileGraph(*doc, script->GetID(), graph->GetID(), request.path)
+                                           : ImportBehaviorGraph(*doc, script->GetID(), graph->GetID(), request.path,
+                                                                 Point(request.h, request.v));
+            result->created = doc->Reference(result->edit.created);
+            if (auto *created = CKBehavior::Cast(doc->Resolve(result->created)))
+                result->owner = doc->Reference(created->GetParent() ? created->GetParent()->GetID() : 0);
+            result->documentRevision = doc->ChangeRevision();
+            result->completed = true;
+        },
+        [result, scope, completed = std::move(completed)](bool ok) {
+            const bool nativeCompleted = result->completed;
+            result->completed = nativeCompleted || ok;
+            if (!scope.IsCurrent())
+                result->stop = LoadResult::Stop::Stale;
+            if (!ok && !nativeCompleted)
+                result->edit = EditResult::Error("The graph file operation failed");
+            else if (!ok)
+                result->edit.message +=
+                    (result->edit.message.empty() ? "" : "; ") +
+                    std::string("The graph operation completed before the runtime reported a failure");
+            if (completed)
+                completed(*result);
+        });
 }
 
 bool DocumentFiles::Export(ExportRequest request, std::function<void(const ExportResult &)> completed) {

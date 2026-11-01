@@ -28,6 +28,8 @@ class DocumentCommands {
         LoadResources,
         DropResources,
         LoadScripts,
+        ImportGraph,
+        ReplaceGraph,
         ExportObjects,
         ExportBehaviors,
         Undo,
@@ -73,6 +75,7 @@ class DocumentCommands {
         DocumentFiles::SaveResult saved;
         DocumentFiles::ResourceResult resources;
         DocumentFiles::ExportResult exported;
+        DocumentFiles::GraphResult graph;
     };
     class Presentation {
       public:

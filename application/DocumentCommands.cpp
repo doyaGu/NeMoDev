@@ -46,6 +46,8 @@ struct DocumentCommands::State {
         Settings settings;
         DocumentFiles::ResourceLoad resources;
         DocumentFiles::ExportRequest exportRequest;
+        DocumentFiles::GraphRequest graphRequest;
+        EditorView view = 0;
         std::string initial;
         bool askOptions = false, askDescription = false;
         bool saveBeforeReplace = false;
@@ -65,6 +67,7 @@ struct DocumentCommands::State {
     static bool Replacement(Action action) {
         return action == Action::New || action == Action::Open || action == Action::Close || action == Action::Quit;
     }
+    static bool GraphFile(Action action) { return action == Action::ImportGraph || action == Action::ReplaceGraph; }
     std::string CurrentPath() const {
         return !lastSaved.empty() ? lastSaved : HasDocument() ? current()->SourcePath() : std::string();
     }
@@ -144,6 +147,11 @@ struct DocumentCommands::State {
         response.fields.push_back(std::move(messages));
         response.fields.push_back(std::move(loaded));
         response.fields.push_back(std::move(created));
+        if (GraphFile(operation->result.action)) {
+            response.documentRevision = operation->result.graph.documentRevision;
+            response.fields.push_back({"graph", EDITOR_OBJECT, operation->result.graph.created});
+            response.fields.push_back({"owner", EDITOR_OBJECT, operation->result.graph.owner});
+        }
         if (active == operation) {
             active.reset();
             input.reset();
@@ -204,6 +212,7 @@ struct DocumentCommands::State {
         operation->result.document = request->scope.document;
         operation->scope = self.runtime.CurrentDocument();
         operation->settings = self.settings;
+        operation->view = request->scope.view;
         if (const auto *path = Field(*request, "path")) operation->result.path = Text(path->text);
         if (command.action == Action::LoadResources || command.action == Action::DropResources) {
             const auto paths = Field(*request, "paths")->texts;
@@ -220,6 +229,16 @@ struct DocumentCommands::State {
             }
         } else if (command.action == Action::LoadScripts) {
             operation->resources.targets.push_back(Field(*request, "target")->object);
+        } else if (GraphFile(command.action)) {
+            auto &graph = operation->graphRequest;
+            graph.script = Field(*request, "target")->object;
+            graph.graph = Field(*request, "graph")->object;
+            graph.revision = Field(*request, "revision")->integer;
+            graph.topology = Field(*request, "topology")->integer;
+            graph.replace = command.action == Action::ReplaceGraph;
+            const auto point = Field(*request, "at")->reals;
+            graph.h = float(point.data[0]);
+            graph.v = float(point.data[1]);
         } else if (command.action == Action::ExportObjects || command.action == Action::ExportBehaviors) {
             auto &output = operation->exportRequest;
             const auto objects = Field(*request, "objects")->objects;
@@ -250,6 +269,16 @@ struct DocumentCommands::State {
         return EDITOR_QUEUED;
     }
     bool ValidArguments(Action action, const EditorRequest &request) const {
+        if (GraphFile(action)) {
+            const auto *point = Field(request, "at");
+            if (!point || point->reals.count != 2)
+                return false;
+            for (uint32_t i = 0; i < 2; ++i)
+                if (!std::isfinite(point->reals.data[i]) || std::abs(point->reals.data[i]) > 100000000)
+                    return false;
+            if (const auto *path = Field(request, "path"); path && Text(path->text).find('\0') != std::string::npos)
+                return false;
+        }
         if (action == Action::LoadResources || action == Action::DropResources) {
             const auto paths = Field(request, "paths")->texts;
             const auto classes = Field(request, "classes")->integers;
@@ -493,6 +522,26 @@ struct DocumentCommands::State {
             operation->resources.files = {{result.path, CKCID_BEHAVIOR}};
             LoadResources();
             return;
+        case Action::ImportGraph:
+        case Action::ReplaceGraph:
+            if (result.path.empty()) {
+                Ask(Input::Kind::File, Input::File::Behaviors, false,
+                    result.action == Action::ReplaceGraph ? "Replace with File Graph" : "Import Behavior Graph");
+                return;
+            }
+            operation->graphRequest.path = result.path;
+            if (!files.EditGraph(operation->graphRequest, [this, operation](const DocumentFiles::GraphResult &graph) {
+                    operation->result.graph = graph;
+                    operation->result.message = AnsiToUtf8(graph.edit.message);
+                    Finish(operation, graph.stop == DocumentFiles::LoadResult::Stop::Stale ? EDITOR_STALE
+                                      : !graph.completed                                   ? EDITOR_ERROR
+                                      : graph.edit.ok                                      ? EDITOR_OK
+                                      : graph.edit.Unchanged()                             ? EDITOR_NO_CHANGE
+                                      : graph.edit.Status() == EditStatus::Refused         ? EDITOR_REFUSED
+                                                                                           : EDITOR_ERROR);
+                }))
+                Finish(operation, EDITOR_REFUSED);
+            return;
         case Action::ExportObjects:
         case Action::ExportBehaviors:
             if (operation->askOptions) {
@@ -552,6 +601,10 @@ struct DocumentCommands::State {
     EditorStatus RespondToInput(uint64_t id, const std::string &choice, const std::string &path) {
         if (!active || !input || input->id != id) return EDITOR_STALE;
         const auto operation = active;
+        if (GraphFile(operation->result.action) && operation->view && !editor.Scope(operation->view).document.value) {
+            Finish(operation, EDITOR_CANCELLED);
+            return EDITOR_CANCELLED;
+        }
         if (!operation->scope.IsCurrent()) {
             Finish(operation, EDITOR_STALE);
             return EDITOR_STALE;
@@ -699,6 +752,9 @@ std::string DocumentCommands::CurrentFilePath() const {
     return m_State->CurrentPath();
 }
 void DocumentCommands::Poll() {
+    if (m_State->active && m_State->input && m_State->GraphFile(m_State->active->result.action) &&
+        m_State->active->view && !m_State->editor.Scope(m_State->active->view).document.value)
+        m_State->Finish(m_State->active, EDITOR_CANCELLED);
     if (m_State->active && !m_State->active->scope.IsCurrent() && !m_State->runtime.Busy())
         m_State->Finish(m_State->active, EDITOR_STALE);
     if (m_State->waitingQuit && !m_State->runtime.Busy() && !m_State->active) {
@@ -745,6 +801,8 @@ bool DocumentCommands::Register(std::string &error) {
                                         {"resource.load", "Load resources", A::LoadResources},
                                         {"resource.drop", "Drop resources", A::DropResources},
                                         {"script.load", "Load Script...", A::LoadScripts},
+                                        {"schematic.import-graph", "Import Behavior Graph", A::ImportGraph},
+                                        {"schematic.replace-file-graph", "Replace with File Graph", A::ReplaceGraph},
                                         {"object.export", "Save Objects as...", A::ExportObjects},
                                         {"script.export", "Save behaviors as...", A::ExportBehaviors}};
     std::vector<EditorCommandDesc> commands;
@@ -755,6 +813,12 @@ bool DocumentCommands::Register(std::string &error) {
         {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST, 1},
         {EDITOR_TEXT("above"), EDITOR_OBJECT_LIST, 1}, {EDITOR_TEXT("scene"), EDITOR_OBJECT, 1}};
     const EditorParameter script[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT}, path};
+    const EditorParameter graph[] = {script[0],
+                                     {EDITOR_TEXT("graph"), EDITOR_OBJECT},
+                                     {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+                                     {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE},
+                                     {EDITOR_TEXT("at"), EDITOR_REAL_LIST},
+                                     path};
     const EditorParameter objects[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, path,
         {EDITOR_TEXT("initial"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, 1},
         {EDITOR_TEXT("ask-options"), EDITOR_INTEGER_VALUE, 1}};
@@ -778,6 +842,10 @@ bool DocumentCommands::Register(std::string &error) {
         if (command.action == A::LoadResources) { descriptor.parameters = resources; descriptor.count = 3; }
         if (command.action == A::DropResources) { descriptor.parameters = drop; descriptor.count = 5; }
         if (command.action == A::LoadScripts) { descriptor.parameters = script; descriptor.count = 2; }
+        if (State::GraphFile(command.action)) {
+            descriptor.parameters = graph;
+            descriptor.count = 6;
+        }
         if (command.action == A::ExportObjects) { descriptor.parameters = objects; descriptor.count = 5; }
         if (command.action == A::ExportBehaviors) { descriptor.parameters = behaviors; descriptor.count = 9; }
         descriptor.area = State::ApplicationAction(command.action) ? EDITOR_APPLICATION : EDITOR_DOCUMENT;
