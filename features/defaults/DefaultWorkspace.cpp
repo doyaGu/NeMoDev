@@ -117,6 +117,10 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.insert(result.contributions.providers.end(), diagnostics.begin(), diagnostics.end());
     const auto &preferences = PreferencesCommands::DefaultProviders();
     result.contributions.providers.insert(result.contributions.providers.end(), preferences.begin(), preferences.end());
+    for (const auto *id : {"object.attributes", "attribute.clipboard"})
+        result.contributions.providers.push_back({"query", id, "builtin.scene"});
+    for (const auto *id : {"attribute.copy-values", "attribute.paste-attributes", "attribute.edit-value"})
+        result.contributions.providers.push_back({"command", id, "builtin.scene"});
     result.contributions.providers.push_back({"query", "scene.clipboard", "builtin.scene"});
     result.contributions.providers.push_back({"command", "scene.clear-clipboard", "builtin.scene"});
     result.contributions.providers.push_back({"command", "scene.duplicate-clipboard", "builtin.scene"});

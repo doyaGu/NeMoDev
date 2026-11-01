@@ -1,3 +1,4 @@
+#include "core/document/Edit.h"
 #include "features/scene/SceneCommands.h"
 #include "features/scene/SceneQueries.h"
 #include "core/level/LevelCommands.h"
@@ -175,7 +176,10 @@ struct SceneCommands::Data {
         AttributeAddSelected,
         CopyDrag,
         ClearClipboard,
-        DuplicateClipboard
+        DuplicateClipboard,
+        AttributeCopyValues,
+        AttributePasteAttributes,
+        AttributeEditValue
     };
     struct Command {
         Data *owner;
@@ -190,6 +194,8 @@ struct SceneCommands::Data {
     static EditorStatus Tree(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Catalog(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Attributes(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus ObjectAttributes(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus AttributeClipboard(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Parameters(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus CopyOptions(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus ClipboardContents(void *, const EditorHost *, const EditorRequest *, EditorSink);
@@ -475,6 +481,59 @@ EditorStatus SceneCommands::Data::Catalog(void *data, const EditorHost *, const 
         {EDITOR_TEXT("available"), EDITOR_INTEGER_VALUE, {}, {}, catalog.available}};
     return sink.write ? sink.write(sink.data, fields, 10) : EDITOR_INVALID;
 }
+EditorStatus SceneCommands::Data::ObjectAttributes(void *data, const EditorHost *, const EditorRequest *request,
+                                                   EditorSink sink) {
+    auto &d = *static_cast<Data *>(data);
+    auto *doc = d.DocumentOf(*request);
+    auto *object = doc ? doc->Resolve(Ref(*request, "target")) : nullptr;
+    if (!object)
+        return EDITOR_STALE;
+    auto *behavioral = CKBeObject::Cast(object);
+    const auto rows = ReadObjectAttributes(*doc, object->GetID());
+    const auto first = Number(*request, "first");
+    if (first > rows.size())
+        return EDITOR_INVALID;
+    const auto next = std::min(rows.size(), size_t(first) + 256);
+    EditorField values{"rows", EDITOR_RECORD};
+    for (size_t i = size_t(first); i < next; ++i) {
+        const auto &row = rows[i];
+        EditorField value{std::to_string(i), EDITOR_RECORD};
+        value.fields = {{"type", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(row.type)},
+                        {"name", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(row.attributeName)},
+                        {"category", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(row.category)},
+                        {"value", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(row.value)},
+                        {"parameter", EDITOR_OBJECT, row.parameterReference},
+                        {"parameter-name", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(row.parameterName)}};
+        values.fields.push_back(std::move(value));
+    }
+    const std::vector<EditorField> output{
+        {"target", EDITOR_OBJECT, doc->Reference(object->GetID())},
+        {"catalog", EDITOR_INTEGER_VALUE, {}, {}, d.CatalogVersion(*doc)},
+        {"document-revision", EDITOR_INTEGER_VALUE, {}, {}, doc->ChangeRevision()},
+        {"behavioral", EDITOR_INTEGER_VALUE, {}, {}, behavioral != nullptr},
+        {"available", EDITOR_INTEGER_VALUE, {}, {}, doc->Context()->GetAttributeManager() != nullptr},
+        {"total", EDITOR_INTEGER_VALUE, {}, {}, rows.size()},
+        {"next", EDITOR_INTEGER_VALUE, {}, {}, next},
+        std::move(values)};
+    const auto fields = BorrowEditorFields(output);
+    return sink.write ? sink.write(sink.data, fields.data(), uint32_t(fields.size())) : EDITOR_INVALID;
+}
+EditorStatus SceneCommands::Data::AttributeClipboard(void *data, const EditorHost *, const EditorRequest *request,
+                                                     EditorSink sink) {
+    auto &d = *static_cast<Data *>(data);
+    auto *doc = d.DocumentOf(*request);
+    if (!doc)
+        return EDITOR_STALE;
+    const bool valid = d.clipboard.BelongsTo(*doc);
+    EditorField names{"names", EDITOR_TEXT_LIST};
+    if (valid)
+        for (const auto &name : d.clipboard.attributes)
+            names.texts.push_back(AnsiToUtf8(name));
+    const std::vector<EditorField> output{{"revision", EDITOR_INTEGER_VALUE, {}, {}, d.clipboard.Revision()},
+                                          std::move(names)};
+    const auto fields = BorrowEditorFields(output);
+    return sink.write ? sink.write(sink.data, fields.data(), uint32_t(fields.size())) : EDITOR_INVALID;
+}
 EditorStatus SceneCommands::Data::Attributes(void *data, const EditorHost *, const EditorRequest *request,
                                              EditorSink sink) {
     auto &d = *static_cast<Data *>(data);
@@ -625,7 +684,8 @@ EditorStatus SceneCommands::Data::Run(void *data, const EditorHost *, const Edit
                : messages.empty() ? EditResult::NoChange()
                                   : EditResult::Refused(messages);
     };
-    if (command.action >= AttributeAdd && command.action <= RemoveUsers || command.action == AttributeAddSelected) {
+    if (command.action >= AttributeAdd && command.action <= RemoveUsers || command.action == AttributeAddSelected ||
+        command.action == AttributeCopyValues || command.action == AttributeEditValue) {
         if (command.action != CategoryCreate && command.action != TypeCreate &&
             Number(*request, "catalog") != d.CatalogVersion(*doc)) {
             return EDITOR_STALE;
@@ -998,19 +1058,96 @@ EditorStatus SceneCommands::Data::Run(void *data, const EditorHost *, const Edit
         break;
     }
     case AttributeRemove: {
-        std::vector<EditResult> results;
-        const auto *types = Arg(*request, "types");
-        if (types) {
-            for (uint32_t i = 0; i < types->integers.count; ++i) {
-                results.push_back(RemoveAttributeFromObjects(*doc, objects, int(types->integers.data[i])));
-            }
+        const auto &list = Arg(*request, "types")->integers;
+        std::vector<CKAttributeType> types;
+        for (uint32_t i = 0; i < list.count; ++i) {
+            if (list.data[i] > INT32_MAX)
+                return EDITOR_INVALID;
+            types.push_back(int(list.data[i]));
         }
-        result = merge(results);
+        if (objects.size() == 1)
+            result = RemoveAttributes(*doc, objects.front(), types);
+        else {
+            std::vector<EditResult> results;
+            for (auto type : types)
+                results.push_back(RemoveAttributeFromObjects(*doc, objects, type));
+            result = merge(results);
+        }
         break;
     }
     case AttributeText:
         result = SetAttributeText(*doc, target, int(Number(*request, "type")), Utf8ToAnsi(Text(*request, "text")));
         break;
+    case AttributeCopyValues: {
+        auto *object = CKBeObject::Cast(doc->Resolve(Ref(*request, "target")));
+        if (!object)
+            return EDITOR_STALE;
+        const auto &types = Arg(*request, "types")->integers;
+        if (!types.count)
+            return EDITOR_NO_CHANGE;
+        std::set<uint64_t> seen;
+        std::vector<CK_ID> values;
+        std::vector<std::string> names;
+        auto *attributes = context->GetAttributeManager();
+        if (!attributes)
+            return EDITOR_REFUSED;
+        for (uint32_t i = 0; i < types.count; ++i) {
+            const auto type = types.data[i];
+            if (type > INT32_MAX || !seen.insert(type).second)
+                return EDITOR_INVALID;
+            if (!attributes->IsAttributeIndexValid(int(type)) || !object->HasAttribute(int(type)))
+                return EDITOR_STALE;
+            if (auto *parameter = object->GetAttributeParameter(int(type))) {
+                values.push_back(parameter->GetID());
+                const auto *name = attributes->GetAttributeNameByType(int(type));
+                names.emplace_back(name ? name : "");
+            }
+        }
+        d.clipboard.SetParameters(*doc, std::move(values), std::move(names));
+        result = EditResult::Applied();
+        break;
+    }
+    case AttributePasteAttributes: {
+        if (!d.clipboard.BelongsTo(*doc) || Number(*request, "clipboard-revision") != d.clipboard.Revision())
+            return EDITOR_STALE;
+        if (d.clipboard.attributes.empty())
+            return EDITOR_REFUSED;
+        for (auto id : d.clipboard.parameters)
+            if (!CKParameter::Cast(doc->Context()->GetObject(id)))
+                return EDITOR_STALE;
+        Edit edit(*doc, "Paste Attributes");
+        std::vector<EditResult> results;
+        for (auto id : objects) {
+            auto each = PasteAttributes(*doc, id, d.clipboard.attributes, d.clipboard.parameters);
+            if (!each.ok && !each.Unchanged()) {
+                edit.Cancel();
+                return Result(each, *doc, sink);
+            }
+            results.push_back(std::move(each));
+        }
+        result = merge(results);
+        const auto committed = edit.Commit();
+        if (!committed.ok && !committed.Unchanged())
+            return Result(committed, *doc, sink);
+        break;
+    }
+    case AttributeEditValue: {
+        if (Number(*request, "type") > INT32_MAX)
+            return EDITOR_INVALID;
+        auto *object = CKBeObject::Cast(doc->Resolve(Ref(*request, "target")));
+        const auto type = int(Number(*request, "type"));
+        auto *parameter = object ? object->GetAttributeParameter(type) : nullptr;
+        if (!parameter || doc->Reference(parameter->GetID()) != Ref(*request, "parameter"))
+            return EDITOR_STALE;
+        const auto ref = doc->Reference(parameter->GetID());
+        const auto owner = Ref(*request, "target");
+        const EditorValue values[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT, ref},
+                                      {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {&owner, 1}},
+                                      {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, {}, {}, 4}};
+        const EditorRequest next{request->scope, values, 3, {}, request->operation};
+        return d.editor.Host()->navigateView(d.editor.Host()->data, EditorString EDITOR_TEXT("parameter.dialog"), 0,
+                                             &next, sink);
+    }
     case AttributeCopy: {
         std::vector<CK_ID> values;
         for (const auto &row : ReadAttributeObjects(*doc, {int(Number(*request, "type"))}, objects)) {
@@ -1292,6 +1429,12 @@ bool SceneCommands::Register(std::string &error) {
         {objects, {EDITOR_TEXT("types"), EDITOR_INTEGER_LIST}, catalog});
     add("attribute.set-text", "Edit Attribute Value", Data::AttributeText,
         {target, type, catalog, {EDITOR_TEXT("text"), EDITOR_TEXT_VALUE}});
+    add("attribute.copy-values", "Copy Attribute Parameter Values", Data::AttributeCopyValues,
+        {target, {EDITOR_TEXT("types"), EDITOR_INTEGER_LIST}, catalog}, EDITOR_SESSION_CHANGE);
+    add("attribute.paste-attributes", "Paste Attributes", Data::AttributePasteAttributes,
+        {objects, {EDITOR_TEXT("clipboard-revision"), EDITOR_INTEGER_VALUE}});
+    add("attribute.edit-value", "Edit Attribute", Data::AttributeEditValue,
+        {target, type, catalog, {EDITOR_TEXT("parameter"), EDITOR_OBJECT}}, EDITOR_SESSION_CHANGE);
     add("attribute.copy", "Copy Attribute Value", Data::AttributeCopy, {objects, type, catalog}, EDITOR_SESSION_CHANGE);
     add("attribute.paste", "Paste Attribute Value", Data::AttributePaste, {objects, type, catalog});
     add("attribute.create-category", "Create Attribute Category", Data::CategoryCreate, {name}, EDITOR_DOCUMENT_CHANGE);
@@ -1357,7 +1500,22 @@ bool SceneCommands::Register(std::string &error) {
         {EDITOR_TEXT("destroy"), EDITOR_OBJECT_LIST},  {EDITOR_TEXT("members"), EDITOR_OBJECT_LIST},
         {EDITOR_TEXT("groups"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE}};
     const EditorParameter clipboardFields[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter objectAttributesArgs[] = {target, {EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorParameter objectAttributesFields[] = {target,
+                                                      catalog,
+                                                      {EDITOR_TEXT("document-revision"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("behavioral"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("available"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE},
+                                                      {EDITOR_TEXT("rows"), EDITOR_RECORD}};
+    const EditorParameter attributeClipboardFields[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+                                                        {EDITOR_TEXT("names"), EDITOR_TEXT_LIST}};
     EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("object.attributes"), EDITOR_TEXT("builtin.scene"), objectAttributesArgs,
+         2, Data::ObjectAttributes, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, objectAttributesFields, 8},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("attribute.clipboard"), EDITOR_TEXT("builtin.scene"), nullptr, 0,
+         Data::AttributeClipboard, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, attributeClipboardFields, 2},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.tree"), EDITOR_TEXT("builtin.scene"), treeArgs.data(),
          uint32_t(treeArgs.size()), Data::Tree, &d, EDITOR_QUERY_VERSIONED, EDITOR_DOCUMENT, treeFields.data(),
          uint32_t(treeFields.size()), Data::Version},
