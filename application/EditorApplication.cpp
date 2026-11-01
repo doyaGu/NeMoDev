@@ -636,7 +636,11 @@ struct EditorApplication::State {
         if (!Thread() || !Valid(scope, command.area)) return EDITOR_STALE;
         if (readOnlyCallbacks) return EDITOR_REFUSED;
         const bool native = command.effect != EDITOR_SESSION_CHANGE;
-        if ((native && !NativeReady()) || (!fromDraft && !drafts.empty())) return EDITOR_REFUSED;
+        // Window navigation can close the owner of a draft. Document session
+        // changes, including selection, still wait for the draft to finish.
+        const bool navigation = !native && command.area == EDITOR_WORKSPACE;
+        if ((native && !NativeReady()) || (!fromDraft && !drafts.empty() && !navigation))
+            return EDITOR_REFUSED;
         if (!NativeReady() && !EveryField(fields, [](const auto &field) {
             return !(field.type == EDITOR_OBJECT && field.object) && !(field.type == EDITOR_OBJECT_LIST && !field.objects.empty());
         })) return EDITOR_REFUSED;

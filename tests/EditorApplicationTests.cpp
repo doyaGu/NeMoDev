@@ -516,6 +516,31 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
     queries.id = EditorString EDITOR_TEXT("test.queries");
     queries.queries = &count;
     queries.queryCount = 1;
+    EditorEdit navigationEdit = 0;
+    unsigned navigationCalls = 0;
+    struct Navigation {
+        EditorEdit &edit;
+        unsigned &calls;
+    } navigation{navigationEdit, navigationCalls};
+    const EditorCommandDesc navigate{sizeof(EditorCommandDesc),
+                                     EDITOR_TEXT("test.navigate"),
+                                     EDITOR_TEXT("test.navigation"),
+                                     EDITOR_TEXT("Navigate"),
+                                     nullptr,
+                                     0,
+                                     [](void *data, const EditorHost *host, const EditorRequest *, EditorSink) {
+                                         auto &navigation = *static_cast<Navigation *>(data);
+                                         ++navigation.calls;
+                                         return host->finishEdit(host->data, navigation.edit, 0, nullptr) ==
+                                                        EDITOR_CANCELLED
+                                                    ? EDITOR_OK
+                                                    : EDITOR_ERROR;
+                                     },
+                                     &navigation,
+                                     EDITOR_WORKSPACE,
+                                     EDITOR_SESSION_CHANGE};
+    queries.commands = &navigate;
+    queries.commandCount = 1;
     Check(app.Register(queries, error), error.c_str());
     Check(app.Load(path, error), error.c_str());
     Check(!app.Load(path, error), "duplicate loaded module accepted");
@@ -541,6 +566,15 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
     EditorEdit edit = 0;
     Check(app.BeginEdit("object.name", scope, object, edit) == EDITOR_OK, "edit refused");
     Check(app.UpdateEdit(edit, "Draft") == EDITOR_OK && name() == original, "draft changed document");
+    const EditorValue blockedRename[] = {target, {EDITOR_TEXT("name"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("Blocked")}};
+    Check(app.Execute("object.rename", {scope, blockedRename, 2}).status == EDITOR_REFUSED && name() == original,
+          "document modification passed an active draft");
+    navigationEdit = edit;
+    Check(app.Execute("test.navigate", {scope, nullptr, 0}).status == EDITOR_OK && navigationCalls == 1 &&
+              !app.HasEdits() && name() == original && !document.Dirty(),
+          "navigation could not cancel its view's draft");
+    Check(app.BeginEdit("object.name", scope, object, edit) == EDITOR_OK && app.UpdateEdit(edit, "Draft") == EDITOR_OK,
+          "navigation prevented another edit");
     Check(!app.Configure(config, error), "editor changed under an active draft");
     app.NativeAvailable(false);
     Check(app.FinishEdit(edit, true) == EDITOR_REFUSED, "busy edit was submitted");
