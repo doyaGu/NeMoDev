@@ -14,7 +14,7 @@ inline bool ReadSchematicPosition(const EditorValue &value, ElementAddress &addr
     for (uint32_t i = 0; i < request.count; ++i) {
         const auto &field = request.values[i];
         const std::string key(field.key.data, field.key.size);
-        if (key == "target" || key == "owner" || key == "object" || key == "endpoint") {
+        if (key == "target" || key == "owner" || key == "object" || key == "endpoint" || key == "focus-target") {
             if (field.type != EDITOR_OBJECT)
                 return false;
             if (key == "target")

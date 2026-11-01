@@ -22,6 +22,7 @@
 #include <climits>
 #include <cmath>
 #include <limits>
+#include <iterator>
 #include <map>
 #include <set>
 
@@ -329,6 +330,57 @@ struct SchematicGraphCommands::Data {
         self.invalid = FindInvalidLinks(*doc, !self.testTypes || self.testTypes()); ++self.revision;
         return Write(sink, {{"revision", EDITOR_INTEGER_VALUE, {}, {}, self.revision}, {"total", EDITOR_INTEGER_VALUE, {}, {}, self.invalid.size()}});
     }
+    static EditorStatus PickObjects(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        auto *doc = self.DocumentOf(*request);
+        if (!doc)
+            return EDITOR_STALE;
+        const auto *target = Arg(*request, "target");
+        auto *script = target ? CKBehavior::Cast(doc->Resolve(target->object)) : nullptr;
+        if (!script || !doc->FindScript(script->GetID()))
+            return EDITOR_STALE;
+        CKObject *element = nullptr;
+        CKParameter *parameter = nullptr;
+        if (const auto *position = Arg(*request, "address")) {
+            ElementAddress address;
+            CK_ID scriptId = 0;
+            ElementRef ref;
+            if (!ReadSchematicPosition(*position, address))
+                return EDITOR_INVALID;
+            if (address.script != target->object || !address.Resolve(*doc, scriptId, ref))
+                return EDITOR_STALE;
+            element = doc->Resolve(address.object);
+            if (ref.kind == ElementKind::LocalParam || ref.kind == ElementKind::Shortcut)
+                parameter = CKParameter::Cast(element);
+            else if (ref.kind == ElementKind::Pin) {
+                // Resolve the retained endpoint, never a new object at the same pin index.
+                auto *endpoint = doc->Resolve(address.endpoint);
+                if (auto *input = CKParameterIn::Cast(endpoint))
+                    parameter = input->GetRealSource();
+                else
+                    parameter = CKParameter::Cast(endpoint);
+            }
+        }
+        EditorField objects{"objects", EDITOR_OBJECT_LIST};
+        const auto add = [&](CKObject *object) {
+            const auto ref = object ? doc->Reference(object->GetID()) : ObjectRef{};
+            if (ref && !doc->IsDiscarded(ref.object) &&
+                std::find(objects.objects.begin(), objects.objects.end(), ref) == objects.objects.end())
+                objects.objects.push_back(ref);
+        };
+        // Parameter value, element, Script, then its owner: Dev's pick priority.
+        auto *manager = doc->Context()->GetParameterManager();
+        if (parameter && manager && manager->TypeToClassID(parameter->GetType()) != 0 &&
+            parameter->GetDataSize() == int(sizeof(CK_ID))) {
+            CK_ID held = 0;
+            if (parameter->GetValue(&held, FALSE) == CK_OK)
+                add(doc->Context()->GetObject(held));
+        }
+        add(element);
+        add(script);
+        add(script->GetOwner());
+        return Write(sink, {std::move(objects)});
+    }
     static EditorStatus Activity(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data); auto *doc = self.DocumentOf(*request); if (!doc) return EDITOR_STALE;
         const auto *target = Arg(*request, "target");
@@ -345,7 +397,14 @@ struct SchematicGraphCommands::Data {
                 if (auto *link = behavior->GetSubBehaviorLink(i)) if (auto *input = link->GetInBehaviorIO())
                     if (input->IsActive()) firing.objects.push_back(doc->Reference(link->GetID()));
         }
-        return Write(sink, {std::move(running), std::move(firing), {"active", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(root->IsActive())}});
+        const auto *session = doc->Session(root->GetID());
+        if (!session)
+            return EDITOR_STALE;
+        return Write(sink, {std::move(running),
+                            std::move(firing),
+                            {"active", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(root->IsActive())},
+                            {"revision", EDITOR_INTEGER_VALUE, {}, {}, session->Revision()},
+                            {"topology", EDITOR_INTEGER_VALUE, {}, {}, doc->TopologyRevision()}});
     }
     static EditorStatus DeleteInvalid(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data); auto *doc = self.DocumentOf(*request); if (!doc) return EDITOR_STALE;
@@ -434,6 +493,7 @@ const std::vector<ProviderChoice> &SchematicGraphCommands::DefaultProviders() {
             {"query", "schematic.messages", "builtin.schematic-graph"},
             {"command", "schematic.delete-invalid-links", "builtin.schematic-graph"},
             {"query", "schematic.activity", "builtin.schematic-graph"},
+            {"query", "schematic.pick-objects", "builtin.schematic-graph"},
             {"query", "schematic.message-uses", "builtin.schematic-graph"},
             {"query", "schematic.script-state", "builtin.schematic-graph"},
             {"command", "schematic.toggle-fold", "builtin.schematic-graph"},
@@ -479,7 +539,11 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
         {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("rows"), EDITOR_RECORD}};
     const EditorParameter usesArgs[] = {page[0], page[1], {EDITOR_TEXT("message"), EDITOR_INTEGER_VALUE}};
     const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
-    const EditorParameter activity[] = {{EDITOR_TEXT("running"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("firing"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("active"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter activity[] = {{EDITOR_TEXT("running"), EDITOR_OBJECT_LIST},
+                                        {EDITOR_TEXT("firing"), EDITOR_OBJECT_LIST},
+                                        {EDITOR_TEXT("active"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
+                                        {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE}};
     const EditorParameter scriptArgs[] = {target, {EDITOR_TEXT("id"), EDITOR_INTEGER_VALUE, 1}};
     const EditorParameter scriptFields[] = {target,
                                             {EDITOR_TEXT("object"), EDITOR_OBJECT},
@@ -498,9 +562,13 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
                                         {EDITOR_TEXT("sub"), EDITOR_INTEGER_VALUE},
                                         {EDITOR_TEXT("pin"), EDITOR_INTEGER_VALUE}};
     const EditorParameter address{EDITOR_TEXT("address"), EDITOR_RECORD};
+    const EditorParameter pickArgs[] = {target, {EDITOR_TEXT("address"), EDITOR_RECORD, 1}};
+    const EditorParameter pickObjects{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST};
     const EditorParameter positions[] = {{EDITOR_TEXT("elements"), EDITOR_RECORD},
                                          {EDITOR_TEXT("document-revision"), EDITOR_INTEGER_VALUE}};
     const EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.pick-objects"), EDITOR_TEXT("builtin.schematic-graph"),
+         pickArgs, 2, Data::PickObjects, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &pickObjects, 1},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.positions"), EDITOR_TEXT("builtin.schematic-graph"), positions,
          2, Data::Positions, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, positions, 1},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.position"), EDITOR_TEXT("builtin.schematic-graph"), position,
@@ -512,7 +580,7 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.messages"), EDITOR_TEXT("builtin.schematic-graph"), page, 2,
          Data::Messages, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, fields, 4},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.activity"), EDITOR_TEXT("builtin.schematic-graph"), &target, 1,
-         Data::Activity, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, activity, 3},
+         Data::Activity, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, activity, 5},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.script-state"), EDITOR_TEXT("builtin.schematic-graph"),
          scriptArgs, 2, Data::ScriptState, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, scriptFields, 7},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.message-uses"), EDITOR_TEXT("builtin.schematic-graph"),
@@ -564,9 +632,9 @@ bool SchematicGraphCommands::Register(EditorApplication &editor, std::string &er
          m_Data.get(), EDITOR_DOCUMENT, EDITOR_RUNTIME_CONTROL}};
     EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("schematic.graph");
     module.queries = queries;
-    module.queryCount = 8;
+    module.queryCount = uint32_t(std::size(queries));
     module.commands = commands;
-    module.commandCount = 9;
+    module.commandCount = uint32_t(std::size(commands));
     return editor.Register(module, error) && m_Data->geometry.Register(editor, error) &&
            m_Data->connections.Register(editor, error) && m_Data->copying.Register(editor, error) &&
            m_Data->authoring.Register(editor, error) && m_Data->parameters.Register(editor, error) &&
