@@ -225,7 +225,7 @@ public:
     // ignoreUnpickable: Dev passes Shift.
     // point: where the ray met the picked 3D entity, in the world.
     CK_ID Pick(int x, int y, bool ignoreUnpickable = false, VxVector *point = nullptr) const;
-    LayoutPickInfo PickInfo(int x, int y) const;
+    LayoutPickInfo PickInfo(int x, int y, bool ignoreUnpickable = false, VxVector *worldPoint = nullptr) const;
     // Dev.exe sub_49EE70: the render objects in a view rectangle, wholly
     // inside it or (intersect, Selection Mode) touching it.
     std::vector<CK_ID> RectPick(const VxRect &rect, bool intersect) const;

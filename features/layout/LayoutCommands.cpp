@@ -1,5 +1,6 @@
 #include "features/layout/LayoutCommands.h"
 #include "features/layout/LayoutSceneData.h"
+#include "features/layout/LayoutGestures.h"
 #include "application/ObjectSelection.h"
 #include "core/document/Document.h"
 #include "core/layout/LayoutCommands.h"
@@ -67,14 +68,19 @@ struct LayoutCommands::Data {
     std::function<Document *()> current;
     std::function<LayoutView &()> view;
     ObjectSelection &selection;
+    LayoutGestures gestures;
     using QueryState = std::tuple<DocumentToken, uint64_t, uint64_t, unsigned, bool, ObjectRef, ObjectRef, CKDWORD>;
     QueryState queryState{};
     uint64_t queryRevision = 1;
     enum Action { Camera, ResetCamera, FrameRepresentation, CreateGroup, ChooseGroup, RestoreInterface, Copy };
     struct Entry { Data *owner; Action action; } entries[7];
     Data(EditorApplication &editor, std::function<Document *()> current, std::function<LayoutView &()> view,
-         ObjectSelection &selection) : editor(editor), current(std::move(current)), view(std::move(view)), selection(selection),
-         entries{{this, Camera}, {this, ResetCamera}, {this, FrameRepresentation}, {this, CreateGroup}, {this, ChooseGroup}, {this, RestoreInterface}, {this, Copy}} {}
+         ObjectSelection &selection)
+        : editor(editor), current(std::move(current)), view(std::move(view)), selection(selection),
+          gestures(this->current, this->view, selection),
+          entries{{this, Camera},      {this, ResetCamera}, {this, FrameRepresentation},
+                  {this, CreateGroup}, {this, ChooseGroup}, {this, RestoreInterface},
+                  {this, Copy}} {}
     Document *DocumentOf(const EditorRequest &request) const {
         auto *doc = current();
         return doc && doc->IsOpen() && doc->Token() == request.scope.document ? doc : nullptr;
@@ -302,10 +308,21 @@ LayoutRestoreData LayoutCommands::ProjectInterface(const LayoutInterfaceData &da
 
 const std::vector<ProviderChoice> &LayoutCommands::DefaultProviders() {
     static const std::vector<ProviderChoice> choices{{"query", "layout.scene", "builtin.layout"},
-        {"command", "layout.set-camera", "builtin.layout"}, {"command", "layout.reset-camera", "builtin.layout"},
-        {"command", "layout.frame-representation", "builtin.layout"}, {"command", "layout.create-selection-group", "builtin.layout"},
-        {"command", "layout.choose-group", "builtin.layout"}, {"command", "layout.restore-interface", "builtin.layout"},
-        {"command", "layout.copy", "builtin.layout"}};
+                                                     {"command", "layout.set-camera", "builtin.layout"},
+                                                     {"command", "layout.reset-camera", "builtin.layout"},
+                                                     {"command", "layout.frame-representation", "builtin.layout"},
+                                                     {"command", "layout.create-selection-group", "builtin.layout"},
+                                                     {"command", "layout.choose-group", "builtin.layout"},
+                                                     {"command", "layout.restore-interface", "builtin.layout"},
+                                                     {"command", "layout.copy", "builtin.layout"},
+                                                     {"query", "layout.input", "builtin.layout-gestures"},
+                                                     {"command", "layout.edit-gesture", "builtin.layout-gestures"},
+                                                     {"query", "layout.curve-tool", "builtin.layout-gestures"},
+                                                     {"command", "layout.wheel-zoom", "builtin.layout-gestures"},
+                                                     {"command", "layout.zoom-on", "builtin.layout-gestures"},
+                                                     {"command", "layout.player-click", "builtin.layout-gestures"},
+                                                     {"command", "layout.curve-click", "builtin.layout-gestures"},
+                                                     {"command", "layout.set-curve-tool", "builtin.layout-gestures"}};
     return choices;
 }
 bool LayoutCommands::Register(std::string &error) {
@@ -338,6 +355,6 @@ bool LayoutCommands::Register(std::string &error) {
     for (auto &command : commands) command.state = Data::Ready;
     EditorModuleDesc module{}; module.size = sizeof(module); module.version = EDITOR_VERSION; module.id = EDITOR_TEXT("layout.scene");
     module.commands = commands; module.commandCount = 7; module.queries = &query; module.queryCount = 1;
-    return m_Data->editor.Register(module, error);
+    return m_Data->editor.Register(module, error) && m_Data->gestures.Register(m_Data->editor, error);
 }
 } // namespace vdev

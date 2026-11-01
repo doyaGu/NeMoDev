@@ -90,7 +90,7 @@ foreach (_source IN LISTS _sources)
                  (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme)\\.h$")))
             list(APPEND _errors "${_source}: runtime view includes native or legacy editor state ${_path}")
         endif()
-        if(_source MATCHES "^features/layout/" AND NOT _source MATCHES "^features/layout/LayoutCommands\\.(h|cpp)$" AND
+        if(_source MATCHES "^features/layout/" AND NOT _source MATCHES "^features/layout/Layout(Commands|Gestures)\\.(h|cpp)$" AND
                 _path MATCHES "^(core/|ui/|CK|Vx|SDL)")
             list(APPEND _errors "${_source}: Layout projection includes native or legacy editor state ${_path}")
         endif()

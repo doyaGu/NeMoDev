@@ -20,10 +20,10 @@ CK_ID LayoutView::Pick(int x, int y, bool ignoreUnpickable, VxVector *point) con
     return object ? object->GetID() : 0;
 }
 
-LayoutPickInfo LayoutView::PickInfo(int x, int y) const {
+LayoutPickInfo LayoutView::PickInfo(int x, int y, bool ignoreUnpickable, VxVector *worldPoint) const {
     LayoutPickInfo info;
     CKPICKRESULT desc = {};
-    CKObject *object = PickObject(x, y, false, nullptr, &desc);
+    CKObject *object = PickObject(x, y, ignoreUnpickable, worldPoint, &desc);
     auto materialOf = [&info](CKMaterial *material) {
         if (!material) return;
         info.material = material->GetID();

@@ -28,6 +28,12 @@ private:
     std::vector<EditorField> m_Arguments;
     friend bool ReadLayoutScene(const EditorClient &, const char *, LayoutSceneData &, const std::vector<EditorValue> &);
 };
+// Tool settings keep the picked referent's lifetime, rather than a native slot.
+struct LayoutTransformSettings {
+    int axes = 5, referential = 1, pivot = 1;
+    ObjectRef referent{};
+    bool hierarchy = true, snap = false;
+};
 struct LayoutSelectionData {
     std::vector<ObjectRef> objects;
     bool locked = false;

@@ -322,27 +322,26 @@ void CameraGesture::Process(bool shift) {
     }
 }
 
-void CameraGesture::Cancel(Document *document) {
-    if (!m_Active) return;
+bool CameraGesture::Cancel(Document *document) {
+    if (!m_Active)
+        return true;
     m_Active = false;
-    if (document)
-        m_Undo.Cancel(*document);
-    else
-        m_Undo.Cancel(m_View ? m_View->Context() : nullptr);
+    const bool restored = document ? m_Undo.Cancel(*document) : m_Undo.Cancel(m_View ? m_View->Context() : nullptr);
     if (m_View && m_View->Context() && m_View->Context()->GetObjectByHandle(m_PreviousCamera))
         m_View->SetCamera(m_PreviousCamera.Id);
+    return restored;
 }
 
-bool CameraGesture::End(Document *document) {
-    if (!m_Active) return false;
+bool CameraGesture::End(Document *document) { return Finish(document).ok; }
+EditResult CameraGesture::Finish(Document *document) {
+    if (!m_Active)
+        return EditResult::NoChange();
     m_Active = false;
     if (!document || !document->IsOpen()) {
         m_Undo.Begin(nullptr, {});
-        return false;
+        return EditResult::NoChange();
     }
-    // The 3D Layout's own cameras are not the composition's.
-    return m_Undo.Commit(*document, CameraActionText(m_Action, false, m_Target != 0, m_AroundSelection),
-                         !m_ViewCamera).ok;
+    return m_Undo.Commit(*document, CameraActionText(m_Action, false, m_Target != 0, m_AroundSelection), !m_ViewCamera);
 }
 
 // ------------------------------------------------------------- transformations
@@ -663,24 +662,24 @@ void TransformGesture::Scale() {
     }
 }
 
-void TransformGesture::Cancel(Document *document) {
-    if (!m_Active) return;
+bool TransformGesture::Cancel(Document *document) {
+    if (!m_Active)
+        return true;
     m_Active = false;
-    if (document)
-        m_Undo.Cancel(*document);
-    else
-        m_Undo.Cancel(m_View ? m_View->Context() : nullptr);
+    return document ? m_Undo.Cancel(*document) : m_Undo.Cancel(m_View ? m_View->Context() : nullptr);
 }
 
-bool TransformGesture::End(Document *document) {
-    if (!m_Active) return false;
+bool TransformGesture::End(Document *document) { return Finish(document).ok; }
+EditResult TransformGesture::Finish(Document *document) {
+    if (!m_Active)
+        return EditResult::NoChange();
     m_Active = false;
     if (!document || !document->IsOpen()) {
         m_Undo.Begin(nullptr, {});
-        return false;
+        return EditResult::NoChange();
     }
     static const char *const labels[] = {"Move Objects", "Rotate Objects", "Scale Objects"};
-    return m_Undo.Commit(*document, labels[static_cast<int>(m_Action)]).ok;
+    return m_Undo.Commit(*document, labels[static_cast<int>(m_Action)]);
 }
 
 void WheelZoom(LayoutView &view, const CameraSteps &steps, int notches, float extent) {
@@ -974,23 +973,23 @@ void Transform2DGesture::Move(int x, int y) {
             entity->SetSize(Vx2DVector(moved.size.x * fx, moved.size.y * fy));
 }
 
-void Transform2DGesture::Cancel(Document *document) {
-    if (!m_Active) return;
-    if (document)
-        m_Undo.Cancel(*document);
-    else
-        m_Undo.Cancel(m_View->Context());
+bool Transform2DGesture::Cancel(Document *document) {
+    if (!m_Active)
+        return true;
     m_Active = false;
+    return document ? m_Undo.Cancel(*document) : m_Undo.Cancel(m_View->Context());
 }
 
-bool Transform2DGesture::End(Document *document) {
-    if (!m_Active) return false;
+bool Transform2DGesture::End(Document *document) { return Finish(document).ok; }
+EditResult Transform2DGesture::Finish(Document *document) {
+    if (!m_Active)
+        return EditResult::NoChange();
     m_Active = false;
     if (!document) {
         m_Undo.Cancel(m_View->Context());
-        return false;
+        return EditResult::NoChange();
     }
-    return m_Undo.Commit(*document, m_Action == TransformAction::Translate ? "Move 2D Entities" : "Scale 2D Entities").ok;
+    return m_Undo.Commit(*document, m_Action == TransformAction::Translate ? "Move 2D Entities" : "Scale 2D Entities");
 }
 
 } // namespace vdev

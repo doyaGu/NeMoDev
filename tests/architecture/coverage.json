@@ -477,7 +477,8 @@
       "id": "S55",
       "name": "Layout 原生场景查询与修改",
       "patterns": [
-        "features/layout/LayoutCommands.*"
+        "features/layout/LayoutCommands.*",
+        "features/layout/LayoutGestures.*"
       ]
     },
     {
