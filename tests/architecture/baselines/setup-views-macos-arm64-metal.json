@@ -1,0 +1,297 @@
+{
+  "description": "阶段五：完整 Setup 登记为工作区视图，统一实例、绘制、导航、状态恢复与关闭。保留草稿、取消、撤销、既有布局及 GPU 快通道。SDK 不动，性能验收继续暂缓。",
+  "base_revision": "2eb1d3f457baa3daf4aad467991f58a31ea78adc",
+  "changes": [
+    "内置 object.setup 使用与外部模块相同的视图回调；工作区拥有实例，SetupWindows 不再另持窗口生命周期。",
+    "EditorApp 移除 Setup 绘制入口，默认布局移除旧窗口名前缀适配，保留 Setup 角色及其他窗口既有标识。",
+    "文档窗口状态在提供者替换时保留目标与 UI 选择，失败保持旧实例；成功切换文档前关闭实例。",
+    "移除绘制期间的强制 EndFrame；同帧后续草稿重新读取开始值，后续动作显式使用前一编辑的完成版本。",
+    "关闭时结束所属输入和弹窗，再取消作用域草稿及待执行命令；清理文件请求、拾取和预览缓存。",
+    "收紧 Setup 对可变文档和 EditorState 的间接依赖，并增加架构检查和窗口生命周期回归。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-setup-views/build-picking.log",
+      "preceding_full_build": "out/phase-five-setup-views/build-ordered.log"
+    },
+    "editor_interface": 19,
+    "full_ctest": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 42.64,
+      "excluded_label": "performance",
+      "log": "out/phase-five-setup-views/full-final.log",
+      "junit": "out/phase-five-setup-views/full-final.xml",
+      "inventory": "out/phase-five-setup-views/ctest-inventory.json"
+    },
+    "architecture": {
+      "files": 1046,
+      "groups": 58,
+      "features": 32,
+      "states": 48,
+      "legacy_exposures": 41,
+      "completed_phase": 3,
+      "test_registration_checked": true,
+      "open_gaps": 19
+    },
+    "architecture_tests": {
+      "passed": 42,
+      "failed": 0,
+      "log": "out/phase-five-setup-views/architecture-tests-final.log"
+    },
+    "ui": {
+      "html": {
+        "registered": 263,
+        "executed": 3,
+        "not_selected": 260,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/html.xml",
+        "sha256": "cec5a69b8ae4abba58fe1b47d62c1c5973a1599a6593abd40356ea103949b09e"
+      },
+      "app": {
+        "registered": 263,
+        "executed": 25,
+        "not_selected": 238,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/app.xml",
+        "sha256": "ff9ab87853048c126a8c1ddcf6dce11d09222744e2b82821605bda05d50bd106"
+      },
+      "filemenu": {
+        "registered": 263,
+        "executed": 10,
+        "not_selected": 253,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/filemenu.xml",
+        "sha256": "3f880e57868fcdceb08587b21be02a631270ed4feb6ab2e79dfb1e31d6680777"
+      },
+      "schematic": {
+        "registered": 263,
+        "executed": 26,
+        "not_selected": 237,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/schematic.xml",
+        "sha256": "a24455d78d8424bff414d20f8c93927ba19b0654d7fdd20e161d5902149016aa"
+      },
+      "debugger": {
+        "registered": 263,
+        "executed": 10,
+        "not_selected": 253,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/debugger.xml",
+        "sha256": "96f264ae768e5147a2517b282cbca7691e389fe71cc908917f5b0b25dbe14c20"
+      },
+      "layout": {
+        "registered": 263,
+        "executed": 24,
+        "not_selected": 239,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/layout.xml",
+        "sha256": "19a4fa5abd5cef74b6f0e7c3eb53b6c3841cc7ccc0dfe04a76abee0d610203f8"
+      },
+      "level": {
+        "registered": 263,
+        "executed": 7,
+        "not_selected": 256,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/level.xml",
+        "sha256": "4e5ddc6468963941ea791fba81375b11eda0350ed318c883d8a1c4f874b8cdd5"
+      },
+      "setup": {
+        "registered": 263,
+        "executed": 21,
+        "not_selected": 242,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/setup.xml",
+        "sha256": "06a9cb7dd080776b17a95fbe67607f5e6bbfc34f129afbeccc710316a9def714"
+      },
+      "propertyedits": {
+        "registered": 263,
+        "executed": 7,
+        "not_selected": 256,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/propertyedits.xml",
+        "sha256": "17984913c4a71432b83f40dcc39ac61b498a15b1cb5fcb4fb476fb80e4ad4f7b"
+      },
+      "hierarchy": {
+        "registered": 263,
+        "executed": 8,
+        "not_selected": 255,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/hierarchy.xml",
+        "sha256": "7b43d45e64a1247f2b26861ab2a9f38d937be550cfff1c9b14906eb7c8e84e50"
+      },
+      "blocks": {
+        "registered": 263,
+        "executed": 6,
+        "not_selected": 257,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/blocks.xml",
+        "sha256": "1414f55e66a09a78d0810c923f41b5959e8c3164c9faa302342341e5bcdca073"
+      },
+      "attributes": {
+        "registered": 263,
+        "executed": 6,
+        "not_selected": 257,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/attributes.xml",
+        "sha256": "31cd7f585159938bfddd13424ec2ab7b361189c54a56fd9b041f8a27dc6baea3"
+      },
+      "create": {
+        "registered": 263,
+        "executed": 6,
+        "not_selected": 257,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/create.xml",
+        "sha256": "6e95dfebc06271b9230fc7107eba1c659c5f8fe71cf5ec16f861ae7d9085e991"
+      },
+      "tools": {
+        "registered": 263,
+        "executed": 13,
+        "not_selected": 250,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/tools.xml",
+        "sha256": "c976fa85bda841eb7e104359156e96367fdd40236432bd7a127d8feb63353255"
+      },
+      "sound": {
+        "registered": 263,
+        "executed": 2,
+        "not_selected": 261,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/sound.xml",
+        "sha256": "230426fb492f2cb089113a33c7d19f0b2fcdf4b18710f7b5a7379f3f9485ec9c"
+      },
+      "character": {
+        "registered": 263,
+        "executed": 2,
+        "not_selected": 261,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/character.xml",
+        "sha256": "c3a161e928efefe2ae1f958750add615fb70c10d23fc0d8c13df84e67bd5261b"
+      },
+      "modules": {
+        "registered": 263,
+        "executed": 68,
+        "not_selected": 195,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-setup-views/ui/modules.xml",
+        "sha256": "a2ae6f06d9403df52acc4a77158ca5ae06d26ab72088f56ef0bac356fcfe320b"
+      }
+    },
+    "ui_executed": 244,
+    "native_print_tests": {
+      "passed": 2,
+      "names": [
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ]
+    },
+    "regressions": [
+      "独立编译模块替换完整 Setup、注入恢复失败保留旧实例、恢复目标/Attribute 页/前台状态",
+      "文档窗口只在当前文档内迁移完整对象引用；失效引用及跨文档状态拒绝；永久工具窗口不随文档关闭",
+      "跨窗口连续编辑和同帧多属性保持顺序、独立撤销；后续活动拖动取消时恢复前一个已提交值",
+      "带文档版本的动作和晚到图片输入使用前一个编辑的完成版本，之后发生修改仍拒绝过期结果",
+      "关闭窗口取消属性预览和重命名，保留原值/Dirty/选区/Undo/Redo；重新打开不写入取消的文本",
+      "取消拾取与切换对象清理来源窗口，之后允许保存窗口状态；关闭无关窗口不结束活动重命名",
+      "错误线程、关闭的作用域、失效原生目标仍拒绝；内置与外部窗口使用同一绘制与导航流程",
+      "原有 General Preferences、插件/路径、诊断与运行工具的后台任务和替换流程保持通过"
+    ],
+    "sdk_gpu": {
+      "sdk_repositories": 16,
+      "sdk_unchanged": true,
+      "protected_gpu_sources": 6,
+      "gpu_sources_unchanged": true,
+      "layout_window_unchanged": true,
+      "sdk_runtime_files": 22,
+      "sdk_runtime_unchanged_from_previous_baseline": true,
+      "previous_runtime_baseline": "out/phase-five-setup-common/runtime-after.json",
+      "protected_sha256": {
+        "ui/render/UiRenderer.cpp": "eeeb206eab24998189cb16e47f241efffb59560bc988cd383e5b03d530a703e9",
+        "ui/render/UiRenderer.h": "2b21132c135f1a5011b95879dfdc83d3e9a6eedc34242006b2c20ee944cbd7fc",
+        "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "core/layout/LayoutView.cpp": "01f084e53bc992981c9de857a8f8fdbca35a48aa19d3274643c1abbb72bf9060",
+        "core/layout/LayoutView.h": "2efc5a3fc8ca4463ee9bae47de3846680ec2654f841b52bb046207b730a28ae3",
+        "ui/layout/LayoutWindow.cpp": "2a8c9d9ae0516dc0e547df9b85725c8d5cb38203ab22e9e57eb1b54d82ce29ee"
+      }
+    },
+    "representative_nmo": "filemenu.open_nmo_populates_level_manager_as_new_import",
+    "source_sha256": {
+      "application/EditorApplication.cpp": "c7d8ae566864c6885db19048885b2af5c86c742339e683629880c12f37b325ef",
+      "editor/Editor.h": "9c46ed1e550c67fd8b6bf922a9fbbd4118bd6eff570218ea4b5c233d73e476fe",
+      "features/defaults/DefaultWorkspace.cpp": "79653f32146e9e74f4a45107a12037c69c34e21dc962975c70e7697d9806b8b1",
+      "tests/ArchitectureTests.py": "fafece9527ae7200939212068cf84e633a92e13ce23c17bb0a33b84e05ce9eb6",
+      "tests/CheckArchitecture.py": "8535939cda8861f73a44dc8bf6e89861f10ebf3923dc8b072b90085bb7623bb9",
+      "tests/IdentityHeaderC.c": "51ffab23b5d30f89378d896fd5e593bcb92e63046b4bd444605c7259035b7113",
+      "tests/IdentityHeaderTests.cpp": "661413ab67fa096fdf0bfa7c958dd45db4797c561aebb6277569152b8f27d702",
+      "tests/SetupEditTests.cpp": "88c7379afa1eed759f9675c46434a52c5978707070f83eef10109f2f2aa5d179",
+      "tests/WorkspaceTests.cpp": "98c6ecf2d0a539122fa6eb5b38d2aa90ed05077e4c561fac3ba1cf334d173bb2",
+      "tests/architecture/README.md": "705675f8f6805a27789171eb059d795ed3b8a6f102e499aa9bef1e5c23b912ea",
+      "tests/architecture/coverage.json": "157510892f8d5827a991701035bd56b15c63881f59bd5c9ab1134ddfc715f0fd",
+      "tests/modules/ObjectModule.cpp": "33dc06ab5ceb81f6ad37a694b7d9b4eeefa995be878559addb3254c99debfcd7",
+      "tests/ui/CharacterTests.cpp": "5fdbbdc75a3d0c4c1619b1d307a7386c5ac2fdfcf24ac96b6c55a65fbebe2f2b",
+      "tests/ui/HierarchyTests.cpp": "cb714032a7d8d5bf99058c305a3851a51224722c4622983df4ebff9b4dccae5c",
+      "tests/ui/LayoutTests.cpp": "40ece9e6f0e3ccc7a5b2669b57cc7eb0f4911f5f9dcbaf43bbffe84207f39c2e",
+      "tests/ui/ModuleTests.cpp": "6709aa0ba25fe5b6fb1de8f63226ef6bf964444ec14e765555113115e47c7257",
+      "tests/ui/SetupTests.cpp": "2f297eba786a68cdb9f2a5918996e578dec9352729726bac7c69aac05f0d39e3",
+      "tests/ui/UiTests.cpp": "9d1d3c3f5626ea651d9d2600c012ad1498cd06b3f640e0a3b9dcc8dfc406c227",
+      "tests/ui/UiTests.h": "7661a289959003d221e130b9cc9f736198227e8602e606c890ae8ea755c2e8e5",
+      "ui/app/EditorApp.cpp": "9f79894ce6462806ca56caa0414762d5117265290d0e5eeeba4346cffee6842d",
+      "ui/app/EditorApp.h": "e2174ccaa5e4c89f63c55f811d8917d8b4c33a64a5c1a35d903d8fd936b48687",
+      "ui/setup/SetupObjectPages.cpp": "ebab67a5bc9f07bd33f4381cd3fba3d9390fe51cf5dd16782159c033d1e526eb",
+      "ui/setup/SetupRenderPages.cpp": "1974ff37521f9ae88bc18531dd270985ddf3a5042ea4b19d4d0211f6f6eb672f",
+      "ui/setup/SetupScenePages.cpp": "6e33b108ac68d4a1f31dbd41a77ebfafd50d4074146f5e573c235833c9194271",
+      "ui/setup/SetupWindows.cpp": "0c50bdedcf75fae71e1a02bde2a852cc26932c666a6bc38983ff0be82c4bd040",
+      "ui/setup/SetupWindows.h": "95144bf1c8d0a7458b49c358dd94ea6d6f961bde83408c85a91e24f6cd9b8a43",
+      "workspace/EditorClient.h": "6412bb903a3fb9640c61bd777757f7ecc97bb73d65787249c6557eca14f653da",
+      "workspace/EditorWorkspace.cpp": "99df2b781525ed9e7ecf2fecd741fd30ae0730709397eafbb9075ed36745d0c9",
+      "workspace/EditorWorkspace.h": "1eb71c08a02a1e167d08f1b10a1fad3345ce2cc13c3ad7d71c0b2750b6c1b9da",
+      "workspace/WorkspaceConfiguration.h": "2c003eaa30d6ca322b0c866b64426db3649f44400772c20f0fe12d843dedee1c"
+    },
+    "git_diff_check": "passed"
+  },
+  "resolved_during_validation": [
+    {
+      "finding": "统一绘制后，原本依赖立即帧末执行的连续属性和带版本按钮可能使用旧开始值或旧版本。",
+      "fix": "在已有命令队列中串行完成编辑，后续草稿重新查询，依赖动作保留文档和版本校验。"
+    },
+    {
+      "finding": "窗口作用域已关闭后，销毁回调再次结束草稿会被只读回调检查拒绝，并留下本地旧编辑标识。",
+      "fix": "工作区先取消作用域，Setup 销毁仅清理本地状态；补测关闭预览和重开编辑。"
+    },
+    {
+      "finding": "将所有工具弹窗计为文档交互会改变 Preferences 等跨文档工具的既有行为。",
+      "fix": "自动计入文档交互和替换检查只用于 documentBound 窗口，所有既有工具回归重新通过。",
+      "earlier_full_run": "out/phase-five-setup-views/full-first.log"
+    }
+  ],
+  "remaining": [
+    "阶段五其余迁移和必要的 SDK 枚举/数学类型访问仍保留在覆盖清单中。",
+    "完成阶段保持三；正式性能验收继续暂缓。"
+  ],
+  "performance": {
+    "status": "deferred_at_user_request",
+    "thresholds_unchanged": true,
+    "timing_benchmarks_run": false
+  }
+}
