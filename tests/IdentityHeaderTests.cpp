@@ -49,12 +49,18 @@ extern "C" EditorStatus BeginCommandFromC(const EditorHost *, EditorString, cons
 extern "C" EditorStatus FinishCommandFromC(const EditorHost *, EditorEdit, EditorOperation *);
 extern "C" uint32_t EditorCommandSizeFromC(void);
 static_assert(__is_standard_layout(EditorCommandDesc), "C command callbacks");
-static_assert(EDITOR_VERSION == 18, "Editor instance picking version");
+static_assert(EDITOR_VERSION == 19, "Editor document window version");
 extern "C" EditorQueryDesc RetainedQueryFromC(void *);
 extern "C" uint32_t EditorQuerySizeFromC(void);
 extern "C" EditorViewDesc PickViewFromC(EditorObject *);
 static_assert(__is_standard_layout(EditorQueryDesc), "C query flags");
+extern "C" uint32_t EditorRequestSizeFromC(void);
+extern "C" EditorRequest RequestAfterEditFromC(EditorOperation);
 int main() {
+    const auto after = RequestAfterEditFromC(71);
+    if (sizeof(EditorRequest) != EditorRequestSizeFromC() || after.afterEdit != 71 ||
+        after.revisionArgument.size != sizeof("document-revision") - 1)
+        return 1;
     EditorObject picked{{3}, 7, 11};
     const auto view = PickViewFromC(&picked);
     EditorObject result{};

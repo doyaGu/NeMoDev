@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 18u
+#define EDITOR_VERSION 19u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -96,6 +96,11 @@ typedef struct EditorRequest {
     uint32_t count;
     EditorString handler; // empty selects the configured command/query
     EditorOperation operation; // assigned by the host, shared by synchronous nested commands
+    // Optional preceding edit in this same document. Run only after it succeeds.
+    // revisionArgument, when supplied, names an INTEGER command parameter that
+    // receives that edit's resulting document revision. Both are copied on execute.
+    EditorOperation afterEdit;
+    EditorString revisionArgument;
 } EditorRequest;
 // Sinks copy their inputs before returning. They never take ownership.
 // Command diagnostics use the text field "message" in their output sink.
@@ -300,14 +305,16 @@ typedef struct EditorViewDesc {
     EditorNavigateView navigate;
     // State belongs to the view type and version, including across providers.
     // saveState/restoreState are supplied together. Saved values use the same
-    // bounded sink as queries, but must not contain native object references.
-    // The workspace retains single-instance state across close/reopen. Capture
+    // bounded sink as queries. Only documentBound views may save ObjectRefs.
+    // The workspace retains document-independent single-instance state across close/reopen. Capture
     // and restore also precede replacing open providers; failure keeps old views.
     uint32_t stateVersion;
     EditorQuery saveState;
     EditorNavigateView restoreState;
     // Read-only instance data, distinct from saved navigation state. The
     // version is published by the view and contains no native object access.
+    // An optional TEXT field named "title" supplies this instance's window title;
+    // its workspace role or instance ID continues to identify the window.
     EditorQuery inspect;
     EditorQueryVersion inspectRevision;
     const EditorParameter *fields;
@@ -319,6 +326,10 @@ typedef struct EditorViewDesc {
     // Runs read-only on the editor thread; references belong to this scope.
     // When supplied, replaces this view's rectangular pick regions.
     EditorQuery pick;
+    // The window belongs to this document and closes before document replacement.
+    // Its replacement state may contain checked ObjectRefs; that state is never
+    // retained across documents. Other views save only document-independent values.
+    uint32_t documentBound;
 } EditorViewDesc;
 typedef struct EditorMenuDesc {
     EditorString id, action, location, label;

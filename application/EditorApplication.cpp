@@ -301,9 +301,10 @@ struct Module {
                 throw std::invalid_argument("Invalid view descriptor size");
             auto d = source.views[i];
             if (!d.create || !d.draw || !d.destroy || d.kind < EDITOR_WINDOW_VIEW || d.kind > EDITOR_OVERLAY_VIEW ||
-                d.singleInstance > 1 || d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION ||
-                (d.count && !d.navigate) || bool(d.saveState) != bool(d.restoreState) ||
-                bool(d.stateVersion) != bool(d.saveState) || (d.pick && d.kind != EDITOR_WINDOW_VIEW))
+                d.singleInstance > 1 || d.documentBound > 1 || (d.documentBound && d.area != EDITOR_DOCUMENT) ||
+                d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION || (d.count && !d.navigate) ||
+                bool(d.saveState) != bool(d.restoreState) || bool(d.stateVersion) != bool(d.saveState) ||
+                (d.pick && d.kind != EDITOR_WINDOW_VIEW))
                 throw std::invalid_argument("Invalid view descriptor");
             d.id = Text(d.id, true);
             d.provider = Text(d.provider, true);
@@ -1149,7 +1150,10 @@ EditorResponse EditorApplication::SaveViewState(const EditorViewDesc &desc, void
     --s.readOnlyCallbacks;
     --s.querying;
     if (output.status != EDITOR_OK) result.status = output.status;
-    if (!EveryField(result.fields, [](const auto &field) { return field.type != EDITOR_OBJECT && field.type != EDITOR_OBJECT_LIST; })) result.status = EDITOR_INVALID;
+    if (desc.documentBound ? !s.CurrentValues(result.fields) : !EveryField(result.fields, [](const auto &field) {
+            return field.type != EDITOR_OBJECT && field.type != EDITOR_OBJECT_LIST;
+        }))
+        result.status = EDITOR_INVALID;
     if (result.status != EDITOR_OK) result.fields.clear();
     return result;
 }
@@ -1158,6 +1162,10 @@ EditorStatus EditorApplication::RestoreViewState(const EditorViewDesc &desc, voi
     auto &s = *m_State;
     if (!s.Thread() || !s.Valid(scope, desc.area) || (desc.area == EDITOR_DOCUMENT && !s.NativeReady())) return EDITOR_STALE;
     if (!desc.restoreState) return EDITOR_INVALID;
+    if (desc.documentBound ? !s.CurrentValues(state) : !EveryField(state, [](const auto &field) {
+            return field.type != EDITOR_OBJECT && field.type != EDITOR_OBJECT_LIST;
+        }))
+        return EDITOR_STALE;
     const auto values = BorrowEditorFields(state);
     const EditorRequest request{scope, values.data(), uint32_t(values.size())};
     ++s.drawing;

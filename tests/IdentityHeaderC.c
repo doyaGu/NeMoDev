@@ -180,3 +180,10 @@ EditorViewDesc PickViewFromC(EditorObject *object) {
     view.data = object;
     return view;
 }
+
+EditorRequest RequestAfterEditFromC(EditorOperation edit) {
+    EditorRequest request = {0};
+    request.afterEdit = edit;
+    request.revisionArgument = (EditorString)EDITOR_TEXT("document-revision");
+    return request;
+}
