@@ -34,6 +34,20 @@ add_executable(NeMoDevIdentityHeaderTests IdentityHeaderTests.cpp IdentityHeader
 target_include_directories(NeMoDevIdentityHeaderTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(NeMoDevIdentityHeaderTests PRIVATE c_std_11 cxx_std_17)
 add_test(NAME NeMoDevIdentityHeaders COMMAND NeMoDevIdentityHeaderTests)
+# Compile the actual Schematic painter with only copied data and ImGui headers.
+# No CK, SDK or runtime include directories/libraries are available here.
+add_library(NeMoDevSchematicDrawingHeaders OBJECT
+        ../ui/schematic/SchematicRenderer.cpp ../ui/controls/DevIcons.cpp)
+target_include_directories(NeMoDevSchematicDrawingHeaders PRIVATE
+        "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
+target_compile_features(NeMoDevSchematicDrawingHeaders PRIVATE cxx_std_17)
+add_executable(NeMoDevSchematicDrawingTests SchematicDrawingTests.cpp
+        ../core/schematic/SchematicModel.cpp ../core/schematic/SchematicHitTest.cpp
+        $<TARGET_OBJECTS:NeMoDevSchematicDrawingHeaders>)
+target_include_directories(NeMoDevSchematicDrawingTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
+target_link_libraries(NeMoDevSchematicDrawingTests PRIVATE VirtoolsDevImGui)
+target_compile_features(NeMoDevSchematicDrawingTests PRIVATE cxx_std_17)
+add_test(NAME NeMoDevSchematicDrawing COMMAND NeMoDevSchematicDrawingTests)
 add_executable(NeMoDevSdkObjectBehaviorProbe
         "${VIRTOOLS_SDK_PATH}/Source/CK2/tests/CKObjectBehaviorProbe.cpp")
 target_link_libraries(NeMoDevSdkObjectBehaviorProbe PRIVATE CK2 VxMath)

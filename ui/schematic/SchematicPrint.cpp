@@ -24,6 +24,7 @@ class PrintedSchematic final : public SchematicPrintContent {
                 std::vector<unsigned char> &pixels, std::string &error) const override {
         ImDrawList list(ImGui::GetDrawListSharedData());
         list._ResetForNewFrame();
+        list._SetPixelDensity(1.0f); // RenderPage uses one UI unit per output texel.
         const ImVec2 size{float(width), float(height)};
         list.PushClipRect(ImVec2(0, 0), size);
         list.PushTexture(ImGui::GetIO().Fonts->TexRef);

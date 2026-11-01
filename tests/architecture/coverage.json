@@ -815,7 +815,8 @@
       "S54",
       "S55",
       "S56",
-      "S57"
+      "S57",
+      "S21"
     ],
     "S34": [
       "S01",
@@ -1600,7 +1601,8 @@
         "VirtoolsDev.Edits",
         "NeMoDevEditor",
         "VirtoolsDevFileDialogs",
-        "NeMoDevIdentityHeaders"
+        "NeMoDevIdentityHeaders",
+        "NeMoDevSchematicDrawing"
       ],
       "ui_tests": [
         "VirtoolsDevUi.schematic",
