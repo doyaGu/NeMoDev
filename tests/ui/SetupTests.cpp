@@ -925,6 +925,76 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         }
     };
 
+    t = IM_REGISTER_TEST(engine, "setup", "image_format_options_cancel_and_cleanup");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        vdev::ObjectRef target{};
+        vdev::BitmapFormat original;
+        int parameters = 0;
+        size_t steps = 0;
+        bool dirty = false;
+        const auto count = [&] { return state.document->Context()->GetObjectsCountByClassID(CKCID_PARAMETEROUT); };
+        OnMainThread(ctx, [&] {
+            auto *texture = CKTexture::Cast(state.document->Context()->CreateObject(CKCID_TEXTURE, "Image options"));
+            IM_CHECK_NO_RET(texture && texture->Create(2, 2, 32));
+            state.document->Include(texture->GetID());
+            auto format = vdev::MakeSaveFormat(state.document->Context(), "bmp");
+            IM_CHECK_NO_RET(!format.empty());
+            texture->SetSaveFormat(reinterpret_cast<CKBitmapProperties *>(format.data()));
+            texture->SetSaveOptions(CKTEXTURE_IMAGEFORMAT);
+            target = state.document->Reference(texture->GetID());
+            IM_CHECK_NO_RET(vdev::ReadBitmapFormat(texture, original));
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+            state.events.Post(vdev::ShowObjectSetup{target});
+            steps = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            parameters = count();
+        });
+        ctx->Yield(4);
+        ctx->SetRef("//###setuptexture");
+        ctx->ItemClick("**/Format Options...");
+        ctx->Yield(3);
+        IM_CHECK(Read<int>(ctx, count) > parameters);
+        ctx->SetRef("//Format Options###formatoptions");
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            vdev::BitmapFormat after;
+            IM_CHECK_NO_RET(vdev::ReadBitmapFormat(state.document->Resolve(target), after));
+            IM_CHECK_NO_RET(after.bytes == original.bytes);
+            IM_CHECK_NO_RET(count() == parameters);
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.document->Dirty() == dirty);
+        });
+        ctx->SetRef("//###setuptexture");
+        ctx->ItemClick("**/Format Options...");
+        ctx->Yield(3);
+        ctx->SetRef("//Format Options###formatoptions");
+        ctx->ItemClick("**/OK/##dialogbutton");
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            vdev::BitmapFormat after;
+            IM_CHECK_NO_RET(vdev::ReadBitmapFormat(state.document->Resolve(target), after));
+            IM_CHECK_NO_RET(after.bytes == original.bytes);
+            IM_CHECK_NO_RET(count() == parameters);
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.document->Dirty() == dirty);
+        });
+        // A delayed accept must neither overwrite a new format nor keep private options alive.
+        ctx->SetRef("//###setuptexture");
+        ctx->ItemClick("**/Format Options...");
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] { vdev::RenameLevelObject(*state.document, target, "Changed while options open"); });
+        ctx->SetRef("//Format Options###formatoptions");
+        ctx->ItemClick("**/OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK_EQ(Read<int>(ctx, count), parameters);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.History().Undo());
+            const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
+        });
+    };
+
     // The 2D Entity Setup (a 2D entity, not a sprite): Pickable, then the
     // Z Order typed in; Ctrl+Z gives each back, unmodified.
     t = IM_REGISTER_TEST(engine, "setup", "entity2d_undo");
