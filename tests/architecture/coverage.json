@@ -422,9 +422,9 @@
     },
     {
       "id": "S48",
-      "name": "Setup 属性查询、预览与修改",
+      "name": "Setup 原生页面查询、预览与修改",
       "patterns": [
-        "features/setup/**"
+        "features/setup/SetupCommands.*"
       ]
     },
     {
@@ -507,6 +507,13 @@
       "patterns": [
         "features/schematic/SchematicDiagnosticViews.*",
         "features/schematic/SchematicPosition.h"
+      ]
+    },
+    {
+      "id": "S58",
+      "name": "Setup 页面与对象列表的只读数据",
+      "patterns": [
+        "features/setup/SetupViewData.*"
       ]
     }
   ],
@@ -909,7 +916,8 @@
       "S05",
       "S08",
       "S13",
-      "S34"
+      "S34",
+      "S58"
     ],
     "S49": [
       "S01",
@@ -980,6 +988,9 @@
       "S27",
       "S33",
       "S34",
+      "S35"
+    ],
+    "S58": [
       "S35"
     ]
   },
@@ -1686,7 +1697,8 @@
         "S20",
         "S44",
         "S45",
-        "S48"
+        "S48",
+        "S58"
       ],
       "tests": [
         "VirtoolsDev.ObjectPropertyUndo",

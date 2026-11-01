@@ -87,6 +87,7 @@ set(_editor_sources
         ../features/diagnostics/DiagnosticViews.cpp
         # The Setups.
         setup/SetupWindows.cpp
+        ../features/setup/SetupViewData.cpp
         setup/SetupRenderPages.cpp
         setup/SetupScenePages.cpp
         setup/SetupObjectPages.cpp

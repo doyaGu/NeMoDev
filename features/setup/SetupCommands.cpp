@@ -1,4 +1,8 @@
 #include "features/setup/SetupCommands.h"
+#include "features/setup/SetupViewData.h"
+#include "core/level/SceneCommands.h"
+#include <algorithm>
+#include <cstring>
 #include "core/document/Document.h"
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/ValueCommands.h"
@@ -104,6 +108,181 @@ EditorStatus Result(const EditResult &result, EditorSink sink) {
            : result.Status() == EditStatus::Refused ? EDITOR_REFUSED
                                                     : EDITOR_ERROR;
 }
+bool IsFrame(CKObject *object) {
+    auto *entity = CK3dEntity::Cast(object);
+    if (!entity)
+        return false;
+    if (CKPlace::Cast(object))
+        return true;
+    const auto cid = object->GetClassID();
+    return (cid == CKCID_3DENTITY || cid == CKCID_3DOBJECT) &&
+           (entity->GetFlags() & (CK_3DENTITY_FRAME | CK_3DENTITY_PORTAL));
+}
+std::string SetupName(CKObject *object) {
+    return object && object->GetName() && *object->GetName() ? AnsiToUtf8(object->GetName()) : "<Unnamed>";
+}
+SetupKind KindOf(CKObject *object) {
+    if (!object)
+        return SetupKind::Other;
+    const CK_CLASSID cid = object->GetClassID();
+    if (cid == CKCID_LEVEL || CKIsChildClassOf(cid, CKCID_SCENE))
+        return SetupKind::Scene;
+    if (CKIsChildClassOf(cid, CKCID_GRID))
+        return SetupKind::Grid;
+    if (CKIsChildClassOf(cid, CKCID_CURVE))
+        return SetupKind::Curve;
+    if (CKIsChildClassOf(cid, CKCID_CHARACTER))
+        return SetupKind::Character;
+    if (CKIsChildClassOf(cid, CKCID_SPRITE3D))
+        return SetupKind::Sprite3D;
+    if (CKIsChildClassOf(cid, CKCID_SPRITETEXT))
+        return SetupKind::SpriteText;
+    if (CKIsChildClassOf(cid, CKCID_SPRITE))
+        return SetupKind::Sprite2D;
+    if (CKIsChildClassOf(cid, CKCID_ANIMATION))
+        return SetupKind::Animation;
+    if (CKIsChildClassOf(cid, CKCID_OBJECTANIMATION))
+        return SetupKind::ObjectAnimation;
+    if (CKIsChildClassOf(cid, CKCID_MIDISOUND))
+        return SetupKind::MidiSound;
+    if (CKIsChildClassOf(cid, CKCID_CAMERA))
+        return SetupKind::Camera;
+    if (CKIsChildClassOf(cid, CKCID_LIGHT))
+        return SetupKind::Light;
+    if (CKIsChildClassOf(cid, CKCID_3DENTITY))
+        return SetupKind::Entity3D;
+    if (CKIsChildClassOf(cid, CKCID_2DENTITY))
+        return SetupKind::Entity2D;
+    if (CKIsChildClassOf(cid, CKCID_MATERIAL))
+        return SetupKind::Material;
+    if (CKIsChildClassOf(cid, CKCID_MESH))
+        return SetupKind::Mesh;
+    if (CKIsChildClassOf(cid, CKCID_TEXTURE))
+        return SetupKind::Texture;
+    if (CKIsChildClassOf(cid, CKCID_WAVESOUND))
+        return SetupKind::Sound;
+    if (CKIsChildClassOf(cid, CKCID_DATAARRAY))
+        return SetupKind::Array;
+    if (CKIsChildClassOf(cid, CKCID_GROUP))
+        return SetupKind::Group;
+    if (CKIsChildClassOf(cid, CKCID_KINEMATICCHAIN))
+        return SetupKind::KinematicChain;
+    if (CKIsChildClassOf(cid, CKCID_LAYER))
+        return SetupKind::Layer;
+    if (CKIsChildClassOf(cid, CKCID_PARAMETER))
+        return SetupKind::Parameter;
+    if (CKIsChildClassOf(cid, CKCID_PARAMETERIN))
+        return SetupKind::ParameterIn;
+    if (CKIsChildClassOf(cid, CKCID_PARAMETEROPERATION))
+        return SetupKind::Operation;
+    if (CKIsChildClassOf(cid, CKCID_BEHAVIOR))
+        return SetupKind::Behavior;
+    if (CKIsChildClassOf(cid, CKCID_BEHAVIORIO))
+        return SetupKind::BehaviorIO;
+    if (CKIsChildClassOf(cid, CKCID_BEHAVIORLINK))
+        return SetupKind::BehaviorLink;
+    if (CKIsChildClassOf(cid, CKCID_SYNCHRO))
+        return SetupKind::Synchro;
+    if (CKIsChildClassOf(cid, CKCID_STATE))
+        return SetupKind::State;
+    if (CKIsChildClassOf(cid, CKCID_CRITICALSECTION))
+        return SetupKind::CriticalSection;
+    if (CKIsChildClassOf(cid, CKCID_INTERFACEOBJECTMANAGER))
+        return SetupKind::InterfaceObjects;
+    return SetupKind::Other;
+}
+
+std::string TitleOf(CKObject *object) {
+    // Dev titles: "3D Object Setup", "Target Camera Setup", "Point Light Setup", ...
+    if (CKLight *light = CKLight::Cast(object)) {
+        const VXLIGHT_TYPE type = light->GetType();
+        const char *kind = type == VX_LIGHTSPOT ? "Spot" : type == VX_LIGHTDIREC ? "Directional" : "Point";
+        return std::string(CKTargetLight::Cast(object) ? "Target " : "") + kind + " Light Setup";
+    }
+    const CK_CLASSID cid = object ? object->GetClassID() : 0;
+    if (cid == CKCID_3DENTITY && (CK3dEntity::Cast(object)->GetFlags() & CK_3DENTITY_PORTAL))
+        return "Portal Setup";
+    if (IsFrame(object))
+        return "3D Frame Setup";
+    if (CKBehavior *behavior = CKBehavior::Cast(object))
+        return behavior->GetType() == CKBEHAVIORTYPE_SCRIPT     ? "Script Setup"
+               : behavior->GetType() == CKBEHAVIORTYPE_BEHAVIOR ? "Behavior Graph Setup"
+                                                                : "Building Block Setup";
+    if (CKParameterLocal *local = CKParameterLocal::Cast(object))
+        return local->IsMyselfParameter() ? "This Parameter Setup" : "Local Parameter Setup";
+    switch (cid) {
+    case CKCID_PLACE:
+        return "Place Setup";
+    case CKCID_BODYPART:
+        return "Body Part Setup";
+    case CKCID_3DOBJECT:
+    case CKCID_3DENTITY:
+        return "3D Object Setup";
+    case CKCID_2DENTITY:
+        return "2D Frame Setup";
+    case CKCID_TARGETCAMERA:
+        return "Target Camera Setup";
+    case CKCID_CAMERA:
+        return "Camera Setup";
+    case CKCID_CURVE:
+        return "Curve Setup";
+    case CKCID_CHARACTER:
+        return "Character Setup";
+    case CKCID_WAVESOUND:
+        return "Sound Setup";
+    case CKCID_DATAARRAY:
+        return "Array Setup";
+    case CKCID_GROUP:
+        return "Group Setup";
+    case CKCID_LEVEL:
+        return "Level Setup";
+    case CKCID_SPRITE3D:
+        return "3D Sprite Setup";
+    case CKCID_SPRITE:
+        return "2D Sprite Setup";
+    case CKCID_SCENE:
+        return "Scene Setup";
+    case CKCID_SPRITETEXT:
+        return "Sprite Text Setup";
+    case CKCID_ANIMATION:
+        return "Animation Setup";
+    case CKCID_KEYEDANIMATION:
+        return "Keyed Animation Setup";
+    case CKCID_OBJECTANIMATION:
+        return "Object Animation Setup";
+    case CKCID_MIDISOUND:
+        return "Midi Sound Setup";
+    case CKCID_KINEMATICCHAIN:
+        return "Kinematic Chain Setup";
+    case CKCID_LAYER:
+        return "Layer Setup";
+    case CKCID_PARAMETEROUT:
+        return "Output Parameter Setup";
+    case CKCID_PARAMETER:
+        return "Parameter Setup";
+    case CKCID_PARAMETERIN:
+        return "Input Parameter Setup";
+    case CKCID_PARAMETEROPERATION:
+        return "Parameter Operation Setup";
+    case CKCID_BEHAVIORIO:
+        return "Behavior IO Setup";
+    case CKCID_BEHAVIORLINK:
+        return "Behavior Link Setup";
+    case CKCID_SYNCHRO:
+        return "Synchro Setup";
+    case CKCID_STATE:
+        return "State Setup";
+    case CKCID_CRITICALSECTION:
+        return "Critical Section Setup";
+    case CKCID_INTERFACEOBJECTMANAGER:
+        return "Interface Objects Setup";
+    default:
+        break;
+    }
+    const char *name = cid ? CKClassIDToString(cid) : nullptr;
+    return std::string(name ? name : "Object") + " Setup";
+}
+
 } // namespace
 struct SetupCommands::Data {
     enum class Storage { Object, Scene, Bitmap, Grid, Script };
@@ -135,6 +314,197 @@ struct SetupCommands::Data {
         GridPropertyValue grid;
     };
     explicit Data(std::function<Document *()> current) : current(std::move(current)) {}
+    static Document *DocumentFor(void *data, const EditorRequest &request) {
+        auto *doc = static_cast<Data *>(data)->current();
+        return doc && doc->Token() == request.scope.document ? doc : nullptr;
+    }
+    static CKObject *SetupTarget(Document *doc, const EditorRequest &request) {
+        const auto *target = Arg(request, "target");
+        return doc && target ? doc->Resolve(target->object) : nullptr;
+    }
+    static EditorStatus OpenTarget(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto *doc = DocumentFor(data, *request);
+        auto *object = SetupTarget(doc, *request);
+        if (!object)
+            return EDITOR_STALE;
+        int point = -1;
+        if (auto *curvePoint = CKCurvePoint::Cast(object))
+            if (auto *curve = curvePoint->GetCurve()) {
+                for (int i = 0; i < curve->GetControlPointCount(); ++i)
+                    if (curve->GetControlPoint(i) == curvePoint)
+                        point = i;
+                object = curve;
+            }
+        if (auto *entity = CK3dEntity::Cast(object)) {
+            const auto flags = entity->GetFlags();
+            const CK_CLASSID owner = flags & CK_3DENTITY_TARGETCAMERA  ? CKCID_TARGETCAMERA
+                                     : flags & CK_3DENTITY_TARGETLIGHT ? CKCID_TARGETLIGHT
+                                                                       : 0;
+            if (owner)
+                for (auto *candidate : doc->LiveObjects(owner, true)) {
+                    auto *camera = CKTargetCamera::Cast(candidate);
+                    auto *light = CKTargetLight::Cast(candidate);
+                    if ((camera && camera->GetTarget() == entity) || (light && light->GetTarget() == entity)) {
+                        object = candidate;
+                        break;
+                    }
+                }
+        }
+        const EditorValue fields[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT, doc->Reference(object->GetID())},
+                                      {EDITOR_TEXT("point"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(point))}};
+        return sink.write(sink.data, fields, 2);
+    }
+    static EditorStatus Page(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto *doc = DocumentFor(data, *request);
+        auto *object = SetupTarget(doc, *request);
+        if (!object)
+            return EDITOR_STALE;
+        auto *context = doc->Context();
+        auto *level = context->GetCurrentLevel();
+        auto *current = context->GetCurrentScene();
+        auto *sceneObject = CKSceneObject::Cast(object);
+        auto *scene = InitialConditionsScene(context);
+        const bool here = scene && sceneObject && scene->IsObjectHere(sceneObject);
+        const auto kind = KindOf(object);
+        auto *curve = CKCurve::Cast(object);
+        const auto *index = Arg(*request, "point");
+        const int64_t point = index ? int64_t(index->integer) : -1;
+        if (point < -1 || point > INT32_MAX)
+            return EDITOR_INVALID;
+        auto *selected =
+            curve && point >= 0 && point < curve->GetControlPointCount() ? curve->GetControlPoint(int(point)) : nullptr;
+        SetupFileKind fileKind = SetupFileKind::None;
+        const char *filename = nullptr;
+        if (auto *texture = CKTexture::Cast(object)) {
+            fileKind = SetupFileKind::Texture;
+            filename = texture->GetSlotFileName(texture->GetCurrentSlot());
+        } else if (auto *sprite = CKSprite::Cast(object); sprite && !CKSpriteText::Cast(object)) {
+            fileKind = SetupFileKind::Sprite;
+            filename = sprite->GetSlotFileName(sprite->GetCurrentSlot());
+        } else if (auto *sound = CKWaveSound::Cast(object)) {
+            fileKind = SetupFileKind::Wave;
+            filename = sound->GetSoundFileName();
+        } else if (auto *midi = CKMidiSound::Cast(object)) {
+            fileKind = SetupFileKind::Midi;
+            filename = midi->GetSoundFileName();
+        }
+        CKGrid *grid = nullptr;
+        int layer = -1;
+        if (auto *value = CKLayer::Cast(object)) {
+            grid = CKGrid::Cast(context->GetObject(value->GetOwner()));
+            for (int i = 0; grid && i < grid->GetLayerCount(); ++i)
+                if (grid->GetLayerByIndex(i) == value) {
+                    layer = i;
+                    break;
+                }
+        }
+        const auto title = TitleOf(object), name = SetupName(object), file = AnsiToUtf8(filename ? filename : "");
+        const bool behavioral = CKBeObject::Cast(object) != nullptr;
+        const EditorValue fields[] = {
+            {EDITOR_TEXT("target"), EDITOR_OBJECT, doc->Reference(object->GetID())},
+            {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(kind)},
+            {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(object->GetClassID())},
+            {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE, {}, EditorText(title)},
+            {EDITOR_TEXT("name"), EDITOR_TEXT_VALUE, {}, EditorText(name)},
+            {EDITOR_TEXT("point"), EDITOR_OBJECT, doc->Reference(selected ? selected->GetID() : 0)},
+            {EDITOR_TEXT("grid"), EDITOR_OBJECT, doc->Reference(grid ? grid->GetID() : 0)},
+            {EDITOR_TEXT("layer"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(layer))},
+            {EDITOR_TEXT("file-kind"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(fileKind)},
+            {EDITOR_TEXT("filename"), EDITOR_TEXT_VALUE, {}, EditorText(file)},
+            {EDITOR_TEXT("behavioral"), EDITOR_INTEGER_VALUE, {}, {}, behavioral},
+            {EDITOR_TEXT("frame"), EDITOR_INTEGER_VALUE, {}, {}, IsFrame(object)},
+            {EDITOR_TEXT("attribute-drop"), EDITOR_INTEGER_VALUE, {}, {}, behavioral && !CKBehavior::Cast(object)},
+            {EDITOR_TEXT("scene-scoped"),
+             EDITOR_INTEGER_VALUE,
+             {},
+             {},
+             sceneObject && level && !CKScene::Cast(object) && !CKPlace::Cast(object) && !CKLevel::Cast(object)},
+            {EDITOR_TEXT("current-scene"), EDITOR_INTEGER_VALUE, {}, {}, current != nullptr},
+            {EDITOR_TEXT("in-current-scene"),
+             EDITOR_INTEGER_VALUE,
+             {},
+             {},
+             current && sceneObject && sceneObject->IsInScene(current)},
+            {EDITOR_TEXT("initial-visible"),
+             EDITOR_INTEGER_VALUE,
+             {},
+             {},
+             kind != SetupKind::Scene && !CKPlace::Cast(object) && sceneObject},
+            {EDITOR_TEXT("initial-here"), EDITOR_INTEGER_VALUE, {}, {}, here},
+            {EDITOR_TEXT("initial-value"),
+             EDITOR_INTEGER_VALUE,
+             {},
+             {},
+             here && scene->GetObjectInitialValue(sceneObject)}};
+        return sink.write(sink.data, fields, uint32_t(std::size(fields)));
+    }
+    static EditorStatus SetupObjects(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto *doc = DocumentFor(data, *request);
+        auto *object = SetupTarget(doc, *request);
+        if (!object)
+            return EDITOR_STALE;
+        const auto *filter = Arg(*request, "current-scene");
+        if (filter && filter->integer > 1)
+            return EDITOR_INVALID;
+        auto *level = doc->Context()->GetCurrentLevel();
+        auto *current = doc->Context()->GetCurrentScene();
+        auto *sceneObject = CKSceneObject::Cast(object);
+        const bool scoped =
+            sceneObject && level && !CKScene::Cast(object) && !CKPlace::Cast(object) && !CKLevel::Cast(object);
+        auto *scene = level ? level->GetLevelScene() : nullptr;
+        if (scoped && filter && filter->integer && current && sceneObject->IsInScene(current))
+            scene = current;
+        auto objects = doc->LiveObjects(object->GetClassID(), false);
+        objects.erase(std::remove_if(objects.begin(), objects.end(),
+                                     [&](CKObject *other) {
+                                         auto *candidate = CKSceneObject::Cast(other);
+                                         return other->IsPrivate() || other->IsDynamic() ||
+                                                (scoped && scene && other != object && candidate &&
+                                                 !candidate->IsInScene(scene));
+                                     }),
+                      objects.end());
+        std::sort(objects.begin(), objects.end(), [](CKObject *a, CKObject *b) {
+            return _stricmp(a->GetName() ? a->GetName() : "", b->GetName() ? b->GetName() : "") < 0;
+        });
+        std::vector<ObjectRef> refs;
+        std::vector<std::string> names;
+        for (auto *other : objects) {
+            refs.push_back(doc->Reference(other->GetID()));
+            names.push_back(SetupName(other));
+        }
+        std::vector<EditorString> texts;
+        for (const auto &name : names)
+            texts.push_back(EditorText(name));
+        const EditorValue fields[] = {
+            {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {refs.data(), uint32_t(refs.size())}},
+            {EDITOR_TEXT("names"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {texts.data(), uint32_t(texts.size())}}};
+        return sink.write(sink.data, fields, 2);
+    }
+    static EditorStatus Transform(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto *doc = DocumentFor(data, *request);
+        auto *entity = CK3dEntity::Cast(SetupTarget(doc, *request));
+        if (!entity)
+            return EDITOR_STALE;
+        double world[16], local[16], box[6];
+        const auto &wm = entity->GetWorldMatrix();
+        const auto &lm = entity->GetLocalMatrix();
+        const auto bounds = entity->GetBoundingBox(FALSE);
+        for (int i = 0; i < 16; ++i) {
+            world[i] = wm[i / 4][i % 4];
+            local[i] = lm[i / 4][i % 4];
+        }
+        for (int i = 0; i < 3; ++i) {
+            box[i] = bounds.Min[i];
+            box[i + 3] = bounds.Max[i];
+        }
+        EditorValue fields[] = {{EDITOR_TEXT("world"), EDITOR_REAL_LIST},
+                                {EDITOR_TEXT("local"), EDITOR_REAL_LIST},
+                                {EDITOR_TEXT("box"), EDITOR_REAL_LIST}};
+        fields[0].reals = {world, 16};
+        fields[1].reals = {local, 16};
+        fields[2].reals = {box, 6};
+        return sink.write(sink.data, fields, 3);
+    }
     template <class T> void Add(const char *id, const ObjectProperty<T> &property) {
         auto entry = std::make_unique<Entry>();
         entry->owner = this;
@@ -866,6 +1236,8 @@ const std::vector<ProviderChoice> &SetupCommands::DefaultProviders() {
             result.push_back({"command", entry->id + "-set", "builtin.setup"});
             result.push_back({"query", entry->id + "-value", "builtin.setup"});
         }
+        for (const auto *id : {"setup.target", "setup.page", "setup.objects", "setup.transform"})
+            result.push_back({"query", id, "builtin.setup"});
         return result;
     }();
     return providers;
@@ -906,6 +1278,43 @@ bool SetupCommands::Register(EditorApplication &app, std::string &error) {
                               EditorText(entry.query), EDITOR_TEXT("value"), EditorText(entry.command),
                               EDITOR_TEXT("value"), EditorText(entry.editor)});
     }
+    const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
+    const EditorParameter targetFields[] = {target, {EDITOR_TEXT("point"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter pageArgs[] = {target, {EDITOR_TEXT("point"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorParameter pageFields[] = {target,
+                                          {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("class"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE},
+                                          {EDITOR_TEXT("name"), EDITOR_TEXT_VALUE},
+                                          {EDITOR_TEXT("point"), EDITOR_OBJECT, 0, 1},
+                                          {EDITOR_TEXT("grid"), EDITOR_OBJECT, 0, 1},
+                                          {EDITOR_TEXT("layer"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("file-kind"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("filename"), EDITOR_TEXT_VALUE},
+                                          {EDITOR_TEXT("behavioral"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("frame"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("attribute-drop"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("scene-scoped"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("current-scene"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("in-current-scene"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("initial-visible"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("initial-here"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("initial-value"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter objectArgs[] = {target, {EDITOR_TEXT("current-scene"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorParameter objectFields[] = {{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST},
+                                            {EDITOR_TEXT("names"), EDITOR_TEXT_LIST}};
+    const EditorParameter transformFields[] = {{EDITOR_TEXT("world"), EDITOR_REAL_LIST},
+                                               {EDITOR_TEXT("local"), EDITOR_REAL_LIST},
+                                               {EDITOR_TEXT("box"), EDITOR_REAL_LIST}};
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("setup.target"), EDITOR_TEXT("builtin.setup"), &target, 1,
+                       Data::OpenTarget, &data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, targetFields, 2});
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("setup.page"), EDITOR_TEXT("builtin.setup"), pageArgs, 2,
+                       Data::Page, &data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, pageFields,
+                       uint32_t(std::size(pageFields))});
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("setup.objects"), EDITOR_TEXT("builtin.setup"), objectArgs,
+                       2, Data::SetupObjects, &data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, objectFields, 2});
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("setup.transform"), EDITOR_TEXT("builtin.setup"), &target,
+                       1, Data::Transform, &data, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, transformFields, 3});
     EditorModuleDesc module{};
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
