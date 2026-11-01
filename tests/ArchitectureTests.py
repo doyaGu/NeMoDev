@@ -287,6 +287,30 @@ class ArchitectureTests(unittest.TestCase):
         self.manifest["features"][0]["source_groups"].append("features")
         self.assertIn("native/state access in workspace view: features/schematic/SchematicScriptData.h", self.run_check().stderr)
 
+    def test_schematic_picking_and_presentation_cannot_regain_native_access(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for path, text in (
+            ("ui/schematic/SchematicCanvas.cpp", "void Pick() { m_State.document->Context(); }"),
+            ("ui/schematic/SchematicCanvas.cpp", "void Draw() { m_State.debugger->GetState(); }"),
+            ("ui/schematic/SchematicCanvas.cpp", "void Pick() { state.objectPick[title] = callback; }"),
+            ("ui/schematic/SchematicDialogs.cpp", "void Draw() { CKParameter *value; }")):
+            with self.subTest(path=path, text=text):
+                self.write(path, text)
+                self.assertIn("native mutation or query returned to migrated input", self.run_check().stderr)
+                self.write(path, "// Copied view data.\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
+    def test_schematic_painter_and_icons_cannot_import_sdk(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for path in ("ui/schematic/SchematicRenderer.cpp", "ui/controls/DevIcons.h", "ui/controls/DevIcons.cpp"):
+            with self.subTest(path=path):
+                self.write(path, '#include "CKAll.h"\n')
+                self.assertIn("unrecorded native/state exposure: " + path, self.run_check().stderr)
+                self.write(path, "// Copied drawing data.\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
     def test_parameter_dialog_and_array_control_cannot_import_native_state(self):
         self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
         self.manifest["features"][0]["source_groups"].append("ui")

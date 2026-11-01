@@ -63,50 +63,17 @@ def include_graph(source, files, contents=None, all_access=False):
 
 
 def input_access(source, files, errors):
-    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|CKObject|CKBehavior|ScriptSession|EditScriptData|EditGroup|SearchDocument|ToggleBreakpoint|FindBreakpoint|SetBreakpointConditions|RemoveBreakpoints|SetScriptSnapshot|LoadScriptSnapshot|LoadSnapshotBitmap)\b|"
+    forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|debugger|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|CKObject|CKBehavior|CKParameter(?:In|Out|Local|Operation|Manager)?|ScriptSession|EditScriptData|EditGroup|SearchDocument|ToggleBreakpoint|FindBreakpoint|SetBreakpointConditions|RemoveBreakpoints|SetScriptSnapshot|LoadScriptSnapshot|LoadSnapshotBitmap|objectPick)\b|"
                            r"\bm_View\.(?:Context|Pick|PickInfo|RectPick|Camera|Scene)\s*\(")
-    migrated = {"BeginMove", "UpdateMove", "EndMove", "BeginGeometry", "UpdateGeometry", "GroupSelection",
-                "UngroupSelection", "Copy", "Cut", "Paste", "PasteClipboard", "Duplicate", "BeginCopyDrag",
-                "EndCopyDrag", "RetainHit", "EndpointOf", "EndLink", "ContinueConnection", "ReplaceSourceDialog",
-                "OpenOperationChoice", "ApplyOperationChoice", "UpdateLinkPaths", "EndDrawGraph", "SelectedPositions",
-                "GraphState", "AuthoringArguments", "ExecuteAuthoring", "ObjectInfo", "ElementInfo", "LoadParameterTypes",
-                "RememberBlocks", "RecentBlocks", "OpenParameterEditor", "BeginRename", "SelectedGraph",
-                "SelectedVariableBlock", "AddGraphIo", "OpenGraphParameterPicker", "OpenLocalParameterPicker",
-                "OpenOperationPicker", "InsertBlockAt", "AddComment", "OpenValueDialog", "OpenParametersDialog",
-                "OpenParametersOf", "OpenModifyOperation", "ConvertToShortcutSource", "BeginPickShortcutSource",
-                "RetargetAllShortcuts", "RefreshOperationChoices", "OperationDialog", "LocalParameterDialog",
-                "ParametersDialog", "OpenSettingsDialog", "EditElement", "CommentEditor", "DelayDialog", "OpenLinkDelay",
-                "ImportBehaviorFile", "OpenReplaceBlock", "LoadReplacements", "ReplaceBlockDialog", "ReplaceGraphDialog",
-                "ReplaceWithFile", "SetParamStyle", "ToggleCommentIcon", "SpaceAction", "AddThisAt", "GoToShortcutSource",
-                "CkPropertiesDialog", "ShortcutAnalysisDialog", "QuickAddDialog", "OpenQuickAdd", "ParameterMenu",
-                "BlockMenus", "BlockCategoryMenu", "BehaviorMenu", "OpenHtmlHelp", "CompleteGraph", "ContextMenuItems",
-                "DoubleClick", "BodyMenu", "ShowScript", "RefreshStack", "SyncViews", "CapturePosition", "ValidPosition",
-                "ReadModel", "ApplyNavigation", "ApplyFocus", "Refresh", "ToggleScriptOpen", "ScriptOpen",
-                "MoveHighlightedScript", "ValidateNavigation", "Navigate", "PublishNavigation", "FindNext",
-                "FindSelected", "FindDialog", "SortScripts", "ScriptHeaderMenu", "SaveBehaviorsAs", "SaveSelectionAsNms",
-                "ScriptColorDialog", "SelectionBreakpoint", "Breakpoints", "ToggleBreakpointOfSelection", "BreakpointItems",
-                "GoToBreakpoint", "PickBreakpoint", "ConfigureBreakpoints", "OpenBreakpointList", "OpenBreakpointConfig",
-                "LoadBreakpointConfig", "BreakpointConfigDialog", "BreakpointListDialog", "ConditionParameterAt",
-                "PickConditionParameter", "LoadSnapshotFor", "SetSnapshotPixels", "DropFile"}
-    for path in files:
-        if path not in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp", "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp", "ui/schematic/SchematicDialogs.cpp", "ui/schematic/SchematicInput.cpp", "ui/panels/EditorPanels.cpp"}:
-            continue
+    migrated = {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp",
+                "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp",
+                "ui/schematic/SchematicDialogs.cpp", "ui/schematic/SchematicInput.cpp",
+                "ui/panels/EditorPanels.cpp"}
+    for path in set(files) & migrated:
         text = (source / path).read_text(encoding="utf-8-sig")
         text = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', '', text, flags=re.S)
-        if path in {"ui/layout/LayoutInput.cpp", "ui/schematic/SchematicLinking.cpp", "ui/schematic/SchematicInput.cpp", "ui/schematic/SchematicMenus.cpp", "ui/panels/EditorPanels.cpp"}:
-            if forbidden.search(text):
-                errors.append(f"native mutation or query returned to migrated input: {path}")
-            continue
-        for function in migrated:
-            start = re.search(r"\bSchematicCanvas::" + function + r"\s*\([^)]*\)[^{]*\{", text)
-            if not start:
-                continue
-            depth, end = 1, start.end()
-            while depth and end < len(text):
-                depth += (text[end] == '{') - (text[end] == '}')
-                end += 1
-            if forbidden.search(text[start.end():end]):
-                errors.append(f"native mutation or query returned to migrated input: {path}:{function}")
+        if forbidden.search(text):
+            errors.append(f"native mutation or query returned to migrated input: {path}")
 
 
 def baseline_exposures(source, revision):
