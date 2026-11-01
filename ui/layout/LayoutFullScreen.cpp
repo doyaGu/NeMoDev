@@ -10,7 +10,7 @@ void LayoutWindow::LeaveFullScreen(FullScreenExit reason) {
     Execute("layout.leave-fullscreen", {IntegerArgument("deactivated", reason == FullScreenExit::Deactivated)});
 }
 void LayoutWindow::FullScreenEvent(const SDL_Event &event) {
-    if (!FullScreen())
+    if (!m_Window || !FullScreen())
         return;
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT && m_PlayerMode)
         PlayerClick(int(event.button.x), int(event.button.y), event.button.clicks >= 2);

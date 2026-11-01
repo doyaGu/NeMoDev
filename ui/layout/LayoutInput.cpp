@@ -117,50 +117,51 @@ EditorResponse LayoutWindow::InputState(int x, int y, bool pick, ObjectRef curve
 
 bool LayoutWindow::BeginGesture(std::vector<EditorField> fields, unsigned kind, unsigned action,
                                 EditorOperation selection) {
-    m_GestureKind = kind;
-    m_GestureAction = action;
+    Window().gestureKind = kind;
+    Window().gestureAction = action;
     if (selection) {
-        m_PendingGesture = std::move(fields);
-        m_GestureSelection = selection;
+        Window().pendingGesture = std::move(fields);
+        Window().gestureSelection = selection;
         return true;
     }
     const auto values = BorrowEditorFields(fields);
-    if (Client().BeginCommand("layout.edit-gesture", {values.data(), values.data() + values.size()}, m_GestureEdit) !=
-        EDITOR_OK)
+    if (Client().BeginCommand("layout.edit-gesture", {values.data(), values.data() + values.size()},
+                              Window().gestureEdit) != EDITOR_OK)
         return false;
     for (const auto &field : fields)
         if (field.key == "value") {
             const std::vector<EditorField> owned{field};
             const auto value = BorrowEditorFields(owned);
-            if (m_EditorHost->editValue(m_EditorHost->data, m_GestureEdit, value.data()) != EDITOR_OK) {
-                Client().CancelEdit(m_GestureEdit);
+            if (m_EditorHost->editValue(m_EditorHost->data, Window().gestureEdit, value.data()) != EDITOR_OK) {
+                Client().CancelEdit(Window().gestureEdit);
                 return false;
             }
         }
-    m_Interaction = InputState();
+    Window().interaction = InputState();
     return true;
 }
 
 bool LayoutWindow::UpdateGesture(int x, int y, bool move, bool idle) {
     const std::vector<EditorField> fields{MotionValue(x, y, move, idle)};
     const auto value = BorrowEditorFields(fields);
-    if (!m_GestureEdit || m_EditorHost->editValue(m_EditorHost->data, m_GestureEdit, value.data()) != EDITOR_OK) {
+    if (!Window().gestureEdit ||
+        m_EditorHost->editValue(m_EditorHost->data, Window().gestureEdit, value.data()) != EDITOR_OK) {
         CancelEdits();
         return false;
     }
-    m_Interaction = InputState();
+    Window().interaction = InputState();
     UpdateCoordinates();
     return true;
 }
 
 void LayoutWindow::FinishGesture() {
-    if (!m_GestureEdit)
+    if (!Window().gestureEdit)
         return;
-    const auto status = m_EditorHost->finishEdit(m_EditorHost->data, m_GestureEdit, 1, nullptr);
+    const auto status = m_EditorHost->finishEdit(m_EditorHost->data, Window().gestureEdit, 1, nullptr);
     if (status != EDITOR_QUEUED && status != EDITOR_OK && status != EDITOR_NO_CHANGE)
-        Client().CancelEdit(m_GestureEdit);
-    m_GestureEdit = 0;
-    m_CurveEditing = false;
+        Client().CancelEdit(Window().gestureEdit);
+    Window().gestureEdit = 0;
+    Window().curveEditing = false;
 }
 
 std::vector<EditorField> LayoutWindow::GestureFields(const EditorResponse &input, unsigned kind, unsigned action, int x,
@@ -172,43 +173,45 @@ std::vector<EditorField> LayoutWindow::GestureFields(const EditorResponse &input
     EditorField start{"start", EDITOR_REAL_LIST}, selected{"objects", EDITOR_OBJECT_LIST};
     start.reals = {double(x), double(y)};
     selected.objects = objects;
-    const auto &selection = m_SelectionData;
+    const auto &selection = Window().selectionData;
     EditorField started{"started", EDITOR_REAL_VALUE};
     started.real = ImGui::GetTime();
-    return {
-        {"target", EDITOR_OBJECT, target->object},
-        {"kind", EDITOR_INTEGER_VALUE, {}, {}, kind},
-        {"action", EDITOR_INTEGER_VALUE, {}, {}, action},
-        std::move(start),
-        std::move(selected),
-        GestureOptions(Steps(), settings, TransformStepsOf(), Snap2DOf(), m_Preferences, m_ScaleMode, selection.locked),
-        MotionValue(x, y),
-        started};
+    return {{"target", EDITOR_OBJECT, target->object},
+            {"kind", EDITOR_INTEGER_VALUE, {}, {}, kind},
+            {"action", EDITOR_INTEGER_VALUE, {}, {}, action},
+            std::move(start),
+            std::move(selected),
+            GestureOptions(Steps(), settings, TransformStepsOf(), Snap2DOf(), m_Preferences, Window().scaleMode,
+                           selection.locked),
+            MotionValue(x, y),
+            started};
 }
 
 bool LayoutWindow::BeginCamera(CameraAction action, int x, int y, ImGuiMouseButton button) {
-    if (!ReadLayoutSelection(Client(), m_SelectionData))
+    if (!ReadLayoutSelection(Client(), Window().selectionData))
         return false;
-    auto fields = GestureFields(InputState(), 0, unsigned(action), x, y, m_SelectionData.objects, Settings());
+    auto fields = GestureFields(InputState(), 0, unsigned(action), x, y, Window().selectionData.objects, Settings());
     if (fields.empty() || !BeginGesture(std::move(fields), 0, unsigned(action)))
         return false;
-    m_GestureButton = button;
+    Window().gestureButton = button;
     return true;
 }
 
 void LayoutWindow::CancelEdits() {
+    if (!m_Window)
+        return;
     // Snapshot capture crosses from the buffer window into this viewport.
     // Its own cancel/close and viewport/document changes end it, not an
     // ordinary focus change that only cancels object editing.
     if (m_EditorHost)
-        Client().CancelEdit(m_GestureEdit);
-    m_PendingGesture.clear();
-    m_GestureSelection = 0;
-    if (m_Tool == LayoutTool::Fly)
-        m_Tool = LayoutTool::Select;
-    m_CurveEditing = false;
-    m_Selecting = m_Rectangle = false;
-    m_RightPressed = false;
+        Client().CancelEdit(Window().gestureEdit);
+    Window().pendingGesture.clear();
+    Window().gestureSelection = 0;
+    if (Window().tool == LayoutTool::Fly)
+        Window().tool = LayoutTool::Select;
+    Window().curveEditing = false;
+    Window().selecting = Window().rectangle = false;
+    Window().rightPressed = false;
 }
 
 // The mouse in the view (Dev.exe sub_4B95C0): the left button drags the
@@ -217,74 +220,75 @@ void LayoutWindow::CancelEdits() {
 void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     const ImGuiIO &io = ImGui::GetIO();
     if (Busy() && (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
-                   (m_Tool != LayoutTool::Fly && ImGui::IsMouseClicked(ImGuiMouseButton_Right)))) {
+                   (Window().tool != LayoutTool::Fly && ImGui::IsMouseClicked(ImGuiMouseButton_Right)))) {
         CancelEdits();
         return;
     }
     const int x = static_cast<int>(io.MousePos.x - at.x), y = static_cast<int>(io.MousePos.y - at.y);
-    if (m_Tool == LayoutTool::Fly) {
+    if (Window().tool == LayoutTool::Fly) {
         FlyFrame(x, y);
         return;
     }
-    if (!m_PendingGesture.empty()) {
-        const auto result = Client().Completion(m_GestureSelection);
+    if (!Window().pendingGesture.empty()) {
+        const auto result = Client().Completion(Window().gestureSelection);
         if (result.status == EDITOR_QUEUED)
             return;
-        auto fields = std::move(m_PendingGesture);
-        m_PendingGesture.clear();
-        m_GestureSelection = 0;
+        auto fields = std::move(Window().pendingGesture);
+        Window().pendingGesture.clear();
+        Window().gestureSelection = 0;
         if ((result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) ||
-            !BeginGesture(std::move(fields), m_GestureKind, m_GestureAction)) {
+            !BeginGesture(std::move(fields), Window().gestureKind, Window().gestureAction)) {
             CancelEdits();
             return;
         }
     }
-    if (m_GestureEdit) {
-        const auto button = m_GestureKind == 0 ? m_GestureButton : ImGuiMouseButton_Left;
+    if (Window().gestureEdit) {
+        const auto button = Window().gestureKind == 0 ? Window().gestureButton : ImGuiMouseButton_Left;
         if (!ImGui::IsMouseDown(button))
             FinishGesture();
         else
-            UpdateGesture(x, y, io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f, m_GestureKind == 0);
+            UpdateGesture(x, y, io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f, Window().gestureKind == 0);
         return;
     }
-    if (m_Selecting) {
+    if (Window().selecting) {
 #ifdef _WIN32
         const float drag = std::max(1.0f, static_cast<float>(GetSystemMetrics(SM_CXDRAG)));
 #else
         const float drag = std::max(1.0f, io.MouseDragThreshold);
 #endif
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            if (m_Rectangle)
-                ApplyRect(VxRect(m_PressAt.x, m_PressAt.y, static_cast<float>(x), static_cast<float>(y)));
+            if (Window().rectangle)
+                ApplyRect(VxRect(Window().pressAt.x, Window().pressAt.y, static_cast<float>(x), static_cast<float>(y)));
             else {
-                const auto input = InputState(int(m_PressAt.x), int(m_PressAt.y), true, {}, true);
+                const auto input = InputState(int(Window().pressAt.x), int(Window().pressAt.y), true, {}, true);
                 if (input.status == EDITOR_OK)
                     ApplyClick(EditorClient::Find(input, "picked")->object);
             }
-            m_Selecting = m_Rectangle = false;
-        } else if (std::fabs(x - m_PressAt.x) >= drag || std::fabs(y - m_PressAt.y) >= drag) {
-            m_Rectangle = true;
+            Window().selecting = Window().rectangle = false;
+        } else if (std::fabs(x - Window().pressAt.x) >= drag || std::fabs(y - Window().pressAt.y) >= drag) {
+            Window().rectangle = true;
         }
         return;
     }
     // Dev.exe sub_4B95C0 (WM_RBUTTONUP): the shortcut menu when the right
     // button alone was pressed and released, no camera tool dragging.
-    if (m_RightPressed && !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-        m_RightPressed = false;
+    if (Window().rightPressed && !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+        Window().rightPressed = false;
         if (hovered && !ImGui::IsMouseDown(ImGuiMouseButton_Left) && !ImGui::IsMouseDown(ImGuiMouseButton_Middle) &&
-            m_Tool != LayoutTool::AddPoints && !m_PlayerMode)
+            Window().tool != LayoutTool::AddPoints && !m_PlayerMode)
             OpenContextMenu(x, y);
     }
-    if (m_RightPressed && (ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)))
-        m_RightPressed = false;
+    if (Window().rightPressed &&
+        (ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseDown(ImGuiMouseButton_Middle)))
+        Window().rightPressed = false;
     if (!hovered) return;
     // The referent picked (Pivot Axis Object, Referential Pick Obj.).
-    if (m_PickingReferent) {
+    if (Window().pickingReferent) {
         ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-            m_PickingReferent = false;
+            Window().pickingReferent = false;
         } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            m_PickingReferent = false;
+            Window().pickingReferent = false;
             const auto input = InputState(x, y, true);
             if (input.status == EDITOR_OK)
                 if (const auto *picked = EditorClient::Find(input, "entity"); picked && picked->object) {
@@ -295,17 +299,18 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
         return;
     }
     // The select cursor over an entity the Selection tool would pick.
-    if (m_Tool == LayoutTool::Select && !m_PlayerMode && !ImGui::IsAnyMouseDown()) {
-        if (m_HoverAt.x != x || m_HoverAt.y != y) {
-            m_HoverAt = ImVec2(x, y);
+    if (Window().tool == LayoutTool::Select && !m_PlayerMode && !ImGui::IsAnyMouseDown()) {
+        if (Window().hoverAt.x != x || Window().hoverAt.y != y) {
+            Window().hoverAt = ImVec2(x, y);
             const auto input = InputState(x, y, true);
             const auto has = [&](const char *key) {
                 const auto *v = EditorClient::Find(input, key);
                 return v && bool(v->object);
             };
-            m_HoverEntity = input.status == EDITOR_OK && (has("entity") || has("character") || has("sprite"));
+            Window().hoverEntity = input.status == EDITOR_OK && (has("entity") || has("character") || has("sprite"));
         }
-        if (m_HoverEntity) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        if (Window().hoverEntity)
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     }
     // Dev.exe sub_4BDF40: the handles' cursors (move, the corner, the height, the width).
     if (const int handle = HandleAt(x, y, nullptr)) {
@@ -317,34 +322,36 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     }
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && !ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
         !ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-        m_RightPressed = true;
+        Window().rightPressed = true;
         // Add, Insert and Delete Points take either button.
-        if (m_Tool == LayoutTool::AddPoints || m_Tool == LayoutTool::InsertPoints || m_Tool == LayoutTool::DeletePoints)
+        if (Window().tool == LayoutTool::AddPoints || Window().tool == LayoutTool::InsertPoints ||
+            Window().tool == LayoutTool::DeletePoints)
             CurveClick(x, y, true);
     }
     if (m_PlayerMode && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         PlayerClick(x, y, true);
     } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        switch (m_Tool) {
+        switch (Window().tool) {
         case LayoutTool::Select:
-            m_Selecting = true;
-            m_Rectangle = false;
-            m_PressAt = ImVec2(static_cast<float>(x), static_cast<float>(y));
+            Window().selecting = true;
+            Window().rectangle = false;
+            Window().pressAt = ImVec2(static_cast<float>(x), static_cast<float>(y));
             break;
         case LayoutTool::Translate:
         case LayoutTool::Rotate:
         case LayoutTool::Scale:
             if (!BeginTransform(x, y)) {
-                m_Selecting = true;
-                m_Rectangle = false;
-                m_PressAt = ImVec2(static_cast<float>(x), static_cast<float>(y));
+                Window().selecting = true;
+                Window().rectangle = false;
+                Window().pressAt = ImVec2(static_cast<float>(x), static_cast<float>(y));
             }
             break;
         case LayoutTool::Dolly: BeginCamera(CameraAction::Dolly, x, y, ImGuiMouseButton_Left); break;
         case LayoutTool::Zoom: BeginCamera(CameraAction::Zoom, x, y, ImGuiMouseButton_Left); break;
         case LayoutTool::Pan: BeginCamera(CameraAction::Pan, x, y, ImGuiMouseButton_Left); break;
         case LayoutTool::Orbit:
-            BeginCamera(m_OrbitMode ? CameraAction::OrbitCamera : CameraAction::Orbit, x, y, ImGuiMouseButton_Left);
+            BeginCamera(Window().orbitMode ? CameraAction::OrbitCamera : CameraAction::Orbit, x, y,
+                        ImGuiMouseButton_Left);
             break;
         case LayoutTool::Roll: BeginCamera(CameraAction::Roll, x, y, ImGuiMouseButton_Left); break;
         case LayoutTool::Fov: BeginCamera(CameraAction::Fov, x, y, ImGuiMouseButton_Left); break;
@@ -359,7 +366,8 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
     } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Middle) && !m_PlayerMode) {
         // Dev.exe sub_4C4E30: Alt orbits (in the Orbit tool's mode), else it pans.
         if (io.KeyAlt)
-            BeginCamera(m_OrbitMode ? CameraAction::OrbitCamera : CameraAction::Orbit, x, y, ImGuiMouseButton_Middle);
+            BeginCamera(Window().orbitMode ? CameraAction::OrbitCamera : CameraAction::Orbit, x, y,
+                        ImGuiMouseButton_Middle);
         else
             BeginCamera(CameraAction::Pan, x, y, ImGuiMouseButton_Middle);
     }
@@ -369,13 +377,13 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
         const auto *target = EditorClient::Find(input, "target");
         if (target && target->object) {
             EditorField extent{"extent", EDITOR_REAL_VALUE}, count{"notches", EDITOR_REAL_VALUE};
-            extent.real = m_ZoomExtent;
+            extent.real = Window().zoomExtent;
             count.real = notches;
-            std::vector<EditorField> args{
-                {"target", EDITOR_OBJECT, target->object},
-                GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(), m_Preferences, m_ScaleMode, false),
-                extent,
-                count};
+            std::vector<EditorField> args{{"target", EDITOR_OBJECT, target->object},
+                                          GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(),
+                                                         m_Preferences, Window().scaleMode, false),
+                                          extent,
+                                          count};
             const auto values = BorrowEditorFields(args);
             Execute("layout.wheel-zoom", {values.data(), values.data() + values.size()});
         }
@@ -524,18 +532,22 @@ void LayoutWindow::PlayerClick(int x, int y, bool twice) {
 // Top View, only X and Z axis are available for Select and Translate" (the
 // Front view X and Y, the Right view Y and Z).
 int LayoutWindow::AllowedAxes() const {
-    if (m_Tool != LayoutTool::Translate && m_Tool != LayoutTool::Select)
+    if (Window().tool != LayoutTool::Translate && Window().tool != LayoutTool::Select)
         return 7;
     const auto state = InputState();
     return state.status == EDITOR_OK ? int(EditorClient::Integer(state, "allowed-axes")) : 7;
 }
 
 LayoutTransformSettings &LayoutWindow::Settings() {
-    switch (m_Tool) {
-    case LayoutTool::EditPoints: return m_CurveEdit;
-    case LayoutTool::Rotate: return m_Transform[1];
-    case LayoutTool::Scale: return m_Transform[2];
-    default: return m_Transform[0];
+    switch (Window().tool) {
+    case LayoutTool::EditPoints:
+        return Window().curveEdit;
+    case LayoutTool::Rotate:
+        return Window().transform[1];
+    case LayoutTool::Scale:
+        return Window().transform[2];
+    default:
+        return Window().transform[0];
     }
 }
 
@@ -545,15 +557,15 @@ LayoutTransformSettings &LayoutWindow::Settings() {
 // rectangle. A locked selection is moved from anywhere.
 bool LayoutWindow::BeginTransform(int x, int y) {
     const auto input = InputState(x, y, true, {}, true);
-    if (input.status != EDITOR_OK || !ReadLayoutSelection(Client(), m_SelectionData))
+    if (input.status != EDITOR_OK || !ReadLayoutSelection(Client(), Window().selectionData))
         return false;
     const auto *picked = EditorClient::Find(input, "picked");
-    auto objects = m_SelectionData.objects;
+    auto objects = Window().selectionData.objects;
     EditorOperation selection = 0;
-    if (!m_SelectionData.locked) {
+    if (!Window().selectionData.locked) {
         if (!picked || !picked->object)
             return false;
-        if (!m_SelectionData.Contains(picked->object.object)) {
+        if (!Window().selectionData.Contains(picked->object.object)) {
             if (!ImGui::GetIO().KeyCtrl)
                 objects.clear();
             objects.push_back(picked->object);
@@ -564,9 +576,9 @@ bool LayoutWindow::BeginTransform(int x, int y) {
                 return false;
         }
     }
-    const auto action = m_Tool == LayoutTool::Rotate  ? TransformAction::Rotate
-                        : m_Tool == LayoutTool::Scale ? TransformAction::Scale
-                                                      : TransformAction::Translate;
+    const auto action = Window().tool == LayoutTool::Rotate  ? TransformAction::Rotate
+                        : Window().tool == LayoutTool::Scale ? TransformAction::Scale
+                                                             : TransformAction::Translate;
     auto settings = Settings();
     unsigned kind = 1;
     if (EditorClient::Integer(input, "is-2d") && picked &&
@@ -603,7 +615,8 @@ bool LayoutWindow::BeginTransform(int x, int y) {
 }
 
 int LayoutWindow::HandleAt(int x, int y, CK_ID *entity) const {
-    if (m_Tool == LayoutTool::Translate || m_Tool == LayoutTool::Fly || CurveToolActive()) return 0;
+    if (Window().tool == LayoutTool::Translate || Window().tool == LayoutTool::Fly || CurveToolActive())
+        return 0;
     const auto input = InputState(x, y, true);
     if (input.status != EDITOR_OK)
         return 0;
@@ -617,12 +630,12 @@ int LayoutWindow::HandleAt(int x, int y, CK_ID *entity) const {
 bool LayoutWindow::BeginHandle(int x, int y) {
     const auto input = InputState(x, y, true);
     const int handle = int(EditorClient::Integer(input, "handle"));
-    if (input.status != EDITOR_OK || !handle || !ReadLayoutSelection(Client(), m_SelectionData))
+    if (input.status != EDITOR_OK || !handle || !ReadLayoutSelection(Client(), Window().selectionData))
         return false;
     const auto action = handle == 1 ? TransformAction::Translate : TransformAction::Scale;
-    auto settings = handle == 1 ? m_Transform[0] : m_Transform[2];
+    auto settings = handle == 1 ? Window().transform[0] : Window().transform[2];
     settings.axes = handle == 3 ? 2 : handle == 4 ? 1 : 3;
-    auto fields = GestureFields(input, 2, unsigned(action), x, y, m_SelectionData.objects, settings);
+    auto fields = GestureFields(input, 2, unsigned(action), x, y, Window().selectionData.objects, settings);
     const auto *sprite = EditorClient::Find(input, "sprite");
     if (fields.empty() || !sprite || !sprite->object)
         return false;
@@ -632,7 +645,7 @@ bool LayoutWindow::BeginHandle(int x, int y) {
 
 // N / Shift+N: the next or previous camera of the combo.
 void LayoutWindow::NextCamera(bool previous) {
-    auto &cameras = m_CameraData;
+    auto &cameras = Window().cameraData;
     if (!ReadLayoutScene(Client(), "cameras", cameras) || cameras.rows.empty()) return;
     size_t index = 0;
     for (size_t i = 0; i < cameras.rows.size(); ++i) if (cameras.rows[i].object == cameras.camera) index = i;
@@ -643,13 +656,15 @@ void LayoutWindow::NextCamera(bool previous) {
 void LayoutWindow::ZoomOn(bool scene) {
     const auto input = InputState();
     const auto *target = EditorClient::Find(input, "target");
-    if (input.status != EDITOR_OK || !target || !target->object || !ReadLayoutSelection(Client(), m_SelectionData))
+    if (input.status != EDITOR_OK || !target || !target->object ||
+        !ReadLayoutSelection(Client(), Window().selectionData))
         return;
     const std::vector<EditorField> fields{{"target", EDITOR_OBJECT, target->object},
-                                          {"objects", EDITOR_OBJECT_LIST, {}, {}, 0, m_SelectionData.objects},
+                                          {"objects", EDITOR_OBJECT_LIST, {}, {}, 0, Window().selectionData.objects},
                                           {"scene", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(scene)},
                                           GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(),
-                                                         m_Preferences, m_ScaleMode, m_SelectionData.locked)};
+                                                         m_Preferences, Window().scaleMode,
+                                                         Window().selectionData.locked)};
     const auto values = BorrowEditorFields(fields);
     Execute("layout.zoom-on", {values.data(), values.data() + values.size()}, AfterCommand::Zoom);
 }
@@ -661,7 +676,8 @@ void LayoutWindow::Shortcuts() {
         return;
     auto pressed = [](ImGuiKey key) { return ImGui::IsKeyPressed(key, false); };
     // Dev.exe sub_4B95C0 (WM_KEYDOWN): Escape ends the Flycam, playing or not.
-    if (m_Tool == LayoutTool::Fly && pressed(ImGuiKey_Escape)) Command(68);
+    if (Window().tool == LayoutTool::Fly && pressed(ImGuiKey_Escape))
+        Command(68);
     // Play, Step and Restore IC are Dev's accelerators (EditorApp::GlobalShortcuts).
     if (io.KeyAlt || m_PlayerMode) return;
     if (io.KeyCtrl) {
@@ -682,9 +698,7 @@ void LayoutWindow::Shortcuts() {
                     Duplicate(objects->objects, EditorClient::Integer(clipboard, "revision"));
         }
         if (pressed(ImGuiKey_G)) {
-            auto &editor = m_State.workspace->Application();
-            const EditorValue page{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("reference-guide")};
-            editor.Execute("preferences.open", {editor.Scope(), &page, 1});
+            Execute("preferences.open", {TextArgument("page", "reference-guide")});
         }
         return;
     }
@@ -698,7 +712,8 @@ void LayoutWindow::Shortcuts() {
         if (pressed(ImGuiKey_G)) Command(67);
         return;
     }
-    const bool transforming = m_Tool == LayoutTool::Translate || m_Tool == LayoutTool::Rotate || m_Tool == LayoutTool::Scale;
+    const bool transforming = Window().tool == LayoutTool::Translate || Window().tool == LayoutTool::Rotate ||
+                              Window().tool == LayoutTool::Scale;
     if (transforming) {
         // S snap, H hierarchy, F5..F7 the axes, F8 the next plane, F9 the next pivot.
         if (pressed(ImGuiKey_S)) Command(66);
@@ -707,15 +722,18 @@ void LayoutWindow::Shortcuts() {
         if (pressed(ImGuiKey_F6)) Command(13);
         if (pressed(ImGuiKey_F7)) Command(14);
         if (pressed(ImGuiKey_F8)) Command(Settings().axes == 3 ? 43 : Settings().axes == 6 ? 44 : 42);
-        if (pressed(ImGuiKey_F9) && m_Tool != LayoutTool::Translate) Command(72 + (Settings().pivot + 1) % 3);
+        if (pressed(ImGuiKey_F9) && Window().tool != LayoutTool::Translate)
+            Command(72 + (Settings().pivot + 1) % 3);
     }
     if (pressed(ImGuiKey_A)) Command(25);
     if (pressed(ImGuiKey_X)) Command(9);
     if (pressed(ImGuiKey_C)) Command(11);
     // V cycles Normal, Volumetric and Uniform.
-    if (pressed(ImGuiKey_V)) Command(46 + (m_Tool == LayoutTool::Scale ? (m_ScaleMode + 1) % 3 : m_ScaleMode));
+    if (pressed(ImGuiKey_V))
+        Command(46 + (Window().tool == LayoutTool::Scale ? (Window().scaleMode + 1) % 3 : Window().scaleMode));
     // O: the Orbit tool, pressed again its other mode.
-    if (pressed(ImGuiKey_O)) Command(m_Tool == LayoutTool::Orbit ? (m_OrbitMode ? 49 : 50) : 49 + m_OrbitMode);
+    if (pressed(ImGuiKey_O))
+        Command(Window().tool == LayoutTool::Orbit ? (Window().orbitMode ? 49 : 50) : 49 + Window().orbitMode);
     if (pressed(ImGuiKey_D)) Command(23);
     if (pressed(ImGuiKey_R) && !targeted) Command(24);
     if (pressed(ImGuiKey_F) && perspective) Command(26);
@@ -729,26 +747,28 @@ void LayoutWindow::Shortcuts() {
     // 1 to 9: the creation tools.
     static const int creates[9] = {31, 32, 34, 33, 60, 75, 80, 81, 78};
     for (int i = 0; i < 9; ++i)
-        if (pressed(static_cast<ImGuiKey>(ImGuiKey_1 + i)) && m_State.HasDocument()) Command(creates[i]);
+        if (pressed(static_cast<ImGuiKey>(ImGuiKey_1 + i)) && Client().Scope().document.value != 0)
+            Command(creates[i]);
 }
 
 // ------------------------------------------------------------------ flycam
 
 void LayoutWindow::BeginFly() {
-    if (!ReadLayoutSelection(Client(), m_SelectionData))
+    if (!ReadLayoutSelection(Client(), Window().selectionData))
         return;
-    const int x = int(ImGui::GetIO().MousePos.x - m_Origin.x - 76.0f * m_Scale);
-    const int y = int(ImGui::GetIO().MousePos.y - m_Origin.y - 21.0f * m_Scale);
-    auto fields = GestureFields(InputState(), 3, 0, x, y, m_SelectionData.objects, Settings());
+    const int x = int(ImGui::GetIO().MousePos.x - Window().origin.x - 76.0f * Window().scale);
+    const int y = int(ImGui::GetIO().MousePos.y - Window().origin.y - 21.0f * Window().scale);
+    auto fields = GestureFields(InputState(), 3, 0, x, y, Window().selectionData.objects, Settings());
     if (fields.empty() || !BeginGesture(std::move(fields), 3, 0))
         return;
-    m_Tool = LayoutTool::Fly;
+    Window().tool = LayoutTool::Fly;
 }
 
 void LayoutWindow::EndFly() {
-    if (m_Tool != LayoutTool::Fly) return;
+    if (Window().tool != LayoutTool::Fly)
+        return;
     FinishGesture();
-    m_Tool = LayoutTool::Select;
+    Window().tool = LayoutTool::Select;
 }
 
 void LayoutWindow::FlyFrame(int x, int y) { UpdateGesture(x, y, true, true); }
@@ -756,8 +776,8 @@ void LayoutWindow::FlyFrame(int x, int y) { UpdateGesture(x, y, true, true); }
 // -------------------------------------------------------------- curve tools
 
 bool LayoutWindow::CurveToolActive() const {
-    return m_Tool == LayoutTool::AddPoints || m_Tool == LayoutTool::InsertPoints || m_Tool == LayoutTool::EditPoints ||
-           m_Tool == LayoutTool::DeletePoints;
+    return Window().tool == LayoutTool::AddPoints || Window().tool == LayoutTool::InsertPoints ||
+           Window().tool == LayoutTool::EditPoints || Window().tool == LayoutTool::DeletePoints;
 }
 
 // The Curve Setup chooses the tool; a curve gone ends it.
@@ -775,10 +795,10 @@ void LayoutWindow::SyncCurveTool() {
         return;
     const auto next = EditorClient::Integer(tool, "tool");
     if (next >= 128 && next <= 131) {
-        if (static_cast<int>(m_Tool) != int(next) && !GestureActive(1))
-            m_Tool = LayoutTool(next);
+        if (static_cast<int>(Window().tool) != int(next) && !GestureActive(1))
+            Window().tool = LayoutTool(next);
     } else if (CurveToolActive() && !GestureActive(1))
-        m_Tool = LayoutTool::Select;
+        Window().tool = LayoutTool::Select;
 }
 
 void LayoutWindow::CurveClick(int x, int y, bool right) {
@@ -788,7 +808,9 @@ void LayoutWindow::CurveClick(int x, int y, bool right) {
         return;
     const auto camera = InputState();
     const bool ortho = !EditorClient::Integer(camera, "perspective");
-    const auto action = m_Tool == LayoutTool::AddPoints ? 0u : m_Tool == LayoutTool::InsertPoints ? 1u : 2u;
+    const auto action = Window().tool == LayoutTool::AddPoints      ? 0u
+                        : Window().tool == LayoutTool::InsertPoints ? 1u
+                                                                    : 2u;
     EditorField position{"position", EDITOR_REAL_LIST}, distance{"plane-distance", EDITOR_REAL_VALUE};
     position.reals = {double(x), double(y)};
     distance.real = m_Preferences.Float(ortho ? "3D Layout\\Actions\\Camera Plane Distance Ortho"
@@ -807,19 +829,20 @@ void LayoutWindow::CurveClick(int x, int y, bool right) {
 bool LayoutWindow::BeginCurveEdit(int x, int y) {
     const auto tool = Client().Query("layout.curve-tool");
     const auto *curve = EditorClient::Find(tool, "target");
-    if (tool.status != EDITOR_OK || !curve || !curve->object || !ReadLayoutSelection(Client(), m_SelectionData))
+    if (tool.status != EDITOR_OK || !curve || !curve->object || !ReadLayoutSelection(Client(), Window().selectionData))
         return false;
     const auto input = InputState(x, y, true, curve->object);
     const auto *picked = EditorClient::Find(input, "picked");
     if (input.status != EDITOR_OK || !picked || !picked->object)
         return false;
-    auto fields = GestureFields(input, 1, unsigned(TransformAction::Translate), x, y, {picked->object}, m_CurveEdit);
+    auto fields =
+        GestureFields(input, 1, unsigned(TransformAction::Translate), x, y, {picked->object}, Window().curveEdit);
     if (fields.empty())
         return false;
     fields.push_back({"curve", EDITOR_OBJECT, curve->object});
     fields.push_back(*EditorClient::Find(input, "point"));
-    m_CurveEditing = BeginGesture(std::move(fields), 1, unsigned(TransformAction::Translate));
-    return m_CurveEditing;
+    Window().curveEditing = BeginGesture(std::move(fields), 1, unsigned(TransformAction::Translate));
+    return Window().curveEditing;
 }
 
 } // namespace vdev

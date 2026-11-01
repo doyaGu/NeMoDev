@@ -35,30 +35,33 @@ std::string Lower(std::string text) {
 // Dev.exe sub_4C3D10 (6): after a selection change the combo shows the first
 // group holding exactly the objects selected, else nothing.
 void LayoutWindow::SelectionGroups(const ImVec2 &at, float width) {
-    auto &groups = m_GroupData; auto &selection = m_SelectionData;
+    auto &groups = Window().groupData;
+    auto &selection = Window().selectionData;
     const bool usable = m_Started && ReadLayoutScene(Client(), "groups", groups) && groups.scene && ReadLayoutSelection(Client(), selection);
     if (usable) {
         if (m_Group && (!groups.Find(m_Group.object) || groups.Find(m_Group.object)->object != m_Group)) m_Group = {};
         if (m_GroupRevision != selection.revision) { m_GroupRevision = unsigned(selection.revision); m_Group = groups.matchingGroup; }
     }
-    if (!m_GroupEditing) {
+    if (!Window().groupEditing) {
         const auto *group = usable && m_Group ? groups.Find(m_Group.object) : nullptr;
-        CopyText(m_GroupText, sizeof(m_GroupText), group ? group->name : std::string());
+        CopyText(Window().groupText, sizeof(Window().groupText), group ? group->name : std::string());
     }
     const float arrow = ImGui::GetFrameHeight();
     ImGui::SetCursorScreenPos(at);
     ImGui::SetNextItemWidth(std::max(1.0f, width - arrow));
     ImGui::BeginDisabled(!usable);
-    const bool entered =
-        ImGui::InputText("##selectiongroup", m_GroupText, sizeof(m_GroupText), ImGuiInputTextFlags_EnterReturnsTrue);
-    m_GroupEditing = ImGui::IsItemActive() && !entered;
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !m_GroupEditing) ImGui::SetTooltip("Selection Groups");
-    if (entered) EnterGroup(m_GroupText);
+    const bool entered = ImGui::InputText("##selectiongroup", Window().groupText, sizeof(Window().groupText),
+                                          ImGuiInputTextFlags_EnterReturnsTrue);
+    Window().groupEditing = ImGui::IsItemActive() && !entered;
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !Window().groupEditing)
+        ImGui::SetTooltip("Selection Groups");
+    if (entered)
+        EnterGroup(Window().groupText);
     ImGui::SameLine(0.0f, 0.0f);
     if (ImGui::ArrowButton("##selectiongroups", ImGuiDir_Down)) ImGui::OpenPopup("##grouplist");
     ImGui::EndDisabled();
     ImGui::SetNextWindowPos(ImVec2(at.x, at.y + arrow));
-    ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.0f), ImVec2(FLT_MAX, 300.0f * m_Scale));
+    ImGui::SetNextWindowSizeConstraints(ImVec2(width, 0.0f), ImVec2(FLT_MAX, 300.0f * Window().scale));
     if (ImGui::BeginPopup("##grouplist")) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
         int listed = 0;
@@ -77,8 +80,13 @@ void LayoutWindow::SelectionGroups(const ImVec2 &at, float width) {
 // Dev.exe sub_4B95C0 (0x7E8, Enter in the combo): the name of a group listed
 // selects it, another name makes a group of the selection.
 void LayoutWindow::EnterGroup(const std::string &name) {
-    if (name.empty() || !ReadLayoutScene(Client(), "groups", m_GroupData)) return;
-    for (const auto &group : m_GroupData.rows) if (Lower(group.name) == Lower(name)) { ChooseGroup(group.object); return; }
+    if (name.empty() || !ReadLayoutScene(Client(), "groups", Window().groupData))
+        return;
+    for (const auto &group : Window().groupData.rows)
+        if (Lower(group.name) == Lower(name)) {
+            ChooseGroup(group.object);
+            return;
+        }
     LayoutSelectionData selection;
     if (ReadLayoutSelection(Client(), selection))
         Execute("layout.create-selection-group", {TextArgument("name", name), ObjectsArgument("objects", selection.objects)}, AfterCommand::Group);
@@ -119,12 +127,18 @@ LayoutInterfaceData LayoutWindow::LayoutData() const {
 // ------------------------------------------------------------ 3D Layout Explorer
 
 void LayoutWindow::OpenExplorer() {
-    if (m_Doc.explorerOpen) { ImGui::SetWindowFocus("3D Layout Explorer"); return; }
+    if (Window().document.explorerOpen) {
+        ImGui::SetWindowFocus("3D Layout Explorer");
+        return;
+    }
     LayoutSceneData scene; LayoutSelectionData selection;
     if (!ReadLayoutScene(Client(), "explorer", scene) || !scene.scene || !ReadLayoutSelection(Client(), selection)) return;
-    m_Doc.explorerOpen = true; m_Doc.explorerSaved = selection.objects; m_Doc.explorerSavedLock = selection.locked;
-    m_Doc.explorerAnchor = m_Doc.explorerFocus = {};
-    m_Doc.explorerListRevision = ~0u; m_ExplorerTyped.clear();
+    Window().document.explorerOpen = true;
+    Window().document.explorerSaved = selection.objects;
+    Window().document.explorerSavedLock = selection.locked;
+    Window().document.explorerAnchor = Window().document.explorerFocus = {};
+    Window().document.explorerListRevision = ~0u;
+    Window().explorerTyped.clear();
 }
 
 // Select keeps the selection; Cancel gives back the selection and the lock
@@ -132,23 +146,28 @@ void LayoutWindow::OpenExplorer() {
 void LayoutWindow::CloseExplorer(bool cancel) {
     if (cancel && Client().Scope().document.value) {
         std::vector<ObjectRef> saved;
-        for (auto object : m_Doc.explorerSaved)
+        for (auto object : Window().document.explorerSaved)
             if (Client().Query("object.details", {ObjectArgument("target", object)}).status == EDITOR_OK) saved.push_back(object);
-        Execute("selection.restore", {ObjectsArgument("objects", saved), IntegerArgument("locked", m_Doc.explorerSavedLock)});
+        Execute("selection.restore",
+                {ObjectsArgument("objects", saved), IntegerArgument("locked", Window().document.explorerSavedLock)});
     }
-    m_Doc.explorerOpen = false;
+    Window().document.explorerOpen = false;
 }
 
 void LayoutWindow::ExplorerWindow() {
-    if (!m_Doc.explorerOpen) return;
-    auto &scene = m_ExplorerData; auto &selection = m_SelectionData;
-    if (!ReadLayoutScene(Client(), "explorer", scene, {IntegerArgument("shown", m_ExplorerShown), TextArgument("filter", std::string(m_ExplorerFilter))}) ||
+    if (!Window().document.explorerOpen)
+        return;
+    auto &scene = Window().explorerData;
+    auto &selection = Window().selectionData;
+    if (!ReadLayoutScene(Client(), "explorer", scene,
+                         {IntegerArgument("shown", Window().explorerShown),
+                          TextArgument("filter", std::string(Window().explorerFilter))}) ||
         !scene.scene || !ReadLayoutSelection(Client(), selection)) {
-        m_Doc.explorerOpen = false;
+        Window().document.explorerOpen = false;
         return;
     }
     // Dialog 734 (MS Sans Serif 8: a dialog unit is 1.5 x 1.625 pixels).
-    const float dx = 1.5f * m_Scale, dy = 1.625f * m_Scale;
+    const float dx = 1.5f * Window().scale, dy = 1.625f * Window().scale;
     const ImGuiStyle &style = ImGui::GetStyle();
     const float footer = ImGui::GetFrameHeight() + style.ItemSpacing.y * 2.0f;
     ImGui::SetNextWindowSize(ImVec2(381.0f * dx + style.WindowPadding.x * 2.0f,
@@ -173,17 +192,22 @@ void LayoutWindow::ExplorerWindow() {
             if (rows[k].object == id) return static_cast<int>(k);
         return -1;
     };
-    auto listed = [&](ObjectRef id) { return std::find(m_Doc.explorerList.begin(), m_Doc.explorerList.end(), id) != m_Doc.explorerList.end(); };
+    auto listed = [&](ObjectRef id) {
+        return std::find(Window().document.explorerList.begin(), Window().document.explorerList.end(), id) !=
+               Window().document.explorerList.end();
+    };
     // sub_59EC90: the list shows the 3D Layout's selection again after each
     // change of it (and when the types shown change), with its count.
     auto restore = [&] {
-        m_Doc.explorerList.clear();
+        Window().document.explorerList.clear();
         for (const auto &row : rows)
-            if (selection.Contains(row.object.object)) m_Doc.explorerList.push_back(row.object);
-        m_Doc.explorerCount = static_cast<int>(m_Doc.explorerList.size());
-        m_Doc.explorerListRevision = selection.revision;
+            if (selection.Contains(row.object.object))
+                Window().document.explorerList.push_back(row.object);
+        Window().document.explorerCount = static_cast<int>(Window().document.explorerList.size());
+        Window().document.explorerListRevision = selection.revision;
     };
-    if (m_Doc.explorerListRevision != selection.revision) restore();
+    if (Window().document.explorerListRevision != selection.revision)
+        restore();
     // The list in its order.
     auto ordered = [&](const std::vector<ObjectRef> &ids) {
         std::vector<ObjectRef> result;
@@ -198,8 +222,9 @@ void LayoutWindow::ExplorerWindow() {
             restore();
             return;
         }
-        m_Doc.explorerList = ordered(m_Doc.explorerList);
-        Execute("selection.replace", {ObjectsArgument("objects", m_Doc.explorerList), IntegerArgument("render-only", 1)});
+        Window().document.explorerList = ordered(Window().document.explorerList);
+        Execute("selection.replace",
+                {ObjectsArgument("objects", Window().document.explorerList), IntegerArgument("render-only", 1)});
         ReadLayoutSelection(Client(), selection); restore();
     };
 
@@ -211,27 +236,31 @@ void LayoutWindow::ExplorerWindow() {
     const ImGuiIO &io = ImGui::GetIO();
     const bool listFocused = ImGui::IsWindowFocused();
     bool clicked = false, doubleClicked = false, rightClicked = false, scrollToFocus = false;
-    const float rowHeight = ImGui::GetTextLineHeight() + 2.0f * m_Scale;
+    const float rowHeight = ImGui::GetTextLineHeight() + 2.0f * Window().scale;
     const float iconScale = std::max(1.0f, ImGui::GetTextLineHeight() / 13.0f);
     // The list view's selection by the mouse: alone, Ctrl toggles, Shift the
     // items from the anchor (with Ctrl added to the others).
     auto pick = [&](int i, bool shift, bool ctrl) {
         const auto id = rows[static_cast<size_t>(i)].object;
-        const int anchor = shift ? indexOf(m_Doc.explorerAnchor) : -1;
+        const int anchor = shift ? indexOf(Window().document.explorerAnchor) : -1;
         if (anchor >= 0) {
-            if (!ctrl) m_Doc.explorerList.clear();
+            if (!ctrl)
+                Window().document.explorerList.clear();
             for (int k = std::min(anchor, i); k <= std::max(anchor, i); ++k)
-                if (!listed(rows[static_cast<size_t>(k)].object)) m_Doc.explorerList.push_back(rows[static_cast<size_t>(k)].object);
+                if (!listed(rows[static_cast<size_t>(k)].object))
+                    Window().document.explorerList.push_back(rows[static_cast<size_t>(k)].object);
         } else if (ctrl) {
-            auto found = std::find(m_Doc.explorerList.begin(), m_Doc.explorerList.end(), id);
-            if (found != m_Doc.explorerList.end()) m_Doc.explorerList.erase(found);
-            else m_Doc.explorerList.push_back(id);
-            m_Doc.explorerAnchor = id;
+            auto found = std::find(Window().document.explorerList.begin(), Window().document.explorerList.end(), id);
+            if (found != Window().document.explorerList.end())
+                Window().document.explorerList.erase(found);
+            else
+                Window().document.explorerList.push_back(id);
+            Window().document.explorerAnchor = id;
         } else {
-            m_Doc.explorerList.assign(1, id);
-            m_Doc.explorerAnchor = id;
+            Window().document.explorerList.assign(1, id);
+            Window().document.explorerAnchor = id;
         }
-        m_Doc.explorerFocus = id;
+        Window().document.explorerFocus = id;
     };
     // The keyboard (the list view's own handling): the arrows, Home, End,
     // Page Up / Down move the focus and select it alone, Shift the items from
@@ -240,7 +269,7 @@ void LayoutWindow::ExplorerWindow() {
     // with what was typed. The 3D Layout's selection follows at once (Dev's
     // dialog has no LVN_ITEMCHANGED and waits for the next click).
     if (listFocused && !rows.empty() && !io.KeyAlt) {
-        const int focus = indexOf(m_Doc.explorerFocus);
+        const int focus = indexOf(Window().document.explorerFocus);
         const int last = static_cast<int>(rows.size()) - 1;
         const int page = std::max(1, static_cast<int>(ImGui::GetWindowHeight() / rowHeight) - 1);
         int to = -1;
@@ -252,34 +281,38 @@ void LayoutWindow::ExplorerWindow() {
         else if (ImGui::IsKeyPressed(ImGuiKey_PageUp)) to = focus < 0 ? 0 : std::max(0, focus - page);
         if (to >= 0) {
             if (io.KeyCtrl && !io.KeyShift) {
-                m_Doc.explorerFocus = rows[static_cast<size_t>(to)].object;
+                Window().document.explorerFocus = rows[static_cast<size_t>(to)].object;
             } else {
-                if (!io.KeyShift || indexOf(m_Doc.explorerAnchor) < 0) m_Doc.explorerAnchor = rows[static_cast<size_t>(to)].object;
+                if (!io.KeyShift || indexOf(Window().document.explorerAnchor) < 0)
+                    Window().document.explorerAnchor = rows[static_cast<size_t>(to)].object;
                 pick(to, io.KeyShift, io.KeyCtrl);
                 clicked = true;
             }
             scrollToFocus = true;
-            m_ExplorerTyped.clear();
+            Window().explorerTyped.clear();
         } else if (ImGui::IsKeyPressed(ImGuiKey_Space) && focus >= 0) {
             pick(focus, io.KeyShift, io.KeyCtrl);
             clicked = true;
         } else if (!io.KeyCtrl && !io.InputQueueCharacters.empty()) {
             // Incremental search: the characters typed within a second.
             const double now = ImGui::GetTime();
-            if (now - m_ExplorerTypedTime > 1.0) m_ExplorerTyped.clear();
-            m_ExplorerTypedTime = now;
+            if (now - Window().explorerTypedTime > 1.0)
+                Window().explorerTyped.clear();
+            Window().explorerTypedTime = now;
             for (ImWchar c : io.InputQueueCharacters)
-                if (c > ' ' && c < 0x80) m_ExplorerTyped.push_back(static_cast<char>(std::tolower(c)));
-            if (!m_ExplorerTyped.empty()) {
+                if (c > ' ' && c < 0x80)
+                    Window().explorerTyped.push_back(static_cast<char>(std::tolower(c)));
+            if (!Window().explorerTyped.empty()) {
                 // The same letter again goes to the next item starting with it.
-                const bool repeated = m_ExplorerTyped.find_first_not_of(m_ExplorerTyped[0]) == std::string::npos &&
-                                      m_ExplorerTyped.size() > 1;
-                const std::string prefix = repeated ? m_ExplorerTyped.substr(0, 1) : m_ExplorerTyped;
-                const int start = focus < 0 ? 0 : (repeated || m_ExplorerTyped.size() == 1 ? focus + 1 : focus);
+                const bool repeated =
+                    Window().explorerTyped.find_first_not_of(Window().explorerTyped[0]) == std::string::npos &&
+                    Window().explorerTyped.size() > 1;
+                const std::string prefix = repeated ? Window().explorerTyped.substr(0, 1) : Window().explorerTyped;
+                const int start = focus < 0 ? 0 : (repeated || Window().explorerTyped.size() == 1 ? focus + 1 : focus);
                 for (int n = 0; n <= last; ++n) {
                     const int k = (start + n) % (last + 1);
                     if (Lower(rows[static_cast<size_t>(k)].name).compare(0, prefix.size(), prefix) == 0) {
-                        m_Doc.explorerAnchor = rows[static_cast<size_t>(k)].object;
+                        Window().document.explorerAnchor = rows[static_cast<size_t>(k)].object;
                         pick(k, false, false);
                         clicked = true;
                         scrollToFocus = true;
@@ -303,20 +336,22 @@ void LayoutWindow::ExplorerWindow() {
             // The list view selects the item clicked when it is not (here
             // the 3D Layout's selection too, Dev leaves it).
             if (!selected) {
-                m_Doc.explorerList.assign(1, row.object);
-                m_Doc.explorerAnchor = row.object;
+                Window().document.explorerList.assign(1, row.object);
+                Window().document.explorerAnchor = row.object;
                 clicked = true;
             }
-            m_Doc.explorerFocus = row.object;
+            Window().document.explorerFocus = row.object;
             rightClicked = true;
         }
-        if (scrollToFocus && row.object == m_Doc.explorerFocus) ImGui::SetScrollHereY();
-        DrawDevIcon(ImGui::GetWindowDrawList(), ImVec2(at.x + 2.0f * m_Scale, at.y + (rowHeight - 10.0f * iconScale) * 0.5f),
-                    iconScale, IconForClass(row.cid), IM_COL32(0, 0, 0, 255), IM_COL32(230, 230, 230, 255));
-        ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 16.0f * m_Scale, at.y + 1.0f * m_Scale),
+        if (scrollToFocus && row.object == Window().document.explorerFocus)
+            ImGui::SetScrollHereY();
+        DrawDevIcon(ImGui::GetWindowDrawList(),
+                    ImVec2(at.x + 2.0f * Window().scale, at.y + (rowHeight - 10.0f * iconScale) * 0.5f), iconScale,
+                    IconForClass(row.cid), IM_COL32(0, 0, 0, 255), IM_COL32(230, 230, 230, 255));
+        ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 16.0f * Window().scale, at.y + 1.0f * Window().scale),
                                             ImGui::GetColorU32(ImGuiCol_Text), row.name.c_str());
         // The focused item's dotted frame while the list has the focus.
-        if (listFocused && row.object == m_Doc.explorerFocus) {
+        if (listFocused && row.object == Window().document.explorerFocus) {
             const ImVec2 b(at.x + ImGui::GetContentRegionAvail().x, at.y + rowHeight);
             for (float x = at.x; x < b.x; x += 2.0f) {
                 ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, at.y), ImVec2(x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 255));
@@ -331,14 +366,15 @@ void LayoutWindow::ExplorerWindow() {
     }
     // A click below the items clears the list's selection (then NM_CLICK).
     if (!clicked && ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        if (!io.KeyCtrl) m_Doc.explorerList.clear();
+        if (!io.KeyCtrl)
+            Window().document.explorerList.clear();
         clicked = true;
     }
     // NM_CLICK (Dev.exe sub_59E270), and here the keyboard: the 3D Layout's
     // selection becomes the list's (objects not listed leave it); while
     // locked the list shows the selection again (sub_59EC90).
     if (clicked) apply();
-    std::vector<ObjectRef> listedSelected = ordered(m_Doc.explorerList);
+    std::vector<ObjectRef> listedSelected = ordered(Window().document.explorerList);
     // NM_DBLCLK, NM_RCLICK: Show Setup with one item selected.
     if (doubleClicked && listedSelected.size() == 1) Execute("object.open-setup", {ObjectArgument("target", listedSelected.front())});
     if (rightClicked && listedSelected.size() == 1) ImGui::OpenPopup("##explorermenu");
@@ -370,15 +406,16 @@ void LayoutWindow::ExplorerWindow() {
     // The types of the 3D Layout's selection the list shows (sub_59EC90, +2560).
     const unsigned selectedTypes = scene.selectedTypes;
     bool typesChanged = false;
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f * m_Scale, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1.0f * Window().scale, 0.0f));
     for (const Box &box : boxes) {
         place(243, box.y);
-        bool on = (m_ExplorerShown & box.bit) != 0;
+        bool on = (Window().explorerShown & box.bit) != 0;
         if (ImGui::Checkbox(box.label, &on)) {
             // Dev refuses while objects of the type are selected.
-            if (selectedTypes & box.bit) m_Doc.explorerRefused = true;
+            if (selectedTypes & box.bit)
+                Window().document.explorerRefused = true;
             else {
-                m_ExplorerShown ^= box.bit;
+                Window().explorerShown ^= box.bit;
                 typesChanged = true;
             }
         }
@@ -390,16 +427,19 @@ void LayoutWindow::ExplorerWindow() {
     }
     place(243, 142);
     // sub_59F2B0: the count of the 3D Layout's selection the list shows.
-    ImGui::Text(m_Doc.explorerCount >= 2 ? "%d Entities Selected." : "%d Entity Selected.", m_Doc.explorerCount);
+    ImGui::Text(Window().document.explorerCount >= 2 ? "%d Entities Selected." : "%d Entity Selected.",
+                Window().document.explorerCount);
     place(243, 162);
     ImGui::TextUnformatted("Text Filter");
     place(243, 175);
     ImGui::SetNextItemWidth(123.0f * dx);
     // A change refills the list; it shows the 3D Layout's selection (Dev's
     // refilled list has none selected, sub_59EFF0).
-    if (ImGui::InputText("##textfilter", m_ExplorerFilter, sizeof(m_ExplorerFilter))) m_Doc.explorerListRevision = ~0u;
+    if (ImGui::InputText("##textfilter", Window().explorerFilter, sizeof(Window().explorerFilter)))
+        Window().document.explorerListRevision = ~0u;
     // New types shown: the list again, with the 3D Layout's selection.
-    if (typesChanged) m_Doc.explorerListRevision = ~0u;
+    if (typesChanged)
+        Window().document.explorerListRevision = ~0u;
 
     // All / None / Invert: the list's items (not while locked).
     auto listButton = [&](const char *label, float x) {
@@ -417,12 +457,12 @@ void LayoutWindow::ExplorerWindow() {
             const bool was = listed(row.object);
             if (listAction == 1 || (listAction == 3 && !was)) objects.push_back(row.object);
         }
-        m_Doc.explorerList = objects;
+        Window().document.explorerList = objects;
         apply();
     }
 
     // Dev's buttons: Select and Cancel.
-    const float buttonWidth = 80.0f * m_Scale;
+    const float buttonWidth = 80.0f * Window().scale;
     ImGui::SetCursorScreenPos(ImVec2(origin.x + 381.0f * dx - 2.0f * buttonWidth - style.ItemSpacing.x,
                                      origin.y + 217.0f * dy + style.ItemSpacing.y));
     bool close = false, cancel = false;
@@ -430,14 +470,14 @@ void LayoutWindow::ExplorerWindow() {
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0.0f))) close = cancel = true;
 
-    if (m_Doc.explorerRefused) {
+    if (Window().document.explorerRefused) {
         ImGui::OpenPopup("3D Layout Explorer##refused");
-        m_Doc.explorerRefused = false;
+        Window().document.explorerRefused = false;
     }
     if (ImGui::BeginPopupModal("3D Layout Explorer##refused", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(
             "Some objects of this type are selected !\nPlease remove them from the selection before unchecking this button.");
-        if (ImGui::Button("OK", ImVec2(90.0f * m_Scale, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+        if (ImGui::Button("OK", ImVec2(90.0f * Window().scale, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
             ImGui::IsKeyPressed(ImGuiKey_Enter))
             ImGui::CloseCurrentPopup();
         ImGui::EndPopup();

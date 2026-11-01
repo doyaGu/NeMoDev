@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 
 #include "imgui_internal.h"
+#include "editor/ImGuiDrawing.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -53,7 +54,7 @@ const char *const REFERENTIALS[] = {"Local", "World", "View", "Parent", "Ref. Gu
 } // namespace
 
 LayoutWindow::LayoutWindow(EditorState &state, EditorApplication &editor)
-    : m_State(state), m_CommandEditor(editor), m_View(state.host) {}
+    : m_State(state), m_CommandEditor(editor), m_EditorHost(editor.Host()), m_View(state.host) {}
 
 LayoutWindow::~LayoutWindow() {
     CancelEdits();
@@ -63,9 +64,282 @@ LayoutWindow::~LayoutWindow() {
     }
 }
 
+void LayoutWindow::Report(EditorStatus status, const std::string &message) {
+    if (m_CommandEditor.report)
+        m_CommandEditor.report({status, message});
+}
+bool LayoutWindow::Register(std::string &error) {
+    EditorViewDesc view{};
+    view.size = sizeof(view);
+    view.imguiVersion = EDITOR_IMGUI_VERSION;
+    view.id = EDITOR_TEXT("layout.viewport");
+    view.provider = EDITOR_TEXT("builtin.layout-window");
+    view.title = EDITOR_TEXT("3D Layout");
+    view.singleInstance = 1;
+    view.area = EDITOR_DOCUMENT;
+    view.data = this;
+    view.create = [](void *data, const EditorHost *, EditorView id) -> void * {
+        auto &owner = *static_cast<LayoutWindow *>(data);
+        if (owner.m_Window)
+            return nullptr;
+        owner.m_Window = new WindowState(owner, id);
+        return owner.m_Window;
+    };
+    view.closing = [](void *data, const EditorHost *, EditorView) {
+        static_cast<WindowState *>(data)->owner->Closing();
+    };
+    view.destroy = [](void *data) {
+        auto *state = static_cast<WindowState *>(data);
+        auto &owner = *state->owner;
+        if (owner.m_Window == state) {
+            owner.m_Window = nullptr;
+            owner.m_ViewFrame = -1;
+        }
+        delete state;
+    };
+    view.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        auto &owner = *static_cast<WindowState *>(data)->owner;
+        if (owner.Window().needsStart && owner.m_MainWindow) {
+            std::string error;
+            owner.Start(owner.m_MainWindow, &error);
+        }
+        owner.Draw(*frame);
+        frame->active = owner.Busy();
+    };
+    const EditorParameter fields[] = {{EDITOR_TEXT("tool"), EDITOR_INTEGER_VALUE},
+                                      {EDITOR_TEXT("started"), EDITOR_INTEGER_VALUE}};
+    view.fields = fields;
+    view.fieldCount = 2;
+    view.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &state = *static_cast<WindowState *>(data);
+        const EditorValue values[] = {IntegerArgument("tool", uint64_t(state.tool)),
+                                      IntegerArgument("started", state.owner->m_Started)};
+        return sink.write(sink.data, values, 2);
+    };
+    view.pick = [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+        const auto &state = *static_cast<WindowState *>(data);
+        const auto &owner = *state.owner;
+        double x = 0, y = 0;
+        uint64_t objectClass = CKCID_OBJECT;
+        for (uint32_t i = 0; i < request->count; ++i) {
+            const auto &v = request->values[i];
+            if (std::string(v.key.data, v.key.size) == "x")
+                x = v.real;
+            if (std::string(v.key.data, v.key.size) == "y")
+                y = v.real;
+            if (std::string(v.key.data, v.key.size) == "class")
+                objectClass = v.integer;
+        }
+        std::vector<ObjectRef> objects;
+        if (owner.m_Started && ImGui::GetFrameCount() - owner.m_ViewFrame <= 1 && x >= owner.m_ViewMin.x &&
+            y >= owner.m_ViewMin.y && x < owner.m_ViewMax.x && y < owner.m_ViewMax.y) {
+            EditorValue px{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, py{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
+            px.real = x - owner.m_ViewMin.x;
+            py.real = y - owner.m_ViewMin.y;
+            const auto picked =
+                owner.Client().Query("layout.pick-object", {px, py, IntegerArgument("class", objectClass)});
+            if (const auto *value = EditorClient::Find(picked, "object");
+                picked.status == EDITOR_OK && value && value->object)
+                objects.push_back(value->object);
+        }
+        const EditorValue result{
+            EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}};
+        return sink.write(sink.data, &result, 1);
+    };
+    view.stateVersion = 1;
+    view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        return static_cast<WindowState *>(data)->owner->SaveWindow(sink);
+    };
+    view.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
+        return static_cast<WindowState *>(data)->owner->RestoreWindow(*request);
+    };
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("layout.window");
+    module.views = &view;
+    module.viewCount = 1;
+    return m_CommandEditor.Register(module, error);
+}
+void LayoutWindow::Closing() {
+    if (!m_Window)
+        return;
+    CancelEdits();
+    if (Window().document.explorerOpen)
+        CloseExplorer(true);
+    const auto drop = Window().document.drop;
+    if (drop) {
+        const EditorValue args[] = {IntegerArgument("drop", drop), IntegerArgument("accept", 0)};
+        Complete(m_CommandEditor.ApplyEdit("layout.finish-drop", {Client().Scope(), args, 2}), AfterCommand::None);
+    }
+    if (m_Window)
+        Window().capturing = 0;
+    Window().dropBox.Clear();
+    Window().copyBox.Clear();
+    Window().document.pendingCopy.clear();
+    Window().document.drop = 0;
+    Window().snapshotOpen = false;
+    Window().pickingReferent = false;
+    Window().dropText.clear();
+    Window().dropHighlight = {};
+    if (m_Started)
+        m_View.SetDropTarget(0);
+    auto texture = std::move(m_GpuTexture);
+    std::string error;
+    if (!ExitFullScreen(true, error) && !error.empty())
+        Report(EDITOR_ERROR, error);
+    Stop();
+    RetireTexture(std::move(texture));
+    // A failed unbind can force Context teardown. The main editor still has to
+    // become visible when its fullscreen rendering window has gone.
+    if (m_MainHiddenForFullScreen && m_MainWindow) {
+        SDL_ShowWindow(m_MainWindow);
+        m_MainHiddenForFullScreen = false;
+    }
+    m_ViewFrame = -1;
+}
+EditorStatus LayoutWindow::SaveWindow(EditorSink sink) const {
+    const auto &s = Window();
+    std::vector<EditorField> fields;
+    const auto number = [&](const char *key, uint64_t value) {
+        fields.push_back({key, EDITOR_INTEGER_VALUE, {}, {}, value});
+    };
+    number("tool", uint64_t(s.tool == LayoutTool::Fly ? LayoutTool::Select : s.tool));
+    number("scale-mode", s.scaleMode);
+    number("portal-mode", s.portalMode);
+    number("zoom-mode", s.zoomMode);
+    number("orbit-mode", s.orbitMode);
+    number("explorer-shown", s.explorerShown);
+    number("snapshot-open", s.snapshotOpen);
+    fields.push_back({"explorer-filter", EDITOR_TEXT_VALUE, {}, s.explorerFilter});
+    EditorField scroll{"scroll", EDITOR_REAL_LIST};
+    scroll.reals = {s.screenScroll.x, s.screenScroll.y};
+    fields.push_back(std::move(scroll));
+    EditorField extent{"zoom-extent", EDITOR_REAL_VALUE};
+    extent.real = s.zoomExtent;
+    fields.push_back(std::move(extent));
+    EditorField slots{"snapshot-selection", EDITOR_INTEGER_LIST};
+    for (auto n : s.snapshotSelection)
+        slots.integers.push_back(n);
+    fields.push_back(std::move(slots));
+    EditorField tools{"transforms", EDITOR_INTEGER_LIST};
+    for (int i = 0; i < 4; ++i) {
+        const auto &t = i < 3 ? s.transform[i] : s.curveEdit;
+        tools.integers.insert(tools.integers.end(), {uint64_t(t.axes), uint64_t(t.referential), uint64_t(t.pivot),
+                                                     uint64_t(t.hierarchy), uint64_t(t.snap)});
+    }
+    fields.push_back(std::move(tools));
+    const auto values = BorrowEditorFields(fields);
+    return sink.write(sink.data, values.data(), uint32_t(values.size()));
+}
+EditorStatus LayoutWindow::RestoreWindow(const EditorRequest &request) {
+    std::vector<EditorField> fields;
+    if (CopyEditorFields(fields, request.values, request.count) != EDITOR_OK)
+        return EDITOR_INVALID;
+    // Validate every field before replacing any navigation state.
+    for (const auto &v : fields) {
+        if (v.key == "explorer-filter") {
+            if (v.type != EDITOR_TEXT_VALUE || v.text.size() >= sizeof(Window().explorerFilter) ||
+                v.text.find('\0') != std::string::npos)
+                return EDITOR_INVALID;
+        } else if (v.key == "scroll") {
+            if (v.type != EDITOR_REAL_LIST || v.reals.size() != 2 || !std::isfinite(v.reals[0]) ||
+                !std::isfinite(v.reals[1]) || v.reals[0] < 0 || v.reals[1] < 0)
+                return EDITOR_INVALID;
+        } else if (v.key == "zoom-extent") {
+            if (v.type != EDITOR_REAL_VALUE || !std::isfinite(v.real) || v.real <= 0)
+                return EDITOR_INVALID;
+        } else if (v.key == "snapshot-selection") {
+            if (v.type != EDITOR_INTEGER_LIST ||
+                std::any_of(v.integers.begin(), v.integers.end(), [](uint64_t n) { return n >= 36; }))
+                return EDITOR_INVALID;
+        } else if (v.key == "transforms") {
+            if (v.type != EDITOR_INTEGER_LIST || v.integers.size() != 20)
+                return EDITOR_INVALID;
+            for (int i = 0; i < 4; ++i)
+                if (v.integers[i * 5] > 7 || v.integers[i * 5 + 1] > 5 || v.integers[i * 5 + 2] > 2 ||
+                    v.integers[i * 5 + 3] > 1 || v.integers[i * 5 + 4] > 1)
+                    return EDITOR_INVALID;
+        } else {
+            if (v.type != EDITOR_INTEGER_VALUE)
+                return EDITOR_INVALID;
+            if (v.key == "tool") {
+                switch (LayoutTool(v.integer)) {
+                case LayoutTool::Select:
+                case LayoutTool::Translate:
+                case LayoutTool::Scale:
+                case LayoutTool::Rotate:
+                case LayoutTool::Orbit:
+                case LayoutTool::Dolly:
+                case LayoutTool::Roll:
+                case LayoutTool::Fov:
+                case LayoutTool::Zoom:
+                case LayoutTool::Pan:
+                case LayoutTool::Fly:
+                case LayoutTool::AddPoints:
+                case LayoutTool::InsertPoints:
+                case LayoutTool::EditPoints:
+                case LayoutTool::DeletePoints:
+                    break;
+                default:
+                    return EDITOR_INVALID;
+                }
+            } else if (v.key == "scale-mode" || v.key == "zoom-mode") {
+                if (v.integer > 2)
+                    return EDITOR_INVALID;
+            } else if (v.key == "portal-mode" || v.key == "orbit-mode" || v.key == "snapshot-open") {
+                if (v.integer > 1)
+                    return EDITOR_INVALID;
+            } else if (v.key == "explorer-shown") {
+                if (v.integer > 0x1ff)
+                    return EDITOR_INVALID;
+            } else
+                return EDITOR_INVALID;
+        }
+    }
+    auto &s = Window();
+    for (const auto &v : fields) {
+        if (v.key == "tool")
+            s.tool = LayoutTool(v.integer);
+        else if (v.key == "scale-mode")
+            s.scaleMode = int(v.integer);
+        else if (v.key == "portal-mode")
+            s.portalMode = int(v.integer);
+        else if (v.key == "zoom-mode")
+            s.zoomMode = int(v.integer);
+        else if (v.key == "orbit-mode")
+            s.orbitMode = int(v.integer);
+        else if (v.key == "explorer-shown")
+            s.explorerShown = unsigned(v.integer);
+        else if (v.key == "snapshot-open")
+            s.snapshotOpen = v.integer != 0;
+        else if (v.key == "explorer-filter")
+            std::memcpy(s.explorerFilter, v.text.c_str(), v.text.size() + 1);
+        else if (v.key == "scroll")
+            s.screenScroll = {float(v.reals[0]), float(v.reals[1])};
+        else if (v.key == "zoom-extent")
+            s.zoomExtent = float(v.real);
+        else if (v.key == "snapshot-selection")
+            s.snapshotSelection.assign(v.integers.begin(), v.integers.end());
+        else if (v.key == "transforms")
+            for (int i = 0; i < 4; ++i) {
+                auto &t = i < 3 ? s.transform[i] : s.curveEdit;
+                t.axes = int(v.integers[i * 5]);
+                t.referential = int(v.integers[i * 5 + 1]);
+                t.pivot = int(v.integers[i * 5 + 2]);
+                t.hierarchy = v.integers[i * 5 + 3] != 0;
+                t.snap = v.integers[i * 5 + 4] != 0;
+            }
+    }
+    return EDITOR_OK;
+}
+
 bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
-    m_EditorHost = m_State.workspace->Application().Host();
-    m_Capturing = 0;
+    m_MainWindow = window;
+    if (!m_Window)
+        return true;
+    Window().needsStart = false;
+    Window().capturing = 0;
     CancelEdits();
     if (!ReleaseTexture()) {
         // Keep the borrowed SDL texture alive until the old Context, and with
@@ -84,25 +358,13 @@ bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
     m_View.windowEvent = [this](const SDL_Event &event) {
         if (!m_Switching) FullScreenEvent(event);
     };
-    // The view as a pick target while it shows (drawn in the last frames).
-    m_State.objectPick["3D Layout"] = [this](float x, float y, CK_CLASSID cid) -> CK_ID {
-        if (!m_Started || ImGui::GetFrameCount() - m_ViewFrame > 2 || x < m_ViewMin.x || y < m_ViewMin.y ||
-            x >= m_ViewMax.x || y >= m_ViewMax.y)
-            return 0;
-        EditorValue px{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, py{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
-        px.real = int(x - m_ViewMin.x);
-        py.real = int(y - m_ViewMin.y);
-        const auto result = Client().Query("layout.pick-object", {px, py, IntegerArgument("class", uint64_t(cid))});
-        const auto *picked = EditorClient::Find(result, "object");
-        return result.status == EDITOR_OK && picked && picked->type == EDITOR_OBJECT ? picked->object.object : 0;
-    };
     return m_Started;
 }
 
 void LayoutWindow::Stop() {
-    m_Capturing = 0;
+    if (m_Window)
+        Window().capturing = 0;
     CancelEdits();
-    m_State.objectPick.erase("3D Layout");
     const bool released = ReleaseTexture();
     m_View.Stop();
     if (!released)
@@ -145,10 +407,10 @@ void LayoutWindow::SyncComposition() {
     }
 }
 
-void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
+void LayoutWindow::Draw(EditorViewFrame &frame) {
     PollCommands();
-    if (!ReadLayoutSelection(Client(), m_SelectionData))
-        m_SelectionData = {};
+    if (!ReadLayoutSelection(Client(), Window().selectionData))
+        Window().selectionData = {};
     // Set again by the view while the composition keeps the cursor.
     ImGui::GetIO().ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
     // Every frame, shown or not: Player Mode starts with the selection of Play.
@@ -161,15 +423,21 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
         ToggleFullScreen();
     // Fullscreen, the frame goes to the screen, the 3D Layout shown or not.
     if (m_View.FullScreen()) m_View.RenderFullScreen();
-    m_OpenPopups = openPopups;
-    if (dock) ImGui::SetNextWindowDockID(dock, ImGuiCond_FirstUseEver);
+    Window().openPopups = !frame.focus;
+    EditorPrepareViewWindow(frame);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, PANEL);
-    const bool visible = BeginDevWindow("3D Layout", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    bool open = true;
+    const bool visible = BeginDevWindow(frame.window.data, frame.closable ? &open : nullptr,
+                                        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    if (frame.closable)
+        DevTabClose(&open);
+    frame.close = !open;
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     if (!visible) {
-        m_Capturing = 0;
+        if (m_Window)
+            Window().capturing = 0;
         CancelEdits();
         ImGui::End();
         ExplorerWindow();
@@ -182,22 +450,23 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
     SyncCurveTool();
     // Dev's status bar shows the 3D Layout's action after it was used last.
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
-        if ((Busy() || m_Tool == LayoutTool::Fly) && ImGui::IsKeyPressed(ImGuiKey_Escape)) CancelEdits();
-        m_LastUsed = true;
+        if ((Busy() || Window().tool == LayoutTool::Fly) && ImGui::IsKeyPressed(ImGuiKey_Escape))
+            CancelEdits();
+        Window().lastUsed = true;
         Shortcuts();
     } else if (ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow)) {
         CancelEdits();
-        m_LastUsed = false;
+        Window().lastUsed = false;
     }
-    m_Scale = ImGui::GetFontSize() / 13.0f;
-    m_Origin = ImGui::GetCursorScreenPos();
+    Window().scale = ImGui::GetFontSize() / 13.0f;
+    Window().origin = ImGui::GetCursorScreenPos();
     const ImVec2 available = ImGui::GetContentRegionAvail();
     // Dev's layout (sub_4B6C70): the top bar 21 high, the left toolbar from
     // x 6 to 76, the view from (76, 21) to the window's corner.
-    const float top = 21.0f * m_Scale, left = 76.0f * m_Scale;
-    TopBar(m_Origin, available.x);
-    LeftBar(m_Origin, available.y);
-    const ImVec2 viewAt(m_Origin.x + left, m_Origin.y + top);
+    const float top = 21.0f * Window().scale, left = 76.0f * Window().scale;
+    TopBar(Window().origin, available.x);
+    LeftBar(Window().origin, available.y);
+    const ImVec2 viewAt(Window().origin.x + left, Window().origin.y + top);
     const ImVec2 viewSize(std::max(1.0f, available.x - left - 1.0f), std::max(1.0f, available.y - top - 1.0f));
     Viewport(viewAt, viewSize);
     ImGui::End();
@@ -210,8 +479,8 @@ void LayoutWindow::Draw(ImGuiID dock, bool openPopups) {
 // ------------------------------------------------------------------ toolbar
 
 bool LayoutWindow::ToolbarButton(const Button &button, bool checked, bool enabled) {
-    const float s = m_Scale;
-    const ImVec2 a(m_Origin.x + button.x0 * s, m_Origin.y + button.y0 * s);
+    const float s = Window().scale;
+    const ImVec2 a(Window().origin.x + button.x0 * s, Window().origin.y + button.y0 * s);
     const ImVec2 size((button.x1 - button.x0) * s, (button.y1 - button.y0) * s);
     ImGui::SetCursorScreenPos(a);
     ImGui::PushID(button.command);
@@ -242,7 +511,7 @@ bool LayoutWindow::ToolbarButton(const Button &button, bool checked, bool enable
 // shows its entries' icons to choose another.
 bool LayoutWindow::MenuButton(const Button &button, const std::vector<Item> &items, int &current, bool checked,
                               bool enabled) {
-    const float s = m_Scale;
+    const float s = Window().scale;
     current = std::clamp(current, 0, static_cast<int>(items.size()) - 1);
     const Item &item = items[current];
     Button shown = button;
@@ -250,20 +519,20 @@ bool LayoutWindow::MenuButton(const Button &button, const std::vector<Item> &ite
     shown.bitmaps[1] = item.bitmaps[1];
     shown.bitmaps[2] = shown.bitmaps[3] = item.bitmaps[2];
     shown.bitmaps[4] = item.bitmaps[0];
-    const ImVec2 a(m_Origin.x + button.x0 * s, m_Origin.y + button.y0 * s);
+    const ImVec2 a(Window().origin.x + button.x0 * s, Window().origin.y + button.y0 * s);
     bool run = ToolbarButton(shown, checked, enabled);
     const char *popup = "##menubutton";
     ImGui::PushID(button.command);
     if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-        if (m_HeldMenu != button.command) {
-            m_HeldMenu = button.command;
-            m_HeldSince = ImGui::GetTime();
-        } else if (ImGui::GetTime() - m_HeldSince > 0.3) {
+        if (Window().heldMenu != button.command) {
+            Window().heldMenu = button.command;
+            Window().heldSince = ImGui::GetTime();
+        } else if (ImGui::GetTime() - Window().heldSince > 0.3) {
             ImGui::OpenPopup(popup);
-            m_HeldMenu = 0;
+            Window().heldMenu = 0;
         }
-    } else if (m_HeldMenu == button.command && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-        m_HeldMenu = 0;
+    } else if (Window().heldMenu == button.command && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        Window().heldMenu = 0;
     }
     ImGui::SetNextWindowPos(a);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -297,7 +566,7 @@ bool LayoutWindow::MenuButton(const Button &button, const std::vector<Item> &ite
 }
 
 void LayoutWindow::TopBar(const ImVec2 &origin, float width) {
-    const float s = m_Scale;
+    const float s = Window().scale;
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(ImVec2(origin.x + 2.0f * s, origin.y), ImVec2(origin.x + width - 2.0f * s, origin.y + 21.0f * s),
                       TOP_BAR, 3.0f * s);
@@ -306,9 +575,11 @@ void LayoutWindow::TopBar(const ImVec2 &origin, float width) {
     static const Button snapshot = {56, 7, 1, 26, 20, {809, 811, 810, 810, 809}, "Snapshot"};
     static const Button explorer = {41, 27, 1, 46, 20, {777, 779, 778, 778, 777}, "3D Layout Explorer"};
     static const Button preferences = {40, 347, 1, 366, 20, {804, 806, 805, 805, 804}, "General Preferences (Ctrl+P)"};
-    const bool usable = m_Started && m_State.HasDocument();
-    if (ToolbarButton(snapshot, m_SnapshotOpen, m_Started)) Command(snapshot.command);
-    if (ToolbarButton(explorer, m_Doc.explorerOpen, usable)) Command(explorer.command);
+    const bool usable = m_Started && Client().Scope().document.value;
+    if (ToolbarButton(snapshot, Window().snapshotOpen, m_Started))
+        Command(snapshot.command);
+    if (ToolbarButton(explorer, Window().document.explorerOpen, usable))
+        Command(explorer.command);
     if (ToolbarButton(preferences, false)) Command(preferences.command);
     // The two combos: dark, white text and arrow (screenshots).
     ImGui::PushStyleColor(ImGuiCol_FrameBg, TOP_BAR);
@@ -329,7 +600,8 @@ void LayoutWindow::TopBar(const ImVec2 &origin, float width) {
     // Available Cameras (id 19): Dev's views, then the composition's cameras.
     ImGui::SetCursorScreenPos(ImVec2(origin.x + 202.0f * s, origin.y + 1.0f * s));
     ImGui::SetNextItemWidth(140.0f * s);
-    auto &cameras = m_CameraData; const bool camerasReady = ReadLayoutScene(Client(), "cameras", cameras);
+    auto &cameras = Window().cameraData;
+    const bool camerasReady = ReadLayoutScene(Client(), "cameras", cameras);
     const auto *current = camerasReady ? cameras.Find(cameras.camera.object) : nullptr;
     const std::string currentName = current ? current->name : std::string();
     ImGui::PopStyleColor(); // the list keeps the menu's text color
@@ -352,7 +624,7 @@ void LayoutWindow::TopBar(const ImVec2 &origin, float width) {
 }
 
 void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
-    const float s = m_Scale;
+    const float s = Window().scale;
     ImDrawList *dl = ImGui::GetWindowDrawList();
     const ImVec2 a(origin.x + 6.0f * s, origin.y + 21.0f * s), b(origin.x + 76.0f * s, origin.y + height);
     dl->AddRectFilled(a, b, LEFT_BAR);
@@ -363,14 +635,15 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
         dl->AddLine(ImVec2(origin.x + 10.0f * s, origin.y + (y + 1) * s), ImVec2(origin.x + 72.0f * s, origin.y + (y + 1) * s),
                     IM_COL32(150, 150, 150, 255));
     };
-    const bool transforming = m_Tool == LayoutTool::Translate || m_Tool == LayoutTool::Rotate ||
-                              m_Tool == LayoutTool::Scale || m_Tool == LayoutTool::EditPoints;
+    const bool transforming = Window().tool == LayoutTool::Translate || Window().tool == LayoutTool::Rotate ||
+                              Window().tool == LayoutTool::Scale || Window().tool == LayoutTool::EditPoints;
     // Selection.
     static const Button select = {25, 8, 24, 29, 45, {774, 776, 775, 775, 774}, "Select (A)"};
     static const Button lock = {58, 30, 25, 51, 46, {692, 694, 693, 693, 692}, "Lock Selection (Spacebar)"};
     static const Button mode = {61, 52, 24, 73, 45, {1152, 1153, 1151, 1150, 1151}, "Selection Mode"};
-    if (ToolbarButton(select, m_Tool == LayoutTool::Select)) Command(select.command);
-    if (ToolbarButton(lock, m_SelectionData.locked))
+    if (ToolbarButton(select, Window().tool == LayoutTool::Select))
+        Command(select.command);
+    if (ToolbarButton(lock, Window().selectionData.locked))
         Command(lock.command);
     if (ToolbarButton(mode, m_Preferences.Bool("3D Layout\\Strict Selection")))
         Command(mode.command);
@@ -382,9 +655,12 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     // Mode 0 scales the three axes alike (Uniform), 2 the constrained ones (Normal).
     static const std::vector<Item> scales = {{46, {730, 732, 731}, "Uniform"}, {47, {736, 738, 737}, "Volumetric"},
                                              {48, {733, 735, 734}, "Normal"}};
-    if (ToolbarButton(move, m_Tool == LayoutTool::Translate)) Command(move.command);
-    if (ToolbarButton(rotate, m_Tool == LayoutTool::Rotate)) Command(rotate.command);
-    if (MenuButton(scale, scales, m_ScaleMode, m_Tool == LayoutTool::Scale)) Command(scales[m_ScaleMode].command);
+    if (ToolbarButton(move, Window().tool == LayoutTool::Translate))
+        Command(move.command);
+    if (ToolbarButton(rotate, Window().tool == LayoutTool::Rotate))
+        Command(rotate.command);
+    if (MenuButton(scale, scales, Window().scaleMode, Window().tool == LayoutTool::Scale))
+        Command(scales[Window().scaleMode].command);
     // Transformation settings, shown with the transformation tools only, the
     // active tool's own (Dev.exe sub_492AC0, sub_496600).
     if (transforming) {
@@ -404,7 +680,7 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
             Command(planes[planeIndex].command);
         // Referential Axis (id 15): a small combo; Rotate and Scale show it
         // about each object's axis only.
-        if (m_Tool == LayoutTool::Translate || m_Tool == LayoutTool::EditPoints || settings.pivot == 1) {
+        if (Window().tool == LayoutTool::Translate || Window().tool == LayoutTool::EditPoints || settings.pivot == 1) {
             ImGui::SetCursorScreenPos(ImVec2(origin.x + 9.0f * s, origin.y + 116.0f * s));
             ImGui::SetNextItemWidth(64.0f * s);
             ImGui::PushFont(nullptr, 10.0f * s);
@@ -417,7 +693,7 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
                         settings.referential = i;
                         // Pick Obj.: the next click in the view picks it.
                         if (i == 5) {
-                            m_PickingReferent = true;
+                            Window().pickingReferent = true;
                             m_State.Log(LogLevel::Info, "Pick the referential object in the 3D Layout");
                         }
                     }
@@ -436,7 +712,7 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
         if (ToolbarButton(snap, settings.snap)) Command(snap.command);
         if (ToolbarButton(hierarchy, settings.hierarchy)) Command(hierarchy.command);
         // Translate has no pivot.
-        if (m_Tool != LayoutTool::Translate && m_Tool != LayoutTool::EditPoints &&
+        if (Window().tool != LayoutTool::Translate && Window().tool != LayoutTool::EditPoints &&
             MenuButton(pivot, pivots, settings.pivot, false))
             Command(pivots[settings.pivot].command);
     }
@@ -462,7 +738,8 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
         if (ToolbarButton(button, false, document)) Command(button.command);
     static const Button portal = {77, 53, 239, 74, 260, {}, "Create Portal (9)"};
     static const std::vector<Item> portals = {{79, {1340, 1338, 1339}, "Create Portals"}, {78, {1311, 1309, 1310}, "Create Portal"}};
-    if (MenuButton(portal, portals, m_PortalMode, false, document)) Command(portals[m_PortalMode].command);
+    if (MenuButton(portal, portals, Window().portalMode, false, document))
+        Command(portals[Window().portalMode].command);
     line(264);
     // Navigation.
     const bool perspective = EditorClient::Integer(m_Presentation, "perspective");
@@ -476,35 +753,47 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     static const Button pan = {28, 31, 291, 52, 312, {715, 717, 716, 716, 715}, "Camera Pan (P)"};
     static const Button orbit = {20, 53, 291, 74, 312, {}, "Orbit Target/Orbit Around (O)"};
     static const std::vector<Item> orbits = {{49, {706, 708, 707}, "Orbit"}, {50, {709, 711, 710}, "Orbit Around Camera"}};
-    if (ToolbarButton(dolly, m_Tool == LayoutTool::Dolly)) Command(dolly.command);
+    if (ToolbarButton(dolly, Window().tool == LayoutTool::Dolly))
+        Command(dolly.command);
     // Dev disables the field of view of orthographic cameras and the roll of target cameras.
-    if (ToolbarButton(fov, m_Tool == LayoutTool::Fov, perspective)) Command(fov.command);
-    if (MenuButton(zoom, zooms, m_ZoomMode, m_Tool == LayoutTool::Zoom)) Command(zooms[m_ZoomMode].command);
-    if (ToolbarButton(roll, m_Tool == LayoutTool::Roll, !targeted)) Command(roll.command);
-    if (ToolbarButton(pan, m_Tool == LayoutTool::Pan)) Command(pan.command);
-    if (MenuButton(orbit, orbits, m_OrbitMode, m_Tool == LayoutTool::Orbit)) Command(orbits[m_OrbitMode].command);
+    if (ToolbarButton(fov, Window().tool == LayoutTool::Fov, perspective))
+        Command(fov.command);
+    if (MenuButton(zoom, zooms, Window().zoomMode, Window().tool == LayoutTool::Zoom))
+        Command(zooms[Window().zoomMode].command);
+    if (ToolbarButton(roll, Window().tool == LayoutTool::Roll, !targeted))
+        Command(roll.command);
+    if (ToolbarButton(pan, Window().tool == LayoutTool::Pan))
+        Command(pan.command);
+    if (MenuButton(orbit, orbits, Window().orbitMode, Window().tool == LayoutTool::Orbit))
+        Command(orbits[Window().orbitMode].command);
 }
 
 // Toolbar and keyboard commands (Dev's command ids).
 void LayoutWindow::Command(int command) {
-    const bool flying = m_Tool == LayoutTool::Fly;
+    const bool flying = Window().tool == LayoutTool::Fly;
     if (command == 68) {
         if (flying) EndFly();
         else BeginFly();
         return;
     }
     switch (command) {
-    case 25: m_Tool = LayoutTool::Select; break;
-    case 9: m_Tool = LayoutTool::Translate; break;
-    case 11: m_Tool = LayoutTool::Rotate; break;
+    case 25:
+        Window().tool = LayoutTool::Select;
+        break;
+    case 9:
+        Window().tool = LayoutTool::Translate;
+        break;
+    case 11:
+        Window().tool = LayoutTool::Rotate;
+        break;
     case 46: case 47: case 48:
-        m_ScaleMode = command - 46;
-        m_Tool = LayoutTool::Scale;
+        Window().scaleMode = command - 46;
+        Window().tool = LayoutTool::Scale;
         break;
     case 58:
         // Dev locks a non-empty selection only.
-        if (m_SelectionData.locked || !m_SelectionData.objects.empty())
-            LockSelection(!m_SelectionData.locked);
+        if (Window().selectionData.locked || !Window().selectionData.objects.empty())
+            LockSelection(!Window().selectionData.locked);
         break;
     case 61:
         // Selection Mode: Dev's "Strict Selection" (+540), RectPick's Intersect.
@@ -527,7 +816,7 @@ void LayoutWindow::Command(int command) {
         Settings().pivot = command - 72;
         // Pivot Axis Object: the next click in the view picks the referent.
         if (command == 72) {
-            m_PickingReferent = true;
+            Window().pickingReferent = true;
             m_State.Log(LogLevel::Info, "Pick the referent object in the 3D Layout");
         }
         break;
@@ -551,14 +840,27 @@ void LayoutWindow::Command(int command) {
                 m_State.Log(made.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, "Automatic Portals: " + made.message);
         }
         break;
-    case 23: m_Tool = LayoutTool::Dolly; break;
-    case 26: m_Tool = LayoutTool::Fov; break;
-    case 51: m_Tool = LayoutTool::Zoom; break;
+    case 23:
+        Window().tool = LayoutTool::Dolly;
+        break;
+    case 26:
+        Window().tool = LayoutTool::Fov;
+        break;
+    case 51:
+        Window().tool = LayoutTool::Zoom;
+        break;
     case 52: ZoomOn(false); break;
     case 57: ZoomOn(true); break;
-    case 24: m_Tool = LayoutTool::Roll; break;
-    case 28: m_Tool = LayoutTool::Pan; break;
-    case 49: case 50: m_Tool = LayoutTool::Orbit; break;
+    case 24:
+        Window().tool = LayoutTool::Roll;
+        break;
+    case 28:
+        Window().tool = LayoutTool::Pan;
+        break;
+    case 49:
+    case 50:
+        Window().tool = LayoutTool::Orbit;
+        break;
     case 40: {
         Execute("preferences.open");
         break;
@@ -567,16 +869,19 @@ void LayoutWindow::Command(int command) {
     case 180: {
         LayoutSelectionData selection; if (ReadLayoutSelection(Client(), selection)) Duplicate(selection.objects); break;
     } // the shortcut menu's Duplicate
-    case 56: if (m_Started) m_SnapshotOpen = true; break;
+    case 56:
+        if (m_Started)
+            Window().snapshotOpen = true;
+        break;
     default: break;
     }
     if (!CurveToolActive())
         ClearCurveTool();
-    if (flying && m_Tool != LayoutTool::Fly) {
-        const LayoutTool next = m_Tool;
-        m_Tool = LayoutTool::Fly;
+    if (flying && Window().tool != LayoutTool::Fly) {
+        const LayoutTool next = Window().tool;
+        Window().tool = LayoutTool::Fly;
         EndFly();
-        m_Tool = next;
+        Window().tool = next;
     }
 }
 
@@ -647,23 +952,23 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
             hBar = visible.x < fixedW;
         }
         visible = ImVec2(std::max(1.0f, visible.x), std::max(1.0f, visible.y));
-        m_ScreenScroll.x = hBar ? std::clamp(m_ScreenScroll.x, 0.0f, fixedW - visible.x) : 0.0f;
-        m_ScreenScroll.y = vBar ? std::clamp(m_ScreenScroll.y, 0.0f, fixedH - visible.y) : 0.0f;
-        at = ImVec2(viewAt.x + (hBar ? -m_ScreenScroll.x : std::floor((visible.x - fixedW) * 0.5f)),
-                    viewAt.y + (vBar ? -m_ScreenScroll.y : std::floor((visible.y - fixedH) * 0.5f)));
+        Window().screenScroll.x = hBar ? std::clamp(Window().screenScroll.x, 0.0f, fixedW - visible.x) : 0.0f;
+        Window().screenScroll.y = vBar ? std::clamp(Window().screenScroll.y, 0.0f, fixedH - visible.y) : 0.0f;
+        at = ImVec2(viewAt.x + (hBar ? -Window().screenScroll.x : std::floor((visible.x - fixedW) * 0.5f)),
+                    viewAt.y + (vBar ? -Window().screenScroll.y : std::floor((visible.y - fixedH) * 0.5f)));
         size = ImVec2(static_cast<float>(fixedW), static_cast<float>(fixedH));
         ImGuiWindow *window = ImGui::GetCurrentWindow();
         if (hBar) {
-            ImS64 scroll = static_cast<ImS64>(m_ScreenScroll.x);
+            ImS64 scroll = static_cast<ImS64>(Window().screenScroll.x);
             const ImRect bb(viewAt.x, viewAt.y + visible.y, viewAt.x + visible.x, viewAt.y + visible.y + bar);
             if (ImGui::ScrollbarEx(bb, window->GetID("##screenh"), ImGuiAxis_X, &scroll, static_cast<ImS64>(visible.x), fixedW))
-                m_ScreenScroll.x = static_cast<float>(scroll);
+                Window().screenScroll.x = static_cast<float>(scroll);
         }
         if (vBar) {
-            ImS64 scroll = static_cast<ImS64>(m_ScreenScroll.y);
+            ImS64 scroll = static_cast<ImS64>(Window().screenScroll.y);
             const ImRect bb(viewAt.x + visible.x, viewAt.y, viewAt.x + visible.x + bar, viewAt.y + visible.y);
             if (ImGui::ScrollbarEx(bb, window->GetID("##screenv"), ImGuiAxis_Y, &scroll, static_cast<ImS64>(visible.y), fixedH))
-                m_ScreenScroll.y = static_cast<float>(scroll);
+                Window().screenScroll.y = static_cast<float>(scroll);
         }
         // Around the render context: Dev's editor view background.
         dl->AddRectFilled(viewAt, ImVec2(viewAt.x + visible.x, viewAt.y + visible.y), PANEL);
@@ -686,7 +991,8 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     // Building Blocks (Main.cpp does not put the arrow back).
     if (m_PlayerMode && ImGui::IsItemHovered() && !m_Preferences.Bool("3D Layout\\Player Mode\\Update Cursor"))
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
-    if (m_Started && m_Capturing) CaptureInput(at);
+    if (m_Started && Window().capturing)
+        CaptureInput(at);
     else if (m_Started) ViewInput(at, ImGui::IsItemHovered());
     if (m_Started) DropTarget(at);
 #ifdef VIRTOOLSDEV_UI_TESTS
@@ -722,9 +1028,9 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     else
         dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), LEFT_BAR);
     // The selection rectangle being dragged.
-    if (m_Rectangle) {
+    if (Window().rectangle) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
-        dl->AddRect(ImVec2(at.x + m_PressAt.x, at.y + m_PressAt.y), mouse, IM_COL32(255, 255, 255, 255));
+        dl->AddRect(ImVec2(at.x + Window().pressAt.x, at.y + Window().pressAt.y), mouse, IM_COL32(255, 255, 255, 255));
     }
     if (debugData || m_Preferences.Bool("3D Layout\\Debug Mode")) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
@@ -732,7 +1038,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     }
     dl->PopClipRect();
     // Lock Selection: "a thin green border around the preview pane".
-    if (m_SelectionData.locked)
+    if (Window().selectionData.locked)
         dl->AddRect(viewAt, visibleMax, IM_COL32(0, 255, 0, 255), 0.0f, 0, 2.0f);
 }
 
@@ -759,7 +1065,7 @@ void LayoutWindow::DebugData(const ImVec2 &at, int x, int y) {
     else
         std::snprintf(line, sizeof(line), "X:%5d Y:%5d M:%3d\n", x, y, buttons);
     const auto text = line + EditorClient::Text(result, "text");
-    ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 10.0f * m_Scale, at.y + 10.0f * m_Scale),
+    ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 10.0f * Window().scale, at.y + 10.0f * Window().scale),
                                         IM_COL32(255, 255, 255, 255), text.c_str());
 }
 
@@ -788,26 +1094,28 @@ CameraSteps LayoutWindow::Steps() const {
 }
 
 std::string LayoutWindow::ActionText() const {
-    if (!m_LastUsed) return std::string();
+    if (!m_Window || !Window().lastUsed)
+        return std::string();
     const bool targeted = EditorClient::Integer(InputState(), "targeted") != 0;
     if (GestureActive(0))
-        return CameraActionText(CameraAction(m_GestureAction), true, targeted,
-                                EditorClient::Integer(m_Interaction, "around-selection") != 0);
+        return CameraActionText(CameraAction(Window().gestureAction), true, targeted,
+                                EditorClient::Integer(Window().interaction, "around-selection") != 0);
     if (GestureActive(2))
-        return TransformAction(m_GestureAction) == TransformAction::Translate ? "Moving Objects"
-                                                                              : "Scaling Objects (Free)";
-    if (GestureActive(1) && !m_CurveEditing) {
+        return TransformAction(Window().gestureAction) == TransformAction::Translate ? "Moving Objects"
+                                                                                     : "Scaling Objects (Free)";
+    if (GestureActive(1) && !Window().curveEditing) {
         static const char *const scaling[] = {"Scaling Objects (Uniform)", "Scaling Objects (Volumetric)",
                                               "Scaling Objects (Free)"};
-        switch (TransformAction(m_GestureAction)) {
+        switch (TransformAction(Window().gestureAction)) {
         case TransformAction::Translate: return "Moving Objects";
         case TransformAction::Rotate: return "Rotating Objects";
         case TransformAction::Scale:
-            return scaling[std::clamp(m_ScaleMode, 0, 2)];
+            return scaling[std::clamp(Window().scaleMode, 0, 2)];
         }
     }
-    if (m_Rectangle) return "Select Objects";
-    switch (m_Tool) {
+    if (Window().rectangle)
+        return "Select Objects";
+    switch (Window().tool) {
     case LayoutTool::Fly: return "Navigation active";
     case LayoutTool::AddPoints: return "Add curve points";
     case LayoutTool::InsertPoints: return "Insert points on curve";
@@ -818,7 +1126,8 @@ std::string LayoutWindow::ActionText() const {
     case LayoutTool::Zoom: return CameraActionText(CameraAction::Zoom, false, targeted, false);
     case LayoutTool::Pan: return CameraActionText(CameraAction::Pan, false, targeted, false);
     case LayoutTool::Orbit:
-        return CameraActionText(m_OrbitMode ? CameraAction::OrbitCamera : CameraAction::Orbit, false, targeted, false);
+        return CameraActionText(Window().orbitMode ? CameraAction::OrbitCamera : CameraAction::Orbit, false, targeted,
+                                false);
     case LayoutTool::Roll: return CameraActionText(CameraAction::Roll, false, targeted, false);
     case LayoutTool::Fov: return CameraActionText(CameraAction::Fov, false, targeted, false);
     case LayoutTool::Translate: return "Select or Move Objects";
@@ -829,24 +1138,30 @@ std::string LayoutWindow::ActionText() const {
 }
 
 bool LayoutWindow::Coordinates(std::string values[3]) const {
-    for (int i = 0; i < 3; ++i) values[i] = m_Coordinates[i];
-    return m_LastUsed;
+    if (!m_Window) {
+        for (int i = 0; i < 3; ++i)
+            values[i].clear();
+        return false;
+    }
+    for (int i = 0; i < 3; ++i)
+        values[i] = Window().coordinates[i];
+    return Window().lastUsed;
 }
 
 // Dev's tools after each move (Dev.exe sub_48EED0, sub_4952A0, sub_497270,
 // sub_48E630): the grabbed object's world position, its world matrix's
 // Euler angles in degrees, its scale; a 2D entity's position and no Z.
 void LayoutWindow::UpdateCoordinates() {
-    const auto *coordinates = EditorClient::Find(m_Interaction, "coordinates");
+    const auto *coordinates = EditorClient::Find(Window().interaction, "coordinates");
     if (!coordinates || coordinates->type != EDITOR_REAL_LIST || coordinates->reals.size() < 2)
         return;
     for (size_t i = 0; i < 3; ++i) {
         if (i >= coordinates->reals.size())
-            m_Coordinates[i] = "NA";
+            Window().coordinates[i] = "NA";
         else {
             char text[32];
             std::snprintf(text, sizeof(text), "%8.2f", coordinates->reals[i]);
-            m_Coordinates[i] = text;
+            Window().coordinates[i] = text;
         }
     }
 }
@@ -1026,7 +1341,8 @@ bool LayoutWindow::CapturePixels(std::vector<unsigned char> &pixels, int &width,
     return true;
 }
 bool LayoutWindow::EnterFullScreen(const LayoutScreenMode &mode, std::string &error) {
-    m_Capturing = 0;
+    if (m_Window)
+        Window().capturing = 0;
     // Fullscreen presents the render window normally; remove the editor-owned
     // virtual backbuffer before the Context changes mode or is recreated.
     if (!ReleaseGpuViewport()) {
@@ -1051,7 +1367,8 @@ bool LayoutWindow::EnterFullScreen(const LayoutScreenMode &mode, std::string &er
     return full;
 }
 bool LayoutWindow::ExitFullScreen(bool activateEditor, std::string &error) {
-    m_Capturing = 0;
+    if (m_Window)
+        Window().capturing = 0;
     m_PendingToggle = m_PendingDeactivate = false;
     if (!m_View.FullScreen())
         return true;

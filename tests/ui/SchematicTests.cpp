@@ -178,7 +178,6 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
                 const auto picked = vdev::EditorClient(editor.Host(), 0).Query("example.pick-state");
                 IM_CHECK_NO_RET(vdev::EditorClient::Integer(picked, "reads") >= 4 &&
                                 vdev::EditorClient::Integer(picked, "view") == views[i]);
-                IM_CHECK_NO_RET(!state.objectPick.count(workspace.WindowName(views[i])));
                 const vdev::EditorClient client(editor.Host(), 0);
                 IM_CHECK_NO_RET(client.Command("example.pick-failure", {vdev::IntegerArgument("value", 1)}).status ==
                                 EDITOR_OK);

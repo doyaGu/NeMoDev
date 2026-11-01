@@ -21,7 +21,7 @@ namespace vdev {
 // CKParameterOut of the type); Apply writes the copies that changed to
 // their parameters as undo steps.
 // The object of the class under the mouse in the topmost window that
-// answers (EditorState::objectPick), as CK2UI asks the window under the
+// answers through the workspace view, as CK2UI asks the window under the
 // mouse (message 0x607); popups and tooltips are passed. 0: none.
 CK_ID ObjectUnderMouse(const EditorState &state, const ImVec2 &mouse, CK_CLASSID cid);
 

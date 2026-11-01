@@ -23,9 +23,9 @@ void LayoutWindow::Complete(const EditorResponse &result, AfterCommand after) {
         if (!result.message.empty()) m_State.Log(LogLevel::Warning, result.message);
         return;
     }
-    if (after == AfterCommand::Zoom)
+    if (m_Window && after == AfterCommand::Zoom)
         if (const auto *extent = EditorClient::Find(result, "extent"); extent && extent->type == EDITOR_REAL_VALUE)
-            m_ZoomExtent = float(extent->real);
+            Window().zoomExtent = float(extent->real);
     const auto *created = EditorClient::Find(result, "created");
     if (after == AfterCommand::Created && created && created->object) {
         const auto details = Client().Query("object.details", {ObjectArgument("target", created->object)});
@@ -76,36 +76,42 @@ void LayoutWindow::OpenContextMenu(int x, int y) {
     LayoutSceneData scene;
     if (x < 0 || y < 0 || !ReadLayoutScene(Client(), "context", scene,
         {IntegerArgument("x", uint64_t(x)), IntegerArgument("y", uint64_t(y))}) || !scene.scene) return;
-    m_Menu = {};
-    for (const auto &row : scene.rows) m_Menu.objects.push_back({row.object,
-        row.kind.empty() ? row.className : row.kind, row.name, row.scripts});
-    m_Menu.camera = scene.savedCamera; m_Menu.frame = scene.frame; m_Menu.initial = scene.initial;
-    m_Menu.initialTarget = scene.initialTarget; m_Menu.frameShapes = std::move(scene.frameShapes);
+    Window().menu = {};
+    for (const auto &row : scene.rows)
+        Window().menu.objects.push_back(
+            {row.object, row.kind.empty() ? row.className : row.kind, row.name, row.scripts});
+    Window().menu.camera = scene.savedCamera;
+    Window().menu.frame = scene.frame;
+    Window().menu.initial = scene.initial;
+    Window().menu.initialTarget = scene.initialTarget;
+    Window().menu.frameShapes = std::move(scene.frameShapes);
     ImGui::OpenPopup("##layoutmenu");
 }
 
 void LayoutWindow::ContextMenuPopup() {
     if (!ImGui::BeginPopup("##layoutmenu")) return;
-    if (!Client().Scope().document.value || (!m_Menu.objects.empty() &&
-        m_Menu.objects.front().object.document != Client().Scope().document)) {
+    if (!Client().Scope().document.value ||
+        (!Window().menu.objects.empty() &&
+         Window().menu.objects.front().object.document != Client().Scope().document)) {
         ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
         return;
     }
-    const std::vector<MenuObject> objects = m_Menu.objects;
+    const std::vector<MenuObject> objects = Window().menu.objects;
     LayoutSelectionData selected;
     const bool selection = ReadLayoutSelection(Client(), selected) && !selected.objects.empty();
     char text[1024];
     // The objects' Setups ("%s Setup (%s)"), the camera's after a separator.
     for (size_t i = 0; i < objects.size(); ++i) {
-        if (objects[i].object == m_Menu.camera && objects.size() > 1) ImGui::Separator();
+        if (objects[i].object == Window().menu.camera && objects.size() > 1)
+            ImGui::Separator();
         std::snprintf(text, sizeof(text), "%s Setup (%s)##setup%d", objects[i].cls.c_str(), objects[i].name.c_str(),
                       static_cast<int>(i));
         if (ImGui::MenuItem(text)) Execute("object.open-setup", {ObjectArgument("target", objects[i].object)});
     }
-    if (m_Menu.frame && ImGui::BeginMenu("Change Representation")) {
+    if (Window().menu.frame && ImGui::BeginMenu("Change Representation")) {
         if (ImGui::MenuItem("No Representation")) SetRepresentation(0);
-        const auto &shapes = m_Menu.frameShapes;
+        const auto &shapes = Window().menu.frameShapes;
         for (size_t i = 0; i < shapes.size(); ++i) {
             ImGui::PushID(static_cast<int>(i));
             if (ImGui::MenuItem(shapes[i].c_str())) SetRepresentation(static_cast<int>(i) + 1);
@@ -113,7 +119,8 @@ void LayoutWindow::ContextMenuPopup() {
         }
         ImGui::EndMenu();
     }
-    if (!objects.empty() && objects.back().object != m_Menu.camera) ImGui::Separator();
+    if (!objects.empty() && objects.back().object != Window().menu.camera)
+        ImGui::Separator();
     if (ImGui::MenuItem("Reset Current Camera Settings")) ResetCamera();
     if (ImGui::BeginMenu("Select Camera")) {
         // The default views, then the composition's cameras ("name (class)"):
@@ -136,12 +143,15 @@ void LayoutWindow::ContextMenuPopup() {
     ImGui::Separator();
     if (!objects.empty()) {
         if (ImGui::MenuItem("Set Initial Conditions")) InitialConditionsOn(0);
-        if (ImGui::MenuItem("Restore Initial Conditions", nullptr, false, m_Menu.initial)) InitialConditionsOn(1);
-        if (ImGui::MenuItem("Remove Initial Conditions", nullptr, false, m_Menu.initial)) InitialConditionsOn(2);
+        if (ImGui::MenuItem("Restore Initial Conditions", nullptr, false, Window().menu.initial))
+            InitialConditionsOn(1);
+        if (ImGui::MenuItem("Remove Initial Conditions", nullptr, false, Window().menu.initial))
+            InitialConditionsOn(2);
         ImGui::Separator();
         if (ImGui::BeginMenu("Create Script on")) {
             for (size_t i = 0; i < objects.size(); ++i) {
-                if (objects[i].object == m_Menu.camera && objects.size() > 1) ImGui::Separator();
+                if (objects[i].object == Window().menu.camera && objects.size() > 1)
+                    ImGui::Separator();
                 std::snprintf(text, sizeof(text), "%s (%s)##script%d", objects[i].name.c_str(), objects[i].cls.c_str(),
                               static_cast<int>(i));
                 if (ImGui::MenuItem(text)) CreateScriptOn(objects[i].object);
@@ -157,7 +167,7 @@ void LayoutWindow::ContextMenuPopup() {
             bool separated = false, more = false;
             for (size_t i = 0; i < objects.size() && !more; ++i) {
                 if (objects[i].scripts.empty()) continue;
-                if (objects[i].object == m_Menu.camera && scripts > 1 && !separated && shown < 40) {
+                if (objects[i].object == Window().menu.camera && scripts > 1 && !separated && shown < 40) {
                     ImGui::Separator();
                     separated = true;
                 }
@@ -190,8 +200,9 @@ void LayoutWindow::ContextMenuPopup() {
 // Dev (commands 177..179): the first object of the menu, or the character
 // after it when that object is a body part.
 void LayoutWindow::InitialConditionsOn(int action) {
-    if (!m_Menu.initialTarget) return;
-    const std::vector<ObjectRef> objects{m_Menu.initialTarget};
+    if (!Window().menu.initialTarget)
+        return;
+    const std::vector<ObjectRef> objects{Window().menu.initialTarget};
     Execute("scene.initial-conditions", {ObjectsArgument("objects", objects),
         IntegerArgument("mode", uint64_t(std::clamp(action, 0, 2))), IntegerArgument("hierarchy", 0)});
 }
@@ -227,9 +238,10 @@ void LayoutWindow::ResetCamera() {
 // shown for it).
 void LayoutWindow::SetRepresentation(int representation) {
     LayoutSelectionData selection;
-    if (ReadLayoutSelection(Client(), selection)) Execute("layout.frame-representation",
-        {ObjectArgument("target", m_Menu.frame), ObjectsArgument("objects", selection.objects),
-         IntegerArgument("value", uint64_t(representation))});
+    if (ReadLayoutSelection(Client(), selection))
+        Execute("layout.frame-representation",
+                {ObjectArgument("target", Window().menu.frame), ObjectsArgument("objects", selection.objects),
+                 IntegerArgument("value", uint64_t(representation))});
 }
 
 // Dev.exe sub_5BDD60 (mode -1): the "Copy Options" parameter dialog, the
@@ -238,44 +250,51 @@ void LayoutWindow::Duplicate(const std::vector<ObjectRef> &objects, uint64_t cli
     LayoutSceneData scene;
     if (objects.empty() || !ReadLayoutScene(Client(), "groups", scene) || !scene.scene) return;
     const auto options = Client().Query("scene.copy-options"); if (options.status != EDITOR_OK) return;
-    m_Doc.pendingCopy = objects;
-    m_Doc.copyTarget = scene.scene; m_Doc.copyClipboardRevision = clipboardRevision;
+    Window().document.pendingCopy = objects;
+    Window().document.copyTarget = scene.scene;
+    Window().document.copyClipboardRevision = clipboardRevision;
     if (const auto *values = EditorClient::Find(options, "options")) {
-        m_CopyOptions.Resize(int(values->integers.size()));
-        for (size_t i = 0; i < values->integers.size(); ++i) m_CopyOptions[int(i)] = CKDWORD(values->integers[i]);
+        Window().copyOptions.Resize(int(values->integers.size()));
+        for (size_t i = 0; i < values->integers.size(); ++i)
+            Window().copyOptions[int(i)] = CKDWORD(values->integers[i]);
     }
-    m_CopyOptions.m_Flags = CK_DEPENDENCIES_FLAGS(EditorClient::Integer(options, "flags"));
-    m_Doc.openCopyOptions = true;
+    Window().copyOptions.m_Flags = CK_DEPENDENCIES_FLAGS(EditorClient::Integer(options, "flags"));
+    Window().document.openCopyOptions = true;
 }
 
 // Dev's Edit Parameter dialog without its name and type (options 16 and
 // 32) on a "Copy options" parameter: CK2UI's Dependencies UI.
 void LayoutWindow::CopyOptionsDialog() {
     const char *id = "Edit Parameter###CopyOptions";
-    if (m_Doc.openCopyOptions && m_OpenPopups) {
-        m_CopyBox.Clear();
-        m_CopyBox.AddDependencies("Copy options", CKPGUID_COPYDEPENDENCIES, m_CopyOptions);
+    if (Window().document.openCopyOptions && Window().openPopups) {
+        Window().copyBox.Clear();
+        Window().copyBox.AddDependencies("Copy options", CKPGUID_COPYDEPENDENCIES, Window().copyOptions);
         ImGui::OpenPopup(id);
-        m_Doc.openCopyOptions = false;
+        Window().document.openCopyOptions = false;
     }
-    const DialogAction action = EditParameterValueDialog(id, "Edit Parameter", m_CopyBox);
+    const DialogAction action = EditParameterValueDialog(id, "Edit Parameter", Window().copyBox);
     if (action == DialogAction::None) return;
-    const bool copy = action == DialogAction::Ok && m_CopyBox.Dependencies(0, m_CopyOptions);
-    m_CopyBox.Clear();
+    const bool copy = action == DialogAction::Ok && Window().copyBox.Dependencies(0, Window().copyOptions);
+    Window().copyBox.Clear();
     if (!copy) {
-        m_Doc.pendingCopy.clear();
+        Window().document.pendingCopy.clear();
         return;
     }
-    const auto objects = std::move(m_Doc.pendingCopy); m_Doc.pendingCopy.clear();
+    const auto objects = std::move(Window().document.pendingCopy);
+    Window().document.pendingCopy.clear();
     if (objects.empty()) return;
     std::vector<uint64_t> dependencies;
-    for (int i = 0; i < m_CopyOptions.Size(); ++i) dependencies.push_back(m_CopyOptions[i]);
+    for (int i = 0; i < Window().copyOptions.Size(); ++i)
+        dependencies.push_back(Window().copyOptions[i]);
     const EditorValue options{EDITOR_TEXT("options"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {dependencies.data(), uint32_t(dependencies.size())}};
-    std::vector<EditorValue> arguments{ObjectArgument("target", m_Doc.copyTarget), IntegerArgument("custom", 1),
-        IntegerArgument("flags", m_CopyOptions.m_Flags), options};
-    if (m_Doc.copyClipboardRevision) arguments.push_back(IntegerArgument("clipboard-revision", m_Doc.copyClipboardRevision));
+    std::vector<EditorValue> arguments{ObjectArgument("target", Window().document.copyTarget),
+                                       IntegerArgument("custom", 1),
+                                       IntegerArgument("flags", Window().copyOptions.m_Flags), options};
+    if (Window().document.copyClipboardRevision)
+        arguments.push_back(IntegerArgument("clipboard-revision", Window().document.copyClipboardRevision));
     else arguments.push_back(ObjectsArgument("objects", objects));
-    Execute(m_Doc.copyClipboardRevision ? "scene.duplicate-clipboard" : "scene.duplicate", arguments, AfterCommand::SelectCreated);
+    Execute(Window().document.copyClipboardRevision ? "scene.duplicate-clipboard" : "scene.duplicate", arguments,
+            AfterCommand::SelectCreated);
 }
 
 void LayoutWindow::DeleteSelection() {

@@ -74,6 +74,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"command", "object.open-setup", "builtin.setup-windows"},
                                       {"command", "setup.navigate", "builtin.setup-windows"},
                                       {"view", "object.setup", "builtin.setup-windows"},
+                                      {"view", "layout.viewport", "builtin.layout-window"},
                                       {"command", "object.rename", "builtin.objects"},
                                       {"command", "object.create-frame3d", "builtin.objects"},
                                       {"command", "resource.load", "builtin.documents"},
@@ -139,36 +140,38 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.contributions.providers.insert(result.contributions.providers.end(), graph.begin(), graph.end());
     result.contributions.providers.push_back({"view", "schematic.invalid-links", "builtin.schematic-diagnostics"});
     result.contributions.providers.push_back({"view", "schematic.messages", "builtin.schematic-diagnostics"});
-    result.views = {{"document.file-dialogs", "", "", true},
-                    {"document.output-dialogs", "", "", true},
-                    {"environment.folder-dialogs", "", "", true},
-                    {"scene.level", "main.level", "editing", true, true},
-                    {"script.schematic", "main.schematic", "editing", true, true},
-                    {"resource.building-blocks", "main.building-blocks", "resources", true, true},
-                    {"resource.file-dialogs", "", "", true},
-                    {"snapshot.file-dialogs", "", "", true},
-                    {"scene.hierarchy", "main.hierarchy", "resources"},
-                    {"object.setup", "", "editing", false, false, false, WorkspaceWindowId::Role},
-                    {"scene.attributes", "main.attributes", "editing"},
-                    {"resource.data", "", "resources", false, false, true},
-                    {"runtime.debugger", "main.debugger", ""},
-                    {"runtime.profiler", "main.profiler", ""},
-                    {"runtime.parameters", "main.parameters", "resources"},
-                    {"environment.plugins", "main.plugins", ""},
-                    {"environment.paths", "main.paths", ""},
-                    {"environment.link-options", "main.link-options", ""},
-                    {"preferences.general", "main.preferences", ""},
-                    {"schematic.invalid-links", "main.invalid-links", ""},
-                    {"schematic.messages", "main.messages", ""},
-                    {"diagnostics.unused", "main.unused", ""},
-                    {"diagnostics.versions", "main.versions", ""},
-                    {"diagnostics.memory", "main.memory", ""},
-                    {"diagnostics.about", "main.about", ""}};
+    result.views = {
+        {"document.file-dialogs", "", "", true},
+        {"document.output-dialogs", "", "", true},
+        {"environment.folder-dialogs", "", "", true},
+        {"scene.level", "main.level", "editing", true, true},
+        {"layout.viewport", "main.layout", "layout", true, true, true, WorkspaceWindowId::Named, "3D Layout"},
+        {"script.schematic", "main.schematic", "editing", true, true},
+        {"resource.building-blocks", "main.building-blocks", "resources", true, true},
+        {"resource.file-dialogs", "", "", true},
+        {"snapshot.file-dialogs", "", "", true},
+        {"scene.hierarchy", "main.hierarchy", "resources"},
+        {"object.setup", "", "editing", false, false, false, WorkspaceWindowId::Role},
+        {"scene.attributes", "main.attributes", "editing"},
+        {"resource.data", "", "resources", false, false, true},
+        {"runtime.debugger", "main.debugger", ""},
+        {"runtime.profiler", "main.profiler", ""},
+        {"runtime.parameters", "main.parameters", "resources"},
+        {"environment.plugins", "main.plugins", ""},
+        {"environment.paths", "main.paths", ""},
+        {"environment.link-options", "main.link-options", ""},
+        {"preferences.general", "main.preferences", ""},
+        {"schematic.invalid-links", "main.invalid-links", ""},
+        {"schematic.messages", "main.messages", ""},
+        {"diagnostics.unused", "main.unused", ""},
+        {"diagnostics.versions", "main.versions", ""},
+        {"diagnostics.memory", "main.memory", ""},
+        {"diagnostics.about", "main.about", ""}};
     result.splits = {{"root", "top", "editing", WorkspaceDirection::Up, .5f},
                      {"top", "resources", "layout", WorkspaceDirection::Right, .5f}};
     result.regions = {
-        {"layout", "", "3D Layout"}, {"editing", "main.schematic", ""}, {"resources", "main.building-blocks", ""}};
-    result.legacyWindows = {{"3D Layout", "layout", false, true}};
+        {"layout", "main.layout", ""}, {"editing", "main.schematic", ""}, {"resources", "main.building-blocks", ""}};
+
     return result;
 }
 bool RegisterDefaultWorkspace(EditorApplication &editor, std::string &error) {

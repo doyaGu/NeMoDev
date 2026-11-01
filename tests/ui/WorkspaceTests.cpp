@@ -385,7 +385,8 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
             const auto *layout = ImGui::FindWindowByName("3D Layout");
             const auto *resources = ImGui::DockBuilderGetNode(workspace.RegionDock("resources"));
             IM_CHECK_NO_RET(layout && resources && resources->Size.x < layout->Size.x);
-            auto bad = workspace.Configuration(); bad.legacyWindows.push_back(bad.legacyWindows.front());
+            auto bad = workspace.Configuration();
+            bad.views.push_back(bad.views.front());
             const auto primary = workspace.Role("main.level");
             const auto dock = level->DockId;
             std::string error;

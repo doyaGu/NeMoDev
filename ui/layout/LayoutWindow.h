@@ -71,14 +71,15 @@ class LayoutWindow : public LayoutViewport {
     bool Start(SDL_Window * window, std::string *error);
     void Stop();
     bool HandleEvent(const SDL_Event &event) { return m_View.HandleEvent(event); }
-    // openPopups: false while the application moves the focus (it would close them).
-    void Draw(ImGuiID dock, bool openPopups = true);
+    // The workspace supplies placement, focus and close requests.
+    bool Register(std::string &error);
+    void Draw(EditorViewFrame &frame);
     // --layout-debug (capture checks): the On-screen Debug Data for the
     // session, the preference left as it is.
     bool debugData = false;
     LayoutView &View() { return m_View; }
     const LayoutView &View() const { return m_View; }
-    LayoutTool Tool() const { return m_Tool; }
+    LayoutTool Tool() const { return m_Window ? Window().tool : LayoutTool::Select; }
     // Dev's Player Mode (Dev.exe sub_4A11D0, sub_4A1E00): while the
     // composition plays, the Player Mode preferences, no navigation but the
     // left button's tools, no shortcut menu, clicks sent to the objects.
@@ -90,7 +91,8 @@ class LayoutWindow : public LayoutViewport {
     // The view's rectangle on screen when it was drawn at the last frame
     // (the UI tests click in it); false when it was not.
     bool ShownView(ImVec2 &min, ImVec2 &max) const {
-        if (!m_Started || ImGui::GetFrameCount() - m_ViewFrame > 1) return false;
+        if (!m_Window || !m_Started || ImGui::GetFrameCount() - m_ViewFrame > 1)
+            return false;
         min = m_ViewMin;
         max = m_ViewMax;
         return true;
@@ -116,7 +118,10 @@ class LayoutWindow : public LayoutViewport {
     bool Coordinates(std::string values[3]) const;
     // The status bar's info text (Dev.exe id 292, CKUIM_OUTTOINFOBAR): what
     // a drop on the view would do.
-    const std::string &InfoText() const { return m_DropText; }
+    const std::string &InfoText() const {
+        static const std::string empty;
+        return m_Window ? Window().dropText : empty;
+    }
 
     // A creation tool (the Create menu's commands).
     std::function<void(LayoutObject kind)> createObject;
@@ -126,7 +131,9 @@ class LayoutWindow : public LayoutViewport {
     bool FullScreen() const;
     // A camera, transform or 2D gesture or a selection rectangle going on
     // (Sticky Mode: with no button held).
-    bool Busy() const { return m_GestureEdit || !m_PendingGesture.empty() || m_Selecting; }
+    bool Busy() const {
+        return m_Window && (Window().gestureEdit || !Window().pendingGesture.empty() || Window().selecting);
+    }
     bool UsesGpuViewport() const { return m_GpuTexture != nullptr; }
 #ifdef VIRTOOLSDEV_UI_TESTS
     UiTexture *GpuViewportTextureForTests() const { return m_GpuTexture.get(); }
@@ -324,6 +331,7 @@ private:
         // A drop waiting for its Edit Parameters: the drop and the values set
         // there, one undo step at OK, taken back by Cancel.
         uint64_t drop = 0;
+        EditorOperation dropFinish = 0;
         uint64_t dropRevision = 0;
         EditorResponse dropInput;
         // The 3D Layout Explorer open: the selection and lock to restore with
@@ -341,105 +349,59 @@ private:
         ObjectRef explorerFocus{};
     };
 
-    // ------------------------------------------------- state
+    // The renderer belongs to the editing session; workspace views own their
+    // input, dialogs and copied display data. Closing a view releases its GPU
+    // target without creating another native CKContext.
     EditorState &m_State;
     EditorApplication &m_CommandEditor;
     const EditorHost *m_EditorHost = nullptr;
-    EditorClient Client() const { return {m_EditorHost, 0}; }
+    EditorClient Client() const { return {m_EditorHost, m_Window ? m_Window->id : 0}; }
     enum class AfterCommand { Zoom, None, ShowScript, ScriptsAdded, SelectCreated, Group, Created };
     struct PendingCommand { EditorOperation operation; DocumentToken document; AfterCommand after; };
     std::vector<PendingCommand> m_Commands;
-    LayoutSceneData m_GroupData, m_CameraData, m_ExplorerData;
-    LayoutSelectionData m_SelectionData;
     EditorResponse Execute(const char *, const std::vector<EditorValue> & = {}, AfterCommand = AfterCommand::None);
     void Complete(const EditorResponse &, AfterCommand);
     void PollCommands();
     LayoutView m_View;
     bool m_Started = false;
     std::string m_StartError;
-    SDL_Window * m_MainWindow = nullptr; // ImGui's coordinates are its client's
+    SDL_Window *m_MainWindow = nullptr;
     Preferences m_Preferences;
     uint64_t m_PreferencesRevision = 0;
     EditorResponse m_Presentation;
     uint64_t m_Composition = 0;
-    SnapshotData m_Snapshots;
-    bool m_PlayerMode = false;   // the Player Mode preferences are applied
-    DocumentState m_Doc;
-    // Fullscreen: the editor's window placement before, the keys of the
-    // view window waiting for the next frame (done out of its messages).
+    bool m_PlayerMode = false;
     bool m_MainHiddenForFullScreen = false;
-    bool m_Switching = false; // its messages are not handled meanwhile (Dev.exe dword_648138)
-    bool m_PendingToggle = false;
-    bool m_PendingDeactivate = false;
+    bool m_Switching = false;
+    bool m_PendingToggle = false, m_PendingDeactivate = false;
     std::vector<std::string> m_PendingPlay;
-    // The next click picks the referent (Pivot Axis Object, Referential Pick Obj.).
-    bool m_PickingReferent = false;
-    // The Selection tool's hover (documentation "Selection Tool": "The cursor
-    // changes to the select cursor"): an entity under the mouse, picked
-    // again only when the mouse moves.
-    ImVec2 m_HoverAt = ImVec2(-1.0f, -1.0f);
-    bool m_HoverEntity = false;
-    // The axes the current view allows (Constrain X 1, Y 2, Z 4).
-    int AllowedAxes() const;
-    float m_Scale = 1.0f;     // Dev pixels to editor pixels
-    ImVec2 m_Origin;          // the window's content origin
-    bool m_LastUsed = false;  // the 3D Layout was the last window used
-    // The frame shown.
+    // Frame transport stays identical for the native and readback paths.
     std::vector<unsigned char> m_Pixels;
     std::unique_ptr<UiTexture> m_Texture;
     CKRasterizerContext *m_ViewportContext = nullptr;
     std::unique_ptr<UiTexture> m_GpuTexture;
     CKDWORD m_GpuTextureHandle = 0;
-    // Selected once per Context, or latched to CPU after setup failure.
-    UiTexture *(LayoutWindow::*m_ViewportRenderer)() =
-        &LayoutWindow::RenderReadbackViewport;
+    UiTexture *(LayoutWindow::*m_ViewportRenderer)() = &LayoutWindow::RenderReadbackViewport;
 #ifdef VIRTOOLSDEV_UI_TESTS
-    bool m_FailNextGpuViewport = false;
-    bool m_FailNextGpuViewportRelease = false;
-    std::uint64_t m_GpuViewportCreations = 0;
-    std::uint64_t m_GpuViewportSelections = 0;
-    std::uint64_t m_GpuViewportReleases = 0;
-    std::uint64_t m_ViewportUploads = 0;
+    bool m_FailNextGpuViewport = false, m_FailNextGpuViewportRelease = false;
+    std::uint64_t m_GpuViewportCreations = 0, m_GpuViewportSelections = 0, m_GpuViewportReleases = 0,
+                  m_ViewportUploads = 0;
+    CKGUID m_StartupDrop;
+    ImVec2 m_StartupDropAt;
+    int m_StartupDropFrames = 0;
 #endif
-    int m_TextureWidth = 0;
-    int m_TextureHeight = 0;
-    // Tools and their settings.
-    LayoutTool m_Tool = LayoutTool::Select;
-    // Each transformation tool's settings (Dev's defaults: Translate X+Z in
-    // the world, Rotate Y and Scale X+Y about each object's axis, the
-    // hierarchy following).
-    LayoutTransformSettings m_Transform[3] = {{5, 1, 1}, {2, 0, 1}, {3, 0, 1}};
-    // Edit Points' own (Dev.exe byte_6418D4 / D5: X+Z in the world).
-    LayoutTransformSettings m_CurveEdit = [] {
-        LayoutTransformSettings settings;
-        settings.hierarchy = false;
-        return settings;
-    }();
-    int m_ScaleMode = 0;   // the Scale menu: 0 uniform, 1 volumetric, 2 the constrained axes (V)
-    int m_PortalMode = 1;  // Create Portal: 0 portals around the selection, 1 a portal
-    int m_ZoomMode = 0;    // Zoom: 0 zoom, 1 on selection, 2 on scene
-    int m_OrbitMode = 0;   // Orbit: 0 around the target / pivot / selection, 1 around the camera
-    float m_ZoomExtent = 5.0f; // the wheel's step (Dev.exe +716)
-    // Menu button being held (its command) and when.
-    int m_HeldMenu = 0;
-    double m_HeldSince = 0.0;
-    // The view's rectangle when it was drawn last (the parameter UIs' pick).
+    int m_TextureWidth = 0, m_TextureHeight = 0;
     ImVec2 m_ViewMin, m_ViewMax;
-    ImVec2 m_ScreenScroll; // Screen Size larger than the view: the part shown
     int m_ViewFrame = -1;
-    // The status bar's X / Y / Z.
-    std::string m_Coordinates[3];
+    // These values mirror the composition's existing InterfaceData, including
+    // when another provider draws the Layout window.
+    ObjectRef m_Group{};
+    unsigned m_GroupRevision = ~0u;
+    LayoutInterfaceData m_Interface;
+    int AllowedAxes() const;
     void UpdateCoordinates();
-    // Gestures in the view: the camera tool being dragged (with its button),
-    // the transformation (a curve point's with Edit Points), the select
-    // tool's press (and whether it became a rectangle).
-    EditorEdit m_GestureEdit = 0;
-    unsigned m_GestureKind = 0, m_GestureAction = 0;
-    EditorResponse m_Interaction;
-    std::vector<EditorField> m_PendingGesture;
-    EditorOperation m_GestureSelection = 0;
     bool GestureActive(unsigned kind) const {
-        return (m_GestureEdit || !m_PendingGesture.empty()) && m_GestureKind == kind;
+        return m_Window && (Window().gestureEdit || !Window().pendingGesture.empty()) && Window().gestureKind == kind;
     }
     EditorResponse InputState(int x = 0, int y = 0, bool pick = false, ObjectRef curve = {},
                               bool ignoreUnpickable = false) const;
@@ -448,51 +410,76 @@ private:
     bool BeginGesture(std::vector<EditorField>, unsigned kind, unsigned action, EditorOperation selection = 0);
     bool UpdateGesture(int x, int y, bool move, bool idle);
     void FinishGesture();
-    ImGuiMouseButton m_GestureButton = ImGuiMouseButton_Left;
-    bool m_CurveEditing = false;
-    bool m_Selecting = false;
-    bool m_Rectangle = false;
-    ImVec2 m_PressAt;
-    // The right button went down in the view with nothing being dragged.
-    bool m_RightPressed = false;
-    // The shortcut menu open.
-    ContextMenu m_Menu;
-    // The Copy Options dialog's copy (what waits for it: m_Doc.pendingCopy).
-    bool m_OpenPopups = true;
-    CKDependencies m_CopyOptions;
-    // Drag and drop: the status bar while something is dragged over the
-    // view; the --drop-block drop waiting for the view.
-    std::string m_DropText;
-    ObjectRef m_DropHighlight{};
-    ParameterBox m_DropBox{m_State};
-    ParameterBox m_CopyBox{m_State}; // Copy Options
-#ifdef VIRTOOLSDEV_UI_TESTS
-    CKGUID m_StartupDrop;
-    ImVec2 m_StartupDropAt;
-    int m_StartupDropFrames = 0;
-#endif
-    // Selection Groups: the group shown (Dev.exe view +60), the combo's
-    // text, whether it is being typed in, the selection it was matched with.
-    ObjectRef m_Group{};
-    char m_GroupText[256] = "";
-    bool m_GroupEditing = false;
-    unsigned m_GroupRevision = ~0u;
-    LayoutInterfaceData m_Interface; // as read on opening
-    // The 3D Layout Explorer: the types shown (Dev keeps them between
-    // openings) and the text filter (lower case); the rest is the
-    // document's (m_Doc).
-    unsigned m_ExplorerShown = 0x1FF;
-    char m_ExplorerFilter[256] = "";
-    std::string m_ExplorerTyped; // the list view's incremental search
-    double m_ExplorerTypedTime = 0.0;
-    // The Snapshot Buffer: open, the slots selected, the slot of the
-    // shortcut menu; Capture: 1 waits for the buttons to be released, 2
-    // follows the mouse.
-    bool m_SnapshotOpen = false;
-    std::vector<int> m_SnapshotSelection;
-    int m_SnapshotMenu = -1;
-    int m_Capturing = 0;
-    unsigned m_SnapshotRevisions[36] = {};
+
+    struct WindowState {
+        LayoutWindow *owner;
+        EditorView id;
+        bool needsStart = true;
+        WindowState(LayoutWindow &layout, EditorView view)
+            : owner(&layout), id(view), dropBox(layout.m_State), copyBox(layout.m_State) {}
+        LayoutSceneData groupData, cameraData, explorerData;
+        LayoutSelectionData selectionData;
+        SnapshotData snapshots;
+        DocumentState document;
+        bool pickingReferent = false;
+        ImVec2 hoverAt = ImVec2(-1.0f, -1.0f);
+        bool hoverEntity = false;
+        float scale = 1.0f;
+        ImVec2 origin;
+        bool lastUsed = false;
+        LayoutTool tool = LayoutTool::Select;
+        LayoutTransformSettings transform[3] = {{5, 1, 1}, {2, 0, 1}, {3, 0, 1}};
+        LayoutTransformSettings curveEdit = [] {
+            LayoutTransformSettings settings;
+            settings.hierarchy = false;
+            return settings;
+        }();
+        int scaleMode = 0;
+        int portalMode = 1;
+        int zoomMode = 0;
+        int orbitMode = 0;
+        float zoomExtent = 5.0f;
+        int heldMenu = 0;
+        double heldSince = 0.0;
+        ImVec2 screenScroll;
+        std::string coordinates[3];
+        EditorEdit gestureEdit = 0;
+        unsigned gestureKind = 0, gestureAction = 0;
+        EditorResponse interaction;
+        std::vector<EditorField> pendingGesture;
+        EditorOperation gestureSelection = 0;
+        ImGuiMouseButton gestureButton = ImGuiMouseButton_Left;
+        bool curveEditing = false;
+        bool selecting = false;
+        bool rectangle = false;
+        ImVec2 pressAt;
+        bool rightPressed = false;
+        ContextMenu menu;
+        bool openPopups = true;
+        CKDependencies copyOptions;
+        std::string dropText;
+        ObjectRef dropHighlight{};
+        ParameterBox dropBox;
+        ParameterBox copyBox;
+        char groupText[256] = "";
+        bool groupEditing = false;
+        unsigned explorerShown = 0x1FF;
+        char explorerFilter[256] = "";
+        std::string explorerTyped;
+        double explorerTypedTime = 0.0;
+        bool snapshotOpen = false;
+        std::vector<int> snapshotSelection;
+        int snapshotMenu = -1;
+        int capturing = 0;
+        unsigned snapshotRevisions[36] = {};
+    };
+    WindowState *m_Window = nullptr; // owned by EditorWorkspace
+    WindowState &Window() { return *m_Window; }
+    const WindowState &Window() const { return *m_Window; }
+    void Closing();
+    EditorStatus SaveWindow(EditorSink) const;
+    EditorStatus RestoreWindow(const EditorRequest &);
+    void Report(EditorStatus, const std::string &);
 };
 
 } // namespace vdev

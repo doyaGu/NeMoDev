@@ -22,15 +22,15 @@ EditorResponse LayoutWindow::DropInfo(int x, int y, const char *kind, uint64_t p
 }
 
 void LayoutWindow::HighlightDrop(ObjectRef target) {
-    if (target == m_DropHighlight)
+    if (target == Window().dropHighlight)
         return;
     const auto result = Execute("layout.highlight-drop", {ObjectArgument("target", target)});
     if (result.status == EDITOR_OK || result.status == EDITOR_QUEUED)
-        m_DropHighlight = target;
+        Window().dropHighlight = target;
 }
 
 void LayoutWindow::DropTarget(const ImVec2 &at) {
-    m_DropText.clear();
+    Window().dropText.clear();
     ObjectRef highlight{};
     if (!ImGui::BeginDragDropTarget()) {
         HighlightDrop({});
@@ -51,7 +51,7 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
             } else {
                 const auto info = DropInfo(x, y, "behavior", (uint64_t(source.first) << 32) | source.second);
                 highlight = ObjectField(info, "highlight");
-                m_DropText = EditorClient::Text(info, "text");
+                Window().dropText = EditorClient::Text(info, "text");
             }
         }
     }
@@ -66,10 +66,10 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
                 highlight = ObjectField(DropInfo(x, y, "resource"), "highlight");
                 const auto cid = files[source].cid;
                 if (cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D)
-                    m_DropText = io.KeyShift && io.KeyCtrl ? "Drop as 2D Entity (Release CTRL or SHIFT for more)"
-                                 : io.KeyShift             ? "Drop as 3D Sprite (Release SHIFT or hold CTRL for more)"
-                                 : io.KeyCtrl              ? "Drop as 2D Sprite (Release CTRL or hold SHIFT for more)"
-                                                           : "Drop as Texture (Hold CTRL or SHIFT for more)";
+                    Window().dropText = io.KeyShift && io.KeyCtrl ? "Drop as 2D Entity (Release CTRL or SHIFT for more)"
+                                        : io.KeyShift ? "Drop as 3D Sprite (Release SHIFT or hold CTRL for more)"
+                                        : io.KeyCtrl  ? "Drop as 2D Sprite (Release CTRL or hold SHIFT for more)"
+                                                      : "Drop as Texture (Hold CTRL or SHIFT for more)";
             }
         }
     }
@@ -101,7 +101,7 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
                              IntegerArgument("catalog", attribute.catalog), ObjectArgument("source", attribute.value)});
             } else {
                 highlight = ObjectField(info, "highlight");
-                m_DropText = EditorClient::Text(info, "text");
+                Window().dropText = EditorClient::Text(info, "text");
             }
         }
     }
@@ -168,34 +168,46 @@ void LayoutWindow::DropResources(int x, int y, const std::vector<ResourceFile> &
 }
 
 void LayoutWindow::DocumentClosed() {
-    m_Capturing = 0;
+    if (!m_Window)
+        return;
+    Window().capturing = 0;
     CancelEdits();
-    if (m_Tool == LayoutTool::Fly)
-        m_Tool = LayoutTool::Select;
-    m_Doc = DocumentState();
-    for (auto &settings : m_Transform)
+    if (Window().tool == LayoutTool::Fly)
+        Window().tool = LayoutTool::Select;
+    Window().document = DocumentState();
+    for (auto &settings : Window().transform)
         settings.referent = {};
-    m_CurveEdit.referent = {};
-    m_DropHighlight = {};
-    m_DropBox.Clear();
+    Window().curveEdit.referent = {};
+    Window().dropHighlight = {};
+    Window().dropBox.Clear();
 }
 
 void LayoutWindow::DropParametersDialog() {
-    const auto revision = Client().Revision("layout.drop-parameters");
-    if (revision != m_Doc.dropRevision) {
-        m_Doc.dropInput = Client().Query("layout.drop-parameters");
-        m_Doc.dropRevision = revision;
+    if (Window().document.dropFinish) {
+        const auto result = Client().Completion(Window().document.dropFinish);
+        if (result.status == EDITOR_QUEUED)
+            return;
+        Complete(result, AfterCommand::None);
+        Window().document.dropFinish = 0;
+        Window().dropBox.Clear();
+        Window().document.drop = 0;
     }
-    const auto &input = m_Doc.dropInput;
+
+    const auto revision = Client().Revision("layout.drop-parameters");
+    if (revision != Window().document.dropRevision) {
+        Window().document.dropInput = Client().Query("layout.drop-parameters");
+        Window().document.dropRevision = revision;
+    }
+    const auto &input = Window().document.dropInput;
     const auto drop = EditorClient::Integer(input, "drop");
     if (input.status != EDITOR_OK || !drop) {
-        m_Doc.drop = 0;
-        m_DropBox.Clear();
+        Window().document.drop = 0;
+        Window().dropBox.Clear();
         return;
     }
     const char *id = "###DropParameters";
-    if (drop != m_Doc.drop && m_OpenPopups) {
-        m_DropBox.Clear();
+    if (drop != Window().document.drop && Window().openPopups) {
+        Window().dropBox.Clear();
         const auto *inputs = EditorClient::Find(input, "inputs");
         bool added = inputs != nullptr;
         if (inputs)
@@ -207,7 +219,7 @@ void LayoutWindow::DropParametersDialog() {
                     if (field.key == "name")
                         name = &field;
                 }
-                if (!object || !name || !m_DropBox.Add(object->object, name->text)) {
+                if (!object || !name || !Window().dropBox.Add(object->object, name->text)) {
                     added = false;
                     break;
                 }
@@ -215,23 +227,28 @@ void LayoutWindow::DropParametersDialog() {
         if (!added) {
             const EditorValue args[] = {IntegerArgument("drop", drop), IntegerArgument("accept", 0)};
             Complete(m_CommandEditor.ApplyEdit("layout.finish-drop", {Client().Scope(), args, 2}), AfterCommand::None);
-            m_DropBox.Clear();
+            Window().dropBox.Clear();
             return;
         }
         ImGui::OpenPopup(id);
-        m_Doc.drop = drop;
+        Window().document.drop = drop;
     }
-    const auto action = EditParametersDialog(id, EditorClient::Text(input, "title"), m_DropBox, false);
+    const auto action = EditParametersDialog(id, EditorClient::Text(input, "title"), Window().dropBox, false);
     if (action != DialogAction::Ok && action != DialogAction::Cancel)
         return;
     std::vector<ObjectRef> values;
     if (action == DialogAction::Ok)
-        for (size_t i = 0; i < m_DropBox.Count(); ++i)
-            values.push_back(m_DropBox.WorkReference(i));
+        for (size_t i = 0; i < Window().dropBox.Count(); ++i)
+            values.push_back(Window().dropBox.WorkReference(i));
     const EditorValue args[] = {IntegerArgument("drop", drop), IntegerArgument("accept", action == DialogAction::Ok),
                                 ObjectsArgument("values", values)};
-    Complete(m_CommandEditor.ApplyEdit("layout.finish-drop", {Client().Scope(), args, 3}), AfterCommand::None);
-    m_DropBox.Clear();
-    m_Doc.drop = 0;
+    const auto result = m_CommandEditor.ApplyEdit("layout.finish-drop", {Client().Scope(), args, 3});
+    if (result.status == EDITOR_QUEUED)
+        Window().document.dropFinish = result.operation;
+    else {
+        Complete(result, AfterCommand::None);
+        Window().dropBox.Clear();
+        Window().document.drop = 0;
+    }
 }
 } // namespace vdev

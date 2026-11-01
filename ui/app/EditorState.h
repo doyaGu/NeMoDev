@@ -98,7 +98,6 @@ struct EditorState : DocumentSession, DocumentFiles::Observer {
     // Managers' trees sub_405700 / sub_40C0F0): by ImGui window name, the
     // object of the class at a screen point, 0 for none (or where the window
     // did not draw).
-    std::map<std::string, std::function<CK_ID(float x, float y, CK_CLASSID cid)>> objectPick;
     const Debugger *debugger = nullptr; // read-only until the breakpoint views migrate; owned by ExecutionCommands
     // Dev's lines for Add Attribute (Dev.exe sub_594BA0), each object's.
     void LogAttributeAdds(const char *attribute, const std::vector<std::pair<std::string, bool>> &each, bool ok) {

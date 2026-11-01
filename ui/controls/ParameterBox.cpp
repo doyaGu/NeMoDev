@@ -771,23 +771,10 @@ CK_ID ObjectUnderMouse(const EditorState &state, const ImVec2 &mouse, CK_CLASSID
     if (!cid) return 0;
     if (state.workspace && state.HasDocument()) {
         bool handled=false;
-        for (const auto ref : state.workspace->Pick(mouse.x, mouse.y, &handled))
+        for (const auto ref : state.workspace->Pick(mouse.x, mouse.y, &handled, uint32_t(cid)))
             if (auto *object = state.document->Resolve(ref); object && CKIsChildClassOf(object->GetClassID(), cid))
                 return object->GetID();
         if(handled)return 0;
-    }
-    ImGuiContext &g = *GImGui;
-    for (int i = g.Windows.Size - 1; i >= 0; --i) {
-        ImGuiWindow *window = g.Windows[i];
-        // Docked windows are child windows of their dock's host.
-        if (!window->WasActive || window->Hidden || (window->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) ||
-            ((window->Flags & ImGuiWindowFlags_ChildWindow) && !window->DockIsActive))
-            continue;
-        // A docked window behind another tab.
-        if (window->DockNode && (!window->DockTabIsVisible || window->DockNode->VisibleWindow != window)) continue;
-        if (!window->Rect().Contains(mouse)) continue;
-        auto found = state.objectPick.find(window->Name);
-        if (found != state.objectPick.end() && found->second) return found->second(mouse.x, mouse.y, cid);
     }
     return 0;
 }

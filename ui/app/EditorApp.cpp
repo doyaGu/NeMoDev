@@ -160,7 +160,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !RegisterSchematicDiagnosticViews(m_Editor, error) || !RegisterArrayValueEditors(m_Editor, error) ||
         !RegisterObjectViews(m_Editor, error) || !m_SceneCommands.Register(error) ||
         !m_LayoutCommands.Register(error) || !m_LayoutAuthoring.Register(error) ||
-        !m_LayoutPresentation.Register(error) || !m_Snapshots.Register(error) ||
+        !m_LayoutPresentation.Register(error) || !m_Layout.Register(error) || !m_Snapshots.Register(error) ||
         !RegisterSnapshotInputs(m_Editor, window, error) || !RegisterSceneViews(m_Editor, error) ||
         !m_Schematics.Register(m_Editor, error) || !RegisterParameterDialogs(m_Editor, m_State, error) ||
         !RegisterSceneNavigation(error)) {
@@ -1042,10 +1042,7 @@ void EditorApp::Frame() {
     }
 #endif
     if (m_ShowExplorer) m_Panels.ExplorerPanel(&m_ShowExplorer);
-    {
-        m_LayoutPresentation.Poll();
-        m_Layout.Draw(0, m_FocusSchematic <= 0);
-    }
+    m_LayoutPresentation.Poll();
     const auto &execution = m_Execution.State();
     m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"));
     m_Workspace.Draw();
@@ -1057,7 +1054,7 @@ void EditorApp::Frame() {
         // The front tabs of Dev's start (the Level Manager in front of the
         // Schematic, focused last); repeated because windows appearing later
         // take the focus.
-        ImGui::SetWindowFocus("3D Layout");
+        m_Workspace.Focus(m_Workspace.Role("main.layout"));
         m_Workspace.Focus(m_Workspace.Role("main.building-blocks"));
         m_Workspace.Focus(m_Workspace.Role("main.level"));
 #ifdef VIRTOOLSDEV_UI_TESTS
