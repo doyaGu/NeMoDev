@@ -197,6 +197,9 @@ bool LayoutWindow::BeginCamera(CameraAction action, int x, int y, ImGuiMouseButt
 }
 
 void LayoutWindow::CancelEdits() {
+    // Snapshot capture crosses from the buffer window into this viewport.
+    // Its own cancel/close and viewport/document changes end it, not an
+    // ordinary focus change that only cancels object editing.
     if (m_EditorHost)
         Client().CancelEdit(m_GestureEdit);
     m_PendingGesture.clear();
@@ -206,7 +209,6 @@ void LayoutWindow::CancelEdits() {
     m_CurveEditing = false;
     m_Selecting = m_Rectangle = false;
     m_RightPressed = false;
-    m_Capturing = 0;
 }
 
 // The mouse in the view (Dev.exe sub_4B95C0): the left button drags the
