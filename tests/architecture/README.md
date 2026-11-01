@@ -1,7 +1,7 @@
 # Stage zero architecture checks
 
-`coverage.json` lists the 54 source groups,
-32 feature/extension targets and 45 state families. It records CTest results,
+`coverage.json` lists the 57 source groups,
+32 feature/extension targets and 46 state families. It records CTest results,
 future verification gaps, existing include dependencies and bounded legacy
 UI access. These are migration records, not runtime registries.
 
@@ -1507,3 +1507,38 @@ Layout 的改动仅将偏好入口接到命令；GPU 渲染、传输和 fallback
 阶段五仍有 Schematic 图内诊断、Layout/Schematic 原生适配、资源待办与文档扩展数据等剩余项，
 阶段六的完整配置迁移与部署也没有记为完成。
 验证记录见 [General Preferences 验证记录](baselines/preferences-macos-arm64-metal.json)。
+
+## 阶段五：Schematic 诊断、图命令和 Layout 场景查询
+
+Schematic 的错误连线和消息浏览迁入工作区。原生图查询保存载入检查结果并发布复制的行、
+消息使用位置和运行高亮；视图只保存所选行、来源 Schematic 和未完成命令编号。
+来源关闭后拒绝跳转，避免转向另一个 Schematic。后台任务期间保留已显示结果，拒绝原生
+查询和修改，窗口仍可关闭。载入结果不再放在 EditorState。
+
+折叠图、切换 Target、创建图、删除图元素及错误连线使用登记的命令。
+修改前校验整个批次的对象引用和 Script/拓扑版本，嵌套 core 编辑合成一步撤销。
+错误连线删除先解析全部位置，再改显示数据；Undo 能恢复连线和保存点。
+Script 删除确认框持有完整引用；Script 初始条件、执行、复制和优先级入口复用已有查询及命令。
+复杂连线、图布局和手势仍属于后续画布迁移，未将它们记为已完成。
+
+Layout 的相机、Selection Groups、Explorer 和右键菜单使用只读场景投影，修改复用对象、
+场景、选择和新增的 Layout 命令。每个列表复用已读数据，按发布版本与参数失效；查询失败
+保留旧副本。创建分组和选择已有分组分别提交，避免选择变更混进文档编辑事务。
+Copy Options 仅保留草稿；确认后统一复制。Ctrl+V 按剪贴板来源和复制版本执行，允许复制
+仍由剪贴板保留的撤销对象；选区后来改变不会替换复制来源，旧版本不能粘贴新来源。
+
+查询缓存版本同时识别当前提供者；不同提供者即使发布相同的数字版本，也会使视图缓存失效。
+数据中的分页/目录版本继续按原值校验，公开 C 结构和 ABI 15 不变。
+Layout 数据及 Schematic 诊断视图禁止间接接触 SDK、可变文档和 EditorState；原生命令也不得
+重新依赖 EditorState。旧画布与手势访问仍有明确的阶段五截止项，未扩大豁免范围。
+
+呈现、GPU 普通纹理导入、fallback、截图读回和资源释放方法不变。Start 只增加编辑器命令宿主
+的绑定；SDK 不改。性能验收仍暂缓，不改变原 3% 门槛，也不推进 completed_phase。
+本轮验证记录见 [Schematic 与 Layout 验证记录](baselines/canvas-macos-arm64-metal.json)。
+
+最终 macOS arm64 Release 功能回归 **124/124**，无失败、无跳过，逐项结果与所选 CTest 清单
+核对通过。模块 UI 实际执行 62 项、Layout 21 项、Schematic 22 项、调试 9 项、应用 25 项，
+包含原有 GPU 稳定纹理、fallback 和显式截图读回检查，以及代表性 `.NMO` 直接打开回归。
+十六个 SDK 仓库及二十二项运行库校验值保持一致；公开 C 布局和 ABI 15 不变。
+新投影及位置头可在没有 SDK 包含路径的消费程序中编译；架构检查的 27 个拒绝/接受场景通过。
+源码归属为 57 组、46 类状态，旧 UI 访问为 47 份；复杂画布、工具及剩余原生适配继续保留在清单。
