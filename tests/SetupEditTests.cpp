@@ -12,12 +12,14 @@
 #include "core/runtime/GridCompat.h"
 #include "editor/ImGuiDrawing.h"
 #include "features/setup/SetupCommands.h"
+#include "features/setup/SetupViewData.h"
 #include <cmath>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <thread>
 
+void TestSetupPages(vdev::Document &, vdev::EditorApplication &);
 void TestSetupProjections(vdev::Document &, vdev::EditorApplication &);
 bool RegisterSetupProjectionTests(vdev::EditorApplication &, std::string &);
 
@@ -237,6 +239,7 @@ void TestSetupEdits(vdev::CkRuntimeHost &runtime) {
     const auto sync = [&] { app.Attach(doc.Token(), doc.TopologyRevision(), true, true); };
     sync();
     TestSetupProjections(doc, app);
+    TestSetupPages(doc, app);
     sync();
     auto owner = app.OpenScope();
     auto scope = app.Scope(owner);
@@ -636,7 +639,12 @@ void TestSetupEdits(vdev::CkRuntimeHost &runtime) {
           "replacement inherited builtin preview");
     Check(!app.Configure(defaults, error), "changed provider during active preview");
     accept();
-    Check(replacement.reads == 1 && replacement.writes == 1 && count() == 1 && doc.History().Undo() &&
+    SetupDetails selectedProperties;
+    Check(ReadSetupProperties(EditorClient(app.Host(), 0), doc.Reference(camera->GetID()), {"camera.fov"},
+                              selectedProperties) &&
+              std::abs(selectedProperties.Values().Real("camera.fov") - camera->GetFov()) < 1e-6,
+          "batched property query bypassed selected provider");
+    Check(replacement.reads == 2 && replacement.writes == 1 && count() == 1 && doc.History().Undo() &&
               camera->GetFov() == fov,
           "replacement bypassed selected command or added multiple Undo steps");
     sync();
