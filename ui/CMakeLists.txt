@@ -49,6 +49,7 @@ set(_editor_sources
         schematic/SchematicCanvas.cpp
         schematic/SchematicInput.cpp
         schematic/SchematicDialogs.cpp
+        schematic/SchematicParameterDialog.cpp
         schematic/SchematicMenus.cpp
         schematic/SchematicLinking.cpp
         schematic/SchematicPrint.cpp

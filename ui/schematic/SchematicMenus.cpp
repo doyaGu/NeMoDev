@@ -113,23 +113,17 @@ void SchematicCanvas::SaveSelectionAsNms() {
 }
 
 void SchematicCanvas::ImportBehaviorFile(CK_ID script, const Point &local) {
-    ScriptView *view = ViewFor(script);
-    const CK_ID graph = view ? GraphAt(*view, local) : 0;
+    auto *view = ViewFor(script);
+    const auto graph = view ? GraphAt(*view, local) : 0;
     if (!graph) {
         m_State.Log(LogLevel::Info, "Import Behavior Graph: point at an open Script or an expanded graph");
         return;
     }
-    const auto scriptRef = m_State.document->Reference(script), graphRef = m_State.document->Reference(graph);
-    RequestFile(BehaviorFileDialog(false, {}), [this, scriptRef, graphRef, local](const FileDialogResult &selection) {
-        if (selection.status != FileDialogResult::Status::Selected) return;
-        const auto script = m_State.document->NativeId(scriptRef), graph = m_State.document->NativeId(graphRef);
-        if (!script || !graph) return;
-        const std::string path = selection.paths.front();
-        auto result = std::make_shared<EditResult>(EditResult::NoChange());
-        m_State.RunRuntime("Importing behavior graph", [this, script, graph, path, local, result] {
-            *result = ImportBehaviorGraph(*m_State.document, script, graph, path, local);
-        }, [this, result](bool ok) { if (ok) Report(*result, "Import Behavior Graph"); });
-    });
+    auto fields = AuthoringArguments(script, graph, local);
+    for (auto &field : fields)
+        if (field.key == "owner")
+            field.key = "graph";
+    ExecuteAuthoring("schematic.import-graph", std::move(fields), GraphFollow::FileCreated);
 }
 
 bool SchematicCanvas::DiagnosticOpen(bool invalid) const {
@@ -740,24 +734,21 @@ bool SchematicCanvas::DropFile(const std::wstring &path, const std::string &ansi
         return true;
     }
     if (extension == L".nms") {
-        if (hit.ref.kind == ElementKind::Behavior) {
-            const BehaviorItem *behavior = hit.view->model.FindBehavior(hit.ref.object);
-            if (behavior && behavior->expandable) {
-                const CK_ID target = behavior->id;
-                auto result = std::make_shared<EditResult>(EditResult::NoChange());
-                m_State.RunRuntime("Replacing behavior graph", [this, script, target, ansiPath, result] {
-                    *result = ReplaceWithFileGraph(*m_State.document, script, target, ansiPath);
-                }, [this, result](bool ok) { if (ok) Report(*result, "Replace with File Graph"); });
-                return true;
-            }
-        }
-        const CK_ID graph = GraphAt(*hit.view, hit.local);
-        if (!graph) return false;
-        const Point local = hit.local;
-        auto result = std::make_shared<EditResult>(EditResult::NoChange());
-        m_State.RunRuntime("Importing behavior graph", [this, script, graph, ansiPath, local, result] {
-            *result = ImportBehaviorGraph(*m_State.document, script, graph, ansiPath, local);
-        }, [this, result](bool ok) { if (ok) Report(*result, "Import Behavior Graph"); });
+        const auto *behavior =
+            hit.ref.kind == ElementKind::Behavior ? hit.view->model.FindBehavior(hit.ref.object) : nullptr;
+        const bool replace = behavior && behavior->expandable;
+        const auto graph = replace ? behavior->id : GraphAt(*hit.view, hit.local);
+        if (!graph)
+            return false;
+        auto fields = AuthoringArguments(script, graph, hit.local);
+        for (auto &field : fields)
+            if (field.key == "owner")
+                field.key = "graph";
+        if (fields.empty())
+            return true;
+        fields.push_back({"path", EDITOR_TEXT_VALUE, {}, ansiPath});
+        ExecuteAuthoring(replace ? "schematic.replace-file-graph" : "schematic.import-graph", std::move(fields),
+                         replace ? GraphFollow::FileReplaced : GraphFollow::FileCreated);
         return true;
     }
     return false;
@@ -771,7 +762,31 @@ bool SchematicCanvas::IsBuildingBlockAt(const Hit &hit) const {
     return behavior && behavior->buildingBlock;
 }
 
-void SchematicCanvas::OpenReplaceBlock(CK_ID script, CK_ID behavior, const CKGUID &prototype) {
+bool SchematicCanvas::LoadReplacements(ObjectRef target) {
+    m_Doc.replacement = {};
+    m_Doc.replacementGraphs.clear();
+    uint64_t first = 0;
+    do {
+        auto result = Client().Query("schematic.replacements",
+                                     {ObjectArgument("target", target), IntegerArgument("first", first)});
+        if (result.status != EDITOR_OK || (first && EditorClient::Integer(result, "revision") !=
+                                                        EditorClient::Integer(m_Doc.replacement, "revision")))
+            return false;
+        if (const auto *graphs = EditorClient::Find(result, "graphs"))
+            m_Doc.replacementGraphs.insert(m_Doc.replacementGraphs.end(), graphs->fields.begin(), graphs->fields.end());
+        const auto next = EditorClient::Integer(result, "next"), total = EditorClient::Integer(result, "total");
+        if (!first)
+            m_Doc.replacement = std::move(result);
+        if (next >= total)
+            return true;
+        if (next <= first)
+            return false;
+        first = next;
+    } while (true);
+}
+void SchematicCanvas::OpenReplaceBlock(ObjectRef script, ObjectRef behavior, const CKGUID &prototype) {
+    if (!LoadReplacements(behavior))
+        return;
     m_Doc.replaceScript = script;
     m_Doc.replaceBehavior = behavior;
     m_ReplaceGuid = prototype;
@@ -780,52 +795,67 @@ void SchematicCanvas::OpenReplaceBlock(CK_ID script, CK_ID behavior, const CKGUI
 
 // Dev "Replace Building Block": Yes / Apply to All / No.
 void SchematicCanvas::ReplaceBlockDialog() {
-    auto &editor = m_State.workspace->Application();
-    const auto completed = [&](const EditorResponse &result, CKGUID prototype) {
+    const auto completed = [&](const EditorResponse &result) {
         const auto steps = result.status == EDITOR_OK ? EditorClient::Integer(result, "replaced") : 0;
         if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE && !result.message.empty())
             m_State.Log(LogLevel::Warning, result.message);
         if (steps) {
-            m_State.RememberBlock(prototype);
+            RememberBlocks({(uint64_t(m_Doc.replacePrototype.d1) << 32) | m_Doc.replacePrototype.d2});
             m_Navigation.selection.Clear();
             m_State.Log(LogLevel::Info, "Replaced " + std::to_string(steps) + " Building Block(s)");
         }
     };
     if (m_Doc.replaceOperation) {
-        const auto result = EditorClient(editor.Host(), m_Instance).Completion(m_Doc.replaceOperation);
-        if (result.status != EDITOR_QUEUED) { m_Doc.replaceOperation = 0; completed(result, m_Doc.replacePrototype); }
+        const auto result = Client().Completion(m_Doc.replaceOperation);
+        if (result.status != EDITOR_QUEUED) {
+            m_Doc.replaceOperation = 0;
+            completed(result);
+        }
     }
     if (m_Doc.openReplaceBlock) {
         ImGui::OpenPopup("Replace Building Block");
         m_Doc.openReplaceBlock = false;
     }
     if (!ImGui::BeginPopupModal("Replace Building Block", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-    CKObject *old = context ? context->GetObject(m_Doc.replaceBehavior) : nullptr;
-    const BuildingBlockEntry *entry = m_State.catalog.Find(m_ReplaceGuid);
+    m_BlockCatalog.Refresh(Client());
+    const auto *entry = m_BlockCatalog.Find((uint64_t(m_ReplaceGuid.d1) << 32) | m_ReplaceGuid.d2);
     ImGui::Text("Do you want to replace behavior <%s> with <%s>?",
-                old ? AnsiToUtf8(old->GetName() ? old->GetName() : "").c_str() : "",
-                entry ? AnsiToUtf8(entry->name).c_str() : "?");
+                EditorClient::Text(m_Doc.replacement, "name").c_str(), entry ? entry->name.c_str() : "?");
     ImGui::Spacing();
-    const bool yes = ImGui::Button("Yes", ImVec2(100, 0));
+    const bool yes = ImGui::Button("Yes", {100, 0});
     ImGui::SameLine();
-    const bool all = ImGui::Button("Apply to All", ImVec2(100, 0));
+    const bool all = ImGui::Button("Apply to All", {100, 0});
     ImGui::SameLine();
-    const bool no = ImGui::Button("No", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape);
+    const bool no = ImGui::Button("No", {100, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape);
     if (yes || all) {
-        std::vector<std::pair<CK_ID, CK_ID>> targets{{m_Doc.replaceScript, m_Doc.replaceBehavior}};
-        if (all) targets = SameNamedBehaviors(*m_State.document, m_Doc.replaceBehavior);
-        std::vector<ObjectRef> scripts, objects;
-        std::vector<uint64_t> prototypes(targets.size(), (uint64_t(m_ReplaceGuid.d1) << 32) | m_ReplaceGuid.d2);
-        for (const auto &target : targets) { scripts.push_back(m_State.document->Reference(target.first)); objects.push_back(m_State.document->Reference(target.second)); }
-        const EditorValue args[] = {ObjectsArgument("scripts", scripts), ObjectsArgument("objects", objects),
-            {EDITOR_TEXT("prototypes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {prototypes.data(), uint32_t(prototypes.size())}}};
-        const auto result = editor.Execute("schematic.replace-blocks", {editor.Scope(m_Instance), args, 3});
-        if (result.status == EDITOR_QUEUED) { m_Doc.replaceOperation = result.operation; m_Doc.replacePrototype = m_ReplaceGuid; }
-        else completed(result, m_ReplaceGuid);
+        EditorField scripts{"scripts", EDITOR_OBJECT_LIST}, objects{"objects", EDITOR_OBJECT_LIST},
+            prototypes{"prototypes", EDITOR_INTEGER_LIST};
+        if (all) {
+            if (const auto *field = EditorClient::Find(m_Doc.replacement, "scripts"))
+                scripts.objects = field->objects;
+            if (const auto *field = EditorClient::Find(m_Doc.replacement, "objects"))
+                objects.objects = field->objects;
+        } else {
+            scripts.objects = {m_Doc.replaceScript};
+            objects.objects = {m_Doc.replaceBehavior};
+        }
+        prototypes.integers.assign(objects.objects.size(), (uint64_t(m_ReplaceGuid.d1) << 32) | m_ReplaceGuid.d2);
+        const std::vector<EditorField> fields{
+            scripts,
+            objects,
+            prototypes,
+            {"revision", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(m_Doc.replacement, "revision")}};
+        const auto values = BorrowEditorFields(fields);
+        const auto result =
+            Client().Command("schematic.replace-blocks", {values.data(), values.data() + values.size()});
+        m_Doc.replacePrototype = m_ReplaceGuid;
+        if (result.status == EDITOR_QUEUED)
+            m_Doc.replaceOperation = result.operation;
+        else
+            completed(result);
     }
     if (yes || all || no) {
-        m_Doc.replaceBehavior = 0;
+        m_Doc.replaceBehavior = {};
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -837,78 +867,68 @@ void SchematicCanvas::ReplaceGraphDialog() {
         ImGui::OpenPopup("Replace with");
         m_Doc.openReplaceGraph = false;
     }
-    ImGui::SetNextWindowSize(ImVec2(400, 380), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize({400, 380}, ImGuiCond_Appearing);
     if (!ImGui::BeginPopupModal("Replace with", nullptr)) return;
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
     ImGui::TextUnformatted("Behavior List");
-    if (context && ImGui::BeginTable("graphs", 2,
-                                     ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY |
-                                         ImGuiTableFlags_Resizable,
-                                     ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 2.2f))) {
+    if (ImGui::BeginTable("graphs", 2,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_Resizable,
+                          {0, -ImGui::GetFrameHeightWithSpacing() * 2.2f})) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Behavior");
         ImGui::TableSetupColumn("Script");
         ImGui::TableHeadersRow();
-        for (const auto &info : m_State.document->Scripts()) {
-            std::vector<CKBehavior *> pending{CKBehavior::Cast(context->GetObject(info.id))};
-            while (!pending.empty()) {
-                CKBehavior *behavior = pending.back();
-                pending.pop_back();
-                if (!behavior) continue;
-                for (int i = behavior->GetSubBehaviorCount(); i-- > 0;) pending.push_back(behavior->GetSubBehavior(i));
-                if (behavior->GetID() == info.id || behavior->GetID() == m_Doc.replaceBehavior ||
-                    behavior->GetType() == CKBEHAVIORTYPE_BASE || (behavior->GetFlags() & CKBEHAVIOR_BUILDINGBLOCK))
-                    continue;
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::PushID(static_cast<int>(behavior->GetID()));
-                if (ImGui::Selectable(AnsiToUtf8(behavior->GetName() ? behavior->GetName() : "").c_str(),
-                                      m_Doc.replaceSource == behavior->GetID(), ImGuiSelectableFlags_SpanAllColumns))
-                    m_Doc.replaceSource = behavior->GetID();
-                ImGui::PopID();
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(AnsiToUtf8(info.name).c_str());
-            }
+        for (size_t i = 0; i < m_Doc.replacementGraphs.size(); ++i) {
+            EditorResponse row;
+            row.fields = m_Doc.replacementGraphs[i].fields;
+            const auto *object = EditorClient::Find(row, "object");
+            if (!object)
+                continue;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushID(int(i));
+            if (ImGui::Selectable(EditorClient::Text(row, "name").c_str(), m_Doc.replaceSource == object->object,
+                                  ImGuiSelectableFlags_SpanAllColumns))
+                m_Doc.replaceSource = object->object;
+            ImGui::PopID();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(EditorClient::Text(row, "script-name").c_str());
         }
         ImGui::EndTable();
     }
     ImGui::Checkbox("Replace All", &m_ReplaceAll);
-    const bool ok = ImGui::Button("Ok", ImVec2(100, 0));
+    ImGui::BeginDisabled(!m_Doc.replaceSource);
+    const bool ok = ImGui::Button("Ok", {100, 0});
+    ImGui::EndDisabled();
     ImGui::SameLine();
-    const bool cancel = ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape);
+    const bool cancel = ImGui::Button("Cancel", {100, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape);
     if (ok && m_Doc.replaceSource) {
-        std::vector<std::pair<CK_ID, CK_ID>> targets{{m_Doc.replaceScript, m_Doc.replaceBehavior}};
-        if (m_ReplaceAll) targets = SameNamedBehaviors(*m_State.document, m_Doc.replaceBehavior);
-        size_t steps = 0;
-        for (const EditResult &result : ReplaceBehaviorGraphs(*m_State.document, targets, m_Doc.replaceSource)) {
-            if (result.ok) ++steps;
-            else if (!result.Unchanged()) Report(result, "Replace Behavior Graph");
-        }
-        if (steps) m_Navigation.selection.Clear();
+        EditorField objects{"objects", EDITOR_OBJECT_LIST};
+        objects.objects = {m_Doc.replaceBehavior};
+        if (m_ReplaceAll)
+            if (const auto *field = EditorClient::Find(m_Doc.replacement, "objects"))
+                objects.objects = field->objects;
+        const std::vector<EditorField> fields{
+            {"revision", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(m_Doc.replacement, "revision")},
+            objects,
+            {"source", EDITOR_OBJECT, m_Doc.replaceSource}};
+        const auto values = BorrowEditorFields(fields);
+        Execute("schematic.replace-graphs", {values.data(), values.data() + values.size()},
+                GraphFollow::ClearSelection);
     }
-    if ((ok && m_Doc.replaceSource) || cancel) {
-        m_Doc.replaceBehavior = 0;
+    if (ok || cancel) {
+        m_Doc.replaceBehavior = {};
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
 }
 
 void SchematicCanvas::ReplaceWithFile(CK_ID script, CK_ID graph) {
-    const auto scriptRef = m_State.document->Reference(script), graphRef = m_State.document->Reference(graph);
-    RequestFile(BehaviorFileDialog(false, {}), [this, scriptRef, graphRef](const FileDialogResult &selection) {
-        if (selection.status != FileDialogResult::Status::Selected) return;
-        const auto script = m_State.document->NativeId(scriptRef), graph = m_State.document->NativeId(graphRef);
-        if (!script || !graph) return;
-        const std::string path = selection.paths.front();
-        auto result = std::make_shared<EditResult>(EditResult::NoChange());
-        m_State.RunRuntime("Replacing behavior graph", [this, script, graph, path, result] {
-            *result = ReplaceWithFileGraph(*m_State.document, script, graph, path);
-        }, [this, result](bool ok) {
-            if (!ok) return;
-            Report(*result, "Replace with File Graph");
-            if (result->ok) m_Navigation.selection.Clear();
-        });
-    });
+    auto fields = AuthoringArguments(script, graph);
+    for (auto &field : fields)
+        if (field.key == "owner")
+            field.key = "graph";
+    ExecuteAuthoring("schematic.replace-file-graph", std::move(fields), GraphFollow::FileReplaced);
 }
 
 // Dev "Confirm Script(s) Deletion" (language pack [Schematic]<Dialog>).
@@ -958,62 +978,53 @@ const ParamItem *SchematicCanvas::FindParam(const ScriptView &view, const Elemen
 }
 
 void SchematicCanvas::SetParamStyle(CK_ID script, const ParamItem &param, ParameterStyle style) {
-    const CK_ID owner = param.owner;
-    const int slot = param.slot;
-    const bool shortcut = param.shortcut;
-    EditScriptData(*m_State.document, script, "Change Parameter Display", [&](InterfaceData &data) {
-        BehaviorData *record = FindRecord(data, owner);
-        if (!record) return;
-        auto &table = shortcut ? record->sharedParams : record->localParams;
-        if (slot >= 0 && slot < static_cast<int>(table.size())) table[slot].style = style;
-    });
+    auto *view = ViewFor(script);
+    if (!view)
+        return;
+    Hit hit;
+    hit.view = view;
+    hit.ref = param.ref;
+    ElementAddress address;
+    RetainHit(hit, address);
+    if (!address)
+        return;
+    EditorField elements{"elements", EDITOR_RECORD};
+    elements.fields = {SchematicPosition(address, "0")};
+    ExecuteGraph("schematic.set-display", script, 0, nullptr,
+                 {elements, {"mode", EDITOR_INTEGER_VALUE}, {"style", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(style)}});
 }
 
 void SchematicCanvas::ToggleCommentIcon(CK_ID script, const ElementRef &ref) {
-    ScriptView *view = ViewFor(script);
-    if (!view) return;
-    for (const auto &comment : view->model.comments) {
-        if (comment.ref != ref) continue;
-        const CK_ID owner = comment.owner;
-        const int slot = comment.slot;
-        const bool collapse = !comment.collapsed;
-        EditScriptData(*m_State.document, script, collapse ? "Iconify Comment" : "Open Comment",
-                       [&](InterfaceData &data) {
-                           BehaviorData *record = FindRecord(data, owner);
-                           if (record && slot >= 0 && slot < static_cast<int>(record->comments.size()))
-                               record->comments[slot].SetCollapsed(collapse);
-                       });
+    auto *view = ViewFor(script);
+    if (!view)
         return;
-    }
+    Hit hit;
+    hit.view = view;
+    hit.ref = ref;
+    ElementAddress address;
+    RetainHit(hit, address);
+    if (!address)
+        return;
+    EditorField elements{"elements", EDITOR_RECORD};
+    elements.fields = {SchematicPosition(address, "0")};
+    ExecuteGraph("schematic.set-display", script, 0, nullptr, {elements, {"mode", EDITOR_INTEGER_VALUE, {}, {}, 1}});
 }
 
 // Dev Spacebar: change the display of the selected local parameters,
 // iconify/open the selected comments, open/close the selected graphs and
 // Scripts.
 void SchematicCanvas::SpaceAction() {
-    const Selection selection = m_Navigation.selection;
-    ScriptView *view = ViewFor(selection.script);
-    if (!view) return;
-    for (const auto &item : selection.items) {
-        switch (item.kind) {
-        case ElementKind::LocalParam:
-        case ElementKind::Shortcut:
-            if (ScriptView *again = ViewFor(selection.script))
-                if (const ParamItem *param = FindParam(*again, item)) {
-                    const ParamItem copy = *param;
-                    SetParamStyle(selection.script, copy, NextStyle(copy.style));
-                }
-            break;
-        case ElementKind::Comment: ToggleCommentIcon(selection.script, item); break;
-        case ElementKind::Behavior:
-            if (ScriptView *again = ViewFor(selection.script))
-                if (const BehaviorItem *behavior = again->model.FindBehavior(item.object))
-                    if (behavior->expandable) ToggleFold(selection.script, behavior->id);
-            break;
-        case ElementKind::Script: ToggleScriptOpen(selection.script); break;
-        default: break;
-        }
+    const auto selection = m_Navigation.selection;
+    EditorField elements{"elements", EDITOR_RECORD};
+    for (const auto &address : selection.Addresses()) {
+        if (address.element.kind == ElementKind::Script)
+            ToggleScriptOpen(address.script.object);
+        else if (address.script.object == selection.script)
+            elements.fields.push_back(SchematicPosition(address, std::to_string(elements.fields.size()).c_str()));
     }
+    if (!elements.fields.empty())
+        ExecuteGraph("schematic.set-display", selection.script, 0, nullptr,
+                     {elements, {"mode", EDITOR_INTEGER_VALUE, {}, {}, 1}});
 }
 
 // Dev G: the next drag draws the new graph's rectangle.
@@ -1030,40 +1041,43 @@ void SchematicCanvas::EndDrawGraph(ScriptView &view, const Rect &local) {
 }
 
 void SchematicCanvas::AddThisAt(CK_ID script, const Point &local) {
-    ScriptView *view = ViewFor(script);
-    const CK_ID graph = view ? GraphAt(*view, local) : 0;
-    if (!graph) {
-        m_State.Log(LogLevel::Info, "Add <This> parameters in an open Script or an expanded graph");
-        return;
+    auto *view = ViewFor(script);
+    const auto graph = view ? GraphAt(*view, local) : 0;
+    if (graph) {
+        ExecuteAuthoring("schematic.add-this", AuthoringArguments(script, graph, local));
+        m_Navigation.options.showLocalParams = true;
     }
-    Report(AddThisParameter(*m_State.document, script, graph, local), "Add <This> Parameter");
 }
 
-void SchematicCanvas::GoToShortcutSource(CK_ID source) {
-    SearchQuery query;
-    query.id = source;
-    query.kinds = SearchParameters;
-    for (const auto &result : SearchDocument(*m_State.document, query)) {
-        if (result.ref.kind == ElementKind::Shortcut) continue;
-        m_State.schematics->Show(result.address, m_State.document->Reference(result.focus), true, m_Instance);
+void SchematicCanvas::GoToShortcutSource(ObjectRef source) {
+    const auto result =
+        Client().Query("schematic.shortcuts", {ObjectArgument("target", source), IntegerArgument("mode", 0)});
+    if (result.status != EDITOR_OK)
         return;
+    if (const auto *rows = EditorClient::Find(result, "rows"); rows && !rows->fields.empty()) {
+        for (const auto &field : rows->fields.front().fields)
+            if (field.key == "address") {
+                const auto values = BorrowEditorFields(field.fields);
+                Client().Command("script.navigate", {values.data(), values.data() + values.size()});
+                return;
+            }
     }
-    // Not displayed in a Script (an output, an attribute, ...): its owner.
-    CKParameter *parameter = CKParameter::Cast(m_State.document->Context()->GetObject(source));
-    m_State.Log(LogLevel::Info, "The shortcut source is not displayed in a Script: " +
-                                    ObjectText(parameter ? parameter->GetOwner() : nullptr));
+    m_State.Log(LogLevel::Info,
+                "The shortcut source is not displayed in a Script: " + EditorClient::Text(result, "owner"));
 }
 
-void SchematicCanvas::OpenHtmlHelp(CK_ID behaviorId) {
-    CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(behaviorId));
-    const BuildingBlockEntry *entry =
-        behavior && (behavior->GetFlags() & CKBEHAVIOR_BUILDINGBLOCK) ? m_State.catalog.Find(behavior->GetPrototypeGuid())
-                                                                     : nullptr;
+void SchematicCanvas::OpenHtmlHelp(CK_ID behavior) {
+    const auto info = ObjectInfo(ToolbarScript(), behavior);
+    m_BlockCatalog.Refresh(Client());
+    const auto *entry =
+        info.status == EDITOR_OK ? m_BlockCatalog.Find(EditorClient::Integer(info, "prototype")) : nullptr;
     if (!entry) {
         m_State.Log(LogLevel::Info, "Html Help is available for Building Blocks");
         return;
     }
-    OpenHtmlHelpOf(*entry);
+    const auto category = entry->category.substr(0, entry->category.find('/'));
+    const auto topic = "behaviors/" + category + "/" + entry->name + ".html";
+    Client().Command("help.open", {TextArgument("topic", topic)});
 }
 
 void SchematicCanvas::OpenHtmlHelpOf(const BuildingBlockEntry &bb) {
@@ -1094,77 +1108,79 @@ void SchematicCanvas::CkPropertiesDialog() {
         m_Doc.openCkProperties = false;
     }
     if (!ImGui::BeginPopupModal("CK Properties", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-    CKObject *object = context ? context->GetObject(m_Doc.ckPropertiesObject) : nullptr;
-    if (!object) {
+    const auto info = Client().Query("schematic.object-info", {ObjectArgument("target", m_Doc.ckPropertiesObject)});
+    if (info.status != EDITOR_OK)
         ImGui::TextUnformatted("The object no longer exists");
-    } else {
-        ImGui::Text("Name: %s", AnsiToUtf8(object->GetName() ? object->GetName() : "").c_str());
-        ImGui::Text("CK_ID: %u", static_cast<unsigned>(object->GetID()));
-        ImGui::Text("Class: %s", CKClassIDToString(object->GetClassID()));
-        if (CKParameter *parameter = CKParameter::Cast(object)) {
-            CKParameterManager *manager = context->GetParameterManager();
-            const char *type = manager ? manager->ParameterTypeToName(parameter->GetType()) : nullptr;
-            ImGui::Text("Type: %s", type ? AnsiToUtf8(type).c_str() : "?"); // a user type's name is ANSI
-            ImGui::Text("Owner: %s", ObjectText(parameter->GetOwner()).c_str());
-            if (CKParameterLocal *local = CKParameterLocal::Cast(parameter))
-                if (local->IsMyselfParameter()) ImGui::TextUnformatted("<This> parameter (the Script owner)");
-            if (CKParameterOut *out = CKParameterOut::Cast(parameter)) {
-                ImGui::Text("Destinations: %d", out->GetDestinationCount());
-                for (int i = 0; i < out->GetDestinationCount(); ++i)
-                    ImGui::BulletText("%s", ObjectText(out->GetDestination(i)).c_str());
+    else {
+        ImGui::Text("Name: %s", EditorClient::Text(info, "name").c_str());
+        ImGui::Text("CK_ID: %u", m_Doc.ckPropertiesObject.object);
+        ImGui::Text("Class: %s", EditorClient::Text(info, "class").c_str());
+        ImGui::Text("Owner: %s", EditorClient::Text(info, "owner-name").c_str());
+        if (EditorClient::Integer(info, "input")) {
+            ImGui::Text("Direct source: %s", EditorClient::Text(info, "direct-source").c_str());
+            ImGui::Text("Shared source: %s", EditorClient::Text(info, "shared-source").c_str());
+            ImGui::Text("Enabled: %s", EditorClient::Integer(info, "enabled") ? "yes" : "no");
+        } else {
+            ImGui::Text("Type: %s", EditorClient::Text(info, "type-name").c_str());
+            if (EditorClient::Integer(info, "self"))
+                ImGui::TextUnformatted("<This> parameter (the Script owner)");
+            if (const auto *destinations = EditorClient::Find(info, "destinations");
+                destinations && EditorClient::Integer(info, "output")) {
+                ImGui::Text("Destinations: %d", int(destinations->texts.size()));
+                for (const auto &text : destinations->texts)
+                    ImGui::BulletText("%s", text.c_str());
             }
-        } else if (CKParameterIn *input = CKParameterIn::Cast(object)) {
-            ImGui::Text("Owner: %s", ObjectText(input->GetOwner()).c_str());
-            ImGui::Text("Direct source: %s", ObjectText(input->GetDirectSource()).c_str());
-            ImGui::Text("Shared source: %s", ObjectText(input->GetSharedSource()).c_str());
-            ImGui::Text("Enabled: %s", input->IsEnabled() ? "yes" : "no");
         }
     }
-    if (ImGui::Button("Close", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    if (ImGui::Button("Close", {100, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+        ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
 // Dev "Analyze Shortcut Source": the shortcuts of a source; Goto focuses one.
 void SchematicCanvas::ShortcutAnalysisDialog() {
     if (m_Doc.openShortcutAnalysis) {
-        ImGui::OpenPopup("Shortcut Source Analysis");
         m_Doc.openShortcutAnalysis = false;
-        SearchQuery query;
-        query.id = m_Doc.shortcutSource;
-        query.kinds = SearchParameters;
-        m_Doc.shortcutResults.clear();
-        for (auto &result : SearchDocument(*m_State.document, query))
-            if (result.ref.kind == ElementKind::Shortcut) m_Doc.shortcutResults.push_back(result);
+        m_Doc.shortcutAnalysis = Client().Query(
+            "schematic.shortcuts", {ObjectArgument("target", m_Doc.shortcutSource), IntegerArgument("mode", 1)});
+        if (m_Doc.shortcutAnalysis.status != EDITOR_OK)
+            return;
         m_Doc.shortcutPick = -1;
+        ImGui::OpenPopup("Shortcut Source Analysis");
     }
     if (!ImGui::BeginPopupModal("Shortcut Source Analysis", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::Text("Shortcuts of %s", ObjectText(m_State.document->Context()->GetObject(m_Doc.shortcutSource)).c_str());
+    ImGui::Text("Shortcuts of %s", EditorClient::Text(m_Doc.shortcutAnalysis, "source").c_str());
     bool go = false;
-    if (ImGui::IsWindowAppearing()) ImGui::SetNextWindowFocus();
-    if (ImGui::BeginListBox("##shortcuts", ImVec2(520, 220))) {
+    const auto *rows = EditorClient::Find(m_Doc.shortcutAnalysis, "rows");
+    if (ImGui::BeginListBox("##shortcuts", {520, 220})) {
         TypeAhead typeAhead;
-        for (int i = 0; i < static_cast<int>(m_Doc.shortcutResults.size()); ++i) {
-            const SearchResult &result = m_Doc.shortcutResults[i];
-            const ScriptInfo *info = m_State.document->FindScript(result.script);
-            const std::string label = (info ? AnsiToUtf8(info->name) : std::string("?")) + "  /  " + result.label;
-            if (typeAhead.Selectable((label + "##" + std::to_string(i)).c_str(), m_Doc.shortcutPick == i,
-                                  ImGuiSelectableFlags_AllowDoubleClick)) {
-                m_Doc.shortcutPick = i;
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) go = true;
+        for (size_t i = 0; rows && i < rows->fields.size(); ++i) {
+            EditorResponse row;
+            row.fields = rows->fields[i].fields;
+            if (typeAhead.Selectable((EditorClient::Text(row, "label") + "##" + std::to_string(i)).c_str(),
+                                     m_Doc.shortcutPick == int(i), ImGuiSelectableFlags_AllowDoubleClick)) {
+                m_Doc.shortcutPick = int(i);
+                if (ImGui::IsMouseDoubleClicked(0))
+                    go = true;
             }
         }
         ImGui::EndListBox();
     }
-    if (m_Doc.shortcutResults.empty()) ImGui::TextDisabled("No shortcut displays this parameter");
+    if (!rows || rows->fields.empty())
+        ImGui::TextDisabled("No shortcut displays this parameter");
     ImGui::BeginDisabled(m_Doc.shortcutPick < 0);
-    if (ImGui::Button("Goto", ImVec2(100, 0))) go = true;
+    if (ImGui::Button("Goto", {100, 0}))
+        go = true;
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Close", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-    if (go && m_Doc.shortcutPick >= 0) {
-        const SearchResult &result = m_Doc.shortcutResults[m_Doc.shortcutPick];
-        m_State.schematics->Show(result.address, m_State.document->Reference(result.focus), true, m_Instance);
+    if (ImGui::Button("Close", {100, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+        ImGui::CloseCurrentPopup();
+    if (go && rows && m_Doc.shortcutPick >= 0 && size_t(m_Doc.shortcutPick) < rows->fields.size()) {
+        for (const auto &field : rows->fields[size_t(m_Doc.shortcutPick)].fields)
+            if (field.key == "address") {
+                const auto values = BorrowEditorFields(field.fields);
+                Client().Command("script.navigate", {values.data(), values.data() + values.size()});
+            }
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -1183,22 +1199,20 @@ void SchematicCanvas::QuickAddDialog() {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(320);
     if (ImGui::InputText("##name", &m_QuickAddText)) m_QuickAddPick = 0;
-    std::vector<const BuildingBlockEntry *> matches;
-    for (const auto &entry : m_State.catalog.Entries()) {
-        const std::string name = AnsiToUtf8(entry.name);
-        if (m_QuickAddText.empty() || _strnicmp(name.c_str(), m_QuickAddText.c_str(), m_QuickAddText.size()) == 0)
+    m_BlockCatalog.Refresh(Client());
+    std::vector<const BuildingBlockInfo *> matches;
+    for (const auto &entry : m_BlockCatalog.Entries())
+        if (m_QuickAddText.empty() || _strnicmp(entry.name.c_str(), m_QuickAddText.c_str(), m_QuickAddText.size()) == 0)
             matches.push_back(&entry);
-    }
-    std::sort(matches.begin(), matches.end(), [](const BuildingBlockEntry *a, const BuildingBlockEntry *b) {
-        return _stricmp(a->name.c_str(), b->name.c_str()) < 0;
-    });
+    std::sort(matches.begin(), matches.end(),
+              [](const auto *a, const auto *b) { return _stricmp(a->name.c_str(), b->name.c_str()) < 0; });
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) m_QuickAddPick = std::min<int>(m_QuickAddPick + 1, int(matches.size()) - 1);
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) m_QuickAddPick = std::max(m_QuickAddPick - 1, 0);
-    const BuildingBlockEntry *chosen = nullptr;
+    const BuildingBlockInfo *chosen = nullptr;
     if (ImGui::BeginListBox("##matches", ImVec2(320, 240))) {
         for (int i = 0; i < static_cast<int>(matches.size()) && i < 500; ++i) {
             const bool picked = i == m_QuickAddPick;
-            if (ImGui::Selectable((AnsiToUtf8(matches[i]->name) + "##" + std::to_string(i)).c_str(), picked))
+            if (ImGui::Selectable((matches[i]->name + "##" + std::to_string(i)).c_str(), picked))
                 chosen = matches[i];
             if (picked && ImGui::IsKeyPressed(ImGuiKey_DownArrow, false)) ImGui::SetScrollHereY();
         }
@@ -1208,15 +1222,22 @@ void SchematicCanvas::QuickAddDialog() {
         chosen = matches[m_QuickAddPick];
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
     if (chosen) {
-        InsertBlockAt(chosen->guid, m_Doc.quickAddScript, m_Doc.quickAddLocal);
+        auto fields = m_Doc.quickCreation;
+        if (!fields.empty()) {
+            fields.push_back({"prototype", EDITOR_INTEGER_VALUE, {}, {}, chosen->prototype});
+            ExecuteAuthoring("schematic.insert-block", std::move(fields), GraphFollow::Block);
+        }
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
 }
 
 void SchematicCanvas::OpenQuickAdd(CK_ID script, const Point &local) {
-    m_Doc.quickAddScript = script;
-    m_Doc.quickAddLocal = local;
+    auto *view = ViewFor(script);
+    const auto graph = view ? GraphAt(*view, local) : 0;
+    m_Doc.quickCreation = graph ? AuthoringArguments(script, graph, local) : std::vector<EditorField>{};
+    if (m_Doc.quickCreation.empty())
+        return;
     m_Doc.openQuickAdd = true;
 }
 
@@ -1267,13 +1288,16 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
         // BBs are also available"), then the categories.
         CKGUID chosen;
         bool picked = false;
-        for (const CKGUID &guid : m_State.recentBlocks)
-            if (const BuildingBlockEntry *entry = m_State.catalog.Find(guid))
-                if (ImGui::MenuItem(AnsiToUtf8(entry->name).c_str())) {
-                    chosen = guid;
+        m_BlockCatalog.Refresh(Client());
+        const auto recent = RecentBlocks();
+        for (auto prototype : recent)
+            if (const auto *entry = m_BlockCatalog.Find(prototype))
+                if (ImGui::MenuItem(entry->name.c_str())) {
+                    chosen = CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype));
                     picked = true;
                 }
-        if (!m_State.recentBlocks.empty()) ImGui::Separator();
+        if (!recent.empty())
+            ImGui::Separator();
         if (BlockCategoryMenu(chosen) || picked) InsertBlockAt(chosen, script, local);
         ImGui::EndMenu();
     }
@@ -1282,14 +1306,15 @@ void SchematicCanvas::BodyMenu(ScriptView &view, const Point &local) {
     if (ImGui::MenuItem("Add <This> Parameter", "Alt+T")) AddThisAt(script, local);
     if (ImGui::MenuItem("Add Parameter Operation", "Alt+P")) OpenOperationPicker(script, local);
     if (ImGui::MenuItem("Add Comment", "C")) AddComment(script, local);
-    if (!m_State.clipboard.Empty()) {
+    const auto copied = Client().Query("schematic.clipboard");
+    if (copied.status == EDITOR_OK && EditorClient::Integer(copied, "available")) {
         ImGui::Separator();
         if (ImGui::MenuItem("Paste", "Ctrl+V")) {
             m_Doc.mouseScript = script;
             m_Doc.mouseLocal = local;
             Paste();
         }
-        if (!m_State.clipboard.parameters.empty() && ImGui::MenuItem("Paste as Shortcut", "Shift+Ctrl+V")) {
+        if (EditorClient::Integer(copied, "parameters") && ImGui::MenuItem("Paste as Shortcut", "Shift+Ctrl+V")) {
             m_Doc.mouseScript = script;
             m_Doc.mouseLocal = local;
             PasteShortcuts();
@@ -1386,11 +1411,11 @@ void SchematicCanvas::ScriptHeaderMenu(ScriptView &view) {
 }
 
 void SchematicCanvas::BehaviorMenu(ScriptView &view, const BehaviorItem &behavior) {
-    CKBehavior *runtime = CKBehavior::Cast(m_State.document->Context()->GetObject(behavior.id));
+    const auto info = ElementInfo(view.id, {ElementKind::Behavior, behavior.parent, behavior.id});
     if (ImGui::MenuItem("Edit Parameters", "E")) OpenParametersDialog();
     if (behavior.settings && ImGui::MenuItem("Edit Settings", "S")) OpenSettingsDialog();
     if (ImGui::BeginMenu("Construct")) {
-        const CKDWORD flags = runtime ? runtime->GetFlags() : 0;
+        const auto pins = EditorClient::Integer(info, "pin-kinds");
         // Graphs take any pin; a Building Block only those its prototype
         // declares variable (CKBEHAVIOR_VARIABLE*).
         if (behavior.expandable) {
@@ -1401,19 +1426,19 @@ void SchematicCanvas::BehaviorMenu(ScriptView &view, const BehaviorItem &behavio
         } else {
             // Through the Building Block's callback (CKM_BEHAVIOREDITED).
             bool any = false;
-            if (flags & CKBEHAVIOR_VARIABLEINPUTS) {
+            if (pins & (1ull << unsigned(PinKind::BehaviorIn))) {
                 any = true;
                 if (ImGui::MenuItem("Add Behavior Input", "I")) AddGraphIo(true);
             }
-            if (flags & CKBEHAVIOR_VARIABLEOUTPUTS) {
+            if (pins & (1ull << unsigned(PinKind::BehaviorOut))) {
                 any = true;
                 if (ImGui::MenuItem("Add Behavior Output", "O")) AddGraphIo(false);
             }
-            if (flags & CKBEHAVIOR_VARIABLEPARAMETERINPUTS) {
+            if (pins & (1ull << unsigned(PinKind::ParamIn))) {
                 any = true;
                 if (ImGui::MenuItem("Add Parameter Input", "Alt+I")) OpenGraphParameterPicker(true);
             }
-            if (flags & CKBEHAVIOR_VARIABLEPARAMETEROUTPUTS) {
+            if (pins & (1ull << unsigned(PinKind::ParamOut))) {
                 any = true;
                 if (ImGui::MenuItem("Add Parameter Output", "Alt+O")) OpenGraphParameterPicker(false);
             }
@@ -1421,8 +1446,9 @@ void SchematicCanvas::BehaviorMenu(ScriptView &view, const BehaviorItem &behavio
         }
         ImGui::EndMenu();
     }
-    if (runtime && runtime->IsTargetable() &&
-        ImGui::MenuItem(runtime->IsUsingTarget() ? "Remove Target Parameter" : "Add Target Parameter", "T"))
+    if (EditorClient::Integer(info, "targetable") &&
+        ImGui::MenuItem(
+            EditorClient::Integer(info, "using-target") ? "Remove Target Parameter" : "Add Target Parameter", "T"))
         ToggleTargetOfSelection();
     if (ImGui::MenuItem("Edit Priority", "Y")) OpenPriorityDialog();
     if (behavior.buildingBlock && ImGui::MenuItem("Html Help", "F1", false, HelpAvailable())) OpenHtmlHelp(behavior.id);
@@ -1433,9 +1459,14 @@ void SchematicCanvas::BehaviorMenu(ScriptView &view, const BehaviorItem &behavio
         if (ImGui::MenuItem("Delete but Keep Contents", "Shift+Del")) UngroupSelection();
         if (ImGui::BeginMenu("Replace with")) {
             if (ImGui::MenuItem("Replace with existing Graph")) {
-                m_Doc.replaceScript = view.id;
-                m_Doc.replaceBehavior = behavior.id;
-                m_Doc.replaceSource = 0;
+                const auto *target = EditorClient::Find(info, "object");
+                if (!target || !LoadReplacements(target->object)) {
+                    ImGui::EndMenu();
+                    return;
+                }
+                m_Doc.replaceScript = view.identity;
+                m_Doc.replaceBehavior = target->object;
+                m_Doc.replaceSource = {};
                 m_ReplaceAll = false;
                 m_Doc.openReplaceGraph = true;
             }
@@ -1448,28 +1479,33 @@ void SchematicCanvas::BehaviorMenu(ScriptView &view, const BehaviorItem &behavio
 }
 
 void SchematicCanvas::ParameterMenu(ScriptView &view, const ParamItem &param) {
-    const CK_ID script = view.id;
-    CKParameter *parameter = CKParameter::Cast(m_State.document->Context()->GetObject(param.parameter));
+    const auto info = ElementInfo(view.id, param.ref);
+    const auto *object = EditorClient::Find(info, "object");
+    if (info.status != EDITOR_OK || !object)
+        return;
+    const auto parameter = object->object;
     if (ImGui::MenuItem("Edit Parameter", "E"))
-        OpenValueDialog(script, parameter);
+        OpenValueDialog(view.id, parameter);
     if (param.shortcut) {
-        if (ImGui::MenuItem("Go to Shortcut Source")) GoToShortcutSource(param.parameter);
-        if (ImGui::MenuItem("Set Shortcut Source")) BeginPickShortcutSource(param.parameter);
+        if (ImGui::MenuItem("Go to Shortcut Source"))
+            GoToShortcutSource(parameter);
+        if (ImGui::MenuItem("Set Shortcut Source"))
+            BeginPickShortcutSource(parameter);
     } else if (param.shortcutSource && ImGui::MenuItem("Analyze Shortcut Source")) {
-        m_Doc.shortcutSource = param.parameter;
+        m_Doc.shortcutSource = parameter;
         m_Doc.openShortcutAnalysis = true;
     }
     if (ImGui::BeginMenu("Change Parameter Display", "Spacebar")) {
-        const ParamItem copy = param;
         for (ParameterStyle style : {PARAM_STYLE_COLLAPSED, PARAM_STYLE_VALUE, PARAM_STYLE_NAME, PARAM_STYLE_NAMEVALUE})
-            if (style != ParamDisplayMode(param.style) && ImGui::MenuItem(StyleName(style))) SetParamStyle(script, copy, style);
+            if (style != ParamDisplayMode(param.style) && ImGui::MenuItem(StyleName(style)))
+                SetParamStyle(view.id, param, style);
         ImGui::EndMenu();
     }
-    if (!param.shortcut &&
-        ImGui::MenuItem(m_Doc.menuScripts.empty() ? "Convert to Shortcut Source" : "Convert to Shortcut Source (Selected Scripts)"))
-        ConvertToShortcutSource(param.parameter, m_Doc.menuScripts);
+    if (!param.shortcut && ImGui::MenuItem(m_Doc.menuScripts.empty() ? "Convert to Shortcut Source"
+                                                                     : "Convert to Shortcut Source (Selected Scripts)"))
+        ConvertToShortcutSource(parameter, m_Doc.menuScripts);
     if (ImGui::MenuItem("CK Properties", "K")) {
-        m_Doc.ckPropertiesObject = param.parameter;
+        m_Doc.ckPropertiesObject = parameter;
         m_Doc.openCkProperties = true;
     }
     BreakpointItems();
@@ -1479,9 +1515,7 @@ void SchematicCanvas::ParameterMenu(ScriptView &view, const ParamItem &param) {
 
 void SchematicCanvas::LinkMenu(ScriptView &view, const LinkItem &link, const Point &local) {
     if (link.behaviorLink && ImGui::MenuItem("Edit Link Delay", "E")) {
-        m_Doc.dialogScript = view.id;
-        m_Doc.delayLink = link.ref.object;
-        m_Doc.openDelay = true;
+        OpenLinkDelay(view.id, link.ref);
     }
     if (!link.conversion.empty() && ImGui::MenuItem("Edit Parameter Operation Link", "E"))
         OpenOperationChoice(OperationChoice::ReplaceConversion, view.id, link.start, link.end, link.ref);
@@ -1567,9 +1601,8 @@ void SchematicCanvas::ContextMenuItems() {
         if (ImGui::MenuItem("Rename", "F2"))
             for (const auto &comment : model.comments)
                 if (comment.ref == hit.ref) {
-                    m_Doc.commentScript = view->id;
-                    m_Doc.commentRef = hit.ref;
-                    m_Doc.openCommentEditor = true;
+                    RetainHit(hit, m_Doc.commentAddress);
+                    m_Doc.openCommentEditor = bool(m_Doc.commentAddress);
                 }
         if (ImGui::MenuItem("Cut", "Ctrl+X")) Cut();
         if (ImGui::MenuItem("Copy", "Ctrl+C")) Copy();
@@ -1596,28 +1629,15 @@ void SchematicCanvas::ContextMenuItems() {
         CommonEditItems(true, false);
         break;
     case ElementKind::Pin: {
-        CKObject *owner = m_State.document->Context()->GetObject(hit.ref.object);
-        CKBehavior *behavior = CKBehavior::Cast(owner);
-        CKParameterOperation *operation = CKParameterOperation::Cast(owner);
-        CKObject *pin = nullptr;
-        if (behavior) {
-            switch (hit.ref.pin) {
-            case PinKind::ParamIn: pin = behavior->GetInputParameter(hit.ref.index); break;
-            case PinKind::ParamOut: pin = behavior->GetOutputParameter(hit.ref.index); break;
-            case PinKind::Target: pin = behavior->GetTargetParameter(); break;
-            default: break;
-            }
-        } else if (operation) {
-            // A parameter operation's inputs and output.
-            if (hit.ref.pin == PinKind::ParamIn)
-                pin = hit.ref.index == 0 ? static_cast<CKObject *>(operation->GetInParameter1())
-                                         : hit.ref.index == 1 ? operation->GetInParameter2() : nullptr;
-            else if (hit.ref.pin == PinKind::ParamOut)
-                pin = operation->GetOutParameter();
-        }
-        if (pin && ImGui::MenuItem("Edit Parameter", "E")) OpenValueDialog(view->id, pin);
+        const auto info = ElementInfo(view->id, hit.ref);
+        const auto *target = EditorClient::Find(info, "object");
+        const bool pin =
+            info.status == EDITOR_OK && target &&
+            (hit.ref.pin == PinKind::ParamIn || hit.ref.pin == PinKind::ParamOut || hit.ref.pin == PinKind::Target);
+        if (pin && ImGui::MenuItem("Edit Parameter", "E"))
+            OpenValueDialog(view->id, target->object);
         if (pin && ImGui::MenuItem("CK Properties", "K")) {
-            m_Doc.ckPropertiesObject = pin->GetID();
+            m_Doc.ckPropertiesObject = target->object;
             m_Doc.openCkProperties = true;
         }
         // Documentation "Parameter Shortcut": a parameter output copied with

@@ -664,28 +664,12 @@ void SchematicCanvas::ToggleScriptOpen(CK_ID script) {
 }
 
 void SchematicCanvas::AddComment(CK_ID script, const Point &local) {
-    ScriptView *view = ViewFor(script);
-    if (!view || !view->model.script.open) return;
-    CK_ID graph = view->model.GraphAt(local);
-    if (!graph) graph = script;
-    int slot = -1;
-    const bool added = EditScriptData(*m_State.document, script, "Add Comment", [&](InterfaceData &data) {
-        BehaviorData *record = FindRecord(data, graph);
-        if (!record) return;
-        Comment comment;
-        comment.hPos = SchematicGrid::SnapToGrid(local.h, SchematicGrid::SPACING);
-        comment.vPos = SchematicGrid::SnapToGrid(local.v, SchematicGrid::SPACING);
-        comment.width = 160.0f;
-        comment.height = 60.0f;
-        comment.text = "Comment";
-        record->AddComment(comment);
-        slot = static_cast<int>(record->comments.size()) - 1;
-    });
-    if (!added || slot < 0) return;
-    m_Doc.commentScript = script;
-    m_Doc.commentRef = {ElementKind::Comment, graph, 0, slot};
-    m_Doc.openCommentEditor = true;
-    m_Navigation.selection.Set(script, m_Doc.commentRef);
+    auto *view = ViewFor(script);
+    const auto graph = view ? GraphAt(*view, local) : 0;
+    if (!graph)
+        return;
+    auto fields = AuthoringArguments(script, graph, local);
+    ExecuteAuthoring("schematic.add-comment", std::move(fields), GraphFollow::Comment);
 }
 
 void SchematicCanvas::DeleteSelection(bool graphsConfirmed) {
@@ -793,14 +777,49 @@ void SchematicCanvas::CompleteGraph(const EditorResponse &result, const GraphCom
         } else if (succeeded)
             m_Navigation.selection.Clear();
     }
+    const bool file = command.follow == GraphFollow::FileCreated || command.follow == GraphFollow::FileReplaced;
     if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) {
-        if (!result.message.empty()) m_State.Log(LogLevel::Warning, result.message);
+        if (!file && !result.message.empty())
+            m_State.Log(LogLevel::Warning, result.message);
         return;
     }
-    if (!result.message.empty())
+    if (!file && !result.message.empty())
         m_State.Log(LogLevel::Info, result.message);
-    if (command.follow == GraphFollow::ClearSelection) m_Navigation.selection.Clear();
-    if (command.follow == GraphFollow::Created)
+    if (command.follow == GraphFollow::ClearSelection || command.follow == GraphFollow::FileReplaced)
+        m_Navigation.selection.Clear();
+    if (command.follow == GraphFollow::Block)
+        if (const auto *prototypes = EditorClient::Find(result, "prototypes"))
+            RememberBlocks(prototypes->integers);
+    if (command.follow != GraphFollow::Created && command.follow != GraphFollow::Block &&
+        command.follow != GraphFollow::Comment)
+        return;
+    EditorField elements{"elements", EDITOR_RECORD};
+    if (const auto *rows = EditorClient::Find(result, "elements"))
+        elements.fields = rows->fields;
+    else if (const auto *address = EditorClient::Find(result, "address"))
+        elements.fields.push_back(*address);
+    if (!elements.fields.empty() && result.documentRevision) {
+        const std::vector<EditorField> fields{
+            elements, {"document-revision", EDITOR_INTEGER_VALUE, {}, {}, result.documentRevision}};
+        const auto values = BorrowEditorFields(fields);
+        const auto positions = Client().Query("schematic.positions", {values.data(), values.data() + values.size()});
+        if (positions.status != EDITOR_OK)
+            return;
+        std::vector<ElementAddress> selection;
+        if (const auto *rows = EditorClient::Find(positions, "elements")) {
+            const auto values = BorrowEditorFields(rows->fields);
+            for (const auto &value : values.values) {
+                ElementAddress address;
+                if (ReadSchematicPosition(value, address))
+                    selection.push_back(address);
+            }
+        }
+        m_Navigation.selection.Assign(selection);
+        if (command.follow == GraphFollow::Comment && selection.size() == 1) {
+            m_Doc.commentAddress = selection.front();
+            m_Doc.openCommentEditor = true;
+        }
+    } else if (command.follow == GraphFollow::Created)
         if (const auto *created = EditorClient::Find(result, "created"); created && created->type == EDITOR_OBJECT &&
             created->object && created->object.document == command.document &&
             Client().Query("object.details", {ObjectArgument("target", created->object)}).status == EDITOR_OK)
@@ -822,6 +841,101 @@ CK_ID SchematicCanvas::GraphAt(ScriptView &view, const Point &local) const {
     return graph ? graph : view.id;
 }
 
+std::vector<EditorField> SchematicCanvas::AuthoringArguments(CK_ID script, CK_ID owner, const Point &at) {
+    const auto state = GraphState(script, owner);
+    const auto *target = EditorClient::Find(state, "target"), *object = EditorClient::Find(state, "object");
+    if (state.status != EDITOR_OK || !target || !object || !object->object || EditorClient::Integer(state, "readonly"))
+        return {};
+    const auto *view = ViewFor(script);
+    if (view && view->revision != ~0ull &&
+        (view->revision != EditorClient::Integer(state, "revision") ||
+         view->topology != EditorClient::Integer(state, "topology")))
+        return {};
+    EditorField point{"at", EDITOR_REAL_LIST};
+    point.reals = {at.h, at.v};
+    return {{"target", EDITOR_OBJECT, target->object},
+            {"owner", EDITOR_OBJECT, object->object},
+            {"revision", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(state, "revision")},
+            {"topology", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(state, "topology")},
+            std::move(point)};
+}
+void SchematicCanvas::ExecuteAuthoring(const char *id, std::vector<EditorField> fields, GraphFollow follow) {
+    if (fields.empty())
+        return;
+    ObjectRef script{}, owner{};
+    for (const auto &field : fields) {
+        if (field.key == "target")
+            script = field.object;
+        if (field.key == "owner" || field.key == "graph")
+            owner = field.object;
+    }
+    const auto values = BorrowEditorFields(fields);
+    Execute(id, {values.data(), values.data() + values.size()}, follow, script, owner);
+}
+EditorResponse SchematicCanvas::ElementInfo(CK_ID script, const ElementRef &ref) {
+    ElementAddress address;
+    if (auto *view = ViewFor(script)) {
+        Hit hit;
+        hit.view = view;
+        hit.ref = ref;
+        RetainHit(hit, address);
+    }
+    if (!address)
+        for (const auto &selected : m_Navigation.selection.Addresses())
+            if (selected.script.object == script && selected.element == ref) {
+                address = selected;
+                break;
+            }
+    if (!address)
+        return {};
+    const std::vector<EditorField> fields{SchematicPosition(address)};
+    const auto values = BorrowEditorFields(fields);
+    return Client().Query("schematic.element-info", {values.data(), values.data() + values.size()});
+}
+EditorResponse SchematicCanvas::ObjectInfo(CK_ID script, CK_ID id) {
+    const auto state = GraphState(script, id);
+    const auto *object = EditorClient::Find(state, "object");
+    return state.status == EDITOR_OK && object && object->object
+               ? Client().Query("schematic.object-info", {ObjectArgument("target", object->object)})
+               : EditorResponse{};
+}
+void SchematicCanvas::RememberBlocks(const std::vector<uint64_t> &prototypes) {
+    EditorField values{"prototypes", EDITOR_INTEGER_LIST};
+    values.integers = prototypes;
+    const std::vector<EditorField> fields{values};
+    const auto borrowed = BorrowEditorFields(fields);
+    Client().Command("building-block.remember", {borrowed.data(), borrowed.data() + borrowed.size()});
+}
+std::vector<uint64_t> SchematicCanvas::RecentBlocks() {
+    const auto result = Client().Query("building-block.recent");
+    if (result.status == EDITOR_OK)
+        if (const auto *prototypes = EditorClient::Find(result, "prototypes"))
+            return prototypes->integers;
+    return {};
+}
+void SchematicCanvas::LoadParameterTypes() {
+    m_Types.clear();
+    const auto result = Client().Query("schematic.parameter-types");
+    if (result.status == EDITOR_OK)
+        if (const auto *types = EditorClient::Find(result, "types"))
+            for (const auto &row : types->fields) {
+                EditorResponse item;
+                item.fields = row.fields;
+                m_Types.push_back({EditorClient::Integer(item, "type"), EditorClient::Text(item, "name")});
+            }
+}
+void SchematicCanvas::OpenParameterEditor(ObjectRef script, ObjectRef object, unsigned mode) {
+    if (!m_State.workspace || !script || !object)
+        return;
+    if (!m_ParameterDialog)
+        m_ParameterDialog =
+            std::make_unique<SchematicParameterDialog>(m_State.workspace->Application(), m_EditorHost, m_Instance);
+    m_ParameterDialog->Open(script, object, mode);
+    const auto message = m_ParameterDialog->TakeMessage();
+    if (!message.empty())
+        m_State.Log(LogLevel::Warning, message);
+}
+
 void SchematicCanvas::ToggleTargetOfSelection() {
     std::vector<ObjectRef> objects;
     for (const auto &address : m_Navigation.selection.Addresses())
@@ -833,95 +947,68 @@ void SchematicCanvas::ToggleTargetOfSelection() {
 }
 
 void SchematicCanvas::BeginRename() {
-    const Selection &selection = m_Navigation.selection;
-    if (selection.items.size() != 1 || !m_State.HasDocument()) return;
-    const ElementRef &item = selection.items[0];
-    CK_ID object = 0;
-    switch (item.kind) {
-    case ElementKind::Behavior:
-    case ElementKind::Operation:
-    case ElementKind::LocalParam:
-    case ElementKind::Script:
-        object = item.object;
-        break;
-    case ElementKind::Pin: {
-        CKObject *owner = m_State.document->Context()->GetObject(item.object);
-        if (CKBehavior *behavior = CKBehavior::Cast(owner)) {
-            CKObject *pin = nullptr;
-            switch (item.pin) {
-            case PinKind::BehaviorIn: pin = behavior->GetInput(item.index); break;
-            case PinKind::BehaviorOut: pin = behavior->GetOutput(item.index); break;
-            case PinKind::ParamIn: pin = behavior->GetInputParameter(item.index); break;
-            case PinKind::ParamOut: pin = behavior->GetOutputParameter(item.index); break;
-            default: break;
-            }
-            object = pin ? pin->GetID() : 0;
-        }
-        break;
-    }
-    default:
-        break;
-    }
-    CKObject *runtime = object ? m_State.document->Context()->GetObject(object) : nullptr;
-    if (!runtime) return;
-    m_Doc.dialogScript = selection.script;
-    m_Doc.renameObject = object;
-    m_RenameTarget = m_State.document->Reference(object);
+    const auto &selection = m_Navigation.selection;
+    if (selection.items.size() != 1)
+        return;
+    const auto info = ElementInfo(selection.script, selection.items.front());
+    const auto *object = EditorClient::Find(info, "object");
+    if (info.status != EDITOR_OK || !object || !object->object || selection.items.front().kind == ElementKind::Shortcut)
+        return;
+    m_RenameTarget = object->object;
     m_Doc.openRename = true;
 }
 
-CK_ID SchematicCanvas::SelectedGraph() const {
-    const Selection &selection = m_Navigation.selection;
-    if (selection.items.size() != 1 || selection.items[0].kind != ElementKind::Behavior) return 0;
-    CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(selection.items[0].object));
-    const bool editable = behavior && behavior->GetType() != CKBEHAVIORTYPE_BASE &&
-                          !(behavior->GetFlags() & CKBEHAVIOR_BUILDINGBLOCK);
-    return editable ? behavior->GetID() : 0;
+CK_ID SchematicCanvas::SelectedGraph() {
+    const auto &selection = m_Navigation.selection;
+    if (selection.items.size() != 1 || selection.items.front().kind != ElementKind::Behavior)
+        return 0;
+    const auto info = ElementInfo(selection.script, selection.items.front());
+    return info.status == EDITOR_OK && EditorClient::Integer(info, "graph") ? selection.items.front().object : 0;
 }
 
-CK_ID SchematicCanvas::SelectedVariableBlock(PinKind kind) const {
-    const Selection &selection = m_Navigation.selection;
-    if (selection.items.size() != 1 || selection.items[0].kind != ElementKind::Behavior || !m_State.HasDocument())
+CK_ID SchematicCanvas::SelectedVariableBlock(PinKind kind) {
+    const auto &selection = m_Navigation.selection;
+    if (selection.items.size() != 1 || selection.items.front().kind != ElementKind::Behavior)
         return 0;
-    CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(selection.items[0].object));
-    return AcceptsVariablePin(behavior, kind) ? behavior->GetID() : 0;
+    const auto info = ElementInfo(selection.script, selection.items.front());
+    return info.status == EDITOR_OK && !EditorClient::Integer(info, "graph") &&
+                   (EditorClient::Integer(info, "pin-kinds") & (1ull << unsigned(kind)))
+               ? selection.items.front().object
+               : 0;
 }
 
 void SchematicCanvas::AddGraphIo(bool input) {
-    if (!m_State.HasDocument()) return;
-    const PinKind kind = input ? PinKind::BehaviorIn : PinKind::BehaviorOut;
-    if (const CK_ID block = SelectedVariableBlock(kind)) {
-        Report(AddBuildingBlockPin(*m_State.document, m_Navigation.selection.script, block, kind),
-               input ? "Add behavior input" : "Add behavior output");
-        return;
-    }
-    const CK_ID graph = SelectedGraph();
-    if (!graph) {
+    const auto kind = input ? PinKind::BehaviorIn : PinKind::BehaviorOut;
+    auto owner = SelectedVariableBlock(kind);
+    if (!owner)
+        owner = SelectedGraph();
+    if (!owner) {
         m_State.Log(LogLevel::Info, "Select a behavior graph to add a behavior input (I) or output (O)");
         return;
     }
-    CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(graph));
-    const std::string name = (input ? "In " : "Out ") +
-                             std::to_string(input ? behavior->GetInputCount() : behavior->GetOutputCount());
-    Report(AddGraphPin(*m_State.document, m_Navigation.selection.script, graph,
-                       input ? PinKind::BehaviorIn : PinKind::BehaviorOut, name),
-           input ? "Add behavior input" : "Add behavior output");
+    auto fields = AuthoringArguments(m_Navigation.selection.script, owner);
+    if (fields.empty())
+        return;
+    fields.pop_back();
+    fields.push_back({"kind", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(kind)});
+    ExecuteAuthoring("schematic.add-pin", std::move(fields));
 }
 
 void SchematicCanvas::OpenGraphParameterPicker(bool input) {
-    if (!m_State.HasDocument()) return;
-    CK_ID owner = SelectedGraph();
+    CK_ID owner = SelectedGraph(), script = m_Navigation.selection.script;
     if (!owner) owner = SelectedVariableBlock(input ? PinKind::ParamIn : PinKind::ParamOut);
-    CK_ID script = m_Navigation.selection.script;
-    if (!owner && m_Doc.hoveredScript) owner = script = m_Doc.hoveredScript; // Script parameters
+    if (!owner && m_Doc.hoveredScript)
+        owner = script = m_Doc.hoveredScript;
     if (!owner) {
         m_State.Log(LogLevel::Info, "Select a behavior graph, or point at a Script, to add a parameter");
         return;
     }
-    m_Doc.dialogScript = script;
-    m_Doc.pinOwner = owner;
+    m_Doc.creation = AuthoringArguments(script, owner);
+    if (m_Doc.creation.empty())
+        return;
+    m_Doc.creation.pop_back();
     m_TypePurpose = input ? TypePurpose::GraphInput : TypePurpose::GraphOutput;
-    if (m_Types.empty()) m_Types = ListParameterTypes(m_State.document->Context());
+    LoadParameterTypes();
     m_PickerFilter.clear();
     m_LocalName = input ? "pIn" : "pOut";
     m_TypeIndex = -1;
@@ -936,15 +1023,15 @@ void SchematicCanvas::CreateGraphAt(CK_ID script, const Point &local) {
 }
 
 void SchematicCanvas::OpenLocalParameterPicker(CK_ID script, const Point &local) {
-    ScriptView *view = ViewFor(script);
-    if (!view || !(m_Doc.dialogGraph = GraphAt(*view, local))) {
+    auto *view = ViewFor(script);
+    const auto graph = view ? GraphAt(*view, local) : 0;
+    m_Doc.creation = graph ? AuthoringArguments(script, graph, local) : std::vector<EditorField>{};
+    if (m_Doc.creation.empty()) {
         m_State.Log(LogLevel::Info, "Open the Script to add a local parameter");
         return;
     }
-    m_Doc.dialogScript = script;
-    m_Doc.dialogPosition = local;
     m_TypePurpose = TypePurpose::Local;
-    if (m_Types.empty()) m_Types = ListParameterTypes(m_State.document->Context());
+    LoadParameterTypes();
     m_PickerFilter.clear();
     m_LocalName = "Local";
     m_TypeIndex = -1;
@@ -952,14 +1039,14 @@ void SchematicCanvas::OpenLocalParameterPicker(CK_ID script, const Point &local)
 }
 
 void SchematicCanvas::OpenOperationPicker(CK_ID script, const Point &local) {
-    ScriptView *view = ViewFor(script);
-    if (!view || !(m_Doc.dialogGraph = GraphAt(*view, local))) {
+    auto *view = ViewFor(script);
+    const auto graph = view ? GraphAt(*view, local) : 0;
+    m_Doc.creation = graph ? AuthoringArguments(script, graph, local) : std::vector<EditorField>{};
+    if (m_Doc.creation.empty()) {
         m_State.Log(LogLevel::Info, "Open the Script to add a parameter operation");
         return;
     }
-    m_Doc.dialogScript = script;
-    m_Doc.dialogPosition = local;
-    m_Doc.modifyOperation = 0;
+    m_Doc.modifyOperation = {};
     m_Doc.openOperationPicker = true;
 }
 
@@ -1159,23 +1246,20 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
             const CK_ID graph = hit.view ? GraphAt(*hit.view, hit.local) : 0;
             if (IsBuildingBlockAt(hit)) {
                 // Dev: a Building Block dropped on another replaces it.
-                OpenReplaceBlock(hit.view->id, hit.ref.object, guid);
+                const auto info = ElementInfo(hit.view->id, hit.ref);
+                if (info.status == EDITOR_OK)
+                    if (const auto *object = EditorClient::Find(info, "object"))
+                        OpenReplaceBlock(hit.view->identity, object->object, guid);
             } else if (!graph) {
                 m_State.Log(LogLevel::Info, "Drop Building Blocks into an open Script or an expanded graph");
             } else {
-                const CK_ID script = hit.view->id;
-                // Several Building Blocks dragged: one under the other, all selected.
-                m_Navigation.selection.Clear();
-                for (size_t i = 0; i < blocks.size(); ++i) {
-                    Point at = hit.local;
-                    at.v += 60.0f * static_cast<float>(i);
-                    const EditResult result = InsertBuildingBlock(*m_State.document, script, graph,
-                                                                  CKGUID(blocks[i].first, blocks[i].second), at);
-                    Report(result, "Insert Building Block");
-                    if (result.ok) {
-                        m_State.RememberBlock(CKGUID(blocks[i].first, blocks[i].second));
-                        m_Navigation.selection.Add(script, ElementRef{ElementKind::Behavior, graph, result.created});
-                    }
+                auto fields = AuthoringArguments(hit.view->id, graph, hit.local);
+                if (!fields.empty()) {
+                    EditorField prototypes{"prototypes", EDITOR_INTEGER_LIST};
+                    for (const auto &block : blocks)
+                        prototypes.integers.push_back((uint64_t(block.first) << 32) | block.second);
+                    fields.push_back(std::move(prototypes));
+                    ExecuteAuthoring("schematic.insert-block", std::move(fields), GraphFollow::Block);
                 }
             }
         }
@@ -1351,82 +1435,38 @@ void SchematicCanvas::Refresh() {
 // Dev's Edit Parameter (Dev.exe sub_523480 opens dialog 354): the name and
 // the type (Dev's default; not of <This>), the value of a local or of an
 // input's value holder; other values are only shown.
-void SchematicCanvas::OpenValueDialog(CK_ID script, CKObject *parameter) {
-    if (!parameter || !m_State.HasDocument()) return;
-    m_Doc.dialogScript = script;
-    m_Doc.valueParameter = parameter->GetID();
-    m_ValueReference = m_State.document->Reference(parameter->GetID());
-    if (m_State.workspace) {
-        auto &app = m_State.workspace->Application();
-        if (const auto *property = app.Property("object.name")) {
-            m_ValueNameProperty = *property;
-            app.ValueEditor(property->editor, m_ValueNameEditor);
-        }
-    }
-    m_Doc.invalidLinks.clear();
-    m_InvalidLinksAnswered = false;
-    m_ValueName = AnsiToUtf8(parameter->GetName() ? parameter->GetName() : "");
-    CKParameterIn *input = CKParameterIn::Cast(parameter);
-    CKParameter *value = CKParameter::Cast(parameter);
-    m_ValueType = input ? input->GetGUID() : value ? value->GetGUID() : CKGUID();
-    CKParameterLocal *holder = input ? EditableValueOf(input) : CKParameterLocal::Cast(parameter);
-    const bool self = holder && holder->IsMyselfParameter();
-    m_Doc.valueHolder = holder && !self ? holder->GetID() : 0;
-    m_ValueNameEditable = !self;
-    // Dev.exe sub_523480 leaves the type editable (Drive 1) but for one
-    // Building Block window case; an operation's pins keep theirs.
-    const bool operation = (input && CKParameterOperation::Cast(input->GetOwner())) ||
-                           (CKParameterOut::Cast(parameter) && CKParameterOperation::Cast(CKParameterOut::Cast(parameter)->GetOwner()));
-    m_ValueTypeEditable = !self && !operation;
-    m_ParameterBox.Clear();
-    if (m_Doc.valueHolder) m_ParameterBox.Add(holder, parameter->GetName() ? parameter->GetName() : "");
-    m_Doc.openValue = true;
+void SchematicCanvas::OpenValueDialog(CK_ID script, ObjectRef parameter) {
+    const auto scripts = ScriptReferences({script});
+    if (!scripts.empty())
+        OpenParameterEditor(scripts.front(), parameter, 0);
 }
 
 void SchematicCanvas::OpenParametersDialog() {
-    const Selection &selection = m_Navigation.selection;
-    if (selection.items.size() != 1 || !m_State.HasDocument()) return;
-    const ElementRef &item = selection.items[0];
-    if (item.kind != ElementKind::Behavior && item.kind != ElementKind::Operation) return;
-    m_Doc.dialogScript = selection.script;
-    m_Doc.parametersObject = item.object;
-    // Dev.exe sub_582930: a row per input (the Target first) whose value
-    // holder is a local parameter (not <This>, the input not disabled),
-    // named after the local; a Building Block's title is its path from the
-    // Script ("Edit Parameters: Script / ... / Block", OK, Apply, Cancel),
-    // an operation's "%s - Edit Parameters" (OK, Cancel).
-    CKContext *context = m_State.document->Context();
-    CKObject *object = context->GetObject(item.object);
-    CKBehavior *behavior = CKBehavior::Cast(object);
-    CKParameterOperation *operation = CKParameterOperation::Cast(object);
-    m_ParameterBox.Clear();
-    m_ParameterBox.AddInputs(object);
-    if (behavior) {
-        std::vector<CKBehavior *> path;
-        for (CKBehavior *b = behavior; b; b = b->GetParent()) path.insert(path.begin(), b);
-        m_ParametersTitle = "Edit Parameters: ";
-        for (size_t i = 0; i < path.size(); ++i)
-            m_ParametersTitle += (i ? " / " : "") + AnsiToUtf8(path[i]->GetName() ? path[i]->GetName() : "");
-        m_ParametersApply = true;
-    } else if (operation) {
-        m_ParametersTitle = AnsiToUtf8(operation->GetName() ? operation->GetName() : "") + " - Edit Parameters";
-        m_ParametersApply = false;
-    }
-    if (m_ParameterBox.Empty()) {
-        m_State.Log(LogLevel::Info, "No parameter to edit (the inputs are linked)");
+    const auto &selection = m_Navigation.selection;
+    if (selection.items.size() != 1)
         return;
-    }
-    m_Doc.openParameters = true;
+    const auto &item = selection.items.front();
+    if (item.kind != ElementKind::Behavior && item.kind != ElementKind::Operation)
+        return;
+    const auto info = ElementInfo(selection.script, item);
+    const auto *object = EditorClient::Find(info, "object");
+    if (info.status != EDITOR_OK || !object)
+        return;
+    const auto scripts = ScriptReferences({selection.script});
+    if (!scripts.empty())
+        OpenParameterEditor(scripts.front(), object->object, 1);
 }
 
 void SchematicCanvas::OpenParametersOf(CK_ID script, CK_ID object) {
-    CKObject *found = m_State.HasDocument() ? m_State.document->Context()->GetObject(object) : nullptr;
-    if (!found) return;
-    ElementRef ref;
-    ref.kind = CKParameterOperation::Cast(found) ? ElementKind::Operation : ElementKind::Behavior;
-    ref.object = object;
-    m_Navigation.selection.Set(script, ref);
-    OpenParametersDialog();
+    const auto info = ObjectInfo(script, object);
+    if (info.status != EDITOR_OK)
+        return;
+    m_Navigation.selection.Set(
+        script, {EditorClient::Integer(info, "operation") ? ElementKind::Operation : ElementKind::Behavior, 0, object});
+    const auto scripts = ScriptReferences({script});
+    const auto *target = EditorClient::Find(info, "object");
+    if (!scripts.empty() && target)
+        OpenParameterEditor(scripts.front(), target->object, 1);
 }
 
 void SchematicCanvas::OpenPriorityDialog() {
@@ -1440,17 +1480,17 @@ void SchematicCanvas::OpenPriorityDialog() {
 }
 
 void SchematicCanvas::InsertBlockAt(const CKGUID &guid, CK_ID script, const Point &local) {
-    ScriptView *view = ViewFor(script);
-    const CK_ID graph = view ? GraphAt(*view, local) : 0;
+    auto *view = ViewFor(script);
+    const auto graph = view ? GraphAt(*view, local) : 0;
     if (!graph) {
         m_State.Log(LogLevel::Info, "Insert Building Blocks into an open Script or an expanded graph");
         return;
     }
-    const EditResult result = InsertBuildingBlock(*m_State.document, script, graph, guid, local);
-    Report(result, "Insert Building Block");
-    if (!result.ok) return;
-    m_State.RememberBlock(guid);
-    m_Navigation.selection.Set(script, ElementRef{ElementKind::Behavior, graph, result.created});
+    auto fields = AuthoringArguments(script, graph, local);
+    if (fields.empty())
+        return;
+    fields.push_back({"prototype", EDITOR_INTEGER_VALUE, {}, {}, (uint64_t(guid.d1) << 32) | guid.d2});
+    ExecuteAuthoring("schematic.insert-block", std::move(fields), GraphFollow::Block);
 }
 
 void SchematicCanvas::BeginCopyDrag() {
@@ -1532,8 +1572,10 @@ void SchematicCanvas::DoubleClick(const Hit &hit) {
         hit.local.v >= hit.view->model.script.header.vPos + CLOSED_SCRIPT_HEIGHT &&
         hit.local.v < hit.view->model.script.header.vPos + 36.0f) {
         // Dev: double-click on the Script owner shows it in the Level Manager.
-        CKBehavior *script = CKBehavior::Cast(m_State.document->Context()->GetObject(hit.view->id));
-        if (script && script->GetOwner()) m_State.events.Post(ShowInLevelManager{m_State.document->Reference(script->GetOwner()->GetID())});
+        const auto info = ObjectInfo(hit.view->id, hit.view->id);
+        const auto *owner = EditorClient::Find(info, "owner");
+        if (info.status == EDITOR_OK && owner && owner->object)
+            Client().Command("scene.show-object", {ObjectArgument("target", owner->object)});
     } else if (hit.ref.kind == ElementKind::Script) {
         // The second click of a double-click on the header row toggles again
         // (every click there toggles); elsewhere on the header it toggles once.
@@ -1553,39 +1595,19 @@ void SchematicCanvas::DoubleClick(const Hit &hit) {
     } else if (hit.ref.kind == ElementKind::Link) {
         for (const auto &link : hit.view->model.links)
             if (link.ref == hit.ref && link.behaviorLink) {
-                m_Doc.dialogScript = hit.view->id;
-                m_Doc.delayLink = link.ref.object;
-                m_Doc.openDelay = true;
+                OpenLinkDelay(hit.view->id, link.ref);
             }
-    } else if (hit.ref.kind == ElementKind::LocalParam || hit.ref.kind == ElementKind::Shortcut) {
-        CKParameter *parameter = CKParameter::Cast(m_State.document->Context()->GetObject(hit.ref.object));
-        OpenValueDialog(hit.view->id, parameter);
-    } else if (hit.ref.kind == ElementKind::Pin) {
-        CKObject *owner = m_State.document->Context()->GetObject(hit.ref.object);
-        CKBehavior *behavior = CKBehavior::Cast(owner);
-        CKParameterOperation *operation = CKParameterOperation::Cast(owner);
-        CKParameterIn *input = nullptr;
-        if (hit.ref.pin == PinKind::ParamIn)
-            input = behavior ? behavior->GetInputParameter(hit.ref.index)
-                  : operation ? (hit.ref.index == 0 ? operation->GetInParameter1() : operation->GetInParameter2())
-                              : nullptr;
-        else if (hit.ref.pin == PinKind::Target && behavior)
-            input = behavior->GetTargetParameter();
-        if (input) {
-            OpenValueDialog(hit.view->id, input);
-        } else if (hit.ref.pin == PinKind::ParamOut) {
-            CKParameter *output = behavior ? static_cast<CKParameter *>(behavior->GetOutputParameter(hit.ref.index))
-                                : operation ? static_cast<CKParameter *>(operation->GetOutParameter())
-                                            : nullptr;
-            OpenValueDialog(hit.view->id, output);
-        }
+    } else if (hit.ref.kind == ElementKind::LocalParam || hit.ref.kind == ElementKind::Shortcut ||
+               hit.ref.kind == ElementKind::Pin) {
+        const auto info = ElementInfo(hit.view->id, hit.ref);
+        const auto *object = EditorClient::Find(info, "object");
+        if (info.status == EDITOR_OK && object &&
+            (hit.ref.kind != ElementKind::Pin || hit.ref.pin == PinKind::ParamIn || hit.ref.pin == PinKind::ParamOut ||
+             hit.ref.pin == PinKind::Target))
+            OpenValueDialog(hit.view->id, object->object);
     } else if (hit.ref.kind == ElementKind::Comment) {
-        for (const auto &comment : hit.view->model.comments) {
-            if (comment.ref != hit.ref) continue;
-            m_Doc.commentScript = hit.view->id;
-            m_Doc.commentRef = hit.ref;
-            m_Doc.openCommentEditor = true;
-        }
+        RetainHit(hit, m_Doc.commentAddress);
+        m_Doc.openCommentEditor = bool(m_Doc.commentAddress);
     }
 }
 
@@ -2110,7 +2132,6 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     ReplaceGraphDialog();
     BreakpointConfigDialog();
     BreakpointListDialog();
-    SettingsDialog();
     OperationChoiceDialog();
     CkPropertiesDialog();
     ShortcutAnalysisDialog();
@@ -2122,7 +2143,6 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     LocalParameterDialog();
     OperationDialog();
     ParametersDialog();
-    ValueDialog();
     PriorityDialog();
     BlockMenus();
     // Dev "Enable Tooltips" / "Tooltips Delay(ms)".
@@ -2343,64 +2363,47 @@ void SchematicCanvas::ApplyOperationChoice(const EditorField &choice) {
 }
 
 void SchematicCanvas::OpenModifyOperation() {
-    const Selection &selection = m_Navigation.selection;
-    if (selection.items.size() != 1 || selection.items[0].kind != ElementKind::Operation || !m_State.HasDocument()) {
+    const auto &selection = m_Navigation.selection;
+    if (selection.items.size() != 1 || selection.items.front().kind != ElementKind::Operation) {
         m_State.Log(LogLevel::Info, "M: select a parameter operation to modify");
         return;
     }
-    m_Doc.dialogScript = selection.script;
-    m_Doc.dialogGraph = selection.items[0].owner;
-    m_Doc.modifyOperation = selection.items[0].object;
-    // The parts of the operation modified.
-    if (auto *runtime = CKParameterOperation::Cast(m_State.document->Context()->GetObject(m_Doc.modifyOperation))) {
-        auto guidOf = [](CKParameter *parameter) { return parameter ? parameter->GetGUID() : CKPGUID_NONE; };
-        m_OperationParts[0] = runtime->GetInParameter1() ? runtime->GetInParameter1()->GetGUID() : CKPGUID_NONE;
-        m_OperationParts[1] = runtime->GetInParameter2() ? runtime->GetInParameter2()->GetGUID() : CKPGUID_NONE;
-        m_OperationParts[2] = guidOf(runtime->GetOutParameter());
-        m_OperationParts[3] = runtime->GetOperationGuid();
-    }
+    const auto info = ElementInfo(selection.script, selection.items.front());
+    const auto *object = EditorClient::Find(info, "object"), *owner = EditorClient::Find(info, "owner"),
+               *signature = EditorClient::Find(info, "signature");
+    if (info.status != EDITOR_OK || !object || !owner || !signature || signature->integers.size() != 4)
+        return;
+    m_Doc.creation = AuthoringArguments(selection.script, owner->object.object);
+    if (m_Doc.creation.empty())
+        return;
+    m_Doc.modifyOperation = object->object;
+    std::copy_n(signature->integers.begin(), 4, m_OperationParts);
     m_Doc.openOperationPicker = true;
 }
 
 // Modify Parameter Operation (ReplaceParameterOperation): one undo step; the
 // links that did not fit the new types are logged.
-void SchematicCanvas::ReplaceOperation(CK_ID script, CK_ID operationId, const OperationSignature &signature) {
-    int dropped = 0;
-    const EditResult result = ReplaceParameterOperation(*m_State.document, script, operationId, signature, &dropped);
-    if (!result.ok) {
-        Report(result, "Modify Parameter Operation");
-        return;
-    }
-    if (dropped > 0)
-        m_State.Log(LogLevel::Info, "Modify Parameter Operation: " + std::to_string(dropped) +
-                                        " link(s) did not fit the new types");
-}
 
 } // namespace vdev
 
 namespace vdev {
 
-void SchematicCanvas::ConvertToShortcutSource(CK_ID source, const std::vector<CK_ID> &scripts) {
-    if (!m_State.HasDocument()) return;
-    const EditResult result = scripts.empty() ? ShortcutizeLocalsInAllScripts(*m_State.document, source)
-                                              : ShortcutizeLocalsInScripts(*m_State.document, scripts, source);
-    if (!result.ok) {
-        m_State.Log(LogLevel::Info, "Convert to Shortcut Source: no other local with the same name, type and value");
+void SchematicCanvas::ConvertToShortcutSource(ObjectRef source, const std::vector<CK_ID> &scripts) {
+    if (!source)
         return;
-    }
-    m_State.Log(LogLevel::Info, "Convert to Shortcut Source: " + AnsiToUtf8(result.message) + " changed");
+    const auto refs = ScriptReferences(scripts);
+    if (refs.size() != scripts.size())
+        return;
+    Execute("schematic.shortcutize-locals", {ObjectArgument("source", source), ObjectsArgument("scripts", refs)});
 }
 
-void SchematicCanvas::BeginPickShortcutSource(CK_ID from) {
+void SchematicCanvas::BeginPickShortcutSource(ObjectRef from) {
     m_Doc.pickShortcutFrom = from;
     m_State.Log(LogLevel::Info, "Set Shortcut Source: click the new source (Esc cancels)");
 }
 
-void SchematicCanvas::RetargetAllShortcuts(CK_ID from, CK_ID to) {
-    // All or nothing: a Script refusing the new source leaves every Script as it was.
-    const EditResult result = RetargetShortcutsInAllScripts(*m_State.document, from, to);
-    if (!result.ok && !result.Unchanged())
-        m_State.Log(LogLevel::Warning, "Set Shortcut Source refused: " + AnsiToUtf8(result.message));
+void SchematicCanvas::RetargetAllShortcuts(ObjectRef from, ObjectRef to) {
+    Execute("schematic.retarget-shortcuts", {ObjectArgument("source", from), ObjectArgument("destination", to)});
 }
 
 // ---------------------------------------------------------------- Find
@@ -2686,7 +2689,7 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
         auto &module = *static_cast<Data *>(data);
         const auto target = request->values[0].object;
         if (!module.state.document->Resolve(target, CKCID_PARAMETER)) return EDITOR_INVALID;
-        module.Canvas(request->scope.view)->GoToParameter(target.object);
+        module.Canvas(request->scope.view)->GoToParameter(target);
         return EDITOR_OK;
     };
     EditorModuleDesc module{};

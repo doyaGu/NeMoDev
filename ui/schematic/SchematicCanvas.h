@@ -13,7 +13,8 @@
 #include "core/level/LevelTree.h"
 #include "core/catalog/ParameterCatalog.h"
 #include "core/graph/TopologyCommands.h"
-#include "ui/controls/ParameterBox.h"
+#include "ui/schematic/SchematicParameterDialog.h"
+#include "features/resources/BuildingBlockData.h"
 #include "ui/controls/ValueEditor.h"
 #include "core/schematic/SchematicModel.h"
 #include "ui/schematic/SchematicRenderer.h"
@@ -61,7 +62,7 @@ public:
     }
     void ShowMessageExplorer();
     // Shows a parameter where the Schematic displays it (Parameter Debugger "Go to source").
-    void GoToParameter(CK_ID parameter) { GoToShortcutSource(parameter); }
+    void GoToParameter(ObjectRef parameter) { GoToShortcutSource(parameter); }
     // A file dropped at a screen point (EditorApp::DropFiles); false when unused.
     bool DropFile(const std::wstring &path, const std::string &ansiPath, const ImVec2 &screen);
     // Zoom of one Script body, applied when its view exists (--zoom-script).
@@ -255,7 +256,7 @@ private:
     void Click(const Hit &hit);
     void DoubleClick(const Hit &hit);
     // Link endpoint named by a hit: pins, Start, local parameters, shortcuts.
-    CK_ID SelectedGraph() const;
+    CK_ID SelectedGraph();
     bool EndpointOf(const Hit &hit, LinkEndpoint &endpoint, bool &behaviorLink, Point &position) const;
     ElementAddress EndpointAddress(CK_ID script, const LinkEndpoint &);
     void EndLink(const Hit &hit);
@@ -273,20 +274,19 @@ private:
     void Report(const EditResult &result, const char *what);
     void RenameDialog();
     void DelayDialog();
+    void OpenLinkDelay(CK_ID script, const ElementRef &);
     void LocalParameterDialog();
     void OperationDialog();
     // Dev's Edit Parameters (Dev.exe sub_582930: a Building Block's or a
     // parameter operation's inputs) and Edit Parameter (sub_589D50: a pin,
     // a local or an output: its name, its type, its value).
     void ParametersDialog();
-    void ValueDialog();
     void PriorityDialog();
-    void InvalidLinksDialog();
     void ConfirmGraphDeletion();
-    bool m_InvalidLinksAnswered = false, m_InvalidLinksAccepted = false;
     void BlockMenus();
     // parameter: the pin (CKParameterIn or Out), the local or the output edited.
-    void OpenValueDialog(CK_ID script, CKObject *parameter);
+    void OpenValueDialog(CK_ID script, ObjectRef parameter);
+    void OpenParameterEditor(ObjectRef script, ObjectRef object, unsigned mode);
     void InsertBlockAt(const CKGUID &guid, CK_ID script, const Point &local);
     void BeginCopyDrag();
     void EndCopyDrag(const Point &world);
@@ -299,7 +299,7 @@ private:
     void BeginDrawGraph();
     void EndDrawGraph(ScriptView &view, const Rect &local);
     void AddThisAt(CK_ID script, const Point &local);
-    void GoToShortcutSource(CK_ID source);
+    void GoToShortcutSource(ObjectRef source);
     void OpenHtmlHelp(CK_ID behavior);
     void SortScripts(ScriptSort sort);
     void OpenQuickAdd(CK_ID script, const Point &local);
@@ -322,7 +322,7 @@ private:
     void OpenModifyOperation();
     // Shortcut sources, in every Script of the composition, as one undo step.
     // In every Script, or (scripts given) in those only.
-    void ConvertToShortcutSource(CK_ID source, const std::vector<CK_ID> &scripts = {});
+    void ConvertToShortcutSource(ObjectRef source, const std::vector<CK_ID> &scripts = {});
     // .nms behavior files (Dev Save As... Alt+S, Import Behavior Graph).
     void SaveSelectionAsNms();          // selected behaviors, else the current Script
     void FindDialog();
@@ -333,8 +333,9 @@ private:
     void ImportBehaviorFile(CK_ID script, const Point &local);
     void ConfirmScriptDeletion();
     // Dev "Replacing BBs and BGs" (SchematicMenus.cpp).
-    void OpenReplaceBlock(CK_ID script, CK_ID behavior, const CKGUID &prototype);
+    void OpenReplaceBlock(ObjectRef script, ObjectRef behavior, const CKGUID &prototype);
     void ReplaceBlockDialog();
+    bool LoadReplacements(ObjectRef);
     // Script Debugger: breakpoints of the selection (F9), their conditions
     // (Shift+F9), Execute Script(s) (Alt+X).
     void ToggleBreakpointOfSelection();
@@ -372,7 +373,7 @@ private:
     const EditorHost *m_EditorHost = nullptr;
     std::vector<EditorField> m_InvalidRows;
     uint64_t m_InvalidRevision = 0;
-    enum class GraphFollow { None, Created, ClearSelection, Geometry };
+    enum class GraphFollow { None, Created, ClearSelection, Geometry, Comment, Block, FileCreated, FileReplaced };
     struct GraphCommand {
         EditorOperation operation; DocumentToken document; ObjectRef script, owner; GraphFollow follow;
         std::vector<ElementAddress> selection;
@@ -380,6 +381,14 @@ private:
     };
     std::vector<GraphCommand> m_GraphCommands;
     EditorResponse GraphState(uint32_t script, uint32_t object = 0);
+    EditorResponse ObjectInfo(CK_ID script, CK_ID object);
+    EditorResponse ElementInfo(CK_ID script, const ElementRef &);
+    std::vector<EditorField> AuthoringArguments(CK_ID script, CK_ID owner, const Point &at = {});
+    void ExecuteAuthoring(const char *, std::vector<EditorField>, GraphFollow = GraphFollow::None);
+    void LoadParameterTypes();
+    void RememberBlocks(const std::vector<uint64_t> &);
+    std::vector<uint64_t> RecentBlocks();
+    BuildingBlockData m_BlockCatalog;
     std::vector<ObjectRef> ScriptReferences(const std::vector<uint32_t> &) const;
     void Execute(const char *, const std::vector<EditorValue> & = {}, GraphFollow = GraphFollow::None,
                  ObjectRef script = {}, ObjectRef owner = {});
@@ -387,14 +396,12 @@ private:
                       std::vector<EditorField> extra = {}, GraphFollow follow = GraphFollow::None);
     void CompleteGraph(const EditorResponse &, const GraphCommand &);
     void PollGraphCommands();
-    void BeginPickShortcutSource(CK_ID from);
-    void RetargetAllShortcuts(CK_ID from, CK_ID to);
-    void ReplaceOperation(CK_ID script, CK_ID operation, const OperationSignature &signature);
+    void BeginPickShortcutSource(ObjectRef from);
+    void RetargetAllShortcuts(ObjectRef from, ObjectRef to);
     // Dev Shift+Q / Ctrl+Q / Alt+Q: initial conditions of the selected (else current) Scripts.
     void InitialConditionsOfScripts(int action);
-    void SettingsDialog();
     // The selected variable Building Block (Construct), or 0.
-    CK_ID SelectedVariableBlock(PinKind kind) const;
+    CK_ID SelectedVariableBlock(PinKind kind);
     // Dev P: links of the selection switch between direct (no control point) and best path.
     void UpdateLinkPaths();
 
@@ -442,7 +449,7 @@ private:
         bool openBreakpointList = false;
         std::vector<Debugger::Breakpoint> listBreakpoints;
         int listPick = -1;
-        CK_ID pickShortcutFrom = 0; // Set Shortcut Source: the next click picks the new source
+        ObjectRef pickShortcutFrom{}; // Set Shortcut Source: the next click picks the new source
         // Drags and gestures.
         Hit press;
         CK_ID zoomScript = 0;   // Zoom Mode drag
@@ -471,64 +478,48 @@ private:
         Rect copyBounds;
         // Menus and dialogs: their targets and open requests.
         Hit menuHit;
-        // Edit Parameter changed a type and links no longer fit: OK deletes
-        // them, Cancel undoes the edit (Dev's "Invalid Parameter Link").
-        std::vector<ElementRef> invalidLinks;
-        CK_ID invalidLinksScript = 0;
         // Ctrl + right-click on a local with Script headers selected: those
         // Scripts (Convert to Shortcut Source in them only).
         std::vector<CK_ID> menuScripts;
         bool openCommentEditor = false;
-        CK_ID commentScript = 0;
-        ElementRef commentRef;
+        ElementAddress commentAddress;
         CK_ID dialogScript = 0; // target Script, graph and Script-local position
-        CK_ID dialogGraph = 0;
-        Point dialogPosition;
+        std::vector<EditorField> creation;
         bool openReplaceBlock = false;
         bool openReplaceGraph = false;
-        CK_ID replaceScript = 0;
-        CK_ID replaceBehavior = 0; // the Building Block menus replace it (Shift+middle/right click)
+        ObjectRef replaceScript{};
+        ObjectRef replaceBehavior{}; // the Building Block menus replace it (Shift+middle/right click)
         EditorOperation replaceOperation = 0;
         CKGUID replacePrototype = CKGUID();
-        CK_ID replaceSource = 0;
+        ObjectRef replaceSource{};
+        EditorResponse replacement;
+        std::vector<EditorField> replacementGraphs;
         bool openOperationChoice = false;
         std::vector<EditorField> choices;
         bool openDeleteScript = false;
         bool openDeleteGraphs = false;
         std::vector<ObjectRef> deleteScripts;
-        CK_ID modifyOperation = 0; // the Add Parameter Operation dialog replaces this operation
-        bool openSettings = false;
-        CK_ID settingsBehavior = 0;
-        std::vector<BehaviorSetting> settings;
-        std::map<int, std::string> settingsTexts; // edited texts by slot
-        std::vector<int> settingsSlots;            // the parameter box's rows' slots
+        ObjectRef modifyOperation{}; // the Add Parameter Operation dialog replaces this operation
         bool openCkProperties = false;
-        CK_ID ckPropertiesObject = 0;
+        ObjectRef ckPropertiesObject{};
         bool openShortcutAnalysis = false;
-        CK_ID shortcutSource = 0;
-        std::vector<SearchResult> shortcutResults;
+        ObjectRef shortcutSource{};
+        EditorResponse shortcutAnalysis;
         int shortcutPick = -1;
         bool openQuickAdd = false;
-        CK_ID quickAddScript = 0;
-        Point quickAddLocal;
         bool openScriptColor = false;
         std::vector<CK_ID> colorScripts;
         bool openRename = false;
         CK_ID renameObject = 0;
         bool openDelay = false;
-        CK_ID delayLink = 0;
+        ObjectRef delayTarget{};
         bool openLocalPicker = false;
         bool openOperationPicker = false;
-        CK_ID pinOwner = 0;
-        bool openParameters = false;
-        CK_ID parametersObject = 0; // behavior or operation
-        bool openValue = false;
-        CK_ID valueParameter = 0;
-        CK_ID valueHolder = 0;
         bool openBlockMenu = false;
         bool openRecentMenu = false;
         CK_ID blockMenuScript = 0;
         Point blockMenuLocal;
+        std::vector<EditorField> blockCreation, quickCreation;
     };
 
     EditorState &m_State;
@@ -610,34 +601,28 @@ private:
     EditorView m_RenameOwner = 0;
     std::string m_PickerFilter;
     std::string m_LocalName;
-    // The type dialog adds a local (graph = m_Doc.dialogGraph) or a graph pin.
+    // The type dialog adds a local or a graph pin using captured creation arguments.
     enum class TypePurpose { Local, GraphInput, GraphOutput };
     TypePurpose m_TypePurpose = TypePurpose::Local;
-    std::vector<ParameterTypeEntry> m_Types;
+    struct TypeChoice {
+        uint64_t type;
+        std::string name;
+    };
+    std::vector<TypeChoice> m_Types;
     int m_TypeIndex = -1;
-    std::vector<OperationEntry> m_Operations;
     // Add / Modify Parameter Operation: the parts (input 1, input 2, output,
     // operation; Dev keeps them between openings), their locks, their lists.
-    CKGUID m_OperationParts[4] = {CKPGUID_NONE, CKPGUID_NONE, CKPGUID_NONE, CKGUID()};
+    uint64_t m_OperationParts[4] = {(uint64_t(CKPGUID_NONE.d1) << 32) | CKPGUID_NONE.d2,
+                                    (uint64_t(CKPGUID_NONE.d1) << 32) | CKPGUID_NONE.d2,
+                                    (uint64_t(CKPGUID_NONE.d1) << 32) | CKPGUID_NONE.d2, 0};
     bool m_OperationLocks[4] = {false, false, false, false};
-    std::vector<CKGUID> m_OperationChoices[4];
+    std::vector<TypeChoice> m_OperationChoices[4];
+    std::string m_OperationNames[4];
     bool m_OperationValid = false;
     bool m_OperationChoicesDirty = true;
     void RefreshOperationChoices();
-    // Parameters / value / priority dialogs: Dev's parameter box, the
-    // dialog's title, Apply (a Building Block's, Dev's mode 4); Edit
-    // Parameter's parameter, its value holder (0: the value is only shown),
-    // its name and type as typed / chosen and whether they may change.
-    ParameterBox m_ParameterBox{m_State};
-    std::string m_ParametersTitle;
-    bool m_ParametersApply = false;
-    ObjectRef m_ValueReference{};
-    PropertyBinding m_ValueNameProperty;
-    EditorValueEditorDesc m_ValueNameEditor{};
-    std::string m_ValueName;
-    CKGUID m_ValueType;
-    bool m_ValueNameEditable = false;
-    bool m_ValueTypeEditable = false;
+    // Copied parameter fields and the one pending dialog command.
+    std::unique_ptr<SchematicParameterDialog> m_ParameterDialog;
     bool m_OpenPriority = false;
     std::vector<ObjectRef> m_PriorityTargets;
     // Building Block menus (middle click: categories; Shift+right click: recent)

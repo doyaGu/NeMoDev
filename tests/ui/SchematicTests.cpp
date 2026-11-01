@@ -1019,6 +1019,99 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK(state.document->Dirty() == dirty);
     };
 
+    t = IM_REGISTER_TEST(engine, "schematic", "create_and_edit_local_through_commands");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, SchematicRef().c_str());
+        auto &state = App().State();
+        const auto point = EmptySchematicPoint();
+        IM_CHECK(point.has_value());
+        const auto steps = state.History().UndoCount();
+        const auto input = [&](const char *path, const char *text) {
+            ctx->ItemClick(path);
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+            ctx->KeyChars(text);
+            ctx->Yield(2);
+        };
+        OnMainThread(ctx, [&] { App().Canvas().OpenLocalParameterPicker(point->first, ::Point(40, 80)); });
+        ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, "//Add Parameter"));
+        ctx->SetRef("//Add Parameter");
+        input("Name", "UI command local");
+        input("##filter", "Integer");
+        ctx->ItemClick("**/Integer");
+        ctx->ItemClick("Add");
+        ctx->Yield(4);
+        CK_ID parameter = 0;
+        vdev::ElementRef element;
+        OnMainThread(ctx, [&] {
+            vdev::SchematicModel model;
+            model.Build(*state.document->Session(point->first), state.document->Context(), {}, true);
+            for (const auto &p : model.params)
+                if (p.name == "UI command local") {
+                    parameter = p.parameter;
+                    element = p.ref;
+                    break;
+                }
+        });
+        IM_CHECK(parameter != 0);
+        IM_CHECK_EQ(state.History().UndoCount(), steps + 1);
+        const auto value = [&] {
+            return Read<int>(ctx, [&] {
+                int n = -1;
+                Object<CKParameter>(parameter)->GetValue(&n, FALSE);
+                return n;
+            });
+        };
+        OnMainThread(ctx, [&] { App().Canvas().EditElement(point->first, element); });
+        ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, "//###EditParameter"));
+        ctx->SetRef("//###EditParameter");
+        input("##name", "UI renamed local");
+        input("**/##number", "42");
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(value(), 0);
+        IM_CHECK_EQ(state.History().UndoCount(), steps + 1);
+        IM_CHECK(Read<std::string>(ctx, [&] { return Object<CKParameter>(parameter)->GetName(); }) ==
+                 "UI command local");
+        OnMainThread(ctx, [&] { App().Canvas().EditElement(point->first, element); });
+        ctx->Yield(3);
+        ctx->SetRef("//###EditParameter");
+        ctx->ItemClick("##type/##combo");
+        ctx->Yield(2);
+        ctx->KeyChars("String");
+        ctx->Yield(3);
+        ctx->KeyPress(ImGuiKey_Enter);
+        ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, "//###EditParameter"));
+        IM_CHECK(Read<bool>(ctx, [&] { return state.workspace->Application().HasEdits(); }));
+        ctx->ItemClick("**/##expand");
+        ctx->Yield(3);
+        IM_CHECK(ctx->ItemInfo("**/##string").RectFull.GetHeight() > 100);
+        input("**/##string", "Cancelled multiline text");
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(Read<CKGUID>(ctx, [&] { return Object<CKParameter>(parameter)->GetGUID(); }) == CKPGUID_INT);
+        IM_CHECK_EQ(state.History().UndoCount(), steps + 1);
+        OnMainThread(ctx, [&] { App().Canvas().EditElement(point->first, element); });
+        ctx->Yield(3);
+        ctx->SetRef("//###EditParameter");
+        input("##name", "UI renamed local");
+        input("**/##number", "42");
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK_EQ(value(), 42);
+        IM_CHECK_EQ(state.History().UndoCount(), steps + 2);
+        IM_CHECK(Read<std::string>(ctx, [&] { return Object<CKParameter>(parameter)->GetName(); }) ==
+                 "UI renamed local");
+        Undo(ctx);
+        IM_CHECK_EQ(value(), 0);
+        IM_CHECK(Read<std::string>(ctx, [&] { return Object<CKParameter>(parameter)->GetName(); }) ==
+                 "UI command local");
+        Undo(ctx);
+        IM_CHECK_EQ(state.History().UndoCount(), steps);
+    };
 }
 
 } // namespace vdevuitest

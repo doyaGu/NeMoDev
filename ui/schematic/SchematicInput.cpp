@@ -136,22 +136,20 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 if (picked) PickConditionParameter(picked);
                 else m_State.Log(LogLevel::Info, "Pick a parameter: a local parameter, a shortcut or a parameter pin");
             } else if (m_Doc.pickShortcutFrom) {
-                // Set Shortcut Source: a local, a shortcut or an output picked here.
-                CK_ID picked = 0;
-                if (hit.view && (hit.ref.kind == ElementKind::LocalParam || hit.ref.kind == ElementKind::Shortcut)) {
-                    for (const auto &param : hit.view->model.params)
-                        if (param.ref == hit.ref) picked = param.parameter;
-                } else if (hit.view && hit.ref.kind == ElementKind::Pin && hit.ref.pin == PinKind::ParamOut) {
-                    CKObject *owner = m_State.document->Context()->GetObject(hit.ref.object);
-                    CKParameterOut *out = nullptr;
-                    if (CKBehavior *behavior = CKBehavior::Cast(owner)) out = behavior->GetOutputParameter(hit.ref.index);
-                    if (CKParameterOperation *operation = CKParameterOperation::Cast(owner)) out = operation->GetOutParameter();
-                    picked = out ? out->GetID() : 0;
+                ObjectRef picked{};
+                if (hit.view && (hit.ref.kind == ElementKind::LocalParam || hit.ref.kind == ElementKind::Shortcut ||
+                                 (hit.ref.kind == ElementKind::Pin && hit.ref.pin == PinKind::ParamOut))) {
+                    const auto info = ElementInfo(hit.view->id, hit.ref);
+                    if (info.status == EDITOR_OK)
+                        if (const auto *object = EditorClient::Find(info, "object"))
+                            picked = object->object;
                 }
-                const CK_ID from = m_Doc.pickShortcutFrom;
-                m_Doc.pickShortcutFrom = 0;
-                if (picked) RetargetAllShortcuts(from, picked);
-                else m_State.Log(LogLevel::Info, "Set Shortcut Source: pick a local parameter, a shortcut or an output");
+                const auto from = m_Doc.pickShortcutFrom;
+                m_Doc.pickShortcutFrom = {};
+                if (picked)
+                    RetargetAllShortcuts(from, picked);
+                else
+                    m_State.Log(LogLevel::Info, "Set Shortcut Source: pick a local parameter, a shortcut or an output");
             } else if (io.KeyCtrl && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hit.view && !hit.onHeader) {
                 // Dev: Ctrl+double-click adds a Building Block by name.
                 OpenQuickAdd(hit.view->id, hit.local);
@@ -196,7 +194,11 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                     m_Doc.blockMenuScript = m_Doc.press.view->id;
                     m_Doc.blockMenuLocal = m_Doc.press.local;
                     // Dev: Shift+middle click on a Building Block replaces it.
-                    m_Doc.replaceBehavior = io.KeyShift && IsBuildingBlockAt(m_Doc.press) ? m_Doc.press.ref.object : 0;
+                    m_Doc.replaceBehavior =
+                        io.KeyShift && IsBuildingBlockAt(m_Doc.press) ? m_PressAddress.object : ObjectRef{};
+                    m_Doc.replaceScript = m_Doc.press.view->identity;
+                    m_Doc.blockCreation = AuthoringArguments(
+                        m_Doc.blockMenuScript, GraphAt(*m_Doc.press.view, m_Doc.blockMenuLocal), m_Doc.blockMenuLocal);
                     m_Doc.openBlockMenu = true;
                 }
                 break;
@@ -219,7 +221,10 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 m_Doc.blockMenuScript = m_Doc.press.view->id;
                 m_Doc.blockMenuLocal = m_Doc.press.local;
                 // Dev: Shift+right click on a Building Block replaces it by a recent one.
-                m_Doc.replaceBehavior = IsBuildingBlockAt(m_Doc.press) ? m_Doc.press.ref.object : 0;
+                m_Doc.replaceBehavior = IsBuildingBlockAt(m_Doc.press) ? m_PressAddress.object : ObjectRef{};
+                m_Doc.replaceScript = m_Doc.press.view->identity;
+                m_Doc.blockCreation = AuthoringArguments(
+                    m_Doc.blockMenuScript, GraphAt(*m_Doc.press.view, m_Doc.blockMenuLocal), m_Doc.blockMenuLocal);
                 m_Doc.openRecentMenu = true;
             } else {
                 m_Doc.menuHit = m_Doc.press;
@@ -517,7 +522,9 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     }
     AutoScroll(canvasMin, canvasMax);
 
-    if (!focused || m_Tool != Tool::Idle || io.WantTextInput) return;
+    if (!focused || m_Tool != Tool::Idle || io.WantTextInput ||
+        ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+        return;
     // Schematic shortcuts (UI reference section 8.4); library choices are noted.
     if (ImGui::IsKeyReleased(ImGuiKey_Space)) {
         // Dev Spacebar: display of selected locals, iconify comments, open/close graphs and Scripts.
@@ -525,7 +532,8 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         m_SpacePanned = false;
     }
     if (m_DrawGraphMode && ImGui::IsKeyPressed(ImGuiKey_Escape)) m_DrawGraphMode = false;
-    if (m_Doc.pickShortcutFrom && ImGui::IsKeyPressed(ImGuiKey_Escape)) m_Doc.pickShortcutFrom = 0;
+    if (m_Doc.pickShortcutFrom && ImGui::IsKeyPressed(ImGuiKey_Escape))
+        m_Doc.pickShortcutFrom = {};
     if (m_Doc.pickBreakpoint && ImGui::IsKeyPressed(ImGuiKey_Escape)) m_Doc.pickBreakpoint = false;
     if (m_Doc.pickConditionRow >= 0 && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         m_Doc.pickConditionRow = -1;
@@ -588,31 +596,14 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 ImGui::SetKeyOwner(ImGuiKey_F1, ImGui::GetCurrentWindow()->ID, ImGuiInputFlags_LockThisFrame);
             }
             if (ImGui::IsKeyPressed(ImGuiKey_K) &&
-                (item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut)) {
-                m_Doc.ckPropertiesObject = item.object;
-                m_Doc.openCkProperties = true;
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_K) && item.kind == ElementKind::Pin) {
-                // A parameter input/output or the Target of a behavior, or a
-                // parameter operation's inputs and output.
-                CKObject *ownerObject = m_State.document->Context()->GetObject(item.object);
-                CKBehavior *owner = CKBehavior::Cast(ownerObject);
-                CKParameterOperation *operation = CKParameterOperation::Cast(ownerObject);
-                CKObject *pin = owner ? (item.pin == PinKind::ParamIn    ? static_cast<CKObject *>(owner->GetInputParameter(item.index))
-                                         : item.pin == PinKind::ParamOut ? static_cast<CKObject *>(owner->GetOutputParameter(item.index))
-                                         : item.pin == PinKind::Target   ? static_cast<CKObject *>(owner->GetTargetParameter())
-                                                                         : nullptr)
-                                : operation ? (item.pin == PinKind::ParamIn
-                                                   ? (item.index == 0   ? static_cast<CKObject *>(operation->GetInParameter1())
-                                                      : item.index == 1 ? static_cast<CKObject *>(operation->GetInParameter2())
-                                                                        : nullptr)
-                                               : item.pin == PinKind::ParamOut ? static_cast<CKObject *>(operation->GetOutParameter())
-                                                                               : nullptr)
-                                            : nullptr;
-                if (pin) {
-                    m_Doc.ckPropertiesObject = pin->GetID();
-                    m_Doc.openCkProperties = true;
-                }
+                (item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut ||
+                 item.kind == ElementKind::Pin)) {
+                const auto info = ElementInfo(selection.script, item);
+                if (info.status == EDITOR_OK)
+                    if (const auto *object = EditorClient::Find(info, "object")) {
+                        m_Doc.ckPropertiesObject = object->object;
+                        m_Doc.openCkProperties = true;
+                    }
             }
         }
     }
@@ -632,12 +623,13 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                     OpenOperationChoice(OperationChoice::ReplaceConversion, view->id, link.start, link.end, link.ref);
             for (const auto &link : view->model.links)
                 if (link.ref == item && link.behaviorLink) {
-                    m_Doc.dialogScript = view->id;
-                    m_Doc.delayLink = link.ref.object;
-                    m_Doc.openDelay = true;
+                    OpenLinkDelay(view->id, link.ref);
                 }
         } else if (view && (item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut)) {
-            OpenValueDialog(view->id, m_State.document->Context()->GetObject(item.object));
+            const auto info = ElementInfo(view->id, item);
+            if (info.status == EDITOR_OK)
+                if (const auto *object = EditorClient::Find(info, "object"))
+                    OpenValueDialog(view->id, object->object);
         } else {
             OpenParametersDialog();
         }
@@ -684,9 +676,11 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
             if (ScriptView *view = ViewFor(selection.script)) {
                 for (const auto &comment : view->model.comments) {
                     if (comment.ref != selection.items[0]) continue;
-                    m_Doc.commentScript = selection.script;
-                    m_Doc.commentRef = comment.ref;
-                    m_Doc.openCommentEditor = true;
+                    Hit selected;
+                    selected.view = view;
+                    selected.ref = comment.ref;
+                    RetainHit(selected, m_Doc.commentAddress);
+                    m_Doc.openCommentEditor = bool(m_Doc.commentAddress);
                 }
             }
         }

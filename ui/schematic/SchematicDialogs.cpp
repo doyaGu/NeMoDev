@@ -14,10 +14,6 @@
 #include "imgui.h"
 #include "misc/cpp/imgui_stdlib.h"
 
-#include "core/graph/RuntimeGraph.h"
-#include "core/schematic/SchematicEdits.h"
-#include "core/graph/ValueCommands.h"
-#include "core/runtime/TextEncoding.h"
 
 namespace vdev {
 
@@ -33,11 +29,12 @@ void SchematicCanvas::ClosePropertyInput() {
 void SchematicCanvas::CommentEditor() {
     if (m_Doc.openCommentEditor) {
         m_Doc.openCommentEditor = false;
-        const auto &ref = m_Doc.commentRef;
-        if (!m_State.HasDocument() ||
-            !BeginPropertyInput("schematic.comment", m_State.document->Reference(m_Doc.commentScript),
-                                {{"owner", EDITOR_OBJECT, m_State.document->Reference(ref.owner)},
-                                 {"index", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ref.index)}}))
+        const auto &address = m_Doc.commentAddress;
+        if (!address || !BeginPropertyInput("schematic.comment", address.script,
+                                            {{"owner", EDITOR_OBJECT, address.owner},
+                                             {"index", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(address.element.index)},
+                                             {"revision", EDITOR_INTEGER_VALUE, {}, {}, address.revision},
+                                             {"topology", EDITOR_INTEGER_VALUE, {}, {}, address.topology}}))
             return;
         ImGui::OpenPopup("Edit Comment");
     }
@@ -60,12 +57,13 @@ void SchematicCanvas::CloseValueInputs() {
     ClosePropertyInput();
     if (m_State.workspace) m_State.workspace->CloseOwner(m_PropertyOwner);
     m_PriorityTargets.clear();
-    m_ParameterBox.Clear();
+    if (m_ParameterDialog)
+        m_ParameterDialog->Close();
     if (m_State.workspace) {
         m_State.workspace->Finish(m_RenameEdit, false);
         m_State.workspace->CloseOwner(m_RenameOwner);
     }
-    m_RenameTarget = {}; m_ValueReference = {};
+    m_RenameTarget = {};
 }
 void SchematicCanvas::RenameDialog() {
     if (m_Doc.openRename) {
@@ -85,11 +83,21 @@ void SchematicCanvas::RenameDialog() {
     ImGui::EndPopup();
 }
 
+void SchematicCanvas::OpenLinkDelay(CK_ID script, const ElementRef &ref) {
+    ElementAddress address;
+    if (auto *view = ViewFor(script)) {
+        Hit hit;
+        hit.view = view;
+        hit.ref = ref;
+        RetainHit(hit, address);
+    }
+    m_Doc.delayTarget = address.object;
+    m_Doc.openDelay = bool(m_Doc.delayTarget);
+}
 void SchematicCanvas::DelayDialog() {
     if (m_Doc.openDelay) {
         m_Doc.openDelay = false;
-        if (!m_State.HasDocument() ||
-            !BeginPropertyInput("setup.behavior-link.delay", m_State.document->Reference(m_Doc.delayLink)))
+        if (!m_Doc.delayTarget || !BeginPropertyInput("setup.behavior-link.delay", m_Doc.delayTarget))
             return;
         ImGui::OpenPopup("Link Delay");
     }
@@ -136,7 +144,7 @@ void SchematicCanvas::LocalParameterDialog() {
     if (ImGui::BeginListBox("##types", ImVec2(360, 260))) {
         TypeAhead typeAhead;
         for (int i = 0; i < static_cast<int>(m_Types.size()); ++i) {
-            const std::string name = AnsiToUtf8(m_Types[i].name);
+            const std::string &name = m_Types[i].name;
             if (!MatchesFilter(name, m_PickerFilter)) continue;
             if (typeAhead.Selectable(name.c_str(), i == m_TypeIndex)) m_TypeIndex = i;
         }
@@ -145,23 +153,20 @@ void SchematicCanvas::LocalParameterDialog() {
     const bool ready = m_TypeIndex >= 0 && m_TypeIndex < static_cast<int>(m_Types.size()) && !m_LocalName.empty();
     ImGui::BeginDisabled(!ready);
     if (ImGui::Button("Add", ImVec2(100, 0))) {
+        auto fields = m_Doc.creation;
+        fields.push_back({"type", EDITOR_INTEGER_VALUE, {}, {}, m_Types[m_TypeIndex].type});
+        fields.push_back({"name", EDITOR_TEXT_VALUE, {}, m_LocalName});
         if (m_TypePurpose == TypePurpose::Local) {
-            Report(AddLocalParameter(*m_State.document, m_Doc.dialogScript, m_Doc.dialogGraph,
-                                     Utf8ToAnsi(m_LocalName), m_Types[m_TypeIndex].guid, m_Doc.dialogPosition),
-                   "Add local parameter");
+            ExecuteAuthoring("schematic.add-local", std::move(fields));
             m_Navigation.options.showLocalParams = true;
         } else {
-            const bool input = m_TypePurpose == TypePurpose::GraphInput;
-            const PinKind kind = input ? PinKind::ParamIn : PinKind::ParamOut;
-            CKBehavior *owner = CKBehavior::Cast(m_State.document->Context()->GetObject(m_Doc.pinOwner));
-            if (AcceptsVariablePin(owner, kind))
-                Report(AddBuildingBlockPin(*m_State.document, m_Doc.dialogScript, m_Doc.pinOwner, kind,
-                                           Utf8ToAnsi(m_LocalName), m_Types[m_TypeIndex].guid),
-                       input ? "Add input parameter" : "Add output parameter");
-            else
-                Report(AddGraphPin(*m_State.document, m_Doc.dialogScript, m_Doc.pinOwner, kind,
-                                   Utf8ToAnsi(m_LocalName), m_Types[m_TypeIndex].guid),
-                       input ? "Add input parameter" : "Add output parameter");
+            fields.push_back(
+                {"kind",
+                 EDITOR_INTEGER_VALUE,
+                 {},
+                 {},
+                 uint64_t(m_TypePurpose == TypePurpose::GraphInput ? PinKind::ParamIn : PinKind::ParamOut)});
+            ExecuteAuthoring("schematic.add-pin", std::move(fields));
         }
         ImGui::CloseCurrentPopup();
     }
@@ -179,38 +184,31 @@ void SchematicCanvas::LocalParameterDialog() {
 // line below tells whether the four make an operation (sub_5977D0: language
 // strings 634 / 635). The parts stay from one opening to the next, as Dev's.
 void SchematicCanvas::RefreshOperationChoices() {
-    CKContext *context = m_State.document->Context();
-    if (m_Types.empty()) m_Types = ListParameterTypes(context);
-    if (m_Operations.empty()) m_Operations = ListParameterOperations(context);
     const bool easy = m_State.preferences.Int("Schematic\\Edit Parameter Operation Mode") != 0;
     if (!easy)
-        for (bool &lock : m_OperationLocks) lock = false;
-    std::vector<CKGUID> types{CKPGUID_NONE};
-    for (const ParameterTypeEntry &type : m_Types) types.push_back(type.guid);
-    std::vector<CKGUID> operations;
-    for (const OperationEntry &operation : m_Operations) operations.push_back(operation.guid);
-    auto distinct = [](const std::vector<OperationSignature> &signatures, int part) {
-        std::vector<CKGUID> values;
-        for (const OperationSignature &signature : signatures) {
-            const CKGUID value = part == 0 ? signature.input1 : part == 1 ? signature.input2
-                                 : part == 2 ? signature.result : signature.operation;
-            if (std::find(values.begin(), values.end(), value) == values.end()) values.push_back(value);
-        }
-        return values;
-    };
-    const CKGUID *parts = m_OperationParts;
-    const bool anyLock = std::any_of(std::begin(m_OperationLocks), std::end(m_OperationLocks), [](bool l) { return l; });
-    for (int part = 0; part < 4; ++part) m_OperationChoices[part] = part < 3 ? types : operations;
-    if (anyLock) {
-        const std::vector<OperationSignature> fitting = AvailableOperationSignatures(
-            context, m_OperationLocks[3] ? &parts[3] : nullptr, m_OperationLocks[2] ? &parts[2] : nullptr,
-            m_OperationLocks[0] ? &parts[0] : nullptr, m_OperationLocks[1] ? &parts[1] : nullptr);
-        for (int part = 0; part < 4; ++part)
-            m_OperationChoices[part] = m_OperationLocks[part] ? std::vector<CKGUID>{parts[part]} : distinct(fitting, part);
-    } else if (!easy) {
-        m_OperationChoices[3] = distinct(AvailableOperationSignatures(context, nullptr, &parts[2], &parts[0], &parts[1]), 3);
-    }
-    m_OperationValid = !AvailableOperationSignatures(context, &parts[3], &parts[2], &parts[0], &parts[1]).empty();
+        for (auto &lock : m_OperationLocks)
+            lock = false;
+    EditorField parts{"parts", EDITOR_INTEGER_LIST}, locks{"locks", EDITOR_INTEGER_LIST};
+    parts.integers.assign(m_OperationParts, m_OperationParts + 4);
+    for (auto lock : m_OperationLocks)
+        locks.integers.push_back(lock);
+    const std::vector<EditorField> fields{parts, locks, {"easy", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(easy)}};
+    const auto values = BorrowEditorFields(fields);
+    const auto result = Client().Query("schematic.operation-choices", {values.data(), values.data() + values.size()});
+    m_OperationValid = result.status == EDITOR_OK && EditorClient::Integer(result, "valid");
+    for (auto &choices : m_OperationChoices)
+        choices.clear();
+    if (const auto *choices = EditorClient::Find(result, "choices"))
+        for (size_t i = 0; i < choices->fields.size() && i < 4; ++i)
+            for (const auto &choice : choices->fields[i].fields) {
+                EditorResponse item;
+                item.fields = choice.fields;
+                m_OperationChoices[i].push_back(
+                    {EditorClient::Integer(item, "type"), EditorClient::Text(item, "name")});
+            }
+    if (const auto *names = EditorClient::Find(result, "names"))
+        for (size_t i = 0; i < names->texts.size() && i < 4; ++i)
+            m_OperationNames[i] = names->texts[i];
     m_OperationChoicesDirty = false;
 }
 
@@ -223,18 +221,7 @@ void SchematicCanvas::OperationDialog() {
     }
     if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
     if (m_OperationChoicesDirty) RefreshOperationChoices();
-    CKContext *context = m_State.document->Context();
-    CKParameterManager *manager = context->GetParameterManager();
     const bool easy = m_State.preferences.Int("Schematic\\Edit Parameter Operation Mode") != 0;
-    auto nameOf = [&](int part, const CKGUID &guid) -> std::string {
-        if (part == 3) {
-            const char *name = manager->OperationGuidToName(guid);
-            return name ? AnsiToUtf8(name) : std::string("None");
-        }
-        if (guid == CKPGUID_NONE) return "None";
-        CKParameterTypeDesc *desc = manager->GetParameterTypeDescription(guid);
-        return desc ? AnsiToUtf8(desc->TypeName.CStr()) : std::string("?");
-    };
     auto row = [&](int part, const char *id) {
         ImGui::PushID(id);
         if (easy) {
@@ -244,11 +231,11 @@ void SchematicCanvas::OperationDialog() {
         }
         ImGui::BeginDisabled(m_OperationLocks[part]);
         ImGui::SetNextItemWidth(220.0f);
-        if (ImGui::BeginCombo("##part", nameOf(part, m_OperationParts[part]).c_str(), ImGuiComboFlags_HeightLarge)) {
+        if (ImGui::BeginCombo("##part", m_OperationNames[part].c_str(), ImGuiComboFlags_HeightLarge)) {
             TypeAhead typeAhead;
-            for (const CKGUID &value : m_OperationChoices[part])
-                if (typeAhead.Selectable(nameOf(part, value).c_str(), value == m_OperationParts[part])) {
-                    m_OperationParts[part] = value;
+            for (const auto &value : m_OperationChoices[part])
+                if (typeAhead.Selectable(value.name.c_str(), value.type == m_OperationParts[part])) {
+                    m_OperationParts[part] = value.type;
                     m_OperationChoicesDirty = true;
                 }
             ImGui::EndCombo();
@@ -270,29 +257,20 @@ void SchematicCanvas::OperationDialog() {
     ImGui::Spacing();
     ImGui::BeginDisabled(!m_OperationValid);
     if (ImGui::Button("OK", ImVec2(100, 0))) {
-        // The inputs in the order the operation takes them (Dev tries both).
-        const CKGUID *parts = m_OperationParts;
-        const bool direct = !AvailableOperationSignatures(context, &parts[3], &parts[2], &parts[0], &parts[1], false).empty();
-        OperationSignature signature;
-        signature.operation = parts[3];
-        signature.result = parts[2];
-        signature.input1 = direct ? parts[0] : parts[1];
-        signature.input2 = direct ? parts[1] : parts[0];
-        if (m_Doc.modifyOperation) {
-            ReplaceOperation(m_Doc.dialogScript, m_Doc.modifyOperation, signature);
-        } else {
-            Report(AddParameterOperation(*m_State.document, m_Doc.dialogScript, m_Doc.dialogGraph,
-                                         signature.operation, signature.result, signature.input1, signature.input2,
-                                         m_Doc.dialogPosition),
-                   "Add parameter operation");
-        }
-        m_Doc.modifyOperation = 0;
+        auto fields = m_Doc.creation;
+        EditorField parts{"parts", EDITOR_INTEGER_LIST};
+        parts.integers.assign(m_OperationParts, m_OperationParts + 4);
+        fields.push_back(std::move(parts));
+        if (m_Doc.modifyOperation)
+            fields.push_back({"operation", EDITOR_OBJECT, m_Doc.modifyOperation});
+        ExecuteAuthoring("schematic.edit-operation", std::move(fields));
+        m_Doc.modifyOperation = {};
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        m_Doc.modifyOperation = 0;
+        m_Doc.modifyOperation = {};
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -301,289 +279,72 @@ void SchematicCanvas::OperationDialog() {
 // Dev's Edit Parameters (Dev.exe sub_582930): OK and Apply write the
 // values changed as one undo step; Cancel leaves them.
 void SchematicCanvas::ParametersDialog() {
-    const char *id = "###EditParameters";
-    if (m_Doc.openParameters) {
-        ImGui::OpenPopup(id);
-        m_Doc.openParameters = false;
-    }
-    const DialogAction action = EditParametersDialog(id, m_ParametersTitle, m_ParameterBox, m_ParametersApply);
-    if (action == DialogAction::Ok || action == DialogAction::Apply) {
-        EditGroup group(*m_State.document, "Edit Parameters");
-        m_ParameterBox.Apply(m_Doc.dialogScript);
-    }
-    if (action == DialogAction::Ok || action == DialogAction::Cancel) m_ParameterBox.Clear();
+    if (!m_ParameterDialog)
+        return;
+    m_ParameterDialog->Draw();
+    const auto message = m_ParameterDialog->TakeMessage();
+    if (!message.empty())
+        m_State.Log(LogLevel::Warning, message);
 }
 
 // Dev's Edit Parameter (Dev.exe sub_589D50, VIDialog margins 10, padding 6,
 // rows 16 high and 5 apart): "Parameter Name :" and the name (right
 // aligned, 165 wide), "Parameter Type :" and the type, then the value's row
 // (or "Parameter Value :" and its text when it cannot be edited here).
-void SchematicCanvas::ValueDialog() {
-    const char *id = "###EditParameter";
-    if (m_Doc.openValue) {
-        ImGui::OpenPopup(id);
-        m_Doc.openValue = false;
-    }
-    if (!ImGui::IsPopupOpen(id)) return;
-    CKContext *context = m_State.document->Context();
-    CKObject *edited = m_State.document->Resolve(m_ValueReference);
-    CKParameterManager *manager = context->GetParameterManager();
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const ImVec2 box = m_ParameterBox.Size(s, false);
-    const float rowsWidth = std::max(265.0f * s, box.x + 2.0f * s);
-    const float width = rowsWidth + 2.0f * 6.0f * s + 20.0f * s;
-    const float X = 16.0f * s, right = width - 16.0f * s, field = 165.0f * s;
-    float y = 11.0f * s;
-    const float nameY = y;
-    y += 21.0f * s;
-    const float typeY = y;
-    y += 21.0f * s;
-    const bool shown = m_Doc.valueHolder == 0;
-    const float valueY = y;
-    if (shown) y += 21.0f * s;
-    const float rowY = y;
-    if (!m_ParameterBox.Empty()) y += box.y + 2.0f * s + 5.0f * s;
-    const float panelBottom = y + 1.0f * s;
-    const ImVec2 client(width, panelBottom + 4.0f * s + 18.0f * s + 5.0f * s);
-    ImVec2 o;
-    if (!vi::BeginDialog(id, "Edit Parameter", client, s, o)) return;
-    vi::Panel(ImVec2(o.x + 10.0f * s, o.y + 5.0f * s), ImVec2(o.x + width - 10.0f * s, o.y + panelBottom), s);
-    auto P = [&](float px, float py) { return ImVec2(o.x + px, o.y + py); };
-    // The name.
-    vi::Text(P(X, nameY + 2.0f * s), P(X + 120.0f * s, nameY + 16.0f * s), "Parameter Name :", true);
-    if (m_ValueNameEditable && m_ValueNameEditor.draw && m_State.workspace) {
-        const auto update = [](void *data, const EditorValue *value, uint32_t count) {
-            std::vector<EditorField> fields;
-            if (!value || count != 1 || value->type != EDITOR_TEXT_VALUE || CopyEditorFields(fields, value, count) != EDITOR_OK) return EDITOR_INVALID;
-            *static_cast<std::string *>(data) = std::move(fields.front().text);
-            return EDITOR_OK;
-        };
-        ImGui::SetCursorScreenPos(P(right - field, nameY));
-        const EditorValue name{EDITOR_TEXT("name"), EDITOR_TEXT_VALUE, {}, EditorText(m_ValueName)};
-        const EditorValueInput input{sizeof(input), 0, EDITOR_TEXT("##name"), name, nullptr, 0, 0, {&m_ValueName, update},
-            EDITOR_VALUE_DIALOG, field, 16 * s};
-        m_State.workspace->Application().DrawValue(m_ValueNameEditor, input);
-    }
-    else vi::Text(P(right - field, nameY + 3.0f * s), P(right, nameY + 16.0f * s), m_ValueName.c_str(), false, vi::RIGHT);
-    // The type: the types shown, by name (CBS_SORT).
-    vi::Text(P(X, typeY + 2.0f * s), P(X + 120.0f * s, typeY + 16.0f * s), "Parameter Type :", true);
-    const CKParameterType type = manager->ParameterGuidToType(m_ValueType);
-    const char *typeName = type >= 0 ? manager->ParameterTypeToName(type) : nullptr;
-    if (m_ValueTypeEditable) {
-        std::vector<std::pair<std::string, CKGUID>> types;
-        const int chosen = vi::Combo("##type", P(right - field, typeY), P(right, typeY + 16.0f * s),
-                                     AnsiToUtf8(typeName ? typeName : ""),
-                                     [&] {
-                                         for (int t = 0; t < manager->GetParameterTypesCount(); ++t) {
-                                             if (!manager->IsParameterTypeToBeShown(t)) continue;
-                                             const char *n = manager->ParameterTypeToName(t);
-                                             if (n && *n) types.emplace_back(AnsiToUtf8(n), manager->ParameterTypeToGuid(t));
-                                         }
-                                         std::sort(types.begin(), types.end(), [](const auto &a, const auto &b) {
-                                             return _stricmp(a.first.c_str(), b.first.c_str()) < 0;
-                                         });
-                                         std::vector<std::string> names;
-                                         for (const auto &entry : types) names.push_back(entry.first);
-                                         return names;
-                                     },
-                                     -1);
-        if (chosen >= 0 && chosen < static_cast<int>(types.size()) && !(types[chosen].second == m_ValueType)) {
-            // Dev shows the new type's UI at once (ParamEditDlg::OnParameterTypeChange).
-            m_ValueType = types[chosen].second;
-            m_ParameterBox.Clear();
-            if (CKParameter *holder = CKParameter::Cast(context->GetObject(m_Doc.valueHolder)))
-                m_ParameterBox.Add(holder, Utf8ToAnsi(m_ValueName), m_ValueType);
-        }
-    } else {
-        vi::Text(P(right - field, typeY + 3.0f * s), P(right, typeY + 16.0f * s), typeName ? typeName : "Unknown Type");
-    }
-    // The value: shown, or its row in a black frame.
-    if (shown) {
-        vi::Text(P(X, valueY + 2.0f * s), P(X + 120.0f * s, valueY + 16.0f * s), "Parameter Value :", true);
-        CKParameter *value = CKParameter::Cast(edited);
-        if (CKParameterIn *input = CKParameterIn::Cast(edited)) value = input->GetRealSource();
-        const std::string text = value ? AnsiToUtf8(ParameterText(value)) : std::string("NA");
-        vi::Text(P(right - field, valueY + 3.0f * s), P(right, valueY + 16.0f * s), text.c_str(), false, vi::RIGHT);
-    }
-    if (!m_ParameterBox.Empty()) {
-        m_ParameterBox.Draw(P(X + 1.0f * s, rowY + 1.0f * s), s, false);
-        ImGui::GetWindowDrawList()->AddRect(P(X, rowY), P(X + box.x + 2.0f * s, rowY + box.y + 2.0f * s), vi::Color(0));
-    }
-    float bx = o.x + width - 10.0f * s - 60.0f * s;
-    const float by = o.y + panelBottom + 4.0f * s;
-    bool cancel = !edited || (vi::DialogButton("Cancel", ImVec2(bx, by), s, ImGuiKey_Escape) && m_Doc.invalidLinks.empty() && !m_ParameterBox.InputActive());
-    bx -= 70.0f * s;
-    bool ok = vi::DialogButton("OK", ImVec2(bx, by), s, ImGuiKey_Enter) && m_ParameterBox.Valid() && !m_ParameterBox.InputActive() && edited;
-    // A new type some links would not fit: asked first (Dev's "Invalid
-    // Parameter Link"), the dialog kept open meanwhile.
-    bool apply = ok && edited && m_Doc.invalidLinks.empty(); // not while the question waits
-    if (apply && m_ValueTypeEditable && !m_InvalidLinksAnswered) {
-        CKParameterIn *in = CKParameterIn::Cast(edited);
-        const CKGUID now = in ? in->GetGUID() : CKParameter::Cast(edited) ? CKParameter::Cast(edited)->GetGUID() : CKGUID();
-        if (!(now == m_ValueType)) {
-            m_Doc.invalidLinks = IncompatibleParameterLinks(*m_State.document, m_Doc.dialogScript, m_Doc.valueParameter, m_ValueType);
-            m_Doc.invalidLinksScript = m_Doc.dialogScript;
-            if (!m_Doc.invalidLinks.empty()) apply = false;
-        }
-    }
-    if (m_InvalidLinksAnswered) {
-        // The answer: OK applies the edit with the links deleted, Cancel leaves everything.
-        apply = m_InvalidLinksAccepted && edited;
-        m_InvalidLinksAnswered = false;
-        cancel = cancel || !apply;
-        ok = apply;
-    }
-    if (apply) {
-        // The links that will not fit, the name, the type, then the value: one undo step.
-        Edit edit(*m_State.document, "Edit Parameter");
-        bool valid = true;
-        if (!m_Doc.invalidLinks.empty()) {
-            const auto result = DeleteElements(*m_State.document, m_Doc.invalidLinksScript, m_Doc.invalidLinks);
-            valid = result.ok || result.Unchanged();
-            if (!valid) Report(result, "Delete Invalid Links");
-        }
-        const std::string name = Utf8ToAnsi(m_ValueName);
-        if (valid && m_ValueNameEditable && name != (edited->GetName() ? edited->GetName() : "")) {
-            auto &app = m_State.workspace->Application();
-            const EditorValue value{EDITOR_TEXT("name"), EDITOR_TEXT_VALUE, {}, EditorText(m_ValueName)};
-            const auto result = app.ApplyEdit(m_ValueNameProperty, app.Scope(), m_ValueReference, value, {});
-            valid = result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE;
-            if (!valid) m_State.Log(LogLevel::Warning, result.message);
-        }
-        CKParameterIn *input = CKParameterIn::Cast(edited);
-        const CKGUID current = input ? input->GetGUID() : CKParameter::Cast(edited) ? CKParameter::Cast(edited)->GetGUID() : CKGUID();
-        if (valid && m_ValueTypeEditable && current != m_ValueType) {
-            const auto result = SetParameterType(*m_State.document, m_Doc.valueParameter, m_ValueType);
-            valid = result.ok || result.Unchanged();
-            if (!valid) Report(result, "Edit Parameter Type");
-        }
-        bool applyValue = true;
-        if (valid && input && !m_ParameterBox.Empty()) {
-            auto *holder = EditableValueOf(input);
-            // Deleting an incompatible shared link may leave this input
-            // without a value holder. Its old shared value stays untouched.
-            applyValue = holder != nullptr;
-            if (holder) valid = m_ParameterBox.Retarget(0, holder);
-            m_Doc.valueHolder = holder ? holder->GetID() : 0;
-        }
-        if (valid && applyValue) {
-            const bool changed = m_ParameterBox.Changed();
-            valid = m_ParameterBox.Apply(m_Doc.dialogScript) != 0 || !changed;
-        }
-        if (valid) {
-            if (!edit.Empty()) edit.Touches(m_Doc.dialogScript);
-            const auto result = edit.Commit();
-            valid = result.ok || result.Unchanged();
-        }
-        else edit.Cancel();
-        if (valid) m_Doc.invalidLinks.clear();
-        else apply = false;
-    }
-    InvalidLinksDialog(); // over this dialog
-    if ((ok && apply) || cancel) {
-        m_Doc.invalidLinks.clear();
-        m_ParameterBox.Clear();
-        ImGui::CloseCurrentPopup();
-    }
-    vi::EndDialog();
-}
 
 // Opened over Edit Parameter (its OK waits for the answer).
-void SchematicCanvas::InvalidLinksDialog() {
-    if (m_Doc.invalidLinks.empty() || m_InvalidLinksAnswered) return;
-    if (!ImGui::IsPopupOpen("Invalid Parameter Link")) ImGui::OpenPopup("Invalid Parameter Link");
-    if (!ImGui::BeginPopupModal("Invalid Parameter Link", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::TextUnformatted("Parameter Type is incompatible with Parameter Input Type.\nThis link must be deleted.");
-    if (m_Doc.invalidLinks.size() > 1) ImGui::Text("(%d links)", static_cast<int>(m_Doc.invalidLinks.size()));
-    // Not the Enter that opened it (Edit Parameter's OK).
-    const bool keys = !ImGui::IsWindowAppearing();
-    if (ImGui::Button("OK", ImVec2(80, 0)) || (keys && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
-        m_InvalidLinksAnswered = true;
-        m_InvalidLinksAccepted = true;
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(80, 0)) || (keys && ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
-        m_InvalidLinksAnswered = true;
-        m_InvalidLinksAccepted = false;
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
-}
 
 void SchematicCanvas::EditElement(CK_ID script, const ElementRef &ref) {
-    if (!m_State.HasDocument()) return;
-    CKContext *context = m_State.document->Context();
+    const auto info = ElementInfo(script, ref);
+    const auto *object = EditorClient::Find(info, "object");
     switch (ref.kind) {
-    case ElementKind::Behavior: {
-        m_Navigation.selection.Clear();
-        m_Navigation.selection.Add(script, ref);
-        if (!BehaviorSettings(CKBehavior::Cast(context->GetObject(ref.object))).empty()) OpenSettingsDialog();
-        else OpenParametersDialog();
+    case ElementKind::Behavior:
+        if (info.status != EDITOR_OK)
+            return;
+        m_Navigation.selection.Set(script, ref);
+        if (EditorClient::Integer(info, "settings"))
+            OpenSettingsDialog();
+        else
+            OpenParametersDialog();
         break;
-    }
     case ElementKind::Operation: OpenParametersOf(script, ref.object); break;
     case ElementKind::Pin:
-        if (ref.pin == PinKind::ParamIn || ref.pin == PinKind::ParamOut) OpenParametersOf(script, ref.object);
+        if (ref.pin == PinKind::ParamIn || ref.pin == PinKind::ParamOut)
+            OpenParametersOf(script, ref.object);
         break;
     case ElementKind::LocalParam:
-    case ElementKind::Shortcut: OpenValueDialog(script, context->GetObject(ref.object)); break;
+    case ElementKind::Shortcut:
+        if (info.status == EDITOR_OK && object)
+            OpenValueDialog(script, object->object);
+        break;
     case ElementKind::Comment:
-        if (ScriptView *view = ViewFor(script))
-            for (const auto &comment : view->model.comments)
-                if (comment.ref == ref) {
-                    m_Doc.commentScript = script;
-                    m_Doc.commentRef = comment.ref;
-                    m_Doc.openCommentEditor = true;
-                }
+        if (auto *view = ViewFor(script)) {
+            Hit hit;
+            hit.view = view;
+            hit.ref = ref;
+            RetainHit(hit, m_Doc.commentAddress);
+        }
+        m_Doc.openCommentEditor = bool(m_Doc.commentAddress);
         break;
     default: break;
     }
 }
 
 void SchematicCanvas::OpenSettingsDialog() {
-    const Selection &selection = m_Navigation.selection;
-    if (selection.items.size() != 1 || selection.items[0].kind != ElementKind::Behavior || !m_State.HasDocument())
+    const auto &selection = m_Navigation.selection;
+    if (selection.items.size() != 1 || selection.items.front().kind != ElementKind::Behavior)
         return;
-    CKBehavior *behavior = CKBehavior::Cast(m_State.document->Context()->GetObject(selection.items[0].object));
-    m_Doc.settings = BehaviorSettings(behavior);
-    if (m_Doc.settings.empty()) {
+    const auto info = ElementInfo(selection.script, selection.items.front());
+    const auto *object = EditorClient::Find(info, "object");
+    if (info.status != EDITOR_OK || !object)
+        return;
+    if (!EditorClient::Integer(info, "settings")) {
         m_State.Log(LogLevel::Info, "This behavior has no settings");
         return;
     }
-    m_Doc.dialogScript = selection.script;
-    m_Doc.settingsBehavior = behavior->GetID();
-    m_Doc.settingsTexts.clear();
-    // Dev's parameter box in mode 16 (Dev.exe sub_582930): a row per
-    // setting, the local's own UI.
-    m_ParameterBox.Clear();
-    m_Doc.settingsSlots.clear();
-    for (const auto &setting : m_Doc.settings)
-        if (m_ParameterBox.Add(behavior->GetLocalParameter(setting.slot), setting.name)) m_Doc.settingsSlots.push_back(setting.slot);
-    m_Doc.openSettings = true;
-}
-
-// Dev's "%s - Edit Settings" (Dev.exe sub_582930 in mode 16): the
-// settings' rows; OK applies them together (one CKM_BEHAVIORSETTINGSEDITED).
-void SchematicCanvas::SettingsDialog() {
-    CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-    CKBehavior *behavior = context ? CKBehavior::Cast(context->GetObject(m_Doc.settingsBehavior)) : nullptr;
-    const char *id = "###Settings";
-    if (m_Doc.openSettings) {
-        ImGui::OpenPopup(id);
-        m_Doc.openSettings = false;
-    }
-    const std::string title = (behavior ? AnsiToUtf8(behavior->GetName() ? behavior->GetName() : "") : std::string()) +
-                              " - Edit Settings";
-    const DialogAction action = EditParametersDialog(id, title, m_ParameterBox, false);
-    if (action == DialogAction::Ok && behavior) {
-        m_Doc.settingsTexts.clear();
-        for (size_t i = 0; i < m_Doc.settingsSlots.size() && i < m_ParameterBox.Count(); ++i)
-            m_Doc.settingsTexts[m_Doc.settingsSlots[i]] = m_ParameterBox.Text(i);
-        Report(EditBehaviorSettings(*m_State.document, m_Doc.dialogScript, m_Doc.settingsBehavior, m_Doc.settingsTexts),
-               "Edit Settings");
-    }
-    if (action == DialogAction::Ok || action == DialogAction::Cancel) m_ParameterBox.Clear();
+    const auto scripts = ScriptReferences({selection.script});
+    if (!scripts.empty())
+        OpenParameterEditor(scripts.front(), object->object, 2);
 }
 
 void SchematicCanvas::PriorityDialog() {
@@ -612,23 +373,24 @@ void SchematicCanvas::PriorityDialog() {
 }
 
 bool SchematicCanvas::BlockCategoryMenu(CKGUID &chosen) {
-    const BuildingBlockCatalog &catalog = m_State.catalog;
+    m_BlockCatalog.Refresh(Client());
+    const auto &catalog = m_BlockCatalog;
     bool picked = false;
-    std::function<void(const BuildingBlockCategory &)> menu = [&](const BuildingBlockCategory &node) {
+    std::function<void(const BuildingBlockCategories &)> menu = [&](const BuildingBlockCategories &node) {
         for (const auto &child : node.children)
-            if (ImGui::BeginMenu(AnsiToUtf8(child.first).c_str())) {
+            if (ImGui::BeginMenu(child.first.c_str())) {
                 menu(child.second);
                 ImGui::EndMenu();
             }
         for (size_t index : node.entries) {
-            const BuildingBlockEntry &entry = catalog.Entries()[index];
-            if (ImGui::MenuItem(AnsiToUtf8(entry.name).c_str())) {
-                chosen = entry.guid;
+            const auto &entry = catalog.Entries()[index];
+            if (ImGui::MenuItem(entry.name.c_str())) {
+                chosen = CKGUID(CKDWORD(entry.prototype >> 32), CKDWORD(entry.prototype));
                 picked = true;
             }
         }
     };
-    menu(catalog.CategoryTree());
+    menu(catalog.Categories());
     return picked;
 }
 
@@ -641,7 +403,13 @@ void SchematicCanvas::BlockMenus() {
         ImGui::OpenPopup("RecentBlocks");
         m_Doc.openRecentMenu = false;
     }
-    const BuildingBlockCatalog &catalog = m_State.catalog;
+    if (!ImGui::IsPopupOpen("BlockCategories") && !ImGui::IsPopupOpen("RecentBlocks")) {
+        if (!ImGui::IsPopupOpen("Replace Building Block") && !m_Doc.openReplaceBlock)
+            m_Doc.replaceBehavior = {};
+        return;
+    }
+    m_BlockCatalog.Refresh(Client());
+    const auto &catalog = m_BlockCatalog;
     CKGUID chosen;
     bool picked = false;
     PushDevMenuStyle();
@@ -652,22 +420,29 @@ void SchematicCanvas::BlockMenus() {
     PopDevMenuStyle();
     PushDevMenuStyle();
     if (ImGui::BeginPopup("RecentBlocks")) {
-        if (m_State.recentBlocks.empty()) ImGui::TextDisabled("No Building Block inserted yet");
-        for (const CKGUID &guid : m_State.recentBlocks)
-            if (const BuildingBlockEntry *entry = catalog.Find(guid))
-                if (ImGui::MenuItem(AnsiToUtf8(entry->name).c_str())) {
-                    chosen = guid;
+        const auto recent = RecentBlocks();
+        if (recent.empty())
+            ImGui::TextDisabled("No Building Block inserted yet");
+        for (const auto prototype : recent)
+            if (const auto *entry = catalog.Find(prototype))
+                if (ImGui::MenuItem(entry->name.c_str())) {
+                    chosen = CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype));
                     picked = true;
                 }
         ImGui::EndPopup();
     }
     PopDevMenuStyle();
-    if (picked && m_Doc.replaceBehavior) OpenReplaceBlock(m_Doc.blockMenuScript, m_Doc.replaceBehavior, chosen);
-    else if (picked) InsertBlockAt(chosen, m_Doc.blockMenuScript, m_Doc.blockMenuLocal);
+    if (picked && m_Doc.replaceBehavior)
+        OpenReplaceBlock(m_Doc.replaceScript, m_Doc.replaceBehavior, chosen);
+    else if (picked && !m_Doc.blockCreation.empty()) {
+        auto fields = m_Doc.blockCreation;
+        fields.push_back({"prototype", EDITOR_INTEGER_VALUE, {}, {}, (uint64_t(chosen.d1) << 32) | chosen.d2});
+        ExecuteAuthoring("schematic.insert-block", std::move(fields), GraphFollow::Block);
+    }
     // A menu closed without a choice no longer replaces.
     if (!picked && !ImGui::IsPopupOpen("BlockCategories") && !ImGui::IsPopupOpen("RecentBlocks") &&
         !ImGui::IsPopupOpen("Replace Building Block") && !m_Doc.openReplaceBlock)
-        m_Doc.replaceBehavior = 0;
+        m_Doc.replaceBehavior = {};
 }
 
 } // namespace vdev
