@@ -290,41 +290,51 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         Session session(ctx);
         IM_CHECK(Until(ctx, [] { return SDL_GetKeyboardFocus() == EditorWindow(); }));
         IM_CHECK(Start(ctx));
-        // The unchanged Add Control Point sample runs its Key Event -> Add
-        // Control Point Script on Space. Assert the native curve relation,
-        // not only the input manager's key state or the frame count.
-        const int points = Read<int>(ctx, CurvePoints);
-        OnMainThread(ctx, [] { PushKey(EditorWindow(), SDL_SCANCODE_SPACE, true); });
-        const bool reacted = Until(ctx, [=] { return CurvePoints() > points; });
-        OnMainThread(ctx, [] { PushKey(EditorWindow(), SDL_SCANCODE_SPACE, false); });
-        IM_CHECK(reacted);
-        ImVec2 min, max;
-        IM_CHECK(App().Layout().ShownView(min, max));
-        const ImVec2 at = Center(min, max);
-        MoveNativePointer(ctx, at);
-        OnMainThread(ctx, [&] {
-            PushKey(EditorWindow(), SDL_SCANCODE_F6, true);
-            PushMouse(EditorWindow(), at.x, at.y, true);
-        });
-        ctx->Yield(3);
-        IM_CHECK(Until(
-            ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
-        const Vx2DVector mouse = Read<Vx2DVector>(ctx, [] { Vx2DVector p; Input()->GetMousePosition(p, FALSE); return p; });
-        IM_CHECK(std::fabs(mouse.x - (at.x - min.x)) < 2 && std::fabs(mouse.y - (at.y - min.y)) < 2);
-        session.StealFocus();
-        IM_CHECK(Until(ctx, [&] { return SDL_GetKeyboardFocus() == session.other; }));
-        IM_CHECK(Until(ctx, [] { return App().State().debugger->GetState() == vdev::Debugger::State::Paused; }));
-        const int frames = App().State().debugger->Frames();
-        ctx->Yield(12);
-        IM_CHECK_EQ(App().State().debugger->Frames(), frames);
-        IM_CHECK(Read<bool>(ctx, [] { return !App().Layout().PlayerMode(); }));
-        IM_CHECK(Released(ctx));
-        // Closing the other window returns focus through the window manager;
-        // RaiseWindow alone may be refused by desktop focus-stealing policy.
-        OnMainThread(ctx, [&] { SDL_HideWindow(session.other); SDL_RaiseWindow(EditorWindow()); });
-        IM_CHECK(Until(ctx, [] { return SDL_GetKeyboardFocus() == EditorWindow(); }));
-        ctx->Yield(5);
-        IM_CHECK_EQ(App().State().debugger->Frames(), frames);
+        {
+            NativeWindowInput nativeInput(ctx);
+            // The unchanged Add Control Point sample runs its Key Event -> Add
+            // Control Point Script on Space. Assert the native curve relation,
+            // not only the input manager's key state or the frame count.
+            const int points = Read<int>(ctx, CurvePoints);
+            OnMainThread(ctx, [] { PushKey(EditorWindow(), SDL_SCANCODE_SPACE, true); });
+            const bool reacted = Until(ctx, [=] { return CurvePoints() > points; });
+            OnMainThread(ctx, [] { PushKey(EditorWindow(), SDL_SCANCODE_SPACE, false); });
+            IM_CHECK(reacted);
+            ImVec2 min, max;
+            IM_CHECK(App().Layout().ShownView(min, max));
+            const ImVec2 at = Center(min, max);
+            MoveNativePointer(ctx, at);
+            OnMainThread(ctx, [&] {
+                PushKey(EditorWindow(), SDL_SCANCODE_F6, true);
+                PushMouse(EditorWindow(), at.x, at.y, true);
+            });
+            ctx->Yield(3);
+            IM_CHECK(Until(
+                ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
+            const Vx2DVector mouse = Read<Vx2DVector>(ctx, [] {
+                Vx2DVector p;
+                Input()->GetMousePosition(p, FALSE);
+                return p;
+            });
+            IM_CHECK(std::fabs(mouse.x - (at.x - min.x)) < 2 && std::fabs(mouse.y - (at.y - min.y)) < 2);
+            session.StealFocus();
+            IM_CHECK(Until(ctx, [&] { return SDL_GetKeyboardFocus() == session.other; }));
+            IM_CHECK(Until(ctx, [] { return App().State().debugger->GetState() == vdev::Debugger::State::Paused; }));
+            const int frames = App().State().debugger->Frames();
+            ctx->Yield(12);
+            IM_CHECK_EQ(App().State().debugger->Frames(), frames);
+            IM_CHECK(Read<bool>(ctx, [] { return !App().Layout().PlayerMode(); }));
+            IM_CHECK(Released(ctx));
+            // Closing the other window returns focus through the window manager;
+            // RaiseWindow alone may be refused by desktop focus-stealing policy.
+            OnMainThread(ctx, [&] {
+                SDL_HideWindow(session.other);
+                SDL_RaiseWindow(EditorWindow());
+            });
+            IM_CHECK(Until(ctx, [] { return SDL_GetKeyboardFocus() == EditorWindow(); }));
+            ctx->Yield(5);
+            IM_CHECK_EQ(App().State().debugger->Frames(), frames);
+        }
         IM_CHECK(Start(ctx));
         IM_CHECK(Released(ctx));
     };
@@ -501,8 +511,9 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         IM_CHECK(Until(ctx, [] { return !App().Layout().FullScreen() && !App().Layout().PlayerMode(); }));
         IM_CHECK(App().State().debugger->GetState() == vdev::Debugger::State::Paused);
         IM_CHECK(Released(ctx));
-        IM_CHECK(Read<bool>(ctx, [&] { return SDL_GetKeyboardFocus() == session.other &&
-            !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN); }));
+        IM_CHECK(Until(ctx, [&] {
+            return SDL_GetKeyboardFocus() == session.other && !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN);
+        }));
         const int paused = App().State().debugger->Frames();
         ctx->Yield(12);
         IM_CHECK_EQ(App().State().debugger->Frames(), paused);
