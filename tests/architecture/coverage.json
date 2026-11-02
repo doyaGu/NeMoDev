@@ -171,7 +171,8 @@
       "id": "S17",
       "name": "配置与选项",
       "patterns": [
-        "application/Preferences.*"
+        "application/Preferences.*",
+        "application/EditorProfile.*"
       ]
     },
     {
@@ -332,7 +333,8 @@
         "!application/ExecutionCommands.*",
         "!application/OutputCommands.*",
         "!application/Printing.h",
-        "!application/Preferences.*"
+        "!application/Preferences.*",
+        "!application/EditorProfile.*"
       ]
     },
     {
@@ -1653,7 +1655,7 @@
     {
       "id": "F25",
       "name": "自定义与偏好",
-      "owner": "PreferencesCommands / Workspace",
+      "owner": "EditorProfile / PreferencesCommands / Workspace",
       "source_groups": [
         "S14",
         "S17",
@@ -1669,7 +1671,8 @@
       ],
       "tests": [
         "VirtoolsDevPortable",
-        "NeMoDevEditor"
+        "NeMoDevEditor",
+        "NeMoDevProfile"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1850,13 +1853,15 @@
         "S43",
         "S44",
         "S45",
-        "S59"
+        "S59",
+        "S17"
       ],
       "tests": [
         "NeMoDevEditor",
         "NeMoDevIdentityHeaders",
         "NeMoDevModuleDiscovery",
-        "NeMoDevModuleBuild"
+        "NeMoDevModuleBuild",
+        "NeMoDevProfile"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",

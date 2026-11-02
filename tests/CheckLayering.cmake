@@ -58,7 +58,7 @@ foreach (_source IN LISTS _sources)
         if(_source MATCHES "^application/" AND _path MATCHES "^(core/|ui/|features/|workspace/|CK|Vx|SDL|imgui|backends/)" AND
                 NOT (_source STREQUAL "application/EditorApplication.cpp" AND
                      _path MATCHES "^core/(document/(Document|Edit)|runtime/TextEncoding)\\.h$") AND
-                NOT (_source STREQUAL "application/Preferences.cpp" AND
+                NOT (_source MATCHES "^application/(Preferences|EditorProfile)\\.cpp$" AND
                      _path STREQUAL "core/runtime/TextEncoding.h") AND
                 NOT (_source STREQUAL "application/ObjectSelection.cpp" AND
                      _path STREQUAL "core/document/Document.h") AND

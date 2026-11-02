@@ -9,6 +9,7 @@
 namespace vdev {
 
 struct EditorField;
+bool PreferenceNativeText(const std::string &key);
 struct PreferencePage { const char *id; const char *title; };
 
 // Dev 2.5 "General Preferences: Schematic" (UI reference 3.4.6). Defaults
@@ -79,6 +80,7 @@ struct Preferences {
     // The editable General Preferences values; unrelated session data stays owned here.
     std::vector<EditorField> Values(bool generalOnly = true) const;
     bool ReadValues(const std::vector<EditorField> &, std::string &error);
+    bool RestoreValues(const std::vector<EditorField> &, std::string &error);
     bool SetValues(const std::vector<EditorField> &, std::string &error);
     void ResetPage(int page, const std::string &firstEngine);
     static const std::vector<PreferencePage> &Pages();
@@ -95,7 +97,7 @@ struct Preferences {
     // Dev's path categories (HKCU\Software\Virtools\Data Paths), read-only.
     bool ImportDevPaths();
 private:
-    bool DecodeValues(const std::vector<EditorField> &, std::string &error, bool validate);
+    bool DecodeValues(const std::vector<EditorField> &, std::string &error, bool validate, bool generalOnly = true);
 };
 
 // A General Preferences value: key, Dev's default, kind ('b' bool, 'i' int,

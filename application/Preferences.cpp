@@ -321,6 +321,10 @@ const std::vector<PreferencePage> &Preferences::Pages() {
         {"snap-align", "3D Layout - Snap & Align"}, {"schematic", "Schematic"}, {"miscellaneous", "Miscellaneous Controls"}};
     return pages;
 }
+bool PreferenceNativeText(const std::string &key) {
+    return key == "3D Layout\\Author Mode\\Device Driver" || key == "3D Layout\\Player Mode\\FullScren Driver" ||
+        key == "CK2 Settings\\Render Engine";
+}
 std::vector<EditorField> Preferences::Values(bool generalOnly) const {
     Preferences copy = *this;
     std::vector<EditorField> result;
@@ -344,16 +348,19 @@ bool Preferences::SetValues(const std::vector<EditorField> &values, std::string 
 bool Preferences::ReadValues(const std::vector<EditorField> &values, std::string &error) {
     return DecodeValues(values, error, false);
 }
-bool Preferences::DecodeValues(const std::vector<EditorField> &values, std::string &error, bool validate) {
+bool Preferences::RestoreValues(const std::vector<EditorField> &values, std::string &error) {
+    return DecodeValues(values, error, false, false);
+}
+bool Preferences::DecodeValues(const std::vector<EditorField> &values, std::string &error, bool validate, bool generalOnly) {
     Preferences next = *this;
-    const auto current = Values();
+    const auto current = Values(generalOnly);
     std::set<std::string> keys;
     for (const auto &value : values) {
         const auto found = std::find_if(current.begin(), current.end(), [&](const EditorField &field) { return field.key == value.key; });
         if (found == current.end() || found->type != value.type || !keys.insert(value.key).second) { error = "Unknown or duplicate preference: " + value.key; return false; }
         if (value == *found) continue;
         bool assigned = false;
-        for (const auto &field : Fields()) if (GeneralField(field.key) && value.key == std::string("Schematic\\") + field.key) {
+        for (const auto &field : Fields()) if ((!generalOnly || GeneralField(field.key)) && value.key == std::string("Schematic\\") + field.key) {
             if (validate && ((field.boolean && value.integer > 1) || (field.color && value.integer > 0xFFFFFF) ||
                 (field.integer && !ValidInteger(value.key, int64_t(value.integer))))) { error = "Invalid preference: " + value.key; return false; }
             Assign(next, field, static_cast<unsigned long>(value.integer)); assigned = true; break;

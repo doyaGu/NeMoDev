@@ -22,13 +22,9 @@ EditorStatus Write(EditorSink sink, const std::vector<EditorField> &fields) {
     const auto values = BorrowEditorFields(fields);
     return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
 }
-bool NativeText(const std::string &key) {
-    return key == "3D Layout\\Author Mode\\Device Driver" || key == "3D Layout\\Player Mode\\FullScren Driver" ||
-        key == "CK2 Settings\\Render Engine";
-}
 std::vector<EditorField> Projection(const Preferences &preferences, bool generalOnly = true) {
     auto fields = preferences.Values(generalOnly);
-    for (auto &field : fields) if (NativeText(field.key)) field.text = AnsiToUtf8(field.text);
+    for (auto &field : fields) if (PreferenceNativeText(field.key)) field.text = AnsiToUtf8(field.text);
     return fields;
 }
 std::string Lower(std::string text) {
@@ -181,7 +177,7 @@ struct PreferencesCommands::Data {
         std::vector<EditorField> record;
         if (CopyEditorFields(record, Argument(*request, "value"), 1) != EDITOR_OK || record.size() != 1) return EDITOR_INVALID;
         auto fields = std::move(record.front().fields);
-        for (auto &field : fields) if (NativeText(field.key)) {
+        for (auto &field : fields) if (PreferenceNativeText(field.key)) {
             bool lossy = false; field.text = Utf8ToAnsi(field.text, &lossy); if (lossy) return EDITOR_INVALID;
         }
         Preferences next = self.preferences;
