@@ -617,6 +617,19 @@ bool LayoutView::GoFullScreen(int driver, const VxDisplayMode &mode) {
 bool LayoutView::StopFullScreen() {
     CKRenderContext *rc = RenderContext();
     if (!rc || !m_Window || !rc->IsFullScreen()) return true;
+    // The render window is about to be hidden, so it must not regain focus
+    // while the window manager restores its windowed decorations. Otherwise
+    // hiding it can give the editor focus instead of the user's foreground app.
+    struct Focusability {
+        SDL_Window *window;
+        bool restore;
+        ~Focusability() {
+            if (restore)
+                SDL_SetWindowFocusable(window, true);
+        }
+    } focus{m_Window, !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_NOT_FOCUSABLE)};
+    if (focus.restore && !SDL_SetWindowFocusable(m_Window, false))
+        return false;
     if (!SDL_SetWindowFullscreen(m_Window, false))
         return false;
     // Sync also waits for position/size requests, which can time out after
