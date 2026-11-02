@@ -1,4 +1,6 @@
 #include "ui/app/EditorState.h"
+#include "core/document/Edit.h"
+#include "core/runtime/TextEncoding.h"
 #include <SDL3/SDL.h>
 #include <iostream>
 #include <filesystem>
@@ -123,6 +125,34 @@ int main() {
         third.callback(third.userdata, empty, -1);
         editor.DispatchFileRequests();
         Require(!closedViewCalled && otherCalled, "closing one view during dispatch preserves other views");
+        // A callback may close a second view and then fail. The third view's
+        // queued result must survive, and native dispatch must be usable again.
+        bool survivor = false;
+        auto retained = std::make_shared<int>(42);
+        std::weak_ptr<int> survivesFailure = retained;
+        editor.RequestFile({}, [&](const vdev::FileDialogResult &) {
+            editor.fileDialogs.Cancel(&view);
+            throw std::runtime_error("injected dialog callback failure");
+        }, false, &otherView);
+        const auto failing = Take();
+        editor.RequestFile({}, [&](const vdev::FileDialogResult &) { closedViewCalled = true; }, false, &view);
+        const auto cancelledByFailure = Take();
+        editor.RequestFile({}, [&, retained](const vdev::FileDialogResult &) { survivor = true; }, false, &otherView);
+        retained.reset();
+        const auto surviving = Take();
+        failing.callback(failing.userdata, empty, -1);
+        cancelledByFailure.callback(cancelledByFailure.userdata, empty, -1);
+        surviving.callback(surviving.userdata, empty, -1);
+        const auto documentScope = editor.runtimeOperation.CurrentDocument();
+        const auto history = editor.History().UndoCount();
+        bool raised = false;
+        try { editor.DispatchFileRequests(); }
+        catch (const std::runtime_error &failure) { raised = std::string(failure.what()) == "injected dialog callback failure"; }
+        Require(raised && !survivor && !closedViewCalled && !survivesFailure.expired(),
+                "callback failure discarded another view's queued result");
+        editor.DispatchFileRequests();
+        Require(survivor && survivesFailure.expired() && documentScope.IsCurrent() && editor.History().UndoCount() == history,
+                "callback recovery changed document lifetime/history or retained captures");
         bool stale = false;
         editor.RequestFile({}, [&](const vdev::FileDialogResult &) { stale = true; }); request = Take();
         editor.ClearDocumentState(); request.callback(request.userdata, empty, -1); editor.DispatchFileRequests(); Require(!stale, "closed document result discarded");

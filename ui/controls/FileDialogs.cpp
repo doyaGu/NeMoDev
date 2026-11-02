@@ -154,7 +154,9 @@ void FileDialogs::Dispatch() {
         }
     } catch (...) {
         std::lock_guard<std::mutex> lock(m_State->mutex);
-        m_State->dispatching.clear();
+        // The failed callback has already been consumed. Unrelated callbacks
+        // retain their order and lifetime for the next main-thread dispatch.
+        m_State->finished.splice(m_State->finished.begin(), m_State->dispatching);
         m_State->dispatchActive = false;
         throw;
     }
