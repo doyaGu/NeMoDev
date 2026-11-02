@@ -26,6 +26,37 @@ int LiveViews() {
 }
 } // namespace
 void RegisterModuleTests(ImGuiTestEngine *engine) {
+    auto *discovery = IM_REGISTER_TEST(engine, "modules", "discovered_module_uses_builtin_workspace_and_queries");
+    discovery->GuiFunc = MainThreadGui;
+    discovery->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        EditorView opened = 0;
+        size_t undo = 0;
+        bool redo = false, dirty = false;
+        uint64_t selection = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            undo = state.History().UndoCount(); redo = state.History().CanRedo();
+            dirty = state.document->Dirty(); selection = state.objectSelection.Revision();
+            auto &workspace = App().WorkspaceForTests();
+            const auto result = EditorCommands().Command("example.show-document-info");
+            IM_CHECK_NO_RET(result.status == EDITOR_OK);
+            opened = workspace.Open("example.document-info");
+            IM_CHECK_NO_RET(opened && workspace.Open("example.document-info") == opened);
+            workspace.Focus(opened);
+        });
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            const auto window = workspace.WindowName(opened);
+            const auto *shown = ImGui::FindWindowByName(window.c_str());
+            IM_CHECK_NO_RET(shown && shown->WasActive);
+            IM_CHECK_NO_RET(workspace.Close(opened));
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo &&
+                state.document->Dirty() == dirty && state.objectSelection.Revision() == selection);
+        });
+    };
     auto *setupTest = IM_REGISTER_TEST(engine, "modules", "setup_queries_and_open_command");
     setupTest->GuiFunc = MainThreadGui;
     setupTest->TestFunc = [](ImGuiTestContext *ctx) {

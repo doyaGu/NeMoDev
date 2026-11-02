@@ -55,7 +55,8 @@ public:
 
     // Starts the CK runtime; runtimeDirectory must already be on the DLL
     // search path (CK2.dll and VxMath.dll are delay-loaded).
-    bool Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules = {}
+    bool Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules = {},
+                    const std::vector<std::string> &moduleDirectories = {}
 #ifdef VIRTOOLSDEV_UI_TESTS
                     , const StartupOptions &startup = StartupOptions()
 #endif

@@ -313,7 +313,13 @@ if(VIRTOOLSDEV_BUILD_TESTS)
         target_compile_definitions(NeMoDevUiObjectModule PRIVATE IMGUI_USER_CONFIG="imgui_te_imconfig.h")
         add_test(NAME VirtoolsDevUi.modules COMMAND VirtoolsDevUiTests --ui-tests "^modules$"
                 --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>"
+                --editor-module-dir "$<TARGET_FILE_DIR:NeMoDevUiDocumentInfo>"
                 --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/modules.xml")
         set_tests_properties(VirtoolsDevUi.modules PROPERTIES LABELS self-contained)
+        add_test(NAME VirtoolsDevUi.moduleStartup COMMAND ${Python3_EXECUTABLE}
+                "${VIRTOOLSDEV_SOURCE_DIR}/tests/ModuleStartupTests.py"
+                --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevUiDocumentInfo>"
+                --results "${PROJECT_BINARY_DIR}/module-startup")
+        set_tests_properties(VirtoolsDevUi.moduleStartup PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 180)
     endif()
 endif()

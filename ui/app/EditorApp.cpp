@@ -1,4 +1,5 @@
 #include "ui/app/EditorApp.h"
+#include "application/EditorModules.h"
 #include "ui/app/FileInputs.h"
 #include "ui/app/OutputInputs.h"
 #include "ui/app/EnvironmentInputs.h"
@@ -29,6 +30,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <iterator>
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -81,7 +83,7 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
 }
 
 
-bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules
+bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules, const std::vector<std::string> &moduleDirectories
 #ifdef VIRTOOLSDEV_UI_TESTS
                            , const StartupOptions &startup
 #endif
@@ -135,38 +137,73 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         next.SetInt("BehaviorManager\\MaxIteration", options.iterations);
         return SaveSettings(std::move(next), error);
     });
-    if (!RegisterBuildingBlockQueries(m_Editor, m_Catalog, error) ||
-        !RegisterBuildingBlockViews(m_Editor, error) || !m_ResourceCommands.Register(error) ||
-        !RegisterDataResourceViews(m_Editor, error) || !RegisterResourceInputs(m_Editor, window, error) ||
-        !RegisterDefaultWorkspace(m_Editor, error) || !m_Workspace.Register(error) ||
-        !m_Session.eventLog.Register(m_Editor, error) || !RegisterEventLogView(m_Editor, error) ||
-        !m_Messages.Register(m_Editor, error) || !RegisterMessageDialogs(m_Editor, error) ||
-        !RegisterHelpViews(m_Editor, m_HtmlFonts, error) || !m_FileCommands.Register(error) ||
-        !RegisterFileInputs(m_Editor, window, error) || !m_ObjectCommands.Register(m_Editor, error) ||
-        !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) ||
-        !RegisterRuntimeViews(m_Editor, error) || !m_Environment.Register(error) ||
-        !RegisterEnvironmentViews(m_Editor, error) || !RegisterEnvironmentInputs(m_Editor, window, error) ||
-        !m_Diagnostics.Register(error) || !RegisterDiagnosticViews(m_Editor, error) || !m_Preferences.Register(error) ||
-        !RegisterPreferencesView(m_Editor, error) || !m_Outputs.Register(error) ||
-        !RegisterOutputInputs(m_Editor, window, error) || !m_ParameterCommands.Register(m_Editor, error) ||
-        !RegisterValueEditors(m_Editor, error) || !m_ArrayCommands.Register(m_Editor, error) ||
-        !m_SetupCommands.Register(m_Editor, error) || !m_Setups.Register(error) ||
-        !m_SchematicCommands.Register(m_Editor, error) || !m_SchematicGraph.Register(m_Editor, error) ||
-        !RegisterSchematicDiagnosticViews(m_Editor, error) || !RegisterArrayValueEditors(m_Editor, error) ||
-        !RegisterObjectViews(m_Editor, error) || !m_SceneCommands.Register(error) ||
-        !m_LayoutCommands.Register(error) || !m_LayoutAuthoring.Register(error) ||
-        !m_LayoutPresentation.Register(error) || !m_Layout.Register(error) || !m_Snapshots.Register(error) ||
-        !RegisterSnapshotInputs(m_Editor, window, error) || !RegisterSceneViews(m_Editor, error) ||
-        !m_Schematics.Register(m_Editor, error) || !m_Panels.Register(m_Editor, error) ||
-        !RegisterParameterDialogs(m_Editor, m_ParameterCopies, error) ||
-        !RegisterSceneNavigation(error)) {
+    std::vector<EditorModuleDirectory> directories;
+    if (!isolated) {
+        if (const char *base = SDL_GetBasePath()) directories.push_back({EditorModuleDirectoryAt(base)});
+        if (char *preferences = SDL_GetPrefPath("Virtools", "VirtoolsDev")) {
+            directories.push_back({(std::filesystem::u8path(preferences) / "modules").u8string()});
+            SDL_free(preferences);
+        }
+    }
+    for (const auto &directory : moduleDirectories) directories.push_back({directory, true});
+    std::vector<EditorModuleSource> external;
+    if (!DiscoverEditorModules(directories, modules, external, error)) {
         m_Session.Log(LogLevel::Error, error);
         return false;
     }
-    for (const auto &module : modules)
-        if (!m_Editor.Load(module, error)) { m_Session.Log(LogLevel::Error, error); return false; }
+    std::vector<EditorModuleSource> sources{
+        {"RegisterBuildingBlockQueries", [&](EditorApplication &editor, std::string &error) { return RegisterBuildingBlockQueries(editor, m_Catalog, error); }},
+        {"RegisterBuildingBlockViews", [&](EditorApplication &editor, std::string &error) { return RegisterBuildingBlockViews(editor, error); }},
+        {"ResourceCommands.Register", [&](EditorApplication &, std::string &error) { return m_ResourceCommands.Register(error); }},
+        {"RegisterDataResourceViews", [&](EditorApplication &editor, std::string &error) { return RegisterDataResourceViews(editor, error); }},
+        {"RegisterResourceInputs", [&](EditorApplication &editor, std::string &error) { return RegisterResourceInputs(editor, window, error); }},
+        {"RegisterDefaultWorkspace", [&](EditorApplication &editor, std::string &error) { return RegisterDefaultWorkspace(editor, error); }},
+        {"Workspace.Register", [&](EditorApplication &, std::string &error) { return m_Workspace.Register(error); }},
+        {"Session.eventLog.Register", [&](EditorApplication &editor, std::string &error) { return m_Session.eventLog.Register(editor, error); }},
+        {"RegisterEventLogView", [&](EditorApplication &editor, std::string &error) { return RegisterEventLogView(editor, error); }},
+        {"Messages.Register", [&](EditorApplication &editor, std::string &error) { return m_Messages.Register(editor, error); }},
+        {"RegisterMessageDialogs", [&](EditorApplication &editor, std::string &error) { return RegisterMessageDialogs(editor, error); }},
+        {"RegisterHelpViews", [&](EditorApplication &editor, std::string &error) { return RegisterHelpViews(editor, m_HtmlFonts, error); }},
+        {"FileCommands.Register", [&](EditorApplication &, std::string &error) { return m_FileCommands.Register(error); }},
+        {"RegisterFileInputs", [&](EditorApplication &editor, std::string &error) { return RegisterFileInputs(editor, window, error); }},
+        {"ObjectCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_ObjectCommands.Register(editor, error); }},
+        {"SelectionCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_SelectionCommands.Register(editor, error); }},
+        {"Execution.Register", [&](EditorApplication &, std::string &error) { return m_Execution.Register(error); }},
+        {"RegisterRuntimeViews", [&](EditorApplication &editor, std::string &error) { return RegisterRuntimeViews(editor, error); }},
+        {"Environment.Register", [&](EditorApplication &, std::string &error) { return m_Environment.Register(error); }},
+        {"RegisterEnvironmentViews", [&](EditorApplication &editor, std::string &error) { return RegisterEnvironmentViews(editor, error); }},
+        {"RegisterEnvironmentInputs", [&](EditorApplication &editor, std::string &error) { return RegisterEnvironmentInputs(editor, window, error); }},
+        {"Diagnostics.Register", [&](EditorApplication &, std::string &error) { return m_Diagnostics.Register(error); }},
+        {"RegisterDiagnosticViews", [&](EditorApplication &editor, std::string &error) { return RegisterDiagnosticViews(editor, error); }},
+        {"Preferences.Register", [&](EditorApplication &, std::string &error) { return m_Preferences.Register(error); }},
+        {"RegisterPreferencesView", [&](EditorApplication &editor, std::string &error) { return RegisterPreferencesView(editor, error); }},
+        {"Outputs.Register", [&](EditorApplication &, std::string &error) { return m_Outputs.Register(error); }},
+        {"RegisterOutputInputs", [&](EditorApplication &editor, std::string &error) { return RegisterOutputInputs(editor, window, error); }},
+        {"ParameterCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_ParameterCommands.Register(editor, error); }},
+        {"RegisterValueEditors", [&](EditorApplication &editor, std::string &error) { return RegisterValueEditors(editor, error); }},
+        {"ArrayCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_ArrayCommands.Register(editor, error); }},
+        {"SetupCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_SetupCommands.Register(editor, error); }},
+        {"Setups.Register", [&](EditorApplication &, std::string &error) { return m_Setups.Register(error); }},
+        {"SchematicCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_SchematicCommands.Register(editor, error); }},
+        {"SchematicGraph.Register", [&](EditorApplication &editor, std::string &error) { return m_SchematicGraph.Register(editor, error); }},
+        {"RegisterSchematicDiagnosticViews", [&](EditorApplication &editor, std::string &error) { return RegisterSchematicDiagnosticViews(editor, error); }},
+        {"RegisterArrayValueEditors", [&](EditorApplication &editor, std::string &error) { return RegisterArrayValueEditors(editor, error); }},
+        {"RegisterObjectViews", [&](EditorApplication &editor, std::string &error) { return RegisterObjectViews(editor, error); }},
+        {"SceneCommands.Register", [&](EditorApplication &, std::string &error) { return m_SceneCommands.Register(error); }},
+        {"LayoutCommands.Register", [&](EditorApplication &, std::string &error) { return m_LayoutCommands.Register(error); }},
+        {"LayoutAuthoring.Register", [&](EditorApplication &, std::string &error) { return m_LayoutAuthoring.Register(error); }},
+        {"LayoutPresentation.Register", [&](EditorApplication &, std::string &error) { return m_LayoutPresentation.Register(error); }},
+        {"Layout.Register", [&](EditorApplication &, std::string &error) { return m_Layout.Register(error); }},
+        {"Snapshots.Register", [&](EditorApplication &, std::string &error) { return m_Snapshots.Register(error); }},
+        {"RegisterSnapshotInputs", [&](EditorApplication &editor, std::string &error) { return RegisterSnapshotInputs(editor, window, error); }},
+        {"RegisterSceneViews", [&](EditorApplication &editor, std::string &error) { return RegisterSceneViews(editor, error); }},
+        {"Schematics.Register", [&](EditorApplication &editor, std::string &error) { return m_Schematics.Register(editor, error); }},
+        {"Panels.Register", [&](EditorApplication &editor, std::string &error) { return m_Panels.Register(editor, error); }},
+        {"RegisterParameterDialogs", [&](EditorApplication &editor, std::string &error) { return RegisterParameterDialogs(editor, m_ParameterCopies, error); }},
+        {"RegisterSceneNavigation", [&](EditorApplication &, std::string &error) { return RegisterSceneNavigation(error); }}};
+    sources.insert(sources.end(), std::make_move_iterator(external.begin()), std::make_move_iterator(external.end()));
     auto configuration = DefaultWorkspaceConfiguration();
-    if (!m_Editor.Activate(EDITOR_IMGUI_VERSION, error, configuration.contributions)) {
+    if (!m_Editor.Assemble(sources, EDITOR_IMGUI_VERSION, error, configuration.contributions)) {
         m_Session.Log(LogLevel::Error, error);
         return false;
     }
