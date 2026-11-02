@@ -30,6 +30,11 @@ typedef uint64_t EditorView;
 typedef uint64_t EditorEdit;
 typedef uint64_t EditorSubscription;
 typedef uint64_t EditorOperation;
+typedef enum EditorLogLevel {
+    EDITOR_LOG_INFO,
+    EDITOR_LOG_WARNING,
+    EDITOR_LOG_ERROR
+} EditorLogLevel;
 typedef enum EditorStatus {
     EDITOR_OK,
     EDITOR_NO_CHANGE,

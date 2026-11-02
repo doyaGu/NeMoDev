@@ -33,7 +33,9 @@ struct MessageDialog {
         const auto id = EditorClient::Integer(current, "message");
         if (current.status != EDITOR_OK || !id) { Reset(); return; }
         if (shown != id) { Reset(); shown = id; }
-        const char *name = "###ApplicationMessage";
+        const bool report = EditorClient::Text(current, "format") == "report";
+        const auto title = EditorClient::Text(current, "title");
+        const char *name = report ? (title.empty() ? "Report" : title.c_str()) : "###ApplicationMessage";
         if (!ImGui::IsPopupOpen(name)) {
             // File confirmations and other modal dialogs finish first.
             if (ImGui::GetTopMostPopupModal()) return;
@@ -42,9 +44,19 @@ struct MessageDialog {
         }
         auto text = EditorClient::Text(current, "text");
         if (!error.empty()) text += "\n\n" + error;
-        const auto answer = vi::MessageDialog(name, EditorClient::Text(current, "title"), text,
-                                              int(EditorClient::Integer(current, "icon")),
-                                              EditorClient::Integer(current, "cancel") != 0);
+        int answer = 0;
+        if (report) {
+            if (ImGui::BeginPopupModal(name, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+                ImGui::PushTextWrapPos(560.0f);
+                ImGui::TextUnformatted(text.c_str());
+                ImGui::PopTextWrapPos();
+                if (ImGui::Button("OK", ImVec2(110, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+                    ImGui::CloseCurrentPopup(); answer = 1;
+                }
+                ImGui::EndPopup();
+            }
+        } else answer = vi::MessageDialog(name, title, text, int(EditorClient::Integer(current, "icon")),
+                                          EditorClient::Integer(current, "cancel") != 0);
         if (!answer) return;
         const auto result = client.Command("message.respond", {IntegerArgument("message", id),
             TextArgument("choice", answer == 1 ? "accept" : "cancel")});

@@ -2,6 +2,7 @@
 #include "workspace/EditorWorkspace.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/runtime/CkRuntimeHost.h"
+#include "workspace/EditorClient.h"
 #include <stdexcept>
 #include <thread>
 
@@ -24,6 +25,22 @@ void TestEventLog() {
     const auto query = [&](const char *name) { return editor.Query(name, {editor.Scope(), nullptr, 0}); };
     log.Append(LogLevel::Info, "start", false);
     Check(Field(query("log.summary"), "status").text.empty(), "startup log appeared on status bar");
+    const EditorClient client(editor.Host(), 0);
+    const auto view = editor.OpenScope();
+    editor.EnterDraw();
+    EditorClient(editor.Host(), view).Log(EDITOR_LOG_WARNING, "Message from a closing view");
+    editor.LeaveDraw();
+    editor.CloseScope(view);
+    editor.EndFrame();
+    Check(log.Entries().back().text == "Message from a closing view", "closing a view lost its queued log message");
+    const auto entries = log.Entries().size();
+    Check(client.Command("log.append", {IntegerArgument("level", 3), TextArgument("text", "Invalid level")}).status == EDITOR_INVALID &&
+          client.Command("log.append", {IntegerArgument("level", EDITOR_LOG_INFO), TextArgument("text", "Invalid status"),
+                                       IntegerArgument("status", 2)}).status == EDITOR_INVALID && log.Entries().size() == entries,
+          "invalid log arguments changed published entries");
+    Check(client.Command("log.clear").status == EDITOR_OK, "cannot clear command log fixture");
+    // Keep the original fixture's two-entry starting state below.
+    log.HideStatus();
     log.Append(LogLevel::Error, "error");
     const auto first = query("log.entries");
     const auto revision = log.Revision(), errors = log.ErrorRevision();

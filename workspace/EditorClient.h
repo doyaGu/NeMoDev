@@ -38,6 +38,14 @@ class EditorClient {
     EditorResponse Command(const char *id, const std::vector<EditorValue> &values = {}) const {
         return Call(id, values, true);
     }
+    void Log(EditorLogLevel level, const std::string &text) const {
+        // Log messages belong to the application even when the producing view
+        // closes before the frame's command queue runs.
+        const EditorValue fields[] = {{EDITOR_TEXT("level"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(level)},
+            {EDITOR_TEXT("text"), EDITOR_TEXT_VALUE, {}, EditorText(text)}};
+        const EditorRequest request{m_Host->scope(m_Host->data, 0), fields, 2};
+        m_Host->execute(m_Host->data, EditorString EDITOR_TEXT("log.append"), &request, {});
+    }
     EditorResponse CommandAfterEdit(EditorOperation edit, const char *id, const std::vector<EditorValue> &values,
                                     const char *revisionArgument = nullptr) const {
         return Call(id, values, true, edit, revisionArgument);

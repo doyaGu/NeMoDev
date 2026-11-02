@@ -13,7 +13,7 @@ class MessageCommands {
   private:
     struct Message {
         uint64_t id;
-        std::string text, title;
+        std::string text, title, format;
         uint64_t icon;
         bool cancel;
     };

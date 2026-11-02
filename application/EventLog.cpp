@@ -45,6 +45,20 @@ EditorStatus EventLog::Clear(void *data, const EditorHost *, const EditorRequest
     self.Append(LogLevel::Info, "Event Log Cleared");
     return EDITOR_OK;
 }
+EditorStatus EventLog::AppendCommand(void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+    uint64_t level = EDITOR_LOG_INFO, status = 1;
+    std::string text;
+    for (uint32_t i = 0; i < request->count; ++i) {
+        const auto &field = request->values[i];
+        const std::string key(field.key.data, field.key.size);
+        if (key == "level") level = field.integer;
+        if (key == "status") status = field.integer;
+        if (key == "text") text.assign(field.text.data ? field.text.data : "", field.text.size);
+    }
+    if (level > EDITOR_LOG_ERROR || status > 1) return EDITOR_INVALID;
+    static_cast<EventLog *>(data)->Append(static_cast<LogLevel>(level), text, status != 0);
+    return EDITOR_OK;
+}
 EditorStatus EventLog::Open(void *, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
     const EditorRequest navigation{request->scope, nullptr, 0};
     return host->navigateView(host->data, EditorString EDITOR_TEXT("application.event-log"), 0, &navigation, sink);
@@ -102,11 +116,15 @@ EditorStatus EventLog::Read(void *data, const EditorHost *, const EditorRequest 
     return sink.write ? sink.write(sink.data, fields, 7) : EDITOR_INVALID;
 }
 bool EventLog::Register(EditorApplication &editor, std::string &error) {
+    const EditorParameter message[] = {{EDITOR_TEXT("level"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("text"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("status"), EDITOR_INTEGER_VALUE, 1}};
     const EditorCommandDesc commands[] = {
         {sizeof(EditorCommandDesc), EDITOR_TEXT("log.clear"), EDITOR_TEXT("builtin.log"), EDITOR_TEXT("Clear Event Log"),
          nullptr, 0, Clear, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("log.open"), EDITOR_TEXT("builtin.log"), EDITOR_TEXT("Event Log"),
-         nullptr, 0, Open, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
+         nullptr, 0, Open, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("log.append"), EDITOR_TEXT("builtin.log"), EDITOR_TEXT("Append Event Log"),
+         message, 3, AppendCommand, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
     const EditorParameter summary[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("count"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("error-revision"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("status"), EDITOR_TEXT_VALUE}};
@@ -130,7 +148,7 @@ bool EventLog::Register(EditorApplication &editor, std::string &error) {
     module.dependencies = &dependency;
     module.dependencyCount = 1;
     module.commands = commands;
-    module.commandCount = 2;
+    module.commandCount = 3;
     module.queries = queries;
     module.queryCount = 2;
     return editor.Register(module, error);

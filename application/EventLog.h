@@ -34,6 +34,7 @@ class EventLog {
     uint64_t ErrorRevision() const { return m_ErrorRevision; }
   private:
     static EditorStatus Clear(void *, const EditorHost *, const EditorRequest *, EditorSink);
+    static EditorStatus AppendCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Open(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Summary(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus Read(void *, const EditorHost *, const EditorRequest *, EditorSink);

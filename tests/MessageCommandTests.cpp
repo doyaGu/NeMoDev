@@ -100,5 +100,17 @@ void TestMessageCommands(vdev::CkRuntimeHost &host) {
     editor.Attach(token, revision, true, true);
     editor.SetSelection(target);
     unchanged();
+    Check(client.Command("message.show", {TextArgument("text", "invalid"), TextArgument("format", "unknown")}).status == EDITOR_INVALID &&
+          client.Command("message.show", {TextArgument("text", "invalid"), TextArgument("format", "report"),
+                                          IntegerArgument("cancel", 1)}).status == EDITOR_INVALID,
+          "invalid report display options changed the queue");
+    const auto report = client.Command("message.show", {TextArgument("text", "Saved file\nVerified parameters"),
+        TextArgument("title", "Save report"), TextArgument("format", "report")});
+    const auto reportValue = client.Query("message.current");
+    Check(report.status == EDITOR_OK && EditorClient::Text(reportValue, "format") == "report" &&
+              EditorClient::Text(reportValue, "title") == "Save report" &&
+              reply(EditorClient::Integer(reportValue, "message"), "accept").status == EDITOR_OK,
+          "save report did not use the normal message queue and reply");
+    unchanged();
     editor.Stop();
 }
