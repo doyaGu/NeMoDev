@@ -899,6 +899,149 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(App().State().document->Context()->DestroyObject(id) == CK_OK);
         });
     };
+    test = IM_REGISTER_TEST(engine, "modules", "duplicate_names_keep_drafts_cancel_and_retry_selected_command");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto visible = [&] {
+            const auto *window = ctx->GetWindowByRef("//###DuplicateNames");
+            return window && window->WasActive;
+        };
+        const auto file = std::filesystem::temp_directory_path() /
+            ("duplicate-choices-" + std::to_string(SDL_GetTicksNS()) + ".nmo");
+        struct RemoveFile { std::filesystem::path path; ~RemoveFile() { std::error_code error; std::filesystem::remove(path, error); } } cleanup{file};
+        struct Choices { unsigned calls = 0; std::vector<vdev::DuplicateAction> values; };
+        const auto choices = std::make_shared<Choices>();
+        vdev::EditorConfiguration previous;
+        size_t history = 0;
+        bool dirty = false;
+        vdev::DocumentToken token{};
+        std::vector<vdev::ObjectRef> selection;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &editor = state.workspace->Application();
+            previous = editor.Configuration();
+            auto selected = previous;
+            bool replaced = false;
+            for (auto &provider : selected.providers)
+                if (provider.kind == "command" && provider.id == "document.respond") {
+                    provider.provider = "example.file-replies";
+                    replaced = true;
+                }
+            if (!replaced) selected.providers.push_back({"command", "document.respond", "example.file-replies"});
+            std::string error;
+            if (!state.workspace->Configure(selected, error)) ctx->LogError("Configure: %s", error.c_str());
+            IM_CHECK_NO_RET(error.empty());
+            std::vector<CK_ID> objects;
+            for (auto kind : {vdev::LayoutObject::Frame3D, vdev::LayoutObject::Material, vdev::LayoutObject::Texture}) {
+                const auto made = vdev::CreateLayoutObject(*state.document, kind);
+                IM_CHECK_NO_RET(made.ok);
+                objects.push_back(made.created);
+            }
+            IM_CHECK_NO_RET(vdev::SaveObjectsAs(*state.document, objects, file.u8string(), &error));
+            history = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            token = state.document->Token();
+            selection = state.objectSelection.References();
+        });
+        const auto begin = [&] {
+            OnMainThread(ctx, [&] {
+                App().State().files.WithDuplicates(file.u8string(), [choices](const std::vector<vdev::DuplicateName> *values) {
+                    ++choices->calls;
+                    choices->values.clear();
+                    if (values) for (const auto &value : *values) choices->values.push_back(value.action);
+                });
+            });
+            for (int i = 0; i < 100 && !visible(); ++i) ctx->Sleep(.01f);
+        };
+        const auto choose = [&](int node, const char *action) {
+            ctx->SetRef("//###DuplicateNames");
+            ctx->ItemClick(("**/$$" + std::to_string(node) + "/##row").c_str(), 1);
+            ctx->Yield(2);
+            ctx->ItemClick((std::string("//$FOCUSED/") + action).c_str());
+            ctx->SetRef("");
+            ctx->Yield(2);
+        };
+        begin();
+        IM_CHECK(visible());
+        choose(0, "Rename");
+        OnMainThread(ctx, [&] {
+            const auto *pending = App().State().files.PendingDuplicates();
+            IM_CHECK_NO_RET(pending && std::all_of(pending->duplicates.begin(), pending->duplicates.end(),
+                [](const auto &item) { return item.action == vdev::DuplicateAction::Ignore; }));
+        });
+        ctx->ItemClick("//###DuplicateNames/Cancel/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(!visible() && choices->calls == 0);
+        begin();
+        choose(0, "Use Current");
+        choose(2, "Rename");
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Command("example.file-view-state", {vdev::IntegerArgument("refuse", 1)}).status == EDITOR_OK);
+        });
+        ctx->ItemClick("//###DuplicateNames/OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(visible() && choices->calls == 0);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            IM_CHECK_NO_RET(state.files.PendingDuplicates() && state.History().UndoCount() == history &&
+                            state.document->Dirty() == dirty && state.document->Token() == token &&
+                            state.objectSelection.References() == selection);
+            IM_CHECK_NO_RET(client.Command("example.file-view-state", {vdev::IntegerArgument("refuse", 0)}).status == EDITOR_OK);
+        });
+        ctx->ItemClick("//###DuplicateNames/OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(!visible() && choices->calls == 1 && choices->values.size() >= 3);
+        IM_CHECK(choices->values.front() == vdev::DuplicateAction::Rename);
+        IM_CHECK(std::all_of(choices->values.begin() + 1, choices->values.end(),
+                            [](auto value) { return value == vdev::DuplicateAction::UseCurrent; }));
+        // An expired prompt closes only its own popup and cannot apply the old draft.
+        begin();
+        choose(0, "Rename");
+        OnMainThread(ctx, [] { App().State().files.DocumentChanged(); });
+        ctx->Yield(4);
+        IM_CHECK(!visible() && choices->calls == 1);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            IM_CHECK_NO_RET(state.History().UndoCount() == history && state.document->Dirty() == dirty &&
+                            state.document->Token() == token && state.objectSelection.References() == selection);
+            std::string error;
+            IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
+        });
+        EditorOperation importing = 0;
+        size_t entities = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            std::vector<vdev::SetupObjectRow> rows;
+            IM_CHECK_NO_RET(vdev::ReadSetupChoices(client, CKCID_3DENTITY, rows));
+            entities = rows.size();
+            const auto result = client.Command("document.import", {vdev::TextArgument("path", file.u8string())});
+            IM_CHECK_NO_RET(result.status == EDITOR_QUEUED);
+            importing = result.operation;
+        });
+        for (int i = 0; i < 100 && !visible(); ++i) ctx->Sleep(.01f);
+        IM_CHECK(visible());
+        choose(0, "Rename");
+        ctx->ItemClick("//###DuplicateNames/OK/##dialogbutton");
+        EditorStatus completed = EDITOR_QUEUED;
+        for (int i = 0; i < 1000 && completed == EDITOR_QUEUED; ++i) {
+            ctx->Sleep(.01f);
+            completed = Read<EditorStatus>(ctx, [&] {
+                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                return client.Completion(importing).status;
+            });
+        }
+        IM_CHECK(completed == EDITOR_OK && !visible());
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            std::vector<vdev::SetupObjectRow> rows;
+            IM_CHECK_NO_RET(vdev::ReadSetupChoices(client, CKCID_3DENTITY, rows) && rows.size() == entities + 1);
+        });
+    };
+
     test = IM_REGISTER_TEST(engine, "modules", "external_file_dialog_and_failed_replacement");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
@@ -907,11 +1050,19 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         vdev::DocumentToken document{};
         size_t history = 0, views = 0;
         EditorOperation operation = 0;
+        const auto duplicateFile = std::filesystem::temp_directory_path() /
+            ("external-duplicate-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".nmo");
+        struct Cleanup { std::filesystem::path path; ~Cleanup() { std::error_code error; std::filesystem::remove(path, error); } } cleanup{duplicateFile};
+        const auto loaded = std::make_shared<bool>(false), cancelled = std::make_shared<bool>(false);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
             auto &workspace = *state.workspace;
             auto &editor = workspace.Application();
             original = editor.Configuration();
+            const auto fixture = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(fixture.ok);
+            std::string fileError;
+            IM_CHECK_NO_RET(vdev::SaveObjectsAs(*state.document, {fixture.created}, duplicateFile.u8string(), &fileError));
             document = state.document->Token(); history = state.History().UndoCount(); views = workspace.ViewCount();
             auto choose = original;
             choose.providers.erase(std::remove_if(choose.providers.begin(), choose.providers.end(), [](const auto &p) {
@@ -946,6 +1097,16 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(std::any_of(result.fields.begin(), result.fields.end(), [](const auto &f) {
                 return f.key == "status" && f.integer == EDITOR_CANCELLED;
             }));
+            IM_CHECK_NO_RET(state.document->Token() == document && state.History().UndoCount() == history);
+            state.files.WithDuplicates(duplicateFile.u8string(), [loaded](const std::vector<vdev::DuplicateName> *) { *loaded = true; },
+                [cancelled](vdev::DocumentFiles::LoadResult::Stop stop) { *cancelled = stop == vdev::DocumentFiles::LoadResult::Stop::Cancelled; });
+        });
+        for (int i = 0; i < 100 && !*loaded && !*cancelled; ++i) ctx->Sleep(.01f);
+        IM_CHECK(*cancelled && !*loaded);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const auto *popup = ImGui::FindWindowByName("###DuplicateNames");
+            IM_CHECK_NO_RET(!state.files.PendingDuplicates() && (!popup || !popup->WasActive));
             IM_CHECK_NO_RET(state.document->Token() == document && state.History().UndoCount() == history);
             std::string error;
             IM_CHECK_NO_RET(state.workspace->Configure(original, error));

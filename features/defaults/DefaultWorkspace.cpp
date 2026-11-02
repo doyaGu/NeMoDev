@@ -78,6 +78,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"command", "object.rename", "builtin.objects"},
                                       {"command", "object.create-frame3d", "builtin.objects"},
                                       {"command", "resource.load", "builtin.documents"},
+                                      {"command", "document.respond", "builtin.documents"},
                                       {"query", "object.details", "builtin.objects"},
                                       {"view", "object.properties", "builtin.properties"},
                                       {"view", "object.summary", "builtin.summary"},

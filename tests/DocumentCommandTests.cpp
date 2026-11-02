@@ -4,6 +4,7 @@
 #include "core/level/LevelCommands.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include "editor/ImGuiDrawing.h"
+#include "workspace/EditorClient.h"
 
 #include <chrono>
 #include <filesystem>
@@ -69,11 +70,12 @@ void TestDocumentCommands(vdev::CkRuntimeHost &host) {
             if (failAfterPublication) throw std::runtime_error("Injected failure after publishing");
         });
     DocumentCommands *operations = nullptr;
-    EditorApplication editor([&] { return document.IsOpen() ? &document : nullptr; },
+    unsigned documentReads = 0;
+    EditorApplication editor([&] { ++documentReads; return document.IsOpen() ? &document : nullptr; },
                              [&] { return !runtime.Busy() && (!operations || !operations->Busy()); });
     Views views(document, editor);
-    DocumentFiles files([&] { return &document; }, runtime, views);
-    DocumentCommands commands(editor, files, runtime, [&] { return &document; }, views);
+    DocumentFiles files([&] { ++documentReads; return &document; }, runtime, views);
+    DocumentCommands commands(editor, files, runtime, [&] { ++documentReads; return &document; }, views);
     operations = &commands;
     Check(commands.Register(error), error.c_str());
     Check(editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
@@ -118,6 +120,144 @@ void TestDocumentCommands(vdev::CkRuntimeHost &host) {
     } cleanup{root};
     const auto path = (root / "saved.cmo").u8string();
     const auto target = (root / "target.cmo").u8string();
+    // Duplicate-name UI reads copies and submits a complete choice list once.
+    // Native loading keeps the existing Ignore/Rename/Use Current behavior.
+    {
+        const EditorClient client(editor.Host(), 0);
+        std::vector<CK_ID> exported;
+        for (int i = 0; i < 140; ++i) {
+            const auto object = CreateLayoutObject(document, LayoutObject::Frame3D);
+            Check(object.ok && RenameLevelObject(document, document.Reference(object.created),
+                                                 "Duplicate input " + std::to_string(i)).ok,
+                  "duplicate input fixture failed");
+            exported.push_back(object.created);
+        }
+        const auto duplicatePath = (root / "duplicates.nmo").u8string();
+        Check(SaveObjectsAs(document, exported, duplicatePath, &error), error.c_str());
+        attach();
+        const auto selected = document.Reference(exported.front());
+        editor.SetSelection(selected);
+        const auto token = document.Token();
+        const auto undo = document.History().UndoCount();
+        const auto redo = document.History().CanRedo();
+        const bool dirty = document.Dirty();
+        const auto unchanged = [&] {
+            Check(document.Token() == token && editor.Selection() == selected && document.Dirty() == dirty &&
+                      document.History().UndoCount() == undo && document.History().CanRedo() == redo,
+                  "duplicate input changed the document, selection or history");
+        };
+        std::vector<DuplicateAction> accepted;
+        unsigned calls = 0, cancelled = 0;
+        const auto begin = [&] {
+            files.WithDuplicates(duplicatePath, [&](const std::vector<DuplicateName> *choices) {
+                ++calls;
+                accepted.clear();
+                for (const auto &choice : *choices) accepted.push_back(choice.action);
+            }, [&](DocumentFiles::LoadResult::Stop) { ++cancelled; });
+            drain();
+            const auto input = client.Query("document.input");
+            Check(input.status == EDITOR_OK && EditorClient::Integer(input, "kind") == EDITOR_DUPLICATE_NAMES_INPUT,
+                  "duplicate choices did not enter the normal file input view");
+            return EditorClient::Integer(input, "input");
+        };
+        auto input = begin();
+        auto first = client.Query("document.duplicate-rows", {IntegerArgument("input", input)});
+        Check(first.status == EDITOR_OK && EditorClient::Integer(first, "total") >= 140 &&
+                  EditorClient::Integer(first, "next") == 128 && EditorClient::Find(first, "rows")->fields.size() == 128,
+              "duplicate input is not paged");
+        const auto total = EditorClient::Integer(first, "total");
+        const auto savedPage = first;
+        const auto rows = client.Query("document.duplicate-rows", {IntegerArgument("input", input), IntegerArgument("first", 128)});
+        Check(rows.status == EDITOR_OK && EditorClient::Integer(rows, "next") == total,
+              "duplicate input lost its last page");
+        first.fields.clear();
+        Check(client.Query("document.duplicate-rows", {IntegerArgument("input", input)}).fields == savedPage.fields,
+              "duplicate input borrowed the caller's projection storage");
+        Check(client.Query("document.duplicate-rows", {IntegerArgument("input", input + 1)}).status == EDITOR_STALE &&
+                  client.Query("document.duplicate-rows", {IntegerArgument("input", input), IntegerArgument("first", total + 1)}).status == EDITOR_INVALID,
+              "duplicate pages accepted a different input or an invalid index");
+        std::vector<uint64_t> actions(total, 0);
+        const auto reply = [&](uint64_t request, const char *choice) {
+            const EditorValue values{EDITOR_TEXT("actions"), EDITOR_INTEGER_LIST, {}, {}, 0, {},
+                                      {actions.data(), uint32_t(actions.size())}};
+            return client.Command("document.respond", {IntegerArgument("input", request), TextArgument("choice", choice), values});
+        };
+        actions.pop_back();
+        Check(reply(input, "accept").status == EDITOR_INVALID && !calls && files.PendingDuplicates(),
+              "partial duplicate choices were applied");
+        actions.push_back(3);
+        Check(reply(input, "accept").status == EDITOR_INVALID && !calls && files.PendingDuplicates(),
+              "invalid duplicate action was applied");
+        actions.back() = 0;
+        actions[0] = 1;
+        actions[1] = 2;
+        Check(reply(input, "unsupported").status == EDITOR_INVALID && !calls, "invalid duplicate answer consumed the input");
+        Check(runtime.Queue("Read copied duplicate input", [] {}, [](const std::string &) {}), "cannot prepare busy duplicate query");
+        editor.NativeAvailable(false);
+        const auto reads = documentReads;
+        Check(client.Query("document.input").status == EDITOR_OK &&
+                  client.Query("document.duplicate-rows", {IntegerArgument("input", input)}).status == EDITOR_OK &&
+                  documentReads == reads, "busy duplicate queries entered the native document");
+        runtime.Finish();
+        editor.NativeAvailable(true);
+        editor.EnterDraw();
+        const auto submitted = reply(input, "accept");
+        editor.LeaveDraw();
+        Check(submitted.status == EDITOR_QUEUED && !calls, "duplicate answer skipped the normal command queue");
+        std::fill(actions.begin(), actions.end(), UINT64_MAX);
+        drain();
+        Check(calls == 1 && accepted.size() == total && accepted[0] == DuplicateAction::Rename &&
+                  accepted[1] == DuplicateAction::UseCurrent && accepted.back() == DuplicateAction::Ignore &&
+                  !files.PendingDuplicates() && client.Query("document.input").status == EDITOR_NO_CHANGE,
+              "duplicate answer borrowed a choice array or did not preserve all three actions");
+        unchanged();
+        Check(reply(input, "accept").status == EDITOR_STALE, "duplicate answer could be replayed");
+        input = begin();
+        Check(reply(input, "cancel").status == EDITOR_CANCELLED && calls == 1 && cancelled == 1,
+              "cancelling a duplicate input invoked its loader");
+        unchanged();
+        input = begin();
+        runtime.DocumentChanged();
+        files.DocumentChanged();
+        commands.Poll();
+        Check(reply(input, "cancel").status == EDITOR_STALE &&
+                  client.Query("document.input").status == EDITOR_NO_CHANGE && cancelled == 2,
+              "old duplicate input survived document replacement");
+        unchanged();
+        files.WithDuplicates(duplicatePath, [](const std::vector<DuplicateName> *) { throw std::runtime_error("Load failed"); });
+        drain();
+        input = EditorClient::Integer(client.Query("document.input"), "input");
+        actions.assign(total, 0);
+        Check(reply(input, "accept").status == EDITOR_ERROR && !files.PendingDuplicates() &&
+                  client.Query("document.input").status == EDITOR_NO_CHANGE,
+              "a throwing duplicate loader retained its input");
+        unchanged();
+        for (const auto *choice : {"cancel", "error"}) {
+            const auto loading = execute("document.merge", duplicatePath);
+            drain();
+            input = EditorClient::Integer(client.Query("document.input"), "input");
+            Check(loading.status == EDITOR_QUEUED && commands.Busy() && input && !editor.NativeAvailable(),
+                  "file operation ownership hid its duplicate-name input");
+            const auto expected = std::string(choice) == "cancel" ? EDITOR_CANCELLED : EDITOR_ERROR;
+            Check(reply(input, choice).status == expected && status(loading.operation) == expected &&
+                      !commands.Busy() && !files.PendingDuplicates(),
+                  "duplicate cancellation or presentation error retained the file operation");
+            unchanged();
+        }
+        const auto stopped = execute("document.merge", duplicatePath);
+        drain();
+        Check(files.PendingDuplicates() && commands.Busy(), "cannot prepare stopped duplicate input");
+        commands.Stop();
+        Check(status(stopped.operation) == EDITOR_CANCELLED && !files.PendingDuplicates() && !commands.Busy(),
+              "stopping a file command kept a duplicate loader alive");
+        commands.Poll();
+        Check(client.Query("document.input").status == EDITOR_NO_CHANGE, "a stopped duplicate input reappeared");
+        unchanged();
+        Check(document.New(&error), error.c_str());
+        runtime.DocumentChanged();
+        files.DocumentChanged();
+        attach();
+    }
     const auto created = CreateLayoutObject(document, LayoutObject::Frame3D);
     Check(created.ok, "create failed");
     const auto object = document.Reference(created.created);

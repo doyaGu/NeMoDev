@@ -160,8 +160,8 @@ class DocumentFiles {
         std::vector<DuplicateName> duplicates;
         unsigned serial = 0;
     };
-    DuplicatePrompt *PendingDuplicates();
-    void ResolveDuplicates(bool accepted);
+    const DuplicatePrompt *PendingDuplicates() const;
+    bool ResolveDuplicates(bool accepted, const std::vector<DuplicateAction> *actions = nullptr);
     void DocumentChanged();
 
   private:

@@ -138,6 +138,12 @@ void DrawInput(void *data, const EditorHost *host, EditorView view, EditorString
     host->execute(host->data, answerId, &answer, {});
     state.answered = input;
 }
+EditorStatus ReplyToFile(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    if (static_cast<Module *>(data)->refuseFileView) return EDITOR_REFUSED;
+    auto forwarded = *request;
+    forwarded.handler = EditorString EDITOR_TEXT("builtin.documents");
+    return host->execute(host->data, EditorString EDITOR_TEXT("document.respond"), &forwarded, sink);
+}
 void DrawFiles(void *data, const EditorHost *host, EditorView view, EditorViewFrame *) {
     DrawInput(data, host, view, EDITOR_TEXT("document.input"), EDITOR_TEXT("document.respond"));
 }
@@ -638,6 +644,11 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                                                {EDITOR_TEXT("show-cone"), EDITOR_INTEGER_VALUE, 1},
                                                {EDITOR_TEXT("show-in-player"), EDITOR_INTEGER_VALUE, 1}};
     static const EditorParameter owners{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST};
+    static const EditorParameter fileReply[] = {{EDITOR_TEXT("input"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("choice"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1},
+        {EDITOR_TEXT("message"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, 1},
+        {EDITOR_TEXT("author"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("version"), EDITOR_TEXT_VALUE, 1},
+        {EDITOR_TEXT("description"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("actions"), EDITOR_INTEGER_LIST, 1}};
     static const EditorParameter resources[] = {{EDITOR_TEXT("paths"), EDITOR_TEXT_LIST},
         {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("targets"), EDITOR_OBJECT_LIST, 1}};
     static const EditorParameter library[] = {{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
@@ -779,6 +790,8 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
          EDITOR_TEXT("Rename then refuse"), args, 2, RenameFail, nullptr},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("example.rename-throw"), EDITOR_TEXT("example.objects"),
          EDITOR_TEXT("Rename then throw"), args, 2, RenameTwice, data},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("document.respond"), EDITOR_TEXT("example.file-replies"),
+         EDITOR_TEXT("Answer file request"), fileReply, 9, ReplyToFile, data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("example.file-view-state"), EDITOR_TEXT("example.objects"),
          EDITOR_TEXT("File view creation"), &flag, 1, FileViewState, data, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE,
          nullptr},

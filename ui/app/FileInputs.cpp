@@ -1,4 +1,5 @@
 #include "ui/app/FileInputs.h"
+#include "ui/app/DuplicateNames.h"
 
 #include "application/EditorApplication.h"
 #include "core/runtime/TextEncoding.h"
@@ -39,6 +40,7 @@ struct FileInputs {
     }
     std::string Name(const char *suffix) const { return std::string(Prefix()) + suffix; }
     FileDialogs dialogs;
+    DuplicateNamesDialog duplicates;
     uint64_t shown = 0, answered = 0, exportInput = 0;
     Fields exportFields;
     BehaviorInfoFields behavior;
@@ -72,9 +74,16 @@ struct FileInputs {
     void Draw() {
         dialogs.Dispatch();
         Fields fields;
-        if (Query(Name(".input").c_str(), fields) != EDITOR_OK)
+        if (Query(Name(".input").c_str(), fields) != EDITOR_OK) {
+            duplicates.Reset();
             return;
+        }
         const auto id = fields.number["input"];
+        if (fields.number["kind"] == EDITOR_DUPLICATE_NAMES_INPUT) {
+            duplicates.Draw(EditorClient(host, view), id);
+            return;
+        }
+        duplicates.Reset();
         if (answered == id) return;
         if (fields.number["kind"] == EDITOR_FILE_INPUT) {
             if (shown == id) return;

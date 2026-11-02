@@ -123,9 +123,54 @@ struct DocumentCommands::State {
             }
         }
     }
+    void PublishDuplicates() {
+        const auto *pending = files.PendingDuplicates();
+        if (!pending) {
+            if (input && input->kind == Input::Kind::DuplicateNames) input.reset();
+            return;
+        }
+        if (runtime.Busy()) return;
+        if (active && SourceViewRequired(active->result.action) && active->view &&
+            !editor.Scope(active->view).document.value) {
+            files.ResolveDuplicates(false);
+            return;
+        }
+        if (input && (input->kind != Input::Kind::DuplicateNames || input->duplicateSerial == pending->serial)) return;
+        auto nextInput = std::make_unique<Input>();
+        nextInput->id = next++;
+        nextInput->operation = active ? active->result.operation : 0;
+        nextInput->kind = Input::Kind::DuplicateNames;
+        nextInput->title = "Duplicate Names Found";
+        nextInput->duplicateSerial = pending->serial;
+        struct Category { CK_CLASSID cid; const char *name; };
+        static const Category categories[] = {
+            {CKCID_CHARACTER, "Characters"}, {CKCID_SPRITE3D, "3D Sprites"}, {CKCID_BODYPART, "Bodyparts"},
+            {CKCID_3DOBJECT, "3D Objects"}, {CKCID_GRID, "Grids"}, {CKCID_CAMERA, "Cameras"},
+            {CKCID_LIGHT, "Lights"}, {CKCID_3DENTITY, "3D Frames"}, {CKCID_DATAARRAY, "Arrays"},
+            {CKCID_MESH, "Meshes"}, {CKCID_MATERIAL, "Materials"}, {CKCID_TEXTURE, "Textures"},
+            {CKCID_GROUP, "Groups"}, {CKCID_SPRITE, "2D Sprites"}, {CKCID_OBJECT, "Others"}};
+        for (const auto &duplicate : pending->duplicates) {
+            size_t category = 0;
+            while (category + 1 < std::size(categories) && !CKIsChildClassOf(duplicate.cid, categories[category].cid))
+                ++category;
+            EditorField row{std::to_string(nextInput->duplicates.size()), EDITOR_RECORD};
+            row.fields = {{"name", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(duplicate.name)},
+                          {"class", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(duplicate.cid)},
+                          {"category", EDITOR_INTEGER_VALUE, {}, {}, category},
+                          {"category-name", EDITOR_TEXT_VALUE, {}, categories[category].name},
+                          {"category-class", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(categories[category].cid)},
+                          {"action", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(duplicate.action)}};
+            nextInput->duplicates.push_back(std::move(row));
+        }
+        input = std::move(nextInput);
+    }
     void Finish(std::shared_ptr<Operation> operation, EditorStatus status) {
         if (operation->finished) return;
         operation->finished = true;
+        if (active == operation && input && input->kind == Input::Kind::DuplicateNames) {
+            const auto *pending = files.PendingDuplicates();
+            if (pending && input->duplicateSerial == pending->serial) files.ResolveDuplicates(false);
+        }
         operation->result.status = status;
         EditorResponse response;
         response.status = status;
@@ -620,28 +665,54 @@ struct DocumentCommands::State {
             return;
         }
     }
-    EditorStatus Respond(uint64_t id, const std::string &choice, const std::string &path) {
+    EditorStatus Respond(uint64_t id, const std::string &choice, const std::string &path,
+                         const EditorIntegers *actions = nullptr, const std::string &message = {}) {
         const auto operation = active;
-        try { return RespondToInput(id, choice, path); }
+        try { return RespondToInput(id, choice, path, actions, message); }
         catch (const std::exception &error) {
             if (operation) { operation->result.message = error.what(); Finish(operation, EDITOR_ERROR); }
         } catch (...) {
             if (operation) { operation->result.message = "Preparing the file operation failed"; Finish(operation, EDITOR_ERROR); }
         }
+        if (input && input->id == id) input.reset();
         return EDITOR_ERROR;
     }
-    EditorStatus RespondToInput(uint64_t id, const std::string &choice, const std::string &path) {
-        if (!active || !input || input->id != id) return EDITOR_STALE;
+    EditorStatus InputStatus(uint64_t id) const {
+        if (!input || input->id != id) return EDITOR_STALE;
+        if (!active) return input->kind == Input::Kind::DuplicateNames ? EDITOR_OK : EDITOR_STALE;
+        if (SourceViewRequired(active->result.action) && active->view &&
+            !editor.Scope(active->view).document.value) return EDITOR_CANCELLED;
+        return active->scope.IsCurrent() ? EDITOR_OK : EDITOR_STALE;
+    }
+    EditorStatus RespondToInput(uint64_t id, const std::string &choice, const std::string &path, const EditorIntegers *actions,
+                                const std::string &message) {
+        const auto status = InputStatus(id);
+        if (status != EDITOR_OK) {
+            if (active && input && input->id == id) Finish(active, status);
+            return status;
+        }
+        if (input->kind == Input::Kind::DuplicateNames) {
+            const auto *pending = files.PendingDuplicates();
+            if (!pending || pending->serial != input->duplicateSerial) return EDITOR_STALE;
+            if (choice != "accept" && choice != "cancel" && choice != "error") return EDITOR_INVALID;
+            std::vector<DuplicateAction> choices;
+            if (choice == "accept") {
+                if (!actions || actions->count != pending->duplicates.size()) return EDITOR_INVALID;
+                for (uint32_t i = 0; i < actions->count; ++i) {
+                    if (actions->data[i] > uint64_t(DuplicateAction::UseCurrent)) return EDITOR_INVALID;
+                    choices.push_back(static_cast<DuplicateAction>(actions->data[i]));
+                }
+            }
+            if (active) active->result.message = message;
+            if (choice == "error" && active) {
+                Finish(active, EDITOR_ERROR);
+                return EDITOR_ERROR;
+            }
+            if (!files.ResolveDuplicates(choice == "accept", &choices)) return EDITOR_STALE;
+            if (input && input->id == id) input.reset();
+            return choice == "accept" ? EDITOR_QUEUED : choice == "error" ? EDITOR_ERROR : EDITOR_CANCELLED;
+        }
         const auto operation = active;
-        if (SourceViewRequired(operation->result.action) && operation->view &&
-            !editor.Scope(operation->view).document.value) {
-            Finish(operation, EDITOR_CANCELLED);
-            return EDITOR_CANCELLED;
-        }
-        if (!operation->scope.IsCurrent()) {
-            Finish(operation, EDITOR_STALE);
-            return EDITOR_STALE;
-        }
         const Input request = *input;
         input.reset();
         if (choice == "error") {
@@ -697,7 +768,8 @@ struct DocumentCommands::State {
     }
     static EditorStatus Reply(void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
         auto &self = *static_cast<State *>(data);
-        if (self.active && self.input && self.input->id == Field(*request, "input")->integer) {
+        if (self.active && self.input && self.input->id == Field(*request, "input")->integer &&
+            self.input->kind != Input::Kind::DuplicateNames) {
             const auto kind = self.input->kind;
             if (Text(Field(*request, "choice")->text) == "accept" &&
                 (kind == Input::Kind::ObjectExport || kind == Input::Kind::BehaviorExport)) {
@@ -717,13 +789,19 @@ struct DocumentCommands::State {
             self.active->result.message = Text(Field(*request, "message")->text);
         }
         const auto status = self.Respond(Field(*request, "input")->integer, Text(Field(*request, "choice")->text),
-                                         Text(Field(*request, "path")->text));
+                                         Text(Field(*request, "path")->text),
+                                         Field(*request, "actions") ? &Field(*request, "actions")->integers : nullptr,
+                                         Text(Field(*request, "message")->text));
         return status == EDITOR_QUEUED ? EDITOR_OK : status;
     }
     static EditorStatus InputData(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         const auto &self = *static_cast<State *>(data);
         if (!self.input) return EDITOR_NO_CHANGE;
         const auto &input = *self.input;
+        if (input.kind == Input::Kind::DuplicateNames) {
+            const auto *pending = self.files.PendingDuplicates();
+            if (!pending || pending->serial != input.duplicateSerial) return EDITOR_NO_CHANGE;
+        }
         const EditorValue values[] = {
             {EditorLiteral("input"), EDITOR_INTEGER_VALUE, {}, {}, input.id},
             {EditorLiteral("operation"), EDITOR_INTEGER_VALUE, {}, {}, input.operation},
@@ -736,6 +814,24 @@ struct DocumentCommands::State {
             {EditorLiteral("filters"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(input.filters.size())},
             {EditorLiteral("icon"), EDITOR_INTEGER_VALUE, {}, {}, input.action == Action::Revert ? 2u : 6u}};
         return sink.write ? sink.write(sink.data, values, 10) : EDITOR_INVALID;
+    }
+    static EditorStatus DuplicateData(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        const auto &self = *static_cast<State *>(data);
+        const auto *pending = self.files.PendingDuplicates();
+        if (!self.input || self.input->kind != Input::Kind::DuplicateNames ||
+            self.input->id != Field(*request, "input")->integer || !pending ||
+            self.input->duplicateSerial != pending->serial) return EDITOR_STALE;
+        const auto &all = self.input->duplicates;
+        const auto *start = Field(*request, "first");
+        const auto first = start ? start->integer : 0;
+        if (first > all.size()) return EDITOR_INVALID;
+        const auto end = std::min<uint64_t>(first + 128, all.size());
+        EditorField rows{"rows", EDITOR_RECORD};
+        rows.fields.assign(all.begin() + first, all.begin() + end);
+        const std::vector<EditorField> fields{rows, {"total", EDITOR_INTEGER_VALUE, {}, {}, all.size()},
+                                            {"next", EDITOR_INTEGER_VALUE, {}, {}, end}};
+        const auto values = BorrowEditorFields(fields);
+        return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
     }
     static EditorStatus ExportData(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         const auto &self = *static_cast<State *>(data);
@@ -799,6 +895,7 @@ void DocumentCommands::Poll() {
         else
             m_State->Start();
     }
+    m_State->PublishDuplicates();
 }
 void DocumentCommands::Stop() {
     if (m_State->active) m_State->Finish(m_State->active, EDITOR_CANCELLED);
@@ -906,9 +1003,10 @@ bool DocumentCommands::Register(std::string &error) {
                                      {EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE, 1},
                                      {EDITOR_TEXT("author"), EDITOR_TEXT_VALUE, 1},
                                      {EDITOR_TEXT("version"), EDITOR_TEXT_VALUE, 1},
-                                     {EDITOR_TEXT("description"), EDITOR_TEXT_VALUE, 1}};
+                                     {EDITOR_TEXT("description"), EDITOR_TEXT_VALUE, 1},
+                                     {EDITOR_TEXT("actions"), EDITOR_INTEGER_LIST, 1}};
     commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("document.respond"), EDITOR_TEXT("builtin.documents"),
-                        EDITOR_TEXT("Answer file request"), reply, 8, &State::Reply, m_State.get(), EDITOR_APPLICATION,
+                        EDITOR_TEXT("Answer file request"), reply, 9, &State::Reply, m_State.get(), EDITOR_APPLICATION,
                         EDITOR_SESSION_CHANGE, nullptr});
     const EditorParameter inputFields[] = {
         {EDITOR_TEXT("input"), EDITOR_INTEGER_VALUE},   {EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE},
@@ -925,7 +1023,14 @@ bool DocumentCommands::Register(std::string &error) {
         {EDITOR_TEXT("hide"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("name"), EDITOR_TEXT_VALUE},
         {EDITOR_TEXT("class"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("author"), EDITOR_TEXT_VALUE},
         {EDITOR_TEXT("version"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("description"), EDITOR_TEXT_VALUE}};
+    const EditorParameter duplicateArgs[] = {{EDITOR_TEXT("input"), EDITOR_INTEGER_VALUE},
+                                              {EDITOR_TEXT("first"), EDITOR_INTEGER_VALUE, 1}};
+    const EditorParameter duplicateFields[] = {{EDITOR_TEXT("rows"), EDITOR_RECORD},
+                                                {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE},
+                                                {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}};
     const EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("document.duplicate-rows"), EDITOR_TEXT("builtin.documents"), duplicateArgs, 2,
+         &State::DuplicateData, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, duplicateFields, 3},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("document.input"), EDITOR_TEXT("builtin.documents"), nullptr, 0,
          &State::InputData, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, inputFields, 10},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("document.file-filter"), EDITOR_TEXT("builtin.documents"), filterArgs, 2,
@@ -979,7 +1084,7 @@ bool DocumentCommands::Register(std::string &error) {
     module.commands = commands.data();
     module.commandCount = uint32_t(commands.size());
     module.queries = queries;
-    module.queryCount = 3;
+    module.queryCount = uint32_t(std::size(queries));
     module.locations = locations;
     module.locationCount = uint32_t(std::size(locations));
     module.menus = menus.data();

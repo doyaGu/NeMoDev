@@ -279,7 +279,8 @@ typedef EditorStatus(EDITOR_CALL *EditorNavigateView)(void *, const EditorHost *
 typedef enum EditorViewKind { EDITOR_WINDOW_VIEW, EDITOR_OVERLAY_VIEW } EditorViewKind;
 typedef enum EditorInputKind { EDITOR_FILE_INPUT, EDITOR_SAVE_CHANGES_INPUT, EDITOR_CONFIRM_INPUT,
     EDITOR_OBJECT_EXPORT_INPUT, EDITOR_BEHAVIOR_EXPORT_INPUT,
-    EDITOR_WEB_PAGE_INPUT, EDITOR_PRINT_INPUT, EDITOR_BEHAVIOR_INFORMATION_INPUT } EditorInputKind;
+    EDITOR_WEB_PAGE_INPUT, EDITOR_PRINT_INPUT, EDITOR_BEHAVIOR_INFORMATION_INPUT,
+    EDITOR_DUPLICATE_NAMES_INPUT } EditorInputKind;
 // Drawing uses the separately versioned ImGui adapter. Implementations share
 // the host's ImGui binary/context; editor interfaces include no ImGui headers.
 typedef struct EditorDrawingVersion {

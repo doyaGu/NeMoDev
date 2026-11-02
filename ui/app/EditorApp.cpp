@@ -1007,7 +1007,6 @@ void EditorApp::Frame() {
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (m_FitFrames > 0 && --m_FitFrames == 0) m_Schematics.Current().FitAll();
 #endif
-    DuplicateNamesDialog();
     MessageDialog();
 #ifdef VIRTOOLSDEV_UI_TESTS
     // --tool print:DIR (the dialog, pages to DIR on OK), once the Schematic has its Scripts.

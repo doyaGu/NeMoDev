@@ -553,25 +553,36 @@ void DocumentFiles::WithDuplicates(const std::string &path, Load load,
         });
 }
 
-DocumentFiles::DuplicatePrompt *DocumentFiles::PendingDuplicates() {
+const DocumentFiles::DuplicatePrompt *DocumentFiles::PendingDuplicates() const {
+    for (const auto &load : m_Loads)
+        if (load.document.IsCurrent()) return &load.prompt;
+    return nullptr;
+}
+
+bool DocumentFiles::ResolveDuplicates(bool accepted, const std::vector<DuplicateAction> *actions) {
     while (!m_Loads.empty() && !m_Loads.front().document.IsCurrent()) {
         auto load = std::move(m_Loads.front());
         m_Loads.erase(m_Loads.begin());
         if (load.cancelled) load.cancelled(LoadResult::Stop::Stale);
     }
-    return m_Loads.empty() ? nullptr : &m_Loads.front().prompt;
-}
-
-void DocumentFiles::ResolveDuplicates(bool accepted) {
-    if (!PendingDuplicates()) return;
+    if (m_Loads.empty()) return false;
+    if (accepted && actions) {
+        if (actions->size() != m_Loads.front().prompt.duplicates.size()) return false;
+        for (auto action : *actions)
+            if (action != DuplicateAction::Ignore && action != DuplicateAction::Rename &&
+                action != DuplicateAction::UseCurrent) return false;
+    }
     PendingLoad done = std::move(m_Loads.front());
     m_Loads.erase(m_Loads.begin());
-    if (accepted && done.load)
+    if (accepted && done.load) {
+        if (actions)
+            for (size_t i = 0; i < actions->size(); ++i) done.prompt.duplicates[i].action = (*actions)[i];
         done.load(&done.prompt.duplicates);
-    else {
+    } else {
         m_Observer.Log(LogLevel::Info, "Load cancelled: " + done.prompt.path);
         if (done.cancelled) done.cancelled(LoadResult::Stop::Cancelled);
     }
+    return true;
 }
 
 void DocumentFiles::DocumentChanged() {

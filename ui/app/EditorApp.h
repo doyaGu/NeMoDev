@@ -237,9 +237,6 @@ private:
     // Dev's status bar and its Time Settings (StatusBar.cpp).
     void StatusBar();
     void TimeSettingsDialog();
-    // Dev's Duplicate Names Found (DuplicateNames.cpp): the first load of
-    // DocumentFiles::PendingDuplicates waiting for its choices.
-    void DuplicateNamesDialog();
     void ApplyPreferences();
     bool FileOperationAvailable() const {
         return !m_State.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy();

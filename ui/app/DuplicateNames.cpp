@@ -1,10 +1,12 @@
 // Dev's Duplicate Names Found (Dev.exe dialog 0x2D6: sub_59B3A0 fills it,
 // sub_59BA50 opens its menu, sub_59BCA0 runs its commands and OK;
 // CKUICallBackFct shows it for CKUIM_DUPLICATEOBJECTS), in Dev pixels.
-#include "ui/app/EditorApp.h"
+#include "ui/app/DuplicateNames.h"
 
 #include <algorithm>
+#include <climits>
 #include <iterator>
+#include <map>
 #include <set>
 
 #include "imgui.h"
@@ -13,26 +15,16 @@
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
-#include "core/runtime/TextEncoding.h"
 
 namespace vdev {
 
 namespace {
 
-// The categories: the first of these classes an object belongs to
-// (sub_59B3A0's table), made when its first object is listed.
-struct Category {
-    CK_CLASSID cid;
-    const char *name;
+struct DuplicateName {
+    std::string name, categoryName;
+    int cid = 0, categoryClass = 0;
+    uint64_t category = 0, action = 0;
 };
-const Category CATEGORIES[] = {{CKCID_CHARACTER, "Characters"}, {CKCID_SPRITE3D, "3D Sprites"},
-                               {CKCID_BODYPART, "Bodyparts"},   {CKCID_3DOBJECT, "3D Objects"},
-                               {CKCID_GRID, "Grids"},           {CKCID_CAMERA, "Cameras"},
-                               {CKCID_LIGHT, "Lights"},         {CKCID_3DENTITY, "3D Frames"},
-                               {CKCID_DATAARRAY, "Arrays"},     {CKCID_MESH, "Meshes"},
-                               {CKCID_MATERIAL, "Materials"},   {CKCID_TEXTURE, "Textures"},
-                               {CKCID_GROUP, "Groups"},         {CKCID_SPRITE, "2D Sprites"},
-                               {CKCID_OBJECT, "Others"}};
 const char *const ACTIONS[] = {"Ignore", "Rename", "Use Current"};
 constexpr int ARROW_CLOSED = 0xD9, ARROW_OPEN = 0xDA; // Dev.exe's icons
 constexpr float ROW = 17.0f, HEADER = 15.0f;
@@ -48,31 +40,27 @@ struct Node {
     bool open = true; // sub_59BC50 opens every item
 };
 struct Tree {
-    unsigned request = 0; // the request the tree shows (DuplicatePrompt::serial)
+    uint64_t request = 0; // the application input the tree shows
     std::vector<Node> nodes;
     std::set<int> selected;
     int anchor = -1;
 };
-Tree g_Tree;
 
-void Build(Tree &tree, const std::vector<DuplicateName> &duplicates, unsigned request) {
+void Build(Tree &tree, const std::vector<DuplicateName> &duplicates, uint64_t request) {
     tree = Tree();
     tree.request = request;
     tree.nodes.push_back(Node{"All Objects"});
-    int categories[sizeof(CATEGORIES) / sizeof(CATEGORIES[0])];
-    std::fill(std::begin(categories), std::end(categories), -1);
+    std::map<uint64_t, int> categories;
     for (size_t i = 0; i < duplicates.size(); ++i) {
-        const DuplicateName &duplicate = duplicates[i];
-        size_t c = 0;
-        while (c + 1 < std::size(CATEGORIES) && !CKIsChildClassOf(duplicate.cid, CATEGORIES[c].cid)) ++c;
-        if (categories[c] < 0) {
-            categories[c] = static_cast<int>(tree.nodes.size());
-            tree.nodes.push_back(Node{CATEGORIES[c].name, DevClassIconId(CATEGORIES[c].cid)});
-            tree.nodes[0].children.push_back(categories[c]);
+        const auto &duplicate = duplicates[i];
+        auto [category, inserted] = categories.emplace(duplicate.category, int(tree.nodes.size()));
+        if (inserted) {
+            tree.nodes.push_back(Node{duplicate.categoryName, DevClassIconId(duplicate.categoryClass)});
+            tree.nodes[0].children.push_back(category->second);
         }
-        Node item{AnsiToUtf8(duplicate.name), DevClassIconId(duplicate.cid), static_cast<int>(i)};
-        tree.nodes[categories[c]].children.push_back(static_cast<int>(tree.nodes.size()));
-        tree.nodes.push_back(item);
+        Node item{duplicate.name, DevClassIconId(duplicate.cid), static_cast<int>(i)};
+        tree.nodes[category->second].children.push_back(static_cast<int>(tree.nodes.size()));
+        tree.nodes.push_back(std::move(item));
     }
 }
 
@@ -90,7 +78,7 @@ int CommonAction(const Tree &tree, int node, const std::vector<DuplicateName> &d
 }
 
 // sub_59BBD0: the node and every node below it.
-void SetAction(Tree &tree, int node, DuplicateAction action, std::vector<DuplicateName> &duplicates) {
+void SetAction(Tree &tree, int node, uint64_t action, std::vector<DuplicateName> &duplicates) {
     const Node &n = tree.nodes[node];
     if (n.duplicate >= 0) duplicates[n.duplicate].action = action;
     for (int child : n.children) SetAction(tree, child, action, duplicates);
@@ -103,24 +91,96 @@ void OpenAll(Tree &tree, int node) {
 
 } // namespace
 
-void EditorApp::DuplicateNamesDialog() {
-    const char *id = "###DuplicateNames";
-    auto *pending = m_State.files.PendingDuplicates();
-    if (!pending) {
-        g_Tree = Tree();
-        return;
+struct DuplicateNamesDialog::Data {
+    Tree tree;
+    std::vector<DuplicateName> duplicates;
+    EditorOperation response = 0;
+    ImGuiID popup = 0;
+    bool ready = false;
+    std::string error;
+    bool Read(const EditorClient &client, uint64_t input) {
+        std::vector<DuplicateName> next;
+        uint64_t first = 0, total = 0;
+        do {
+            const auto page = client.Query("document.duplicate-rows",
+                                           {IntegerArgument("input", input), IntegerArgument("first", first)});
+            if (page.status != EDITOR_OK) return false;
+            const auto *rows = EditorClient::Find(page, "rows");
+            const auto *count = EditorClient::Find(page, "total"), *end = EditorClient::Find(page, "next");
+            if (!rows || rows->type != EDITOR_RECORD || !count || count->type != EDITOR_INTEGER_VALUE ||
+                !end || end->type != EDITOR_INTEGER_VALUE || count->integer > uint64_t(INT_MAX) ||
+                (first && count->integer != total) || end->integer > count->integer ||
+                end->integer < first || end->integer - first != rows->fields.size() ||
+                (end->integer == first && first != count->integer)) return false;
+            total = count->integer;
+            for (const auto &row : rows->fields) {
+                if (row.key != std::to_string(next.size()) || row.type != EDITOR_RECORD) return false;
+                auto field = [&](const char *key, EditorValueType type) -> const EditorField * {
+                    for (const auto &value : row.fields) if (value.key == key && value.type == type) return &value;
+                    return nullptr;
+                };
+                const auto *name = field("name", EDITOR_TEXT_VALUE), *categoryName = field("category-name", EDITOR_TEXT_VALUE);
+                const auto *cid = field("class", EDITOR_INTEGER_VALUE), *category = field("category", EDITOR_INTEGER_VALUE);
+                const auto *categoryClass = field("category-class", EDITOR_INTEGER_VALUE), *action = field("action", EDITOR_INTEGER_VALUE);
+                if (!name || !categoryName || !cid || cid->integer > INT_MAX || !category || !categoryClass ||
+                    categoryClass->integer > INT_MAX || !action || action->integer >= std::size(ACTIONS)) return false;
+                next.push_back({name->text, categoryName->text, int(cid->integer), int(categoryClass->integer),
+                                category->integer, action->integer});
+            }
+            first = end->integer;
+        } while (first < total);
+        duplicates = std::move(next);
+        Build(tree, duplicates, input);
+        return true;
     }
-    auto &request = *pending;
-    std::vector<DuplicateName> &duplicates = request.duplicates;
-    if (g_Tree.request != request.serial) Build(g_Tree, duplicates, request.serial);
-    // Open until answered (the startup's window focus would close it).
-    if (m_FocusSchematic <= 0 && !ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
+};
+DuplicateNamesDialog::DuplicateNamesDialog() : m_Data(std::make_unique<Data>()) {}
+DuplicateNamesDialog::~DuplicateNamesDialog() = default;
+void DuplicateNamesDialog::Reset() {
+    m_Data->tree = {};
+    m_Data->duplicates.clear();
+    m_Data->response = 0;
+    m_Data->error.clear();
+    const auto popup = m_Data->popup;
+    m_Data->popup = 0;
+    m_Data->ready = false;
+    for (int i = 0; i < ImGui::GetCurrentContext()->OpenPopupStack.Size; ++i)
+        if (ImGui::GetCurrentContext()->OpenPopupStack[i].PopupId == popup) {
+            ImGui::ClosePopupToLevel(i, true);
+            break;
+        }
+}
+void DuplicateNamesDialog::Draw(const EditorClient &editor, uint64_t input) {
+    const char *id = "###DuplicateNames";
+    auto &data = *m_Data;
+    auto &tree = data.tree;
+    auto &duplicates = data.duplicates;
+    if (tree.request != input) {
+        Reset();
+        Build(tree, {}, input);
+        data.ready = data.Read(editor, input);
+        if (!data.ready) data.error = "Cannot read duplicate names.";
+    }
+    if (data.response) {
+        const auto result = editor.Completion(data.response);
+        if (result.status != EDITOR_QUEUED) {
+            data.response = 0;
+            if (result.status == EDITOR_OK || result.status == EDITOR_CANCELLED) { Reset(); return; }
+            data.error = result.message.empty() ? "The duplicate-name choices could not be applied." : result.message;
+        }
+    }
+    // Reopen while this input is pending, including startup focus changes.
+    if (!ImGui::IsPopupOpen(id)) {
+        data.popup = ImGui::GetID(id);
+        ImGui::OpenPopup(id);
+    }
     const float s = ImGui::GetFontSize() / 13.0f;
     // The client 400 x 400 (sub_59B3A0), the buttons' bar below it.
     const ImVec2 client(400.0f * s, 400.0f * s + 26.0f * s);
     ImVec2 o;
     int closed = 0; // 1 OK, 2 Cancel
     if (vi::BeginDialog(id, "Duplicate Names Found", client, s, o)) {
+        ImGui::BeginDisabled(data.response != 0);
         // The tree list, (6, 6) to (394, 394): its header, the rows 17 high
         // on ZC 7 with a white line under each, the selected ones on ZC 4
         // with white text; a category with one action for all its objects
@@ -146,20 +206,20 @@ void EditorApp::DuplicateNamesDialog() {
             const auto row = stack.back();
             stack.pop_back();
             rows.push_back(row);
-            const Node &node = g_Tree.nodes[row.first];
+            const Node &node = tree.nodes[row.first];
             if (node.open)
                 for (auto it = node.children.rbegin(); it != node.children.rend(); ++it) stack.push_back({*it, row.second + 1});
         }
         bool menu = false;
         for (size_t r = 0; r < rows.size(); ++r) {
             const int index = rows[r].first;
-            Node &node = g_Tree.nodes[index];
+            Node &node = tree.nodes[index];
             const float y = list.y + headerHeight + rowHeight * r;
-            const bool selected = g_Tree.selected.count(index) != 0;
+            const bool selected = tree.selected.count(index) != 0;
             const ImU32 ink = vi::Color(selected ? 9 : 0);
             dl->AddRectFilled(ImVec2(x0, y), ImVec2(right, y + rowHeight), vi::Color(selected ? 4 : 7));
             dl->AddRectFilled(ImVec2(x0, y + rowHeight - 1.0f), ImVec2(right, y + rowHeight), vi::Color(9));
-            const int action = CommonAction(g_Tree, index, duplicates);
+            const int action = CommonAction(tree, index, duplicates);
             const bool folder = !node.children.empty();
             const bool bold = folder && action >= 0;
             const ImVec2 arrow(IM_ROUND(x0 + 4.0f * s + 13.0f * s * rows[r].second), IM_ROUND(y + (rowHeight - 11.0f * s) * 0.5f));
@@ -194,25 +254,25 @@ void EditorApp::DuplicateNamesDialog() {
                                    ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
             const ImGuiIO &io = ImGui::GetIO();
             if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-                if (io.KeyShift && g_Tree.anchor >= 0) {
+                if (io.KeyShift && tree.anchor >= 0) {
                     size_t from = r, to = r;
                     for (size_t k = 0; k < rows.size(); ++k)
-                        if (rows[k].first == g_Tree.anchor) from = k;
+                        if (rows[k].first == tree.anchor) from = k;
                     if (from > to) std::swap(from, to);
-                    if (!io.KeyCtrl) g_Tree.selected.clear();
-                    for (size_t k = from; k <= to; ++k) g_Tree.selected.insert(rows[k].first);
+                    if (!io.KeyCtrl) tree.selected.clear();
+                    for (size_t k = from; k <= to; ++k) tree.selected.insert(rows[k].first);
                 } else if (io.KeyCtrl) {
-                    if (!g_Tree.selected.erase(index)) g_Tree.selected.insert(index);
-                    g_Tree.anchor = index;
+                    if (!tree.selected.erase(index)) tree.selected.insert(index);
+                    tree.anchor = index;
                 } else {
-                    g_Tree.selected = {index};
-                    g_Tree.anchor = index;
+                    tree.selected = {index};
+                    tree.anchor = index;
                 }
                 if (folder && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) toggle = true;
             }
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                if (!selected) g_Tree.selected = {index};
-                g_Tree.anchor = index;
+                if (!selected) tree.selected = {index};
+                tree.anchor = index;
                 menu = true;
             }
             if (toggle) node.open = !node.open;
@@ -248,23 +308,32 @@ void EditorApp::DuplicateNamesDialog() {
         if (menu) ImGui::OpenPopup("##duplicatemenu");
         if (ImGui::BeginPopup("##duplicatemenu")) {
             if (ImGui::MenuItem("Expand Children"))
-                for (int node : g_Tree.selected) OpenAll(g_Tree, node);
+                for (int node : tree.selected) OpenAll(tree, node);
             ImGui::Separator();
             for (int a = 0; a < static_cast<int>(std::size(ACTIONS)); ++a)
                 if (ImGui::MenuItem(ACTIONS[a]))
-                    for (int node : g_Tree.selected) SetAction(g_Tree, node, static_cast<DuplicateAction>(a), duplicates);
+                    for (int node : tree.selected) SetAction(tree, node, uint64_t(a), duplicates);
             ImGui::EndPopup();
         }
         const float by = o.y + client.y - 23.0f * s;
         if (vi::DialogButton("Cancel", ImVec2(o.x + client.x - 70.0f * s, by), s, ImGuiKey_Escape)) closed = 2;
+        ImGui::BeginDisabled(!data.ready);
         if (vi::DialogButton("OK", ImVec2(o.x + client.x - 140.0f * s, by), s, ImGuiKey_Enter)) closed = 1;
-        if (closed) ImGui::CloseCurrentPopup();
+        ImGui::EndDisabled();
+        if (!data.error.empty())
+            vi::Text(ImVec2(o.x + 6 * s, by), ImVec2(o.x + client.x - 145 * s, by + 20 * s), data.error.c_str());
+        ImGui::EndDisabled();
         vi::EndDialog();
     }
     if (!closed) return;
-    // The load runs after the dialog (OK), or not at all (Cancel).
-    g_Tree = Tree();
-    m_State.files.ResolveDuplicates(closed == 1);
+    std::vector<uint64_t> actions;
+    for (const auto &duplicate : duplicates) actions.push_back(duplicate.action);
+    const EditorValue choices{EDITOR_TEXT("actions"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {actions.data(), uint32_t(actions.size())}};
+    const auto result = editor.Command("document.respond", {IntegerArgument("input", input),
+        TextArgument("choice", closed == 1 ? "accept" : "cancel"), choices});
+    if (result.status == EDITOR_QUEUED) data.response = result.operation;
+    else if (result.status == EDITOR_OK || result.status == EDITOR_CANCELLED) Reset();
+    else data.error = result.message.empty() ? "The duplicate-name choices could not be applied." : result.message;
 }
 
 } // namespace vdev

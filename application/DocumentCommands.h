@@ -47,7 +47,8 @@ class DocumentCommands {
             Unsaved = EDITOR_SAVE_CHANGES_INPUT,
             Confirm = EDITOR_CONFIRM_INPUT,
             ObjectExport = EDITOR_OBJECT_EXPORT_INPUT,
-            BehaviorExport = EDITOR_BEHAVIOR_EXPORT_INPUT
+            BehaviorExport = EDITOR_BEHAVIOR_EXPORT_INPUT,
+            DuplicateNames = EDITOR_DUPLICATE_NAMES_INPUT
         };
         enum class File { Composition, Import, Player, Objects, Behaviors, Image };
         uint64_t id = 0;
@@ -62,6 +63,8 @@ class DocumentCommands {
         uint64_t objects = 0;
         bool hide = false;
         DocumentFiles::ExportInfo behavior;
+        unsigned duplicateSerial = 0;
+        std::vector<EditorField> duplicates;
     };
     struct Result {
         EditorOperation operation = 0;

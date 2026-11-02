@@ -141,7 +141,7 @@
         "application/DocumentCommands.*",
         "ui/app/FileInputs.*",
         "ui/app/FileMenu.cpp",
-        "ui/app/DuplicateNames.cpp",
+        "ui/app/DuplicateNames.*",
         "application/ExecutionCommands.*",
         "application/OutputCommands.*",
         "application/Printing.h",
@@ -1020,15 +1020,6 @@
     },
     {
       "file": "ui/app/CommandLine.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/DuplicateNames.cpp",
       "access": [
         "editor-state",
         "mutable-document",
@@ -2615,7 +2606,7 @@
     {
       "id": "file-candidates",
       "name": "文件候选、资源批次、重复名提示和原生导出报告",
-      "owner": "DocumentFiles",
+      "owner": "DocumentFiles 持有文件候选、查重结果及继续加载函数；DocumentCommands 发布只读重复名行和请求号；DuplicateNamesDialog 仅持有该请求的选择草稿",
       "lifetime": "准备至提交或丢弃；重复名取消、文档作用域失效及异常都结束候选",
       "persistence": "候选成功后才切换文档；批次持有文件路径及对象引用；实际写出结果交给 DocumentCommands 登记，不依赖发起视图；图导入和替换固定 Script/图引用及版本，晚到文件答复不能越过已关闭的来源视图；Script 快照解码复用原实现，在运行时任务中校验原 Script 身份和版本后才写入，失败保留选区与历史",
       "features": [
