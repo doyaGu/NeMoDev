@@ -82,7 +82,7 @@ CKContext *LayoutView::Context() const {
 
 CKRenderContext *LayoutView::RenderContext() const {
     CKContext *context = m_Host.Context();
-    return context && m_RenderContext ? CKRenderContext::Cast(context->GetObject(m_RenderContext)) : nullptr;
+    return context ? CKRenderContext::Cast(context->GetObjectByHandle(m_RenderContext)) : nullptr;
 }
 
 CKRasterizerContext *LayoutView::RasterizerContext() const {
@@ -90,9 +90,11 @@ CKRasterizerContext *LayoutView::RasterizerContext() const {
     return context ? context->GetRasterizerContext() : nullptr;
 }
 
-bool LayoutView::Start(const std::string &driverName, std::string *error, SDL_GPUDevice *sdlGpuDevice) {
+bool LayoutView::Start(const std::string &driverName, std::string *error, SDL_GPUDevice *sdlGpuDevice,
+                       bool mainRenderContext) {
     Stop();
     m_SdlGpuDevice = sdlGpuDevice;
+    m_MainRenderContext = mainRenderContext;
     CKContext *context = m_Host.Context();
     CKRenderManager *renderer = context ? context->GetRenderManager() : nullptr;
     if (!renderer || renderer->GetRenderDriverCount() <= 0) {
@@ -131,7 +133,7 @@ bool LayoutView::Start(const std::string &driverName, std::string *error, SDL_GP
         if (error) *error = "Cannot create a render context";
         return false;
     }
-    m_RenderContext = rc->GetID();
+    m_RenderContext = context->GetObjectHandle(rc->GetID());
     CompositionChanged();
     return true;
 }
@@ -139,9 +141,7 @@ bool LayoutView::Start(const std::string &driverName, std::string *error, SDL_GP
 void LayoutView::Stop() {
     CKContext *context = m_Host.Context();
     if (FullScreen()) StopFullScreen();
-    if (context && m_InputSource)
-        if (auto *input = static_cast<CKInputManager *>(context->GetManagerByGuid(INPUT_MANAGER_GUID)))
-            input->SetInputViewport(nullptr, VxRect(), 0, 0);
+    ReleaseInputViewport();
     m_InputSource = nullptr;
     if (CKRenderContext *rc = RenderContext()) {
         rc->RemovePostRenderCallBack(&LayoutView::PostRender, this);
@@ -153,7 +153,7 @@ void LayoutView::Stop() {
     } else {
         DestroyInterfaceObjects(); // made without a render context
     }
-    m_RenderContext = 0;
+    m_RenderContext = {};
     if (m_Window) {
         SDL_DestroyWindow(m_Window);
     }
@@ -164,7 +164,9 @@ void LayoutView::Stop() {
 void LayoutView::CompositionChanged() {
     CKContext *context = m_Host.Context();
     if (!context) return;
-    if (!InterfaceAlive()) {
+    const bool rebuilt = !InterfaceAlive();
+    if (rebuilt) {
+        DestroyInterfaceObjects();
         m_Camera = 0; // its id may be another object's after ClearAll
         CreateInterfaceObjects();
     }
@@ -182,7 +184,8 @@ void LayoutView::CompositionChanged() {
     if (CKLevel *level = context->GetCurrentLevel()) {
         bool attached = false;
         for (int i = 0; i < level->GetRenderContextCount(); ++i) attached = attached || level->GetRenderContext(i) == rc;
-        if (!attached) level->AddRenderContext(rc, TRUE);
+        if (!attached)
+            level->AddRenderContext(rc, m_MainRenderContext);
         // Dev applies the level scene's environment to its new render context.
         CKScene *scene = context->GetCurrentScene() ? context->GetCurrentScene() : level->GetLevelScene();
         if (scene) GuardedCall([&] { scene->ApplyEnvironmentSettings(); }, &m_Host, "CKScene::ApplyEnvironmentSettings");
@@ -195,7 +198,8 @@ void LayoutView::CompositionChanged() {
     for (int i = 0; i < curves.Size(); ++i)
         if (CKCurve *curve = CKCurve::Cast(curves[i]))
             if (curve->GetControlPointCount() > 0) GuardedCall([&] { curve->Update(); }, &m_Host, "CKCurve::Update");
-    if (!rc->GetAttachedCamera()) SetCamera(m_ViewCameras[0]);
+    if (rebuilt || !rc->GetAttachedCamera())
+        SetCamera(m_ViewCameras[0]);
 }
 
 void LayoutView::CreateInterfaceObjects() {
@@ -205,7 +209,8 @@ void LayoutView::CreateInterfaceObjects() {
     auto make = [&](CK_CLASSID cid, const std::string &name) {
         CKObject *object = context->CreateObject(cid, const_cast<CKSTRING>(name.c_str()));
         MarkInterface(object);
-        if (object) m_InterfaceObjects.push_back(object->GetID());
+        if (object)
+            m_InterfaceObjects.push_back(context->GetObjectHandle(object->GetID()));
         return object;
     };
     // Dev.exe sub_4AD910. Perspective View: a target camera at (0, 10, -50)
@@ -285,7 +290,7 @@ void LayoutView::CreateInterfaceObjects() {
         CKObject *object = loaded->GetData(context);
         if (!object) continue;
         MarkInterface(object);
-        m_InterfaceObjects.push_back(object->GetID());
+        m_InterfaceObjects.push_back(context->GetObjectHandle(object->GetID()));
         // Not the composition's: out of every scene.
         if (CKSceneObject *sceneObject = CKSceneObject::Cast(object))
             for (int i = sceneObject->GetSceneInCount() - 1; i >= 0; --i)
@@ -321,8 +326,9 @@ void LayoutView::DestroyInterfaceObjects() {
     CKContext *context = m_Host.Context();
     // Made before a ClearAll: gone with it, their ids perhaps another object's now.
     std::vector<CK_ID> alive;
-    for (CK_ID id : m_InterfaceObjects)
-        if (context && m_InterfaceGeneration == m_Host.Generation() && context->GetObject(id)) alive.push_back(id);
+    for (const auto handle : m_InterfaceObjects)
+        if (context && m_InterfaceGeneration == m_Host.Generation() && context->GetObjectByHandle(handle))
+            alive.push_back(handle.Id);
     if (!alive.empty())
         GuardedCall([&] { context->DestroyObjects(alive.data(), static_cast<int>(alive.size())); }, &m_Host,
                     "CKContext::DestroyObjects");
@@ -340,7 +346,7 @@ bool LayoutView::InterfaceAlive() const {
     if (m_InterfaceGeneration != m_Host.Generation()) return false;
     CKContext *context = m_Host.Context();
     CKObject *camera = context ? context->GetObject(m_ViewCameras[0]) : nullptr;
-    return CKTargetCamera::Cast(camera) &&
+    return IsInterfaceObject(m_ViewCameras[0]) && CKTargetCamera::Cast(camera) &&
            (camera->GetObjectFlags() & CK_OBJECT_NOTTOBELISTEDANDSAVED) == CK_OBJECT_NOTTOBELISTEDANDSAVED &&
            camera->GetName() && std::strcmp(camera->GetName(), VIEW_NAMES[0]) == 0;
 }
@@ -354,7 +360,10 @@ CKScene *LayoutView::Scene() const {
 }
 
 bool LayoutView::IsInterfaceObject(CK_ID object) const {
-    return std::find(m_InterfaceObjects.begin(), m_InterfaceObjects.end(), object) != m_InterfaceObjects.end();
+    auto *context = Context();
+    return context && std::any_of(m_InterfaceObjects.begin(), m_InterfaceObjects.end(), [&](const auto &handle) {
+               return handle.Id == object && context->GetObjectByHandle(handle);
+           });
 }
 
 void LayoutView::SetDisplay(const LayoutDisplay &display) {
@@ -476,7 +485,33 @@ bool LayoutView::SetInputViewport(SDL_Window *source, const VxRect &rect, int wi
     m_InputRect = rect;
     m_InputWidth = width;
     m_InputHeight = height;
+    m_InputActive = true;
+    ActivateRenderContext();
     return true;
+}
+void LayoutView::ActivateRenderContext() {
+    auto *context = Context();
+    auto *level = context ? context->GetCurrentLevel() : nullptr;
+    auto *rc = RenderContext();
+    if (level && rc) {
+        if (auto *previous = level->GetRenderContext(0); previous != rc) {
+            if (previous)
+                previous->ChangeCurrentRenderOptions(0, CK_RENDER_PLAYERCONTEXT);
+            level->RemoveRenderContext(rc);
+            level->AddRenderContext(rc, TRUE);
+        }
+        if (!(rc->GetCurrentRenderOptions() & CK_RENDER_PLAYERCONTEXT))
+            rc->ChangeCurrentRenderOptions(CK_RENDER_PLAYERCONTEXT, 0);
+    }
+}
+void LayoutView::ReleaseInputViewport() {
+    if (!m_InputActive)
+        return;
+    if (auto *context = Context())
+        if (auto *input = static_cast<CKInputManager *>(context->GetManagerByGuid(INPUT_MANAGER_GUID)))
+            input->SetInputViewport(nullptr, VxRect(), 0, 0);
+    m_InputActive = false;
+    m_InputSource = nullptr;
 }
 bool LayoutView::HandleEvent(const SDL_Event &event) {
     if (!m_Window || SDL_GetWindowFromEvent(&event) != m_Window) return false;
@@ -607,12 +642,13 @@ bool LayoutView::GoFullScreen(int driver, const VxDisplayMode &mode) {
     }
     SDL_RaiseWindow(m_Window);
     SDL_SetWindowMouseGrab(m_Window, true);
+    ActivateRenderContext();
     if (CKContext *context = Context())
         if (auto *input = static_cast<CKInputManager *>(context->GetManagerByGuid(INPUT_MANAGER_GUID))) {
             int width = 0, height = 0;
             SDL_GetWindowSize(m_Window, &width, &height);
             const VxRect rect(0, 0, static_cast<float>(width), static_cast<float>(height));
-            input->SetInputViewport(m_Window, rect, mode.Width, mode.Height);
+            m_InputActive = input->SetInputViewport(m_Window, rect, mode.Width, mode.Height);
         }
     return true;
 }

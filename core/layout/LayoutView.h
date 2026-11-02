@@ -137,7 +137,8 @@ public:
     // The view owns its SDL render window and CK render context.
     // The optional GPU device is borrowed until Stop. Its configuration is
     // fixed for this view's lifetime.
-    bool Start(const std::string &driverName, std::string *error, SDL_GPUDevice *sdlGpuDevice = nullptr);
+    bool Start(const std::string &driverName, std::string *error, SDL_GPUDevice *sdlGpuDevice = nullptr,
+               bool mainRenderContext = true);
     void Stop();
     bool Started() const;
     CKRenderContext *RenderContext() const;
@@ -217,6 +218,7 @@ public:
     // The displayed rectangle in the source SDL window's client coordinates,
     // mapped to render pixels. The source window is borrowed until Stop().
     bool SetInputViewport(SDL_Window *source, const VxRect &rect, int width, int height);
+    void ReleaseInputViewport();
     // The 3D entity something dragged would be dropped on (a yellow box; 0: none).
     void SetDropTarget(CK_ID object) { m_DropTarget = object; }
     CK_ID DropTarget() const { return m_DropTarget; }
@@ -283,6 +285,7 @@ public:
     size_t IconCount() const { return m_IconHits.size(); }
 
 private:
+    void ActivateRenderContext();
     std::uint64_t m_ReadbackFrames = 0;
     SDL_GPUDevice *m_SdlGpuDevice = nullptr;
     static void PostRender(CKRenderContext *context, void *argument);
@@ -316,8 +319,9 @@ private:
     SDL_Window *m_InputSource = nullptr;
     VxRect m_InputRect;
     int m_InputWidth = 0, m_InputHeight = 0;
+    bool m_InputActive = false, m_MainRenderContext = true;
     void *m_Owner = nullptr;  // its owner, left during fullscreen
-    CK_ID m_RenderContext = 0;
+    CKObjectHandle m_RenderContext{};
     CK_ID m_Camera = 0; // SetCamera's (the render context's attached one when there is one)
     int m_Width = 640;
     int m_Height = 480;
@@ -325,7 +329,7 @@ private:
     CK_ID m_ViewCameras[LAYOUT_VIEW_CAMERA_COUNT] = {};
     CK_ID m_ViewTarget = 0;    // the Perspective View's target
     CK_ID m_AxisLabels[3] = {}; // "X", "Y", "Z" (Virtools_SpriteAxisX/Y/Z)
-    std::vector<CK_ID> m_InterfaceObjects;
+    std::vector<CKObjectHandle> m_InterfaceObjects;
     std::uint64_t m_InterfaceGeneration = ~0ull; // the host's when they were made
     std::map<std::string, CK_ID> m_Icons; // interface.nmo's objects, by name less "Virtools_"
     std::vector<IconHit> m_IconHits; // drawn last frame (the selection's boxes of icon objects)
