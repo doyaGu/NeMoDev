@@ -25,19 +25,23 @@ int main() {
         preferences.dataResources = {u8"/资源/data.rsc"};
         vdev::EditorProfile profile; std::string error;
         Check(profile.Load(path, error) == vdev::EditorProfile::ReadResult::Missing, error);
-        const std::string initial = R"({"version":1,"future":{"number":1234567890123456789,"items":[true,null,"unicode"]},
+        const std::string initial =
+            R"({"version":1,"future":{"number":1234567890123456789,"items":[true,null,"unicode"]},
             "preferences":{"custom":{"keep":42},"values":{"unknown.module.setting":{"raw":true}}},
             "modules":[{"id":"custom.viewer","enabled":false,"path":"module files/viewer.dylib","private":{"keep":"module data"}}],
             "providers":[{"kind":"view","id":"custom.view","provider":"custom.provider","module":"custom.viewer","private":"provider data"}],
             "bindings":[{"action":"custom.open","chord":"Ctrl+Shift+K","module":"custom.viewer","private":"binding data"}],
+            "toolbar-items":[{"id":"custom.toolbar","location":"custom.tools","action":"custom.open","position":[1,2],"size":[50,19],"visible":false,"module":"custom.viewer","private":"toolbar data"}],
             "menus":[{"id":"custom.menu","location":"menu.tools","order":25,"module":"custom.viewer","private":"menu data"}]})";
         Check(profile.Decode(initial, path, error), error);
+        Check(profile.Contributions().toolbarItems.empty(), "disabled module toolbar override was applied");
         Check(profile.Contributions().providers.empty(), "disabled module provider was applied");
         Check(profile.Contributions().bindings.empty() && profile.Contributions().menus.empty(), "disabled module input overrides were applied");
         Check(profile.ResolvedModules().front().path == (canonicalRoot / "module files/viewer.dylib").u8string(), "relative module path did not use the profile directory");
         Check(profile.Capture(preferences, {}, {}, [](const auto &) { return std::string{}; }, error), error);
         auto text = Encoded(profile);
-        for (const auto *kept : {"1234567890123456789", "unknown.module.setting", "module data", "provider data", "binding data", "menu data", "custom"})
+        for (const auto *kept : {"1234567890123456789", "unknown.module.setting", "module data", "provider data",
+                                 "binding data", "menu data", "toolbar data", "custom"})
             Check(text.find(kept) != std::string::npos, std::string("lost unknown data: ") + kept);
         vdev::EditorProfile restored;
         Check(restored.Decode(text, path, error) && restored.Settings().Values(false) == preferences.Values(false) &&
@@ -45,22 +49,27 @@ int main() {
             restored.Settings().pathsSaved && restored.Settings().dataResources == preferences.dataResources,
             "preferences did not round-trip through the profile: " + error);
         Check(restored.SetModule({"custom.viewer", true, "module files/viewer.dylib"}, error) &&
-            restored.Contributions().providers.size() == 1 && restored.Contributions().bindings.size() == 1 &&
-            restored.Contributions().menus.size() == 1, "enabling a module lost its deferred choices");
+                  restored.Contributions().providers.size() == 1 && restored.Contributions().bindings.size() == 1 &&
+                  restored.Contributions().menus.size() == 1 && restored.Contributions().toolbarItems.size() == 1,
+              "enabling a module lost its deferred choices");
         Check(Encoded(restored).find("module data") != std::string::npos, "module edit lost private fields");
         const auto valid = Encoded(restored);
-        for (const auto &bad : std::vector<std::string>{
-            "{", "[]", R"({"version":2})", R"({"version":1,"version":1})",
-            R"({"version":1,"modules":{}})", R"({"version":1,"modules":[{"id":"x.y","enabled":1}]})",
-            R"({"version":1,"modules":[{"id":"x.y","enabled":true},{"id":"x.y","enabled":false}]})",
-            R"({"version":1,"modules":[{"id":"x.y","enabled":true,"source":"builtin","path":"x"}]})",
-            R"({"version":1,"modules":[{"id":"application.operations","enabled":false}]})",
-            R"({"version":1,"providers":[{"kind":"tool","id":"x.y","provider":"x.z"}]})",
-            R"({"version":1,"providers":[{"kind":"view","id":"x.y","provider":"x.z"},{"kind":"view","id":"x.y","provider":"x.q"}]})",
-            R"({"version":1,"preferences":{"values":{"Schematic\\Default Link Delay":"not a number"}}})",
-            R"({"version":1,"menus":[{"id":"x.y","location":"menu.tools","order":18446744073709551615}]})",
-            R"({"version":1,"bindings":[{"action":"x.y","chord":"Ctrl+K","module":false}]})",
-            std::string("{\"version\":1,\"bad\":\"") + char(0xff) + "\"}"}) {
+        for (
+            const auto &bad : std::vector<std::string>{
+                R"({"version":1,"toolbar-items":[{"id":"test.button","position":[1]}]})",
+                R"({"version":1,"toolbar-items":[{"id":"test.button","size":[0,1]}]})",
+                R"({"version":1,"toolbar-items":[{"id":"test.button"},{"id":"test.button"}]})", "{", "[]",
+                R"({"version":2})", R"({"version":1,"version":1})", R"({"version":1,"modules":{}})",
+                R"({"version":1,"modules":[{"id":"x.y","enabled":1}]})",
+                R"({"version":1,"modules":[{"id":"x.y","enabled":true},{"id":"x.y","enabled":false}]})",
+                R"({"version":1,"modules":[{"id":"x.y","enabled":true,"source":"builtin","path":"x"}]})",
+                R"({"version":1,"modules":[{"id":"application.operations","enabled":false}]})",
+                R"({"version":1,"providers":[{"kind":"tool","id":"x.y","provider":"x.z"}]})",
+                R"({"version":1,"providers":[{"kind":"view","id":"x.y","provider":"x.z"},{"kind":"view","id":"x.y","provider":"x.q"}]})",
+                R"({"version":1,"preferences":{"values":{"Schematic\\Default Link Delay":"not a number"}}})",
+                R"({"version":1,"menus":[{"id":"x.y","location":"menu.tools","order":18446744073709551615}]})",
+                R"({"version":1,"bindings":[{"action":"x.y","chord":"Ctrl+K","module":false}]})",
+                std::string("{\"version\":1,\"bad\":\"") + char(0xff) + "\"}"}) {
             Check(!restored.Decode(bad, path, error) && !error.empty() && Encoded(restored) == valid,
                   "invalid input replaced the last valid profile");
         }

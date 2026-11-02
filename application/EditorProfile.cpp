@@ -58,7 +58,9 @@ EditorModuleSetting ModuleSetting(const Json &row) {
 ProviderChoice Provider(const Json &row) {
     Require(row.is_object(), "Invalid provider choice");
     ProviderChoice result{Text(row.at("kind")), Identifier(row.at("id")), Identifier(row.at("provider"))};
-    Require(result.kind == "command" || result.kind == "query" || result.kind == "editor" || result.kind == "view", "Unknown provider kind");
+    Require(result.kind == "command" || result.kind == "query" || result.kind == "editor" || result.kind == "view" ||
+                result.kind == "toolbar",
+            "Unknown provider kind");
     if (row.contains("module")) Identifier(row.at("module"));
     return result;
 }
@@ -218,6 +220,7 @@ WorkspaceState ReadWorkspace(const Json &raw) {
         v.module = Text(row.value("module", Json("")));
         v.title = Text(row.value("title", Json("")));
         v.role = Text(row.value("role", Json("")));
+        v.tool = Text(row.value("tool", Json("")));
         v.open = Boolean(row, "open", true);
         v.pinned = Boolean(row, "pinned");
         v.single = Boolean(row, "single");
@@ -323,6 +326,7 @@ Json WriteWorkspace(const WorkspaceState &state, Json raw) {
         row["module"] = v.module;
         row["title"] = v.title;
         row["role"] = v.role;
+        row["tool"] = v.tool;
         row["open"] = v.open;
         row["pinned"] = v.pinned;
         row["single"] = v.single;
@@ -407,6 +411,48 @@ struct EditorProfile::Data {
             const auto order = row.at("order").get<int64_t>();
             Require(order >= INT32_MIN && order <= INT32_MAX && ids.insert(id).second, "Invalid or duplicate menu order");
             contributions.menus.push_back({std::move(id), std::move(location), int(order)});
+        }
+        ids.clear();
+        for (const auto &row : Array(raw, "toolbar-items")) {
+            Require(row.is_object(), "Invalid toolbar item");
+            ToolbarPlacement item;
+            item.id = Identifier(row.at("id"));
+            Require(ids.insert(item.id).second, "Duplicate toolbar item");
+            if (row.contains("module")) Identifier(row.at("module"));
+            if (row.contains("location")) {
+                item.location = Identifier(row.at("location"));
+                item.fields |= ToolbarLocation;
+            }
+            if (row.contains("action")) {
+                item.action = Identifier(row.at("action"));
+                item.fields |= ToolbarAction;
+            }
+            if (row.contains("title")) {
+                item.title = Text(row.at("title"));
+                item.fields |= ToolbarTitle;
+            }
+            if (row.contains("visible")) {
+                item.visible = Boolean(row, "visible");
+                item.fields |= ToolbarVisibility;
+            }
+            const auto pair = [&](const char *key, float &a, float &b, uint32_t flag) {
+                if (!row.contains(key)) return;
+                const auto &v = row.at(key);
+                Require(v.is_array() && v.size() == 2 && v[0].is_number() && v[1].is_number(),
+                        "Invalid toolbar geometry");
+                a = v[0].get<float>();
+                b = v[1].get<float>();
+                Require(std::isfinite(a) && std::isfinite(b) && (flag != ToolbarSize || (a > 0 && b > 0)),
+                        "Invalid toolbar geometry");
+                item.fields |= flag;
+            };
+            pair("position", item.x, item.y, ToolbarPosition);
+            pair("size", item.width, item.height, ToolbarSize);
+            if (row.contains("arguments")) {
+                item.arguments = StateFields(row.at("arguments"));
+                item.fields |= ToolbarArguments;
+            }
+            contributions.toolbarItems.push_back(std::move(item));
         }
         Strings(raw, "module-files"); Strings(raw, "module-directories");
         if (raw.contains("preferences")) {
@@ -512,7 +558,12 @@ EditorConfiguration EditorProfile::Contributions() const {
         return std::any_of(Modules().begin(), Modules().end(), [&](const auto &entry) { return entry.id == module && !entry.enabled; });
     };
     const auto bindings = Array(m_Data->raw, "bindings"), menus = Array(m_Data->raw, "menus");
-    result.bindings.clear(); result.menus.clear();
+    result.bindings.clear();
+    result.menus.clear();
+    result.toolbarItems.clear();
+    const auto toolbars = Array(m_Data->raw, "toolbar-items");
+    for (size_t i = 0; i < toolbars.size(); ++i)
+        if (!deferred(toolbars[i])) result.toolbarItems.push_back(m_Data->contributions.toolbarItems[i]);
     for (size_t i = 0; i < bindings.size(); ++i) if (!deferred(bindings[i])) result.bindings.push_back(m_Data->contributions.bindings[i]);
     for (size_t i = 0; i < menus.size(); ++i) if (!deferred(menus[i])) result.menus.push_back(m_Data->contributions.menus[i]);
     return result;
@@ -630,6 +681,34 @@ bool EditorProfile::Capture(const Preferences &settings, const EditorConfigurati
             menus.push_back(std::move(row));
         }
         raw["menus"] = std::move(menus);
+        Json toolbars = Json::array();
+        for (const auto &old : Array(raw, "toolbar-items"))
+            if (owner && owner({"toolbar-item", Text(old.at("id")), {}}).empty() &&
+                std::none_of(configuration.toolbarItems.begin(), configuration.toolbarItems.end(),
+                             [&](const auto &item) { return old.at("id") == item.id; }))
+                toolbars.push_back(old);
+        for (const auto &item : configuration.toolbarItems) {
+            Json row = Json::object();
+            for (const auto &old : Array(raw, "toolbar-items"))
+                if (old.at("id") == item.id) {
+                    row = old;
+                    break;
+                }
+            for (const auto *key : {"location", "action", "title", "position", "size", "visible", "arguments"})
+                row.erase(key);
+            row["id"] = item.id;
+            if (item.fields & ToolbarLocation) row["location"] = item.location;
+            if (item.fields & ToolbarAction) row["action"] = item.action;
+            if (item.fields & ToolbarTitle) row["title"] = item.title;
+            if (item.fields & ToolbarPosition) row["position"] = {item.x, item.y};
+            if (item.fields & ToolbarSize) row["size"] = {item.width, item.height};
+            if (item.fields & ToolbarVisibility) row["visible"] = item.visible;
+            if (item.fields & ToolbarArguments) row["arguments"] = StateFields(item.arguments, Json::array());
+            const auto module = owner ? owner({"toolbar-item", item.id, {}}) : std::string{};
+            if (!module.empty()) row["module"] = module;
+            toolbars.push_back(std::move(row));
+        }
+        raw["toolbar-items"] = std::move(toolbars);
         Data next = *m_Data; next.raw = std::move(raw); next.Read(); next.settings = settings;
         *m_Data = std::move(next); error.clear(); return true;
     } catch (const std::exception &failure) { error = failure.what(); return false; }
