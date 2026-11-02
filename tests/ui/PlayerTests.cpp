@@ -103,13 +103,19 @@ struct Session {
     ImGuiTestContext *ctx;
     SDL_Window *other = nullptr;
     std::string mode;
+    std::string minimize;
     bool automatic = false;
+    bool hadMinimize = false;
     explicit Session(ImGuiTestContext *value) : ctx(value) {
         OnMainThread(ctx, [&] {
             auto &p = App().State().preferences;
             mode = p.Text("3D Layout\\Player Mode\\Render Mode");
             automatic = p.Bool("3D Layout\\Player Mode\\Auto FullScreen");
             p.SetBool("3D Layout\\Player Mode\\Auto FullScreen", false);
+            if (const auto *hint = SDL_GetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS)) {
+                minimize = hint;
+                hadMinimize = true;
+            }
             SDL_ShowWindow(EditorWindow()); SDL_RaiseWindow(EditorWindow());
             // Prepare the focus target before fullscreen starts. Creating and
             // activating it during Cocoa's fullscreen minimization races window
@@ -126,6 +132,10 @@ struct Session {
             p.Set("3D Layout\\Player Mode\\Render Mode", mode);
             p.SetBool("3D Layout\\Player Mode\\Auto FullScreen", automatic);
             if (other) SDL_DestroyWindow(other);
+            if (hadMinimize)
+                SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, minimize.c_str());
+            else
+                SDL_ResetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS);
         });
         ctx->Yield(3);
     }
@@ -308,6 +318,46 @@ bool SaveImage(const char *name, const Image &image) {
 } // namespace
 
 void RegisterPlayerTests(ImGuiTestEngine *engine) {
+    ImGuiTest *queued = IM_REGISTER_TEST(engine, "player", "fullscreen_delayed_focus_loss_and_close");
+    queued->GuiFunc = MainThreadGui;
+    queued->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        Session session(ctx);
+        IM_CHECK(ChooseMode(ctx));
+        IM_CHECK(Start(ctx));
+        NativeWindowInput nativeInput(ctx);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0"));
+            IM_CHECK_NO_RET(vdev::EditorClient(App().State().workspace->Application().Host(), 0)
+                                .Command("layout.toggle-fullscreen").status == EDITOR_OK);
+        });
+        IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && NativeFocus(RenderWindow()); }));
+        const auto send = [&](SDL_EventType type) {
+            OnMainThread(ctx, [&] {
+                SDL_Event event{};
+                event.type = type;
+                event.window.windowID = SDL_GetWindowID(RenderWindow());
+                event.window.timestamp = SDL_GetTicksNS();
+                IM_CHECK_NO_RET(SDL_PushEvent(&event));
+            });
+            ctx->Yield(3);
+        };
+        // The native window has already regained focus when this old event
+        // reaches the application's deferred fullscreen commands.
+        send(SDL_EVENT_WINDOW_FOCUS_LOST);
+        IM_CHECK(Read<bool>(ctx, [] {
+            return App().Layout().FullScreen() && App().Layout().PlayerMode() && NativeFocus(RenderWindow());
+        }));
+        // Close must still pause and exit even though the window has focus.
+        send(SDL_EVENT_WINDOW_CLOSE_REQUESTED);
+        IM_CHECK(Until(ctx, [] { return !App().Layout().FullScreen() && !App().Layout().PlayerMode(); }));
+        IM_CHECK(Read<bool>(ctx, [] {
+            return !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN) &&
+                   (SDL_GetWindowFlags(RenderWindow()) & SDL_WINDOW_HIDDEN) &&
+                   !(SDL_GetWindowFlags(RenderWindow()) & SDL_WINDOW_NOT_FOCUSABLE);
+        }));
+    };
+
     ImGuiTest *t = IM_REGISTER_TEST(engine, "player", "windowed_input_focus");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

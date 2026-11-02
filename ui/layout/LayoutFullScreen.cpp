@@ -38,7 +38,14 @@ void LayoutWindow::FullScreenEvent(const SDL_Event &event) {
                 }
         }
     }
-    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
+    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+        // Restoring a minimized fullscreen window can leave a focus-loss
+        // event queued after it has already regained focus.
+        auto *focused = SDL_GetKeyboardFocus();
+        if (!focused || SDL_GetWindowID(focused) != event.window.windowID)
+            m_PendingDeactivate = true;
+    }
+    if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
         m_PendingDeactivate = true;
 }
 
