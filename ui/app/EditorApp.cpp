@@ -238,10 +238,6 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     configuration = AvailableWorkspaceConfiguration(std::move(configuration), m_Editor);
     m_Session.document = std::make_unique<Document>(m_Session.host);
     m_Editor.Attach({}, 0, true, false);
-    if (!m_Workspace.Configure(configuration, error)) {
-        return fail(error);
-    }
-    OpenSceneView("level");
     m_Debugger = m_Execution.Bind(*m_Session.document);
     // Dev's paths (HKCU\Software\Virtools\Data Paths, read-only) until the
     // editor has its own.
@@ -252,9 +248,6 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     // The 3D Layout's render context (Dev makes it with its main window).
     m_Layout.createObject = [this](LayoutObject kind) { CreateObject(kind); };
 
-    std::string layoutError;
-    m_LayoutPresentation.Poll();
-    if (!m_Layout.Start(window, &layoutError)) m_Session.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     const auto openResource = [&](const std::string &resource) {
         const auto result = Command("resource.open-library", resource);
 #ifdef VIRTOOLSDEV_UI_TESTS
@@ -272,6 +265,40 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         NewComposition(false);
         m_Session.eventLog.HideStatus();
     }
+    bool workspaceRestored = false;
+    if (const auto *saved = m_Profile.Workspace()) {
+        auto next = *saved;
+        next.configuration.contributions = m_Editor.Configuration();
+        workspaceRestored = m_Workspace.Restore(next, error);
+        if (!workspaceRestored)
+            m_Session.Log(LogLevel::Error, "Workspace: " + error);
+    }
+    if (!workspaceRestored) {
+        if (!m_Workspace.Configure(configuration, error))
+            return fail(error);
+        OpenSceneView("level");
+        if (!isolated && !m_Profile.Workspace()) {
+            std::filesystem::path legacy;
+            if (char *directory = SDL_GetPrefPath("Virtools", "VirtoolsDev")) {
+                legacy = std::filesystem::u8path(directory) / "VirtoolsDevInterface.ini";
+                SDL_free(directory);
+            }
+            std::error_code failure;
+            if (!std::filesystem::exists(legacy, failure))
+                legacy = std::filesystem::u8path(SDL_GetBasePath()) / "VirtoolsDevInterface.ini";
+            if (std::filesystem::is_regular_file(legacy, failure) &&
+                std::filesystem::file_size(legacy, failure) <= 1024 * 1024) {
+                std::ifstream input(legacy, std::ios::binary);
+                std::string text{std::istreambuf_iterator<char>(input), {}};
+                if (input && !m_Workspace.LoadLayout(text, error))
+                    m_Session.Log(LogLevel::Warning, "Workspace: " + error);
+            }
+        }
+    }
+    std::string layoutError;
+    m_LayoutPresentation.Poll();
+    if (!m_Layout.Start(window, &layoutError))
+        m_Session.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (fileToOpen.empty()) RunStartupActions(false);
     else { m_RunStartupAfterOpen = true; OpenFile(fileToOpen); }
@@ -286,7 +313,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     UpdateTitle();
     auto restored = m_Profile;
     if (!restored.AddSources(modules, moduleDirectories, error) ||
-        !WriteProfile(restored, m_Settings, m_Editor.Configuration(), error)) return fail(m_ProfileFile + ": " + error);
+        (!m_Workspace.SavingBlocked() && !WriteProfile(restored, m_Settings, m_Editor.Configuration(), error)))
+        return fail(m_ProfileFile + ": " + error);
     m_Profile = std::move(restored); m_ProfileReady = true;
     m_Workspace.ConfigurationWriter([this](const auto &configuration, const auto &workspace, auto &error) {
         return SaveConfiguration(configuration, error, &workspace);
@@ -307,6 +335,18 @@ std::string EditorApp::PreferencesPath() const {
             if (std::filesystem::exists(file, error)) return file.u8string();
         }
     return legacy.u8string();
+}
+void EditorApp::SaveWorkspaceIfNeeded() {
+    auto &io = ImGui::GetIO();
+    if (!io.WantSaveIniSettings || !m_ProfileReady || m_ProfileFile.empty() || m_Session.runtimeOperation.Busy() ||
+        !m_Editor.NativeAvailable() || m_Editor.HasEdits() || m_Workspace.Interacting())
+        return;
+    if (!m_Workspace.SavingBlocked()) {
+        const auto result = EditorClient(m_Editor.Host(), 0).Command("workspace.save");
+        if (result.status != EDITOR_OK && !result.message.empty())
+            m_Session.Log(LogLevel::Error, result.message);
+    }
+    io.WantSaveIniSettings = false;
 }
 void EditorApp::SavePreferences() {
     if (!m_ProfileReady) return;
@@ -1055,7 +1095,8 @@ void EditorApp::Frame() {
     StatusBar();
     const auto layout = m_Workspace.UpdateLayout(dockspace, m_ResetLayout, m_CloseSeparated);
     if (!layout.closeLegacy.empty()) DevCloseSeparated(layout.closeLegacy);
-    if (layout.changed) m_FocusSchematic = 3;
+    if (layout.changed)
+        m_FocusSchematic = layout.focus ? 0 : 3;
     m_CloseSeparated = false;
     m_ResetLayout = false;
     ImGui::DockSpaceOverViewport(dockspace, ImGui::GetMainViewport());

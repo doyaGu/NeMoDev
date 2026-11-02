@@ -74,6 +74,7 @@ public:
         m_Editor.NativeAvailable(!m_Session.runtimeOperation.Busy());
         m_Editor.EndFrame();
         if (!m_Session.runtimeOperation.Busy() && m_Session.document) m_Session.document->CollectBitmaps();
+        SaveWorkspaceIfNeeded();
         m_Session.runtimeOperation.Start();
     }
     void HandleEvent(const SDL_Event &event);
@@ -199,6 +200,7 @@ private:
         return !m_Session.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy();
     }
     std::string PreferencesPath() const;
+    void SaveWorkspaceIfNeeded();
     void SavePreferences(); // not when isolated
     bool SaveSearchPaths(const PathCategories &, std::string &error);
     bool SaveSettings(Preferences next, std::string &error);

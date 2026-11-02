@@ -114,19 +114,7 @@ int main(int argc, char **argv) {
     }
     IMGUI_CHECKVERSION(); ImGui::CreateContext();
     ImGuiIO &io = ImGui::GetIO();
-    char *preferences = SDL_GetPrefPath("Virtools", "VirtoolsDev");
-    const std::string iniPath = preferences ? (fs::u8path(preferences) / "VirtoolsDevInterface.ini").u8string() : std::string();
-    SDL_free(preferences);
-    if (!isolated && !iniPath.empty()) {
-        std::error_code failure;
-        const auto saved = fs::u8path(iniPath);
-        const auto previous = fs::u8path(SDL_GetBasePath()) / "VirtoolsDevInterface.ini";
-        if (!fs::exists(saved, failure) && fs::exists(previous, failure)) {
-            fs::copy_file(previous, saved, failure);
-            if (failure) std::fprintf(stderr, "Cannot migrate the saved window layout: %s\n", failure.message().c_str());
-        }
-    }
-    io.IniFilename = isolated || iniPath.empty() ? nullptr : iniPath.c_str();
+    io.IniFilename = nullptr; // The workspace persists ImGui layout in the editor JSON profile.
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
     io.ConfigDpiScaleViewports = true;
     scale = WindowContentScale(window);
