@@ -4,6 +4,7 @@
 #include "workspace/ObjectDrag.h"
 #include "features/layout/SnapshotData.h"
 #include "features/scene/SceneViewData.h"
+#include "features/scene/SceneViews.h"
 #include "features/setup/SetupViewData.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
@@ -98,6 +99,176 @@ struct LongResourceFolder {
 
 void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
     ImGuiTest *test = nullptr;
+
+    test = IM_REGISTER_TEST(engine, "layout", "long_resource_path_schematic_snapshot_cancel_and_undo");
+    test->GuiFunc = DropGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        LongResourceFolder sample;
+        const auto path = (sample.folder / "Script image.bmp").u8string();
+        Bitmap(std::filesystem::u8path(path));
+        auto &state = App().State();
+        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        vdev::ObjectRef script{};
+        OnMainThread(ctx, [&] {
+            const auto scripts = vdev::SceneObjects(client.Query("schematic.stack"), "all");
+            IM_CHECK_NO_RET(!scripts.empty());
+            if (!scripts.empty())
+                script = scripts.front();
+            IM_CHECK_NO_RET(client.Command("script.navigate", {vdev::ObjectArgument("target", script)}).status == EDITOR_OK);
+        });
+        ctx->Yield(5);
+        ctx->WindowFocus(SchematicRef().c_str());
+        ctx->Yield(3);
+        ImVec2 at(-1, -1);
+        for (const auto &shown : App().Canvas().ShownScripts())
+            if (shown.script == script.object)
+                at = {shown.headerMin.x + 40, shown.headerMin.y + 8};
+        IM_CHECK(at.x >= 0);
+        const auto pixels = [&] {
+            const auto model = client.Query("schematic.model", {vdev::ObjectArgument("target", script),
+                                                                vdev::IntegerArgument("open", 1)});
+            const auto picture = client.Query("schematic.snapshot",
+                                              {vdev::ObjectArgument("target", script), vdev::IntegerArgument("open", 1),
+                                               vdev::IntegerArgument("revision", vdev::EditorClient::Integer(model, "revision")),
+                                               vdev::IntegerArgument("topology", vdev::EditorClient::Integer(model, "topology")),
+                                               vdev::IntegerArgument("view-revision", vdev::EditorClient::Integer(model, "view-revision"))});
+            IM_CHECK_NO_RET(model.status == EDITOR_OK && picture.status == EDITOR_OK);
+            return vdev::SceneIntegers(picture, "pixels");
+        };
+        const auto before = Read<std::vector<uint64_t>>(ctx, pixels);
+        const auto steps = state.History().UndoCount();
+        const bool dirty = state.document->Dirty();
+        const auto reads = App().Layout().View().ReadbackFrames();
+        source.visible = true;
+        source.type = EDITOR_RESOURCE_FILE_PAYLOAD;
+        source.bytes = vdev::WriteResourceDrag(0, {{path, CKCID_TEXTURE}});
+        ctx->Yield(3);
+        Drag(ctx, at, true);
+        IM_CHECK(Read<bool>(ctx, [&] { return pixels() == before && state.History().UndoCount() == steps; }));
+        Drag(ctx, at);
+        const auto deadline = SDL_GetTicks() + 10000;
+        bool loaded = false;
+        while (SDL_GetTicks() < deadline) {
+            loaded = Read<bool>(ctx, [&] { return state.History().UndoCount() == steps + 1; });
+            if (loaded)
+                break;
+            ctx->Sleep(.01f);
+        }
+        IM_CHECK(loaded);
+        const auto after = Read<std::vector<uint64_t>>(ctx, pixels);
+        IM_CHECK(!after.empty() && after != before);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK && pixels() == before);
+            IM_CHECK_NO_RET(client.Command("history.redo").status == EDITOR_OK && pixels() == after);
+            IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK && pixels() == before);
+        });
+        source.bytes = vdev::WriteResourceDrag(0, {{path + ".missing.bmp", CKCID_TEXTURE}});
+        Drag(ctx, at);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(pixels() == before && state.History().UndoCount() == steps && state.History().CanRedo() &&
+                            state.document->Dirty() == dirty);
+            IM_CHECK_NO_RET(App().Layout().View().ReadbackFrames() == reads);
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "layout", "long_resource_paths_to_layout_and_level_keep_selection");
+    test->GuiFunc = DropGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        LongResourceFolder sample;
+        const std::vector<vdev::ResourceFile> files{{(sample.folder / "First image.bmp").u8string(), CKCID_TEXTURE},
+                                                   {(sample.folder / "Second image.bmp").u8string(), CKCID_TEXTURE}};
+        for (const auto &file : files)
+            Bitmap(std::filesystem::u8path(file.path));
+        InView found;
+        IM_CHECK(SelectEntity(ctx, found));
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        const vdev::EditorClient client(workspace.Application().Host(), 0);
+        const auto textures = [&] {
+            std::vector<vdev::SetupObjectRow> rows;
+            std::set<vdev::ObjectRef> result;
+            if (vdev::ReadSetupChoices(client, CKCID_TEXTURE, rows))
+                for (const auto &row : rows)
+                    result.insert(row.object);
+            return result;
+        };
+        source.visible = true;
+        source.type = EDITOR_RESOURCE_FILE_PAYLOAD;
+        source.bytes = vdev::WriteResourceDrag(1, files);
+        ctx->Yield(3);
+        const uint64_t reads = App().Layout().View().ReadbackFrames();
+        const uint64_t uploads = App().Layout().ViewportUploadsForTests();
+        const uint64_t allocations = App().Layout().GpuViewportCreationsForTests();
+        for (bool level : {false, true}) {
+            ImVec2 at = found.at;
+            for (bool locked : {false, true}) {
+                std::set<vdev::ObjectRef> before;
+                std::vector<vdev::ObjectRef> selected;
+                size_t steps = 0;
+                bool redo = false, dirty = false;
+                OnMainThread(ctx, [&] {
+                    const auto result = client.Command("selection.lock", {vdev::IntegerArgument("locked", locked)});
+                    IM_CHECK_NO_RET(result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE);
+                    selected = vdev::SceneObjects(client.Query("selection.objects"), "objects");
+                    before = textures();
+                    steps = state.History().UndoCount();
+                    redo = state.History().CanRedo();
+                    dirty = state.document->Dirty();
+                });
+                if (level) {
+                    ctx->WindowFocus(SceneRef("level").c_str());
+                    ctx->Yield(3);
+                    at = Read<ImVec2>(ctx, [&] {
+                        for (const auto &row : vdev::SceneRowsForTests(workspace.Role("main.level")))
+                            if (row.cid == CKCID_LEVEL)
+                                return ImVec2(row.min.x + 130, (row.min.y + row.max.y) * .5f);
+                        return ImVec2(-1, -1);
+                    });
+                    IM_CHECK(at.x >= 0);
+                }
+                Drag(ctx, at, true);
+                OnMainThread(ctx, [&] {
+                    IM_CHECK_NO_RET(textures() == before && state.History().UndoCount() == steps &&
+                                    state.History().CanRedo() == redo && state.document->Dirty() == dirty);
+                });
+                Drag(ctx, at);
+                const auto deadline = SDL_GetTicks() + 10000;
+                bool loaded = false;
+                while (SDL_GetTicks() < deadline) {
+                    loaded = Read<bool>(ctx, [&] { return textures().size() == before.size() + 2; });
+                    if (loaded)
+                        break;
+                    ctx->Sleep(.01f);
+                }
+                if (!loaded)
+                    ctx->LogInfo("receiver=%s locked=%d textures=%zu expected=%zu", level ? "level" : "layout", locked,
+                                 Read<size_t>(ctx, [&] { return textures().size(); }), before.size() + 2);
+                IM_CHECK(loaded);
+                OnMainThread(ctx, [&] {
+                    std::set<std::string> paths;
+                    for (auto object : textures())
+                        if (!before.count(object)) {
+                            vdev::SetupPageData page;
+                            IM_CHECK_NO_RET(vdev::ReadSetupPage(client, object, -1, page));
+                            paths.insert(page.filename);
+                        }
+                    IM_CHECK_NO_RET(paths == std::set<std::string>({files[0].path, files[1].path}));
+                    IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.History().CanRedo() == redo);
+                    const auto selection = client.Query("selection.objects");
+                    IM_CHECK_NO_RET(vdev::SceneObjects(selection, "objects") == selected &&
+                                    bool(vdev::EditorClient::Integer(selection, "locked")) == locked);
+                    IM_CHECK_NO_RET(App().Layout().View().ReadbackFrames() == reads &&
+                                    App().Layout().ViewportUploadsForTests() == uploads &&
+                                    App().Layout().GpuViewportCreationsForTests() == allocations);
+                });
+            }
+        }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
+        });
+    };
 
     test = IM_REGISTER_TEST(engine, "layout", "long_resource_path_add_slot_keeps_source_and_undo");
     test->GuiFunc = DropGui;
