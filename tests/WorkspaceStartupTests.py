@@ -56,6 +56,10 @@ def main():
         profile.write_text('{"version":1}', encoding='utf-8')
         saved = run('save', 'save')
         secondary = next(v for v in saved['workspace']['views'] if v['role'] == 'test.secondary')
+        layouts = [v for v in saved['workspace']['views'] if v['type'] == 'layout.viewport']
+        assert len(layouts) == 2 and len({v['instance'] for v in layouts}) == 2
+        layout = next(v for v in layouts if v['role'] == 'test.secondary-layout')
+        assert next(s['value'] for s in layout['settings'] if s['key'] == 'tool') == 28
         assert next(s['value'] for s in secondary['settings'] if s['key'] == 'zoom') == .5
         assert all(s['key'] not in ('document', 'session')
                    for v in saved['workspace']['views'] for s in v['settings'])
@@ -63,6 +67,8 @@ def main():
         assert saved['workspace']['focused'] == instance
         assert '[Docking][Data]' in saved['workspace']['layout']
         restored = run('restore', 'restored')
+        assert next(v for v in restored['workspace']['views']
+                    if v['role'] == 'test.secondary-layout')['instance'] == layout['instance']
         assert next(v for v in restored['workspace']['views']
                     if v['role'] == 'test.secondary')['instance'] == instance
 

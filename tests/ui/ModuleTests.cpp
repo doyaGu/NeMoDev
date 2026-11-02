@@ -50,6 +50,9 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         }
         if (phase == "save") {
             OnMainThread(ctx, [&] {
+                const auto layout = workspace.Open("layout.viewport", "test.secondary-layout");
+                IM_CHECK_NO_RET(layout && App().Layout(layout));
+                App().Layout(layout)->StartupOptions("pan", "top");
                 second = workspace.Open("script.schematic", "test.secondary");
                 IM_CHECK_NO_RET(second);
                 workspace.Focus(second);
@@ -124,6 +127,19 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK(phase == "opening");
         }
         OnMainThread(ctx, [&] {
+            if (phase == "save" || phase == "restored" || phase == "missing" || phase == "close-missing" ||
+                phase == "reopen") {
+                const auto layout = workspace.Role("test.secondary-layout");
+                auto *view = App().Layout(layout);
+                IM_CHECK_NO_RET(view && view != &App().Layout() && view->Tool() == vdev::LayoutTool::Pan);
+                IM_CHECK_NO_RET(App().Layout().Tool() == vdev::LayoutTool::Select);
+                IM_CHECK_NO_RET(view->View().Camera() != App().Layout().View().Camera() &&
+                                view->View().RenderContext() != App().Layout().View().RenderContext());
+                IM_CHECK_NO_RET(workspace.WindowName(layout) != workspace.WindowName(workspace.Role("main.layout")));
+                // A restored dock tab may be hidden until selected; its transport
+                // is configured on the first visible render, without readback.
+                IM_CHECK_NO_RET(view->View().ReadbackFrames() == 0 && view->ViewportUploadsForTests() == 0);
+            }
             IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().ViewportUploadsForTests() == 0);
             IM_CHECK_NO_RET(App().Layout().View().ReadbackFrames() == 0);
             const auto before = App().State().History().UndoCount();
@@ -484,6 +500,69 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                             snapshots.Pixels(slot) == pixels);
             IM_CHECK_NO_RET(vdev::RemoveSnapshots(client, snapshots, {slot}).status == EDITOR_OK);
         });
+    };
+    setupTest = IM_REGISTER_TEST(engine, "modules", "two_layout_viewports_replace_and_restore_their_own_tools");
+    setupTest->GuiFunc = MainThreadGui;
+    setupTest->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        auto &workspace = App().WorkspaceForTests();
+        auto &editor = workspace.Application();
+        vdev::EditorConfiguration original;
+        EditorView first = 0, second = 0;
+        size_t history = 0;
+        uint64_t selection = 0;
+        OnMainThread(ctx, [&] {
+            original = editor.Configuration();
+            first = workspace.Role("main.layout");
+            second = workspace.Open("layout.viewport", "test.layout-replacement");
+            IM_CHECK_NO_RET(first && second && first != second && App().Layout(second));
+            App().Layout().StartupOptions("translate", "");
+            App().Layout(second)->StartupOptions("pan", "");
+            history = App().State().History().UndoCount();
+            selection = App().State().objectSelection.Revision();
+        });
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto configured = original;
+            for (auto &choice : configured.providers)
+                if (choice.kind == "view" && choice.id == "layout.viewport")
+                    choice.provider = "example.layout-window";
+            const vdev::EditorClient client(editor.Host(), 0);
+            auto *a = App().Layout().GpuViewportTextureForTests();
+            auto *b = App().Layout(second)->GpuViewportTextureForTests();
+            IM_CHECK_NO_RET(a && b && a != b);
+            IM_CHECK_NO_RET(
+                client.Command("example.layout-window-failure", {vdev::IntegerArgument("fail", 1)}).status ==
+                EDITOR_OK);
+            std::string error;
+            IM_CHECK_NO_RET(!workspace.Configure(configured, error) && workspace.Role("main.layout") == first &&
+                            workspace.Role("test.layout-replacement") == second &&
+                            App().Layout().GpuViewportTextureForTests() == a &&
+                            App().Layout(second)->GpuViewportTextureForTests() == b);
+            IM_CHECK_NO_RET(
+                client.Command("example.layout-window-failure", {vdev::IntegerArgument("fail", 0)}).status ==
+                EDITOR_OK);
+            IM_CHECK_NO_RET(workspace.Configure(configured, error));
+            IM_CHECK_NO_RET(!editor.Scope(first).view && !editor.Scope(second).view && !App().Layout(first) &&
+                            !App().Layout(second));
+            IM_CHECK_NO_RET(
+                vdev::EditorClient::Integer(workspace.Inspect(workspace.Role("main.layout")), "tool") == 9 &&
+                vdev::EditorClient::Integer(workspace.Inspect(workspace.Role("test.layout-replacement")), "tool") ==
+                    28);
+            IM_CHECK_NO_RET(workspace.Configure(original, error));
+        });
+        ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            const auto restored = workspace.Role("test.layout-replacement");
+            IM_CHECK_NO_RET(App().Layout().Tool() == vdev::LayoutTool::Translate && App().Layout(restored) &&
+                            App().Layout(restored)->Tool() == vdev::LayoutTool::Pan);
+            IM_CHECK_NO_RET(App().Layout().View().Camera() != App().Layout(restored)->View().Camera() &&
+                            App().State().History().UndoCount() == history &&
+                            App().State().objectSelection.Revision() == selection);
+            IM_CHECK_NO_RET(workspace.Close(restored));
+            workspace.Focus(workspace.Role("main.layout"));
+        });
+        ctx->Yield(3);
     };
     setupTest = IM_REGISTER_TEST(engine, "modules", "setup_workspace_provider_restore_and_lifetime");
     setupTest->GuiFunc = MainThreadGui;
