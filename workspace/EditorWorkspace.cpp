@@ -37,6 +37,10 @@ int OwnedPopup(const ImGuiWindow *window, bool modalOnly = false) {
 void CloseWindowInput(ImGuiWindow *window) {
     auto &context = *ImGui::GetCurrentContext();
     if (OwnsWindow(window, context.ActiveIdWindow)) {
+        // The payload may outlive its source item while the button is held.
+        // Destroying that view cancels the drag before another view can use it.
+        if (context.DragDropActive && context.DragDropPayload.SourceId == context.ActiveId)
+            ImGui::ClearDragDrop();
         // ClearActiveID saves text for the next draw. A destroyed view must not
         // apply that text when another instance reuses its window ID.
         const auto active = context.ActiveId;
@@ -584,11 +588,18 @@ void EditorWorkspace::Destroy(EditorView id, bool prepared) {
         m_Error = "View cleanup failed";
     const auto name = WindowName(id);
     if (ImGui::GetCurrentContext()) {
+        auto &context = *ImGui::GetCurrentContext();
+        if (m_DragOwner == id && context.DragDropActive && context.DragDropPayload.SourceId == m_DragId)
+            ImGui::ClearDragDrop();
         if (!name.empty())
             CloseWindowInput(ImGui::FindWindowByName(name.c_str()));
         for (const auto id : found->second.windows)
             if (auto *window = ImGui::FindWindowByID(id); window && window->LastFrameActive == found->second.drawnFrame)
                 CloseWindowInput(window);
+    }
+    if (m_DragOwner == id) {
+        m_DragOwner = 0;
+        m_DragId = 0;
     }
     if (m_LastFocusRequest == id) m_LastFocusRequest = 0;
     m_Application.CloseScope(id);
@@ -608,6 +619,11 @@ void EditorWorkspace::CloseAll() {
 }
 void EditorWorkspace::Draw(bool nativeAvailable) {
     UpdateRegionDocks();
+    auto &context = *ImGui::GetCurrentContext();
+    if (!context.DragDropActive || context.DragDropPayload.SourceId != m_DragId) {
+        m_DragOwner = 0;
+        m_DragId = 0;
+    }
     const auto focus = m_LastFocusRequest;
     bool focusDrawn = false;
     std::vector<EditorView> closed;
@@ -629,12 +645,19 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
         // Picking can be requested by an editor drawn inside this same view.
         view.drawnFrame = ImGui::GetFrameCount();
         const auto firstWindow = ImGui::GetCurrentContext()->WindowsActiveCount;
+        const auto sourceFrame = context.DragDropSourceFrameCount;
         try {
             Drawing drawing(m_Application);
             view.desc.draw(view.data, m_Application.Host(), view.id, &frame);
         } catch (...) {
             view.drawnFrame = -1;
             m_Error = "View raised an exception";
+        }
+        if (context.DragDropActive && context.DragDropSourceFrameCount != sourceFrame &&
+            context.DragDropSourceFrameCount == context.FrameCount) {
+            // Retain ownership even if focus later clears the active widget.
+            m_DragOwner = view.id;
+            m_DragId = context.DragDropPayload.SourceId;
         }
         view.windows.clear();
         for (const auto *window : ImGui::GetCurrentContext()->Windows)

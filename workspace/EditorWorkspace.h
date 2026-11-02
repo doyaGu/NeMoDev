@@ -97,6 +97,8 @@ class EditorWorkspace : private EditorViewNavigation {
     EditorApplication &m_Application;
     std::map<EditorView, View> m_Views;
     EditorView m_LastFocusRequest = 0;
+    EditorView m_DragOwner = 0;
+    unsigned m_DragId = 0;
     std::map<std::string, EditorView> m_LastFocused;
     WorkspaceConfiguration m_Configuration;
     std::map<std::string, unsigned> m_RegionDocks;

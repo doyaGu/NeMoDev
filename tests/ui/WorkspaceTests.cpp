@@ -4,6 +4,8 @@
 #include "workspace/ResourceDrag.h"
 #include "ui/help/HelpWindow.h"
 #include "workspace/EditorClient.h"
+#include "features/scene/SceneViews.h"
+#include "features/scene/SceneViewData.h"
 #include "core/level/LevelCommands.h"
 #include <atomic>
 #include <chrono>
@@ -809,5 +811,190 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         });
     };
 
+    test = IM_REGISTER_TEST(engine, "modules", "cross_view_object_drags_keep_source_selection_and_cancel_safely");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        const vdev::EditorClient client(workspace.Application().Host(), 0);
+        vdev::ObjectRef a{}, b{}, c{}, frame{}, group{};
+        OnMainThread(ctx, [&] {
+            const auto create = [&](const char *name, bool group = false) {
+                const auto made = Command(group ? "object.create-group" : "object.create-frame3d");
+                const auto *created = vdev::EditorClient::Find(made, "created");
+                IM_CHECK_NO_RET(made.status == EDITOR_OK && created && created->object);
+                const auto object = created ? created->object : vdev::ObjectRef{};
+                IM_CHECK_NO_RET(Command("object.rename", {vdev::ObjectArgument("target", object),
+                                                          vdev::TextArgument("name", std::string(name))})
+                                    .status == EDITOR_OK);
+                return object;
+            };
+            a = create("00 Drop A");
+            b = create("00 Drop B");
+            c = create("00 Drop C");
+            frame = create("00 Drop Parent");
+            group = create("00 Drop Group", true);
+        });
+        const auto point = [&](EditorView view, vdev::ObjectRef object) {
+            return Read<ImVec2>(ctx, [&] {
+                for (const auto &row : vdev::SceneRowsForTests(view))
+                    if (row.object == object.object)
+                        return ImVec2(row.min.x + 180, (row.min.y + row.max.y) * .5f);
+                return ImVec2(-1, -1);
+            });
+        };
+        const auto choose = [&](EditorView view, vdev::ObjectRef second) {
+            ctx->WindowFocus(Window(view).c_str());
+            ctx->Yield(2);
+            ctx->MouseMoveToPos(point(view, a));
+            ctx->MouseClick(0);
+            ctx->KeyDown(ImGuiMod_Ctrl);
+            ctx->MouseMoveToPos(point(view, second));
+            ctx->MouseClick(0);
+            ctx->KeyUp(ImGuiMod_Ctrl);
+            ctx->Yield(3);
+        };
+        enum { Accept, Escape, CloseSource, CloseReceiver, CloseUnrelated, DeleteMember };
+        for (bool hierarchy : {true, false})
+            for (bool locked : {true, false})
+                for (int mode = Accept; mode <= DeleteMember; ++mode) {
+                    ctx->LogInfo("hierarchy=%d locked=%d action=%d", hierarchy, locked, mode);
+                    const char *type = hierarchy ? "scene.hierarchy" : "scene.level";
+                    const auto target = hierarchy ? frame : group;
+                    EditorView source = 0, receiver = 0, unrelated = 0;
+                    size_t steps = 0;
+                    bool dirty = false, redo = false;
+                    std::vector<vdev::ObjectRef> shared;
+                    OnMainThread(ctx, [&] {
+                        const auto restored = Command("selection.restore", {vdev::ObjectsArgument("objects", {a}),
+                                                                            vdev::IntegerArgument("locked", locked)});
+                        IM_CHECK_NO_RET(restored.status == EDITOR_OK);
+                        source = workspace.Open(type);
+                        receiver = workspace.Open(type);
+                        if (mode == CloseUnrelated)
+                            unrelated = workspace.Open(type);
+                        IM_CHECK_NO_RET(source && receiver && source != receiver);
+                    });
+                    ctx->Yield(4);
+                    OnMainThread(ctx, [&] {
+                        int index = 0;
+                        for (auto view : {source, receiver}) {
+                            const auto name = workspace.WindowName(view);
+                            auto *window = ImGui::FindWindowByName(name.c_str());
+                            IM_CHECK_NO_RET(window);
+                            ImGui::SetWindowDock(window, 0, ImGuiCond_Always);
+                            ImGui::SetWindowPos(name.c_str(), {20.0f + 780 * index++, 60});
+                            ImGui::SetWindowSize(name.c_str(), {700, 650});
+                            IM_CHECK_NO_RET(
+                                Command("example.scene.navigate",
+                                        {vdev::TextArgument("type", std::string(type)),
+                                         vdev::IntegerArgument("view", view), vdev::ObjectArgument("target", a)})
+                                    .status == EDITOR_OK);
+                        }
+                    });
+                    ctx->Yield(4);
+                    choose(source, b);
+                    if (locked)
+                        choose(receiver, c);
+                    OnMainThread(ctx, [&] {
+                        IM_CHECK_NO_RET(vdev::SceneObjects(workspace.Inspect(source), "selection") ==
+                                        std::vector<vdev::ObjectRef>({a, b}));
+                        if (locked)
+                            IM_CHECK_NO_RET(vdev::SceneObjects(workspace.Inspect(receiver), "selection") ==
+                                            std::vector<vdev::ObjectRef>({a, c}));
+                        shared = vdev::SceneObjects(client.Query("selection.objects"), "objects");
+                        steps = state.History().UndoCount();
+                        dirty = state.document->Dirty();
+                        redo = state.History().CanRedo();
+                    });
+                    ctx->WindowFocus(Window(source).c_str());
+                    ctx->Yield(2);
+                    const auto from = point(source, a), to = point(receiver, target);
+                    IM_CHECK(from.x >= 0 && to.x >= 0);
+                    ctx->MouseMoveToPos(from);
+                    ctx->MouseDown(0);
+                    ctx->MouseMoveToPos({from.x + 25, from.y + 5});
+                    OnMainThread(ctx, [&] {
+                        IM_CHECK_NO_RET(vdev::SceneObjects(workspace.Inspect(source), "selection") ==
+                                        std::vector<vdev::ObjectRef>({a, b}));
+                    });
+                    ctx->MouseMoveToPos(to);
+                    ctx->Yield(3);
+                    if (mode == Escape)
+                        ctx->KeyPress(ImGuiKey_Escape);
+                    OnMainThread(ctx, [&] {
+                        if (mode == CloseSource) {
+                            // Focus changes may clear the active widget while
+                            // ImGui still retains a drag awaiting mouse release.
+                            if (!locked)
+                                ImGui::ClearActiveID();
+                            IM_CHECK_NO_RET(workspace.Close(source));
+                            IM_CHECK_NO_RET(!ImGui::GetDragDropPayload());
+                        }
+                        if (mode == CloseReceiver)
+                            IM_CHECK_NO_RET(workspace.Close(receiver));
+                        if (mode == CloseUnrelated) {
+                            IM_CHECK_NO_RET(workspace.Close(unrelated));
+                            IM_CHECK_NO_RET(ImGui::GetDragDropPayload());
+                        }
+                        if (mode == DeleteMember) {
+                            IM_CHECK_NO_RET(Command("object.destroy", {vdev::ObjectsArgument("objects", {b})}).status ==
+                                            EDITOR_OK);
+                            steps = state.History().UndoCount();
+                            dirty = state.document->Dirty();
+                            redo = state.History().CanRedo();
+                            shared = vdev::SceneObjects(client.Query("selection.objects"), "objects");
+                        }
+                    });
+                    if (mode == DeleteMember) {
+                        ctx->Yield(2);
+                        OnMainThread(
+                            ctx, [&] { shared = vdev::SceneObjects(client.Query("selection.objects"), "objects"); });
+                    }
+                    ctx->MouseUp(0);
+                    ctx->Yield(4);
+                    OnMainThread(ctx, [&] {
+                        vdev::SceneTree tree;
+                        IM_CHECK_NO_RET(vdev::QuerySceneTree(client, {}, hierarchy, tree) == EDITOR_OK);
+                        const auto member = [&](vdev::ObjectRef object) {
+                            for (const auto &row : tree.rows)
+                                if (row.object == object && row.parent && tree.rows[row.parent - 1].object == target)
+                                    return true;
+                            return false;
+                        };
+                        const bool accepted = mode == Accept || mode == CloseUnrelated;
+                        IM_CHECK_NO_RET(member(a) == accepted && member(b) == accepted && !member(c));
+                        IM_CHECK_NO_RET(vdev::SceneObjects(client.Query("selection.objects"), "objects") == shared);
+                        IM_CHECK_NO_RET(
+                            bool(vdev::EditorClient::Integer(client.Query("selection.objects"), "locked")) == locked);
+                        IM_CHECK_NO_RET(state.History().UndoCount() == steps + unsigned(accepted));
+                        if (accepted)
+                            IM_CHECK_NO_RET(Command("history.undo").status == EDITOR_OK);
+                        else
+                            IM_CHECK_NO_RET(state.document->Dirty() == dirty && state.History().CanRedo() == redo);
+                        for (auto view : {source, receiver})
+                            if (workspace.Application().Scope(view).view)
+                                IM_CHECK_NO_RET(workspace.Close(view));
+                        if (mode == DeleteMember) {
+                            // Permanent deletion retains its existing non-undoable
+                            // behavior. The refused drop must preserve that state.
+                            const auto made = Command("object.create-frame3d");
+                            const auto *created = vdev::EditorClient::Find(made, "created");
+                            IM_CHECK_NO_RET(made.status == EDITOR_OK && created && created->object);
+                            b = created ? created->object : vdev::ObjectRef{};
+                            IM_CHECK_NO_RET(
+                                Command("object.rename", {vdev::ObjectArgument("target", b),
+                                                          vdev::TextArgument("name", std::string("00 Drop B"))})
+                                    .status == EDITOR_OK);
+                        }
+                    });
+                    ctx->Yield(3);
+                }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK ||
+                            !vdev::EditorClient::Integer(client.Query("selection.objects"), "locked"));
+        });
+    };
 }
 } // namespace vdevuitest
