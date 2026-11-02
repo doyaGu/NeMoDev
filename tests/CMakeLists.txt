@@ -1,5 +1,16 @@
 # Virtools Dev's tests: they link the core only.
 find_package(Threads REQUIRED)
+add_executable(NeMoDevModuleTests ModuleDiscoveryTests.cpp)
+target_link_libraries(NeMoDevModuleTests PRIVATE NeMoDevEditorApplication Threads::Threads)
+nemodev_add_module(NeMoDevDiscoveryBase SOURCES modules/DiscoveryModule.cpp)
+target_compile_definitions(NeMoDevDiscoveryBase PRIVATE MODULE_ID="fixture.base" MODULE_DEPENDENCY="fixture.embedded")
+nemodev_add_module(NeMoDevDiscoveryAddon SOURCES modules/DiscoveryModule.cpp)
+target_compile_definitions(NeMoDevDiscoveryAddon PRIVATE MODULE_ID="fixture.addon" MODULE_DEPENDENCY="fixture.base")
+nemodev_add_module(NeMoDevDiscoveryNoEntry SOURCES modules/NoEntryModule.cpp)
+add_dependencies(NeMoDevModuleTests NeMoDevDiscoveryBase NeMoDevDiscoveryAddon NeMoDevDiscoveryNoEntry)
+add_test(NAME NeMoDevModuleDiscovery COMMAND NeMoDevModuleTests
+        "$<TARGET_FILE:NeMoDevDiscoveryBase>" "$<TARGET_FILE:NeMoDevDiscoveryAddon>" "$<TARGET_FILE:NeMoDevDiscoveryNoEntry>")
+set_tests_properties(NeMoDevModuleDiscovery PROPERTIES LABELS self-contained)
 add_test(NAME NeMoDevModuleBuild COMMAND ${Python3_EXECUTABLE}
         "${CMAKE_CURRENT_SOURCE_DIR}/ModuleBuildTests.py" --source "${VIRTOOLSDEV_SOURCE_DIR}"
         --cmake "${CMAKE_COMMAND}" --results "${PROJECT_BINARY_DIR}/module-build")

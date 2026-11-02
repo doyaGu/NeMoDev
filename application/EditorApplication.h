@@ -11,6 +11,7 @@
 namespace vdev {
 
 class Document;
+struct EditorModuleSource;
 
 // Owned internal values; C consumers use the copying sink instead.
 struct EditorField {
@@ -106,6 +107,10 @@ class EditorApplication {
     // Collect, validate, activate. No contribution becomes callable earlier.
     bool Register(const EditorModuleDesc &module, std::string &error);
     bool Load(const std::string &path, std::string &error);
+    // Collect all sources and activate together. Failure stops and removes
+    // only modules added by this call; existing registrations remain usable.
+    bool Assemble(const std::vector<EditorModuleSource> &, EditorDrawingVersion, std::string &error,
+                  const EditorConfiguration &configuration = {});
     bool Activate(EditorDrawingVersion imguiVersion, std::string &error, const EditorConfiguration &configuration = {});
     bool Configure(const EditorConfiguration &configuration, std::string &error);
     const EditorConfiguration &Configuration() const;

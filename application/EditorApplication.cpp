@@ -1,4 +1,5 @@
 #include "application/EditorApplication.h"
+#include "application/EditorModules.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
 #include "core/runtime/TextEncoding.h"
@@ -425,6 +426,7 @@ struct EditorApplication::State {
     EditorConfiguration configuration;
     std::map<std::string, std::vector<EditorKey>> shortcuts;
     bool active = false, available = false, writable = false, stopped = false;
+    bool assembling = false, loading = false, discarding = false;
     std::map<std::string, std::string> locations;
     unsigned drawing = 0, querying = 0, executing = 0, editing = 0, drawingEdit = 0;
     unsigned readOnlyCallbacks = 0, checking = 0;
@@ -523,6 +525,45 @@ struct EditorApplication::State {
         return doc && doc->NativeId(object) != 0;
     }
     bool Thread() const { return thread == std::this_thread::get_id(); }
+    std::vector<Module *> ModuleOrder() const {
+        std::map<std::string, Module *> named;
+        for (const auto &module : modules) named.emplace(String(module->id), module.get());
+        std::set<Module *> visiting, done;
+        std::vector<Module *> order;
+        const auto visit = [&](const auto &self, Module *module) -> void {
+            if (done.count(module)) return;
+            if (!visiting.insert(module).second)
+                throw std::invalid_argument("Module dependency cycle: " + String(module->id));
+            for (auto dependency : module->dependencies) {
+                const auto found = named.find(String(dependency));
+                if (found == named.end())
+                    throw std::invalid_argument("Missing module dependency: " + String(module->id) + " -> " + String(dependency));
+                self(self, found->second);
+            }
+            visiting.erase(module);
+            done.insert(module);
+            order.push_back(module);
+        };
+        for (const auto &module : modules) visit(visit, module.get());
+        return order;
+    }
+    void DiscardModules(size_t first) {
+        discarding = true;
+        auto order = activation;
+        if (order.empty()) {
+            try { order = ModuleOrder(); }
+            catch (...) { for (const auto &module : modules) order.push_back(module.get()); }
+        }
+        std::set<Module *> removed;
+        for (size_t i = first; i < modules.size(); ++i) removed.insert(modules[i].get());
+        for (auto it = order.rbegin(); it != order.rend(); ++it)
+            if (removed.count(*it) && (*it)->stop) {
+                try { (*it)->stop((*it)->data); } catch (...) {}
+            }
+        // All stop callbacks run while every library is still loaded.
+        modules.resize(first);
+        discarding = false;
+    }
     bool Valid(EditorScope scope) const {
         return active && document.value && scope.document == document && (!scope.view || scopes.count(scope.view));
     }
@@ -1349,7 +1390,7 @@ EditorStatus EditorApplication::QueryRevision(const std::string &id, uint64_t &v
 
 bool EditorApplication::Register(const EditorModuleDesc &module, std::string &error) {
     auto &s = *m_State;
-    if (!s.Thread() || s.active || s.stopped) {
+    if (!s.Thread() || s.active || s.stopped || s.discarding) {
         error = "Registration is closed";
         return false;
     }
@@ -1438,17 +1479,29 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
     }
 }
 bool EditorApplication::Load(const std::string &path, std::string &error) {
-    if (!m_State->Thread() || m_State->active || m_State->stopped) {
+    if (!m_State->Thread() || m_State->active || m_State->stopped || m_State->loading || m_State->discarding) {
         error = "Registration is closed";
         return false;
     }
+    struct Loading { bool &flag; ~Loading() { flag = false; } } loading{m_State->loading};
+    m_State->loading = true;
+    std::filesystem::path file;
+    try {
+        if (path.empty() || path.find('\0') != std::string::npos) throw std::invalid_argument("Invalid module path");
+        file = std::filesystem::canonical(std::filesystem::u8path(path));
+        if (!std::filesystem::is_regular_file(file)) throw std::invalid_argument("Expected a module file");
+    } catch (const std::exception &failure) {
+        error = "Cannot load module: " + path + ": " + failure.what();
+        return false;
+    }
 #ifdef _WIN32
-    void *library = LoadLibraryW(std::filesystem::u8path(path).c_str());
+    void *library = LoadLibraryExW(file.c_str(), nullptr,
+                                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     auto entry =
         library ? reinterpret_cast<EditorModuleEntry>(GetProcAddress(static_cast<HMODULE>(library), "NeMoDevModule"))
                 : nullptr;
 #else
-    void *library = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
+    void *library = dlopen(file.c_str(), RTLD_NOW | RTLD_LOCAL);
     auto entry = library ? reinterpret_cast<EditorModuleEntry>(dlsym(library, "NeMoDevModule")) : nullptr;
 #endif
     if (!entry) {
@@ -1486,36 +1539,49 @@ bool EditorApplication::Load(const std::string &path, std::string &error) {
         return false;
     }
 }
+bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources, EditorDrawingVersion drawing,
+                                 std::string &error, const EditorConfiguration &configuration) {
+    auto &s = *m_State;
+    if (!s.Thread() || s.active || s.stopped || s.assembling || s.loading || s.discarding) {
+        error = "Registration is closed";
+        return false;
+    }
+    const auto first = s.modules.size();
+    std::string source;
+    s.assembling = true;
+    try {
+        for (const auto &entry : sources) {
+            source = entry.name;
+            error.clear();
+            if (source.empty() || !entry.collect) throw std::invalid_argument("Invalid module source");
+            const auto count = s.modules.size();
+            if (!entry.collect(*this, error)) throw std::runtime_error(error.empty() ? "Module collection failed" : error);
+            if (s.modules.size() == count) throw std::runtime_error("Module source registered no module");
+        }
+        s.assembling = false;
+        source = "activation";
+        if (Activate(drawing, error, configuration)) { error.clear(); return true; }
+    } catch (const std::exception &failure) {
+        error = failure.what();
+    } catch (...) {
+        error = "Module collection raised an exception";
+    }
+    // Registration remains closed to reentrant assembly/stop until recovery ends.
+    s.assembling = true;
+    s.DiscardModules(first);
+    s.assembling = false;
+    error = "Editor modules (" + source + "): " + error;
+    return false;
+}
 bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string &error,
                                  const EditorConfiguration &configuration) {
     auto &s = *m_State;
-    if (!s.Thread() || s.active || s.stopped) {
+    if (!s.Thread() || s.active || s.stopped || s.assembling || s.loading || s.discarding) {
         error = "Registration is closed";
         return false;
     }
     try {
-        std::map<std::string, Module *> modules;
-        for (auto &m : s.modules)
-            modules.emplace(String(m->id), m.get());
-        std::set<Module *> visiting, done;
-        std::vector<Module *> ordered;
-        std::function<void(Module *)> visit = [&](Module *m) {
-            if (done.count(m))
-                return;
-            if (!visiting.insert(m).second)
-                throw std::invalid_argument("Module dependency cycle");
-            for (auto d : m->dependencies) {
-                auto dep = modules.find(String(d));
-                if (dep == modules.end())
-                    throw std::invalid_argument("Missing module dependency");
-                visit(dep->second);
-            }
-            visiting.erase(m);
-            done.insert(m);
-            ordered.push_back(m);
-        };
-        for (auto &m : s.modules)
-            visit(m.get());
+        auto ordered = s.ModuleOrder();
         for (auto *m : ordered) {
             for (auto &l : m->locations)
                 s.locations.emplace(String(l.id), String(l.title));
@@ -2535,7 +2601,7 @@ void EditorApplication::Stop() {
     if (!m_State)
         return;
     auto &s = *m_State;
-    if (!s.Thread())
+    if (!s.Thread() || s.assembling || s.loading || s.discarding)
         return;
     s.active = false;
     s.stopped = true;
@@ -2544,17 +2610,7 @@ void EditorApplication::Stop() {
     s.pending.clear();
     s.scopes.clear();
     s.cache.clear();
-    std::vector<Module *> stopping = s.activation;
-    if (stopping.empty())
-        for (auto &m : s.modules)
-            stopping.push_back(m.get());
-    for (auto it = stopping.rbegin(); it != stopping.rend(); ++it)
-        if ((*it)->stop) {
-            try {
-                (*it)->stop((*it)->data);
-            } catch (...) {
-            }
-        }
+    s.DiscardModules(0);
     s.commands.clear();
     s.queries.clear();
     s.editors.clear();
