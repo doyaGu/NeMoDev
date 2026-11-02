@@ -29,6 +29,25 @@ class LinuxSymbolVersions(unittest.TestCase):
 
 
 class PackageLinks(unittest.TestCase):
+    def test_editor_modules_keep_their_directory_after_mac_relocation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "NeMoDev.app"
+            contents = app / "Contents"
+            modules = contents / "Frameworks/modules"
+            modules.mkdir(parents=True)
+            (contents / "Frameworks/BallancedRuntime.txt").write_bytes(b"Runtime metadata")
+            (modules / "libDocumentInfo.dylib").write_bytes(b"Module unchanged")
+            (modules / "private").mkdir()
+            (modules / "private/data.txt").write_bytes(b"Private module data")
+            move_mac_resources(contents)
+            moved = app.with_name("Moved App.app")
+            app.rename(moved)
+            check_symlinks(moved)
+            target = moved / "Contents/PlugIns/EditorModules"
+            self.assertEqual((target / "libDocumentInfo.dylib").read_bytes(), b"Module unchanged")
+            self.assertEqual((target / "private/data.txt").read_bytes(), b"Private module data")
+            self.assertFalse((moved / "Contents/Frameworks/modules").exists())
+
     def test_relative_library_chain_and_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             package = Path(directory)

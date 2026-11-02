@@ -236,6 +236,13 @@ def linux_deb(package, output, name, version, work):
 
 
 def move_mac_resources(contents):
+    modules = contents / "Frameworks/modules"
+    if modules.exists():
+        destination = contents / "PlugIns/EditorModules"
+        if destination.exists():
+            raise RuntimeError(f"Editor module directories overlap: {destination}")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(modules), str(destination))
     # macOS signs code directories as nested code. Keep SDK configuration and
     # runtime metadata in Resources, with internal relative links at the SDK's
     # existing lookup locations; no SDK source changes are required.
