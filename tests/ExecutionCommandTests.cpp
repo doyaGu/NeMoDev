@@ -1,3 +1,4 @@
+#include "application/Preferences.h"
 #include "application/ExecutionCommands.h"
 #include "application/ObjectSelection.h"
 #include "core/document/Document.h"
@@ -41,7 +42,8 @@ void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &moduleP
     Check(document.New(&error), error.c_str());
     bool native = true;
     EditorApplication editor([&] { return &document; }, [&] { return native; });
-    ExecutionCommands commands(editor, [&] { return &document; }, [&] { return native; });
+    Preferences preferences;
+    ExecutionCommands commands(editor, [&] { return &document; }, [&] { return native; }, preferences);
     ObjectCommands objects([&] { return &document; });
     Check(commands.Register(error) && objects.Register(editor, error) && editor.Load(modulePath, error), error.c_str());
     auto config = EditorConfiguration{};
@@ -118,6 +120,37 @@ void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &moduleP
     auto invalidTime = time; invalidTime.back().real = -1;
     Check(execute("runtime.set-time", invalidTime).status == EDITOR_INVALID &&
           read("runtime.time").fields[2].real == 120.5, "time validation allowed a partial write");
+    auto timeWithFps = time;
+    auto hideFps = Integer("hide-fps", 1);
+    timeWithFps.push_back({EDITOR_TEXT("display"), EDITOR_RECORD, {}, {}, 0, {}, {}, {}, 0, {}, {&hideFps, 1}});
+    Check(execute("runtime.set-time", timeWithFps).status == EDITOR_OK && preferences.Bool("Time Settings\\Hide Fps") &&
+              read("runtime.time").fields.back().fields.front().integer == 1, "time command did not own its display preference");
+    auto rejected = timeWithFps;
+    rejected[4].real = -1;
+    hideFps.integer = 0;
+    Check(execute("runtime.set-time", rejected).status == EDITOR_INVALID && preferences.Bool("Time Settings\\Hide Fps"),
+          "invalid time input changed the display preference");
+    rejected = timeWithFps;
+    hideFps.integer = 2;
+    Check(execute("runtime.set-time", rejected).status == EDITOR_INVALID && preferences.Bool("Time Settings\\Hide Fps"),
+          "non-boolean display preference reached time settings");
+    hideFps.key = EditorString EDITOR_TEXT("unknown");
+    Check(execute("runtime.set-time", timeWithFps).status == EDITOR_INVALID, "unknown time display field was accepted");
+    hideFps.key = EditorString EDITOR_TEXT("hide-fps");
+    hideFps.type = EDITOR_TEXT_VALUE;
+    Check(execute("runtime.set-time", timeWithFps).status == EDITOR_INVALID, "non-boolean time display field was accepted");
+    hideFps.type = EDITOR_INTEGER_VALUE;
+    hideFps.integer = 0;
+    editor.EnterDraw();
+    const auto queuedTime = execute("runtime.set-time", timeWithFps);
+    editor.LeaveDraw();
+    native = false;
+    editor.EndFrame();
+    native = true;
+    Check(queuedTime.status == EDITOR_QUEUED && preferences.Bool("Time Settings\\Hide Fps"),
+          "rejected queued time command changed display preferences");
+    Check(execute("runtime.set-time", time).status == EDITOR_OK && preferences.Bool("Time Settings\\Hide Fps"),
+          "time commands without display preferences reset the saved setting");
     Check(execute("runtime.debug-step").status == EDITOR_REFUSED, "debug step admitted without Trace/Inside Frames");
     Check(execute("runtime.set-inside-frames", {Integer("enabled", 1)}).status == EDITOR_OK && debugger->insideFrames &&
           debugger->trace && field("trace").integer == 1, "Inside Frames did not enable Trace");

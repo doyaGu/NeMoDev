@@ -255,8 +255,7 @@ private:
                               [this] { return m_State.document.get(); }, *this};
     ExecutionCommands m_Execution{m_Editor, [this] { return m_State.document.get(); },
                                   [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
-                                  {[this] { return m_State.preferences.Bool("3D Layout\\Show Dynamic Objects"); },
-                                   [this](bool redraw) { m_State.preferences.redrawOnlyAtBreakpoint = redraw; }}};
+                                  m_State.preferences};
     EditorWorkspace m_Workspace{m_Editor};
     DataResourceCommands m_ResourceCommands{m_Editor, m_State.host, [this] { return FileOperationAvailable(); }};
     DiagnosticCommands m_Diagnostics{m_Editor, m_State.runtimeOperation, m_State.host,

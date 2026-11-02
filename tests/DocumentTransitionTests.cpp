@@ -1,3 +1,4 @@
+#include "application/Preferences.h"
 #include "application/DocumentCommands.h"
 #include "application/ExecutionCommands.h"
 #include "core/layout/LayoutCommands.h"
@@ -77,7 +78,8 @@ void TestDocumentTransitions(vdev::CkRuntimeHost &host) {
     DocumentFiles files([&] { return &document; }, runtime, views);
     DocumentCommands commands(editor, files, runtime, [&] { return &document; }, views);
     owner = &commands;
-    ExecutionCommands execution(editor, [&] { return &document; }, [&] { return !runtime.Busy() && !commands.Busy(); });
+    Preferences preferences;
+    ExecutionCommands execution(editor, [&] { return &document; }, [&] { return !runtime.Busy() && !commands.Busy(); }, preferences);
     files.Execution(&execution);
     Check(commands.Register(error) && execution.Register(error) && editor.Activate(EDITOR_IMGUI_VERSION, error),
           error.c_str());

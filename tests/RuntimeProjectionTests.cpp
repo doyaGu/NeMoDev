@@ -1,3 +1,4 @@
+#include "application/Preferences.h"
 #include "application/ExecutionCommands.h"
 #include "core/document/Document.h"
 #include "core/graph/TopologyCommands.h"
@@ -20,12 +21,13 @@ void TestRuntimeProjections(vdev::CkRuntimeHost &host) {
     Document document(host);
     std::string error;
     Check(document.New(&error), error.c_str());
-    bool native = true, dynamic = false, redraw = false;
+    bool native = true;
+    Preferences preferences;
+    preferences.SetBool("3D Layout\\Show Dynamic Objects", false);
     unsigned documentReads = 0;
     const auto current = [&] { ++documentReads; return &document; };
     EditorApplication editor(current, [&] { return native; });
-    ExecutionCommands execution(editor, current, [&] { return native; },
-        {[&] { return dynamic; }, [&](bool value) { redraw = value; }});
+    ExecutionCommands execution(editor, current, [&] { return native; }, preferences);
     unsigned navigations = 0;
     const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
     const EditorCommandDesc jump{sizeof(EditorCommandDesc), EDITOR_TEXT("test.profile-jump"), EDITOR_TEXT("test.profile"),
@@ -58,7 +60,7 @@ void TestRuntimeProjections(vdev::CkRuntimeHost &host) {
     Check(editor.QueryRevision("runtime.state", sameStateVersion) == EDITOR_OK && stateVersion == sameStateVersion,
           "unchanged runtime state invalidated its projection");
     const auto enabled = IntegerArgument("enabled", 1);
-    Check(editor.Execute("runtime.set-redraw-at-breakpoint", {editor.Scope(), &enabled, 1}).status == EDITOR_OK && redraw &&
+    Check(editor.Execute("runtime.set-redraw-at-breakpoint", {editor.Scope(), &enabled, 1}).status == EDITOR_OK && preferences.redrawOnlyAtBreakpoint &&
           Field(query("runtime.state"), "redraw-at-breakpoint").integer, "runtime option did not update its saved setting");
     Check(editor.QueryRevision("runtime.state", sameStateVersion) == EDITOR_OK && stateVersion != sameStateVersion,
           "changed runtime state retained a stale projection");
@@ -94,7 +96,7 @@ void TestRuntimeProjections(vdev::CkRuntimeHost &host) {
     for (const auto &row : Field(rows, "rows").fields)
         for (const auto &value : row.fields) if (value.key == "script" && value.object == lastScript) retained = value.object;
     Check(retained == lastScript, "paged profile details lost the Script identity");
-    dynamic = true;
+    preferences.SetBool("3D Layout\\Show Dynamic Objects", true);
     const auto visible = query("runtime.profile");
     Check(Field(visible, "show-dynamic").integer, "dynamic visibility did not follow its published setting");
     version = Field(visible, "revision").integer;

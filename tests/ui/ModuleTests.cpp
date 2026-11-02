@@ -1399,9 +1399,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                 return f.key == "scale" && f.real == 1.5;
             }));
             IM_CHECK_NO_RET(state.History().UndoCount() == history);
-            std::vector<EditorValue> restore;
-            for (const auto &field : time)
-                restore.push_back({vdev::EditorText(field.key), field.type, {}, {}, field.integer, {}, {}, {}, field.real});
+            const auto restore = vdev::BorrowEditorFields(time);
             IM_CHECK_NO_RET(editor.Execute("runtime.set-time", {editor.Scope(), restore.data(), uint32_t(restore.size())}).status == EDITOR_OK);
             const EditorValue disabled{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, 0};
             editor.Execute("runtime.set-inside-frames", {editor.Scope(), &disabled, 1});

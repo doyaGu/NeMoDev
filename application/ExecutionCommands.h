@@ -7,15 +7,12 @@
 namespace vdev {
 class Document;
 class Debugger;
+class Preferences;
 
 // Owns execution for the editing document. Native work remains on the current
 // execution thread; file workers and open edits exclude these commands.
 class ExecutionCommands {
   public:
-    struct Settings {
-        std::function<bool()> showDynamic;
-        std::function<void(bool)> redrawChanged;
-    };
     struct StateData {
         DocumentToken document{};
         bool available = false, trace = false, insideFrames = false, inFrame = false;
@@ -26,7 +23,7 @@ class ExecutionCommands {
         uint64_t logEntries = 0, logRevision = 0, reachedBreakpoints = 0, faults = 0;
     };
     ExecutionCommands(EditorApplication &editor, std::function<Document *()> current,
-                      std::function<bool()> nativeAvailable, Settings settings = {});
+                      std::function<bool()> nativeAvailable, Preferences &preferences);
     ~ExecutionCommands();
     bool Register(std::string &error);
     // Application assembly/lifecycle only. The remaining native breakpoint

@@ -1,4 +1,5 @@
 #include "application/ExecutionCommands.h"
+#include "application/Preferences.h"
 #include "core/document/Document.h"
 #include "core/graph/Debugger.h"
 #include "core/graph/RuntimeProfile.h"
@@ -25,6 +26,11 @@ uint64_t OptionalInteger(const EditorRequest &request, const char *key) {
         if (std::string(request.values[i].key.data, request.values[i].key.size) == key) return request.values[i].integer;
     return 0;
 }
+EditorFields Record(const EditorRequest &request, const char *key) {
+    for (uint32_t i = 0; i < request.count; ++i)
+        if (std::string(request.values[i].key.data, request.values[i].key.size) == key) return request.values[i].fields;
+    return {};
+}
 EditorValue Integer(const char *key, uint64_t value) { return {EditorLiteral(key), EDITOR_INTEGER_VALUE, {}, {}, value}; }
 EditorValue Real(const char *key, double value) { return {EditorLiteral(key), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, value}; }
 EditorValue Object(const char *key, ObjectRef value) { return {EditorLiteral(key), EDITOR_OBJECT, value}; }
@@ -38,7 +44,7 @@ struct ExecutionCommands::Data {
     EditorApplication &editor;
     std::function<Document *()> current;
     std::function<bool()> nativeAvailable;
-    Settings settings;
+    Preferences &preferences;
     Document *document = nullptr;
     std::unique_ptr<Debugger> debugger;
     StateData state;
@@ -70,8 +76,8 @@ struct ExecutionCommands::Data {
         double frameLimit = 60, behaviorLimit = 60, scale = 1, minimum = 0, maximum = 100;
     } time;
     Data(EditorApplication &editor, std::function<Document *()> current, std::function<bool()> nativeAvailable,
-         Settings settings)
-        : editor(editor), current(std::move(current)), nativeAvailable(std::move(nativeAvailable)), settings(std::move(settings)) {}
+         Preferences &preferences)
+        : editor(editor), current(std::move(current)), nativeAvailable(std::move(nativeAvailable)), preferences(preferences) {}
     bool Ready() const {
         if (!editor.NativeAvailable()) return false;
         if (nativeAvailable && !nativeAvailable()) return false;
@@ -257,10 +263,15 @@ struct ExecutionCommands::Data {
             return Field(request, "value").integer > 0 && Field(request, "value").integer <= uint64_t(std::numeric_limits<int>::max());
         case Action::SimulatedFps: return positive("value") && Field(request, "value").real >= 1;
         case Action::Reengage: return boolean("behavior") && boolean("link") && boolean("parameter");
-        case Action::Time:
+        case Action::Time: {
+            const auto display = Record(request, "display");
+            if (display.count > 1 || (display.count &&
+                (std::string(display.data[0].key.data, display.data[0].key.size) != "hide-fps" ||
+                 display.data[0].type != EDITOR_INTEGER_VALUE || display.data[0].integer > 1))) return false;
             return Field(request, "frame-mode").integer <= 2 && boolean("behavior-mode") && positive("frame-limit") &&
                 positive("behavior-limit") && positive("scale") && positive("minimum") && positive("maximum") &&
                 Field(request, "minimum").real <= Field(request, "maximum").real;
+        }
         case Action::Execute: {
             const auto list = Field(request, "objects").objects;
             for (uint32_t i = 0; i < list.count; ++i) {
@@ -363,7 +374,7 @@ struct ExecutionCommands::Data {
             break;
         case Action::Redraw:
             debugger.redrawOnlyAtBreakpoint = enabled();
-            if (self.settings.redrawChanged) self.settings.redrawChanged(debugger.redrawOnlyAtBreakpoint);
+            self.preferences.redrawOnlyAtBreakpoint = debugger.redrawOnlyAtBreakpoint;
             break;
         case Action::Time: {
             auto *time = self.document->Context()->GetTimeManager();
@@ -376,6 +387,8 @@ struct ExecutionCommands::Data {
             time->SetTimeScaleFactor(float(Field(*request, "scale").real));
             time->SetMinimumDeltaTime(float(Field(*request, "minimum").real));
             time->SetMaximumDeltaTime(float(Field(*request, "maximum").real));
+            const auto display = Record(*request, "display");
+            if (display.count) self.preferences.SetBool("Time Settings\\Hide Fps", display.data[0].integer != 0);
             break;
         }
         case Action::RefreshProfile: self.geometryReady = false; break;
@@ -407,9 +420,11 @@ struct ExecutionCommands::Data {
     }
     static EditorStatus ReadTime(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         const auto &t = static_cast<Data *>(data)->time;
+        const auto hideFps = Integer("hide-fps", static_cast<Data *>(data)->preferences.Bool("Time Settings\\Hide Fps"));
+        const EditorValue display{EDITOR_TEXT("display"), EDITOR_RECORD, {}, {}, 0, {}, {}, {}, 0, {}, {&hideFps, 1}};
         const EditorValue fields[] = {Integer("frame-mode", t.frameMode), Integer("behavior-mode", t.behaviorMode),
             Real("frame-limit", t.frameLimit), Real("behavior-limit", t.behaviorLimit), Real("scale", t.scale),
-            Real("minimum", t.minimum), Real("maximum", t.maximum)};
+            Real("minimum", t.minimum), Real("maximum", t.maximum), display};
         return sink.write ? sink.write(sink.data, fields, uint32_t(std::size(fields))) : EDITOR_INVALID;
     }
     static EditorStatus ReadLog(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
@@ -472,7 +487,7 @@ struct ExecutionCommands::Data {
         const auto integer = [&](const char *key, uint64_t value) { fields.push_back({key, EDITOR_INTEGER_VALUE, {}, {}, value}); };
         const auto real = [&](const char *key, double value) { EditorField field{key, EDITOR_REAL_VALUE}; field.real = value; fields.push_back(std::move(field)); };
         integer("available", self.profileAvailable); integer("revision", self.profileRevision);
-        integer("show-dynamic", self.settings.showDynamic && self.settings.showDynamic());
+        integer("show-dynamic", self.preferences.Bool("3D Layout\\Show Dynamic Objects"));
         real("frame-time", s.TotalFrameTime); real("interface-time", s.EstimatedInterfaceTime);
         real("render-time", s.RenderTime); real("graph-time", s.TotalBehaviorExecution - s.BehaviorCodeExecution);
         real("behavior-time", s.BehaviorCodeExecution); real("operation-time", s.ParametricOperations);
@@ -514,8 +529,8 @@ struct ExecutionCommands::Data {
 };
 
 ExecutionCommands::ExecutionCommands(EditorApplication &editor, std::function<Document *()> current,
-                                     std::function<bool()> nativeAvailable, Settings settings)
-    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(nativeAvailable), std::move(settings))) {}
+                                     std::function<bool()> nativeAvailable, Preferences &preferences)
+    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(nativeAvailable), preferences)) {}
 ExecutionCommands::~ExecutionCommands() = default;
 const Debugger *ExecutionCommands::Bind(Document &document) {
     if (m_Data->document) m_Data->RestoreProfiling();
@@ -581,7 +596,8 @@ bool ExecutionCommands::Register(std::string &error) {
     const EditorParameter time[] = {{EDITOR_TEXT("frame-mode"), EDITOR_INTEGER_VALUE},
         {EDITOR_TEXT("behavior-mode"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("frame-limit"), EDITOR_REAL_VALUE},
         {EDITOR_TEXT("behavior-limit"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE},
-        {EDITOR_TEXT("minimum"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("maximum"), EDITOR_REAL_VALUE}};
+        {EDITOR_TEXT("minimum"), EDITOR_REAL_VALUE}, {EDITOR_TEXT("maximum"), EDITOR_REAL_VALUE},
+        {EDITOR_TEXT("display"), EDITOR_RECORD, 1}};
     struct Description { A action; const char *id, *title; const EditorParameter *parameters = nullptr; uint32_t count = 0; };
     const Description descriptions[] = {
         {A::Play, "runtime.play", "Play"}, {A::Pause, "runtime.pause", "Pause"},
@@ -598,7 +614,7 @@ bool ExecutionCommands::Register(std::string &error) {
         {A::ClearLog, "runtime.clear-log", "Clear Debug Log"},
         {A::Reengage, "runtime.set-breakpoint-reengagement", "Breakpoint Auto Reengage", reengage, 3},
         {A::Redraw, "runtime.set-redraw-at-breakpoint", "Redraw Schematic At Breakpoint", &enabled, 1},
-        {A::Time, "runtime.set-time", "Time Settings", time, 7},
+        {A::Time, "runtime.set-time", "Time Settings", time, 8},
         {A::Profile, "runtime.observe-profile", "Show Runtime Profile", &enabled, 1},
         {A::RefreshProfile, "runtime.refresh-profile", "Refresh Profile Geometry"}};
     std::vector<EditorCommandDesc> commands;
@@ -652,7 +668,7 @@ bool ExecutionCommands::Register(std::string &error) {
             &Data::Read, m_Data.get(), EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, stateFields, uint32_t(std::size(stateFields)),
             [](void *data, const EditorHost *) { return static_cast<Data *>(data)->stateRevision; }},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.time"), EDITOR_TEXT("builtin.execution"), nullptr, 0,
-            &Data::ReadTime, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, time, 7},
+            &Data::ReadTime, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, time, 8},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.log"), EDITOR_TEXT("builtin.execution"), logArgs, 2,
             &Data::ReadLog, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, logFields, 3},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.context"), EDITOR_TEXT("builtin.execution"), &first, 1,
