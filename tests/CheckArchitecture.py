@@ -81,6 +81,8 @@ def input_access(source, files, errors):
             errors.append("Setup drawing returned to EditorApp")
         if re.search(r"\bm_Layout\.Draw\s*\(", text):
             errors.append("Layout drawing returned to EditorApp")
+        if re.search(r"\bEditorApp::(?:MessageDialog|ShowMessage)\s*\(", text):
+            errors.append("application message queue or drawing returned to EditorApp")
 
     # These methods assemble UI from copied Layout state. The window's private
     # GPU target management is intentionally outside this list.
@@ -164,7 +166,8 @@ def check(source, manifest, inventory=None, ui_tests=False):
         if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/runtime/", "features/environment/", "features/diagnostics/", "features/preferences/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/", "features/schematic/", "features/layout/")) and not re.match(
                 r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/Setup(?:Commands|Queries|ObjectQueries|SceneQueries|RenderQueries|Actions)|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits|ModelCommands|ScriptCommands)|layout/(?:Layout(?:Commands|Gestures|Presentation|Authoring)|SnapshotCommands))\.(?:h|cpp)$", path):
             errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
-    for path in ("ui/app/StatusBar.h", "ui/app/StatusBar.cpp", "ui/app/DuplicateNames.h", "ui/app/DuplicateNames.cpp"):
+    for path in ("ui/app/StatusBar.h", "ui/app/StatusBar.cpp", "ui/app/DuplicateNames.h", "ui/app/DuplicateNames.cpp",
+                 "ui/app/MessageDialogs.h", "ui/app/MessageDialogs.cpp"):
         if all_exposures.get(path):
             errors.append(f"native/state access in application display: {path}")
     observed = set()

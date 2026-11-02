@@ -554,11 +554,22 @@ class ArchitectureTests(unittest.TestCase):
         self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
         self.manifest["features"][0]["source_groups"].append("ui")
         self.write("core/model.h", '#include "CKAll.h"\n')
-        for path in ("ui/app/StatusBar.h", "ui/app/StatusBar.cpp", "ui/app/DuplicateNames.h", "ui/app/DuplicateNames.cpp"):
+        for path in ("ui/app/StatusBar.h", "ui/app/StatusBar.cpp", "ui/app/DuplicateNames.h", "ui/app/DuplicateNames.cpp",
+                     "ui/app/MessageDialogs.h", "ui/app/MessageDialogs.cpp"):
             with self.subTest(path=path):
                 self.write(path, '#include "core/model.h"\n')
                 self.assertIn("native/state access in application display: " + path, self.run_check().stderr)
                 self.write(path, "// Copied application display data.\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
+    def test_application_messages_do_not_return_to_editor_app(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for name in ("ShowMessage", "MessageDialog"):
+            with self.subTest(name=name):
+                self.write("ui/app/EditorApp.cpp", f"void EditorApp::{name}() {{}}")
+                self.assertIn("application message queue or drawing returned to EditorApp", self.run_check().stderr)
+        self.write("ui/app/EditorApp.cpp", "// Messages use the selected command and workspace view.\n")
         self.assertEqual(self.run_check().returncode, 0)
 
     def test_shared_test_headers_preserve_ui_and_production_boundaries(self):
