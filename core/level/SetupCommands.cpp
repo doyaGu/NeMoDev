@@ -114,6 +114,26 @@ bool Put(const Images &images, const ImagesState &state) {
     return true;
 }
 
+class ImageSlotsAction final : public Action {
+public:
+    ImageSlotsAction(ObjectRef target, ImagesState before, ImagesState after)
+        : m_Target(target), m_Before(std::move(before)), m_After(std::move(after)) {}
+    bool Redo(Document &document) override { return Apply(document, m_After); }
+    bool Undo(Document &document) override { return Apply(document, m_Before); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        if (auto id = document.NativeId(m_Target, Document::ObjectScope::Existing))
+            objects.insert(id);
+    }
+
+private:
+    bool Apply(Document &document, const ImagesState &state) {
+        const Images images(document.Resolve(m_Target, CKCID_OBJECT, Document::ObjectScope::Existing));
+        return images && Put(images, state);
+    }
+    ObjectRef m_Target{};
+    ImagesState m_Before, m_After;
+};
+
 // change on the object's images as one undo step (the images before and
 // after); change false: refused with failure, the images put back.
 EditResult EditImages(Document &document, CK_ID id, const std::string &label, const std::string &failure,
@@ -133,13 +153,7 @@ EditResult EditImages(Document &document, CK_ID id, const std::string &label, co
     const ImagesState after = Take(images);
     if (after == before) return EditResult::NoChange("The images are unchanged");
     Edit edit(document, label);
-    auto put = [context, id](const ImagesState &state) {
-        return [context, id, state] {
-            const Images found(context->GetObject(id));
-            return found && Put(found, state);
-        };
-    };
-    edit.Done(put(after), put(before));
+    edit.Done(std::make_unique<ImageSlotsAction>(document.Reference(id), before, after));
     return edit.Commit();
 }
 
@@ -418,6 +432,34 @@ EditResult AddGridLayer(Document &document, CK_ID grid, int type) {
     return edit.Commit(std::string(), layer);
 }
 
+namespace {
+class GridLayerAction final : public Action {
+public:
+    GridLayerAction(ObjectRef grid, int type, int format, std::shared_ptr<CKStateChunk> state)
+        : m_Grid(grid), m_Type(type), m_Format(format), m_State(std::move(state)) {}
+    bool Redo(Document &document) override {
+        auto *grid = CKGrid::Cast(document.Resolve(m_Grid, CKCID_GRID, Document::ObjectScope::Existing));
+        return grid && GridRemoveLayer(grid, m_Type) == CK_OK;
+    }
+    bool Undo(Document &document) override {
+        auto *grid = CKGrid::Cast(document.Resolve(m_Grid, CKCID_GRID, Document::ObjectScope::Existing));
+        auto *layer = grid ? GridAddLayer(grid, m_Type, m_Format) : nullptr;
+        if (layer && m_State)
+            CKReadObjectState(layer, m_State.get());
+        return layer != nullptr;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        if (auto id = document.NativeId(m_Grid, Document::ObjectScope::Existing))
+            objects.insert(id);
+    }
+
+private:
+    ObjectRef m_Grid{};
+    int m_Type, m_Format;
+    std::shared_ptr<CKStateChunk> m_State;
+};
+} // namespace
+
 EditResult RemoveGridLayer(Document &document, CK_ID grid, int type) {
     CKContext *context = document.Context();
     CKGrid *found = CKGrid::Cast(context->GetObject(grid));
@@ -431,13 +473,7 @@ EditResult RemoveGridLayer(Document &document, CK_ID grid, int type) {
         if (chunk) DeleteCKStateChunk(chunk);
     });
     Edit edit(document, "Remove Layer");
-    auto gridOf = [context, grid] { return CKGrid::Cast(context->GetObject(grid)); };
-    if (!edit.Do([gridOf, type] { return gridOf() && GridRemoveLayer(gridOf(), type) == CK_OK; },
-                 [gridOf, type, format, state] {
-                     CKLayer *made = gridOf() ? GridAddLayer(gridOf(), type, format) : nullptr;
-                     if (made && state) CKReadObjectState(made, state.get());
-                     return made != nullptr;
-                 }))
+    if (!edit.Do(std::make_unique<GridLayerAction>(document.Reference(grid), type, format, std::move(state))))
         return edit.Fail("The layer could not be removed");
     return edit.Commit();
 }
@@ -518,6 +554,26 @@ CKGridManager *GridManagerOf(Document &document) {
     return static_cast<CKGridManager *>(document.Context()->GetManagerByGuid(GRID_MANAGER_GUID));
 }
 
+class GridSquaresAction final : public Action {
+public:
+    GridSquaresAction(ObjectRef grid, GridSquares before, GridSquares after)
+        : m_Grid(grid), m_Before(std::move(before)), m_After(std::move(after)) {}
+    bool Redo(Document &document) override { return Apply(document, m_After); }
+    bool Undo(Document &document) override { return Apply(document, m_Before); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        if (auto id = document.NativeId(m_Grid, Document::ObjectScope::Existing))
+            objects.insert(id);
+    }
+
+private:
+    bool Apply(Document &document, const GridSquares &squares) {
+        return ApplySquares(CKGrid::Cast(document.Resolve(m_Grid, CKCID_GRID, Document::ObjectScope::Existing)),
+                            squares);
+    }
+    ObjectRef m_Grid{};
+    GridSquares m_Before, m_After;
+};
+
 } // namespace
 
 EditResult ResizeGrid(Document &document, CK_ID gridId, int side, bool add) {
@@ -550,8 +606,7 @@ EditResult ResizeGrid(Document &document, CK_ID gridId, int side, bool add) {
         after.world[3][2] += moved.z;
     }
     Edit edit(document, add ? (columns ? "Add Column" : "Add Row") : (columns ? "Delete Column" : "Delete Row"));
-    if (!edit.Do([context, gridId, after] { return ApplySquares(CKGrid::Cast(context->GetObject(gridId)), after); },
-                 [context, gridId, before] { return ApplySquares(CKGrid::Cast(context->GetObject(gridId)), before); }))
+    if (!edit.Do(std::make_unique<GridSquaresAction>(document.Reference(gridId), before, after)))
         return edit.Fail("The grid could not be changed");
     return edit.Commit();
 }
