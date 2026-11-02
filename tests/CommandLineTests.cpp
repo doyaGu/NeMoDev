@@ -28,6 +28,17 @@ int main() {
     vdev::CommandLine missingModule;
     missingModule.Parse({L"NeMoDev", L"--editor-module"});
     check(missingModule.badOption == L"--editor-module", "Missing module argument must fail");
+    vdev::CommandLine directories;
+    directories.Parse({L"NeMoDev", L"--editor-module-dir", L"Extensions/\u4e2d\u6587 modules",
+                       L"--editor-module-dir", L"More modules", L"--editor-module", L"explicit library"});
+    check(directories.badOption.empty() && directories.editorModuleDirectories.size() == 2 &&
+              directories.editorModules.size() == 1 &&
+              std::filesystem::u8path(directories.editorModuleDirectories.front()) ==
+                  std::filesystem::current_path() / std::filesystem::u8path(u8"Extensions/\u4e2d\u6587 modules"),
+          "Module directories must preserve repeated UTF-8 paths");
+    vdev::CommandLine missingDirectory;
+    missingDirectory.Parse({L"NeMoDev", L"--editor-module-dir"});
+    check(missingDirectory.badOption == L"--editor-module-dir", "Missing module directory argument must fail");
     vdev::CommandLine missing;
     missing.Parse({L"NeMoDev", L"--runtime"});
     check(missing.badOption == L"--runtime", "A missing runtime argument must fail");
