@@ -792,6 +792,18 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
             }
         }
     }
+    if (m_WriteConfiguration) {
+        std::string message;
+        bool saved = false;
+        try { saved = m_WriteConfiguration(configuration, message); }
+        catch (const std::exception &failure) { message = failure.what(); }
+        catch (...) { message = "Configuration writer raised an exception"; }
+        if (!saved) {
+            rollback();
+            error = message.empty() ? "Configuration could not be saved" : message;
+            return false;
+        }
+    }
     const auto pendingFocus = m_LastFocusRequest, focused = Focused();
     EditorView replacementFocus = 0;
     for (auto &replacement : replacements) {

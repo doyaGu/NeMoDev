@@ -248,6 +248,16 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     Check(list.status == EDITOR_OK && list.fields[0].integers.size() == 3, "workspace query lost views");
     auto replacement = config;
     replacement.providers[0].provider = "test.second";
+    unsigned writes = 0;
+    bool refuseWrite = true, throwWrite = false;
+    workspace.ConfigurationWriter([&](const EditorConfiguration &, std::string &message) {
+        ++writes;
+        Check(first.views.count(id) && !second.views.empty() && first.closing == 0,
+              "configuration saved before preparation or after the old view was destroyed");
+        if (throwWrite) throw std::runtime_error("Injected profile write exception");
+        if (refuseWrite) { message = "Injected profile publication refusal"; return false; }
+        return true;
+    });
     second.failCreate = true;
     Check(!workspace.Configure(replacement, error) && first.views.count(id) && app.Configuration().providers[0].provider == "test.first",
           "failed creation replaced old view or configuration");
@@ -270,7 +280,25 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     Check(!workspace.Configure(replacement, error) && first.views.count(id), "native references escaped in saved view state");
     first.saveObject = false;
     Check(first.closing == 0, "failed replacement closed the source view");
+    Check(writes == 0, "failed view preparation wrote configuration");
+    workspace.Focus(id);
+    const auto documentToken = document.Token();
+    const auto history = document.History().UndoCount();
+    const auto redo = document.History().CanRedo();
+    const auto selected = app.Selection();
+    Check(!workspace.Configure(replacement, error) && error == "Injected profile publication refusal" && writes == 1 &&
+          first.views.count(id) && second.views.empty() && !first.closing && app.Scope(id).view &&
+          workspace.LastFocused("test.browser") == id && app.Configuration().providers[0].provider == "test.first",
+          "failed configuration publication lost the original view, focus or provider");
+    throwWrite = true;
+    Check(!workspace.Configure(replacement, error) && writes == 2 && first.views.count(id) && second.views.empty() &&
+          !first.closing && document.Token() == documentToken && document.History().UndoCount() == history &&
+          document.History().CanRedo() == redo && app.Selection() == selected,
+          "throwing configuration writer changed the view or document");
+    throwWrite = refuseWrite = false;
     Check(workspace.Configure(replacement, error), error.c_str());
+    Check(writes == 3, "successful provider replacement was not saved exactly once");
+    workspace.ConfigurationWriter({});
     Check(first.closing == 1 && first.closingScopeAlive, "replacement closing callback lost its scope");
     Check(first.views.empty() && second.views.size() == 1 && second.views.begin()->second->topic == "second topic",
           "provider replacement lost navigation");

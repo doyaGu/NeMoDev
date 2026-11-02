@@ -32,6 +32,9 @@ class EditorWorkspace : private EditorViewNavigation {
     EditorView Open(const std::string &type, const std::string &role = {}, bool pinned = false);
     EditorView OpenRole(const std::string &role);
     bool Configure(const WorkspaceConfiguration &, std::string &error);
+    void ConfigurationWriter(std::function<bool(const EditorConfiguration &, std::string &)> writer) {
+        m_WriteConfiguration = std::move(writer);
+    }
     WorkspaceConfiguration Configuration() const;
     struct LayoutUpdate {
         bool changed = false;
@@ -115,6 +118,7 @@ class EditorWorkspace : private EditorViewNavigation {
     EditorView m_MenuOwner = 0;
     bool m_OpenMenuEdit = false;
     std::string m_Error;
+    std::function<bool(const EditorConfiguration &, std::string &)> m_WriteConfiguration;
     EditorResponse m_NoView{EDITOR_STALE};
 };
 } // namespace vdev
