@@ -72,6 +72,7 @@ struct SearchResult {
     ObjectRef focusReference{}, objectReference{};
     std::string scriptName, objectName;
     int32_t objectClass = 0;
+    int classIcon = 0;
 };
 
 // Opens every Script session of the document as needed.

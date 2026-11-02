@@ -99,6 +99,8 @@ bool DescribeSetupRender(CKObject *object, const std::string &section, const std
         CK3dEntity *target = nullptr;
         bool targeted = false;
         if (section == "camera") {
+            out.Integer("perspective-type", CK_PERSPECTIVEPROJECTION);
+            out.Integer("orthographic-type", CK_ORTHOGRAPHICPROJECTION);
             auto *camera = CKCamera::Cast(object);
             if (!camera)
                 return false;

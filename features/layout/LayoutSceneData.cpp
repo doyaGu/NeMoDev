@@ -88,6 +88,11 @@ bool ReadLayoutScene(const EditorClient &client, const char *section, LayoutScen
             const auto cid = Number(value.fields, "cid"); if (cid > UINT32_MAX) return false;
             row.cid = uint32_t(cid); row.name = Text(value.fields, "name"); row.className = Text(value.fields, "class");
             row.kind = Text(value.fields, "kind"); row.view = Number(value.fields, "view") != 0;
+            row.curve = Number(value.fields, "is-curve") != 0;
+            if (const auto *icon = Field(value.fields, "line-icon", EDITOR_INTEGER_VALUE)) {
+                if (icon->integer > uint64_t(ClassIconKind::Scene)) return false;
+                row.icon = ClassIconKind(icon->integer);
+            }
             if (const auto *members = Field(value.fields, "members", EDITOR_OBJECT_LIST)) row.members = members->objects;
             if (const auto *scripts = Field(value.fields, "scripts", EDITOR_RECORD))
                 for (const auto &script : scripts->fields) {

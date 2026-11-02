@@ -1,5 +1,6 @@
 #include "core/schematic/SchematicModelBuilder.h"
 #include "features/schematic/SchematicModelCommands.h"
+#include "core/catalog/ClassInfo.h"
 #include "features/schematic/SchematicModelData.h"
 #include "features/schematic/SchematicPosition.h"
 #include "core/document/Document.h"
@@ -462,7 +463,7 @@ struct SchematicModelCommands::Data {
                           {"detail", EDITOR_TEXT_VALUE, {}, v.detail},
                           {"script-name", EDITOR_TEXT_VALUE, {}, v.scriptName},
                           {"object-name", EDITOR_TEXT_VALUE, {}, v.objectName},
-                          Int("class", uint64_t(v.objectClass))};
+                          Int("class", uint64_t(v.objectClass)), Int("class-icon", v.objectClass ? uint64_t(ClassIconImage(v.objectClass)) : 0)};
             rows.fields.push_back(std::move(row));
         }
         return Write(sink, {rows, Int("total", results.size()), Int("next", end),

@@ -1,6 +1,7 @@
 #pragma once
 #include "application/EditorApplication.h"
 #include <string>
+#include "core/catalog/ClassIcon.h"
 #include <vector>
 
 namespace vdev {
@@ -9,7 +10,8 @@ struct LayoutScriptRow { ObjectRef object{}; std::string name; };
 struct LayoutObjectRow {
     ObjectRef object{};
     uint32_t cid = 0;
-    bool view = false;
+    ClassIconKind icon = ClassIconKind::Object;
+    bool view = false, curve = false;
     std::string name, className, kind;
     std::vector<LayoutScriptRow> scripts;
     std::vector<ObjectRef> members;

@@ -1,4 +1,5 @@
 #pragma once
+#include "core/layout/LayoutExplorerTypes.h"
 
 #include <utility>
 #include <vector>
@@ -21,18 +22,7 @@ CK_ID MatchingGroup(CKContext *context, const std::vector<CK_ID> &groups, const 
 
 // The 3D Layout Explorer's types (Dev.exe [Filter Box], the "Show in list"
 // boxes; the bits of its filter).
-enum ExplorerType : unsigned {
-    EXPLORER_LIGHTS = 0x1,
-    EXPLORER_CAMERAS = 0x2,
-    EXPLORER_2D_SPRITES = 0x4,
-    EXPLORER_3D_OBJECTS = 0x8,
-    EXPLORER_CHARACTERS = 0x10,
-    EXPLORER_FRAMES = 0x20,
-    EXPLORER_CURVES = 0x40,
-    EXPLORER_SCRIPTED = 0x80,
-    EXPLORER_3D_SPRITES = 0x100,
-    EXPLORER_ALL = 0x1FF,
-};
+
 
 // The type an object is listed under with the types shown (Dev.exe
 // sub_59EFF0: the first that applies, in Dev's order: lights and their

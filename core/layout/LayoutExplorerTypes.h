@@ -1,0 +1,15 @@
+#pragma once
+namespace vdev {
+enum ExplorerType : unsigned {
+    EXPLORER_LIGHTS = 0x1,
+    EXPLORER_CAMERAS = 0x2,
+    EXPLORER_2D_SPRITES = 0x4,
+    EXPLORER_3D_OBJECTS = 0x8,
+    EXPLORER_CHARACTERS = 0x10,
+    EXPLORER_FRAMES = 0x20,
+    EXPLORER_CURVES = 0x40,
+    EXPLORER_SCRIPTED = 0x80,
+    EXPLORER_3D_SPRITES = 0x100,
+    EXPLORER_ALL = 0x1FF,
+};
+}

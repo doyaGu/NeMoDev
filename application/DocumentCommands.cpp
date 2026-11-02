@@ -1,4 +1,5 @@
 #include "application/DocumentCommands.h"
+#include "core/catalog/ClassInfo.h"
 
 #include "core/document/FileCommands.h"
 #include "core/runtime/TextEncoding.h"
@@ -197,6 +198,8 @@ struct DocumentCommands::State {
                 ++category;
             EditorField row{std::to_string(nextInput->duplicates.size()), EDITOR_RECORD};
             row.fields = {{"name", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(duplicate.name)},
+                          {"icon", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ClassIconImage(duplicate.cid))},
+                          {"category-icon", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ClassIconImage(categories[category].cid))},
                           {"class", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(duplicate.cid)},
                           {"category", EDITOR_INTEGER_VALUE, {}, {}, category},
                           {"category-name", EDITOR_TEXT_VALUE, {}, categories[category].name},

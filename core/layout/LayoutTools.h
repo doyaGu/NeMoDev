@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "CKAll.h"
+#include "core/layout/LayoutActions.h"
 #include "core/level/ObjectEditCommands.h"
 
 namespace vdev {
@@ -34,11 +35,11 @@ struct CameraSteps {
     VxVector worldMax = VxVector(1000000.0f, 1000000.0f, 1000000.0f);
 };
 
-enum class CameraAction { Dolly, Zoom, Pan, Orbit, OrbitCamera, Roll, Fov };
+
 
 // The status bar's action text of a camera tool (language pack [3D Layout]
 // <Action Info>), idle or while dragging.
-const char *CameraActionText(CameraAction action, bool active, bool targeted, bool aroundSelection);
+
 
 // Dev's camera tools (Dev.exe sub_499AD0 and its subclasses: Dolly and Zoom
 // sub_48B750, Pan sub_4940D0, Orbit sub_493210, Roll sub_494700, Field of
@@ -103,7 +104,7 @@ private:
     float m_Fov = 0.5f;
 };
 
-enum class TransformAction { Translate, Rotate, Scale };
+
 
 // A transformation tool's own settings: Dev keeps them per tool (Translate
 // byte_641874.., Rotate byte_64189C.., Scale byte_6418A4..) and shows them

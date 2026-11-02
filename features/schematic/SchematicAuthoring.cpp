@@ -200,7 +200,7 @@ struct SchematicAuthoring::Data {
                           {"name", EDITOR_TEXT_VALUE, {}, AnsiToUtf8(entry.name)}};
             types.fields.push_back(std::move(row));
         }
-        return Write(sink, {std::move(types)});
+        return Write(sink, {std::move(types), {"none", EDITOR_INTEGER_VALUE, {}, {}, Type(CKPGUID_NONE)}});
     }
     static EditorStatus Operations(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto *doc = static_cast<Data *>(data)->DocumentOf(*r);
@@ -640,7 +640,8 @@ bool SchematicAuthoring::Register(EditorApplication &editor, std::string &error)
                                     {EDITOR_TEXT("shared-source"), EDITOR_TEXT_VALUE},
                                     {EDITOR_TEXT("destinations"), EDITOR_TEXT_LIST},
                                     {EDITOR_TEXT("signature"), EDITOR_INTEGER_LIST}};
-    const EditorParameter address{EDITOR_TEXT("address"), EDITOR_RECORD}, types{EDITOR_TEXT("types"), EDITOR_RECORD};
+    const EditorParameter address{EDITOR_TEXT("address"), EDITOR_RECORD};
+    const EditorParameter types[] = {{EDITOR_TEXT("types"), EDITOR_RECORD}, {EDITOR_TEXT("none"), EDITOR_INTEGER_VALUE}};
     const EditorParameter operationArgs[] = {{EDITOR_TEXT("parts"), EDITOR_INTEGER_LIST},
                                              {EDITOR_TEXT("locks"), EDITOR_INTEGER_LIST},
                                              {EDITOR_TEXT("easy"), EDITOR_INTEGER_VALUE}};
@@ -664,7 +665,7 @@ bool SchematicAuthoring::Register(EditorApplication &editor, std::string &error)
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.element-info"), EDITOR_TEXT("builtin.schematic-authoring"),
          &address, 1, Data::Element, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, info, 25},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.parameter-types"), EDITOR_TEXT("builtin.schematic-authoring"),
-         nullptr, 0, Data::Types, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, &types, 1},
+         nullptr, 0, Data::Types, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, types, 2},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("schematic.operation-choices"),
          EDITOR_TEXT("builtin.schematic-authoring"), operationArgs, 3, Data::Operations, m_Data.get(),
          EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, operationFields, 4},

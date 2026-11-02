@@ -98,6 +98,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         layout/LayoutCommands.cpp
         layout/SnapshotBuffer.cpp
         # Building Block prototypes, parameter types and their UIs.
+        catalog/ClassInfo.cpp
         catalog/BuildingBlockCatalog.cpp
         catalog/ParameterCatalog.cpp
         catalog/ParameterUIs.cpp)

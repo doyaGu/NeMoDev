@@ -229,8 +229,15 @@ EditorStatus ObjectCommands::Read(void *data, const EditorHost *, const EditorRe
                                   {EditorLiteral("class"), EDITOR_TEXT_VALUE, {}, EditorText(type)},
                                   {EditorLiteral("object"), EDITOR_OBJECT, object.reference, {}},
                                   {EDITOR_TEXT("has-name"), EDITOR_INTEGER_VALUE, {}, {},
-                                   uint64_t(hasName)}};
-    return sink.write ? sink.write(sink.data, fields, 4) : EDITOR_INVALID;
+                                   uint64_t(hasName)},
+                                  {EDITOR_TEXT("can-setup"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(
+                                      CKIsChildClassOf(native->GetClassID(), CKCID_RENDEROBJECT) ||
+                                      CKMaterial::Cast(native) || CKLevel::Cast(native) || CKScene::Cast(native) ||
+                                      CKPlace::Cast(native) || CKWaveSound::Cast(native) || CKDataArray::Cast(native) ||
+                                      CKMesh::Cast(native) || CKTexture::Cast(native))},
+                                  {EDITOR_TEXT("is-parameter"), EDITOR_INTEGER_VALUE, {}, {},
+                                   uint64_t(CKIsChildClassOf(object.cid, CKCID_PARAMETER))}};
+    return sink.write ? sink.write(sink.data, fields, uint32_t(std::size(fields))) : EDITOR_INVALID;
 }
 EditorStatus ObjectCommands::Rename(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto &self = *static_cast<ObjectCommands *>(data);
@@ -264,7 +271,9 @@ bool ObjectCommands::Register(EditorApplication &editor, std::string &error) {
     const EditorParameter fields[] = {{EDITOR_TEXT("name"), EDITOR_TEXT_VALUE},
                                       {EDITOR_TEXT("class"), EDITOR_TEXT_VALUE},
                                       {EDITOR_TEXT("object"), EDITOR_OBJECT},
-                                      {EDITOR_TEXT("has-name"), EDITOR_INTEGER_VALUE}};
+                                      {EDITOR_TEXT("has-name"), EDITOR_INTEGER_VALUE},
+                                      {EDITOR_TEXT("is-parameter"), EDITOR_INTEGER_VALUE},
+                                      {EDITOR_TEXT("can-setup"), EDITOR_INTEGER_VALUE}};
     EditorQueryDesc details = {
         sizeof(details), EDITOR_TEXT("object.details"), EDITOR_TEXT("builtin.objects"), queryArgs, 1, &Read, this};
     details.refresh = EDITOR_QUERY_EACH_READ;

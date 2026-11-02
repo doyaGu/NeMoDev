@@ -1488,7 +1488,7 @@ bool SceneCommands::Register(std::string &error) {
     const EditorParameter parameterFields[] = {{EDITOR_TEXT("guids"), EDITOR_INTEGER_LIST},
                                                {EDITOR_TEXT("names"), EDITOR_TEXT_LIST}};
     const EditorParameter filter{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, 1};
-    const EditorParameter copyFields[] = {{EDITOR_TEXT("flags"), EDITOR_INTEGER_VALUE},
+    const EditorParameter copyFields[] = {{EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("flags"), EDITOR_INTEGER_VALUE},
                                           {EDITOR_TEXT("options"), EDITOR_INTEGER_LIST}};
     const EditorParameter moveArgs[] = {objects, target, {EDITOR_TEXT("container"), EDITOR_OBJECT, 1}};
     const EditorParameter moveFields[] = {{EDITOR_TEXT("groups"), EDITOR_INTEGER_VALUE},
@@ -1528,7 +1528,7 @@ bool SceneCommands::Register(std::string &error) {
         {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.parameter-types"), EDITOR_TEXT("builtin.scene"), nullptr, 0,
          Data::Parameters, &d, EDITOR_QUERY_VERSIONED, EDITOR_DOCUMENT, parameterFields, 2, Data::Version},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.copy-options"), EDITOR_TEXT("builtin.scene"), nullptr, 0,
-         Data::CopyOptions, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, copyFields, 2},
+         Data::CopyOptions, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, copyFields, 3},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.delete-plan"), EDITOR_TEXT("builtin.scene"), deleteArgs, 3,
          Data::DeletePlan, &d, EDITOR_QUERY_EACH_READ, EDITOR_DOCUMENT, deleteFields, 6},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("scene.move-plan"), EDITOR_TEXT("builtin.scene"), moveArgs, 3,
@@ -1562,9 +1562,10 @@ EditorStatus SceneCommands::Data::CopyOptions(void *data, const EditorHost *, co
         values.push_back(options[i]);
     }
     const EditorValue fields[] = {
+        {EDITOR_TEXT("type"), EDITOR_INTEGER_VALUE, {}, {}, (uint64_t(CKPGUID_COPYDEPENDENCIES.d1) << 32) | CKPGUID_COPYDEPENDENCIES.d2},
         {EDITOR_TEXT("flags"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(options.m_Flags)},
         {EDITOR_TEXT("options"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {values.data(), uint32_t(values.size())}}};
-    return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+    return sink.write ? sink.write(sink.data, fields, 3) : EDITOR_INVALID;
 }
 EditorStatus SceneCommands::Data::ClipboardContents(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto &self = *static_cast<Data *>(data); auto *doc = self.DocumentOf(*request); if (!doc) return EDITOR_STALE;

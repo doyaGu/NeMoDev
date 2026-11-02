@@ -857,7 +857,7 @@ void SceneTreeView::Rows(const EditorClient &client, ImVec2 origin, ImVec2 room,
                 toggled = true;
             }
         }
-        Icon(row.icon ? row.icon : DevClassIconId(int(row.cid)), ImVec2(nameLeft + 18 * s + depth * 13 * s, y + 3 * s),
+        Icon(row.icon, ImVec2(nameLeft + 18 * s + depth * 13 * s, y + 3 * s),
              s, false);
         const ImVec2 text(nameLeft + 32 * s + depth * 13 * s, y + (rowHeight - 12 * s) * .5f), clip(nameRight, max.y);
         const ImU32 ink = vi::Color(selected ? 9 : 0);

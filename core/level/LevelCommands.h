@@ -1,4 +1,5 @@
 #pragma once
+#include "core/level/LayoutObject.h"
 
 #include <set>
 #include <string>
@@ -248,7 +249,7 @@ std::vector<EditResult> SetHierarchyParents(Document &document, const std::vecto
 // placed relative to the camera of reference (the 3D Layout's camera) and
 // joins the level and the current scene. A portal is made around selection
 // when it is a 3D entity.
-enum class LayoutObject { Camera, Light, Frame3D, Curve, Grid, Frame2D, Material, Texture, Portal };
+
 struct LayoutObjectOptions {
     bool showCone = false;
     bool showInPlayerMode = false;

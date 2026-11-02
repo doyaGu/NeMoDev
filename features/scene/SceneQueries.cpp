@@ -1,4 +1,5 @@
 #include "features/scene/SceneQueries.h"
+#include "core/catalog/ClassInfo.h"
 #include "core/level/LevelTree.h"
 #include "core/level/HierarchyTree.h"
 #include "core/level/LevelCommands.h"
@@ -175,7 +176,7 @@ SceneTree ReadLevelTree(Document &document, const SceneTreeOptions &options, con
         row.depth = parent ? result.rows[parent - 1].depth + 1 : 0;
         row.kind = kind;
         row.expanded = expanded;
-        row.icon = icon;
+        row.icon = icon ? icon : object ? ClassIconImage(object->GetClassID()) : 0;
         row.scene = document.Reference(scene ? scene->GetID() : 0);
         Describe(document, row, object, scene, hidden);
         if (kind == EDITOR_SCENE_LEVEL || kind == EDITOR_SCENE_SCENE) {

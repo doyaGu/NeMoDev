@@ -167,7 +167,8 @@ void TestSchematicAuthoring(vdev::CkRuntimeHost &runtime, const std::string &mod
     saved();
     Snapshot read(doc);
     const auto typeProjection = client.Query("schematic.parameter-types");
-    Check(typeProjection.status == EDITOR_OK && !Field(typeProjection, "types").fields.empty(),
+    Check(typeProjection.status == EDITOR_OK && !Field(typeProjection, "types").fields.empty() &&
+          Field(typeProjection, "none").integer == Type(CKPGUID_NONE),
           "parameter type projection is empty");
     Check(client.Query("schematic.object-info", {ObjectArgument("target", doc.Reference(root.created))}).status ==
               EDITOR_OK,
@@ -623,5 +624,22 @@ void TestSchematicAuthoring(vdev::CkRuntimeHost &runtime, const std::string &mod
     doc.History().Clear();
     context->DestroyObject(nativeValue);
     manager->UnRegisterParameterType(nativeType.Guid);
+    CKParameterTypeDesc missingType;
+    missingType.Guid = CKGUID(0x6e6d7363, 0x00000502); missingType.TypeName = "Removed editor type";
+    missingType.DefaultSize = sizeof(int);
+    Check(manager->RegisterParameterType(&missingType) == CK_OK, "register disappearing parameter type");
+    auto *missing = context->CreateCKParameterLocal("Unavailable type", missingType.Guid);
+    Check(missing != nullptr, "create disappearing parameter value");
+    const auto missingRef = doc.Reference(missing->GetID());
+    Check(manager->UnRegisterParameterType(missingType.Guid) == CK_OK, "remove parameter type");
+    saved();
+    Snapshot missingRead(doc);
+    const auto unavailable = editor(missingRef);
+    const auto &unavailableRow = Field(unavailable, "rows").fields.front();
+    Check(Field(unavailable, "type-name").text == "Unknown Type" &&
+          Field(unavailableRow.fields, "layout").text == "none" && Field(unavailableRow.fields, "editor").text.empty(),
+          "missing parameter type did not use the read-only fallback");
+    missingRead.Unchanged("missing parameter type query changed the document");
+    context->DestroyObject(missing);
     app.CloseScope(newView);
 }

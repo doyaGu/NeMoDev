@@ -1,4 +1,5 @@
 #include "features/layout/LayoutCommands.h"
+#include "core/catalog/ClassInfo.h"
 #include "features/layout/LayoutSceneData.h"
 #include "features/layout/LayoutGestures.h"
 #include "application/ObjectSelection.h"
@@ -37,18 +38,21 @@ std::string Lower(std::string value) {
 }
 EditorField Row(Document &doc, CKObject *object, const char *kind = "", bool includeScripts = false) {
     EditorField row{"", EDITOR_RECORD};
-    row.fields = {{"object", EDITOR_OBJECT, doc.Reference(object->GetID())},
-        {"name", EDITOR_TEXT_VALUE, {}, DevObjectName(object)}, {"class", EDITOR_TEXT_VALUE, {}, DevClassName(object)},
-        {"cid", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(object->GetClassID())},
-        {"kind", EDITOR_TEXT_VALUE, {}, kind}, {"scripts", EDITOR_RECORD}};
+    EditorField scripts{"scripts", EDITOR_RECORD};
     if (auto *owner = includeScripts ? CKBeObject::Cast(object) : nullptr)
         for (int i = 0; i < owner->GetScriptCount(); ++i)
             if (auto *script = owner->GetScript(i)) {
                 EditorField scriptRow{std::to_string(i), EDITOR_RECORD};
                 scriptRow.fields = {{"object", EDITOR_OBJECT, doc.Reference(script->GetID())},
                     {"name", EDITOR_TEXT_VALUE, {}, DevObjectName(script)}};
-                row.fields.back().fields.push_back(std::move(scriptRow));
+                scripts.fields.push_back(std::move(scriptRow));
             }
+    row.fields = {{"object", EDITOR_OBJECT, doc.Reference(object->GetID())},
+        {"name", EDITOR_TEXT_VALUE, {}, DevObjectName(object)}, {"class", EDITOR_TEXT_VALUE, {}, DevClassName(object)},
+        {"cid", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(object->GetClassID())},
+        {"line-icon", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ClassIconKindOf(object->GetClassID()))},
+        {"kind", EDITOR_TEXT_VALUE, {}, kind}, std::move(scripts),
+        {"is-curve", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(CKCurve::Cast(object) != nullptr)}};
     return row;
 }
 EditorStatus Write(EditorSink sink, const std::vector<EditorField> &fields) {
