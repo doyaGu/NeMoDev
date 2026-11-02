@@ -32,6 +32,29 @@ struct Observer : DocumentFiles::Observer {
     void DocumentReplaced() override {}
     void Log(LogLevel, const std::string &) override {}
 };
+struct WebPublication : SaveFileOperations {
+    enum Mode { Normal, RestoreFailure, ThrowingRestore, CompetingWriter } mode = Normal;
+    std::filesystem::path page, composition, backup;
+    unsigned compositionWrites = 0;
+    std::error_code Replace(const std::filesystem::path &from, const std::filesystem::path &to, bool overwrite) override {
+        if (mode != Normal && to == page) {
+            if (mode == CompetingWriter) {
+                // Preserve size and time: metadata alone cannot identify the
+                // file this operation published before the other writer ran.
+                const auto time = std::filesystem::last_write_time(composition);
+                Write(composition, std::string(std::filesystem::file_size(composition), 'C'));
+                std::filesystem::last_write_time(composition, time);
+            }
+            return std::make_error_code(std::errc::io_error);
+        }
+        if (mode != Normal && to == composition && ++compositionWrites > 1) {
+            backup = from;
+            if (mode == ThrowingRestore) throw std::runtime_error("Injected web restore failure");
+            return std::make_error_code(std::errc::permission_denied);
+        }
+        return SaveFileOperations::Replace(from, to, overwrite);
+    }
+};
 struct Pages : SchematicPrintContent {
     int &renders, &alive;
     Pages(int &renders, int &alive) : renders(renders), alive(alive) {
@@ -159,7 +182,8 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
     OutputCommands *owner = nullptr;
     EditorApplication editor([&] { return &document; }, [&] { return !runtime.Busy() && (!owner || !owner->Busy()); });
     Observer observer;
-    DocumentFiles files([&] { return &document; }, runtime, observer);
+    WebPublication publication;
+    DocumentFiles files([&] { return &document; }, runtime, observer, &publication);
     Presentation view;
     OutputCommands commands(editor, files, runtime, [&] { return &document; }, view);
     owner = &commands;
@@ -254,6 +278,39 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
           "web publication failure lost old files");
     preserved();
 #endif
+    for (auto mode : {WebPublication::RestoreFailure, WebPublication::ThrowingRestore, WebPublication::CompetingWriter}) {
+        Write(fs::u8path(page), previousPage);
+        Write(fs::u8path(composition), previousComposition);
+        publication.page = fs::canonical(fs::u8path(page));
+        publication.composition = fs::canonical(fs::u8path(composition));
+        publication.mode = mode;
+        publication.compositionWrites = 0;
+        publication.backup.clear();
+        const auto previews = view.previews;
+        runWeb(false, true);
+        runtime.Finish();
+        publication.mode = WebPublication::Normal;
+        Check(view.last.status == EDITOR_ERROR && view.previews == previews &&
+                  view.last.written == std::vector<std::string>{composition} && Bytes(fs::u8path(page)) == previousPage,
+              "web recovery failure lost its output report or opened a preview");
+        // The backup path remains in the completion diagnostics even when
+        // restoration was deliberately skipped to preserve an outside write.
+        fs::path backup = publication.backup;
+        if (backup.empty()) {
+            for (const auto &entry : fs::directory_iterator(root))
+                if (entry.path().filename().u8string().find(".nemodev-save-") == 0 && Bytes(entry.path()) == previousComposition)
+                    backup = entry.path();
+        }
+        Check(!backup.empty() && Bytes(backup) == previousComposition &&
+                  view.last.message.find(backup.u8string()) != std::string::npos,
+              "web recovery failure discarded its old composition or recovery path");
+        if (mode == WebPublication::CompetingWriter)
+            Check(Bytes(fs::u8path(composition)) == std::string(fs::file_size(fs::u8path(composition)), 'C'),
+                  "web rollback overwrote an outside writer");
+        Check(fs::copy_file(backup, fs::u8path(composition), fs::copy_options::overwrite_existing) && fs::remove(backup),
+              "web recovery backup was unusable");
+        preserved();
+    }
     // A completion failure after publication must still record both outputs;
     // preview only follows a successful complete native operation.
     failAfter = true;

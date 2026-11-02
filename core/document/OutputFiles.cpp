@@ -3,6 +3,41 @@
 
 #include <algorithm>
 #include <memory>
+#include <array>
+#include <fstream>
+
+namespace {
+struct FileVersion {
+    bool exists = false;
+    uintmax_t size = 0;
+    std::filesystem::file_time_type modified{};
+    uint64_t contents = 14695981039346656037ull;
+};
+bool ReadVersion(const std::filesystem::path &path, FileVersion &version) {
+    std::error_code error;
+    version.exists = std::filesystem::exists(path, error);
+    if (error || !version.exists) return !error;
+    if (!std::filesystem::is_regular_file(path, error) || error) return false;
+    version.size = std::filesystem::file_size(path, error);
+    if (error) return false;
+    version.modified = std::filesystem::last_write_time(path, error);
+    if (error) return false;
+    std::ifstream input(path, std::ios::binary);
+    if (!input) return false;
+    std::array<char, 65536> bytes;
+    while (input.read(bytes.data(), bytes.size()) || input.gcount())
+        for (std::streamsize i = 0; i < input.gcount(); ++i) {
+            version.contents ^= static_cast<unsigned char>(bytes[size_t(i)]);
+            version.contents *= 1099511628211ull;
+        }
+    return input.eof();
+}
+bool Matches(const std::filesystem::path &path, const FileVersion &before) {
+    FileVersion now;
+    return ReadVersion(path, now) && before.exists == now.exists &&
+        (!now.exists || (before.size == now.size && before.modified == now.modified && before.contents == now.contents));
+}
+}
 
 namespace vdev {
 struct OutputFiles::Data {
@@ -10,6 +45,7 @@ struct OutputFiles::Data {
         std::string name;
         std::unique_ptr<PendingSaveFile> staged, backup;
         bool existed = false, published = false;
+        FileVersion before, after;
     };
     SaveReport &report;
     SaveFileOperations &operations;
@@ -24,7 +60,9 @@ struct OutputFiles::Data {
             bool restored = false;
             std::string failure;
             try {
-                if (i->existed) restored = i->backup->Publish(true);
+                if (!Matches(i->staged->Destination(), i->after))
+                    failure = "The output was changed by another writer";
+                else if (i->existed) restored = i->backup->Publish(true);
                 else {
                     const auto error = operations.Remove(i->staged->Destination());
                     restored = !error;
@@ -73,7 +111,13 @@ std::string OutputFiles::Add(const std::string &destination) {
         }
     }
     auto path = pending->Path().u8string();
-    d.files.push_back({destination, std::move(pending), {}, false, false});
+    FileVersion version;
+    if (!ReadVersion(pending->Destination(), version)) {
+        d.report.errors.push_back("Cannot inspect the previous output: " + destination);
+        d.valid = false;
+        return {};
+    }
+    d.files.push_back({destination, std::move(pending), {}, version.exists, false, version, {}});
     return path;
 }
 bool OutputFiles::Publish(std::vector<std::string> &written) {
@@ -86,15 +130,18 @@ bool OutputFiles::Publish(std::vector<std::string> &written) {
         // needs no backup or compensating write, and keeps the original path.
         if (d.files.size() == 1) {
             auto &file = d.files.front();
-            if (!file.staged->Publish(true)) return false;
+            if (!Matches(file.staged->Destination(), file.before)) {
+                d.report.errors.push_back("The output was changed by another writer: " + file.name);
+                return false;
+            }
+            if (!file.staged->Publish(file.existed)) return false;
             written.push_back(std::move(file.name));
             return true;
         }
         // No destination changes until every old file has a recoverable copy.
         for (auto &file : d.files) {
             std::error_code error;
-            file.existed = std::filesystem::exists(file.staged->Destination(), error);
-            if (error || (file.existed && !std::filesystem::is_regular_file(file.staged->Destination(), error))) {
+            if (!Matches(file.staged->Destination(), file.before)) {
                 d.report.errors.push_back("Cannot preserve the previous output: " + file.name);
                 return false;
             }
@@ -113,7 +160,17 @@ bool OutputFiles::Publish(std::vector<std::string> &written) {
             }
         }
         for (auto &file : d.files) {
-            if (!file.staged->Publish(true)) {
+            if (!Matches(file.staged->Destination(), file.before)) {
+                d.report.errors.push_back("The output was changed by another writer: " + file.name);
+                d.Restore(written);
+                return false;
+            }
+            if (!ReadVersion(file.staged->Path(), file.after)) {
+                d.report.errors.push_back("Cannot inspect the prepared output: " + file.name);
+                d.Restore(written);
+                return false;
+            }
+            if (!file.staged->Publish(file.existed)) {
                 d.Restore(written);
                 return false;
             }
