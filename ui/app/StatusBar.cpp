@@ -8,6 +8,7 @@
 #include <cstdlib>
 
 #include "imgui.h"
+#include "editor/ImGuiDrawing.h"
 #include "imgui_internal.h"
 
 #include "ui/controls/DevBitmaps.h"
@@ -130,30 +131,9 @@ void EditorStatusBar::Draw(const EditorClient &editor, const StatusBarInfo &info
                 m_LogErrorsSeen = field.integer;
             }
         }
-        {
-            static const int BOMB[5] = {608, 1341, 1342, 1342, 608};
-            const ImVec2 a = fromRight(427.0f, 2.0f);
-            if (now < m_BombFlashUntil && static_cast<int>(now * 4.0) % 2 == 0)
-                dl->AddRectFilled(a, ImVec2(a.x + 19.0f * s, a.y + 19.0f * s), IM_COL32(255, 0, 0, 255));
-            bool right = false;
-            if (DevBitmapButton("eventlog", a, BOMB, false, true, s, "Event Log", &right)) {
-                editor.Command("log.open");
-                m_BombFlashUntil = 0.0;
-            }
-            if (right) {
-                const auto result = editor.Command("log.clear");
-                if (result.status == EDITOR_OK) status = "Event Log Cleared";
-                m_BombFlashUntil = 0.0;
-            }
-        }
         BarText(dl, fromRight(407.0f, 6.0f), fromRight(207.0f, 18.0f),
                 status, false, true);
         separator(206.0f);
-        static const int PROFILER[5] = {961, 1343, 1344, 1344, 961};
-        const EditorValue role{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("main.profiler")};
-        const auto &profiler = editor.Query("workspace.role", {role});
-        if (DevBitmapButton("profiler", fromRight(203.0f, 2.0f), PROFILER, EditorClient::Integer(profiler, "view") != 0, true, s, "Profiler"))
-            editor.Command("runtime.toggle-profiler");
         // The frame rate: NA when not playing (Dev hides it with Hide Fps).
         const auto &runtime = editor.Query("runtime.state");
         const bool running = EditorClient::Integer(runtime, "state") == EDITOR_EXECUTION_RUNNING;
@@ -170,29 +150,108 @@ void EditorStatusBar::Draw(const EditorClient &editor, const StatusBarInfo &info
         }
         BarText(dl, fromRight(154.0f, 4.0f), fromRight(124.0f, 17.0f), "FPS", true);
         separator(123.0f);
-        // Restore Initial Conditions, Play / Pause (pressed while playing;
-        // a right click opens the Time Settings), Step One Frame.
-        const bool usable = EditorClient::Integer(runtime, "available") != 0;
-        static const int REWIND[5] = {911, 912, 913, 913, 911};
-        static const int PLAY[5] = {907, 908, 910, 910, 907};
-        static const int STEP[5] = {914, 915, 916, 916, 914};
-        if (DevBitmapButton("rewind", fromRight(120.0f, 2.0f), REWIND, false, usable, s,
-                            "Restore Initial Conditions (Ctrl+Backspace)"))
-            editor.Command("runtime.reset");
-        bool timeSettings = false;
-        if (DevBitmapButton("play", fromRight(81.0f, 2.0f), PLAY, running, usable, s, "Play/Pause (Ctrl+Spacebar)",
-                            &timeSettings)) {
-            editor.Command("runtime.play-pause");
-        }
-        if (timeSettings) m_OpenTimeSettings = true;
-        if (DevBitmapButton("step", fromRight(42.0f, 2.0f), STEP, false, usable, s, "Step One Frame (Alt+Spacebar)"))
-            editor.Command("runtime.step-frame");
+        EditorToolbarFrame area{};
+        area.size = sizeof(area);
+        area.left = o.x;
+        area.top = o.y;
+        area.width = width;
+        area.height = height;
+        area.scale = s;
+        editor.Toolbar("application.playback", area);
     }
     ImGui::End();
     PopDarkChrome();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
     TimeSettingsDialog(editor);
+}
+
+bool EditorStatusBar::Register(EditorApplication &application, std::string &error) {
+    const EditorToolbarLocation location{EDITOR_TEXT("application.playback"), EDITOR_TEXT("Playback and status"), {}};
+    const struct {
+        const char *id, *action, *title;
+        float x;
+    } controls[] = {{"status.eventlog", "log.open", "Event Log", 427},
+                    {"status.profiler", "runtime.toggle-profiler", "Profiler", 203},
+                    {"status.rewind", "runtime.reset", "Restore Initial Conditions", 120},
+                    {"status.play", "runtime.play-pause", "Play/Pause", 81},
+                    {"status.step", "runtime.step-frame", "Step One Frame", 42}};
+    std::vector<EditorToolbarItemDesc> items;
+    for (const auto &control : controls) {
+        EditorToolbarItemDesc item{};
+        item.size = sizeof(item);
+        item.imguiVersion = EDITOR_IMGUI_VERSION;
+        item.id = EditorLiteral(control.id);
+        item.provider = EDITOR_TEXT("builtin.status-toolbar");
+        item.location = location.id;
+        item.action = EditorLiteral(control.action);
+        item.title = EditorLiteral(control.title);
+        item.x = control.x;
+        item.y = 2;
+        item.width = 19;
+        item.height = 19;
+        item.flags = EDITOR_TOOLBAR_RIGHT;
+        item.data = this;
+        item.draw = [](void *data, const EditorHost *host, const EditorRequest *request,
+                       const EditorToolbarFrame *frame) {
+            return static_cast<EditorStatusBar *>(data)->DrawControl(EditorClient(host, request->scope.view), *frame);
+        };
+        items.push_back(item);
+    }
+    EditorModuleDesc module{};
+    module.size = sizeof(module);
+    module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("status.toolbar");
+    module.toolbars = &location;
+    module.toolbarCount = 1;
+    module.toolbarItems = items.data();
+    module.toolbarItemCount = uint32_t(items.size());
+    return application.Register(module, error);
+}
+uint32_t EditorStatusBar::DrawControl(const EditorClient &editor, const EditorToolbarFrame &frame) {
+    const std::string action(frame.action.data, frame.action.size);
+    const ImVec2 at{IM_ROUND(frame.left), IM_ROUND(frame.top)};
+    const auto runtime = editor.Query("runtime.state");
+    const bool running = EditorClient::Integer(runtime, "state") == EDITOR_EXECUTION_RUNNING;
+    static const int BOMB[] = {608, 1341, 1342, 1342, 608}, PROFILER[] = {961, 1343, 1344, 1344, 961},
+                     REWIND[] = {911, 912, 913, 913, 911}, PLAY[] = {907, 908, 910, 910, 907},
+                     STEP[] = {914, 915, 916, 916, 914};
+    const int (*icons)[5] = &STEP;
+    const char *id = "step", *title = "Step One Frame";
+    bool checked = false;
+    if (action == "log.open") {
+        icons = &BOMB;
+        id = "eventlog";
+        title = "Event Log";
+        const auto now = ImGui::GetTime();
+        if (now < m_BombFlashUntil && int(now * 4) % 2 == 0)
+            ImGui::GetWindowDrawList()->AddRectFilled(at, {at.x + frame.width, at.y + frame.height},
+                                                      IM_COL32(255, 0, 0, 255));
+    } else if (action == "runtime.toggle-profiler") {
+        icons = &PROFILER;
+        id = "profiler";
+        title = "Profiler";
+        checked =
+            EditorClient::Integer(editor.Query("workspace.role", {TextArgument("role", "main.profiler")}), "view") != 0;
+    } else if (action == "runtime.reset") {
+        icons = &REWIND;
+        id = "rewind";
+        title = "Restore Initial Conditions";
+    } else if (action == "runtime.play-pause") {
+        icons = &PLAY;
+        id = "play";
+        title = "Play/Pause";
+        checked = running;
+    }
+    bool right = false;
+    const bool clicked = DevBitmapButton(id, at, *icons, checked, frame.enabled, frame.scale, title, &right);
+    if (right && action == "runtime.play-pause") m_OpenTimeSettings = true;
+    if (right && action == "log.open") {
+        editor.Command("log.clear");
+        m_BombFlashUntil = 0;
+    }
+    if (clicked && action == "log.open") m_BombFlashUntil = 0;
+    return clicked;
 }
 
 // Dev's Time Settings (dialog 644, in its dialog units): the frame rate

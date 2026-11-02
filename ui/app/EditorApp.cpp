@@ -200,6 +200,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         {"Workspace.Register", [&](EditorApplication &, std::string &error) { return m_Workspace.Register(error); }},
         {"Session.eventLog.Register",
          [&](EditorApplication &editor, std::string &error) { return m_Session.eventLog.Register(editor, error); }},
+        {"StatusBar.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_StatusBar.Register(editor, error); }},
         {"RegisterEventLogView",
          [&](EditorApplication &editor, std::string &error) { return RegisterEventLogView(editor, error); }},
         {"Messages.Register",
@@ -875,7 +877,9 @@ void EditorApp::StatusBar() {
     }
     info.information = m_Layouts.Active().InfoText();
     info.showCoordinates = m_Layouts.Active().Coordinates(info.coordinates);
+    m_Editor.EnterDraw();
     m_StatusBar.Draw(client, info);
+    m_Editor.LeaveDraw();
 }
 
 void EditorApp::MainMenu() {

@@ -11,8 +11,10 @@ struct StatusBarInfo {
 
 class EditorStatusBar {
 public:
+    bool Register(EditorApplication &, std::string &);
     void Draw(const EditorClient &, const StatusBarInfo &);
 private:
+    uint32_t DrawControl(const EditorClient &, const EditorToolbarFrame &);
     void TimeSettingsDialog(const EditorClient &);
     uint64_t m_LogErrorsSeen = 0;
     double m_BombFlashUntil = 0;
