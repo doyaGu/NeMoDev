@@ -598,7 +598,10 @@ bool LayoutView::GoFullScreen(int driver, const VxDisplayMode &mode) {
         return false;
     }
     SDL_ShowWindow(m_Window);
-    if (!SDL_SyncWindow(m_Window) || !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_FULLSCREEN)) {
+    // SDL may have minimized the previous fullscreen window on focus loss.
+    // Showing a hidden window does not restore that native minimized state.
+    const bool restored = !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_MINIMIZED) || SDL_RestoreWindow(m_Window);
+    if (!restored || !SDL_SyncWindow(m_Window) || !(SDL_GetWindowFlags(m_Window) & SDL_WINDOW_FULLSCREEN)) {
         StopFullScreen();
         return false;
     }
