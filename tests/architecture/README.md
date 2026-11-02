@@ -1,24 +1,24 @@
-# Stage zero architecture checks
+# Architecture checks and migration results
 
 `coverage.json` lists the 58 source groups,
-32 feature/extension targets and 48 state families. It records CTest results,
-future verification gaps, existing include dependencies and bounded legacy
-UI access. These are migration records, not runtime registries.
+32 feature/extension targets and 50 state families. It records CTest results,
+future verification gaps, existing include dependencies and private native
+access. These are migration records, not runtime registries. Phase-five ordinary
+UI/native migration is complete; no legacy UI access entries remain.
 
 `NeMoDevArchitecture` runs from CTest. It includes tracked and untracked,
 non-ignored files, so a newly added file must have exactly one source group.
 Each group must belong to a feature, each state must have one named owner and
 lifetime, and test anchors must exist in the configured CTest inventory.
 UI anchors are required only when UI tests are configured. Open gaps have an
-explicit phase deadline; advancing `completed_phase` does not waive them.
+explicit phase deadline; advancing `functional_phase` does not waive them. `completed_phase` also requires the deferred performance acceptance.
 
 The include graph checks direct dependencies between groups and transitive
 UI exposure to the mutable document, EditorState and SDK. Existing exposure
 cannot grow beyond commit `029f2c9`, even by adding a migration exception.
 Removed edges and exceptions must also be removed from the manifest. The final
 deadline for ordinary UI/native exposure is phase five. DocumentFiles has moved
-to application and no longer depends on EditorState. Current mixed window headers remain explicitly listed until
-their complete dependency path has migrated.
+to application and no longer depends on EditorState. The remaining native implementations are private, explicitly listed hosts and adapters. Ordinary views cannot include them; Setup may use only the enumerated SDK value headers.
 Objective-C++ sources and `#import` follow the same dependency and exposure
 checks as C++ sources and `#include`.
 
@@ -1950,3 +1950,19 @@ macOS arm64 Release 构建成功，全部 **125/125** 非性能 CTest 通过，�
 macOS arm64 Release 构建成功，完整 **125/125** 非性能 CTest 通过，无失败或跳过；17 份 UI 报告执行 **261** 项，另有两项原生打印回归通过。架构检查测试 **47/47**。SDK 的 16 个仓库和 22 项运行文件、7 份 GPU/视口保护源码均未改变；GPU 快通道、fallback 和生成 `.NMO` 的直接打开回归通过。详情见 [应用消息验证记录](baselines/application-messages-macos-arm64-metal.json)。
 
 旧 UI 依赖从 39 处降为 38 处，并删除文件流程到 EditorApp 所在组的依赖；状态归属为 50 项。保存报告、旧面板错误呈现及其他 17 项待办继续保留，`completed_phase` 仍为三。原生 Player 桌面组本轮未重跑，既有失败记录保留。性能验收继续暂缓，原门槛不变。
+
+### 阶段五：既定功能范围完成
+
+普通 UI 对 CKContext、可变文档和 EditorState 的旧访问项从 38 处降为零。EditorState、中央 UI 事件和原生对象文字辅助头已删除。EditorApp 负责装配，私有 EditorSession 负责原生编辑会话；工作区拥有窗口，视图拥有输入、草稿和显示缓存。Schematic、Layout、参数窗口与保存报告的绘制使用复制查询和统一命令。参数临时副本、SDK 专用参数窗口及 Layout 呈现留在四个私有原生适配中，普通视图不能包含其实现头。Setup 只允许使用列明的 SDK 枚举和数学值类型，并通过编译检查拒绝完整原生对象类型。独立编译目标验证实际绘制实现没有间接获得原生编辑权限。
+
+撤销入口不再接受成对闭包。图结构动作保存完整对象引用和可恢复的修改数据，Level、Setup、Script 归属等动作保存领域数据及必要的状态资源。动作不捕获 Document、CKContext 或原生对象地址。动态参数引脚用完整所属对象引用、方向和槽位定位，Construct 重建输出后仍能 Undo/Redo；普通参数继续使用自身完整身份。新增回归覆盖记录重建、错误文档、旧对象、Context 重建、动态引脚重连、依赖回收，以及动作失败和补偿异常。
+
+资源扫描在后台生成文件目录副本，原生类解析和目录发布仍在安全阶段完成。RSC 十个产物逐一发布失败、目录清理、排队刷新和取消均有检查。网页多产物恢复失败时保留可恢复备份，并拒绝覆盖已变化的目标；该检查不声称消除了检查与文件替换之间的系统竞争。目录替换校验完整版本与唯一标识，失败保留旧数据。debug frame 在停止、重绑和销毁前结束；文件答复抛异常后，其余答复仍按顺序交付。日志和报告通过应用命令进入现有显示。UI 纹理在设备停止前释放原生资源，存活包装失效，设备重建后缓存按代数重建。
+
+回归期间修复了 Explorer 关闭后丢失 F3 搜索结果、Layout Script 字段写入错误位置和异步资源打开后过早使用结果的问题。UI 启动等待改为读取实际加载与焦点完成状态，保持原有十秒上限；首次等待实现误用了 GuiFunc，已停止该轮并修正，最终结果不包含该次中断。详细失败与诊断日志保留在验证记录中。
+
+macOS arm64 Release 构建通过。最终非性能 CTest 分核心与 UI 两批运行，共 **128/128**，无失败或跳过；合并报告按完整选择清单核对。17 份 UI 报告实际执行 **261** 项，另有两项原生打印回归。架构检查测试 **56/56**；最后一处参数副本清理后，编辑器与完整 modules 组再测 **2/2** 通过。生成合法 `.NMO` 的直接打开仍按新建后导入的语义通过，本轮未找到并另行加载原版 Level_1.NMO。
+
+SDK 的 16 个仓库状态及 22 项运行文件与开始时完全一致。Layout 提取前后的九个原生传输方法、准备/绘制分派和 UiRenderer 的五个绘制方法一致，四份核心 GPU 文件未变。比较仅归一化私有指针成员访问、空白注释和一个局部变量声明的位置；界面改用返回纹理的尺寸。GPU 快通道、通用 fallback、目标重建和显式截图计数回归通过；没有用源码比较代替性能计时，也没有宣称测量了尚未加入的所有计数器。
+
+覆盖清单现有 1084 个文件、58 组源码、32 项功能和 50 份状态，阶段五到期待办全部关闭。`functional_phase` 为五；性能验收继续暂缓且原定 3% 门槛不变，故 `completed_phase` 保持三。九项阶段六待办仍保留，包括第二视口、发布安装与模块打包、跨启动配置和状态恢复等。运行时进程隔离按用户安排单独实施，不计入本轮完成范围。可选原生桌面 Player 组、真实系统打印和 Windows/Linux 本轮未重跑，已有桌面失败记录保留。完整结果与源码校验值见[阶段五收尾验证记录](baselines/phase-five-completion-macos-arm64-metal.json)。

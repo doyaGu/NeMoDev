@@ -1,0 +1,590 @@
+{
+  "description": "阶段五既定功能范围已完成：普通 UI 旧原生访问清零，查询、命令、工作区和可恢复撤销记录统一。性能验收暂缓，进程隔离单独实施。",
+  "base_revision": "a1c5f1fe4e072e60b38c4706b7ef77ee77e4e61c",
+  "environment": {
+    "platform": "Darwin",
+    "architecture": "arm64",
+    "configuration": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "native_desktop_tests_configured": false
+  },
+  "changes": [
+    "删除 EditorState、EditorEvents 和 ObjectText；私有 EditorSession 拥有编辑会话，EditorApp 负责装配。",
+    "Schematic、Layout、参数和报告绘制使用复制查询与统一命令；原生参数副本和视口呈现只在私有实现中访问 SDK。",
+    "撤销入口删除闭包对，图动作保存可恢复数据，其余领域动作保存完整对象引用、值和必要的状态资源。动态引脚通过所属对象身份、方向和槽位恢复。",
+    "补齐资源后台扫描、RSC 多产物恢复、网页恢复失败、目录失效、debug frame、文件答复异常和纹理设备重建的生命周期检查。",
+    "架构检查禁止阶段五后重新引入旧 UI 访问；实际绘制目标独立编译，Setup 仅允许指定的 SDK 值头。"
+  ],
+  "coverage": {
+    "files": 1084,
+    "groups": 58,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 9,
+    "separate_work": 1
+  },
+  "checks": {
+    "release_build": {
+      "status": "passed",
+      "build": {
+        "path": "out/phase-five-completion/build-complete.log",
+        "sha256": "8ba8ffbc350f501d4dec7e4d080d63d3893e02f3c8f1a63bb08106781aa24a42"
+      },
+      "final_cleanup_build": {
+        "path": "out/phase-five-completion/build-final-cleanup.log",
+        "sha256": "5636dad3640c7f745e01190f8e0292b8f9666c4d38a4d67752db76a9e2707e53"
+      }
+    },
+    "complete_nonperformance_ctest": {
+      "total": 128,
+      "passed": 128,
+      "failed": 0,
+      "skipped": 0,
+      "core_tests": 109,
+      "ui_ctest_groups": 19,
+      "ui_reports": 17,
+      "ui_cases": 261,
+      "report": {
+        "path": "out/phase-five-completion/full-complete.xml",
+        "sha256": "c2c3056dbd864f786ac5775a076b163ed4a6c946c0396975231e07712468e433"
+      },
+      "inventory": {
+        "path": "out/phase-five-completion/ctest-inventory.json",
+        "sha256": "ac8ffbef0e99bb10894fc0d4ce80fd03d0b2762dcf8b0184c84803d5a245eb59"
+      },
+      "core": {
+        "path": "out/phase-five-completion/core-complete.xml",
+        "sha256": "d115b4541bf2c128b9ba407d1c4c7067a64bb778618224703656d2173cb0fee4"
+      },
+      "ui": {
+        "path": "out/phase-five-completion/ui-complete.xml",
+        "sha256": "201c688b72e79f84b51c33770f173afe061bb49b6e64b3794c8e085c27780fb2"
+      },
+      "final_architecture_checks": {
+        "path": "out/phase-five-completion/architecture-complete.xml",
+        "sha256": "e3821de0d41abf50031283f5103c1b67d31401b3dc53dea0e5f10f839e5d1cca"
+      },
+      "final_parameter_cleanup": {
+        "path": "out/phase-five-completion/parameter-cleanup.xml",
+        "sha256": "a73029d85ae1ae997001dab48ca4225ccddf098c9892d0bd166c98c8a0606603"
+      },
+      "final_layering_and_manifest": {
+        "path": "out/phase-five-completion/checks-complete.xml",
+        "sha256": "b229f9872e929896143b0f57eca2dd918fc7c77d471f519ea2f50cbba7e3fd7f"
+      },
+      "aggregation": "Latest passing result per selected CTest name, with exact inventory equality; reruns do not increase the total."
+    },
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "registered": 282,
+        "executed": 3,
+        "not_selected": 279,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/html.xml",
+        "sha256": "586bfc0a1fb3022a682b2b878bb8b28fc5a680db0c63e57d7a8a14e16e62a9d3"
+      },
+      "VirtoolsDevUi.app": {
+        "registered": 282,
+        "executed": 28,
+        "not_selected": 254,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/app.xml",
+        "sha256": "dcf29642e14280b0d625c45c82680d8b8e17d1582b727dff0d371b9e1221e7fb"
+      },
+      "VirtoolsDevUi.filemenu": {
+        "registered": 282,
+        "executed": 10,
+        "not_selected": 272,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/filemenu.xml",
+        "sha256": "9e72bed9b329798e3924d343d6c6be92334c68b4b4350a7888c9026fb6f98030"
+      },
+      "VirtoolsDevUi.schematic": {
+        "registered": 282,
+        "executed": 26,
+        "not_selected": 256,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/schematic.xml",
+        "sha256": "cd67155d32306b3610a8922c28c86c84e3dffb6910adaa669253eb174eab1df0"
+      },
+      "VirtoolsDevUi.debugger": {
+        "registered": 282,
+        "executed": 10,
+        "not_selected": 272,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/debugger.xml",
+        "sha256": "4090161412d95637ded5c738ecfb9b8915d0218b6459d0ca8452a7e1adb70b75"
+      },
+      "VirtoolsDevUi.layout": {
+        "registered": 282,
+        "executed": 33,
+        "not_selected": 249,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/layout.xml",
+        "sha256": "c1a843fc68384314e153e72bdbdc092dafdc712b8997969a97f41e64c6694464"
+      },
+      "VirtoolsDevUi.level": {
+        "registered": 282,
+        "executed": 7,
+        "not_selected": 275,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/level.xml",
+        "sha256": "4953e5cdd962c737219344f94e930867142a7e7708561c7c7510a8312b70be54"
+      },
+      "VirtoolsDevUi.setup": {
+        "registered": 282,
+        "executed": 21,
+        "not_selected": 261,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/setup.xml",
+        "sha256": "65832a2e7ce812ebb41b0a4cd2449ccfce75247854dc7678b496d2dbf6bc5159"
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "registered": 282,
+        "executed": 7,
+        "not_selected": 275,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/propertyedits.xml",
+        "sha256": "43e4807dd4f51a5b980d58b095580ecf42723e4d44eb61c2be4a7d2143252380"
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "registered": 282,
+        "executed": 8,
+        "not_selected": 274,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/hierarchy.xml",
+        "sha256": "33e5cc22f263dfe84bc139e23f73406d89232cf64fbe7af9c6245448532004ea"
+      },
+      "VirtoolsDevUi.blocks": {
+        "registered": 282,
+        "executed": 7,
+        "not_selected": 275,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/blocks.xml",
+        "sha256": "ebc4c75720d73f4424f611413db488cb1716b358b36a5a88aaf15a33fc4c0cf5"
+      },
+      "VirtoolsDevUi.attributes": {
+        "registered": 282,
+        "executed": 6,
+        "not_selected": 276,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/attributes.xml",
+        "sha256": "1b076a9bb266215a2f12733b57bde705a9c5eae3c06f4b7d2bd9e627d70fdf9d"
+      },
+      "VirtoolsDevUi.create": {
+        "registered": 282,
+        "executed": 6,
+        "not_selected": 276,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/create.xml",
+        "sha256": "f17990081c0c89f4e5d1cb6a0b23fb99c5738db7c8a70adce229627816bab2fd"
+      },
+      "VirtoolsDevUi.tools": {
+        "registered": 282,
+        "executed": 13,
+        "not_selected": 269,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/tools.xml",
+        "sha256": "205bc6a38eed594449452b9b10876cff786341ff953fd246cbe4509d886285d5"
+      },
+      "VirtoolsDevUi.sound": {
+        "registered": 282,
+        "executed": 2,
+        "not_selected": 280,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/sound.xml",
+        "sha256": "551640147deb8dd2baa09802cad45fbb7bcd358531af0d991bd31c70184fa4a9"
+      },
+      "VirtoolsDevUi.character": {
+        "registered": 282,
+        "executed": 2,
+        "not_selected": 280,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/character.xml",
+        "sha256": "51e626b88cc1361130f50c3ec846c48de96b98a9ab0555c46c38cbfec46b43d6"
+      },
+      "VirtoolsDevUi.modules": {
+        "registered": 282,
+        "executed": 72,
+        "not_selected": 210,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-completion/ui/modules.xml",
+        "sha256": "bfa433c4e22bfca4d68091959aee8e702bc03c531d9a5e30d1dc883cdc1a78b8"
+      }
+    },
+    "native_print_regressions": {
+      "passed": [
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ],
+      "real_system_submission_tested": false
+    },
+    "architecture_tests": {
+      "passed": 56,
+      "total": 56,
+      "report": {
+        "path": "out/phase-five-completion/architecture-complete.xml",
+        "sha256": "e3821de0d41abf50031283f5103c1b67d31401b3dc53dea0e5f10f839e5d1cca"
+      },
+      "current_manifest": {
+        "path": "out/phase-five-completion/architecture-final.json",
+        "sha256": "2dbf8e86f1c2365753d3eeae5495bf115ee383d248c7f810cb26dc6cb4d267f8"
+      }
+    },
+    "dynamic_graph_records": {
+      "report": {
+        "path": "out/phase-five-completion/dynamic-output-replay.xml",
+        "sha256": "a794205861fbbd7bdde45ef22b79c1daf2b9937376520588c0a3b0d6acab106d"
+      },
+      "passed": 4,
+      "total": 4,
+      "includes": [
+        "record reconstruction and wrong-document/lifetime rejection",
+        "Context recreation",
+        "Construct dynamic output recreation and link Undo/Redo",
+        "history dependencies, failed Do and compensation"
+      ]
+    },
+    "sdk_free_drawing": {
+      "NeMoDevSchematicDrawingHeaders": 2,
+      "NeMoDevApplicationDrawingHeaders": 3,
+      "NeMoDevSchematicWindowsHeaders": 7,
+      "NeMoDevWindowDrawingHeaders": 12,
+      "NeMoDevSetupValueHeaders": 4,
+      "setup_constraint": "Actual Setup implementations compile with value headers and reject complete native context/object definitions."
+    },
+    "sdk": {
+      "repositories_unchanged": 16,
+      "runtime_files_unchanged": 22,
+      "before": {
+        "path": "out/phase-five-completion/sdk-before.json",
+        "sha256": "db263ad3dcf4dca02b644f94bb8740d991ed852c1ded8a59441d5c759f573b90"
+      },
+      "after": {
+        "path": "out/phase-five-completion/sdk-after.json",
+        "sha256": "db263ad3dcf4dca02b644f94bb8740d991ed852c1ded8a59441d5c759f573b90"
+      },
+      "runtime_before": {
+        "path": "out/phase-five-completion/runtime-before.json",
+        "sha256": "d64f89f0574faf841a17188aa44cdbb7ce0157462a2a2867473115366da9d4d3"
+      },
+      "runtime_after": {
+        "path": "out/phase-five-completion/runtime-after.json",
+        "sha256": "d64f89f0574faf841a17188aa44cdbb7ce0157462a2a2867473115366da9d4d3"
+      },
+      "scope": "Preserves pre-existing modifications and untracked SDK files; no SDK edits were made by this task."
+    },
+    "gpu": {
+      "comparison": {
+        "path": "out/phase-five-completion/gpu-preservation.json",
+        "sha256": "f2ba28733d3f2fdadfdc8d78bfcf2843a1f52d3036a4acbc715f4935dbcaa7fd"
+      },
+      "original_bodies": {
+        "path": "out/phase-five-completion/gpu-path-before.json",
+        "sha256": "fc08dc4f70442f28edfc80b767a992dc74000a1845e520c510ad64944d8dc531"
+      },
+      "current_bodies": {
+        "path": "out/phase-five-completion/gpu-path-after.json",
+        "sha256": "8215eaa0dbc5271290d72c2c1fdc198b42b02c84ba63e7cce8021f53b556d171"
+      },
+      "native_transfer_methods_unchanged": 9,
+      "viewport_preparation_and_dispatch_unchanged": true,
+      "ui_draw_methods_unchanged": 5,
+      "core_gpu_files_unchanged": 4,
+      "behavior": "GPU transfer, generic CPU fallback, target recreation and explicit snapshot readback regressions passed. Existing stable transport counters remain zero. Allocation/copy/pass/submit/native-query/retain counters and timing acceptance are not newly measured."
+    },
+    "nmo_direct_open": {
+      "case": "filemenu.open_nmo_populates_level_manager_as_new_import",
+      "status": "passed",
+      "fixture": "Generated valid NMO fixture; original Level_1.NMO was not available for a separate run."
+    },
+    "source_sha256": {
+      "application/DocumentCommands.cpp": "cb71794ce976ab175310f63cb67e3e14b238372b9b8de7d99e14ddce7d0c626f",
+      "application/EventLog.cpp": "76ec3848ec0a1f15ba5ece0ef47d8977717abe78e44daccb52443e3b4f12af87",
+      "application/EventLog.h": "22a03a69c246b4accc5aadaa47ee0490fb1d415e26511e9e132b8e7cc145b7d4",
+      "application/ExecutionCommands.cpp": "32baa2f0e92c572c3cb15430bce8b72486f03320437473923acc7acd1ed6a498",
+      "application/MessageCommands.cpp": "bf76bf87e4fb1554eaaffaf94e483b74cecc49b7dc09d68ef76781393708acda",
+      "application/MessageCommands.h": "4b68c1274a0fcdb51d213a633ea24de2985509f3c14fc11e04d79631a6ab93d1",
+      "application/Preferences.cpp": "d74efc37696d9f2413febc3bd3b42a1bbb7d1b549258f64d962f33d91e4f1629",
+      "application/Preferences.h": "f260532d7ef6d80978530bb73ed3bbdf035265372408766aa3927556861fab5f",
+      "core/CMakeLists.txt": "c4ecd0756d49b2779ff867c1ae88bcb91ad1f2463007f83b6e17344c80b4eb49",
+      "core/catalog/ClassIcon.h": "daf21f5ea6370a6da7cf14f0d091fd8a1668f9552ba2a1574d642da4f50edc74",
+      "core/catalog/ClassInfo.cpp": "29359b7e5126b95a7acf319eb2b03700eb4fd373fc6704a8b49232d226054f5f",
+      "core/catalog/ClassInfo.h": "625cc9814c97738c0b30f66e9d831714dcb9148f706760d30f7f864c4e7f1212",
+      "core/catalog/ParameterUIInfo.h": "79a02bc6d9a5590b4ec46848272878c5295071afcd094d42a9574cb09225eb51",
+      "core/catalog/ParameterUIs.h": "cca25a773bd19b004ec1afde1c1b4831aaba33f4b6e133e5238958f7063d52da",
+      "core/document/Edit.cpp": "ab63ecf0dc498a2cb54f28d49daef21c41efb27df70c9b6cbb19cb5b1e0289f5",
+      "core/document/Edit.h": "ba8e9d9379b7b68a78d810e7b7dc7a56c289f77c1e40c269da4175709c6a47da",
+      "core/document/OutputFiles.cpp": "968bc60068586ac1f7d0f9f3418498e6fe8dbc4f5bf0af4f5ebcb2ca3ed609ab",
+      "core/document/ToolCommands.cpp": "92175d8ac05a752d61452bd7fc977acf8e9a282b809b2641ac4661262e43cabd",
+      "core/document/ToolCommands.h": "6cda8361bb504a369a6d2a0be2a5b274e70c7675db07b5942d40ffcf05345517",
+      "core/graph/BehaviorCommands.cpp": "721288f489ef5e7673c6407c6b6e3a4d7a534e22ac62188892a87f453837d614",
+      "core/graph/ExportCommands.cpp": "00a0523b2346606f1b626bc542bac0608d112297018828b2cff85c11aa9ff354",
+      "core/graph/GraphActionRecord.cpp": "f6d9dcd438f79d44ab43729020017b9e1f6e88891939ccca526baac708c6625e",
+      "core/graph/GraphActionRecord.h": "fd051fac3f4a41addd391cac7c7f348771cd95aff86fde761376b031d2b46c11",
+      "core/graph/GroupCommands.cpp": "cdc2c82932637eb84f64fee1cb5f07033bf2e2519ba8cdbc07d848d2fbebb254",
+      "core/graph/ParameterValueData.h": "a7667a3b664e427f5fe8ca3123b0fadb46ad5d137cfb250e9580c4ec6606787e",
+      "core/graph/ParameterValues.h": "b1b3fcd1bb21f357baf0ce9585342f1a4c6b48ca04e002829bfc17740bf66e4d",
+      "core/graph/ReplaceCommands.cpp": "07b145c615c7b841edc992cda41f98be36e65331eac51a9e82c7e4ef16008e5f",
+      "core/graph/ScriptCommands.cpp": "94ca8dc1bab30d3a728147ba7abffb9faf8ed89dfa5f451e368602c787d853ba",
+      "core/graph/ShortcutCommands.cpp": "638fa1f14331dd6fb6a0eb91da66866e22e118631ff62b472bdc527e74f16f38",
+      "core/graph/TopologyCommands.cpp": "d79e8e99661f2217aff7546c0b463461504b854853a297279f76ddd65ab9b9f8",
+      "core/graph/TopologyCommands.h": "3226634f774a8a8e3b48ac8ca0203125c8880c1e23bbd146d27d0978d4458a3a",
+      "core/graph/TopologyPaste.cpp": "91c81486cde6d1ecf16989cbaa3c5febba12bf1427d5e47b96e1dc7a33fbab86",
+      "core/graph/TopologyPrimitives.cpp": "124d9aa6cdf26a6352c3a1768790da58dcff39bc3be1f70d350d949b8aac2675",
+      "core/graph/detail/GraphActions.h": "0c7183b515d957eac96da5b6d9ba307148019af7b90fcfaf4abe6e882c83c7be",
+      "core/layout/LayoutActions.h": "ee41c5b08966c489b48ee1ac784f60ce292095c66403f3e3f0fa0e84afdc0e0a",
+      "core/layout/LayoutExplorer.h": "b13eaa22de79ae8194cdaa2ff88ccfec9493e736d3e3488c0be8a66a96482385",
+      "core/layout/LayoutExplorerTypes.h": "15e35b4d88a8f30760809799e219648bf791efe9a80f66c66e28aafb42d18f9a",
+      "core/layout/LayoutTools.h": "f01cac438ca9f6ee76c57f6a57b44d0108b2b7942411c095359ee1da5cac80ca",
+      "core/level/CreateCommands.cpp": "c987a806bebd1613bfa1f3ac428d19efcd0cb46c61521fa25f871a04f5dd83e2",
+      "core/level/CurveCommands.cpp": "68a92549939232c46cb39fec049f7c95804682f4512e723c87b89d04deb3fa86",
+      "core/level/LayoutObject.h": "353af035324f8af9157d4e5dc5c618e02a0b8c4534a4cd2a1c027c117ca4fa0f",
+      "core/level/LevelCommands.cpp": "e52b74cf29d169499b0993dcf6663c4f4a91c07faa409ffbdefc9f858c93d119",
+      "core/level/LevelCommands.h": "2439c3407a28d901d1eb94480d0a0c6ad671a6b8b5e9903013e871f52a6b2d4c",
+      "core/level/SetupCommands.cpp": "802a95d8cf5f83babb1919e9d30bc6d60b63322179f544ff3431e4efa232a410",
+      "core/level/detail/LevelCommandsDetail.h": "8f14aa5791958e517998e755021bdd9d16d63ed9fd3a2230378c897c7a5ccf22",
+      "core/schematic/SchematicSearch.h": "3234d68006e352bae0fa22b793893ae8dc13a639f0df67844d1d73fac36feac6",
+      "editor/Editor.h": "b8a07cbf3ba9fdfe928bd5668dd37237dacd9f1237216d46dcb588cec843be65",
+      "features/defaults/DefaultWorkspace.cpp": "5aaa06b60577004c9cd88b788260be7252d2539476f2516502b37ceb4fa97b45",
+      "features/layout/LayoutCommands.cpp": "6d2e2c83f67c6210fbe5f9514de61ac0fd0049649c6b0fc8c6a6d1f06984db43",
+      "features/layout/LayoutSceneData.cpp": "4942af3de5b33b704bb06081046faf160cea8ce41fe1116a40d1fd87e0b8a894",
+      "features/layout/LayoutSceneData.h": "9e0c9dbb92d2ae529ddc82d228ea5d8764de0bb73cdbb0d9f817b07cea31a05c",
+      "features/objects/ObjectCommands.cpp": "a6b7f71546d78c81aff064e0066b4feb130d0806085c48c1acb029184c741839",
+      "features/preferences/PreferencesCommands.cpp": "d372b4ce7d3ad5651d953ab29509afee3be0d405576e41adbdae358290869fed",
+      "features/preferences/PreferencesData.h": "746422c3c9f5a7653404995bae16b72dacd606da009bd02aa5c840a98ec6a79d",
+      "features/resources/BuildingBlockData.h": "753e489a53d4584113a26769fbf64299093cac582cae0386fac99247f8cd46a7",
+      "features/resources/BuildingBlockViews.cpp": "08594ad0bb366110f1259766469bde572bc667549e0f7d8f1b7d3c510e2ee368",
+      "features/resources/DataResourceCommands.cpp": "229ee476df665f3680e165e95c6a4dd4169ac9dc521c09496329c426ea1d480d",
+      "features/scene/SceneCommands.cpp": "c98a5429e680a4670692dc5c4202f889b0813a56e396d25093d2921b2ff5d99f",
+      "features/scene/SceneQueries.cpp": "d832f0ca7246304e973c2d4b4b4dff7fc6a95aecb7c3cb29ae0de60532ff6b31",
+      "features/scene/SceneTreeView.cpp": "e53e8df605cad43a622932463ab12c4ea71a98b3cfd5d0b6eafcd50c868eaa28",
+      "features/schematic/SchematicAuthoring.cpp": "72c9ddc4c1d12d1656a597d1e5b9ec538f934b054f3ce7fb89d3db837cbbca83",
+      "features/schematic/SchematicModelCommands.cpp": "7af848b6baf13dc4002e138914daceece0c356eb556a216bc89e10ad1bf758ca",
+      "features/setup/SetupRenderQueries.cpp": "b69191a23e9cbdbb7f46aa9e525cacacb68c5873f627b5db3073227c670c2d70",
+      "tests/ArchitectureTests.py": "b2b5892091a4aa5a26340201010e361880d730b207bcc70275abdcfbe0834eac",
+      "tests/BuildingBlockQueryTests.cpp": "7a8bad8a2084779a92620350b74cb9621e4d27bc13d0cd80297cf3ee2e99ca78",
+      "tests/CMakeLists.txt": "833106472b86cbf8f528fc530bf407052660fe01ccc40bb6b905525a1355a567",
+      "tests/CheckArchitecture.py": "f85a1b63f66cd4e9d3e8ec7178c81ee06aabe5120b7c54646fdc6c401d453040",
+      "tests/CheckLayering.cmake": "ce4c266b035004c0257c86cb4549a84f09cc518dca709c6fdf09fd738dcbef24",
+      "tests/DataResourceTests.cpp": "551e8c160c6557c4ff327c1be930b0fbc1bd63f3c3e6316a7bf4d736854d0811",
+      "tests/EditorApplicationTests.cpp": "9d678a93696b48f79145b5b66d87e8bffc5be670cfcf0154c94f38ee81152d67",
+      "tests/EventLogTests.cpp": "3c38413c290803432bd7593caac9429b42c3c5b39ef7e9d3a6ecc12683b2484e",
+      "tests/ExecutionCommandTests.cpp": "d65fd8aa32c6728c2aeaf9ac6f50c849f43f6360071315aa1d57a0c48c7041b0",
+      "tests/GraphActionRecordTests.cpp": "4ee7b25eeed92186cf6c6b8452f2c997d299cc20dbb1c1fbc99421646d167ba1",
+      "tests/GraveyardTests.cpp": "67012fc8fe11adb0d9650102419b1aade769d4ef0707b55adda7a91d1996b141",
+      "tests/MessageCommandTests.cpp": "a772e259d35ce6075858635cd0f1183cbee6f2d0e56c97eca9e4900e599e54c4",
+      "tests/NoNativeContext.h": "616a60a7d3ada4fd4c011b3be1acd7227d8cd36652be9061150712abfe80a5c2",
+      "tests/OutputCommandTests.cpp": "616879b1d66e3472f3499dd19d59fa7bcdb1a6488e4a13c71f9054ba0df3afc6",
+      "tests/PreferencesCommandTests.cpp": "8d8e4a713f9af02bce74b87ef45953f774696fc4a04d9e7e62651eff236a2db5",
+      "tests/SchematicAuthoringTests.cpp": "4c161c350b1d7ee2e968560953ffa9e4ab2d34e00c2114ca6610ede184c6a727",
+      "tests/SchematicEditTests.cpp": "b7ac169cec0003b7a20b4082fb5169955d0b868acdd61ec90ff52431c4c965f6",
+      "tests/TestActions.h": "d440c6c2323b5d76f70c2e1aa98a8485bc66d1a40c772322ec41ebda50075adc",
+      "tests/UiTextureTests.cpp": "6feda8a6a719ecb5056b33e5053e8cb5660ed46a61147ed501084709cb9376e7",
+      "tests/VirtoolsDevCases.def": "0eb4a6c62c34d350d2fa5f8adb23a4e8d2138cbdaa44f7d47c231ec723302f42",
+      "tests/VirtoolsDevDocumentFilesTests.cpp": "d1b777fad16926824ccfe34b73470436a5a587f5fc543b97cb54b60b7844f5ba",
+      "tests/VirtoolsDevEditTests.cpp": "f6bacbdf4c882ed59810efa042ee5d07cd11a6b2c49852bc6829569b1d7436a0",
+      "tests/VirtoolsDevFileDialogTests.cpp": "da7e7c9ef7022641f7f091bc2197af3ce889c9106dede0e25e509a329cae9f54",
+      "tests/VirtoolsDevManagerTests.cpp": "dfd37de3dbffffaba6d868d0ee8575e988ce6d7a6f86517249b602f8bbb1dbdd",
+      "tests/VirtoolsDevTestSupport.h": "0ff2e96c6f267287bb3ab9f897e90b9207924c6f2ee7fcf80f1ac659ad2b47b4",
+      "tests/VirtoolsDevTests.cpp": "80477268b428876151f1ecfd9b2cac074d020eedfe679429048851f8951325cd",
+      "tests/architecture/README.md": "099cc93b6f64516aef4078817059268e9a798fda1c5488b8d220c1807dea76bd",
+      "tests/architecture/coverage.json": "8ba8f2b1510b67cf7eab97410fbfcfd71870222f57d27d396dd490b8095c40c0",
+      "tests/modules/ObjectModule.cpp": "e40462efb0287312ce25e13eb22399e1cc555239646d64ff8abe2479f32cff1f",
+      "tests/ui/AppTests.cpp": "0c8471a3785e89e57312731de3a8090e1baf1e6c159d8eb0185266cb20437046",
+      "tests/ui/ArrayEditTests.cpp": "52f7793b0eab78afb56b621ced2949de4cbf67a256208e1c3d280ac494d19bb6",
+      "tests/ui/BlocksTests.cpp": "24f11209588e3c16109b78fa4bb0cc22eeaa33dd4bda22f4a7b511d3dbcc3e06",
+      "tests/ui/CharacterTests.cpp": "87a358f4eb4ac7667a72738ee3bf4508fb807b3e02eac0574da1b10895585a23",
+      "tests/ui/DebuggerTests.cpp": "3a8214d475bae989a4bb74021e091db2e262e44c742c4d729db3151ddbcb1340",
+      "tests/ui/DiagnosticTests.cpp": "1eff839522a426c35a8d88205d7b6e35b5f4b6fc0813b8c63852933fb7f85a3f",
+      "tests/ui/EnvironmentTests.cpp": "98c2327558dd4c50041f30417abe215e6aa167703d01050ff4e54e7c3f1a5f2a",
+      "tests/ui/FileMenuTests.cpp": "d66537f7ca5d0953d992faa22dc1d3ccc3fd20253e282e7f645b085f1999cb13",
+      "tests/ui/GpuViewportTests.cpp": "38b6e91452b5aa73ca6ae99326a41d2191c86a8fea150590b60a52e445cd2836",
+      "tests/ui/HelpTests.cpp": "bc919b005601d77cfce6be8569fb877309a959e626cfae2bfaefc7087c64887f",
+      "tests/ui/LayoutDropTests.cpp": "6ac4a0cfddda5c70bb23b2369d40751afce35a46f0800d6cb7bcf0582c595be2",
+      "tests/ui/LayoutTests.cpp": "2c8fb05e4615465e67a77941c168ffe859b44c21b0addca0dde53e8d681fb786",
+      "tests/ui/LevelTests.cpp": "ba1e9ac4f941e76141c438ccdfbcd0cff8d982786bc75a70e983cfba6485ba0a",
+      "tests/ui/ModuleTests.cpp": "0d7fc0022015633d66ab6b410205484c43931eb79cb94db14c8283ab8aa48e7b",
+      "tests/ui/PlayerTests.cpp": "6f87626046062cfe97ae8fce9e06260aec770fe73c5323cdb8c05699104ed2b5",
+      "tests/ui/PreferencesTests.cpp": "10027e9c809a14e74de8f105f9e23a0af2cd88742be03659ec4141da15c787c4",
+      "tests/ui/SchematicTests.cpp": "e915700d5effae2969c5939f329523003a76b5deca64d6a06038e9246b886f9b",
+      "tests/ui/SetupTests.cpp": "3149c207a52fbda6560138c4bbd8ae762d8362201a89d0460f928c8ccb43c868",
+      "tests/ui/ToolsTests.cpp": "e09a83a1d8016f224bbcc4eac88dbc565c95742da5dedbbf59017824f8d177e8",
+      "tests/ui/UiTests.cpp": "be02e3b97ce666c0df4a8e4622d1d94012dbf8d651122922777cca3f2c45e1ba",
+      "tests/ui/UiTests.h": "7923753142963de33e3437991d7ba0302c7d992ce5523618aedad04f02daaa80",
+      "tests/ui/ValueEditTests.cpp": "33e543e844877df16140fba00c43c218f5f1f59fcd2a5e78b8dac12d6e9d04df",
+      "tests/ui/WorkspaceTests.cpp": "0c00a0a2cff5487de5eb51f351793095eb1b865921a5d3f49d1dbb1fb30028c5",
+      "ui/CMakeLists.txt": "0886bed8e4c394fe3c1d052f609658f0c10a1210952df21a42b4fe09021c9213",
+      "ui/app/CommandLine.cpp": "705917012ef2d691196b8bd91a5d9641b0e7912d248780bec0a96a1803552a99",
+      "ui/app/CommandLine.h": "94cae9fd53c224ed698b0763eb0afdd528a337ed0c527097fb5d93a0989531b2",
+      "ui/app/DuplicateNames.cpp": "ae23ec312a81191c8e5b5275733edd1838e7182379ded4c5169e081ed7f82001",
+      "ui/app/EditorApp.cpp": "fe1f50f99c27c1e53b26f3cb1806cfe1119afc1c33a7d0ceddf6ffd40f86afb3",
+      "ui/app/EditorApp.h": "5cfad5276f1e1e78c25f9de54e693c7884995e06164d26c4df4bc0d9b3a44f22",
+      "ui/app/EditorStartup.cpp": "77871689217d132232fba66af43dc5187b1a193f0fe4732d476d148b5b0275b4",
+      "ui/app/EditorStartup.h": "e988152740b6b5b0c46353be90088403810f0f6d9afa0bdf4b656c7090d31571",
+      "ui/app/Main.cpp": "81e51c85804e0e8058ec96c68570a665f56638bc51e0e9c1bb4959abe1c5cafa",
+      "ui/app/MessageDialogs.cpp": "e5437afaabae895269a12dd3c663df67bd1f49d0b676483bbd6bb4ff9aae29bd",
+      "ui/controls/DevBitmaps.cpp": "969774f27f49e3dea2bb349cf119ec89d400858eb9d079c1d9f575965b3ebd2e",
+      "ui/controls/DevBitmaps.h": "4158e293dfedfe96cbdf5457651c40f8f4741b16fe4dd54b46928eb21da0e0d6",
+      "ui/controls/DevIcons.h": "4cf76675f81084d1ed6e62e3968b84e3581c3e598b00d0058d63c8fb0fd1f8f0",
+      "ui/controls/FileDialogs.cpp": "902ba1eb45348d3f87831943a86d35cf66656df33fcfe51fb6bbc884ec08ec94",
+      "ui/controls/ParameterBox.cpp": "7aad5f6c48f52a59ec63b8e2447298a0bd916df91051ce036d9dea46405e64ba",
+      "ui/controls/ParameterBox.h": "32ac7c8a9578a09efbe8ac3229f29e58025f14e9cb3f01629515ba9adcc46601",
+      "ui/controls/ParameterCopies.h": "346620e87c3b632ebcde3d8979d6ff827184acc8a17c224567e5cc0baf8184a4",
+      "ui/controls/ParameterDialog.cpp": "c53176abd1bd2ee7e1b95515d5ee8cc12bb1f27a2cd28cba91594b07c4f23a1c",
+      "ui/controls/ParameterDialog.h": "1b832d7d206a11e515e8d21536e9dda5a262247c49ffa1f6dbc591c072218ec2",
+      "ui/controls/ValueEditor.cpp": "a2cbc11a14dc57022b9be5191d1fc7fec8ffa9c50d9defaa5f801bd834ea2bb9",
+      "ui/controls/ValueEditor.h": "f3c82088d88566f45566e68e7c2e12e2a27f8b24d5b9a248109c3ec5fca61f9a",
+      "ui/layout/LayoutDrop.cpp": "65f296e44ffdbeb70973c987f913e95122fb23954f90f29fc06bcf2a3d085abe",
+      "ui/layout/LayoutExplorer.cpp": "08734c72eb6fcee2282cedaad0e5d1fd11b3c4e95e7f76ae4f5b6c8811f91901",
+      "ui/layout/LayoutInput.cpp": "50c7762f4893d542217a17fb87a5fbb5b9fe703418890c92119907272d0b97e4",
+      "ui/layout/LayoutMenu.cpp": "49a44fee8c168c4eede609b0f5ab06ea16a24da6441e400a549a3d33234da7b0",
+      "ui/layout/LayoutWindow.cpp": "e7aa76a2f2c19478c1dd6d892d5cac4d7398fb7af5c4892e081cf30f5f42fe23",
+      "ui/layout/LayoutWindow.h": "57d2217ce3c900baebe84f7cb7b00d7bebe91bb4150483af075029ef7f610cec",
+      "ui/native/EditorSession.cpp": "606baa3806c415d72ac8996630621a768acd18061843571e7c2540d6ceafe2f0",
+      "ui/native/EditorSession.h": "dab4c14b3870efeb970c4b66794535bbd20e9af31c9e1f93116e083db4a84cd2",
+      "ui/native/LayoutRenderer.cpp": "b9dd18f6fa2c28e4b83b9a9f4ab71cb2becc39be35d0fb79ec196bf21764436b",
+      "ui/native/ParameterCopies.cpp": "5cda98b6fd712b8deb983c01a544c2b44a2db0a13a39acca4d6e27b7feafdeb2",
+      "ui/native/ParameterCopiesDetail.h": "63bf3be9f4d8bbd501fd9fdbaa4d373c965460d84bada984c7823a9253b03d8d",
+      "ui/native/ParameterDialogs.cpp": "4d42c8b9f01267c25bb971c53a82f849990ca377a886cee641722d4818aaf6b0",
+      "ui/panels/EditorPanels.cpp": "1d15a713108432f81d97f6bc003c8762fa2749dac0dbdc9437d9ab59592becd2",
+      "ui/panels/EditorPanels.h": "96aae86afdfd4f6af9b153b0939778c761d58817b0731cd1109947c19b1a0cd3",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "ui/schematic/SchematicCanvas.cpp": "379ef6bdf74e84706bc257f4a79badd1ef4756154aeb2b29c476ae28f2f53a43",
+      "ui/schematic/SchematicCanvas.h": "df8620a5544518ac03822e406a4217e1650742a08053f2a2772de46eaa38a2b4",
+      "ui/schematic/SchematicDialogs.cpp": "7a62b5a9077f033da089fe1cff498a8dea8a89217ca2d82fc89eb09c69825f7a",
+      "ui/schematic/SchematicInput.cpp": "13b9841f5454df2b5d9cd99e19ad420258a8c35ed99d5d4e899f16bc90319290",
+      "ui/schematic/SchematicLinking.cpp": "6c8be7f8e75070c43173357c2ab7a1c1459ed6cc647255e764561a2c60bb181b",
+      "ui/schematic/SchematicMenus.cpp": "89448e4e51602d57bc8bd262c99d3db7a18db0062913396c179693bdf08ddc46",
+      "ui/schematic/SchematicPrint.cpp": "7bbb7c2fea26689f3d96a924e3d4ef98c4ffdff7991eb02dfd9188547c738fc4",
+      "ui/schematic/SchematicViews.cpp": "6eef7e9a27f57531275cc6568c5f3e46308588eff464b408b8eb62b162c4318a",
+      "ui/schematic/SchematicViews.h": "153c1a0f0149373f5368e119d59beef88fed8cb6bf1093ddcbb48491cb352c21",
+      "ui/schematic/Snapshots.cpp": "9328e7a9333855582e6dba183e50cad9a9a31dd058826416e129cc1ee8bcfa1d",
+      "ui/schematic/Snapshots.h": "1a8bc44dd08df07fe4bbd8494e9c52b54b39238a4634b3a527fa7fe89483f20a",
+      "ui/setup/SetupObjectPages.cpp": "5703614f448ab00bb3fdeaf5c23d0dfbcfec4ca9da11a6b4caae7f0b182ece88",
+      "ui/setup/SetupRenderPages.cpp": "06561dc47903a660c25bc0713c69c4779115ec5dd7e64589fb11afe02bfdce25",
+      "ui/setup/SetupWindows.cpp": "2261a58a7d46285c64f8b3ae37d2cbfb8541e0beea4bdceb2587017b50319c22",
+      "ui/setup/SetupWindows.h": "ce864967f7c95f6677cbfe407af534042f5f405fbb5146befbc749fc3fcd5c22",
+      "ui/setup/SetupWindowsDetail.h": "6f198359caebc20bc141a748e40215b713d95269e1c09c7deec061dbe3616da7",
+      "workspace/EditorClient.h": "6c92b149f8c30212c0a06160eb0a9cfef0e9cafa0211a67904c612ff9be10403"
+    },
+    "deleted_source_files": [
+      "ui/app/EditorEvents.h",
+      "ui/app/EditorState.cpp",
+      "ui/app/EditorState.h",
+      "ui/controls/ObjectText.h"
+    ]
+  },
+  "diagnostics": [
+    {
+      "reports": [
+        "out/phase-five-completion/full-first.xml",
+        "out/phase-five-completion/full-first.log"
+      ],
+      "result": "Earlier failures retained; fixed Explorer F3 search lifetime, Layout Script field construction and asynchronous resource-open assumptions. Not counted as final passing results."
+    },
+    {
+      "reports": [
+        "out/phase-five-completion/full-final.xml",
+        "out/phase-five-completion/full-final.log"
+      ],
+      "result": "Earlier failures retained; replaced private graph-builder test access with public records and fixed startup waiting to observe actual completion."
+    },
+    {
+      "reports": [
+        "out/phase-five-completion/full-verified.log"
+      ],
+      "result": "Interrupted after the first startup-wait fix depended on GuiFunc and timed out for tests without that callback. Corrected to direct test-state reads with the original ten-second bound; final core and UI runs passed."
+    },
+    {
+      "reports": [
+        "out/phase-five-completion/data-actions.xml",
+        "out/phase-five-completion/data-actions.log"
+      ],
+      "result": "The dynamic target-pin fixture initially lacked the required TARGETABLE flag. Corrected fixture passed targeted replay and the complete final selection."
+    }
+  ],
+  "remaining": {
+    "functional_phase": 5,
+    "completed_phase": 3,
+    "performance": "Deferred by user; original 3% regression and variability limits unchanged. Functional completion does not claim performance acceptance.",
+    "runtime_process_isolation": "Separate work explicitly confirmed by user; must preserve editing document, selection, undo history, embedded viewport and GPU fast path.",
+    "phase_six_gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "补双视口与每阶段的性能计数"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "General Preferences 草稿、校验、保存失败回滚和渲染引擎重启生效已覆盖；阶段六仍需配置冲突、一次迁移与可部署配置持久化"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F29",
+        "due_phase": 6,
+        "reason": "阶段六验证第二个 3D 视口、多实例完整输入组合、跨启动布局及提供者私有状态持久迁移；复杂窗口登记和本轮生命周期迁移已完成"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产模块发现与打包、移除替换和私有状态恢复尚未迁移"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "无数据时不额外写空区"
+      }
+    ],
+    "not_rerun": [
+      "optional native desktop Player group; previous input failures remain recorded",
+      "real system print submission",
+      "Windows and Linux platform runs"
+    ]
+  }
+}
