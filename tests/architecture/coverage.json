@@ -1969,12 +1969,7 @@
         "VirtoolsDevUi.attributes",
         "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "对象拖放来源关闭、快照槽替换与属性目录变化已覆盖；资源长路径组合仍待补齐"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F24",
