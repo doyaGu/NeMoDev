@@ -203,6 +203,66 @@ int main(int argc, char **argv) {
             Check(editor.Assemble({}, Drawing, error), error); editor.Stop();
             Check(keptStops == 1, "earlier registration was stopped more than once");
         }
+        Environment("NEMODEV_MODULE_FAILURE", "");
+        {
+            Embedded linked{log}; vdev::EditorApplication editor([] { return nullptr; });
+            Check(editor.Assemble(sources(linked), Drawing, error, {}, {{"fixture.addon", false, addon.u8string()}}), error);
+            Check(vdev::EditorClient(editor.Host(), 0).Query("fixture.addon.value").status != EDITOR_OK,
+                  "disabled external module contributed queries");
+            const auto info = editor.Modules();
+            Check(std::any_of(info.begin(), info.end(), [](const auto &row) { return row.id == "fixture.addon" && !row.enabled; }),
+                  "disabled module disappeared from the configuration query");
+            editor.Stop();
+        }
+        {
+            Embedded linked{log}; vdev::EditorApplication editor([] { return nullptr; });
+            Check(!editor.Assemble(sources(linked), Drawing, error, {}, {{"fixture.embedded", false}}) &&
+                  error.find("dependency") != std::string::npos, "disabled dependency silently activated dependents");
+        }
+        {
+            Embedded linked{log}; vdev::EditorApplication editor([] { return nullptr; });
+            Check(editor.Assemble(sources(linked), Drawing, error, {},
+                  {{"fixture.embedded", false}, {"fixture.base", false}, {"fixture.addon", false}}), error);
+            Check(linked.stops == 1, "disabled linked module was not stopped before activation");
+            editor.Stop(); Check(linked.stops == 1, "disabled linked module stopped twice");
+        }
+        {
+            const auto replacement = root / ("replacement" + suffix); fs::copy_file(base, replacement);
+            Embedded linked{log}; vdev::EditorApplication editor([] { return nullptr; });
+            Check(editor.Assemble(sources(linked), Drawing, error, {}, {{"fixture.base", true, replacement.u8string()}}), error);
+            const auto info = editor.Modules();
+            Check(std::any_of(info.begin(), info.end(), [&](const auto &row) {
+                return row.id == "fixture.base" && row.enabled && row.file == fs::canonical(replacement).u8string();
+            }), "replacement did not occupy the configured module identity");
+        }
+        if (fs::exists(alias)) {
+            const auto selectedLog = root / "selected-alias.log";
+            Variable selected("NEMODEV_MODULE_LOG", selectedLog.u8string());
+            Embedded linked{selectedLog}; vdev::EditorApplication editor([] { return nullptr; });
+            Check(editor.Assemble(sources(linked), Drawing, error, {}, {{"fixture.base", true, alias.u8string()}}), error);
+            const auto events = Lines(selectedLog);
+            Check(std::count(events.begin(), events.end(), "entry fixture.base") == 1,
+                  "saved hard-link source loaded the same file twice");
+        }
+        {
+            Embedded linked{log}; vdev::EditorApplication editor([] { return nullptr; });
+            Check(!editor.Assemble(sources(linked), Drawing, error, {}, {{"fixture.embedded", true, base.u8string()}}),
+                  "a replacement with a different identifier activated");
+            Check(editor.Assemble(sources(linked), Drawing, error), error);
+        }
+        {
+            Embedded linked{log}; vdev::EditorApplication editor([] { return nullptr; });
+            vdev::EditorConfiguration bad; bad.providers.push_back({"query", "fixture.addon.value", "unknown.provider"});
+            Check(!editor.Assemble(sources(linked), Drawing, error, {}, {}, bad), "unknown configured provider silently fell back");
+            Check(editor.Assemble(sources(linked), Drawing, error), error);
+        }
+        {
+            Embedded linked{log}; vdev::EditorApplication editor([] { return nullptr; });
+            vdev::EditorConfiguration bad; bad.providers.push_back({"query", "fixture.addon.value", "unknown.provider"});
+            Check(!editor.Assemble(sources(linked), Drawing, error, bad, {{"fixture.missing", false}}),
+                  "unrelated module setting suppressed an invalid default provider");
+            Check(editor.Assemble(sources(linked), Drawing, error), error);
+        }
         fs::remove_all(root);
         std::cout << "Module discovery, linked/library assembly, rollback, retry and teardown passed\n";
         return 0;

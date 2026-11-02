@@ -70,7 +70,7 @@ bool DiscoverEditorModules(const std::vector<EditorModuleDirectory> &directories
             const auto file = path.u8string();
             result.push_back({file, [file](EditorApplication &editor, std::string &error) {
                                   return editor.Load(file, error);
-                              }});
+                              }, file});
         }
         out = std::move(result);
         error.clear();

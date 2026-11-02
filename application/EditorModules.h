@@ -9,6 +9,18 @@ namespace vdev {
 struct EditorModuleSource {
     std::string name;
     std::function<bool(EditorApplication &, std::string &)> collect;
+    std::string file;
+};
+
+struct EditorModuleSetting {
+    std::string id;
+    bool enabled = true;
+    std::string path;
+    bool builtin = false;
+};
+struct EditorModuleInfo {
+    std::string id, file;
+    bool enabled = true;
 };
 
 struct EditorModuleDirectory {

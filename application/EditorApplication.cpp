@@ -60,6 +60,12 @@ std::string Id(EditorString value) {
         throw std::invalid_argument("Expected a namespaced identifier");
     return id;
 }
+bool ModuleFile(const std::string &a, const std::string &b) {
+    if (a == b) return true;
+    if (a.empty() || b.empty()) return false;
+    std::error_code error;
+    return std::filesystem::equivalent(std::filesystem::u8path(a), std::filesystem::u8path(b), error) && !error;
+}
 template <class T> void Array(const T *data, uint32_t count) {
     if (count > 4096 || (count && !data))
         throw std::invalid_argument("Invalid descriptor array");
@@ -207,6 +213,8 @@ struct Module {
     std::vector<EditorBindingDesc> bindings;
     std::vector<EditorMenuLocation> locations;
     void *library = nullptr;
+    std::string file;
+    bool enabled = true;
     EditorString Text(EditorString text, bool identifier = false) {
         strings.push_back(identifier ? Id(text) : String(text));
         return EditorText(strings.back());
@@ -415,6 +423,10 @@ struct EditorApplication::State {
     std::thread::id thread = std::this_thread::get_id();
     std::vector<std::unique_ptr<Module>> modules;
     std::vector<Module *> activation;
+    std::vector<EditorModuleInfo> moduleInfo;
+    std::vector<EditorModuleSetting> moduleSettings;
+    std::string sourceFile;
+    EditorConfiguration defaults;
     std::map<std::string, const EditorCommandDesc *> commands;
     std::map<std::string, const EditorQueryDesc *> queries;
     EditorValueEditors editors;
@@ -527,7 +539,7 @@ struct EditorApplication::State {
     bool Thread() const { return thread == std::this_thread::get_id(); }
     std::vector<Module *> ModuleOrder() const {
         std::map<std::string, Module *> named;
-        for (const auto &module : modules) named.emplace(String(module->id), module.get());
+        for (const auto &module : modules) if (module->enabled) named.emplace(String(module->id), module.get());
         std::set<Module *> visiting, done;
         std::vector<Module *> order;
         const auto visit = [&](const auto &self, Module *module) -> void {
@@ -544,7 +556,7 @@ struct EditorApplication::State {
             done.insert(module);
             order.push_back(module);
         };
-        for (const auto &module : modules) visit(visit, module.get());
+        for (const auto &module : modules) if (module->enabled) visit(visit, module.get());
         return order;
     }
     void DiscardModules(size_t first) {
@@ -554,6 +566,8 @@ struct EditorApplication::State {
             try { order = ModuleOrder(); }
             catch (...) { for (const auto &module : modules) order.push_back(module.get()); }
         }
+        for (const auto &module : modules)
+            if (std::find(order.begin(), order.end(), module.get()) == order.end()) order.push_back(module.get());
         std::set<Module *> removed;
         for (size_t i = first; i < modules.size(); ++i) removed.insert(modules[i].get());
         for (auto it = order.rbegin(); it != order.rend(); ++it)
@@ -1396,8 +1410,14 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
     }
     try {
         auto copy = std::make_unique<Module>(module);
+        copy->file = s.sourceFile;
+        for (const auto &setting : s.moduleSettings) if (setting.id == String(copy->id)) {
+            copy->enabled = setting.enabled && (!setting.builtin || copy->file.empty()) &&
+                (setting.path.empty() || ModuleFile(setting.path, copy->file));
+        }
+        if (!copy->enabled) { s.modules.push_back(std::move(copy)); return true; }
         for (auto &m : s.modules)
-            if (String(m->id) == String(copy->id))
+            if (m->enabled && String(m->id) == String(copy->id))
                 throw std::invalid_argument("Duplicate module identifier");
         // Validate every candidate against both existing modules and itself.
         auto validate = [&](auto member) {
@@ -1405,6 +1425,7 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
             std::map<std::pair<std::string, std::string>, const typename Table::value_type *> seen;
             std::map<std::string, const typename Table::value_type *> schemas;
             auto add = [&](Module &m) {
+                if (!m.enabled) return;
                 for (auto &d : m.*member) {
                     const auto key = std::make_pair(String(d.id), String(d.provider));
                     if (!seen.emplace(key, &d).second)
@@ -1458,6 +1479,7 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
         validate(&Module::views);
         std::set<std::string> properties, menus, locations;
         auto unique = [&](Module &m) {
+            if (!m.enabled) return;
             for (auto &d : m.locations)
                 if (!locations.insert(String(d.id)).second)
                     throw std::invalid_argument("Duplicate menu location");
@@ -1512,6 +1534,11 @@ bool EditorApplication::Load(const std::string &path, std::string &error) {
     EditorModuleDesc desc{};
     desc.size = sizeof(desc);
     desc.version = EDITOR_VERSION;
+    struct FileScope {
+        std::string &value, previous;
+        ~FileScope() { value = std::move(previous); }
+    } origin{m_State->sourceFile, m_State->sourceFile};
+    m_State->sourceFile = file.u8string();
     const auto discard = [&] {
         if (desc.stop) {
             try {
@@ -1527,6 +1554,12 @@ bool EditorApplication::Load(const std::string &path, std::string &error) {
             error = "Module entry failed";
             return false;
         }
+        for (const auto &setting : m_State->moduleSettings)
+            if (setting.enabled && ModuleFile(setting.path, m_State->sourceFile) && setting.id != Id(desc.id)) {
+                discard();
+                error = "Configured module has a different identifier: " + setting.id;
+                return false;
+            }
         if (!Register(desc, error)) {
             discard();
             return false;
@@ -1540,7 +1573,8 @@ bool EditorApplication::Load(const std::string &path, std::string &error) {
     }
 }
 bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources, EditorDrawingVersion drawing,
-                                 std::string &error, const EditorConfiguration &configuration) {
+                                 std::string &error, const EditorConfiguration &configuration,
+                                 const std::vector<EditorModuleSetting> &settings, const EditorConfiguration &overrides) {
     auto &s = *m_State;
     if (!s.Thread() || s.active || s.stopped || s.assembling || s.loading || s.discarding) {
         error = "Registration is closed";
@@ -1550,28 +1584,139 @@ bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources,
     std::string source;
     s.assembling = true;
     try {
-        for (const auto &entry : sources) {
+        std::set<std::string> ids;
+        auto selected = sources;
+        s.moduleSettings = settings;
+        for (auto &setting : s.moduleSettings) {
+            Id(EditorText(setting.id));
+            if (!ids.insert(setting.id).second || (setting.builtin && !setting.path.empty()))
+                throw std::invalid_argument("Invalid or duplicate module setting: " + setting.id);
+            if (setting.id == "application.operations" && (!setting.enabled || setting.builtin || !setting.path.empty()))
+                throw std::invalid_argument("The application operation registry cannot be replaced or disabled");
+            if (!setting.path.empty()) {
+                setting.path = std::filesystem::weakly_canonical(std::filesystem::absolute(std::filesystem::u8path(setting.path))).u8string();
+                if (setting.enabled && std::none_of(selected.begin(), selected.end(), [&](const auto &entry) {
+                    return ModuleFile(entry.file, setting.path);
+                })) {
+                    const auto file = setting.path;
+                    selected.push_back({file, [file](auto &editor, auto &error) { return editor.Load(file, error); }, file});
+                }
+            }
+        }
+        for (const auto &entry : selected) {
             source = entry.name;
             error.clear();
             if (source.empty() || !entry.collect) throw std::invalid_argument("Invalid module source");
+            if (!entry.file.empty()) {
+                const auto file = std::filesystem::weakly_canonical(std::filesystem::u8path(entry.file)).u8string();
+                if (std::any_of(s.moduleSettings.begin(), s.moduleSettings.end(), [&](const auto &setting) {
+                    return !setting.enabled && !setting.path.empty() && ModuleFile(setting.path, file);
+                })) continue;
+            }
             const auto count = s.modules.size();
             if (!entry.collect(*this, error)) throw std::runtime_error(error.empty() ? "Module collection failed" : error);
             if (s.modules.size() == count) throw std::runtime_error("Module source registered no module");
         }
+        for (const auto &setting : s.moduleSettings) if (setting.enabled &&
+            std::none_of(s.modules.begin(), s.modules.end(), [&](const auto &module) {
+                return module->enabled && String(module->id) == setting.id;
+            })) throw std::runtime_error("Configured module is missing or has a different identifier: " + setting.id);
+        std::map<std::string, EditorModuleInfo> catalog;
+        for (const auto &module : s.modules) {
+            const auto id = String(module->id);
+            if (!catalog.count(id) || module->enabled) catalog[id] = {id, module->file, module->enabled};
+        }
+        for (const auto &setting : s.moduleSettings) if (!catalog.count(setting.id))
+            catalog[setting.id] = {setting.id, setting.path, false};
+        const auto provides = [](const Module &module, const ProviderChoice &choice) {
+            const auto has = [&](auto member) {
+                for (const auto &desc : module.*member)
+                    if (String(desc.id) == choice.id && String(desc.provider) == choice.provider) return true;
+                return false;
+            };
+            return choice.kind == "command" ? has(&Module::commands) : choice.kind == "query" ? has(&Module::queries) :
+                choice.kind == "editor" ? has(&Module::editors) : choice.kind == "view" ? has(&Module::views) : false;
+        };
+        s.defaults = configuration;
+        // Only choices removed by module selection may disappear from the
+        // defaults. A misspelled or otherwise unavailable provider still fails.
+        s.defaults.providers.erase(std::remove_if(s.defaults.providers.begin(), s.defaults.providers.end(), [&](const auto &choice) {
+            const auto has = [&](bool enabled) {
+                return std::any_of(s.modules.begin(), s.modules.end(), [&](const auto &module) {
+                    return module->enabled == enabled && provides(*module, choice);
+                });
+            };
+            return !has(true) && has(false);
+        }), s.defaults.providers.end());
+        std::vector<std::unique_ptr<Module>> disabled;
+        s.discarding = true;
+        for (auto &module : s.modules) if (!module->enabled) disabled.push_back(std::move(module));
+        s.modules.erase(std::remove(s.modules.begin(), s.modules.end(), nullptr), s.modules.end());
+        for (auto it = disabled.rbegin(); it != disabled.rend(); ++it) if ((*it)->stop) {
+            try { (*it)->stop((*it)->data); } catch (...) {}
+        }
+        disabled.clear();
+        s.discarding = false;
+        auto effective = s.defaults;
+        for (const auto &choice : overrides.providers) {
+            effective.providers.erase(std::remove_if(effective.providers.begin(), effective.providers.end(), [&](const auto &old) {
+                return old.kind == choice.kind && old.id == choice.id;
+            }), effective.providers.end());
+            effective.providers.push_back(choice);
+        }
+        std::set<std::string> bound;
+        for (const auto &binding : overrides.bindings) {
+            if (bound.insert(binding.first).second)
+                effective.bindings.erase(std::remove_if(effective.bindings.begin(), effective.bindings.end(), [&](const auto &old) { return old.first == binding.first; }), effective.bindings.end());
+            effective.bindings.push_back(binding);
+        }
+        for (const auto &menu : overrides.menus) {
+            effective.menus.erase(std::remove_if(effective.menus.begin(), effective.menus.end(), [&](const auto &old) { return old.id == menu.id; }), effective.menus.end());
+            effective.menus.push_back(menu);
+        }
         s.assembling = false;
         source = "activation";
-        if (Activate(drawing, error, configuration)) { error.clear(); return true; }
+        if (Activate(drawing, error, effective)) {
+            s.moduleInfo.clear(); for (const auto &info : catalog) s.moduleInfo.push_back(info.second);
+            s.moduleSettings.clear(); error.clear(); return true;
+        }
     } catch (const std::exception &failure) {
         error = failure.what();
     } catch (...) {
         error = "Module collection raised an exception";
     }
-    // Registration remains closed to reentrant assembly/stop until recovery ends.
     s.assembling = true;
-    s.DiscardModules(first);
+    s.DiscardModules(std::min(first, s.modules.size()));
+    s.moduleSettings.clear(); s.defaults = {};
     s.assembling = false;
     error = "Editor modules (" + source + "): " + error;
     return false;
+}
+std::vector<EditorModuleInfo> EditorApplication::Modules() const {
+    return m_State->Thread() ? m_State->moduleInfo : std::vector<EditorModuleInfo>{};
+}
+const EditorConfiguration &EditorApplication::DefaultConfiguration() const { return m_State->defaults; }
+std::string EditorApplication::ProviderModule(const ProviderChoice &choice) const {
+    if (!m_State->Thread()) return {};
+    if (choice.kind == "menu") {
+        for (const auto &module : m_State->modules) for (const auto &menu : module->menus)
+            if (String(menu.id) == choice.id) return String(module->id);
+        return {};
+    }
+    if (choice.kind == "action") {
+        auto id = choice.id;
+        if (auto property = m_State->properties.find(id); property != m_State->properties.end()) id = property->second.command;
+        if (auto command = m_State->commands.find(id); command != m_State->commands.end())
+            return ProviderModule({"command", id, String(command->second->provider)});
+        return {};
+    }
+    const auto find = [&](auto member) -> std::string {
+        for (const auto &module : m_State->modules) for (const auto &desc : module.get()->*member)
+            if (String(desc.id) == choice.id && String(desc.provider) == choice.provider) return String(module->id);
+        return {};
+    };
+    return choice.kind == "command" ? find(&Module::commands) : choice.kind == "query" ? find(&Module::queries) :
+        choice.kind == "editor" ? find(&Module::editors) : choice.kind == "view" ? find(&Module::views) : std::string{};
 }
 bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string &error,
                                  const EditorConfiguration &configuration) {
