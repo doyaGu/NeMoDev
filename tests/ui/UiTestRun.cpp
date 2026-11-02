@@ -64,6 +64,9 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     io.ConfigRunSpeed = show ? ImGuiTestRunSpeed_Normal : ImGuiTestRunSpeed_Fast;
     io.ConfigNoThrottle = !show;
     io.ConfigSavedSettings = false; // no .ini (isolated)
+    // The process exits after this batch. Keep its final workspace focus for
+    // shutdown persistence instead of restoring the pre-test window.
+    io.ConfigRestoreFocusAfterTests = false;
     io.ConfigCaptureEnabled = false;
     if (!results.empty()) {
         std::error_code error;

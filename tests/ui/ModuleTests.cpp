@@ -27,6 +27,116 @@ int LiveViews() {
 }
 } // namespace
 void RegisterModuleTests(ImGuiTestEngine *engine) {
+    auto *workspaceState = IM_REGISTER_TEST(engine, "workspaces", "workspace_startup_state");
+    workspaceState->GuiFunc = MainThreadGui;
+    workspaceState->TestFunc = [](ImGuiTestContext *ctx) {
+        ctx->Yield(8);
+        const auto phase = [] {
+            const char *p = std::getenv("NEMODEV_WORKSPACE_PHASE");
+            return std::string(p ? p : "");
+        }();
+        auto &workspace = App().WorkspaceForTests();
+        EditorView second = 0;
+        if (phase == "reopen") {
+            OnMainThread(ctx, [&] {
+                const auto *key = std::getenv("NEMODEV_WORKSPACE_INSTANCE");
+                IM_CHECK_NO_RET(key);
+                IM_CHECK_NO_RET(
+                    EditorCommands()
+                        .Command("workspace.reopen-instance", {vdev::IntegerArgument("instance", std::stoull(key))})
+                        .status == EDITOR_OK);
+            });
+            ctx->Yield(3);
+        }
+        if (phase == "save") {
+            OnMainThread(ctx, [&] {
+                second = workspace.Open("script.schematic", "test.secondary");
+                IM_CHECK_NO_RET(second);
+                workspace.Focus(second);
+            });
+            ctx->Yield(4);
+            const auto name = Read<std::string>(ctx, [&] { return workspace.WindowName(second); });
+            ctx->SetRef(("//" + name).c_str());
+            ctx->ItemClick("canvas");
+            ctx->KeyPress(ImGuiKey_KeypadSubtract);
+            ctx->KeyPress(ImGuiKey_KeypadSubtract);
+            ctx->Yield(3);
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(App().Canvas(second).GlobalZoom() == .5f);
+                auto *window = ImGui::FindWindowByName(name.c_str());
+                IM_CHECK_NO_RET(window);
+                ImGui::SetWindowDock(window, 0, ImGuiCond_Always);
+                ImGui::SetWindowPos(window, ImVec2(120, 140));
+                ImGui::SetWindowSize(window, ImVec2(600, 360));
+            });
+            ctx->Yield(3);
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(EditorCommands().Command("workspace.save").status == EDITOR_OK);
+                auto &editor = workspace.Application();
+                vdev::EditorField module{"module", EDITOR_RECORD};
+                module.fields = {{"id", EDITOR_TEXT_VALUE, {}, "help.reference"},
+                                 {"enabled", EDITOR_INTEGER_VALUE, {}, {}, 1}};
+                const std::vector<vdev::EditorField> fields{std::move(module)};
+                const auto values = vdev::BorrowEditorFields(fields);
+                editor.NativeAvailable(false);
+                const auto changed =
+                    editor.Execute("profile.set-module", {editor.Scope(), values.data(), uint32_t(values.size())});
+                editor.NativeAvailable(true);
+                IM_CHECK_NO_RET(changed.status == EDITOR_REFUSED);
+            });
+        } else if (phase == "restored" || phase == "missing" || phase == "close-missing" || phase == "reopen") {
+            OnMainThread(ctx, [&] {
+                second = workspace.Role("test.secondary");
+                IM_CHECK_NO_RET(second);
+                const auto primary = workspace.Role("main.schematic");
+                IM_CHECK_NO_RET(primary && primary != second);
+                IM_CHECK_NO_RET(workspace.Focused() == second);
+                IM_CHECK_NO_RET(workspace.Unavailable(second) == (phase == "missing" || phase == "close-missing"));
+                if (phase == "restored" || phase == "reopen") {
+                    IM_CHECK_NO_RET(App().Canvas(second).GlobalZoom() == .5f);
+                    const auto *window = ImGui::FindWindowByName(workspace.WindowName(second).c_str());
+                    IM_CHECK_NO_RET(window && window->DockId == 0 && std::abs(window->Size.x - 600) < 2 &&
+                                    std::abs(window->Size.y - 360) < 2);
+                }
+                vdev::WorkspaceState saved;
+                std::string error;
+                IM_CHECK_NO_RET(workspace.Save(saved, error));
+                IM_CHECK_NO_RET(std::any_of(saved.views.begin(), saved.views.end(), [](const auto &v) {
+                    return v.role == "test.secondary" && v.open && !v.settings.empty();
+                }));
+                if (phase == "close-missing") {
+                    IM_CHECK_NO_RET(EditorCommands()
+                                        .Command("workspace.close-view", {vdev::IntegerArgument("view", second)})
+                                        .status == EDITOR_OK);
+                    IM_CHECK_NO_RET(EditorCommands().Command("workspace.save").status == EDITOR_OK);
+                }
+            });
+        } else if (phase == "failed" || phase == "recover") {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(workspace.SavingBlocked() && workspace.Role("main.schematic"));
+                IM_CHECK_NO_RET(EditorCommands().Command("workspace.save").status == EDITOR_ERROR);
+                if (phase == "recover") {
+                    IM_CHECK_NO_RET(EditorCommands().Command("workspace.discard-saved-state").status == EDITOR_OK);
+                    IM_CHECK_NO_RET(EditorCommands().Command("workspace.save").status == EDITOR_OK);
+                }
+            });
+        } else {
+            IM_CHECK(phase == "opening");
+        }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().ViewportUploadsForTests() == 0);
+            IM_CHECK_NO_RET(App().Layout().View().ReadbackFrames() == 0);
+            const auto before = App().State().History().UndoCount();
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("message.show", {vdev::TextArgument("text", "Restored overlay is available")})
+                                .status == EDITOR_OK);
+            IM_CHECK_NO_RET(App().State().History().UndoCount() == before);
+        });
+        ctx->Yield(3);
+        // The restored overlay must still process queued application messages.
+        const auto *message = ctx->GetWindowByRef("//###ApplicationMessage");
+        IM_CHECK(message && message->WasActive);
+    };
     auto *profile = IM_REGISTER_TEST(engine, "profiles", "profile_startup_state");
     profile->GuiFunc = MainThreadGui;
     profile->TestFunc = [](ImGuiTestContext *ctx) {

@@ -327,5 +327,10 @@ if(VIRTOOLSDEV_BUILD_TESTS)
                 --providers "$<TARGET_FILE:NeMoDevUiObjectModule>" --replacement "$<TARGET_FILE:NeMoDevProfileReplacement>"
                 --results "${PROJECT_BINARY_DIR}/profile-startup")
         set_tests_properties(VirtoolsDevUi.profileStartup PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 300)
+        add_test(NAME VirtoolsDevUi.workspaceStartup COMMAND ${Python3_EXECUTABLE}
+                "${VIRTOOLSDEV_SOURCE_DIR}/tests/WorkspaceStartupTests.py"
+                --document "${VIRTOOLSDEV_SOURCE_DIR}/resources/data/interface.nmo"
+                --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --results "${PROJECT_BINARY_DIR}/workspace-startup")
+        set_tests_properties(VirtoolsDevUi.workspaceStartup PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 300)
     endif()
 endif()
