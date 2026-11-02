@@ -2,6 +2,7 @@
 #include "workspace/EditorClient.h"
 #include <map>
 #include <algorithm>
+#include <set>
 
 namespace vdev {
 struct BuildingBlockInfo {
@@ -26,15 +27,18 @@ class BuildingBlockData {
             return EDITOR_OK;
         std::vector<BuildingBlockInfo> next;
         uint64_t first = 0, total = 0, revision = 0;
+        std::set<uint64_t> prototypesSeen;
         do {
             const auto page = client.Query("catalog.building-blocks", {IntegerArgument("first", first)});
             if (page.status != EDITOR_OK)
                 return page.status;
-            if (!first)
+            if (!first) {
                 revision = EditorClient::Integer(page, "revision");
+                total = EditorClient::Integer(page, "total");
+            }
             if (EditorClient::Integer(page, "revision") != revision)
                 return EDITOR_STALE;
-            total = EditorClient::Integer(page, "total");
+            if (EditorClient::Integer(page, "total") != total) return EDITOR_STALE;
             const auto *names = EditorClient::Find(page, "names"), *paths = EditorClient::Find(page, "categories"),
                        *descriptions = EditorClient::Find(page, "descriptions"),
                        *authors = EditorClient::Find(page, "authors"),
@@ -50,12 +54,15 @@ class BuildingBlockData {
                 versions->integers.size() != count || targetable->integers.size() != count || first + count > total ||
                 total > 1000000 || (!count && first < total))
                 return EDITOR_INVALID;
-            for (size_t i = 0; i < count; ++i)
+            for (size_t i = 0; i < count; ++i) {
+                if (!prototypesSeen.insert(prototypes->integers[i]).second) return EDITOR_INVALID;
                 next.push_back({prototypes->integers[i], uint32_t(versions->integers[i]), targetable->integers[i] != 0,
                                 names->texts[i], paths->texts[i], descriptions->texts[i], authors->texts[i],
                                 compatible->texts[i]});
+            }
             first += count;
         } while (first < total);
+        if (client.Revision("catalog.building-blocks") != version) return EDITOR_STALE;
         BuildingBlockCategories tree;
         for (size_t i = 0; i < next.size(); ++i) {
             auto *node = &tree;

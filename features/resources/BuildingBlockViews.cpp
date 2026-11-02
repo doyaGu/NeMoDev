@@ -90,6 +90,7 @@ EditorStatus BlocksView::Refresh(const EditorClient &client) {
     catalog = data.Revision();
     sourceVersion = version;
     listChanged = true;
+    Filter();
     ++revision;
     return EDITOR_OK;
 }
