@@ -229,7 +229,7 @@ void AttributeView::TypeTree(const EditorClient &client, bool multiple) {
                 }
                 if (ImGui::BeginDragDropSource()) {
                     const EditorAttributePayload payload{int32_t(id), {}, catalog.version};
-                    ImGui::SetDragDropPayload("SCHEMATIC_ATTRIBUTE", &payload, sizeof(payload));
+                    ImGui::SetDragDropPayload("SCHEMATIC_ATTRIBUTE", &payload, sizeof(payload), ImGuiCond_Once);
                     ImGui::TextUnformatted(type->name.c_str());
                     ImGui::EndDragDropSource();
                 }
@@ -419,7 +419,7 @@ void AttributeView::Values(const EditorClient &client, float width, float height
         }
         if (ImGui::BeginDragDropSource()) {
             const EditorAttributePayload payload{int32_t(row.type), row.parameter, catalog.version};
-            ImGui::SetDragDropPayload("SCHEMATIC_ATTRIBUTE", &payload, sizeof(payload));
+            ImGui::SetDragDropPayload("SCHEMATIC_ATTRIBUTE", &payload, sizeof(payload), ImGuiCond_Once);
             ImGui::TextUnformatted(row.name.c_str());
             ImGui::EndDragDropSource();
         }

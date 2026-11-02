@@ -124,7 +124,7 @@ void LayoutWindow::SnapshotWindow() {
         // Dragged onto a Script header in the Schematic: its snapshot.
         if (buffer.Has(slot) && ImGui::BeginDragDropSource()) {
             const SnapshotDrag drag{uint32_t(slot), buffer.Revision(slot)};
-            ImGui::SetDragDropPayload(SNAPSHOT_PAYLOAD, &drag, sizeof(drag));
+            ImGui::SetDragDropPayload(SNAPSHOT_PAYLOAD, &drag, sizeof(drag), ImGuiCond_Once);
             if (ImTextureID texture = SlotTexture(buffer, slot, Window().snapshotRevisions))
                 ImGui::Image(texture, ImVec2(SnapshotData::WIDTH * 1.0f, SnapshotData::HEIGHT * 1.0f));
             ImGui::EndDragDropSource();

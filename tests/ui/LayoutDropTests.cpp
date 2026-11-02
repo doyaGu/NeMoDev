@@ -1,5 +1,7 @@
 #include "tests/ui/UiTests.h"
 #include "workspace/ResourceDrag.h"
+#include "features/layout/SnapshotData.h"
+#include "features/scene/SceneViewData.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <chrono>
@@ -163,6 +165,155 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
                                 App().State().objectSelection.References() == selection);
             });
         }
+    };
+
+    test = IM_REGISTER_TEST(engine, "layout", "snapshot_drag_keeps_slot_revision_after_replacement");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK(SelectEntity(ctx, found));
+        auto &state = App().State();
+        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        vdev::SnapshotData snapshots;
+        vdev::SnapshotDrag original{};
+        std::vector<vdev::ObjectRef> selected;
+        size_t steps = 0;
+        bool dirty = false, redo = false;
+        uint64_t reads = 0;
+        OnMainThread(ctx, [&] {
+            selected = vdev::SceneObjects(client.Query("selection.objects"), "objects");
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 1)}).status == EDITOR_OK);
+            reads = App().Layout().View().ReadbackFrames();
+            const auto taken = client.Command("snapshot.take");
+            IM_CHECK_NO_RET(taken.status == EDITOR_OK && vdev::ReadSnapshots(client, snapshots));
+            original.slot = uint32_t(vdev::EditorClient::Integer(taken, "slot"));
+            original.revision = snapshots.Revision(original.slot);
+            steps = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            redo = state.History().CanRedo();
+        });
+        ctx->ItemClick("//3D Layout/$$56/##tool");
+        ctx->WindowMove("//Snapshot Buffer", {20, 20});
+        ctx->MouseMove((std::string("//Snapshot Buffer/$$") + std::to_string(original.slot) + "/##slot").c_str());
+        const auto from = ctx->UiContext->IO.MousePos;
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({from.x + 20, from.y + 10});
+        ctx->Yield(2);
+        OnMainThread(ctx, [&] {
+            const auto *payload = ImGui::GetDragDropPayload();
+            IM_CHECK_NO_RET(payload && payload->IsDataType(vdev::SNAPSHOT_PAYLOAD) &&
+                            payload->DataSize == sizeof(original));
+            IM_CHECK_NO_RET(vdev::RemoveSnapshots(client, snapshots, {int(original.slot)}).status == EDITOR_OK);
+            const auto replacement = client.Command("snapshot.take");
+            IM_CHECK_NO_RET(replacement.status == EDITOR_OK &&
+                            vdev::EditorClient::Integer(replacement, "slot") == original.slot);
+            IM_CHECK_NO_RET(vdev::ReadSnapshots(client, snapshots) &&
+                            snapshots.Revision(original.slot) != original.revision);
+        });
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            const auto *payload = ImGui::GetDragDropPayload();
+            vdev::SnapshotDrag held{};
+            if (payload && payload->DataSize == sizeof(held))
+                std::memcpy(&held, payload->Data, sizeof(held));
+            IM_CHECK_NO_RET(held.slot == original.slot && held.revision == original.revision);
+            IM_CHECK_NO_RET(vdev::ApplySnapshot(client, held, selected.front(), false).status == EDITOR_STALE);
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.document->Dirty() == dirty &&
+                            state.History().CanRedo() == redo);
+            IM_CHECK_NO_RET(vdev::SceneObjects(client.Query("selection.objects"), "objects") == selected &&
+                            vdev::EditorClient::Integer(client.Query("selection.objects"), "locked"));
+            IM_CHECK_NO_RET(App().Layout().View().ReadbackFrames() == reads + 2);
+        });
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        ctx->ItemClick("//Snapshot Buffer/Close");
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(vdev::RemoveSnapshots(client, snapshots, {int(original.slot)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "layout", "attribute_drag_keeps_catalog_version_after_catalog_change");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK(SelectEntity(ctx, found));
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        const vdev::EditorClient client(workspace.Application().Host(), 0);
+        EditorView view = 0;
+        std::vector<vdev::ObjectRef> selected;
+        EditorAttributePayload original{};
+        size_t steps = 0;
+        bool dirty = false, redo = false;
+        OnMainThread(ctx, [&] {
+            selected = vdev::SceneObjects(client.Query("selection.objects"), "objects");
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 1)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(
+                client.Command("attribute.create-category", {vdev::TextArgument("name", std::string("Drag Catalog"))})
+                    .status == EDITOR_OK);
+            const auto made =
+                client.Command("attribute.create-type",
+                               {vdev::TextArgument("name", std::string("Drag Value")),
+                                vdev::IntegerArgument("parameter", (uint64_t(CKPGUID_INT.d1) << 32) | CKPGUID_INT.d2),
+                                vdev::TextArgument("category", std::string("Drag Catalog"))});
+            IM_CHECK_NO_RET(made.status == EDITOR_OK);
+            view = workspace.Open("scene.attributes");
+            IM_CHECK_NO_RET(view);
+        });
+        ctx->Yield(4);
+        const auto window = "//" + workspace.WindowName(view);
+        ctx->WindowFocus(window.c_str());
+        ctx->Yield(2);
+        ctx->ItemOpen((window + "/**/Drag Catalog").c_str());
+        ctx->MouseMove((window + "/**/Drag Value").c_str());
+        const auto from = ctx->UiContext->IO.MousePos;
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({from.x + 20, from.y + 10});
+        ctx->Yield(2);
+        OnMainThread(ctx, [&] {
+            const auto *payload = ImGui::GetDragDropPayload();
+            IM_CHECK_NO_RET(payload && payload->IsDataType(EDITOR_ATTRIBUTE_PAYLOAD) &&
+                            payload->DataSize == sizeof(original));
+            if (payload && payload->DataSize == sizeof(original))
+                std::memcpy(&original, payload->Data, sizeof(original));
+            IM_CHECK_NO_RET(client
+                                .Command("attribute.create-category",
+                                         {vdev::TextArgument("name", std::string("Updated Drag Catalog"))})
+                                .status == EDITOR_OK);
+            IM_CHECK_NO_RET(vdev::EditorClient::Integer(client.Query("attribute.catalog"), "catalog") !=
+                            original.catalog);
+            steps = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            redo = state.History().CanRedo();
+        });
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            const auto *payload = ImGui::GetDragDropPayload();
+            EditorAttributePayload held{};
+            if (payload && payload->DataSize == sizeof(held))
+                std::memcpy(&held, payload->Data, sizeof(held));
+            IM_CHECK_NO_RET(held.type == original.type && held.value == original.value &&
+                            held.catalog == original.catalog);
+            IM_CHECK_NO_RET(client
+                                .Command("attribute.add", {vdev::ObjectsArgument("objects", selected),
+                                                           vdev::IntegerArgument("type", uint64_t(held.type)),
+                                                           vdev::IntegerArgument("catalog", held.catalog),
+                                                           vdev::ObjectArgument("source", held.value)})
+                                .status == EDITOR_STALE);
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.document->Dirty() == dirty &&
+                            state.History().CanRedo() == redo);
+        });
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(workspace.Close(view));
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
+        });
     };
 
     test = IM_REGISTER_TEST(engine, "layout", "queued_camera_creation_finishes_navigation");
