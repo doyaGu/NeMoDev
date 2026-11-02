@@ -6,6 +6,7 @@
 
 #include <SDL3/SDL.h>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -139,9 +140,12 @@ struct Session {
         });
         ctx->Yield(3);
     }
-    void StealFocus() {
+    void StealFocus(std::atomic<bool> *acquired = nullptr) {
         OnMainThread(ctx, [&] {
             if (other) { SDL_ShowWindow(other); SDL_RaiseWindow(other); }
+            // A stale SDL focus flag can suppress a repeated focus-gained event
+            // after minimization. Record the actual native transfer as well.
+            if (acquired && NativeFocus(other)) *acquired = true;
         });
     }
 };
@@ -162,6 +166,34 @@ struct NativeWindowInput {
         // We use it for native input, so retain failures when leaving that mode.
         if (ctx->ErrorCounter > errors) ctx->TestOutput->Status = ImGuiTestStatus_Error;
     }
+};
+
+// Count any focus taken back after the other window becomes the foreground
+// window, including transitions too short for a frame-by-frame check to see.
+struct FocusReturn {
+    ImGuiTestContext *ctx;
+    SDL_WindowID foreground = 0, editor = 0, render = 0;
+    std::atomic<bool> left{false};
+    std::atomic<int> returned{0};
+    static bool SDLCALL Watch(void *data, SDL_Event *event) {
+        auto &self = *static_cast<FocusReturn *>(data);
+        if (event->type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+            if (event->window.windowID == self.foreground)
+                self.left = true;
+            else if (self.left && (event->window.windowID == self.editor || event->window.windowID == self.render))
+                ++self.returned;
+        }
+        return true;
+    }
+    FocusReturn(ImGuiTestContext *value, SDL_Window *other) : ctx(value) {
+        OnMainThread(ctx, [&] {
+            foreground = SDL_GetWindowID(other);
+            editor = SDL_GetWindowID(EditorWindow());
+            render = SDL_GetWindowID(RenderWindow());
+            SDL_AddEventWatch(Watch, this);
+        });
+    }
+    ~FocusReturn() { OnMainThread(ctx, [&] { SDL_RemoveEventWatch(Watch, this); }); }
 };
 
 void MoveNativePointer(ImGuiTestContext *ctx, const ImVec2 &at) {
@@ -356,6 +388,91 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
                    (SDL_GetWindowFlags(RenderWindow()) & SDL_WINDOW_HIDDEN) &&
                    !(SDL_GetWindowFlags(RenderWindow()) & SDL_WINDOW_NOT_FOCUSABLE);
         }));
+    };
+
+    ImGuiTest *focus = IM_REGISTER_TEST(engine, "player", "fullscreen_focus_loss_keeps_foreground");
+    focus->GuiFunc = MainThreadGui;
+    focus->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        Session session(ctx);
+        IM_CHECK(ChooseMode(ctx));
+        IM_CHECK(Start(ctx));
+        NativeWindowInput nativeInput(ctx);
+        for (int cycle = 0; cycle < 6; ++cycle) {
+            ctx->LogInfo("focus loss cycle %d, minimize=%d", cycle, cycle >= 3);
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, cycle >= 3 ? "1" : "0"));
+            });
+            if (cycle) {
+                const int frames = App().State().debugger->Frames();
+                OnMainThread(ctx, [&] {
+                    IM_CHECK_NO_RET(vdev::EditorClient(App().State().workspace->Application().Host(), 0)
+                                        .Command("runtime.play").status == EDITOR_OK);
+                });
+                IM_CHECK(Until(ctx, [&] {
+                    return App().Layout().PlayerMode() && App().State().debugger->Frames() > frames + 3;
+                }));
+            }
+            OnMainThread(ctx, [&] {
+                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                IM_CHECK_NO_RET(client.Command("layout.toggle-fullscreen").status == EDITOR_OK);
+            });
+            IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && SDL_GetKeyboardFocus() == RenderWindow(); }));
+            OnMainThread(ctx, [] {
+                PushKey(RenderWindow(), SDL_SCANCODE_F6, true);
+                PushMouse(RenderWindow(), 100, 100, true);
+            });
+            IM_CHECK(Until(ctx, [] {
+                return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT);
+            }));
+            const size_t steps = App().State().History().UndoCount();
+            const bool dirty = App().State().document->Dirty();
+            const auto selection = Read<std::vector<vdev::ObjectRef>>(ctx, [] {
+                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const auto result = client.Query("selection.objects");
+                const auto *objects = vdev::EditorClient::Find(result, "objects");
+                return objects ? objects->objects : std::vector<vdev::ObjectRef>{};
+            });
+            const uint64_t reads = App().Layout().View().ReadbackFrames();
+            const uint64_t uploads = App().Layout().ViewportUploadsForTests();
+            FocusReturn focus(ctx, session.other);
+            session.StealFocus(&focus.left);
+            IM_CHECK(Until(ctx, [] { return !App().Layout().FullScreen() && !App().Layout().PlayerMode(); }));
+            IM_CHECK(Until(ctx, [&] { return NativeFocus(session.other); }));
+            ctx->Sleep(0.15f);
+            IM_CHECK(focus.left.load());
+            IM_CHECK_EQ(focus.returned.load(), 0);
+            IM_CHECK(Read<bool>(ctx, [&] {
+                return NativeFocus(session.other) && !NativeFocus(EditorWindow()) && !NativeFocus(RenderWindow()) &&
+                       !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN) &&
+                       (SDL_GetWindowFlags(RenderWindow()) & SDL_WINDOW_HIDDEN) &&
+                       !(SDL_GetWindowFlags(RenderWindow()) & SDL_WINDOW_NOT_FOCUSABLE) &&
+                       !SDL_GetWindowMouseGrab(RenderWindow());
+            }));
+            IM_CHECK(Released(ctx));
+            IM_CHECK(App().State().debugger->GetState() == vdev::Debugger::State::Paused);
+            const int frames = App().State().debugger->Frames();
+            IM_CHECK(Until(ctx, [] { return App().Layout().UsesGpuViewport(); }));
+            const uint64_t allocations = App().Layout().GpuViewportCreationsForTests();
+            ctx->Yield(12);
+            IM_CHECK_EQ(App().State().debugger->Frames(), frames);
+            OnMainThread(ctx, [&] {
+                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const auto result = client.Query("selection.objects");
+                const auto *objects = vdev::EditorClient::Find(result, "objects");
+                IM_CHECK_NO_RET(objects && objects->objects == selection && App().State().History().UndoCount() == steps &&
+                                App().State().document->Dirty() == dirty);
+                IM_CHECK_NO_RET(App().Layout().View().ReadbackFrames() == reads &&
+                                App().Layout().ViewportUploadsForTests() == uploads &&
+                                App().Layout().GpuViewportCreationsForTests() == allocations);
+                IM_CHECK_NO_RET(NativeFocus(session.other));
+            });
+            OnMainThread(ctx, [&] {
+                SDL_HideWindow(session.other);
+                SDL_RaiseWindow(EditorWindow());
+            });
+            IM_CHECK(Until(ctx, [] { return SDL_GetKeyboardFocus() == EditorWindow(); }));
+        }
     };
 
     ImGuiTest *t = IM_REGISTER_TEST(engine, "player", "windowed_input_focus");
