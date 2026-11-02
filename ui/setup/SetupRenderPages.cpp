@@ -1,4 +1,5 @@
 #include "workspace/ResourceDrag.h"
+#include "workspace/ObjectDrag.h"
 #include <filesystem>
 // The Setups of the render objects: 3D entities, cameras, lights, sprites, materials, meshes, textures, grids.
 
@@ -187,8 +188,7 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
     // A mesh dragged from the Level Manager (documentation "3D Object Setup").
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-            ObjectRef reference{};
-            if (payload->DataSize == sizeof(reference)) std::memcpy(&reference, payload->Data, sizeof(reference));
+            const auto reference = ObjectDragSource(payload->Data, size_t(payload->DataSize));
             SetupPageData dragged;
             const bool mesh =
                 ReadSetupPage(Client(m_CurrentOwner), reference, -1, dragged) && dragged.kind == Kind::Mesh;
@@ -1720,8 +1720,7 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
     // channel").
     if (ImGui::BeginDragDropTarget()) {
         if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-            ObjectRef reference{};
-            if (payload->DataSize == sizeof(reference)) std::memcpy(&reference, payload->Data, sizeof(reference));
+            const auto reference = ObjectDragSource(payload->Data, size_t(payload->DataSize));
             SetupPageData dropped;
             if (ReadSetupPage(Client(m_CurrentOwner), reference, -1, dropped) && dropped.kind == Kind::Material) {
                 if (!payload->IsDelivery())
@@ -1762,10 +1761,7 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
     ImGui::BeginGroup();
     Group("Materials Used");
     auto droppedMaterial = [this](const ImGuiPayload *payload, SetupPageData &page) -> ObjectRef {
-        ObjectRef reference{};
-        if (payload->DataSize != sizeof(reference))
-            return {};
-        std::memcpy(&reference, payload->Data, sizeof(reference));
+        const auto reference = ObjectDragSource(payload->Data, size_t(payload->DataSize));
         return ReadSetupPage(Client(m_CurrentOwner), reference, -1, page) && page.kind == Kind::Material ? reference
                                                                                                          : ObjectRef{};
     };

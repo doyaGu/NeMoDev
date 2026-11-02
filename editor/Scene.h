@@ -40,7 +40,10 @@ typedef enum EditorSceneCell {
     EDITOR_CELL_SCRIPT_SHOWN = 2048u,
     EDITOR_CELL_CURRENT_SCENE = 4096u
 } EditorSceneCell;
-// Drag data is a session/lifetime checked object reference, never a native ID.
+// Object and hierarchy drags contain consecutive EditorObject values. The
+// first is the grabbed row, followed by the other objects selected in its
+// source view at drag start. A single-object target uses the first value.
+// Every reference belongs to the same document; commands check its lifetime.
 #define EDITOR_ATTRIBUTE_PAYLOAD "SCHEMATIC_ATTRIBUTE"
 #define EDITOR_OBJECT_PAYLOAD "EDITOR_SCENE_OBJECT"
 #define EDITOR_HIERARCHY_PAYLOAD "EDITOR_SCENE_HIERARCHY"

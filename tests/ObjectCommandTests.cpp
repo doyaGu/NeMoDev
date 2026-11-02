@@ -7,6 +7,7 @@
 #include "editor/ImGuiDrawing.h"
 #include "features/objects/ObjectCommands.h"
 #include "features/objects/SelectionCommands.h"
+#include "workspace/ObjectDrag.h"
 
 #include <limits>
 #include <stdexcept>
@@ -24,10 +25,40 @@ ObjectRef Created(const EditorResponse &response) {
             return field.object;
     return {};
 }
+void TestObjectDrags() {
+    const ObjectRef a{{71}, 1, 4}, b{{71}, 2, 6}, otherDocument{{72}, 3, 9};
+    auto bytes = WriteObjectDrag(b, {a, b, a});
+    Check(ReadObjectDrag(bytes.data(), bytes.size()) == std::vector<ObjectRef>({b, a}),
+          "object drag lost the grabbed row or duplicated the source selection");
+    const auto copied = bytes;
+    bytes.clear();
+    Check(ObjectDragSource(copied.data(), copied.size()) == b, "single target used a different selected object");
+    bytes = WriteObjectDrag(b, {a});
+    Check(ReadObjectDrag(bytes.data(), bytes.size()) == std::vector<ObjectRef>{b},
+          "unselected dragged row included another selection");
+    Check(WriteObjectDrag({}, {a}).empty() && WriteObjectDrag(a, {a, otherDocument}).empty(),
+          "invalid source or cross-document selection was serialized");
+    Check(ReadObjectDrag(nullptr, sizeof(a)).empty() && ReadObjectDrag(&a, 0).empty() &&
+              ReadObjectDrag(copied.data(), copied.size() - 1).empty(),
+          "truncated object drag was accepted");
+    for (const auto bad : {ObjectRef{}, otherDocument, a}) {
+        const ObjectRef objects[] = {a, bad};
+        Check(ReadObjectDrag(objects, sizeof(objects)).empty(), "malformed trailing object was ignored");
+    }
+    std::vector<unsigned char> unaligned(copied.size() + 1);
+    std::memcpy(unaligned.data() + 1, copied.data(), copied.size());
+    Check(ReadObjectDrag(unaligned.data() + 1, copied.size()) == std::vector<ObjectRef>({b, a}),
+          "object drag required aligned UI storage");
+    std::vector<ObjectRef> oversized(65537, a);
+    Check(WriteObjectDrag(a, oversized).empty() &&
+              ReadObjectDrag(oversized.data(), oversized.size() * sizeof(a)).empty(),
+          "object drag exceeded the command object limit");
+}
 } // namespace
 
 void TestObjectCommands(vdev::CkRuntimeHost &runtime, const std::string &modulePath) {
     using namespace vdev;
+    TestObjectDrags();
     Document document(runtime);
     std::string error;
     Check(document.New(&error), error.c_str());

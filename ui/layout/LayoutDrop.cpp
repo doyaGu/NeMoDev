@@ -2,6 +2,7 @@
 #include "ui/layout/LayoutWindow.h"
 #include "ui/schematic/Snapshots.h"
 #include "workspace/BuildingBlockDrag.h"
+#include "workspace/ObjectDrag.h"
 #include <cstring>
 
 namespace vdev {
@@ -105,21 +106,22 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
             }
         }
     }
-    if (const auto *dragged = ImGui::GetDragDropPayload();
-        dragged && dragged->IsDataType(EDITOR_OBJECT_PAYLOAD) && dragged->DataSize == sizeof(ObjectRef)) {
-        ObjectRef source;
-        std::memcpy(&source, dragged->Data, sizeof(source));
-        const auto info = DropInfo(x, y, "material", 0, source);
-        const auto mesh = ObjectField(info, "mesh"), material = ObjectField(info, "material");
-        if (mesh && material)
-            if (const auto *payload =
-                    ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
-                if (!payload->IsDelivery())
-                    highlight = ObjectField(info, "highlight");
-                else
-                    Execute("layout.replace-material", {ObjectArgument("mesh", mesh), ObjectArgument("from", material),
-                                                        ObjectArgument("to", source)});
-            }
+    if (const auto *dragged = ImGui::GetDragDropPayload(); dragged && dragged->IsDataType(EDITOR_OBJECT_PAYLOAD)) {
+        const auto source = ObjectDragSource(dragged->Data, size_t(dragged->DataSize));
+        if (source) {
+            const auto info = DropInfo(x, y, "material", 0, source);
+            const auto mesh = ObjectField(info, "mesh"), material = ObjectField(info, "material");
+            if (mesh && material)
+                if (const auto *payload =
+                        ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+                    if (!payload->IsDelivery())
+                        highlight = ObjectField(info, "highlight");
+                    else
+                        Execute("layout.replace-material",
+                                {ObjectArgument("mesh", mesh), ObjectArgument("from", material),
+                                 ObjectArgument("to", source)});
+                }
+        }
     }
     ImGui::EndDragDropTarget();
     HighlightDrop(highlight);

@@ -3,6 +3,7 @@
 #include "editor/ImGuiDrawing.h"
 #include "workspace/BuildingBlockDrag.h"
 #include "workspace/ResourceDrag.h"
+#include "workspace/ObjectDrag.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
@@ -539,10 +540,8 @@ void SceneTreeView::Drop(const EditorClient &client, size_t index) {
     const auto &row = tree.rows[index];
     if (const auto *payload =
             ImGui::AcceptDragDropPayload(hierarchy ? EDITOR_HIERARCHY_PAYLOAD : EDITOR_OBJECT_PAYLOAD)) {
-        if (payload->DataSize == sizeof(ObjectRef)) {
-            ObjectRef grabbed{};
-            std::memcpy(&grabbed, payload->Data, sizeof(grabbed));
-            const auto objects = selection.objects.count(grabbed) ? Targets() : std::vector<ObjectRef>{grabbed};
+        const auto objects = ReadObjectDrag(payload->Data, size_t(payload->DataSize));
+        if (!objects.empty()) {
             if (hierarchy) {
                 client.Command("scene.hierarchy",
                                {ObjectsArgument("objects", objects), ObjectArgument("target", row.object),
@@ -890,8 +889,10 @@ void SceneTreeView::Rows(const EditorClient &client, ImVec2 origin, ImVec2 room,
                              std::min(max.y, hi.y)});
         }
         if (row.object && ImGui::BeginDragDropSource()) {
-            ImGui::SetDragDropPayload(hierarchy ? EDITOR_HIERARCHY_PAYLOAD : EDITOR_OBJECT_PAYLOAD, &row.object,
-                                      sizeof(row.object));
+            const auto objects = WriteObjectDrag(row.object, Targets());
+            if (!objects.empty())
+                ImGui::SetDragDropPayload(hierarchy ? EDITOR_HIERARCHY_PAYLOAD : EDITOR_OBJECT_PAYLOAD, objects.data(),
+                                          objects.size(), ImGuiCond_Once);
             ImGui::TextUnformatted(row.name.c_str());
             ImGui::EndDragDropSource();
         }
