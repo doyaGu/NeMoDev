@@ -15,6 +15,7 @@ namespace vdev {
 struct CommandLine {
     std::wstring fileToOpen, badOption;
     std::vector<std::string> editorModules, editorModuleDirectories;
+    std::string editorProfile;
     void Parse(const std::vector<std::wstring> &args);
 #ifdef VIRTOOLSDEV_UI_TESTS
     std::wstring capturePath;

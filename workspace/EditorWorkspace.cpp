@@ -1,4 +1,5 @@
 #include "workspace/EditorWorkspace.h"
+#include "workspace/EditorClient.h"
 
 #include <algorithm>
 #include <set>
@@ -987,6 +988,27 @@ void EditorWorkspace::Menu() {
             const EditorValue type{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE, {}, d.id};
             m_Application.Execute("workspace.open-view", {m_Application.Scope(), &type, 1});
         }
+    if (ImGui::BeginMenu("Modules (Next Start)")) {
+        const EditorClient client(m_Application.Host(), 0);
+        const auto current = client.Query("profile.modules");
+        if (const auto *rows = EditorClient::Find(current, "modules")) for (const auto &row : rows->fields) {
+            const EditorResponse value{EDITOR_OK, {}, row.fields};
+            const auto id = EditorClient::Text(value, "id");
+            const bool enabled = EditorClient::Integer(value, "enabled") != 0;
+            if (ImGui::MenuItem(id.c_str(), nullptr, enabled, EditorClient::Integer(value, "editable") != 0)) {
+                EditorField module{"module", EDITOR_RECORD};
+                module.fields = {{"id", EDITOR_TEXT_VALUE, {}, id},
+                    {"enabled", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(!enabled)},
+                    {"path", EDITOR_TEXT_VALUE, {}, EditorClient::Text(value, "path")},
+                    {"builtin", EDITOR_INTEGER_VALUE, {}, {}, EditorClient::Integer(value, "builtin")}};
+                const std::vector<EditorField> owned{std::move(module)};
+                const auto args = BorrowEditorFields(owned);
+                const std::vector<EditorValue> fields(args.values.begin(), args.values.end());
+                client.Command("profile.set-module", fields);
+            }
+        }
+        ImGui::EndMenu();
+    }
     const auto editorMenu = [&](const char *title, bool text) {
         if (!ImGui::BeginMenu(title)) return;
         for (const auto &editor : m_Application.ValueEditors()) {

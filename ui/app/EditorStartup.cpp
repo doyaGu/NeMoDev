@@ -50,6 +50,7 @@ void EditorApp::RunStartupActions(bool opened) {
         else m_Session.Log(LogLevel::Error, "--drop-block: unknown Building Block " + m_Startup.dropBlock);
     }
     if (opened || m_Startup.newComposition) {
+      if (m_Schematics.CurrentId()) {
         for (CK_ID script : m_Schematics.Current().Navigation().visibleScripts) {
             if (m_Startup.openScripts)
                 if (!m_Schematics.Current().ScriptOpen(script)) m_Schematics.Current().ToggleScriptOpen(script);
@@ -70,6 +71,7 @@ void EditorApp::RunStartupActions(bool opened) {
                 if (zoom.first == name) m_Schematics.Current().SetScriptZoom(script.id, zoom.second);
         }
         if (m_Startup.messages) m_Schematics.Current().ShowMessageExplorer();
+      }
         if (m_Startup.expandLevel) {
             const EditorValue expand{EDITOR_TEXT("expand"), EDITOR_INTEGER_VALUE, {}, {}, 2};
             const EditorRequest request{m_Editor.Scope(), &expand, 1};

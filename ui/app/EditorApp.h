@@ -35,6 +35,8 @@
 #include "core/document/DocumentSaver.h"
 #include "ui/panels/EditorPanels.h"
 #include "ui/app/EditorStartup.h"
+#include "application/EditorProfile.h"
+#include "application/ProfileCommands.h"
 #include "ui/app/StatusBar.h"
 #include "ui/layout/LayoutWindow.h"
 #include "ui/schematic/SchematicCanvas.h"
@@ -56,7 +58,7 @@ public:
     // Starts the CK runtime; runtimeDirectory must already be on the DLL
     // search path (CK2.dll and VxMath.dll are delay-loaded).
     bool Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules = {},
-                    const std::vector<std::string> &moduleDirectories = {}
+                    const std::vector<std::string> &moduleDirectories = {}, const std::string &profilePath = {}
 #ifdef VIRTOOLSDEV_UI_TESTS
                     , const StartupOptions &startup = StartupOptions()
 #endif
@@ -201,8 +203,13 @@ private:
     bool SaveSearchPaths(const PathCategories &, std::string &error);
     bool SaveSettings(Preferences next, std::string &error);
     bool WriteSettings(const Preferences &, std::string &error);
+    bool WriteProfile(EditorProfile &, const Preferences &, const EditorConfiguration &, std::string &error);
+    bool SaveConfiguration(const EditorConfiguration &, std::string &error);
 
     Preferences m_Settings;
+    EditorProfile m_Profile;
+    std::string m_ProfileFile;
+    bool m_ProfileReady = false;
     SchematicStyle m_Style;
     BuildingBlockCatalog m_Catalog;
     std::vector<CKGUID> m_RecentBlocks;
@@ -225,6 +232,9 @@ private:
     }
     EditorSession m_Session;
     EditorApplication m_Editor;
+    ProfileCommands m_ProfileCommands{m_Editor, m_Profile, [this](EditorProfile &next, std::string &error) {
+        return m_ProfileReady && WriteProfile(next, m_Settings, m_Editor.Configuration(), error);
+    }};
     MessageCommands m_Messages;
     DocumentCommands m_FileCommands{m_Editor, m_Session.files, m_Session.runtimeOperation,
                                     [this] { return m_Session.document.get(); }, *this};

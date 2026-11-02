@@ -1,4 +1,5 @@
 #include "features/defaults/DefaultWorkspace.h"
+#include <algorithm>
 #include "features/setup/SetupCommands.h"
 #include "features/schematic/SchematicCommands.h"
 #include "features/diagnostics/DiagnosticCommands.h"
@@ -10,6 +11,20 @@
 #include "features/schematic/SchematicGraphCommands.h"
 
 namespace vdev {
+WorkspaceConfiguration AvailableWorkspaceConfiguration(WorkspaceConfiguration result, const EditorApplication &editor) {
+    const auto descriptions = editor.Views();
+    result.views.erase(std::remove_if(result.views.begin(), result.views.end(), [&](const auto &placement) {
+        return std::none_of(descriptions.begin(), descriptions.end(), [&](const auto &view) {
+            return std::string(view.id.data, view.id.size) == placement.type;
+        });
+    }), result.views.end());
+    for (auto &region : result.regions)
+        if (!region.anchorRole.empty() && std::none_of(result.views.begin(), result.views.end(), [&](const auto &view) {
+            return view.role == region.anchorRole;
+        })) region.anchorRole.clear();
+    result.contributions = editor.Configuration();
+    return result;
+}
 WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     WorkspaceConfiguration result;
     result.contributions.providers = {{"editor", "text.single-line", "builtin.text"},

@@ -39,6 +39,12 @@ int main() {
     vdev::CommandLine missingDirectory;
     missingDirectory.Parse({L"NeMoDev", L"--editor-module-dir"});
     check(missingDirectory.badOption == L"--editor-module-dir", "Missing module directory argument must fail");
+    vdev::CommandLine profile;
+    profile.Parse({L"NeMoDev", L"--editor-profile", L"Configs/中文 profile.json"});
+    check(profile.badOption.empty() && !profile.editorProfile.empty(), "Profile path must be accepted");
+    vdev::CommandLine noProfile;
+    noProfile.Parse({L"NeMoDev", L"--editor-profile"});
+    check(noProfile.badOption == L"--editor-profile", "Missing profile path must fail");
     vdev::CommandLine missing;
     missing.Parse({L"NeMoDev", L"--runtime"});
     check(missing.badOption == L"--runtime", "A missing runtime argument must fail");

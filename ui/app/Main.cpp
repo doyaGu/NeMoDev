@@ -141,7 +141,7 @@ int main(int argc, char **argv) {
     if (!headless) SDL_ShowWindow(window);
     vdev::EditorApp app(helpFonts);
     int exitCode = 0;
-    if (!app.Initialize(window, runtime, vdev::WideToUtf8(line.fileToOpen), line.editorModules, line.editorModuleDirectories
+    if (!app.Initialize(window, runtime, vdev::WideToUtf8(line.fileToOpen), line.editorModules, line.editorModuleDirectories, line.editorProfile
 #ifdef VIRTOOLSDEV_UI_TESTS
                         ,
                         line.startup

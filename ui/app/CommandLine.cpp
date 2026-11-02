@@ -28,6 +28,8 @@ void CommandLine::Parse(const std::vector<std::wstring> &args) {
             editorModules.push_back(WideToUtf8(AbsolutePath(args[++i])));
         } else if (args[i] == L"--editor-module-dir" && i + 1 < args.size()) {
             editorModuleDirectories.push_back(WideToUtf8(AbsolutePath(args[++i])));
+        } else if (args[i] == L"--editor-profile" && i + 1 < args.size()) {
+            editorProfile = WideToUtf8(AbsolutePath(args[++i]));
         } else if (args[i] == L"--runtime") {
             if (i + 1 < args.size()) ++i;
             else badOption = args[i];

@@ -31,6 +31,7 @@
 #include <functional>
 #include <map>
 #include <iterator>
+#include <fstream>
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -83,13 +84,14 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
 }
 
 
-bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules, const std::vector<std::string> &moduleDirectories
+bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirectory, const std::string &fileToOpen, const std::vector<std::string> &modules, const std::vector<std::string> &moduleDirectories, const std::string &profilePath
 #ifdef VIRTOOLSDEV_UI_TESTS
                            , const StartupOptions &startup
 #endif
                            ) {
     m_Window = window;
     m_InitializationError.clear();
+    m_ProfileReady = false;
     const auto fail = [this](const std::string &message) {
         m_InitializationError = message;
         m_Session.Log(LogLevel::Error, message);
@@ -111,20 +113,30 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     // Preferences: our file, else Dev's own settings (read-only), else Dev's
     // defaults (isolated: the defaults).
     Preferences &preferences = m_Settings;
-    const bool loaded = !isolated && preferences.Load(PreferencesPath());
-    if (!isolated && !loaded) {
-        const int imported = preferences.ImportFromDev() + preferences.ImportDevIni(runtimeDirectory);
-        if (imported) m_Session.Log(LogLevel::Info, "Imported " + std::to_string(imported) + " Virtools Dev preferences");
-    } else if (loaded && !preferences.settingsSaved) {
-        // A preferences file from before the General Preferences: Dev's values for the rest.
-        const int imported = preferences.ImportDevSettings() + preferences.ImportDevIni(runtimeDirectory);
-        if (imported) m_Session.Log(LogLevel::Info, "Imported " + std::to_string(imported) + " Virtools Dev General Preferences");
+    std::string error;
+    m_ProfileFile = profilePath;
+    if (m_ProfileFile.empty() && !isolated) {
+        if (char *directory = SDL_GetPrefPath("Virtools", "VirtoolsDev")) {
+            m_ProfileFile = (std::filesystem::u8path(directory) / "NeMoDev.json").u8string(); SDL_free(directory);
+        } else return fail("Cannot locate the user profile directory");
+    }
+    auto profileStatus = EditorProfile::ReadResult::Missing;
+    if (!m_ProfileFile.empty()) profileStatus = m_Profile.Load(m_ProfileFile, error);
+    if (profileStatus == EditorProfile::ReadResult::Failed) return fail(m_ProfileFile + ": " + error);
+    if (profileStatus == EditorProfile::ReadResult::Loaded) preferences = m_Profile.Settings();
+    else if (!isolated) {
+        const bool loaded = preferences.Load(PreferencesPath());
+        if (!loaded) {
+            const int imported = preferences.ImportFromDev() + preferences.ImportDevIni(runtimeDirectory);
+            if (imported) m_Session.Log(LogLevel::Info, "Imported " + std::to_string(imported) + " Virtools Dev preferences");
+        } else if (!preferences.settingsSaved) {
+            preferences.ImportDevSettings(); preferences.ImportDevIni(runtimeDirectory);
+        }
     }
     ApplyPreferences();
 #ifdef VIRTOOLSDEV_UI_TESTS
     m_Schematics.Defaults().showAllScripts = startup.showAllScripts;
 #endif
-    std::string error;
     m_Session.host.SetRenderEngine(preferences.Text("CK2 Settings\\Render Engine"));
     const bool started = m_Session.host.Start(runtimeDirectory, [this](LogLevel level, const std::string &message) {
         m_Session.RuntimeLog(level, message);
@@ -141,19 +153,34 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         return SaveSettings(std::move(next), error);
     });
     std::vector<EditorModuleDirectory> directories;
-    if (!isolated) {
-        if (const char *base = SDL_GetBasePath()) directories.push_back({EditorModuleDirectoryAt(base)});
-        if (char *preferences = SDL_GetPrefPath("Virtools", "VirtoolsDev")) {
-            directories.push_back({(std::filesystem::u8path(preferences) / "modules").u8string()});
-            SDL_free(preferences);
-        }
-    }
-    for (const auto &directory : moduleDirectories) directories.push_back({directory, true});
     std::vector<EditorModuleSource> external;
-    if (!DiscoverEditorModules(directories, modules, external, error)) {
-        return fail(error);
+    std::vector<EditorModuleSetting> selectedModules;
+    try {
+        if (!isolated) {
+            if (const char *base = SDL_GetBasePath()) directories.push_back({EditorModuleDirectoryAt(base)});
+            if (char *preferences = SDL_GetPrefPath("Virtools", "VirtoolsDev")) {
+                directories.push_back({(std::filesystem::u8path(preferences) / "modules").u8string()});
+                SDL_free(preferences);
+            }
+        }
+        for (const auto &directory : m_Profile.Directories()) directories.push_back({directory, true});
+        for (const auto &directory : moduleDirectories) directories.push_back({directory, true});
+        auto files = m_Profile.Files(); files.insert(files.end(), modules.begin(), modules.end());
+        selectedModules = m_Profile.ResolvedModules();
+        files.erase(std::remove_if(files.begin(), files.end(), [&](const auto &file) {
+            const auto path = std::filesystem::weakly_canonical(std::filesystem::u8path(file)).u8string();
+            return std::any_of(selectedModules.begin(), selectedModules.end(), [&](const auto &module) {
+                return !module.enabled && !module.path.empty() && module.path == path;
+            });
+        }), files.end());
+        if (!DiscoverEditorModules(directories, files, external, error)) {
+            return fail(error);
+        }
+    } catch (const std::exception &failure) {
+        return fail(std::string("Editor module paths: ") + failure.what());
     }
     std::vector<EditorModuleSource> sources{
+        {"ProfileCommands.Register", [&](EditorApplication &, std::string &error) { return m_ProfileCommands.Register(error); }},
         {"RegisterBuildingBlockQueries", [&](EditorApplication &editor, std::string &error) { return RegisterBuildingBlockQueries(editor, m_Catalog, error); }},
         {"RegisterBuildingBlockViews", [&](EditorApplication &editor, std::string &error) { return RegisterBuildingBlockViews(editor, error); }},
         {"ResourceCommands.Register", [&](EditorApplication &, std::string &error) { return m_ResourceCommands.Register(error); }},
@@ -205,9 +232,10 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         {"RegisterSceneNavigation", [&](EditorApplication &, std::string &error) { return RegisterSceneNavigation(error); }}};
     sources.insert(sources.end(), std::make_move_iterator(external.begin()), std::make_move_iterator(external.end()));
     auto configuration = DefaultWorkspaceConfiguration();
-    if (!m_Editor.Assemble(sources, EDITOR_IMGUI_VERSION, error, configuration.contributions)) {
+    if (!m_Editor.Assemble(sources, EDITOR_IMGUI_VERSION, error, configuration.contributions, selectedModules, m_Profile.Contributions())) {
         return fail(error);
     }
+    configuration = AvailableWorkspaceConfiguration(std::move(configuration), m_Editor);
     m_Session.document = std::make_unique<Document>(m_Session.host);
     m_Editor.Attach({}, 0, true, false);
     if (!m_Workspace.Configure(configuration, error)) {
@@ -256,31 +284,32 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         SavePreferences();
     };
     UpdateTitle();
+    auto restored = m_Profile;
+    if (!restored.AddSources(modules, moduleDirectories, error) ||
+        !WriteProfile(restored, m_Settings, m_Editor.Configuration(), error)) return fail(m_ProfileFile + ": " + error);
+    m_Profile = std::move(restored); m_ProfileReady = true;
+    m_Workspace.ConfigurationWriter([this](const auto &configuration, auto &error) { return SaveConfiguration(configuration, error); });
     return true;
 }
 
 std::string EditorApp::PreferencesPath() const {
-    char *preferencePath = SDL_GetPrefPath("Virtools", "VirtoolsDev");
-    if (!preferencePath) return {};
-    const std::filesystem::path directory = std::filesystem::u8path(preferencePath);
-    SDL_free(preferencePath);
-    const auto file = directory / "VirtoolsDevPreferences.ini";
-    std::error_code error;
-    if (!std::filesystem::exists(file, error)) {
-        const auto oldDirectory = std::filesystem::u8path(SDL_GetBasePath());
-        for (const char *name : {"VirtoolsDevPreferences.ini", "SchematicEditorPreferences.ini"}) {
-            const auto old = oldDirectory / name;
-            if (std::filesystem::exists(old, error)) { std::filesystem::copy_file(old, file, error); break; }
-        }
+    std::filesystem::path legacy;
+    if (char *directory = SDL_GetPrefPath("Virtools", "VirtoolsDev")) {
+        legacy = std::filesystem::u8path(directory) / "VirtoolsDevPreferences.ini"; SDL_free(directory);
     }
-    return file.u8string();
+    std::error_code error;
+    if (!legacy.empty() && std::filesystem::exists(legacy, error)) return legacy.u8string();
+    if (const char *base = SDL_GetBasePath())
+        for (const char *name : {"VirtoolsDevPreferences.ini", "SchematicEditorPreferences.ini"}) {
+            const auto file = std::filesystem::u8path(base) / name;
+            if (std::filesystem::exists(file, error)) return file.u8string();
+        }
+    return legacy.u8string();
 }
-
 void EditorApp::SavePreferences() {
-#ifdef VIRTOOLSDEV_UI_TESTS
-    if (m_Startup.isolated) return;
-#endif
-    m_Settings.Save(PreferencesPath());
+    if (!m_ProfileReady) return;
+    std::string error;
+    if (!SaveConfiguration(m_Editor.Configuration(), error)) m_Session.Log(LogLevel::Error, error);
 }
 bool EditorApp::SaveSearchPaths(const PathCategories &paths, std::string &error) {
     Preferences next = m_Settings;
@@ -292,20 +321,35 @@ bool EditorApp::SaveSettings(Preferences next, std::string &error) {
     m_Settings = std::move(next); return true;
 }
 bool EditorApp::WriteSettings(const Preferences &next, std::string &error) {
-#ifdef VIRTOOLSDEV_UI_TESTS
-    if (!m_Startup.isolated)
-#endif
-    {
-        SaveReport report; OutputFiles outputs(report);
-        const auto staged = outputs.Add(PreferencesPath());
-        std::vector<std::string> written;
-        if (staged.empty() || !next.Save(staged) || !outputs.Publish(written)) {
-            error = "Preferences could not be saved";
-            for (const auto &message : report.errors) error += "\n" + message;
-            return false;
-        }
+    if (!m_ProfileReady) return true;
+    auto profile = m_Profile;
+    if (!WriteProfile(profile, next, m_Editor.Configuration(), error)) return false;
+    m_Profile = std::move(profile); return true;
+}
+bool EditorApp::WriteProfile(EditorProfile &profile, const Preferences &settings,
+                             const EditorConfiguration &configuration, std::string &error) {
+    if (!profile.Capture(settings, configuration, m_Editor.DefaultConfiguration(),
+                         [this](const auto &choice) { return m_Editor.ProviderModule(choice); }, error)) return false;
+    if (m_ProfileFile.empty()) return true;
+    std::string text;
+    if (!profile.Encode(text, error)) return false;
+    SaveReport report; OutputFiles files(report);
+    const auto staged = files.Add(m_ProfileFile);
+    std::vector<std::string> written;
+    if (!staged.empty()) {
+        std::ofstream output(std::filesystem::u8path(staged), std::ios::binary);
+        output.write(text.data(), std::streamsize(text.size())); output.close();
+        if (output && files.Publish(written)) return true;
     }
-    return true;
+    error = "Profile could not be saved: " + m_ProfileFile;
+    for (const auto &message : report.errors) error += "\n" + message;
+    return false;
+}
+bool EditorApp::SaveConfiguration(const EditorConfiguration &configuration, std::string &error) {
+    if (!m_ProfileReady) return true;
+    auto next = m_Profile;
+    if (!WriteProfile(next, m_Settings, configuration, error)) return false;
+    m_Profile = std::move(next); return true;
 }
 
 void EditorApp::ApplyPreferences() {
@@ -385,6 +429,8 @@ void EditorApp::Shutdown() {
     p.showScriptLeftPart = view.showHeaders;
     m_ResourceCommands.Poll();
     SavePreferences();
+    m_Workspace.ConfigurationWriter({});
+    m_ProfileReady = false;
     // A pending library input must not prevent final plugin restoration.
     m_ResourceCommands.Stop();
     m_Environment.Stop();
@@ -820,7 +866,7 @@ void EditorApp::MainMenu() {
             // the three main tabbed windows to their default size and position"
             // (the other windows docked stay in their tab rows).
             m_Schematics.Invalidate();
-            if (hasDocument) m_Schematics.Current().Refresh();
+            if (hasDocument && m_Schematics.CurrentId()) m_Schematics.Current().Refresh();
             m_Panels.RefreshStack();
             m_ResetLayout = true;
             m_CloseSeparated = false;
@@ -1001,7 +1047,7 @@ void EditorApp::Frame() {
     // Dev's main windows have no close button.
     // The canvas size is known only after a docked frame.
 #ifdef VIRTOOLSDEV_UI_TESTS
-    if (m_FitFrames > 0 && --m_FitFrames == 0) m_Schematics.Current().FitAll();
+    if (m_FitFrames > 0 && --m_FitFrames == 0 && m_Schematics.CurrentId()) m_Schematics.Current().FitAll();
 #endif
 #ifdef VIRTOOLSDEV_UI_TESTS
     // --tool print:DIR (the dialog, pages to DIR on OK), once the Schematic has its Scripts.
@@ -1294,6 +1340,7 @@ class PngPages final : public PrintDestination {
 #endif
 }
 std::unique_ptr<SchematicPrintContent> EditorApp::CapturePrint(std::string &error) {
+    if (!m_Schematics.CurrentId()) { error = "No visible Script to print"; return {}; }
     auto snapshot = m_Schematics.Current().CapturePrint();
     if (!snapshot) error = "No visible Script to print";
     return snapshot;
