@@ -469,6 +469,75 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         IM_CHECK(!WindowShown(ctx, window.c_str()));
     };
 
+    t = IM_REGISTER_TEST(engine, "app", "application_messages_queue_after_file_confirmation");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        size_t history = 0;
+        uint64_t token = 0, selection = 0;
+        bool dirty = false, redo = false;
+        EditorOperation replacing = 0;
+        const auto visible = [&](const char *name) {
+            const auto *window = ctx->GetWindowByRef(name);
+            return window && window->WasActive;
+        };
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            const auto target = state.document->Reference(made.created);
+            IM_CHECK_NO_RET(vdev::RenameLevelObject(*state.document, target, "Queued message fixture").ok && state.History().Undo());
+            history = state.History().UndoCount();
+            token = state.document->Token().value;
+            selection = state.objectSelection.Revision();
+            dirty = state.document->Dirty();
+            redo = state.History().CanRedo();
+            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const auto request = client.Command("document.new");
+            IM_CHECK_NO_RET(request.status == EDITOR_QUEUED);
+            replacing = request.operation;
+            IM_CHECK_NO_RET(client.Command("message.show", {vdev::TextArgument("text", u8"第一条消息"),
+                vdev::TextArgument("title", u8"应用提示"), vdev::IntegerArgument("icon", 6),
+                vdev::IntegerArgument("cancel", 1)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Command("message.show", {vdev::TextArgument("text", "Second message")}).status == EDITOR_OK);
+        });
+        ctx->Yield(5);
+        IM_CHECK(visible("//Unsaved changes") && !visible("//###ApplicationMessage"));
+        ctx->ItemClick("//Unsaved changes/Cancel");
+        ctx->Yield(5);
+        IM_CHECK(visible("//###ApplicationMessage"));
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Completion(replacing).status == EDITOR_CANCELLED);
+            const auto message = client.Query("message.current");
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(message, "text") == u8"第一条消息" &&
+                            vdev::EditorClient::Text(message, "title") == u8"应用提示" &&
+                            vdev::EditorClient::Integer(message, "icon") == 6);
+        });
+        ctx->ItemClick("//###ApplicationMessage/Cancel/##dialogbutton");
+        ctx->Yield(4);
+        OnMainThread(ctx, [] {
+            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(client.Query("message.current"), "text") == "Second message");
+        });
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(4);
+        IM_CHECK(!visible("//###ApplicationMessage"));
+        ctx->MenuClick("//##MainMenuBar/File/Source Control/Get Latest Version...");
+        ctx->Yield(4);
+        IM_CHECK(visible("//###ApplicationMessage"));
+        ctx->ItemClick("//###ApplicationMessage/OK/##dialogbutton");
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Query("message.current").status == EDITOR_NO_CHANGE && state.document->Token().value == token &&
+                state.History().UndoCount() == history && state.History().CanRedo() == redo &&
+                state.document->Dirty() == dirty && state.objectSelection.Revision() == selection);
+        });
+    };
+
     t = IM_REGISTER_TEST(engine, "app", "file_menu_preserves_recent_utf8_path_labels");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

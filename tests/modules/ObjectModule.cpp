@@ -12,6 +12,8 @@ const EditorString RenameId = EDITOR_TEXT("object.rename");
 struct Module {
     int views = 0, playCalls = 0, integerCalls = 0, vectorCalls = 0, vectorReads = 0, structureCalls = 0, structureReads = 0, flagCalls = 0, flagReads = 0;
     bool refuseFileView = false;
+    bool refuseMessageReply = false, refuseMessageView = false;
+    uint64_t messageShows = 0, messageReplies = 0;
     uint64_t specializedCalls[3]{}, specializedReads[3]{};
     uint64_t selectorCalls[7]{}, selectorReads[7]{}, selectorChoices=0;
     struct Selector { Module *owner = nullptr; unsigned index = 0; } selectors[7];
@@ -143,6 +145,47 @@ EditorStatus ReplyToFile(void *data, const EditorHost *host, const EditorRequest
     auto forwarded = *request;
     forwarded.handler = EditorString EDITOR_TEXT("builtin.documents");
     return host->execute(host->data, EditorString EDITOR_TEXT("document.respond"), &forwarded, sink);
+}
+EditorStatus ShowApplicationMessage(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    ++static_cast<Module *>(data)->messageShows;
+    auto forwarded = *request;
+    forwarded.handler = EditorString EDITOR_TEXT("builtin.messages");
+    return host->execute(host->data, EditorString EDITOR_TEXT("message.show"), &forwarded, sink);
+}
+EditorStatus ReplyToApplicationMessage(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
+    auto &module = *static_cast<Module *>(data);
+    ++module.messageReplies;
+    if (module.refuseMessageReply) return EDITOR_REFUSED;
+    auto forwarded = *request;
+    forwarded.handler = EditorString EDITOR_TEXT("builtin.messages");
+    return host->execute(host->data, EditorString EDITOR_TEXT("message.respond"), &forwarded, sink);
+}
+void DrawApplicationMessages(void *, const EditorHost *host, EditorView view, EditorViewFrame *) {
+    struct Message { uint64_t id = 0; std::string text; bool cancel = false; } message;
+    const EditorRequest query{host->scope(host->data, view), nullptr, 0};
+    const auto read = [](void *data, const EditorValue *fields, uint32_t count) {
+        auto &message = *static_cast<Message *>(data);
+        for (uint32_t i = 0; i < count; ++i) {
+            const std::string key(fields[i].key.data, fields[i].key.size);
+            if (key == "message") message.id = fields[i].integer;
+            if (key == "text") message.text.assign(fields[i].text.data, fields[i].text.size);
+            if (key == "cancel") message.cancel = fields[i].integer != 0;
+        }
+        return EDITOR_OK;
+    };
+    if (host->query(host->data, EditorString EDITOR_TEXT("message.current"), &query, {&message, read}) != EDITOR_OK) return;
+    if (ImGui::Begin("External application message")) {
+        ImGui::TextUnformatted(message.text.c_str());
+        const bool accept = ImGui::Button("Accept");
+        ImGui::SameLine();
+        if (accept || (message.cancel && ImGui::Button("Cancel"))) {
+            const EditorValue fields[] = {{EDITOR_TEXT("message"), EDITOR_INTEGER_VALUE, {}, {}, message.id},
+                {EDITOR_TEXT("choice"), EDITOR_TEXT_VALUE, {}, accept ? EditorString EDITOR_TEXT("accept") : EditorString EDITOR_TEXT("cancel")}};
+            const EditorRequest answer{query.scope, fields, 2};
+            host->execute(host->data, EditorString EDITOR_TEXT("message.respond"), &answer, {});
+        }
+    }
+    ImGui::End();
 }
 void DrawFiles(void *data, const EditorHost *host, EditorView view, EditorViewFrame *) {
     DrawInput(data, host, view, EDITOR_TEXT("document.input"), EDITOR_TEXT("document.respond"));
@@ -999,6 +1042,46 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                                         {sizeof(EditorValueEditorDesc), EDITOR_IMGUI_VERSION, EDITOR_TEXT("value.flags"),
                                             EDITOR_TEXT("example.flags"), EDITOR_TEXT("External flags"), DrawFlags, data, EDITOR_INTEGER_VALUE}},
                                         data};
+    static const EditorParameter messageArgs[] = {{EDITOR_TEXT("text"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("icon"), EDITOR_INTEGER_VALUE, 1},
+        {EDITOR_TEXT("cancel"), EDITOR_INTEGER_VALUE, 1}};
+    static const EditorParameter messageReply[] = {{EDITOR_TEXT("message"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("choice"), EDITOR_TEXT_VALUE}};
+    descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("message.show"), EDITOR_TEXT("example.messages"),
+        EDITOR_TEXT("Show external message"), messageArgs, 4, ShowApplicationMessage, data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
+    descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("message.respond"), EDITOR_TEXT("example.messages"),
+        EDITOR_TEXT("Answer external message"), messageReply, 2, ReplyToApplicationMessage, data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
+    static const EditorParameter messageOptions[] = {{EDITOR_TEXT("reply"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE}};
+    descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("example.message-options"), EDITOR_TEXT("example.messages"),
+        EDITOR_TEXT("Message failures"), messageOptions, 2,
+        [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
+            auto &module = *static_cast<Module *>(data);
+            for (uint32_t i = 0; i < request->count; ++i) {
+                const std::string key(request->values[i].key.data, request->values[i].key.size);
+                if (key == "reply") module.refuseMessageReply = request->values[i].integer != 0;
+                if (key == "view") module.refuseMessageView = request->values[i].integer != 0;
+            }
+            return EDITOR_OK;
+        }, data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
+    static const EditorParameter messageCounts[] = {{EDITOR_TEXT("shows"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("replies"), EDITOR_INTEGER_VALUE}};
+    descriptors->queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("example.message-counts"), EDITOR_TEXT("example.messages"),
+        nullptr, 0, [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+            const auto &module = *static_cast<Module *>(data);
+            const EditorValue fields[] = {{EDITOR_TEXT("shows"), EDITOR_INTEGER_VALUE, {}, {}, module.messageShows},
+                {EDITOR_TEXT("replies"), EDITOR_INTEGER_VALUE, {}, {}, module.messageReplies}};
+            return sink.write ? sink.write(sink.data, fields, 2) : EDITOR_INVALID;
+        }, data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, messageCounts, 2});
+    auto messageView = logView;
+    messageView.id = EditorString EDITOR_TEXT("application.messages");
+    messageView.provider = EditorString EDITOR_TEXT("example.messages");
+    messageView.title = EditorString EDITOR_TEXT("External application messages");
+    messageView.kind = EDITOR_OVERLAY_VIEW;
+    messageView.area = EDITOR_APPLICATION;
+    messageView.create = [](void *data, const EditorHost *, EditorView) -> void * {
+        return static_cast<Module *>(data)->refuseMessageView ? nullptr : data;
+    };
+    messageView.destroy = [](void *) {};
+    messageView.draw = DrawApplicationMessages;
+    descriptors->views.push_back(messageView);
     const EditorDrawValue specializedDraw = DrawSpecialized;
     const EditorCommand modifiers[] = {ModifySpecialized<0>, ModifySpecialized<1>, ModifySpecialized<2>};
     const EditorQuery readers[] = {ReadSpecialized<0>, ReadSpecialized<1>, ReadSpecialized<2>};

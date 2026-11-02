@@ -86,6 +86,10 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"view", "document.output-dialogs", "builtin.output-dialogs"},
                                       {"view", "resource.file-dialogs", "builtin.resource-dialogs"},
                                       {"view", "application.event-log", "builtin.log"},
+                                      {"view", "application.messages", "builtin.message-dialogs"},
+                                      {"command", "message.show", "builtin.messages"},
+                                      {"command", "message.respond", "builtin.messages"},
+                                      {"query", "message.current", "builtin.messages"},
                                       {"command", "script.navigate", "builtin.schematic"},
                                       {"view", "script.schematic", "builtin.schematic"},
                                       {"view", "resource.data", "builtin.data-resources"},
@@ -144,6 +148,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
     result.views = {
         {"document.file-dialogs", "", "", true},
         {"document.output-dialogs", "", "", true},
+        {"application.messages", "", "", true},
         {"environment.folder-dialogs", "", "", true},
         {"scene.level", "main.level", "editing", true, true},
         {"layout.viewport", "main.layout", "layout", true, true, true, WorkspaceWindowId::Named, "3D Layout"},

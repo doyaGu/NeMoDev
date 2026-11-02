@@ -2,6 +2,7 @@
 #include "ui/app/FileInputs.h"
 #include "ui/app/OutputInputs.h"
 #include "ui/app/EnvironmentInputs.h"
+#include "ui/app/MessageDialogs.h"
 #include "features/environment/EnvironmentViews.h"
 #include "features/diagnostics/DiagnosticViews.h"
 #include "features/preferences/PreferencesView.h"
@@ -146,6 +147,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         !RegisterDataResourceViews(m_Editor, error) || !RegisterResourceInputs(m_Editor, window, error) ||
         !RegisterDefaultWorkspace(m_Editor, error) || !m_Workspace.Register(error) ||
         !m_State.eventLog.Register(m_Editor, error) || !RegisterEventLogView(m_Editor, error) ||
+        !m_Messages.Register(m_Editor, error) || !RegisterMessageDialogs(m_Editor, error) ||
         !RegisterHelpViews(m_Editor, m_HtmlFonts, error) || !m_FileCommands.Register(error) ||
         !RegisterFileInputs(m_Editor, window, error) || !m_ObjectCommands.Register(m_Editor, error) ||
         !m_SelectionCommands.Register(m_Editor, error) || !m_Execution.Register(error) ||
@@ -392,7 +394,7 @@ void EditorApp::OutputFinished(const OutputCommands::Result &result) {
     if (!result.message.empty()) m_State.Log(result.status == EDITOR_ERROR ? LogLevel::Error : LogLevel::Info, result.message);
     if (!result.print && result.status == EDITOR_OK) m_State.Log(LogLevel::Info, "Web page written: " + result.path);
     if (!result.print && result.webFailure == DocumentFiles::WebResult::Failure::Composition && !m_Shutdown) {
-        DevMessage message; message.text = "Unable to save CMO file !"; ShowMessage(std::move(message));
+        EditorClient(m_Editor.Host(), 0).Command("message.show", {TextArgument("text", "Unable to save CMO file !")});
     }
 }
 
@@ -453,9 +455,8 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
         m_State.Log(result.saved.saved ? LogLevel::Info : LogLevel::Error, text);
         if (result.action == A::Player) {
             if (!result.saved.saved) {
-                DevMessage message;
-                message.text = "Save Level Error: " + (report.errors.empty() ? std::string() : AnsiToUtf8(report.errors.front()));
-                ShowMessage(std::move(message));
+                EditorClient(m_Editor.Host(), 0).Command("message.show", {TextArgument("text",
+                    "Save Level Error: " + (report.errors.empty() ? std::string() : AnsiToUtf8(report.errors.front())))});
             }
         } else { m_SaveReportText = std::move(text); m_OpenSaveReport = true; }
         if (report.documentSaved) RememberRecentFile(path);
@@ -711,10 +712,8 @@ void EditorApp::MainMenu() {
         if (ImGui::BeginMenu("Source Control")) {
             auto item = [this](const char *label, const char *function) {
                 if (!ImGui::MenuItem(label)) return;
-                DevMessage message;
-                message.text = std::string(function) + " function not available";
-                message.title = "NeMoDev";
-                ShowMessage(std::move(message));
+                EditorClient(m_Editor.Host(), 0).Command("message.show", {
+                    TextArgument("text", std::string(function) + " function not available"), TextArgument("title", "NeMoDev")});
             };
             item("Get Latest Version...", "Get Latest Version");
             item("Check Out...", "Check Out");
@@ -1027,7 +1026,6 @@ void EditorApp::Frame() {
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (m_FitFrames > 0 && --m_FitFrames == 0) m_Schematics.Current().FitAll();
 #endif
-    MessageDialog();
 #ifdef VIRTOOLSDEV_UI_TESTS
     // --tool print:DIR (the dialog, pages to DIR on OK), once the Schematic has its Scripts.
     if (!m_PendingStartupDialog.empty() && m_FocusSchematic <= 0 && ++m_PrintPagesFrames > 5) {

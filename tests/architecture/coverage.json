@@ -129,7 +129,8 @@
         "ui/app/EditorState.*",
         "ui/app/StatusBar.*",
         "ui/app/EditorEvents.h",
-        "ui/app/UiTestRun.h"
+        "ui/app/UiTestRun.h",
+        "ui/app/MessageDialogs.*"
       ]
     },
     {
@@ -140,7 +141,6 @@
         "application/RuntimeOperation.*",
         "application/DocumentCommands.*",
         "ui/app/FileInputs.*",
-        "ui/app/FileMenu.cpp",
         "ui/app/DuplicateNames.*",
         "application/ExecutionCommands.*",
         "application/OutputCommands.*",
@@ -653,7 +653,6 @@
       "S04",
       "S05",
       "S13",
-      "S14",
       "S27",
       "S28",
       "S33",
@@ -1066,15 +1065,6 @@
     },
     {
       "file": "ui/app/EditorState.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/FileMenu.cpp",
       "access": [
         "editor-state",
         "mutable-document",
@@ -2076,7 +2066,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "EventLog 的 worker 与关闭视图后日志保留已覆盖；剩余原生消息框与旧面板错误呈现随阶段五迁移"
+          "reason": "EventLog 和应用消息的统一查询、答复及替代显示已覆盖；剩余保存报告和旧面板错误呈现随阶段五迁移"
         }
       ]
     },
@@ -2775,6 +2765,18 @@
         "F17",
         "F25",
         "F27"
+      ]
+    },
+    {
+      "id": "application-messages",
+      "name": "应用提示队列与消息框答复",
+      "owner": "MessageCommands 持有消息；application.messages 工作区视图读取副本并通过 message.respond 答复",
+      "lifetime": "应用会话；跨文档和视图替换保留未答复消息；只接受队首编号，关闭来源窗口后拒绝尚未执行的答复",
+      "persistence": "不保存到文档或配置，不修改选区、Dirty 和 Undo/Redo；显示被替换或答复被拒绝时保留消息",
+      "features": [
+        "F27",
+        "F28",
+        "F29"
       ]
     }
   ],

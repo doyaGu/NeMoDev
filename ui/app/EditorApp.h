@@ -3,6 +3,7 @@
 #include "application/DocumentCommands.h"
 #include "application/ExecutionCommands.h"
 #include "application/OutputCommands.h"
+#include "application/MessageCommands.h"
 #include "features/arrays/ArrayCommands.h"
 #include "features/objects/ObjectCommands.h"
 #include "features/objects/SelectionCommands.h"
@@ -207,21 +208,6 @@ private:
     DocumentToken m_DetachedDocument{};
     void ReopenSetups(const LayoutInterfaceData &data);
     LayoutInterfaceData LayoutDataToSave() const;
-    // The File menu's other commands (FileMenu.cpp): Save Version, Revert to
-    // Saved, Export to Player, Create Web Page; the composition's file is the
-    // last saved, else the one opened.
-    std::string CurrentFilePath() const;
-    // Dev's message box (Dev.exe sub_5D5E60, dialog 727): the text (ANSI,
-    // lines centered), the title (empty: "Warning!"), icon: Dev's icon type
-    // (1 to 6, 0 none), OK and Cancel or OK alone; onOk runs after OK.
-    struct DevMessage {
-        std::string text, title;
-        int icon = 0;
-        bool cancel = false;
-        std::function<void()> onOk, onCancel;
-    };
-    void ShowMessage(DevMessage message);
-    void MessageDialog();
     std::unique_ptr<SchematicPrintContent> CapturePrint(std::string &error) override;
     PrintChoice ChoosePrinter(const std::string &directory) override;
     bool OpenOutput(const std::string &path, std::string &error) override;
@@ -249,6 +235,7 @@ private:
 
     EditorState m_State;
     EditorApplication m_Editor;
+    MessageCommands m_Messages;
     DocumentCommands m_FileCommands{m_Editor, m_State.files, m_State.runtimeOperation,
                                     [this] { return m_State.document.get(); }, *this};
     OutputCommands m_Outputs{m_Editor, m_State.files, m_State.runtimeOperation,
@@ -313,7 +300,6 @@ private:
     bool m_Shutdown = false;
     bool m_OpenSaveReport = false;
     std::string m_SaveReportText;
-    std::vector<DevMessage> m_Messages; // the first one shown
     std::wstring m_Title;
     // Dev's main windows (3D Layout, Schematic, Level Manager, Building
     // Blocks) are always there; the Schematic Explorer opens from the toolbar.

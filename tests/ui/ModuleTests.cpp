@@ -899,6 +899,108 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(App().State().document->Context()->DestroyObject(id) == CK_OK);
         });
     };
+    test = IM_REGISTER_TEST(engine, "modules", "application_messages_use_selected_commands_and_view");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        vdev::EditorConfiguration original, selected;
+        std::vector<vdev::ObjectRef> selection;
+        vdev::DocumentToken document{};
+        size_t history = 0;
+        bool dirty = false, redo = false;
+        uint64_t shows = 0, replies = 0;
+        vdev::EditorResponse pending;
+        const auto configureOptions = [&](bool refuseReply, bool refuseView) {
+            OnMainThread(ctx, [&] {
+                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                IM_CHECK_NO_RET(client.Command("example.message-options", {
+                    vdev::IntegerArgument("reply", refuseReply), vdev::IntegerArgument("view", refuseView)}).status == EDITOR_OK);
+            });
+        };
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &workspace = *state.workspace;
+            auto &editor = workspace.Application();
+            original = editor.Configuration();
+            selected = original;
+            for (auto &choice : selected.providers)
+                if (choice.kind == "command" && (choice.id == "message.show" || choice.id == "message.respond"))
+                    choice.provider = "example.messages";
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(selected, error));
+            const auto counts = vdev::EditorClient(editor.Host(), 0).Query("example.message-counts");
+            shows = vdev::EditorClient::Integer(counts, "shows");
+            replies = vdev::EditorClient::Integer(counts, "replies");
+            document = state.document->Token();
+            history = state.History().UndoCount();
+            redo = state.History().CanRedo();
+            dirty = state.document->Dirty();
+            selection = state.objectSelection.References();
+        });
+        configureOptions(true, false);
+        ctx->MenuClick("//##MainMenuBar/File/Source Control/Get Latest Version...");
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            pending = client.Query("message.current");
+            IM_CHECK_NO_RET(vdev::EditorClient::Text(pending, "text") == "Get Latest Version function not available" &&
+                vdev::EditorClient::Integer(client.Query("example.message-counts"), "shows") == shows + 1);
+        });
+        ctx->ItemClick("//###ApplicationMessage/OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(ctx->GetWindowByRef("//###ApplicationMessage")->WasActive);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            const vdev::EditorClient client(workspace.Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Query("message.current").fields == pending.fields &&
+                vdev::EditorClient::Integer(client.Query("example.message-counts"), "replies") == replies + 1);
+            const auto view = workspace.Open("application.messages");
+            IM_CHECK_NO_RET(view && workspace.Close(view));
+        });
+        ctx->Yield(3);
+        IM_CHECK(!ctx->GetWindowByRef("//###ApplicationMessage")->WasActive);
+        OnMainThread(ctx, [&] {
+            auto &workspace = *App().State().workspace;
+            IM_CHECK_NO_RET(workspace.Open("application.messages"));
+            const vdev::EditorClient client(workspace.Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Query("message.current").fields == pending.fields);
+        });
+        ctx->Yield(3);
+        configureOptions(false, true);
+        OnMainThread(ctx, [&] {
+            auto replacement = selected;
+            for (auto &choice : replacement.providers)
+                if (choice.kind == "view" && choice.id == "application.messages") choice.provider = "example.messages";
+            std::string error;
+            IM_CHECK_NO_RET(!App().State().workspace->Configure(replacement, error));
+        });
+        ctx->Yield(3);
+        IM_CHECK(ctx->GetWindowByRef("//###ApplicationMessage")->WasActive);
+        configureOptions(false, false);
+        OnMainThread(ctx, [&] {
+            for (auto &choice : selected.providers)
+                if (choice.kind == "view" && choice.id == "application.messages") choice.provider = "example.messages";
+            std::string error;
+            IM_CHECK_NO_RET(App().State().workspace->Configure(selected, error));
+        });
+        ctx->Yield(4);
+        IM_CHECK(!ctx->GetWindowByRef("//###ApplicationMessage")->WasActive);
+        ctx->ItemClick("//External application message/Accept");
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &workspace = *state.workspace;
+            const vdev::EditorClient client(workspace.Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Query("message.current").status == EDITOR_NO_CHANGE &&
+                vdev::EditorClient::Integer(client.Query("example.message-counts"), "replies") == replies + 2);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(original, error));
+            IM_CHECK_NO_RET(state.document->Token() == document && state.document->Dirty() == dirty &&
+                state.History().UndoCount() == history && state.History().CanRedo() == redo &&
+                state.objectSelection.References() == selection);
+        });
+    };
+
     test = IM_REGISTER_TEST(engine, "modules", "duplicate_names_keep_drafts_cancel_and_retry_selected_command");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {

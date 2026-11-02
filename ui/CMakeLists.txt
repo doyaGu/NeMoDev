@@ -25,7 +25,7 @@ set(_editor_sources
         app/FileInputs.cpp
         app/OutputInputs.cpp
         app/EnvironmentInputs.cpp
-        app/FileMenu.cpp
+        app/MessageDialogs.cpp
         app/StatusBar.cpp
         app/DuplicateNames.cpp
         app/DesktopFiles.cpp
