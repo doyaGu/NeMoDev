@@ -1,0 +1,245 @@
+{
+  "description": "Phase-five application message commands and replaceable workspace dialogs on macOS arm64 / Metal. Performance acceptance remains deferred.",
+  "base_revision": "96cbe25d52b1296fc97367b2fc466efa22b48c41",
+  "changes": [
+    "Route all existing application messages through the selected message.show command; remove the EditorApp queue and unused callbacks.",
+    "Publish copied message data and accept only valid replies to the current queue head.",
+    "Own message display in an application.messages workspace view; preserve pending messages on rejection, close and replacement.",
+    "Keep file confirmations ahead of application messages and use separate popup identities."
+  ],
+  "coverage": {
+    "files": 1060,
+    "groups": 58,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 38,
+    "completed_phase": 3,
+    "test_registration_checked": true,
+    "open_gaps": 17
+  },
+  "checks": {
+    "release_build": {
+      "log": "out/phase-five-messages/build-final.log",
+      "status": "passed",
+      "initial_compilation_log": "out/phase-five-messages/build-first.log"
+    },
+    "complete_nonperformance_ctest": {
+      "report": "out/phase-five-messages/full.xml",
+      "sha256": "7b09a576a28a18fcad89ecd82a600ad081cce07dd9e0d68ffddad6d6f8a27080",
+      "executed": 125,
+      "passed": 125,
+      "failures": [],
+      "skipped": 0,
+      "log": "out/phase-five-messages/full.log"
+    },
+    "related_regressions": {
+      "report": "out/phase-five-messages/related-second.xml",
+      "sha256": "08386d0443b528e1b7abdc73f191753a939c08d6ab7c54df1d8767e2331ba2a5",
+      "executed": 6,
+      "passed": 6,
+      "failures": []
+    },
+    "ui_groups": [
+      {
+        "group": "html",
+        "executed": 3,
+        "passed": 3,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-html.xml",
+        "sha256": "2776a8cdda6737f09213766504f4041756765d077883d0ad931d292664ca13b9"
+      },
+      {
+        "group": "app",
+        "executed": 28,
+        "passed": 28,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-app.xml",
+        "sha256": "460457b7c982103c3edb2af91d2a12a71299710dd9826340ae2891db5809cc1a"
+      },
+      {
+        "group": "filemenu",
+        "executed": 10,
+        "passed": 10,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-filemenu.xml",
+        "sha256": "4eb65f2ae65bb137cd06b294007e6f423f9bffda74407d59252868bf2cfd5781"
+      },
+      {
+        "group": "schematic",
+        "executed": 26,
+        "passed": 26,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-schematic.xml",
+        "sha256": "dc4d31120c27a2069496e8e19f314b1856bd47a1f229988c91885797e45c40f6"
+      },
+      {
+        "group": "debugger",
+        "executed": 10,
+        "passed": 10,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-debugger.xml",
+        "sha256": "7212e217e562060e36d6fd86260fc6e95c5feff8fde17c5319f7d56b90185535"
+      },
+      {
+        "group": "layout",
+        "executed": 33,
+        "passed": 33,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-layout.xml",
+        "sha256": "4c0e8cdd4289a43f59b8bed0e2f415aba94b7e5209db64e19523a322f507d7ba"
+      },
+      {
+        "group": "level",
+        "executed": 7,
+        "passed": 7,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-level.xml",
+        "sha256": "34ffe2c8006c5ce0deb8d40c40df0979c8a9e8fe65facf898f3e5a09f1a03477"
+      },
+      {
+        "group": "setup",
+        "executed": 21,
+        "passed": 21,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-setup.xml",
+        "sha256": "e721a562c7675b5f9b870589f987bd1284a7d4fe9f950e66b8da69be6e81634b"
+      },
+      {
+        "group": "propertyedits",
+        "executed": 7,
+        "passed": 7,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-propertyedits.xml",
+        "sha256": "f7bd27ca2ead1e5ebcb565dcb1807ff24fe8e4a924b4cc4081647bfba744c0e6"
+      },
+      {
+        "group": "hierarchy",
+        "executed": 8,
+        "passed": 8,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-hierarchy.xml",
+        "sha256": "19a8ad86f296597be6165976c19ba348cd51925ee2e28548144f1dc3560d76bd"
+      },
+      {
+        "group": "blocks",
+        "executed": 7,
+        "passed": 7,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-blocks.xml",
+        "sha256": "4ea35ec12c1a1c246a14ca2d5ee1ca1e2df390ce8c5aff3763d3fd3228bf8775"
+      },
+      {
+        "group": "attributes",
+        "executed": 6,
+        "passed": 6,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-attributes.xml",
+        "sha256": "9de068d67a3a6c3f3f1df675473aa862d7257b3d2a1878f8df42cce54f98711c"
+      },
+      {
+        "group": "create",
+        "executed": 6,
+        "passed": 6,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-create.xml",
+        "sha256": "76a0deecabe05f0221fd6119967733ddc0fe8a89be2143a6da9fbc873e8d8b4e"
+      },
+      {
+        "group": "tools",
+        "executed": 13,
+        "passed": 13,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-tools.xml",
+        "sha256": "9660dbe83d7079313bccfebf521fe9b33ec9c3fb26491418acb968ae24558f6f"
+      },
+      {
+        "group": "sound",
+        "executed": 2,
+        "passed": 2,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-sound.xml",
+        "sha256": "b3d0621a1e14cebcf7cb2c8d5fe9fa135079da771fd7942a0a911333e59420d2"
+      },
+      {
+        "group": "character",
+        "executed": 2,
+        "passed": 2,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-character.xml",
+        "sha256": "d1773acd845f55c6f9fd91750430d8462e23688467f549d04a236d11c716f00e"
+      },
+      {
+        "group": "modules",
+        "executed": 72,
+        "passed": 72,
+        "failures": [],
+        "report": "out/phase-five-messages/ui-modules.xml",
+        "sha256": "efb4a1dbe552016c13d5ccbf7722e12d835de878d67acb9f7045f0ce314103f7"
+      }
+    ],
+    "native_print_regressions": {
+      "passed": [
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ]
+    },
+    "architecture_tests": {
+      "total": 47,
+      "passed": 47,
+      "log": "out/phase-five-messages/architecture-tests.log"
+    },
+    "sdk_free_drawing": {
+      "target": "NeMoDevApplicationDrawingHeaders",
+      "implementations": 3,
+      "commands": "out/phase-five-messages/sdk-free-drawing.json"
+    },
+    "sdk": {
+      "repositories_unchanged": 16,
+      "runtime_files_unchanged": 22,
+      "before": "out/phase-five-messages/sdk-before.json",
+      "after": "out/phase-five-messages/sdk-after.json",
+      "runtime_before": "out/phase-five-messages/runtime-before.json",
+      "runtime_after": "out/phase-five-messages/runtime-after.json"
+    },
+    "gpu": {
+      "protected_source_files_unchanged": 7,
+      "before": "out/phase-five-messages/gpu-before.json",
+      "after": "out/phase-five-messages/gpu-after.json"
+    },
+    "source_sha256": {
+      "application/CMakeLists.txt": "9d8a28189da384f3acac528eeba2159a8b3100beba138cc28918a8f1127025da",
+      "application/MessageCommands.cpp": "cc9b9d68891bd65f806f2f17fa118b01a81f16b96d2a0de77726675704eea14e",
+      "application/MessageCommands.h": "1321210dfe52f10a138e6e0e7c09a91129b9ed22fe9f839c0b636cda9a759f78",
+      "features/defaults/DefaultWorkspace.cpp": "d0668fb09831bb6a736ab4af242bc01e6c8cecde9195968210175b97faa200e2",
+      "tests/ArchitectureTests.py": "565a5b882a7bc84d9bab5b73b4bf3de46b1a07d8d339d95f6ed250f6798c011d",
+      "tests/CMakeLists.txt": "340fcad2b455698f4a31c9dafb3ced9b6ffa23aaf7636da3692c77f2b71ff174",
+      "tests/CheckArchitecture.py": "5949be6b3f4f124e9de254b973094cfab878cded30e987400af814dfc118dd1c",
+      "tests/EditorApplicationTests.cpp": "3edfa4c3f9d4f26e18e929b077a3377ee0303bb2ae433427316555ee41a3b77d",
+      "tests/MessageCommandTests.cpp": "a1e2d0060c8a1497e4b1365f4241dc5e5e634dea8457605cd6fabbdbc5bbdba3",
+      "tests/architecture/README.md": "2cc5c0591a9000f99bb371b6a9299828300e272e8ffe40e006c2f0ebe221bc52",
+      "tests/architecture/coverage.json": "e003d2a5e86515ee2d157ae0318267896e8e2bba4f07a0b37dba79d5fc4d3a6a",
+      "tests/modules/ObjectModule.cpp": "8f3ba4a5279c934957ec4eba4a841691f36955ce72ad8612389d80f30a1de302",
+      "tests/ui/AppTests.cpp": "b9c0e523e2b58ea3a960a4aae4c03e1dd057cb739c5a8ac7b03b9973eecf1d5a",
+      "tests/ui/ModuleTests.cpp": "4b730af6566cc9c37012bc8eafc9cc6f9a3f98066a13e48b3de743efe6a0acde",
+      "ui/CMakeLists.txt": "df57c13ff0d92f3f1ad778b8159a3a9ee5c9bb63ebf4511a4d054b3521e64d87",
+      "ui/app/EditorApp.cpp": "ebbb4faa972a9deec86ad0166de04d367408469dd8151ecfd84d337ca7a45d77",
+      "ui/app/EditorApp.h": "7a10b7089581157c834c4e1bd2df9b7ca83282864b6985ce6ff57942926f4acf",
+      "ui/app/MessageDialogs.cpp": "897c3353af33f0bf2545fb1f87d891cc7e1386ff6b08cbeee577932a9c40ccd9",
+      "ui/app/MessageDialogs.h": "e400cdbffe9d9ae6f3281f94d692591f6b2c7b5040f00d81ca55f534fbec580c"
+    },
+    "deleted_source_files": [
+      "ui/app/FileMenu.cpp"
+    ]
+  },
+  "diagnostics": {
+    "initial_architecture_failure": {
+      "report": "out/phase-five-messages/related-first.xml",
+      "cause": "Removing FileMenu.cpp removed the last S15 to S14 dependency. The now-stale dependency entry was removed from coverage.json."
+    }
+  },
+  "remaining": [
+    "Save report presentation and other phase-five UI work remain listed in coverage.json.",
+    "The native desktop Player group was not rerun; its previously recorded failures remain open.",
+    "Performance acceptance remains deferred; no thresholds changed."
+  ]
+}
