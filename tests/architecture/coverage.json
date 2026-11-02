@@ -1728,7 +1728,8 @@
         "S21",
         "S22",
         "S55",
-        "S56"
+        "S56",
+        "S35"
       ],
       "tests": [
         "VirtoolsDev.LayoutGestures",
@@ -1738,14 +1739,13 @@
       ],
       "ui_tests": [
         "VirtoolsDevUi.layout",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.level",
+        "VirtoolsDevUi.hierarchy",
+        "VirtoolsDevUi.blocks",
+        "VirtoolsDevUi.setup"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "图布局、连线、相机、三维/二维变换、Fly 和曲线输入已走统一命令；完整 3D Layout 已登记工作区视图，保留手势取消、快照、Player/全屏、创建和资源拖放；锁选择与跨视图拖拽的剩余组合检查仍待收尾"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F16",
@@ -1954,7 +1954,8 @@
         "S21",
         "S22",
         "S55",
-        "S56"
+        "S56",
+        "S35"
       ],
       "tests": [
         "VirtoolsDev.ObjectReferenceLifetimes",
@@ -1971,7 +1972,7 @@
       "gaps": [
         {
           "due_phase": 5,
-          "reason": "补来源关闭、slot 替换和长路径"
+          "reason": "对象拖放来源关闭、快照槽替换与属性目录变化已覆盖；资源长路径组合仍待补齐"
         }
       ]
     },
@@ -1997,7 +1998,8 @@
         "NeMoDevRuntimeOperation"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.app"
+        "VirtoolsDevUi.app",
+        "VirtoolsDevUi.layout"
       ],
       "gaps": [
         {
@@ -2328,7 +2330,7 @@
       "name": "视图实例的对象引用、行选区、筛选、展开与编辑草稿",
       "owner": "对应视图或交互实例",
       "lifetime": "关闭实例、目标失效或成功替换文档；失败的文件操作保留原状态",
-      "persistence": "目标使用完整对象引用；工作区拥有 Setup 实例、绘制、窗口角色、前台选择和关闭流程，每个 Setup 保存页签、筛选、曲线点、行选区及只读图像缓存，SetupWindows 仅保留非拥有索引和共享工具缓存；切换对象或关闭窗口时取消该窗口的草稿、弹窗、文件输入和拾取；更换提供者仅在当前文档内迁移经校验的完整对象引用，失败保留原窗口，文档切换前销毁这些实例；UI 纹理按帧末流程释放；完整 Layout 实例也归工作区，独立保存工具、手势输入、Explorer、Snapshot Buffer 和拖放参数副本；更换提供者只恢复与文档无关的显示设置，关闭先取消交互并恢复临时选区，随后停止呈现并按帧末流程释放纹理",
+      "persistence": "目标使用完整对象引用；工作区拥有 Setup 实例、绘制、窗口角色、前台选择和关闭流程，每个 Setup 保存页签、筛选、曲线点、行选区及只读图像缓存，SetupWindows 仅保留非拥有索引和共享工具缓存；切换对象或关闭窗口时取消该窗口的草稿、弹窗、文件输入和拾取；更换提供者仅在当前文档内迁移经校验的完整对象引用，失败保留原窗口，文档切换前销毁这些实例；UI 纹理按帧末流程释放；完整 Layout 实例也归工作区，独立保存工具、手势输入、Explorer、Snapshot Buffer 和拖放参数副本；更换提供者只恢复与文档无关的显示设置，关闭先取消交互并恢复临时选区，随后停止呈现并按帧末流程释放纹理；锁定的是共享 3D 选区，树视图仍可保留独立行选区；跨视图对象拖放携带来源行选区，不能借用接收实例的行选区",
       "features": [
         "F09",
         "F10",
@@ -2349,9 +2351,9 @@
     {
       "id": "drag_payloads",
       "name": "BB/资源/属性/对象/Snapshot 拖拽 payload",
-      "owner": "Workspace 输入交互，源数据归原所有者",
+      "owner": "Workspace 管理来源窗口和输入生命周期；拖放数据独立复制，源对象和图像仍归原所有者",
       "lifetime": "drop/cancel、源视图/会话结束、来源数据版本变化",
-      "persistence": "Building Blocks、资源文件、属性、对象和快照使用持有源数据的拖放记录；3D Layout 接收方校验长度并只提交完整对象引用；原生拾取、材质修改和 Building Block 放置归 LayoutAuthoring，资源加载仍归 DocumentCommands",
+      "persistence": "对象和层级拖放在开始时复制来源行选区，首项为拖起的行，接收视图不再用自己的选区补全对象；单对象材质和 Mesh 输入仍只取拖起的行，整份数据校验通过后才使用。Building Blocks、资源文件、属性和快照同样固定起始数据或版本；来源窗口关闭立即取消所属拖放，目录、对象或图像版本失效由原命令整组拒绝。3D Layout 接收方只提交完整对象引用，拾取和材质修改归 LayoutAuthoring，资源加载仍归 DocumentCommands；工作区记录来源视图和控件标识，临时焦点或活跃控件清除后仍能在来源关闭时取消拖放，不依据当前焦点推断来源",
       "features": [
         "F23"
       ]

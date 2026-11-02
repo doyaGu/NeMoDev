@@ -1,0 +1,452 @@
+{
+  "description": "阶段五：锁定选区与跨视图拖放组合回归。来源选区和版本固定，来源窗口关闭取消拖放；查询使用复制投影，修改走现有命令。SDK 不动，GPU 快通道保持原样，性能验收继续暂缓。",
+  "base_revision": "9c61fa9f065428c6d532f0751e1f252cec28cfff",
+  "changes": [
+    "对象和层级拖放复制来源视图的完整行选区，首项为拖起的行；接收视图不再根据自己的选区补全对象。",
+    "已选行在确认普通点击后才收缩多选，保留 Ctrl/Shift 点击及拖动已有多选的行为。",
+    "工作区记录拖放来源视图和控件标识；来源关闭即取消，活跃控件已清除仍可清理，关闭接收窗口或无关窗口不改变来源选区。",
+    "材质和 Mesh 等单对象接收方从完整格式校验后的数据取拖起的行；无效尾项整份拒绝。",
+    "快照和属性来源固定拖动开始时的版本；槽替换或目录变化后由原命令拒绝过期输入。",
+    "新增 Level/Hierarchy × 锁定/未锁定 × 六种结束方式的 24 组真实拖放；补齐其他拖放种类、锁定手势和 NMS 加载目标回归。",
+    "原生窗口测试复用已有 NativeWindowInput，焦点切换使用原有 5 秒 Until；断言条件与时限不变。"
+  ],
+  "checks": {
+    "build": {
+      "configuration": "macos-arm64 Release",
+      "exit_code": 0,
+      "log": "out/phase-five-selection-drops/build-player-driver.log",
+      "preceding_product_build": "out/phase-five-selection-drops/build-drag-owner.log",
+      "functional_tests_build": "out/phase-five-selection-drops/build-release-final.log",
+      "note": "最后一次构建只调整原生 Player 测试驱动；完整 CTest 不注册该桌面类别，其四项测试单独运行。"
+    },
+    "editor_interface": 20,
+    "full_ctest": {
+      "total": 125,
+      "passed": 125,
+      "failed": 0,
+      "skipped": 0,
+      "elapsed_seconds": 36.78,
+      "excluded_label": "performance",
+      "log": "out/phase-five-selection-drops/full-final.log",
+      "junit": "out/phase-five-selection-drops/full-final.xml",
+      "inventory": "out/phase-five-selection-drops/ctest-inventory.json"
+    },
+    "architecture": {
+      "files": 1049,
+      "groups": 58,
+      "features": 32,
+      "states": 48,
+      "legacy_exposures": 41,
+      "completed_phase": 3,
+      "test_registration_checked": true,
+      "open_gaps": 18
+    },
+    "architecture_tests": {
+      "passed": 43,
+      "failed": 0,
+      "log": "out/phase-five-selection-drops/architecture-tests-final.log"
+    },
+    "ui": {
+      "app": {
+        "registered": 272,
+        "executed": 25,
+        "passed": 25,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/app.xml",
+        "sha256": "666b6aeacc45cba1cdceb93d52dbef8324467e4771e3981f20aeddc424622cea",
+        "failed_cases": []
+      },
+      "attributes": {
+        "registered": 272,
+        "executed": 6,
+        "passed": 6,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/attributes.xml",
+        "sha256": "3c0fe40d0d60b918e72b8db8ba92ca0f07bdf9c041bc810305a590b2cf370685",
+        "failed_cases": []
+      },
+      "blocks": {
+        "registered": 272,
+        "executed": 7,
+        "passed": 7,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/blocks.xml",
+        "sha256": "276b36b1368ca8880e7645de44656bcbcf60cc9bd376c94a2def2653857226ca",
+        "failed_cases": []
+      },
+      "character": {
+        "registered": 272,
+        "executed": 2,
+        "passed": 2,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/character.xml",
+        "sha256": "a1578d3d2c749a86e313cbdb7da02e5394d9f2e3dfbb87d4f36df37638544b53",
+        "failed_cases": []
+      },
+      "create": {
+        "registered": 272,
+        "executed": 6,
+        "passed": 6,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/create.xml",
+        "sha256": "2a7f79e1288bd8fd294de3950fa038065caf799f5b71fcaf217fce70011cc320",
+        "failed_cases": []
+      },
+      "debugger": {
+        "registered": 272,
+        "executed": 10,
+        "passed": 10,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/debugger.xml",
+        "sha256": "83254e84058f71e1d6cc2034b618cfe35896d9614a10f41078928f6212ef2b01",
+        "failed_cases": []
+      },
+      "filemenu": {
+        "registered": 272,
+        "executed": 10,
+        "passed": 10,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/filemenu.xml",
+        "sha256": "f7d2aebf7d6b24a662480648800ee07167e5b9335c0a2cd9fdc426f957dbde38",
+        "failed_cases": []
+      },
+      "hierarchy": {
+        "registered": 272,
+        "executed": 8,
+        "passed": 8,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/hierarchy.xml",
+        "sha256": "1430083743b7f3031d7d9604176b2805dce4ad0b3381c44ca176d0f767e8f82a",
+        "failed_cases": []
+      },
+      "html": {
+        "registered": 272,
+        "executed": 3,
+        "passed": 3,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/html.xml",
+        "sha256": "4960988c26047dc66c48c0f701c60ffc78eeccf0e76c0e947d7a1a50320edc03",
+        "failed_cases": []
+      },
+      "layout": {
+        "registered": 272,
+        "executed": 30,
+        "passed": 30,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/layout.xml",
+        "sha256": "0d41a0c4fb1e0eceb3a4129f96ffa90e1a9b88d7c71c65801fac0bd95645cd04",
+        "failed_cases": []
+      },
+      "level": {
+        "registered": 272,
+        "executed": 7,
+        "passed": 7,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/level.xml",
+        "sha256": "06622a598be4a20b92fcb380f7f6b52a101906b27fb1baaf08968b281215e53e",
+        "failed_cases": []
+      },
+      "modules": {
+        "registered": 272,
+        "executed": 70,
+        "passed": 70,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/modules.xml",
+        "sha256": "b76a4c39f01bd96b8a97ecf254eac2d219cfc44b2ce622d02a708aff84687180",
+        "failed_cases": []
+      },
+      "propertyedits": {
+        "registered": 272,
+        "executed": 7,
+        "passed": 7,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/propertyedits.xml",
+        "sha256": "7f207fe20fe113e46ff7af138ededf0442fc3dc18fd8915a8ddc4f57b70e3985",
+        "failed_cases": []
+      },
+      "schematic": {
+        "registered": 272,
+        "executed": 26,
+        "passed": 26,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/schematic.xml",
+        "sha256": "625e735638b33bc8bdc354a1f58a0f6c31ee0ddead9d9c21b0cc5762bfc74109",
+        "failed_cases": []
+      },
+      "setup": {
+        "registered": 272,
+        "executed": 21,
+        "passed": 21,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/setup.xml",
+        "sha256": "468f671ae7bfa41db5eee4268a4a233607971f696f292f2e40e32a5c145ce435",
+        "failed_cases": []
+      },
+      "sound": {
+        "registered": 272,
+        "executed": 2,
+        "passed": 2,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/sound.xml",
+        "sha256": "4a4f277b523273e22af2a324c4d716148339bd6f1f7cb15bac9bea7007a39707",
+        "failed_cases": []
+      },
+      "tools": {
+        "registered": 272,
+        "executed": 13,
+        "passed": 13,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/ui/tools.xml",
+        "sha256": "8341492a8792dda2518e1b661ae1cc27e4eb4d0e62958a30677d336947adb6bb",
+        "failed_cases": []
+      }
+    },
+    "ui_executed": 253,
+    "object_drag_matrix": {
+      "views": [
+        "scene.level",
+        "scene.hierarchy"
+      ],
+      "selection_locked": [
+        true,
+        false
+      ],
+      "outcomes": [
+        "accept",
+        "escape",
+        "close-source",
+        "close-receiver",
+        "close-unrelated",
+        "delete-member"
+      ],
+      "combinations": 24,
+      "source_focus_loss_injection": "未锁定的来源关闭组合先清除活跃控件，验证工作区保存来源归属。",
+      "isolated_junit": "out/phase-five-selection-drops/detached-source-final.xml"
+    },
+    "native_player": {
+      "status": "one_native_focus_check_not_stably_passing",
+      "final": {
+        "registered": 272,
+        "executed": 4,
+        "passed": 3,
+        "failures": 1,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/player-verified.xml",
+        "sha256": "2e4137eb9013f4af4fc0bfd13ea7870d6078455c2385dc847403d0dfdb03d3f4",
+        "failed_cases": [
+          {
+            "name": "fullscreen_roundtrip_focus",
+            "message": "[1941] Error PlayerTests.cpp:516 'Until(ctx, [&] { return SDL_GetKeyboardFocus() == session.other && !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN); })'"
+          }
+        ]
+      },
+      "log": "out/phase-five-selection-drops/player-verified.log",
+      "stderr": "out/phase-five-selection-drops/player-verified.err",
+      "windowed_after_driver_fix": {
+        "registered": 272,
+        "executed": 1,
+        "passed": 1,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/player-driver-input.xml",
+        "sha256": "a876b35002123453b6960476053abcd88525b70a6bb08285b98748ba1899a2d0",
+        "failed_cases": []
+      },
+      "fullscreen_isolated_before_driver_fix": {
+        "registered": 272,
+        "executed": 1,
+        "passed": 1,
+        "failures": 0,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/player-focus.xml",
+        "sha256": "d4ad37d74b291a212b3024500048af3a323e7e9ff3606d07825c78d98ccaef05",
+        "failed_cases": []
+      },
+      "earlier_full_runs": [
+        {
+          "registered": 272,
+          "executed": 4,
+          "passed": 3,
+          "failures": 1,
+          "errors": 0,
+          "xml": "out/phase-five-selection-drops/player-first.xml",
+          "sha256": "9c9c72b6251f87d56aa6b4940acb1c5bbaf84e856bff3f5f6d85f665e9e4a8b0",
+          "failed_cases": [
+            {
+              "name": "fullscreen_roundtrip_focus",
+              "message": "[1402] Error PlayerTests.cpp:505 'Read<bool>(ctx, [&] { return SDL_GetKeyboardFocus() == session.other && !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN); })'"
+            }
+          ]
+        },
+        {
+          "registered": 272,
+          "executed": 4,
+          "passed": 3,
+          "failures": 1,
+          "errors": 0,
+          "xml": "out/phase-five-selection-drops/player-final.xml",
+          "sha256": "6cea2c451d8ce8a7a7fed59102d11fceee121acfdf66d41c2558b4e40bdb3f3e",
+          "failed_cases": [
+            {
+              "name": "windowed_input_focus",
+              "message": "[1172] Error PlayerTests.cpp:311 'Until( ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); })'"
+            }
+          ]
+        }
+      ],
+      "windowed_before_driver_fix": {
+        "registered": 272,
+        "executed": 1,
+        "passed": 0,
+        "failures": 1,
+        "errors": 0,
+        "xml": "out/phase-five-selection-drops/player-input.xml",
+        "sha256": "dd191d7729caa35e7411a8813b13d5743384312c85b522f444cee903e2ca65f9",
+        "failed_cases": [
+          {
+            "name": "windowed_input_focus",
+            "message": "[1170] Error PlayerTests.cpp:316 'Until(ctx, [] { return App().State().debugger->GetState() == vdev::Debugger::State::Paused; })'"
+          }
+        ]
+      },
+      "limitation": "失焦退出全屏后，有时焦点回到编辑器而未保持在测试的另一窗口。整组 3/4 不计作通过；保留原条件与 5 秒时限，全屏呈现实现未改。"
+    },
+    "native_print_tests": {
+      "passed": 2,
+      "names": [
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ]
+    },
+    "regressions": [
+      "锁定共享 3D 选区时两个树视图可保留独立行选区，拖动 A/B 不会错误移动接收视图的 A/C。",
+      "普通点击、Ctrl 多选、组拖动、Escape、来源/接收/无关窗口关闭、活跃控件丢失及成员永久删除。",
+      "已删除对象使原命令整组拒绝；保留删除之后的文档状态，永久删除仍不可撤销。",
+      "Building Block 多目标放置在锁定/未锁定下确认、取消、一步撤销以及原选区与锁状态保持。",
+      "图像资源四种修饰键模式 × 锁定/未锁定，保留原有非撤销式资源加载；错误长度均拒绝。",
+      "材质多选拖放取抓取行，错误尾项不修改材质或 Redo；属性和快照确认、撤销及过期输入拒绝。",
+      "实际 Snapshot Buffer 拖动中移除并重建同一槽，实际 Attribute Manager 拖动中改变目录，均固定起始版本。",
+      "锁定选区可在空白处变换，取消恢复原值，确认一步撤销及 Redo；视口无新增读回、上传或目标重建。",
+      "NMS 资源加载在共享选区空与锁定两种状态下都取主 Level 视图行选区。",
+      "拖放格式覆盖重复项、不同文档、截断、未对齐内存、零值及 65536 对象上限；公开 C 头无新增 STL。"
+    ],
+    "sdk_gpu": {
+      "sdk_repositories": 16,
+      "sdk_unchanged": true,
+      "sdk_before": "out/phase-five-selection-drops/sdk-before.json",
+      "sdk_after": "out/phase-five-selection-drops/sdk-after.json",
+      "sdk_runtime_files": 22,
+      "sdk_runtime_unchanged": true,
+      "runtime_before": "out/phase-five-selection-drops/runtime-before.json",
+      "runtime_after": "out/phase-five-selection-drops/runtime-after.json",
+      "protected_gpu_sources": 6,
+      "gpu_sources_unchanged": true,
+      "protected_sha256": {
+        "ui/render/UiRenderer.cpp": "eeeb206eab24998189cb16e47f241efffb59560bc988cd383e5b03d530a703e9",
+        "ui/render/UiRenderer.h": "2b21132c135f1a5011b95879dfdc83d3e9a6eedc34242006b2c20ee944cbd7fc",
+        "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "core/layout/LayoutView.cpp": "01f084e53bc992981c9de857a8f8fdbca35a48aa19d3274643c1abbb72bf9060",
+        "core/layout/LayoutView.h": "2efc5a3fc8ca4463ee9bae47de3846680ec2654f841b52bb046207b730a28ae3"
+      },
+      "layout_window_unchanged": true,
+      "layout_window_sha256": "9336016604fdff736be790fa2990f251243b94c741aee4fe9b6369b3d690b891",
+      "protected_render_sections": 10,
+      "render_sections_unchanged": true,
+      "render_sections_sha256": {
+        "SelectViewportContext": "4351f02982e69be92bde9fca4a951139f1731ff2cda19ec746b29acf7f909118",
+        "ConfigureGpuViewport": "705b3a1806863686e3dcf9d19497e2d80760fe6182250f00c4950e08b4342489",
+        "ReleaseGpuViewport": "b279dd0af90a0a249a12f4d0b1409c087300c32caff1a8ed90afb712ab832e25",
+        "RenderUnselectedViewport": "74cfe74cde75043277830e8353814437b501579ed3c0bd55e6e64f596842ee7a",
+        "RenderReadbackViewport": "53247e3a94893cc0e25baf7fa4a56729d23281983056a60873df36495e10d081",
+        "RenderGpuViewport": "6dea09d52b21a9fd47bd1330a41313e049bad9a49caed5196a18ecf06dcee77b",
+        "ReleaseTexture": "37291e3d407a46f6a856db6f7704e7a1bdbb57044f74103e2512837eabd3e3d2",
+        "ResetViewportAfterContextStop": "dc1b272f0fa82aaaae2f83daa286228d8855611c9db8aae9a5d31253d1f6c7f3",
+        "Upload": "f175a0d9d698fdd9167cb69bc49cc5a68ee43ea573e081f21e2599ecb8c3bad8",
+        "Viewport.render": "11b096952ba55c0b4216952ce3efa139557a4ccaefb96e081787f38d69604890"
+      }
+    },
+    "representative_nmo": {
+      "case": "filemenu.open_nmo_populates_level_manager_as_new_import",
+      "fixture": "回归测试生成的合法 NMO，验证直接打开等同新建后导入；未另行声明测试原始游戏关卡文件。"
+    },
+    "source_sha256": {
+      "editor/Scene.h": "dc68291f4883bbdbfb57750450d97d89df7718a38c6b66b6c8b477e26b780935",
+      "features/scene/AttributeView.cpp": "1797860951b2d0e3226a49058200411342c88e1509783ac53a5f6f5aab21d642",
+      "features/scene/SceneTreeView.cpp": "c9dd9b601f93565d335582a83e89060341cfdc92877a2c4db71d4e901e38b3bb",
+      "tests/ObjectCommandTests.cpp": "36e45eff46c4d3739619c038652085684b05bfacc476fa4e33a24e286133dddd",
+      "tests/architecture/README.md": "e9f4e9d1bb314d751ebbed3b7214e3495971a599b4537851356817d8128f23d2",
+      "tests/architecture/coverage.json": "e11a45c64dbd0d54012e82e71fad47eddd40a8983db3c15290dfda380f85424a",
+      "tests/ui/BlocksTests.cpp": "430c2d5b80e9b19205a880f1f4e4ae48c4112f9e0b2d0973ced77b957758b489",
+      "tests/ui/LayoutDropTests.cpp": "b9c6fc4dce7f65c667ed26a9966d22fed5807e6ac51a21a0973b09520e6a5afb",
+      "tests/ui/LayoutTests.cpp": "b550e016357de9fc07ff8b22db69691ef7c87d986b634896570babea43c8ae74",
+      "tests/ui/PlayerTests.cpp": "a1ee0826fd920cbe8badba653e4853985ce9b08ed2eb5a049148e8866dfffc31",
+      "tests/ui/WorkspaceTests.cpp": "ffb531339e39fdc2d7809b82b57cd7317fb1cb11a3889b9f10cde2358758f465",
+      "ui/layout/LayoutDrop.cpp": "e109f3ad0e307bb26e722276eabe04c3529edd40460cee61d3e898d8b915cdad",
+      "ui/layout/LayoutSnapshot.cpp": "2043cac1ab147c65bd36416b4ed8e04f1d747edd7ce60d2853f4c93010995b59",
+      "ui/setup/SetupRenderPages.cpp": "8a065e17fe3a48ea2fb427f89b8086ecf2381045e7b9001c41437991b9ceefc6",
+      "workspace/EditorWorkspace.cpp": "5640bdba78c23e9069a70b5398297b97f6aecc85f13d3ec2ad971bb7d0d3b9ee",
+      "workspace/EditorWorkspace.h": "fc0e7ea9a3a28778aa1b7b082d568c5d79f8fcf6114e0640493400e789c4d09f",
+      "workspace/ObjectDrag.h": "4140ab23aaa19a77e7f74daa251b4e5d3e5aa6ff9d1d7f395dc1944b260a5add"
+    },
+    "git_diff_check": "passed"
+  },
+  "reproduced_and_fixed": [
+    {
+      "finding": "对象接收方用自己的选区补全来源对象，跨视图拖放移动了错误对象。",
+      "red": "out/phase-five-selection-drops/red-hierarchy.xml"
+    },
+    {
+      "finding": "按下已选行立即收缩多选，来源对象在拖动开始前丢失。",
+      "red": "out/phase-five-selection-drops/source-copy.xml"
+    },
+    {
+      "finding": "来源关闭后数据留存到鼠标松开；活跃控件丢失时仅按当前控件查找来源也会遗漏。",
+      "red": [
+        "out/phase-five-selection-drops/matrix-red.xml",
+        "out/phase-five-selection-drops/detached-source-red.xml"
+      ],
+      "green": "out/phase-five-selection-drops/detached-source-final.xml"
+    },
+    {
+      "finding": "槽重建后真实快照来源逐帧覆盖正在拖动的版本，接收方错误接受新图像。",
+      "red": "out/phase-five-selection-drops/slot-red.xml"
+    },
+    {
+      "finding": "目录变化后真实属性来源逐帧覆盖起始目录版本。",
+      "red": "out/phase-five-selection-drops/catalog-red.xml"
+    }
+  ],
+  "validation_adjustments": [
+    "永久删除测试保持在 Layout 类别最后，其他用例使用样本 Mesh 完成实际拾取；原删除断言全部保留。",
+    "成员删除使用既有不可撤销行为，检查失败拖放保持删除后的状态，再通过命令创建下一组测试成员。",
+    "记录并修正原生窗口模式输入驱动不一致；全屏返回另一窗口的焦点检查仍记录未稳定通过。"
+  ],
+  "remaining": [
+    "F23 的资源长路径组合仍待补齐；阶段五其他迁移保留在覆盖清单。",
+    "原生桌面 Player 全屏失焦返回检查尚未稳定通过；失败结果不计作通过。",
+    "完成阶段保持三，正式性能验收继续暂缓。"
+  ],
+  "performance": {
+    "status": "deferred_at_user_request",
+    "thresholds_unchanged": true,
+    "timing_benchmarks_run": false
+  }
+}
