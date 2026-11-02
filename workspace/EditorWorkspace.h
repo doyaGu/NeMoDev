@@ -92,7 +92,7 @@ class EditorWorkspace : private EditorViewNavigation {
     EditorStatus Navigate(const EditorViewDesc &, EditorView, const EditorRequest &, EditorSink) override;
     EditorStatus Inspect(EditorView, EditorSink) override;
     EditorStatus PickRegions(EditorView, const EditorPickRegion *, uint32_t) override;
-    EditorView Create(const EditorViewDesc &desc);
+    EditorView Create(const EditorViewDesc &desc, const std::string &role = {});
     void Destroy(EditorView view, bool prepared = false);
     static EditorStatus OpenCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus FocusCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);
@@ -130,7 +130,8 @@ class EditorWorkspace : private EditorViewNavigation {
         std::vector<EditorField> fields;
         View::Placement placement;
     };
-    std::map<std::string, SavedView> m_ClosedStates;
+    // Singletons use (type, ""); named instances use (type, role).
+    std::map<std::pair<std::string, std::string>, SavedView> m_ClosedStates;
     std::map<uint64_t, WorkspaceViewState> m_Saved;
     uint64_t m_NextInstance = 1;
     bool m_RestoreFailed = false;

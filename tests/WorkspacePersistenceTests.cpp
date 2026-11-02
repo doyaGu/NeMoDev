@@ -20,13 +20,14 @@ struct Window {
 };
 struct Backend {
     std::map<EditorView, Window *> windows;
+    std::string provider = "test.saved-provider", module = "test.saved-module";
     bool fail = false, single = false;
     bool Register(EditorApplication &app, std::string &error) {
         EditorViewDesc view{};
         view.size = sizeof(view);
         view.imguiVersion = EDITOR_IMGUI_VERSION;
         view.id = EDITOR_TEXT("test.saved-view");
-        view.provider = EDITOR_TEXT("test.saved-provider");
+        view.provider = EditorText(provider);
         view.title = EDITOR_TEXT("Saved View");
         view.area = EDITOR_WORKSPACE;
         view.singleInstance = single;
@@ -79,7 +80,7 @@ struct Backend {
         EditorModuleDesc module{};
         module.size = sizeof(module);
         module.version = EDITOR_VERSION;
-        module.id = EDITOR_TEXT("test.saved-module");
+        module.id = EditorText(this->module);
         module.views = &view;
         module.viewCount = 1;
         return app.Register(module, error);
@@ -224,6 +225,74 @@ void TestWorkspacePersistence(vdev::CkRuntimeHost &runtime) {
         Check(reopened && target.WindowName(reopened) == name && single.windows.at(reopened)->session == 999 &&
                   single.windows.at(reopened)->topic == "closed singleton",
               "persistent settings replaced complete same-session singleton state");
+    }
+    {
+        EditorApplication app([&] { return &doc; });
+        EditorWorkspace target(app);
+        Backend multiple, replacement;
+        replacement.provider = "test.other-provider";
+        replacement.module = "test.other-module";
+        replacement.fail = true;
+        EditorConfiguration chosen;
+        chosen.providers = {{"view", "test.saved-view", multiple.provider}};
+        Check(target.Register(error) && multiple.Register(app, error) && replacement.Register(app, error) &&
+                  app.Activate(EDITOR_IMGUI_VERSION, error, chosen),
+              error.c_str());
+        app.Attach(doc.Token(), doc.TopologyRevision(), true, true);
+        WorkspaceConfiguration placement;
+        placement.views = {
+            {"test.saved-view", "main.saved", "", false, false, false, WorkspaceWindowId::Named, "Main Saved"}};
+        placement.contributions = chosen;
+        Check(target.Configure(placement, error), error.c_str());
+        const auto primary = target.OpenRole("main.saved"), secondary = target.Open("test.saved-view");
+        Check(primary && secondary && primary != secondary && target.WindowName(primary) == "Saved View###Main Saved" &&
+                  target.WindowName(primary) != target.WindowName(secondary),
+              "second view reused the named primary window");
+        const auto secondName = target.WindowName(secondary);
+        multiple.windows.at(secondary)->topic = "second view";
+        auto one = chosen;
+        one.providers[0].provider = replacement.provider;
+        Check(!target.Configure(one, error) && target.ViewCount() == 2 && app.Scope(primary).view &&
+                  app.Scope(secondary).view && target.WindowName(secondary) == secondName &&
+                  multiple.windows.at(secondary)->topic == "second view",
+              "failed provider replacement destroyed existing viewports");
+        Check(doc.History().UndoCount() == undo && doc.History().CanRedo() == redo && doc.ChangeRevision() == revision,
+              "failed view provider replacement changed document history");
+        WorkspaceState saved;
+        Check(target.Save(saved, error), error.c_str());
+        saved.configuration.contributions = app.Configuration();
+        Check(target.Restore(saved, error), error.c_str());
+        Check(target.WindowName(target.Role("main.saved")) == "Saved View###Main Saved" &&
+                  std::any_of(saved.views.begin(), saved.views.end(),
+                              [&](const auto &v) { return v.role.empty() && v.type == "test.saved-view"; }),
+              "multiple view identity was lost during restore");
+        const auto main = target.Role("main.saved"), other = target.Open("test.saved-view", "test.other");
+        multiple.windows.at(main)->topic = "main role";
+        multiple.windows.at(main)->session = 111;
+        multiple.windows.at(other)->topic = "other role";
+        multiple.windows.at(other)->session = 222;
+        const auto otherName = target.WindowName(other);
+        Check(target.Close(main) && target.Close(other), "close named multi-instance views");
+        const auto reopenedMain = target.OpenRole("main.saved"),
+                   reopenedOther = target.Open("test.saved-view", "test.other");
+        Check(reopenedMain && reopenedOther && reopenedMain != main && reopenedOther != other &&
+                  multiple.windows.at(reopenedMain)->session == 111 &&
+                  multiple.windows.at(reopenedOther)->session == 222 &&
+                  multiple.windows.at(reopenedMain)->topic == "main role" &&
+                  multiple.windows.at(reopenedOther)->topic == "other role" &&
+                  target.WindowName(reopenedOther) == otherName,
+              "role reopen mixed or discarded complete session state");
+        Check(target.Close(reopenedMain) && target.Save(saved, error), "save closed multi-instance role");
+        const auto closed =
+            std::find_if(saved.views.begin(), saved.views.end(), [](const auto &v) { return v.role == "main.saved"; });
+        Check(closed != saved.views.end() && !closed->open, "closed role was not retained for Saved Views");
+        const auto result = EditorClient(app.Host(), 0)
+                                .Command("workspace.reopen-instance", {IntegerArgument("instance", closed->instance)});
+        const auto byInstance = target.Role("main.saved");
+        Check(result.status == EDITOR_OK && byInstance && multiple.windows.at(byInstance)->session == 111,
+              "Saved Views reopen lost complete same-session role state");
+        Check(doc.History().UndoCount() == undo && doc.History().CanRedo() == redo && doc.ChangeRevision() == revision,
+              "closing and reopening roles changed document history");
     }
     {
         EditorApplication failed([&] { return &doc; });

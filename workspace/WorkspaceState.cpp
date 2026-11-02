@@ -153,7 +153,17 @@ EditorView EditorWorkspace::Reopen(uint64_t instance, std::string &error) {
         }
         view.desc = *desc;
         view.data = data;
-        if (!ApplySettings(saved, *desc, data, id, error)) {
+        const auto previous = m_ClosedStates.find({saved.type, desc->singleInstance ? std::string{} : saved.role});
+        bool restored = false;
+        if (previous == m_ClosedStates.end())
+            restored = ApplySettings(saved, *desc, data, id, error);
+        else if (!previous->second.version)
+            restored = true;
+        else if (previous->second.version == desc->stateVersion)
+            restored = m_Application.RestoreViewState(*desc, data, m_Application.Scope(id), previous->second.fields) == EDITOR_OK;
+        if (!restored) {
+            if (error.empty())
+                error = "View state could not be restored";
             m_Application.CloseScope(id);
             m_Application.DestroyView(*desc, data);
             return 0;
@@ -215,7 +225,8 @@ bool EditorWorkspace::CaptureView(const View &view, const WorkspaceConfiguration
                    ((!view.role.empty() && v.role == view.role) || (view.role.empty() && v.role.empty()));
         });
         name = state.title + "###" +
-               (placement != configuration.views.end() && placement->windowId == WorkspaceWindowId::Named
+               (placement != configuration.views.end() && placement->windowId == WorkspaceWindowId::Named &&
+                        (placement->role.empty() || placement->role == view.role)
                     ? placement->windowName
                 : placement != configuration.views.end() && placement->windowId == WorkspaceWindowId::Role
                     ? view.role
