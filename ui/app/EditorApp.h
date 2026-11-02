@@ -203,8 +203,9 @@ private:
     bool SaveSearchPaths(const PathCategories &, std::string &error);
     bool SaveSettings(Preferences next, std::string &error);
     bool WriteSettings(const Preferences &, std::string &error);
-    bool WriteProfile(EditorProfile &, const Preferences &, const EditorConfiguration &, std::string &error);
-    bool SaveConfiguration(const EditorConfiguration &, std::string &error);
+    bool WriteProfile(EditorProfile &, const Preferences &, const EditorConfiguration &, std::string &error,
+                      const WorkspaceState * = nullptr);
+    bool SaveConfiguration(const EditorConfiguration &, std::string &error, const WorkspaceState * = nullptr);
 
     Preferences m_Settings;
     EditorProfile m_Profile;

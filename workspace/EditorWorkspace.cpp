@@ -63,36 +63,99 @@ bool EditorWorkspace::Register(std::string &error) {
         {EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("pinned"), EDITOR_INTEGER_VALUE, 1}};
     const EditorParameter instance{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1};
     const EditorParameter role{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE};
+    const EditorParameter savedInstance{EDITOR_TEXT("instance"), EDITOR_INTEGER_VALUE};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.reopen-instance"), EDITOR_TEXT("builtin.workspace"),
+         EDITOR_TEXT("Reopen Saved View"), &savedInstance, 1,
+         [](void *p, const EditorHost *, const EditorRequest *r, EditorSink sink) {
+             auto &self = *static_cast<EditorWorkspace *>(p);
+             std::string error;
+             const auto id = self.Reopen(r->values[0].integer, error);
+             if (!id)
+                 return EDITOR_ERROR;
+             const auto value = IntegerArgument("view", id);
+             if (sink.write)
+                 sink.write(sink.data, &value, 1);
+             return EDITOR_OK;
+         },
+         this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.save"), EDITOR_TEXT("builtin.workspace"),
+         EDITOR_TEXT("Save Workspace"), nullptr, 0,
+         [](void *p, const EditorHost *, const EditorRequest *, EditorSink sink) {
+             auto &self = *static_cast<EditorWorkspace *>(p);
+             if (!self.m_WriteConfiguration)
+                 return EDITOR_REFUSED;
+             WorkspaceState state;
+             std::string error;
+             const bool saved =
+                 self.Save(state, error) && self.m_WriteConfiguration(self.m_Application.Configuration(), state, error);
+             if (!saved && sink.write) {
+                 const auto message = TextArgument("message", error);
+                 sink.write(sink.data, &message, 1);
+             }
+             if (saved && ImGui::GetCurrentContext())
+                 ImGui::GetIO().WantSaveIniSettings = false;
+             return saved ? EDITOR_OK : EDITOR_ERROR;
+         },
+         this, EDITOR_WORKSPACE, EDITOR_FILE_OPERATION},
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.discard-saved-state"), EDITOR_TEXT("builtin.workspace"),
+         EDITOR_TEXT("Discard Unrestored Workspace"), nullptr, 0,
+         [](void *data, const EditorHost *, const EditorRequest *, EditorSink) {
+             auto &self = *static_cast<EditorWorkspace *>(data);
+             self.m_RestoreFailed = false;
+             self.m_Saved.clear();
+             self.m_ClosedStates.clear();
+             ++self.m_ViewsRevision;
+             return EDITOR_OK;
+         },
+         this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.open-view"), EDITOR_TEXT("builtin.workspace"),
          EDITOR_TEXT("Open View"), type, 3, OpenCommand, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.focus-view"), EDITOR_TEXT("builtin.workspace"),
          EDITOR_TEXT("Focus View"), &instance, 1, FocusCommand, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.close-view"), EDITOR_TEXT("builtin.workspace"),
          EDITOR_TEXT("Close View"), &instance, 1, CloseCommand, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.open-role"), EDITOR_TEXT("builtin.workspace"), EDITOR_TEXT("Open Primary View"),
-         &role, 1, [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("workspace.open-role"), EDITOR_TEXT("builtin.workspace"),
+         EDITOR_TEXT("Open Primary View"), &role, 1,
+         [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
              const auto id = static_cast<EditorWorkspace *>(data)->OpenRole(Text(request->values[0].text));
-             if (!id) return EDITOR_INVALID;
+             if (!id)
+                 return EDITOR_INVALID;
              const EditorValue field{EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, {}, {}, id};
-             if (sink.write) sink.write(sink.data, &field, 1);
+             if (sink.write)
+                 sink.write(sink.data, &field, 1);
              return EDITOR_OK;
-         }, this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
+         },
+         this, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE}};
     const EditorParameter fields[] = {{EDITOR_TEXT("views"), EDITOR_INTEGER_LIST},
         {EDITOR_TEXT("types"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("providers"), EDITOR_TEXT_LIST},
         {EDITOR_TEXT("titles"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("focused"), EDITOR_INTEGER_VALUE}};
     const EditorParameter viewFields[] = {{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE},
-        {EDITOR_TEXT("provider"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("window"), EDITOR_TEXT_VALUE},
-        {EDITOR_TEXT("focused"), EDITOR_INTEGER_VALUE}};
+                                          {EDITOR_TEXT("provider"), EDITOR_TEXT_VALUE},
+                                          {EDITOR_TEXT("window"), EDITOR_TEXT_VALUE},
+                                          {EDITOR_TEXT("focused"), EDITOR_INTEGER_VALUE},
+                                          {EDITOR_TEXT("available"), EDITOR_INTEGER_VALUE}};
     const EditorQueryDesc queries[] = {
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("workspace.views"), EDITOR_TEXT("builtin.workspace"),
-         nullptr, 0, ListQuery, this, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, fields, 5},
-        {sizeof(EditorQueryDesc), EDITOR_TEXT("workspace.view"), EDITOR_TEXT("builtin.workspace"),
-         &instance, 1, ViewQuery, this, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, viewFields, 4}};
-    const EditorParameter instanceFields[] = {{EDITOR_TEXT("views"), EDITOR_INTEGER_LIST}, {EDITOR_TEXT("types"), EDITOR_TEXT_LIST},
-        {EDITOR_TEXT("providers"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("titles"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("roles"), EDITOR_TEXT_LIST}};
-    const EditorQueryDesc instances{sizeof(EditorQueryDesc), EDITOR_TEXT("workspace.instances"), EDITOR_TEXT("builtin.workspace"),
-        nullptr, 0, InstanceQuery, this, EDITOR_QUERY_VERSIONED, EDITOR_WORKSPACE, instanceFields, 5,
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("workspace.views"), EDITOR_TEXT("builtin.workspace"), nullptr, 0,
+         ListQuery, this, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, fields, 5},
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("workspace.view"), EDITOR_TEXT("builtin.workspace"), &instance, 1,
+         ViewQuery, this, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, viewFields, 5}};
+    const EditorParameter instanceFields[] = {
+        {EDITOR_TEXT("views"), EDITOR_INTEGER_LIST},  {EDITOR_TEXT("types"), EDITOR_TEXT_LIST},
+        {EDITOR_TEXT("providers"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("titles"), EDITOR_TEXT_LIST},
+        {EDITOR_TEXT("roles"), EDITOR_TEXT_LIST},     {EDITOR_TEXT("available"), EDITOR_INTEGER_LIST}};
+    const EditorQueryDesc instances{
+        sizeof(EditorQueryDesc),
+        EDITOR_TEXT("workspace.instances"),
+        EDITOR_TEXT("builtin.workspace"),
+        nullptr,
+        0,
+        InstanceQuery,
+        this,
+        EDITOR_QUERY_VERSIONED,
+        EDITOR_WORKSPACE,
+        instanceFields,
+        6,
         [](void *data, const EditorHost *) { return static_cast<EditorWorkspace *>(data)->m_ViewsRevision; }};
     std::vector<EditorQueryDesc> allQueries(std::begin(queries), std::end(queries));
     allQueries.push_back(instances);
@@ -111,7 +174,7 @@ bool EditorWorkspace::Register(std::string &error) {
     module.locations = &location;
     module.locationCount = 1;
     module.commands = commands;
-    module.commandCount = 4;
+    module.commandCount = uint32_t(std::size(commands));
     module.queries = allQueries.data();
     module.queryCount = uint32_t(allQueries.size());
     return m_Application.Register(module, error);
@@ -177,18 +240,22 @@ EditorStatus EditorWorkspace::ViewQuery(void *data, const EditorHost *, const Ed
     const auto found = self.m_Views.find(id);
     if (found == self.m_Views.end()) return EDITOR_STALE;
     const auto name = self.WindowName(id);
-    const EditorValue fields[] = {{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE, {}, found->second.desc.id},
+    const EditorValue fields[] = {
+        {EDITOR_TEXT("type"), EDITOR_TEXT_VALUE, {}, found->second.desc.id},
         {EDITOR_TEXT("provider"), EDITOR_TEXT_VALUE, {}, found->second.desc.provider},
         {EDITOR_TEXT("window"), EDITOR_TEXT_VALUE, {}, EditorText(name)},
-        {EDITOR_TEXT("focused"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(self.Focused() == id)}};
-    return sink.write ? sink.write(sink.data, fields, 4) : EDITOR_INVALID;
+        {EDITOR_TEXT("focused"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(self.Focused() == id)},
+        {EDITOR_TEXT("available"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(!found->second.unavailable)}};
+    return sink.write ? sink.write(sink.data, fields, 5) : EDITOR_INVALID;
 }
 EditorStatus EditorWorkspace::InstanceQuery(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
     const auto &self = *static_cast<EditorWorkspace *>(data);
-    std::vector<uint64_t> ids;
+    std::vector<uint64_t> ids, available;
     std::vector<EditorString> types, providers, titles, roles;
     for (const auto &entry : self.m_Views) {
-        ids.push_back(entry.first); types.push_back(entry.second.desc.id);
+        ids.push_back(entry.first);
+        available.push_back(!entry.second.unavailable);
+        types.push_back(entry.second.desc.id);
         providers.push_back(entry.second.desc.provider); titles.push_back(entry.second.desc.title);
         roles.push_back(EditorText(entry.second.role));
     }
@@ -197,8 +264,9 @@ EditorStatus EditorWorkspace::InstanceQuery(void *data, const EditorHost *, cons
         {EDITOR_TEXT("types"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {types.data(), uint32_t(types.size())}},
         {EDITOR_TEXT("providers"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {providers.data(), uint32_t(providers.size())}},
         {EDITOR_TEXT("titles"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {titles.data(), uint32_t(titles.size())}},
-        {EDITOR_TEXT("roles"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {roles.data(), uint32_t(roles.size())}}};
-    return sink.write ? sink.write(sink.data, fields, 5) : EDITOR_INVALID;
+        {EDITOR_TEXT("roles"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {roles.data(), uint32_t(roles.size())}},
+        {EDITOR_TEXT("available"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {available.data(), uint32_t(available.size())}}};
+    return sink.write ? sink.write(sink.data, fields, 6) : EDITOR_INVALID;
 }
 bool EditorWorkspace::Begin(const char *property, ObjectRef object, EditorEdit &edit, EditorView &owner,
                             const std::vector<EditorField> &arguments) {
@@ -394,7 +462,22 @@ EditorView EditorWorkspace::Create(const EditorViewDesc &desc) {
         }
     }
     const auto placement = desc.singleInstance && saved != m_ClosedStates.end() ? saved->second.placement : View::Placement{};
-    m_Views.emplace(id, View{id, desc, data, true, placement});
+    View view{id, desc, data, true, placement};
+    view.instance = m_NextInstance = std::max(m_NextInstance, id);
+    ++m_NextInstance;
+    for (const auto &entry : m_Saved)
+        if (!entry.second.open && entry.second.single && entry.second.type == Text(desc.id)) {
+            if (saved == m_ClosedStates.end() && !ApplySettings(entry.second, desc, data, id, m_Error)) {
+                m_Application.CloseScope(id);
+                m_Application.DestroyView(desc, data);
+                return 0;
+            }
+            view.instance = entry.first;
+            view.placement = {entry.second.x,      entry.second.y,    entry.second.width,
+                              entry.second.height, entry.second.dock, entry.second.placed};
+            break;
+        }
+    m_Views.emplace(id, std::move(view));
     ++m_ViewsRevision;
     m_LastFocusRequest = id;
     return id;
@@ -457,7 +540,7 @@ std::string EditorWorkspace::WindowName(EditorView id) const {
                (placement && placement->windowId == WorkspaceWindowId::Named ? placement->windowName
                 : placement && placement->windowId == WorkspaceWindowId::Role && !view.role.empty()
                     ? view.role
-                    : "editor-view-" + std::to_string(id));
+                    : "editor-view-" + std::to_string(view.instance));
     }();
 }
 bool EditorWorkspace::Focus(EditorView id) {
@@ -466,6 +549,8 @@ bool EditorWorkspace::Focus(EditorView id) {
     found->second.focus = true;
     m_LastFocused[Text(found->second.desc.id)] = id;
     m_LastFocusRequest = id;
+    if (found->second.desc.kind == EDITOR_WINDOW_VIEW && !found->second.desc.documentBound)
+        m_LastWindowFocus = id;
     return true;
 }
 EditorView EditorWorkspace::LastFocused(const std::string &type) const {
@@ -561,7 +646,7 @@ bool EditorWorkspace::Close(EditorView id) {
     const auto &view = found->second;
     if (view.pinned) return false;
     if (view.desc.area == EDITOR_DOCUMENT && !m_Application.NativeAvailable()) return false;
-    if (view.desc.singleInstance && !view.desc.documentBound) {
+    if (view.desc.singleInstance && !view.desc.documentBound && !view.unavailable) {
         SavedView saved{0, {}, {}};
         if (view.desc.saveState) {
             const auto state = m_Application.SaveViewState(view.desc, view.data, m_Application.Scope(id));
@@ -574,10 +659,20 @@ bool EditorWorkspace::Close(EditorView id) {
             saved.placement = {window->Pos.x, window->Pos.y, window->Size.x, window->Size.y, window->DockId, true};
         m_ClosedStates[Text(view.desc.id)] = std::move(saved);
     }
+    WorkspaceViewState persistent;
+    const bool retain = !view.desc.documentBound && view.desc.kind == EDITOR_WINDOW_VIEW &&
+                        (view.unavailable || view.desc.singleInstance);
+    if (retain && !CaptureView(view, m_Configuration, persistent, m_Error))
+        return false;
     if (!m_Application.ClosingView(view.desc, view.data, id)) {
         m_Error = "View cleanup failed";
         return false;
     }
+    if (retain) {
+        persistent.open = false;
+        m_Saved[persistent.instance] = std::move(persistent);
+    } else
+        m_Saved.erase(view.instance);
     Destroy(id, true);
     return true;
 }
@@ -603,6 +698,8 @@ void EditorWorkspace::Destroy(EditorView id, bool prepared) {
         m_DragId = 0;
     }
     if (m_LastFocusRequest == id) m_LastFocusRequest = 0;
+    if (m_LastWindowFocus == id)
+        m_LastWindowFocus = 0;
     m_Application.CloseScope(id);
     if (!m_Application.DestroyView(found->second.desc, found->second.data)) {
         m_Error = "View could not be closed";
@@ -616,7 +713,9 @@ void EditorWorkspace::CloseAll() {
     while (!m_Views.empty())
         Destroy(m_Views.begin()->first);
     m_ClosedStates.clear();
+    m_Saved.clear();
     m_LastFocused.clear();
+    m_LastWindowFocus = 0;
 }
 void EditorWorkspace::Draw(bool nativeAvailable) {
     UpdateRegionDocks();
@@ -666,8 +765,11 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
                 !(window->Flags & (ImGuiWindowFlags_Tooltip | ImGuiWindowFlags_ChildMenu)) && !window->DockNodeAsHost &&
                 (!(window->Flags & ImGuiWindowFlags_ChildWindow) || window->DockIsActive))
                 view.windows.push_back(window->ID);
-        if (Focused() == view.id)
+        if (Focused() == view.id) {
             m_LastFocused[Text(view.desc.id)] = view.id;
+            if (view.desc.kind == EDITOR_WINDOW_VIEW && !view.desc.documentBound)
+                m_LastWindowFocus = view.id;
+        }
         if (grantFocus) view.focus = false;
         const auto *window = name.empty() ? nullptr : ImGui::FindWindowByName(name.c_str());
         view.active = frame.active != 0 || (view.desc.documentBound &&
@@ -729,7 +831,8 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
     for (const auto &entry : m_Views) {
         for (const auto &description : m_Application.Views()) {
             if (Text(description.id) != Text(entry.second.desc.id) ||
-                Text(description.provider) == Text(entry.second.desc.provider)) continue;
+                (Text(description.provider) == Text(entry.second.desc.provider) && !entry.second.unavailable))
+                continue;
             const auto &old = entry.second;
             if (old.desc.documentBound != description.documentBound)
                 return rollback();
@@ -757,6 +860,7 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
                 return rollback();
             }
             View replacement{id, description, data, entry.second.focus, {}};
+            replacement.instance = old.instance;
             replacement.role = old.role;
             replacement.pinned = old.pinned;
             const auto name = WindowName(entry.first);
@@ -765,7 +869,10 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
             replacement.focus = replacement.focus || Focused() == entry.first;
             replacements.push_back({entry.first, std::move(replacement)});
             if (state.status == EDITOR_OK &&
-                m_Application.RestoreViewState(description, data, m_Application.Scope(id), state.fields) != EDITOR_OK)
+                (old.unavailable
+                     ? m_Application.RestoreViewSettings(description, data, m_Application.Scope(id), state.fields)
+                     : m_Application.RestoreViewState(description, data, m_Application.Scope(id), state.fields)) !=
+                    EDITOR_OK)
                 return rollback();
         }
     }
@@ -784,6 +891,8 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
             void *data = m_Application.CreateView(*desc, id);
             if (!data) { m_Application.CloseScope(id); return rollback(); }
             View next{id, *desc, data, true, {}};
+            next.instance = m_NextInstance = std::max(m_NextInstance, id);
+            ++m_NextInstance;
             next.role = placement.role; next.pinned = placement.pinned;
             replacements.push_back({0, std::move(next)});
             const auto saved = m_ClosedStates.find(placement.type);
@@ -796,9 +905,27 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
     if (m_WriteConfiguration) {
         std::string message;
         bool saved = false;
-        try { saved = m_WriteConfiguration(configuration, message); }
-        catch (const std::exception &failure) { message = failure.what(); }
-        catch (...) { message = "Configuration writer raised an exception"; }
+        auto candidate = m_Views;
+        for (const auto &replacement : replacements) {
+            candidate.erase(replacement.old);
+            candidate.emplace(replacement.next.id, replacement.next);
+        }
+        for (const auto &assignment : assigned) {
+            auto it = candidate.find(assignment.first);
+            if (it != candidate.end()) {
+                it->second.role = assignment.second->role;
+                it->second.pinned = assignment.second->pinned;
+            }
+        }
+        WorkspaceState snapshot;
+        try {
+            saved = Capture(candidate, workspace ? *workspace : m_Configuration, snapshot, message) &&
+                    m_WriteConfiguration(configuration, snapshot, message);
+        } catch (const std::exception &failure) {
+            message = failure.what();
+        } catch (...) {
+            message = "Configuration writer raised an exception";
+        }
         if (!saved) {
             rollback();
             error = message.empty() ? "Configuration could not be saved" : message;
@@ -811,7 +938,10 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
         if (replacement.old == pendingFocus || (!pendingFocus && replacement.old == focused))
             replacementFocus = replacement.next.id;
         const bool lastFocused = replacement.old && LastFocused(Text(replacement.next.desc.id)) == replacement.old;
+        const bool lastWindowFocus = replacement.old && m_LastWindowFocus == replacement.old;
         if (replacement.old) Destroy(replacement.old);
+        if (lastWindowFocus)
+            m_LastWindowFocus = replacement.next.id;
         if (lastFocused)
             m_LastFocused[Text(replacement.next.desc.id)] = replacement.next.id;
         m_Views.emplace(replacement.next.id, std::move(replacement.next));
@@ -840,9 +970,31 @@ bool EditorWorkspace::Configure(const WorkspaceConfiguration &configuration, std
         error = "Finish the active dialog before applying a workspace layout";
         return false;
     }
-    // Validate and copy before selecting providers or creating any instances.
+    if (!Validate(configuration, false, error))
+        return false;
     auto next = configuration;
     next.contributions = {};
+    if (!Configure(configuration.contributions, &next, error))
+        return false;
+    for (auto &entry : m_Views) {
+        auto &view = entry.second;
+        const auto placement = std::find_if(next.views.begin(), next.views.end(), [&](const auto &item) {
+            return item.role == view.role && item.type == Text(view.desc.id);
+        });
+        if (placement != next.views.end())
+            view.pinned = placement->pinned;
+    }
+    m_Configuration = std::move(next);
+    m_RegionDocks.clear();
+    m_LayoutChanged = m_LayoutPrepared;
+    for (auto &entry : m_Views)
+        entry.second.placement.apply = false;
+    ++m_ViewsRevision;
+    return true;
+}
+bool EditorWorkspace::Validate(const WorkspaceConfiguration &configuration, bool restoring, std::string &error) const {
+    // Validate and copy before selecting providers or creating any instances.
+    const auto &next = configuration;
     std::set<std::string> nodes{"root"}, leaves{"root"}, regions, roles, defaultTypes, startupSingletons;
     const auto descriptions = m_Application.Views(true);
     auto invalid = [&] { error = "Invalid workspace layout or view placement"; return false; };
@@ -868,10 +1020,15 @@ bool EditorWorkspace::Configure(const WorkspaceConfiguration &configuration, std
             return invalid();
         if (view.windowId < WorkspaceWindowId::Instance || view.windowId > WorkspaceWindowId::Named)
             return invalid();
-        if ((view.role.empty() && !defaultTypes.insert(view.type).second) || (!view.region.empty() && !regions.count(view.region)) ||
+        if ((view.role.empty() && !defaultTypes.insert(view.type).second) ||
+            (!view.region.empty() && !regions.count(view.region)) ||
             (!view.role.empty() && !roles.insert(view.role).second) ||
-            std::none_of(descriptions.begin(), descriptions.end(), [&](const auto &desc) { return Text(desc.id) == view.type; })) return invalid();
-        if (auto id = Role(view.role); !view.role.empty() && id && Text(m_Views.at(id).desc.id) != view.type) return invalid();
+            (!restoring && std::none_of(descriptions.begin(), descriptions.end(),
+                                        [&](const auto &desc) { return Text(desc.id) == view.type; })))
+            return invalid();
+        if (auto id = Role(view.role);
+            !restoring && !view.role.empty() && id && Text(m_Views.at(id).desc.id) != view.type)
+            return invalid();
         if (view.startup)
             for (const auto &desc : descriptions)
                 if (Text(desc.id) == view.type && desc.singleInstance && !startupSingletons.insert(view.type).second) {
@@ -883,17 +1040,6 @@ bool EditorWorkspace::Configure(const WorkspaceConfiguration &configuration, std
     std::set<std::string> legacyNames;
     for (const auto &window : next.legacyWindows)
         if (window.name.empty() || !regions.count(window.region) || !legacyNames.insert(window.name).second) return invalid();
-    if (!Configure(configuration.contributions, &next, error)) return false;
-    for (auto &entry : m_Views) {
-        auto &view = entry.second;
-        const auto placement = std::find_if(next.views.begin(), next.views.end(), [&](const auto &item) { return item.role == view.role && item.type == Text(view.desc.id); });
-        if (placement != next.views.end()) view.pinned = placement->pinned;
-    }
-    m_Configuration = std::move(next);
-    m_RegionDocks.clear();
-    m_LayoutChanged = m_LayoutPrepared;
-    for (auto &entry : m_Views) entry.second.placement.apply = false;
-    ++m_ViewsRevision;
     return true;
 }
 EditorView EditorWorkspace::OpenRole(const std::string &role) {
@@ -972,6 +1118,11 @@ EditorWorkspace::LayoutUpdate EditorWorkspace::UpdateLayout(unsigned dockspace, 
     if (dockspace != m_Dockspace) { m_Dockspace = dockspace; m_LayoutPrepared = false; }
     LayoutUpdate result;
     if (m_LayoutPrepared && !reset && !m_LayoutChanged) return result;
+    if (!reset && !m_LayoutChanged) {
+        const auto focused = m_Views.find(m_LastWindowFocus);
+        if (focused != m_Views.end() && m_Saved.count(focused->second.instance))
+            result.focus = focused->first;
+    }
     auto *node = ImGui::DockBuilderGetNode(dockspace);
     if (reset || m_LayoutChanged || !node || node->IsLeafNode()) result.closeLegacy = BuildLayout(dockspace, closeSeparated);
     else UpdateRegionDocks();
@@ -988,6 +1139,21 @@ void EditorWorkspace::Menu() {
             const EditorValue type{EDITOR_TEXT("type"), EDITOR_TEXT_VALUE, {}, d.id};
             m_Application.Execute("workspace.open-view", {m_Application.Scope(), &type, 1});
         }
+    if (ImGui::BeginMenu("Saved Views")) {
+        const EditorClient client(m_Application.Host(), 0);
+        for (const auto &entry : m_Saved) {
+            if (entry.second.open || std::any_of(m_Views.begin(), m_Views.end(),
+                                                 [&](const auto &v) { return v.second.instance == entry.first; }))
+                continue;
+            const auto label = (entry.second.title.empty() ? entry.second.type : entry.second.title) +
+                               "###saved-view-" + std::to_string(entry.first);
+            if (ImGui::MenuItem(label.c_str()))
+                client.Command("workspace.reopen-instance", {IntegerArgument("instance", entry.first)});
+        }
+        ImGui::EndMenu();
+    }
+    if (m_RestoreFailed && ImGui::MenuItem("Discard Unrestored Workspace"))
+        EditorClient(m_Application.Host(), 0).Command("workspace.discard-saved-state");
     if (ImGui::BeginMenu("Modules (Next Start)")) {
         const EditorClient client(m_Application.Host(), 0);
         const auto current = client.Query("profile.modules");

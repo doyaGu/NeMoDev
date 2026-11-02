@@ -250,12 +250,20 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     replacement.providers[0].provider = "test.second";
     unsigned writes = 0;
     bool refuseWrite = true, throwWrite = false;
-    workspace.ConfigurationWriter([&](const EditorConfiguration &, std::string &message) {
+    workspace.ConfigurationWriter([&](const EditorConfiguration &, const WorkspaceState &snapshot,
+                                      std::string &message) {
         ++writes;
+        Check(std::any_of(snapshot.views.begin(), snapshot.views.end(),
+                          [](const auto &view) { return view.provider == "test.second"; }),
+              "writer received old view settings");
         Check(first.views.count(id) && !second.views.empty() && first.closing == 0,
               "configuration saved before preparation or after the old view was destroyed");
-        if (throwWrite) throw std::runtime_error("Injected profile write exception");
-        if (refuseWrite) { message = "Injected profile publication refusal"; return false; }
+        if (throwWrite)
+            throw std::runtime_error("Injected profile write exception");
+        if (refuseWrite) {
+            message = "Injected profile publication refusal";
+            return false;
+        }
         return true;
     });
     second.failCreate = true;

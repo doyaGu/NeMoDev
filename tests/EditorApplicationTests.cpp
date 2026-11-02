@@ -13,6 +13,7 @@
 
 using namespace vdev;
 void TestWorkspace(vdev::CkRuntimeHost &host);
+void TestWorkspacePersistence(vdev::CkRuntimeHost &host);
 void TestEventLog();
 void TestMessageCommands(vdev::CkRuntimeHost &host);
 void TestSceneCommands(vdev::CkRuntimeHost &host);
@@ -715,6 +716,7 @@ int main(int argc, char **argv) {
         TestDocumentTransitions(runtime);
         TestOutputCommands(runtime);
         TestWorkspace(runtime);
+        TestWorkspacePersistence(runtime);
         TestEventLog();
         TestMessageCommands(runtime);
         TestSceneCommands(runtime);

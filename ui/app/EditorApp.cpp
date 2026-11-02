@@ -288,7 +288,9 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     if (!restored.AddSources(modules, moduleDirectories, error) ||
         !WriteProfile(restored, m_Settings, m_Editor.Configuration(), error)) return fail(m_ProfileFile + ": " + error);
     m_Profile = std::move(restored); m_ProfileReady = true;
-    m_Workspace.ConfigurationWriter([this](const auto &configuration, auto &error) { return SaveConfiguration(configuration, error); });
+    m_Workspace.ConfigurationWriter([this](const auto &configuration, const auto &workspace, auto &error) {
+        return SaveConfiguration(configuration, error, &workspace);
+    });
     return true;
 }
 
@@ -327,7 +329,20 @@ bool EditorApp::WriteSettings(const Preferences &next, std::string &error) {
     m_Profile = std::move(profile); return true;
 }
 bool EditorApp::WriteProfile(EditorProfile &profile, const Preferences &settings,
-                             const EditorConfiguration &configuration, std::string &error) {
+                             const EditorConfiguration &configuration, std::string &error,
+                             const WorkspaceState *saved) {
+    WorkspaceState workspace;
+    if (!saved) {
+        if (!m_Editor.NativeAvailable() && !m_Workspace.SavingBlocked()) {
+            saved = profile.Workspace();
+        } else {
+            if (!m_Workspace.Save(workspace, error))
+                return false;
+            saved = &workspace;
+        }
+    }
+    if (saved && !profile.SetWorkspace(*saved, error))
+        return false;
     if (!profile.Capture(settings, configuration, m_Editor.DefaultConfiguration(),
                          [this](const auto &choice) { return m_Editor.ProviderModule(choice); }, error)) return false;
     if (m_ProfileFile.empty()) return true;
@@ -345,10 +360,12 @@ bool EditorApp::WriteProfile(EditorProfile &profile, const Preferences &settings
     for (const auto &message : report.errors) error += "\n" + message;
     return false;
 }
-bool EditorApp::SaveConfiguration(const EditorConfiguration &configuration, std::string &error) {
+bool EditorApp::SaveConfiguration(const EditorConfiguration &configuration, std::string &error,
+                                  const WorkspaceState *workspace) {
     if (!m_ProfileReady) return true;
     auto next = m_Profile;
-    if (!WriteProfile(next, m_Settings, configuration, error)) return false;
+    if (!WriteProfile(next, m_Settings, configuration, error, workspace))
+        return false;
     m_Profile = std::move(next); return true;
 }
 
