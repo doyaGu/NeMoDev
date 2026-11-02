@@ -207,6 +207,16 @@ void TestPreferencesCommands(vdev::CkRuntimeHost &runtime) {
         {EDITOR_TEXT("value"), EDITOR_RECORD, {}, {}, 0, {}, {}, {}, 0, {}, {&compression, 1}}};
     Check(editor.Execute("preferences.apply", {editor.Scope(nextView), args, 2}).status == EDITOR_STALE,
           "preference draft crossed runtime recreation");
+    const std::string recentPath = u8"/资料 空格/Project.nmo";
+    preferences.AddRecentFile(recentPath);
+    const auto recent = app.Query("preferences.recent-files");
+    Check(recent.status == EDITOR_OK && EditorClient::Find(recent, "paths") &&
+              EditorClient::Find(recent, "paths")->texts.front() == recentPath,
+          "recent file projection changed UTF-8 paths");
+    preferences.AddRecentFile("/another.cmo");
+    Check(EditorClient::Find(recent, "paths")->texts.front() == recentPath &&
+              EditorClient::Find(app.Query("preferences.recent-files"), "paths")->texts.front() == "/another.cmo",
+          "recent file projection borrowed the mutable preferences list");
     commands.Stop();
     Check(!EditorClient::Integer(app.Query("preferences.state"), "available"), "stopped preferences accepted new work");
 }

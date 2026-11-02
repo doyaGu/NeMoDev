@@ -469,6 +469,26 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         IM_CHECK(!WindowShown(ctx, window.c_str()));
     };
 
+    t = IM_REGISTER_TEST(engine, "app", "file_menu_preserves_recent_utf8_path_labels");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        std::vector<std::string> before;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            before = state.preferences.recentFiles;
+            state.preferences.AddRecentFile(u8"近期 项目.cmo");
+            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const auto paths = client.Query("preferences.recent-files");
+            IM_CHECK_NO_RET(vdev::EditorClient::Find(paths, "paths")->texts.front() == u8"近期 项目.cmo");
+        });
+        ctx->MenuClick("//##MainMenuBar/File");
+        IM_CHECK(ctx->ItemExists(u8"//$FOCUSED/1) 近期 项目.cmo"));
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] { App().State().preferences.recentFiles = before; });
+    };
+
     t = IM_REGISTER_TEST(engine, "app", "time_settings_display_draft_cancel_and_apply");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

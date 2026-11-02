@@ -107,6 +107,12 @@ void TestDocumentCommands(vdev::CkRuntimeHost &host) {
         return valueStatus;
     };
     attach();
+    const EditorClient infoClient(editor.Host(), 0);
+    commands.Poll();
+    const auto initialInfo = infoClient.Query("document.info");
+    Check(initialInfo.status == EDITOR_OK && EditorClient::Integer(initialInfo, "open") == 1 &&
+              EditorClient::Integer(initialInfo, "document") == document.Token().value,
+          "new document metadata was not published");
     const auto root =
         std::filesystem::temp_directory_path() /
         ("document-command-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -195,7 +201,7 @@ void TestDocumentCommands(vdev::CkRuntimeHost &host) {
         Check(runtime.Queue("Read copied duplicate input", [] {}, [](const std::string &) {}), "cannot prepare busy duplicate query");
         editor.NativeAvailable(false);
         const auto reads = documentReads;
-        Check(client.Query("document.input").status == EDITOR_OK &&
+        Check(client.Query("document.input").status == EDITOR_OK && client.Query("document.info").status == EDITOR_OK &&
                   client.Query("document.duplicate-rows", {IntegerArgument("input", input)}).status == EDITOR_OK &&
                   documentReads == reads, "busy duplicate queries entered the native document");
         runtime.Finish();
@@ -288,6 +294,11 @@ void TestDocumentCommands(vdev::CkRuntimeHost &host) {
     Check(status(failed.operation) == EDITOR_ERROR && document.Token() == token && views.detached == detached,
           "failed open detached the old document");
     Check(document.History().UndoCount() == undoCount, "failed open lost history");
+    const auto documentInfo = infoClient.Query("document.info");
+    Check(documentInfo.status == EDITOR_OK && EditorClient::Integer(documentInfo, "document") == document.Token().value &&
+              EditorClient::Integer(documentInfo, "dirty") == uint64_t(document.Dirty()) &&
+              EditorClient::Text(documentInfo, "path") == path && initialInfo.fields != documentInfo.fields,
+          "document metadata did not follow saves and retained document replacement");
     const auto version = VersionedPath(commands.CurrentFilePath(), 1);
     { std::ofstream output(std::filesystem::u8path(version), std::ios::binary); output << "Previous version file"; }
     editor.SetSelection(object);

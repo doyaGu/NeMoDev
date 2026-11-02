@@ -232,7 +232,9 @@ const std::vector<ProviderChoice> &PreferencesCommands::DefaultProviders() {
     static const std::vector<ProviderChoice> providers{{"query", "preferences.values", "builtin.preferences"},
         {"query", "preferences.catalog", "builtin.preferences"}, {"query", "preferences.state", "builtin.preferences"},
         {"command", "preferences.apply", "builtin.preferences"}, {"view", "preferences.general", "builtin.preference-views"},
-        {"query", "preferences.dynamic-objects", "builtin.preferences"}, {"command", "preferences.toggle-dynamic-objects", "builtin.preferences"}};
+        {"query", "preferences.dynamic-objects", "builtin.preferences"},
+        {"query", "preferences.recent-files", "builtin.preferences"},
+        {"command", "preferences.toggle-dynamic-objects", "builtin.preferences"}};
     return providers;
 }
 bool PreferencesCommands::Register(std::string &error) {
@@ -257,7 +259,14 @@ bool PreferencesCommands::Register(std::string &error) {
         {EDITOR_TEXT("engines"), EDITOR_RECORD}, {EDITOR_TEXT("formats"), EDITOR_RECORD}, {EDITOR_TEXT("engine"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("version"), EDITOR_INTEGER_VALUE}};
     const EditorParameter available{EDITOR_TEXT("available"), EDITOR_INTEGER_VALUE};
     const EditorParameter checked{EDITOR_TEXT("checked"), EDITOR_INTEGER_VALUE};
+    const EditorParameter recent{EDITOR_TEXT("paths"), EDITOR_TEXT_LIST};
     const EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("preferences.recent-files"), EDITOR_TEXT("builtin.preferences"), nullptr, 0,
+            [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+                EditorField paths{"paths", EDITOR_TEXT_LIST};
+                paths.texts = static_cast<Data *>(data)->preferences.recentFiles;
+                return Write(sink, {paths});
+            }, &self, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, &recent, 1},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("preferences.values"), EDITOR_TEXT("builtin.preferences"), nullptr, 0,
             [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
                 auto &self = *static_cast<Data *>(data);

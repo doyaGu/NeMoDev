@@ -516,8 +516,8 @@ void EditorApp::MergeComposition(bool asScene, const std::string &path) {
 
 void EditorApp::RememberRecentFile(const std::string &path) {
     std::error_code ec;
-    const std::filesystem::path absolute = std::filesystem::absolute(path, ec);
-    m_State.preferences.AddRecentFile(ec ? path : absolute.string());
+    const std::filesystem::path absolute = std::filesystem::absolute(std::filesystem::u8path(path), ec);
+    m_State.preferences.AddRecentFile(ec ? path : absolute.u8string());
     SavePreferences();
 }
 
@@ -650,17 +650,15 @@ void EditorApp::UpdateTitle() {
     // Documentation "Menu Bar": the level and scene current in the title
     // bar, and the path of the composition loaded.
     std::wstring title = L"NeMoDev";
-    if (m_State.HasDocument()) {
-        const std::string file = CurrentFilePath();
+    const auto &document = m_Editor.ReadQuery("document.info", {m_Editor.Scope(), nullptr, 0});
+    if (EditorClient::Integer(document, "open")) {
+        const auto file = EditorClient::Text(document, "path");
         const std::wstring name = file.empty() ? L"New Composition" : Utf8ToWide(file);
-        std::wstring where;
-        if (CKLevel *level = m_State.document->Context()->GetCurrentLevel()) {
-            where = AnsiToWide(level->GetName() ? level->GetName() : "Level");
-            CKScene *scene = level->GetCurrentScene();
-            if (scene && scene != level->GetLevelScene())
-                where += L" / " + AnsiToWide(scene->GetName() ? scene->GetName() : "Scene");
-        }
-        title += L" - " + (where.empty() ? L"" : L"[" + where + L"] ") + name + (m_State.document->Dirty() ? L" *" : L"");
+        auto where = Utf8ToWide(EditorClient::Text(document, "level"));
+        if (EditorClient::Integer(document, "separate-scene"))
+            where += L" / " + Utf8ToWide(EditorClient::Text(document, "scene"));
+        title += L" - " + (where.empty() ? L"" : L"[" + where + L"] ") + name +
+                 (EditorClient::Integer(document, "dirty") ? L" *" : L"");
     }
     if (title != m_Title && m_Window) {
         SDL_SetWindowTitle(m_Window, WideToUtf8(title).c_str());
@@ -696,7 +694,8 @@ void EditorApp::MainMenu() {
         PopDarkChrome();
         return;
     }
-    const bool hasDocument = m_State.HasDocument();
+    const auto &document = m_Editor.ReadQuery("document.info", {m_Editor.Scope(), nullptr, 0});
+    const bool hasDocument = EditorClient::Integer(document, "open") != 0;
     auto unavailable = [](const char *label, const char *shortcut = nullptr, const char *why = "Not available yet") {
         ImGui::MenuItem(label, shortcut, false, false);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", why);
@@ -735,14 +734,14 @@ void EditorApp::MainMenu() {
         m_Workspace.CommandMenu("file.web");
         ImGui::Separator();
         m_Workspace.CommandMenu("file.print");
-        if (!m_State.preferences.recentFiles.empty()) {
+        const auto &recentData = m_Editor.ReadQuery("preferences.recent-files", {m_Editor.Scope(), nullptr, 0});
+        const auto *paths = EditorClient::Find(recentData, "paths");
+        if (paths && !paths->texts.empty()) {
             ImGui::Separator();
-            const std::vector<std::string> recent = m_State.preferences.recentFiles; // opening reorders the list
+            const auto recent = paths->texts; // opening reorders the list
             for (size_t i = 0; i < recent.size(); ++i) {
-                const std::string label = std::to_string(i + 1) + ") " + AnsiToUtf8(recent[i]);
-                if (ImGui::MenuItem(label.c_str())) {
-                    Command("document.open", recent[i]);
-                }
+                const std::string label = std::to_string(i + 1) + ") " + recent[i];
+                if (ImGui::MenuItem(label.c_str())) Command("document.open", recent[i]);
             }
         }
         ImGui::Separator();

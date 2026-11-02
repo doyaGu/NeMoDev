@@ -2411,7 +2411,7 @@
     {
       "id": "environment",
       "name": "recent files、runtime directory、打开的 RSC、path categories",
-      "owner": "EnvironmentCommands 拥有已发布插件与路径及临时卸载恢复；应用配置保存已确认路径；工作区视图拥有未提交输入",
+      "owner": "EnvironmentCommands 拥有已发布插件与路径及临时卸载恢复；应用配置保存已确认路径和最近文件，PreferencesCommands 发布最近文件副本；工作区视图拥有未提交输入",
       "lifetime": "操作结果、配置切换、退出",
       "persistence": "文档替换不清这些数据；期望与实际不同含义分别显示",
       "features": [
@@ -2424,7 +2424,7 @@
       "id": "file_operations",
       "name": "文档、资源、图与 Script 快照文件操作、对象/NMS 导出和输入请求",
       "owner": "DocumentCommands",
-      "lifetime": "操作完成或取消；旧输入按操作和文档编号拒绝；退出时原生任务返回后结束；图和 Script 快照等待文件选择时，来源视图关闭即取消",
+      "lifetime": "操作完成或取消；旧输入按操作和文档编号拒绝；退出时原生任务返回后结束；图和 Script 快照等待文件选择时，来源视图关闭即取消；重复名按完整动作列表确认，取消、错误和停止清理对应加载；标题和菜单读取上次已发布的文档信息，后台任务期间不进入原生上下文",
       "persistence": "临时流程不保存；等待输入无原生写入；最终结果登记到 EditorApplication",
       "features": [
         "F02",

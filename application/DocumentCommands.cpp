@@ -57,10 +57,16 @@ struct DocumentCommands::State {
     std::shared_ptr<Operation> active;
     std::unique_ptr<Input> input;
     std::string lastSaved;
+    struct DocumentInfoData {
+        uint64_t document = 0;
+        bool open = false, dirty = false, separateScene = false;
+        std::string path, level, scene;
+    } documentInfo;
+    uint64_t documentInfoRevision = 1;
     std::shared_ptr<Operation> waitingQuit;
     State(EditorApplication &editor, DocumentFiles &files, RuntimeOperation &runtime,
           std::function<Document *()> current, Presentation &presentation)
-        : editor(editor), files(files), runtime(runtime), current(std::move(current)), presentation(presentation) {}
+        : editor(editor), files(files), runtime(runtime), current(std::move(current)), presentation(presentation) { PublishDocumentInfo(); }
     bool HasDocument() const { return current() && current()->IsOpen(); }
     static bool ApplicationAction(Action action) {
         return action == Action::New || action == Action::Open || action == Action::Quit;
@@ -122,6 +128,42 @@ struct DocumentCommands::State {
                 input->title = titles[int(input->action) - int(Action::Import)];
             }
         }
+    }
+    void PublishDocumentInfo() {
+        if (runtime.Busy()) return;
+        const auto *document = current();
+        const bool open = document && document->IsOpen();
+        std::string levelName, sceneName;
+        bool separateScene = false;
+        if (open)
+            if (auto *level = document->Context()->GetCurrentLevel()) {
+                levelName = AnsiToUtf8(level->GetName() ? level->GetName() : "Level");
+                auto *scene = level->GetCurrentScene();
+                separateScene = scene && scene != level->GetLevelScene();
+                if (separateScene) sceneName = AnsiToUtf8(scene->GetName() ? scene->GetName() : "Scene");
+            }
+        const std::string empty;
+        const auto &path = !open ? empty : !lastSaved.empty() ? lastSaved : document->SourcePath();
+        const auto token = open ? document->Token().value : 0;
+        const bool dirty = open && document->Dirty();
+        if (documentInfo.open != open || documentInfo.document != token || documentInfo.dirty != dirty ||
+            documentInfo.path != path || documentInfo.level != levelName || documentInfo.scene != sceneName ||
+            documentInfo.separateScene != separateScene) {
+            documentInfo = {token, open, dirty, separateScene, path, std::move(levelName), std::move(sceneName)};
+            ++documentInfoRevision;
+        }
+    }
+    static EditorStatus DocumentInfo(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+        const auto &info = static_cast<State *>(data)->documentInfo;
+        const EditorValue fields[] = {
+            {EDITOR_TEXT("open"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(info.open)},
+            {EDITOR_TEXT("document"), EDITOR_INTEGER_VALUE, {}, {}, info.document},
+            {EDITOR_TEXT("dirty"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(info.dirty)},
+            {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, {}, EditorText(info.path)},
+            {EDITOR_TEXT("level"), EDITOR_TEXT_VALUE, {}, EditorText(info.level)},
+            {EDITOR_TEXT("scene"), EDITOR_TEXT_VALUE, {}, EditorText(info.scene)},
+            {EDITOR_TEXT("separate-scene"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(info.separateScene)}};
+        return sink.write ? sink.write(sink.data, fields, uint32_t(std::size(fields))) : EDITOR_INVALID;
     }
     void PublishDuplicates() {
         const auto *pending = files.PendingDuplicates();
@@ -896,6 +938,7 @@ void DocumentCommands::Poll() {
             m_State->Start();
     }
     m_State->PublishDuplicates();
+    m_State->PublishDocumentInfo();
 }
 void DocumentCommands::Stop() {
     if (m_State->active) m_State->Finish(m_State->active, EDITOR_CANCELLED);
@@ -1028,7 +1071,15 @@ bool DocumentCommands::Register(std::string &error) {
     const EditorParameter duplicateFields[] = {{EDITOR_TEXT("rows"), EDITOR_RECORD},
                                                 {EDITOR_TEXT("total"), EDITOR_INTEGER_VALUE},
                                                 {EDITOR_TEXT("next"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter documentFields[] = {
+        {EDITOR_TEXT("open"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("document"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("dirty"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("path"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("level"), EDITOR_TEXT_VALUE}, {EDITOR_TEXT("scene"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("separate-scene"), EDITOR_INTEGER_VALUE}};
     const EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("document.info"), EDITOR_TEXT("builtin.documents"), nullptr, 0,
+         &State::DocumentInfo, m_State.get(), EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, documentFields, 7,
+         [](void *data, const EditorHost *) { return static_cast<State *>(data)->documentInfoRevision; }},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("document.duplicate-rows"), EDITOR_TEXT("builtin.documents"), duplicateArgs, 2,
          &State::DuplicateData, m_State.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, duplicateFields, 3},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("document.input"), EDITOR_TEXT("builtin.documents"), nullptr, 0,
