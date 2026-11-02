@@ -470,6 +470,13 @@ bool RegisterDataResourceViews(EditorApplication &editor, std::string &error) {
         return static_cast<ResourceView *>(data)->Navigate(EditorClient(host, request->scope.view), *request);
     };
     view.stateVersion = 1;
+    static const EditorParameter settings[] = {{EDITOR_TEXT("library"), EDITOR_TEXT_VALUE},
+                                               {EDITOR_TEXT("folder"), EDITOR_TEXT_VALUE},
+                                               {EDITOR_TEXT("anchor"), EDITOR_TEXT_VALUE},
+                                               {EDITOR_TEXT("selection"), EDITOR_TEXT_LIST},
+                                               {EDITOR_TEXT("expanded"), EDITOR_TEXT_LIST}};
+    view.settings = settings;
+    view.settingCount = uint32_t(std::size(settings));
     view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         return static_cast<ResourceView *>(data)->Save(sink);
     };

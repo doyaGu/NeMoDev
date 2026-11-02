@@ -447,6 +447,12 @@ bool RegisterBuildingBlockViews(EditorApplication &editor, std::string &error) {
         return static_cast<BlocksView *>(data)->Navigate(EditorClient(host, request->scope.view), *request);
     };
     view.stateVersion = 1;
+    static const EditorParameter settings[] = {
+        {EDITOR_TEXT("filter"), EDITOR_TEXT_VALUE},    {EDITOR_TEXT("category"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("column"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("descending"), EDITOR_INTEGER_VALUE},
+        {EDITOR_TEXT("paths"), EDITOR_TEXT_LIST},      {EDITOR_TEXT("open"), EDITOR_INTEGER_LIST}};
+    view.settings = settings;
+    view.settingCount = uint32_t(std::size(settings));
     view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         return static_cast<BlocksView *>(data)->Save(sink);
     };

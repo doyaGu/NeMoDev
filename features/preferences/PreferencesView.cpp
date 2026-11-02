@@ -868,6 +868,10 @@ bool RegisterPreferencesView(EditorApplication &editor, std::string &error) {
         return EDITOR_OK;
     };
     view.stateVersion = 1;
+    static const EditorParameter settings[] = {{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE},
+                                               {EDITOR_TEXT("axis"), EDITOR_INTEGER_VALUE}};
+    view.settings = settings;
+    view.settingCount = uint32_t(std::size(settings));
     view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         const auto &view = *static_cast<PreferencesView *>(data);
         const EditorValue fields[] = {{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, EditorLiteral(Preferences::Pages()[size_t(view.page)].id)},

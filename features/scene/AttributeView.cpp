@@ -777,6 +777,12 @@ bool RegisterAttributeViews(EditorApplication &editor, std::string &error) {
             return static_cast<AttributeView *>(data)->Navigate(*request);
         };
         view.stateVersion = 1;
+        static const EditorParameter settings[] = {{EDITOR_TEXT("split"), EDITOR_REAL_VALUE},
+                                                   {EDITOR_TEXT("more"), EDITOR_INTEGER_VALUE}};
+        if (view.kind == EDITOR_WINDOW_VIEW) {
+            view.settings = settings;
+            view.settingCount = uint32_t(std::size(settings));
+        }
         view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
             return static_cast<AttributeView *>(data)->Save(sink);
         };

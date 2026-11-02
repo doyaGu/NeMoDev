@@ -100,7 +100,11 @@ EditorViewDesc PluginView() {
     view.destroy = [](void *data) { delete static_cast<Plugins *>(data); };
     view.draw = [](void *data, const EditorHost *host, EditorView id, EditorViewFrame *frame) { static_cast<Plugins *>(data)->Draw(EditorClient(host, id), *frame); };
     static const EditorParameter fields[] = {{EDITOR_TEXT("open-categories"), EDITOR_TEXT_LIST}};
-    view.fields = fields; view.fieldCount = 1; view.stateVersion = 1;
+    view.fields = fields;
+    view.fieldCount = 1;
+    view.stateVersion = 1;
+    view.settings = fields;
+    view.settingCount = 1;
     view.saveState = view.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         const auto &plugins = *static_cast<Plugins *>(data);
         EditorField field{"open-categories", EDITOR_TEXT_LIST}; field.texts.assign(plugins.open.begin(), plugins.open.end());

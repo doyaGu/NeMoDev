@@ -1646,6 +1646,13 @@ bool RegisterSceneViews(EditorApplication &editor, std::string &error) {
             return static_cast<SceneTreeView *>(data)->Navigate(*request);
         };
         view.stateVersion = 1;
+        static const EditorParameter settings[] = {
+            {EDITOR_TEXT("priority"), EDITOR_INTEGER_VALUE},   {EDITOR_TEXT("reversed"), EDITOR_INTEGER_VALUE},
+            {EDITOR_TEXT("resources"), EDITOR_INTEGER_VALUE},  {EDITOR_TEXT("hide-layer"), EDITOR_INTEGER_VALUE},
+            {EDITOR_TEXT("level-mode"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("columns"), EDITOR_INTEGER_LIST},
+            {EDITOR_TEXT("find"), EDITOR_TEXT_VALUE}};
+        view.settings = settings;
+        view.settingCount = uint32_t(std::size(settings));
         view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
             return static_cast<SceneTreeView *>(data)->Save(sink);
         };
