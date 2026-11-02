@@ -77,7 +77,7 @@ struct Preferences {
     std::vector<std::string> dataResources;
 
     // The editable General Preferences values; unrelated session data stays owned here.
-    std::vector<EditorField> Values() const;
+    std::vector<EditorField> Values(bool generalOnly = true) const;
     bool ReadValues(const std::vector<EditorField> &, std::string &error);
     bool SetValues(const std::vector<EditorField> &, std::string &error);
     void ResetPage(int page, const std::string &firstEngine);

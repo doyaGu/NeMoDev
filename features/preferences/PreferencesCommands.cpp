@@ -26,8 +26,8 @@ bool NativeText(const std::string &key) {
     return key == "3D Layout\\Author Mode\\Device Driver" || key == "3D Layout\\Player Mode\\FullScren Driver" ||
         key == "CK2 Settings\\Render Engine";
 }
-std::vector<EditorField> Projection(const Preferences &preferences) {
-    auto fields = preferences.Values();
+std::vector<EditorField> Projection(const Preferences &preferences, bool generalOnly = true) {
+    auto fields = preferences.Values(generalOnly);
     for (auto &field : fields) if (NativeText(field.key)) field.text = AnsiToUtf8(field.text);
     return fields;
 }
@@ -79,7 +79,7 @@ struct PreferencesCommands::Data {
     std::function<bool()> available;
     Save save;
     std::function<void()> changed;
-    std::vector<EditorField> values, catalog;
+    std::vector<EditorField> values, displayValues, catalog;
     std::set<EditorView> readers;
     uint64_t revision = 1, catalogRevision = 1, generation = UINT64_MAX;
     bool catalogDirty = true, stopped = false;
@@ -96,6 +96,8 @@ struct PreferencesCommands::Data {
         const auto current = runtime.Generation();
         if (current != generation) { generation = current; catalogDirty = true; ++catalogRevision; ++revision; }
         if (next != values) { values = std::move(next); ++revision; }
+        auto display = Projection(preferences, false);
+        if (display != displayValues) { displayValues = std::move(display); ++revision; }
     }
     void ReadCatalog() {
         if (!catalogDirty || !Ready()) return;
@@ -145,6 +147,31 @@ struct PreferencesCommands::Data {
     }
     static EditorStatus State(void *data, const EditorHost *, const EditorRequest *) {
         return static_cast<Data *>(data)->Ready() ? EDITOR_OK : EDITOR_REFUSED;
+    }
+    static EditorStatus Explorer(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+        auto &self = *static_cast<Data *>(data);
+        if (self.stopped) return EDITOR_REFUSED;
+        std::vector<EditorField> record;
+        if (CopyEditorFields(record, Argument(*request, "value"), 1) != EDITOR_OK || record.size() != 1) return EDITOR_INVALID;
+        const auto &fields = record.front().fields;
+        Preferences next = self.preferences;
+        std::set<std::string> keys;
+        for (const auto &field : fields) {
+            const bool kinds = field.key == "Schematic Explorer\\Show In List";
+            const bool filter = field.key == "Schematic Explorer\\Parameter Filter";
+            const bool boolean = field.key == "Schematic Explorer\\Parse All Items" ||
+                field.key == "Schematic Explorer\\Tree View" || field.key == "Schematic Explorer\\Derived";
+            if ((!kinds && !filter && !boolean) || field.type != EDITOR_INTEGER_VALUE ||
+                !keys.insert(field.key).second || (kinds && (field.integer & ~0x13FFu)) ||
+                (filter && field.integer > 2) || (boolean && field.integer > 1)) return EDITOR_INVALID;
+            next.SetInt(field.key, int(field.integer));
+        }
+        if (next.Values(false) == self.preferences.Values(false)) return EDITOR_NO_CHANGE;
+        self.preferences = std::move(next);
+        self.values = Projection(self.preferences);
+        self.displayValues = Projection(self.preferences, false);
+        ++self.revision;
+        return EDITOR_OK;
     }
     static EditorStatus Apply(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
@@ -230,8 +257,10 @@ SceneEnvironment PreferencesCommands::NewSceneEnvironment() const {
 }
 const std::vector<ProviderChoice> &PreferencesCommands::DefaultProviders() {
     static const std::vector<ProviderChoice> providers{{"query", "preferences.values", "builtin.preferences"},
+        {"query", "preferences.display", "builtin.preferences"},
         {"query", "preferences.catalog", "builtin.preferences"}, {"query", "preferences.state", "builtin.preferences"},
         {"command", "preferences.apply", "builtin.preferences"}, {"view", "preferences.general", "builtin.preference-views"},
+        {"command", "preferences.set-explorer-options", "builtin.preferences"},
         {"query", "preferences.dynamic-objects", "builtin.preferences"},
         {"query", "preferences.recent-files", "builtin.preferences"},
         {"command", "preferences.toggle-dynamic-objects", "builtin.preferences"}};
@@ -241,7 +270,10 @@ bool PreferencesCommands::Register(std::string &error) {
     auto &self = *m_Data;
     self.startedEngine = AnsiToUtf8(self.preferences.Text("CK2 Settings\\Render Engine")); self.Sync();
     const EditorParameter args[] = {{EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("value"), EDITOR_RECORD}};
+    const EditorParameter explorer{EDITOR_TEXT("value"), EDITOR_RECORD};
     const EditorCommandDesc commands[] = {
+        {sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.set-explorer-options"), EDITOR_TEXT("builtin.preferences"),
+            EDITOR_TEXT("Schematic Explorer Options"), &explorer, 1, Data::Explorer, &self, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.apply"), EDITOR_TEXT("builtin.preferences"),
             EDITOR_TEXT("Apply General Preferences"), args, 2, Data::Apply, &self, EDITOR_APPLICATION, EDITOR_RUNTIME_CONTROL, Data::State},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("preferences.toggle-dynamic-objects"), EDITOR_TEXT("builtin.preferences"),
@@ -261,6 +293,15 @@ bool PreferencesCommands::Register(std::string &error) {
     const EditorParameter checked{EDITOR_TEXT("checked"), EDITOR_INTEGER_VALUE};
     const EditorParameter recent{EDITOR_TEXT("paths"), EDITOR_TEXT_LIST};
     const EditorQueryDesc queries[] = {
+        {sizeof(EditorQueryDesc), EDITOR_TEXT("preferences.display"), EDITOR_TEXT("builtin.preferences"), nullptr, 0,
+            [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+                auto &self = *static_cast<Data *>(data);
+                if (request->scope.view) self.readers.insert(request->scope.view);
+                self.Sync();
+                EditorField value{"value", EDITOR_RECORD}; value.fields = self.displayValues;
+                return Write(sink, {{"revision", EDITOR_INTEGER_VALUE, {}, {}, self.revision}, value});
+            }, &self, EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, valueFields, 2,
+            [](void *data, const EditorHost *) { return static_cast<Data *>(data)->revision; }},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("preferences.recent-files"), EDITOR_TEXT("builtin.preferences"), nullptr, 0,
             [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
                 EditorField paths{"paths", EDITOR_TEXT_LIST};

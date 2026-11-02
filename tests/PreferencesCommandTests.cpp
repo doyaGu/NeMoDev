@@ -1,4 +1,5 @@
 #include "features/preferences/PreferencesCommands.h"
+#include "features/preferences/PreferencesData.h"
 #include "workspace/EditorClient.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/document/Document.h"
@@ -217,6 +218,16 @@ void TestPreferencesCommands(vdev::CkRuntimeHost &runtime) {
     Check(EditorClient::Find(recent, "paths")->texts.front() == recentPath &&
               EditorClient::Find(app.Query("preferences.recent-files"), "paths")->texts.front() == "/another.cmo",
           "recent file projection borrowed the mutable preferences list");
+    PreferencesData copied;
+    const EditorClient display(editor.Host(), 0);
+    Check(copied.Refresh(display) == EDITOR_OK && copied.Int("Schematic\\Default Link Delay") == preferences.defaultLinkDelay,
+          "view preference projection differs from the owner");
+    const auto ownedValues = copied.Values();
+    preferences.defaultLinkDelay += 3;
+    Check(copied.Values() == ownedValues, "view preferences borrowed mutable application data");
+    commands.Poll();
+    Check(copied.Refresh(display) == EDITOR_OK && copied.Int("Schematic\\Default Link Delay") == preferences.defaultLinkDelay,
+          "view preference projection did not follow a published change");
     commands.Stop();
     Check(!EditorClient::Integer(app.Query("preferences.state"), "available"), "stopped preferences accepted new work");
 }

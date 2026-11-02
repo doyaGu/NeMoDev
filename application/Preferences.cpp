@@ -321,14 +321,14 @@ const std::vector<PreferencePage> &Preferences::Pages() {
         {"snap-align", "3D Layout - Snap & Align"}, {"schematic", "Schematic"}, {"miscellaneous", "Miscellaneous Controls"}};
     return pages;
 }
-std::vector<EditorField> Preferences::Values() const {
+std::vector<EditorField> Preferences::Values(bool generalOnly) const {
     Preferences copy = *this;
     std::vector<EditorField> result;
-    for (const auto &field : Fields()) if (GeneralField(field.key)) {
+    for (const auto &field : Fields()) if (!generalOnly || GeneralField(field.key)) {
         const auto value = field.boolean ? uint64_t(field.boolean(copy)) : field.integer ? uint64_t(int64_t(field.integer(copy))) : uint64_t(field.color(copy));
         result.push_back({std::string("Schematic\\") + field.key, EDITOR_INTEGER_VALUE, {}, {}, value});
     }
-    for (const auto &field : DevSettings()) if (GeneralSetting(field.key)) {
+    for (const auto &field : DevSettings()) if (!generalOnly || GeneralSetting(field.key)) {
         EditorField value{field.key, field.kind == 's' ? EDITOR_TEXT_VALUE : field.kind == 'f' ? EDITOR_REAL_VALUE : EDITOR_INTEGER_VALUE};
         if (field.kind == 's') value.text = Text(field.key);
         else if (field.kind == 'f') value.real = Float(field.key);
