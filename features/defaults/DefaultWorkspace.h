@@ -1,5 +1,5 @@
 #pragma once
-#include "workspace/WorkspaceConfiguration.h"
+#include "application/WorkspaceState.h"
 namespace vdev {
 WorkspaceConfiguration DefaultWorkspaceConfiguration();
 WorkspaceConfiguration AvailableWorkspaceConfiguration(WorkspaceConfiguration, const EditorApplication &);

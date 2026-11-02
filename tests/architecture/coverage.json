@@ -173,7 +173,8 @@
       "patterns": [
         "application/Preferences.*",
         "application/EditorProfile.*",
-        "application/ProfileCommands.*"
+        "application/ProfileCommands.*",
+        "application/WorkspaceState.*"
       ]
     },
     {
@@ -336,7 +337,8 @@
         "!application/Printing.h",
         "!application/Preferences.*",
         "!application/EditorProfile.*",
-        "!application/ProfileCommands.*"
+        "!application/ProfileCommands.*",
+        "!application/WorkspaceState.*"
       ]
     },
     {
@@ -870,7 +872,8 @@
     ],
     "S35": [
       "S33",
-      "S34"
+      "S34",
+      "S17"
     ],
     "S36": [
       "S01",
@@ -919,12 +922,12 @@
       "S35"
     ],
     "S43": [
-      "S35",
       "S48",
       "S49",
       "S52",
       "S54",
-      "S55"
+      "S55",
+      "S17"
     ],
     "S44": [
       "S01",

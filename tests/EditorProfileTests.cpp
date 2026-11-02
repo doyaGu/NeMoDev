@@ -113,6 +113,45 @@ int main() {
             std::ifstream check(ini, std::ios::binary);
             Check(before == std::string(std::istreambuf_iterator<char>(check), {}), "legacy INI migration changed the source");
         }
+        vdev::WorkspaceState workspace;
+        workspace.configuration.views.push_back({"custom.view", "custom.primary", "", true});
+        vdev::WorkspaceViewState view;
+        view.instance = 42;
+        view.type = "custom.view";
+        view.provider = "custom.provider";
+        view.role = "custom.primary";
+        view.title = u8"跨启动视图";
+        view.version = 1;
+        view.settings = {{"text", EDITOR_TEXT_VALUE, {}, u8"中文 navigation"}, {"numbers", EDITOR_REAL_LIST}};
+        view.settings[1].reals = {.25, .5};
+        workspace.views.push_back(view);
+        workspace.focused = 42;
+        workspace.layout = "[Window][Saved###editor-view-42]\nPos=10,20\nSize=300,200\n";
+        Check(profile.SetWorkspace(workspace, error) && restored.Decode(Encoded(profile), path, error), error);
+        Check(restored.Workspace() && restored.Workspace()->views.size() == 1 &&
+                  restored.Workspace()->views[0].settings == view.settings &&
+                  restored.Workspace()->layout == workspace.layout && restored.Workspace()->focused == 42,
+              "workspace settings did not round-trip");
+        const auto savedWorkspace = Encoded(restored);
+        auto invalid = workspace;
+        invalid.views[0].settings.push_back({"native", EDITOR_OBJECT});
+        Check(!restored.SetWorkspace(invalid, error) && Encoded(restored) == savedWorkspace,
+              "native identity entered persistent settings");
+        invalid = workspace;
+        invalid.views.push_back(invalid.views[0]);
+        Check(!restored.SetWorkspace(invalid, error) && Encoded(restored) == savedWorkspace,
+              "duplicate instance replaced saved workspace");
+        invalid = workspace;
+        invalid.views[0].width = -1;
+        invalid.views[0].placed = true;
+        Check(!restored.SetWorkspace(invalid, error), "invalid saved window position accepted");
+        std::string unknown = savedWorkspace;
+        const auto at = unknown.find("\"state-version\": 1");
+        Check(at != std::string::npos, "saved state version missing");
+        unknown.insert(at, "\"future-window-key\": {\"keep\": true}, ");
+        Check(restored.Decode(unknown, path, error) && restored.SetWorkspace(workspace, error) &&
+                  Encoded(restored).find("future-window-key") != std::string::npos,
+              "workspace rewrite discarded unknown window fields");
         std::filesystem::remove_all(root);
         std::cout << "Profile round-trip, unknown values, migration values, module choices and invalid input passed\n";
         return 0;

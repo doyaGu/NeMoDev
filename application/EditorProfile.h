@@ -2,6 +2,7 @@
 
 #include "application/EditorModules.h"
 #include "application/Preferences.h"
+#include "application/WorkspaceState.h"
 
 namespace vdev {
 
@@ -25,6 +26,8 @@ class EditorProfile {
     std::vector<std::string> Files() const;
     std::vector<std::string> Directories() const;
     EditorConfiguration Contributions() const;
+    const WorkspaceState *Workspace() const;
+    bool SetWorkspace(const WorkspaceState &, std::string &error);
     bool SetModule(const EditorModuleSetting &, std::string &error);
     bool AddSources(const std::vector<std::string> &files, const std::vector<std::string> &directories,
                     std::string &error);

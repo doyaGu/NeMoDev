@@ -62,6 +62,287 @@ ProviderChoice Provider(const Json &row) {
     if (row.contains("module")) Identifier(row.at("module"));
     return result;
 }
+uint64_t Number(const Json &value) {
+    Require(value.is_number_unsigned() || (value.is_number_integer() && value.get<int64_t>() >= 0),
+            "Expected an unsigned integer");
+    return value.get<uint64_t>();
+}
+bool Boolean(const Json &row, const char *key, bool fallback = false) {
+    if (!row.contains(key))
+        return fallback;
+    Require(row.at(key).is_boolean(), std::string("Expected a boolean: ") + key);
+    return row.at(key).get<bool>();
+}
+std::vector<EditorField> StateFields(const Json &rows, unsigned depth = 0) {
+    Require(rows.is_array() && rows.size() <= 4096 && depth < 32, "Invalid view settings");
+    std::vector<EditorField> result;
+    for (const auto &row : rows) {
+        Require(row.is_object(), "Invalid view setting");
+        EditorField field;
+        field.key = Text(row.at("key"));
+        const auto type = Text(row.at("type"));
+        const auto &value = row.at("value");
+        if (type == "text") {
+            field.type = EDITOR_TEXT_VALUE;
+            field.text = Text(value);
+        } else if (type == "integer") {
+            field.type = EDITOR_INTEGER_VALUE;
+            field.integer = Number(value);
+        } else if (type == "real") {
+            Require(value.is_number(), "Invalid real setting");
+            field.type = EDITOR_REAL_VALUE;
+            field.real = value.get<double>();
+        } else if (type == "record") {
+            field.type = EDITOR_RECORD;
+            field.fields = StateFields(value, depth + 1);
+        } else {
+            Require(value.is_array() && value.size() <= 4096, "Invalid setting list");
+            if (type == "integers") {
+                field.type = EDITOR_INTEGER_LIST;
+                for (const auto &n : value)
+                    field.integers.push_back(Number(n));
+            } else if (type == "texts") {
+                field.type = EDITOR_TEXT_LIST;
+                for (const auto &s : value)
+                    field.texts.push_back(Text(s));
+            } else if (type == "reals") {
+                field.type = EDITOR_REAL_LIST;
+                for (const auto &n : value) {
+                    Require(n.is_number(), "Invalid real setting");
+                    field.reals.push_back(n.get<double>());
+                }
+            } else
+                throw std::invalid_argument("Unknown view setting type");
+        }
+        result.push_back(std::move(field));
+    }
+    const auto borrowed = BorrowEditorFields(result);
+    std::vector<EditorField> checked;
+    Require(CopyEditorFields(checked, borrowed.data(), uint32_t(borrowed.size())) == EDITOR_OK,
+            "Invalid view settings");
+    return result;
+}
+Json StateFields(const std::vector<EditorField> &fields, const Json &previous) {
+    Json result = Json::array();
+    for (const auto &field : fields) {
+        Json row = Json::object();
+        if (previous.is_array())
+            for (const auto &old : previous)
+                if (old.at("key") == field.key) {
+                    row = old;
+                    break;
+                }
+        row["key"] = field.key;
+        switch (field.type) {
+        case EDITOR_TEXT_VALUE:
+            row["type"] = "text";
+            row["value"] = field.text;
+            break;
+        case EDITOR_INTEGER_VALUE:
+            row["type"] = "integer";
+            row["value"] = field.integer;
+            break;
+        case EDITOR_REAL_VALUE:
+            Require(std::isfinite(field.real), "Non-finite view setting");
+            row["type"] = "real";
+            row["value"] = field.real;
+            break;
+        case EDITOR_TEXT_LIST:
+            row["type"] = "texts";
+            row["value"] = field.texts;
+            break;
+        case EDITOR_INTEGER_LIST:
+            row["type"] = "integers";
+            row["value"] = field.integers;
+            break;
+        case EDITOR_REAL_LIST:
+            Require(std::all_of(field.reals.begin(), field.reals.end(), [](double n) { return std::isfinite(n); }),
+                    "Non-finite view setting");
+            row["type"] = "reals";
+            row["value"] = field.reals;
+            break;
+        case EDITOR_RECORD:
+            row["type"] = "record";
+            row["value"] = StateFields(field.fields, row.value("value", Json::array()));
+            break;
+        default:
+            throw std::invalid_argument("Object references cannot be saved in workspace settings");
+        }
+        result.push_back(std::move(row));
+    }
+    return result;
+}
+WorkspaceState ReadWorkspace(const Json &raw) {
+    Require(raw.is_object() && Number(raw.at("version")) == 1, "Unsupported workspace version");
+    WorkspaceState state;
+    state.layout = Text(raw.value("layout", Json("")));
+    state.focused = Number(raw.value("focused", Json(0)));
+    const auto &config = raw.at("configuration");
+    Require(config.is_object(), "Invalid workspace configuration");
+    for (const auto &row : Array(config, "views")) {
+        WorkspaceViewPlacement v;
+        v.type = Identifier(row.at("type"));
+        v.role = Text(row.value("role", Json("")));
+        v.region = Text(row.value("region", Json("")));
+        v.startup = Boolean(row, "startup");
+        v.pinned = Boolean(row, "pinned");
+        v.keepOnReset = Boolean(row, "keep-on-reset");
+        const auto id = Number(row.value("window-id", Json(0)));
+        Require(id <= uint64_t(WorkspaceWindowId::Named), "Invalid window identity");
+        v.windowId = WorkspaceWindowId(id);
+        v.windowName = Text(row.value("window-name", Json("")));
+        state.configuration.views.push_back(std::move(v));
+    }
+    for (const auto &row : Array(config, "splits")) {
+        WorkspaceSplit s;
+        s.source = Text(row.at("source"));
+        s.first = Text(row.at("first"));
+        s.remainder = Text(row.at("remainder"));
+        const auto direction = Number(row.at("direction"));
+        Require(direction <= 3 && row.at("fraction").is_number(), "Invalid workspace split");
+        s.direction = WorkspaceDirection(direction);
+        s.fraction = row.at("fraction").get<float>();
+        state.configuration.splits.push_back(std::move(s));
+    }
+    for (const auto &row : Array(config, "regions"))
+        state.configuration.regions.push_back(
+            {Text(row.at("id")), Text(row.value("anchor-role", Json(""))), Text(row.value("anchor-window", Json("")))});
+    for (const auto &row : Array(config, "legacy"))
+        state.configuration.legacyWindows.push_back(
+            {Text(row.at("name")), Text(row.at("region")), Boolean(row, "contains"), Boolean(row, "keep-on-reset")});
+    for (const auto &row : Array(raw, "views")) {
+        WorkspaceViewState v;
+        v.instance = Number(row.at("instance"));
+        v.type = Identifier(row.at("type"));
+        v.provider = Text(row.value("provider", Json("")));
+        v.module = Text(row.value("module", Json("")));
+        v.title = Text(row.value("title", Json("")));
+        v.role = Text(row.value("role", Json("")));
+        v.open = Boolean(row, "open", true);
+        v.pinned = Boolean(row, "pinned");
+        v.single = Boolean(row, "single");
+        const auto version = Number(row.value("state-version", Json(0)));
+        Require(version <= UINT32_MAX, "Invalid view state version");
+        v.version = uint32_t(version);
+        v.settings = StateFields(row.value("settings", Json::array()));
+        if (row.contains("placement")) {
+            const auto &p = row.at("placement");
+            Require(p.is_object(), "Invalid window placement");
+            v.placed = true;
+            for (const auto *key : {"x", "y", "width", "height"})
+                Require(p.at(key).is_number(), "Invalid window position");
+            v.x = p.at("x").get<float>();
+            v.y = p.at("y").get<float>();
+            v.width = p.at("width").get<float>();
+            v.height = p.at("height").get<float>();
+            const auto dock = Number(p.value("dock", Json(0)));
+            Require(dock <= UINT32_MAX, "Invalid dock ID");
+            v.dock = unsigned(dock);
+        }
+        state.views.push_back(std::move(v));
+    }
+    std::string error;
+    Require(ValidateWorkspaceState(state, error), error);
+    return state;
+}
+Json WriteWorkspace(const WorkspaceState &state, Json raw) {
+    if (!raw.is_object())
+        raw = Json::object();
+    raw["version"] = 1;
+    raw["layout"] = state.layout;
+    raw["focused"] = state.focused;
+    auto config = raw.value("configuration", Json::object());
+    const auto rows = [&](const char *key, const auto &source, auto make, auto same) {
+        Json result = Json::array();
+        for (const auto &entry : source) {
+            Json row = Json::object();
+            for (const auto &old : Array(config, key))
+                if (same(old, entry)) {
+                    row = old;
+                    break;
+                }
+            make(row, entry);
+            result.push_back(std::move(row));
+        }
+        return result;
+    };
+    config["views"] = rows(
+        "views", state.configuration.views,
+        [](auto &r, const auto &v) {
+            r["type"] = v.type;
+            r["role"] = v.role;
+            r["region"] = v.region;
+            r["startup"] = v.startup;
+            r["pinned"] = v.pinned;
+            r["keep-on-reset"] = v.keepOnReset;
+            r["window-id"] = int(v.windowId);
+            r["window-name"] = v.windowName;
+        },
+        [](const auto &r, const auto &v) {
+            return r.at("type") == v.type && r.value("role", std::string{}) == v.role;
+        });
+    config["splits"] = rows(
+        "splits", state.configuration.splits,
+        [](auto &r, const auto &s) {
+            r["source"] = s.source;
+            r["first"] = s.first;
+            r["remainder"] = s.remainder;
+            r["direction"] = int(s.direction);
+            r["fraction"] = s.fraction;
+        },
+        [](const auto &r, const auto &s) { return r.at("source") == s.source; });
+    config["regions"] = rows(
+        "regions", state.configuration.regions,
+        [](auto &r, const auto &s) {
+            r["id"] = s.id;
+            r["anchor-role"] = s.anchorRole;
+            r["anchor-window"] = s.anchorWindow;
+        },
+        [](const auto &r, const auto &s) { return r.at("id") == s.id; });
+    config["legacy"] = rows(
+        "legacy", state.configuration.legacyWindows,
+        [](auto &r, const auto &s) {
+            r["name"] = s.name;
+            r["region"] = s.region;
+            r["contains"] = s.contains;
+            r["keep-on-reset"] = s.keepOnReset;
+        },
+        [](const auto &r, const auto &s) { return r.at("name") == s.name; });
+    raw["configuration"] = std::move(config);
+    Json views = Json::array();
+    for (const auto &v : state.views) {
+        Json row = Json::object();
+        for (const auto &old : Array(raw, "views"))
+            if (old.at("instance") == v.instance) {
+                row = old;
+                break;
+            }
+        row["instance"] = v.instance;
+        row["type"] = v.type;
+        row["provider"] = v.provider;
+        row["module"] = v.module;
+        row["title"] = v.title;
+        row["role"] = v.role;
+        row["open"] = v.open;
+        row["pinned"] = v.pinned;
+        row["single"] = v.single;
+        row["state-version"] = v.version;
+        row["settings"] = StateFields(v.settings, row.value("settings", Json::array()));
+        if (v.placed) {
+            auto p = row.value("placement", Json::object());
+            p["x"] = v.x;
+            p["y"] = v.y;
+            p["width"] = v.width;
+            p["height"] = v.height;
+            p["dock"] = v.dock;
+            row["placement"] = std::move(p);
+        } else
+            row.erase("placement");
+        views.push_back(std::move(row));
+    }
+    raw["views"] = std::move(views);
+    return raw;
+}
 Json Parse(const std::string &text) {
     Require(text.size() <= MaximumSize, "Profile exceeds the size limit");
     std::vector<std::set<std::string>> keys;
@@ -86,8 +367,17 @@ struct EditorProfile::Data {
     Preferences settings;
     std::vector<EditorModuleSetting> modules;
     EditorConfiguration contributions;
+    std::unique_ptr<WorkspaceState> workspace;
+    Data() = default;
+    Data(const Data &other)
+        : raw(other.raw), path(other.path), settings(other.settings), modules(other.modules),
+          contributions(other.contributions),
+          workspace(other.workspace ? std::make_unique<WorkspaceState>(*other.workspace) : nullptr) {}
+    Data &operator=(Data &&) noexcept = default;
     void Read() {
         modules.clear(); contributions = {}; settings = Preferences{};
+        workspace =
+            raw.contains("workspace") ? std::make_unique<WorkspaceState>(ReadWorkspace(raw.at("workspace"))) : nullptr;
         std::set<std::string> ids;
         for (const auto &row : Array(raw, "modules")) {
             auto setting = ModuleSetting(row);
@@ -226,6 +516,23 @@ EditorConfiguration EditorProfile::Contributions() const {
     for (size_t i = 0; i < bindings.size(); ++i) if (!deferred(bindings[i])) result.bindings.push_back(m_Data->contributions.bindings[i]);
     for (size_t i = 0; i < menus.size(); ++i) if (!deferred(menus[i])) result.menus.push_back(m_Data->contributions.menus[i]);
     return result;
+}
+const WorkspaceState *EditorProfile::Workspace() const {
+    return m_Data->workspace.get();
+}
+bool EditorProfile::SetWorkspace(const WorkspaceState &state, std::string &error) {
+    try {
+        Require(ValidateWorkspaceState(state, error), error);
+        Data next = *m_Data;
+        next.raw["workspace"] = WriteWorkspace(state, next.raw.value("workspace", Json::object()));
+        next.Read();
+        *m_Data = std::move(next);
+        error.clear();
+        return true;
+    } catch (const std::exception &failure) {
+        error = failure.what();
+        return false;
+    }
 }
 bool EditorProfile::SetModule(const EditorModuleSetting &setting, std::string &error) {
     try {

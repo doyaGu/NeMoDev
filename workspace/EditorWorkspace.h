@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 #include "application/EditorApplication.h"
-#include "workspace/WorkspaceConfiguration.h"
+#include "application/WorkspaceState.h"
 
 namespace vdev {
 // Windows keep only their input's ID. Drafts, chosen editors and native target
