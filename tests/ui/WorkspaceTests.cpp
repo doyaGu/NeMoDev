@@ -543,11 +543,36 @@ void RegisterWorkspaceTests(ImGuiTestEngine *engine) {
         ctx->WindowFocus(Window(view).c_str());
         ctx->ItemDoubleClick((Window(view) + "/**/One.nms").c_str()); ctx->Yield(4);
         OnMainThread(ctx, [&] {
+            auto &app = App().State().workspace->Application();
+            const auto result = vdev::EditorClient(app.Host(), 0).Query("example.resource-target");
+            const auto *target = vdev::EditorClient::Find(result, "target");
+            IM_CHECK_NO_RET(
+                result.status == EDITOR_OK && target && target->object == script &&
+                vdev::SceneObjects(vdev::EditorClient(app.Host(), 0).Query("selection.objects"), "objects").empty());
+            IM_CHECK_NO_RET(Command("selection.restore",
+                                    {vdev::ObjectsArgument("objects", {App().State().document->Reference(owner)}),
+                                     vdev::IntegerArgument("locked", 1)})
+                                .status == EDITOR_OK);
+            auto &workspace = *App().State().workspace;
+            IM_CHECK_NO_RET(
+                Command("example.scene.navigate", {vdev::TextArgument("type", std::string("scene.level")),
+                                                   vdev::IntegerArgument("view", workspace.Role("main.level")),
+                                                   vdev::ObjectArgument("target", script)})
+                    .status == EDITOR_OK);
+        });
+        ctx->Yield(4);
+        ctx->WindowFocus(Window(view).c_str());
+        ctx->ItemDoubleClick((Window(view) + "/**/One.nms").c_str());
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
             auto &state = App().State(); auto &workspace = *state.workspace;
             const auto result = workspace.Application().Query("example.resource-target", {workspace.Application().Scope(), nullptr, 0});
             const auto *target = vdev::EditorClient::Find(result, "target");
             IM_CHECK_NO_RET(result.status == EDITOR_OK && target && target->object == script);
-            IM_CHECK_NO_RET(state.objectSelection.References().empty() && state.History().UndoCount() == undo);
+            const auto selection = vdev::EditorClient(workspace.Application().Host(), 0).Query("selection.objects");
+            IM_CHECK_NO_RET(vdev::SceneObjects(selection, "objects") ==
+                                std::vector<vdev::ObjectRef>{state.document->Reference(owner)} &&
+                            vdev::EditorClient::Integer(selection, "locked") && state.History().UndoCount() == undo);
             std::string error;
             IM_CHECK_NO_RET(workspace.Configure(original, error) && workspace.Close(view));
             state.objectSelection.Reset();

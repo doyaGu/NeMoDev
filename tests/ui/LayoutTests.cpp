@@ -13,6 +13,7 @@
 
 #include "tests/ui/UiTests.h"
 #include "ui/render/UiRenderer.h"
+#include "features/layout/LayoutSceneData.h"
 
 namespace vdevuitest {
 
@@ -136,6 +137,82 @@ std::vector<CK_ID> OthersSelected(CK_ID entity) {
 
 void RegisterLayoutTests(ImGuiTestEngine *engine) {
     ImGuiTest *t = nullptr;
+
+    t = IM_REGISTER_TEST(engine, "layout", "locked_selection_background_gesture_cancel_undo_and_gpu");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK(SelectEntity(ctx, found));
+        auto &state = App().State();
+        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        vdev::LayoutSelectionData selected;
+        ImVec2 min, max, background(-1, -1);
+        IM_CHECK(App().Layout().ShownView(min, max));
+        size_t steps = 0;
+        bool dirty = false, redo = false;
+        uint64_t reads = 0, uploads = 0, allocations = 0;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 1)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(vdev::ReadLayoutSelection(client, selected) && selected.locked);
+            for (float x : {.05f, .95f})
+                for (float y : {.1f, .9f}) {
+                    EditorValue px{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, py{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
+                    px.real = (max.x - min.x) * x;
+                    py.real = (max.y - min.y) * y;
+                    const auto pick =
+                        client.Query("layout.pick-object", {px, py, vdev::IntegerArgument("class", CKCID_3DENTITY)});
+                    const auto *object = vdev::EditorClient::Find(pick, "object");
+                    if (pick.status == EDITOR_OK && object && !object->object)
+                        background = {min.x + float(px.real), min.y + float(py.real)};
+                }
+            steps = state.History().UndoCount();
+            dirty = state.document->Dirty();
+            redo = state.History().CanRedo();
+            reads = App().Layout().View().ReadbackFrames();
+            uploads = App().Layout().ViewportUploadsForTests();
+            allocations = App().Layout().GpuViewportCreationsForTests();
+        });
+        IM_CHECK(background.x >= 0);
+        ctx->MouseMoveToPos(background);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_D);
+        ctx->KeyPress(ImGuiKey_X);
+        ctx->Yield(2);
+        const auto before = WorldMatrix(ctx, found.entity);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({background.x + 35, background.y});
+        IM_CHECK(!Same(WorldMatrix(ctx, found.entity), before));
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
+        OnMainThread(ctx, [&] {
+            vdev::LayoutSelectionData now;
+            IM_CHECK_NO_RET(vdev::ReadLayoutSelection(client, now) && now.objects == selected.objects && now.locked);
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.History().CanRedo() == redo &&
+                            state.document->Dirty() == dirty);
+        });
+        DragFrom(ctx, background, 35, 0);
+        const auto moved = WorldMatrix(ctx, found.entity);
+        IM_CHECK(!Same(moved, before));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(state.History().UndoCount() == steps + 1);
+            IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK);
+        });
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), before));
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(client.Command("history.redo").status == EDITOR_OK); });
+        IM_CHECK(Same(WorldMatrix(ctx, found.entity), moved));
+        OnMainThread(ctx, [&] {
+            vdev::LayoutSelectionData now;
+            IM_CHECK_NO_RET(vdev::ReadLayoutSelection(client, now) && now.objects == selected.objects && now.locked);
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == reads &&
+                            App().Layout().ViewportUploadsForTests() == uploads &&
+                            App().Layout().GpuViewportCreationsForTests() == allocations);
+            IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
+        });
+    };
 
     t = IM_REGISTER_TEST(engine, "layout", "workspace_close_restores_gesture_and_reopens_gpu_view");
     t->GuiFunc = MainThreadGui;

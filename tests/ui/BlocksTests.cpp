@@ -10,6 +10,7 @@
 #include <optional>
 
 #include "tests/ui/UiTests.h"
+#include "features/layout/LayoutSceneData.h"
 
 namespace vdevuitest {
 
@@ -245,6 +246,72 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         Undo(ctx);
         for (size_t i = 0; i < entities.size(); ++i) IM_CHECK_EQ(BlocksOn(ctx, entities[i]), before[i]);
         IM_CHECK(!App().State().document->Dirty());
+    };
+    t = IM_REGISTER_TEST(engine, "blocks", "locked_selection_multi_drop_confirm_cancel_and_undo");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK(SelectEntity(ctx, found));
+        auto &state = App().State();
+        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        std::vector<vdev::ObjectRef> objects;
+        OnMainThread(ctx, [&] {
+            vdev::LayoutSceneData scene;
+            IM_CHECK_NO_RET(vdev::ReadLayoutScene(client, "explorer", scene));
+            for (const auto &row : scene.rows)
+                if (row.object.object == found.entity)
+                    objects.push_back(row.object);
+            IM_CHECK_NO_RET(objects.size() == 1);
+            for (const auto &row : scene.rows)
+                if (row.object != objects.front() && CKIsChildClassOf(row.cid, CKCID_3DENTITY)) {
+                    objects.push_back(row.object);
+                    break;
+                }
+            IM_CHECK_NO_RET(objects.size() == 2);
+        });
+        Filter(ctx, BLOCK);
+        for (bool locked : {false, true}) {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(client
+                                    .Command("selection.restore", {vdev::ObjectsArgument("objects", objects),
+                                                                   vdev::IntegerArgument("locked", locked)})
+                                    .status == EDITOR_OK);
+            });
+            for (bool accept : {false, true}) {
+                const int first = BlocksOn(ctx, objects[0].object), second = BlocksOn(ctx, objects[1].object);
+                size_t steps = 0;
+                bool dirty = false, redo = false;
+                OnMainThread(ctx, [&] {
+                    steps = state.History().UndoCount();
+                    dirty = state.document->Dirty();
+                    redo = state.History().CanRedo();
+                });
+                DragBlockTo(ctx, found.at);
+                IM_CHECK(ctx->GetWindowByRef("//###DropParameters"));
+                ctx->KeyPress(accept ? ImGuiKey_Enter : ImGuiKey_Escape);
+                ctx->Yield(4);
+                IM_CHECK(BlocksOn(ctx, objects[0].object) == first + int(accept));
+                IM_CHECK(BlocksOn(ctx, objects[1].object) == second + int(accept));
+                OnMainThread(ctx, [&] {
+                    const auto selection = client.Query("selection.objects");
+                    const auto *selected = vdev::EditorClient::Find(selection, "objects");
+                    IM_CHECK_NO_RET(selected && selected->objects == objects &&
+                                    bool(vdev::EditorClient::Integer(selection, "locked")) == locked);
+                    IM_CHECK_NO_RET(!state.document->EditOpen() &&
+                                    state.History().UndoCount() == steps + unsigned(accept));
+                    if (accept)
+                        IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK);
+                    else
+                        IM_CHECK_NO_RET(state.document->Dirty() == dirty && state.History().CanRedo() == redo);
+                });
+                ctx->Yield(3);
+                IM_CHECK(BlocksOn(ctx, objects[0].object) == first && BlocksOn(ctx, objects[1].object) == second);
+            }
+        }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
+        });
     };
 }
 
