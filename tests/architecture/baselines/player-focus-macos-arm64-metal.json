@@ -1,0 +1,135 @@
+{
+  "description": "Native Player focus loss on macOS arm64 / Metal; performance acceptance remains deferred.",
+  "base_revision": "25da4cc935a6304f5e7b7d9ec151568e3b3c3d61",
+  "changes": [
+    "Prevent the render window from regaining focus during fullscreen exit; restore focusability on every return path.",
+    "Restore a minimized render window on fullscreen entry.",
+    "Ignore queued focus loss after the render window has regained focus; continue processing close requests.",
+    "Prepare the native focus target before fullscreen and inspect actual OS focus separately from SDL cached focus."
+  ],
+  "checks": {
+    "release_build": {
+      "passed": true,
+      "log": "out/player-focus/build-release.log",
+      "last_ui_build": "out/player-focus/build-prepared-target.log"
+    },
+    "reference_regressions": {
+      "junit": "out/player-focus/reference-final-tests.xml",
+      "sha256": "411db89c8241a6d02b282d58c0fd4ebb3f14d1223e7c8bef16ca71cae3c5cda4",
+      "executed": 2,
+      "passed": 0,
+      "failures": [
+        {
+          "case": "fullscreen_delayed_focus_loss_and_close",
+          "message": "[0391] Error PlayerTests.cpp:378 'Read<bool>(ctx, [] { return App().Layout().FullScreen() && App().Layout().PlayerMode() && NativeFocus(RenderWindow()); })'"
+        },
+        {
+          "case": "fullscreen_focus_loss_keeps_foreground",
+          "message": "[0579] Error PlayerTests.cpp:441 'Until(ctx, [&] { return NativeFocus(session.other); })'"
+        }
+      ]
+    },
+    "fixed_regressions": {
+      "junit": "out/player-focus/player-prepared-1.xml",
+      "cases_passed": [
+        "fullscreen_delayed_focus_loss_and_close",
+        "fullscreen_focus_loss_keeps_foreground"
+      ],
+      "loss_cycles": 6,
+      "minimize_policies": [
+        false,
+        true
+      ],
+      "extra_viewport_readbacks": 0,
+      "extra_viewport_uploads": 0
+    },
+    "related_ctest": {
+      "total": 3,
+      "passed": 3,
+      "junit": "out/player-focus/related-native.xml",
+      "log": "out/player-focus/related-native.log"
+    },
+    "architecture_tests": {
+      "total": 43,
+      "passed": 43,
+      "log": "out/player-focus/architecture-tests.log"
+    },
+    "native_full_group": {
+      "junit": "out/player-focus/player-prepared-1.xml",
+      "sha256": "de5d5fb6d89bdbe37d389e6c78ba19bca5e8af9dd14af25a039135db23f16018",
+      "executed": 6,
+      "passed": 5,
+      "failures": [
+        {
+          "case": "fullscreen_roundtrip_focus",
+          "message": "[1294] Error PlayerTests.cpp:688 'std::fabs(mouse.x - (at.x - min.x)) < 2 && std::fabs(mouse.y - (at.y - min.y)) < 2'"
+        }
+      ]
+    },
+    "earlier_full_groups": [
+      {
+        "junit": "out/player-focus/player-green-1.xml",
+        "sha256": "8901a67cc0cf209207ed763403fda5b069ab2c1766d26fe049a85bef48c62b2e",
+        "executed": 6,
+        "passed": 5,
+        "failures": [
+          {
+            "case": "fullscreen_roundtrip_focus",
+            "message": "[1900] Error PlayerTests.cpp:663 'reacted'"
+          }
+        ]
+      },
+      {
+        "junit": "out/player-focus/player-green-2.xml",
+        "sha256": "7f23471b4d5509e2aa223df973f86289aa0a9e4bd0f3c353fcf540f710d4de60",
+        "executed": 6,
+        "passed": 6,
+        "failures": []
+      },
+      {
+        "junit": "out/player-focus/player-green-3.xml",
+        "sha256": "613ced7bfd5d57048e9e65fd0ef6358bc70c627dddeaa35c184f9e323026662f",
+        "executed": 6,
+        "passed": 5,
+        "failures": [
+          {
+            "case": "fullscreen_roundtrip_focus",
+            "message": "[1937] Error PlayerTests.cpp:708 'Until(ctx, [&] { return NativeFocus(session.other) && !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN); })'"
+          }
+        ]
+      }
+    ],
+    "sdk": {
+      "repositories_unchanged": 16,
+      "runtime_files_unchanged": 22,
+      "before": "out/player-focus/sdk-before.json",
+      "after": "out/player-focus/sdk-after.json"
+    },
+    "gpu": {
+      "layout_window_and_other_protected_files_unchanged": true,
+      "layout_view_changes_limited_to": [
+        "GoFullScreen",
+        "StopFullScreen"
+      ],
+      "before": "out/player-focus/gpu-before.json",
+      "after": "out/player-focus/gpu-after.json"
+    },
+    "source_sha256": {
+      "core/layout/LayoutView.cpp": "b385aa1adf3e459527d78cb287f6dc8adb86c31fcd47b70cc09ab757001609e5",
+      "ui/layout/LayoutFullScreen.cpp": "12a5f9943368a88747e871c447c83f68c24d6268160c54215a42ecb249b4a88b",
+      "tests/ui/PlayerTests.cpp": "3e8dcc46f666d04fc17b7e6109d01ecb1e8af67f98299a462a18b4106702a6ed",
+      "tests/architecture/README.md": "1d2f3a31401b95b6910c95f3350708a788d15006172e01123eaeecd7aa700fac"
+    }
+  },
+  "diagnostics": {
+    "original_no_minimize_failure": "out/player-focus/red-no-minimize.err",
+    "cached_and_actual_focus_comparison": "out/player-focus/native-probe.err",
+    "sandbox_ctest_attempt": "out/player-focus/related.log",
+    "rejected_build_attempt": "out/player-focus/build-queued-focus.log",
+    "run_against_previous_binary_not_used": "out/player-focus/queued-green.xml"
+  },
+  "remaining": [
+    "The full native Player suite is not accepted as completely passing: existing mouse-coordinate and Script-key-response checks fluctuated. Investigation was bounded at the user request.",
+    "Performance acceptance remains deferred; no thresholds changed."
+  ]
+}
