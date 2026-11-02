@@ -2,6 +2,7 @@
 #include "core/document/Document.h"
 #include "core/document/ToolCommands.h"
 #include "core/level/LevelCommands.h"
+#include "core/document/SaveFileOperations.h"
 #include "editor/ImGuiDrawing.h"
 #include "features/resources/DataResourceCommands.h"
 #include "features/resources/DataResourceViews.h"
@@ -9,6 +10,7 @@
 #include "workspace/EditorWorkspace.h"
 #include "workspace/ResourceDrag.h"
 #include <filesystem>
+#include <chrono>
 #include <fstream>
 #include <stdexcept>
 #include <thread>
@@ -60,6 +62,33 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     fs::remove_all(root);
     fs::create_directories(root);
     Remove cleanup{root};
+    struct CreateFailure : SaveFileOperations {
+        unsigned calls = 0, fail = 0;
+        std::error_code Replace(const fs::path &from, const fs::path &to, bool overwrite) override {
+            if (++calls == fail) return std::make_error_code(std::errc::io_error);
+            return SaveFileOperations::Replace(from, to, overwrite);
+        }
+    } creation;
+    const auto existing = (root / "retained.rsc").u8string();
+    Check(CreateDataResource(existing, &error), error.c_str());
+    const auto retained = root / "retained";
+    { std::ofstream keep(retained / "Keep.txt"); keep << "Existing resource data"; }
+    std::map<fs::path, std::string> previousResourceFiles;
+    previousResourceFiles[fs::u8path(existing)] = Bytes(existing);
+    for (const auto &entry : fs::recursive_directory_iterator(retained))
+        if (entry.is_regular_file()) previousResourceFiles[entry.path()] = Bytes(entry.path().u8string());
+    for (unsigned failed = 1; failed <= 10; ++failed) {
+        creation.calls = 0; creation.fail = failed;
+        Check(!CreateDataResource(existing, &error, &creation) && !error.empty(), "resource creation ignored a publication failure");
+        for (const auto &file : previousResourceFiles)
+            Check(Bytes(file.first.u8string()) == file.second, "failed resource creation changed an existing file");
+        const auto fresh = (root / "fresh.rsc").u8string();
+        creation.calls = 0;
+        Check(!CreateDataResource(fresh, &error, &creation) && !fs::exists(fs::u8path(fresh)) && !fs::exists(root / "fresh"),
+              "failed resource creation retained newly created files or folders");
+    }
+    for (const auto &entry : fs::recursive_directory_iterator(root))
+        Check(entry.path().filename().u8string().find(".nemodev-save-") != 0, "resource creation leaked a temporary file");
     const auto library = (root / fs::u8path("素材.rsc")).u8string();
     Check(CreateDataResource(library, &error), error.c_str());
     const auto folder = (root / fs::u8path("素材/Behavior Graphs")).u8string();
@@ -76,10 +105,50 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     Check(WriteBehaviorDescription(behavior, description), "write description fixture");
     int changes = 0;
     resources.changed = [&] { ++changes; };
-    const auto opened = client.Command("resource.open-library", {TextArgument("path", library)});
+    const auto finish = [&](EditorResponse result) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (result.status == EDITOR_QUEUED && std::chrono::steady_clock::now() < deadline) {
+            resources.Poll();
+            const auto operation = result.operation;
+            result = client.Completion(operation);
+            if (result.status == EDITOR_QUEUED) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        Check(result.status != EDITOR_QUEUED, "resource scan did not complete");
+        return result;
+    };
+    const auto scanning = client.Command("resource.open-library", {TextArgument("path", library)});
+    Check(scanning.status == EDITOR_QUEUED && !resources.Busy() && workspace.ViewCount() == 0,
+          "directory scanning blocked the caller or native rendering");
+    native = false;
+    resources.Poll();
+    Check(client.Completion(scanning.operation).status == EDITOR_QUEUED &&
+          client.Completion(scanning.operation).operation == scanning.operation && workspace.ViewCount() == 0,
+          "scan published native paths while the runtime was unavailable");
+    native = true;
+    const auto opened = finish(scanning);
     const auto first = EditorClient::Integer(opened, "view");
-    Check(opened.status == EDITOR_OK && first && workspace.ViewCount() == 1,
-          "open library did not create a registered view");
+    if (opened.status != EDITOR_OK || !first || workspace.ViewCount() != 1)
+        throw std::runtime_error("open library did not create a registered view: status=" + std::to_string(opened.status) +
+            " view=" + std::to_string(first) + " count=" + std::to_string(workspace.ViewCount()) + " " + opened.message);
+    const auto refreshOne = client.Command("resource.refresh-library", {TextArgument("path", library)});
+    const auto refreshTwo = client.Command("resource.refresh-library", {TextArgument("path", library)});
+    Check(refreshOne.status == EDITOR_QUEUED && refreshTwo.status == EDITOR_QUEUED &&
+          client.Command("resource.open-library").status == EDITOR_REFUSED,
+          "resource scans did not queue independently of chooser input");
+    Check(finish(refreshOne).status == EDITOR_OK && finish(refreshTwo).status == EDITOR_OK,
+          "queued resource scans lost their completion");
+    const uint64_t importClasses[] = {CKCID_TEXTURE, CKCID_SPRITE, CKCID_SPRITE3D, CKCID_MESH};
+    for (uint64_t kind = 0; kind < 5; ++kind) {
+        const auto resolved = client.Query("resource.import-classes", {
+            {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {importClasses, 4}}, IntegerArgument("image-kind", kind)});
+        const uint64_t targets[] = {0, CKCID_TEXTURE, CKCID_SPRITE, CKCID_SPRITE3D, CKCID_2DENTITY};
+        const auto *classes = EditorClient::Find(resolved, "classes"), *images = EditorClient::Find(resolved, "images");
+        Check(resolved.status == EDITOR_OK && classes && images && classes->integers.size() == 4 &&
+              images->integers == std::vector<uint64_t>({1, 1, 1, 0}) && classes->integers[3] == CKCID_MESH,
+              "resource image classification changed non-image inputs");
+        for (size_t i = 0; i < 3; ++i) Check(classes->integers[i] == (kind ? targets[kind] : importClasses[i]),
+                                           "resource image modifier mapping differs from native imports");
+    }
     const auto again = client.Command("resource.open-library", {TextArgument("path", library)});
     Check(again.status == EDITOR_OK && EditorClient::Integer(again, "view") == first && workspace.ViewCount() == 1,
           "opening an existing library duplicated its view");
@@ -139,7 +208,7 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     std::thread other([&] { threadStatus = page(0).status; });
     other.join();
     Check(threadStatus == EDITOR_REFUSED, "resource query accepted wrong thread");
-    Check(client.Command("resource.open-library", {TextArgument("path", (root / "missing.rsc").u8string())}).status ==
+    Check(finish(client.Command("resource.open-library", {TextArgument("path", (root / "missing.rsc").u8string())})).status ==
                   EDITOR_ERROR &&
               workspace.ViewCount() == 2,
           "failed library open removed an existing view");
@@ -181,11 +250,12 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     const auto savedDescription = BehaviorDescriptionPath(behavior);
     fs::rename(fs::u8path(savedDescription), fs::u8path(savedDescription + ".keep"));
     fs::create_directory(fs::u8path(savedDescription));
+    const auto noticesBeforeFailure = notices.size();
     const auto failedWrite = information();
     Check(respond("accept").status == EDITOR_OK && client.Completion(failedWrite.operation).status == EDITOR_ERROR &&
               fs::is_directory(fs::u8path(savedDescription)),
           "failed resource description publication changed destination");
-    Check(notices.size() == 1 && notices.back().status == EDITOR_ERROR &&
+    Check(notices.size() == noticesBeforeFailure + 1 && notices.back().status == EDITOR_ERROR &&
               notices.back().message.find(behavior) != std::string::npos,
           "resource publication failure was not reported with its output path");
     fs::remove(fs::u8path(savedDescription));
@@ -198,16 +268,24 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     Check(client.Completion(abandoned.operation).status == EDITOR_CANCELLED &&
               client.Query("resource.input").status == EDITOR_NO_CHANGE,
           "closed view retained resource input");
+    const auto cancelledPath = (root / "Cancelled.rsc").u8string();
+    Check(CreateDataResource(cancelledPath, &error), error.c_str());
+    const auto scanOwner = workspace.Open("resource.data");
+    const auto cancelled = EditorClient(editor.Host(), scanOwner).Command("resource.open-library", {TextArgument("path", cancelledPath)});
+    Check(cancelled.status == EDITOR_QUEUED && workspace.Close(scanOwner), "prepare scan owner closure");
+    Check(finish(cancelled).status == EDITOR_CANCELLED && workspace.ViewCount() == 2 &&
+          client.Query("resource.library", {TextArgument("path", cancelledPath)}).status == EDITOR_STALE,
+          "closed view published a background resource scan");
     const auto originalRoot = root / fs::u8path("素材");
     fs::rename(originalRoot, root / "temporarily-missing");
-    Check(client.Command("resource.refresh-library", {TextArgument("path", library)}).status == EDITOR_ERROR &&
+    Check(finish(client.Command("resource.refresh-library", {TextArgument("path", library)})).status == EDITOR_ERROR &&
               page(0).status == EDITOR_OK,
           "failed resource refresh discarded published directory data");
     fs::rename(root / "temporarily-missing", originalRoot);
     std::error_code linkError;
     fs::create_directory_symlink(originalRoot, originalRoot / "cycle", linkError);
     if (!linkError) {
-        Check(client.Command("resource.refresh-library", {TextArgument("path", library)}).status == EDITOR_ERROR &&
+        Check(finish(client.Command("resource.refresh-library", {TextArgument("path", library)})).status == EDITOR_ERROR &&
                   page(0).status == EDITOR_OK,
               "recursive resource directory replaced published data");
         fs::remove(originalRoot / "cycle");
@@ -220,7 +298,7 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     Check(respond("cancel").status == EDITOR_OK && client.Completion(pending.operation).status == EDITOR_CANCELLED,
           "resource chooser cancel did not complete");
     const auto create =
-        client.Command("resource.create-library", {TextArgument("path", (root / "Created").u8string())});
+        finish(client.Command("resource.create-library", {TextArgument("path", (root / "Created").u8string())}));
     Check(create.status == EDITOR_OK && fs::exists(root / "Created.rsc"), "resource creation command failed");
     resources.Poll();
     Check(resources.OpenLibraries().size() == 2, "second library was not remembered");

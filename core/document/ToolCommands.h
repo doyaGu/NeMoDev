@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <functional>
 #include <vector>
 
 #include "CKAll.h"
@@ -11,6 +12,7 @@
 namespace vdev {
 
 class Document;
+class SaveFileOperations;
 
 // Dev's Resources, Editors and Options menu tools that are not Schematic
 // edits (Dev.exe and the language pack [Resources], [Check Objects],
@@ -38,10 +40,11 @@ struct DataResource {
 // and the folders Dev makes, with their markers: 2D Sprites (28), Behavior
 // Graphs (8), Characters (40) with Animations (16), 3D Entities (33) with
 // Animations (16), 3D Sprites (37), Textures (31) and Sounds (24).
-bool CreateDataResource(const std::string &file, std::string *error);
+bool CreateDataResource(const std::string &file, std::string *error, SaveFileOperations *operations = nullptr);
 // Reads the folder tree of a .rsc file (refused unless the file starts with
 // "Virtools RSC File").
-bool ReadDataResource(const std::string &file, DataResource &resource, std::string *error);
+bool ReadDataResource(const std::string &file, DataResource &resource, std::string *error,
+                      const std::function<bool()> &cancelled = {});
 // The class a folder's marker names, else 0 (Dev.exe sub_563570).
 // A folder's files leave out the behavior files' descriptions (.dsc).
 CK_CLASSID DataResourceFolderClass(const std::string &folder);

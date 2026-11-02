@@ -10,6 +10,9 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include "core/document/OutputFiles.h"
+#include "core/document/DocumentSaver.h"
 #include <map>
 #include <set>
 
@@ -33,24 +36,9 @@ std::string Lower(std::string text) {
     return text;
 }
 
-// Dev's marker: "%d\n%s\n", hidden (Dev.exe sub_57AB50).
-bool WriteMarker(const fs::path &folder, CK_CLASSID cid, const char *name) {
-    const fs::path marker = folder / "_marker_";
-    #ifdef _WIN32
-    FILE *file = _wfopen(marker.c_str(), L"wt");
-    #else
-    FILE *file = fopen(marker.u8string().c_str(), "wt");
-    #endif
-    if (!file) return false;
-    std::fprintf(file, "%d\n%s\n", static_cast<int>(cid), name);
-    std::fclose(file);
-    #ifdef _WIN32
-    SetFileAttributesW(marker.wstring().c_str(), FILE_ATTRIBUTE_HIDDEN);
-#endif
-    return true;
-}
-
-bool ReadFolder(DataResourceFolder &folder, std::set<fs::path> &ancestors, std::string *error) {
+bool ReadFolder(DataResourceFolder &folder, std::set<fs::path> &ancestors, std::string *error,
+                const std::function<bool()> &cancelled) {
+    if (cancelled && cancelled()) return false;
     folder.cid = DataResourceFolderClass(folder.path);
     std::error_code ec;
     const auto canonical = fs::weakly_canonical(fs::u8path(folder.path), ec);
@@ -64,6 +52,7 @@ bool ReadFolder(DataResourceFolder &folder, std::set<fs::path> &ancestors, std::
         ~Leave() { ancestors.erase(path); }
     } leave{ancestors, canonical};
     for (fs::directory_iterator it(fs::u8path(folder.path), ec), end; !ec && it != end; it.increment(ec)) {
+        if (cancelled && cancelled()) return false;
         const std::string name = it->path().filename().u8string();
         if (name == "_marker_" || name == "_nemo.dir") continue;
         const bool directory = it->is_directory(ec);
@@ -74,7 +63,7 @@ bool ReadFolder(DataResourceFolder &folder, std::set<fs::path> &ancestors, std::
             DataResourceFolder child;
             child.name = name;
             child.path = it->path().u8string();
-            if (!ReadFolder(child, ancestors, error)) return false;
+            if (!ReadFolder(child, ancestors, error, cancelled)) return false;
             folder.folders.push_back(std::move(child));
         } else {
             folder.files.push_back(name);
@@ -114,27 +103,29 @@ bool IsMovie(const std::string &path) {
 
 } // namespace
 
-bool CreateDataResource(const std::string &file, std::string *error) {
-    // Dev: the folder is the file name without ".rsc".
+bool CreateDataResource(const std::string &file, std::string *error, SaveFileOperations *operations) {
     fs::path rsc = fs::u8path(file);
     if (Lower(rsc.extension().u8string()) != ".rsc") rsc += ".rsc";
     fs::path root = rsc;
     root.replace_extension();
-    std::error_code ec;
-    fs::create_directories(root, ec);
-    #ifdef _WIN32
-    FILE *out = _wfopen(rsc.c_str(), L"wt");
-    #else
-    FILE *out = fopen(rsc.u8string().c_str(), "wt");
-    #endif
-    if (!out) {
-        if (error) *error = "Cannot write " + rsc.u8string();
-        return false;
-    }
-    std::fprintf(out, "Virtools RSC File 1.0\n");
-    std::fclose(out);
-    // Dev's folders ([CK]<Class Names 2>), in Dev's order, with their markers
-    // ([CK]<Class Names> for the marker text).
+    SaveReport report;
+    std::vector<fs::path> created;
+    const auto directory = [&](const fs::path &path) {
+        std::vector<fs::path> missing;
+        std::error_code ec;
+        auto parent = fs::absolute(path, ec);
+        while (!ec && !fs::exists(parent, ec)) {
+            missing.push_back(parent);
+            const auto next = parent.parent_path();
+            if (next == parent) break;
+            parent = next;
+        }
+        for (auto i = missing.rbegin(); !ec && i != missing.rend(); ++i)
+            if (fs::create_directory(*i, ec)) created.push_back(*i);
+        if (!ec && !fs::is_directory(path, ec)) ec = std::make_error_code(std::errc::not_a_directory);
+        if (ec) report.errors.push_back("Cannot create Data Resource folder " + path.u8string() + ": " + ec.message());
+        return !ec;
+    };
     struct Folder {
         const char *path;
         CK_CLASSID cid;
@@ -151,14 +142,45 @@ bool CreateDataResource(const std::string &file, std::string *error) {
         {"Textures", CKCID_TEXTURE, "Texture"},
         {"Sounds", CKCID_SOUND, "Sound"},
     };
-    for (const Folder &folder : folders) {
-        const fs::path path = root / folder.path;
-        fs::create_directories(path, ec);
-        if (!WriteMarker(path, folder.cid, folder.className)) {
-            if (error) *error = "Cannot write the marker of " + path.u8string();
-            return false;
+    bool success = false;
+    {
+        OutputFiles outputs(report, operations);
+        const auto write = [&](const fs::path &destination, const std::string &text) {
+            const auto candidate = outputs.Add(destination.u8string());
+            if (candidate.empty()) return false;
+            std::ofstream out(fs::u8path(candidate), std::ios::trunc);
+            out << text;
+            out.close();
+            if (!out) report.errors.push_back("Cannot write Data Resource file " + destination.u8string());
+            return bool(out);
+        };
+        success = directory(root) && write(rsc, "Virtools RSC File 1.0\n");
+        for (const auto &folder : folders) {
+            if (!success) break;
+            const auto path = root / folder.path;
+            success = directory(path) && write(path / "_marker_", std::to_string(folder.cid) + "\n" + folder.className + "\n");
         }
+        std::vector<std::string> written;
+        if (success) success = outputs.Publish(written);
     }
+    if (!success) {
+        // Remove only empty directories created by this operation. Existing
+        // resources, outside writes and retained recovery files remain intact.
+        for (auto i = created.rbegin(); i != created.rend(); ++i) {
+            std::error_code ignored;
+            fs::remove(*i, ignored);
+        }
+        if (error) {
+            error->clear();
+            for (const auto &text : report.errors) { if (!error->empty()) *error += "; "; *error += text; }
+            for (const auto &text : report.notes) { if (!error->empty()) *error += "; "; *error += text; }
+        }
+        return false;
+    }
+#ifdef _WIN32
+    for (const auto &folder : folders)
+        SetFileAttributesW((root / folder.path / "_marker_").c_str(), FILE_ATTRIBUTE_HIDDEN);
+#endif
     return true;
 }
 
@@ -178,7 +200,8 @@ CK_CLASSID DataResourceFolderClass(const std::string &folder) {
     return 0;
 }
 
-bool ReadDataResource(const std::string &file, DataResource &resource, std::string *error) {
+bool ReadDataResource(const std::string &file, DataResource &resource, std::string *error,
+                      const std::function<bool()> &cancelled) {
     resource = DataResource();
     #ifdef _WIN32
     FILE *in = _wfopen(fs::u8path(file).c_str(), L"rt");
@@ -203,7 +226,7 @@ bool ReadDataResource(const std::string &file, DataResource &resource, std::stri
     resource.root.name = root.filename().u8string();
     resource.root.path = root.u8string();
     std::set<fs::path> ancestors;
-    return ReadFolder(resource.root, ancestors, error);
+    return ReadFolder(resource.root, ancestors, error, cancelled);
 }
 
 int AddDataResourcePaths(CKContext *context, const DataResource &resource) {

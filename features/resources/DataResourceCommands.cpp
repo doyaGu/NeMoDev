@@ -6,6 +6,10 @@
 #include "core/runtime/TextEncoding.h"
 #include "workspace/EditorClient.h"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <future>
+#include <deque>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -57,6 +61,7 @@ struct DataResourceCommands::State {
     struct Library {
         DataResource native;
         std::vector<Folder> folders;
+        bool shown = false;
     };
     enum class Action { Open, Create, Refresh, Information, Respond, Browse };
     struct Pending {
@@ -75,6 +80,18 @@ struct DataResourceCommands::State {
         State *self;
         std::string id;
     };
+    struct ScanResult { Library library; std::string error; bool ok = false, written = false; };
+    struct Scan {
+        EditorOperation operation = 0;
+        EditorScope origin{};
+        EditorView view = 0;
+        std::string path;
+        bool refresh = false;
+        std::shared_ptr<std::atomic<bool>> cancelled;
+        std::future<ScanResult> result;
+        std::function<ScanResult()> work;
+    } scan;
+    std::deque<Scan> scans;
     EditorApplication &editor;
     CkRuntimeHost &runtime;
     std::function<bool()> nativeAvailable;
@@ -88,15 +105,25 @@ struct DataResourceCommands::State {
     State(EditorApplication &editor, CkRuntimeHost &runtime, std::function<bool()> available)
         : editor(editor), runtime(runtime), nativeAvailable(std::move(available)) {}
     bool NativeReady() const { return nativeAvailable ? nativeAvailable() : editor.NativeAvailable(); }
+    bool CanRun(Action action, const EditorRequest &request) const {
+        if (stopped) return false;
+        if (action == Action::Respond || action == Action::Browse) return true;
+        if (pending.operation) return false;
+        if (scan.operation && (action == Action::Information ||
+            ((action == Action::Open || action == Action::Create) && !Field(request, "path").text.size))) return false;
+        return true;
+    }
 
-    static void Append(Library &library, const DataResourceFolder &native, uint64_t parent = 0) {
+    static bool Append(Library &library, const DataResourceFolder &native, const std::function<bool()> &cancelled,
+                       uint64_t parent = 0) {
+        if (cancelled && cancelled()) return false;
         Folder folder;
         folder.name = native.name;
         folder.path = native.path;
-        folder.type = ClassName(native.cid);
         folder.parent = parent;
         folder.cid = native.cid;
         for (const auto &name : native.files) {
+            if (cancelled && cancelled()) return false;
             File file;
             file.name = name;
             file.path = (std::filesystem::u8path(native.path) / std::filesystem::u8path(name)).u8string();
@@ -105,7 +132,6 @@ struct DataResourceCommands::State {
                            [](unsigned char c) { return char(std::tolower(c)); });
             file.behavior = extension == ".nms";
             file.described = file.behavior && ReadBehaviorDescription(file.path, file.native);
-            file.type = ClassName(file.native.cid);
             file.author = AnsiToUtf8(file.native.author);
             file.description = AnsiToUtf8(file.native.description);
             if (file.described)
@@ -115,28 +141,45 @@ struct DataResourceCommands::State {
         library.folders.push_back(std::move(folder));
         const auto index = library.folders.size();
         for (const auto &child : native.folders)
-            Append(library, child, index);
-    }
-    bool Read(const std::string &path, Library &library, std::string &error) {
-        if (!ReadDataResource(path, library.native, &error))
-            return false;
-        Append(library, library.native.root);
+            if (!Append(library, child, cancelled, index)) return false;
         return true;
+    }
+    static bool Read(const std::string &path, Library &library, std::string &error,
+                     const std::function<bool()> &cancelled = {}) {
+        if (!ReadDataResource(path, library.native, &error, cancelled))
+            return false;
+        return Append(library, library.native.root, cancelled);
+    }
+    EditorStatus BeginScan(const EditorRequest &request, std::string path, EditorView view, bool create, bool refresh) {
+        if (create) {
+            auto extension = std::filesystem::u8path(path).extension().u8string();
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                           [](unsigned char c) { return char(std::tolower(c)); });
+            if (extension != ".rsc") path += ".rsc";
+        }
+        auto cancelled = std::make_shared<std::atomic<bool>>(false);
+        std::function<ScanResult()> work = [path, create, cancelled] {
+            ScanResult result;
+            if (cancelled->load()) return result;
+            if (create) result.written = CreateDataResource(path, &result.error);
+            if ((!create || result.written) && !cancelled->load())
+                result.ok = Read(path, result.library, result.error, [cancelled] { return cancelled->load(); });
+            return result;
+        };
+        Scan next{request.operation, request.scope, view, std::move(path), refresh, std::move(cancelled), {}, std::move(work)};
+        if (scan.operation) scans.push_back(std::move(next));
+        else {
+            next.result = std::async(std::launch::async, std::move(next.work));
+            scan = std::move(next);
+        }
+        return EDITOR_QUEUED;
     }
     EditorStatus Open(const EditorHost *host, const EditorRequest &request, const std::string &path, EditorView view,
                       EditorSink sink, bool create) {
         std::string file = Absolute(path), error;
         if (file.empty())
             return EDITOR_INVALID;
-        if (create) {
-            if (!CreateDataResource(file, &error))
-                return Write(sink, {TextArgument("message", error)}), EDITOR_ERROR;
-            auto extension = std::filesystem::u8path(file).extension().u8string();
-            std::transform(extension.begin(), extension.end(), extension.begin(),
-                           [](unsigned char c) { return char(std::tolower(c)); });
-            if (extension != ".rsc")
-                file += ".rsc";
-        }
+        if (create) return BeginScan(request, file, view, true, false);
         auto found = libraries.find(file);
         if (found == libraries.end()) {
             found = std::find_if(libraries.begin(), libraries.end(),
@@ -144,17 +187,8 @@ struct DataResourceCommands::State {
             if (found != libraries.end())
                 file = found->first;
         }
-        const bool added = found == libraries.end();
-        if (added) {
-            Library library;
-            if (!Read(file, library, error)) {
-                Write(sink,
-                      {TextArgument("path", file), IntegerArgument("written", create), TextArgument("message", error)});
-                return EDITOR_ERROR;
-            }
-            found = libraries.emplace(file, std::move(library)).first;
-            ++revision;
-        }
+        if (found == libraries.end()) return BeginScan(request, file, view, false, false);
+        const bool added = !found->second.shown;
         bool created = false;
         if (!view) {
             EditorClient client(host, request.scope.view);
@@ -186,6 +220,7 @@ struct DataResourceCommands::State {
                 ++revision;
             }
         } else {
+            found->second.shown = true;
             const auto count = AddDataResourcePaths(runtime.Context(), found->second.native);
             if (added) {
                 const auto message =
@@ -221,7 +256,7 @@ struct DataResourceCommands::State {
         Publish(operation, std::move(result));
     }
     EditorStatus Run(Action action, const EditorHost *host, const EditorRequest &request, EditorSink sink) {
-        if (stopped)
+        if (!CanRun(action, request))
             return EDITOR_REFUSED;
         if (action == Action::Browse) {
             const EditorValue values[] = {Field(request, "path"), Field(request, "folder"), Field(request, "files")};
@@ -271,12 +306,13 @@ struct DataResourceCommands::State {
                                 read.description == description.description && outputs.Publish(written);
                 const auto path = pending.path;
                 if (ok) {
-                    for (auto &library : libraries) {
-                        Library replacement;
-                        std::string error;
-                        if (Read(library.first, replacement, error))
-                            library.second = std::move(replacement);
-                    }
+                    for (auto &library : libraries) for (auto &folder : library.second.folders)
+                        for (auto &file : folder.files) if (file.path == path) {
+                            file.native = description; file.described = true;
+                            file.author = AnsiToUtf8(description.author);
+                            file.description = AnsiToUtf8(description.description);
+                            file.version = Version(description.version);
+                        }
                     ++revision;
                 }
                 Complete(ok ? EDITOR_OK : EDITOR_ERROR, ok ? "" : "Cannot write Behavior Information: " + path,
@@ -302,7 +338,7 @@ struct DataResourceCommands::State {
                     break;
                 }
             pending = {};
-            Publish(saved.operation, std::move(result));
+            if (result.status != EDITOR_QUEUED) Publish(saved.operation, std::move(result));
             return EDITOR_OK;
         }
         if (pending.operation)
@@ -324,13 +360,7 @@ struct DataResourceCommands::State {
             const auto found = libraries.find(path);
             if (found == libraries.end())
                 return EDITOR_STALE;
-            Library replacement;
-            std::string error;
-            if (!Read(path, replacement, error))
-                return Write(sink, {TextArgument("message", error)}), EDITOR_ERROR;
-            found->second = std::move(replacement);
-            ++revision;
-            return EDITOR_OK;
+            return BeginScan(request, path, 0, false, true);
         }
         for (const auto &library : libraries)
             for (const auto &folder : library.second.folders)
@@ -481,13 +511,9 @@ bool DataResourceCommands::Register(std::string &error) {
                                 return handler.self->Run(handler.action, host, *request, sink);
                             },
                             &s.handlers[i], EDITOR_WORKSPACE, i >= 4 ? EDITOR_SESSION_CHANGE : EDITOR_FILE_OPERATION,
-                            [](void *data, const EditorHost *, const EditorRequest *) {
+                            [](void *data, const EditorHost *, const EditorRequest *request) {
                                 const auto &handler = *static_cast<State::Handler *>(data);
-                                return !handler.self->stopped && (!handler.self->pending.operation ||
-                                                                  handler.action == State::Action::Respond ||
-                                                                  handler.action == State::Action::Browse)
-                                           ? EDITOR_OK
-                                           : EDITOR_REFUSED;
+                                return handler.self->CanRun(handler.action, *request) ? EDITOR_OK : EDITOR_REFUSED;
                             }});
     }
     const EditorParameter inputFields[] = {
@@ -542,6 +568,28 @@ bool DataResourceCommands::Register(std::string &error) {
              i < 3 ? nullptr
                    : +[](void *data,
                          const EditorHost *) { return static_cast<State::QueryHandler *>(data)->self->revision; }});
+    const EditorParameter importArgs[] = {{EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST},
+                                          {EDITOR_TEXT("image-kind"), EDITOR_INTEGER_VALUE}};
+    const EditorParameter importFields[] = {{EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST},
+                                            {EDITOR_TEXT("images"), EDITOR_INTEGER_LIST}};
+    queries.push_back({sizeof(EditorQueryDesc), EDITOR_TEXT("resource.import-classes"), EDITOR_TEXT("builtin.resources"),
+        importArgs, 2, [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+            if (static_cast<State *>(data)->stopped) return EDITOR_STALE;
+            const auto kind = Field(*request, "image-kind").integer;
+            const auto input = Field(*request, "classes").integers;
+            if (kind > 4) return EDITOR_INVALID;
+            const uint64_t targets[] = {0, CKCID_TEXTURE, CKCID_SPRITE, CKCID_SPRITE3D, CKCID_2DENTITY};
+            std::vector<uint64_t> classes, images;
+            for (uint32_t i = 0; i < input.count; ++i) {
+                const auto cid = input.data[i];
+                if (cid > INT32_MAX) return EDITOR_INVALID;
+                const bool image = cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D;
+                classes.push_back(image && kind ? targets[kind] : cid); images.push_back(image);
+            }
+            return Write(sink, {
+                {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {classes.data(), uint32_t(classes.size())}},
+                {EDITOR_TEXT("images"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {images.data(), uint32_t(images.size())}}});
+        }, &s, EDITOR_QUERY_EACH_READ, EDITOR_WORKSPACE, importFields, 2});
     const EditorMenuLocation location{EDITOR_TEXT("resources.library"), EDITOR_TEXT("Data Resources menu")};
     const EditorMenuDesc menus[] = {{EDITOR_TEXT("resource.open-library"), EDITOR_TEXT("resource.open-library"),
                                      EDITOR_TEXT("resources.library"), EDITOR_TEXT("Open Data Resource"), 0},
@@ -572,6 +620,22 @@ void DataResourceCommands::Stop() {
         return;
     if (m_State->pending.operation)
         m_State->Complete(EDITOR_CANCELLED);
+    if (m_State->scan.operation) {
+        m_State->scan.cancelled->store(true);
+        EditorResponse result; result.status = EDITOR_CANCELLED;
+        try {
+            const auto read = m_State->scan.result.get();
+            if (read.written) result.fields = {{"path", EDITOR_TEXT_VALUE, {}, m_State->scan.path},
+                {"written", EDITOR_INTEGER_VALUE, {}, {}, 1}};
+        } catch (const std::exception &error) { result.message = error.what(); }
+        m_State->Publish(m_State->scan.operation, std::move(result));
+        m_State->scan = {};
+    }
+    for (const auto &scan : m_State->scans) {
+        EditorResponse result; result.status = EDITOR_CANCELLED;
+        m_State->Publish(scan.operation, std::move(result));
+    }
+    m_State->scans.clear();
     m_State->libraries.clear();
     m_State->open.clear();
     m_State->stopped = true;
@@ -581,6 +645,73 @@ void DataResourceCommands::Poll() {
     auto &s = *m_State;
     if (s.stopped)
         return;
+    if (s.scan.operation) {
+        if (s.scan.origin.view && s.editor.Query("workspace.view", {s.scan.origin, nullptr, 0}).status == EDITOR_STALE)
+            s.scan.cancelled->store(true);
+        if ((s.scan.cancelled->load() || s.NativeReady()) &&
+            s.scan.result.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+            auto scan = std::move(s.scan);
+            s.scan = {};
+            EditorResponse result;
+            try {
+                auto read = scan.result.get();
+                result.status = scan.cancelled->load() ? EDITOR_CANCELLED : read.ok ? EDITOR_OK : EDITOR_ERROR;
+                result.message = read.error;
+                result.fields = {{"path", EDITOR_TEXT_VALUE, {}, scan.path},
+                                 {"written", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(read.written)}};
+                if (result.status == EDITOR_OK) {
+                    for (auto &folder : read.library.folders) {
+                        folder.type = ClassName(folder.cid);
+                        for (auto &file : folder.files) file.type = ClassName(file.native.cid);
+                    }
+                    if (scan.refresh) {
+                        const auto old = s.libraries.find(scan.path);
+                        if (old == s.libraries.end()) result.status = EDITOR_STALE;
+                        else { read.library.shown = old->second.shown; old->second = std::move(read.library); ++s.revision; }
+                    } else {
+                        s.libraries.insert_or_assign(scan.path, std::move(read.library));
+                        ++s.revision;
+                        const EditorSink output{&result, [](void *data, const EditorValue *values, uint32_t count) {
+                            std::vector<EditorField> fields;
+                            const auto status = CopyEditorFields(fields, values, count);
+                            auto &result = *static_cast<EditorResponse *>(data);
+                            for (auto &field : fields) {
+                                if (field.key == "message") result.message = field.text;
+                                else {
+                                    const auto found = std::find_if(result.fields.begin(), result.fields.end(),
+                                        [&](const auto &old) { return old.key == field.key; });
+                                    if (found == result.fields.end()) result.fields.push_back(std::move(field));
+                                }
+                            }
+                            return status;
+                        }};
+                        // Navigation runs as the same registered command used
+                        // by menus and external modules. The completed scan is
+                        // already in the cache, so this call performs no I/O.
+                        const auto shown = EditorClient(s.editor.Host(), scan.origin.view).Command("resource.open-library",
+                            {TextArgument("path", scan.path), IntegerArgument("view", scan.view)});
+                        result.status = shown.status;
+                        const auto borrowed = BorrowEditorFields(shown.fields);
+                        output.write(output.data, borrowed.data(), uint32_t(borrowed.size()));
+                        if (result.message.empty()) result.message = shown.message;
+                    }
+                }
+            } catch (const std::exception &error) { result.status = EDITOR_ERROR; result.message = error.what(); }
+            catch (...) { result.status = EDITOR_ERROR; result.message = "Cannot read Data Resource"; }
+            s.Publish(scan.operation, std::move(result));
+        }
+    }
+    if (!s.scan.operation && !s.scans.empty()) {
+        s.scan = std::move(s.scans.front()); s.scans.pop_front();
+        if (s.scan.origin.view && s.editor.Query("workspace.view", {s.scan.origin, nullptr, 0}).status == EDITOR_STALE)
+            s.scan.cancelled->store(true);
+        try { s.scan.result = std::async(std::launch::async, std::move(s.scan.work)); }
+        catch (const std::exception &error) {
+            const auto operation = s.scan.operation;
+            s.scan = {};
+            s.Publish(operation, {EDITOR_ERROR, error.what()});
+        }
+    }
     if (s.pending.origin.view &&
         s.editor.Query("workspace.view", {s.pending.origin, nullptr, 0}).status == EDITOR_STALE)
         s.Complete(EDITOR_CANCELLED);

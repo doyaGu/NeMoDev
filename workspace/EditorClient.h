@@ -61,6 +61,7 @@ class EditorClient {
             return status;
         }
         const auto state = EditorStatus(Integer(status, "status"));
+        status.operation = operation;
         if (state == EDITOR_QUEUED) {
             status.status = state;
             return status;
