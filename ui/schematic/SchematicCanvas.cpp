@@ -1893,6 +1893,7 @@ void SchematicCanvas::EndMove(bool commit) {
 }
 
 void SchematicCanvas::CancelInteraction() {
+    Client().CancelTool();
     EndMove(false);
     m_Doc.press = {};
     m_Doc.relinkLink = 0;
@@ -1998,145 +1999,21 @@ std::vector<uint32_t> SchematicCanvas::ToolbarScripts() const {
 }
 
 void SchematicCanvas::Toolbar() {
-    ViewOptions &options = m_Navigation.options;
-    // Dev's Schematic toolbar (Dev.exe sub_51CA80, tooltips from the language
-    // pack): a strip 21 pixels high (the view below it, this + 988), from x 9
-    // the buttons 4 apart: resvis bitmaps (normal, hover, pressed, pressed
-    // hover, disabled) 17 or 19 wide at y 1, text buttons 15 high at y 3,
-    // separators (bitmap 705) between the groups.
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const ImVec2 stripMin = ImGui::GetCursorScreenPos();
-    const float stripHeight = IM_ROUND(21.0f * s);
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(stripMin, ImVec2(stripMin.x + ImGui::GetContentRegionAvail().x, stripMin.y + stripHeight),
-                      DEV_CHROME);
+    const float scale = ImGui::GetFontSize() / 13.0f;
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float height = IM_ROUND(21 * scale);
+    ImGui::GetWindowDrawList()->AddRectFilled(at, {at.x + ImGui::GetContentRegionAvail().x, at.y + height}, DEV_CHROME);
     PushDarkChrome();
-    const bool document = Client().Scope().document.value != 0;
-    const uint32_t script = ToolbarScript();
-    float x = 9.0f;
-    auto at = [&](float y) { return ImVec2(IM_ROUND(stripMin.x + x * s), IM_ROUND(stripMin.y + y * s)); };
-    auto icon = [&](const char *id, const int (&bitmaps)[5], bool on, bool enabled, const char *tooltip, float width = 17.0f,
-                    float y = 1.0f) {
-        const bool clicked = DevBitmapButton(id, at(y), bitmaps, on, enabled, s, tooltip);
-        x += width + 4.0f;
-        return clicked;
-    };
-    auto pill = [&](const char *id, const char *label, bool on, bool enabled, const char *tooltip, float width) {
-        const ImVec2 a = at(3.0f);
-        const bool clicked = DevToolbarPill(id, label, a, ImVec2(a.x + IM_ROUND(width * s), a.y + IM_ROUND(15.0f * s)), on,
-                                            tooltip, enabled);
-        x += width + 4.0f;
-        return clicked;
-    };
-    auto separator = [&] {
-        if (ImTextureID line = DevBitmap(705)) dl->AddImage(line, at(1.0f), ImVec2(at(1.0f).x + s, at(1.0f).y + 19.0f * s));
-        x += 1.0f + 4.0f;
-    };
-    static const int EXPAND[5] = {976, 977, 973, 973, 976};
-    static const int COLLAPSE[5] = {978, 974, 975, 975, 978};
-    static const int EXPLORER[5] = {777, 779, 778, 778, 777};
-    static const int MESSAGES[5] = {1293, 1291, 1292, 1290, 1293};
-    static const int FIND[5] = {1353, 1346, 1347, 1347, 1353};
-    static const int FILTER[5] = {1355, 1356, 1357, 1354, 1357};
-    static const int LOCALS[5] = {1301, 1299, 1300, 1298, 1301};
-    static const int HEADERS[5] = {989, 990, 991, 985, 989};
-    static const int POINTS[5] = {992, 986, 987, 988, 992};
-    static const int INFO[5] = {1002, 1003, 1004, 1005, 1002};
-    static const int LINK_PROPERTIES[5] = {1308, 1307, 1306, 1306, 1308};
-    static const int PRIORITIES[5] = {972, 970, 971, 969, 972};
-    static const int RESET[5] = {877, 878, 879, 880, 877};
-    static const int ZOOM[5] = {893, 894, 895, 845, 893};
-    static const int DEBUGGER[5] = {1080, 1078, 1079, 1077, 1080};
-    static const int LINK_ERRORS[5] = {1335, 1334, 1333, 1333, 1335};
-    auto setOpen = [&](bool open) {
-        for (uint32_t each : document ? ToolbarScripts() : std::vector<uint32_t>())
-            if (ScriptOpen(each) != open) ToggleScriptOpen(each);
-    };
-    if (icon("expand", EXPAND, false, script != 0, "Expand Selected Scripts (Right Arrow)")) setOpen(true);
-    if (icon("collapse", COLLAPSE, false, script != 0, "Collapse Selected Scripts (Left Arrow)")) setOpen(false);
-    if (icon("explorer", EXPLORER, false, true, "Schematic Explorer (Ctrl+Shift+F)", 19.0f))
-        Client().Command("workspace.open-role", {TextArgument("role", "main.schematic-explorer")});
-    if (icon("messages", MESSAGES, DiagnosticOpen(false), true, "Message Explorer (H)")) ToggleDiagnostic(false);
-    if (icon("find", FIND, false, true, "Find (Ctrl+F)")) OpenFind();
-    separator();
-    // Dev shows "Auto Link" instead of "Link" while automatic linking is on.
-    if (pill("link", options.autoLink ? "Auto Link" : "Link", m_LinkMode, true, "Link Mode (L)", 66.0f))
-        m_LinkMode = !m_LinkMode;
-    separator();
-    if (icon("filter", FILTER, options.sceneFilter, true,
-             options.sceneFilter ? "Scene filter: only Scripts of the active scene are shown"
-                                 : "Level filter: no filter on the shown Scripts",
-             19.0f)) {
-        options.sceneFilter = !options.sceneFilter;
-        RefreshStack();
-    }
-    if (pill("showall", "Show All", false, document, "Show All Scripts", 70.0f)) {
-        m_Navigation.hiddenScripts.clear();
-        options.showAllScripts = true;
-        RefreshStack();
-    }
-    if (pill("hideall", "Hide All", false, document, "Hide All Scripts", 70.0f)) {
-        for (auto ref : m_AllScripts)
-            m_Navigation.hiddenScripts.insert(ref);
-        RefreshStack();
-    }
-    if (pill("hidesel", "Hide Selected", false, script != 0, "Hide Selected Scripts", 70.0f)) {
-        for (auto ref : ScriptReferences(ToolbarScripts()))
-            m_Navigation.hiddenScripts.insert(ref);
-        m_Navigation.selection.Clear();
-        m_Doc.currentScript = 0;
-        RefreshStack();
-    }
-    if (pill("hideother", "Hide Other", false, script != 0, "Hide Unselected Scripts", 70.0f)) {
-        const std::vector<uint32_t> kept = ToolbarScripts();
-        for (auto ref : m_AllScripts)
-            if (std::find(kept.begin(), kept.end(), ref.object) == kept.end())
-                m_Navigation.hiddenScripts.insert(ref);
-        for (auto ref : ScriptReferences(kept))
-            m_Navigation.hiddenScripts.erase(ref);
-        RefreshStack();
-    }
-    separator();
-    // Pressed while what they show is hidden (Dev.exe sub_537CA0: the
-    // preferences Simplified, Show Script Left, Show Control Points, Show
-    // Link Delay, Show Priorities).
-    if (icon("locals", LOCALS, !options.showLocalParams, true, "Show/Hide Local Parameters"))
-        options.showLocalParams = !options.showLocalParams;
-    if (icon("headers", HEADERS, !options.showHeaders, true, "Show/Hide Scripts Headers"))
-        options.showHeaders = !options.showHeaders;
-    if (icon("points", POINTS, !options.showControlPoints, true, "Show/Hide Control Points"))
-        options.showControlPoints = !options.showControlPoints;
-    if (icon("info", INFO, !options.showLinkInfo, true, "Show/Hide Link Informations"))
-        options.showLinkInfo = !options.showLinkInfo;
-    if (icon("linkprops", LINK_PROPERTIES, false, true, "Behavior Link Properties (default link delay)")) {
-        auto &editor = m_Workspace.Application();
-        editor.Execute("environment.open-link-options", {editor.Scope(m_Instance), nullptr, 0});
-    }
-    if (icon("priorities", PRIORITIES, !options.showPriorities, true, "Show/Hide Priorities"))
-        options.showPriorities = !options.showPriorities;
-    separator();
-    if (icon("reset", RESET, false, true, "Reset Schematic Zoom and Position")) ResetView();
-    if (icon("zoom", ZOOM, options.zoomMode, true, "Zoom Mode")) options.zoomMode = !options.zoomMode;
-    separator();
-    auto &application = m_Workspace.Application();
-    const EditorClient runtime(application.Host(), m_Instance);
-    const EditorValue role{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("main.debugger")};
-    const bool debuggerOpen = EditorClient::Integer(application.ReadQuery("workspace.role", {application.Scope(m_Instance), &role, 1}), "view") != 0;
-    if (icon("debugger", DEBUGGER, debuggerOpen, true, "Script Debugger")) runtime.Command("runtime.toggle-debugger");
-    const auto &execution = application.ReadQuery("runtime.state", {application.Scope(m_Instance), nullptr, 0});
-    if (EditorClient::Integer(execution, "available") && pill("trace", "Trace", EditorClient::Integer(execution, "trace") != 0, true, "Trace Mode (Ctrl+T)", 66.0f))
-        m_Workspace.Application().Execute("runtime.toggle-trace", {m_Workspace.Application().Scope(m_Instance), nullptr, 0});
-    // Dev: right of Trace, the Invalid Link Explorer's icon, shown only when
-    // the composition has invalid links kept after loading.
-    if (EditorClient::Integer(Client().Query("schematic.invalid-summary"), "total") &&
-        icon("linkerrors", LINK_ERRORS, DiagnosticOpen(true), true, "Browse links with error found while loading", 17.0f, 2.0f))
-        ToggleDiagnostic(true);
-    // The zoom of the Script under the mouse (the editor's).
-    const ScriptView *zoomed = ViewFor(m_Doc.hoveredScript ? m_Doc.hoveredScript : m_Doc.currentScript);
-    ImGui::SetCursorScreenPos(ImVec2(at(0).x + 4.0f * s, stripMin.y + (stripHeight - ImGui::GetFontSize()) * 0.5f));
-    ImGui::TextDisabled("%.0f%%", (zoomed ? zoomed->Zoom() : m_View.zoom) * 100.0f);
+    EditorToolbarFrame frame{};
+    frame.size = sizeof(frame);
+    frame.left = at.x;
+    frame.top = at.y;
+    frame.width = ImGui::GetContentRegionAvail().x;
+    frame.height = height;
+    frame.scale = scale;
+    Client().Toolbar("schematic.tools", frame);
     PopDarkChrome();
-    ImGui::SetCursorScreenPos(ImVec2(stripMin.x, stripMin.y + stripHeight));
+    ImGui::SetCursorScreenPos({at.x, at.y + height});
 }
 
 void SchematicCanvas::Draw(const char *title, bool *open) {
@@ -2173,7 +2050,6 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
                                ImGuiButtonFlags_MouseButtonMiddle);
     const bool hovered = ImGui::IsItemHovered();
     const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-    if (!focused && Busy()) CancelInteraction();
     m_PickMin = canvasMin;
     m_PickMax = canvasMax;
     m_PickFrame = ImGui::GetFrameCount();
@@ -2261,7 +2137,7 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
         draw.activity = &marks;
         DrawScript(drawList, view.model, view.offsetY, view.frame, view.transform, draw);
     }
-    HandleInput(canvasMin, canvasMax, hovered, focused);
+    Client().ToolInput(EditorImGuiToolInput(canvasMin, hovered, focused));
     if (!Client().Scope().document.value || m_Views.empty()) {
         const char *message = !Client().Scope().document.value ? "File > Open a composition (.cmo, .nmo, .vmo)"
                                                                : "Select an object or Script in the Level Manager";

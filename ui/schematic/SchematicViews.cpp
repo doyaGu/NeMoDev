@@ -125,6 +125,7 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     view.size = sizeof(view);
     view.imguiVersion = EDITOR_IMGUI_VERSION;
     view.id = EDITOR_TEXT("script.schematic");
+    view.defaultTool = EDITOR_TEXT("schematic.view.edit-tool");
     view.provider = EDITOR_TEXT("builtin.schematic");
     view.title = EDITOR_TEXT("Schematic");
     view.area = EDITOR_DOCUMENT;
@@ -252,7 +253,7 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     module.commandCount = uint32_t(all.size());
     module.views = &view;
     module.viewCount = 1;
-    return editor.Register(module, error);
+    return RegisterControls(editor, module, error);
 }
 
 } // namespace vdev

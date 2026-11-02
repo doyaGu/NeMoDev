@@ -1,6 +1,7 @@
 #pragma once
 #include "editor/Editor.h"
 #include <memory>
+#include <deque>
 #include <string>
 
 namespace vdev {
@@ -40,6 +41,12 @@ public:
     void Focus(EditorView view = 0);
     std::string Window(EditorView view = 0) const;
 private:
+    bool RegisterControls(EditorApplication &, EditorModuleDesc, std::string &);
+    struct ToolAction {
+        SchematicViews *views;
+        std::string id;
+    };
+    std::deque<ToolAction> m_ToolActions;
     struct Data;
     std::unique_ptr<Data> m_Data;
 };

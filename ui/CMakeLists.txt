@@ -50,7 +50,7 @@ set(_editor_sources
         controls/BehaviorInfoFields.cpp
         # The Schematic.
         schematic/SchematicCanvas.cpp
-        schematic/SchematicViews.cpp
+        schematic/SchematicViews.cpp schematic/SchematicTools.cpp
         schematic/SchematicInput.cpp
         schematic/SchematicDialogs.cpp
         schematic/SchematicParameterDialog.cpp

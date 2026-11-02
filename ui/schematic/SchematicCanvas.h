@@ -301,6 +301,9 @@ private:
     void BeginCopyDrag();
     void EndCopyDrag(const Point &world);
     void Toolbar();
+    void RunToolAction(const std::string &);
+    uint32_t DrawToolControl(const std::string &, const EditorToolbarFrame &);
+    uint32_t ToolFrame(const EditorToolInput &);
     // Context menus and their commands (SchematicMenus.cpp).
     const ParamItem *FindParam(const ScriptView &view, const ElementRef &ref) const;
     void SetParamStyle(uint32_t script, const ParamItem &param, ParameterStyle style);

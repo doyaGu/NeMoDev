@@ -1047,40 +1047,11 @@ bool EditorApp::Busy() const {
 }
 
 void EditorApp::GlobalShortcuts() {
-    const ImGuiIO &io = ImGui::GetIO();
-    if (io.WantTextInput || Busy()) return;
-    // The Schematic takes F1 (a Building Block's help) and Ctrl+T itself;
-    // the Level Manager F3 (its Find Item).
-    const ImGuiWindow *focused = ImGui::GetCurrentContext()->NavWindow;
-    const bool levelManager = focused && focused->RootWindow && m_Workspace.Focused() == m_Workspace.Role("main.level");
-    const bool schematic = m_Schematics.Find(m_Workspace.Focused()) != nullptr;
-    // F3 / Shift+F3: the Schematic's Find (once a text was asked), else the
-    // Explorer's results;
-    // Ctrl+F3 in the Schematic: the selected element's name.
-    if (!levelManager && ImGui::IsKeyPressed(ImGuiKey_F3, false)) {
-        if (schematic && io.KeyCtrl) m_Schematics.Current().FindSelected(io.KeyShift);
-        else if (schematic && m_Schematics.Current().Finding()) m_Schematics.Current().FindNext(io.KeyShift);
-        else if (!io.KeyCtrl) m_Panels.FindNext(io.KeyShift ? -1 : 1);
-    }
+    if (ImGui::GetIO().WantTextInput || Busy()) return;
     m_Workspace.CommandShortcuts();
-    if (!io.KeyCtrl) return;
-    // Dev: Ctrl+P General Preferences, Ctrl+T Trace Mode.
-    // Dev: Ctrl+L Load Composition (Ctrl+O kept), Ctrl+Shift+S Save Version,
-    // Ctrl+Shift+Z Revert to Saved.
-    // Ctrl+Shift+F the Schematic Explorer; Ctrl+F the Schematic's Find (the
-    // Level Manager's own there), else the Explorer.
-    if (ImGui::IsKeyPressed(ImGuiKey_F, false) && !levelManager) {
-        if (schematic && !io.KeyShift) m_Schematics.Current().OpenFind();
-        else ShowSchematicExplorer();
-    }
 }
 
-
-
-void EditorApp::ShowSchematicExplorer() {
-    EditorClient(m_Editor.Host(), 0).Command("workspace.open-role", {TextArgument("role", "main.schematic-explorer")});
-    m_Panels.FocusExplorer();
-}
+void EditorApp::ShowSchematicExplorer() { EditorClient(m_Editor.Host(), 0).Command("schematic.open-explorer"); }
 
 void EditorApp::RefreshSchematicViews() {
     const auto scripts = m_Session.HasDocument() ? m_Session.document->ScriptsRevision() : 0;

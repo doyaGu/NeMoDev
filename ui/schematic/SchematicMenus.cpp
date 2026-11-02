@@ -985,10 +985,7 @@ void SchematicCanvas::SpaceAction() {
 }
 
 // Dev G: the next drag draws the new graph's rectangle.
-void SchematicCanvas::BeginDrawGraph() {
-    m_DrawGraphMode = true;
-    Client().Log(EDITOR_LOG_INFO, "Draw Behavior Graph: drag a rectangle around the behaviors to group (Esc cancels)");
-}
+void SchematicCanvas::BeginDrawGraph() { Client().SelectTool("schematic.view.draw-tool"); }
 
 void SchematicCanvas::EndDrawGraph(ScriptView &view, const Rect &local) {
     m_DrawGraphMode = false;

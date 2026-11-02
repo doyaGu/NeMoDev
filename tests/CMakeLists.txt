@@ -71,7 +71,7 @@ target_include_directories(NeMoDevApplicationDrawingHeaders PRIVATE
         "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
 target_compile_features(NeMoDevApplicationDrawingHeaders PRIVATE cxx_std_17)
 add_library(NeMoDevSchematicWindowsHeaders OBJECT
-        ../ui/schematic/SchematicCanvas.cpp ../ui/schematic/SchematicViews.cpp
+        ../ui/schematic/SchematicCanvas.cpp ../ui/schematic/SchematicViews.cpp ../ui/schematic/SchematicTools.cpp
         ../ui/schematic/SchematicInput.cpp ../ui/schematic/SchematicMenus.cpp
         ../ui/schematic/SchematicDialogs.cpp ../ui/schematic/SchematicLinking.cpp
         ../ui/schematic/SchematicPrint.cpp)

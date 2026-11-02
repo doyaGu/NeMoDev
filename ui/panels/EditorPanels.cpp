@@ -49,9 +49,49 @@ bool EditorPanels::Register(EditorApplication &editor, std::string &error) {
         static_cast<EditorPanels *>(data)->ExplorerPanel(&open);
         frame->close = !open;
     };
+    EditorCommandDesc commands[3]{};
+    const char *ids[] = {"schematic.open-explorer", "schematic.explorer-next", "schematic.explorer-previous"};
+    const char *titles[] = {"Schematic Explorer", "Next Explorer Result", "Previous Explorer Result"};
+    for (unsigned i = 0; i < 3; ++i) {
+        auto &command = commands[i];
+        command.size = sizeof(command);
+        command.id = EditorLiteral(ids[i]);
+        command.title = EditorLiteral(titles[i]);
+        command.provider = EDITOR_TEXT("builtin.schematic-explorer");
+        command.data = this;
+        command.area = EDITOR_WORKSPACE;
+        command.effect = EDITOR_SESSION_CHANGE;
+        command.state = [](void *data, const EditorHost *, const EditorRequest *r) {
+            auto &panel = *static_cast<EditorPanels *>(data);
+            const auto level = panel.m_Workspace.Role("main.level");
+            return !r->scope.view && level && panel.m_Workspace.Focused() == level ? EDITOR_REFUSED : EDITOR_OK;
+        };
+    }
+    commands[0].run = [](void *data, const EditorHost *, const EditorRequest *, EditorSink) {
+        auto &panel = *static_cast<EditorPanels *>(data);
+        if (!panel.m_Workspace.OpenRole("main.schematic-explorer")) return EDITOR_REFUSED;
+        panel.FocusExplorer();
+        return EDITOR_OK;
+    };
+    commands[1].run = [](void *data, const EditorHost *, const EditorRequest *, EditorSink) {
+        static_cast<EditorPanels *>(data)->FindNext(1);
+        return EDITOR_OK;
+    };
+    commands[2].run = [](void *data, const EditorHost *, const EditorRequest *, EditorSink) {
+        static_cast<EditorPanels *>(data)->FindNext(-1);
+        return EDITOR_OK;
+    };
+    const EditorBindingDesc bindings[] = {{commands[0].id, EDITOR_TEXT("Ctrl+F")},
+                                          {commands[0].id, EDITOR_TEXT("Ctrl+Shift+F")},
+                                          {commands[1].id, EDITOR_TEXT("F3")},
+                                          {commands[2].id, EDITOR_TEXT("Shift+F3")}};
     EditorModuleDesc module{};
     module.size = sizeof(module); module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("schematic.explorer"); module.views = &view; module.viewCount = 1;
+    module.commands = commands;
+    module.commandCount = 3;
+    module.bindings = bindings;
+    module.bindingCount = 4;
     return editor.Register(module, error);
 }
 

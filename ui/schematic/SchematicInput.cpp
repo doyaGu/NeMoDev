@@ -45,7 +45,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         m_Doc.mouseScript = hit.view->id;
         m_Doc.mouseLocal = hit.local;
     }
-    if ((Busy() || m_DrawGraphMode) && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+    if ((Busy() || m_DrawGraphMode) && Client().Binding("schematic.view.cancel", EDITOR_KEY_PRESSED, true)) {
         const bool linking = m_Tool == Tool::Link;
         CancelInteraction();
         if (linking) m_LinkMode = false;
@@ -64,7 +64,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     }
     if (hovered && io.MouseWheelH != 0.0f) PanBy(io.MouseWheelH * 40.0f, 0.0f);
 
-    const bool spaceDown = focused && ImGui::IsKeyDown(ImGuiKey_Space);
+    const bool spaceDown = focused && Client().Binding("schematic.view.space-action", EDITOR_KEY_DOWN);
     switch (m_Tool) {
     case Tool::Idle: {
         if (!hovered) break;
@@ -443,7 +443,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         ScriptView *view = ViewFor(m_Doc.linkScript);
         // Documentation "Schematic Keyboard Shortcuts": "ESC or right-click
         // or L - End link mode if in link mode".
-        const bool endByL = ImGui::IsKeyPressed(ImGuiKey_L, false) && !io.WantTextInput;
+        const bool endByL = Client().Binding("schematic.view.link-mode", EDITOR_KEY_PRESSED, true);
         if (!view || ImGui::IsMouseClicked(ImGuiMouseButton_Right) || endByL) {
             m_Tool = Tool::Idle;
             m_Doc.relinkLink = 0;
@@ -521,185 +521,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     if (!focused || m_Tool != Tool::Idle || io.WantTextInput ||
         ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
         return;
-    // Schematic shortcuts (UI reference section 8.4); library choices are noted.
-    if (ImGui::IsKeyReleased(ImGuiKey_Space)) {
-        // Dev Spacebar: display of selected locals, iconify comments, open/close graphs and Scripts.
-        if (!m_SpacePanned) SpaceAction();
-        m_SpacePanned = false;
-    }
-    if (m_DrawGraphMode && ImGui::IsKeyPressed(ImGuiKey_Escape)) m_DrawGraphMode = false;
-    if (m_Doc.pickShortcutFrom && ImGui::IsKeyPressed(ImGuiKey_Escape))
-        m_Doc.pickShortcutFrom = {};
-    if (m_Doc.pickBreakpoint && ImGui::IsKeyPressed(ImGuiKey_Escape)) m_Doc.pickBreakpoint = false;
-    if (m_Doc.pickConditionRow >= 0 && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        m_Doc.pickConditionRow = -1;
-        m_Doc.openBreakpointConfig = true; // back to the dialog
-    }
-    if (io.KeyCtrl || io.KeyAlt) {
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A)) SelectAll();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C)) Copy();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_X)) Cut();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V)) io.KeyShift ? PasteShortcuts() : Paste();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D)) Duplicate();
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Q)) InitialConditionsOfScripts(1); // Remove
-        if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_Q)) InitialConditionsOfScripts(2);  // Restore
-        if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_S)) SaveSelectionAsNms();          // Dev: Save As...
-        if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_X)) ExecuteSelectedScripts();      // Dev: Execute Script(s)
-        // Dev Ctrl+B: select/deselect the highlighted Script.
-        if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_B) && m_Doc.currentScript) {
-            ScriptView *current = ViewFor(m_Doc.currentScript);
-            if (current && IsSelected(current->id, current->model.script.ref)) m_Navigation.selection.Clear();
-            else if (current) m_Navigation.selection.Set(current->id, current->model.script.ref);
-        }
-        // Dev Ctrl+Up/Down: move the highlighted Script when a Script is selected, else page scroll.
-        if (io.KeyCtrl && (ImGui::IsKeyPressed(ImGuiKey_UpArrow) || ImGui::IsKeyPressed(ImGuiKey_DownArrow))) {
-            const int step = ImGui::IsKeyPressed(ImGuiKey_UpArrow) ? -1 : 1;
-            bool script = false;
-            for (const auto &item : m_Navigation.selection.items) script = script || item.kind == ElementKind::Script;
-            if (script) MoveHighlightedScript(step);
-            else PanBy(0.0f, -step * (canvasMax.y - canvasMin.y) * 0.8f);
-        }
-        // Dev: Alt+L adds a local parameter, Alt+P a parameter operation.
-        if (io.KeyAlt && hovered && hit.view && ImGui::IsKeyPressed(ImGuiKey_L))
-            OpenLocalParameterPicker(hit.view->id, hit.local);
-        if (io.KeyAlt && hovered && hit.view && ImGui::IsKeyPressed(ImGuiKey_P))
-            OpenOperationPicker(hit.view->id, hit.local);
-        if (io.KeyAlt && hovered && hit.view && ImGui::IsKeyPressed(ImGuiKey_T)) AddThisAt(hit.view->id, hit.local);
-        // Alt+I / Alt+O: parameter input / output of the selected graph.
-        if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_I)) OpenGraphParameterPicker(true);
-        if (io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_O)) OpenGraphParameterPicker(false);
-        return;
-    }
-    if (io.KeyShift) {
-        // Dev Shift+Up/Down: select the previous / next Script and scroll to it.
-        if (ImGui::IsKeyPressed(ImGuiKey_Q)) InitialConditionsOfScripts(0); // Set
-        if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) SelectAdjacentScript(-1);
-        if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) SelectAdjacentScript(1);
-        if (ImGui::IsKeyPressed(ImGuiKey_R)) Refresh();
-        if (ImGui::IsKeyPressed(ImGuiKey_Delete)) UngroupSelection();
-        if (ImGui::IsKeyPressed(ImGuiKey_F9)) OpenBreakpointConfig(); // Dev: Configure Breakpoint
-        return;
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_F9)) ToggleBreakpointOfSelection(); // Dev: Add/Remove Breakpoint
-    // Dev G: Draw Behavior Graph mode (the next drag draws the graph).
-    if (ImGui::IsKeyPressed(ImGuiKey_G)) BeginDrawGraph();
-    if (ImGui::IsKeyPressed(ImGuiKey_F1) || ImGui::IsKeyPressed(ImGuiKey_K)) {
-        const Selection &selection = m_Navigation.selection;
-        if (selection.items.size() == 1) {
-            const ElementRef &item = selection.items[0];
-            if (ImGui::IsKeyPressed(ImGuiKey_F1) && item.kind == ElementKind::Behavior) {
-                OpenHtmlHelp(item.object);
-                ImGui::SetKeyOwner(ImGuiKey_F1, ImGui::GetCurrentWindow()->ID, ImGuiInputFlags_LockThisFrame);
-            }
-            if (ImGui::IsKeyPressed(ImGuiKey_K) &&
-                (item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut ||
-                 item.kind == ElementKind::Pin)) {
-                const auto info = ElementInfo(selection.script, item);
-                if (info.status == EDITOR_OK)
-                    if (const auto *object = EditorClient::Find(info, "object")) {
-                        m_Doc.ckPropertiesObject = object->object;
-                        m_Doc.openCkProperties = true;
-                    }
-            }
-        }
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_T)) ToggleTargetOfSelection();
-    if (ImGui::IsKeyPressed(ImGuiKey_I)) AddGraphIo(true);
-    if (ImGui::IsKeyPressed(ImGuiKey_O)) AddGraphIo(false);
-    if (ImGui::IsKeyPressed(ImGuiKey_E) || ImGui::IsKeyPressed(ImGuiKey_Enter) ||
-        ImGui::IsKeyPressed(ImGuiKey_KeypadEnter)) {
-        // Dev E / Return: the selected item's parameters - a behavior or operation,
-        // a link's delay, a local's or a shortcut's value.
-        const Selection &selection = m_Navigation.selection;
-        ScriptView *view = ViewFor(selection.script);
-        const ElementRef item = selection.items.size() == 1 ? selection.items[0] : ElementRef();
-        if (view && item.kind == ElementKind::Link) {
-            for (const auto &link : view->model.links)
-                if (link.ref == item && !link.conversion.empty())
-                    OpenOperationChoice(OperationChoice::ReplaceConversion, view->id, link.start, link.end, link.ref);
-            for (const auto &link : view->model.links)
-                if (link.ref == item && link.behaviorLink) {
-                    OpenLinkDelay(view->id, link.ref);
-                }
-        } else if (view && (item.kind == ElementKind::LocalParam || item.kind == ElementKind::Shortcut)) {
-            const auto info = ElementInfo(view->id, item);
-            if (info.status == EDITOR_OK)
-                if (const auto *object = EditorClient::Find(info, "object"))
-                    OpenValueDialog(view->id, object->object);
-        } else {
-            OpenParametersDialog();
-        }
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_P)) UpdateLinkPaths();
-    if (ImGui::IsKeyPressed(ImGuiKey_M)) OpenModifyOperation(); // Dev: Modify Parameter Operation
-    if (ImGui::IsKeyPressed(ImGuiKey_H)) ToggleDiagnostic(false); // Dev: Message Explorer
-    if (ImGui::IsKeyPressed(ImGuiKey_Y)) OpenPriorityDialog();
-    if (ImGui::IsKeyPressed(ImGuiKey_S)) OpenSettingsDialog(); // Dev: Edit Settings
-    // Dev link mode: L links with clicks; A / Z switch auto-link on / off.
-    if (ImGui::IsKeyPressed(ImGuiKey_L) && m_LinkEndedFrame != ImGui::GetFrameCount()) m_LinkMode = !m_LinkMode;
-    if (ImGui::IsKeyPressed(ImGuiKey_A)) m_Navigation.options.autoLink = true;
-    if (ImGui::IsKeyPressed(ImGuiKey_Z)) m_Navigation.options.autoLink = false;
-    if (ImGui::IsKeyPressed(ImGuiKey_R)) ResetView();
-    // Dev Home / End scroll to the first / last Script.
-    if (ImGui::IsKeyPressed(ImGuiKey_Home)) ScrollToEnd(false);
-    if (ImGui::IsKeyPressed(ImGuiKey_End)) ScrollToEnd(true);
-    // Dev +/- (Dev.exe sub_52C680, keys 107 and 109; documentation "3
-    // predefined levels"): the global zoom of the whole Schematic set to
-    // 50%, 75% or 100% - "+" 75% below it, else 100%; "-" 50% at or below
-    // 75%, else 75% - about the view's center. Each Script keeps its own
-    // scale on top.
-    if (ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd) ||
-        ImGui::IsKeyPressed(ImGuiKey_Minus) || ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract)) {
-        const bool in = ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd);
-        const float before = std::max(0.01f, m_View.zoom);
-        const float after = in ? (before < 0.75f ? 0.75f : 1.0f) : (before <= 0.75f ? 0.5f : 0.75f);
-        const float halfW = m_CanvasSize.x * 0.5f, halfH = m_CanvasSize.y * 0.5f;
-        m_ScrollX = std::max(0.0f, m_ScrollX + halfW / before - halfW / after);
-        m_View.panY += halfH / before - halfH / after;
-        m_View.zoom = after;
-        PanBy(0.0f, 0.0f); // the stack kept in its bounds
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        if (m_LinkMode) m_LinkMode = false;
-        else m_Navigation.selection.Clear();
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete)) DeleteSelection();
-    if (ImGui::IsKeyPressed(ImGuiKey_C) && hovered && hit.view) AddComment(hit.view->id, hit.local);
-    if (ImGui::IsKeyPressed(ImGuiKey_F2)) {
-        const Selection &selection = m_Navigation.selection;
-        if (selection.items.size() == 1 && selection.items[0].kind != ElementKind::Comment) BeginRename();
-        if (selection.items.size() == 1 && selection.items[0].kind == ElementKind::Comment) {
-            if (ScriptView *view = ViewFor(selection.script)) {
-                for (const auto &comment : view->model.comments) {
-                    if (comment.ref != selection.items[0]) continue;
-                    Hit selected;
-                    selected.view = view;
-                    selected.ref = comment.ref;
-                    RetainHit(selected, m_Doc.commentAddress);
-                    m_Doc.openCommentEditor = bool(m_Doc.commentAddress);
-                }
-            }
-        }
-    }
-    const float step = 60.0f / m_View.zoom;
-    // Dev: Right/Left open/close the selected Scripts; otherwise arrows scroll.
-    const std::vector<uint32_t> selectedScripts = m_Navigation.selection.Scripts();
-    if (!selectedScripts.empty() &&
-        (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_RightArrow))) {
-        const bool open = ImGui::IsKeyPressed(ImGuiKey_RightArrow);
-        for (uint32_t script : selectedScripts) {
-            if (ScriptOpen(script) != open)
-                ToggleScriptOpen(script);
-        }
-        return;
-    }
-    const float page = (canvasMax.y - canvasMin.y) * 0.8f;
-    if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow)) PanBy(step * m_View.zoom, 0.0f);
-    if (ImGui::IsKeyPressed(ImGuiKey_RightArrow)) PanBy(-step * m_View.zoom, 0.0f);
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) PanBy(0.0f, step * m_View.zoom);
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) PanBy(0.0f, -step * m_View.zoom);
-    if (ImGui::IsKeyPressed(ImGuiKey_PageUp)) PanBy(0.0f, page);
-    if (ImGui::IsKeyPressed(ImGuiKey_PageDown)) PanBy(0.0f, -page);
+    Client().Shortcuts();
 }
 
 } // namespace vdev
