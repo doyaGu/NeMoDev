@@ -9,6 +9,7 @@
 #include "core/document/Document.h"
 #include "core/schematic/SchematicEdits.h"
 #include "core/graph/detail/TopologyInternal.h"
+#include "core/graph/detail/GraphActions.h"
 
 namespace vdev {
 
@@ -185,12 +186,8 @@ bool MoveSourceDisplay(TopologyEdit &edit, CK_ID fromId, const SourceDisplay &so
     const int toSlot = toGraph->GetLocalParameterCount();
     const int fromSlot = source.slot;
     const CK_ID id = source.local;
-    if (!edit.Do([context, fromId, fromSlot, toId, toSlot, id] {
-            return MoveLocal(context, fromId, fromSlot, toId, toSlot, id);
-        },
-                 [context, fromId, fromSlot, toId, toSlot, id] {
-                     return MoveLocal(context, toId, toSlot, fromId, fromSlot, id);
-                 }))
+    if (!edit.Do(GraphMoveLocal(edit.Composition(), fromId, fromSlot, toId, toSlot, id),
+                 GraphMoveLocal(edit.Composition(), toId, toSlot, fromId, fromSlot, id)))
         return false;
     RemoveLocalSlot(data, *from, fromSlot);
     to = FindRecord(data, toId);
@@ -253,8 +250,10 @@ bool ExportSteps(TopologyEdit &edit, const LinkEndpoint &pin, CK_ID into, const 
     for (CK_ID level : levels) {
         CKBehavior *graph = BehaviorOf(context, level);
         const int slot = input ? graph->GetInputParameterCount() : graph->GetOutputParameterCount();
-        if (!edit.Do([context, level, input, slot, id] { return ListParameterAt(context, level, input, slot, id); },
-                     [context, level, input, slot, id] { return UnlistParameter(context, level, input, slot, id); })) {
+        if (!edit.Do(GraphParameterList(edit.Composition(), level, id, slot,
+                                        input ? GraphList::ExportedInputs : GraphList::ExportedOutputs, true),
+                     GraphParameterList(edit.Composition(), level, id, slot,
+                                        input ? GraphList::ExportedInputs : GraphList::ExportedOutputs, false))) {
             error = "CKBehavior::ExportInputParameter failed";
             return false;
         }
@@ -358,8 +357,10 @@ bool ReimportSteps(TopologyEdit &edit, CK_ID graphId, PinKind kind, int slot, CK
     for (const auto &level : levels) {
         const CK_ID levelId = level.first;
         const int at = level.second;
-        if (!edit.Do([context, levelId, input, at, id] { return UnlistParameter(context, levelId, input, at, id); },
-                     [context, levelId, input, at, id] { return ListParameterAt(context, levelId, input, at, id); })) {
+        if (!edit.Do(GraphParameterList(edit.Composition(), levelId, id, at,
+                                        input ? GraphList::ExportedInputs : GraphList::ExportedOutputs, false),
+                     GraphParameterList(edit.Composition(), levelId, id, at,
+                                        input ? GraphList::ExportedInputs : GraphList::ExportedOutputs, true))) {
             error = "Cannot remove the exported parameter from its graph";
             return false;
         }
@@ -462,8 +463,8 @@ EditResult ExportBehaviorIo(Document &document, CK_ID script, const LinkEndpoint
         const CK_ID addedId = added->GetID();
         const int slot = input ? graph->GetInputCount() - 1 : graph->GetOutputCount() - 1;
         edit.Created(addedId);
-        edit.Done([context, level, input, slot, addedId] { return InsertIo(context, level, input, slot, addedId); },
-                  [context, level, input, slot, addedId] { return RemoveIo(context, level, input, slot, addedId); });
+        edit.Done(GraphInsertIo(edit.Composition(), level, input, slot, addedId),
+                  GraphRemoveIo(edit.Composition(), level, input, slot, addedId));
         CKBehaviorLink *link = CKBehaviorLink::Cast(context->CreateObject(CKCID_BEHAVIORLINK));
         if (!link) return edit.Fail("CKContext::CreateObject failed");
         const CK_ID linkId = link->GetID();
@@ -473,8 +474,8 @@ EditResult ExportBehaviorIo(Document &document, CK_ID script, const LinkEndpoint
         const IoRef addedRef = IoRefOf(added);
         const IoRef in = input ? addedRef : innerRef, out = input ? innerRef : addedRef;
         const int at = graph->GetSubBehaviorLinkCount();
-        if (!edit.Do([context, level, linkId, at, in, out] { return AttachLink(context, level, linkId, at, in, out); },
-                     [context, level, linkId] { return DetachLink(context, level, linkId); }))
+        if (!edit.Do(GraphAttachLink(edit.Composition(), level, linkId, at, in, out),
+                     GraphDetachLink(edit.Composition(), level, linkId)))
             return edit.Fail("CKBehavior::AddSubBehaviorLink failed");
         const LinkEndpoint outer(level, slot, io.type);
         BehaviorData *record = FindRecord(data, level);

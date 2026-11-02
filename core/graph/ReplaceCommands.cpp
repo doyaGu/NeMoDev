@@ -11,6 +11,7 @@
 #include "core/document/Edit.h"
 #include "core/schematic/SchematicEdits.h"
 #include "core/graph/detail/TopologyInternal.h"
+#include "core/graph/detail/GraphActions.h"
 
 namespace vdev {
 
@@ -113,21 +114,16 @@ bool Rewire(TopologyEdit &edit, CK_ID oldId, CK_ID newId, std::string &error) {
         const int at = LinkPosition(parent, link);
         if (keep) {
             if (!edit.Do(
-                    [context, parentId, linkId, at, newInRef, newOutRef] {
-                        return DetachLink(context, parentId, linkId) &&
-                               AttachLink(context, parentId, linkId, at, newInRef, newOutRef);
-                    },
-                    [context, parentId, linkId, at, in, out] {
-                        return DetachLink(context, parentId, linkId) && AttachLink(context, parentId, linkId, at, in, out);
-                    })) {
+                    GraphSequence({GraphDetachLink(edit.Composition(), parentId, linkId),
+                                   GraphAttachLink(edit.Composition(), parentId, linkId, at, newInRef, newOutRef)}),
+                    GraphSequence({GraphDetachLink(edit.Composition(), parentId, linkId),
+                                   GraphAttachLink(edit.Composition(), parentId, linkId, at, in, out)}))) {
                 error = "A behavior link refused its new pin";
                 return false;
             }
         } else {
-            if (!edit.Do([context, parentId, linkId] { return DetachLink(context, parentId, linkId); },
-                         [context, parentId, linkId, at, in, out] {
-                             return AttachLink(context, parentId, linkId, at, in, out);
-                         })) {
+            if (!edit.Do(GraphDetachLink(edit.Composition(), parentId, linkId),
+                         GraphAttachLink(edit.Composition(), parentId, linkId, at, in, out))) {
                 error = "Cannot remove a behavior link";
                 return false;
             }
@@ -147,8 +143,8 @@ bool Rewire(TopologyEdit &edit, CK_ID oldId, CK_ID newId, std::string &error) {
             InputSource after = source;
             after.input = before.input;
             if (source.direct || source.shared.id) {
-                if (!edit.Do([context, after] { return RestoreSource(context, after); },
-                             [context, before] { return RestoreSource(context, before); }))
+                if (!edit.Do(GraphRestoreSource(edit.Composition(), after),
+                             GraphRestoreSource(edit.Composition(), before)))
                     return false;
             } else if ((to->GetDirectSource() || to->GetSharedSource()) && !ClearSource(edit, to)) {
                 return false;
@@ -183,22 +179,10 @@ bool Rewire(TopologyEdit &edit, CK_ID oldId, CK_ID newId, std::string &error) {
         const CK_ID outputId = output->GetID(), replacementId = replacement->GetID();
         const std::vector<CK_ID> outputBefore = DestinationsOf(output), replacementBefore = DestinationsOf(replacement);
         if (!outputBefore.empty() &&
-            !edit.Do(
-                [context, outputId, replacementId, outputBefore] {
-                    CKParameterOut *from = CKParameterOut::Cast(context->GetObject(outputId));
-                    CKParameterOut *to = CKParameterOut::Cast(context->GetObject(replacementId));
-                    if (!from || !to) return false;
-                    for (CK_ID id : outputBefore) {
-                        CKParameter *destination = CKParameter::Cast(context->GetObject(id));
-                        if (!destination || to->AddDestination(destination, FALSE) != CK_OK) return false;
-                    }
-                    from->RemoveAllDestinations();
-                    return true;
-                },
-                [context, outputId, replacementId, outputBefore, replacementBefore] {
-                    return RestoreDestinations(context, replacementId, replacementBefore) &&
-                           RestoreDestinations(context, outputId, outputBefore);
-                })) {
+            !edit.Do(GraphSequence({GraphAppendDestinations(edit.Composition(), replacementId, outputBefore),
+                                    GraphRestoreDestinations(edit.Composition(), outputId, {})}),
+                     GraphSequence({GraphRestoreDestinations(edit.Composition(), replacementId, replacementBefore),
+                                    GraphRestoreDestinations(edit.Composition(), outputId, outputBefore)}))) {
             error = "An output refused its destinations";
             return false;
         }
@@ -206,13 +190,8 @@ bool Rewire(TopologyEdit &edit, CK_ID oldId, CK_ID newId, std::string &error) {
             if (input->GetDirectSource() != output) continue;
             const InputSource before = SourceOf(input);
             const InputRef ref = before.input;
-            if (!edit.Do(
-                    [context, ref, replacementId] {
-                        CKParameterIn *target = Resolve(context, ref);
-                        CKParameter *source = CKParameter::Cast(context->GetObject(replacementId));
-                        return target && source && target->SetDirectSource(source) == CK_OK;
-                    },
-                    [context, before] { return RestoreSource(context, before); })) {
+            if (!edit.Do(GraphSetSource(edit.Composition(), ref, replacementId),
+                         GraphRestoreSource(edit.Composition(), before))) {
                 error = "An input refused the new output";
                 return false;
             }
@@ -256,18 +235,8 @@ bool Rewire(TopologyEdit &edit, CK_ID oldId, CK_ID newId, std::string &error) {
     for (const auto &entry : slots) {
         const int slot = entry.first;
         const CK_ID id = entry.second;
-        if (!edit.Do(
-                [context, parentId, slot, id] {
-                    CKBehavior *graph = BehaviorOf(context, parentId);
-                    return graph && graph->GetLocalParameter(slot) == context->GetObject(id) &&
-                           graph->RemoveLocalParameter(slot) == context->GetObject(id);
-                },
-                [context, parentId, slot, id] {
-                    CKBehavior *graph = BehaviorOf(context, parentId);
-                    CKParameterLocal *local = CKParameterLocal::Cast(context->GetObject(id));
-                    if (!graph || !local) return false;
-                    return InsertLocalParameter(graph, slot, local) && graph->GetLocalParameter(slot) == local;
-                })) {
+        if (!edit.Do(GraphParameterList(edit.Composition(), parentId, id, slot, GraphList::Locals, false),
+                     GraphParameterList(edit.Composition(), parentId, id, slot, GraphList::Locals, true))) {
             error = "Cannot remove a local value";
             return false;
         }
@@ -277,8 +246,8 @@ bool Rewire(TopologyEdit &edit, CK_ID oldId, CK_ID newId, std::string &error) {
 
     // 6. Old leaves the graph.
     const int at = SubBehaviorPosition(parent, old);
-    if (!edit.Do([context, parentId, oldId] { return DetachSubBehavior(context, parentId, oldId); },
-                 [context, parentId, oldId, at] { return AttachSubBehavior(context, parentId, oldId, at); })) {
+    if (!edit.Do(GraphDetachSubBehavior(edit.Composition(), parentId, oldId),
+                 GraphAttachSubBehavior(edit.Composition(), parentId, oldId, at))) {
         error = "CKBehavior::RemoveSubBehavior failed";
         return false;
     }
@@ -397,8 +366,8 @@ EditResult ReplaceBuildingBlock(Document &document, CK_ID script, CK_ID behavior
     const char *prototypeName = old->GetPrototypeName();
     if (old->GetName() && (!prototypeName || std::string(old->GetName()) != prototypeName)) fresh->SetName(old->GetName());
     const int at = SubBehaviorPosition(parent, old) + 1;
-    if (!edit.Do([context, parentId, id, at] { return AttachSubBehavior(context, parentId, id, at); },
-                 [context, parentId, id] { return DetachSubBehavior(context, parentId, id); }))
+    if (!edit.Do(GraphAttachSubBehavior(edit.Composition(), parentId, id, at),
+                 GraphDetachSubBehavior(edit.Composition(), parentId, id)))
         return edit.Fail("CKBehavior::AddSubBehavior failed");
     BehaviorData record(id);
     record.parentId = parentId;

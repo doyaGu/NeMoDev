@@ -1,6 +1,7 @@
 // Grouping commands: ungroup a behavior graph (Dev Shift+Del) and group
 // behaviors into a new graph (Dev G). See TopologyCommands.h.
 #include "core/graph/detail/TopologyInternal.h"
+#include "core/graph/detail/GraphActions.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -35,8 +36,8 @@ CK_ID CreateLink(TopologyEdit &edit, CK_ID graphId, CKBehaviorIO *in, CKBehavior
     link->SetActivationDelay(ClampDelay(delay));
     const IoRef inRef = IoRefOf(in), outRef = IoRefOf(out);
     const int at = graph->GetSubBehaviorLinkCount();
-    if (!edit.Do([context, graphId, id, at, inRef, outRef] { return AttachLink(context, graphId, id, at, inRef, outRef); },
-                 [context, graphId, id] { return DetachLink(context, graphId, id); }))
+    if (!edit.Do(GraphAttachLink(edit.Composition(), graphId, id, at, inRef, outRef),
+                 GraphDetachLink(edit.Composition(), graphId, id)))
         return 0;
     return id;
 }
@@ -50,13 +51,10 @@ bool MoveLink(TopologyEdit &edit, CK_ID from, CK_ID to, CKBehaviorLink *link) {
     const IoRef in = IoRefOf(link->GetInBehaviorIO()), out = IoRefOf(link->GetOutBehaviorIO());
     const int sourceAt = LinkPosition(source, link);
     const int targetAt = target->GetSubBehaviorLinkCount();
-    return edit.Do(
-        [context, from, to, id, targetAt, in, out] {
-            return DetachLink(context, from, id) && AttachLink(context, to, id, targetAt, in, out);
-        },
-        [context, from, to, id, sourceAt, in, out] {
-            return DetachLink(context, to, id) && AttachLink(context, from, id, sourceAt, in, out);
-        });
+    return edit.Do(GraphSequence({GraphDetachLink(edit.Composition(), from, id),
+                                  GraphAttachLink(edit.Composition(), to, id, targetAt, in, out)}),
+                   GraphSequence({GraphDetachLink(edit.Composition(), to, id),
+                                  GraphAttachLink(edit.Composition(), from, id, sourceAt, in, out)}));
 }
 
 bool BuryLink(TopologyEdit &edit, CK_ID graphId, CKBehaviorLink *link) {
@@ -66,8 +64,8 @@ bool BuryLink(TopologyEdit &edit, CK_ID graphId, CKBehaviorLink *link) {
     const CK_ID id = link->GetID();
     const IoRef in = IoRefOf(link->GetInBehaviorIO()), out = IoRefOf(link->GetOutBehaviorIO());
     const int at = LinkPosition(graph, link);
-    if (!edit.Do([context, graphId, id] { return DetachLink(context, graphId, id); },
-                 [context, graphId, id, at, in, out] { return AttachLink(context, graphId, id, at, in, out); }))
+    if (!edit.Do(GraphDetachLink(edit.Composition(), graphId, id),
+                 GraphAttachLink(edit.Composition(), graphId, id, at, in, out)))
         return false;
     edit.Bury(id);
     return true;
@@ -80,31 +78,16 @@ bool SetSource(TopologyEdit &edit, CKParameterIn *input, CKParameter *direct, CK
     const InputRef ref = before.input;
     const CK_ID directId = direct ? direct->GetID() : 0;
     const InputRef sharedRef = RefOf(shared);
-    return edit.Do(
-        [context, ref, directId, sharedRef] {
-            CKParameterIn *target = Resolve(context, ref);
-            if (!target) return false;
-            if (sharedRef.id) {
-                CKParameterIn *from = Resolve(context, sharedRef);
-                return from && target->ShareSourceWith(from) == CK_OK;
-            }
-            CKParameter *from = directId ? CKParameter::Cast(context->GetObject(directId)) : nullptr;
-            return target->SetDirectSource(from) == CK_OK;
-        },
-        [context, before] { return RestoreSource(context, before); });
+    return edit.Do(GraphSetSource(edit.Composition(), ref, directId, sharedRef),
+                   GraphRestoreSource(edit.Composition(), before));
 }
 
 bool AddDestination(TopologyEdit &edit, CKParameterOut *output, CKParameter *destination) {
     CKContext *context = edit.Context();
     const std::vector<CK_ID> before = DestinationsOf(output);
     const CK_ID outputId = output->GetID(), destinationId = destination->GetID();
-    return edit.Do(
-        [context, outputId, destinationId] {
-            CKParameterOut *from = CKParameterOut::Cast(context->GetObject(outputId));
-            CKParameter *to = CKParameter::Cast(context->GetObject(destinationId));
-            return from && to && from->AddDestination(to, FALSE) == CK_OK;
-        },
-        [context, outputId, before] { return RestoreDestinations(context, outputId, before); });
+    return edit.Do(GraphAddDestination(edit.Composition(), outputId, destinationId, false),
+                   GraphRestoreDestinations(edit.Composition(), outputId, before));
 }
 
 // Moves a local parameter between graphs (list and owner).
@@ -116,17 +99,8 @@ bool MoveLocal(TopologyEdit &edit, CK_ID from, CK_ID to, CKParameterLocal *local
     const CK_ID id = local->GetID();
     const int sourceAt = source->GetLocalParameterPosition(local);
     const int targetAt = target->GetLocalParameterCount();
-    auto move = [context, id](CK_ID fromId, int fromAt, CK_ID toId, int toAt) {
-        CKBehavior *a = BehaviorOf(context, fromId);
-        CKBehavior *b = BehaviorOf(context, toId);
-        CKParameterLocal *parameter = CKParameterLocal::Cast(context->GetObject(id));
-        if (!a || !b || !parameter || a->RemoveLocalParameter(fromAt) != parameter) return false;
-        if (!InsertLocalParameter(b, toAt, parameter)) return false;
-        parameter->SetOwner(b);
-        return b->GetLocalParameterPosition(parameter) == toAt;
-    };
-    return edit.Do([move, from, sourceAt, to, targetAt] { return move(from, sourceAt, to, targetAt); },
-                   [move, from, sourceAt, to, targetAt] { return move(to, targetAt, from, sourceAt); });
+    return edit.Do(GraphMoveLocal(edit.Composition(), from, sourceAt, to, targetAt, id),
+                   GraphMoveLocal(edit.Composition(), to, targetAt, from, sourceAt, id));
 }
 
 bool MoveOperation(TopologyEdit &edit, CK_ID from, CK_ID to, CKParameterOperation *operation) {
@@ -137,13 +111,10 @@ bool MoveOperation(TopologyEdit &edit, CK_ID from, CK_ID to, CKParameterOperatio
     const CK_ID id = operation->GetID();
     const int sourceAt = OperationPosition(source, operation);
     const int targetAt = target->GetParameterOperationCount();
-    return edit.Do(
-        [context, from, to, id, targetAt] {
-            return DetachOperation(context, from, id) && AttachOperation(context, to, id, targetAt);
-        },
-        [context, from, to, id, sourceAt] {
-            return DetachOperation(context, to, id) && AttachOperation(context, from, id, sourceAt);
-        });
+    return edit.Do(GraphSequence({GraphDetachOperation(edit.Composition(), from, id),
+                                  GraphAttachOperation(edit.Composition(), to, id, targetAt)}),
+                   GraphSequence({GraphDetachOperation(edit.Composition(), to, id),
+                                  GraphAttachOperation(edit.Composition(), from, id, sourceAt)}));
 }
 
 bool MoveBehavior(TopologyEdit &edit, CK_ID from, CK_ID to, CK_ID child) {
@@ -154,13 +125,10 @@ bool MoveBehavior(TopologyEdit &edit, CK_ID from, CK_ID to, CK_ID child) {
     if (!source || !target || !behavior || !OwnerAccepts(target, behavior)) return false;
     const int sourceAt = SubBehaviorPosition(source, behavior);
     const int targetAt = target->GetSubBehaviorCount();
-    return edit.Do(
-        [context, from, to, child, targetAt] {
-            return DetachSubBehavior(context, from, child) && AttachSubBehavior(context, to, child, targetAt);
-        },
-        [context, from, to, child, sourceAt] {
-            return DetachSubBehavior(context, to, child) && AttachSubBehavior(context, from, child, sourceAt);
-        });
+    return edit.Do(GraphSequence({GraphDetachSubBehavior(edit.Composition(), from, child),
+                                  GraphAttachSubBehavior(edit.Composition(), to, child, targetAt)}),
+                   GraphSequence({GraphDetachSubBehavior(edit.Composition(), to, child),
+                                  GraphAttachSubBehavior(edit.Composition(), from, child, sourceAt)}));
 }
 
 // Endpoint of a parameter as a link source displayed by graph; a shortcut
@@ -427,8 +395,8 @@ EditResult UngroupGraph(Document &document, CK_ID scriptId, CK_ID graphId) {
             if (!RemoveDestination(edit, other, feed.graphOutput)) return edit.Fail("Cannot disconnect a graph output");
     }
     const int graphAt = SubBehaviorPosition(parent, graph);
-    if (!edit.Do([context, parentId, graphId] { return DetachSubBehavior(context, parentId, graphId); },
-                 [context, parentId, graphId, graphAt] { return AttachSubBehavior(context, parentId, graphId, graphAt); }))
+    if (!edit.Do(GraphDetachSubBehavior(edit.Composition(), parentId, graphId),
+                 GraphAttachSubBehavior(edit.Composition(), parentId, graphId, graphAt)))
         return edit.Fail("Cannot remove the graph");
     edit.Bury(graphId);
 
@@ -612,8 +580,8 @@ EditResult GroupBehaviors(Document &document, CK_ID scriptId,
     edit.Created(graphId);
     {
         const int at = parent->GetSubBehaviorCount();
-        if (!edit.Do([context, parentId, graphId, at] { return AttachSubBehavior(context, parentId, graphId, at); },
-                     [context, parentId, graphId] { return DetachSubBehavior(context, parentId, graphId); }))
+        if (!edit.Do(GraphAttachSubBehavior(edit.Composition(), parentId, graphId, at),
+                     GraphDetachSubBehavior(edit.Composition(), parentId, graphId)))
             return edit.Fail("CKBehavior::AddSubBehavior failed");
     }
 

@@ -50,6 +50,28 @@ bool Detach(Document &document, CK_ID scriptId, CK_ID ownerId) {
     return true;
 }
 
+class ScriptAttachmentAction final : public Action {
+public:
+    ScriptAttachmentAction(Document &document, CK_ID script, CK_ID owner, bool attach)
+        : m_Script(document.Reference(script)), m_Owner(document.Reference(owner)), m_Attach(attach) {}
+    bool Redo(Document &document) override { return Apply(document, m_Attach); }
+    bool Undo(Document &document) override { return Apply(document, !m_Attach); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        for (auto ref : {m_Script, m_Owner})
+            if (const auto id = document.NativeId(ref, Document::ObjectScope::Existing))
+                objects.insert(id);
+    }
+
+private:
+    bool Apply(Document &document, bool attach) {
+        const auto script = document.NativeId(m_Script, Document::ObjectScope::Existing);
+        const auto owner = document.NativeId(m_Owner, Document::ObjectScope::Existing);
+        return script && owner && (attach ? Attach(document, script, owner) : Detach(document, script, owner));
+    }
+    ObjectRef m_Script{}, m_Owner{};
+    bool m_Attach;
+};
+
 } // namespace
 
 void RemapInterfaceData(InterfaceData &data, const std::map<CK_ID, CK_ID> &map) {
@@ -79,8 +101,7 @@ EditResult DeleteScript(Document &document, CK_ID scriptId) {
     if (!script || !(script->GetType() & CKBEHAVIORTYPE_SCRIPT) || !owner) return EditResult::Refused("Select a Script");
     const CK_ID ownerId = owner->GetID();
     Edit edit(document, "Delete Script");
-    if (!edit.Do([&document, scriptId, ownerId] { return Detach(document, scriptId, ownerId); },
-                 [&document, scriptId, ownerId] { return Attach(document, scriptId, ownerId); }))
+    if (!edit.Do(std::make_unique<ScriptAttachmentAction>(document, scriptId, ownerId, false)))
         return edit.Fail("The Script could not be taken from its owner");
     edit.Bury(scriptId);
     return edit.Commit();
@@ -130,8 +151,7 @@ EditResult PasteScripts(Document &document, const std::vector<CK_ID> &scripts, C
             copy->SetName(const_cast<CKSTRING>(name.c_str()));
         }
         const CK_ID copyId = copy->GetID();
-        if (!edit.Do([&document, copyId, ownerId] { return Attach(document, copyId, ownerId); },
-                     [&document, copyId, ownerId] { return Detach(document, copyId, ownerId); })) {
+        if (!edit.Do(std::make_unique<ScriptAttachmentAction>(document, copyId, ownerId, true))) {
             edit.Created(copyId); // made, and never part of the composition
             edit.Bury(copyId);
             refusal = std::string("The owner's class does not accept ") + (copy->GetName() ? copy->GetName() : "");

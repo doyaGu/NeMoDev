@@ -17,6 +17,7 @@
 #include "core/schematic/SchematicEdits.h"
 #include "core/schematic/SchematicGrid.h"
 #include "core/graph/detail/TopologyInternal.h"
+#include "core/graph/detail/GraphActions.h"
 
 namespace vdev {
 
@@ -151,8 +152,8 @@ EditResult PasteBehaviors(Document &document, const InterfaceData &source,
                              " does not apply to this Script owner's class without its Target");
     for (CK_ID id : copiedTops) {
         const int at = graph->GetSubBehaviorCount();
-        if (!edit.Do([context, graphId, id, at] { return AttachSubBehavior(context, graphId, id, at); },
-                     [context, graphId, id] { return DetachSubBehavior(context, graphId, id); }))
+        if (!edit.Do(GraphAttachSubBehavior(edit.Composition(), graphId, id, at),
+                     GraphDetachSubBehavior(edit.Composition(), graphId, id)))
             return edit.Fail("CKBehavior::AddSubBehavior failed");
     }
 
@@ -232,9 +233,8 @@ EditResult PasteBehaviors(Document &document, const InterfaceData &source,
             edit.Created(id);
             const IoRef inRef = IoRefOf(in), outRef = IoRefOf(out);
             const int at = graph->GetSubBehaviorLinkCount();
-            if (!edit.Do([context, graphId, id, at, inRef, outRef] {
-                    return AttachLink(context, graphId, id, at, inRef, outRef);
-                }, [context, graphId, id] { return DetachLink(context, graphId, id); }))
+            if (!edit.Do(GraphAttachLink(edit.Composition(), graphId, id, at, inRef, outRef),
+                         GraphDetachLink(edit.Composition(), graphId, id)))
                 return edit.Fail("CKBehavior::AddSubBehaviorLink failed");
             Link display = link;
             display.id = id;
@@ -276,11 +276,8 @@ EditResult PasteBehaviors(Document &document, const InterfaceData &source,
                 const InputSource before = SourceOf(input);
                 const CK_ID to = map[direct->GetID()];
                 const InputRef ref = before.input;
-                if (!edit.Do([context, ref, to] {
-                        CKParameterIn *in = Resolve(context, ref);
-                        CKParameter *from = CKParameter::Cast(context->GetObject(to));
-                        return in && from && in->SetDirectSource(from) == CK_OK;
-                    }, [context, before] { return RestoreSource(context, before); }))
+                if (!edit.Do(GraphSetSource(edit.Composition(), ref, to),
+                             GraphRestoreSource(edit.Composition(), before)))
                     return edit.Fail("Cannot connect the pasted parameters");
                 continue;
             }

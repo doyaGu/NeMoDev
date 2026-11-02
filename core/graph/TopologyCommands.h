@@ -15,6 +15,7 @@
 namespace vdev {
 
 class Document;
+struct GraphMutation;
 
 // Topology edits change the CK graph (the source of topology) and the
 // Script's display records together, as one undo step.
@@ -46,11 +47,13 @@ public:
     InterfaceData &Data() { return m_After; }
     const Document &Composition() const { return m_Document; }
 
-    // Runs redo now and records the pair; false (and nothing recorded) when
+    // Runs the recorded graph change; false (and nothing recorded) when
     // redo fails or throws a structured exception.
-    bool Do(const std::function<bool()> &redo, const std::function<bool()> &undo) { return m_Edit.Do(redo, undo); }
+    bool Do(GraphMutation after, GraphMutation before);
+    bool Do(std::unique_ptr<Action> action);
     // Records a step whose redo has already been performed.
-    void Done(const std::function<bool()> &redo, const std::function<bool()> &undo) { m_Edit.Done(redo, undo); }
+    void Done(GraphMutation after, GraphMutation before);
+    void Done(std::unique_ptr<Action> action);
     void Bury(CK_ID id) {
         m_Buried.insert(id);
         m_Edit.Bury(id);

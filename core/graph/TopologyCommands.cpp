@@ -15,6 +15,7 @@
 #include "core/schematic/SchematicEdits.h"
 #include "core/schematic/SchematicGrid.h"
 #include "core/graph/detail/TopologyInternal.h"
+#include "core/graph/detail/GraphActions.h"
 #include "core/runtime/SdkCompat.h"
 
 namespace vdev {
@@ -82,16 +83,10 @@ EditResult TopologyEdit::Commit(CK_ID created) {
                 if (reader->GetDirectSource() != result) continue;
                 const detail::InputSource before = detail::SourceOf(reader);
                 const detail::InputRef ref = before.input;
-                if (!Do(
-                        [context, ref] {
-                            CKParameterIn *input = detail::Resolve(context, ref);
-                            return input && input->SetDirectSource(nullptr) == CK_OK;
-                        },
-                        [context, before] { return detail::RestoreSource(context, before); }))
+                if (!Do(GraphSetSource(m_Document, ref), GraphRestoreSource(m_Document, before)))
                     return Fail("Cannot disconnect the hidden conversion operation");
             }
-        if (!Do([context, graphId, id] { return DetachOperation(context, graphId, id); },
-                [context, graphId, id, at] { return AttachOperation(context, graphId, id, at); }))
+        if (!Do(GraphDetachOperation(m_Document, graphId, id), GraphAttachOperation(m_Document, graphId, id, at)))
             return Fail("Cannot remove the hidden conversion operation");
         Bury(id);
     }
@@ -105,11 +100,7 @@ EditResult TopologyEdit::Commit(CK_ID created) {
         if (now == entry.second.text) continue;
         const CK_ID id = entry.first;
         const std::string was = entry.second.text;
-        auto write = [context, id](const std::string &text) {
-            CKParameterLocal *target = CKParameterLocal::Cast(context->GetObject(id));
-            return target && target->SetStringValue(const_cast<CKSTRING>(text.c_str())) == CK_OK;
-        };
-        Done([write, now] { return write(now); }, [write, was] { return write(was); });
+        Done(GraphWriteText(m_Document, id, now), GraphWriteText(m_Document, id, was));
     }
     // Another Script's shortcut of a removed parameter (corpus: Frustum Object
     // Intersection.cmo, Off Topic reading a deleted local) leaves its display
@@ -166,8 +157,8 @@ EditResult InsertBuildingBlock(Document &document, CK_ID scriptId, CK_ID graphId
             return edit.Fail(std::string(declaration->GetName()) + " does not apply to the Script owner's class");
     }
     const int at = graph->GetSubBehaviorCount();
-    if (!edit.Do([context, graphId, id, at] { return AttachSubBehavior(context, graphId, id, at); },
-                 [context, graphId, id] { return DetachSubBehavior(context, graphId, id); }))
+    if (!edit.Do(GraphAttachSubBehavior(edit.Composition(), graphId, id, at),
+                 GraphDetachSubBehavior(edit.Composition(), graphId, id)))
         return edit.Fail("CKBehavior::AddSubBehavior failed");
 
     BehaviorData record(id);
@@ -210,8 +201,8 @@ EditResult CreateBehaviorGraph(Document &document, CK_ID scriptId, CK_ID graphId
     const CK_ID id = behavior->GetID();
     edit.Created(id);
     const int at = graph->GetSubBehaviorCount();
-    if (!edit.Do([context, graphId, id, at] { return AttachSubBehavior(context, graphId, id, at); },
-                 [context, graphId, id] { return DetachSubBehavior(context, graphId, id); }))
+    if (!edit.Do(GraphAttachSubBehavior(edit.Composition(), graphId, id, at),
+                 GraphDetachSubBehavior(edit.Composition(), graphId, id)))
         return edit.Fail("CKBehavior::AddSubBehavior failed");
     BehaviorData record(id);
     record.parentId = graphId;
@@ -405,13 +396,8 @@ EditResult CrossGraphParameterLink(TopologyEdit &edit, const LinkEndpoint &a, co
         const InputSource before = SourceOf(input);
         const InputRef targetRef = before.input;
         const CK_ID sourceId = from->GetID();
-        if (!edit.Do(
-                [context, targetRef, sourceId] {
-                    CKParameterIn *target = Resolve(context, targetRef);
-                    CKParameter *value = CKParameter::Cast(context->GetObject(sourceId));
-                    return target && value && target->SetDirectSource(value) == CK_OK;
-                },
-                [context, before] { return RestoreSource(context, before); }))
+        if (!edit.Do(GraphSetSource(edit.Composition(), targetRef, sourceId),
+                     GraphRestoreSource(edit.Composition(), before)))
             return edit.Fail("The parameter source was rejected");
         FindRecord(edit.Data(), destination.graph)
             ->links.push_back(Link(0, LINK_TYPE_PARAMETER, shortcut, destination.endpoint));
@@ -428,13 +414,8 @@ EditResult CrossGraphParameterLink(TopologyEdit &edit, const LinkEndpoint &a, co
     LinkEndpoint shortcut;
     if (!ShortcutIn(edit, source.graph, written, source.endpoint, shortcut))
         return edit.Fail("Cannot show the parameter in the output's graph");
-    if (!edit.Do(
-            [context, outputId, writtenId] {
-                CKParameterOut *from = CKParameterOut::Cast(context->GetObject(outputId));
-                CKParameter *to = CKParameter::Cast(context->GetObject(writtenId));
-                return from && to && from->AddDestination(to, TRUE) == CK_OK;
-            },
-            [context, outputId, before] { return RestoreDestinations(context, outputId, before); }))
+    if (!edit.Do(GraphAddDestination(edit.Composition(), outputId, writtenId, true),
+                 GraphRestoreDestinations(edit.Composition(), outputId, before)))
         return edit.Fail("The parameter destination was rejected");
     FindRecord(edit.Data(), source.graph)->links.push_back(Link(0, LINK_TYPE_PARAMETER, source.endpoint, shortcut));
     return edit.Commit();
@@ -481,8 +462,8 @@ EditResult CreateBehaviorLink(Document &document, CK_ID scriptId, const LinkEndp
     const CK_ID graphId = start.graph;
     const int at = graph->GetSubBehaviorLinkCount();
     const IoRef in = IoRefOf(CKBehaviorIO::Cast(start.object)), out = IoRefOf(CKBehaviorIO::Cast(end.object));
-    if (!edit.Do([context, graphId, id, at, in, out] { return AttachLink(context, graphId, id, at, in, out); },
-                 [context, graphId, id] { return DetachLink(context, graphId, id); }))
+    if (!edit.Do(GraphAttachLink(edit.Composition(), graphId, id, at, in, out),
+                 GraphDetachLink(edit.Composition(), graphId, id)))
         return edit.Fail("CKBehavior::AddSubBehaviorLink failed");
     FindRecord(edit.Data(), graphId)->links.push_back(Link(id, LINK_TYPE_BEHAVIOR, start.endpoint, end.endpoint));
     return edit.Commit(id);
@@ -532,30 +513,20 @@ EditResult CreateParameterLink(Document &document, CK_ID scriptId, const LinkEnd
         edit.Created(id);
         const CK_ID graphId = source.graph;
         const int at = graph->GetParameterOperationCount();
-        if (!edit.Do([context, graphId, id, at] { return AttachOperation(context, graphId, id, at); },
-                     [context, graphId, id] { return DetachOperation(context, graphId, id); }))
+        if (!edit.Do(GraphAttachOperation(edit.Composition(), graphId, id, at),
+                     GraphDetachOperation(edit.Composition(), graphId, id)))
             return edit.Fail("CKBehavior::AddParameterOperation failed");
         const CK_ID fromId = from->GetID();
         const InputRef in1 = RefOf(operation->GetInParameter1());
         const InputSource in1Before = SourceOf(operation->GetInParameter1());
-        if (!edit.Do(
-                [context, in1, fromId] {
-                    CKParameterIn *target = Resolve(context, in1);
-                    CKParameter *value = CKParameter::Cast(context->GetObject(fromId));
-                    return target && value && target->SetDirectSource(value) == CK_OK;
-                },
-                [context, in1Before] { return RestoreSource(context, in1Before); }))
+        if (!edit.Do(GraphSetSource(edit.Composition(), in1, fromId),
+                     GraphRestoreSource(edit.Composition(), in1Before)))
             return edit.Fail("The conversion operation refused the source");
         const InputSource before = SourceOf(input);
         const InputRef targetRef = before.input;
         const CK_ID outId = operation->GetOutParameter()->GetID();
-        if (!edit.Do(
-                [context, targetRef, outId] {
-                    CKParameterIn *target = Resolve(context, targetRef);
-                    CKParameter *value = CKParameter::Cast(context->GetObject(outId));
-                    return target && value && target->SetDirectSource(value) == CK_OK;
-                },
-                [context, before] { return RestoreSource(context, before); }))
+        if (!edit.Do(GraphSetSource(edit.Composition(), targetRef, outId),
+                     GraphRestoreSource(edit.Composition(), before)))
             return edit.Fail("The destination refused the conversion");
         FindRecord(edit.Data(), source.graph)
             ->links.push_back(Link(0, LINK_TYPE_PARAMETER, source.endpoint, destination.endpoint));
@@ -568,18 +539,8 @@ EditResult CreateParameterLink(Document &document, CK_ID scriptId, const LinkEnd
         const InputRef targetRef = before.input;
         const InputRef sharedRef = RefOf(CKParameterIn::Cast(source.object));
         const bool shared = sharedRef.id != 0;
-        if (!edit.Do(
-                [context, sourceId, targetRef, sharedRef, shared] {
-                    CKParameterIn *target = Resolve(context, targetRef);
-                    if (!target) return false;
-                    if (shared) {
-                        CKParameterIn *from = Resolve(context, sharedRef);
-                        return from && target->ShareSourceWith(from) == CK_OK;
-                    }
-                    CKParameter *from = CKParameter::Cast(context->GetObject(sourceId));
-                    return from && target->SetDirectSource(from) == CK_OK;
-                },
-                [context, before] { return RestoreSource(context, before); }))
+        if (!edit.Do(GraphSetSource(edit.Composition(), targetRef, sourceId, sharedRef),
+                     GraphRestoreSource(edit.Composition(), before)))
             return edit.Fail("The parameter source was rejected");
     } else {
         CKParameterOut *output = CKParameterOut::Cast(source.object);
@@ -587,13 +548,8 @@ EditResult CreateParameterLink(Document &document, CK_ID scriptId, const LinkEnd
         const std::vector<CK_ID> before = DestinationsOf(output);
         if (std::find(before.begin(), before.end(), destinationId) != before.end())
             return edit.Fail("These parameters are already linked");
-        if (!edit.Do(
-                [context, sourceId, destinationId] {
-                    CKParameterOut *from = CKParameterOut::Cast(context->GetObject(sourceId));
-                    CKParameter *to = CKParameter::Cast(context->GetObject(destinationId));
-                    return from && to && from->AddDestination(to, TRUE) == CK_OK;
-                },
-                [context, sourceId, before] { return RestoreDestinations(context, sourceId, before); }))
+        if (!edit.Do(GraphAddDestination(edit.Composition(), sourceId, destinationId, true),
+                     GraphRestoreDestinations(edit.Composition(), sourceId, before)))
             return edit.Fail("The parameter destination was rejected");
     }
     FindRecord(edit.Data(), source.graph)
@@ -618,17 +574,8 @@ CKParameterLocal *CreateLocal(TopologyEdit &edit, CK_ID graphId, const std::stri
     const CK_ID id = local->GetID();
     const int slot = graph->GetLocalParameterPosition(local);
     edit.Created(id);
-    edit.Done(
-        [context, graphId, id, slot] {
-            CKBehavior *owner = BehaviorOf(context, graphId);
-            CKParameterLocal *parameter = CKParameterLocal::Cast(context->GetObject(id));
-            if (!owner || !parameter) return false;
-            return InsertLocalParameter(owner, slot, parameter);
-        },
-        [context, graphId, id, slot] {
-            CKBehavior *owner = BehaviorOf(context, graphId);
-            return owner && owner->RemoveLocalParameter(slot) == context->GetObject(id);
-        });
+    edit.Done(GraphParameterList(edit.Composition(), graphId, id, slot, GraphList::Locals, true),
+              GraphParameterList(edit.Composition(), graphId, id, slot, GraphList::Locals, false));
     // Dev-saved local tables do not store the CK_ID (loaded records hold 0);
     // reconstructed data names it.
     Parameter display(edit.Data().generatedFromRuntimeGraph ? id : 0, column, row, style);
@@ -684,13 +631,7 @@ bool AddInputValueLocals(TopologyEdit &edit, CK_ID graphId, CKBehavior *behavior
         const CK_ID localId = local->GetID();
         const InputSource before = SourceOf(input);
         const InputRef ref = before.input;
-        if (!edit.Do(
-                [context, ref, localId] {
-                    CKParameterIn *target = Resolve(context, ref);
-                    CKParameter *source = CKParameter::Cast(context->GetObject(localId));
-                    return target && source && target->SetDirectSource(source) == CK_OK;
-                },
-                [context, before] { return RestoreSource(context, before); }))
+        if (!edit.Do(GraphSetSource(edit.Composition(), ref, localId), GraphRestoreSource(edit.Composition(), before)))
             return false;
         graph = FindRecord(edit.Data(), graphId);
         const int slot = static_cast<int>(graph->localParams.size()) - 1;
@@ -755,8 +696,8 @@ EditResult AddParameterOperation(Document &document, CK_ID scriptId, CK_ID graph
     const CK_ID id = operation->GetID();
     edit.Created(id);
     const int at = graph->GetParameterOperationCount();
-    if (!edit.Do([context, graphId, id, at] { return AttachOperation(context, graphId, id, at); },
-                 [context, graphId, id] { return DetachOperation(context, graphId, id); }))
+    if (!edit.Do(GraphAttachOperation(edit.Composition(), graphId, id, at),
+                 GraphDetachOperation(edit.Composition(), graphId, id)))
         return edit.Fail("CKBehavior::AddParameterOperation failed");
     record->operations.push_back(Operation(id, SchematicGrid::SnapToGrid(position.h, GRID),
                                            SchematicGrid::SnapToGrid(position.v, GRID)));
@@ -786,8 +727,8 @@ EditResult AddGraphPin(Document &document, CK_ID scriptId, CK_ID behaviorId, Pin
         const CK_ID id = added->GetID();
         const int slot = input ? behavior->GetInputCount() - 1 : behavior->GetOutputCount() - 1;
         edit.Created(id);
-        edit.Done([context, behaviorId, input, slot, id] { return InsertIo(context, behaviorId, input, slot, id); },
-                  [context, behaviorId, input, slot, id] { return RemoveIo(context, behaviorId, input, slot, id); });
+        edit.Done(GraphInsertIo(edit.Composition(), behaviorId, input, slot, id),
+                  GraphRemoveIo(edit.Composition(), behaviorId, input, slot, id));
         created = id;
         break;
     }
@@ -797,17 +738,8 @@ EditResult AddGraphPin(Document &document, CK_ID scriptId, CK_ID behaviorId, Pin
         const CK_ID id = parameter->GetID();
         const int slot = behavior->GetInputParameterPosition(parameter);
         edit.Created(id);
-        edit.Done(
-            [context, behaviorId, id, slot] {
-                CKBehavior *owner = BehaviorOf(context, behaviorId);
-                CKParameterIn *in = CKParameterIn::Cast(context->GetObject(id));
-                if (!owner || !in) return false;
-                return InsertInputParameter(owner, slot, in);
-            },
-            [context, behaviorId, id, slot] {
-                CKBehavior *owner = BehaviorOf(context, behaviorId);
-                return owner && owner->RemoveInputParameter(slot) == context->GetObject(id);
-            });
+        edit.Done(GraphParameterList(edit.Composition(), behaviorId, id, slot, GraphList::Inputs, true),
+                  GraphParameterList(edit.Composition(), behaviorId, id, slot, GraphList::Inputs, false));
         created = id;
         break;
     }
@@ -817,17 +749,8 @@ EditResult AddGraphPin(Document &document, CK_ID scriptId, CK_ID behaviorId, Pin
         const CK_ID id = parameter->GetID();
         const int slot = behavior->GetOutputParameterPosition(parameter);
         edit.Created(id);
-        edit.Done(
-            [context, behaviorId, id, slot] {
-                CKBehavior *owner = BehaviorOf(context, behaviorId);
-                CKParameterOut *out = CKParameterOut::Cast(context->GetObject(id));
-                if (!owner || !out) return false;
-                return InsertOutputParameter(owner, slot, out);
-            },
-            [context, behaviorId, id, slot] {
-                CKBehavior *owner = BehaviorOf(context, behaviorId);
-                return owner && owner->RemoveOutputParameter(slot) == context->GetObject(id);
-            });
+        edit.Done(GraphParameterList(edit.Composition(), behaviorId, id, slot, GraphList::Outputs, true),
+                  GraphParameterList(edit.Composition(), behaviorId, id, slot, GraphList::Outputs, false));
         created = id;
         break;
     }
@@ -867,15 +790,8 @@ EditResult SetTargetUsed(Document &document, CK_ID scriptId, CK_ID behaviorId, b
         if (target && !DisconnectParameter(edit, target, {}))
             return edit.Fail("Cannot disconnect the Target parameter");
     }
-    if (!edit.Do(
-            [context, behaviorId, use] {
-                CKBehavior *runtime = BehaviorOf(context, behaviorId);
-                return runtime && runtime->UseTarget(use) == CK_OK;
-            },
-            [context, behaviorId, use] {
-                CKBehavior *runtime = BehaviorOf(context, behaviorId);
-                return runtime && runtime->UseTarget(!use) == CK_OK;
-            }))
+    if (!edit.Do(GraphSetInteger(edit.Composition(), behaviorId, GraphIntegerProperty::UseTarget, use),
+                 GraphSetInteger(edit.Composition(), behaviorId, GraphIntegerProperty::UseTarget, !use)))
         return edit.Fail("CKBehavior::UseTarget failed");
     return edit.Commit();
 }
@@ -889,13 +805,7 @@ EditResult RenameObject(Document &document, CK_ID scriptId, CK_ID objectId,
     if (!object) return edit.Fail("Object not found");
     const std::string before = NameOf(object);
     if (before == name) return edit.Unchanged("The name is unchanged");
-    auto rename = [context, objectId](const std::string &text) {
-        CKObject *runtime = context->GetObject(objectId);
-        if (!runtime) return false;
-        runtime->SetName(const_cast<CKSTRING>(text.c_str()));
-        return true;
-    };
-    edit.Do([rename, name] { return rename(name); }, [rename, before] { return rename(before); });
+    edit.Do(GraphRename(document, objectId, name), GraphRename(document, objectId, before));
     return edit.Commit();
 }
 
@@ -910,13 +820,8 @@ EditResult SetBehaviorPriority(Document &document, CK_ID scriptId, CK_ID behavio
         return edit.Fail("Select a behavior of this Script");
     const int before = behavior->GetPriority();
     if (before == priority) return edit.Unchanged("The priority is unchanged");
-    auto set = [context, behaviorId](int value) {
-        CKBehavior *runtime = BehaviorOf(context, behaviorId);
-        if (!runtime) return false;
-        SetPriorityKeepingTies(runtime, value);
-        return true;
-    };
-    edit.Do([set, priority] { return set(priority); }, [set, before] { return set(before); });
+    edit.Do(GraphSetInteger(document, behaviorId, GraphIntegerProperty::Priority, priority),
+            GraphSetInteger(document, behaviorId, GraphIntegerProperty::Priority, before));
     return edit.Commit();
 }
 
@@ -930,14 +835,8 @@ EditResult SetLinkDelay(Document &document, CK_ID scriptId, CK_ID linkId, int de
     delay = std::max(0, std::min(32764, delay));
     const int before = link->GetInitialActivationDelay();
     if (before == delay) return edit.Unchanged("The delay is unchanged");
-    auto set = [context, linkId](int value) {
-        CKBehaviorLink *runtime = CKBehaviorLink::Cast(context->GetObject(linkId));
-        if (!runtime) return false;
-        runtime->SetInitialActivationDelay(value);
-        runtime->SetActivationDelay(value);
-        return true;
-    };
-    edit.Do([set, delay] { return set(delay); }, [set, before] { return set(before); });
+    edit.Do(GraphSetInteger(document, linkId, GraphIntegerProperty::LinkDelay, delay),
+            GraphSetInteger(document, linkId, GraphIntegerProperty::LinkDelay, before));
     return edit.Commit();
 }
 
@@ -1078,10 +977,8 @@ EditResult DeleteElements(Document &document, CK_ID scriptId,
         const int at = graph && link ? LinkPosition(graph, link) : -1;
         if (at < 0) continue;
         const IoRef in = IoRefOf(link->GetInBehaviorIO()), out = IoRefOf(link->GetOutBehaviorIO());
-        if (!edit.Do([context, graphId, linkId] { return DetachLink(context, graphId, linkId); },
-                     [context, graphId, linkId, at, in, out] {
-                         return AttachLink(context, graphId, linkId, at, in, out);
-                     }))
+        if (!edit.Do(GraphDetachLink(edit.Composition(), graphId, linkId),
+                     GraphAttachLink(edit.Composition(), graphId, linkId, at, in, out)))
             return edit.Fail("CKBehavior::RemoveSubBehaviorLink failed");
         edit.Bury(linkId);
     }
@@ -1091,17 +988,8 @@ EditResult DeleteElements(Document &document, CK_ID scriptId,
         CKBehavior *graph = BehaviorOf(context, graphId);
         if (!graph || slot < 0 || slot >= graph->GetLocalParameterCount()) continue;
         const CK_ID localId = graph->GetLocalParameter(slot)->GetID();
-        if (!edit.Do(
-                [context, graphId, slot, localId] {
-                    CKBehavior *owner = BehaviorOf(context, graphId);
-                    return owner && owner->RemoveLocalParameter(slot) == context->GetObject(localId);
-                },
-                [context, graphId, slot, localId] {
-                    CKBehavior *owner = BehaviorOf(context, graphId);
-                    CKParameterLocal *local = CKParameterLocal::Cast(context->GetObject(localId));
-                    if (!owner || !local) return false;
-                    return InsertLocalParameter(owner, slot, local);
-                }))
+        if (!edit.Do(GraphParameterList(edit.Composition(), graphId, localId, slot, GraphList::Locals, false),
+                     GraphParameterList(edit.Composition(), graphId, localId, slot, GraphList::Locals, true)))
             return edit.Fail("CKBehavior::RemoveLocalParameter failed");
         edit.Bury(localId);
     }
@@ -1111,10 +999,8 @@ EditResult DeleteElements(Document &document, CK_ID scriptId,
         if (!graph) continue;
         const CK_ID graphId = graph->GetID();
         const int at = OperationPosition(graph, operation);
-        if (!edit.Do([context, graphId, operationId] { return DetachOperation(context, graphId, operationId); },
-                     [context, graphId, operationId, at] {
-                         return AttachOperation(context, graphId, operationId, at);
-                     }))
+        if (!edit.Do(GraphDetachOperation(edit.Composition(), graphId, operationId),
+                     GraphAttachOperation(edit.Composition(), graphId, operationId, at)))
             return edit.Fail("CKBehavior::RemoveParameterOperation failed");
         edit.Bury(operationId);
     }
@@ -1123,8 +1009,8 @@ EditResult DeleteElements(Document &document, CK_ID scriptId,
         CKBehavior *parent = BehaviorOf(context, parentId);
         const int at = parent ? SubBehaviorPosition(parent, BehaviorOf(context, id)) : -1;
         if (at < 0) return edit.Fail("Behavior is not attached to its graph");
-        if (!edit.Do([context, parentId, id] { return DetachSubBehavior(context, parentId, id); },
-                     [context, parentId, id, at] { return AttachSubBehavior(context, parentId, id, at); }))
+        if (!edit.Do(GraphDetachSubBehavior(edit.Composition(), parentId, id),
+                     GraphAttachSubBehavior(edit.Composition(), parentId, id, at)))
             return edit.Fail("CKBehavior::RemoveSubBehavior failed");
         edit.Bury(id);
     }
@@ -1140,36 +1026,18 @@ EditResult DeleteElements(Document &document, CK_ID scriptId,
             CKBehaviorIO *io = input ? owner->GetInput(slot) : owner->GetOutput(slot);
             if (!io) return edit.Fail("Cannot remove the behavior pin");
             const CK_ID id = io->GetID();
-            ok = edit.Do([context, ownerId, input, slot, id] { return RemoveIo(context, ownerId, input, slot, id); },
-                         [context, ownerId, input, slot, id] { return InsertIo(context, ownerId, input, slot, id); });
+            ok = edit.Do(GraphRemoveIo(edit.Composition(), ownerId, input, slot, id),
+                         GraphInsertIo(edit.Composition(), ownerId, input, slot, id));
             if (ok) edit.Bury(id);
         } else if (kind == PinKind::ParamIn) {
             const CK_ID id = owner->GetInputParameter(slot)->GetID();
-            ok = edit.Do(
-                [context, ownerId, slot, id] {
-                    CKBehavior *runtime = BehaviorOf(context, ownerId);
-                    return runtime && runtime->RemoveInputParameter(slot) == context->GetObject(id);
-                },
-                [context, ownerId, slot, id] {
-                    CKBehavior *runtime = BehaviorOf(context, ownerId);
-                    CKParameterIn *in = CKParameterIn::Cast(context->GetObject(id));
-                    if (!runtime || !in) return false;
-                    return InsertInputParameter(runtime, slot, in);
-                });
+            ok = edit.Do(GraphParameterList(edit.Composition(), ownerId, id, slot, GraphList::Inputs, false),
+                         GraphParameterList(edit.Composition(), ownerId, id, slot, GraphList::Inputs, true));
             if (ok) edit.Bury(id);
         } else {
             const CK_ID id = owner->GetOutputParameter(slot)->GetID();
-            ok = edit.Do(
-                [context, ownerId, slot, id] {
-                    CKBehavior *runtime = BehaviorOf(context, ownerId);
-                    return runtime && runtime->RemoveOutputParameter(slot) == context->GetObject(id);
-                },
-                [context, ownerId, slot, id] {
-                    CKBehavior *runtime = BehaviorOf(context, ownerId);
-                    CKParameterOut *out = CKParameterOut::Cast(context->GetObject(id));
-                    if (!runtime || !out) return false;
-                    return InsertOutputParameter(runtime, slot, out);
-                });
+            ok = edit.Do(GraphParameterList(edit.Composition(), ownerId, id, slot, GraphList::Outputs, false),
+                         GraphParameterList(edit.Composition(), ownerId, id, slot, GraphList::Outputs, true));
             if (ok) edit.Bury(id);
         }
         if (!ok) return edit.Fail("Cannot remove the pin");

@@ -6,6 +6,7 @@
 #include "core/document/Document.h"
 #include "core/schematic/SchematicEdits.h"
 #include "core/graph/detail/TopologyInternal.h"
+#include "core/graph/detail/GraphActions.h"
 
 namespace vdev {
 
@@ -22,13 +23,8 @@ bool Repoint(TopologyEdit &edit, CKParameterIn *input, CK_ID sourceId) {
     CKContext *context = edit.Context();
     const InputSource before = SourceOf(input);
     const InputRef target = before.input;
-    return edit.Do(
-        [context, target, sourceId] {
-            CKParameterIn *in = Resolve(context, target);
-            CKParameter *source = CKParameter::Cast(context->GetObject(sourceId));
-            return in && source && in->SetDirectSource(source) == CK_OK;
-        },
-        [context, before] { return RestoreSource(context, before); });
+    return edit.Do(GraphSetSource(edit.Composition(), target, sourceId),
+                   GraphRestoreSource(edit.Composition(), before));
 }
 
 // Every input of the Script tree (behaviors and operations) whose direct source is `parameter`.
@@ -167,17 +163,8 @@ EditResult ShortcutizeLocals(Document &document, CK_ID scriptId, CK_ID sourceId)
             record.localParams.erase(record.localParams.begin() + slot);
             // CK: the local leaves its graph (soft delete).
             const CK_ID graphId = record.id, localId = local->GetID();
-            if (!edit.Do(
-                    [context, graphId, slot, localId] {
-                        CKBehavior *owner = BehaviorOf(context, graphId);
-                        return owner && owner->RemoveLocalParameter(slot) == context->GetObject(localId);
-                    },
-                    [context, graphId, slot, localId] {
-                        CKBehavior *owner = BehaviorOf(context, graphId);
-                        CKParameterLocal *parameter = CKParameterLocal::Cast(context->GetObject(localId));
-                        if (!owner || !parameter) return false;
-                        return InsertLocalParameter(owner, slot, parameter);
-                    })) {
+            if (!edit.Do(GraphParameterList(edit.Composition(), graphId, localId, slot, GraphList::Locals, false),
+                         GraphParameterList(edit.Composition(), graphId, localId, slot, GraphList::Locals, true))) {
                 error = "Cannot remove the local parameter";
                 return;
             }

@@ -151,6 +151,7 @@ add_executable(VirtoolsDevTests
         DocumentEditorDataTests.cpp
         QueryProjectionTests.cpp
         LevelActionRecordTests.cpp
+        GraphActionRecordTests.cpp
         ObjectEditFailureTests.cpp
         SaveFailureTests.cpp
         LoadCallbackTests.cpp

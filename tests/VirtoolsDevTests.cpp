@@ -190,6 +190,8 @@ int Run(int argc, char **argv, bool suite, CkRuntimeHost &host, BuildingBlockCat
             {"LevelActionRecordReplay", [&] { LevelActionRecordReplay(host); }},
             {"LevelActionRecordFailures", [&] { LevelActionRecordFailures(host); }},
             {"LevelActionRecordDependencies", [&] { LevelActionRecordDependencies(host); }},
+            {"GraphActionRecordReplay", [&] { GraphActionRecordReplay(host); }},
+            {"GraphActionRecordDependencies", [&] { GraphActionRecordDependencies(host); }},
             {"ObjectQueryProjections", [&] { ObjectQueryProjections(host); }},
             {"AttributeQueryProjections", [&] { AttributeQueryProjections(host); }},
             {"HierarchyQueryCommands", [&] { HierarchyQueryCommands(host); }},

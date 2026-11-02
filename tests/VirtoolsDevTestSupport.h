@@ -1,4 +1,5 @@
 #pragma once
+#include "tests/TestActions.h"
 
 // VirtoolsDevTests' shared part: CHECK, the helpers several test files use,
 // and the entry points main runs (VirtoolsDevTests.cpp). The tests:
@@ -92,6 +93,8 @@ void DocumentPictures(CkRuntimeHost &host);
 void LevelActionRecordReplay(CkRuntimeHost &host);
 void LevelActionRecordFailures(CkRuntimeHost &host);
 void LevelActionRecordDependencies(CkRuntimeHost &host);
+void GraphActionRecordReplay(CkRuntimeHost &host);
+void GraphActionRecordDependencies(CkRuntimeHost &host);
 void ObjectQueryProjections(CkRuntimeHost &host);
 void AttributeQueryProjections(CkRuntimeHost &host);
 void HierarchyQueryCommands(CkRuntimeHost &host);
@@ -265,7 +268,7 @@ private:
 template <typename T> bool RecordValue(Document &document, const std::string &label, T &value, T after) {
     Edit edit(document, label);
     const T before = value;
-    return edit.Do([&value, after] { value = after; return true; }, [&value, before] { value = before; return true; }) &&
+    return edit.Do(TestAction([&value, after] { value = after; return true; }, [&value, before] { value = before; return true; })) &&
            edit.Commit().ok;
 }
 

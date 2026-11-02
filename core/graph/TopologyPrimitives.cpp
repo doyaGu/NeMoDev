@@ -18,6 +18,7 @@
 #include "core/schematic/SchematicEdits.h"
 #include "core/schematic/SchematicGrid.h"
 #include "core/graph/detail/TopologyInternal.h"
+#include "core/graph/detail/GraphActions.h"
 
 namespace vdev {
 
@@ -361,27 +362,15 @@ bool ClearSource(TopologyEdit &edit, CKParameterIn *input) {
     CKContext *context = edit.Context();
     const InputSource before = SourceOf(input);
     const InputRef ref = before.input;
-    return edit.Do(
-        [context, ref] {
-            CKParameterIn *runtime = Resolve(context, ref);
-            return runtime && runtime->SetDirectSource(nullptr) == CK_OK;
-        },
-        [context, before] { return RestoreSource(context, before); });
+    return edit.Do(GraphSetSource(edit.Composition(), ref), GraphRestoreSource(edit.Composition(), before));
 }
 
 bool RemoveDestination(TopologyEdit &edit, CKParameterOut *output, CKParameter *destination) {
     CKContext *context = edit.Context();
     const std::vector<CK_ID> before = DestinationsOf(output);
     const CK_ID outputId = output->GetID(), destinationId = destination->GetID();
-    return edit.Do(
-        [context, outputId, destinationId] {
-            CKParameterOut *runtime = CKParameterOut::Cast(context->GetObject(outputId));
-            CKParameter *target = CKParameter::Cast(context->GetObject(destinationId));
-            if (!runtime || !target) return false;
-            runtime->RemoveDestination(target);
-            return true;
-        },
-        [context, outputId, before] { return RestoreDestinations(context, outputId, before); });
+    return edit.Do(GraphRemoveDestination(edit.Composition(), outputId, destinationId),
+                   GraphRestoreDestinations(edit.Composition(), outputId, before));
 }
 
 
