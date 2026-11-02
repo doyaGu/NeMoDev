@@ -5,8 +5,8 @@
 #    the core alone);
 #  - a core/<module>/detail header is the core's own: ui and the tests do
 #    not include it;
-#  - the test engine's headers (imgui_te_*) and tests/ headers are the UI
-#    tests' (tests/ui): the editor itself includes neither.
+#  - tests/ headers stay within the tests; the test engine's headers
+#    (imgui_te_*) and tests/ui/ headers stay within the UI tests.
 # cmake -DVIRTOOLSDEV_SOURCE_DIR=<repository root> -P CheckLayering.cmake
 
 if (NOT VIRTOOLSDEV_SOURCE_DIR)
@@ -145,7 +145,9 @@ foreach (_source IN LISTS _sources)
         if (_source STREQUAL "html/HtmlDocument.h" AND _path MATCHES "^litehtml|^html/detail/")
             list(APPEND _errors "${_source}: public HTML interface exposes ${_path}")
         endif ()
-        if (NOT _source MATCHES "^tests/ui/" AND (_path MATCHES "^imgui_te_" OR _path MATCHES "^tests/"))
+        if (NOT _source MATCHES "^tests/" AND _path MATCHES "^tests/")
+            list(APPEND _errors "${_source}: only the tests include ${_path}")
+        elseif (NOT _source MATCHES "^tests/ui/" AND (_path MATCHES "^imgui_te_" OR _path MATCHES "^tests/ui/"))
             list(APPEND _errors "${_source}: only the UI tests include ${_path}")
         endif ()
     endforeach ()

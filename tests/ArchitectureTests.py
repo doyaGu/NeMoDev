@@ -539,6 +539,37 @@ class ArchitectureTests(unittest.TestCase):
         self.write("tests/VirtoolsDevCases.def", "VIRTOOLSDEV_CASE(Other)\n")
         self.assertIn("missing baseline core case: Original", self.run_check().stderr)
 
+    def test_shared_test_headers_preserve_ui_and_production_boundaries(self):
+        checker = CHECKER.with_name("CheckLayering.cmake")
+        cases = [
+            ("tests/Example.cpp", ["tests/ResourceFiles.h"], None),
+            ("tests/ui/Example.cpp", ["tests/ResourceFiles.h", "tests/ui/UiTests.h",
+                                      "imgui_te_context.h"], None),
+            ("core/Example.cpp", ["tests/ResourceFiles.h"], "only the tests include"),
+            ("ui/Example.cpp", ["tests/ResourceFiles.h"], "only the tests include"),
+            ("tests/Example.cpp", ["tests/ui/UiTests.h"], "only the UI tests include"),
+            ("tests/Example.cpp", ["imgui_te_context.h"], "only the UI tests include"),
+        ]
+        for index, (source, headers, error) in enumerate(cases):
+            with self.subTest(source=source, headers=headers):
+                root = self.folder / f"includes-{index}"
+                for name in ["CMakeLists.txt", "core/CMakeLists.txt", "ui/CMakeLists.txt",
+                             "tests/CMakeLists.txt", ".gitmodules"]:
+                    path = root / name
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("", encoding="utf-8")
+                path = root / source
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("".join(f'#include "{header}"\n' for header in headers),
+                                encoding="utf-8")
+                result = subprocess.run(["cmake", f"-DVIRTOOLSDEV_SOURCE_DIR={root}",
+                                         "-P", str(checker)], capture_output=True, text=True)
+                if error:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(error, result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
