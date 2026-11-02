@@ -241,5 +241,102 @@ void RegisterLayoutViewportTests(ImGuiTestEngine *engine) {
         });
         pair.Close(ctx);
     };
+    test = IM_REGISTER_TEST(engine, "layoutviews",
+                            "registered_toolbar_actions_and_rebound_inputs_keep_viewport_ownership");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Pair pair;
+        pair.Open(ctx);
+        vdev::EditorConfiguration previous;
+        uint64_t reads = 0, uploads = 0;
+        size_t history = 0;
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            auto &app = workspace.Application();
+            previous = app.Configuration();
+            auto config = previous;
+            config.bindings.emplace_back("layout.pan", "Ctrl+K");
+            vdev::ToolbarPlacement button;
+            button.id = "test.configured-pan";
+            button.location = "layout.top";
+            button.title = "Configured Pan";
+            button.action = "layout.pan";
+            button.x = 375;
+            button.y = 1;
+            button.width = 100;
+            button.height = 19;
+            button.fields = vdev::ToolbarLocation | vdev::ToolbarAction | vdev::ToolbarTitle | vdev::ToolbarPosition |
+                            vdev::ToolbarSize;
+            config.toolbarItems.push_back(button);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+            IM_CHECK_NO_RET(Client(pair.first).Command("layout.select").status <= EDITOR_NO_CHANGE);
+            IM_CHECK_NO_RET(Client(pair.second).Command("layout.select").status <= EDITOR_NO_CHANGE);
+            reads = App().Layout(pair.second)->View().ReadbackFrames();
+            uploads = App().Layout(pair.second)->ViewportUploadsForTests();
+            history = App().State().History().UndoCount();
+        });
+        ctx->Yield(3);
+        const auto second = "//" + pair.name;
+        ctx->WindowFocus(second.c_str());
+        ctx->KeyPress(ImGuiKey_P);
+        ctx->Yield(3);
+        IM_CHECK(App().Layout(pair.second)->Tool() == vdev::LayoutTool::Select);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_K);
+        ctx->Yield(3);
+        IM_CHECK(App().Layout(pair.second)->Tool() == vdev::LayoutTool::Pan);
+        IM_CHECK(App().Layout().Tool() == vdev::LayoutTool::Select);
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        ctx->KeyDown(ImGuiMod_Shift);
+        ctx->KeyDown(ImGuiKey_K);
+        ctx->Yield(2);
+        OnMainThread(ctx,
+                     [&] { IM_CHECK_NO_RET(App().WorkspaceForTests().Binding("layout.pan", EDITOR_KEY_DOWN, false)); });
+        ctx->KeyUp(ImGuiKey_K);
+        ctx->KeyUp(ImGuiMod_Shift);
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ctx->WindowFocus("//3D Layout");
+        ctx->ItemClick("//3D Layout/test.configured-pan/Configured Pan");
+        ctx->Yield(3);
+        IM_CHECK(App().Layout().Tool() == vdev::LayoutTool::Pan);
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            auto config = workspace.Application().Configuration();
+            auto &button = config.toolbarItems.back();
+            button.x = 405;
+            button.y = 1;
+            button.width = 110;
+            button.action = "layout.translate";
+            button.title = "Configured Move";
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+        });
+        ctx->Yield(3);
+        ctx->WindowFocus(second.c_str());
+        ctx->ItemClick((second + "/test.configured-pan/Configured Move").c_str());
+        ctx->Yield(3);
+        IM_CHECK(App().Layout(pair.second)->Tool() == vdev::LayoutTool::Translate);
+        IM_CHECK(App().Layout().Tool() == vdev::LayoutTool::Pan);
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            auto config = workspace.Application().Configuration();
+            config.toolbarItems.back().fields |= vdev::ToolbarVisibility;
+            config.toolbarItems.back().visible = false;
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+        });
+        ctx->Yield(3);
+        IM_CHECK(!ctx->ItemExists((second + "/test.configured-pan/Configured Move").c_str()));
+        OnMainThread(ctx, [&] {
+            auto &window = *App().Layout(pair.second);
+            IM_CHECK_NO_RET(window.UsesGpuViewport() && window.View().ReadbackFrames() == reads &&
+                            window.ViewportUploadsForTests() == uploads);
+            IM_CHECK_NO_RET(App().State().History().UndoCount() == history);
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(previous, error));
+            Client(pair.first).Command("layout.select");
+        });
+        pair.Close(ctx);
+    };
 }
 } // namespace vdevuitest

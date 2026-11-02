@@ -60,6 +60,12 @@ def main():
         assert len(layouts) == 2 and len({v['instance'] for v in layouts}) == 2
         layout = next(v for v in layouts if v['role'] == 'test.secondary-layout')
         assert next(s['value'] for s in layout['settings'] if s['key'] == 'tool') == 28
+        assert layout['tool'] == 'layout.pan'
+        assert next(v for v in layouts if v['role'] == 'main.layout')['tool'] == 'layout.select'
+        pan = next(t for t in saved['toolbar-items'] if t['id'] == 'test.startup-pan')
+        assert pan['location'] == 'layout.top' and pan['action'] == 'layout.pan'
+        assert pan['position'] == [375, 1] and pan['size'] == [100, 19]
+        assert any(b['action'] == 'layout.pan' and b['chord'] == 'Ctrl+K' for b in saved['bindings'])
         assert next(s['value'] for s in secondary['settings'] if s['key'] == 'zoom') == .5
         assert all(s['key'] not in ('document', 'session')
                    for v in saved['workspace']['views'] for s in v['settings'])
@@ -71,6 +77,7 @@ def main():
                     if v['role'] == 'test.secondary-layout')['instance'] == layout['instance']
         assert next(v for v in restored['workspace']['views']
                     if v['role'] == 'test.secondary')['instance'] == instance
+        assert next(t for t in restored['toolbar-items'] if t['id'] == 'test.startup-pan') == pan
 
         disabled = copy.deepcopy(restored)
         disabled['modules'] = [{'id': 'schematic.views', 'enabled': False},

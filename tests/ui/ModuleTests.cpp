@@ -53,6 +53,22 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                 const auto layout = workspace.Open("layout.viewport", "test.secondary-layout");
                 IM_CHECK_NO_RET(layout && App().Layout(layout));
                 App().Layout(layout)->StartupOptions("pan", "top");
+                auto configuration = workspace.Application().Configuration();
+                configuration.bindings.emplace_back("layout.pan", "Ctrl+K");
+                vdev::ToolbarPlacement pan;
+                pan.id = "test.startup-pan";
+                pan.location = "layout.top";
+                pan.action = "layout.pan";
+                pan.title = "Saved Pan";
+                pan.x = 375;
+                pan.y = 1;
+                pan.width = 100;
+                pan.height = 19;
+                pan.fields = vdev::ToolbarLocation | vdev::ToolbarAction | vdev::ToolbarTitle | vdev::ToolbarPosition |
+                             vdev::ToolbarSize;
+                configuration.toolbarItems.push_back(std::move(pan));
+                std::string error;
+                IM_CHECK_NO_RET(workspace.Configure(configuration, error));
                 second = workspace.Open("script.schematic", "test.secondary");
                 IM_CHECK_NO_RET(second);
                 workspace.Focus(second);
@@ -133,6 +149,19 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                 auto *view = App().Layout(layout);
                 IM_CHECK_NO_RET(view && view != &App().Layout() && view->Tool() == vdev::LayoutTool::Pan);
                 IM_CHECK_NO_RET(App().Layout().Tool() == vdev::LayoutTool::Select);
+                auto &editor = workspace.Application();
+                IM_CHECK_NO_RET(editor.ToolChoice(layout) == "layout.pan" &&
+                                editor.ToolChoice(workspace.Role("main.layout")) == "layout.select");
+                const auto &items = editor.ToolbarItems();
+                IM_CHECK_NO_RET(std::any_of(items.begin(), items.end(), [](const auto &item) {
+                    return item.id == "test.startup-pan" && item.location == "layout.top" &&
+                           item.action == "layout.pan" && item.title == "Saved Pan" && item.x == 375 &&
+                           item.width == 100;
+                }));
+                const auto &bindings = editor.Bindings();
+                IM_CHECK_NO_RET(std::any_of(bindings.begin(), bindings.end(), [](const auto &binding) {
+                    return binding.first == "layout.pan" && binding.second == "Ctrl+K";
+                }));
                 IM_CHECK_NO_RET(view->View().Camera() != App().Layout().View().Camera() &&
                                 view->View().RenderContext() != App().Layout().View().RenderContext());
                 IM_CHECK_NO_RET(workspace.WindowName(layout) != workspace.WindowName(workspace.Role("main.layout")));
