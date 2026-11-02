@@ -28,6 +28,7 @@ void TestGraphFileCommands(vdev::CkRuntimeHost &);
 void TestDocumentTransitions(vdev::CkRuntimeHost &host);
 void TestOutputCommands(vdev::CkRuntimeHost &host);
 void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &modulePath);
+void TestDebugFrameLifecycle(vdev::CkRuntimeHost &host);
 void TestRuntimeProjections(vdev::CkRuntimeHost &host);
 void TestEnvironmentCommands(vdev::CkRuntimeHost &host, const std::string &fixture);
 void TestDiagnosticCommands(vdev::CkRuntimeHost &host);
@@ -726,6 +727,7 @@ int main(int argc, char **argv) {
         TestObjectCommands(runtime, argv[1]);
         TestResourceCommands(runtime, argv[1]);
         TestExecutionCommands(runtime, argv[1]);
+        TestDebugFrameLifecycle(runtime);
         TestRuntimeProjections(runtime);
         TestEnvironmentCommands(runtime, argv[2]);
         TestDiagnosticCommands(runtime);

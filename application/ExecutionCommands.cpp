@@ -531,9 +531,10 @@ struct ExecutionCommands::Data {
 ExecutionCommands::ExecutionCommands(EditorApplication &editor, std::function<Document *()> current,
                                      std::function<bool()> nativeAvailable, Preferences &preferences)
     : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(nativeAvailable), preferences)) {}
-ExecutionCommands::~ExecutionCommands() = default;
+ExecutionCommands::~ExecutionCommands() { Stop(); }
 const Debugger *ExecutionCommands::Bind(Document &document) {
     if (m_Data->document) m_Data->RestoreProfiling();
+    if (m_Data->debugger) m_Data->debugger->Detach();
     m_Data->document = &document;
     m_Data->synchronizeAfterRelease = false;
     m_Data->debugger = std::make_unique<Debugger>(document);
@@ -559,6 +560,7 @@ void ExecutionCommands::ReleaseDocument() {
 void ExecutionCommands::Synchronize() { m_Data->Synchronize(); }
 void ExecutionCommands::Stop() {
     m_Data->RestoreProfiling();
+    if (m_Data->debugger) m_Data->debugger->Detach();
     m_Data->debugger.reset(); m_Data->document = nullptr;
     m_Data->synchronizeAfterRelease = false;
     m_Data->profilers.clear();

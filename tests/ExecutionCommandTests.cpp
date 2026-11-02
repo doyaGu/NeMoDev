@@ -9,6 +9,7 @@
 #include "core/level/LevelCommands.h"
 #include "editor/ImGuiDrawing.h"
 #include "features/objects/ObjectCommands.h"
+#include "CKDebugContext.h"
 
 #include <chrono>
 #include <cmath>
@@ -33,6 +34,59 @@ struct Frames : CKBaseManager {
         return CK_OK;
     }
 };
+}
+
+void TestDebugFrameLifecycle(vdev::CkRuntimeHost &host) {
+    using namespace vdev;
+    for (const auto *ending : {"document-change", "release", "bind", "stop"}) {
+        Document document(host);
+        std::string error;
+        Check(document.New(&error), error.c_str());
+        const auto entity = CreateLayoutObject(document, LayoutObject::Frame3D);
+        const auto script = CreateScript(document, entity.created, "Debug lifecycle");
+        Check(entity.ok && script.ok, "cannot prepare debug lifecycle script");
+        auto *context = document.Context();
+        auto *behavior = CKBehavior::Cast(context->GetObject(script.created));
+        context->GetCurrentLevel()->GetLevelScene()->SetObjectFlags(behavior,
+            CK_SCENEOBJECT_FLAGS(CK_SCENEOBJECT_START_ACTIVATE | CK_SCENEOBJECT_ACTIVE));
+        struct Counts { int starts = 0, ends = 0; bool clearWhileDebugging = false; };
+        auto counts = std::make_shared<Counts>();
+        struct Probe : CKBaseManager {
+            std::shared_ptr<Counts> counts;
+            Probe(CKContext *context, std::shared_ptr<Counts> counts)
+                : CKBaseManager(context, CKGUID(0x190de561, 0x643b997a), "Debug frame lifecycle"), counts(counts) {}
+            CKDWORD GetValidFunctionsMask() override { return CKMANAGER_FUNC_PreProcess | CKMANAGER_FUNC_PostProcess | CKMANAGER_FUNC_PreClearAll; }
+            CKERROR PreProcess() override { ++counts->starts; return CK_OK; }
+            CKERROR PostProcess() override { ++counts->ends; return CK_OK; }
+            CKERROR PreClearAll() override { counts->clearWhileDebugging |= m_Context->GetDebugContext()->InDebug != 0; return CK_OK; }
+        };
+        auto *probe = new Probe(context, counts);
+        Check(context->RegisterNewManager(probe) == CK_OK, "cannot register debug lifecycle probe");
+        EditorApplication editor([&] { return &document; });
+        Preferences preferences;
+        ExecutionCommands commands(editor, [&] { return &document; }, [] { return true; }, preferences);
+        Check(commands.Register(error) && editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
+        const auto *debugger = commands.Bind(document);
+        editor.Attach(document.Token(), document.TopologyRevision(), true, true);
+        const auto execute = [&](const char *id, std::vector<EditorValue> values = {}) {
+            return editor.Execute(id, {editor.Scope(), values.data(), uint32_t(values.size())}).status;
+        };
+        Check(execute("runtime.set-inside-frames", {Integer("enabled", 1)}) == EDITOR_OK &&
+              execute("runtime.play") == EDITOR_OK && execute("runtime.pause") == EDITOR_OK &&
+              execute("runtime.debug-step") == EDITOR_OK && debugger->InFrame() && context->GetDebugContext()->InDebug,
+              "debug lifecycle fixture did not stop inside a native frame");
+        Check(counts->starts == 1 && counts->ends == 0, "debug frame ended before its lifecycle transition");
+        if (std::string(ending) == "document-change") commands.DocumentChanging();
+        else if (std::string(ending) == "release") commands.ReleaseDocument();
+        else if (std::string(ending) == "bind") commands.Bind(document);
+        else commands.Stop();
+        Check(counts->ends == 1 && !context->GetDebugContext()->InDebug && !context->IsPlaying(),
+              (std::string("native debug frame survived ") + ending).c_str());
+        commands.Stop();
+        document.Close();
+        Check(counts->starts == counts->ends && !counts->clearWhileDebugging, "document closed before the native debug frame ended");
+        delete probe;
+    }
 }
 
 void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &modulePath) {
