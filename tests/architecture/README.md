@@ -1,6 +1,6 @@
 # Architecture checks and migration results
 
-`coverage.json` lists the 58 source groups,
+`coverage.json` lists the 59 source groups,
 32 feature/extension targets and 50 state families. It records CTest results,
 future verification gaps, existing include dependencies and private native
 access. These are migration records, not runtime registries. Phase-five ordinary
@@ -1966,3 +1966,17 @@ macOS arm64 Release 构建通过。最终非性能 CTest 分核心与 UI 两批�
 SDK 的 16 个仓库状态及 22 项运行文件与开始时完全一致。Layout 提取前后的九个原生传输方法、准备/绘制分派和 UiRenderer 的五个绘制方法一致，四份核心 GPU 文件未变。比较仅归一化私有指针成员访问、空白注释和一个局部变量声明的位置；界面改用返回纹理的尺寸。GPU 快通道、通用 fallback、目标重建和显式截图计数回归通过；没有用源码比较代替性能计时，也没有宣称测量了尚未加入的所有计数器。
 
 覆盖清单现有 1084 个文件、58 组源码、32 项功能和 50 份状态，阶段五到期待办全部关闭。`functional_phase` 为五；性能验收继续暂缓且原定 3% 门槛不变，故 `completed_phase` 保持三。九项阶段六待办仍保留，包括第二视口、发布安装与模块打包、跨启动配置和状态恢复等。运行时进程隔离按用户安排单独实施，不计入本轮完成范围。可选原生桌面 Player 组、真实系统打印和 Windows/Linux 本轮未重跑，已有桌面失败记录保留。完整结果与源码校验值见[阶段五收尾验证记录](baselines/phase-five-completion-macos-arm64-metal.json)。
+
+### 阶段六：生产模块发现与统一装配
+
+启动在程序的 `modules`、macOS 包的 `Contents/PlugIns/EditorModules` 和既有用户偏好目录下的 `modules` 发现模块；隔离回归只使用显式输入。新增可重复的 `--editor-module-dir`，保留 `--editor-module`。只读第一层当前平台库，按目录和文件名确定顺序，不扫描当前工作目录或 SDK 插件目录。同一文件的路径、符号链接及硬链接只加载一次；不同文件声明相同标识会报错，不按位置覆盖。可选目录缺失不报错，显式输入缺失、无法读取或库不可加载均保留来源诊断。
+
+内置功能与外部库进入同一装配批次，复用原有描述复制、贡献校验、依赖排序、提供者选择和启用流程。模块未全部收集前不能启用。失败只清理本批已经接受的模块，保留以前的登记，允许重新装配；停止时拒绝重入登记、启用和卸载。有效依赖逆序停止，全部 stop 回调结束后才卸载库。入口失败、C++ 异常、错误版本、重复标识、依赖缺失和依赖环均有故障回归，不提供运行中代码热卸载。原生调用永久卡死后的强制中断仍属于单独的进程隔离工作。
+
+`nemodev_add_module` 使用公开头构建模块，自绘模块指定匹配宿主，复用其 ImGui。安装由 `nemodev_install_module` 显式选择，测试夹具不会自动交付。Document Info 示例只通过公开接口登记命令、菜单和工作区窗口，读取 `document.info`，没有原生文档或 SDK 访问。示例默认不安装；启用 examples 后构建与安装，macOS 打包按既定模块目录搬移。新的源码组和检查阻止示例包含私有头或 SDK；实际模块分别与生产宿主、UI 回归宿主编译链接。独立工程另外验证公开头构建、错误 CMake 参数、安装目录、搬移和未选择夹具不安装。
+
+真实编辑器回归通过目录加载示例，在普通工作区打开、绘制并关闭，检查文档、Dirty、选区和历史保持；还覆盖显式文件与目录重复输入，以及坏库、缺失目录和重复标识的失败启动。生产启动错误现在打印并显示来源，沿用运行时启动错误的窗口；无窗口回归只打印，避免系统弹窗阻塞。公开 C 接口版本仍为二十，SDK 和视口传输源码未改变。
+
+macOS arm64 Release 构建通过，生产与 UI 宿主对应的示例均编译链接成功。完整非性能回归 **131/131**，无失败或跳过；架构检查测试 **58/58**。17 份 UI 报告执行 **262** 项，启动组合另外执行一次示例窗口和三种失败启动，另有两项原生打印回归。旧测试模块统一构建后，编辑器与完整 modules 组再测 **2/2**；补齐符号链接别名后模块发现再测 **1/1**。SDK 的 16 个仓库状态、22 项运行文件和 9 份 GPU/视口保护源码与开始时相同。GPU 快通道、fallback、显式截图和生成合法 `.NMO` 的直接打开回归通过。可选原生桌面 Player、真实系统打印和 Windows/Linux 本轮未重跑；原版 Level_1.NMO 未另行加载。
+
+最终验证和校验值见[模块发现验证记录](baselines/module-discovery-macos-arm64-metal.json)。本批只完成阶段六的发现、装配和基本模块交付。完整平台安装包、模块移除替换、私有状态恢复及其他阶段六待办继续保留；`functional_phase` 仍为五，`completed_phase` 仍为三。性能验收继续暂缓，原定 3% 门槛不变；进程隔离单独实施。

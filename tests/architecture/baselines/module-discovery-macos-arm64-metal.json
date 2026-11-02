@@ -1,0 +1,432 @@
+{
+  "description": "阶段六首批：生产模块发现、内置与外部统一装配、公开接口示例和基本模块交付。性能验收暂缓，进程隔离单独实施。",
+  "base_revision": "2a9446ba4dfa9d556d48d538e6ad57ce7bdae1f7",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "editor_version": 20,
+    "examples_installed_by_default": false
+  },
+  "changes": [
+    "启动扫描程序/应用包与既有用户偏好模块目录；增加可重复目录参数，保留显式文件入口。目录顺序和文件名排序确定，同一文件路径、硬链接和符号链接去重。",
+    "内置登记与外部库进入同一批次，复用描述复制、贡献校验、依赖排序及启用；本批失败停止并移除已接受模块，保留原登记并允许重试。",
+    "停止及失败恢复拒绝重入；有效依赖逆序停止，全部回调结束后才卸载库；入口拒绝、C++ 异常、错误版本、重复标识和依赖错误均清理。",
+    "生产、UI 和旧测试模块统一使用同一构建函数；模块安装显式选择，测试夹具不自动交付；macOS 模块搬移到 PlugIns/EditorModules。",
+    "Document Info 示例仅用公开头，登记命令、菜单和普通工作区窗口并读取现有只读查询；示例不得包含私有或 SDK 头。",
+    "生产启动失败打印并显示错误来源；无窗口回归保持无系统弹窗。公开 C 接口与 SDK 未修改，无热卸载和进程隔离改造。"
+  ],
+  "coverage": {
+    "files": 1095,
+    "groups": 59,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 9,
+    "separate_work": 1
+  },
+  "verification": {
+    "complete_nonperformance_ctest": {
+      "total": 131,
+      "passed": 131,
+      "failures": 0,
+      "skipped": 0,
+      "core_tests": 111,
+      "ui_ctest_groups": 20,
+      "ui_reports": 17,
+      "ui_cases": 262,
+      "startup_extra_ui_cases": 1,
+      "startup_failures_tested": [
+        "missing directory",
+        "broken library",
+        "duplicate module identifier"
+      ],
+      "report": {
+        "path": "out/phase-six-modules/full-complete.xml",
+        "sha256": "46ee2a1a817efd2b6cf2c7130d1c0641c78714fbd24cbda7e7e0e52b5a0372c7"
+      },
+      "inventory": {
+        "path": "out/phase-six-modules/ctest-inventory.json",
+        "sha256": "e5fa1205a0f54927cdb2d6bbcb37762fdc23a265220dd25326c1e66fe1d2888e"
+      },
+      "core": {
+        "path": "out/phase-six-modules/core-complete.xml",
+        "sha256": "90203095715305e1828eb6e8864454fe742894f9ef750bcca8969ff42e8ff143"
+      },
+      "ui": {
+        "path": "out/phase-six-modules/ui-complete.xml",
+        "sha256": "f20b41b7e7c74b5008968c793d106990d2a82c4f24daf0234a4ecd603fba523f"
+      },
+      "startup_error_checks": {
+        "path": "out/phase-six-modules/startup-error-checks.xml",
+        "sha256": "89762850b7263dabae9aeda5d4806a1a0958f7f37dae40570d08128ac58f5764"
+      },
+      "unified_build_checks": {
+        "path": "out/phase-six-modules/unified-modules.xml",
+        "sha256": "e5e9ede0192c6eacf41311ac17af0cdbd76ecef069d249918bd7dcf1aa8c3920"
+      },
+      "final_alias_check": {
+        "path": "out/phase-six-modules/alias-final.xml",
+        "sha256": "bd87508c20c89434d6a05b17df68836760ffce88f613b8885ee64fb788bfdd6b"
+      },
+      "aggregation": "Latest passing result per selected test name, checked against exact final CTest inventory; reruns do not increase the total."
+    },
+    "builds": {
+      "complete": {
+        "path": "out/phase-six-modules/build-final.log",
+        "sha256": "19a1f002703dc9000ae43a24fc90065c1b5e9a26ebcbc231a47234f1abb2c96c"
+      },
+      "startup_error_reporting": {
+        "path": "out/phase-six-modules/build-startup-error.log",
+        "sha256": "ce1fac8700de36db3bffb7ef0bf671e40de0db2b4efcf2cf421f8d87b26fde46"
+      },
+      "unified_module_helpers": {
+        "path": "out/phase-six-modules/build-unified-modules.log",
+        "sha256": "775672dec2813427c6ac6a92f5eb6e1e88b18e26843d1f37afad153ab4f09180"
+      },
+      "production_host_example": {
+        "path": "out/phase-six-modules/build-production-example.log",
+        "sha256": "df907ebc9d447fe6b8d3309ed0850aa947c7019c5c875fb76a6cc5a9eee83e13"
+      },
+      "final_alias_test": {
+        "path": "out/phase-six-modules/build-alias-test.log",
+        "sha256": "46a9995f2914b98e9416f691bda2a12d846c3fa29d968a663b8a476e42ef18f4"
+      }
+    },
+    "architecture_tests": {
+      "passed": 58,
+      "total": 58,
+      "report": {
+        "path": "out/phase-six-modules/core-complete.xml",
+        "sha256": "90203095715305e1828eb6e8864454fe742894f9ef750bcca8969ff42e8ff143"
+      },
+      "current_manifest": {
+        "path": "out/phase-six-modules/architecture-final.json",
+        "sha256": "a0683b28bcfa8a42ed3a68afeb6ba0ad9a11758bf90aef638aef0d8d74811301"
+      }
+    },
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "executed": 3,
+        "registered": 283,
+        "not_selected": 280,
+        "report": "out/phase-six-modules/ui/html.xml",
+        "sha256": "ff05f323800b7d2766f75e5958a278c4e68830fcf3182c4ac236d9b9d461524d"
+      },
+      "VirtoolsDevUi.app": {
+        "executed": 28,
+        "registered": 283,
+        "not_selected": 255,
+        "report": "out/phase-six-modules/ui/app.xml",
+        "sha256": "ab9db46fb4feaa92172d851118911efb70067cd89882289ee096acc30a8bb0df"
+      },
+      "VirtoolsDevUi.filemenu": {
+        "executed": 10,
+        "registered": 283,
+        "not_selected": 273,
+        "report": "out/phase-six-modules/ui/filemenu.xml",
+        "sha256": "afc2ef0df7d971ac3ead9a71e806f7461915289d7633f6370d0602f7b3025ab5"
+      },
+      "VirtoolsDevUi.schematic": {
+        "executed": 26,
+        "registered": 283,
+        "not_selected": 257,
+        "report": "out/phase-six-modules/ui/schematic.xml",
+        "sha256": "0be980ece41b9f93662a904c2bde6a92b294ebac278ef82b73f764cd372cd146"
+      },
+      "VirtoolsDevUi.debugger": {
+        "executed": 10,
+        "registered": 283,
+        "not_selected": 273,
+        "report": "out/phase-six-modules/ui/debugger.xml",
+        "sha256": "f00c59d3eb386024cbf4d58a18c4f96fd2b25be78c7dc9ceb04cc0b06e97f878"
+      },
+      "VirtoolsDevUi.layout": {
+        "executed": 33,
+        "registered": 283,
+        "not_selected": 250,
+        "report": "out/phase-six-modules/ui/layout.xml",
+        "sha256": "a2a53c60d984486421bad392b77ed2b4b89e1ac5b2c06b9a28163b73ccddaaf7"
+      },
+      "VirtoolsDevUi.level": {
+        "executed": 7,
+        "registered": 283,
+        "not_selected": 276,
+        "report": "out/phase-six-modules/ui/level.xml",
+        "sha256": "b3abaf5171350921091df3b33d01dff612593a68bdb96659654d232ac221947d"
+      },
+      "VirtoolsDevUi.setup": {
+        "executed": 21,
+        "registered": 283,
+        "not_selected": 262,
+        "report": "out/phase-six-modules/ui/setup.xml",
+        "sha256": "500347f796e5493d0e38fe7c1b860e1932231f8c255ce04cbe5097a9a343ed52"
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "executed": 7,
+        "registered": 283,
+        "not_selected": 276,
+        "report": "out/phase-six-modules/ui/propertyedits.xml",
+        "sha256": "85a3ffb6d995f80bb06dd53d9461393b12310f9fd8c18c80798ec4e793057da8"
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "executed": 8,
+        "registered": 283,
+        "not_selected": 275,
+        "report": "out/phase-six-modules/ui/hierarchy.xml",
+        "sha256": "afc632403e8d47bbd85f78dc436861bdd35af988387c6159034a07437e60fd45"
+      },
+      "VirtoolsDevUi.blocks": {
+        "executed": 7,
+        "registered": 283,
+        "not_selected": 276,
+        "report": "out/phase-six-modules/ui/blocks.xml",
+        "sha256": "82332e419aafca80d4e2bfdc2898a11afbb10ae0fb3eb491121eecd5cf17f64e"
+      },
+      "VirtoolsDevUi.attributes": {
+        "executed": 6,
+        "registered": 283,
+        "not_selected": 277,
+        "report": "out/phase-six-modules/ui/attributes.xml",
+        "sha256": "4f187df834b0994640ac26aebe3f635cb1a7ecdaca43047e4c4a10662819aef5"
+      },
+      "VirtoolsDevUi.create": {
+        "executed": 6,
+        "registered": 283,
+        "not_selected": 277,
+        "report": "out/phase-six-modules/ui/create.xml",
+        "sha256": "e573046221904fea7370e930dd6cd8227e526e079bb342229ece126076c5fed6"
+      },
+      "VirtoolsDevUi.tools": {
+        "executed": 13,
+        "registered": 283,
+        "not_selected": 270,
+        "report": "out/phase-six-modules/ui/tools.xml",
+        "sha256": "f01fdd231eb1b677ccadeba6e356c93ee4d5acb8503d325115fa8fcf5fe8eb41"
+      },
+      "VirtoolsDevUi.sound": {
+        "executed": 2,
+        "registered": 283,
+        "not_selected": 281,
+        "report": "out/phase-six-modules/ui/sound.xml",
+        "sha256": "f6895816a192d60c89a8ebfadf81f42f9fe72870d7aa33e35be1213eb9eb4a8c"
+      },
+      "VirtoolsDevUi.character": {
+        "executed": 2,
+        "registered": 283,
+        "not_selected": 281,
+        "report": "out/phase-six-modules/ui/character.xml",
+        "sha256": "da4fc8de8a9b199beba5e131f5008cc05a9d83e07849f4f2d99c30a3299b6c3a"
+      },
+      "VirtoolsDevUi.modules": {
+        "executed": 73,
+        "registered": 283,
+        "not_selected": 210,
+        "report": "out/phase-six-modules/ui/modules.xml",
+        "sha256": "2d709f2d6c86d489b890c44bdec640aa04b2a7f24c5c9a09e39608548f67db9d"
+      }
+    },
+    "real_startup": {
+      "report": {
+        "path": "out/phase-six-modules/ui-complete.xml",
+        "sha256": "f20b41b7e7c74b5008968c793d106990d2a82c4f24daf0234a4ecd603fba523f"
+      },
+      "details_directory": "out/phase-six-modules/startup",
+      "successful_example_ui_cases": 1,
+      "failure_modes": [
+        "required directory missing",
+        "invalid native library",
+        "duplicate ID from a different copy"
+      ],
+      "explicit_file_and_directory_deduplicated": true
+    },
+    "module_build_and_install": {
+      "report": {
+        "path": "out/phase-six-modules/core-complete.xml",
+        "sha256": "90203095715305e1828eb6e8864454fe742894f9ef750bcca8969ff42e8ff143"
+      },
+      "details_directory": "out/phase-six-modules/module-build-final",
+      "covers": [
+        "public-header standalone build",
+        "missing sources / unknown host / missing option value",
+        "explicit module install",
+        "unselected fixture excluded",
+        "relocated Bin/modules directory"
+      ]
+    },
+    "module_lifetimes": {
+      "report": {
+        "path": "out/phase-six-modules/alias-final.xml",
+        "sha256": "bd87508c20c89434d6a05b17df68836760ffce88f613b8885ee64fb788bfdd6b"
+      },
+      "covers": [
+        "UTF-8 path and deterministic ordering",
+        "optional and required roots",
+        "nonrecursive scan",
+        "hard-link and symbolic-link aliases",
+        "wrong thread and late assembly refusal",
+        "entry error / C++ throw / ABI version / duplicate ID / missing dependency / cycle",
+        "invalid library and missing entry",
+        "exactly-once stop, dependency order and code unload timing",
+        "throwing stop",
+        "partial linked registration failure and retry",
+        "prior registration preservation and rollback reentry refusal"
+      ]
+    },
+    "native_print": [
+      "VirtoolsDevUi.printCancel",
+      "VirtoolsDevUi.printPages"
+    ],
+    "sdk": {
+      "repositories_unchanged": 16,
+      "runtime_files_unchanged": 22,
+      "before": {
+        "path": "out/phase-six-modules/sdk-before.json",
+        "sha256": "db263ad3dcf4dca02b644f94bb8740d991ed852c1ded8a59441d5c759f573b90"
+      },
+      "after": {
+        "path": "out/phase-six-modules/sdk-after.json",
+        "sha256": "db263ad3dcf4dca02b644f94bb8740d991ed852c1ded8a59441d5c759f573b90"
+      },
+      "runtime_before": {
+        "path": "out/phase-six-modules/runtime-before.json",
+        "sha256": "d64f89f0574faf841a17188aa44cdbb7ce0157462a2a2867473115366da9d4d3"
+      },
+      "runtime_after": {
+        "path": "out/phase-six-modules/runtime-after.json",
+        "sha256": "d64f89f0574faf841a17188aa44cdbb7ce0157462a2a2867473115366da9d4d3"
+      },
+      "scope": "Existing SDK changes and untracked files were preserved."
+    },
+    "gpu": {
+      "protected_source_files_unchanged": 9,
+      "before": {
+        "path": "out/phase-six-modules/gpu-before.json",
+        "sha256": "b27763869d0b120f3f0dfb8e2a0eda07cb447cc21e5bc7f05d5f15d4e8934a22"
+      },
+      "after": {
+        "path": "out/phase-six-modules/gpu-after.json",
+        "sha256": "b27763869d0b120f3f0dfb8e2a0eda07cb447cc21e5bc7f05d5f15d4e8934a22"
+      },
+      "stable_gpu_transfer_and_cpu_fallback": "Existing regressions passed; timing acceptance and previously uninstrumented counters are not claimed."
+    },
+    "nmo": {
+      "case": "filemenu.open_nmo_populates_level_manager_as_new_import",
+      "result": "passed",
+      "fixture": "Generated valid NMO; original Level_1.NMO was not separately available."
+    },
+    "source_sha256": {
+      "CMakeLists.txt": "e80878a04a5a00f0d2c82147c95b0b9672e5a106d0717073149e88a724049a7b",
+      "application/CMakeLists.txt": "25592bbe5128ef6f2f3df388c10a2ddd3014291988f79bcefb7448454198f8a3",
+      "application/EditorApplication.cpp": "0ef6a1a902570d09ed67180dd4b6e9a5d3295e42c51fdfda6d7ed69ba2005f81",
+      "application/EditorApplication.h": "31d0a5b117c24523cd804819aba5f50dc61d40f742f5ac47e9f8641a7f5649ad",
+      "application/EditorModules.cpp": "27ba1b925444f40416228c9ffa6942173cc5dced33c2667f0848cdc6e7616dcf",
+      "application/EditorModules.h": "14c5c33245bb6ce80a8624812978494bc88158ee65502cb62ac4b5dc392761ab",
+      "cmake/EditorModules.cmake": "74d054b3024ee62dfa289a9663224a4831a63d3f7273bcb563715e7edd07f404",
+      "editor/README.md": "8cc78b9ff1bef4c430249b76bcc4a6b6b045bc5c8aa3a5381ab474477a8a149f",
+      "examples/DocumentInfo/DocumentInfo.cpp": "9625c8ce0444675ee02c3433d8756c6ba03450a62b28020bf3d10ba3676999a6",
+      "examples/DocumentInfo/README.md": "0ca504cf913d1101262c725a6c9bb2ec82063a8a973e41f6d1d1b8566f98648e",
+      "tests/ArchitectureTests.py": "551bbe9a080f4f6de8ae31e5c8018070b33444adc787e32f8d4b512488102697",
+      "tests/CMakeLists.txt": "315f5b24a7207f347ac0c2519824d0e34731f08e2ae2acc068122fdd679d5cec",
+      "tests/CheckArchitecture.py": "6220d27a29f0c34682f647dc10338dbc1436b6185bafbc42046df3914d785905",
+      "tests/CommandLineTests.cpp": "57bcfbb113613fd8d705dd748eff515a841df9cbfcc0e0a13860a6689fc920e3",
+      "tests/ModuleBuildTests.py": "e9c82f130e879a1ef6847273ced1fd3a5062ee2045ada8e0efabd04db937e2f8",
+      "tests/ModuleDiscoveryTests.cpp": "0d4d30de8b8cb84c44f72b7ebc00bc1e79169e208698b6a9e2c163f691066eda",
+      "tests/ModuleStartupTests.py": "e523a28f74c71d97ace437990e74f01ace512e3b569cada02f2b804118e639e2",
+      "tests/PackagingTests.py": "e2ae56b4227996658d517571ca4959bb591691efbb044eea610a83adf32a7c49",
+      "tests/architecture/README.md": "cedf91a72c10233ab06620cf2317adaac2038bac1dd943d345f1676fffaafe90",
+      "tests/architecture/coverage.json": "2f4d83afe2abd3372ac0bd821408354d7098c48a94f228d0cbd350e082ad8920",
+      "tests/modules/DiscoveryModule.cpp": "1c96bf558ca606b14b1734fc6f350355fdc22a8fc90340696f96f1fed984f274",
+      "tests/modules/NoEntryModule.cpp": "3ff058889846216eb13eeb6e3205b20b4373bfd97a3d732f27bc07943ccc1194",
+      "tests/ui/ModuleTests.cpp": "c3c42554596b27d53c7477a25395745b9358c12ed1727d53ec0172658ba85c16",
+      "tools/Package.py": "84ae740ea99b6a9e6ff0fea1308f836f7250f16a9aa08599695051a226ded477",
+      "ui/CMakeLists.txt": "5b74acba35157fffa4a703417012ff7b5239bdf95877d159e2bcb3594b9f07df",
+      "ui/app/CommandLine.cpp": "c863067c5a9656e1c7308b75f7a924f6f02965e14699c27253714a3e5d5ad942",
+      "ui/app/CommandLine.h": "148f26e1dbbeb00d8d91fe12cb9c81c103cd2ccebbec401d60d447b43a680f45",
+      "ui/app/EditorApp.cpp": "8d390c686e1fe06c4e6ac0ad4e63164217d1ca9196a37893a761eed94e707425",
+      "ui/app/EditorApp.h": "2952678780fac48efa6f35545906ae53f5afaf3172707cd13f9a683dfeca5994",
+      "ui/app/Main.cpp": "d5583268b8ae10940622e78cccd52d527346d388679ec547db0711e873042fe9"
+    }
+  },
+  "diagnostics": [
+    {
+      "report": "out/phase-six-modules/build-first.log",
+      "result": "Initial UI regression used a nonexistent RedoCount accessor; corrected to existing CanRedo without adding a production API."
+    },
+    {
+      "report": "out/phase-six-modules/packaging.log",
+      "result": "Initial new package fixture omitted existing mandatory runtime metadata. The fixture was corrected; final package CTest passed. Earlier failure log retained."
+    },
+    {
+      "report": "out/phase-six-modules/related-first.xml",
+      "result": "All 8 first related regression groups passed before the final production error display and build-helper consolidation; final reports supersede this checkpoint."
+    }
+  ],
+  "remaining": {
+    "phase_six_complete": false,
+    "functional_phase": 5,
+    "completed_phase": 3,
+    "gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "补双视口与每阶段的性能计数"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "General Preferences 草稿、校验、保存失败回滚和渲染引擎重启生效已覆盖；阶段六仍需配置冲突、一次迁移与可部署配置持久化"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F29",
+        "due_phase": 6,
+        "reason": "阶段六验证第二个 3D 视口、多实例完整输入组合、跨启动布局及提供者私有状态持久迁移；复杂窗口登记和本轮生命周期迁移已完成"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产目录发现、内置与外部统一装配、失败清理和公开接口示例已实现；完整模块发布包的各平台实机验证、移除替换与私有状态恢复仍待完成"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "无数据时不额外写空区"
+      }
+    ],
+    "performance": "Deferred by user; original 3% limits unchanged. No timing acceptance performed.",
+    "runtime_process_isolation": "Separate work as confirmed by user; no forced termination or process-isolation claim in this batch.",
+    "not_rerun": [
+      "native desktop Player group and previously recorded input failures",
+      "real system print submission",
+      "Windows/Linux platform runs",
+      "complete signed distribution with a third-party module"
+    ]
+  }
+}
