@@ -925,11 +925,10 @@ void SetupWindows::SlotPreview(Setup &setup, ObjectRef target, unsigned long lon
                 }
             } else if (!alpha) {
                 if (more) {
-                    EditorField paths{"paths", EDITOR_TEXT_LIST};
-                    paths.texts = {file.path};
-                    const auto borrowed = BorrowEditorFields({paths});
+                    const auto path = EditorText(file.path);
+                    const EditorValue paths{EDITOR_TEXT("paths"), EDITOR_TEXT_LIST, {}, {}, 0, {}, {}, {&path, 1}};
                     RunSetupCommand("setup.slot-add",
-                                    {ObjectArgument("target", target), borrowed.values.front(),
+                                    {ObjectArgument("target", target), paths,
                                      IntegerArgument("document-revision", description.documentRevision)});
                 } else
                     RunSetupCommand("setup.slot-replace",

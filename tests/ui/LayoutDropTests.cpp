@@ -1,8 +1,10 @@
 #include "tests/ui/UiTests.h"
+#include "tests/ResourceFiles.h"
 #include "workspace/ResourceDrag.h"
 #include "workspace/ObjectDrag.h"
 #include "features/layout/SnapshotData.h"
 #include "features/scene/SceneViewData.h"
+#include "features/setup/SetupViewData.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <chrono>
@@ -37,13 +39,15 @@ void DropGui(ImGuiTestContext *ctx) {
     }
     ImGui::End();
 }
-void Drag(ImGuiTestContext *ctx, const ImVec2 &to) {
+void Drag(ImGuiTestContext *ctx, const ImVec2 &to, bool cancel = false) {
     ctx->MouseMove("//Layout Drop Source/Drag resource");
     ctx->MouseDown(0);
     const auto from = ctx->UiContext->IO.MousePos;
     ctx->MouseMoveToPos(ImVec2(from.x - 25, from.y - 20));
     ctx->MouseMoveToPos(to);
     ctx->Yield(3);
+    if (cancel)
+        ctx->MouseMoveToPos(from);
     ctx->MouseUp(0);
     ctx->Yield(3);
 }
@@ -77,10 +81,115 @@ void Bitmap(const std::filesystem::path &path) {
     std::ofstream file(path, std::ios::binary);
     file.write(reinterpret_cast<const char *>(bytes), sizeof(bytes));
 }
+struct LongResourceFolder {
+    std::filesystem::path root, folder;
+    LongResourceFolder() {
+        root = vdevtest::ResourceTestRoot("resource-long-path-");
+        folder = vdevtest::LongResourceDirectory(root);
+    }
+    ~LongResourceFolder() {
+        source.visible = false;
+        source.bytes.clear();
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+    }
+};
 } // namespace
 
 void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
     ImGuiTest *test = nullptr;
+
+    test = IM_REGISTER_TEST(engine, "layout", "long_resource_path_add_slot_keeps_source_and_undo");
+    test->GuiFunc = DropGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        LongResourceFolder sample;
+        const auto first = (sample.folder / "First image.bmp").u8string();
+        const auto second = (sample.folder / "Second image.bmp").u8string();
+        Bitmap(std::filesystem::u8path(first));
+        Bitmap(std::filesystem::u8path(second));
+        IM_CHECK(first.size() > 260 && second.size() > 260);
+        auto &state = App().State();
+        auto &workspace = *state.workspace;
+        const vdev::EditorClient client(workspace.Application().Host(), 0);
+        vdev::ObjectRef target{};
+        EditorView setup = 0;
+        OnMainThread(ctx, [&] {
+            const auto created = client.Command("object.create-texture");
+            const auto *object = vdev::EditorClient::Find(created, "created");
+            IM_CHECK_NO_RET(created.status == EDITOR_OK && object && object->object);
+            target = object ? object->object : vdev::ObjectRef{};
+            vdev::SetupDetails data;
+            IM_CHECK_NO_RET(vdev::ReadSetupDetails(client, target, "bitmap", data));
+            IM_CHECK_NO_RET(client.Command("setup.slot-replace",
+                                          {vdev::ObjectArgument("target", target), vdev::TextArgument("path", first),
+                                           vdev::IntegerArgument("slot", 0),
+                                           vdev::IntegerArgument("document-revision", data.documentRevision)})
+                                .status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {vdev::ObjectArgument("target", target)}).status == EDITOR_OK);
+            const auto instances = client.Query("workspace.instances");
+            const auto *views = vdev::EditorClient::Find(instances, "views");
+            IM_CHECK_NO_RET(views);
+            if (views)
+                for (auto view : views->integers) {
+                    const auto info = client.Inspect(view);
+                    const auto *object = vdev::EditorClient::Find(info, "target");
+                    if (object && object->object == target)
+                        setup = view;
+                }
+            IM_CHECK_NO_RET(setup);
+        });
+        ctx->Yield(4);
+        const auto window = "//" + workspace.WindowName(setup);
+        ctx->WindowMove(window.c_str(), {10, 30});
+        ctx->WindowResize(window.c_str(), {1300, 740});
+        ctx->Yield(3);
+        const auto preview = window + "/**/image/##preview";
+        IM_CHECK(ctx->ItemExists(preview.c_str()));
+        const auto at = ctx->ItemInfo(preview.c_str()).RectFull.GetCenter();
+        source.visible = true;
+        source.type = EDITOR_RESOURCE_FILE_PAYLOAD;
+        source.bytes = vdev::WriteResourceDrag(1, {{first, CKCID_TEXTURE}, {second, CKCID_TEXTURE}});
+        ctx->Yield(3);
+        const size_t steps = state.History().UndoCount();
+        for (auto modifier : {ImGuiMod_Ctrl, ImGuiMod_Shift}) {
+            ctx->KeyDown(modifier);
+            Drag(ctx, at);
+            ctx->KeyUp(modifier);
+            OnMainThread(ctx, [&] {
+                vdev::SetupDetails data;
+                vdev::SetupPageData page;
+                IM_CHECK_NO_RET(vdev::ReadSetupDetails(client, target, "bitmap", data) && data.Values().Integer("slots") == 2);
+                IM_CHECK_NO_RET(vdev::ReadSetupPage(client, target, -1, page) && page.filename == second);
+                IM_CHECK_NO_RET(state.History().UndoCount() == steps + 1);
+                IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK);
+                IM_CHECK_NO_RET(vdev::ReadSetupDetails(client, target, "bitmap", data) && data.Values().Integer("slots") == 1);
+                IM_CHECK_NO_RET(client.Command("history.redo").status == EDITOR_OK);
+                IM_CHECK_NO_RET(vdev::ReadSetupPage(client, target, -1, page) && page.filename == second);
+                IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK);
+            });
+            const bool dirty = state.document->Dirty();
+            ctx->KeyDown(modifier);
+            Drag(ctx, at, true);
+            ctx->KeyUp(modifier);
+            source.bytes = vdev::WriteResourceDrag(1, {{first, CKCID_TEXTURE}, {second + ".missing", CKCID_TEXTURE}});
+            ctx->KeyDown(modifier);
+            Drag(ctx, at);
+            ctx->KeyUp(modifier);
+            OnMainThread(ctx, [&] {
+                vdev::SetupDetails data;
+                vdev::SetupPageData page;
+                IM_CHECK_NO_RET(vdev::ReadSetupDetails(client, target, "bitmap", data) && data.Values().Integer("slots") == 1);
+                IM_CHECK_NO_RET(vdev::ReadSetupPage(client, target, -1, page) && page.filename == first);
+                IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.History().CanRedo() &&
+                                state.document->Dirty() == dirty);
+            });
+            source.bytes = vdev::WriteResourceDrag(1, {{first, CKCID_TEXTURE}, {second, CKCID_TEXTURE}});
+        }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(client.Command("workspace.close-view", {vdev::IntegerArgument("view", setup)}).status == EDITOR_OK);
+        });
+    };
 
     test = IM_REGISTER_TEST(engine, "layout", "locked_material_multi_drag_uses_grabbed_row_and_rejects_bad_tail");
     test->GuiFunc = DropGui;
