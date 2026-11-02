@@ -14,6 +14,7 @@
 using namespace vdev;
 void TestWorkspace(vdev::CkRuntimeHost &host);
 void TestEventLog();
+void TestMessageCommands(vdev::CkRuntimeHost &host);
 void TestSceneCommands(vdev::CkRuntimeHost &host);
 void TestBuildingBlockQueries(vdev::CkRuntimeHost &host);
 void TestDataResources(vdev::CkRuntimeHost &host);
@@ -713,6 +714,7 @@ int main(int argc, char **argv) {
         TestOutputCommands(runtime);
         TestWorkspace(runtime);
         TestEventLog();
+        TestMessageCommands(runtime);
         TestSceneCommands(runtime);
         TestBuildingBlockQueries(runtime);
         TestDataResources(runtime);

@@ -1,4 +1,4 @@
-add_library(NeMoDevEditorApplication STATIC Preferences.cpp EditorApplication.cpp EventLog.cpp KeyBinding.cpp RuntimeOperation.cpp DocumentFiles.cpp DocumentCommands.cpp ObjectSelection.cpp ExecutionCommands.cpp OutputCommands.cpp)
+add_library(NeMoDevEditorApplication STATIC Preferences.cpp EditorApplication.cpp EventLog.cpp MessageCommands.cpp KeyBinding.cpp RuntimeOperation.cpp DocumentFiles.cpp DocumentCommands.cpp ObjectSelection.cpp ExecutionCommands.cpp OutputCommands.cpp)
 target_include_directories(NeMoDevEditorApplication PUBLIC "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(NeMoDevEditorApplication PUBLIC cxx_std_17)
 target_link_libraries(NeMoDevEditorApplication PRIVATE VirtoolsDevCore ${CMAKE_DL_LIBS})
