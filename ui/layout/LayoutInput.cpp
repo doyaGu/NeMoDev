@@ -194,6 +194,7 @@ bool LayoutWindow::BeginCamera(CameraAction action, int x, int y, ImGuiMouseButt
 void LayoutWindow::CancelEdits() {
     if (!m_Window)
         return;
+    if (m_EditorHost) Client().CancelTool();
     // Snapshot capture crosses from the buffer window into this viewport.
     // Its own cancel/close and viewport/document changes end it, not an
     // ordinary focus change that only cancels object editing.
@@ -662,84 +663,8 @@ void LayoutWindow::ZoomOn(bool scene) {
 
 // Dev's 3D Layout keys (Dev.exe sub_4B95C0, WM_KEYUP).
 void LayoutWindow::Shortcuts() {
-    const ImGuiIO &io = ImGui::GetIO();
-    if (io.WantTextInput || (Busy() && !GestureActive(3)))
-        return;
-    auto pressed = [](ImGuiKey key) { return ImGui::IsKeyPressed(key, false); };
-    // Dev.exe sub_4B95C0 (WM_KEYDOWN): Escape ends the Flycam, playing or not.
-    if (Window().tool == LayoutTool::Fly && pressed(ImGuiKey_Escape))
-        Command(68);
-    // Play, Step and Restore IC are Dev's accelerators (EditorApp::GlobalShortcuts).
-    if (io.KeyAlt || m_PlayerMode) return;
-    if (io.KeyCtrl) {
-        // Ctrl+A select all, Ctrl+D clear, Ctrl+I invert; Ctrl+C copies the
-        // selection, Ctrl+V pastes copies of it (Dev.exe sub_4B0780 2, 3);
-        // Ctrl+G the Reference Guide preferences.
-        if (pressed(ImGuiKey_A)) SelectAll(false);
-        if (pressed(ImGuiKey_D)) ClearSelection();
-        if (pressed(ImGuiKey_I)) SelectAll(true);
-        if (pressed(ImGuiKey_C)) {
-            LayoutSelectionData selection;
-            if (ReadLayoutSelection(Client(), selection)) Execute("layout.copy", {ObjectsArgument("objects", selection.objects)});
-        }
-        if (pressed(ImGuiKey_V)) {
-            const auto clipboard = Client().Query("scene.clipboard");
-            if (clipboard.status == EDITOR_OK)
-                if (const auto *objects = EditorClient::Find(clipboard, "objects"); objects && objects->type == EDITOR_OBJECT_LIST)
-                    Duplicate(objects->objects, EditorClient::Integer(clipboard, "revision"));
-        }
-        if (pressed(ImGuiKey_G)) {
-            Execute("preferences.open", {TextArgument("page", "reference-guide")});
-        }
-        return;
-    }
-    if (!io.KeyShift && pressed(ImGuiKey_Delete)) DeleteSelection();
-    const auto camera = InputState();
-    const bool perspective = EditorClient::Integer(camera, "perspective") != 0;
-    const bool targeted = EditorClient::Integer(camera, "targeted") != 0;
-    if (io.KeyShift) {
-        if (pressed(ImGuiKey_Z)) ZoomOn(false);
-        if (pressed(ImGuiKey_N)) NextCamera(true);
-        if (pressed(ImGuiKey_G)) Command(67);
-        return;
-    }
-    const bool transforming = Window().tool == LayoutTool::Translate || Window().tool == LayoutTool::Rotate ||
-                              Window().tool == LayoutTool::Scale;
-    if (transforming) {
-        // S snap, H hierarchy, F5..F7 the axes, F8 the next plane, F9 the next pivot.
-        if (pressed(ImGuiKey_S)) Command(66);
-        if (pressed(ImGuiKey_H)) Command(70);
-        if (pressed(ImGuiKey_F5)) Command(12);
-        if (pressed(ImGuiKey_F6)) Command(13);
-        if (pressed(ImGuiKey_F7)) Command(14);
-        if (pressed(ImGuiKey_F8)) Command(Settings().axes == 3 ? 43 : Settings().axes == 6 ? 44 : 42);
-        if (pressed(ImGuiKey_F9) && Window().tool != LayoutTool::Translate)
-            Command(72 + (Settings().pivot + 1) % 3);
-    }
-    if (pressed(ImGuiKey_A)) Command(25);
-    if (pressed(ImGuiKey_X)) Command(9);
-    if (pressed(ImGuiKey_C)) Command(11);
-    // V cycles Normal, Volumetric and Uniform.
-    if (pressed(ImGuiKey_V))
-        Command(46 + (Window().tool == LayoutTool::Scale ? (Window().scaleMode + 1) % 3 : Window().scaleMode));
-    // O: the Orbit tool, pressed again its other mode.
-    if (pressed(ImGuiKey_O))
-        Command(Window().tool == LayoutTool::Orbit ? (Window().orbitMode ? 49 : 50) : 49 + Window().orbitMode);
-    if (pressed(ImGuiKey_D)) Command(23);
-    if (pressed(ImGuiKey_R) && !targeted) Command(24);
-    if (pressed(ImGuiKey_F) && perspective) Command(26);
-    if (pressed(ImGuiKey_Z)) Command(51);
-    if (pressed(ImGuiKey_P)) Command(28);
-    if (pressed(ImGuiKey_Y)) Command(68);
-    if (pressed(ImGuiKey_W)) ZoomOn(true);
-    if (pressed(ImGuiKey_N)) NextCamera(false);
-    if (pressed(ImGuiKey_G)) Command(29);
-    if (pressed(ImGuiKey_Space)) Command(58);
-    // 1 to 9: the creation tools.
-    static const int creates[9] = {31, 32, 34, 33, 60, 75, 80, 81, 78};
-    for (int i = 0; i < 9; ++i)
-        if (pressed(static_cast<ImGuiKey>(ImGuiKey_1 + i)) && Client().Scope().document.value != 0)
-            Command(creates[i]);
+    if (ImGui::GetIO().WantTextInput || (Busy() && !GestureActive(3)) || m_PlayerMode) return;
+    Client().Shortcuts();
 }
 
 // ------------------------------------------------------------------ flycam
@@ -786,10 +711,9 @@ void LayoutWindow::SyncCurveTool() {
         return;
     const auto next = EditorClient::Integer(tool, "tool");
     if (next >= 128 && next <= 131) {
-        if (static_cast<int>(Window().tool) != int(next) && !GestureActive(1))
-            Window().tool = LayoutTool(next);
+        if (static_cast<int>(Window().tool) != int(next) && !GestureActive(1)) Client().SelectTool(ActionId(int(next)));
     } else if (CurveToolActive() && !GestureActive(1))
-        Window().tool = LayoutTool::Select;
+        Client().SelectTool("layout.select");
 }
 
 void LayoutWindow::CurveClick(int x, int y, bool right) {

@@ -61,7 +61,7 @@ set(_editor_sources
         schematic/Snapshots.cpp
         # The 3D Layout.
         layout/LayoutWindow.cpp
-        layout/LayoutWindows.cpp
+        layout/LayoutWindows.cpp layout/LayoutControls.cpp
         layout/LayoutInput.cpp
         layout/LayoutMenu.cpp
         layout/LayoutDrop.cpp

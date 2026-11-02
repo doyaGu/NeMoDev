@@ -201,6 +201,16 @@ private:
     bool MenuButton(const Button &button, const std::vector<Item> &items, int &current, bool checked,
                     bool enabled = true);
     void Command(int command);
+    void RunAction(int command);
+    EditorStatus ActionState(int command) const;
+    void ActivateTool(int command);
+    uint32_t ToolFrame(const EditorToolInput &);
+    uint32_t DrawControl(int command, const EditorToolbarFrame &);
+    static const char *ActionId(int command);
+    static const char *ControlAction(int command);
+    static const Button *ControlButton(int command);
+    static const Button *ControlButtons(size_t &count);
+    static const char *ControlId(int command);
     void RightClick(int command);
     void ToggleGuide(bool screen);
     void Shortcuts();

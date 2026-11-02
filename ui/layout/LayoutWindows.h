@@ -2,6 +2,7 @@
 #include "ui/layout/LayoutWindow.h"
 #include "workspace/EditorWorkspace.h"
 #include <map>
+#include <deque>
 
 namespace vdev {
 // The workspace owns each window's input state. This collection owns its
@@ -43,6 +44,13 @@ class LayoutWindows {
     void *Create(EditorView);
     void Destroy(void *);
     bool IsPrimary(EditorView) const;
+    bool RegisterControls(EditorModuleDesc, std::string &);
+    struct Action {
+        LayoutWindows *owner;
+        int command;
+        std::string title;
+    };
+    std::deque<Action> m_Actions;
     CkRuntimeHost &m_Runtime;
     ParameterCopies &m_Copies;
     EditorApplication &m_Editor;

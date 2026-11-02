@@ -149,6 +149,7 @@ bool LayoutWindows::Register(std::string &error) {
     view.provider = EDITOR_TEXT("builtin.layout-window");
     view.title = EDITOR_TEXT("3D Layout");
     view.singleInstance = 0;
+    view.defaultTool = EDITOR_TEXT("layout.select");
     view.area = EDITOR_DOCUMENT;
     view.data = this;
     view.create = [](void *data, const EditorHost *, EditorView id) -> void * {
@@ -237,6 +238,6 @@ bool LayoutWindows::Register(std::string &error) {
     module.id = EDITOR_TEXT("layout.window");
     module.views = &view;
     module.viewCount = 1;
-    return m_Editor.Register(module, error);
+    return RegisterControls(module, error);
 }
 } // namespace vdev

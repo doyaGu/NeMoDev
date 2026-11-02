@@ -233,6 +233,12 @@ EditorStatus LayoutWindow::RestoreWindow(const EditorRequest &request) {
                 t.snap = v.integers[i * 5 + 4] != 0;
             }
     }
+    const int tool = s.tool == LayoutTool::Scale   ? 46 + s.scaleMode
+                     : s.tool == LayoutTool::Orbit ? 49 + s.orbitMode
+                     : s.tool == LayoutTool::Zoom  ? 51
+                     : s.tool == LayoutTool::Fly   ? 168
+                                                   : int(s.tool);
+    if (const auto *id = ActionId(tool)) Client().SelectTool(id);
     return EDITOR_OK;
 }
 
@@ -284,11 +290,6 @@ void LayoutWindow::Draw(EditorViewFrame &frame) {
     // Every frame, shown or not: Player Mode starts with the selection of Play.
     ApplyPreferences();
     FullScreenCommands();
-    // Alt+Enter is Dev's application's accelerator, whatever window has the focus.
-    const ImGuiIO &io = ImGui::GetIO();
-    if (m_Started && (!m_Windows || &m_Windows->Active() == this) && !io.WantTextInput && io.KeyAlt && !io.KeyCtrl &&
-        !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Enter, false))
-        ToggleFullScreen();
     // Fullscreen, the frame goes to the screen, the 3D Layout shown or not.
     RenderPlayer();
     Window().openPopups = !frame.focus;
@@ -326,7 +327,6 @@ void LayoutWindow::Draw(EditorViewFrame &frame) {
         Window().lastUsed = true;
         Shortcuts();
     } else if (ImGui::IsWindowFocused(ImGuiFocusedFlags_AnyWindow)) {
-        CancelEdits();
         Window().lastUsed = false;
     }
     Window().scale = ImGui::GetFontSize() / 13.0f;
@@ -443,55 +443,14 @@ void LayoutWindow::TopBar(const ImVec2 &origin, float width) {
                       TOP_BAR, 3.0f * s);
     dl->AddRect(ImVec2(origin.x + 2.0f * s, origin.y), ImVec2(origin.x + width - 2.0f * s, origin.y + 21.0f * s),
                 TOP_BAR_BORDER, 3.0f * s);
-    static const Button snapshot = {56, 7, 1, 26, 20, {809, 811, 810, 810, 809}, "Snapshot"};
-    static const Button explorer = {41, 27, 1, 46, 20, {777, 779, 778, 778, 777}, "3D Layout Explorer"};
-    static const Button preferences = {40, 347, 1, 366, 20, {804, 806, 805, 805, 804}, "General Preferences (Ctrl+P)"};
-    const bool usable = m_Started && Client().Scope().document.value;
-    if (ToolbarButton(snapshot, Window().snapshotOpen, m_Started))
-        Command(snapshot.command);
-    if (ToolbarButton(explorer, Window().document.explorerOpen, usable))
-        Command(explorer.command);
-    if (ToolbarButton(preferences, false)) Command(preferences.command);
-    // The two combos: dark, white text and arrow (screenshots).
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, TOP_BAR);
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(80, 80, 80, 255));
-    ImGui::PushStyleColor(ImGuiCol_Button, TOP_BAR);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, IM_COL32(80, 80, 80, 255));
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(236, 236, 236, 255));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f * s, std::max(0.0f, (19.0f * s - ImGui::GetFontSize()) * 0.5f)));
-    // Selection Groups (Dev.exe id 18).
-    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, IM_COL32(80, 80, 80, 255));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(80, 80, 80, 255));
-    SelectionGroups(ImVec2(origin.x + 51.0f * s, origin.y + 1.0f * s), 140.0f * s);
-    ImGui::PopStyleColor(2);
-    // The separator (Dev.exe sub_4B6C70's element "3": bitmap 705 at 196, 1).
-    if (ImTextureID separator = DevBitmap(705))
-        dl->AddImage(separator, ImVec2(origin.x + 196.0f * s, origin.y + 1.0f * s), ImVec2(origin.x + 197.0f * s, origin.y + 20.0f * s));
-    // Available Cameras (id 19): Dev's views, then the composition's cameras.
-    ImGui::SetCursorScreenPos(ImVec2(origin.x + 202.0f * s, origin.y + 1.0f * s));
-    ImGui::SetNextItemWidth(140.0f * s);
-    auto &cameras = Window().cameraData;
-    const bool camerasReady = ReadLayoutScene(Client(), "cameras", cameras);
-    const auto *current = camerasReady ? cameras.Find(cameras.camera.object) : nullptr;
-    const std::string currentName = current ? current->name : std::string();
-    ImGui::PopStyleColor(); // the list keeps the menu's text color
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(236, 236, 236, 255));
-    const bool open = ImGui::BeginCombo("##cameras", currentName.c_str());
-    ImGui::PopStyleColor();
-    if (ImGui::IsItemHovered() && !open) ImGui::SetTooltip("Available Cameras");
-    if (open) {
-        TypeAhead typeAhead;
-        if (camerasReady) for (const auto &camera : cameras.rows) {
-            ImGui::PushID(int(camera.object.object));
-            if (typeAhead.Selectable(camera.name.c_str(), current && current->object == camera.object))
-                Execute("layout.set-camera", {ObjectArgument("target", camera.object)});
-            ImGui::PopID();
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::PopStyleVar(2);
-    ImGui::PopStyleColor(4);
+    EditorToolbarFrame area{};
+    area.size = sizeof(area);
+    area.left = origin.x;
+    area.top = origin.y;
+    area.width = width;
+    area.height = 21 * s;
+    area.scale = s;
+    Client().Toolbar("layout.top", area);
 }
 
 void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
@@ -506,161 +465,32 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
         dl->AddLine(ImVec2(origin.x + 10.0f * s, origin.y + (y + 1) * s), ImVec2(origin.x + 72.0f * s, origin.y + (y + 1) * s),
                     IM_COL32(150, 150, 150, 255));
     };
-    const bool transforming = Window().tool == LayoutTool::Translate || Window().tool == LayoutTool::Rotate ||
-                              Window().tool == LayoutTool::Scale || Window().tool == LayoutTool::EditPoints;
-    // Selection.
-    static const Button select = {25, 8, 24, 29, 45, {774, 776, 775, 775, 774}, "Select (A)"};
-    static const Button lock = {58, 30, 25, 51, 46, {692, 694, 693, 693, 692}, "Lock Selection (Spacebar)"};
-    static const Button mode = {61, 52, 24, 73, 45, {1152, 1153, 1151, 1150, 1151}, "Selection Mode"};
-    if (ToolbarButton(select, Window().tool == LayoutTool::Select))
-        Command(select.command);
-    if (ToolbarButton(lock, Window().selectionData.locked))
-        Command(lock.command);
-    if (ToolbarButton(mode, m_Preferences.Bool("3D Layout\\Strict Selection")))
-        Command(mode.command);
-    line(49);
-    // Transformations.
-    static const Button move = {9, 8, 55, 29, 76, {699, 701, 700, 700, 699}, "Select and Translate (X)"};
-    static const Button rotate = {11, 30, 55, 51, 76, {727, 729, 728, 728, 727}, "Select and Rotate (C)"};
-    static const Button scale = {10, 52, 55, 73, 76, {}, "Select and Scale (V)"};
-    // Mode 0 scales the three axes alike (Uniform), 2 the constrained ones (Normal).
-    static const std::vector<Item> scales = {{46, {730, 732, 731}, "Uniform"}, {47, {736, 738, 737}, "Volumetric"},
-                                             {48, {733, 735, 734}, "Normal"}};
-    if (ToolbarButton(move, Window().tool == LayoutTool::Translate))
-        Command(move.command);
-    if (ToolbarButton(rotate, Window().tool == LayoutTool::Rotate))
-        Command(rotate.command);
-    if (MenuButton(scale, scales, Window().scaleMode, Window().tool == LayoutTool::Scale))
-        Command(scales[Window().scaleMode].command);
-    // Transformation settings, shown with the transformation tools only, the
-    // active tool's own (Dev.exe sub_492AC0, sub_496600).
-    if (transforming) {
-        LayoutTransformSettings &settings = Settings();
-        static const Button axes[3] = {{12, 9, 79, 30, 100, {590, 592, 591, 591, 1187}, "Constrain X Axis (F5)"},
-                                       {13, 31, 79, 52, 100, {596, 598, 597, 597, 1188}, "Constrain Y Axis (F6)"},
-                                       {14, 53, 79, 74, 100, {602, 604, 603, 603, 1189}, "Constrain Z Axis (F7)"}};
-        const int allowed = AllowedAxes();
-        for (int i = 0; i < 3; ++i)
-            if (ToolbarButton(axes[i], (settings.axes & (1 << i)) != 0, (allowed & (1 << i)) != 0)) Command(axes[i].command);
-        static const Button plane = {39, 23, 100, 56, 115, {}, "Constrain Plane (F8)"};
-        static const std::vector<Item> planes = {{42, {593, 595, 594}, "XY"}, {43, {599, 601, 600}, "YZ"},
-                                                 {44, {605, 607, 606}, "XZ"}};
-        static const int planeAxes[3] = {3, 6, 5};
-        int planeIndex = settings.axes == 6 ? 1 : settings.axes == 5 ? 2 : 0;
-        if (MenuButton(plane, planes, planeIndex, settings.axes == planeAxes[planeIndex]))
-            Command(planes[planeIndex].command);
-        // Referential Axis (id 15): a small combo; Rotate and Scale show it
-        // about each object's axis only.
-        if (Window().tool == LayoutTool::Translate || Window().tool == LayoutTool::EditPoints || settings.pivot == 1) {
-            ImGui::SetCursorScreenPos(ImVec2(origin.x + 9.0f * s, origin.y + 116.0f * s));
-            ImGui::SetNextItemWidth(64.0f * s);
-            ImGui::PushFont(nullptr, 10.0f * s);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f * s, 0.0f));
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(200, 200, 200, 255));
-            if (ImGui::BeginCombo("##referential", REFERENTIALS[std::clamp(settings.referential, 0, 5)])) {
-                TypeAhead typeAhead;
-                for (int i = 0; i < 6; ++i)
-                    if (typeAhead.Selectable(REFERENTIALS[i], i == settings.referential)) {
-                        settings.referential = i;
-                        // Pick Obj.: the next click in the view picks it.
-                        if (i == 5) {
-                            Window().pickingReferent = true;
-                            Client().Log(EDITOR_LOG_INFO, "Pick the referential object in the 3D Layout");
-                        }
-                    }
-                ImGui::EndCombo();
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Referential Axis");
-            ImGui::PopStyleColor();
-            ImGui::PopStyleVar();
-            ImGui::PopFont();
-        }
-        static const Button snap = {66, 8, 137, 29, 158, {1240, 1238, 1239, 1239, 1240}, "Toggle Snap (S)"};
-        static const Button hierarchy = {70, 30, 137, 51, 158, {1256, 1255, 1254, 1257, 1256}, "Toggle Hierarchy (H)"};
-        static const Button pivot = {71, 52, 137, 73, 158, {}, "Pivot Axis (F9)"};
-        static const std::vector<Item> pivots = {{72, {1262, 1263, 1261}, "Object"}, {73, {1265, 1266, 1264}, "Axis"},
-                                                 {74, {1268, 1269, 1267}, "Selection"}};
-        if (ToolbarButton(snap, settings.snap)) Command(snap.command);
-        if (ToolbarButton(hierarchy, settings.hierarchy)) Command(hierarchy.command);
-        // Translate has no pivot.
-        if (Window().tool != LayoutTool::Translate && Window().tool != LayoutTool::EditPoints &&
-            MenuButton(pivot, pivots, settings.pivot, false))
-            Command(pivots[settings.pivot].command);
-    }
-    line(160);
-    // Guides.
-    static const Button guide = {29, 31, 166, 52, 187, {1258, 1259, 1260, 1260, 1258}, "Toggle Reference Guide (G)"};
-    static const Button screenGuide = {67, 53, 166, 74, 187, {678, 680, 679, 679, 678}, "Toggle Screen Guide (Shift+G)"};
-    if (ToolbarButton(guide, m_Preferences.Bool("3D Layout\\Author Mode\\Show Grid"))) Command(guide.command);
-    if (ToolbarButton(screenGuide, m_Preferences.Bool("3D Layout\\Show Screen Grid")))
-        Command(screenGuide.command);
-    line(191);
-    // Creation.
-    static const Button creates[8] = {{31, 9, 197, 30, 218, {615, 617, 616, 616, 615}, "Create Camera (1)"},
-                                      {32, 31, 197, 52, 218, {624, 626, 625, 625, 624}, "Create Light (2)"},
-                                      {34, 53, 197, 74, 218, {1278, 1276, 1277, 1277, 1278}, "Create 3D Frame (3)"},
-                                      {33, 9, 218, 30, 239, {618, 620, 619, 619, 618}, "Create Curve (4)"},
-                                      {60, 31, 218, 52, 239, {1148, 1147, 1146, 1146, 1147}, "Create Grid (5)"},
-                                      {75, 53, 218, 74, 239, {621, 622, 623, 623, 621}, "Create 2D Frame (6)"},
-                                      {80, 9, 239, 30, 260, {1324, 1325, 1326, 1326, 1324}, "Create Material (7)"},
-                                      {81, 31, 239, 52, 260, {1327, 1328, 1329, 1329, 1327}, "Create Texture (8)"}};
-    const bool document = Client().Scope().document.value != 0;
-    for (const Button &button : creates)
-        if (ToolbarButton(button, false, document)) Command(button.command);
-    static const Button portal = {77, 53, 239, 74, 260, {}, "Create Portal (9)"};
-    static const std::vector<Item> portals = {{79, {1340, 1338, 1339}, "Create Portals"}, {78, {1311, 1309, 1310}, "Create Portal"}};
-    if (MenuButton(portal, portals, Window().portalMode, false, document))
-        Command(portals[Window().portalMode].command);
-    line(264);
-    // Navigation.
-    const bool perspective = EditorClient::Integer(m_Presentation, "perspective");
-    const bool targeted = EditorClient::Integer(m_Presentation, "targeted");
-    static const Button dolly = {23, 9, 270, 30, 291, {664, 666, 665, 665, 664}, "Camera Dolly (D)"};
-    static const Button fov = {26, 31, 270, 52, 291, {674, 676, 675, 675, 674}, "Camera Field of View (F)"};
-    static const Button zoom = {27, 53, 270, 74, 291, {}, "Camera Zoom (Z)"};
-    static const std::vector<Item> zooms = {{51, {836, 838, 837}, "Zoom"}, {52, {842, 844, 843}, "Zoom on Selection"},
-                                            {57, {839, 841, 840}, "Zoom on Scene"}};
-    static const Button roll = {24, 9, 291, 30, 312, {724, 726, 725, 725, 724}, "Roll Camera (R)"};
-    static const Button pan = {28, 31, 291, 52, 312, {715, 717, 716, 716, 715}, "Camera Pan (P)"};
-    static const Button orbit = {20, 53, 291, 74, 312, {}, "Orbit Target/Orbit Around (O)"};
-    static const std::vector<Item> orbits = {{49, {706, 708, 707}, "Orbit"}, {50, {709, 711, 710}, "Orbit Around Camera"}};
-    if (ToolbarButton(dolly, Window().tool == LayoutTool::Dolly))
-        Command(dolly.command);
-    // Dev disables the field of view of orthographic cameras and the roll of target cameras.
-    if (ToolbarButton(fov, Window().tool == LayoutTool::Fov, perspective))
-        Command(fov.command);
-    if (MenuButton(zoom, zooms, Window().zoomMode, Window().tool == LayoutTool::Zoom))
-        Command(zooms[Window().zoomMode].command);
-    if (ToolbarButton(roll, Window().tool == LayoutTool::Roll, !targeted))
-        Command(roll.command);
-    if (ToolbarButton(pan, Window().tool == LayoutTool::Pan))
-        Command(pan.command);
-    if (MenuButton(orbit, orbits, Window().orbitMode, Window().tool == LayoutTool::Orbit))
-        Command(orbits[Window().orbitMode].command);
+    for (int y : {49, 160, 191, 264}) line(y);
+    EditorToolbarFrame area{};
+    area.size = sizeof(area);
+    area.left = origin.x;
+    area.top = origin.y;
+    area.width = 76 * s;
+    area.height = height;
+    area.scale = s;
+    Client().Toolbar("layout.left", area);
 }
 
 // Toolbar and keyboard commands (Dev's command ids).
 void LayoutWindow::Command(int command) {
-    const bool flying = Window().tool == LayoutTool::Fly;
+    const auto *id = ActionId(command);
+    if (id) Execute(id);
+}
+void LayoutWindow::RunAction(int command) {
     if (command == 68) {
-        if (flying) EndFly();
-        else BeginFly();
+        if (Window().tool == LayoutTool::Fly) {
+            EndFly();
+            Client().SelectTool("layout.select");
+        } else
+            Client().SelectTool("layout.fly");
         return;
     }
     switch (command) {
-    case 25:
-        Window().tool = LayoutTool::Select;
-        break;
-    case 9:
-        Window().tool = LayoutTool::Translate;
-        break;
-    case 11:
-        Window().tool = LayoutTool::Rotate;
-        break;
-    case 46: case 47: case 48:
-        Window().scaleMode = command - 46;
-        Window().tool = LayoutTool::Scale;
-        break;
     case 58:
         // Dev locks a non-empty selection only.
         if (Window().selectionData.locked || !Window().selectionData.objects.empty())
@@ -711,27 +541,8 @@ void LayoutWindow::Command(int command) {
                 Client().Log(made.status == EDITOR_OK ? EDITOR_LOG_INFO : EDITOR_LOG_WARNING, "Automatic Portals: " + made.message);
         }
         break;
-    case 23:
-        Window().tool = LayoutTool::Dolly;
-        break;
-    case 26:
-        Window().tool = LayoutTool::Fov;
-        break;
-    case 51:
-        Window().tool = LayoutTool::Zoom;
-        break;
     case 52: ZoomOn(false); break;
     case 57: ZoomOn(true); break;
-    case 24:
-        Window().tool = LayoutTool::Roll;
-        break;
-    case 28:
-        Window().tool = LayoutTool::Pan;
-        break;
-    case 49:
-    case 50:
-        Window().tool = LayoutTool::Orbit;
-        break;
     case 40: {
         Execute("preferences.open");
         break;
@@ -744,15 +555,67 @@ void LayoutWindow::Command(int command) {
         if (m_Started)
             Window().snapshotOpen = true;
         break;
-    default: break;
+    case 120:
+    case 121:
+    case 122:
+    case 123:
+    case 124:
+    case 125:
+        Settings().referential = command - 120;
+        if (command == 125) {
+            Window().pickingReferent = true;
+            Client().Log(EDITOR_LOG_INFO, "Pick the referential object in the 3D Layout");
+        }
+        break;
+    case 100:
+        SelectAll(false);
+        break;
+    case 101:
+        ClearSelection();
+        break;
+    case 102:
+        SelectAll(true);
+        break;
+    case 103: {
+        LayoutSelectionData selection;
+        if (ReadLayoutSelection(Client(), selection))
+            Execute("layout.copy", {ObjectsArgument("objects", selection.objects)});
+        break;
     }
-    if (!CurveToolActive())
-        ClearCurveTool();
-    if (flying && Window().tool != LayoutTool::Fly) {
-        const LayoutTool next = Window().tool;
-        Window().tool = LayoutTool::Fly;
-        EndFly();
-        Window().tool = next;
+    case 104: {
+        const auto clipboard = Client().Query("scene.clipboard");
+        if (clipboard.status == EDITOR_OK)
+            if (const auto *objects = EditorClient::Find(clipboard, "objects");
+                objects && objects->type == EDITOR_OBJECT_LIST)
+                Duplicate(objects->objects, EditorClient::Integer(clipboard, "revision"));
+        break;
+    }
+    case 105:
+        Execute("preferences.open", {TextArgument("page", "reference-guide")});
+        break;
+    case 106:
+        DeleteSelection();
+        break;
+    case 107:
+        NextCamera(true);
+        break;
+    case 108:
+        NextCamera(false);
+        break;
+    case 109:
+        Command(Settings().axes == 3 ? 43 : Settings().axes == 6 ? 44 : 42);
+        break;
+    case 110:
+        Command(72 + (Settings().pivot + 1) % 3);
+        break;
+    case 111:
+        Command(46 + (Window().tool == LayoutTool::Scale ? (Window().scaleMode + 1) % 3 : Window().scaleMode));
+        break;
+    case 112:
+        Command(Window().tool == LayoutTool::Orbit ? (Window().orbitMode ? 49 : 50) : 49 + Window().orbitMode);
+        break;
+    default:
+        break;
     }
 }
 
@@ -863,7 +726,11 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
         ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     if (m_Started && Window().capturing)
         CaptureInput(at);
-    else if (m_Started) ViewInput(at, ImGui::IsItemHovered());
+    else if (m_Started) {
+        const auto input = EditorImGuiToolInput(at, ImGui::IsItemHovered(),
+                                                ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows));
+        Client().ToolInput(input);
+    }
     if (m_Started) DropTarget(at);
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (m_Started && m_StartupDropFrames > 0 && --m_StartupDropFrames == 0)
