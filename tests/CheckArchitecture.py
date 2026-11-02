@@ -95,7 +95,8 @@ def input_access(source, files, errors):
     # These methods assemble UI from copied Layout state. The window's private
     # GPU target management is intentionally outside this list.
     methods = (
-        ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("Register", "SaveWindow", "RestoreWindow", "PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
+        ("ui/layout/LayoutWindows.cpp", "LayoutWindows", ("Register",)),
+        ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("SaveWindow", "RestoreWindow", "PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
              "TogglePreference", "ToggleGuide", "RightClick", "DebugData", "SelectionText", "Steps", "TransformStepsOf", "Snap2DOf")),
         ("ui/setup/SetupWindows.cpp", "SetupWindows", ("Client", "Register", "ApplyPreferences", "Open", "Show",
             "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "PrepareFrame", "Save", "Restore", "Instances", "Navigate", "Header", "Sidebar", "Picture", "DrawObjectPage", "ReplaceFile", "ReadDetails", "ReadProperties", "PreviewProperty", "PreviewIndexedProperty", "SetProperty", "EditObjectList")),

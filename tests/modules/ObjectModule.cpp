@@ -1410,7 +1410,7 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     layoutWindow.provider = EDITOR_TEXT("example.layout-window");
     layoutWindow.title = EDITOR_TEXT("External 3D Layout");
     layoutWindow.area = EDITOR_DOCUMENT;
-    layoutWindow.singleInstance = 1;
+    layoutWindow.singleInstance = 0;
     layoutWindow.stateVersion = 1;
     layoutWindow.data = data;
     static const EditorParameter layoutViewFields[] = {{EDITOR_TEXT("tool"), EDITOR_INTEGER_VALUE},

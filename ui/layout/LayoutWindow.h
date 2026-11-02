@@ -28,6 +28,7 @@ class CKRasterizerContext;
 namespace vdev {
 class CkRuntimeHost;
 class LayoutView;
+class LayoutWindows;
 struct LayoutInterfaceData;
 
 // Dev's 3D Layout tools: the command ids of its toolbar (Dev.exe sub_4B6C70)
@@ -71,7 +72,6 @@ class LayoutWindow : public LayoutViewport {
     void Stop();
     bool HandleEvent(const SDL_Event &event);
     // The workspace supplies placement, focus and close requests.
-    bool Register(std::string &error);
     void Draw(EditorViewFrame &frame);
     // --layout-debug (capture checks): the On-screen Debug Data for the
     // session, the preference left as it is.
@@ -225,6 +225,7 @@ private:
     void RenderPlayer();
     void ClearDropHighlight();
     friend class EditorApp;
+    friend class LayoutWindows;
 #ifndef VIRTOOLSDEV_UI_TESTS
     LayoutView &View() { return *m_View; }
     const LayoutView &View() const { return *m_View; }
@@ -357,9 +358,9 @@ private:
         ObjectRef explorerFocus{};
     };
 
-    // The renderer belongs to the editing session; workspace views own their
-    // input, dialogs and copied display data. Closing a view releases its GPU
-    // target without creating another native CKContext.
+    // Each window owns a renderer and GPU target in the shared document context.
+    // The workspace owns its input, dialogs and copied display data. Closing a
+    // window releases only its rendering resources.
     ParameterCopies &m_ParameterCopies;
     EditorApplication &m_CommandEditor;
     const EditorHost *m_EditorHost = nullptr;
@@ -422,6 +423,7 @@ private:
     struct WindowState {
         LayoutWindow *owner;
         EditorView id;
+        std::string windowKey;
         bool needsStart = true;
         WindowState(LayoutWindow &layout, EditorView view)
             : owner(&layout), id(view), dropBox(layout.m_ParameterCopies), copyBox(layout.m_ParameterCopies) {}
@@ -483,9 +485,16 @@ private:
         unsigned snapshotRevisions[36] = {};
     };
     WindowState *m_Window = nullptr; // owned by EditorWorkspace
+    LayoutWindows *m_Windows = nullptr;
+    bool m_MainRenderContext = true;
+    ImVec4 m_InputViewport;
+    int m_InputWidth = 0, m_InputHeight = 0;
+    void ApplyInputViewport();
+    void ReleaseInputViewport();
     WindowState &Window() { return *m_Window; }
     const WindowState &Window() const { return *m_Window; }
     void Closing();
+    std::string AuxiliaryName(const char *) const;
     EditorStatus SaveWindow(EditorSink) const;
     EditorStatus RestoreWindow(const EditorRequest &);
     void Report(EditorStatus, const std::string &);

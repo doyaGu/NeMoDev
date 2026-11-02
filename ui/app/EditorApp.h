@@ -32,20 +32,20 @@
 #include <SDL3/SDL.h>
 #include "ui/print/Printer.h"
 
-#include "core/document/DocumentSaver.h"
-#include "ui/panels/EditorPanels.h"
-#include "ui/app/EditorStartup.h"
 #include "application/EditorProfile.h"
 #include "application/ProfileCommands.h"
-#include "ui/app/StatusBar.h"
-#include "ui/layout/LayoutWindow.h"
-#include "ui/schematic/SchematicCanvas.h"
-#include "ui/schematic/SchematicViews.h"
+#include "core/document/DocumentSaver.h"
+#include "features/preferences/PreferencesCommands.h"
 #include "features/scene/SceneCommands.h"
 #include "features/scene/SceneViews.h"
-#include "ui/setup/SetupWindows.h"
-#include "features/preferences/PreferencesCommands.h"
+#include "ui/app/EditorStartup.h"
+#include "ui/app/StatusBar.h"
 #include "ui/help/HelpWindow.h"
+#include "ui/layout/LayoutWindows.h"
+#include "ui/panels/EditorPanels.h"
+#include "ui/schematic/SchematicCanvas.h"
+#include "ui/schematic/SchematicViews.h"
+#include "ui/setup/SetupWindows.h"
 
 namespace vdev {
 
@@ -82,7 +82,7 @@ public:
     // Window close request: asks about unsaved changes first.
     void RequestQuit();
     // Dev creation tools (Create menu); the new object's Setup opens.
-    void CreateObject(LayoutObject kind);
+    void CreateObject(LayoutObject kind, EditorView source = 0);
 #ifdef VIRTOOLSDEV_UI_TESTS
     // Logs the label of the last undo step (capture-mode UI checks).
     void LogUndoTop();
@@ -97,7 +97,7 @@ public:
     const std::string &InitializationError() const { return m_InitializationError; }
     void ReportFailure(const std::string &message) { m_Session.Log(LogLevel::Error, message); }
     // The 3D Layout is fullscreen: the editor's window, hidden, keeps its frames going.
-    bool LayoutFullScreen() const { return m_Layout.FullScreen(); }
+    bool LayoutFullScreen() const { return m_Layouts.FullScreen(); }
     // Files dropped on the window at a client point: a composition opens;
     // an image becomes a Script's snapshot, an .nms file replaces the graph
     // it is dropped on or is imported where it is dropped (Dev drag and drop
@@ -117,8 +117,9 @@ public:
     // What the UI tests (tests/ui) check the UI's work on.
     SchematicCanvas &Canvas(EditorView view = 0) const { return view ? *m_Schematics.Find(view) : m_Schematics.Current(); }
     std::string SchematicWindow(EditorView view = 0) const { return m_Schematics.Window(view); }
-    const LayoutWindow &Layout() const { return m_Layout; }
-    LayoutWindow &Layout() { return m_Layout; }
+    const LayoutWindow &Layout() const { return m_Layouts.Primary(); }
+    LayoutWindow &Layout() { return m_Layouts.Primary(); }
+    LayoutWindow *Layout(EditorView id) { return m_Layouts.Find(id); }
     const EditorPanels &Panels() const { return m_Panels; }
     const SetupWindows &Setups() const { return m_Setups; }
     std::vector<SceneShownRow> LevelRows() { return SceneRowsForTests(m_Workspace.Role("main.level")); }
@@ -281,25 +282,28 @@ private:
     SceneCommands m_SceneCommands{m_Editor, [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
         m_Session.objectClipboard, m_Session.clipboard, [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }, [this]() -> CKDependencies & { return CopyDependencies(); }};
     HtmlFonts m_HtmlFonts;
-    LayoutWindow m_Layout{m_Session.host, m_ParameterCopies, m_Editor};
-    LayoutCommands m_LayoutCommands{m_Editor,
+    LayoutWindows m_Layouts{m_Session.host, m_ParameterCopies, m_Editor, m_Workspace};
+    LayoutCommands m_LayoutCommands{
+        m_Editor, [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
+        [this](EditorView source) { return m_Layouts.Target(source); }, m_Session.objectSelection};
+    LayoutAuthoring m_LayoutAuthoring{
+        m_Editor,
         [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-        [this](EditorView) { return LayoutTarget{0, m_Layout.View(), &m_Layout}; }, m_Session.objectSelection};
-    LayoutAuthoring m_LayoutAuthoring{m_Editor,
-                                      [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-                                      [this](EditorView) { return LayoutTarget{0, m_Layout.View(), &m_Layout}; },
-                                      m_Session.objectSelection,
-                                      m_Settings,
-                                      [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }};
-    LayoutPresentation m_LayoutPresentation{m_Editor,
-                                            [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-                                            [this](EditorView) { return LayoutTarget{0, m_Layout.View(), &m_Layout}; },
-                                            m_Session.objectSelection,
-                                            m_Settings,
-                                            [this] { return m_Execution.State().state == EDITOR_EXECUTION_RUNNING; }};
-    SnapshotCommands m_Snapshots{m_Editor, m_Session.runtimeOperation,
-                                 [this](EditorView) -> LayoutViewport & { return m_Layout; },
-                                 [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }};
+        [this](EditorView source) { return m_Layouts.Target(source); },
+        m_Session.objectSelection,
+        m_Settings,
+        [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }};
+    LayoutPresentation m_LayoutPresentation{
+        m_Editor,
+        [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
+        [this](EditorView source) { return m_Layouts.Target(source); },
+        m_Session.objectSelection,
+        m_Settings,
+        [this] { return m_Execution.State().state == EDITOR_EXECUTION_RUNNING; }};
+    SnapshotCommands m_Snapshots{
+        m_Editor, m_Session.runtimeOperation,
+        [this](EditorView source) -> LayoutViewport & { return *m_Layouts.Target(source).viewport; },
+        [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }};
 
 #ifdef VIRTOOLSDEV_UI_TESTS
     ParameterBox m_StartupValue{m_ParameterCopies}; // --edit-value

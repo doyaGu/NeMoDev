@@ -81,9 +81,10 @@ void LayoutWindow::SnapshotWindow() {
                              ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     bool open = true;
-    const bool visible = ImGui::Begin("Snapshot Buffer", &open,
-                                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking |
-                                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+    const bool visible =
+        ImGui::Begin(AuxiliaryName("Snapshot Buffer").c_str(), &open,
+                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking |
+                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
     if (!visible) {
         ImGui::End();
         if (!open)

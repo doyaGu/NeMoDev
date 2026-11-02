@@ -85,11 +85,12 @@ void LayoutWindow::OpenContextMenu(int x, int y) {
     Window().menu.initial = scene.initial;
     Window().menu.initialTarget = scene.initialTarget;
     Window().menu.frameShapes = std::move(scene.frameShapes);
-    ImGui::OpenPopup("##layoutmenu");
+    ImGui::OpenPopup(AuxiliaryName("##layoutmenu").c_str());
 }
 
 void LayoutWindow::ContextMenuPopup() {
-    if (!ImGui::BeginPopup("##layoutmenu")) return;
+    if (!ImGui::BeginPopup(AuxiliaryName("##layoutmenu").c_str()))
+        return;
     if (!Client().Scope().document.value ||
         (!Window().menu.objects.empty() &&
          Window().menu.objects.front().object.document != Client().Scope().document)) {
@@ -266,7 +267,8 @@ void LayoutWindow::Duplicate(const std::vector<ObjectRef> &objects, uint64_t cli
 // Dev's Edit Parameter dialog without its name and type (options 16 and
 // 32) on a "Copy options" parameter: CK2UI's Dependencies UI.
 void LayoutWindow::CopyOptionsDialog() {
-    const char *id = "Edit Parameter###CopyOptions";
+    const auto name = AuxiliaryName("Edit Parameter###CopyOptions");
+    const char *id = name.c_str();
     if (Window().document.openCopyOptions && Window().openPopups) {
         Window().copyBox.Clear();
         Window().copyBox.AddDependencies("Copy options", Window().copyType, Window().copyOptions);

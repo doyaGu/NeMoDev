@@ -1,4 +1,5 @@
 #include "ui/layout/LayoutWindow.h"
+#include "ui/layout/LayoutWindows.h"
 #include "ui/schematic/Snapshots.h"
 
 #include "ui/render/UiRenderer.h"
@@ -54,112 +55,14 @@ void LayoutWindow::Report(EditorStatus status, const std::string &message) {
     if (m_CommandEditor.report)
         m_CommandEditor.report({status, message});
 }
-bool LayoutWindow::Register(std::string &error) {
-    EditorViewDesc view{};
-    view.size = sizeof(view);
-    view.imguiVersion = EDITOR_IMGUI_VERSION;
-    view.id = EDITOR_TEXT("layout.viewport");
-    view.provider = EDITOR_TEXT("builtin.layout-window");
-    view.title = EDITOR_TEXT("3D Layout");
-    view.singleInstance = 1;
-    view.area = EDITOR_DOCUMENT;
-    view.data = this;
-    view.create = [](void *data, const EditorHost *, EditorView id) -> void * {
-        auto &owner = *static_cast<LayoutWindow *>(data);
-        if (owner.m_Window)
-            return nullptr;
-        owner.m_Window = new WindowState(owner, id);
-        return owner.m_Window;
-    };
-    view.closing = [](void *data, const EditorHost *, EditorView) {
-        static_cast<WindowState *>(data)->owner->Closing();
-    };
-    view.destroy = [](void *data) {
-        auto *state = static_cast<WindowState *>(data);
-        auto &owner = *state->owner;
-        if (owner.m_Window == state) {
-            owner.m_Window = nullptr;
-            owner.m_ViewFrame = -1;
-        }
-        delete state;
-    };
-    view.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
-        auto &owner = *static_cast<WindowState *>(data)->owner;
-        if (owner.Window().needsStart && owner.m_MainWindow) {
-            std::string error;
-            owner.Start(owner.m_MainWindow, &error);
-        }
-        owner.Draw(*frame);
-        frame->active = owner.Busy();
-    };
-    const EditorParameter fields[] = {{EDITOR_TEXT("tool"), EDITOR_INTEGER_VALUE},
-                                      {EDITOR_TEXT("started"), EDITOR_INTEGER_VALUE}};
-    view.fields = fields;
-    view.fieldCount = 2;
-    view.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
-        const auto &state = *static_cast<WindowState *>(data);
-        const EditorValue values[] = {IntegerArgument("tool", uint64_t(state.tool)),
-                                      IntegerArgument("started", state.owner->m_Started)};
-        return sink.write(sink.data, values, 2);
-    };
-    view.pick = [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
-        const auto &state = *static_cast<WindowState *>(data);
-        const auto &owner = *state.owner;
-        double x = 0, y = 0;
-        uint64_t objectClass = 0;
-        for (uint32_t i = 0; i < request->count; ++i) {
-            const auto &v = request->values[i];
-            if (std::string(v.key.data, v.key.size) == "x")
-                x = v.real;
-            if (std::string(v.key.data, v.key.size) == "y")
-                y = v.real;
-            if (std::string(v.key.data, v.key.size) == "class")
-                objectClass = v.integer;
-        }
-        std::vector<ObjectRef> objects;
-        if (owner.m_Started && ImGui::GetFrameCount() - owner.m_ViewFrame <= 1 && x >= owner.m_ViewMin.x &&
-            y >= owner.m_ViewMin.y && x < owner.m_ViewMax.x && y < owner.m_ViewMax.y) {
-            EditorValue px{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, py{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
-            px.real = x - owner.m_ViewMin.x;
-            py.real = y - owner.m_ViewMin.y;
-            const auto picked =
-                owner.Client().Query("layout.pick-object", {px, py, IntegerArgument("class", objectClass)});
-            if (const auto *value = EditorClient::Find(picked, "object");
-                picked.status == EDITOR_OK && value && value->object)
-                objects.push_back(value->object);
-        }
-        const EditorValue result{
-            EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {objects.data(), uint32_t(objects.size())}};
-        return sink.write(sink.data, &result, 1);
-    };
-    view.stateVersion = 1;
-    static const EditorParameter settings[] = {{EDITOR_TEXT("tool"), EDITOR_INTEGER_VALUE},
-                                               {EDITOR_TEXT("scale-mode"), EDITOR_INTEGER_VALUE},
-                                               {EDITOR_TEXT("portal-mode"), EDITOR_INTEGER_VALUE},
-                                               {EDITOR_TEXT("zoom-mode"), EDITOR_INTEGER_VALUE},
-                                               {EDITOR_TEXT("orbit-mode"), EDITOR_INTEGER_VALUE},
-                                               {EDITOR_TEXT("explorer-shown"), EDITOR_INTEGER_VALUE},
-                                               {EDITOR_TEXT("snapshot-open"), EDITOR_INTEGER_VALUE},
-                                               {EDITOR_TEXT("explorer-filter"), EDITOR_TEXT_VALUE},
-                                               {EDITOR_TEXT("scroll"), EDITOR_REAL_LIST},
-                                               {EDITOR_TEXT("zoom-extent"), EDITOR_REAL_VALUE},
-                                               {EDITOR_TEXT("transforms"), EDITOR_INTEGER_LIST}};
-    view.settings = settings;
-    view.settingCount = uint32_t(std::size(settings));
-    view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
-        return static_cast<WindowState *>(data)->owner->SaveWindow(sink);
-    };
-    view.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
-        return static_cast<WindowState *>(data)->owner->RestoreWindow(*request);
-    };
-    EditorModuleDesc module{};
-    module.size = sizeof(module);
-    module.version = EDITOR_VERSION;
-    module.id = EDITOR_TEXT("layout.window");
-    module.views = &view;
-    module.viewCount = 1;
-    return m_CommandEditor.Register(module, error);
+std::string LayoutWindow::AuxiliaryName(const char *name) const {
+    if (m_MainRenderContext)
+        return name;
+    const std::string text(name);
+    const auto suffix = text.find("###");
+    return (suffix == std::string::npos ? text + "###" + text : text) + "-" + Window().windowKey;
 }
+
 void LayoutWindow::Closing() {
     if (!m_Window)
         return;
@@ -383,12 +286,15 @@ void LayoutWindow::Draw(EditorViewFrame &frame) {
     FullScreenCommands();
     // Alt+Enter is Dev's application's accelerator, whatever window has the focus.
     const ImGuiIO &io = ImGui::GetIO();
-    if (m_Started && !io.WantTextInput && io.KeyAlt && !io.KeyCtrl && !io.KeyShift &&
-        ImGui::IsKeyPressed(ImGuiKey_Enter, false))
+    if (m_Started && (!m_Windows || &m_Windows->Active() == this) && !io.WantTextInput && io.KeyAlt && !io.KeyCtrl &&
+        !io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Enter, false))
         ToggleFullScreen();
     // Fullscreen, the frame goes to the screen, the 3D Layout shown or not.
     RenderPlayer();
     Window().openPopups = !frame.focus;
+    const std::string windowName(frame.window.data, frame.window.size);
+    const auto separator = windowName.find("###");
+    Window().windowKey = separator == std::string::npos ? windowName : windowName.substr(separator + 3);
     EditorPrepareViewWindow(frame);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, PANEL);

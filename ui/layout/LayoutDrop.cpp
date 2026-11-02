@@ -210,7 +210,8 @@ void LayoutWindow::DropParametersDialog() {
         Window().dropBox.Clear();
         return;
     }
-    const char *id = "###DropParameters";
+    const auto name = AuxiliaryName("###DropParameters");
+    const char *id = name.c_str();
     if (drop != Window().document.drop && Window().openPopups) {
         Window().dropBox.Clear();
         const auto *inputs = EditorClient::Find(input, "inputs");

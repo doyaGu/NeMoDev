@@ -157,9 +157,10 @@ void LayoutWindow::ExplorerWindow() {
                              ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     bool open = true;
-    const bool visible = ImGui::Begin("3D Layout Explorer", &open,
-                                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking |
-                                          ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
+    const bool visible =
+        ImGui::Begin(AuxiliaryName("3D Layout Explorer").c_str(), &open,
+                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking |
+                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
     if (!visible) {
         ImGui::End();
         if (!open) CloseExplorer(true);

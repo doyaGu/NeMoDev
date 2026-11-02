@@ -74,11 +74,12 @@ EditorApp::EditorApp(HtmlFonts fonts)
 
 void EditorApp::HandleEvent(const SDL_Event &event) {
     if (m_Session.runtimeOperation.Busy()) return;
-    m_Layout.HandleEvent(event);
-    if (!m_Window || event.type != SDL_EVENT_WINDOW_FOCUS_LOST ||
-        event.window.windowID != SDL_GetWindowID(m_Window) || m_Layout.FullScreen()) return;
+    m_Layouts.HandleEvent(event);
+    if (!m_Window || event.type != SDL_EVENT_WINDOW_FOCUS_LOST || event.window.windowID != SDL_GetWindowID(m_Window) ||
+        m_Layouts.FullScreen())
+        return;
     m_Schematics.CancelInteraction();
-    m_Layout.CancelEdits();
+    m_Layouts.CancelEdits();
     if (m_Execution.State().state == EDITOR_EXECUTION_RUNNING)
         Command("runtime.pause");
 }
@@ -180,56 +181,107 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         return fail(std::string("Editor module paths: ") + failure.what());
     }
     std::vector<EditorModuleSource> sources{
-        {"ProfileCommands.Register", [&](EditorApplication &, std::string &error) { return m_ProfileCommands.Register(error); }},
-        {"RegisterBuildingBlockQueries", [&](EditorApplication &editor, std::string &error) { return RegisterBuildingBlockQueries(editor, m_Catalog, error); }},
-        {"RegisterBuildingBlockViews", [&](EditorApplication &editor, std::string &error) { return RegisterBuildingBlockViews(editor, error); }},
-        {"ResourceCommands.Register", [&](EditorApplication &, std::string &error) { return m_ResourceCommands.Register(error); }},
-        {"RegisterDataResourceViews", [&](EditorApplication &editor, std::string &error) { return RegisterDataResourceViews(editor, error); }},
-        {"RegisterResourceInputs", [&](EditorApplication &editor, std::string &error) { return RegisterResourceInputs(editor, window, error); }},
-        {"RegisterDefaultWorkspace", [&](EditorApplication &editor, std::string &error) { return RegisterDefaultWorkspace(editor, error); }},
+        {"ProfileCommands.Register",
+         [&](EditorApplication &, std::string &error) { return m_ProfileCommands.Register(error); }},
+        {"RegisterBuildingBlockQueries",
+         [&](EditorApplication &editor, std::string &error) {
+             return RegisterBuildingBlockQueries(editor, m_Catalog, error);
+         }},
+        {"RegisterBuildingBlockViews",
+         [&](EditorApplication &editor, std::string &error) { return RegisterBuildingBlockViews(editor, error); }},
+        {"ResourceCommands.Register",
+         [&](EditorApplication &, std::string &error) { return m_ResourceCommands.Register(error); }},
+        {"RegisterDataResourceViews",
+         [&](EditorApplication &editor, std::string &error) { return RegisterDataResourceViews(editor, error); }},
+        {"RegisterResourceInputs",
+         [&](EditorApplication &editor, std::string &error) { return RegisterResourceInputs(editor, window, error); }},
+        {"RegisterDefaultWorkspace",
+         [&](EditorApplication &editor, std::string &error) { return RegisterDefaultWorkspace(editor, error); }},
         {"Workspace.Register", [&](EditorApplication &, std::string &error) { return m_Workspace.Register(error); }},
-        {"Session.eventLog.Register", [&](EditorApplication &editor, std::string &error) { return m_Session.eventLog.Register(editor, error); }},
-        {"RegisterEventLogView", [&](EditorApplication &editor, std::string &error) { return RegisterEventLogView(editor, error); }},
-        {"Messages.Register", [&](EditorApplication &editor, std::string &error) { return m_Messages.Register(editor, error); }},
-        {"RegisterMessageDialogs", [&](EditorApplication &editor, std::string &error) { return RegisterMessageDialogs(editor, error); }},
-        {"RegisterHelpViews", [&](EditorApplication &editor, std::string &error) { return RegisterHelpViews(editor, m_HtmlFonts, error); }},
-        {"FileCommands.Register", [&](EditorApplication &, std::string &error) { return m_FileCommands.Register(error); }},
-        {"RegisterFileInputs", [&](EditorApplication &editor, std::string &error) { return RegisterFileInputs(editor, window, error); }},
-        {"ObjectCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_ObjectCommands.Register(editor, error); }},
-        {"SelectionCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_SelectionCommands.Register(editor, error); }},
+        {"Session.eventLog.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_Session.eventLog.Register(editor, error); }},
+        {"RegisterEventLogView",
+         [&](EditorApplication &editor, std::string &error) { return RegisterEventLogView(editor, error); }},
+        {"Messages.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_Messages.Register(editor, error); }},
+        {"RegisterMessageDialogs",
+         [&](EditorApplication &editor, std::string &error) { return RegisterMessageDialogs(editor, error); }},
+        {"RegisterHelpViews",
+         [&](EditorApplication &editor, std::string &error) { return RegisterHelpViews(editor, m_HtmlFonts, error); }},
+        {"FileCommands.Register",
+         [&](EditorApplication &, std::string &error) { return m_FileCommands.Register(error); }},
+        {"RegisterFileInputs",
+         [&](EditorApplication &editor, std::string &error) { return RegisterFileInputs(editor, window, error); }},
+        {"ObjectCommands.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_ObjectCommands.Register(editor, error); }},
+        {"SelectionCommands.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_SelectionCommands.Register(editor, error); }},
         {"Execution.Register", [&](EditorApplication &, std::string &error) { return m_Execution.Register(error); }},
-        {"RegisterRuntimeViews", [&](EditorApplication &editor, std::string &error) { return RegisterRuntimeViews(editor, error); }},
-        {"Environment.Register", [&](EditorApplication &, std::string &error) { return m_Environment.Register(error); }},
-        {"RegisterEnvironmentViews", [&](EditorApplication &editor, std::string &error) { return RegisterEnvironmentViews(editor, error); }},
-        {"RegisterEnvironmentInputs", [&](EditorApplication &editor, std::string &error) { return RegisterEnvironmentInputs(editor, window, error); }},
-        {"Diagnostics.Register", [&](EditorApplication &, std::string &error) { return m_Diagnostics.Register(error); }},
-        {"RegisterDiagnosticViews", [&](EditorApplication &editor, std::string &error) { return RegisterDiagnosticViews(editor, error); }},
-        {"Preferences.Register", [&](EditorApplication &, std::string &error) { return m_Preferences.Register(error); }},
-        {"RegisterPreferencesView", [&](EditorApplication &editor, std::string &error) { return RegisterPreferencesView(editor, error); }},
+        {"RegisterRuntimeViews",
+         [&](EditorApplication &editor, std::string &error) { return RegisterRuntimeViews(editor, error); }},
+        {"Environment.Register",
+         [&](EditorApplication &, std::string &error) { return m_Environment.Register(error); }},
+        {"RegisterEnvironmentViews",
+         [&](EditorApplication &editor, std::string &error) { return RegisterEnvironmentViews(editor, error); }},
+        {"RegisterEnvironmentInputs",
+         [&](EditorApplication &editor, std::string &error) {
+             return RegisterEnvironmentInputs(editor, window, error);
+         }},
+        {"Diagnostics.Register",
+         [&](EditorApplication &, std::string &error) { return m_Diagnostics.Register(error); }},
+        {"RegisterDiagnosticViews",
+         [&](EditorApplication &editor, std::string &error) { return RegisterDiagnosticViews(editor, error); }},
+        {"Preferences.Register",
+         [&](EditorApplication &, std::string &error) { return m_Preferences.Register(error); }},
+        {"RegisterPreferencesView",
+         [&](EditorApplication &editor, std::string &error) { return RegisterPreferencesView(editor, error); }},
         {"Outputs.Register", [&](EditorApplication &, std::string &error) { return m_Outputs.Register(error); }},
-        {"RegisterOutputInputs", [&](EditorApplication &editor, std::string &error) { return RegisterOutputInputs(editor, window, error); }},
-        {"ParameterCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_ParameterCommands.Register(editor, error); }},
-        {"RegisterValueEditors", [&](EditorApplication &editor, std::string &error) { return RegisterValueEditors(editor, error); }},
-        {"ArrayCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_ArrayCommands.Register(editor, error); }},
-        {"SetupCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_SetupCommands.Register(editor, error); }},
+        {"RegisterOutputInputs",
+         [&](EditorApplication &editor, std::string &error) { return RegisterOutputInputs(editor, window, error); }},
+        {"ParameterCommands.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_ParameterCommands.Register(editor, error); }},
+        {"RegisterValueEditors",
+         [&](EditorApplication &editor, std::string &error) { return RegisterValueEditors(editor, error); }},
+        {"ArrayCommands.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_ArrayCommands.Register(editor, error); }},
+        {"SetupCommands.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_SetupCommands.Register(editor, error); }},
         {"Setups.Register", [&](EditorApplication &, std::string &error) { return m_Setups.Register(error); }},
-        {"SchematicCommands.Register", [&](EditorApplication &editor, std::string &error) { return m_SchematicCommands.Register(editor, error); }},
-        {"SchematicGraph.Register", [&](EditorApplication &editor, std::string &error) { return m_SchematicGraph.Register(editor, error); }},
-        {"RegisterSchematicDiagnosticViews", [&](EditorApplication &editor, std::string &error) { return RegisterSchematicDiagnosticViews(editor, error); }},
-        {"RegisterArrayValueEditors", [&](EditorApplication &editor, std::string &error) { return RegisterArrayValueEditors(editor, error); }},
-        {"RegisterObjectViews", [&](EditorApplication &editor, std::string &error) { return RegisterObjectViews(editor, error); }},
-        {"SceneCommands.Register", [&](EditorApplication &, std::string &error) { return m_SceneCommands.Register(error); }},
-        {"LayoutCommands.Register", [&](EditorApplication &, std::string &error) { return m_LayoutCommands.Register(error); }},
-        {"LayoutAuthoring.Register", [&](EditorApplication &, std::string &error) { return m_LayoutAuthoring.Register(error); }},
-        {"LayoutPresentation.Register", [&](EditorApplication &, std::string &error) { return m_LayoutPresentation.Register(error); }},
-        {"Layout.Register", [&](EditorApplication &, std::string &error) { return m_Layout.Register(error); }},
+        {"SchematicCommands.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_SchematicCommands.Register(editor, error); }},
+        {"SchematicGraph.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_SchematicGraph.Register(editor, error); }},
+        {"RegisterSchematicDiagnosticViews",
+         [&](EditorApplication &editor, std::string &error) {
+             return RegisterSchematicDiagnosticViews(editor, error);
+         }},
+        {"RegisterArrayValueEditors",
+         [&](EditorApplication &editor, std::string &error) { return RegisterArrayValueEditors(editor, error); }},
+        {"RegisterObjectViews",
+         [&](EditorApplication &editor, std::string &error) { return RegisterObjectViews(editor, error); }},
+        {"SceneCommands.Register",
+         [&](EditorApplication &, std::string &error) { return m_SceneCommands.Register(error); }},
+        {"LayoutCommands.Register",
+         [&](EditorApplication &, std::string &error) { return m_LayoutCommands.Register(error); }},
+        {"LayoutAuthoring.Register",
+         [&](EditorApplication &, std::string &error) { return m_LayoutAuthoring.Register(error); }},
+        {"LayoutPresentation.Register",
+         [&](EditorApplication &, std::string &error) { return m_LayoutPresentation.Register(error); }},
+        {"Layout.Register", [&](EditorApplication &, std::string &error) { return m_Layouts.Register(error); }},
         {"Snapshots.Register", [&](EditorApplication &, std::string &error) { return m_Snapshots.Register(error); }},
-        {"RegisterSnapshotInputs", [&](EditorApplication &editor, std::string &error) { return RegisterSnapshotInputs(editor, window, error); }},
-        {"RegisterSceneViews", [&](EditorApplication &editor, std::string &error) { return RegisterSceneViews(editor, error); }},
-        {"Schematics.Register", [&](EditorApplication &editor, std::string &error) { return m_Schematics.Register(editor, error); }},
-        {"Panels.Register", [&](EditorApplication &editor, std::string &error) { return m_Panels.Register(editor, error); }},
-        {"RegisterParameterDialogs", [&](EditorApplication &editor, std::string &error) { return RegisterParameterDialogs(editor, m_ParameterCopies, error); }},
-        {"RegisterSceneNavigation", [&](EditorApplication &, std::string &error) { return RegisterSceneNavigation(error); }}};
+        {"RegisterSnapshotInputs",
+         [&](EditorApplication &editor, std::string &error) { return RegisterSnapshotInputs(editor, window, error); }},
+        {"RegisterSceneViews",
+         [&](EditorApplication &editor, std::string &error) { return RegisterSceneViews(editor, error); }},
+        {"Schematics.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_Schematics.Register(editor, error); }},
+        {"Panels.Register",
+         [&](EditorApplication &editor, std::string &error) { return m_Panels.Register(editor, error); }},
+        {"RegisterParameterDialogs",
+         [&](EditorApplication &editor,
+             std::string &error) { return RegisterParameterDialogs(editor, m_ParameterCopies, error); }},
+        {"RegisterSceneNavigation",
+         [&](EditorApplication &, std::string &error) { return RegisterSceneNavigation(error); }}};
     sources.insert(sources.end(), std::make_move_iterator(external.begin()), std::make_move_iterator(external.end()));
     auto configuration = DefaultWorkspaceConfiguration();
     if (!m_Editor.Assemble(sources, EDITOR_IMGUI_VERSION, error, configuration.contributions, selectedModules, m_Profile.Contributions())) {
@@ -246,7 +298,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     if (!m_Environment.InitializePaths(preferences.paths, error)) m_Session.Log(LogLevel::Warning, error);
     ApplyRuntimeSettings();
     // The 3D Layout's render context (Dev makes it with its main window).
-    m_Layout.createObject = [this](LayoutObject kind) { CreateObject(kind); };
+    m_Layouts.createObject = [this](EditorView source, LayoutObject kind) { CreateObject(kind, source); };
 
     const auto openResource = [&](const std::string &resource) {
         const auto result = Command("resource.open-library", resource);
@@ -296,8 +348,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         }
     }
     std::string layoutError;
-    m_LayoutPresentation.Poll();
-    if (!m_Layout.Start(window, &layoutError))
+    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
+    if (!m_Layouts.Start(window, &layoutError))
         m_Session.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (fileToOpen.empty()) RunStartupActions(false);
@@ -502,7 +554,7 @@ void EditorApp::Shutdown() {
     m_Execution.Stop();
     m_Session.files.Execution(nullptr);
     m_Session.documentViews = nullptr;
-    m_Layout.Stop();
+    m_Layouts.Stop();
     m_Workspace.CloseAll();
     m_SceneCommands.Stop();
     m_Session.document.reset();
@@ -543,8 +595,8 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
     using A = DocumentCommands::Action;
     if (result.action == A::New && result.status == EDITOR_OK) {
         std::string error;
-        m_LayoutPresentation.Poll();
-        if (!m_Layout.Start(m_Window, &error))
+        m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
+        if (!m_Layouts.Start(m_Window, &error))
             m_Session.Log(LogLevel::Warning, "3D Layout: " + error);
     }
     if (!result.message.empty())
@@ -607,13 +659,14 @@ bool EditorApp::OpenFile(const std::string &path) {
 
 void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result) {
     std::string layoutError;
-    m_LayoutPresentation.Poll();
-    if (!m_Layout.Start(m_Window, &layoutError)) m_Session.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
+    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
+    if (!m_Layouts.Start(m_Window, &layoutError))
+        m_Session.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     RememberRecentFile(path);
     // NMO opens are imports into a new composition. Keep its editor state,
     // just as Import File does, rather than restoring the library's layout.
     if (m_Session.document->CreatedFrom() == Document::Origin::LoadedComposition) {
-        m_Layout.ApplyLayoutData(result.layout, m_LayoutCommands.ProjectInterface(result.layout));
+        m_Layouts.Primary().ApplyLayoutData(result.layout, m_LayoutCommands.ProjectInterface(result.layout));
         ReopenSetups(result.layout);
         m_SchematicGraph.LoadedLinks(result.invalid);
         if (result.removed) m_Session.Log(LogLevel::Warning, std::to_string(result.removed) + " invalid link(s) removed after loading");
@@ -659,8 +712,8 @@ void EditorApp::CloseDocumentViews() {
     m_Editor.NativeAvailable(false);
     m_Outputs.Stop();
     m_Panels.DocumentClosed();
-    m_Layout.DocumentClosed(); // its working copies while they still exist
-    m_Layout.ApplyLayoutData(LayoutInterfaceData(), {});
+    m_Layouts.DocumentClosed(); // its working copies while they still exist
+    m_Layouts.Primary().ApplyLayoutData(LayoutInterfaceData(), {});
     m_Schematics.DocumentClosed();
     ReleaseSnapshotTextures(); // the document frees its bitmaps
     UpdateTitle();
@@ -671,7 +724,8 @@ void EditorApp::DetachDocument(bool replaceContext) {
     m_DetachedLayout = LayoutDataToSave();
     m_DetachedDocument = m_Session.document->Token();
     CloseDocumentViews();
-    if (replaceContext) m_Layout.Stop();
+    if (replaceContext)
+        m_Layouts.Stop();
 }
 
 void EditorApp::RestoreDocument() {
@@ -679,9 +733,10 @@ void EditorApp::RestoreDocument() {
     m_Editor.Attach(m_Session.HasDocument() ? m_Session.document->Token() : DocumentToken{},
                     m_Session.document->TopologyRevision(), true, m_Session.HasDocument());
     std::string error;
-    m_LayoutPresentation.Poll();
-    if (!m_Layout.Start(m_Window, &error)) throw std::runtime_error("3D Layout: " + error);
-    m_Layout.ApplyLayoutData(m_DetachedLayout, m_LayoutCommands.ProjectInterface(m_DetachedLayout), false);
+    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
+    if (!m_Layouts.Start(m_Window, &error))
+        throw std::runtime_error("3D Layout: " + error);
+    m_Layouts.Primary().ApplyLayoutData(m_DetachedLayout, m_LayoutCommands.ProjectInterface(m_DetachedLayout), false);
     ReopenSetups(m_DetachedLayout);
     m_Schematics.Invalidate();
     UpdateTitle();
@@ -689,7 +744,7 @@ void EditorApp::RestoreDocument() {
 }
 
 bool EditorApp::DocumentInteractionActive() const {
-    return m_Schematics.Busy() || m_Layout.Busy() || m_Workspace.Interacting();
+    return m_Schematics.Busy() || m_Layouts.Busy() || m_Workspace.Interacting();
 }
 
 
@@ -719,7 +774,7 @@ void EditorApp::ReopenSetups(const LayoutInterfaceData &data) {
 // The 3D Layout's data with the Setups open (sub_4B4E50: the GUID, the
 // object, the Curve Setup's point, the window's state, its order, in front).
 LayoutInterfaceData EditorApp::LayoutDataToSave() const {
-    LayoutInterfaceData data = m_Layout.LayoutData();
+    LayoutInterfaceData data = m_Layouts.Primary().LayoutData();
     if (!m_Session.HasDocument()) return data;
     CKContext *context = m_Session.document->Context();
     data.setups.clear();
@@ -812,11 +867,14 @@ void EditorApp::StatusBar() {
                 info.selection = EditorClient::Text(object, "name");
         }
     } else if (count > 1) info.selection = std::to_string(count) + " elements selected";
-    const auto layoutAction = m_Layout.ActionText();
+    const auto layoutAction = m_Layouts.Active().ActionText();
     if (layoutAction.empty()) info.action = EditorClient::Text(schematic, "action-text");
-    else { info.action = layoutAction; info.selection = m_Layout.SelectionText(); }
-    info.information = m_Layout.InfoText();
-    info.showCoordinates = m_Layout.Coordinates(info.coordinates);
+    else {
+        info.action = layoutAction;
+        info.selection = m_Layouts.Active().SelectionText();
+    }
+    info.information = m_Layouts.Active().InfoText();
+    info.showCoordinates = m_Layouts.Active().Coordinates(info.coordinates);
     m_StatusBar.Draw(client, info);
 }
 
@@ -955,8 +1013,8 @@ void EditorApp::LogUndoTop() {
 }
 #endif
 
-void EditorApp::CreateObject(LayoutObject kind) {
-    const EditorClient client(m_Editor.Host(), 0);
+void EditorApp::CreateObject(LayoutObject kind, EditorView source) {
+    const EditorClient client(m_Editor.Host(), source);
     const auto creation = client.Query("layout.creation");
     if (creation.status != EDITOR_OK)
         return;
@@ -979,12 +1037,13 @@ void EditorApp::CreateObject(LayoutObject kind) {
          IntegerArgument("show-cone",
                          EditorClient::Integer(creation, kind == LayoutObject::Camera ? "camera-cone" : "light-cone")),
          IntegerArgument("show-in-player", EditorClient::Integer(creation, "show-player"))});
-    m_Layout.CreatedObject(result);
+    if (auto *window = source ? m_Layouts.Find(source) : &m_Layouts.Active())
+        window->CreatedObject(result);
 }
 
 bool EditorApp::Busy() const {
-    return m_Session.runtimeOperation.Busy() || ImGui::IsAnyItemActive() || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) || m_Schematics.Busy() ||
-           m_Layout.Busy();
+    return m_Session.runtimeOperation.Busy() || ImGui::IsAnyItemActive() ||
+           ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId) || m_Schematics.Busy() || m_Layouts.Busy();
 }
 
 void EditorApp::GlobalShortcuts() {
@@ -1070,7 +1129,7 @@ void EditorApp::Frame() {
     m_Environment.Poll();
     m_Diagnostics.Poll();
     m_Preferences.Poll();
-    m_LayoutCommands.Poll();
+    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutCommands.Poll(target.id); });
     m_LayoutAuthoring.Poll();
     m_Snapshots.Poll();
     if (m_Session.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
@@ -1139,10 +1198,11 @@ void EditorApp::Frame() {
         } else if (input.status == EDITOR_NO_CHANGE) m_PrintPagesOperation = 0;
     }
 #endif
-    m_LayoutPresentation.Poll();
+    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
     const auto &execution = m_Execution.State();
     m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_Settings.Bool("3D Layout\\Show Dynamic Objects"));
     m_Workspace.Draw();
+    m_Layouts.UpdateInput();
     if (m_Execution.Update(0.010)) m_Schematics.RefreshValues();
 #ifdef VIRTOOLSDEV_UI_TESTS
     const bool settled = m_FocusSchematic <= 0;

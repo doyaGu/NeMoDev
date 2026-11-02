@@ -40,13 +40,15 @@ void EditorApp::RunStartupActions(bool opened) {
     }
     for (const std::string &tool : m_Startup.tools) OpenStartupTool(tool);
     if (!m_Startup.layoutTool.empty() || !m_Startup.layoutView.empty())
-        m_Layout.StartupOptions(m_Startup.layoutTool, m_Startup.layoutView);
-    m_Layout.debugData = m_Startup.layoutDebug;
+        m_Layouts.Primary().StartupOptions(m_Startup.layoutTool, m_Startup.layoutView);
+    m_Layouts.Primary().debugData = m_Startup.layoutDebug;
     if (!m_Startup.dropBlock.empty()) {
         const BuildingBlockEntry *found = nullptr;
         for (const auto &entry : m_Catalog.Entries())
             if (entry.name == m_Startup.dropBlock) found = &entry;
-        if (found) m_Layout.StartupDrop((uint64_t(found->guid.d1) << 32) | found->guid.d2, m_Startup.dropX, m_Startup.dropY);
+        if (found)
+            m_Layouts.Primary().StartupDrop((uint64_t(found->guid.d1) << 32) | found->guid.d2, m_Startup.dropX,
+                                            m_Startup.dropY);
         else m_Session.Log(LogLevel::Error, "--drop-block: unknown Building Block " + m_Startup.dropBlock);
     }
     if (opened || m_Startup.newComposition) {
@@ -88,7 +90,8 @@ void EditorApp::RunStartupActions(bool opened) {
         }
         // After --create: the objects made can be selected.
         if (!m_Startup.layoutSelect.empty() || !m_Startup.layoutGroup.empty() || !m_Startup.layoutCommands.empty())
-            m_Layout.StartupSelection(m_Startup.layoutSelect, m_Startup.layoutGroup, m_Startup.layoutCommands);
+            m_Layouts.Primary().StartupSelection(m_Startup.layoutSelect, m_Startup.layoutGroup,
+                                                 m_Startup.layoutCommands);
         for (const auto &name : m_Startup.setups) {
             CKContext *context = m_Session.document->Context();
             // "@attributes", "@hierarchy", "@addattribute": the managers.

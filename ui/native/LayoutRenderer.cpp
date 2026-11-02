@@ -1,8 +1,9 @@
-#include "ui/layout/LayoutWindow.h"
-#include "core/layout/LayoutView.h"
 #include "core/layout/LayoutInterface.h"
+#include "core/layout/LayoutView.h"
 #include "core/layout/SdlGpuInterop.h"
 #include "core/runtime/TextEncoding.h"
+#include "ui/layout/LayoutWindow.h"
+#include "ui/layout/LayoutWindows.h"
 #include "ui/schematic/Snapshots.h"
 #include <algorithm>
 
@@ -35,7 +36,7 @@ bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
     ApplyPreferences();
     std::string message;
     m_Started = m_View->Start(Utf8ToAnsi(m_Preferences.Text("3D Layout\\Author Mode\\Device Driver")), &message,
-                             MainRenderer().Device());
+                              MainRenderer().Device(), m_MainRenderContext);
     SelectViewportContext();
     if (!m_Started) m_StartError = message;
     if (error) *error = message;
@@ -205,6 +206,8 @@ bool LayoutWindow::EnterFullScreen(const LayoutScreenMode &mode, std::string &er
     }
     m_ViewportContext = nullptr;
     m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
+    if (m_Windows)
+        m_Windows->PrepareFullScreen(*this);
     m_Switching = true;
     VxDisplayMode nativeMode;
     nativeMode.Width = mode.width;
@@ -283,7 +286,19 @@ UiTexture *LayoutWindow::RenderViewport(int width, int height) {
 }
 bool LayoutWindow::HandleEvent(const SDL_Event &event) { return m_View->HandleEvent(event); }
 void LayoutWindow::InputViewport(const ImVec4 &rect, int width, int height) {
+    m_InputViewport = rect;
+    m_InputWidth = width;
+    m_InputHeight = height;
+}
+void LayoutWindow::ApplyInputViewport() {
+    if (m_View->FullScreen())
+        return;
+    const auto &rect = m_InputViewport;
+    const auto width = m_InputWidth, height = m_InputHeight;
     m_View->SetInputViewport(m_MainWindow, VxRect(rect.x, rect.y, rect.z, rect.w), width, height);
+}
+void LayoutWindow::ReleaseInputViewport() {
+    m_View->ReleaseInputViewport();
 }
 void LayoutWindow::RenderPlayer() { if (m_View->FullScreen()) m_View->RenderFullScreen(); }
 void LayoutWindow::ClearDropHighlight() { m_View->SetDropTarget(0); }
