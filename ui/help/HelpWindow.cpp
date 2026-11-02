@@ -405,37 +405,58 @@ bool RegisterHelpViews(EditorApplication &editor, HtmlFonts fonts, std::string &
                 EDITOR_OK : EDITOR_REFUSED;
         }};
     auto *data = new HtmlFonts(fonts);
-    const EditorViewDesc view{sizeof(EditorViewDesc), EDITOR_IMGUI_VERSION,
-        EDITOR_TEXT("help.reference"), EDITOR_TEXT("builtin.help"), EDITOR_TEXT("Help"),
-        [](void *data, const EditorHost *, EditorView id) -> void * {
-            auto view = std::make_unique<HelpWindow>(*static_cast<HtmlFonts *>(data));
-            view->Open();
+    EditorViewDesc view{sizeof(EditorViewDesc),
+                        EDITOR_IMGUI_VERSION,
+                        EDITOR_TEXT("help.reference"),
+                        EDITOR_TEXT("builtin.help"),
+                        EDITOR_TEXT("Help"),
+                        [](void *data, const EditorHost *, EditorView id) -> void * {
+                            auto view = std::make_unique<HelpWindow>(*static_cast<HtmlFonts *>(data));
+                            view->Open();
 #ifdef VIRTOOLSDEV_UI_TESTS
-            shownHelp.emplace(id, view.get());
+                            shownHelp.emplace(id, view.get());
 #endif
-            return view.release();
-        },
-        [](void *data) {
+                            return view.release();
+                        },
+                        [](void *data) {
 #ifdef VIRTOOLSDEV_UI_TESTS
-            for (auto it = shownHelp.begin(); it != shownHelp.end();)
-                if (it->second == data) it = shownHelp.erase(it); else ++it;
+                            for (auto it = shownHelp.begin(); it != shownHelp.end();)
+                                if (it->second == data)
+                                    it = shownHelp.erase(it);
+                                else
+                                    ++it;
 #endif
-            delete static_cast<HelpWindow *>(data);
-        },
-        [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
-            static_cast<HelpWindow *>(data)->Draw(*frame);
-        }, data, EDITOR_WINDOW_VIEW, 1, EDITOR_WORKSPACE, &topic, 1,
-        [](void *data, const EditorHost *, const EditorRequest *request) {
-            const auto &topic = request->values[0].text;
-            static_cast<HelpWindow *>(data)->Open(std::string(topic.data ? topic.data : "", topic.size));
-            return EDITOR_OK;
-        }, 1,
-        [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
-            return static_cast<HelpWindow *>(data)->SaveState(sink);
-        },
-        [](void *data, const EditorHost *, const EditorRequest *request) {
-            return static_cast<HelpWindow *>(data)->RestoreState(*request);
-        }};
+                            delete static_cast<HelpWindow *>(data);
+                        },
+                        [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+                            static_cast<HelpWindow *>(data)->Draw(*frame);
+                        },
+                        data,
+                        EDITOR_WINDOW_VIEW,
+                        1,
+                        EDITOR_WORKSPACE,
+                        &topic,
+                        1,
+                        [](void *data, const EditorHost *, const EditorRequest *request) {
+                            const auto &topic = request->values[0].text;
+                            static_cast<HelpWindow *>(data)->Open(
+                                std::string(topic.data ? topic.data : "", topic.size));
+                            return EDITOR_OK;
+                        },
+                        1,
+                        [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+                            return static_cast<HelpWindow *>(data)->SaveState(sink);
+                        },
+                        [](void *data, const EditorHost *, const EditorRequest *request) {
+                            return static_cast<HelpWindow *>(data)->RestoreState(*request);
+                        }};
+    static const EditorParameter settings[] = {
+        {EDITOR_TEXT("current"), EDITOR_TEXT_VALUE},  {EDITOR_TEXT("pending"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("query"), EDITOR_TEXT_VALUE},    {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE},
+        {EDITOR_TEXT("visit"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("topics"), EDITOR_TEXT_LIST},
+        {EDITOR_TEXT("positions"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("visited"), EDITOR_TEXT_LIST}};
+    view.settings = settings;
+    view.settingCount = uint32_t(std::size(settings));
     const EditorBindingDesc binding{EDITOR_TEXT("help.open"), EDITOR_TEXT("F1")};
     const EditorMenuLocation location{EDITOR_TEXT("help.reference"), EDITOR_TEXT("Help menu")};
     const EditorMenuDesc menu{EDITOR_TEXT("help.reference"), EDITOR_TEXT("help.open"),

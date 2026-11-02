@@ -133,6 +133,19 @@ bool LayoutWindow::Register(std::string &error) {
         return sink.write(sink.data, &result, 1);
     };
     view.stateVersion = 1;
+    static const EditorParameter settings[] = {{EDITOR_TEXT("tool"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("scale-mode"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("portal-mode"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("zoom-mode"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("orbit-mode"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("explorer-shown"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("snapshot-open"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("explorer-filter"), EDITOR_TEXT_VALUE},
+                                               {EDITOR_TEXT("scroll"), EDITOR_REAL_LIST},
+                                               {EDITOR_TEXT("zoom-extent"), EDITOR_REAL_VALUE},
+                                               {EDITOR_TEXT("transforms"), EDITOR_INTEGER_LIST}};
+    view.settings = settings;
+    view.settingCount = uint32_t(std::size(settings));
     view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         return static_cast<WindowState *>(data)->owner->SaveWindow(sink);
     };

@@ -51,7 +51,8 @@ EditorView SchematicViews::CurrentId() const {
         if (Find(focused)) data.current = focused;
         if (!Find(data.current)) data.current = workspace->Role("main.schematic");
     }
-    if (!Find(data.current) && !data.canvases.empty()) data.current = data.canvases.begin()->first;
+    if (!Find(data.current))
+        data.current = data.canvases.empty() ? 0 : data.canvases.begin()->first;
     return data.current;
 }
 SchematicCanvas &SchematicViews::Current() const {
@@ -163,6 +164,12 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     view.fields = schematicFields;
     view.fieldCount = uint32_t(std::size(schematicFields));
     view.stateVersion = 1;
+    static const EditorParameter settings[] = {{EDITOR_TEXT("options"), EDITOR_INTEGER_VALUE},
+                                               {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE},
+                                               {EDITOR_TEXT("pan-x"), EDITOR_REAL_VALUE},
+                                               {EDITOR_TEXT("pan-y"), EDITOR_REAL_VALUE}};
+    view.settings = settings;
+    view.settingCount = uint32_t(std::size(settings));
     view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         return static_cast<SchematicCanvas *>(data)->Save(sink);
     };
