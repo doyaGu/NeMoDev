@@ -9,6 +9,10 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#if defined(__APPLE__)
+#include <objc/message.h>
+#include <objc/runtime.h>
+#endif
 
 namespace vdevuitest {
 namespace {
@@ -25,6 +29,23 @@ SDL_Window *EditorWindow() {
 SDL_Window *RenderWindow() {
     CKRenderContext *rc = App().Layout().View().RenderContext();
     return rc ? static_cast<SDL_Window *>(rc->GetWindowHandle()) : nullptr;
+}
+bool NativeFocus(SDL_Window *window) {
+    if (!window)
+        return false;
+#if defined(__APPLE__)
+    // Cocoa's minimization callbacks can reenter SDL's focus update and leave
+    // its cached keyboard focus empty while this window is still the key window.
+    // Assert the actual native focus, including after asynchronous transitions.
+    const auto native = static_cast<id>(SDL_GetPointerProperty(SDL_GetWindowProperties(window),
+                                                              SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr));
+    return native && reinterpret_cast<BOOL (*)(id, SEL)>(objc_msgSend)(native, sel_registerName("isKeyWindow"));
+#elif defined(_WIN32)
+    return GetForegroundWindow() == static_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(window),
+                                                                          SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+#else
+    return SDL_GetKeyboardFocus() == window;
+#endif
 }
 CKInputManager *Input() {
     return static_cast<CKInputManager *>(App().State().host.Context()->GetManagerByGuid(INPUT_MANAGER_GUID));
@@ -90,6 +111,11 @@ struct Session {
             automatic = p.Bool("3D Layout\\Player Mode\\Auto FullScreen");
             p.SetBool("3D Layout\\Player Mode\\Auto FullScreen", false);
             SDL_ShowWindow(EditorWindow()); SDL_RaiseWindow(EditorWindow());
+            // Prepare the focus target before fullscreen starts. Creating and
+            // activating it during Cocoa's fullscreen minimization races window
+            // creation against the native focus transition under test.
+            other = SDL_CreateWindow("Player focus regression", 320, 160, SDL_WINDOW_HIDDEN);
+            IM_CHECK_NO_RET(other);
         });
     }
     ~Session() {
@@ -105,7 +131,6 @@ struct Session {
     }
     void StealFocus() {
         OnMainThread(ctx, [&] {
-            if (!other) other = SDL_CreateWindow("Player focus regression", 320, 160, 0);
             if (other) { SDL_ShowWindow(other); SDL_RaiseWindow(other); }
         });
     }
@@ -512,7 +537,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         IM_CHECK(App().State().debugger->GetState() == vdev::Debugger::State::Paused);
         IM_CHECK(Released(ctx));
         IM_CHECK(Until(ctx, [&] {
-            return SDL_GetKeyboardFocus() == session.other && !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN);
+            return NativeFocus(session.other) && !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN);
         }));
         const int paused = App().State().debugger->Frames();
         ctx->Yield(12);
