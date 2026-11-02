@@ -533,6 +533,13 @@
       "patterns": [
         "features/setup/SetupViewData.*"
       ]
+    },
+    {
+      "id": "S59",
+      "name": "公开接口外部示例模块",
+      "patterns": [
+        "examples/**"
+      ]
     }
   ],
   "dependencies": {
@@ -1021,6 +1028,9 @@
     ],
     "S58": [
       "S35"
+    ],
+    "S59": [
+      "S33"
     ]
   },
   "legacy_exposures": [],
@@ -1838,7 +1848,8 @@
         "S37",
         "S43",
         "S44",
-        "S45"
+        "S45",
+        "S59"
       ],
       "tests": [
         "NeMoDevEditor",
