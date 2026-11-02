@@ -438,7 +438,7 @@ class ArchitectureTests(unittest.TestCase):
         self.manifest["features"][0]["source_groups"].append("ui")
         for body in ("m_State.document->Context();", "m_State.objectSelection.Objects();", "m_State.preferences.Bool(key);"):
             self.write("ui/app/EditorApp.cpp", "void EditorApp::CreateObject(int kind) { " + body + " }\n")
-            self.assertIn("native mutation or query returned to Layout presentation: CreateObject", self.run_check().stderr)
+            self.assertIn("native mutation or query returned to application display: CreateObject", self.run_check().stderr)
 
     def test_native_canvas_commands_do_not_reintroduce_editor_state(self):
         self.write('ui/app/EditorState.h', '#pragma once\n')
@@ -538,6 +538,28 @@ class ArchitectureTests(unittest.TestCase):
         self.assertEqual(self.run_check().returncode, 0)
         self.write("tests/VirtoolsDevCases.def", "VIRTOOLSDEV_CASE(Other)\n")
         self.assertIn("missing baseline core case: Original", self.run_check().stderr)
+
+    def test_application_menu_status_and_title_use_projections(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        for method in ("CreateObject", "StatusBar", "MainMenu", "UpdateTitle"):
+            with self.subTest(method=method):
+                self.write("ui/app/EditorApp.cpp", f"void EditorApp::{method}() {{ m_State.document->Context(); }}")
+                self.assertIn("native mutation or query returned to application display: " + method,
+                              self.run_check().stderr)
+        self.write("ui/app/EditorApp.cpp", "// Application assembly.\n")
+        self.assertEqual(self.run_check().returncode, 0)
+
+    def test_application_displays_reject_indirect_native_and_mutable_state(self):
+        self.manifest["source_groups"].append({"id": "ui", "patterns": ["ui/**"]})
+        self.manifest["features"][0]["source_groups"].append("ui")
+        self.write("core/model.h", '#include "CKAll.h"\n')
+        for path in ("ui/app/StatusBar.h", "ui/app/StatusBar.cpp", "ui/app/DuplicateNames.h", "ui/app/DuplicateNames.cpp"):
+            with self.subTest(path=path):
+                self.write(path, '#include "core/model.h"\n')
+                self.assertIn("native/state access in application display: " + path, self.run_check().stderr)
+                self.write(path, "// Copied application display data.\n")
+        self.assertEqual(self.run_check().returncode, 0)
 
     def test_shared_test_headers_preserve_ui_and_production_boundaries(self):
         checker = CHECKER.with_name("CheckLayering.cmake")

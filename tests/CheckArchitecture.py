@@ -65,7 +65,7 @@ def include_graph(source, files, contents=None, all_access=False):
 def input_access(source, files, errors):
     forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|debugger|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|CKObject|CKBehavior|CKParameter(?:In|Out|Local|Operation|Manager)?|ScriptSession|CK(?:BeObject|3dEntity|2dEntity|Material|Mesh|ObjectDeclaration)|DropBuildingBlockOn|DropBuildingBlockInto|ReplaceMeshMaterial|EditScriptData|EditGroup|SearchDocument|ToggleBreakpoint|FindBreakpoint|SetBreakpointConditions|RemoveBreakpoints|SetScriptSnapshot|LoadScriptSnapshot|LoadSnapshotBitmap|objectPick)\b|"
                            r"\bm_View\.(?:Context|Pick|PickInfo|RectPick|Camera|Scene)\s*\(")
-    migrated = {"ui/layout/LayoutDrop.cpp", "ui/layout/LayoutInput.cpp", "ui/layout/LayoutFullScreen.cpp", "ui/layout/LayoutSnapshot.cpp", "ui/schematic/SchematicLinking.cpp",
+    migrated = {"ui/app/StatusBar.cpp", "ui/app/DuplicateNames.cpp", "ui/layout/LayoutDrop.cpp", "ui/layout/LayoutInput.cpp", "ui/layout/LayoutFullScreen.cpp", "ui/layout/LayoutSnapshot.cpp", "ui/schematic/SchematicLinking.cpp",
                 "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp",
                 "ui/schematic/SchematicDialogs.cpp", "ui/schematic/SchematicInput.cpp",
                 "ui/panels/EditorPanels.cpp", "ui/setup/SetupRenderPages.cpp", "ui/setup/SetupScenePages.cpp", "ui/setup/SetupObjectPages.cpp", "ui/setup/SetupWindows.cpp"}
@@ -90,7 +90,7 @@ def input_access(source, files, errors):
         ("ui/setup/SetupWindows.cpp", "SetupWindows", ("Client", "Register", "ApplyPreferences", "Open", "Show",
             "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "PrepareFrame", "Save", "Restore", "Instances", "Navigate", "Header", "Sidebar", "Picture", "DrawObjectPage", "ReplaceFile", "ReadDetails", "ReadProperties", "PreviewProperty", "PreviewIndexedProperty", "SetProperty", "EditObjectList")),
         ("ui/setup/SetupObjectPages.cpp", "SetupWindows", ("AnimationPage", "ObjectAnimationPage", "MidiSoundPage", "SpriteTextPage", "KinematicChainPage", "LayerPage", "ParameterPage", "ParameterInPage", "OperationPage", "BehaviorPage", "BehaviorIOPage", "BehaviorLinkPage", "SynchroPage", "StatePage", "CriticalSectionPage", "InterfaceObjectsPage", "ParameterUsers", "ParameterValue", "ShowInSchematic", "OtherPage")),
-        ("ui/app/EditorApp.cpp", "EditorApp", ("CreateObject",)),
+        ("ui/app/EditorApp.cpp", "EditorApp", ("CreateObject", "StatusBar", "MainMenu", "UpdateTitle")),
         ("ui/layout/LayoutMenu.cpp", "LayoutWindow", ("CreatedObject",)))
     for path, owner, names in methods:
         if path not in files:
@@ -103,7 +103,7 @@ def input_access(source, files, errors):
                 depth += (text[end] == '{') - (text[end] == '}'); end += 1
             body = text[begin:end]
             if forbidden.search(body) or re.search(r"\bm_State\.(?:preferences|workspace)\b", body):
-                area = "Setup window management" if owner == "SetupWindows" else "Layout presentation"
+                area = {"SetupWindows": "Setup window management", "EditorApp": "application display"}.get(owner, "Layout presentation")
                 errors.append(f"native mutation or query returned to {area}: {match.group(1)}")
 
 
@@ -164,6 +164,9 @@ def check(source, manifest, inventory=None, ui_tests=False):
         if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/runtime/", "features/environment/", "features/diagnostics/", "features/preferences/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/", "features/schematic/", "features/layout/")) and not re.match(
                 r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/Setup(?:Commands|Queries|ObjectQueries|SceneQueries|RenderQueries|Actions)|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits|ModelCommands|ScriptCommands)|layout/(?:Layout(?:Commands|Gestures|Presentation|Authoring)|SnapshotCommands))\.(?:h|cpp)$", path):
             errors.append(f"native/state access in workspace view: {path}: {', '.join(access)}")
+    for path in ("ui/app/StatusBar.h", "ui/app/StatusBar.cpp", "ui/app/DuplicateNames.h", "ui/app/DuplicateNames.cpp"):
+        if all_exposures.get(path):
+            errors.append(f"native/state access in application display: {path}")
     observed = set()
     for path, dependencies in graph.items():
         for dependency in dependencies:

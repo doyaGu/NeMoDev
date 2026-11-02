@@ -41,6 +41,13 @@ add_library(NeMoDevSchematicDrawingHeaders OBJECT
 target_include_directories(NeMoDevSchematicDrawingHeaders PRIVATE
         "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
 target_compile_features(NeMoDevSchematicDrawingHeaders PRIVATE cxx_std_17)
+# These application displays consume copied queries and ordinary UI headers.
+# Compile their actual implementations without any SDK include directories.
+add_library(NeMoDevApplicationDrawingHeaders OBJECT
+        ../ui/app/StatusBar.cpp ../ui/app/DuplicateNames.cpp)
+target_include_directories(NeMoDevApplicationDrawingHeaders PRIVATE
+        "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
+target_compile_features(NeMoDevApplicationDrawingHeaders PRIVATE cxx_std_17)
 add_executable(NeMoDevSchematicDrawingTests SchematicDrawingTests.cpp
         ../core/schematic/SchematicModel.cpp ../core/schematic/SchematicHitTest.cpp
         $<TARGET_OBJECTS:NeMoDevSchematicDrawingHeaders>)
