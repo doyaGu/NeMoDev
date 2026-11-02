@@ -1401,7 +1401,7 @@
     {
       "id": "F15",
       "name": "连续工具与拾取",
-      "owner": "Workspace",
+      "owner": "EditorApplication / Workspace / Schematic / Layout",
       "source_groups": [
         "S07",
         "S09",
@@ -1409,7 +1409,9 @@
         "S22",
         "S55",
         "S56",
-        "S35"
+        "S35",
+        "S33",
+        "S34"
       ],
       "tests": [
         "VirtoolsDev.LayoutGestures",
@@ -1423,7 +1425,10 @@
         "VirtoolsDevUi.level",
         "VirtoolsDevUi.hierarchy",
         "VirtoolsDevUi.blocks",
-        "VirtoolsDevUi.setup"
+        "VirtoolsDevUi.setup",
+        "VirtoolsDevUi.layoutviews",
+        "VirtoolsDevUi.schematic",
+        "VirtoolsDevUi.workspaceStartup"
       ],
       "gaps": []
     },
@@ -1663,7 +1668,7 @@
     {
       "id": "F25",
       "name": "自定义与偏好",
-      "owner": "EditorProfile / ProfileCommands / PreferencesCommands / Workspace",
+      "owner": "EditorProfile / ProfileCommands / PreferencesCommands / EditorApplication / Workspace",
       "source_groups": [
         "S14",
         "S17",
@@ -1675,7 +1680,10 @@
         "S43",
         "S50",
         "S51",
-        "S54"
+        "S54",
+        "S21",
+        "S22",
+        "S33"
       ],
       "tests": [
         "VirtoolsDevPortable",
@@ -1689,12 +1697,13 @@
         "VirtoolsDevUi.modules",
         "VirtoolsDevUi.tools",
         "VirtoolsDevUi.profileStartup",
-        "VirtoolsDevUi.workspaceStartup"
+        "VirtoolsDevUi.workspaceStartup",
+        "VirtoolsDevUi.layoutviews"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "模块、提供者、快捷键、菜单、偏好和工作区状态已统一保存并在启动恢复，旧 INI 只读迁移；各平台实机复验仍待完成"
+          "reason": "工具、工具栏项目与按视图生效的输入绑定通过统一模块登记，支持配置增删、移动、替换、重绑及启动恢复；主题、字体和图标尚未成为可替换的模块资源，不能将 F25 记为完成。Windows/Linux 实机复验仍待完成。"
         }
       ]
     },
@@ -1886,15 +1895,20 @@
     },
     {
       "id": "F32",
-      "name": "新增文档数据目标",
-      "owner": "Document",
-      "source_groups": [],
+      "name": "模块文档数据",
+      "owner": "Document / DocumentSaver / EditorApplication（尚未实现模块文档数据）",
+      "source_groups": [
+        "S01",
+        "S02",
+        "S33",
+        "S34"
+      ],
       "tests": [],
       "ui_tests": [],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "无数据时不额外写空区"
+          "reason": "尚未实现通用模块文档数据。需补登记与版本升级、文档所有权、保存加载、未知模块原样保留、对象引用重映射、Import/Merge 冲突及失败恢复、撤销和无数据时不写空区。现有 Layout/Pictures 文档数据回归不能替代这些测试。"
         }
       ]
     }
@@ -1969,9 +1983,9 @@
     {
       "id": "interaction",
       "name": "Schematic 与 Layout 手势预览、曲线工具和输入捕获",
-      "owner": "EditorApplication 持有手势；Schematic/Layout 命令保存恢复数据；LayoutGestures 按视图保存曲线工具与手势来源；各 Layout 保存自身鼠标捕获；LayoutWindows 将唯一的运行时输入映射交给活动视口，主渲染 Context 随之切换",
+      "owner": "EditorApplication 按视图持有选中工具、捕获和工具创建的草稿；Schematic/Layout 命令保存恢复数据；LayoutWindows 将运行时输入交给活动视口，主渲染 Context 随之切换",
       "lifetime": "原文档和视图；确认在帧末提交，Escape、焦点丢失、关闭、失效与停止恢复",
-      "persistence": "显示预览不写入 Script 数据；原生变换预览不记 Dirty 或 Undo；确认直接用原快照记录一次，取消恢复原值；曲线工具与手势状态不保存入文件",
+      "persistence": "工具选择按工作区实例保存，缺失模块时保留标识并使用视图默认工具；进行中的输入和预览不写文件。确认产生一步撤销，取消、异常、失焦和关闭恢复原值；Setup 等非工具草稿不随工具取消。",
       "features": [
         "F13",
         "F14",
@@ -2222,10 +2236,10 @@
     },
     {
       "id": "editor-configuration",
-      "name": "命令、查询、编辑器与视图提供者选择、快捷键和菜单位置",
+      "name": "命令、查询、编辑器、视图和工具提供者选择、输入绑定、菜单与工具栏项目",
       "owner": "EditorProfile 拥有已保存的模块和提供者配置，EditorApplication 拥有本次已生效选择，Workspace 负责活动视图更换",
       "lifetime": "当前应用；错误设置保留原设置，编辑中禁止切换",
-      "persistence": "单一带版本 JSON 保存模块、提供者、快捷键、菜单、偏好、最近文件、资源和路径；旧 INI 只读迁移，未知成员保留；读取失败不覆盖原文件；提供者更换先准备视图再保存，保存失败保留原窗口和配置；无文档、选区或历史数据",
+      "persistence": "单一带版本 JSON 保存模块、提供者、按视图生效的键盘/鼠标绑定、菜单、工具栏位置/动作/显隐/参数、偏好、最近文件、资源和路径；旧 INI 只读迁移，未知成员保留；读取失败不覆盖原文件；提供者更换先准备视图再保存，保存失败保留原窗口和配置；无文档、选区或历史数据",
       "features": [
         "F25"
       ]

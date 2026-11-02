@@ -73,7 +73,7 @@ def include_graph(source, files, contents=None, all_access=False):
 def input_access(source, files, errors):
     forbidden = re.compile(r"\bm_State\.(?:document|objectSelection|host|debugger|catalog|recentBlocks|clipboard)\b|\b(?:CKContext|CKObject|CKBehavior|CKParameter(?:In|Out|Local|Operation|Manager)?|ScriptSession|CK(?:BeObject|3dEntity|2dEntity|Material|Mesh|ObjectDeclaration)|DropBuildingBlockOn|DropBuildingBlockInto|ReplaceMeshMaterial|EditScriptData|EditGroup|SearchDocument|ToggleBreakpoint|FindBreakpoint|SetBreakpointConditions|RemoveBreakpoints|SetScriptSnapshot|LoadScriptSnapshot|LoadSnapshotBitmap|objectPick)\b|"
                            r"\bm_View\.(?:Context|Pick|PickInfo|RectPick|Camera|Scene)\s*\(")
-    migrated = {"ui/app/StatusBar.cpp", "ui/app/DuplicateNames.cpp", "ui/layout/LayoutDrop.cpp", "ui/layout/LayoutInput.cpp", "ui/layout/LayoutFullScreen.cpp", "ui/layout/LayoutSnapshot.cpp", "ui/schematic/SchematicLinking.cpp",
+    migrated = {"ui/app/StatusBar.cpp", "ui/app/DuplicateNames.cpp", "ui/layout/LayoutDrop.cpp", "ui/layout/LayoutInput.cpp", "ui/layout/LayoutControls.cpp", "ui/schematic/SchematicTools.cpp", "ui/layout/LayoutFullScreen.cpp", "ui/layout/LayoutSnapshot.cpp", "ui/schematic/SchematicLinking.cpp",
                 "ui/schematic/SchematicCanvas.cpp", "ui/schematic/SchematicMenus.cpp",
                 "ui/schematic/SchematicDialogs.cpp", "ui/schematic/SchematicInput.cpp",
                 "ui/panels/EditorPanels.cpp", "ui/setup/SetupRenderPages.cpp", "ui/setup/SetupScenePages.cpp", "ui/setup/SetupObjectPages.cpp", "ui/setup/SetupWindows.cpp"}
@@ -96,7 +96,7 @@ def input_access(source, files, errors):
     # GPU target management is intentionally outside this list.
     methods = (
         ("ui/layout/LayoutWindows.cpp", "LayoutWindows", ("Register",)),
-        ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("SaveWindow", "RestoreWindow", "PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "LeftBar", "Command",
+        ("ui/layout/LayoutWindow.cpp", "LayoutWindow", ("SaveWindow", "RestoreWindow", "PlayerMode", "FullScreen", "ApplyPreferences", "SyncComposition", "TopBar", "LeftBar", "Command", "RunAction",
              "TogglePreference", "ToggleGuide", "RightClick", "DebugData", "SelectionText", "Steps", "TransformStepsOf", "Snap2DOf")),
         ("ui/setup/SetupWindows.cpp", "SetupWindows", ("Client", "Register", "ApplyPreferences", "Open", "Show",
             "ChangeTarget", "OpenSetups", "Close", "CloseAll", "Draw", "SetupPick", "PortalPick", "DrawSetup", "PrepareFrame", "Save", "Restore", "Instances", "Navigate", "Header", "Sidebar", "Picture", "DrawObjectPage", "ReplaceFile", "ReadDetails", "ReadProperties", "PreviewProperty", "PreviewIndexedProperty", "SetProperty", "EditObjectList")),

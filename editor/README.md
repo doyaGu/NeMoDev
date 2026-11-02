@@ -5,7 +5,7 @@
 
 模块导出 `NeMoDevModule(const EditorHost *, EditorModuleDesc *)`。内置功能也提交同一种
 `EditorModuleDesc`，没有另一条注册路径。命令、查询、编辑器、视图的用途标识与具体实现标识分开；
-同一用途有多个实现时，必须在配置中明确选择，登记顺序不会覆盖已有实现。当前 `EDITOR_VERSION` 为 21，模块与宿主使用相同版本重新编译。
+同一用途有多个实现时，必须在配置中明确选择，登记顺序不会覆盖已有实现。当前 `EDITOR_VERSION` 为 22，模块与宿主使用相同版本重新编译。
 模块描述、参数和文字在注册时复制。注册失败不会留下部分项目。依赖缺失、依赖环、参数不一致、
 重复标识、绘制版本或布局不匹配会使启用失败。
 
@@ -158,9 +158,9 @@ DataArray 的行列操作通过 `array.*` 命令执行，表格只读取 `array.
 绘制模块必须使用宿主的同一份 ImGui 实现和编译配置。启用时校验 ImGui 版本与公开结构的布局尺寸，
 模块不得另行静态链接第二份 ImGui。测试模块分别针对普通宿主和开启测试引擎的宿主独立编译。
 
-名字、基本值、组合和专用值、DataArray 表格及 Setup 属性已使用共享草稿和修改入口。
-Schematic 模型、导航、搜索和剩余图工具的视图登记与模块迁移继续列在阶段五清单中。
-Setup 的窗口绘制与离散工具、Layout 呈现适配，以及生产模块发现、打包和配置保存仍按后续阶段迁移。
+名字、基本值、组合和专用值、DataArray 表格及 Setup 属性使用共享草稿和修改入口。
+Schematic、Setup 和 Layout 的完整窗口已登记到工作区，查询使用只读数据，修改走统一命令。
+生产模块发现、提供者配置和工作区状态保存恢复已接入；各平台发布包仍需分别验证。
 GPU 视口继续使用现有纹理导入和 backbuffer 路径，模块接口不增加图像传输或逐帧资源操作。
 
 Schematic 的连续编辑由 `schematic.geometry` 准备参数，`schematic.edit-geometry` 执行。
@@ -183,3 +183,31 @@ ScriptSession 只为绘制保存显示副本，查询与保存仍读取原值；
 参照对象和全部被修改对象的完整引用；停止或取消恢复原值，确认只形成一步 Undo。
 点击未选中的对象时先完成选择命令，再以该对象开始变换。视口资源、GPU 快通道、fallback
 和显式截图读回维持现有流程。阶段五仍在迁移，正式性能验收暂缓且原门槛不变。
+
+
+工具栏和视图工具使用 `EditorModuleDesc.tools`、`toolbarItems`、`toolbars` 登记。工具的 ID 同时是普通会话命令的 ID；菜单、工具栏和按键都执行这个动作。工具实现由已有 `command` 提供者配置选择，工具栏控件由 `toolbar` 提供者配置选择。各工具必须声明所属视图类型；相同工具的不同提供者必须保持所属视图和命令参数一致。
+
+`EditorViewDesc.defaultTool` 指定默认工具。每个工作区实例分别保存当前工具，缺少外部模块时保留其标识并使用默认工具。视图内容区调用 `toolInput`，输入坐标相对此内容区，按钮掩码依次为左、右、中键；修饰键依次为 Control、Alt、Shift、Super。`ImGuiDrawing.h` 的 `EditorImGuiToolInput` 提供相同转换。只有内容区内的按下和滚轮会发给工具；捕获后继续接收移动和松开，失焦、隐藏、Escape、关闭和停止取消未完成预览。
+
+工具接收 ENTER、FRAME、CANCEL、LEAVE。FRAME 返回 `EDITOR_TOOL_CAPTURED` 表示正在交互，返回 `EDITOR_TOOL_DEFAULT` 回到视图默认工具。文档编辑继续使用 `beginCommand` 或 `beginEdit`、`editValue`、`finishEdit`；这些草稿归工具来源视图。一次确认只记一步撤销；取消、异常或未清理就退出工具时，宿主恢复工具尚未确认的草稿，不取消同视图的普通 Setup 草稿。正在捕获时禁止切换配置。切换工具先发 LEAVE，工具可以接受当前交互；主动取消发 CANCEL，恢复原值。
+
+`EditorBindingDesc.view` 指定输入归属，空值表示应用级动作；`phase` 区分按下、按住、松开。配置中的 chord 可包含 Control/Alt/Shift/Super 修饰键、字母、数字、F1–F24、命名导航键、Equal、Minus、KeypadEnter、KeypadAdd、KeypadSubtract 和 MouseLeft/MouseRight/MouseMiddle。格式沿用 `Ctrl+K`、`Shift+F3`。按下要求修饰键完全匹配；按住和松开允许同时按住其他修饰键，保留原有空格平移行为。同一 chord 可以在不同视图使用，同一视图内冲突会拒绝配置。可用的视图动作先处理输入，不能执行的动作不吞键，再由应用级动作处理。文字输入、模态和弹出菜单不触发这些动作。`inputBinding` 可检查已配置动作的按住/松开状态，Schematic 的平移与松开显示切换由同一绑定驱动。
+
+工具栏位置由视图或应用绘制区声明，项目引用普通命令，并可携带复制后的固定参数。项目默认绘制为按钮；原有图标、下拉框和工具菜单使用 `EditorToolbarDraw`，仍经同一登记与配置。绘制区域和项目位置使用设备无关像素，位置乘以区域的 scale；RIGHT 从右边计算，STRETCH 使用剩余宽度。自绘控件保留自身 ImGui ID，返回非零即执行已配置动作。换成另一个动作或移到不同类型视图时，宿主改用普通按钮，避免调用原视图的私有控件。自绘模块必须使用匹配宿主的 ImGui 版本。
+
+`Views` 中的 Tools、Tool Providers、Toolbar Entries、Shortcuts 管理启用的项目。配置仍写入同一个 JSON，工具栏覆盖只记录指定字段；`visible: false` 隐藏项目，删除覆盖恢复默认项目。自建项目需指定位置、动作、尺寸；需要参数的命令还可指定无对象引用的 `arguments` 字段记录。完整修改先校验再保存，保存失败恢复原配置和窗口。
+
+模块登记的控件可引用另一个可选模块的动作。该动作模块缺失或停用时，控件保留但不可用；模块恢复后重新校验参数并启用。新增控件或替换动作必须能在当前命令中找到目标，错误名称不会静默生效。内置工具和控件随所属视图模块一起启停，外部模块遵循相同登记流程。
+
+```json
+{
+  "toolbar-items": [
+    {"id": "layout.pan", "visible": false},
+    {"id": "custom.pan", "location": "layout.top", "action": "layout.pan",
+     "title": "Pan", "position": [375, 1], "size": [80, 19]}
+  ],
+  "bindings": [{"action": "layout.pan", "chord": "Ctrl+K"}]
+}
+```
+
+普通会话动作调用文档命令时，该文档命令使用自己的完成编号；只有嵌套的文档编辑共用外层编号和撤销步骤。立即或延后执行的修改均可通过 `application.operation` 读取最终文档版本，界面据此恢复对象位置和选区。
