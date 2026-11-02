@@ -1686,12 +1686,13 @@
         "VirtoolsDevUi.layout",
         "VirtoolsDevUi.modules",
         "VirtoolsDevUi.tools",
-        "VirtoolsDevUi.profileStartup"
+        "VirtoolsDevUi.profileStartup",
+        "VirtoolsDevUi.workspaceStartup"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "模块、提供者、快捷键、菜单和偏好已统一保存并在启动恢复，旧 INI 只读迁移；跨启动窗口私有状态、配置的各平台实机复验仍待完成"
+          "reason": "模块、提供者、快捷键、菜单、偏好和工作区状态已统一保存并在启动恢复，旧 INI 只读迁移；各平台实机复验仍待完成"
         }
       ]
     },
@@ -1800,19 +1801,21 @@
         "S35",
         "S37",
         "S43",
-        "S57"
+        "S57",
+        "S17"
       ],
       "tests": [
         "NeMoDevEditor"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.workspaceStartup"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "阶段六验证第二个 3D 视口、多实例完整输入组合、跨启动布局及提供者私有状态持久迁移；复杂窗口登记和本轮生命周期迁移已完成"
+          "reason": "跨启动实例、布局、已声明设置和缺失提供者恢复已覆盖；第二个 3D 视口及其多实例完整输入组合仍待验证"
         }
       ]
     },
@@ -1873,12 +1876,13 @@
       "ui_tests": [
         "VirtoolsDevUi.modules",
         "VirtoolsDevUi.moduleStartup",
-        "VirtoolsDevUi.profileStartup"
+        "VirtoolsDevUi.profileStartup",
+        "VirtoolsDevUi.workspaceStartup"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "生产模块发现、统一装配、按身份启用禁用及替换、提供者保存恢复已实现；完整模块发布包的各平台实机验证与跨启动窗口私有状态恢复仍待完成"
+          "reason": "生产模块发现、统一装配、按身份启用禁用及替换、配置和窗口状态保存恢复已实现；完整模块发布包的各平台实机验证仍待完成"
         }
       ]
     },
@@ -2211,7 +2215,7 @@
       "name": "已登记视图的实例和输入",
       "owner": "EditorWorkspace",
       "lifetime": "工作区拥有实例、窗口身份、焦点和导航；创建/状态恢复失败保留旧实例和配置",
-      "persistence": "带版本的提供者状态；单实例关闭重开和活动提供者替换时恢复；跨启动保存仍在阶段六",
+      "persistence": "同一次启动中关闭重开和提供者替换恢复完整临时状态；跨启动只保存 settings 声明的版本化字段与稳定窗口编号，禁止对象引用；提供者缺失保留占位和原始设置，恢复失败保留原 JSON",
       "features": [
         "F29",
         "F31",
@@ -2321,7 +2325,7 @@
       "name": "资源库视图的文件夹、多选、展开和锚点",
       "owner": "对应资源视图实例",
       "lifetime": "独立于文档；关闭实例或成功替换提供者时按统一工作区处理",
-      "persistence": "版本一状态仅含路径与选区值；替换失败保留旧实例和布局，跨启动状态留待阶段六",
+      "persistence": "版本一状态含库路径、文件夹、多选、展开和锚点，通过同一窗口设置接口跨启动保存；替换或恢复失败保留原实例和布局",
       "features": [
         "F20",
         "F29"
@@ -2342,7 +2346,7 @@
       "name": "默认视图角色、停靠区域、分割和重置规则",
       "owner": "EditorWorkspace",
       "lifetime": "已生效的工作区配置；先校验并准备全部视图，成功后共同替换",
-      "persistence": "所有内置窗口通过同一工作区登记创建、绘制、聚焦、停靠和关闭；保留既有窗口标识。Schematic Explorer 关闭释放草稿，但保留当前文档的搜索结果供 F3 导航；中央事件和名称拾取表已删除。跨启动配置仍在阶段六。",
+      "persistence": "内置及外部窗口通过同一工作区创建、绘制、聚焦、停靠和关闭；稳定窗口编号与运行作用域分离，配置、实例、布局和已声明设置共用 JSON。临时窗口、草稿和文档对象身份不跨启动；旧布局 INI 只读迁移，恢复失败不覆盖原文件。",
       "features": [
         "F25",
         "F29",

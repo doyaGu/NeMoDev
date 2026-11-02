@@ -187,13 +187,19 @@ It packages and checks the installed program without copying the build tree.
 
 ## Editor configuration
 
-The editor saves preferences, paths, recent files, module sources and provider
-choices together in `NeMoDev.json` in its existing user preference directory.
+The editor saves preferences, paths, recent files, module sources, provider
+choices and workspace windows together in `NeMoDev.json` in its existing user preference directory.
 Use `--editor-profile /path/to/settings.json` to select another file. Relative
 module paths are resolved from that file's directory. On first use, the editor
 reads its old preferences INI and imports existing Dev settings; subsequent
 writes use JSON and leave the INI intact. Invalid or unsupported JSON is reported
 without replacing the file. Unknown members are retained.
+
+Each window retains its own layout and declared navigation/display settings across
+launches. A missing provider leaves a placeholder with those settings intact;
+closed retained windows are available in **Saved Views**. A failed workspace restore
+opens the default workspace and protects the original JSON until you choose
+**Discard Unrestored Workspace**. The old window-layout INI is read once and left intact.
 
 The workspace's **Modules (Next Start)** menu saves module switches for the next
 launch. Builtin and external modules use the same module IDs, dependency checks
