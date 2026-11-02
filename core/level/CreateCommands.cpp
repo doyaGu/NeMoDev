@@ -98,6 +98,86 @@ void InFront(CK3dEntity *entity, CKCamera *camera, float distance) {
 
 } // namespace
 
+namespace {
+class CreateLayoutObjectAction final : public Action {
+public:
+    CreateLayoutObjectAction(Document &document, const std::vector<CK_ID> &added, CK_ID levelId, CK_ID sceneId,
+                             const bool &activate, CK_ID id)
+        : m_Document(document.Token()), m_Added(RecordObjects(document, added)), m_Level(document.Reference(levelId)),
+          m_SceneId(document.Reference(sceneId)), m_Activate(activate), m_Object(document.Reference(id)) {}
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        std::vector<CK_ID> added;
+        if (!ResolveObjects(doc, m_Added, added))
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        const auto sceneId = doc.NativeId(m_SceneId, Document::ObjectScope::Existing);
+        if (m_SceneId != ObjectRef{} && !sceneId)
+            return false;
+        const auto &activate = m_Activate;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        CKScene *in = Get<CKScene>(doc, sceneId);
+        if (!owner)
+            return false;
+        for (CK_ID each : added)
+            if (CKSceneObject *made = Get<CKSceneObject>(doc, each)) {
+                if (!owner->GetLevelScene() || !owner->GetLevelScene()->IsObjectHere(made))
+                    owner->AddObject(made);
+                if (in && in != owner->GetLevelScene() && !in->IsObjectHere(made))
+                    in->AddObjectToScene(made, TRUE);
+            }
+        if (activate && in)
+            if (CKSceneObject *made = Get<CKSceneObject>(doc, id))
+                in->Activate(made, TRUE);
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        std::vector<CK_ID> added;
+        if (!ResolveObjects(doc, m_Added, added))
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        const auto sceneId = doc.NativeId(m_SceneId, Document::ObjectScope::Existing);
+        if (m_SceneId != ObjectRef{} && !sceneId)
+            return false;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        CKScene *in = Get<CKScene>(doc, sceneId);
+        if (!owner)
+            return false;
+        for (CK_ID each : added)
+            if (CKSceneObject *made = Get<CKSceneObject>(doc, each)) {
+                if (in && in != owner->GetLevelScene())
+                    in->RemoveObjectFromScene(made, TRUE);
+                owner->RemoveObject(made);
+            }
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Added);
+        KeepObjects(document, objects, m_Level);
+        KeepObjects(document, objects, m_SceneId);
+        KeepObjects(document, objects, m_Object);
+    }
+
+private:
+    DocumentToken m_Document{};
+    std::vector<ObjectRef> m_Added;
+    ObjectRef m_Level{};
+    ObjectRef m_SceneId{};
+    bool m_Activate;
+    ObjectRef m_Object{};
+};
+} // namespace
+
 EditResult CreateLayoutObject(Document &document, LayoutObject kind, CK_ID selection,
                               CK_ID view, const LayoutObjectOptions &options) {
     CKContext *context = document.Context();
@@ -281,33 +361,9 @@ EditResult CreateLayoutObject(Document &document, LayoutObject kind, CK_ID selec
     const std::vector<CK_ID> added(created.begin(), created.end());
     const bool activate = kind == LayoutObject::Portal;
     Edit edit(document, label);
-    const auto result = Apply(
-        document, label,
-        [added, levelId, sceneId, activate, id](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKScene *in = Get<CKScene>(doc, sceneId);
-            if (!owner) return false;
-            for (CK_ID each : added)
-                if (CKSceneObject *made = Get<CKSceneObject>(doc, each)) {
-                    if (!owner->GetLevelScene() || !owner->GetLevelScene()->IsObjectHere(made)) owner->AddObject(made);
-                    if (in && in != owner->GetLevelScene() && !in->IsObjectHere(made)) in->AddObjectToScene(made, TRUE);
-                }
-            if (activate && in)
-                if (CKSceneObject *made = Get<CKSceneObject>(doc, id)) in->Activate(made, TRUE);
-            return true;
-        },
-        [added, levelId, sceneId](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKScene *in = Get<CKScene>(doc, sceneId);
-            if (!owner) return false;
-            for (CK_ID each : added)
-                if (CKSceneObject *made = Get<CKSceneObject>(doc, each)) {
-                    if (in && in != owner->GetLevelScene()) in->RemoveObjectFromScene(made, TRUE);
-                    owner->RemoveObject(made);
-                }
-            return true;
-        },
-        created, id);
+    const auto result =
+        Apply(document, label,
+              std::make_unique<CreateLayoutObjectAction>(document, added, levelId, sceneId, activate, id), created, id);
     if (!result.ok) return edit.Fail(result.message);
     if (context->GetObject(id) != object) return edit.Fail("The created object was removed");
     if (options.showCone && (CKCamera::Cast(object) || CKLight::Cast(object)))
@@ -320,37 +376,155 @@ EditResult CreateLayoutObject(Document &document, LayoutObject kind, CK_ID selec
     return edit.Commit({}, id);
 }
 
+namespace {
+class ReplaceMeshMaterialAction final : public Action {
+public:
+    ReplaceMeshMaterialAction(Document &document, CK_ID meshId, CK_ID from, CK_ID to, const std::vector<int> &faces,
+                              const std::vector<int> &channels)
+        : m_Document(document.Token()), m_Mesh(document.Reference(meshId)), m_From(document.Reference(from)),
+          m_To(document.Reference(to)), m_Faces(faces), m_Channels(channels) {}
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto meshId = doc.NativeId(m_Mesh, Document::ObjectScope::Existing);
+        if (m_Mesh != ObjectRef{} && !meshId)
+            return false;
+        const auto from = doc.NativeId(m_From, Document::ObjectScope::Existing);
+        if (m_From != ObjectRef{} && !from)
+            return false;
+        const auto to = doc.NativeId(m_To, Document::ObjectScope::Existing);
+        if (m_To != ObjectRef{} && !to)
+            return false;
+        CKMesh *target = Get<CKMesh>(doc, meshId);
+        CKMaterial *material = Get<CKMaterial>(doc, to);
+        if (!target || !material)
+            return false;
+        target->ReplaceMaterial(Get<CKMaterial>(doc, from), material);
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto meshId = doc.NativeId(m_Mesh, Document::ObjectScope::Existing);
+        if (m_Mesh != ObjectRef{} && !meshId)
+            return false;
+        const auto from = doc.NativeId(m_From, Document::ObjectScope::Existing);
+        if (m_From != ObjectRef{} && !from)
+            return false;
+        const auto &faces = m_Faces;
+        const auto &channels = m_Channels;
+        CKMesh *target = Get<CKMesh>(doc, meshId);
+        if (!target)
+            return false;
+        CKMaterial *material = Get<CKMaterial>(doc, from);
+        for (int face : faces)
+            if (face < target->GetFaceCount())
+                target->SetFaceMaterial(face, material);
+        for (int channel : channels)
+            if (channel < target->GetChannelCount())
+                target->SetChannelMaterial(channel, material);
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Mesh);
+        KeepObjects(document, objects, m_From);
+        KeepObjects(document, objects, m_To);
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_Mesh{};
+    ObjectRef m_From{};
+    ObjectRef m_To{};
+    std::vector<int> m_Faces;
+    std::vector<int> m_Channels;
+};
+} // namespace
+
 EditResult ReplaceMeshMaterial(Document &document, CK_ID meshId, CK_ID from, CK_ID to) {
     CKMesh *mesh = Get<CKMesh>(document, meshId);
     CKMaterial *before = Get<CKMaterial>(document, from), *after = Get<CKMaterial>(document, to);
-    if (!mesh || !after) return EditResult::Refused("Drop a material on a face");
-    if (before == after) return EditResult::Refused("The face has that material already");
+    if (!mesh || !after)
+        return EditResult::Refused("Drop a material on a face");
+    if (before == after)
+        return EditResult::Refused("The face has that material already");
     std::vector<int> faces, channels;
     for (int i = 0; i < mesh->GetFaceCount(); ++i)
-        if (mesh->GetFaceMaterial(i) == before) faces.push_back(i);
+        if (mesh->GetFaceMaterial(i) == before)
+            faces.push_back(i);
     for (int i = 0; i < mesh->GetChannelCount(); ++i)
-        if (mesh->GetChannelMaterial(i) == before) channels.push_back(i);
-    if (faces.empty()) return EditResult::Refused("No face has the material");
-    return Apply(
-        document, "Replace Material",
-        [meshId, from, to](Document &doc) {
-            CKMesh *target = Get<CKMesh>(doc, meshId);
-            CKMaterial *material = Get<CKMaterial>(doc, to);
-            if (!target || !material) return false;
-            target->ReplaceMaterial(Get<CKMaterial>(doc, from), material);
-            return true;
-        },
-        [meshId, from, faces, channels](Document &doc) {
-            CKMesh *target = Get<CKMesh>(doc, meshId);
-            if (!target) return false;
-            CKMaterial *material = Get<CKMaterial>(doc, from);
-            for (int face : faces)
-                if (face < target->GetFaceCount()) target->SetFaceMaterial(face, material);
-            for (int channel : channels)
-                if (channel < target->GetChannelCount()) target->SetChannelMaterial(channel, material);
-            return true;
-        });
+        if (mesh->GetChannelMaterial(i) == before)
+            channels.push_back(i);
+    if (faces.empty())
+        return EditResult::Refused("No face has the material");
+    return Apply(document, "Replace Material",
+                 std::make_unique<ReplaceMeshMaterialAction>(document, meshId, from, to, faces, channels));
 }
+
+namespace {
+struct Membership {
+    ObjectRef object{};
+    bool level;
+    std::vector<ObjectRef> scenes;
+};
+class DuplicateMembershipAction final : public Action {
+public:
+    DuplicateMembershipAction(Document &document, CK_ID level, std::vector<Membership> memberships)
+        : m_Level(document.Reference(level)), m_Memberships(std::move(memberships)) {}
+    bool Redo(Document &doc) override {
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (!levelId)
+            return false;
+        const auto &memberships = m_Memberships;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        if (!owner || !owner->GetLevelScene())
+            return false;
+        for (const Membership &membership : memberships) {
+            CKSceneObject *made = Get<CKSceneObject>(doc, membership.object);
+            if (!made)
+                continue;
+            if (membership.level && !owner->GetLevelScene()->IsObjectHere(made))
+                owner->AddObject(made);
+            for (auto id : membership.scenes)
+                if (CKScene *scene = Get<CKScene>(doc, id))
+                    if (!scene->IsObjectHere(made))
+                        scene->AddObjectToScene(made, FALSE);
+        }
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (!levelId)
+            return false;
+        const auto &memberships = m_Memberships;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        if (!owner)
+            return false;
+        for (const Membership &membership : memberships) {
+            CKSceneObject *made = Get<CKSceneObject>(doc, membership.object);
+            if (!made)
+                continue;
+            for (auto id : membership.scenes)
+                if (CKScene *scene = Get<CKScene>(doc, id))
+                    scene->RemoveObjectFromScene(made, FALSE);
+            if (membership.level)
+                owner->RemoveObject(made);
+        }
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Level);
+        for (const auto &entry : m_Memberships) {
+            KeepObjects(document, objects, entry.object);
+            KeepObjects(document, objects, entry.scenes);
+        }
+    }
+
+private:
+    ObjectRef m_Level{};
+    std::vector<Membership> m_Memberships;
+};
+} // namespace
 
 EditResult DuplicateObjects(Document &document, const std::vector<CK_ID> &objects,
                             std::vector<std::pair<CK_ID, CK_ID>> *pairs, CKDependencies *dependencies) {
@@ -413,19 +587,15 @@ EditResult DuplicateObjects(Document &document, const std::vector<CK_ID> &object
         },
         &document.Host(), "Duplicate");
     // Where each new object is now, to take it out and put it back.
-    struct Membership {
-        CK_ID object;
-        bool level;
-        std::vector<CK_ID> scenes;
-    };
     std::vector<Membership> memberships;
     for (CK_ID id : created) {
         CKSceneObject *made = CKSceneObject::Cast(context->GetObject(id));
         if (!made || CKLevel::Cast(made) || CKScene::Cast(made)) continue;
-        Membership membership{id, levelScene->IsObjectHere(made) != FALSE, {}};
+        Membership membership{document.Reference(id), levelScene->IsObjectHere(made) != FALSE, {}};
         for (int s = 0; s < made->GetSceneInCount(); ++s)
             if (CKScene *scene = made->GetSceneIn(s))
-                if (scene != levelScene) membership.scenes.push_back(scene->GetID());
+                if (scene != levelScene)
+                    membership.scenes.push_back(document.Reference(scene->GetID()));
         memberships.push_back(std::move(membership));
     }
     if (pairs) {
@@ -434,34 +604,9 @@ EditResult DuplicateObjects(Document &document, const std::vector<CK_ID> &object
     }
     const CK_ID levelId = level->GetID();
     Edit edit(document, "Duplicate");
-    const auto result = Apply(
-        document, "Duplicate",
-        [memberships, levelId](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            if (!owner || !owner->GetLevelScene()) return false;
-            for (const Membership &membership : memberships) {
-                CKSceneObject *made = Get<CKSceneObject>(doc, membership.object);
-                if (!made) continue;
-                if (membership.level && !owner->GetLevelScene()->IsObjectHere(made)) owner->AddObject(made);
-                for (CK_ID id : membership.scenes)
-                    if (CKScene *scene = Get<CKScene>(doc, id))
-                        if (!scene->IsObjectHere(made)) scene->AddObjectToScene(made, FALSE);
-            }
-            return true;
-        },
-        [memberships, levelId](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            if (!owner) return false;
-            for (const Membership &membership : memberships) {
-                CKSceneObject *made = Get<CKSceneObject>(doc, membership.object);
-                if (!made) continue;
-                for (CK_ID id : membership.scenes)
-                    if (CKScene *scene = Get<CKScene>(doc, id)) scene->RemoveObjectFromScene(made, FALSE);
-                if (membership.level) owner->RemoveObject(made);
-            }
-            return true;
-        },
-        created, copies[0]);
+    const auto result =
+        Apply(document, "Duplicate", std::make_unique<DuplicateMembershipAction>(document, levelId, memberships),
+              created, copies[0]);
     if (!result.ok) return edit.Fail(result.message);
     for (int i = 0; i < copies.Size(); ++i) {
         const auto found = document.Layout().representations.find(originals[i]);
