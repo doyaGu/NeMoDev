@@ -48,6 +48,14 @@ add_library(NeMoDevApplicationDrawingHeaders OBJECT
 target_include_directories(NeMoDevApplicationDrawingHeaders PRIVATE
         "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
 target_compile_features(NeMoDevApplicationDrawingHeaders PRIVATE cxx_std_17)
+add_executable(NeMoDevUiTextureTests UiTextureTests.cpp
+        ../ui/render/UiRenderer.cpp ../ui/schematic/Snapshots.cpp)
+target_include_directories(NeMoDevUiTextureTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
+target_compile_features(NeMoDevUiTextureTests PRIVATE cxx_std_17)
+target_compile_definitions(NeMoDevUiTextureTests PRIVATE VIRTOOLSDEV_UI_TESTS)
+target_link_libraries(NeMoDevUiTextureTests PRIVATE VirtoolsDevImGui SDL3::SDL3)
+add_test(NAME NeMoDevUiTextures COMMAND NeMoDevUiTextureTests)
+set_tests_properties(NeMoDevUiTextures PROPERTIES LABELS self-contained RUN_SERIAL TRUE)
 add_executable(NeMoDevSchematicDrawingTests SchematicDrawingTests.cpp
         ../core/schematic/SchematicModel.cpp ../core/schematic/SchematicHitTest.cpp
         $<TARGET_OBJECTS:NeMoDevSchematicDrawingHeaders>)

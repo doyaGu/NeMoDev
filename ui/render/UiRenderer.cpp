@@ -6,7 +6,22 @@
 #include <limits>
 
 namespace vdev {
-UiTexture::~UiTexture() { if (m_Texture) SDL_ReleaseGPUTexture(m_Device, m_Texture); }
+UiTexture::UiTexture(UiRenderer &renderer, SDL_GPUDevice *device, SDL_GPUTexture *texture, int width, int height)
+    : m_Renderer(&renderer), m_Next(renderer.m_Textures), m_Device(device), m_Texture(texture), m_Width(width), m_Height(height) {
+    if (m_Next) m_Next->m_Previous = this;
+    renderer.m_Textures = this;
+}
+void UiTexture::Reset() {
+    if (m_Texture) SDL_ReleaseGPUTexture(m_Device, m_Texture);
+    if (m_Previous) m_Previous->m_Next = m_Next;
+    else if (m_Renderer) m_Renderer->m_Textures = m_Next;
+    if (m_Next) m_Next->m_Previous = m_Previous;
+    m_Renderer = nullptr;
+    m_Previous = m_Next = nullptr;
+    m_Device = nullptr;
+    m_Texture = nullptr;
+}
+UiTexture::~UiTexture() { Reset(); }
 ImTextureID UiTexture::Id() const { return static_cast<ImTextureID>(reinterpret_cast<intptr_t>(m_Texture)); }
 UiRenderer::~UiRenderer() { Stop(); }
 UiRenderer &MainRenderer() { static UiRenderer renderer; return renderer; }
@@ -27,11 +42,15 @@ bool UiRenderer::Start(SDL_Window *window, std::string *error) {
         if (error) *error = "Cannot initialize the ImGui GPU renderer";
         Stop(); return false;
     }
+    ++m_Generation;
     return true;
 }
 void UiRenderer::Stop() {
     if (!m_Device) { m_Window = nullptr; return; }
     SDL_WaitForGPUIdle(m_Device);
+    // Views may keep their wrappers after this device goes away. Release their
+    // native resources while the device is alive and leave invalid wrappers.
+    while (m_Textures) m_Textures->Reset();
     for (SDL_GPUFence *&fence : m_FrameFences) {
         if (fence) SDL_ReleaseGPUFence(m_Device, fence);
         fence = nullptr;
@@ -75,7 +94,7 @@ std::unique_ptr<UiTexture> UiRenderer::MakeTarget(int width, int height) {
     info.width = width; info.height = height; info.layer_count_or_depth = 1;
     info.num_levels = 1; info.sample_count = SDL_GPU_SAMPLECOUNT_1;
     SDL_GPUTexture *texture = SDL_CreateGPUTexture(m_Device, &info);
-    return texture ? std::unique_ptr<UiTexture>(new UiTexture(m_Device, texture, width, height)) : nullptr;
+    return texture ? std::unique_ptr<UiTexture>(new UiTexture(*this, m_Device, texture, width, height)) : nullptr;
 }
 std::unique_ptr<UiTexture> UiRenderer::CreateTexture(int width, int height, const void *rgba) {
     auto texture = MakeTarget(width, height);
@@ -148,6 +167,7 @@ bool UiRenderer::Render(ImDrawData *data, bool present, std::string *error) {
     return true;
 }
 bool UiRenderer::ReadTexture(const UiTexture &texture, std::vector<unsigned char> &rgba) {
+    if (!m_Device || !texture.m_Texture || texture.m_Device != m_Device) return false;
     const size_t bytes = static_cast<size_t>(texture.m_Width) * texture.m_Height * 4;
     if (bytes > std::numeric_limits<Uint32>::max()) return false;
     SDL_GPUTransferBufferCreateInfo info = {};

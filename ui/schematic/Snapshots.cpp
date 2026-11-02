@@ -40,7 +40,18 @@ void ReleaseRetiredTextures() {
 #ifdef VIRTOOLSDEV_UI_TESTS
 size_t SnapshotTextureCountForTests() { return Textures().size(); }
 #endif
+namespace {
+void CheckDevice() {
+    static uint64_t generation = 0;
+    const auto current = MainRenderer().Generation();
+    if (generation != current) {
+        ReleaseSnapshotTextures();
+        generation = current;
+    }
+}
+}
 ImTextureID SnapshotTexture(const std::shared_ptr<const SchematicSnapshot> &image, ImVec2 *size) {
+    CheckDevice();
     if (!image || !MainRenderer().Started() || image->pixels.size() != size_t(image->width) * image->height * 4)
         return {};
     auto found = Textures().find(image.get());
@@ -67,6 +78,7 @@ ImTextureID SnapshotTexture(const std::shared_ptr<const SchematicSnapshot> &imag
     return found->second.view ? found->second.view->Id() : ImTextureID();
 }
 ImTextureID PixelTexture(unsigned long long key, int width, int height, const void *bgra, int pitch, bool alphaAsGray) {
+    CheckDevice();
     const bool device = MainRenderer().Started();
     if (!device || !bgra || width <= 0 || height <= 0 || width > 8192 || height > 8192) return ImTextureID();
     std::vector<unsigned char> rgba(static_cast<size_t>(width) * height * 4);
@@ -92,6 +104,7 @@ ImTextureID PixelTexture(unsigned long long key, int width, int height, const vo
 }
 
 ImTextureID CachedPixelTexture(unsigned long long key) {
+    CheckDevice();
     auto found = PixelTextures().find(key);
     return found != PixelTextures().end() && found->second.view ? found->second.view->Id() : ImTextureID();
 }

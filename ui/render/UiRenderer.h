@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <cstdint>
 #include "imgui.h"
 
 struct SDL_Window;
@@ -22,8 +23,10 @@ public:
     SDL_GPUTexture *NativeTexture() const { return m_Texture; }
 private:
     friend class UiRenderer;
-    UiTexture(SDL_GPUDevice *device, SDL_GPUTexture *texture, int width, int height)
-        : m_Device(device), m_Texture(texture), m_Width(width), m_Height(height) {}
+    UiTexture(UiRenderer &renderer, SDL_GPUDevice *device, SDL_GPUTexture *texture, int width, int height);
+    void Reset();
+    UiRenderer *m_Renderer;
+    UiTexture *m_Previous = nullptr, *m_Next = nullptr;
     SDL_GPUDevice *m_Device;
     SDL_GPUTexture *m_Texture;
     int m_Width;
@@ -58,12 +61,16 @@ public:
     bool RenderPage(ImDrawData *data, int width, int height, std::vector<unsigned char> &rgba);
     bool Started() const { return m_Device != nullptr; }
     SDL_GPUDevice *Device() const { return m_Device; }
+    uint64_t Generation() const { return m_Generation; }
 private:
+    friend class UiTexture;
     bool ReadTexture(const UiTexture &texture, std::vector<unsigned char> &rgba);
     bool Draw(ImDrawData *data, UiTexture &texture, bool present, const std::array<float, 4> &clear, std::string *error,
               SDL_GPUFence **completion = nullptr);
     std::unique_ptr<UiTexture> MakeTarget(int width, int height);
     SDL_GPUDevice *m_Device = nullptr;
+    UiTexture *m_Textures = nullptr;
+    uint64_t m_Generation = 0;
     SDL_Window *m_Window = nullptr; // borrowed, survives Stop
     std::unique_ptr<UiTexture> m_Frame;
     std::array<SDL_GPUFence *, 2> m_FrameFences{};
