@@ -1,0 +1,255 @@
+{
+  "description": "Phase-five application displays and duplicate-name file input on macOS arm64 / Metal. Performance acceptance remains deferred.",
+  "base_revision": "e703a2b6514ef119845370d15bd049e0ddd4b21a",
+  "changes": [
+    "Publish read-only duplicate rows and apply complete choices through the existing file input and response command.",
+    "Own duplicate-name drafts in the selected file view; retain them after a refused response and cancel the matching loader on stop.",
+    "Draw the status bar without native document access; publish Schematic selection data and refresh runtime object names.",
+    "Apply time settings and FPS display preferences through one runtime command with an optional display record.",
+    "Publish document title metadata and recent UTF-8 paths as read-only queries."
+  ],
+  "checks": {
+    "release_build": {
+      "passed": true,
+      "log": "out/phase-five-app-ui/build-final.log"
+    },
+    "complete_nonperformance_ctest": {
+      "report": "out/phase-five-app-ui/full.xml",
+      "sha256": "9fc197451b57c8f18275c88c1c97b12f7fef179afabc8b44b30ba86d4531f2b5",
+      "executed": 125,
+      "passed": 125,
+      "failures": []
+    },
+    "related_regressions": {
+      "report": "out/phase-five-app-ui/related-2.xml",
+      "sha256": "64e158369d7dad4a0a7d280e36659d63ff5390833c94104104999f56a5527b99",
+      "executed": 4,
+      "passed": 4,
+      "failures": []
+    },
+    "real_import_confirmation": {
+      "report": "out/phase-five-app-ui/real-import.xml",
+      "sha256": "ce5778a051ec18c72064077059bdc2b4b05d9df9867c2e189ec58616ee0a61cd",
+      "executed": 1,
+      "passed": 1,
+      "failures": []
+    },
+    "ui_groups": [
+      {
+        "group": "html",
+        "executed": 3,
+        "passed": 3,
+        "report": "out/phase-five-app-ui/ui-html.xml",
+        "sha256": "cff704f9f35a9e335ffc145a34297a71bcab24070e1a0f74cdcc4407a0ddb92f"
+      },
+      {
+        "group": "app",
+        "executed": 27,
+        "passed": 27,
+        "report": "out/phase-five-app-ui/ui-app.xml",
+        "sha256": "569fb26446cecbd306f6d18ffcb8186128e29b036f62175351a317e9d077d4f3"
+      },
+      {
+        "group": "filemenu",
+        "executed": 10,
+        "passed": 10,
+        "report": "out/phase-five-app-ui/ui-filemenu.xml",
+        "sha256": "f7df8efc7e56a32d5127e05ce8953aee27c43b865bcbdceb0f24db636a4154ca"
+      },
+      {
+        "group": "schematic",
+        "executed": 26,
+        "passed": 26,
+        "report": "out/phase-five-app-ui/ui-schematic.xml",
+        "sha256": "83cc264688e3acd1de4cfed1117d3183c95810dde29eeca6911139c6afb6890f"
+      },
+      {
+        "group": "debugger",
+        "executed": 10,
+        "passed": 10,
+        "report": "out/phase-five-app-ui/ui-debugger.xml",
+        "sha256": "89a4c60168195bb012522034e02a99818d24e9a07f867c76f9ddf5812bd88641"
+      },
+      {
+        "group": "layout",
+        "executed": 33,
+        "passed": 33,
+        "report": "out/phase-five-app-ui/ui-layout.xml",
+        "sha256": "d58631c3b5af31a0a7b9963bc846729e4d02121f5fe5daca6cba96cfbb05978e"
+      },
+      {
+        "group": "level",
+        "executed": 7,
+        "passed": 7,
+        "report": "out/phase-five-app-ui/ui-level.xml",
+        "sha256": "c6ca462b94b8ef1f677e09628feef67102b6d82da148192b4a3299848351afc0"
+      },
+      {
+        "group": "setup",
+        "executed": 21,
+        "passed": 21,
+        "report": "out/phase-five-app-ui/ui-setup.xml",
+        "sha256": "8d69ea255323b5e0886649ad54fcb9aa2a25561fac8dc72510e75c54e3967356"
+      },
+      {
+        "group": "propertyedits",
+        "executed": 7,
+        "passed": 7,
+        "report": "out/phase-five-app-ui/ui-propertyedits.xml",
+        "sha256": "dca7208bb698db3a55e12a3ed3cc944c4ea3f73404b06c8d23cc519d0e52be5e"
+      },
+      {
+        "group": "hierarchy",
+        "executed": 8,
+        "passed": 8,
+        "report": "out/phase-five-app-ui/ui-hierarchy.xml",
+        "sha256": "045a523df0bc151d2ea7180c207cddefcb1cb01e657d0c88bdc244c44112ba30"
+      },
+      {
+        "group": "blocks",
+        "executed": 7,
+        "passed": 7,
+        "report": "out/phase-five-app-ui/ui-blocks.xml",
+        "sha256": "66bad89e15edd774c7771ce2fb28fce9be057b058689cd979ff7c8b37af4da97"
+      },
+      {
+        "group": "attributes",
+        "executed": 6,
+        "passed": 6,
+        "report": "out/phase-five-app-ui/ui-attributes.xml",
+        "sha256": "d939923f8aa7265521b3b020975e1195e37aa525da761e3d1bef752404b3ae63"
+      },
+      {
+        "group": "create",
+        "executed": 6,
+        "passed": 6,
+        "report": "out/phase-five-app-ui/ui-create.xml",
+        "sha256": "a10b7e2736a8b6820ed047d4cba3fe9656398037cba5a2da100acfa2ce54e548"
+      },
+      {
+        "group": "tools",
+        "executed": 13,
+        "passed": 13,
+        "report": "out/phase-five-app-ui/ui-tools.xml",
+        "sha256": "6a0c4e9a79117304a62a7b60c11a5810752bbd921c6a99857dfdbd793b35a57a"
+      },
+      {
+        "group": "sound",
+        "executed": 2,
+        "passed": 2,
+        "report": "out/phase-five-app-ui/ui-sound.xml",
+        "sha256": "26106923899b94c379f25472f376a7592da96f4da621a47125ff83ac3935fc1e"
+      },
+      {
+        "group": "character",
+        "executed": 2,
+        "passed": 2,
+        "report": "out/phase-five-app-ui/ui-character.xml",
+        "sha256": "6d1d5456049d7e93c9fdf4fa61ec7c214e71981e61d4446d4b73b3d8cd827c2b"
+      },
+      {
+        "group": "modules",
+        "executed": 71,
+        "passed": 71,
+        "report": "out/phase-five-app-ui/ui-modules.xml",
+        "sha256": "415c3fc3a8adee53fd00496720486cf954d03f4e1a0a1f43e76c71d733b12f30"
+      }
+    ],
+    "native_print_regressions": {
+      "passed": [
+        "VirtoolsDevUi.printCancel",
+        "VirtoolsDevUi.printPages"
+      ]
+    },
+    "architecture_tests": {
+      "total": 46,
+      "passed": 46,
+      "log": "out/phase-five-app-ui/architecture-tests.log"
+    },
+    "sdk_free_drawing": {
+      "target": "NeMoDevApplicationDrawingHeaders",
+      "implementations": 2,
+      "commands": "out/phase-five-app-ui/sdk-free-drawing.json"
+    },
+    "sdk": {
+      "repositories_unchanged": 16,
+      "runtime_files_unchanged": 22,
+      "before": "out/phase-five-app-ui/sdk-before.json",
+      "after": "out/phase-five-app-ui/sdk-after.json",
+      "runtime_before": "out/phase-five-app-ui/runtime-before.json",
+      "runtime_after": "out/phase-five-app-ui/runtime-after.json"
+    },
+    "gpu": {
+      "protected_source_files_unchanged": 7,
+      "before": "out/phase-five-app-ui/gpu-before.json",
+      "after": "out/phase-five-app-ui/gpu-after.json"
+    },
+    "source_sha256": {
+      "application/DocumentCommands.cpp": "5f26917814ea08c4b68070f5c19f8aa1503896e28f7c21d64729b90b9c6445c1",
+      "application/DocumentCommands.h": "2c23f13f197d21e85a790d0440b9157906e8dcbc6f88d764cfd5e859808286a5",
+      "application/DocumentFiles.cpp": "deaf466eb57ea8aa3a09acc60ccf914a2e446d2b469e1cf5e4b2a2fcc2d4160b",
+      "application/DocumentFiles.h": "4b39b24b0238e6939c81c08440a1f6b2d75558e009361686da24eaa983311764",
+      "application/ExecutionCommands.cpp": "fbb4adfa863a2c5566d15200429b0f852ba5e0ea0820ab024235e5092afaa518",
+      "application/ExecutionCommands.h": "86f3ef2f916dab99c27cf8e20abdc3ac9a02c875b2285cdabaae7bad1b23bab7",
+      "editor/Editor.h": "ed96db7854276509c27fd4cde066e56f0a907860f027fa28099834caed821d1e",
+      "features/defaults/DefaultWorkspace.cpp": "f7d3557d65d2a7c32e9785923b836561b0dc2331f6db569189acbc9068205eea",
+      "features/objects/ObjectCommands.cpp": "fbb0e2491b2851ada90d3a475b4a2824f153a9a3bad2bd49f45147fb3b78ad1e",
+      "features/preferences/PreferencesCommands.cpp": "b96efed886e6e00362c1e9a512654316b0750da2038098abc7554ddd51a87e59",
+      "tests/ArchitectureTests.py": "0a4caee0a15b25d41341a913042bf67d444b44cb4c9abd55fa4c46f20237ff00",
+      "tests/CMakeLists.txt": "422aed772872172aa854f8c8475ac6082301eb22ffdd3ffc1a3ca3e2640077d0",
+      "tests/CheckArchitecture.py": "4889ebcb8f60a55d149d6399695193b86e894b3bcc87fb4808a41c26a14b1177",
+      "tests/DocumentCommandTests.cpp": "3eab68f10073e5a24a3671ff75b4f8055caad0682000bc0a313393e43640ca70",
+      "tests/DocumentTransitionTests.cpp": "5958ea9608597491e17998a59b9f9748d28b0e94025d1d90cb7cfd7841c03d55",
+      "tests/ExecutionCommandTests.cpp": "b0e40b77051a737192bed865fa56860d31b717565f0741fb9ba50290b43a1fea",
+      "tests/ObjectCommandTests.cpp": "184fad891979d90a3d542d6623e0a93835c03cc137a30c59a45db07d4b0e2a2c",
+      "tests/PreferencesCommandTests.cpp": "f0d4956b704c9c65e6f5d92165bac0dbd28ab7cd89b3a7df0708281da76ac1f5",
+      "tests/ResourceCommandTests.cpp": "6f0c401a9bf736627b938ecacd6f9f5f682e47131aa6d755a6d1dcf56d0313dd",
+      "tests/RuntimeProjectionTests.cpp": "d31d61044d7515d920eca1e0a49cf0f7a3aa1f7ec455913dbd7be7bdcb5add9a",
+      "tests/architecture/README.md": "8cb10225811c4d7e8d754ae435fc2ea88d429dde4edc38a3bd79cb02f11fc144",
+      "tests/architecture/coverage.json": "e1d9a46f59895b6c68d6e97b51e029438a4d0c97c8fcf967c83f2d6b5e90dc28",
+      "tests/modules/ObjectModule.cpp": "85ca20e4a012dcc928f9f442a4ef0d598cae7e0dacb1a4faf6ed97f682ba7696",
+      "tests/ui/AppTests.cpp": "190d7a67c09a71c33a9637e8b25e388bef2630f54efffbb9a07bcbe745ea7246",
+      "tests/ui/ModuleTests.cpp": "83f2f01cb6d5834e0c8cfe3a3911793bad3d3b14195d4a90a3da4dbc68c3547f",
+      "tests/ui/SchematicTests.cpp": "7cbc8aff24eb46f181e98ecf1cea2ff15b58de77bb0d94af553cd0beab914163",
+      "ui/app/DuplicateNames.cpp": "d0fa963a8f0bae1344b90da7c904333a65ffa1811231f358f31aa0d52511c8f7",
+      "ui/app/DuplicateNames.h": "1f37cbb7e2a4cdc3223278a0617c5d8816a66b062799eb453198258f0d8d8305",
+      "ui/app/EditorApp.cpp": "1cc259d9a8cb8cb4cedda89515c7b56326b6f25b144ee6f1012d3ac768095d56",
+      "ui/app/EditorApp.h": "5fa55b06a7be89562bcdf9676af54ac36464da58683a2139399198925e1fbf9f",
+      "ui/app/FileInputs.cpp": "95c282c817ad225a0ee9c09eeca7f354686fb7777336a4f16db3ffe1b4e94342",
+      "ui/app/StatusBar.cpp": "8bbc351606006e025eefcb6123f206c90a063a2faf5177607550c614df20ae4d",
+      "ui/app/StatusBar.h": "af7a0b678364f8efbc3905cf9bd724dae42df3c10f47652e0f24b455baf8a6b6",
+      "ui/schematic/SchematicCanvas.cpp": "1fbd4e3093becfca3398086f9a89960d5c7995fe399163a57479505e651ef135",
+      "ui/schematic/SchematicCanvas.h": "c060b599e7ee65ad54644271565b8819f4534015f3b924427788513eb8adaf12"
+    }
+  },
+  "coverage": {
+    "completed_phase": 3,
+    "previous_ui_dependencies": 41,
+    "remaining_ui_dependencies": 39,
+    "states": 49,
+    "remaining_gaps": 17
+  },
+  "diagnostics": {
+    "omitted_page_offset_failure": {
+      "junit": "out/phase-five-app-ui/editor-first.xml",
+      "log": "out/phase-five-app-ui/editor-first.log",
+      "crash": "out/phase-five-app-ui/editor-crash.ips",
+      "cause": "The new paged duplicate query dereferenced an absent optional first argument; it now defaults to zero."
+    },
+    "fixed_native_regressions": {
+      "report": "out/phase-five-app-ui/editor-2.xml",
+      "sha256": "941c7905758b30197e0a219aee6e5619f92d9e8773af31dc739cd890f54e95be",
+      "executed": 1,
+      "passed": 1,
+      "failures": []
+    },
+    "initial_ui_fixture_failures": "out/phase-five-app-ui/app-2.log",
+    "initial_provider_selection_failure": "out/phase-five-app-ui/related-first.log",
+    "real_import_sequence": "The actual import confirmation succeeded with the existing task admission rules; no speculative popup/admission change was made."
+  },
+  "remaining": [
+    "Other phase-five UI dependencies and coverage gaps remain listed in coverage.json.",
+    "The native desktop Player group was not rerun; its previously recorded failures remain open.",
+    "Performance acceptance remains deferred; no thresholds changed."
+  ]
+}

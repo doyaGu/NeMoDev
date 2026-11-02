@@ -1924,3 +1924,17 @@ macOS arm64 Release 构建成功，完整 **125/125** 非性能 CTest 通过且�
 macOS arm64 Release 构建成功，全部 **125/125** 非性能 CTest 通过，无失败或跳过；17 份 UI 报告执行 **256** 项，另有两项原生打印回归通过。架构检查测试 **44/44**。SDK 的 16 个仓库、22 项运行文件，以及 6 份 GPU 传输源码和完整 LayoutWindow 保持不变。组合检查验证视口没有额外 readback、upload 或 GPU 目标创建；原有 GPU 快通道、fallback 和 `.NMO` 直接打开回归通过。详情见 [资源长路径验证记录](baselines/resource-paths-macos-arm64-metal.json)。
 
 F23 的资源长路径待办已移除，其他阶段五待办保持原样，`completed_phase` 仍为三。本轮未重新运行上述原生 Player 桌面组，其已有失败记录继续保留。性能验收继续暂缓，原门槛不变。
+
+### 阶段五：应用状态与重复名称输入
+
+重复名称对话框接入现有 `document.file-dialogs` 工作区视图。`DocumentFiles` 保留查重结果和继续加载函数，公开读取返回 const；`DocumentCommands` 发布 `document.input` 和分页的 `document.duplicate-rows`，完成分类和名称转换。界面实例拥有树、行选区和选择草稿，删除进程全局树；确认通过原有 `document.respond` 一次提交完整动作列表。非法动作、缺项、旧请求和旧来源视图不能继续加载。命令拒绝后保留草稿并允许重试；取消、错误或停止时结束对应加载，旧提示不会重新出现。内置与替代文件视图处理相同输入，原生 Ignore/Rename/Use Current 行为不变。
+
+状态栏绘制移入 `EditorStatusBar`，不再依赖 EditorState、可变文档或 SDK 头。Schematic 实例发布选中项数量、完整目标引用和动作文字；对象名称沿用 `object.details`，补充无名称标记并按读取刷新，保留运行时改名和无名称对象的显示行为。Layout 继续提供已有只读呈现数据。时间设置拥有自己的草稿与 FPS 显示预览，取消不写配置；确认通过 `runtime.set-time` 同时应用运行时间与 `display.hide-fps`。省略 `display` 的原有调用保留显示偏好。ExecutionCommands 直接使用共享 Preferences，移除原来的两个设置回调。
+
+标题和菜单读取 `document.info` 的已发布身份、路径、Dirty、Level 和 Scene 信息；后台任务占用 Context 时查询只读副本。元数据内容变化后才更新版本，稳定帧不重建字段列表。最近文件菜单改读 `preferences.recent-files` 的路径副本，使用 UTF-8 显示及绝对路径转换。Editor C 接口仍为二十，仅追加重复名称输入种类，不改变布局或引入 STL。
+
+回归覆盖超过一页的重复名、默认分页位置、完整动作校验、后台读取、排队参数复制、取消、请求过期、加载回调异常、真实文件操作的取消/错误/停止，以及替代文件视图和替代答复命令。真实 UI 检查根节点和单行选择、取消、拒绝后重试及确认后的原生导入。另有时间设置草稿、非法输入、FPS 显示偏好、UTF-8 最近文件菜单和双 Schematic 的状态投影检查。新增分页查询在省略 `first` 时的空指针问题已修复；实际导入验证正常，没有更改既有后台任务准入规则。
+
+macOS arm64 Release 构建成功，全部 **125/125** 非性能 CTest 通过，无失败或跳过；17 份 UI 报告执行 **259** 项，另有两项原生打印回归通过。架构检查测试 **46/46**；状态栏和重复名称绘制的真实实现另以没有 SDK 头路径的目标编译通过。SDK 的 16 个仓库、22 项运行文件和 7 份 GPU/视口保护源码均未改变；GPU 快通道、fallback 和生成 `.NMO` 的直接打开回归通过。详情见 [应用界面验证记录](baselines/application-ui-macos-arm64-metal.json)。
+
+旧 UI 依赖从 41 处降为 39 处；其余条目和 17 项待办保留，状态归属更新为 49 项，`completed_phase` 仍为三。原生 Player 桌面组本轮未重跑，既有失败记录继续保留。性能验收继续暂缓，原门槛不变。
