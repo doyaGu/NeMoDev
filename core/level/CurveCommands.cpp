@@ -46,6 +46,90 @@ bool SetPoints(Document &doc, CK_ID curveId, const std::vector<CK_ID> &points) {
 
 } // namespace
 
+namespace {
+class AddCurvePointAction final : public Action {
+public:
+    AddCurvePointAction(Document &document, CK_ID levelId, CK_ID id, CK_ID parentId, const VxVector &position,
+                        CK_ID curveId, const std::vector<CK_ID> &afterPoints, const std::vector<CK_ID> &before)
+        : m_Document(document.Token()), m_Level(document.Reference(levelId)), m_Object(document.Reference(id)),
+          m_Parent(document.Reference(parentId)), m_Position(position), m_Curve(document.Reference(curveId)),
+          m_AfterPoints(RecordObjects(document, afterPoints)), m_Before(RecordObjects(document, before)) {}
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        const auto parentId = doc.NativeId(m_Parent, Document::ObjectScope::Existing);
+        if (m_Parent != ObjectRef{} && !parentId)
+            return false;
+        const auto &position = m_Position;
+        const auto curveId = doc.NativeId(m_Curve, Document::ObjectScope::Existing);
+        if (m_Curve != ObjectRef{} && !curveId)
+            return false;
+        std::vector<CK_ID> afterPoints;
+        if (!ResolveObjects(doc, m_AfterPoints, afterPoints))
+            return false;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        CKCurvePoint *created = Get<CKCurvePoint>(doc, id);
+        if (!owner || !created)
+            return false;
+        owner->AddObject(created);
+        created->SetParent(Get<CK3dEntity>(doc, parentId), FALSE);
+        VxVector at = position;
+        created->SetPosition(&at);
+        return SetPoints(doc, curveId, afterPoints);
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        const auto curveId = doc.NativeId(m_Curve, Document::ObjectScope::Existing);
+        if (m_Curve != ObjectRef{} && !curveId)
+            return false;
+        std::vector<CK_ID> before;
+        if (!ResolveObjects(doc, m_Before, before))
+            return false;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        CKCurvePoint *created = Get<CKCurvePoint>(doc, id);
+        if (!SetPoints(doc, curveId, before))
+            return false;
+        if (created) {
+            created->SetParent(nullptr, TRUE);
+            if (owner)
+                owner->RemoveObject(created);
+        }
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Level);
+        KeepObjects(document, objects, m_Object);
+        KeepObjects(document, objects, m_Parent);
+        KeepObjects(document, objects, m_Curve);
+        KeepObjects(document, objects, m_AfterPoints);
+        KeepObjects(document, objects, m_Before);
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_Level{};
+    ObjectRef m_Object{};
+    ObjectRef m_Parent{};
+    VxVector m_Position;
+    ObjectRef m_Curve{};
+    std::vector<ObjectRef> m_AfterPoints;
+    std::vector<ObjectRef> m_Before;
+};
+} // namespace
+
 EditResult AddCurvePoint(Document &document, CK_ID curveId, int after) {
     CKContext *context = document.Context();
     CKCurve *curve = Get<CKCurve>(document, curveId);
@@ -85,28 +169,90 @@ EditResult AddCurvePoint(Document &document, CK_ID curveId, int after) {
     afterPoints.insert(afterPoints.begin() + (after + 1), id);
     return Apply(
         document, after + 1 < count ? "Insert Point" : "Add Point",
-        [=](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKCurvePoint *created = Get<CKCurvePoint>(doc, id);
-            if (!owner || !created) return false;
-            owner->AddObject(created);
-            created->SetParent(Get<CK3dEntity>(doc, parentId), FALSE);
-            VxVector at = position;
-            created->SetPosition(&at);
-            return SetPoints(doc, curveId, afterPoints);
-        },
-        [=](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKCurvePoint *created = Get<CKCurvePoint>(doc, id);
-            if (!SetPoints(doc, curveId, before)) return false;
-            if (created) {
-                created->SetParent(nullptr, TRUE);
-                if (owner) owner->RemoveObject(created);
-            }
-            return true;
-        },
+        std::make_unique<AddCurvePointAction>(document, levelId, id, parentId, position, curveId, afterPoints, before),
         {id}, id);
 }
+
+namespace {
+class RemoveCurvePointAction final : public Action {
+public:
+    RemoveCurvePointAction(Document &document, CK_ID curveId, const std::vector<CK_ID> &afterPoints, CK_ID id,
+                           CK_ID levelId, const bool &inLevel, CK_ID parentId, const std::vector<CK_ID> &before)
+        : m_Document(document.Token()), m_Curve(document.Reference(curveId)),
+          m_AfterPoints(RecordObjects(document, afterPoints)), m_Object(document.Reference(id)),
+          m_Level(document.Reference(levelId)), m_InLevel(inLevel), m_Parent(document.Reference(parentId)),
+          m_Before(RecordObjects(document, before)) {}
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto curveId = doc.NativeId(m_Curve, Document::ObjectScope::Existing);
+        if (m_Curve != ObjectRef{} && !curveId)
+            return false;
+        std::vector<CK_ID> afterPoints;
+        if (!ResolveObjects(doc, m_AfterPoints, afterPoints))
+            return false;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        if (!SetPoints(doc, curveId, afterPoints))
+            return false;
+        if (CKCurvePoint *removed = Get<CKCurvePoint>(doc, id)) {
+            removed->SetParent(nullptr, TRUE);
+            if (CKLevel *owner = Get<CKLevel>(doc, levelId))
+                owner->RemoveObject(removed);
+        }
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto curveId = doc.NativeId(m_Curve, Document::ObjectScope::Existing);
+        if (m_Curve != ObjectRef{} && !curveId)
+            return false;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        const auto &inLevel = m_InLevel;
+        const auto parentId = doc.NativeId(m_Parent, Document::ObjectScope::Existing);
+        if (m_Parent != ObjectRef{} && !parentId)
+            return false;
+        std::vector<CK_ID> before;
+        if (!ResolveObjects(doc, m_Before, before))
+            return false;
+        if (CKCurvePoint *removed = Get<CKCurvePoint>(doc, id)) {
+            if (inLevel)
+                if (CKLevel *owner = Get<CKLevel>(doc, levelId))
+                    owner->AddObject(removed);
+            removed->SetParent(parentId ? Get<CK3dEntity>(doc, parentId) : nullptr, TRUE);
+        }
+        return SetPoints(doc, curveId, before);
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Curve);
+        KeepObjects(document, objects, m_AfterPoints);
+        KeepObjects(document, objects, m_Object);
+        KeepObjects(document, objects, m_Level);
+        KeepObjects(document, objects, m_Parent);
+        KeepObjects(document, objects, m_Before);
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_Curve{};
+    std::vector<ObjectRef> m_AfterPoints;
+    ObjectRef m_Object{};
+    ObjectRef m_Level{};
+    bool m_InLevel;
+    ObjectRef m_Parent{};
+    std::vector<ObjectRef> m_Before;
+};
+} // namespace
 
 EditResult RemoveCurvePoint(Document &document, CK_ID curveId, int index) {
     CKCurve *curve = Get<CKCurve>(document, curveId);
@@ -121,25 +267,10 @@ EditResult RemoveCurvePoint(Document &document, CK_ID curveId, int index) {
     const bool inLevel = level && level->GetLevelScene() && level->GetLevelScene()->IsObjectHere(point);
     std::vector<CK_ID> afterPoints = before;
     afterPoints.erase(afterPoints.begin() + index);
-    return Apply(
-        document, "Delete Point",
-        [=](Document &doc) {
-            if (!SetPoints(doc, curveId, afterPoints)) return false;
-            if (CKCurvePoint *removed = Get<CKCurvePoint>(doc, id)) {
-                removed->SetParent(nullptr, TRUE);
-                if (CKLevel *owner = Get<CKLevel>(doc, levelId)) owner->RemoveObject(removed);
-            }
-            return true;
-        },
-        [=](Document &doc) {
-            if (CKCurvePoint *removed = Get<CKCurvePoint>(doc, id)) {
-                if (inLevel)
-                    if (CKLevel *owner = Get<CKLevel>(doc, levelId)) owner->AddObject(removed);
-                removed->SetParent(parentId ? Get<CK3dEntity>(doc, parentId) : nullptr, TRUE);
-            }
-            return SetPoints(doc, curveId, before);
-        },
-        {}, 0, {id});
+    return Apply(document, "Delete Point",
+                 std::make_unique<RemoveCurvePointAction>(document, curveId, afterPoints, id, levelId, inLevel,
+                                                          parentId, before),
+                 {}, 0, {id});
 }
 
 namespace {
@@ -184,6 +315,138 @@ void Place(Document &document, const Poses &poses) {
         if (CK3dEntity *entity = Get<CK3dEntity>(document, pose.first)) entity->SetWorldMatrix(pose.second);
 }
 
+namespace {
+class CurveToolAction final : public Action {
+public:
+    CurveToolAction(Document &document, CK_ID levelId, CK_ID created, const std::vector<CK_ID> &points,
+                    const std::vector<std::pair<CK_ID, VxMatrix>> &posesAfter, CK_ID removed, CK_ID curveId,
+                    const bool &removedInLevel, CK_ID removedParent, const std::vector<CK_ID> &before,
+                    const std::vector<std::pair<CK_ID, VxMatrix>> &posesBefore)
+        : m_Document(document.Token()), m_Level(document.Reference(levelId)), m_Created(document.Reference(created)),
+          m_Points(RecordObjects(document, points)), m_Removed(document.Reference(removed)),
+          m_Curve(document.Reference(curveId)), m_RemovedInLevel(removedInLevel),
+          m_RemovedParent(document.Reference(removedParent)), m_Before(RecordObjects(document, before)) {
+        for (const auto &entry : posesAfter)
+            m_PosesAfter.emplace_back(document.Reference(entry.first), entry.second);
+        for (const auto &entry : posesBefore)
+            m_PosesBefore.emplace_back(document.Reference(entry.first), entry.second);
+    }
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        const auto created = doc.NativeId(m_Created, Document::ObjectScope::Existing);
+        if (m_Created != ObjectRef{} && !created)
+            return false;
+        std::vector<CK_ID> points;
+        if (!ResolveObjects(doc, m_Points, points))
+            return false;
+        std::vector<std::pair<CK_ID, VxMatrix>> posesAfter;
+        for (const auto &entry : m_PosesAfter) {
+            const auto id = doc.NativeId(entry.first, Document::ObjectScope::Existing);
+            if (entry.first != ObjectRef{} && !id)
+                return false;
+            posesAfter.emplace_back(id, entry.second);
+        }
+        const auto removed = doc.NativeId(m_Removed, Document::ObjectScope::Existing);
+        if (m_Removed != ObjectRef{} && !removed)
+            return false;
+        const auto curveId = doc.NativeId(m_Curve, Document::ObjectScope::Existing);
+        if (m_Curve != ObjectRef{} && !curveId)
+            return false;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        if (!owner || !owner->GetLevelScene())
+            return false;
+        if (CKCurvePoint *point = Get<CKCurvePoint>(doc, created))
+            if (!owner->GetLevelScene()->IsObjectHere(point))
+                owner->AddObject(point);
+        if (!SetPoints(doc, curveId, points))
+            return false;
+        Place(doc, posesAfter);
+        if (CKCurvePoint *point = Get<CKCurvePoint>(doc, removed)) {
+            point->SetParent(nullptr, TRUE);
+            owner->RemoveObject(point);
+        }
+        if (CKCurve *edited = Get<CKCurve>(doc, curveId))
+            edited->Update();
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        const auto created = doc.NativeId(m_Created, Document::ObjectScope::Existing);
+        if (m_Created != ObjectRef{} && !created)
+            return false;
+        const auto removed = doc.NativeId(m_Removed, Document::ObjectScope::Existing);
+        if (m_Removed != ObjectRef{} && !removed)
+            return false;
+        const auto curveId = doc.NativeId(m_Curve, Document::ObjectScope::Existing);
+        if (m_Curve != ObjectRef{} && !curveId)
+            return false;
+        const auto &removedInLevel = m_RemovedInLevel;
+        const auto removedParent = doc.NativeId(m_RemovedParent, Document::ObjectScope::Existing);
+        if (m_RemovedParent != ObjectRef{} && !removedParent)
+            return false;
+        std::vector<CK_ID> before;
+        if (!ResolveObjects(doc, m_Before, before))
+            return false;
+        std::vector<std::pair<CK_ID, VxMatrix>> posesBefore;
+        for (const auto &entry : m_PosesBefore) {
+            const auto id = doc.NativeId(entry.first, Document::ObjectScope::Existing);
+            if (entry.first != ObjectRef{} && !id)
+                return false;
+            posesBefore.emplace_back(id, entry.second);
+        }
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        if (CKCurvePoint *point = Get<CKCurvePoint>(doc, removed)) {
+            if (removedInLevel && owner)
+                owner->AddObject(point);
+            point->SetParent(removedParent ? Get<CK3dEntity>(doc, removedParent) : nullptr, TRUE);
+        }
+        if (!SetPoints(doc, curveId, before))
+            return false;
+        Place(doc, posesBefore);
+        if (CKCurvePoint *point = Get<CKCurvePoint>(doc, created))
+            if (owner)
+                owner->RemoveObject(point);
+        if (CKCurve *edited = Get<CKCurve>(doc, curveId))
+            edited->Update();
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Level);
+        KeepObjects(document, objects, m_Created);
+        KeepObjects(document, objects, m_Points);
+        for (const auto &entry : m_PosesAfter)
+            KeepObjects(document, objects, entry.first);
+        KeepObjects(document, objects, m_Removed);
+        KeepObjects(document, objects, m_Curve);
+        KeepObjects(document, objects, m_RemovedParent);
+        KeepObjects(document, objects, m_Before);
+        for (const auto &entry : m_PosesBefore)
+            KeepObjects(document, objects, entry.first);
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_Level{};
+    ObjectRef m_Created{};
+    std::vector<ObjectRef> m_Points;
+    std::vector<std::pair<ObjectRef, VxMatrix>> m_PosesAfter;
+    ObjectRef m_Removed{};
+    ObjectRef m_Curve{};
+    bool m_RemovedInLevel;
+    ObjectRef m_RemovedParent{};
+    std::vector<ObjectRef> m_Before;
+    std::vector<std::pair<ObjectRef, VxMatrix>> m_PosesBefore;
+};
+} // namespace
+
 EditResult CurveTool(Document &document, CK_ID curveId, const std::vector<CK_ID> &points,
                      CK_ID created, CK_ID removed, const std::string &label) {
     CKContext *context = document.Context();
@@ -218,36 +481,10 @@ EditResult CurveTool(Document &document, CK_ID curveId, const std::vector<CK_ID>
     std::set<CK_ID> made, buried;
     if (created) made.insert(created);
     if (gone) buried.insert(removed);
-    return Apply(
-        document, label,
-        [=](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            if (!owner || !owner->GetLevelScene()) return false;
-            if (CKCurvePoint *point = Get<CKCurvePoint>(doc, created))
-                if (!owner->GetLevelScene()->IsObjectHere(point)) owner->AddObject(point);
-            if (!SetPoints(doc, curveId, points)) return false;
-            Place(doc, posesAfter);
-            if (CKCurvePoint *point = Get<CKCurvePoint>(doc, removed)) {
-                point->SetParent(nullptr, TRUE);
-                owner->RemoveObject(point);
-            }
-            if (CKCurve *edited = Get<CKCurve>(doc, curveId)) edited->Update();
-            return true;
-        },
-        [=](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            if (CKCurvePoint *point = Get<CKCurvePoint>(doc, removed)) {
-                if (removedInLevel && owner) owner->AddObject(point);
-                point->SetParent(removedParent ? Get<CK3dEntity>(doc, removedParent) : nullptr, TRUE);
-            }
-            if (!SetPoints(doc, curveId, before)) return false;
-            Place(doc, posesBefore);
-            if (CKCurvePoint *point = Get<CKCurvePoint>(doc, created))
-                if (owner) owner->RemoveObject(point);
-            if (CKCurve *edited = Get<CKCurve>(doc, curveId)) edited->Update();
-            return true;
-        },
-        made, created, buried);
+    return Apply(document, label,
+                 std::make_unique<CurveToolAction>(document, levelId, created, points, posesAfter, removed, curveId,
+                                                   removedInLevel, removedParent, before, posesBefore),
+                 made, created, buried);
 }
 
 } // namespace
