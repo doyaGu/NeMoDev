@@ -148,11 +148,9 @@ int main(int argc, char **argv) {
 #endif
                         )) {
         exitCode = 1;
-#ifdef VIRTOOLSDEV_UI_TESTS
-        for (const auto &entry : app.State().eventLog.Entries())
-            if (entry.level == vdev::LogLevel::Error)
-                std::fprintf(stderr, "%s\n", entry.text.c_str());
-#endif
+        const auto &error = app.InitializationError();
+        std::fprintf(stderr, "%s\n", error.c_str());
+        if (!headless) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NeMoDev", error.c_str(), window);
     }
 #ifdef VIRTOOLSDEV_UI_TESTS
     std::unique_ptr<vdev::UiTestRun> tests;

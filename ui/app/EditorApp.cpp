@@ -89,6 +89,12 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
 #endif
                            ) {
     m_Window = window;
+    m_InitializationError.clear();
+    const auto fail = [this](const std::string &message) {
+        m_InitializationError = message;
+        m_Session.Log(LogLevel::Error, message);
+        return false;
+    };
 #ifdef VIRTOOLSDEV_UI_TESTS
     m_Startup = startup;
     const bool isolated = startup.isolated;
@@ -123,10 +129,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     const bool started = m_Session.host.Start(runtimeDirectory, [this](LogLevel level, const std::string &message) {
         m_Session.RuntimeLog(level, message);
     }, &error, window);
-    if (!started) {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "NeMoDev", ("Cannot start the Virtools runtime:\n" + error).c_str(), window);
-        return false;
-    }
+    if (!started) return fail("Cannot start the Virtools runtime:\n" + error);
     m_Catalog.Refresh();
     m_Environment.ConfigureLinks([this] {
         const auto &p = m_Settings;
@@ -148,8 +151,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     for (const auto &directory : moduleDirectories) directories.push_back({directory, true});
     std::vector<EditorModuleSource> external;
     if (!DiscoverEditorModules(directories, modules, external, error)) {
-        m_Session.Log(LogLevel::Error, error);
-        return false;
+        return fail(error);
     }
     std::vector<EditorModuleSource> sources{
         {"RegisterBuildingBlockQueries", [&](EditorApplication &editor, std::string &error) { return RegisterBuildingBlockQueries(editor, m_Catalog, error); }},
@@ -204,14 +206,12 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     sources.insert(sources.end(), std::make_move_iterator(external.begin()), std::make_move_iterator(external.end()));
     auto configuration = DefaultWorkspaceConfiguration();
     if (!m_Editor.Assemble(sources, EDITOR_IMGUI_VERSION, error, configuration.contributions)) {
-        m_Session.Log(LogLevel::Error, error);
-        return false;
+        return fail(error);
     }
     m_Session.document = std::make_unique<Document>(m_Session.host);
     m_Editor.Attach({}, 0, true, false);
     if (!m_Workspace.Configure(configuration, error)) {
-        m_Session.Log(LogLevel::Error, error);
-        return false;
+        return fail(error);
     }
     OpenSceneView("level");
     m_Debugger = m_Execution.Bind(*m_Session.document);

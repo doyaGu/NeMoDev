@@ -91,6 +91,7 @@ public:
     std::string SceneWindow(const std::string &type) const;
     std::string BuildingBlocksWindow() const { return m_Workspace.WindowName(m_Workspace.Role("main.building-blocks")); }
     bool ShouldQuit() const { return m_Quit; }
+    const std::string &InitializationError() const { return m_InitializationError; }
     void ReportFailure(const std::string &message) { m_Session.Log(LogLevel::Error, message); }
     // The 3D Layout is fullscreen: the editor's window, hidden, keeps its frames going.
     bool LayoutFullScreen() const { return m_Layout.FullScreen(); }
@@ -123,6 +124,7 @@ public:
 #endif
 
 private:
+    std::string m_InitializationError;
     void MainMenu();
     // Refresh stacks and finish view navigation after document edits settle.
     void RefreshSchematicViews();
