@@ -242,7 +242,8 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
               client.Command("resource.open-library", {TextArgument("path", library)}).status == EDITOR_REFUSED,
           "stopped resource owner served cached data or accepted new work");
 
-    const std::vector<ResourceFile> files{{std::string(3000, 'x') + ".nms", 8}, {"Second.nms", 8}};
+    const std::vector<ResourceFile> files{{std::string(3000, 'x') + "/路径 含空格/First.nms", 8},
+                                         {std::string(3000, 'y') + "/Second image.bmp", 31}};
     const auto bytes = WriteResourceDrag(1, files);
     uint32_t source = 9;
     std::vector<ResourceFile> decoded{{"Keep", 0}};
@@ -255,4 +256,16 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     Check(!ReadResourceDrag(nullptr, bytes.size(), source, decoded) && WriteResourceDrag(2, files).empty() &&
               WriteResourceDrag(0, {}).empty(),
           "invalid resource drag accepted");
+    std::vector<unsigned char> unaligned(bytes.size() + 1);
+    std::memcpy(unaligned.data() + 1, bytes.data(), bytes.size());
+    Check(ReadResourceDrag(unaligned.data() + 1, bytes.size(), source, decoded) && source == 1 &&
+              decoded[1].path == files[1].path && decoded[1].cid == files[1].cid,
+          "long resource paths required aligned drag storage or lost the grabbed row");
+    const auto limit = size_t(1048576) - sizeof(EditorResourceDragHeader) - sizeof(EditorResourceFileHeader);
+    const auto largest = WriteResourceDrag(0, {{std::string(limit, 'z'), 31}});
+    Check(largest.size() == 1048576 && ReadResourceDrag(largest.data(), largest.size(), source, decoded) &&
+              source == 0 && decoded.size() == 1 && decoded.front().path.size() == limit,
+          "resource drag rejected its documented size limit");
+    Check(WriteResourceDrag(0, {{std::string(limit + 1, 'z'), 31}}).empty(),
+          "oversized resource drag was not rejected");
 }

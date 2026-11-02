@@ -9,8 +9,8 @@
 #include "core/level/LevelCommands.h"
 #include "features/objects/ObjectCommands.h"
 #include "editor/ImGuiDrawing.h"
+#include "tests/ResourceFiles.h"
 
-#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -168,8 +168,7 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
         return editor.Execute(external ? "example.load-resources" : drop ? "resource.drop" : "resource.load",
                               {editor.Scope(), args, 3});
     };
-    const auto root = fs::temp_directory_path() /
-        ("resource-command-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    const auto root = vdevtest::ResourceTestRoot("resource-command-");
     Check(fs::create_directory(root), "cannot create resource test folder");
     struct Cleanup { fs::path path; ~Cleanup() { std::error_code ec; fs::remove_all(path, ec); } } cleanup{root};
     const auto first = CreateLayoutObject(document, LayoutObject::Frame3D);
@@ -180,7 +179,8 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     Check(script.ok, "cannot create export script");
     const auto graph = CreateBehaviorGraph(document, script.created, script.created, "Resource Graph", Point(100, 100));
     Check(graph.ok, "cannot create export graph");
-    const auto nms = (root / "scripts.nms").u8string();
+    const auto longFolder = vdevtest::LongResourceDirectory(root);
+    const auto nms = (longFolder / "scripts.nms").u8string();
     Check(SaveBehaviorsAsNms(document, {script.created}, nms, &error), error.c_str());
     ObjectSelection selection;
     selection.Restore(document, {first.created, second.created});
@@ -294,6 +294,8 @@ void TestResourceCommands(vdev::CkRuntimeHost &host, const std::string &modulePa
     drain();
     Check(status(deferred.operation) == EDITOR_OK && a->GetScriptCount() == beforeDeferred + 1,
           "deferred resource command borrowed a caller's text list");
+    Check(presentation.last.resources.items.size() == 1 && presentation.last.resources.items.front().path == nms,
+          "long resource path was truncated while the command was deferred");
     const auto count = a->GetScriptCount();
     batch = load({nms, (root / "missing.nms").u8string()}, {CKCID_BEHAVIOR, CKCID_BEHAVIOR}, {firstRef});
     drain();
