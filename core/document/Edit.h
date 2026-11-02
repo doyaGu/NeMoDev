@@ -28,7 +28,7 @@ public:
     virtual bool Undo(Document &document) = 0;
     // Replay dependencies, including objects referenced by before/after data.
     // The history keeps these IDs alive in the graveyard until the action is
-    // evicted or discarded. Legacy actions can migrate incrementally.
+    // evicted or discarded.
     virtual void RetainObjects(const Document &document, std::set<CK_ID> &objects) const {}
 };
 
@@ -78,10 +78,11 @@ public:
     // redo fails or raises a structured exception (then the edit fails as an
     // error, Fail).
     bool Do(std::function<bool()> redo, std::function<bool()> undo);
-    // Runs the action's Redo now and records it; false as above.
-    bool Do(std::unique_ptr<Action> action);
     // Records a pair whose redo was performed already.
     void Done(std::function<bool()> redo, std::function<bool()> undo);
+    // Moves the action into the step only after Redo succeeds. On failure
+    // a named argument still owns its before-data for explicit recovery.
+    bool Do(std::unique_ptr<Action> &&action);
     // Records an action performed already.
     void Done(std::unique_ptr<Action> action);
 

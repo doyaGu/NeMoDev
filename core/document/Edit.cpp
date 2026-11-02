@@ -44,17 +44,25 @@ public:
 // UndoStep
 
 bool UndoStep::RunActions(Document &document, bool undo) {
+    const auto run = [&](Action &action, bool backwards) {
+        bool ok = false;
+        return GuardedCall([&] { ok = backwards ? action.Undo(document) : action.Redo(document); }, &document.Host(),
+                           backwards ? "undo" : "redo") &&
+               ok;
+    };
     if (!undo) {
         for (size_t i = 0; i < m_Actions.size(); ++i)
-            if (!m_Actions[i]->Redo(document)) {
-                while (i-- > 0) m_Actions[i]->Undo(document);
+            if (!run(*m_Actions[i], false)) {
+                while (i-- > 0)
+                    run(*m_Actions[i], true);
                 return false;
             }
         return true;
     }
     for (size_t i = m_Actions.size(); i-- > 0;)
-        if (!m_Actions[i]->Undo(document)) {
-            for (size_t j = i + 1; j < m_Actions.size(); ++j) m_Actions[j]->Redo(document);
+        if (!run(*m_Actions[i], true)) {
+            for (size_t j = i + 1; j < m_Actions.size(); ++j)
+                run(*m_Actions[j], false);
             return false;
         }
     return true;
@@ -160,7 +168,7 @@ bool Edit::Do(std::function<bool()> redo, std::function<bool()> undo) {
     return ok;
 }
 
-bool Edit::Do(std::unique_ptr<Action> action) {
+bool Edit::Do(std::unique_ptr<Action> &&action) {
     if (!Open() || !action) return false;
     bool ok = false;
     if (!GuardedCall([&] { ok = action->Redo(*m_Document); }, &m_Document->Host(), m_Label.c_str())) {

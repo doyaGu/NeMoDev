@@ -53,6 +53,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         # Behavior graphs: topology, values, Building Blocks, Scripts, the debugger.
         graph/RuntimeGraph.cpp
         graph/TopologyCommands.cpp
+        graph/GraphActionRecord.cpp
         graph/OperationCommands.cpp
         graph/LinkCommands.cpp
         graph/TopologyPrimitives.cpp
