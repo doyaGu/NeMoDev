@@ -55,6 +55,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine);
 void RegisterAppTests(ImGuiTestEngine *engine);
 void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine);
 void RegisterGpuViewportTests(ImGuiTestEngine *engine);
+void RegisterLayoutViewportTests(ImGuiTestEngine *engine);
 void RegisterViewportBaselineTests(ImGuiTestEngine *engine);
 void RegisterFileMenuTests(ImGuiTestEngine *engine);
 void RegisterSchematicTests(ImGuiTestEngine *engine);

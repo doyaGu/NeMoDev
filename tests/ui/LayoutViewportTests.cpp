@@ -1,0 +1,245 @@
+#include "CKInputManager.h"
+#include "features/layout/SnapshotData.h"
+#include "imgui_internal.h"
+#include "tests/ui/UiTests.h"
+#include "ui/render/UiRenderer.h"
+#include <cmath>
+#include <cstring>
+
+namespace vdevuitest {
+namespace {
+vdev::EditorClient Client(EditorView view = 0) {
+    return vdev::EditorClient(App().WorkspaceForTests().Application().Host(), view);
+}
+struct Pair {
+    EditorView first = 0, second = 0;
+    std::string name;
+    ImVec2 position{}, size{};
+    ImGuiID dock = 0;
+    void Open(ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            first = workspace.Role("main.layout");
+            const auto opened =
+                Client().Command("workspace.open-view", {vdev::TextArgument("type", "layout.viewport")});
+            IM_CHECK_NO_RET(opened.status == EDITOR_OK);
+            second = vdev::EditorClient::Integer(opened, "view");
+            name = workspace.WindowName(second);
+            IM_CHECK_NO_RET(first && second && first != second && name != workspace.WindowName(first));
+            IM_CHECK_NO_RET(workspace.WindowName(first) == "3D Layout###3D Layout");
+            auto *window = ImGui::FindWindowByName("3D Layout");
+            IM_CHECK_NO_RET(window);
+            position = window->Pos;
+            size = window->Size;
+            dock = window->DockId;
+            ImGui::SetWindowDock(window, 0, ImGuiCond_Always);
+            ImGui::SetWindowPos(window, ImVec2(20, 100));
+            ImGui::SetWindowSize(window, ImVec2(550, 440));
+        });
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            auto *window = ImGui::FindWindowByName(name.c_str());
+            IM_CHECK_NO_RET(window);
+            ImGui::SetWindowDock(window, 0, ImGuiCond_Always);
+            ImGui::SetWindowPos(window, ImVec2(600, 100));
+            ImGui::SetWindowSize(window, ImVec2(550, 440));
+        });
+        ctx->Yield(5);
+    }
+    void Close(ImGuiTestContext *ctx) {
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(Client().Command("workspace.close-view", {vdev::IntegerArgument("view", second)}).status ==
+                            EDITOR_OK);
+            auto *window = ImGui::FindWindowByName("3D Layout");
+            IM_CHECK_NO_RET(window);
+            ImGui::SetWindowPos(window, position);
+            ImGui::SetWindowSize(window, size);
+            ImGui::SetWindowDock(window, dock, ImGuiCond_Always);
+            App().WorkspaceForTests().Focus(first);
+        });
+        ctx->Yield(4);
+    }
+};
+bool Same(const VxMatrix &a, const VxMatrix &b) {
+    return !std::memcmp(&a, &b, sizeof(VxMatrix));
+}
+void CheckInput(vdev::LayoutWindow &window) {
+    ImVec2 min, max;
+    IM_CHECK_NO_RET(window.ShownView(min, max));
+    const auto at = Center(min, max);
+    const auto *main = ImGui::GetMainViewport();
+    SDL_Event event{};
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.windowID = SDL_WindowID(reinterpret_cast<uintptr_t>(main->PlatformHandle));
+    event.motion.x = at.x - main->Pos.x;
+    event.motion.y = at.y - main->Pos.y;
+    auto *input =
+        static_cast<CKInputManager *>(App().State().document->Context()->GetManagerByGuid(INPUT_MANAGER_GUID));
+    IM_CHECK_NO_RET(input);
+    // Process the queued native event as a running composition would, while
+    // keeping the test document and its scripts stopped.
+    input->Pause(FALSE);
+    const bool pushed = SDL_PushEvent(&event);
+    const auto processed = input->PreProcess();
+    Vx2DVector mouse;
+    input->GetMousePosition(mouse, FALSE);
+    input->Pause(TRUE);
+    IM_CHECK_NO_RET(pushed && processed == CK_OK);
+    IM_CHECK_NO_RET(std::abs(mouse.x - window.View().Width() * .5f) < 2 &&
+                    std::abs(mouse.y - window.View().Height() * .5f) < 2);
+}
+} // namespace
+
+void RegisterLayoutViewportTests(ImGuiTestEngine *engine) {
+    auto *test =
+        IM_REGISTER_TEST(engine, "layoutviews", "layout_viewports_keep_cameras_tools_and_gestures_independent");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Pair pair;
+        pair.Open(ctx);
+        VxMatrix firstMatrix, secondMatrix;
+        size_t undo = 0;
+        bool dirty = false;
+        OnMainThread(ctx, [&] {
+            auto &a = App().Layout();
+            auto &b = *App().Layout(pair.second);
+            IM_CHECK_NO_RET(a.View().RenderContext() != b.View().RenderContext());
+            IM_CHECK_NO_RET(a.View().Camera() != b.View().Camera());
+            firstMatrix = a.View().Camera()->GetWorldMatrix();
+            secondMatrix = b.View().Camera()->GetWorldMatrix();
+            undo = App().State().History().UndoCount();
+            dirty = App().State().document->Dirty();
+        });
+        const auto second = "//" + pair.name;
+        ctx->WindowFocus(second.c_str());
+        ctx->ItemClick((second + "/$$28/##tool").c_str());
+        IM_CHECK(App().Layout(pair.second)->Tool() == vdev::LayoutTool::Pan);
+        IM_CHECK(App().Layout().Tool() == vdev::LayoutTool::Select);
+        ImVec2 min, max;
+        IM_CHECK(App().Layout(pair.second)->ShownView(min, max));
+        auto at = Center(min, max);
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(at.x + 45, at.y + 25));
+        ctx->Yield(2);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(!Same(secondMatrix, App().Layout(pair.second)->View().Camera()->GetWorldMatrix()));
+            IM_CHECK_NO_RET(Same(firstMatrix, App().Layout().View().Camera()->GetWorldMatrix()));
+            IM_CHECK_NO_RET(vdev::EditorClient::Integer(Client(pair.second).Query("layout.input"), "active"));
+            IM_CHECK_NO_RET(!vdev::EditorClient::Integer(Client(pair.first).Query("layout.input"), "active"));
+        });
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(Same(secondMatrix, App().Layout(pair.second)->View().Camera()->GetWorldMatrix()));
+            IM_CHECK_NO_RET(App().State().History().UndoCount() == undo && App().State().document->Dirty() == dirty);
+            IM_CHECK_NO_RET(App().State().document->Context()->GetCurrentLevel()->GetRenderContext(0) ==
+                            App().Layout(pair.second)->View().RenderContext());
+            CheckInput(*App().Layout(pair.second));
+        });
+        // Drawing the second window later must not take input from the first.
+        ctx->WindowFocus("//3D Layout");
+        ctx->Yield(4);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(App().State().document->Context()->GetCurrentLevel()->GetRenderContext(0) ==
+                            App().Layout().View().RenderContext());
+            CheckInput(App().Layout());
+        });
+        pair.Close(ctx);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(!App().Layout(pair.second) &&
+                            Client(pair.second).Query("layout.input").status == EDITOR_STALE);
+            IM_CHECK_NO_RET(App().Layout().View().InterfaceAlive() && App().Layout().UsesGpuViewport());
+            CheckInput(App().Layout());
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "layoutviews", "layout_viewports_keep_gpu_targets_and_fallback_independent");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Pair pair;
+        pair.Open(ctx);
+        SDL_GPUTexture *aTexture = nullptr, *bTexture = nullptr;
+        CKRasterizerContext *aContext = nullptr;
+        uint64_t aReads = 0, bReads = 0, aUploads = 0, bUploads = 0, aCreates = 0, bCreates = 0, selections = 0;
+        OnMainThread(ctx, [&] {
+            auto &a = App().Layout();
+            auto &b = *App().Layout(pair.second);
+            IM_CHECK_NO_RET(a.UsesGpuViewport() && b.UsesGpuViewport());
+            aTexture = a.GpuViewportTextureForTests()->NativeTexture();
+            bTexture = b.GpuViewportTextureForTests()->NativeTexture();
+            aContext = a.View().RasterizerContext();
+            IM_CHECK_NO_RET(aTexture && bTexture && aTexture != bTexture && aContext != b.View().RasterizerContext());
+            aReads = a.View().ReadbackFrames();
+            bReads = b.View().ReadbackFrames();
+            aUploads = a.ViewportUploadsForTests();
+            bUploads = b.ViewportUploadsForTests();
+            aCreates = a.GpuViewportCreationsForTests();
+            bCreates = b.GpuViewportCreationsForTests();
+            selections = b.GpuViewportSelectionsForTests();
+        });
+        ctx->Yield(12);
+        OnMainThread(ctx, [&] {
+            auto &a = App().Layout();
+            auto &b = *App().Layout(pair.second);
+            IM_CHECK_NO_RET(a.GpuViewportTextureForTests()->NativeTexture() == aTexture &&
+                            b.GpuViewportTextureForTests()->NativeTexture() == bTexture);
+            IM_CHECK_NO_RET(a.View().ReadbackFrames() == aReads && b.View().ReadbackFrames() == bReads &&
+                            a.ViewportUploadsForTests() == aUploads && b.ViewportUploadsForTests() == bUploads);
+            IM_CHECK_NO_RET(a.GpuViewportCreationsForTests() == aCreates &&
+                            b.GpuViewportCreationsForTests() == bCreates &&
+                            b.GpuViewportSelectionsForTests() == selections);
+            auto *window = ImGui::FindWindowByName(pair.name.c_str());
+            IM_CHECK_NO_RET(window);
+            ImGui::SetWindowSize(window, ImVec2(580, 470));
+        });
+        ctx->Yield(5);
+        OnMainThread(ctx, [&] {
+            auto &a = App().Layout();
+            auto &b = *App().Layout(pair.second);
+            IM_CHECK_NO_RET(a.GpuViewportTextureForTests()->NativeTexture() == aTexture &&
+                            a.View().RasterizerContext() == aContext);
+            IM_CHECK_NO_RET(a.GpuViewportCreationsForTests() == aCreates &&
+                            b.GpuViewportCreationsForTests() == bCreates + 1 &&
+                            b.GpuViewportSelectionsForTests() == selections);
+            b.FailNextGpuViewportForTests();
+            IM_CHECK_NO_RET(b.RecreateGpuViewportForTests());
+        });
+        ctx->Yield(6);
+        OnMainThread(ctx, [&] {
+            auto &a = App().Layout();
+            auto &b = *App().Layout(pair.second);
+            IM_CHECK_NO_RET(a.UsesGpuViewport() && !b.UsesGpuViewport());
+            IM_CHECK_NO_RET(a.View().ReadbackFrames() == aReads && a.ViewportUploadsForTests() == aUploads);
+            IM_CHECK_NO_RET(b.View().ReadbackFrames() > bReads && b.ViewportUploadsForTests() > bUploads &&
+                            b.GpuViewportSelectionsForTests() == selections);
+        });
+        pair.Close(ctx);
+    };
+
+    test = IM_REGISTER_TEST(engine, "layoutviews", "layout_snapshot_reads_only_the_originating_viewport");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Pair pair;
+        pair.Open(ctx);
+        OnMainThread(ctx, [&] {
+            auto &a = App().Layout();
+            auto &b = *App().Layout(pair.second);
+            const auto aReads = a.View().ReadbackFrames(), bReads = b.View().ReadbackFrames();
+            const auto undo = App().State().History().UndoCount();
+            const auto taken = Client(pair.second).Command("snapshot.take");
+            IM_CHECK_NO_RET(taken.status == EDITOR_OK && a.View().ReadbackFrames() == aReads &&
+                            b.View().ReadbackFrames() == bReads + 1);
+            vdev::SnapshotData data;
+            IM_CHECK_NO_RET(vdev::ReadSnapshots(Client(), data));
+            IM_CHECK_NO_RET(
+                vdev::RemoveSnapshots(Client(), data, {int(vdev::EditorClient::Integer(taken, "slot"))}).status ==
+                EDITOR_OK);
+            IM_CHECK_NO_RET(App().State().History().UndoCount() == undo && a.UsesGpuViewport() && b.UsesGpuViewport());
+        });
+        pair.Close(ctx);
+    };
+}
+} // namespace vdevuitest

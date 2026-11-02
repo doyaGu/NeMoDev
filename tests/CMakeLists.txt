@@ -338,6 +338,8 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
     endif()
     set(_dev_ui_entities "${_dev_data}/BBSamples/3D Transformations/Add Control Point.cmo")
     virtoolsdev_add_test(VirtoolsDevUi.app VirtoolsDevUiTests --ui-tests "^app$" --ui-results "${_dev_ui_results}/app.xml")
+    virtoolsdev_add_test(VirtoolsDevUi.layoutviews VirtoolsDevUiTests --ui-tests "^layoutviews$" --ui-results "${_dev_ui_results}/layoutviews.xml")
+    set_tests_properties(VirtoolsDevUi.layoutviews PROPERTIES LABELS self-contained)
     virtoolsdev_add_test(VirtoolsDevUi.filemenu VirtoolsDevUiTests --ui-tests "^filemenu$" --ui-results "${_dev_ui_results}/filemenu.xml")
     # Temporarily removes the build runtime's version marker to test export failure.
     set_tests_properties(VirtoolsDevUi.filemenu PROPERTIES RUN_SERIAL TRUE)

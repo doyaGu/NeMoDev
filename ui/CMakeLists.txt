@@ -209,6 +209,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArrayEditTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArchitectureBaselineTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/GpuViewportTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/LayoutViewportTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ViewportBaselineTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/FileMenuTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/SchematicTests.cpp

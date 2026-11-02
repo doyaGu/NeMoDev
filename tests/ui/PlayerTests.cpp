@@ -350,6 +350,71 @@ bool SaveImage(const char *name, const Image &image) {
 } // namespace
 
 void RegisterPlayerTests(ImGuiTestEngine *engine) {
+    auto *multiple =
+        IM_REGISTER_TEST(engine, "player", "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu");
+    multiple->GuiFunc = MainThreadGui;
+    multiple->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        Session session(ctx);
+        EditorView second = 0;
+        SDL_GPUTexture *texture = nullptr;
+        CKObjectHandle camera{};
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            second = workspace.Open("layout.viewport", "test.player-layout");
+            IM_CHECK_NO_RET(second && App().Layout(second));
+            workspace.Focus(second);
+            auto *image = App().Layout().GpuViewportTextureForTests();
+            IM_CHECK_NO_RET(image);
+            texture = image->NativeTexture();
+            camera = App().State().document->Context()->GetObjectHandle(App().Layout().View().Camera()->GetID());
+        });
+        ctx->Yield(5);
+        IM_CHECK(ChooseMode(ctx));
+        IM_CHECK(Start(ctx));
+        {
+            NativeWindowInput nativeInput(ctx);
+            OnMainThread(ctx, [&] {
+                const vdev::EditorClient client(App().WorkspaceForTests().Application().Host(), second);
+                IM_CHECK_NO_RET(client.Command("layout.toggle-fullscreen").status == EDITOR_OK);
+            });
+            IM_CHECK(Until(ctx, [&] {
+                auto *view = App().Layout(second);
+                auto *render = view ? view->View().RenderContext() : nullptr;
+                return view && view->FullScreen() && !App().Layout().FullScreen() && render &&
+                       NativeFocus(static_cast<SDL_Window *>(render->GetWindowHandle()));
+            }));
+            OnMainThread(ctx, [&] {
+                auto &first = App().Layout();
+                auto &other = *App().Layout(second);
+                auto *context = App().State().document->Context();
+                IM_CHECK_NO_RET(context->GetObjectByHandle(camera) == first.View().Camera() &&
+                                first.UsesGpuViewport() &&
+                                first.GpuViewportTextureForTests()->NativeTexture() == texture);
+                IM_CHECK_NO_RET(context->GetPlayerRenderContext() == other.View().RenderContext());
+                const auto before = other.View().ReadbackFrames();
+                const vdev::EditorClient client(App().WorkspaceForTests().Application().Host(), second);
+                const auto taken = client.Command("snapshot.take");
+                IM_CHECK_NO_RET(taken.status == EDITOR_OK && other.View().ReadbackFrames() == before + 1);
+                vdev::SnapshotData data;
+                IM_CHECK_NO_RET(vdev::ReadSnapshots(client, data));
+                IM_CHECK_NO_RET(
+                    vdev::RemoveSnapshots(client, data, {int(vdev::EditorClient::Integer(taken, "slot"))}).status ==
+                    EDITOR_OK);
+                IM_CHECK_NO_RET(client.Command("layout.leave-fullscreen").status == EDITOR_OK);
+            });
+            IM_CHECK(Until(ctx, [&] {
+                return !App().Layout(second)->FullScreen() && NativeFocus(EditorWindow()) &&
+                       App().Layout(second)->UsesGpuViewport();
+            }));
+        }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(App().Layout().GpuViewportTextureForTests()->NativeTexture() == texture &&
+                            App().State().document->Context()->GetObjectByHandle(camera) ==
+                                App().Layout().View().Camera());
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Close(second));
+        });
+    };
     ImGuiTest *queued = IM_REGISTER_TEST(engine, "player", "fullscreen_delayed_focus_loss_and_close");
     queued->GuiFunc = MainThreadGui;
     queued->TestFunc = [](ImGuiTestContext *ctx) {

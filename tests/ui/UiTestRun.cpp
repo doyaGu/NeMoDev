@@ -83,6 +83,7 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     vdevuitest::RegisterAppTests(engine);
     vdevuitest::RegisterArchitectureBaselineTests(engine);
     vdevuitest::RegisterGpuViewportTests(engine);
+    vdevuitest::RegisterLayoutViewportTests(engine);
     vdevuitest::RegisterViewportBaselineTests(engine);
     vdevuitest::RegisterFileMenuTests(engine);
     vdevuitest::RegisterSchematicTests(engine);
