@@ -1,5 +1,9 @@
 # Virtools Dev's tests: they link the core only.
 find_package(Threads REQUIRED)
+add_test(NAME NeMoDevModuleBuild COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/ModuleBuildTests.py" --source "${VIRTOOLSDEV_SOURCE_DIR}"
+        --cmake "${CMAKE_COMMAND}" --results "${PROJECT_BINARY_DIR}/module-build")
+set_tests_properties(NeMoDevModuleBuild PROPERTIES LABELS self-contained TIMEOUT 180)
 add_executable(NeMoDevRuntimeOperationTests RuntimeOperationTests.cpp ../application/RuntimeOperation.cpp)
 target_include_directories(NeMoDevRuntimeOperationTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
 target_compile_features(NeMoDevRuntimeOperationTests PRIVATE cxx_std_17)

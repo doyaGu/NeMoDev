@@ -104,6 +104,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS AND NOT EXISTS "${VIRTOOLSDEV_IMGUI_TEST_ENGINE_D
 endif ()
 
 include(cmake/RuntimeTargets.cmake)
+include(cmake/EditorModules.cmake)
 
 # The images listed in images.txt are embedded in the editor. Interface data
 # and optional local help are deployed in the runtime's root data directory.
