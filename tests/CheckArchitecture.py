@@ -172,6 +172,8 @@ def check(source, manifest, inventory=None, ui_tests=False):
     graph, all_exposures = include_graph(source, files, all_access=True)
     exposures = {path: access for path, access in all_exposures.items() if path.startswith("ui/")}
     for path, access in all_exposures.items():
+        if path.startswith("examples/"):
+            errors.append(f"native/state access in example module: {path}: {', '.join(access)}")
         if path.startswith("features/") and ({"editor-state", "editing-session"} & set(access)):
             errors.append(f"feature depends on legacy EditorState: {path}")
         if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/runtime/", "features/environment/", "features/diagnostics/", "features/preferences/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/", "features/schematic/", "features/layout/")) and not re.match(
@@ -184,6 +186,8 @@ def check(source, manifest, inventory=None, ui_tests=False):
     observed = set()
     for path, dependencies in graph.items():
         for dependency in dependencies:
+            if path.startswith("examples/") and not dependency.startswith(("examples/", "editor/")):
+                errors.append(f"example module includes private header: {path}: {dependency}")
             if path in owners and dependency in owners and owners[path] != owners[dependency]:
                 observed.add((owners[path], owners[dependency]))
     permitted = {(origin, target) for origin, targets in manifest["dependencies"].items() for target in targets}

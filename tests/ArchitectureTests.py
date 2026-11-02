@@ -11,6 +11,24 @@ CHECKER = Path(__file__).with_name("CheckArchitecture.py")
 
 
 class ArchitectureTests(unittest.TestCase):
+    def test_example_modules_use_only_public_editor_headers(self):
+        self.write('editor/Editor.h', '#pragma once\n')
+        self.write('examples/Example.cpp', '#include "editor/Editor.h"\n')
+        self.manifest['source_groups'] += [
+            {'id': 'api', 'patterns': ['editor/**']}, {'id': 'examples', 'patterns': ['examples/**']}]
+        self.manifest['features'][0]['source_groups'] += ['api', 'examples']
+        self.manifest['dependencies'] = {'examples': ['api']}
+        self.assertEqual(self.run_check().returncode, 0)
+        self.write('examples/Example.cpp', '#include "core/model.h"\n')
+        self.manifest['dependencies'] = {'examples': ['core']}
+        self.assertIn('example module includes private header', self.run_check().stderr)
+
+    def test_example_modules_cannot_use_native_sdk_headers(self):
+        self.write('examples/Example.cpp', '#include "CKAll.h"\n')
+        self.manifest['source_groups'].append({'id': 'examples', 'patterns': ['examples/**']})
+        self.manifest['features'][0]['source_groups'].append('examples')
+        self.assertIn('native/state access in example module', self.run_check().stderr)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

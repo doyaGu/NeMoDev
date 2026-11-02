@@ -1853,15 +1853,18 @@
       ],
       "tests": [
         "NeMoDevEditor",
-        "NeMoDevIdentityHeaders"
+        "NeMoDevIdentityHeaders",
+        "NeMoDevModuleDiscovery",
+        "NeMoDevModuleBuild"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.moduleStartup"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "生产模块发现与打包、移除替换和私有状态恢复尚未迁移"
+          "reason": "生产目录发现、内置与外部统一装配、失败清理和公开接口示例已实现；完整模块发布包的各平台实机验证、移除替换与私有状态恢复仍待完成"
         }
       ]
     },
@@ -2156,8 +2159,8 @@
       "id": "editor-modules",
       "name": "模块及命令、查询、属性、编辑器和视图登记",
       "owner": "EditorApplication",
-      "lifetime": "启动登记、选择实现、关闭时逆依赖顺序停止并卸载",
-      "persistence": "本阶段只复制模块描述；生产发现与打包在阶段六完成",
+      "lifetime": "启动统一收集、校验、启用；本批失败清理后可重试；全部使用者关闭后逆依赖停止并卸载，不热卸载",
+      "persistence": "安装和用户目录只在启动扫描；显式文件与目录入口复用同一发现和装配；配置持久化继续由后续阶段六工作完成",
       "features": [
         "F31"
       ]
