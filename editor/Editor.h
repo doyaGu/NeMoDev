@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 20u
+#define EDITOR_VERSION 21u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -342,6 +342,13 @@ typedef struct EditorViewDesc {
     // retained across documents. Other views save only document-independent values.
     uint32_t documentBound;
     EditorClosingView closing;
+    // Named, document-independent fields from saveState that may be written to
+    // user configuration. Restore overlays them on freshly captured state and
+    // uses restoreState. The type's stateVersion also versions these settings.
+    // Object references (including nested references) and documentBound views
+    // are never persistent. Empty means window placement/open state only.
+    const EditorParameter *settings;
+    uint32_t settingCount;
 } EditorViewDesc;
 typedef struct EditorMenuDesc {
     EditorString id, action, location, label;

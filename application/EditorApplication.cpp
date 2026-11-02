@@ -322,6 +322,12 @@ struct Module {
             if ((!d.inspect && (d.fieldCount || d.inspectRevision)) || (d.inspect && !d.fieldCount))
                 throw std::invalid_argument("Invalid view inspection");
             d.fields = Parameters(d.fields, d.fieldCount);
+            d.settings = Parameters(d.settings, d.settingCount);
+            if (d.settingCount && (!d.saveState || d.documentBound || d.kind != EDITOR_WINDOW_VIEW))
+                throw std::invalid_argument("Invalid persistent view settings");
+            for (uint32_t j = 0; j < d.settingCount; ++j)
+                if (d.settings[j].type == EDITOR_OBJECT || d.settings[j].type == EDITOR_OBJECT_LIST)
+                    throw std::invalid_argument("Object references cannot be persistent view settings");
             views.push_back(d);
         }
         for (uint32_t i = 0; i < source.menuCount; ++i) {
@@ -1287,6 +1293,61 @@ EditorStatus EditorApplication::RestoreViewState(const EditorViewDesc &desc, voi
     --s.readOnlyCallbacks;
     --s.drawing;
     return status;
+}
+EditorResponse EditorApplication::SaveViewSettings(const EditorViewDesc &desc, void *data, EditorScope scope) {
+    if (!m_State->Thread() || !m_State->Valid(scope, desc.area))
+        return {EDITOR_STALE};
+    if (!desc.settingCount)
+        return {EDITOR_OK};
+    auto result = SaveViewState(desc, data, scope);
+    if (result.status != EDITOR_OK)
+        return result;
+    std::vector<EditorField> fields;
+    for (uint32_t i = 0; i < desc.settingCount; ++i) {
+        const auto &schema = desc.settings[i];
+        const auto field = std::find_if(result.fields.begin(), result.fields.end(),
+                                        [&](const auto &value) { return value.key == String(schema.key); });
+        if (field == result.fields.end()) {
+            if (schema.optional)
+                continue;
+            return {EDITOR_INVALID};
+        }
+        if (field->type != schema.type || !EveryField(std::vector<EditorField>{*field}, [](const auto &value) {
+                return value.type != EDITOR_OBJECT && value.type != EDITOR_OBJECT_LIST;
+            }))
+            return {EDITOR_INVALID};
+        fields.push_back(*field);
+    }
+    result.fields = std::move(fields);
+    return result;
+}
+EditorStatus EditorApplication::RestoreViewSettings(const EditorViewDesc &desc, void *data, EditorScope scope,
+                                                    const std::vector<EditorField> &settings) {
+    if (!m_State->Thread() || !m_State->Valid(scope, desc.area))
+        return EDITOR_STALE;
+    if (settings.empty())
+        return EDITOR_OK;
+    if (!desc.settingCount || !EveryField(settings, [](const auto &value) {
+            return value.type != EDITOR_OBJECT && value.type != EDITOR_OBJECT_LIST;
+        }))
+        return EDITOR_INVALID;
+    auto state = SaveViewState(desc, data, scope);
+    if (state.status != EDITOR_OK)
+        return state.status;
+    for (const auto &field : settings) {
+        const auto schema = std::find_if(desc.settings, desc.settings + desc.settingCount, [&](const auto &value) {
+            return String(value.key) == field.key && value.type == field.type;
+        });
+        if (schema == desc.settings + desc.settingCount)
+            return EDITOR_INVALID;
+        auto target = std::find_if(state.fields.begin(), state.fields.end(),
+                                   [&](const auto &value) { return value.key == field.key; });
+        if (target == state.fields.end())
+            state.fields.push_back(field);
+        else
+            *target = field;
+    }
+    return RestoreViewState(desc, data, scope, state.fields);
 }
 uint64_t EditorApplication::InspectRevision(const EditorViewDesc &desc, void *data) {
     auto &s = *m_State;

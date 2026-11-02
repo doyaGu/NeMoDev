@@ -100,6 +100,8 @@ class EditorApplication {
     bool DestroyView(const EditorViewDesc &, void *data);
     bool ClosingView(const EditorViewDesc &, void *, EditorView);
     EditorResponse SaveViewState(const EditorViewDesc &, void *data, EditorScope);
+    EditorResponse SaveViewSettings(const EditorViewDesc &, void *data, EditorScope);
+    EditorStatus RestoreViewSettings(const EditorViewDesc &, void *, EditorScope, const std::vector<EditorField> &);
     EditorStatus RestoreViewState(const EditorViewDesc &, void *data, EditorScope, const std::vector<EditorField> &);
     EditorResponse InspectView(const EditorViewDesc &, void *data, EditorScope);
     EditorResponse PickView(const EditorViewDesc &, void *data, EditorScope, float x, float y,
