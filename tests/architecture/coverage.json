@@ -14,7 +14,8 @@
   "external_submodules": [
     "external/imgui",
     "external/imgui_test_engine",
-    "external/litehtml"
+    "external/litehtml",
+    "external/nlohmann_json"
   ],
   "source_groups": [
     {

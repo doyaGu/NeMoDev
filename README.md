@@ -103,7 +103,7 @@ contains the complete dependency setup used on clean runners.
 ```sh
 git clone https://github.com/doyaGu/NeMoDev.git
 cd NeMoDev
-git submodule update --init --recursive external/imgui external/litehtml
+git submodule update --init --recursive external/imgui external/litehtml external/nlohmann_json
 ```
 
 Keep these submodules at the recorded revisions. Ballanced is a separate

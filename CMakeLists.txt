@@ -105,6 +105,11 @@ endif ()
 
 include(cmake/RuntimeTargets.cmake)
 include(cmake/EditorModules.cmake)
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/external/nlohmann_json/CMakeLists.txt")
+    message(FATAL_ERROR "nlohmann_json not found. From the NeMoDev repository root, run: "
+            "git submodule update --init --recursive external/nlohmann_json")
+endif()
+add_subdirectory(external/nlohmann_json EXCLUDE_FROM_ALL)
 
 # The images listed in images.txt are embedded in the editor. Interface data
 # and optional local help are deployed in the runtime's root data directory.

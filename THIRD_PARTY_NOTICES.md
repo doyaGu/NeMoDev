@@ -34,6 +34,7 @@ an upstream checkout or binary.
 | [SDL3](https://github.com/libsdl-org/SDL), Sam Lantinga and contributors | Shared window, input, GPU and platform runtime | [zlib](licenses/SDL3-zlib.txt) |
 | [stb](https://github.com/nothings/stb), Sean Barrett and contributors | Editor image loading/writing and SDK image/font support | [MIT or public domain](licenses/stb-LICENSE.txt) |
 | [libharu](https://github.com/libharu/libharu), Takeshi Kanno, Antony Dovgal and contributors | Internal PDF generation for Linux/macOS printing | [zlib-style license](licenses/libharu-zlib.txt) |
+| [JSON for Modern C++](https://github.com/nlohmann/json), Niels Lohmann and contributors | Versioned editor configuration; submodule `v3.12.0`, revision `55f93686c01528224f448c19128836e7df245f72` | [MIT](licenses/nlohmann-json-MIT.txt) |
 
 SDL3 and libharu versions are selected by the build environment. The license
 text origins in `licenses/origin.json` identify the copied notices, not a

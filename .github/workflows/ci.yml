@@ -95,7 +95,7 @@ jobs:
           python-version: '3.12'
       - name: Prepare editor dependencies
         run: |
-          git submodule update --init --recursive external/imgui external/litehtml
+          git submodule update --init --recursive external/imgui external/litehtml external/nlohmann_json
           if [[ "$RUNNER_OS" == Linux ]]; then
             git submodule update --init --recursive external/imgui_test_engine
           fi
