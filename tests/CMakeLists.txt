@@ -48,6 +48,38 @@ add_library(NeMoDevApplicationDrawingHeaders OBJECT
 target_include_directories(NeMoDevApplicationDrawingHeaders PRIVATE
         "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
 target_compile_features(NeMoDevApplicationDrawingHeaders PRIVATE cxx_std_17)
+add_library(NeMoDevSchematicWindowsHeaders OBJECT
+        ../ui/schematic/SchematicCanvas.cpp ../ui/schematic/SchematicViews.cpp
+        ../ui/schematic/SchematicInput.cpp ../ui/schematic/SchematicMenus.cpp
+        ../ui/schematic/SchematicDialogs.cpp ../ui/schematic/SchematicLinking.cpp
+        ../ui/schematic/SchematicPrint.cpp)
+target_include_directories(NeMoDevSchematicWindowsHeaders PRIVATE
+        "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
+target_compile_features(NeMoDevSchematicWindowsHeaders PRIVATE cxx_std_17)
+add_library(NeMoDevWindowDrawingHeaders OBJECT
+        ../ui/controls/ParameterBox.cpp ../ui/controls/ValueEditor.cpp ../ui/controls/ParameterDialog.cpp
+        ../ui/controls/DevBitmaps.cpp ../ui/panels/EditorPanels.cpp
+        ../ui/layout/LayoutWindow.cpp ../ui/layout/LayoutInput.cpp ../ui/layout/LayoutMenu.cpp
+        ../ui/layout/LayoutDrop.cpp ../ui/layout/LayoutExplorer.cpp ../ui/layout/LayoutSnapshot.cpp
+        ../ui/layout/LayoutFullScreen.cpp)
+target_include_directories(NeMoDevWindowDrawingHeaders PRIVATE
+        "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
+target_link_libraries(NeMoDevWindowDrawingHeaders PRIVATE SDL3::SDL3)
+target_compile_features(NeMoDevWindowDrawingHeaders PRIVATE cxx_std_17)
+# Setup keeps the SDK's arithmetic and enum values, without object/Context
+# definitions. Compile the actual pages and assert this after every include.
+set(_setup_value_wrappers)
+foreach(_page SetupWindows SetupObjectPages SetupRenderPages SetupScenePages)
+    set(_wrapper "${CMAKE_CURRENT_BINARY_DIR}/presentation-values/${_page}.cpp")
+    file(GENERATE OUTPUT "${_wrapper}" CONTENT
+        "#include \"ui/setup/${_page}.cpp\"\n#include \"tests/NoNativeContext.h\"\n")
+    list(APPEND _setup_value_wrappers "${_wrapper}")
+endforeach()
+add_library(NeMoDevSetupValueHeaders OBJECT ${_setup_value_wrappers})
+target_link_libraries(NeMoDevSetupValueHeaders PRIVATE VirtoolsDevCore)
+target_include_directories(NeMoDevSetupValueHeaders PRIVATE
+        "${VIRTOOLSDEV_SOURCE_DIR}" "${VIRTOOLSDEV_IMGUI_DIR}")
+target_compile_features(NeMoDevSetupValueHeaders PRIVATE cxx_std_17)
 add_executable(NeMoDevUiTextureTests UiTextureTests.cpp
         ../ui/render/UiRenderer.cpp ../ui/schematic/Snapshots.cpp)
 target_include_directories(NeMoDevUiTextureTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")

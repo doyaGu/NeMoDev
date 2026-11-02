@@ -13,10 +13,18 @@ import tarfile
 
 CODE_SUFFIXES = {".h", ".hpp", ".c", ".cpp", ".cxx", ".mm", ".def"}
 RESTRICTED = {"ui/app/EditorState.h": "editor-state",
+              "ui/native/EditorSession.h": "editing-session",
               "core/document/Document.h": "mutable-document",
               "core/document/ScriptSession.h": "mutable-document",
               "core/schematic/SchematicModelBuilder.h": "native-sdk",
               "features/schematic/SchematicScriptCommands.h": "native-sdk"}
+# These headers define values, constants and arithmetic, never CK object or
+# Context implementations. Setup translation units also compile with a fence
+# that rejects complete native object/Context types.
+VALUE_HEADERS = {"CKDefines.h", "CKEnums.h", "VxDefines.h", "VxVector.h", "Vx2dVector.h",
+                 "VxMatrix.h", "VxBbox.h", "VxColor.h", "VxRect.h"}
+HOST_FILES = {"ui/app/EditorApp.h", "ui/app/EditorApp.cpp", "ui/app/Main.cpp", "ui/app/EditorStartup.cpp",
+              "ui/native/EditorSession.h", "ui/native/EditorSession.cpp"}
 
 
 def source_files(source):
@@ -41,7 +49,7 @@ def include_graph(source, files, contents=None, all_access=False):
         if path in RESTRICTED:
             capabilities.add(RESTRICTED[path])
         for name in re.findall(r'^\s*#\s*(?:include|import)\s*[<"]([^>"\n]+)[>"]', text, flags=re.M):
-            if re.match(r"^(CK|Vx)[^/]*\.h$", name):
+            if re.match(r"^(CK|Vx)[^/]*\.h$", name) and name not in VALUE_HEADERS:
                 capabilities.add("native-sdk")
             relative = posixpath.normpath(posixpath.join(posixpath.dirname(path), name))
             if relative in code:
@@ -139,8 +147,11 @@ def check(source, manifest, inventory=None, ui_tests=False):
     if manifest.get("version") != 1:
         raise ValueError("unsupported architecture manifest version")
     phase = manifest.get("completed_phase")
+    functional_phase = manifest.get("functional_phase", phase)
     if not isinstance(phase, int) or not 0 <= phase <= 6:
         raise ValueError("completed_phase must be between 0 and 6")
+    if not isinstance(functional_phase, int) or not phase <= functional_phase <= 6:
+        raise ValueError("functional_phase must be between completed_phase and 6")
     groups = indexed(manifest["source_groups"], "source group", errors)
     external = set(manifest["external_submodules"])
     files = [path for path in source_files(source) if path not in external]
@@ -161,7 +172,7 @@ def check(source, manifest, inventory=None, ui_tests=False):
     graph, all_exposures = include_graph(source, files, all_access=True)
     exposures = {path: access for path, access in all_exposures.items() if path.startswith("ui/")}
     for path, access in all_exposures.items():
-        if path.startswith("features/") and "editor-state" in access:
+        if path.startswith("features/") and ({"editor-state", "editing-session"} & set(access)):
             errors.append(f"feature depends on legacy EditorState: {path}")
         if path.startswith(("workspace/", "features/scene/", "features/resources/", "features/runtime/", "features/environment/", "features/diagnostics/", "features/preferences/", "features/defaults/", "features/values/", "features/arrays/", "features/setup/", "features/schematic/", "features/layout/")) and not re.match(
                 r"features/(?:scene/Scene(?:Commands|Queries)|resources/(?:BuildingBlockQueries|DataResourceCommands)|environment/EnvironmentCommands|diagnostics/DiagnosticCommands|preferences/PreferencesCommands|values/ParameterCommands|arrays/ArrayCommands|setup/Setup(?:Commands|Queries|ObjectQueries|SceneQueries|RenderQueries|Actions)|schematic/Schematic(?:Commands|GraphCommands|Geometry|Connections|Copying|Authoring|ParameterEdits|ModelCommands|ScriptCommands)|layout/(?:Layout(?:Commands|Gestures|Presentation|Authoring)|SnapshotCommands))\.(?:h|cpp)$", path):
@@ -189,13 +200,61 @@ def check(source, manifest, inventory=None, ui_tests=False):
         legacy[path] = sorted(entry["access"])
         if baseline is not None and not set(entry["access"]).issubset(baseline.get(path, [])):
             errors.append(f"legacy exposure exceeds fixed baseline: {path}")
-        if entry["remove_by"] <= phase:
+        if entry["remove_by"] <= functional_phase:
             errors.append(f"expired legacy exposure: {path}")
+        if functional_phase >= 5:
+            errors.append(f"legacy UI exposure after phase five: {path}")
+    hosts = {}
+    for entry in manifest.get("native_hosts", []):
+        path = entry["file"]
+        access = sorted(entry["access"])
+        if (path not in HOST_FILES or path in hosts or path in legacy or not entry.get("purpose") or
+                not set(access) <= {"editing-session", "mutable-document", "native-sdk"}):
+            errors.append(f"invalid native host: {path}")
+        hosts[path] = access
+    value_imports = {}
+    for path in files:
+        if path.startswith("ui/") and Path(path).suffix in CODE_SUFFIXES:
+            text = (source / path).read_text(encoding="utf-8-sig")
+            names = set(re.findall(r'^\s*#\s*include\s*[<"]([^>"\n]+)[>"]', text, flags=re.M)) & VALUE_HEADERS
+            if names:
+                value_imports[path] = sorted(names)
+    declared_values = {}
+    for entry in manifest.get("value_headers", []):
+        path, headers = entry["file"], entry["headers"]
+        if path in declared_values or not headers or len(set(headers)) != len(headers) or not set(headers) <= VALUE_HEADERS:
+            errors.append(f"invalid value headers: {path}")
+        declared_values[path] = sorted(headers)
+    if declared_values != value_imports:
+        for path in sorted(declared_values.keys() | value_imports.keys()):
+            if declared_values.get(path) != value_imports.get(path): errors.append(f"unrecorded value headers: {path}")
+    adapters = {}
+    for entry in manifest.get("native_adapters", []):
+        path = entry["file"]
+        access = sorted(entry["access"])
+        if (not path.startswith("ui/native/") or path in adapters or path in legacy or not entry.get("purpose") or
+                not set(access) <= {"mutable-document", "native-sdk"}):
+            errors.append(f"invalid native adapter: {path}")
+        adapters[path] = access
+        if path in files:
+            body = (source / path).read_text(encoding="utf-8-sig")
+            body = re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"', '', body, flags=re.S)
+            if re.search(r"\bImGui\s*::", body): errors.append(f"drawing in native adapter: {path}")
+    for path, dependencies in graph.items():
+        if path.startswith(("ui/", "features/", "workspace/")) and path not in adapters and path not in hosts:
+            for dependency in dependencies:
+                if dependency in adapters or dependency in hosts:
+                    errors.append(f"private native adapter included outside its implementation: {path} -> {dependency}")
     for path, access in exposures.items():
-        if access != legacy.get(path):
+        expected = hosts.get(path) if path in hosts else adapters.get(path) if path in adapters else legacy.get(path)
+        if access != expected:
             errors.append(f"unrecorded native/state exposure: {path}: {', '.join(access)}")
     for path in legacy.keys() - exposures.keys():
         errors.append(f"stale legacy exposure: {path}")
+    for path in adapters.keys() - exposures.keys():
+        errors.append(f"stale native adapter: {path}")
+    for path in hosts.keys() - exposures.keys():
+        errors.append(f"stale native host: {path}")
 
     features = indexed(manifest["features"], "feature", errors)
     covered = set()
@@ -219,7 +278,7 @@ def check(source, manifest, inventory=None, ui_tests=False):
         for gap in feature["gaps"]:
             if not gap.get("reason", "").strip() or not isinstance(gap.get("due_phase"), int):
                 errors.append(f"invalid verification gap: {identity}")
-            elif gap["due_phase"] <= phase:
+            elif gap["due_phase"] <= functional_phase:
                 errors.append(f"overdue verification gap: {identity}: {gap['reason']}")
         if available is not None:
             for anchor in anchors:
@@ -227,6 +286,10 @@ def check(source, manifest, inventory=None, ui_tests=False):
                     errors.append(f"missing registered test: {identity}: {anchor}")
     for group in groups.keys() - covered:
         errors.append(f"source group has no feature owner: {group}")
+    separate_work = indexed(manifest.get("separate_work", []), "separate work", errors)
+    for identity, item in separate_work.items():
+        if item.get("feature") not in features or not item.get("reason", "").strip() or not item.get("name", "").strip():
+            errors.append(f"invalid separate work: {identity}")
     states = indexed(manifest["states"], "state", errors)
     for identity, state in states.items():
         if not state.get("owner", "").strip() or not state.get("lifetime", "").strip():
@@ -241,9 +304,11 @@ def check(source, manifest, inventory=None, ui_tests=False):
     if errors:
         raise ValueError("\n".join(errors))
     return {"files": len(files), "groups": len(groups), "features": len(features), "states": len(states),
-            "legacy_exposures": len(exposures), "completed_phase": phase,
+            "legacy_exposures": len(legacy), "native_hosts": len(hosts), "native_adapters": len(adapters),
+            "value_header_users": len(value_imports), "completed_phase": phase, "functional_phase": functional_phase,
             "test_registration_checked": inventory is not None,
-            "open_gaps": sum(len(feature["gaps"]) for feature in features.values())}
+            "open_gaps": sum(len(feature["gaps"]) for feature in features.values()),
+            "separate_work": len(separate_work)}
 
 
 def main():

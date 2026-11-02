@@ -73,7 +73,7 @@ foreach (_source IN LISTS _sources)
                 NOT (_source STREQUAL "application/ExecutionCommands.cpp" AND
                      _path MATCHES "^core/(document/Document|graph/(Debugger|RuntimeProfile)|runtime/TextEncoding)\\.h$") AND
                 NOT (_source STREQUAL "application/DocumentCommands.cpp" AND
-                     _path MATCHES "^core/(document/FileCommands|runtime/TextEncoding)\\.h$"))
+                     _path MATCHES "^core/(document/FileCommands|runtime/TextEncoding|catalog/ClassInfo)\\.h$"))
             list(APPEND _errors "${_source}: editor commands include ${_path}")
         endif()
         if((_source MATCHES "^workspace/" OR _source MATCHES "^features/objects/ObjectViews") AND
@@ -95,7 +95,7 @@ foreach (_source IN LISTS _sources)
             list(APPEND _errors "${_source}: runtime view includes native or legacy editor state ${_path}")
         endif()
         if(_source MATCHES "^features/layout/" AND NOT _source MATCHES "^features/layout/(Layout(Commands|Gestures|Presentation|Authoring)|SnapshotCommands)\\.(h|cpp)$" AND
-                _path MATCHES "^(core/|ui/|CK|Vx|SDL)")
+                _path MATCHES "^(core/|ui/|CK|Vx|SDL)" AND NOT _path STREQUAL "core/catalog/ClassIcon.h")
             list(APPEND _errors "${_source}: Layout projection includes native or legacy editor state ${_path}")
         endif()
         if(_source MATCHES "^features/environment/" AND NOT _source MATCHES "^features/environment/EnvironmentCommands\\.(h|cpp)$" AND

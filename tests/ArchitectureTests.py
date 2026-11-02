@@ -524,6 +524,36 @@ class ArchitectureTests(unittest.TestCase):
         self.manifest["completed_phase"] = 2
         self.assertIn("overdue verification gap", self.run_check().stderr)
 
+    def test_functional_phase_enforces_deadlines_when_performance_is_deferred(self):
+        self.manifest["functional_phase"] = 5
+        self.manifest["features"][0]["gaps"] = [{"reason": "File recovery", "due_phase": 5}]
+        self.assertIn("overdue verification gap", self.run_check().stderr)
+        self.manifest["features"][0]["gaps"] = []
+        self.add_ui('#include "CKAll.h"\n')
+        self.manifest["legacy_exposures"] = [
+            {"file": "ui/view.cpp", "access": ["native-sdk"], "remove_by": 5}]
+        self.assertIn("expired legacy exposure", self.run_check().stderr)
+        self.manifest["legacy_exposures"][0]["remove_by"] = 6
+        self.assertIn("legacy UI exposure after phase five", self.run_check().stderr)
+
+    def test_functional_phase_cannot_precede_accepted_phase(self):
+        self.manifest["completed_phase"] = 3
+        self.manifest["functional_phase"] = 2
+        self.assertIn("functional_phase must be between", self.run_check().stderr)
+
+    def test_separate_work_requires_feature_and_explicit_reason(self):
+        item = {"id": "runtime-isolation", "feature": "edit", "name": "Runtime isolation",
+                "reason": "User scheduled this separately"}
+        self.manifest["separate_work"] = [item]
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["separate_work"], 1)
+        item["feature"] = "unknown"
+        self.assertIn("invalid separate work", self.run_check().stderr)
+        item["feature"] = "edit"
+        item["reason"] = ""
+        self.assertIn("invalid separate work", self.run_check().stderr)
+
     def test_ui_test_anchors_are_checked_when_ui_is_enabled(self):
         self.manifest["features"][0]["ui_tests"] = ["UiTest"]
         self.assertEqual(self.run_check().returncode, 0)
@@ -602,6 +632,54 @@ class ArchitectureTests(unittest.TestCase):
                     self.assertIn(error, result.stderr)
                 else:
                     self.assertEqual(result.returncode, 0, result.stderr)
+
+    def native_adapter(self):
+        self.add_ui('// Pure window.\n')
+        self.write('ui/native/Parameters.cpp', '#include "CKAll.h"\n')
+        self.manifest['native_adapters'] = [{'file': 'ui/native/Parameters.cpp', 'access': ['native-sdk'],
+                                            'purpose': 'Native working parameter lifetime.'}]
+
+    def test_private_native_adapter_is_checked_separately(self):
+        self.native_adapter()
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['legacy_exposures'], 0)
+        self.assertEqual(json.loads(result.stdout)['native_adapters'], 1)
+
+    def test_native_adapter_cannot_be_included_by_a_window(self):
+        self.native_adapter()
+        self.write('ui/view.cpp', '#include "ui/native/Parameters.cpp"\n')
+        result = self.run_check()
+        self.assertIn('private native adapter included outside its implementation', result.stderr)
+        self.assertIn('unrecorded native/state exposure: ui/view.cpp', result.stderr)
+
+    def test_native_adapter_cannot_hide_window_drawing(self):
+        self.native_adapter()
+        self.write('ui/native/Parameters.cpp', '#include "CKAll.h"\nvoid Draw() { ImGui::Begin("Window"); }\n')
+        self.assertIn('drawing in native adapter', self.run_check().stderr)
+
+    def test_only_application_assembly_can_be_a_native_host(self):
+        self.add_ui('#include "CKAll.h"\n')
+        self.manifest['native_hosts'] = [{'file': 'ui/view.cpp', 'access': ['native-sdk'], 'purpose': 'Pretend host.'}]
+        self.assertIn('invalid native host', self.run_check().stderr)
+
+    def test_editing_session_cannot_leak_to_ordinary_views(self):
+        self.add_ui('#include "ui/native/EditorSession.h"\n')
+        self.write('ui/native/EditorSession.h', '#pragma once\n')
+        self.manifest['native_hosts'] = [{'file': 'ui/native/EditorSession.h', 'access': ['editing-session'],
+                                          'purpose': 'Own native document lifetime.'}]
+        result = self.run_check()
+        self.assertIn('private native adapter included outside its implementation', result.stderr)
+        self.assertIn('unrecorded native/state exposure: ui/view.cpp: editing-session', result.stderr)
+
+    def test_value_headers_require_exact_recording_and_do_not_mask_native_access(self):
+        self.add_ui('#include "VxMatrix.h"\n')
+        self.assertIn('unrecorded value headers', self.run_check().stderr)
+        self.manifest['value_headers'] = [{'file': 'ui/view.cpp', 'headers': ['VxMatrix.h']}]
+        self.assertEqual(self.run_check().returncode, 0)
+        self.write('ui/view.cpp', '#include "VxMatrix.h"\n#include "CKContext.h"\n')
+        self.assertIn('unrecorded native/state exposure: ui/view.cpp: native-sdk', self.run_check().stderr)
+
 
 
 if __name__ == "__main__":

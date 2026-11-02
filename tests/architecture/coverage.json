@@ -2,6 +2,15 @@
   "version": 1,
   "baseline_revision": "029f2c9a6d2b062e031357224f6115a96ebac6cc",
   "completed_phase": 3,
+  "functional_phase": 5,
+  "separate_work": [
+    {
+      "id": "runtime-isolation",
+      "feature": "F17",
+      "name": "运行时进程隔离",
+      "reason": "用户明确安排单独实施；本轮阶段五收尾不包含它。原生单次调用仍不能强制中断。中断后保留文档、选区和撤销历史，并继续嵌入 3D 视口的要求不变。"
+    }
+  ],
   "external_submodules": [
     "external/imgui",
     "external/imgui_test_engine",
@@ -126,11 +135,10 @@
       "patterns": [
         "ui/app/Main.cpp",
         "ui/app/EditorApp.*",
-        "ui/app/EditorState.*",
         "ui/app/StatusBar.*",
-        "ui/app/EditorEvents.h",
         "ui/app/UiTestRun.h",
-        "ui/app/MessageDialogs.*"
+        "ui/app/MessageDialogs.*",
+        "ui/native/EditorSession.*"
       ]
     },
     {
@@ -154,7 +162,7 @@
       "name": "外部入口",
       "patterns": [
         "ui/app/CommandLine.*",
-        "ui/app/EditorStartup.cpp",
+        "ui/app/EditorStartup.*",
         "ui/app/DesktopFiles.*"
       ]
     },
@@ -186,9 +194,11 @@
         "ui/setup/**",
         "ui/controls/ParameterBox.*",
         "ui/controls/ValueEditor.*",
-        "ui/controls/ObjectText.h",
         "ui/controls/BehaviorInfoDialog.*",
-        "ui/controls/ObjectArrayInput.*"
+        "ui/controls/ObjectArrayInput.*",
+        "ui/controls/ParameterCopies.h",
+        "ui/controls/ParameterDialog.*",
+        "ui/native/Parameter*"
       ]
     },
     {
@@ -204,7 +214,8 @@
       "id": "S22",
       "name": "Layout 视图",
       "patterns": [
-        "ui/layout/**"
+        "ui/layout/**",
+        "ui/native/LayoutRenderer.cpp"
       ]
     },
     {
@@ -218,7 +229,8 @@
       "id": "S24",
       "name": "General Preferences 工作区视图",
       "patterns": [
-        "features/preferences/PreferencesView.*"
+        "features/preferences/PreferencesView.*",
+        "features/preferences/PreferencesData.h"
       ]
     },
     {
@@ -244,10 +256,11 @@
         "ui/controls/**",
         "!ui/controls/ParameterBox.*",
         "!ui/controls/ValueEditor.*",
-        "!ui/controls/ObjectText.h",
         "!ui/controls/BehaviorInfoDialog.*",
         "!ui/controls/FileDialogs.*",
-        "!ui/controls/ObjectArrayInput.*"
+        "!ui/controls/ObjectArrayInput.*",
+        "!ui/controls/ParameterCopies.h",
+        "!ui/controls/ParameterDialog.*"
       ]
     },
     {
@@ -563,7 +576,8 @@
       "S07",
       "S08",
       "S12",
-      "S13"
+      "S13",
+      "S33"
     ],
     "S06": [
       "S07"
@@ -608,7 +622,6 @@
       "S13",
       "S15",
       "S16",
-      "S17",
       "S18",
       "S19",
       "S20",
@@ -644,7 +657,9 @@
       "S53",
       "S54",
       "S55",
-      "S57"
+      "S57",
+      "S09",
+      "S10"
     ],
     "S15": [
       "S01",
@@ -658,7 +673,8 @@
       "S33",
       "S34",
       "S35",
-      "S17"
+      "S17",
+      "S12"
     ],
     "S16": [
       "S01",
@@ -678,7 +694,6 @@
     "S18": [
       "S07",
       "S13",
-      "S14",
       "S16",
       "S20",
       "S21",
@@ -686,7 +701,8 @@
       "S33",
       "S34",
       "S35",
-      "S57"
+      "S57",
+      "S24"
     ],
     "S19": [
       "S27",
@@ -700,7 +716,6 @@
       "S08",
       "S12",
       "S13",
-      "S14",
       "S17",
       "S23",
       "S26",
@@ -716,10 +731,8 @@
       "S58"
     ],
     "S21": [
-      "S06",
       "S07",
       "S13",
-      "S14",
       "S15",
       "S16",
       "S17",
@@ -732,25 +745,24 @@
       "S41",
       "S49",
       "S56",
-      "S57"
+      "S57",
+      "S24"
     ],
     "S22": [
       "S08",
       "S09",
-      "S10",
       "S13",
-      "S14",
       "S20",
       "S23",
       "S26",
       "S27",
       "S33",
       "S35",
-      "S56"
+      "S56",
+      "S17",
+      "S10"
     ],
     "S23": [
-      "S01",
-      "S13",
       "S26",
       "S07"
     ],
@@ -772,19 +784,19 @@
     "S27": [
       "S13",
       "S23",
-      "S26"
+      "S26",
+      "S12"
     ],
     "S28": [
       "S13"
     ],
     "S29": [
-      "S02",
       "S13",
-      "S14",
       "S15",
       "S23",
       "S26",
-      "S27"
+      "S27",
+      "S21"
     ],
     "S30": [
       "S13"
@@ -835,7 +847,8 @@
       "S55",
       "S56",
       "S57",
-      "S58"
+      "S58",
+      "S24"
     ],
     "S34": [
       "S01",
@@ -991,11 +1004,13 @@
       "S17",
       "S34",
       "S56",
-      "S07"
+      "S07",
+      "S12"
     ],
     "S56": [
       "S34",
-      "S35"
+      "S35",
+      "S12"
     ],
     "S57": [
       "S07",
@@ -1008,332 +1023,7 @@
       "S35"
     ]
   },
-  "legacy_exposures": [
-    {
-      "file": "ui/app/CommandLine.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/CommandLine.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/EditorApp.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/EditorApp.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/EditorStartup.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/EditorState.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/EditorState.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/Main.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/DevBitmaps.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/ObjectText.h",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/ParameterBox.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/ParameterBox.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/ValueEditor.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/controls/ValueEditor.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/layout/LayoutDrop.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/layout/LayoutExplorer.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/layout/LayoutFullScreen.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/layout/LayoutInput.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/layout/LayoutMenu.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/layout/LayoutSnapshot.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/layout/LayoutWindow.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/layout/LayoutWindow.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/panels/EditorPanels.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/panels/EditorPanels.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/SchematicCanvas.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/SchematicCanvas.h",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/SchematicDialogs.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/SchematicInput.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/SchematicLinking.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/SchematicMenus.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/SchematicPrint.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/schematic/Snapshots.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/setup/SetupObjectPages.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/setup/SetupRenderPages.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/setup/SetupScenePages.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/setup/SetupWindows.cpp",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/setup/SetupWindows.h",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/setup/SetupWindowsDetail.h",
-      "access": [
-        "native-sdk"
-      ],
-      "remove_by": 5
-    }
-  ],
+  "legacy_exposures": [],
   "features": [
     {
       "id": "F01",
@@ -1460,12 +1150,7 @@
         "VirtoolsDevUi.filemenu",
         "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "网页双产物发布失败、旧文件恢复及失败不预览已覆盖；仍待补恢复本身失败和外部写入竞争的故障注入"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F07",
@@ -1625,7 +1310,9 @@
         "VirtoolsDev.ReplaceBehaviors",
         "VirtoolsDev.OperationCommands",
         "VirtoolsDev.LinkAndExportCommands",
-        "NeMoDevEditor"
+        "NeMoDevEditor",
+        "VirtoolsDev.GraphActionRecordReplay",
+        "VirtoolsDev.GraphActionRecordDependencies"
       ],
       "ui_tests": [
         "VirtoolsDevUi.blocks",
@@ -1768,12 +1455,7 @@
         "VirtoolsDevUi.debugger",
         "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "控制、参数、时间设置、忙时只读数据及锁定目标失效已覆盖；进程隔离另行实施，原生单次调用仍不能强制中断"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F18",
@@ -1797,12 +1479,7 @@
         "VirtoolsDevUi.debugger",
         "VirtoolsDevUi.hierarchy"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "补齐关闭前 debug frame 结束的组合测试；旧断点、条件目标和索引失效已由统一命令回归覆盖"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F19",
@@ -1853,12 +1530,7 @@
         "VirtoolsDevUi.tools",
         "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "RSC 新建的多产物失败回滚及大型目录后台扫描仍待实施；目录刷新失败、说明原子替换、输入取消、多视图回收、Script 载入目标和后台浏览已覆盖"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F21",
@@ -1906,12 +1578,7 @@
         "VirtoolsDevUi.blocks",
         "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "补目录替换后的旧索引和缺类型 fallback"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F23",
@@ -1963,18 +1630,14 @@
         "VirtoolsDev.DocumentPictures",
         "VirtoolsDev.DocumentLayoutMetadata",
         "NeMoDevEditor",
-        "NeMoDevRuntimeOperation"
+        "NeMoDevRuntimeOperation",
+        "NeMoDevUiTextures"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.layout"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "补地址复用与 device generation"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F25",
@@ -2063,12 +1726,7 @@
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.modules"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "EventLog 和应用消息的统一查询、答复及替代显示已覆盖；剩余保存报告和旧面板错误呈现随阶段五迁移"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F28",
@@ -2096,17 +1754,14 @@
         "VirtoolsDev.SilentObjectDestruction",
         "VirtoolsDev.ObjectIdentityResources",
         "VirtoolsDev.ObjectIdentityReplay",
-        "VirtoolsDev.ScriptIdentitySessions"
+        "VirtoolsDev.ScriptIdentitySessions",
+        "NeMoDevUiTextures",
+        "VirtoolsDev.GraphActionRecordDependencies"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app"
       ],
-      "gaps": [
-        {
-          "due_phase": 5,
-          "reason": "补跨阶段组合故障"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F29",
@@ -2136,7 +1791,7 @@
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "复杂视图、多 Schematic/3D 视口和跨启动布局、视图状态迁移仍待后续阶段"
+          "reason": "阶段六验证第二个 3D 视口、多实例完整输入组合、跨启动布局及提供者私有状态持久迁移；复杂窗口登记和本轮生命周期迁移已完成"
         }
       ]
     },
@@ -2167,7 +1822,7 @@
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "迁移后通过正式接口复验本项行为与生命周期"
+          "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
         }
       ]
     },
@@ -2231,7 +1886,7 @@
       "name": "History、savepoint、graveyard、bitmaps、Layout、Pictures",
       "owner": "Document 内核",
       "lifetime": "淘汰、清 Redo、依赖移除、关闭",
-      "persistence": "记录、编辑元数据和资源依赖共同提交",
+      "persistence": "撤销动作只保存领域数据、完整对象引用和必要的原生状态资源，不捕获应用、视图、Document 或 Context 指针；图记录可从复制数据恢复；回放与故障补偿统一保护；淘汰与清 Redo 仍回收依赖对象",
       "features": [
         "F08",
         "F23",
@@ -2273,7 +1928,7 @@
     },
     {
       "id": "navigation",
-      "name": "focus、EditorEvents、SelectionFollower 与视图拾取",
+      "name": "工作区聚焦、视图导航请求和对象拾取",
       "owner": "Workspace 拥有实例导航、聚焦和视图拾取；查询及命令通过来源视图作用域寻址",
       "lifetime": "实例与文档作用域；关闭先清理输入和弹窗，再取消作用域及等待操作",
       "persistence": "标题与实例身份分离；Setup 保留角色标识，Layout 保留既有窗口标识；旧 objectPick 表已删除，不保存原生引用到用户配置",
@@ -2458,7 +2113,7 @@
     {
       "id": "viewport",
       "name": "CK 渲染 Context、interface cameras、UI-owned target 与 imported handle",
-      "owner": "LayoutView 与 UiRenderer 持有 Context/纹理；LayoutPresentation 同步 Player 和显示设置；工作区拥有 Layout 窗口实例，LayoutWindow 私有原生适配执行模式切换",
+      "owner": "LayoutView 和 UiRenderer 拥有 Context/纹理；LayoutPresentation 同步 Player 和显示设置；工作区拥有 Layout 窗口；ui/native/LayoutRenderer.cpp 保留私有原生呈现和模式切换",
       "lifetime": "窗口关闭、viewport/native generation、resize/fullscreen；提供者替换候选准备完成前保留原目标，失败不停止原呈现",
       "persistence": "非文档创作对象；保留既有不保存标记；GPU 目标按帧末流程释放，渲染与通用 readback/upload 函数保持原实现",
       "features": [
@@ -2469,7 +2124,7 @@
       "id": "image_cache",
       "name": "SnapshotTexture/PixelTexture、HTML images、Dev bitmaps/icons/fonts",
       "owner": "UiRenderer/资源缓存；源图像仍归原所有者",
-      "lifetime": "bitmap/source/device/font/DPI 变化、帧资源安全释放",
+      "lifetime": "源图像身份和版本、UiRenderer device generation 变化时失效；同地址新图像重新创建纹理；设备停止前使所有存活 UiTexture 失效，重建后按需恢复",
       "persistence": "缓存不成为图片数据所有者；键含有效身份/版本",
       "features": [
         "F24",
@@ -2576,7 +2231,7 @@
       "name": "原生文件对话框队列、过滤器和平台晚回调",
       "owner": "FileDialogs；已迁移文件输入由 document.file-dialogs 视图持有",
       "lifetime": "回复或关闭所属视图；关闭后晚回调只释放数据，不调用已销毁视图",
-      "persistence": "临时 UI 状态；流程和文档输入编号仍由 DocumentCommands 拥有，旧输出窗口待后续迁移",
+      "persistence": "临时输入不保存；文件流程归领域命令，绘制归工作区输入视图；单个答复抛异常保留其余已排队答复，关闭来源后不再交付",
       "features": [
         "F02",
         "F04",
@@ -2627,7 +2282,7 @@
       "id": "resource-libraries",
       "name": "资源库目录和文件说明",
       "owner": "DataResourceCommands",
-      "lifetime": "应用会话；多个视图共享按版本发布的目录，最后一个视图关闭后回收",
+      "lifetime": "文件系统扫描在可取消的后台任务中生成独立目录；主线程空闲时发布目录、登记路径并导航；多个视图共享版本，最后一个视图关闭后回收；旧来源的完成结果不得重开视图",
       "persistence": "打开库的路径沿用应用偏好；刷新失败保留已发布目录，路径登记使用原 CK 路径管理",
       "features": [
         "F20"
@@ -2659,7 +2314,7 @@
       "name": "默认视图角色、停靠区域、分割和重置规则",
       "owner": "EditorWorkspace",
       "lifetime": "已生效的工作区配置；先校验并准备全部视图，成功后共同替换",
-      "persistence": "默认配置与自定义配置使用相同应用入口；Setup 与其他登记视图共用创建、绘制、聚焦、停靠和关闭流程，Setup 的稳定窗口角色保留既有布局标识，其余视图保留原标识；当前为内存配置，未迁移窗口仅保留已列明的名称适配",
+      "persistence": "所有内置窗口通过同一工作区登记创建、绘制、聚焦、停靠和关闭；保留既有窗口标识。Schematic Explorer 关闭释放草稿，但保留当前文档的搜索结果供 F3 导航；中央事件和名称拾取表已删除。跨启动配置仍在阶段六。",
       "features": [
         "F25",
         "F29",
@@ -2669,7 +2324,7 @@
     {
       "id": "parameter-dialog-values",
       "name": "参数对话框的工作副本、交互开始值与输入校验",
-      "owner": "SchematicParameterEdits 持有原生工作副本；SchematicParameterDialog 保存复制输入；其余窗口沿用 ParameterBox",
+      "owner": "ParameterCopies 的私有原生实现拥有临时参数；ParameterBox、ValueEditor 和 ParameterDialog 只持有完整引用、复制值与交互状态；SchematicParameterEdits 拥有图参数草稿",
       "lifetime": "原文档和来源视图；确认、取消、关闭、失效或模块停止释放原生工作副本；Apply 完成后重新读取",
       "persistence": "预览只改工作副本，不写原文档或 Dirty；名称、类型、值和不兼容连线在同一命令内提交，输入批次和设置回调仍合成一步 Undo。嵌套控件取消只恢复当前交互；整个对话框取消不改历史或 Redo。对象数组共用只读列表和选择控件。其余窗口的 ParameterBox 继续复用相同值编辑器与修改命令。 Explorer 筛选值和替换值复用 ParameterBox 的动态工作参数，确认只更新工作值；实际替换走统一命令，关闭窗口或来源视图后释放。",
       "features": [
@@ -2846,6 +2501,145 @@
     "SilentObjectDestruction",
     "ObjectIdentityResources",
     "ObjectIdentityReplay",
-    "ScriptIdentitySessions"
+    "ScriptIdentitySessions",
+    "GraphActionRecordReplay",
+    "GraphActionRecordDependencies"
+  ],
+  "native_adapters": [
+    {
+      "file": "ui/native/LayoutRenderer.cpp",
+      "access": [
+        "native-sdk"
+      ],
+      "purpose": "Layout 的原生呈现和普通纹理快速传输；窗口绘制只接收纹理和复制的数据。"
+    },
+    {
+      "file": "ui/native/ParameterCopies.cpp",
+      "access": [
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "参数工作副本的创建、校验、拾取、统一命令提交及回收；绘制源码只接收值副本和完整对象引用。"
+    },
+    {
+      "file": "ui/native/ParameterCopiesDetail.h",
+      "access": [
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "参数工作副本的创建、校验、拾取、统一命令提交及回收；绘制源码只接收值副本和完整对象引用。"
+    },
+    {
+      "file": "ui/native/ParameterDialogs.cpp",
+      "access": [
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "参数工作副本的创建、校验、拾取、统一命令提交及回收；绘制源码只接收值副本和完整对象引用。"
+    }
+  ],
+  "native_hosts": [
+    {
+      "file": "ui/app/EditorApp.cpp",
+      "access": [
+        "editing-session",
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "应用装配与原生编辑会话所有权；不供普通工作区视图包含或访问。"
+    },
+    {
+      "file": "ui/app/EditorApp.h",
+      "access": [
+        "editing-session",
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "应用装配与原生编辑会话所有权；不供普通工作区视图包含或访问。"
+    },
+    {
+      "file": "ui/app/EditorStartup.cpp",
+      "access": [
+        "editing-session",
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "应用装配与原生编辑会话所有权；不供普通工作区视图包含或访问。"
+    },
+    {
+      "file": "ui/app/Main.cpp",
+      "access": [
+        "editing-session",
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "应用装配与原生编辑会话所有权；不供普通工作区视图包含或访问。"
+    },
+    {
+      "file": "ui/native/EditorSession.cpp",
+      "access": [
+        "editing-session",
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "应用装配与原生编辑会话所有权；不供普通工作区视图包含或访问。"
+    },
+    {
+      "file": "ui/native/EditorSession.h",
+      "access": [
+        "editing-session",
+        "mutable-document",
+        "native-sdk"
+      ],
+      "purpose": "应用装配与原生编辑会话所有权；不供普通工作区视图包含或访问。"
+    }
+  ],
+  "value_headers": [
+    {
+      "file": "ui/setup/SetupObjectPages.cpp",
+      "headers": [
+        "CKDefines.h",
+        "CKEnums.h"
+      ]
+    },
+    {
+      "file": "ui/setup/SetupRenderPages.cpp",
+      "headers": [
+        "CKDefines.h",
+        "CKEnums.h",
+        "VxDefines.h"
+      ]
+    },
+    {
+      "file": "ui/setup/SetupScenePages.cpp",
+      "headers": [
+        "CKDefines.h",
+        "CKEnums.h",
+        "VxDefines.h"
+      ]
+    },
+    {
+      "file": "ui/setup/SetupWindows.cpp",
+      "headers": [
+        "CKDefines.h"
+      ]
+    },
+    {
+      "file": "ui/setup/SetupWindows.h",
+      "headers": [
+        "VxBbox.h",
+        "VxColor.h",
+        "VxMatrix.h",
+        "VxRect.h"
+      ]
+    },
+    {
+      "file": "ui/setup/SetupWindowsDetail.h",
+      "headers": [
+        "VxColor.h",
+        "VxMatrix.h",
+        "VxRect.h"
+      ]
+    }
   ]
 }
