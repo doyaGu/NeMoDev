@@ -1,0 +1,548 @@
+{
+  "description": "阶段六：第二个完整 3D Layout 视口，各自相机、工具、输入和 GPU/fallback。性能计时验收暂缓，进程隔离单独实施。",
+  "base_revision": "8317b5ffc7ef93a2a09570db5e89f3efaff42e63",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "editor_version": 21,
+    "profile_version": 1,
+    "workspace_version": 1
+  },
+  "changes": [
+    "Layout 注册为多实例；LayoutWindows 拥有各自的 LayoutWindow/LayoutView 和渲染资源，工作区拥有窗口状态和生命周期。",
+    "相机选择、工具、手势、场景查询版本、Player 状态及临时放置参数按视图作用域分开；同一文档的对象、选区和撤销历史继续共享。",
+    "唯一的运行时输入映射在全部视图绘制后交给活动视口，主渲染 Context 同步切换；非活动视口关闭不清空当前输入。",
+    "每视口沿用既有 GPU/fallback 函数指针；resize 和失败只影响本视口，显式快照只读取来源一次。",
+    "界面对象与渲染 Context 使用既有 SDK 生命周期编号；关闭时不销毁复用编号的新对象或另一视口资源。",
+    "旧文件只保存主 Layout；工作区按实例保存显示设置，按类型和角色恢复完整同会话关闭状态。内置与外部提供者使用同一创建、替换和状态恢复流程。"
+  ],
+  "coverage": {
+    "files": 1114,
+    "groups": 59,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 8,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-multiview/build-final.log",
+      "sha256": "ad559ebddc7ed6460a48fe9cfd6b5d1dcad215401c88814bbabc0f352c20057b"
+    },
+    "complete_nonperformance_ctest": {
+      "total": 135,
+      "passed": 135,
+      "failures": 0,
+      "skipped": 0,
+      "core_tests": 112,
+      "ui_ctest_groups": 23,
+      "report": {
+        "path": "out/phase-six-multiview/full-final.xml",
+        "sha256": "219262f17dd36afc072236f79c6ab9c76f60831e95d5d791752683f123f252ce"
+      },
+      "inventory": {
+        "path": "out/phase-six-multiview/ctest-inventory-final.json",
+        "sha256": "6af0a89f09d06c887666245dd2de0990e2337365865588666b13f015b833918d"
+      },
+      "validation": "tests/CheckCTestResults.py matched every final configured nonperformance test with no skips or failures."
+    },
+    "ordinary_ui_cases": 266,
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "executed": 3,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/html.xml",
+          "sha256": "ffaacfff2fe5b6975fc3489b3d685e808f3309e8dac9199efad1795a5b7f3670"
+        }
+      },
+      "VirtoolsDevUi.app": {
+        "executed": 28,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/app.xml",
+          "sha256": "9780bed30d13e062cb23b0d07d66ff05b6b14356147959556b3cf72edafe92be"
+        }
+      },
+      "VirtoolsDevUi.layoutviews": {
+        "executed": 3,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/layoutviews.xml",
+          "sha256": "93fcc71fd4e17a61e312cc55b1b05e21d79679b10571bc2f3a8281dcf9a97d83"
+        }
+      },
+      "VirtoolsDevUi.filemenu": {
+        "executed": 10,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/filemenu.xml",
+          "sha256": "b48e1d9583954c00c515157b11a7debe5f0eaa6820d9b109df202d5782794182"
+        }
+      },
+      "VirtoolsDevUi.schematic": {
+        "executed": 26,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/schematic.xml",
+          "sha256": "b652c1672b6385296028949584b464920fde3de0726edd49959a190c0831faa4"
+        }
+      },
+      "VirtoolsDevUi.debugger": {
+        "executed": 10,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/debugger.xml",
+          "sha256": "0508a157a6bef3aa67c4988e87f649e4a4ae0226f9860e3898b81a53c181f227"
+        }
+      },
+      "VirtoolsDevUi.layout": {
+        "executed": 33,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/layout.xml",
+          "sha256": "12e18146fd8e64537236e16c48a93d08ccdce4425d196f559864b1ed0c71c12e"
+        }
+      },
+      "VirtoolsDevUi.level": {
+        "executed": 7,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/level.xml",
+          "sha256": "6771a40e63b4e05dac50ce5dad998da5bdf491ea197034f72f10c33c5ee51993"
+        }
+      },
+      "VirtoolsDevUi.setup": {
+        "executed": 21,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/setup.xml",
+          "sha256": "068e29366c585a9536a39f49bc19b229bf0955a21bb0ec77053ebe43ecefb3d5"
+        }
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "executed": 7,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/propertyedits.xml",
+          "sha256": "4d9d21448dbe3b3fda254ac853458d1591e13c382de9efbfbdc142d683462766"
+        }
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "executed": 8,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/hierarchy.xml",
+          "sha256": "78ffe513e744693dfb84a086d2f7d13baa1d481afe156ebce2b11a98d7c31f8d"
+        }
+      },
+      "VirtoolsDevUi.blocks": {
+        "executed": 7,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/blocks.xml",
+          "sha256": "581428a4f19bd35b80d6bbb93fd50b2520e805d1feb51f0b739e43fdb681b217"
+        }
+      },
+      "VirtoolsDevUi.attributes": {
+        "executed": 6,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/attributes.xml",
+          "sha256": "8106b3628ad18cfacf9d8081b49942a9af70e096aa5a53a5058e4970dc91333f"
+        }
+      },
+      "VirtoolsDevUi.create": {
+        "executed": 6,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/create.xml",
+          "sha256": "3f94c21dd136af7f69062032660dd2fab8793bf115709c8b1018b844f136e0fe"
+        }
+      },
+      "VirtoolsDevUi.tools": {
+        "executed": 13,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/tools.xml",
+          "sha256": "a41c647ba82b433dcaad801f37d328b4a39c49ecbeed407768849331e711a91e"
+        }
+      },
+      "VirtoolsDevUi.sound": {
+        "executed": 2,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/sound.xml",
+          "sha256": "8679769594fd84c4740acae6671d34756916939a551269bdab6ad3f36d248316"
+        }
+      },
+      "VirtoolsDevUi.character": {
+        "executed": 2,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/character.xml",
+          "sha256": "5016ca0f09adc9504932ccb6a5bd673df42678b98d4de0229e0335db943e39b5"
+        }
+      },
+      "VirtoolsDevUi.modules": {
+        "executed": 74,
+        "registered": 290,
+        "report": {
+          "path": "/Users/touyou/Work/NeMoDev/out/macos-arm64/virtoolsdev-ui/modules.xml",
+          "sha256": "bbf35eeb2f23026282917859e26d379688c6d814beddfd681d3b4139729102a8"
+        }
+      }
+    },
+    "native_desktop": {
+      "case": "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+      "executed": 1,
+      "passed": 1,
+      "report": {
+        "path": "out/phase-six-multiview/player-final.xml",
+        "sha256": "ca7cd94ba12de6fa2c441f7ed69be3c5bfd89ce32410d3a6474f04b3503dc60c"
+      },
+      "log": {
+        "path": "out/phase-six-multiview/player-final.log",
+        "sha256": "003a710ecf455fe0580e200a513582b9027f4731865360e18b82e3a603d5a7ac"
+      }
+    },
+    "workspace_startup_combinations": [
+      {
+        "path": "out/macos-arm64/workspace-startup/bad-dock-tree.xml",
+        "sha256": "d0289533bab8f7bf1f915f4eaf2979e80e8404f526d7a2855a1803dad347828b"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/bad-view-version.xml",
+        "sha256": "d22c9ad13c1f8621b28d99d7833dd0b10781819b9246f7b7510ddfc4f8a51c90"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/close-missing-provider.xml",
+        "sha256": "f72a7917f06c19f2087bb61b2846aecf6a19d18903c3c8980145554278f1ba25"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/discard-unrestored.xml",
+        "sha256": "8a81b6e9403cc87a076c6e00ddb80ecf9f9e75e172577187f1e015de0ea63f61"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/first-start-with-document.xml",
+        "sha256": "9bcc627d6f8284ced3399391127bfd9dd3c0ca1862d2a7d595fe7cbe21f1eedb"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/missing-provider.xml",
+        "sha256": "430566e9e77ab67eccfae07b8c628e9f2b141f6a0b13398aabcba244975b6ec3"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/provider-returned.xml",
+        "sha256": "d8dfd93b6b9b6487b4f759077ec5c78dca178d0525226badf0745ac2373db6f3"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/restore.xml",
+        "sha256": "841b071e4030dea0c63def4fd209b53157ece0bebd6a2255efa9eee789592544"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/save.xml",
+        "sha256": "7a75bed20a81f7a17664257c7a157771db51ab53c7291bdc946d4d2e22defc6e"
+      }
+    ],
+    "architecture_checker_cases": 58,
+    "architecture_checker_log": {
+      "path": "out/phase-six-multiview/architecture-tests-final.log",
+      "sha256": "652b306e2f0c2c7894aa88a5d74012677d0ced5600899dd9e29d9a64cfd1b927"
+    },
+    "new_regressions": [
+      "独立默认相机、同一文档相机的独立附件选择、拒绝另一视口的私有相机",
+      "交替分页与相机切换不使另一视口版本失效",
+      "独立曲线工具、来源手势状态、取消和关闭来源后恢复；旧作用域不能回落到另一视口",
+      "界面对象不共享所有权；私有相机静默删除并复用编号后，不复活旧视口，也不误删替代对象或另一视口界面资源",
+      "真实工具点击和相机拖动、Escape 取消、独立工具与焦点/绘制顺序、原生输入坐标、关闭非活动视口",
+      "两个稳定 GPU 目标、resize 仅创建一个新目标、第二视口失败固定 fallback 且不影响第一视口",
+      "快照只增加来源视口一次读回",
+      "两个视口一起替换外部提供者，失败保留原资源，恢复内置后各自工具不混淆",
+      "角色关闭重开与 Saved Views 恢复完整同会话状态；跨启动仍只恢复已声明字段",
+      "第二视口原生全屏保留第一视口纹理和相机，全屏快照、返回焦点及 GPU 路径"
+    ]
+  },
+  "preservation": {
+    "sdk_source_writes_by_this_batch": false,
+    "sdk_changes_during_work": [
+      ".",
+      "Source/CK2",
+      "Source/RenderEngine",
+      "Source/VxMath"
+    ],
+    "sdk_note": "SDK 工作区在任务期间有独立提交与修改；本批没有写 SDK 源码。构建和回归使用下列实际工作区及运行文件，不声称与起点的运行库指纹相同。",
+    "sdk_repositories_tested": {
+      ".": {
+        "revision": "980ab4594c48b088ad63d76af7c96c3d54ff1014",
+        "status": " M Source/CK2\n m Source/Player\n M Source/RenderEngine\n M Source/VxMath\n",
+        "patch_sha256": "242c02a2590fbe3a92a5f617c6199a3b27efd16b76e4b00a5d412a3394eade61",
+        "untracked": {}
+      },
+      "Source/BuildingBlocks": {
+        "revision": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/BuildingBlocks/3DTrans/qhull": {
+        "revision": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/BuildingBlocks/physics_RT/ivp": {
+        "revision": "7579664996e68040dd0158081b04f612e6a2d515",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/CK2": {
+        "revision": "474f35d5f19bc2a61fd2ef92237d8e8cb3e6399d",
+        "status": " M src/CKCallbackFunctions.cpp\n",
+        "patch_sha256": "38d2b69e64196fb991fbf1ba5ed27bd3b9a5a710796a42e8c0e60e148359f0c7",
+        "untracked": {}
+      },
+      "Source/CK2/deps/miniz": {
+        "revision": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/Managers/ParameterOperations": {
+        "revision": "85767adbdf70c327fcb9da9d179285a390bd6756",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/Managers/SdlInputManager": {
+        "revision": "368d414378410ddeb4a0e42e523f86c90b842a68",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/Managers/SdlSoundManager": {
+        "revision": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/Player": {
+        "revision": "e507329544c8d0000b8449371caca203b77b7225",
+        "status": " M src/GamePlayer.cpp\n",
+        "patch_sha256": "cab4a6c86e0a4d77ee6ef6f028692f4961b8bf457337908a1b6f6179b6f4462d",
+        "untracked": {}
+      },
+      "Source/Plugins": {
+        "revision": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/RenderEngine": {
+        "revision": "61119539be6f2dc15dcc04abebd34d35cc6df770",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/VxMath": {
+        "revision": "d0a9e88875946bd8de040dabb73a212948e383ef",
+        "status": " M deps/CMakeLists.txt\n",
+        "patch_sha256": "a5fe8ba623c7be6aa0833afda62e02d04c8def3dd3808b9b0f71d5ad8f6a2b3a",
+        "untracked": {}
+      },
+      "Source/VxMath/deps/simde": {
+        "revision": "2e5224981e9123b8fe89a9833a978556d636a565",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/VxMath/deps/simde/test/munit": {
+        "revision": "da8f73412998e4f1adf1100dc187533a51af77fd",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      },
+      "Source/VxMath/deps/stb": {
+        "revision": "31c1ad37456438565541f4919958214b6e762fb4",
+        "status": "",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "untracked": {}
+      }
+    },
+    "sdk_start_record": {
+      "path": "out/phase-six-multiview/sdk-before.json",
+      "sha256": "f40f084c20762fd13c4ff902353f30016876fcadaf32c7e0287a37dd39d24337"
+    },
+    "sdk_end_record": {
+      "path": "out/phase-six-multiview/sdk-after.json",
+      "sha256": "c78ebe66928e513a73ceca800b04b00ed3718852fbb86748f46f4bdcde71752e"
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "cf6254d0af3d0b5cc8998e98f1e8e499250966a9ea1b8f788ad6b050f916b432",
+      "lib/libCK2.0.dylib": "cf6254d0af3d0b5cc8998e98f1e8e499250966a9ea1b8f788ad6b050f916b432",
+      "lib/libCK2.dylib": "cf6254d0af3d0b5cc8998e98f1e8e499250966a9ea1b8f788ad6b050f916b432",
+      "lib/libCK2_3D.0.1.0.dylib": "6993c838f8581772a06884dc63e9d8629c78d37151debc2b94984d817c428e56",
+      "lib/libCK2_3D.0.dylib": "6993c838f8581772a06884dc63e9d8629c78d37151debc2b94984d817c428e56",
+      "lib/libCK2_3D.dylib": "6993c838f8581772a06884dc63e9d8629c78d37151debc2b94984d817c428e56",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "cf6254d0af3d0b5cc8998e98f1e8e499250966a9ea1b8f788ad6b050f916b432",
+      "runtime/Bin/libCK2.0.dylib": "cf6254d0af3d0b5cc8998e98f1e8e499250966a9ea1b8f788ad6b050f916b432",
+      "runtime/Bin/libCK2.dylib": "cf6254d0af3d0b5cc8998e98f1e8e499250966a9ea1b8f788ad6b050f916b432",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "6993c838f8581772a06884dc63e9d8629c78d37151debc2b94984d817c428e56",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "6993c838f8581772a06884dc63e9d8629c78d37151debc2b94984d817c428e56",
+      "runtime/RenderEngines/libCK2_3D.dylib": "6993c838f8581772a06884dc63e9d8629c78d37151debc2b94984d817c428e56",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "unchanged_gpu_source_sha256": {
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "unchanged_presentation_methods": {
+      "Upload": true,
+      "SelectViewportContext": true,
+      "ConfigureGpuViewport": true,
+      "ReleaseGpuViewport": true,
+      "RenderUnselectedViewport": true,
+      "RenderReadbackViewport": true,
+      "RenderGpuViewport": true,
+      "ReleaseTexture": true,
+      "ResetViewportAfterContextStop": true,
+      "RenderViewport": true,
+      "CapturePixels": true
+    },
+    "method_comparison": "相对 base_revision，完整函数体去除空白后比较；不改算法或放宽断言。",
+    "editor_c_interface_changed": false,
+    "source_sha256": {
+      "core/layout/LayoutView.cpp": "1e5c92c2b0b1ec7b2559587d05a567b619cd2f1427c8bd80b855e123a9aca5f3",
+      "core/layout/LayoutView.h": "b202407a0e6e14d3d15d073f945dca760acdc671f5515ba3ea3a2dc2ece714b2",
+      "features/layout/LayoutAuthoring.cpp": "1f642d8710654c3f0e1f80a7f2508079c372d1edb8af0a0f152c7ad24a84b041",
+      "features/layout/LayoutAuthoring.h": "127992c7d2fcb039cbbad8c9c56b5bf720627697eaaa438cd9fbc9ae09bb914f",
+      "features/layout/LayoutCommands.cpp": "501bf0859173b8d4e79f1462ec68032e0c1a250eef333c0e835529d2143176a1",
+      "features/layout/LayoutCommands.h": "59d93c45cbbdc4a2316d055edc95c90cc0da25b5ceaf3ae96bf864b45131f1fe",
+      "features/layout/LayoutGestures.cpp": "f35fbd880e5952e4f23cb925da9449cb8bcca9e70c4547a3d1f12f4978c0d6e0",
+      "features/layout/LayoutGestures.h": "609a9ed36ae775d79c63e1fd1ca645f202a7678e89bd02095acb6f7a84cd2ec5",
+      "features/layout/LayoutPresentation.cpp": "4adee7388ce8e0c33f2c9a2a305ccfcbcf59a515de1960912e085d297cb0651a",
+      "features/layout/LayoutPresentation.h": "8d9728161dc5938f20c28e4c1babcea2e0b29a98a56c34665b009d73fcafa8ed",
+      "features/layout/LayoutViewport.h": "485640e58becec88be831288709fd06df6cb3e6cd52d7f1b50b7389f7a3fd298",
+      "features/layout/SnapshotCommands.cpp": "eb32faeb2d594e3943c2645999b05372626da7413c2e9217cfb890e895684433",
+      "features/layout/SnapshotCommands.h": "7b0760b3c9805aa6a99be3ac643f4bb668a3a7123608d320943d249726fa202f",
+      "tests/CMakeLists.txt": "787ac425c540f15f35228c8f5b87798a05b6201a092158c279d9459fcfa47e16",
+      "tests/CanvasCommandTests.cpp": "dcda2e9a6c2acbcd2b5593355351ec7d91d0c670939c73b7afec5d038cdf22bb",
+      "tests/CheckArchitecture.py": "42d6cf40bb0f4d7a4819868e7be6baaf92965dfff1a663a55a8d02eaebef4ed3",
+      "tests/EditorApplicationTests.cpp": "562b3392d6b66a0847daf5ba6dfa20679486d6894f168e8f7fe60813f8281e38",
+      "tests/GestureCommandTests.cpp": "82c701979538849af1d4f01a532899c099f5d6c0c2db13efba3fd20db6292cca",
+      "tests/LayoutAuthoringTests.cpp": "a8c1c43011d674bb64f71bf07a3a372a6154580350d4f7a91bcd3e5dce0ed3b6",
+      "tests/LayoutPresentationTests.cpp": "fe3460607609c058c839460a42ec8d75369731fe88bfe6da3ee63352b8b562a1",
+      "tests/LayoutViewportTests.cpp": "77235f5c944067f48e2927ec54e9560dcd9d2219e14a6e195e181d5d1b8ec8a1",
+      "tests/WorkspacePersistenceTests.cpp": "cc1390341e59f1ae3ce56bfebf853b8f62e3bb9ebb64c3fef6a02ff993f9cc01",
+      "tests/WorkspaceStartupTests.py": "9397e76719d910a5665518118bc31a4625f9b5b89e7503dbb8436af6627bae79",
+      "tests/modules/ObjectModule.cpp": "74c6fc84ff3807a2bf86bd0c92685db9bd8d2b99838a480ff2bc43de49cf866a",
+      "tests/ui/LayoutViewportTests.cpp": "4476378454b4fa819e758a1f642d23d2a1141df5281a6acbf38e5f5ee6415dfd",
+      "tests/ui/ModuleTests.cpp": "77281c3d5f074988d4a9936e8457ef0abd3631cff9b2437a5befd3e04d7a5f91",
+      "tests/ui/PlayerTests.cpp": "bb348c5fb8766c3e2ea8dd7397c98df25d573c71427b69305ffab6b27376bbce",
+      "tests/ui/UiTestRun.cpp": "c952591a7fa4b710a6dbcddd5e220805ff03ddfc6f41ac7567f4415fd0751061",
+      "tests/ui/UiTests.h": "d21448f727c8cfe66568e7c6422748b7373a45bd168b9a84e5fe45c0115d16de",
+      "ui/CMakeLists.txt": "52176e80c1a94d618250ae11e40815152ab0f0a8f45815847e4a29773d127cce",
+      "ui/app/EditorApp.cpp": "b93ae43f80db24286568b5c2e13bf12c5fd883eedee1dbd9acfc5374b2f9b349",
+      "ui/app/EditorApp.h": "29126ffe069ac91680dec2fb332c4ed29f0926a077c162762a827a09d26c3fd3",
+      "ui/app/EditorStartup.cpp": "fae8dedef694063dccbc966f18b354e8a103f35fef6f358d4d0f5f33fdd5e441",
+      "ui/layout/LayoutDrop.cpp": "24e50390e1442973b74428e302955ab92615d77513fa190046b1517a689c90d3",
+      "ui/layout/LayoutExplorer.cpp": "79b8904e5056cc93476c73a24ad81697830613b18d4b93282259f5cd4f9dc63d",
+      "ui/layout/LayoutMenu.cpp": "b7f99b737537c531cbb5fec8ea711e3c91dac3b62bb761301574b122711c50b3",
+      "ui/layout/LayoutSnapshot.cpp": "59b79a3e23e5b12be67708fbe3ce9fe41c0c435e9049c63d44cbca26166913f0",
+      "ui/layout/LayoutWindow.cpp": "a21291769d6fa3bf8449863449d1cc74149019392081e2246124a123f3e5858d",
+      "ui/layout/LayoutWindow.h": "b4f46c97e7db788936bc0bf16bd0c10a401c6ca66138bdaeb53cc42ee8f7009d",
+      "ui/layout/LayoutWindows.cpp": "5e2e863ddb39e8f787b9819d8bf21aa64d54545daae72baed43a4c8cc88f26cf",
+      "ui/layout/LayoutWindows.h": "37615608fe1fb0e6e653b25062bf488ca753ca9f5158ee7ac95f5e5674e256ca",
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "workspace/EditorWorkspace.cpp": "241f6d04280ff2a9715933f66d6dae83b3b3e48b9973364924435c2a23163081",
+      "workspace/EditorWorkspace.h": "affb160dd72cc1fb7c855e5e2b8ebfc17ecdda34bd988d700c196bce47e6cb6d",
+      "workspace/WorkspaceState.cpp": "af271773dc9bf589e61e67c6c7c3e6c94883ffa9e722cd3d63cb34546588b0ad"
+    }
+  },
+  "diagnostics": {
+    "logs_directory": "out/phase-six-multiview",
+    "first_complete_run": {
+      "path": "out/phase-six-multiview/full-tests.xml",
+      "sha256": "4f50ffa36f8769a885d03f7029210e393896c20f0f88100f512df6067eed457e"
+    },
+    "fixed_regressions": [
+      "多实例与固定主窗口名的工作区校验冲突",
+      "全局 Alt+Enter 被两个 Layout 同时处理",
+      "后绘制窗口覆盖唯一运行时输入映射",
+      "单实例限制撤销后，主 Layout 关闭重开丢失工具设置"
+    ],
+    "first_complete_run_result": "134/135；主 Layout 关闭重开回归失败，修复类型与角色关闭状态后最终 135/135。"
+  },
+  "remaining": {
+    "performance": "按用户要求继续暂缓；只验证现有稳定帧计数和传输实现保持，未完成计时验收，原定 3% 门槛不变。",
+    "runtime_process_isolation": "单独实施。",
+    "not_executed": [
+      "整个可选原生桌面 Player 组（本批单独执行新增双视口全屏用例）",
+      "Windows/Linux 实机",
+      "原版 Level_1.NMO（合法 NMO 直接打开回归包含在完整 CTest）",
+      "真实系统打印提交及完整发布包"
+    ],
+    "stage_six_gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "双视口及其 GPU 稳定帧计数、独立 fallback、快照和原生全屏已覆盖；性能计时验收按用户要求暂缓，原定门槛不变"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "模块、提供者、快捷键、菜单、偏好和工作区状态已统一保存并在启动恢复，旧 INI 只读迁移；各平台实机复验仍待完成"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产模块发现、统一装配、按身份启用禁用及替换、配置和窗口状态保存恢复已实现；完整模块发布包的各平台实机验证仍待完成"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "无数据时不额外写空区"
+      }
+    ]
+  }
+}

@@ -1444,12 +1444,13 @@
         "NeMoDevEditor"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.app"
+        "VirtoolsDevUi.app",
+        "VirtoolsDevUi.layoutviews"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "补双视口与每阶段的性能计数"
+          "reason": "双视口及其 GPU 稳定帧计数、独立 fallback、快照和原生全屏已覆盖；性能计时验收按用户要求暂缓，原定门槛不变"
         }
       ]
     },
@@ -1811,14 +1812,10 @@
       "ui_tests": [
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.modules",
-        "VirtoolsDevUi.workspaceStartup"
+        "VirtoolsDevUi.workspaceStartup",
+        "VirtoolsDevUi.layoutviews"
       ],
-      "gaps": [
-        {
-          "due_phase": 6,
-          "reason": "跨启动实例、布局、已声明设置和缺失提供者恢复已覆盖；第二个 3D 视口及其多实例完整输入组合仍待验证"
-        }
-      ]
+      "gaps": []
     },
     {
       "id": "F30",
@@ -1972,7 +1969,7 @@
     {
       "id": "interaction",
       "name": "Schematic 与 Layout 手势预览、曲线工具和输入捕获",
-      "owner": "EditorApplication 持有手势；Schematic/ Layout 命令保存恢复数据；LayoutGestures 保存曲线工具；视图保存鼠标输入",
+      "owner": "EditorApplication 持有手势；Schematic/Layout 命令保存恢复数据；LayoutGestures 按视图保存曲线工具与手势来源；各 Layout 保存自身鼠标捕获；LayoutWindows 将唯一的运行时输入映射交给活动视口，主渲染 Context 随之切换",
       "lifetime": "原文档和视图；确认在帧末提交，Escape、焦点丢失、关闭、失效与停止恢复",
       "persistence": "显示预览不写入 Script 数据；原生变换预览不记 Dirty 或 Undo；确认直接用原快照记录一次，取消恢复原值；曲线工具与手势状态不保存入文件",
       "features": [
@@ -2146,9 +2143,9 @@
     {
       "id": "viewport",
       "name": "CK 渲染 Context、interface cameras、UI-owned target 与 imported handle",
-      "owner": "LayoutView 和 UiRenderer 拥有 Context/纹理；LayoutPresentation 同步 Player 和显示设置；工作区拥有 Layout 窗口；ui/native/LayoutRenderer.cpp 保留私有原生呈现和模式切换",
+      "owner": "工作区拥有各 Layout 窗口状态；LayoutWindows 创建各自独立的 LayoutWindow/LayoutView、Context、私有相机及 UI 纹理，按来源视图路由命令；LayoutPresentation 按视图同步 Player；ui/native/LayoutRenderer.cpp 保留原生呈现和模式切换",
       "lifetime": "窗口关闭、viewport/native generation、resize/fullscreen；提供者替换候选准备完成前保留原目标，失败不停止原呈现",
-      "persistence": "非文档创作对象；保留既有不保存标记；GPU 目标按帧末流程释放，渲染与通用 readback/upload 函数保持原实现",
+      "persistence": "私有相机和界面对象保留既有不保存标记，按原生生命周期编号销毁；各视口复用既有 GPU 或固定 fallback，关闭其中一个不清理其他视口；旧文件仅保存主视图记录，工作区分别保存工具和显示设置；共享文档、对象选区和撤销历史",
       "features": [
         "F16"
       ]
@@ -2413,7 +2410,7 @@
       "id": "layout-scene-queries",
       "name": "Layout 场景列表、菜单数据及原生查询版本",
       "owner": "LayoutCommands / 每个 Layout 列表的只读副本",
-      "lifetime": "文档、Context、场景、相机、选择或运行帧变化；失败保留旧副本，命令在执行时重新校验完整引用",
+      "lifetime": "各视口独立记录版本，交替查询不相互失效；文档、Context、场景、相机、选择或运行帧变化时更新；视图作用域关闭时回收；失败保留旧副本，命令在执行时重新校验完整引用",
       "persistence": "不保存缓存；原 Layout 文件数据仍按既有方式捕获与恢复",
       "features": [
         "F08",
@@ -2435,7 +2432,7 @@
     {
       "id": "layout-behavior-drop",
       "name": "Building Block 放置与参数确认",
-      "owner": "LayoutAuthoring 持有 Edit、来源窗口作用域和完整参数引用；Layout 工作区实例只持有查询版本及原生值编辑器的临时副本",
+      "owner": "LayoutAuthoring 持有 Edit、命令来源和接收视口作用域及完整参数引用；参数请求仅由接收视口显示；Layout 工作区实例只持有查询版本及原生值编辑器的临时副本",
       "lifetime": "放置到确认/取消；来源视图关闭取消并恢复原状态；文档关闭先提交既有默认值并释放临时副本，文档失效清理",
       "persistence": "放置与参数通过统一命令共同记录一步撤销；绘制中确认排入既有帧末队列，完成前保留临时参数；取消恢复原文档、选区与 Undo/Redo",
       "features": [
