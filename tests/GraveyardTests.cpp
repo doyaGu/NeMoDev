@@ -1,3 +1,4 @@
+#include "tests/TestActions.h"
 #include "VirtoolsDevTestSupport.h"
 
 #include <SDL3/SDL_timer.h>
@@ -18,7 +19,7 @@ void CheckGone(Document &document, const std::set<CK_ID> &ids) {
 
 void Advance(Document &document) {
     Edit edit(document, "Advance history", Edit::Marks::Scripts);
-    edit.Done([] { return true; }, [] { return true; });
+    edit.Done(vdevtest::TestAction([] { return true; }, [] { return true; }));
     CHECK(edit.Commit().ok);
 }
 
@@ -138,10 +139,10 @@ void GraveyardCollection(CkRuntimeHost &host) {
         Edit edit(document, "Active edit");
         history.SetLimit(0);
         CHECK(context->GetObject(deferred.created));
-        edit.Done([] { return true; }, [&] {
+        edit.Done(vdevtest::TestAction([] { return true; }, [&] {
             CHECK(context->GetObject(deferred.created));
             return true;
-        });
+        }));
         CHECK(edit.Cancel());
     }
     CheckGone(document, deferredOwned);
@@ -190,8 +191,8 @@ void GraveyardCollection(CkRuntimeHost &host) {
                 CHECK(!history.Undo() && !history.Redo());
                 return false;
             };
-            if (undoFailure) edit.Done([] { return true; }, fail);
-            else edit.Done(fail, [] { return true; });
+            if (undoFailure) edit.Done(vdevtest::TestAction([] { return true; }, fail));
+            else edit.Done(vdevtest::TestAction(fail, [] { return true; }));
             CHECK(edit.Commit().ok);
         }
         probe.reset();

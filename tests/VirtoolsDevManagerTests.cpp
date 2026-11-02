@@ -1,3 +1,4 @@
+#include "tests/TestActions.h"
 #include "core/level/ArrayCommands.h"
 #include <clocale>
 #include <cwchar>
@@ -390,7 +391,7 @@ void LevelManagerCommands(CkRuntimeHost &host) {
               "session data undone and redone");
         {
             Edit failing(document, "Failing");
-            failing.Done([] { return true; }, [] { return false; });
+            failing.Done(vdevtest::TestAction([] { return true; }, [] { return false; }));
             failing.Commit();
         }
         check(!undo.Undo() && !undo.CanUndo() && !undo.CanRedo(), "a failed undo clears the history");

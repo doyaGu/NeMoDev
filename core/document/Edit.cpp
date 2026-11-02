@@ -8,26 +8,6 @@
 
 namespace vdev {
 
-namespace {
-
-// A pair of functions (Edit::Do, Done); a structured exception is a failure.
-class FunctionAction : public Action {
-public:
-    FunctionAction(std::function<bool()> redo, std::function<bool()> undo)
-        : m_Redo(std::move(redo)), m_Undo(std::move(undo)) {}
-    bool Redo(Document &document) override { return Call(document, m_Redo, "redo"); }
-    bool Undo(Document &document) override { return Call(document, m_Undo, "undo"); }
-
-private:
-    static bool Call(Document &document, const std::function<bool()> &fn, const char *what) {
-        bool ok = false;
-        return GuardedCall([&] { ok = fn(); }, &document.Host(), what) && ok;
-    }
-    std::function<bool()> m_Redo, m_Undo;
-};
-
-} // namespace
-
 // A nested edit's step in the step of the edit it was in.
 class NestedStep : public Action {
 public:
@@ -157,17 +137,6 @@ bool Edit::Empty() const {
     return !m_Step || m_Step->Empty();
 }
 
-bool Edit::Do(std::function<bool()> redo, std::function<bool()> undo) {
-    if (!Open()) return false;
-    bool ok = false;
-    if (!GuardedCall([&] { ok = redo(); }, &m_Document->Host(), m_Label.c_str())) {
-        ok = false;
-        m_Raised = true; // the edit fails as an error (Fail), not a refusal
-    }
-    if (ok) Done(std::move(redo), std::move(undo));
-    return ok;
-}
-
 bool Edit::Do(std::unique_ptr<Action> &&action) {
     if (!Open() || !action) return false;
     bool ok = false;
@@ -177,10 +146,6 @@ bool Edit::Do(std::unique_ptr<Action> &&action) {
     }
     if (ok) Done(std::move(action));
     return ok;
-}
-
-void Edit::Done(std::function<bool()> redo, std::function<bool()> undo) {
-    Done(std::make_unique<FunctionAction>(std::move(redo), std::move(undo)));
 }
 
 void Edit::Done(std::unique_ptr<Action> action) {

@@ -74,12 +74,6 @@ public:
     // Nothing recorded so far.
     bool Empty() const;
 
-    // Runs redo now and records the pair; false (and nothing recorded) when
-    // redo fails or raises a structured exception (then the edit fails as an
-    // error, Fail).
-    bool Do(std::function<bool()> redo, std::function<bool()> undo);
-    // Records a pair whose redo was performed already.
-    void Done(std::function<bool()> redo, std::function<bool()> undo);
     // Moves the action into the step only after Redo succeeds. On failure
     // a named argument still owns its before-data for explicit recovery.
     bool Do(std::unique_ptr<Action> &&action);

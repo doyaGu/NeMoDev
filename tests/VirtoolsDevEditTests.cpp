@@ -1,3 +1,4 @@
+#include "tests/TestActions.h"
 // Edits and the undo history (core/document/Edit.h), undo round trips of each kind of command, and
 // the CK arrays the commands change (core/runtime/CkArrays.h).
 #include "VirtoolsDevTestSupport.h"
@@ -14,7 +15,7 @@ namespace {
 // An edit of a plain value: redo sets to, undo puts back what it was.
 bool SetValue(Edit &edit, int &value, int to) {
     const int from = value;
-    return edit.Do([&value, to] { value = to; return true; }, [&value, from] { value = from; return true; });
+    return edit.Do(vdevtest::TestAction([&value, to] { value = to; return true; }, [&value, from] { value = from; return true; }));
 }
 
 CKBehavior *NewScript(CKContext *context, const char *name) {
@@ -63,7 +64,7 @@ void Edits(CkRuntimeHost &host) {
     {
         Edit edit(document, "Refused");
         CHECK(SetValue(edit, value, 4));
-        CHECK(!edit.Do([] { return false; }, [] { return true; }));
+        CHECK(!edit.Do(vdevtest::TestAction([] { return false; }, [] { return true; })));
         const EditResult refused = edit.Fail("no");
         CHECK(!refused.ok && refused.Status() == EditStatus::Refused && value == 1);
         Edit unchanged(document, "Unchanged");
@@ -167,7 +168,7 @@ void Edits(CkRuntimeHost &host) {
         {
             Edit edit(document, "Stuck");
             edit.Created(made->GetID());
-            edit.Done([] { return true; }, [] { return false; });
+            edit.Done(vdevtest::TestAction([] { return true; }, [] { return false; }));
             CHECK(!edit.Cancel());
         }
         CHECK(!history.CanUndo() && !history.CanRedo() && !document.IsDiscarded(made->GetID()));
@@ -176,7 +177,7 @@ void Edits(CkRuntimeHost &host) {
             CHECK(SetValue(outer, value, 40));
             {
                 Edit inner(document, "Inner stuck");
-                inner.Done([] { return true; }, [] { return false; });
+                inner.Done(vdevtest::TestAction([] { return true; }, [] { return false; }));
                 CHECK(inner.Fail("stuck").Status() == EditStatus::Error);
             }
             CHECK(outer.Commit().Status() == EditStatus::Error);

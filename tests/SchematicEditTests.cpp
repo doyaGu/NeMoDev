@@ -1,3 +1,4 @@
+#include "tests/TestActions.h"
 #include "application/EditorApplication.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
@@ -505,7 +506,7 @@ void TestGraphChangeNotifications(vdev::CkRuntimeHost &runtime, const std::strin
         auto *data = broken.ScriptData(script.object);
         Check(data, "open failed graph replay");
         data->header.color = next;
-        broken.Done([] { return true; }, [] { return false; });
+        broken.Done(vdevtest::TestAction([] { return true; }, [] { return false; }));
         Check(broken.Commit().ok, "commit failing graph replay");
     }
     publish(true);
