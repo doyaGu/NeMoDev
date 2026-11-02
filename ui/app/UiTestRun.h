@@ -15,6 +15,7 @@ class EditorApp;
 
 class UiTestRun {
 public:
+    static void PrepareProcess();
     // Registers the tests and queues those of filter (the engine's filter
     // syntax); results: a JUnit XML of the results (empty: none); show: the
     // tests at a human's pace.

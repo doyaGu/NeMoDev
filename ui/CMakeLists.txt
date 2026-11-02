@@ -243,6 +243,9 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
     target_include_directories(VirtoolsDevUiTests PRIVATE "${VIRTOOLS_SDK_PATH}/Source/RenderEngine/include")
     # A console program with the editor's SDL main and results on stdout.
     if(APPLE)
+        target_sources(VirtoolsDevUiTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTestStartupMac.mm")
+        set_source_files_properties("${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTestStartupMac.mm"
+                PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
         target_sources(VirtoolsDevUiTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ViewportSchedulingMac.mm")
         set_source_files_properties("${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ViewportSchedulingMac.mm"
                 PROPERTIES COMPILE_OPTIONS "-fobjc-arc")

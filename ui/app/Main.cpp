@@ -101,6 +101,9 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "Composition not found: %s\n", vdev::WideToUtf8(line.fileToOpen).c_str()); return 2;
 #endif
     }
+#ifdef VIRTOOLSDEV_UI_TESTS
+    vdev::UiTestRun::PrepareProcess();
+#endif
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { std::fprintf(stderr, "%s\n", SDL_GetError()); return 1; }
     const std::string runtime = ResolveRuntime(args);
     float scale = std::max(1.0f, SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay()));

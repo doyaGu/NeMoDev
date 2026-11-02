@@ -41,6 +41,10 @@ void MainThreadGui(ImGuiTestContext *) {
 
 namespace vdev {
 
+#ifndef __APPLE__
+void UiTestRun::PrepareProcess() {}
+#endif
+
 struct UiTestRun::Engine {
     ImGuiTestEngine *engine = nullptr;
     std::string results; // UTF-8, kept while the engine may export
