@@ -38,6 +38,24 @@ class EditorClient {
     EditorResponse Command(const char *id, const std::vector<EditorValue> &values = {}) const {
         return Call(id, values, true);
     }
+    EditorStatus SelectTool(const char *id) const {
+        return m_Host->selectTool(m_Host->data, Scope(), EditorLiteral(id));
+    }
+    std::string ActiveTool() const {
+        const auto id = m_Host->activeTool(m_Host->data, m_View);
+        return {id.data ? id.data : "", id.size};
+    }
+    void CancelTool() const { m_Host->cancelTool(m_Host->data, m_View); }
+    EditorStatus ToolInput(const EditorToolInput &input) const {
+        return m_Host->toolInput(m_Host->data, Scope(), &input);
+    }
+    EditorStatus Toolbar(const char *id, const EditorToolbarFrame &frame) const {
+        return m_Host->toolbar(m_Host->data, EditorLiteral(id), Scope(), &frame);
+    }
+    bool Binding(const char *action, EditorInputPhase phase, bool consume = false) const {
+        return m_Host->inputBinding(m_Host->data, Scope(), EditorLiteral(action), phase, consume);
+    }
+    void Shortcuts() const { m_Host->shortcuts(m_Host->data, Scope()); }
     void Log(EditorLogLevel level, const std::string &text) const {
         // Log messages belong to the application even when the producing view
         // closes before the frame's command queue runs.
@@ -160,6 +178,10 @@ class EditorClient {
                                     revisionArgument ? EditorLiteral(revisionArgument) : EditorString{}};
         result.status = command ? m_Host->execute(m_Host->data, EditorLiteral(id), &request, Sink(result))
                                 : m_Host->query(m_Host->data, EditorLiteral(id), &request, Sink(result));
+        if (command && result.operation && (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE)) {
+            const auto completed = Query("application.operation", {Number("operation", result.operation)});
+            if (completed.status == EDITOR_OK) result.documentRevision = Integer(completed, "document-revision");
+        }
         return result;
     }
     const EditorHost *m_Host;

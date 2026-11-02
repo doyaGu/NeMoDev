@@ -199,3 +199,9 @@ EditorViewDesc ClosingViewFromC(uint32_t *value) {
     view.data = value;
     return view;
 }
+
+uint32_t EditorToolSizeFromC(void) { return sizeof(EditorToolDesc); }
+uint32_t EditorToolInputSizeFromC(void) { return sizeof(EditorToolInput); }
+uint32_t EditorToolbarSizeFromC(void) { return sizeof(EditorToolbarItemDesc); }
+uint32_t EditorToolbarFrameSizeFromC(void) { return sizeof(EditorToolbarFrame); }
+uint32_t EditorBindingSizeFromC(void) { return sizeof(EditorBindingDesc); }

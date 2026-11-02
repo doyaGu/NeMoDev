@@ -62,10 +62,37 @@ struct MenuPlacement {
     std::string id, location;
     int order = 0;
 };
+struct ToolbarPlacement {
+    std::string id, location, action, title;
+    float x = 0, y = 0, width = 0, height = 0;
+    // Only specified fields override an existing item. New items need location,
+    // action and geometry. Hidden items retain their saved settings.
+    std::vector<EditorField> arguments;
+    uint32_t fields = 0;
+    bool visible = true;
+};
+enum ToolbarFields : uint32_t {
+    ToolbarLocation = 1,
+    ToolbarAction = 2,
+    ToolbarTitle = 4,
+    ToolbarPosition = 8,
+    ToolbarSize = 16,
+    ToolbarVisibility = 32,
+    ToolbarArguments = 64
+};
 struct EditorConfiguration {
     std::vector<ProviderChoice> providers;
     std::vector<std::pair<std::string, std::string>> bindings;
     std::vector<MenuPlacement> menus;
+    std::vector<ToolbarPlacement> toolbarItems;
+};
+struct ToolbarEntry {
+    std::string id, provider, location, title, action, checked, tooltip;
+    std::vector<EditorField> arguments;
+    float x = 0, y = 0, width = 0, height = 0;
+    uint32_t flags = 0;
+    EditorToolbarDraw draw = nullptr;
+    void *data = nullptr;
 };
 struct PropertyBinding {
     std::string id, label, query, field, command, argument, editor, choices;
@@ -86,6 +113,12 @@ class EditorViewNavigation {
     virtual EditorStatus PickRegions(EditorView, const EditorPickRegion *, uint32_t) = 0;
     virtual bool Shortcut(const std::string &, bool consume = false) const = 0;
     virtual EditorStatus Menu(const std::string &, EditorScope, ObjectRef, EditorEdit &) = 0;
+    virtual EditorView ActionView(const std::string &, EditorView source) const { return source; }
+    virtual EditorStatus Toolbar(const std::string &, EditorScope, const EditorToolbarFrame &) {
+        return EDITOR_REFUSED;
+    }
+    virtual void Shortcuts(EditorScope) {}
+    virtual bool InputBinding(EditorScope, const std::string &, EditorInputPhase, bool) const { return false; }
 };
 
 class EditorApplication {
@@ -165,6 +198,21 @@ class EditorApplication {
     uint32_t DrawProperty(const std::string &, const EditorRequest &, EditorEdit &, EditorString label);
     const PropertyBinding *Property(const std::string &id) const;
     const std::vector<MenuEntry> &Menus() const;
+    const std::vector<ToolbarEntry> &ToolbarItems() const;
+    std::vector<EditorToolbarItemDesc> ToolbarProviders() const;
+    std::vector<EditorCommandDesc> Commands(bool allProviders = false) const;
+    std::vector<EditorToolDesc> Tools(bool allProviders = false) const;
+    const std::map<std::string, EditorToolbarLocation> &Toolbars() const;
+    std::string ActionView(const std::string &action) const;
+    const std::map<std::string, std::string> &BindingViews() const;
+    EditorInputPhase BindingPhase(const std::string &) const;
+    EditorStatus SelectTool(EditorScope, const std::string &);
+    std::string ToolChoice(EditorView) const;
+    const EditorToolDesc *ActiveTool(EditorView) const;
+    EditorStatus ToolInput(EditorScope, const EditorToolInput &);
+    void CancelTool(EditorView);
+    bool ToolCaptured(EditorView) const;
+    void RestoreTool(EditorView, const std::string &choice);
     const std::map<std::string, std::string> &MenuLocations() const;
     const std::vector<std::pair<std::string, std::string>> &Bindings() const;
     const std::map<std::string, std::vector<EditorKey>> &Shortcuts() const;

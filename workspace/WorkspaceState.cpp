@@ -189,6 +189,7 @@ bool EditorWorkspace::ApplySettings(const WorkspaceViewState &saved, const Edito
         error = "View settings could not be restored: " + saved.type;
         return false;
     }
+    if (!saved.tool.empty()) m_Application.RestoreTool(id, saved.tool);
     return true;
 }
 bool EditorWorkspace::Save(WorkspaceState &result, std::string &error) const {
@@ -206,6 +207,7 @@ bool EditorWorkspace::CaptureView(const View &view, const WorkspaceConfiguration
             error = "View settings could not be saved: " + Text(view.desc.id);
             return false;
         }
+        state.tool = m_Application.ToolChoice(view.id);
         state.settings = settings.fields;
         state.version = view.desc.settingCount ? view.desc.stateVersion : 0;
         state.provider = Text(view.desc.provider);

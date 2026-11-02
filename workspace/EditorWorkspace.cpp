@@ -316,41 +316,54 @@ void EditorWorkspace::CloseOwner(EditorView &owner) {
     owner = 0;
 }
 bool EditorWorkspace::Shortcut(const std::string &property, bool consume) const {
+    return Binding(property, EDITOR_KEY_PRESSED, consume);
+}
+bool EditorWorkspace::Binding(const std::string &property, EditorInputPhase phase, bool consume) const {
     const auto &io = ImGui::GetIO();
     if (io.WantTextInput || ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
         return false;
     const auto found = m_Application.Shortcuts().find(property);
-    if (found == m_Application.Shortcuts().end())
-        return false;
+    if (found == m_Application.Shortcuts().end()) return false;
     for (const auto &shortcut : found->second) {
-    if (io.KeyCtrl != bool(shortcut.modifiers & 1) || io.KeyAlt != bool(shortcut.modifiers & 2) ||
-        io.KeyShift != bool(shortcut.modifiers & 4) || io.KeySuper != bool(shortcut.modifiers & 8))
-        continue;
-    ImGuiKey key = ImGuiKey_None;
-    if (shortcut.key >= 'A' && shortcut.key <= 'Z')
-        key = static_cast<ImGuiKey>(ImGuiKey_A + shortcut.key - 'A');
-    else if (shortcut.key >= '0' && shortcut.key <= '9')
-        key = static_cast<ImGuiKey>(ImGuiKey_0 + shortcut.key - '0');
-    else if (shortcut.key > 256 && shortcut.key <= 280)
-        key = static_cast<ImGuiKey>(ImGuiKey_F1 + shortcut.key - 257);
-    else if (shortcut.key >= 512 && shortcut.key < 527) {
-        const ImGuiKey names[] = {ImGuiKey_Space,     ImGuiKey_Enter,      ImGuiKey_Tab,      ImGuiKey_Escape,
-                                  ImGuiKey_Delete,    ImGuiKey_Insert,     ImGuiKey_Home,     ImGuiKey_End,
-                                  ImGuiKey_PageUp,    ImGuiKey_PageDown,   ImGuiKey_UpArrow,  ImGuiKey_DownArrow,
-                                  ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_Backspace};
-        key = names[shortcut.key - 512];
-    }
-    if (key != ImGuiKey_None && ImGui::IsKeyPressed(key, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner)) {
-        if (consume) ImGui::SetKeyOwner(key, ImGui::GetCurrentWindow()->ID, ImGuiInputFlags_LockThisFrame);
-        return true;
-    }
+        const unsigned modifiers =
+            (io.KeyCtrl ? 1u : 0u) | (io.KeyAlt ? 2u : 0u) | (io.KeyShift ? 4u : 0u) | (io.KeySuper ? 8u : 0u);
+        // A held navigation key stays held when another modifier is added.
+        // Press accelerators keep their exact chord, as before.
+        if (phase == EDITOR_KEY_PRESSED ? modifiers != shortcut.modifiers
+                                        : (modifiers & shortcut.modifiers) != shortcut.modifiers)
+            continue;
+        ImGuiKey key = ImGuiKey_None;
+        if (shortcut.key >= 'A' && shortcut.key <= 'Z')
+            key = static_cast<ImGuiKey>(ImGuiKey_A + shortcut.key - 'A');
+        else if (shortcut.key >= '0' && shortcut.key <= '9')
+            key = static_cast<ImGuiKey>(ImGuiKey_0 + shortcut.key - '0');
+        else if (shortcut.key > 256 && shortcut.key <= 280)
+            key = static_cast<ImGuiKey>(ImGuiKey_F1 + shortcut.key - 257);
+        else if (shortcut.key >= 512 && shortcut.key < 535) {
+            const ImGuiKey names[] = {
+                ImGuiKey_Space,     ImGuiKey_Enter,       ImGuiKey_Tab,        ImGuiKey_Escape,
+                ImGuiKey_Delete,    ImGuiKey_Insert,      ImGuiKey_Home,       ImGuiKey_End,
+                ImGuiKey_PageUp,    ImGuiKey_PageDown,    ImGuiKey_UpArrow,    ImGuiKey_DownArrow,
+                ImGuiKey_LeftArrow, ImGuiKey_RightArrow,  ImGuiKey_Backspace,  ImGuiKey_Equal,
+                ImGuiKey_Minus,     ImGuiKey_KeypadEnter, ImGuiKey_KeypadAdd,  ImGuiKey_KeypadSubtract,
+                ImGuiKey_MouseLeft, ImGuiKey_MouseRight,  ImGuiKey_MouseMiddle};
+            key = names[shortcut.key - 512];
+        }
+        const bool matched =
+            key != ImGuiKey_None &&
+            (phase == EDITOR_KEY_RELEASED ? ImGui::IsKeyReleased(key, ImGuiKeyOwner_NoOwner)
+             : phase == EDITOR_KEY_DOWN   ? ImGui::IsKeyDown(key, ImGuiKeyOwner_NoOwner)
+                                          : ImGui::IsKeyPressed(key, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner));
+        if (matched) {
+            if (consume) ImGui::SetKeyOwner(key, ImGui::GetCurrentWindow()->ID, ImGuiInputFlags_LockThisFrame);
+            return true;
+        }
     }
     return false;
 }
 const char *EditorWorkspace::ShortcutLabel(const char *property) const {
     for (auto &b : m_Application.Bindings())
-        if (b.first == property)
-            return b.second.c_str();
+        if (b.first == property) return b.second.c_str();
     return nullptr;
 }
 bool EditorWorkspace::EditMenu(const char *location, ObjectRef target, EditorEdit &edit, EditorView &owner) {
@@ -386,10 +399,103 @@ bool EditorWorkspace::Checked(const MenuEntry &menu, EditorScope scope) {
 }
 void EditorWorkspace::CommandShortcuts() {
     for (const auto &binding : m_Application.Shortcuts())
-        if (m_Application.IsCommand(binding.first) && Shortcut(binding.first)) {
+        if (m_Application.ActionView(binding.first).empty() && m_Application.IsCommand(binding.first) &&
+            Binding(binding.first, m_Application.BindingPhase(binding.first), false) &&
+            m_Application.CommandState(binding.first, {m_Application.Scope()}) == EDITOR_OK &&
+            Binding(binding.first, m_Application.BindingPhase(binding.first), true)) {
             const auto result = m_Application.Execute(binding.first, {m_Application.Scope(), nullptr, 0});
             if (!result.message.empty()) m_Error = result.message;
         }
+}
+EditorView EditorWorkspace::ActionView(const std::string &type, EditorView source) const {
+    if (const auto found = m_Views.find(source); found != m_Views.end() && Text(found->second.desc.id) == type)
+        return source;
+    if (const auto id = LastFocused(type)) return id;
+    for (const auto &entry : m_Views)
+        if (Text(entry.second.desc.id) == type) return entry.first;
+    return 0;
+}
+bool EditorWorkspace::InputBinding(EditorScope scope, const std::string &action, EditorInputPhase phase,
+                                   bool consume) const {
+    const auto type = m_Application.ActionView(action);
+    if (!type.empty()) {
+        const auto found = m_Views.find(scope.view);
+        if (Focused() != scope.view || found == m_Views.end() || Text(found->second.desc.id) != type) return false;
+    }
+    return Binding(action, phase, consume);
+}
+void EditorWorkspace::Shortcuts(EditorScope scope) {
+    if (Focused() != scope.view) return;
+    const auto found = m_Views.find(scope.view);
+    if (found == m_Views.end()) return;
+    const auto type = Text(found->second.desc.id);
+    for (const auto &binding : m_Application.Shortcuts())
+        if (m_Application.ActionView(binding.first) == type &&
+            Binding(binding.first, m_Application.BindingPhase(binding.first), false) &&
+            m_Application.CommandState(binding.first, {scope}) == EDITOR_OK &&
+            Binding(binding.first, m_Application.BindingPhase(binding.first), true)) {
+            const auto result = m_Application.Execute(binding.first, {scope});
+            if (!result.message.empty()) m_Error = result.message;
+        }
+}
+EditorStatus EditorWorkspace::Toolbar(const std::string &location, EditorScope scope, const EditorToolbarFrame &area) {
+    const auto declared = m_Application.Toolbars().find(location);
+    if (declared == m_Application.Toolbars().end() || area.size != sizeof(area) || !std::isfinite(area.left) ||
+        !std::isfinite(area.top) || !std::isfinite(area.width) || !std::isfinite(area.height) ||
+        !std::isfinite(area.scale) || area.scale <= 0 || area.width < 0 || area.height < 0)
+        return EDITOR_INVALID;
+    const auto owner = m_Views.find(scope.view);
+    if (declared->second.view.size &&
+        (owner == m_Views.end() || Text(owner->second.desc.id) != Text(declared->second.view)))
+        return EDITOR_REFUSED;
+    for (const auto &item : m_Application.ToolbarItems()) {
+        if (item.location != location) continue;
+        EditorToolbarFrame frame = area;
+        frame.left =
+            area.left + ((item.flags & EDITOR_TOOLBAR_RIGHT) ? area.width - item.x * area.scale : item.x * area.scale);
+        frame.top = area.top + item.y * area.scale;
+        frame.width = (item.flags & EDITOR_TOOLBAR_STRETCH)
+                          ? std::max(1.0f, area.width - (item.x + item.width) * area.scale)
+                          : item.width * area.scale;
+        frame.height = item.height * area.scale;
+        frame.action = EditorText(item.action);
+        frame.title = EditorText(item.title);
+        frame.tooltip = EditorText(item.tooltip);
+        const auto *shortcut = ShortcutLabel(item.action.c_str());
+        frame.shortcut = shortcut ? EditorLiteral(shortcut) : EditorString{};
+        frame.enabled = 1;
+        frame.checked = 0;
+        const auto values = BorrowEditorFields(item.arguments);
+        const EditorRequest request{scope, values.data(), uint32_t(values.size())};
+        if (!item.action.empty()) frame.enabled = m_Application.CommandState(item.action, request) == EDITOR_OK;
+        if (const auto *tool = m_Application.ActiveTool(scope.view); tool && Text(tool->id) == item.action)
+            frame.checked = 1;
+        if (!item.checked.empty()) {
+            const auto checked = m_Application.Query(item.checked, {scope});
+            if (checked.status == EDITOR_OK) frame.checked = EditorClient::Integer(checked, "checked") != 0;
+        }
+        bool clicked = false;
+        if (item.draw) {
+            try {
+                clicked = item.draw(item.data, m_Application.Host(), &request, &frame) != 0;
+            } catch (...) {
+                m_Error = "Toolbar drawing failed: " + item.id;
+            }
+        } else {
+            ImGui::PushID(item.id.c_str());
+            ImGui::SetCursorScreenPos(ImVec2(frame.left, frame.top));
+            ImGui::BeginDisabled(!frame.enabled);
+            clicked = ImGui::Button(item.title.empty() ? item.action.c_str() : item.title.c_str(),
+                                    ImVec2(frame.width, frame.height));
+            ImGui::EndDisabled();
+            ImGui::PopID();
+        }
+        if (clicked && !item.action.empty()) {
+            const auto result = m_Application.Execute(item.action, request);
+            if (!result.message.empty()) m_Error = result.message;
+        }
+    }
+    return EDITOR_OK;
 }
 EditorView EditorWorkspace::Role(const std::string &role) const {
     for (const auto &entry : m_Views) if (entry.second.role == role && !role.empty()) return entry.first;
@@ -461,6 +567,7 @@ EditorView EditorWorkspace::Create(const EditorViewDesc &desc, const std::string
             return 0;
         }
     }
+    if (saved != m_ClosedStates.end() && !saved->second.tool.empty()) m_Application.RestoreTool(id, saved->second.tool);
     const auto placement = saved != m_ClosedStates.end() ? saved->second.placement : View::Placement{};
     View view{id, desc, data, true, placement};
     view.instance = m_NextInstance = std::max(m_NextInstance, id);
@@ -651,7 +758,7 @@ bool EditorWorkspace::Close(EditorView id) {
     if (view.desc.area == EDITOR_DOCUMENT && !m_Application.NativeAvailable()) return false;
     const bool session =
         (view.desc.singleInstance || !view.role.empty()) && !view.desc.documentBound && !view.unavailable;
-    SavedView saved{0, {}, {}};
+    SavedView saved{0, {}, {}, m_Application.ToolChoice(id)};
     if (session) {
         if (view.desc.saveState) {
             const auto state = m_Application.SaveViewState(view.desc, view.data, m_Application.Scope(id));
@@ -778,8 +885,12 @@ void EditorWorkspace::Draw(bool nativeAvailable) {
         }
         if (grantFocus) view.focus = false;
         const auto *window = name.empty() ? nullptr : ImGui::FindWindowByName(name.c_str());
-        view.active = frame.active != 0 || (view.desc.documentBound &&
-                                            OwnedPopup(window, true) < ImGui::GetCurrentContext()->OpenPopupStack.Size);
+        if (Focused() == view.id && m_Application.ToolCaptured(view.id) && !ImGui::GetIO().WantTextInput &&
+            ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner))
+            m_Application.CancelTool(view.id);
+        view.active =
+            frame.active != 0 || m_Application.ToolCaptured(view.id) ||
+            (view.desc.documentBound && OwnedPopup(window, true) < ImGui::GetCurrentContext()->OpenPopupStack.Size);
         view.placement.apply = false;
         if (frame.close)
             closed.push_back(view.id);
@@ -881,6 +992,7 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
                      : m_Application.RestoreViewState(description, data, m_Application.Scope(id), state.fields)) !=
                     EDITOR_OK)
                 return rollback();
+            m_Application.RestoreTool(id, m_Application.ToolChoice(old.id));
         }
     }
     if (workspace) {
@@ -906,6 +1018,7 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
                 m_ClosedStates.find({placement.type, desc->singleInstance ? std::string{} : placement.role});
             if (saved != m_ClosedStates.end()) {
                 replacements.back().next.placement = saved->second.placement;
+                if (!saved->second.tool.empty()) m_Application.RestoreTool(id, saved->second.tool);
                 if (saved->second.version && m_Application.RestoreViewState(*desc, data, m_Application.Scope(id), saved->second.fields) != EDITOR_OK) return rollback();
             }
         }
@@ -1203,27 +1316,7 @@ void EditorWorkspace::Menu() {
     };
     editorMenu("Text Editors", true);
     editorMenu("Value Editors", false);
-    if (ImGui::BeginMenu("Shortcuts")) {
-        const auto bindings = m_Application.Bindings();
-        std::set<std::string> shown;
-        for (auto &binding : bindings) {
-            if (!shown.insert(binding.first).second) continue;
-            const auto *title = m_Application.ActionTitle(binding.first);
-            if (title && ImGui::BeginMenu(title)) {
-                for (const char *chord : {"F2", "Ctrl+R", "Alt+R"})
-                    if (ImGui::MenuItem(chord, nullptr, binding.second == chord)) {
-                        auto config = m_Application.Configuration();
-                        config.bindings.erase(std::remove_if(config.bindings.begin(), config.bindings.end(),
-                                                             [&](const auto &b) { return b.first == binding.first; }),
-                                              config.bindings.end());
-                        config.bindings.emplace_back(binding.first, chord);
-                        Configure(config, m_Error);
-                    }
-                ImGui::EndMenu();
-            }
-        }
-        ImGui::EndMenu();
-    }
+    ToolMenus();
     if (ImGui::BeginMenu("View Providers")) {
         for (const auto &view : m_Application.Views(true)) {
             const auto id = Text(view.id), provider = Text(view.provider);

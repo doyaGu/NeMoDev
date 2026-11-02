@@ -212,6 +212,11 @@ struct Module {
     std::vector<EditorMenuDesc> menus;
     std::vector<EditorBindingDesc> bindings;
     std::vector<EditorMenuLocation> locations;
+    std::vector<EditorToolDesc> tools;
+    std::vector<EditorToolbarItemDesc> toolbarItems;
+    std::vector<EditorToolbarLocation> toolbars;
+    std::deque<std::vector<EditorField>> toolbarArguments;
+    std::deque<EditorFieldValues> toolbarValues;
     void *library = nullptr;
     std::string file;
     bool enabled = true;
@@ -252,6 +257,9 @@ struct Module {
         Array(source.menus, source.menuCount);
         Array(source.bindings, source.bindingCount);
         Array(source.locations, source.locationCount);
+        Array(source.tools, source.toolCount);
+        Array(source.toolbarItems, source.toolbarItemCount);
+        Array(source.toolbars, source.toolbarCount);
         for (uint32_t i = 0; i < source.commandCount; ++i) {
             auto d = source.commands[i];
             if (d.size != sizeof(d) || !d.run || d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION ||
@@ -263,6 +271,7 @@ struct Module {
             d.id = Text(d.id, true);
             d.provider = Text(d.provider, true);
             d.title = Text(d.title);
+            d.view = Text(d.view, d.view.size != 0);
             if (!d.title.size)
                 throw std::invalid_argument("Missing command title");
             d.parameters = Parameters(d.parameters, d.count);
@@ -323,6 +332,7 @@ struct Module {
                 throw std::invalid_argument("Invalid view inspection");
             d.fields = Parameters(d.fields, d.fieldCount);
             d.settings = Parameters(d.settings, d.settingCount);
+            d.defaultTool = Text(d.defaultTool, d.defaultTool.size != 0);
             if (d.settingCount && (!d.saveState || d.documentBound || d.kind != EDITOR_WINDOW_VIEW))
                 throw std::invalid_argument("Invalid persistent view settings");
             for (uint32_t j = 0; j < d.settingCount; ++j)
@@ -341,8 +351,11 @@ struct Module {
         }
         for (uint32_t i = 0; i < source.bindingCount; ++i) {
             auto d = source.bindings[i];
+            if (d.phase < EDITOR_KEY_PRESSED || d.phase > EDITOR_KEY_RELEASED)
+                throw std::invalid_argument("Invalid input phase");
             d.action = Text(d.action, true);
             d.chord = Text(d.chord);
+            d.view = Text(d.view, d.view.size != 0);
             bindings.push_back(d);
         }
         for (uint32_t i = 0; i < source.locationCount; ++i) {
@@ -350,6 +363,63 @@ struct Module {
             location.id = Text(location.id, true);
             location.title = Text(location.title);
             locations.push_back(location);
+        }
+        for (uint32_t i = 0; i < source.toolCount; ++i) {
+            auto d = source.tools[i];
+            if (d.size != sizeof(d) || !d.input) throw std::invalid_argument("Invalid view tool");
+            d.id = Text(d.id, true);
+            d.provider = Text(d.provider, true);
+            d.view = Text(d.view, true);
+            d.title = Text(d.title);
+            if (!d.title.size) throw std::invalid_argument("Missing tool title");
+            tools.push_back(d);
+        }
+        for (auto &tool : tools) {
+            EditorCommandDesc command{};
+            command.size = sizeof(command);
+            command.id = tool.id;
+            command.provider = tool.provider;
+            command.title = tool.title;
+            command.data = &tool;
+            command.area = EDITOR_WORKSPACE;
+            command.effect = EDITOR_SESSION_CHANGE;
+            command.view = tool.view;
+            command.run = [](void *data, const EditorHost *host, const EditorRequest *r, EditorSink) {
+                return host->selectTool(host->data, r->scope, static_cast<EditorToolDesc *>(data)->id);
+            };
+            command.state = [](void *data, const EditorHost *host, const EditorRequest *r) {
+                const auto &d = *static_cast<EditorToolDesc *>(data);
+                return d.state ? d.state(d.data, host, r) : EDITOR_OK;
+            };
+            commands.push_back(command);
+        }
+        for (uint32_t i = 0; i < source.toolbarCount; ++i) {
+            auto d = source.toolbars[i];
+            d.id = Text(d.id, true);
+            d.title = Text(d.title);
+            d.view = Text(d.view, d.view.size != 0);
+            toolbars.push_back(d);
+        }
+        for (uint32_t i = 0; i < source.toolbarItemCount; ++i) {
+            auto d = source.toolbarItems[i];
+            if (d.size != sizeof(d) || (!d.draw && !d.action.size) || d.count > 64 || !std::isfinite(d.x) ||
+                !std::isfinite(d.y) || !std::isfinite(d.width) || !std::isfinite(d.height) || d.width <= 0 ||
+                d.height <= 0 || (d.flags & ~(EDITOR_TOOLBAR_RIGHT | EDITOR_TOOLBAR_STRETCH)))
+                throw std::invalid_argument("Invalid toolbar item");
+            d.id = Text(d.id, true);
+            d.provider = Text(d.provider, true);
+            d.location = Text(d.location, true);
+            d.title = Text(d.title);
+            d.action = Text(d.action, d.action.size != 0);
+            d.checked = Text(d.checked, d.checked.size != 0);
+            toolbarArguments.emplace_back();
+            if (CopyEditorFields(toolbarArguments.back(), d.arguments, d.count) != EDITOR_OK ||
+                !EveryField(toolbarArguments.back(),
+                            [](const auto &v) { return v.type != EDITOR_OBJECT && v.type != EDITOR_OBJECT_LIST; }))
+                throw std::invalid_argument("Invalid toolbar arguments");
+            toolbarValues.push_back(BorrowEditorFields(toolbarArguments.back()));
+            d.arguments = toolbarValues.back().data();
+            toolbarItems.push_back(d);
         }
     }
     ~Module() { CloseLibrary(library); }
@@ -438,6 +508,18 @@ struct EditorApplication::State {
     EditorValueEditors editors;
     const EditorValueEditors *drawingValues = nullptr;
     std::map<std::string, const EditorViewDesc *> views;
+    std::map<std::string, const EditorToolDesc *> tools;
+    std::map<std::string, EditorToolbarLocation> toolbars;
+    std::vector<ToolbarEntry> toolbarItems;
+    std::map<std::string, std::string> bindingViews;
+    std::map<std::string, EditorInputPhase> bindingPhases;
+    struct ToolState {
+        std::string type, choice, fallback;
+        const EditorToolDesc *handler = nullptr;
+        bool entered = false, dispatching = false, captured = false, reset = false, focused = false;
+    };
+    std::map<EditorView, ToolState> toolStates;
+    EditorView restoringView = 0, inputView = 0;
     std::map<std::string, PropertyBinding> properties;
     std::vector<MenuEntry> menus;
     std::vector<std::pair<std::string, std::string>> bindings;
@@ -466,6 +548,7 @@ struct EditorApplication::State {
         std::vector<EditorField> arguments;
         void *preview = nullptr;
         bool commandOnly = false;
+        bool toolOwned = false;
         bool deferred = false;
     };
     std::map<EditorEdit, Draft> drafts;
@@ -862,7 +945,7 @@ struct EditorApplication::State {
         RefreshDocument();
         const auto record = operations.find(operation);
         if (record != operations.end() && result.status == EDITOR_QUEUED) record->second.asynchronous = true;
-        if (!executing && result.status != EDITOR_QUEUED) {
+        if ((!executing || restore.previous != operation) && result.status != EDITOR_QUEUED) {
             if (record != operations.end() && record->second.asynchronous) {
                 // A nested provider has already handed this operation to an
                 // asynchronous owner. Keep its actual outputs and cleanup
@@ -917,7 +1000,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
             if (!r) return EDITOR_INVALID;
             auto &app = *static_cast<EditorApplication *>(p);
             auto result = app.Execute(Id(id), *r);
-            if (app.m_State->executing) result.operation = 0;
+            if (app.m_State->executing && result.operation == app.m_State->activeOperation) result.operation = 0;
             return Send(result, sink, false);
         } catch (...) {
             return EDITOR_INVALID;
@@ -991,6 +1074,54 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
             s.watches.erase(id);
     };
     h.scope = [](void *p, EditorView view) { return static_cast<EditorApplication *>(p)->Scope(view); };
+    h.selectTool = [](void *p, EditorScope scope, EditorString id) {
+        try {
+            return static_cast<EditorApplication *>(p)->SelectTool(scope, Id(id));
+        } catch (...) {
+            return EDITOR_ERROR;
+        }
+    };
+    h.activeTool = [](void *p, EditorView view) {
+        auto *tool = static_cast<EditorApplication *>(p)->ActiveTool(view);
+        return tool ? tool->id : EditorString{};
+    };
+    h.toolInput = [](void *p, EditorScope scope, const EditorToolInput *input) {
+        if (!input) return EDITOR_INVALID;
+        return static_cast<EditorApplication *>(p)->ToolInput(scope, *input);
+    };
+    h.cancelTool = [](void *p, EditorView view) { static_cast<EditorApplication *>(p)->CancelTool(view); };
+    h.toolbar = [](void *p, EditorString location, EditorScope scope, const EditorToolbarFrame *frame) {
+        auto &self = *static_cast<EditorApplication *>(p);
+        auto &s = *self.m_State;
+        if (!frame || frame->size != sizeof(*frame) || !s.Thread() || !s.active || !s.drawing || s.querying ||
+            s.readOnlyCallbacks || !s.navigation)
+            return EDITOR_REFUSED;
+        if (!s.Valid(scope, EDITOR_WORKSPACE)) return EDITOR_STALE;
+        try {
+            return s.navigation->Toolbar(Id(location), scope, *frame);
+        } catch (...) {
+            return EDITOR_ERROR;
+        }
+    };
+    h.shortcuts = [](void *p, EditorScope scope) {
+        auto &s = *static_cast<EditorApplication *>(p)->m_State;
+        if (s.Thread() && s.active && s.drawing && !s.querying && !s.readOnlyCallbacks && s.navigation &&
+            s.Valid(scope, EDITOR_WORKSPACE))
+            s.navigation->Shortcuts(scope);
+    };
+    h.inputBinding = [](void *p, EditorScope scope, EditorString action, EditorInputPhase phase,
+                        uint32_t consume) -> uint32_t {
+        auto &s = *static_cast<EditorApplication *>(p)->m_State;
+        if (!s.Thread() || !s.active || !s.drawing || s.querying || s.checking || s.readOnlyCallbacks ||
+            !s.navigation || !s.Valid(scope, EDITOR_WORKSPACE) || phase < EDITOR_KEY_PRESSED ||
+            phase > EDITOR_KEY_RELEASED || consume > 1)
+            return 0;
+        try {
+            return s.navigation->InputBinding(scope, Id(action), phase, consume != 0);
+        } catch (...) {
+            return 0;
+        }
+    };
     h.revision = [](void *p) { return static_cast<EditorApplication *>(p)->Revision(); };
     h.selection = [](void *p) { return static_cast<EditorApplication *>(p)->Selection(); };
     h.completeOperation = [](void *p, EditorOperation operation, EditorStatus status,
@@ -1221,6 +1352,11 @@ void *EditorApplication::CreateView(const EditorViewDesc &desc, EditorView id) {
     try { data = desc.create(desc.data, Host(), id); } catch (...) {}
     --s.drawing;
     --s.readOnlyCallbacks;
+    if (data) {
+        s.toolStates[id].type = String(desc.id);
+        s.toolStates[id].fallback = String(desc.defaultTool);
+        if (desc.defaultTool.size) RestoreTool(id, String(desc.defaultTool));
+    }
     return data;
 }
 bool EditorApplication::ClosingView(const EditorViewDesc &desc, void *data, EditorView id) {
@@ -1287,9 +1423,12 @@ EditorStatus EditorApplication::RestoreViewState(const EditorViewDesc &desc, voi
     const EditorRequest request{scope, values.data(), uint32_t(values.size())};
     ++s.drawing;
     ++s.readOnlyCallbacks;
+    const auto previousView = s.restoringView;
+    s.restoringView = scope.view;
     EditorStatus status;
     try { status = desc.restoreState(data, Host(), &request); }
     catch (...) { status = EDITOR_ERROR; }
+    s.restoringView = previousView;
     --s.readOnlyCallbacks;
     --s.drawing;
     return status;
@@ -1496,8 +1635,14 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
                                   std::is_same_v<Table, std::vector<EditorQueryDesc>> ||
                                   std::is_same_v<Table, std::vector<EditorViewDesc>>)
                         if (!inserted.second && !Schema(*inserted.first->second, d))
-                            throw std::invalid_argument("Incompatible contribution schema");
+                            throw std::invalid_argument("Incompatible contribution schema: " + key.first);
+                    if constexpr (std::is_same_v<Table, std::vector<EditorToolDesc>>) {
+                        if (!inserted.second && String(d.view) != String(inserted.first->second->view))
+                            throw std::invalid_argument("Incompatible tool view");
+                    }
                     if constexpr (std::is_same_v<Table, std::vector<EditorCommandDesc>>) {
+                        if (!inserted.second && String(d.view) != String(inserted.first->second->view))
+                            throw std::invalid_argument("Incompatible command view");
                         if (!inserted.second && (d.area != inserted.first->second->area || d.effect != inserted.first->second->effect))
                             throw std::invalid_argument("Incompatible command effect or scope");
                     }
@@ -1538,12 +1683,17 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
         validate(&Module::queries);
         validate(&Module::editors);
         validate(&Module::views);
-        std::set<std::string> properties, menus, locations;
+        validate(&Module::tools);
+        validate(&Module::toolbarItems);
+        std::set<std::string> properties, menus, locations, toolbarLocations;
         auto unique = [&](Module &m) {
             if (!m.enabled) return;
             for (auto &d : m.locations)
                 if (!locations.insert(String(d.id)).second)
                     throw std::invalid_argument("Duplicate menu location");
+            for (auto &d : m.toolbars)
+                if (!toolbarLocations.insert(String(d.id)).second)
+                    throw std::invalid_argument("Duplicate toolbar location");
             for (auto &d : m.properties)
                 if (!properties.insert(String(d.id)).second)
                     throw std::invalid_argument("Duplicate property");
@@ -1695,8 +1845,12 @@ bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources,
                     if (String(desc.id) == choice.id && String(desc.provider) == choice.provider) return true;
                 return false;
             };
-            return choice.kind == "command" ? has(&Module::commands) : choice.kind == "query" ? has(&Module::queries) :
-                choice.kind == "editor" ? has(&Module::editors) : choice.kind == "view" ? has(&Module::views) : false;
+            return choice.kind == "command"   ? has(&Module::commands)
+                   : choice.kind == "query"   ? has(&Module::queries)
+                   : choice.kind == "editor"  ? has(&Module::editors)
+                   : choice.kind == "view"    ? has(&Module::views)
+                   : choice.kind == "toolbar" ? has(&Module::toolbarItems)
+                                              : false;
         };
         s.defaults = configuration;
         // Only choices removed by module selection may disappear from the
@@ -1735,6 +1889,12 @@ bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources,
             effective.menus.erase(std::remove_if(effective.menus.begin(), effective.menus.end(), [&](const auto &old) { return old.id == menu.id; }), effective.menus.end());
             effective.menus.push_back(menu);
         }
+        for (const auto &item : overrides.toolbarItems) {
+            effective.toolbarItems.erase(std::remove_if(effective.toolbarItems.begin(), effective.toolbarItems.end(),
+                                                        [&](const auto &old) { return old.id == item.id; }),
+                                         effective.toolbarItems.end());
+            effective.toolbarItems.push_back(item);
+        }
         s.assembling = false;
         source = "activation";
         if (Activate(drawing, error, effective)) {
@@ -1759,6 +1919,14 @@ std::vector<EditorModuleInfo> EditorApplication::Modules() const {
 const EditorConfiguration &EditorApplication::DefaultConfiguration() const { return m_State->defaults; }
 std::string EditorApplication::ProviderModule(const ProviderChoice &choice) const {
     if (!m_State->Thread()) return {};
+    if (choice.kind == "toolbar-item") {
+        for (const auto &module : m_State->modules)
+            for (const auto &item : module->toolbarItems)
+                if (String(item.id) == choice.id) return String(module->id);
+        for (const auto &item : m_State->toolbarItems)
+            if (item.id == choice.id && !item.action.empty()) return ProviderModule({"action", item.action, {}});
+        return {};
+    }
     if (choice.kind == "menu") {
         for (const auto &module : m_State->modules) for (const auto &menu : module->menus)
             if (String(menu.id) == choice.id) return String(module->id);
@@ -1776,8 +1944,12 @@ std::string EditorApplication::ProviderModule(const ProviderChoice &choice) cons
             if (String(desc.id) == choice.id && String(desc.provider) == choice.provider) return String(module->id);
         return {};
     };
-    return choice.kind == "command" ? find(&Module::commands) : choice.kind == "query" ? find(&Module::queries) :
-        choice.kind == "editor" ? find(&Module::editors) : choice.kind == "view" ? find(&Module::views) : std::string{};
+    return choice.kind == "command"   ? find(&Module::commands)
+           : choice.kind == "query"   ? find(&Module::queries)
+           : choice.kind == "editor"  ? find(&Module::editors)
+           : choice.kind == "view"    ? find(&Module::views)
+           : choice.kind == "toolbar" ? find(&Module::toolbarItems)
+                                      : std::string{};
 }
 bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string &error,
                                  const EditorConfiguration &configuration) {
@@ -1803,6 +1975,13 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
                     d.imguiVersion.vertexSize != imguiVersion.vertexSize ||
                     d.imguiVersion.indexSize != imguiVersion.indexSize)
                     throw std::invalid_argument("ImGui view version mismatch");
+            for (auto &d : m->toolbarItems)
+                if (d.draw &&
+                    (d.imguiVersion.version != imguiVersion.version || d.imguiVersion.ioSize != imguiVersion.ioSize ||
+                     d.imguiVersion.styleSize != imguiVersion.styleSize ||
+                     d.imguiVersion.vertexSize != imguiVersion.vertexSize ||
+                     d.imguiVersion.indexSize != imguiVersion.indexSize))
+                    throw std::invalid_argument("ImGui toolbar version mismatch");
             for (auto &d : m->properties)
                 s.properties.emplace(String(d.id),
                                      PropertyBinding{String(d.id), String(d.label), String(d.query), String(d.field),
@@ -1814,6 +1993,10 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
             s.active = false;
             s.properties.clear();
             s.locations.clear();
+            s.tools.clear();
+            s.toolbars.clear();
+            s.toolbarItems.clear();
+            s.bindingViews.clear();
             s.activation.clear();
             return false;
         }
@@ -1821,6 +2004,10 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
     } catch (const std::exception &e) {
         s.properties.clear();
         s.locations.clear();
+        s.tools.clear();
+        s.toolbars.clear();
+        s.toolbarItems.clear();
+        s.bindingViews.clear();
         s.activation.clear();
         error = e.what();
         return false;
@@ -1830,7 +2017,9 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
     auto &s = *m_State;
     if (!s.Thread() || !s.active || !s.drafts.empty() ||
         std::any_of(s.pending.begin(), s.pending.end(), [](const auto &p) { return bool(p.preview); }) || s.drawing ||
-        s.querying || s.executing || s.notifying) {
+        s.querying || s.executing || s.notifying ||
+        std::any_of(s.toolStates.begin(), s.toolStates.end(),
+                    [](const auto &entry) { return entry.second.captured || entry.second.dispatching; })) {
         error = "Finish active callbacks and edits before changing configuration";
         return false;
     }
@@ -1839,6 +2028,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         decltype(s.queries) queries;
         decltype(s.editors) editors;
         decltype(s.views) views;
+        std::map<std::string, const EditorToolbarItemDesc *> toolbarDescriptors;
         auto choose = [&](auto member, auto &table, const char *kind) {
             for (auto *m : s.activation)
                 for (auto &d : m->*member) {
@@ -1857,15 +2047,17 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         choose(&Module::queries, queries, "query");
         choose(&Module::editors, editors, "editor");
         choose(&Module::views, views, "view");
+        choose(&Module::toolbarItems, toolbarDescriptors, "toolbar");
         std::set<std::pair<std::string, std::string>> choices;
         for (auto &c : configuration.providers) {
             if (!choices.emplace(c.kind, c.id).second)
                 throw std::invalid_argument("Duplicate provider selection");
-            const bool found = c.kind == "command"  ? commands.count(c.id)
-                               : c.kind == "query"  ? queries.count(c.id)
-                               : c.kind == "editor" ? editors.count(c.id)
-                               : c.kind == "view"   ? views.count(c.id)
-                                                    : false;
+            const bool found = c.kind == "command"   ? commands.count(c.id)
+                               : c.kind == "query"   ? queries.count(c.id)
+                               : c.kind == "editor"  ? editors.count(c.id)
+                               : c.kind == "view"    ? views.count(c.id)
+                               : c.kind == "toolbar" ? toolbarDescriptors.count(c.id)
+                                                     : false;
             if (!found)
                 throw std::invalid_argument("Unknown provider selection");
         }
@@ -1925,6 +2117,30 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         };
         std::vector<MenuEntry> menus;
         std::vector<std::pair<std::string, std::string>> bindings;
+        decltype(s.tools) tools;
+        decltype(s.toolbars) toolbars;
+        decltype(s.bindingViews) bindingViews;
+        decltype(s.bindingPhases) bindingPhases;
+        for (const auto &entry : commands)
+            if (entry.second->view.size) bindingViews[entry.first] = String(entry.second->view);
+        for (auto *m : s.activation) {
+            for (auto &d : m->tools)
+                if (auto chosen = commands.find(String(d.id));
+                    chosen != commands.end() && String(chosen->second->provider) == String(d.provider)) {
+                    if (!views.count(String(d.view))) throw std::invalid_argument("Unknown tool view");
+                    tools.emplace(String(d.id), &d);
+                    bindingViews[String(d.id)] = String(d.view);
+                }
+            for (auto &d : m->toolbars) {
+                if (d.view.size && !views.count(String(d.view))) throw std::invalid_argument("Unknown toolbar view");
+                toolbars.emplace(String(d.id), d);
+            }
+        }
+        for (const auto &entry : views)
+            if (entry.second->defaultTool.size &&
+                (!tools.count(String(entry.second->defaultTool)) ||
+                 String(tools.at(String(entry.second->defaultTool))->view) != entry.first))
+                throw std::invalid_argument("Unknown default view tool");
         for (auto *m : s.activation) {
             for (auto &d : m->menus) {
                 if (!actionExists(String(d.action)) || !s.locations.count(String(d.location)))
@@ -1939,8 +2155,116 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
             }
             for (auto &d : m->bindings) {
                 if (!actionExists(String(d.action))) throw std::invalid_argument("Unknown binding action");
-                bindings.emplace_back(String(d.action), String(d.chord));
+                const auto view =
+                    d.view.size
+                        ? String(d.view)
+                        : (bindingViews.count(String(d.action)) ? bindingViews.at(String(d.action)) : std::string{});
+                if ((!view.empty() && !views.count(view)) ||
+                    (bindingViews.count(String(d.action)) && bindingViews.at(String(d.action)) != view))
+                    throw std::invalid_argument("Inconsistent binding view");
+                bindingViews[String(d.action)] = view;
+                if (bindingPhases.count(String(d.action)) && bindingPhases.at(String(d.action)) != d.phase)
+                    throw std::invalid_argument("Conflicting input phases");
+                bindingPhases[String(d.action)] = d.phase;
+                const auto binding = std::make_pair(String(d.action), String(d.chord));
+                if (std::find(bindings.begin(), bindings.end(), binding) == bindings.end()) bindings.push_back(binding);
             }
+        }
+        std::map<std::string, ToolbarEntry> toolbarEntries;
+        for (const auto &entry : toolbarDescriptors) {
+            const auto &d = *entry.second;
+            ToolbarEntry item{String(d.id),    String(d.provider), String(d.location),
+                              String(d.title), String(d.action),   String(d.checked)};
+            if (CopyEditorFields(item.arguments, d.arguments, d.count) != EDITOR_OK)
+                throw std::invalid_argument("Invalid toolbar arguments");
+            item.x = d.x;
+            item.y = d.y;
+            item.width = d.width;
+            item.height = d.height;
+            item.flags = d.flags;
+            item.draw = d.draw;
+            item.data = d.data;
+            toolbarEntries.emplace(entry.first, std::move(item));
+        }
+        std::set<std::string> toolbarOverrides;
+        for (const auto &p : configuration.toolbarItems) {
+            if (Id(EditorText(p.id)).empty() || !toolbarOverrides.insert(p.id).second || (p.fields & ~127u))
+                throw std::invalid_argument("Invalid toolbar override");
+            auto found = toolbarEntries.find(p.id);
+            if (found == toolbarEntries.end()) {
+                if ((p.fields & (ToolbarLocation | ToolbarAction | ToolbarPosition | ToolbarSize)) !=
+                    (ToolbarLocation | ToolbarAction | ToolbarPosition | ToolbarSize))
+                    throw std::invalid_argument("Incomplete new toolbar item");
+                found = toolbarEntries.emplace(p.id, ToolbarEntry{}).first;
+                found->second.id = p.id;
+            }
+            auto &item = found->second;
+            if (p.fields & ToolbarLocation && item.location != p.location) {
+                if (toolbars.count(item.location) && toolbars.count(p.location) &&
+                    String(toolbars.at(item.location).view) != String(toolbars.at(p.location).view)) {
+                    item.draw = nullptr;
+                    item.data = nullptr;
+                }
+                item.location = p.location;
+            }
+            if (p.fields & ToolbarAction && item.action != p.action) {
+                item.action = p.action;
+                item.arguments.clear();
+                item.checked.clear();
+                item.draw = nullptr;
+                item.data = nullptr;
+            }
+            if (p.fields & ToolbarArguments) item.arguments = p.arguments;
+            if (p.fields & ToolbarTitle) item.title = p.title;
+            if (p.fields & ToolbarPosition) {
+                item.x = p.x;
+                item.y = p.y;
+            }
+            if (p.fields & ToolbarSize) {
+                item.width = p.width;
+                item.height = p.height;
+            }
+            if ((p.fields & ToolbarVisibility) && !p.visible) toolbarEntries.erase(found);
+        }
+        std::vector<ToolbarEntry> toolbarItems;
+        for (auto &entry : toolbarEntries) {
+            auto &item = entry.second;
+            const auto original = toolbarDescriptors.find(item.id);
+            // Declared controls can outlive an optional action module. Keep
+            // their action ID and draw them disabled until it returns. New or
+            // replaced actions must resolve, so configuration typos still fail.
+            const bool declaredAction = original != toolbarDescriptors.end() &&
+                                        String(original->second->action) == item.action;
+            const bool declaredCheck = original != toolbarDescriptors.end() &&
+                                       String(original->second->checked) == item.checked;
+            if (!toolbars.count(item.location) ||
+                (!item.action.empty() && !commands.count(item.action) && !declaredAction) ||
+                (!item.checked.empty() && !queries.count(item.checked) && !declaredCheck) ||
+                std::abs(item.x) > 1000000 || std::abs(item.y) > 1000000 || item.width > 100000 ||
+                item.height > 100000 || !std::isfinite(item.x) || !std::isfinite(item.y) ||
+                !std::isfinite(item.width) || !std::isfinite(item.height) || item.width <= 0 || item.height <= 0)
+                throw std::invalid_argument("Unknown toolbar action/location or invalid geometry: " + item.id);
+            const auto args = BorrowEditorFields(item.arguments);
+            std::vector<EditorField> copiedArgs;
+            if (CopyEditorFields(copiedArgs, args.data(), uint32_t(args.size())) != EDITOR_OK ||
+                !EveryField(item.arguments,
+                            [](const auto &f) { return f.type != EDITOR_OBJECT && f.type != EDITOR_OBJECT_LIST; }))
+                throw std::invalid_argument("Invalid toolbar arguments");
+            if (!item.action.empty() && commands.count(item.action)) {
+                const auto *c = commands.at(item.action);
+                for (const auto &field : item.arguments) {
+                    bool matches = false;
+                    for (uint32_t i = 0; i < c->count; ++i)
+                        matches |= field.key == String(c->parameters[i].key) && field.type == c->parameters[i].type;
+                    if (!matches) throw std::invalid_argument("Toolbar action arguments do not match");
+                }
+                for (uint32_t i = 0; i < c->count; ++i)
+                    if (!c->parameters[i].optional &&
+                        std::none_of(item.arguments.begin(), item.arguments.end(),
+                                     [&](const auto &field) { return field.key == String(c->parameters[i].key); }))
+                        throw std::invalid_argument("Toolbar action requires arguments");
+            }
+            toolbarItems.push_back(std::move(item));
         }
         std::set<std::string> placed;
         for (auto &p : configuration.menus) {
@@ -1962,14 +2286,21 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
             if (!b.second.empty()) bindings.push_back(b);
         }
         std::map<std::string, std::vector<EditorKey>> shortcuts;
-        std::vector<EditorKey> used;
+        std::vector<std::pair<std::string, EditorKey>> used;
         for (auto &b : bindings) {
             EditorKey key;
             if (!ReadEditorKey(b.second, key)) throw std::invalid_argument("Invalid shortcut");
-            if (std::find(used.begin(), used.end(), key) != used.end())
+            const auto view = bindingViews[b.first];
+            if (std::find(used.begin(), used.end(), std::make_pair(view, key)) != used.end())
                 throw std::invalid_argument("Conflicting shortcut");
             shortcuts[b.first].push_back(key);
-            used.push_back(key);
+            used.push_back({view, key});
+        }
+        for (auto &item : toolbarItems) {
+            item.tooltip = item.title;
+            const auto chord = std::find_if(bindings.begin(), bindings.end(),
+                                            [&](const auto &binding) { return binding.first == item.action; });
+            if (chord != bindings.end()) item.tooltip += " (" + chord->second + ")";
         }
         std::stable_sort(menus.begin(), menus.end(), [](const MenuEntry &a, const MenuEntry &b) {
             return a.location == b.location ? (a.order == b.order ? a.id < b.id : a.order < b.order)
@@ -1980,6 +2311,11 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         s.queries = std::move(queries);
         s.editors = std::move(editors);
         s.views = std::move(views);
+        s.tools = std::move(tools);
+        s.toolbars = std::move(toolbars);
+        s.toolbarItems = std::move(toolbarItems);
+        s.bindingViews = std::move(bindingViews);
+        s.bindingPhases = std::move(bindingPhases);
         s.menus = std::move(menus);
         s.bindings = std::move(bindings);
         s.shortcuts = std::move(shortcuts);
@@ -1998,6 +2334,7 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
         return;
     const bool documentChanged = s.document != document;
     if (documentChanged) {
+        for (const auto &entry : s.toolStates) CancelTool(entry.first);
         s.ClearDrafts();
         for (const auto &pending : s.pending) s.Complete(pending.operation, {EDITOR_STALE});
         s.pending.clear();
@@ -2035,7 +2372,11 @@ uint64_t EditorApplication::Revision() const {
     m_State->RefreshDocument();
     return m_State->published;
 }
-bool EditorApplication::HasEdits() const { return !m_State->drafts.empty() || !m_State->pending.empty(); }
+bool EditorApplication::HasEdits() const {
+    return !m_State->drafts.empty() || !m_State->pending.empty() ||
+           std::any_of(m_State->toolStates.begin(), m_State->toolStates.end(),
+                       [](const auto &entry) { return entry.second.captured; });
+}
 ObjectRef EditorApplication::EditTarget(EditorEdit edit) const {
     auto f = m_State->drafts.find(edit);
     return f == m_State->drafts.end() ? ObjectRef{} : f->second.object;
@@ -2054,6 +2395,15 @@ void EditorApplication::CloseScope(EditorView view) {
     auto &s = *m_State;
     if (!s.Thread())
         return;
+    CancelTool(view);
+    if (auto tool = s.toolStates.find(view);
+        tool != s.toolStates.end() && tool->second.handler && tool->second.entered) {
+        EditorToolInput input{};
+        input.size = sizeof(input);
+        input.phase = EDITOR_TOOL_LEAVE;
+        ToolInput(Scope(view), input);
+    }
+    s.toolStates.erase(view);
     s.scopes.erase(view);
     s.queryResult = {};
     for (auto &query : s.cache)
@@ -2188,6 +2538,16 @@ EditorStatus EditorApplication::CommandState(const std::string &id, const Editor
     auto &s = *m_State;
     if (!s.Thread())
         return EDITOR_REFUSED;
+    if (!s.Valid(request.scope, EDITOR_WORKSPACE)) return EDITOR_STALE;
+    if (const auto type = ActionView(id); !type.empty() && s.navigation) {
+        const auto view = s.navigation->ActionView(type, request.scope.view);
+        if (!view) return EDITOR_REFUSED;
+        if (view != request.scope.view) {
+            auto routed = request;
+            routed.scope = Scope(view);
+            return CommandState(id, routed);
+        }
+    }
     auto found = s.commands.find(id);
     if (found == s.commands.end())
         return EDITOR_INVALID;
@@ -2228,6 +2588,16 @@ EditorResponse EditorApplication::Execute(const std::string &id, const EditorReq
     if (!s.Thread() || s.readOnlyCallbacks || s.checking) {
         result.status = EDITOR_REFUSED;
         return result;
+    }
+    if (!s.Valid(request.scope, EDITOR_WORKSPACE)) return {EDITOR_STALE};
+    if (const auto type = ActionView(id); !type.empty() && s.navigation) {
+        const auto view = s.navigation->ActionView(type, request.scope.view);
+        if (!view) return {EDITOR_REFUSED};
+        if (view != request.scope.view) {
+            auto routed = request;
+            routed.scope = Scope(view);
+            return Execute(id, routed);
+        }
     }
     auto found = s.commands.find(id);
     if (found == s.commands.end()) {
@@ -2283,7 +2653,10 @@ EditorResponse EditorApplication::Execute(const std::string &id, const EditorReq
         result.message = "Too many pending commands";
         return result;
     }
-    const EditorOperation operation = !deferred && s.activeOperation ? s.activeOperation : s.next++;
+    // A view/session action may start an independent document command. Only
+    // nested document edits share their outer edit and completion number.
+    const bool sharesOperation = s.activeOperation && (s.editing || command->effect != EDITOR_DOCUMENT_EDIT);
+    const EditorOperation operation = !deferred && sharesOperation ? s.activeOperation : s.next++;
     if (!s.operations.count(operation)) {
         s.operations.emplace(operation, State::Operation{EditorResponse{EDITOR_QUEUED}, command->effect == EDITOR_DOCUMENT_EDIT});
         s.operations.at(operation).scope = request.scope;
@@ -2315,6 +2688,7 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, EditorSco
 EditorStatus EditorApplication::BeginEdit(const std::string &property, const EditorRequest &request, EditorEdit &out) {
     auto &s = *m_State;
     out = 0;
+    if (!s.Thread() || (s.inputView && request.scope.view != s.inputView)) return EDITOR_REFUSED;
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
     std::vector<EditorField> arguments;
     if (CopyEditorFields(arguments, request.values, request.count) != EDITOR_OK) return EDITOR_INVALID;
@@ -2334,12 +2708,14 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, const Edi
     State::Draft draft{request.scope, target, p, s.commands.at(p.command), s.editors.at(p.editor), *value, std::move(result.fields), s.editors, std::move(arguments)};
     out = s.next++;
     draft.deferred = !s.pending.empty();
+    draft.toolOwned = s.inputView == request.scope.view && s.inputView != 0;
     s.drafts.emplace(out, std::move(draft));
     return EDITOR_OK;
 }
 EditorStatus EditorApplication::BeginCommand(const std::string &id, const EditorRequest &request, EditorEdit &out) {
     auto &s = *m_State;
     out = 0;
+    if (!s.Thread() || (s.inputView && request.scope.view != s.inputView)) return EDITOR_REFUSED;
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying || !s.NativeReady() || !s.writable ||
         !s.drafts.empty() || !s.pending.empty())
         return EDITOR_REFUSED;
@@ -2375,6 +2751,7 @@ EditorStatus EditorApplication::BeginCommand(const std::string &id, const Editor
     draft.arguments = std::move(fields);
     draft.commandOnly = true;
     out = s.next++;
+    draft.toolOwned = s.inputView == request.scope.view && s.inputView != 0;
     s.drafts.emplace(out, std::move(draft));
     return EDITOR_OK;
 }
@@ -2388,6 +2765,7 @@ EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const EditorValue &v
     const auto found = s.drafts.find(edit);
     if (found == s.drafts.end())
         return EDITOR_STALE;
+    if (s.inputView && found->second.scope.view != s.inputView) return EDITOR_REFUSED;
     if (!s.Valid(found->second.scope) || (s.NativeReady() && !s.Current(found->second.object))) {
         s.RestorePreview(found->second);
         s.drafts.erase(found);
@@ -2418,6 +2796,7 @@ EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit, EditorO
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
     auto found = s.drafts.find(edit);
     if (found == s.drafts.end()) return EDITOR_STALE;
+    if (s.inputView && found->second.scope.view != s.inputView) return EDITOR_REFUSED;
     if (!commit) {
         const bool restored = s.RestorePreview(found->second);
         s.drafts.erase(found);
@@ -2690,6 +3069,237 @@ const PropertyBinding *EditorApplication::Property(const std::string &id) const 
     return found == m_State->properties.end() ? nullptr : &found->second;
 }
 const std::vector<MenuEntry> &EditorApplication::Menus() const { return m_State->menus; }
+std::vector<EditorCommandDesc> EditorApplication::Commands(bool all) const {
+    std::vector<EditorCommandDesc> result;
+    if (all) {
+        for (const auto &module : m_State->modules)
+            for (const auto &d : module->commands) result.push_back(d);
+    } else
+        for (const auto &entry : m_State->commands) result.push_back(*entry.second);
+    return result;
+}
+std::vector<EditorToolDesc> EditorApplication::Tools(bool all) const {
+    std::vector<EditorToolDesc> result;
+    if (all) {
+        for (const auto &module : m_State->modules)
+            for (const auto &d : module->tools) result.push_back(d);
+    } else
+        for (const auto &entry : m_State->tools) result.push_back(*entry.second);
+    return result;
+}
+std::vector<EditorToolbarItemDesc> EditorApplication::ToolbarProviders() const {
+    std::vector<EditorToolbarItemDesc> result;
+    for (const auto &module : m_State->modules)
+        for (const auto &d : module->toolbarItems) result.push_back(d);
+    return result;
+}
+const std::vector<ToolbarEntry> &EditorApplication::ToolbarItems() const { return m_State->toolbarItems; }
+const std::map<std::string, EditorToolbarLocation> &EditorApplication::Toolbars() const { return m_State->toolbars; }
+EditorInputPhase EditorApplication::BindingPhase(const std::string &action) const {
+    const auto found = m_State->bindingPhases.find(action);
+    return found == m_State->bindingPhases.end() ? EDITOR_KEY_PRESSED : found->second;
+}
+const std::map<std::string, std::string> &EditorApplication::BindingViews() const { return m_State->bindingViews; }
+std::string EditorApplication::ActionView(const std::string &id) const {
+    const auto found = m_State->bindingViews.find(id);
+    return found == m_State->bindingViews.end() ? std::string{} : found->second;
+}
+std::string EditorApplication::ToolChoice(EditorView view) const {
+    if (!m_State->Thread()) return {};
+    const auto found = m_State->toolStates.find(view);
+    return found == m_State->toolStates.end() ? std::string{} : found->second.choice;
+}
+const EditorToolDesc *EditorApplication::ActiveTool(EditorView view) const {
+    auto &s = *m_State;
+    if (!s.Thread()) return nullptr;
+    const auto found = s.toolStates.find(view);
+    if (found == s.toolStates.end()) return nullptr;
+    const auto &state = found->second;
+    const auto tool = s.tools.find(state.choice.empty() ? state.fallback : state.choice);
+    if (tool != s.tools.end() && String(tool->second->view) == state.type) return tool->second;
+    const auto fallback = s.tools.find(state.fallback);
+    return fallback == s.tools.end() ? nullptr : fallback->second;
+}
+bool EditorApplication::ToolCaptured(EditorView view) const {
+    if (!m_State->Thread()) return false;
+    const auto found = m_State->toolStates.find(view);
+    return found != m_State->toolStates.end() && found->second.captured;
+}
+EditorStatus EditorApplication::SelectTool(EditorScope scope, const std::string &id) {
+    auto &s = *m_State;
+    if (!s.Thread() || !s.active || s.querying || s.checking || (s.readOnlyCallbacks && s.restoringView != scope.view))
+        return EDITOR_REFUSED;
+    if (!s.Valid(scope, EDITOR_WORKSPACE) || scope.document != s.document) return EDITOR_STALE;
+    const auto tool = s.tools.find(id);
+    if (tool == s.tools.end()) return EDITOR_INVALID;
+    const auto source = s.toolStates.find(scope.view);
+    if (s.navigation && (source == s.toolStates.end() || source->second.type != String(tool->second->view))) {
+        const auto target = s.navigation->ActionView(String(tool->second->view), scope.view);
+        if (!target) return EDITOR_REFUSED;
+        scope = Scope(target);
+    }
+    if (s.readOnlyCallbacks && s.restoringView != scope.view) return EDITOR_REFUSED;
+    auto found = s.toolStates.find(scope.view);
+    if (found == s.toolStates.end() || found->second.type != String(tool->second->view)) return EDITOR_REFUSED;
+    auto &state = found->second;
+    if (state.dispatching) return EDITOR_REFUSED;
+    if (state.choice == id && state.handler == tool->second && state.entered) return EDITOR_NO_CHANGE;
+    if (tool->second->state && s.restoringView != scope.view) {
+        ++s.checking;
+        EditorStatus status = EDITOR_ERROR;
+        const EditorRequest request{scope};
+        try {
+            status = tool->second->state(tool->second->data, Host(), &request);
+        } catch (...) {
+        }
+        --s.checking;
+        if (status != EDITOR_OK) return status;
+    }
+    const auto previous = state;
+    if (state.entered && state.handler) {
+        EditorToolInput leave{};
+        leave.size = sizeof(leave);
+        leave.phase = EDITOR_TOOL_LEAVE;
+        ToolInput(scope, leave);
+    }
+    CancelTool(scope.view);
+    state.choice = id;
+    state.handler = tool->second;
+    state.entered = false;
+    EditorToolInput enter{};
+    enter.size = sizeof(enter);
+    enter.phase = EDITOR_TOOL_ENTER;
+    const auto status = ToolInput(scope, enter);
+    if (status != EDITOR_OK && status != EDITOR_NO_CHANGE) {
+        // ENTER can have started a preview before failing. Restore it before
+        // returning to the previous tool; no document edit may escape a failure.
+        CancelTool(scope.view);
+        EditorToolInput leave = enter;
+        leave.phase = EDITOR_TOOL_LEAVE;
+        ToolInput(scope, leave);
+        state = previous;
+        state.entered = false;
+        state.captured = false;
+        ToolInput(scope, enter);
+    }
+    return status;
+}
+void EditorApplication::RestoreTool(EditorView view, const std::string &choice) {
+    auto &s = *m_State;
+    if (!s.Thread()) return;
+    const auto found = s.toolStates.find(view);
+    if (found == s.toolStates.end()) return;
+    const auto restoring = s.restoringView;
+    s.restoringView = view;
+    const auto status = choice.empty() ? EDITOR_NO_CHANGE : SelectTool(Scope(view), choice);
+    s.restoringView = restoring;
+    if (status == EDITOR_INVALID) {
+        found->second.choice = choice;
+        found->second.handler = nullptr;
+        found->second.entered = false;
+    }
+}
+EditorStatus EditorApplication::ToolInput(EditorScope scope, const EditorToolInput &input) {
+    auto &s = *m_State;
+    if (!s.Thread() || !s.active || input.size != sizeof(input) || input.phase < EDITOR_TOOL_ENTER ||
+        input.phase > EDITOR_TOOL_LEAVE || !std::isfinite(input.x) || !std::isfinite(input.y) ||
+        !std::isfinite(input.dx) || !std::isfinite(input.dy) || !std::isfinite(input.wheel) ||
+        !std::isfinite(input.wheelX) || !std::isfinite(input.time) || input.buttons > 7 || input.pressed > 7 ||
+        input.released > 7 || input.modifiers > 15 || input.hovered > 1 || input.focused > 1)
+        return EDITOR_INVALID;
+    if (!s.Valid(scope, EDITOR_WORKSPACE) || scope.document != s.document) return EDITOR_STALE;
+    const auto found = s.toolStates.find(scope.view);
+    if (found == s.toolStates.end()) return EDITOR_NO_CHANGE;
+    auto &state = found->second;
+    if (state.dispatching || s.querying || s.checking || (s.readOnlyCallbacks && s.restoringView != scope.view))
+        return EDITOR_REFUSED;
+    const auto *current = ActiveTool(scope.view);
+    if ((input.phase == EDITOR_TOOL_FRAME || input.phase == EDITOR_TOOL_ENTER) && state.handler != current) {
+        if (state.entered && state.handler) {
+            EditorToolInput leave = input;
+            leave.phase = EDITOR_TOOL_LEAVE;
+            ToolInput(scope, leave);
+        }
+        CancelTool(scope.view);
+        state.handler = current;
+        state.entered = false;
+    }
+    if (!state.handler) return EDITOR_NO_CHANGE;
+    if (input.phase == EDITOR_TOOL_FRAME) {
+        if (state.focused && !input.focused) CancelTool(scope.view);
+        state.focused = input.focused != 0;
+        if (!input.focused && !input.hovered && !state.captured) return EDITOR_NO_CHANGE;
+    }
+    if (!state.entered && input.phase == EDITOR_TOOL_FRAME) {
+        auto enter = input;
+        enter.phase = EDITOR_TOOL_ENTER;
+        const auto status = ToolInput(scope, enter);
+        if (status != EDITOR_OK && status != EDITOR_NO_CHANGE) return status;
+    }
+    state.dispatching = true;
+    ++s.drawing;
+    const auto previousInput = s.inputView;
+    s.inputView = scope.view;
+    uint32_t flags = 0;
+    EditorStatus status = EDITOR_ERROR;
+    const EditorRequest request{scope};
+    auto delivered = input;
+    if (input.phase == EDITOR_TOOL_FRAME && !input.hovered) {
+        delivered.pressed = 0;
+        delivered.wheel = delivered.wheelX = 0;
+    }
+    try {
+        status = state.handler->input(state.handler->data, Host(), &request, &delivered, &flags);
+    } catch (...) {
+        status = EDITOR_ERROR;
+    }
+    s.inputView = previousInput;
+    --s.drawing;
+    state.dispatching = false;
+    if (flags & ~uint32_t(EDITOR_TOOL_CAPTURED | EDITOR_TOOL_DEFAULT)) status = EDITOR_INVALID;
+    if (input.phase == EDITOR_TOOL_ENTER && (status == EDITOR_OK || status == EDITOR_NO_CHANGE)) state.entered = true;
+    if (input.phase == EDITOR_TOOL_LEAVE) state.entered = false;
+    state.captured = input.phase == EDITOR_TOOL_FRAME && (flags & EDITOR_TOOL_CAPTURED);
+    if (status != EDITOR_OK && status != EDITOR_NO_CHANGE && input.phase == EDITOR_TOOL_FRAME) CancelTool(scope.view);
+    if (input.phase == EDITOR_TOOL_CANCEL) state.reset = (flags & EDITOR_TOOL_DEFAULT) != 0;
+    if (input.phase == EDITOR_TOOL_FRAME && (flags & EDITOR_TOOL_DEFAULT) && !state.fallback.empty() &&
+        state.choice != state.fallback)
+        RestoreTool(scope.view, state.fallback);
+    return status;
+}
+void EditorApplication::CancelTool(EditorView view) {
+    auto &s = *m_State;
+    if (!s.Thread() || s.querying || s.checking || s.readOnlyCallbacks) return;
+    const auto found = s.toolStates.find(view);
+    if (found == s.toolStates.end() || found->second.dispatching) return;
+    auto &state = found->second;
+    if (state.handler && state.entered) {
+        EditorToolInput cancel{};
+        cancel.size = sizeof(cancel);
+        cancel.phase = EDITOR_TOOL_CANCEL;
+        ToolInput(Scope(view), cancel);
+    }
+    state.captured = false;
+    for (auto it = s.drafts.begin(); it != s.drafts.end();) {
+        if (it->second.scope.view == view && it->second.toolOwned) {
+            s.RestorePreview(it->second);
+            it = s.drafts.erase(it);
+        } else
+            ++it;
+    }
+    if (state.reset && !state.fallback.empty()) {
+        state.reset = false;
+        if (state.handler && state.entered) {
+            EditorToolInput leave{};
+            leave.size = sizeof(leave);
+            leave.phase = EDITOR_TOOL_LEAVE;
+            ToolInput(Scope(view), leave);
+        }
+        state.choice = state.fallback;
+        state.handler = nullptr;
+        state.entered = false;
+    }
+}
 const std::map<std::string, std::string> &EditorApplication::MenuLocations() const { return m_State->locations; }
 const std::vector<std::pair<std::string, std::string>> &EditorApplication::Bindings() const {
     return m_State->bindings;
@@ -2809,6 +3419,14 @@ void EditorApplication::Stop() {
     auto &s = *m_State;
     if (!s.Thread() || s.assembling || s.loading || s.discarding)
         return;
+    for (const auto &entry : s.toolStates) {
+        CancelTool(entry.first);
+        EditorToolInput leave{};
+        leave.size = sizeof(leave);
+        leave.phase = EDITOR_TOOL_LEAVE;
+        ToolInput(Scope(entry.first), leave);
+    }
+    s.toolStates.clear();
     s.active = false;
     s.stopped = true;
     s.watches.clear();
@@ -2823,6 +3441,10 @@ void EditorApplication::Stop() {
     s.views.clear();
     s.properties.clear();
     s.locations.clear();
+    s.tools.clear();
+    s.toolbars.clear();
+    s.toolbarItems.clear();
+    s.bindingViews.clear();
     s.activation.clear();
     s.modules.clear();
 }

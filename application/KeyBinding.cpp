@@ -30,9 +30,10 @@ bool ReadEditorKey(const std::string &text, EditorKey &key) {
             return false;
         result.key = 256 + number;
     } else {
-        const std::array<const char *, 15> names = {"Space",  "Enter", "Tab",  "Escape", "Delete",
-                                                    "Insert", "Home",  "End",  "PageUp", "PageDown",
-                                                    "Up",     "Down",  "Left", "Right",  "Backspace"};
+        const std::array<const char *, 23> names = {
+            "Space",  "Enter",       "Tab",       "Escape",         "Delete",    "Insert",     "Home",       "End",
+            "PageUp", "PageDown",    "Up",        "Down",           "Left",      "Right",      "Backspace",  "Equal",
+            "Minus",  "KeypadEnter", "KeypadAdd", "KeypadSubtract", "MouseLeft", "MouseRight", "MouseMiddle"};
         for (size_t i = 0; i < names.size(); ++i)
             if (name == names[i])
                 result.key = 512 + static_cast<int>(i);

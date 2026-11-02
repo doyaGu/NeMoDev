@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 21u
+#define EDITOR_VERSION 22u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -100,7 +100,7 @@ typedef struct EditorRequest {
     const EditorValue *values;
     uint32_t count;
     EditorString handler; // empty selects the configured command/query
-    EditorOperation operation; // assigned by the host, shared by synchronous nested commands
+    EditorOperation operation; // assigned by the host; nested document edits share their parent's completion
     // Optional preceding edit in this same document. Run only after it succeeds.
     // revisionArgument, when supplied, names an INTEGER command parameter that
     // receives that edit's resulting document revision. Both are copied on execute.
@@ -169,6 +169,7 @@ typedef struct EditorCommandDesc {
     EditorCommandState state;
     EditorCommandPreview preview;
     EditorCommandPreviewCommit commitPreview;
+    EditorString view; // optional view type; application callers use its last focused instance
 } EditorCommandDesc;
 typedef enum EditorQueryRefresh { EDITOR_QUERY_DOCUMENT, EDITOR_QUERY_EACH_READ, EDITOR_QUERY_VERSIONED } EditorQueryRefresh;
 // Reads a published version, without native access or mutations. A changed
@@ -349,6 +350,7 @@ typedef struct EditorViewDesc {
     // are never persistent. Empty means window placement/open state only.
     const EditorParameter *settings;
     uint32_t settingCount;
+    EditorString defaultTool; // optional registered tool for this view type
 } EditorViewDesc;
 typedef struct EditorMenuDesc {
     EditorString id, action, location, label;
@@ -358,9 +360,70 @@ typedef struct EditorMenuDesc {
 typedef struct EditorMenuLocation {
     EditorString id, title;
 } EditorMenuLocation;
+typedef enum EditorInputPhase { EDITOR_KEY_PRESSED, EDITOR_KEY_DOWN, EDITOR_KEY_RELEASED } EditorInputPhase;
+
 typedef struct EditorBindingDesc {
     EditorString action, chord;
+    EditorString view;      // empty: application; otherwise only the focused view type
+    EditorInputPhase phase; // pressed by default; shared by this action's chords
 } EditorBindingDesc;
+typedef enum EditorToolPhase {
+    EDITOR_TOOL_ENTER,
+    EDITOR_TOOL_FRAME,
+    EDITOR_TOOL_CANCEL,
+    EDITOR_TOOL_LEAVE
+} EditorToolPhase;
+typedef enum EditorToolFlags { EDITOR_TOOL_CAPTURED = 1u, EDITOR_TOOL_DEFAULT = 2u } EditorToolFlags;
+// Pointer buttons: bit 0 left, bit 1 right, bit 2 middle. Coordinates are
+// relative to the view's content; modifiers use Control/Alt/Shift/Super bits.
+// Presses and wheel input start inside that view. A captured drag receives
+// moves and releases until completion, focus loss, cancellation or closure.
+typedef struct EditorToolInput {
+    uint32_t size;
+    EditorToolPhase phase;
+    float x, y, dx, dy, wheel, wheelX;
+    double time;
+    uint32_t buttons, pressed, released, modifiers, hovered, focused;
+} EditorToolInput;
+// State belongs to the receiving view. Use beginCommand/editValue/finishEdit
+// for document gestures. ENTER selects it, FRAME supplies input, CANCEL
+// restores live edits, LEAVE ends its use. LEAVE may accept an interaction;
+// the host cancels any preview left unfinished. Failures also cancel previews.
+// Selecting a tool is a session command and never adds an Undo step by itself.
+typedef EditorStatus(EDITOR_CALL *EditorToolInputHandler)(void *, const EditorHost *, const EditorRequest *,
+                                                          const EditorToolInput *, uint32_t *flags);
+typedef struct EditorToolDesc {
+    uint32_t size;
+    EditorString id, provider, title, view;
+    EditorToolInputHandler input;
+    void *data;
+    EditorCommandState state;
+} EditorToolDesc;
+typedef enum EditorToolbarFlags { EDITOR_TOOLBAR_RIGHT = 1u, EDITOR_TOOLBAR_STRETCH = 2u } EditorToolbarFlags;
+typedef struct EditorToolbarFrame {
+    uint32_t size;
+    float left, top, width, height, scale;
+    uint32_t enabled, checked;
+    EditorString action, title, shortcut, tooltip;
+} EditorToolbarFrame;
+// A custom control owns its widget IDs and may submit commands through the host. Returning nonzero
+// activates the item's configured action with its copied arguments.
+typedef uint32_t(EDITOR_CALL *EditorToolbarDraw)(void *, const EditorHost *, const EditorRequest *,
+                                                 const EditorToolbarFrame *);
+typedef struct EditorToolbarItemDesc {
+    uint32_t size;
+    EditorDrawingVersion imguiVersion;
+    EditorString id, provider, location, title, action, checked;
+    const EditorValue *arguments;
+    uint32_t count;
+    float x, y, width, height;
+    uint32_t flags;
+    EditorToolbarDraw draw;
+    void *data;
+} EditorToolbarItemDesc;
+typedef struct EditorToolbarLocation {
+    EditorString id, title, view;
+} EditorToolbarLocation;
 typedef struct EditorModuleDesc {
     uint32_t size, version;
     EditorString id;
@@ -384,6 +447,12 @@ typedef struct EditorModuleDesc {
     uint32_t locationCount;
     void *data;
     void(EDITOR_CALL *stop)(void *);
+    const EditorToolDesc *tools;
+    uint32_t toolCount;
+    const EditorToolbarItemDesc *toolbarItems;
+    uint32_t toolbarItemCount;
+    const EditorToolbarLocation *toolbars;
+    uint32_t toolbarCount;
 } EditorModuleDesc;
 typedef EditorStatus(EDITOR_CALL *EditorModuleEntry)(const EditorHost *, EditorModuleDesc *);
 
@@ -392,7 +461,8 @@ typedef EditorStatus(EDITOR_CALL *EditorModuleEntry)(const EditorHost *, EditorM
 // View and edit IDs are never reused. Values do not retain native objects.
 // Mutations requested inside drawing, query or notification callbacks run at
 // the end of the frame, with provider and scope fixed at submission.
-// Nested document edits form one undo step. Non-undoable document changes,
+// Nested document edits form one undo step. A session action that starts a
+// document edit receives a separate document command completion number. Non-undoable document changes,
 // file, history, session and runtime
 // commands keep their own semantics and cannot run inside a document edit.
 // Command state is read-only and is checked again before dispatch. Queued file
@@ -464,6 +534,18 @@ struct EditorHost {
     // by the containing interaction; recursion is bounded by the host.
     uint32_t(EDITOR_CALL *drawValue)(void *, EditorString editor, const EditorValueInput *);
 
+    // View-local tool selection also works while restoring that same view's
+    // state; it never edits the document or changes another view.
+    // Editor-thread view tools. Tool IDs are also ordinary commands, selected
+    // through the same provider settings. Each view keeps its own selection.
+    // toolbar/shortcuts/inputBinding are available during drawing only.
+    EditorStatus(EDITOR_CALL *selectTool)(void *, EditorScope, EditorString);
+    EditorString(EDITOR_CALL *activeTool)(void *, EditorView);
+    EditorStatus(EDITOR_CALL *toolInput)(void *, EditorScope, const EditorToolInput *);
+    void(EDITOR_CALL *cancelTool)(void *, EditorView);
+    EditorStatus(EDITOR_CALL *toolbar)(void *, EditorString, EditorScope, const EditorToolbarFrame *);
+    void(EDITOR_CALL *shortcuts)(void *, EditorScope);
+    uint32_t(EDITOR_CALL *inputBinding)(void *, EditorScope, EditorString action, EditorInputPhase, uint32_t consume);
 };
 
 #ifdef __cplusplus

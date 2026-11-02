@@ -33,7 +33,7 @@ struct WorkspaceConfiguration {
 // Persistent window identity is independent of process-local EditorView scopes.
 struct WorkspaceViewState {
     uint64_t instance = 0;
-    std::string type, provider, module, title, role;
+    std::string type, provider, module, title, role, tool;
     bool open = true, pinned = false, single = false;
     uint32_t version = 0;
     std::vector<EditorField> settings;

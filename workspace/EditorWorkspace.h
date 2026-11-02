@@ -26,6 +26,11 @@ class EditorWorkspace : private EditorViewNavigation {
     bool EditMenu(const char *location, ObjectRef target, EditorEdit &edit, EditorView &owner);
     void CommandMenu(const char *location);
     void CommandShortcuts();
+    EditorView ActionView(const std::string &, EditorView source) const override;
+    EditorStatus Toolbar(const std::string &, EditorScope, const EditorToolbarFrame &) override;
+    void Shortcuts(EditorScope) override;
+    bool InputBinding(EditorScope, const std::string &, EditorInputPhase, bool) const override;
+    bool Binding(const std::string &, EditorInputPhase, bool consume) const;
     void Draw(bool nativeAvailable = true);
     void Menu();
     EditorStatus Menu(const std::string &, EditorScope, ObjectRef, EditorEdit &) override;
@@ -125,10 +130,15 @@ class EditorWorkspace : private EditorViewNavigation {
     uint64_t m_ViewsRevision = 1;
     unsigned m_Dockspace = 0;
     bool m_LayoutPrepared = false, m_LayoutChanged = false;
+    void ToolMenus();
+    std::map<std::string, std::string> m_BindingDrafts;
+    std::string m_NewToolbarId, m_NewToolbarTitle, m_NewToolbarAction, m_NewToolbarLocation;
+    float m_NewToolbarPosition[2] = {0, 0}, m_NewToolbarSize[2] = {70, 19};
     struct SavedView {
         uint32_t version;
         std::vector<EditorField> fields;
         View::Placement placement;
+        std::string tool;
     };
     // Singletons use (type, ""); named instances use (type, role).
     std::map<std::pair<std::string, std::string>, SavedView> m_ClosedStates;

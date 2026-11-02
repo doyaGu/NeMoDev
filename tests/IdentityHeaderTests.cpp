@@ -49,7 +49,7 @@ extern "C" EditorStatus BeginCommandFromC(const EditorHost *, EditorString, cons
 extern "C" EditorStatus FinishCommandFromC(const EditorHost *, EditorEdit, EditorOperation *);
 extern "C" uint32_t EditorCommandSizeFromC(void);
 static_assert(__is_standard_layout(EditorCommandDesc), "C command callbacks");
-static_assert(EDITOR_VERSION == 21, "Editor persistent view settings version");
+static_assert(EDITOR_VERSION == 22, "Editor tools and input version");
 extern "C" EditorQueryDesc RetainedQueryFromC(void *);
 extern "C" uint32_t EditorQuerySizeFromC(void);
 extern "C" EditorViewDesc PickViewFromC(EditorObject *);
@@ -57,7 +57,20 @@ static_assert(__is_standard_layout(EditorQueryDesc), "C query flags");
 extern "C" uint32_t EditorRequestSizeFromC(void);
 extern "C" EditorRequest RequestAfterEditFromC(EditorOperation);
 extern "C" EditorViewDesc ClosingViewFromC(uint32_t *);
+static_assert(__is_standard_layout(EditorToolDesc) && __is_trivially_copyable(EditorToolInput), "C view tool data");
+static_assert(__is_standard_layout(EditorToolbarItemDesc) && __is_trivially_copyable(EditorToolbarFrame),
+              "C toolbar data");
+extern "C" uint32_t EditorToolSizeFromC(void);
+extern "C" uint32_t EditorToolInputSizeFromC(void);
+extern "C" uint32_t EditorToolbarSizeFromC(void);
+extern "C" uint32_t EditorToolbarFrameSizeFromC(void);
+extern "C" uint32_t EditorBindingSizeFromC(void);
 int main() {
+    if (EditorToolSizeFromC() != sizeof(EditorToolDesc) || EditorToolInputSizeFromC() != sizeof(EditorToolInput) ||
+        EditorToolbarSizeFromC() != sizeof(EditorToolbarItemDesc) ||
+        EditorToolbarFrameSizeFromC() != sizeof(EditorToolbarFrame) ||
+        EditorBindingSizeFromC() != sizeof(EditorBindingDesc))
+        return 1;
     uint32_t closed = 0;
     const auto closing = ClosingViewFromC(&closed);
     closing.closing(closing.data, nullptr, 81);

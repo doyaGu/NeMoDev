@@ -127,7 +127,7 @@ endif()
 # The editor as target, on the Dear ImGui library imgui, with the sources after it.
 find_package(Threads REQUIRED)
 function(virtoolsdev_add_editor target imgui)
-    add_library(${target}Workspace STATIC "${VIRTOOLSDEV_SOURCE_DIR}/workspace/EditorWorkspace.cpp" "${VIRTOOLSDEV_SOURCE_DIR}/workspace/WorkspaceState.cpp")
+    add_library(${target}Workspace STATIC "${VIRTOOLSDEV_SOURCE_DIR}/workspace/EditorWorkspace.cpp" "${VIRTOOLSDEV_SOURCE_DIR}/workspace/WorkspaceState.cpp" "${VIRTOOLSDEV_SOURCE_DIR}/workspace/ToolMenus.cpp")
     target_link_libraries(${target}Workspace PRIVATE NeMoDevEditorApplication ${imgui})
     target_include_directories(${target}Workspace PUBLIC "${VIRTOOLSDEV_SOURCE_DIR}")
     add_library(${target}ObjectViews STATIC "${VIRTOOLSDEV_SOURCE_DIR}/features/objects/ObjectViews.cpp")

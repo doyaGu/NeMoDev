@@ -23,7 +23,8 @@ bool ValidateWorkspaceState(const WorkspaceState &state, std::string &error) {
     };
     for (const auto &view : state.views) {
         if (!view.instance || view.instance == UINT64_MAX || !instances.insert(view.instance).second ||
-            view.type.empty() || (view.open && !view.role.empty() && !roles.insert(view.role).second) ||
+            view.type.empty() || view.tool.size() > 1024 || view.tool.find('\0') != std::string::npos ||
+            (view.open && !view.role.empty() && !roles.insert(view.role).second) ||
             (!view.version && !view.settings.empty()) || !values(view.settings))
             return invalid();
         if (view.placed && (!std::isfinite(view.x) || !std::isfinite(view.y) || !std::isfinite(view.width) ||
