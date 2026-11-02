@@ -321,5 +321,11 @@ if(VIRTOOLSDEV_BUILD_TESTS)
                 --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevUiDocumentInfo>"
                 --results "${PROJECT_BINARY_DIR}/module-startup")
         set_tests_properties(VirtoolsDevUi.moduleStartup PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 180)
+        add_test(NAME VirtoolsDevUi.profileStartup COMMAND ${Python3_EXECUTABLE}
+                "${VIRTOOLSDEV_SOURCE_DIR}/tests/ProfileStartupTests.py"
+                --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevUiDocumentInfo>"
+                --providers "$<TARGET_FILE:NeMoDevUiObjectModule>" --replacement "$<TARGET_FILE:NeMoDevProfileReplacement>"
+                --results "${PROJECT_BINARY_DIR}/profile-startup")
+        set_tests_properties(VirtoolsDevUi.profileStartup PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 300)
     endif()
 endif()

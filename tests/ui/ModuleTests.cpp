@@ -13,6 +13,7 @@
 #include "core/document/ObjectPictures.h"
 #include "core/runtime/Bitmaps.h"
 #include <fstream>
+#include <cstdlib>
 #include <chrono>
 #include <filesystem>
 
@@ -26,6 +27,110 @@ int LiveViews() {
 }
 } // namespace
 void RegisterModuleTests(ImGuiTestEngine *engine) {
+    auto *profile = IM_REGISTER_TEST(engine, "profiles", "profile_startup_state");
+    profile->GuiFunc = MainThreadGui;
+    profile->TestFunc = [](ImGuiTestContext *ctx) {
+        ctx->Yield(8);
+        OnMainThread(ctx, [&] {
+            const auto option = [](const char *key) { const auto *value = std::getenv(key); return std::string(value ? value : ""); };
+            auto &workspace = App().WorkspaceForTests();
+            auto &editor = workspace.Application();
+            const vdev::EditorClient client(editor.Host(), 0);
+            const auto modules = client.Query("profile.modules");
+            IM_CHECK_NO_RET(modules.status == EDITOR_OK);
+            const auto *rows = vdev::EditorClient::Find(modules, "modules");
+            IM_CHECK_NO_RET(rows);
+            const auto active = [&](const std::string &id) {
+                for (const auto &row : rows->fields) if (row.key == id)
+                    for (const auto &field : row.fields) if (field.key == "active") return field.integer != 0;
+                return false;
+            };
+            IM_CHECK_NO_RET(active("application.operations") && active("profile.settings"));
+            const auto layout = option("NEMODEV_PROFILE_LAYOUT");
+            const auto view = workspace.Role("main.layout");
+            if (layout == "disabled") IM_CHECK_NO_RET(!view && !App().Layout().UsesGpuViewport());
+            else if (layout == "external") {
+                IM_CHECK_NO_RET(view && workspace.WindowName(view) == "External 3D Layout###3D Layout");
+                IM_CHECK_NO_RET(editor.CommandProvider("object.rename") == "example.objects");
+                const auto painters = editor.CaptureValueEditors();
+                const auto *painter = painters.at("text.single-line");
+                IM_CHECK_NO_RET(std::string(painter->provider.data, painter->provider.size) == "example.text");
+                IM_CHECK_NO_RET(std::any_of(editor.Configuration().providers.begin(), editor.Configuration().providers.end(), [](const auto &choice) {
+                    return choice.kind == "query" && choice.id == "setup.details" && choice.provider == "example.setups";
+                }));
+            } else {
+                IM_CHECK_NO_RET(view && App().Layout().UsesGpuViewport());
+            }
+            const auto help = option("NEMODEV_PROFILE_HELP");
+            IM_CHECK_NO_RET(active("help.reference") == (help != "disabled"));
+            if (help == "replacement") IM_CHECK_NO_RET(client.Query("help.reference.value").status == EDITOR_OK);
+            else IM_CHECK_NO_RET(client.Query("help.reference.value").status != EDITOR_OK);
+            if (option("NEMODEV_PROFILE_BINDINGS") == "yes") {
+                IM_CHECK_NO_RET(editor.Shortcuts().at("help.open").size() == 2);
+                IM_CHECK_NO_RET(std::any_of(editor.Menus().begin(), editor.Menus().end(), [](const auto &menu) {
+                    return menu.id == "help.reference" && menu.order == 567;
+                }));
+            }
+            if (option("NEMODEV_PROFILE_SCHEMATIC") == "disabled") IM_CHECK_NO_RET(!workspace.Role("main.schematic"));
+            if (option("NEMODEV_PROFILE_EXAMPLE") == "disabled")
+                IM_CHECK_NO_RET(client.Command("example.show-document-info").status != EDITOR_OK);
+            if (option("NEMODEV_PROFILE_WRITE_FAILURE") == "yes") {
+                namespace fs = std::filesystem;
+                const auto path = fs::u8path(option("NEMODEV_PROFILE_FILE"));
+                const auto backup = fs::u8path(path.u8string() + ".retained");
+                const auto bytes = [](const fs::path &file) {
+                    std::ifstream input(file, std::ios::binary);
+                    return std::string(std::istreambuf_iterator<char>(input), {});
+                };
+                const auto original = bytes(path);
+                fs::rename(path, backup);
+                struct RestoreProfile {
+                    fs::path file, backup;
+                    ~RestoreProfile() { std::error_code ignored; fs::remove(file, ignored); fs::rename(backup, file, ignored); }
+                } restore{path, backup};
+                fs::create_directory(path);
+                const auto oldView = workspace.Role("main.layout");
+                auto *texture = App().Layout().GpuViewportTextureForTests();
+                auto configured = editor.Configuration();
+                for (auto &choice : configured.providers) if (choice.kind == "view" && choice.id == "layout.viewport")
+                    choice.provider = "example.layout-window";
+                std::string error;
+                IM_CHECK_NO_RET(!workspace.Configure(configured, error) && !error.empty());
+                IM_CHECK_NO_RET(workspace.Role("main.layout") == oldView &&
+                    App().Layout().GpuViewportTextureForTests() == texture && App().Layout().UsesGpuViewport());
+                vdev::EditorField setting{"module", EDITOR_RECORD};
+                setting.fields = {{"id", EDITOR_TEXT_VALUE, {}, "example.document-info"},
+                    {"enabled", EDITOR_INTEGER_VALUE, {}, {}, 0}};
+                const std::vector<vdev::EditorField> fields{setting}; const auto values = vdev::BorrowEditorFields(fields);
+                IM_CHECK_NO_RET(editor.Execute("profile.set-module", {client.Scope(), values.data(), uint32_t(values.size())}).status == EDITOR_ERROR);
+                IM_CHECK_NO_RET(bytes(backup) == original);
+            }
+            if (option("NEMODEV_PROFILE_SAVE") == "yes") {
+                auto &state = App().State();
+                const auto token = state.document->Token();
+                const auto history = state.History().UndoCount();
+                const auto selection = state.objectSelection.Revision();
+                auto configuration = editor.Configuration();
+                for (auto &choice : configuration.providers) {
+                    if (choice.kind == "view" && choice.id == "layout.viewport") choice.provider = "example.layout-window";
+                    if (choice.kind == "command" && choice.id == "object.rename") choice.provider = "example.objects";
+                    if (choice.kind == "query" && choice.id == "setup.details") choice.provider = "example.setups";
+                    if (choice.kind == "editor" && choice.id == "text.single-line") choice.provider = "example.text";
+                }
+                std::string error;
+                IM_CHECK_NO_RET(workspace.Configure(configuration, error));
+                vdev::EditorField setting{"module", EDITOR_RECORD};
+                setting.fields = {{"id", EDITOR_TEXT_VALUE, {}, "example.document-info"},
+                    {"enabled", EDITOR_INTEGER_VALUE, {}, {}, 0}};
+                const std::vector<vdev::EditorField> fields{setting};
+                const auto values = vdev::BorrowEditorFields(fields);
+                IM_CHECK_NO_RET(editor.Execute("profile.set-module", {client.Scope(), values.data(), uint32_t(values.size())}).status == EDITOR_OK);
+                IM_CHECK_NO_RET(client.Command("example.show-document-info").status == EDITOR_OK);
+                IM_CHECK_NO_RET(state.document->Token() == token && state.History().UndoCount() == history &&
+                    state.objectSelection.Revision() == selection);
+            }
+        });
+    };
     auto *discovery = IM_REGISTER_TEST(engine, "modules", "discovered_module_uses_builtin_workspace_and_queries");
     discovery->GuiFunc = MainThreadGui;
     discovery->TestFunc = [](ImGuiTestContext *ctx) {

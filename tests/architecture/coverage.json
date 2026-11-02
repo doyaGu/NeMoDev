@@ -1682,12 +1682,13 @@
         "VirtoolsDevUi.debugger",
         "VirtoolsDevUi.layout",
         "VirtoolsDevUi.modules",
-        "VirtoolsDevUi.tools"
+        "VirtoolsDevUi.tools",
+        "VirtoolsDevUi.profileStartup"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "General Preferences 草稿、校验、保存失败回滚和渲染引擎重启生效已覆盖；阶段六仍需配置冲突、一次迁移与可部署配置持久化"
+          "reason": "模块、提供者、快捷键、菜单和偏好已统一保存并在启动恢复，旧 INI 只读迁移；跨启动窗口私有状态、配置的各平台实机复验仍待完成"
         }
       ]
     },
@@ -1868,12 +1869,13 @@
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",
-        "VirtoolsDevUi.moduleStartup"
+        "VirtoolsDevUi.moduleStartup",
+        "VirtoolsDevUi.profileStartup"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "生产目录发现、内置与外部统一装配、失败清理和公开接口示例已实现；完整模块发布包的各平台实机验证、移除替换与私有状态恢复仍待完成"
+          "reason": "生产模块发现、统一装配、按身份启用禁用及替换、提供者保存恢复已实现；完整模块发布包的各平台实机验证与跨启动窗口私有状态恢复仍待完成"
         }
       ]
     },
@@ -2069,9 +2071,9 @@
     {
       "id": "settings",
       "name": "preferences、style、ViewOptions、runtime 设置",
-      "owner": "Preferences 保存已提交值；General Preferences 由 PreferencesCommands 查询和修改；ExecutionCommands 管理运行时间、显示 FPS 和运行选项；视图仅保留草稿",
+      "owner": "Preferences 保存本次已提交值；EditorProfile 拥有对应的已保存配置；PreferencesCommands 查询和修改偏好；ExecutionCommands 管理运行时间、显示 FPS 和运行选项；视图仅保留草稿",
       "lifetime": "有效配置版本变化，需重建的项延期",
-      "persistence": "保留原有配置、注册表和 dev.ini 读取；General Preferences 失败回滚，渲染引擎选择重启生效",
+      "persistence": "单一 JSON 保存；旧 INI、注册表和 dev.ini 只读迁移，General Preferences 保存失败回滚，渲染引擎选择重启生效",
       "features": [
         "F25"
       ]
@@ -2169,7 +2171,7 @@
       "name": "模块及命令、查询、属性、编辑器和视图登记",
       "owner": "EditorApplication",
       "lifetime": "启动统一收集、校验、启用；本批失败清理后可重试；全部使用者关闭后逆依赖停止并卸载，不热卸载",
-      "persistence": "安装和用户目录只在启动扫描；显式文件与目录入口复用同一发现和装配；配置持久化继续由后续阶段六工作完成",
+      "persistence": "安装、用户、显式目录和文件只在启动发现；EditorProfile 保存稳定模块 ID、启用状态和可选来源，内置与外部按同一选择装配；禁用或替换下次启动生效，不热卸载；明确禁用的外部路径在调用入口前跳过",
       "features": [
         "F31"
       ]
@@ -2216,9 +2218,9 @@
     {
       "id": "editor-configuration",
       "name": "命令、查询、编辑器与视图提供者选择、快捷键和菜单位置",
-      "owner": "EditorApplication",
+      "owner": "EditorProfile 拥有已保存的模块和提供者配置，EditorApplication 拥有本次已生效选择，Workspace 负责活动视图更换",
       "lifetime": "当前应用；错误设置保留原设置，编辑中禁止切换",
-      "persistence": "当前为内存配置；用户配置保存和旧格式迁移在阶段六完成",
+      "persistence": "单一带版本 JSON 保存模块、提供者、快捷键、菜单、偏好、最近文件、资源和路径；旧 INI 只读迁移，未知成员保留；读取失败不覆盖原文件；提供者更换先准备视图再保存，保存失败保留原窗口和配置；无文档、选区或历史数据",
       "features": [
         "F25"
       ]

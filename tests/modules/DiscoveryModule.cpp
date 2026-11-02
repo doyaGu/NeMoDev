@@ -32,11 +32,13 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->data = new Data{mode == "stop-throw"};
     out->stop = Stop;
     out->id = EDITOR_TEXT(MODULE_ID);
+#ifdef MODULE_DEPENDENCY
     const EditorString dependency = mode == "missing" ? EditorString EDITOR_TEXT("fixture.missing") :
         mode == "cycle" ? EditorString EDITOR_TEXT(MODULE_ID) : EditorString EDITOR_TEXT(MODULE_DEPENDENCY);
     // Arrays must survive the entry's return until the host copies them.
     static EditorString dependencies[1]; dependencies[0] = dependency;
     out->dependencies = dependencies; out->dependencyCount = 1;
+#endif
     static const EditorParameter field{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE};
     static const EditorQueryDesc query{sizeof(EditorQueryDesc), EDITOR_TEXT(MODULE_ID ".value"), EDITOR_TEXT(MODULE_ID),
         nullptr, 0, [](void *, const EditorHost *, const EditorRequest *, EditorSink sink) {
