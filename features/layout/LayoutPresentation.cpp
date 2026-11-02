@@ -1,17 +1,19 @@
 #include "features/layout/LayoutPresentation.h"
-#include "features/layout/LayoutViewport.h"
 #include "application/ObjectSelection.h"
 #include "application/Preferences.h"
 #include "core/document/Document.h"
-#include "core/layout/LayoutView.h"
 #include "core/layout/LayoutExplorer.h"
 #include "core/layout/LayoutTools.h"
+#include "core/layout/LayoutView.h"
 #include "core/runtime/TextEncoding.h"
+#include "features/layout/LayoutViewport.h"
 #include <algorithm>
-#include <cstdlib>
-#include <cstdio>
 #include <climits>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <map>
+#include <optional>
 #include <string_view>
 
 namespace vdev {
@@ -63,16 +65,19 @@ const EditorValue *Arg(const EditorRequest &request, const char *key) {
 struct LayoutPresentation::Data {
     EditorApplication &editor;
     std::function<Document *()> current;
-    std::function<LayoutView &()> view;
-    LayoutViewport &viewport;
+    LayoutTargetLookup view;
     ObjectSelection &selection;
     const Preferences &preferences;
     std::function<bool()> running;
-    DocumentToken document{};
-    ObjectRef level{};
-    std::vector<ObjectRef> playerSelection;
-    bool player = false;
-    uint64_t composition = 0;
+    struct ViewState {
+        DocumentToken document{};
+        ObjectRef level{};
+        std::vector<ObjectRef> playerSelection;
+        bool player = false;
+        uint64_t composition = 0;
+    };
+    std::map<EditorView, ViewState> states;
+    std::optional<EditorView> fullscreen;
     enum Action { Toggle, Leave };
     struct Entry {
         Data *owner;
@@ -82,15 +87,26 @@ struct LayoutPresentation::Data {
         auto *doc = current();
         return doc && doc->IsOpen() && doc->Context()->IsPlaying() && running();
     }
-    EditorStatus FullScreen(bool leave, bool activate, EditorSink sink) {
+    EditorStatus FullScreen(const LayoutTarget &target, bool leave, bool activate, EditorSink sink) {
+        if (!target.viewport)
+            return EDITOR_REFUSED;
+        auto &view = target.view;
         std::string error;
         bool ok = true;
-        if (leave || view().FullScreen()) {
-            if (!view().FullScreen())
+        if (leave || view.FullScreen()) {
+            if (!view.FullScreen()) {
+                if (fullscreen == target.id)
+                    fullscreen.reset();
                 return EDITOR_NO_CHANGE;
-            ok = viewport.ExitFullScreen(activate, error);
+            }
+            ok = target.viewport->ExitFullScreen(activate, error);
         } else {
-            if (!view().Started() || !Player())
+            if (fullscreen && *fullscreen != target.id) {
+                if ((!*fullscreen || editor.Scope(*fullscreen).view) && this->view(*fullscreen).view.FullScreen())
+                    return EDITOR_REFUSED;
+                fullscreen.reset();
+            }
+            if (!view.Started() || !Player())
                 return EDITOR_REFUSED;
             auto *doc = current();
             const int driver =
@@ -101,57 +117,65 @@ struct LayoutPresentation::Data {
                 Write(sink, {{"message", EDITOR_TEXT_VALUE, {}, "3D Layout: unavailable fullscreen mode " + wanted}});
                 return EDITOR_REFUSED;
             }
-            ok = viewport.EnterFullScreen({driver, mode.Width, mode.Height, mode.Bpp, mode.RefreshRate}, error);
+            ok = target.viewport->EnterFullScreen({driver, mode.Width, mode.Height, mode.Bpp, mode.RefreshRate}, error);
+        }
+        if (ok) {
+            if (view.FullScreen())
+                fullscreen = target.id;
+            else if (fullscreen == target.id)
+                fullscreen.reset();
         }
         if (!ok)
             Write(sink, {{"message", EDITOR_TEXT_VALUE, {}, error}});
         return ok ? EDITOR_OK : EDITOR_ERROR;
     }
-    void Automatic(const char *command) {
-        const auto scope = editor.Scope();
+    void Automatic(const char *command, EditorView source) {
+        const auto scope = editor.Scope(source);
         const auto result = editor.Execute(command, {scope, nullptr, 0});
         if (!result.message.empty() && editor.report)
             editor.report(result);
     }
-    void Sync() {
+    void Sync(const LayoutTarget &target) {
+        auto &view = target.view;
+        auto &state = states[target.id];
         auto *doc = current();
         const auto token = doc && doc->IsOpen() ? doc->Token() : DocumentToken{};
-        const bool replaced = token != document;
+        const bool replaced = token != state.document;
         if (replaced) {
-            document = token;
-            level = {};
-            playerSelection.clear();
-            player = false;
+            state.document = token;
+            state.level = {};
+            state.playerSelection.clear();
+            state.player = false;
         }
         const bool nextPlayer = Player();
-        const bool changed = nextPlayer != player;
-        player = nextPlayer;
-        if (changed && player) {
-            playerSelection = preferences.Bool("3D Layout\\Player Mode\\Auto Show Selection")
-                                  ? doc->References(selection.Objects())
-                                  : std::vector<ObjectRef>();
+        const bool changed = nextPlayer != state.player;
+        state.player = nextPlayer;
+        if (changed && state.player) {
+            state.playerSelection = preferences.Bool("3D Layout\\Player Mode\\Auto Show Selection")
+                                        ? doc->References(selection.Objects())
+                                        : std::vector<ObjectRef>();
         }
-        if ((changed || replaced) && !player && view().FullScreen())
-            Automatic("layout.leave-fullscreen");
-        if (view().Started()) {
+        if ((changed || replaced) && !state.player && view.FullScreen())
+            Automatic("layout.leave-fullscreen", target.id);
+        if (view.Started()) {
             auto *nativeLevel = token.value ? doc->Context()->GetCurrentLevel() : nullptr;
             const auto nextLevel = nativeLevel ? doc->Reference(nativeLevel->GetID()) : ObjectRef{};
-            if (replaced || nextLevel != level || !view().InterfaceAlive()) {
-                view().CompositionChanged();
-                level = nextLevel;
-                ++composition;
+            if (replaced || nextLevel != state.level || !view.InterfaceAlive()) {
+                view.CompositionChanged();
+                state.level = nextLevel;
+                ++state.composition;
             }
         }
         std::vector<CK_ID> shown;
-        if (player) {
+        if (state.player) {
             shown.assign(doc->Layout().playerShown.begin(), doc->Layout().playerShown.end());
-            for (auto ref : playerSelection)
+            for (auto ref : state.playerSelection)
                 if (doc->Resolve(ref))
                     shown.push_back(ref.object);
         }
-        view().SetPlayerShown(shown);
+        view.SetPlayerShown(shown);
         const auto &p = preferences;
-        const std::string mode = player ? "3D Layout\\Player Mode\\" : "3D Layout\\Author Mode\\";
+        const std::string mode = state.player ? "3D Layout\\Player Mode\\" : "3D Layout\\Author Mode\\";
         LayoutDisplay display;
         display.shading = static_cast<VxShadeType>(std::clamp(p.Int(mode + "Render Type Index"), 0, 3));
         display.textured = p.Bool(mode + "Render Type Textured");
@@ -165,9 +189,9 @@ struct LayoutPresentation::Data {
         // the Screen Guide are Author Mode's; the reference guide shows in Player
         // Mode when Show Reference Guides is on too (sub_4A11D0 +524).
         display.showObjectAxis = p.Bool("3D Layout\\Author Mode\\Show ObjectAxis");
-        display.showWorldAxis = !player && p.Bool("3D Layout\\Author Mode\\Show WorldAxis");
-        display.showGrid =
-            p.Bool("3D Layout\\Author Mode\\Show Grid") && (!player || p.Bool("3D Layout\\Player Mode\\Show Grid"));
+        display.showWorldAxis = !state.player && p.Bool("3D Layout\\Author Mode\\Show WorldAxis");
+        display.showGrid = p.Bool("3D Layout\\Author Mode\\Show Grid") &&
+                           (!state.player || p.Bool("3D Layout\\Player Mode\\Show Grid"));
         display.ignoreCameraAspect = p.Bool("3D Layout\\Environment\\Ignore Camera Aspect Ratio");
         display.constantObjectAxis = p.Int("3D Layout\\Interface Objects\\Constant Object Axis");
         display.objectAxisZoom = p.Float("3D Layout\\Interface Objects\\Object Axis Zoom Percentage");
@@ -190,7 +214,7 @@ struct LayoutPresentation::Data {
         display.gridDir = Vector(p.Text("3D Layout\\Reference Grid\\Orientation Dir"));
         display.gridUp = Vector(p.Text("3D Layout\\Reference Grid\\Orientation Up"));
         display.gridRight = Vector(p.Text("3D Layout\\Reference Grid\\Orientation Right"));
-        display.showScreenGrid = !player && p.Bool("3D Layout\\Show Screen Grid");
+        display.showScreenGrid = !state.player && p.Bool("3D Layout\\Show Screen Grid");
         display.homogenousScreenGrid = p.Bool("3D Layout\\Homogenous Screen Grid");
         const std::string screenStep = p.Text("3D Layout\\Screen Step"),
                           screenOffset = p.Text("3D Layout\\Screen Offset");
@@ -198,33 +222,34 @@ struct LayoutPresentation::Data {
         display.screenStep[1] = Component(screenStep, 1, '|');
         display.screenOffset[0] = Component(screenOffset, 0, '|');
         display.screenOffset[1] = Component(screenOffset, 1, '|');
-        if (!SameDisplay(display, view().Display()))
-            view().SetDisplay(display);
+        if (!SameDisplay(display, view.Display()))
+            view.SetDisplay(display);
 
         if (doc && token.value) {
-            view().SetSelection(selection.Objects());
-            view().SetCones(std::vector<CK_ID>(doc->Layout().cones.begin(), doc->Layout().cones.end()));
-            view().SetRepresentations(doc->Layout().representations);
-            view().SetHiddenCurvePoints(doc->Layout().hiddenCurvePoints);
+            view.SetSelection(selection.Objects());
+            view.SetCones(std::vector<CK_ID>(doc->Layout().cones.begin(), doc->Layout().cones.end()));
+            view.SetRepresentations(doc->Layout().representations);
+            view.SetHiddenCurvePoints(doc->Layout().hiddenCurvePoints);
         } else {
-            view().SetSelection({});
-            view().SetCones({});
-            view().SetRepresentations({});
-            view().SetHiddenCurvePoints({});
+            view.SetSelection({});
+            view.SetCones({});
+            view.SetRepresentations({});
+            view.SetHiddenCurvePoints({});
         }
-        if (changed && player && p.Bool("3D Layout\\Player Mode\\Auto FullScreen")) {
-            Automatic("layout.toggle-fullscreen");
+        if (changed && state.player && target.id == this->view(0).id &&
+            p.Bool("3D Layout\\Player Mode\\Auto FullScreen")) {
+            Automatic("layout.toggle-fullscreen", target.id);
         }
     }
-    std::string DebugText(int x, int y) {
+    std::string DebugText(LayoutView &view, int x, int y) {
         auto *doc = current();
         if (!doc || !doc->IsOpen())
             return {};
         auto *context = doc->Context();
         char line[512];
         std::string text;
-        const bool inside = x >= 0 && y >= 0 && x < view().Width() && y < view().Height();
-        const auto info = inside ? view().PickInfo(x, y) : LayoutPickInfo();
+        const bool inside = x >= 0 && y >= 0 && x < view.Width() && y < view.Height();
+        const auto info = inside ? view.PickInfo(x, y) : LayoutPickInfo();
         // 32 characters (cut as wide characters, not ANSI bytes: a double-byte one stays whole), UTF-8.
         auto name = [](CKObject *object) {
             return WideToUtf8(AnsiToWide(object->GetName() ? object->GetName() : "Unknown").substr(0, 32));
@@ -236,7 +261,7 @@ struct LayoutPresentation::Data {
             text += DevClassName(object) + ": " + name(object);
             if (marks && selection.Contains(id))
                 text += " (S)";
-            if (marks && view().DropTarget() == id)
+            if (marks && view.DropTarget() == id)
                 text += " (D)";
             text += '\n';
         };
@@ -299,17 +324,18 @@ struct LayoutPresentation::Data {
     }
     static EditorStatus Pick(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
+        auto &view = self.view(request->scope.view).view;
         auto *doc = self.current();
         if (!doc || !doc->IsOpen() || doc->Token() != request->scope.document)
             return EDITOR_STALE;
         const auto *x = Arg(*request, "x"), *y = Arg(*request, "y"), *cid = Arg(*request, "class");
         if (!x || !y || !cid || !std::isfinite(x->real) || !std::isfinite(y->real) || x->real < 0 || y->real < 0 ||
-            x->real >= self.view().Width() || y->real >= self.view().Height() || cid->integer > INT_MAX)
+            x->real >= view.Width() || y->real >= view.Height() || cid->integer > INT_MAX)
             return EDITOR_INVALID;
-        auto *camera = self.view().Camera();
-        const auto shown = camera && !self.view().IsViewCamera(camera->GetID()) ? camera->GetID() : 0;
-        const auto id = LayoutPickObject(doc->Context(), self.view().PickInfo(int(x->real), int(y->real)),
-                                         int(cid->integer), shown);
+        auto *camera = view.Camera();
+        const auto shown = camera && !view.IsViewCamera(camera->GetID()) ? camera->GetID() : 0;
+        const auto id =
+            LayoutPickObject(doc->Context(), view.PickInfo(int(x->real), int(y->real)), int(cid->integer), shown);
         return Write(sink, {{"object", EDITOR_OBJECT, doc->IsDiscarded(id) ? ObjectRef{} : doc->Reference(id)}});
     }
     static EditorStatus Shortcuts(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
@@ -324,9 +350,10 @@ struct LayoutPresentation::Data {
         }
         return Write(sink, fields);
     }
-    static EditorStatus State(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
+    static EditorStatus State(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
-        auto &view = self.view();
+        const auto target = self.view(request->scope.view);
+        auto &view = target.view;
         auto *doc = self.current();
         auto *camera = view.Camera();
         std::string selected = "Nothing selected";
@@ -343,7 +370,7 @@ struct LayoutPresentation::Data {
              {"player", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(self.Player())},
              {"playing", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(doc && doc->IsOpen() && doc->Context()->IsPlaying())},
              {"fullscreen", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(view.FullScreen())},
-             {"composition", EDITOR_INTEGER_VALUE, {}, {}, self.composition},
+             {"composition", EDITOR_INTEGER_VALUE, {}, {}, self.states[target.id].composition},
              {"perspective",
               EDITOR_INTEGER_VALUE,
               {},
@@ -362,27 +389,39 @@ struct LayoutPresentation::Data {
         if (!x || !y || !std::isfinite(x->real) || !std::isfinite(y->real) || x->real < INT_MIN || x->real > INT_MAX ||
             y->real < INT_MIN || y->real > INT_MAX)
             return EDITOR_INVALID;
-        return Write(
-            sink, {{"text", EDITOR_TEXT_VALUE, {}, static_cast<Data *>(data)->DebugText(int(x->real), int(y->real))}});
+        return Write(sink,
+                     {{"text",
+                       EDITOR_TEXT_VALUE,
+                       {},
+                       static_cast<Data *>(data)->DebugText(static_cast<Data *>(data)->view(request->scope.view).view,
+                                                            int(x->real), int(y->real))}});
     }
     static EditorStatus Run(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &entry = *static_cast<Entry *>(data);
         const auto *deactivated = Arg(*request, "deactivated");
         if (deactivated && deactivated->integer > 1)
             return EDITOR_INVALID;
-        return entry.owner->FullScreen(entry.action == Leave, !deactivated || !deactivated->integer, sink);
+        return entry.owner->FullScreen(entry.owner->view(request->scope.view), entry.action == Leave,
+                                       !deactivated || !deactivated->integer, sink);
     }
 };
 LayoutPresentation::LayoutPresentation(EditorApplication &editor, std::function<Document *()> current,
-                                       std::function<LayoutView &()> view, LayoutViewport &viewport,
-                                       ObjectSelection &selection, const Preferences &preferences,
-                                       std::function<bool()> running)
-    : m_Data(new Data{editor, std::move(current), std::move(view), viewport, selection, preferences,
-                      std::move(running)}) {}
+                                       LayoutTargetLookup view, ObjectSelection &selection,
+                                       const Preferences &preferences, std::function<bool()> running)
+    : m_Data(new Data{editor, std::move(current), std::move(view), selection, preferences, std::move(running)}) {}
 LayoutPresentation::~LayoutPresentation() = default;
-void LayoutPresentation::Poll() {
-    if (m_Data->editor.NativeAvailable())
-        m_Data->Sync();
+void LayoutPresentation::Poll(EditorView source) {
+    if (!m_Data->editor.NativeAvailable())
+        return;
+    m_Data->Sync(m_Data->view(source));
+    for (auto it = m_Data->states.begin(); it != m_Data->states.end();) {
+        if (it->first && !m_Data->editor.Scope(it->first).view)
+            it = m_Data->states.erase(it);
+        else
+            ++it;
+    }
+    if (m_Data->fullscreen && *m_Data->fullscreen && !m_Data->editor.Scope(*m_Data->fullscreen).view)
+        m_Data->fullscreen.reset();
 }
 const std::vector<ProviderChoice> &LayoutPresentation::DefaultProviders() {
     static const std::vector<ProviderChoice> result{

@@ -84,7 +84,7 @@ void TestLayoutAuthoring(vdev::CkRuntimeHost &runtime) {
     bool available = true;
     EditorApplication editor([&] { return &doc; }, [&] { return available; });
     LayoutAuthoring authoring(
-        editor, [&] { return &doc; }, [&]() -> LayoutView & { return view; }, selection, preferences,
+        editor, [&] { return &doc; }, [&](EditorView) { return LayoutTarget{0, view}; }, selection, preferences,
         [&]() -> SchematicNavigation & { return navigation; });
     int remembers = 0, shows = 0;
     authoring.rememberBehavior = [&](uint64_t) { ++remembers; };

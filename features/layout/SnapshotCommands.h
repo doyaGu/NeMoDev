@@ -7,7 +7,8 @@ class RuntimeOperation;
 class SaveFileOperations;
 class SnapshotCommands {
   public:
-    SnapshotCommands(EditorApplication &, RuntimeOperation &, LayoutViewport &, std::function<Document *()>);
+    SnapshotCommands(EditorApplication &, RuntimeOperation &, std::function<LayoutViewport &(EditorView)>,
+                     std::function<Document *()>);
     ~SnapshotCommands();
     bool Register(std::string &error);
     void Poll();

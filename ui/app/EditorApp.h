@@ -284,21 +284,21 @@ private:
     LayoutWindow m_Layout{m_Session.host, m_ParameterCopies, m_Editor};
     LayoutCommands m_LayoutCommands{m_Editor,
         [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-        [this]() -> LayoutView & { return m_Layout.View(); }, m_Session.objectSelection};
+        [this](EditorView) { return LayoutTarget{0, m_Layout.View(), &m_Layout}; }, m_Session.objectSelection};
     LayoutAuthoring m_LayoutAuthoring{m_Editor,
                                       [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-                                      [this]() -> LayoutView & { return m_Layout.View(); },
+                                      [this](EditorView) { return LayoutTarget{0, m_Layout.View(), &m_Layout}; },
                                       m_Session.objectSelection,
                                       m_Settings,
                                       [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }};
     LayoutPresentation m_LayoutPresentation{m_Editor,
                                             [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-                                            [this]() -> LayoutView & { return m_Layout.View(); },
-                                            m_Layout,
+                                            [this](EditorView) { return LayoutTarget{0, m_Layout.View(), &m_Layout}; },
                                             m_Session.objectSelection,
                                             m_Settings,
                                             [this] { return m_Execution.State().state == EDITOR_EXECUTION_RUNNING; }};
-    SnapshotCommands m_Snapshots{m_Editor, m_Session.runtimeOperation, m_Layout,
+    SnapshotCommands m_Snapshots{m_Editor, m_Session.runtimeOperation,
+                                 [this](EditorView) -> LayoutViewport & { return m_Layout; },
                                  [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }};
 
 #ifdef VIRTOOLSDEV_UI_TESTS

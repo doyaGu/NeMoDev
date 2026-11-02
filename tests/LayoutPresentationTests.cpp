@@ -122,9 +122,10 @@ void TestLayoutPresentation(CkRuntimeHost &runtime) {
     Viewport viewport;
     Preferences preferences;
     LayoutPresentation presentation(
-        editor, [&] { return &doc; }, [&]() -> LayoutView & { return view; }, viewport, selection, preferences,
-        [&] { return running; });
-    SnapshotCommands snapshots(editor, operations, viewport, [&] { return &doc; });
+        editor, [&] { return &doc; }, [&](EditorView) { return LayoutTarget{0, view, &viewport}; }, selection,
+        preferences, [&] { return running; });
+    SnapshotCommands snapshots(
+        editor, operations, [&](EditorView) -> LayoutViewport & { return viewport; }, [&] { return &doc; });
     Check(presentation.Register(error) && snapshots.Register(error) && editor.Activate(EDITOR_IMGUI_VERSION, error),
           error.c_str());
     auto attach = [&] { editor.Attach(doc.Token(), doc.TopologyRevision(), true, true); };

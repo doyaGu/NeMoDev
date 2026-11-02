@@ -126,12 +126,12 @@ struct LayoutAuthoring::Data {
     LayoutAuthoring &owner;
     EditorApplication &editor;
     std::function<Document *()> current;
-    std::function<LayoutView &()> view;
+    LayoutTargetLookup view;
     ObjectSelection &selection;
     const Preferences &preferences;
     std::function<SchematicNavigation &()> navigation;
     DocumentToken document{};
-    EditorView source = 0;
+    EditorView source = 0, viewport = 0;
     ObjectRef block{}, script{};
     std::vector<ObjectRef> parameters;
     std::unique_ptr<Edit> edit;
@@ -153,7 +153,7 @@ struct LayoutAuthoring::Data {
         script = {};
         parameters.clear();
         document = {};
-        source = 0;
+        source = viewport = 0;
         drop = 0;
         ++revision;
     }
@@ -165,9 +165,9 @@ struct LayoutAuthoring::Data {
     static EditorStatus Creation(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
-        if (!doc || self.view().Context() != doc->Context())
+        if (!doc || self.view(r->scope.view).view.Context() != doc->Context())
             return EDITOR_STALE;
-        auto *camera = self.view().Camera();
+        auto *camera = self.view(r->scope.view).view.Camera();
         const auto &p = self.preferences;
         const auto selected =
             self.selection.References().size() == 1 ? self.selection.References().front() : ObjectRef{};
@@ -186,7 +186,7 @@ struct LayoutAuthoring::Data {
     static EditorStatus Pick(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
-        if (!doc || self.view().Context() != doc->Context())
+        if (!doc || self.view(r->scope.view).view.Context() != doc->Context())
             return EDITOR_STALE;
         const auto x = Arg(*r, "x").real, y = Arg(*r, "y").real;
         const auto type = Arg(*r, "kind").text;
@@ -196,7 +196,7 @@ struct LayoutAuthoring::Data {
             y > INT32_MAX || (kind != "behavior" && kind != "resource" && kind != "attribute" && kind != "material") ||
             ctrl > 1)
             return EDITOR_INVALID;
-        const auto info = self.view().PickInfo(int(x), int(y));
+        const auto info = self.view(r->scope.view).view.PickInfo(int(x), int(y));
         auto *context = doc->Context();
         const auto selected = self.Selected(*doc);
         const auto contains = [&](CK_ID id) {
@@ -212,8 +212,8 @@ struct LayoutAuthoring::Data {
             auto *declaration = CKGetObjectDeclarationFromGuid(CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype)));
             if (!declaration)
                 return EDITOR_INVALID;
-            auto receivers =
-                BehaviorReceivers(*doc, self.view(), info, declaration->GetCompatibleClassId(), ctrl != 0, selected);
+            auto receivers = BehaviorReceivers(*doc, self.view(r->scope.view).view, info,
+                                               declaration->GetCompatibleClassId(), ctrl != 0, selected);
             target = receivers.target;
             highlight = receivers.highlight;
             multiple = receivers.multiple;
@@ -258,12 +258,12 @@ struct LayoutAuthoring::Data {
     static EditorStatus Highlight(void *data, const EditorHost *, const EditorRequest *r, EditorSink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
-        if (!doc || self.view().Context() != doc->Context())
+        if (!doc || self.view(r->scope.view).view.Context() != doc->Context())
             return EDITOR_STALE;
         const auto ref = Arg(*r, "target").object;
         if (ref && !doc->Resolve(ref))
             return EDITOR_STALE;
-        self.view().SetDropTarget(ref.object);
+        self.view(r->scope.view).view.SetDropTarget(ref.object);
         return EDITOR_OK;
     }
     static EditorStatus Material(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
@@ -318,9 +318,9 @@ struct LayoutAuthoring::Data {
         LayoutPickInfo info;
         std::vector<ObjectRef> selected;
         if (position.count) {
-            if (self.view().Context() != doc->Context())
+            if (self.view(r->scope.view).view.Context() != doc->Context())
                 return EDITOR_STALE;
-            info = self.view().PickInfo(int(position.data[0]), int(position.data[1]));
+            info = self.view(r->scope.view).view.PickInfo(int(position.data[0]), int(position.data[1]));
             selected = self.Selected(*doc);
         }
         std::vector<std::vector<ObjectRef>> receivers;
@@ -330,7 +330,8 @@ struct LayoutAuthoring::Data {
             if (position.count) {
                 auto *declaration =
                     CKGetObjectDeclarationFromGuid(CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype)));
-                picked = doc->References(BehaviorReceivers(*doc, self.view(), info, declaration->GetCompatibleClassId(),
+                picked = doc->References(BehaviorReceivers(*doc, self.view(r->scope.view).view, info,
+                                                           declaration->GetCompatibleClassId(),
                                                            Arg(*r, "ctrl").integer != 0, selected)
                                              .objects);
             }
@@ -344,8 +345,8 @@ struct LayoutAuthoring::Data {
         size_t lastReceiver = receivers.size() - 1;
         while (receivers[lastReceiver].empty())
             --lastReceiver;
-        if (self.view().Context() == doc->Context())
-            self.view().SetDropTarget(0);
+        if (self.view(r->scope.view).view.Context() == doc->Context())
+            self.view(r->scope.view).view.SetDropTarget(0);
         std::string messages;
         ObjectRef lastBlock{}, lastScript{};
         for (size_t index = 0; index < prototypes.size(); ++index) {
@@ -390,6 +391,7 @@ struct LayoutAuthoring::Data {
             if (asking) {
                 self.document = doc->Token();
                 self.source = r->scope.view;
+                self.viewport = self.view(r->scope.view).id;
                 self.script = lastScript;
                 self.block = lastBlock;
                 for (auto *input : Inputs(behavior))
@@ -412,6 +414,8 @@ struct LayoutAuthoring::Data {
     static EditorStatus Parameters(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.Doc(*r);
+        if (self.edit && self.view(r->scope.view).id != self.viewport)
+            return EDITOR_NO_CHANGE;
         auto *block = doc ? CKBehavior::Cast(doc->Resolve(self.block)) : nullptr;
         if (!doc || doc->Token() != self.document || !block || !self.edit)
             return EDITOR_NO_CHANGE;
@@ -475,8 +479,8 @@ struct LayoutAuthoring::Data {
 };
 
 LayoutAuthoring::LayoutAuthoring(EditorApplication &editor, std::function<Document *()> current,
-                                 std::function<LayoutView &()> view, ObjectSelection &selection,
-                                 const Preferences &preferences, std::function<SchematicNavigation &()> navigation)
+                                 LayoutTargetLookup view, ObjectSelection &selection, const Preferences &preferences,
+                                 std::function<SchematicNavigation &()> navigation)
     : m_Data(std::make_unique<Data>(
           Data{*this, editor, std::move(current), std::move(view), selection, preferences, std::move(navigation)})) {}
 LayoutAuthoring::~LayoutAuthoring() = default;
@@ -484,8 +488,8 @@ void LayoutAuthoring::DocumentClosing() { m_Data->Close(true); }
 void LayoutAuthoring::Poll() {
     auto &d = *m_Data;
     auto *doc = d.current();
-    if (d.edit &&
-        (!doc || doc->Token() != d.document || !doc->Resolve(d.block) || (d.source && !d.editor.Scope(d.source).view)))
+    if (d.edit && (!doc || doc->Token() != d.document || !doc->Resolve(d.block) ||
+                   (d.source && !d.editor.Scope(d.source).view) || (d.viewport && !d.editor.Scope(d.viewport).view)))
         d.Close(false);
 }
 const std::vector<ProviderChoice> &LayoutAuthoring::DefaultProviders() {

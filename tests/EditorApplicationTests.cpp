@@ -36,6 +36,7 @@ void TestDiagnosticCommands(vdev::CkRuntimeHost &host);
 void TestPreferencesCommands(vdev::CkRuntimeHost &host);
 void TestProfileCommands(vdev::CkRuntimeHost &host);
 void TestLayoutPresentation(vdev::CkRuntimeHost &host);
+void TestLayoutViewports(vdev::CkRuntimeHost &host);
 void TestLayoutAuthoring(vdev::CkRuntimeHost &host);
 void TestCanvasCommands(vdev::CkRuntimeHost &host);
 void TestGraphEditing(vdev::CkRuntimeHost &);
@@ -737,6 +738,7 @@ int main(int argc, char **argv) {
         TestPreferencesCommands(runtime);
         TestProfileCommands(runtime);
         TestLayoutPresentation(runtime);
+        TestLayoutViewports(runtime);
         TestLayoutAuthoring(runtime);
         TestCanvasCommands(runtime);
         TestGraphEditing(runtime);

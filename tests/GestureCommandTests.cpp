@@ -72,7 +72,7 @@ void TestGestureCommands(vdev::CkRuntimeHost &runtime, const std::string &module
     Clipboard clipboard;
     bool available = true;
     EditorApplication app([&] { return &doc; }, [&] { return available; });
-    LayoutCommands layout(app, [&] { return &doc; }, [&]() -> LayoutView & { return view; }, selection);
+    LayoutCommands layout(app, [&] { return &doc; }, [&](EditorView) { return LayoutTarget{0, view}; }, selection);
     SchematicGraphCommands schematic([&] { return &doc; }, [] { return true; }, clipboard);
     SelectionCommands selections([&] { return &doc; }, selection);
     EditorConfiguration builtins;

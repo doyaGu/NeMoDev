@@ -240,10 +240,11 @@ int AllowedAxes(LayoutView &view) {
 } // namespace
 struct LayoutGestures::Data {
     std::function<Document *()> current;
-    std::function<LayoutView &()> view;
+    LayoutTargetLookup view;
     ObjectSelection &selection;
     struct Gesture {
         Data *owner;
+        EditorView viewport = 0;
         DocumentToken document{};
         CKContext *context = nullptr;
         ObjectRef initialCamera{}, camera{}, curve{};
@@ -269,16 +270,19 @@ struct LayoutGestures::Data {
                 owner->active = nullptr;
         }
     };
-    DocumentToken toolDocument{};
-    ObjectRef toolCurve{};
-    unsigned tool = 0, plane = 0;
+    struct CurveTool {
+        DocumentToken document{};
+        ObjectRef curve{};
+        unsigned tool = 0, plane = 0;
+    };
+    std::map<EditorView, CurveTool> tools;
     enum Action { Wheel, Zoom, Click, CurveClick, SetCurveTool };
     struct Entry {
         Data *owner;
         Action action;
     } entries[5];
     Gesture *active = nullptr; // borrowed from the command host's active preview
-    Data(std::function<Document *()> current, std::function<LayoutView &()> view, ObjectSelection &selection)
+    Data(std::function<Document *()> current, LayoutTargetLookup view, ObjectSelection &selection)
         : current(std::move(current)), view(std::move(view)), selection(selection),
           entries{{this, Wheel}, {this, Zoom}, {this, Click}, {this, CurveClick}, {this, SetCurveTool}} {}
     Document *DocumentOf(const EditorRequest &r) const {
@@ -287,7 +291,7 @@ struct LayoutGestures::Data {
     }
     bool Current(const Gesture &g) const {
         auto *doc = current();
-        auto &v = view();
+        auto &v = view(g.viewport).view;
         return doc && doc->IsOpen() && doc->Token() == g.document && v.Context() == g.context &&
                doc->Context() == g.context && doc->ChangeRevision() == g.revision &&
                doc->TopologyRevision() == g.topology && v.Camera() && doc->Reference(v.Camera()->GetID()) == g.camera &&
@@ -299,7 +303,8 @@ struct LayoutGestures::Data {
             return true;
         g.finished = true;
         auto *doc = current();
-        if (!doc || doc->Token() != g.document || doc->Context() != g.context || view().Context() != g.context)
+        if (!doc || doc->Token() != g.document || doc->Context() != g.context ||
+            view(g.viewport).view.Context() != g.context)
             return true;
         const bool a = g.cameraMove.Cancel(doc), b = g.transform.Cancel(doc), c = g.sprite.Cancel(doc);
         const bool d = !g.flight.Active() || g.flight.Cancel(*doc);
@@ -307,9 +312,11 @@ struct LayoutGestures::Data {
     }
     EditorStatus Validate(const EditorRequest &r, Options &o, Motion &m) {
         auto *doc = DocumentOf(r);
-        if (!doc || view().Context() != doc->Context())
+        if (!doc || view(r.scope.view).view.Context() != doc->Context())
             return EDITOR_STALE;
         if (active) {
+            if (active->viewport != view(r.scope.view).id)
+                return EDITOR_REFUSED;
             if (active->initialCamera != Object(r, "target") || !Current(*active))
                 return EDITOR_STALE;
             return ReadMotion(Arg(r, "value"), m) ? EDITOR_OK : EDITOR_INVALID;
@@ -344,8 +351,10 @@ struct LayoutGestures::Data {
             if (!doc->Resolve(ref) || !unique.insert(ref).second)
                 return EDITOR_STALE;
         }
-        return view().Camera() && doc->Reference(view().Camera()->GetID()) == Object(r, "target") ? EDITOR_OK
-                                                                                                  : EDITOR_STALE;
+        return view(r.scope.view).view.Camera() &&
+                       doc->Reference(view(r.scope.view).view.Camera()->GetID()) == Object(r, "target")
+                   ? EDITOR_OK
+                   : EDITOR_STALE;
     }
     EditorStatus Begin(const EditorRequest &r, std::unique_ptr<Gesture> &g) {
         Options options;
@@ -356,8 +365,10 @@ struct LayoutGestures::Data {
         if (active)
             return EDITOR_REFUSED;
         auto *doc = DocumentOf(r);
-        auto &v = view();
+        const auto target = view(r.scope.view);
+        auto &v = target.view;
         g = std::make_unique<Gesture>(this);
+        g->viewport = target.id;
         g->document = doc->Token();
         g->context = doc->Context();
         g->revision = doc->ChangeRevision();
@@ -412,8 +423,9 @@ struct LayoutGestures::Data {
         g->objects = doc->References(ids);
         if (auto ref = Object(r, "referent"))
             g->objects.push_back(ref);
-        if (g->kind == 3 && toolDocument == doc->Token())
-            tool = 0;
+        auto &tool = tools[target.id];
+        if (g->kind == 3 && tool.document == doc->Token())
+            tool.tool = 0;
         active = g.get();
         return EDITOR_OK;
     }
@@ -435,7 +447,7 @@ struct LayoutGestures::Data {
             if (m.move)
                 g.sprite.Move(m.x, m.y);
         } else {
-            auto &v = view();
+            auto &v = view(g.viewport).view;
             if (m.time < g.flyTime)
                 return EDITOR_INVALID;
             if (m.buttons != g.flyButtons) {
@@ -496,7 +508,7 @@ struct LayoutGestures::Data {
         } else if (g.kind == 2)
             result = g.sprite.Finish(doc);
         else
-            result = g.flight.Commit(*doc, "Fly Camera", !view().IsViewCamera(g.camera.object));
+            result = g.flight.Commit(*doc, "Fly Camera", !view(g.viewport).view.IsViewCamera(g.camera.object));
         g.finished = true;
         return Result(result, sink);
     }
@@ -544,22 +556,24 @@ struct LayoutGestures::Data {
     }
     static EditorStatus Tool(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
+        auto &state = self.tools[self.view(r->scope.view).id];
         auto *doc = self.DocumentOf(*r);
         if (!doc)
             return EDITOR_STALE;
-        const bool same = self.toolDocument == doc->Token();
-        const auto curve = same && doc->Resolve(self.toolCurve, CKCID_CURVE) ? self.toolCurve : ObjectRef{};
+        const bool same = state.document == doc->Token();
+        const auto curve = same && doc->Resolve(state.curve, CKCID_CURVE) ? state.curve : ObjectRef{};
         return Write(sink, {{"target", EDITOR_OBJECT, curve},
-                            {"tool", EDITOR_INTEGER_VALUE, {}, {}, curve ? self.tool : 0},
-                            {"plane", EDITOR_INTEGER_VALUE, {}, {}, same ? self.plane : 0}});
+                            {"tool", EDITOR_INTEGER_VALUE, {}, {}, curve ? state.tool : 0},
+                            {"plane", EDITOR_INTEGER_VALUE, {}, {}, same ? state.plane : 0}});
     }
     static EditorStatus Act(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &entry = *static_cast<Entry *>(data);
         auto &self = *entry.owner;
+        auto &state = self.tools[self.view(r->scope.view).id];
         auto *doc = self.DocumentOf(*r);
         if (!doc)
             return EDITOR_STALE;
-        auto &view = self.view();
+        auto &view = self.view(r->scope.view).view;
         auto *context = doc->Context();
         if (entry.action == SetCurveTool) {
             const auto tool = Number(*r, "tool"), plane = Number(*r, "plane");
@@ -570,10 +584,10 @@ struct LayoutGestures::Data {
                 return EDITOR_STALE;
             if (tool && !ref)
                 return EDITOR_INVALID;
-            self.toolDocument = doc->Token();
-            self.toolCurve = ref;
-            self.tool = unsigned(tool);
-            self.plane = unsigned(plane);
+            state.document = doc->Token();
+            state.curve = ref;
+            state.tool = unsigned(tool);
+            state.plane = unsigned(plane);
             return EDITOR_OK;
         }
         if (view.Context() != context)
@@ -655,8 +669,8 @@ struct LayoutGestures::Data {
                     curve->Close();
                     curve->Update();
                 });
-                if (result.ok && self.toolCurve == Object(*r, "target"))
-                    self.tool = 0;
+                if (result.ok && state.curve == Object(*r, "target"))
+                    state.tool = 0;
                 return Result(result, sink);
             }
             VxVector point, normal, hit;
@@ -695,14 +709,15 @@ struct LayoutGestures::Data {
             return EDITOR_NO_CHANGE;
         points.erase(found);
         const auto result = EditCurvePoints(*doc, curveId, points, picked, "Delete Points");
-        if (result.ok && points.empty() && self.toolCurve == Object(*r, "target"))
-            self.tool = 0;
+        if (result.ok && points.empty() && state.curve == Object(*r, "target"))
+            state.tool = 0;
         return Result(result, sink);
     }
     static EditorStatus Read(void *data, const EditorHost *, const EditorRequest *r, EditorSink sink) {
         auto &self = *static_cast<Data *>(data);
         auto *doc = self.DocumentOf(*r);
-        auto &v = self.view();
+        const auto target = self.view(r->scope.view);
+        auto &v = target.view;
         if (!doc || v.Context() != doc->Context())
             return EDITOR_STALE;
         auto *camera = v.Camera();
@@ -773,7 +788,7 @@ struct LayoutGestures::Data {
             position.reals = {point.x, point.y, point.z};
         }
         const auto *g = self.active;
-        const bool active = g && self.Current(*g);
+        const bool active = g && g->viewport == target.id && self.Current(*g);
         if (active && g->kind == 2) {
             if (auto *object = CK2dEntity::Cast(doc->Context()->GetObject(g->sprite.Grabbed()))) {
                 Vx2DVector p;
@@ -823,10 +838,17 @@ struct LayoutGestures::Data {
                        uint64_t(active && g->kind == 0 && g->cameraMove.AroundSelection())}});
     }
 };
-LayoutGestures::LayoutGestures(std::function<Document *()> current, std::function<LayoutView &()> view,
-                               ObjectSelection &selection)
+LayoutGestures::LayoutGestures(std::function<Document *()> current, LayoutTargetLookup view, ObjectSelection &selection)
     : m_Data(std::make_unique<Data>(std::move(current), std::move(view), selection)) {}
 LayoutGestures::~LayoutGestures() = default;
+void LayoutGestures::Poll(EditorApplication &editor) {
+    for (auto it = m_Data->tools.begin(); it != m_Data->tools.end();) {
+        if (it->first && !editor.Scope(it->first).view)
+            it = m_Data->tools.erase(it);
+        else
+            ++it;
+    }
+}
 bool LayoutGestures::Register(EditorApplication &editor, std::string &error) {
     const EditorParameter queryArgs[] = {
         {EDITOR_TEXT("position"), EDITOR_REAL_LIST, 1},  {EDITOR_TEXT("shift"), EDITOR_INTEGER_VALUE, 1},

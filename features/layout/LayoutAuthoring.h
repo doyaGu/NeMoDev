@@ -1,5 +1,6 @@
 #pragma once
 #include "application/EditorApplication.h"
+#include "features/layout/LayoutViewport.h"
 #include <memory>
 
 namespace vdev {
@@ -12,7 +13,7 @@ class SchematicNavigation;
 // The native value editor joins that edit through EditorApplication::ApplyEdit.
 class LayoutAuthoring {
   public:
-    LayoutAuthoring(EditorApplication &, std::function<Document *()>, std::function<LayoutView &()>, ObjectSelection &,
+    LayoutAuthoring(EditorApplication &, std::function<Document *()>, LayoutTargetLookup, ObjectSelection &,
                     const Preferences &, std::function<SchematicNavigation &()>);
     ~LayoutAuthoring();
     bool Register(std::string &error);

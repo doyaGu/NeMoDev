@@ -70,15 +70,19 @@ EditorStatus Result(Document &doc, const EditResult &result, EditorSink sink) {
 struct LayoutCommands::Data {
     EditorApplication &editor;
     std::function<Document *()> current;
-    std::function<LayoutView &()> view;
+    LayoutTargetLookup view;
     ObjectSelection &selection;
     LayoutGestures gestures;
     using QueryState = std::tuple<DocumentToken, uint64_t, uint64_t, unsigned, bool, ObjectRef, ObjectRef, CKDWORD>;
-    QueryState queryState{};
-    uint64_t queryRevision = 1;
+    struct VersionState {
+        QueryState values{};
+        uint64_t revision = 0;
+    };
+    std::map<EditorView, VersionState> versions;
+    uint64_t queryRevision = 0;
     enum Action { Camera, ResetCamera, FrameRepresentation, CreateGroup, ChooseGroup, RestoreInterface, Copy };
     struct Entry { Data *owner; Action action; } entries[7];
-    Data(EditorApplication &editor, std::function<Document *()> current, std::function<LayoutView &()> view,
+    Data(EditorApplication &editor, std::function<Document *()> current, LayoutTargetLookup view,
          ObjectSelection &selection)
         : editor(editor), current(std::move(current)), view(std::move(view)), selection(selection),
           gestures(this->current, this->view, selection),
@@ -89,22 +93,30 @@ struct LayoutCommands::Data {
         auto *doc = current();
         return doc && doc->IsOpen() && doc->Token() == request.scope.document ? doc : nullptr;
     }
-    uint64_t Version(Document &doc, LayoutView &view) {
+    uint64_t Version(Document &doc, const LayoutTarget &target) {
+        auto &view = target.view;
+        auto &state = versions[target.id];
         auto *scene = view.Scene(); auto *camera = view.Camera(); auto *time = doc.Context()->GetTimeManager();
         const QueryState next{doc.Token(), doc.ChangeRevision(), doc.TopologyRevision(), selection.Revision(), selection.Locked(),
             scene ? doc.Reference(scene->GetID()) : ObjectRef{}, camera ? doc.Reference(camera->GetID()) : ObjectRef{},
             time ? time->GetMainTickCount() : 0};
-        if (next != queryState) { queryState = next; ++queryRevision; }
-        return queryRevision;
+        if (next != state.values) {
+            state.values = next;
+            state.revision = ++queryRevision;
+        }
+        return state.revision;
     }
     static EditorStatus Read(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         auto &self = *static_cast<Data *>(data); auto *doc = self.DocumentOf(*request);
         if (!doc) return EDITOR_STALE;
-        auto &view = self.view(); auto *context = doc->Context(); auto *scene = view.Scene();
+        const auto target = self.view(request->scope.view);
+        auto &view = target.view;
+        auto *context = doc->Context();
+        auto *scene = view.Scene();
         const auto section = Text(*request, "section");
         if (section != "groups" && section != "cameras" && section != "context" && section != "explorer") return EDITOR_INVALID;
         if (Number(*request, "shown", EXPLORER_ALL) > EXPLORER_ALL) return EDITOR_INVALID;
-        const auto revision = self.Version(*doc, view);
+        const auto revision = self.Version(*doc, target);
         if (const auto expected = Number(*request, "revision"); expected && expected != revision) return EDITOR_STALE;
         std::vector<EditorField> fields{{"scene", EDITOR_OBJECT, scene ? doc->Reference(scene->GetID()) : ObjectRef{}},
             {"camera", EDITOR_OBJECT, view.Camera() ? doc->Reference(view.Camera()->GetID()) : ObjectRef{}},
@@ -189,7 +201,8 @@ struct LayoutCommands::Data {
     static EditorStatus Run(void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
         auto &entry = *static_cast<Entry *>(data); auto &self = *entry.owner; auto *doc = self.DocumentOf(*request);
         if (!doc) return EDITOR_STALE;
-        auto &view = self.view();
+        const auto target = self.view(request->scope.view);
+        auto &view = target.view;
         switch (entry.action) {
         case Copy: {
             const auto *source = Arg(*request, "objects"); if (!source) return EDITOR_INVALID;
@@ -209,7 +222,11 @@ struct LayoutCommands::Data {
         case Camera: {
             auto *camera = CKCamera::Cast(doc->Resolve(Object(*request, "target")));
             if (!camera) return EDITOR_STALE;
-            view.SetCamera(camera->GetID()); self.Version(*doc, view); return EDITOR_OK;
+            if (camera->IsPrivate() && !view.IsViewCamera(camera->GetID()))
+                return EDITOR_REFUSED;
+            view.SetCamera(camera->GetID());
+            self.Version(*doc, target);
+            return EDITOR_OK;
         }
         case ResetCamera: {
             auto *camera = view.Camera(); if (!camera) return EDITOR_NO_CHANGE;
@@ -262,7 +279,8 @@ struct LayoutCommands::Data {
                 {EDITOR_TEXT("render-only"), EDITOR_INTEGER_VALUE, {}, {}, 1}};
             const EditorRequest select{request->scope, values, 2, {}, request->operation};
             const auto status = host->execute(host->data, EditorString EDITOR_TEXT("selection.replace"), &select, sink);
-            self.Version(*doc, view); return status;
+            self.Version(*doc, target);
+            return status;
         }
         case RestoreInterface: {
             const auto restore = Number(*request, "restore-selection"), locked = Number(*request, "locked");
@@ -278,7 +296,7 @@ struct LayoutCommands::Data {
                 if (status != EDITOR_OK && status != EDITOR_NO_CHANGE) return status;
             }
             if (camera) view.SetCamera(camera.object);
-            self.Version(*doc, view);
+            self.Version(*doc, target);
             const std::vector<EditorField> fields{{"created", EDITOR_OBJECT, group}};
             return Write(sink, fields);
         }
@@ -289,13 +307,21 @@ struct LayoutCommands::Data {
         return static_cast<Entry *>(data)->owner->editor.NativeAvailable() ? EDITOR_OK : EDITOR_REFUSED;
     }
 };
-LayoutCommands::LayoutCommands(EditorApplication &editor, std::function<Document *()> current,
-                               std::function<LayoutView &()> view, ObjectSelection &selection)
+LayoutCommands::LayoutCommands(EditorApplication &editor, std::function<Document *()> current, LayoutTargetLookup view,
+                               ObjectSelection &selection)
     : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(view), selection)) {}
 LayoutCommands::~LayoutCommands() = default;
-void LayoutCommands::Poll() {
+void LayoutCommands::Poll(EditorView source) {
     if (!m_Data->editor.NativeAvailable() || m_Data->editor.HasEdits()) return;
-    if (auto *doc = m_Data->current(); doc && doc->IsOpen() && !doc->EditOpen()) m_Data->Version(*doc, m_Data->view());
+    if (auto *doc = m_Data->current(); doc && doc->IsOpen() && !doc->EditOpen())
+        m_Data->Version(*doc, m_Data->view(source));
+    for (auto it = m_Data->versions.begin(); it != m_Data->versions.end();) {
+        if (it->first && !m_Data->editor.Scope(it->first).view)
+            it = m_Data->versions.erase(it);
+        else
+            ++it;
+    }
+    m_Data->gestures.Poll(m_Data->editor);
 }
 LayoutRestoreData LayoutCommands::ProjectInterface(const LayoutInterfaceData &data) const {
     LayoutRestoreData result; auto *doc = m_Data->current();
