@@ -219,15 +219,18 @@ EditorStatus ObjectCommands::Execute(void *data, const EditorHost *, const Edito
 EditorStatus ObjectCommands::Read(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto *document = static_cast<ObjectCommands *>(data)->m_Current();
     auto *target = Argument(*request, "target");
-    if (!document || document->Token() != request->scope.document || !target || !document->Resolve(target->object))
-        return EDITOR_STALE;
+    auto *native = document && document->Token() == request->scope.document && target ? document->Resolve(target->object) : nullptr;
+    if (!native) return EDITOR_STALE;
+    const bool hasName = native->GetName() != nullptr;
     const auto object = DescribeObject(*document, document->NativeId(target->object));
     const auto name = AnsiToUtf8(object.name);
     const auto type = AnsiToUtf8(CKClassIDToString(object.cid));
     const EditorValue fields[] = {{EditorLiteral("name"), EDITOR_TEXT_VALUE, {}, EditorText(name)},
                                   {EditorLiteral("class"), EDITOR_TEXT_VALUE, {}, EditorText(type)},
-                                  {EditorLiteral("object"), EDITOR_OBJECT, object.reference, {}}};
-    return sink.write ? sink.write(sink.data, fields, 3) : EDITOR_INVALID;
+                                  {EditorLiteral("object"), EDITOR_OBJECT, object.reference, {}},
+                                  {EDITOR_TEXT("has-name"), EDITOR_INTEGER_VALUE, {}, {},
+                                   uint64_t(hasName)}};
+    return sink.write ? sink.write(sink.data, fields, 4) : EDITOR_INVALID;
 }
 EditorStatus ObjectCommands::Rename(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
     auto &self = *static_cast<ObjectCommands *>(data);
@@ -260,11 +263,13 @@ bool ObjectCommands::Register(EditorApplication &editor, std::string &error) {
                                       this};
     const EditorParameter fields[] = {{EDITOR_TEXT("name"), EDITOR_TEXT_VALUE},
                                       {EDITOR_TEXT("class"), EDITOR_TEXT_VALUE},
-                                      {EDITOR_TEXT("object"), EDITOR_OBJECT}};
+                                      {EDITOR_TEXT("object"), EDITOR_OBJECT},
+                                      {EDITOR_TEXT("has-name"), EDITOR_INTEGER_VALUE}};
     EditorQueryDesc details = {
         sizeof(details), EDITOR_TEXT("object.details"), EDITOR_TEXT("builtin.objects"), queryArgs, 1, &Read, this};
+    details.refresh = EDITOR_QUERY_EACH_READ;
     details.fields = fields;
-    details.fieldCount = 3;
+    details.fieldCount = uint32_t(std::size(fields));
     const EditorPropertyDesc name = {
         sizeof(name),        EDITOR_TEXT("object.name"),   EDITOR_TEXT("Name"), EDITOR_TEXT("object.details"),
         EDITOR_TEXT("name"), EDITOR_TEXT("object.rename"), EDITOR_TEXT("name"), EDITOR_TEXT("text.single-line")};

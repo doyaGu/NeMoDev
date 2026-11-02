@@ -28,6 +28,7 @@
 #include "core/document/DocumentSaver.h"
 #include "ui/panels/EditorPanels.h"
 #include "ui/app/EditorState.h"
+#include "ui/app/StatusBar.h"
 #include "ui/layout/LayoutWindow.h"
 #include "ui/schematic/SchematicCanvas.h"
 #include "ui/schematic/SchematicViews.h"
@@ -236,7 +237,6 @@ private:
 #endif
     // Dev's status bar and its Time Settings (StatusBar.cpp).
     void StatusBar();
-    void TimeSettingsDialog();
     void ApplyPreferences();
     bool FileOperationAvailable() const {
         return !m_State.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy();
@@ -333,12 +333,7 @@ private:
 #ifdef VIRTOOLSDEV_UI_TESTS
     CK_ID m_StartupParametersScript = 0, m_StartupParameters = 0; // --edit-parameters
 #endif
-    uint64_t m_LogErrorsSeen = 0;
-    double m_BombFlashUntil = 0.0;
-    bool m_OpenTimeSettings = false;
-    bool m_HideFps = false;
-    int m_TimeFrame = 0, m_TimeBehavior = 0;
-    float m_TimeFrameLimit = 60.0f, m_TimeBehaviorLimit = 60.0f, m_TimeScale = 1.0f, m_TimeMin = 1.0f, m_TimeMax = 200.0f;
+    EditorStatusBar m_StatusBar;
 };
 
 } // namespace vdev

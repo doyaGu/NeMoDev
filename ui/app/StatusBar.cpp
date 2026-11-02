@@ -1,10 +1,9 @@
 // Dev's status bar (Dev.exe sub_423700 makes its items, sub_4229D0 places
 // them from the bar's right end at each size) and its Time Settings
 // (Dev.exe dialog 644, the Play button's right click).
-#include "ui/app/EditorApp.h"
-#include "workspace/EditorClient.h"
+#include "ui/app/StatusBar.h"
 
-#include <algorithm>
+#include <iterator>
 #include <cstdio>
 #include <cstdlib>
 
@@ -14,9 +13,18 @@
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
-#include "core/runtime/TextEncoding.h"
 
 namespace vdev {
+
+namespace {
+bool HideFps(const EditorResponse &time) {
+    const auto *display = EditorClient::Find(time, "display");
+    if (display && display->type == EDITOR_RECORD)
+        for (const auto &field : display->fields)
+            if (field.key == "hide-fps" && field.type == EDITOR_INTEGER_VALUE) return field.integer != 0;
+    return false;
+}
+} // namespace
 
 // InterfaceControls.dll's colors (sub_24211910): ZC_MAINBACK 100,
 // ZC_TOOLBARBACK 65 (the bar), ZC_TOOLBARBORDER 176 (its outline and texts).
@@ -57,7 +65,10 @@ static void BarText(ImDrawList *dl, const ImVec2 &min, const ImVec2 &max, const 
 // (R - 203), the frame rate (R - 185, "FPS" bold R - 154), Restore Initial
 // Conditions (R - 120), Play / Pause (R - 81), Step One Frame (R - 42);
 // dotted separators (resvis.dll 705) between them.
-void EditorApp::StatusBar() {
+void EditorStatusBar::Draw(const EditorClient &editor, const StatusBarInfo &info) {
+    const auto time = editor.Query("runtime.time");
+    const bool savedHideFps = HideFps(time);
+    const bool hideFps = ImGui::IsPopupOpen("###TimeSettings") ? m_HideFps : savedHideFps;
     ImGuiViewport *viewport = ImGui::GetMainViewport();
     const float s = ImGui::GetFontSize() / 13.0f;
     // Dev.exe sub_4209B0: 23 pixels at the bottom of the main window.
@@ -89,42 +100,28 @@ void EditorApp::StatusBar() {
 
         // Selection: the Schematic's (the element or "%d elements selected"),
         // or the 3D Layout's after it was used.
-        const Selection &selection = m_State.Schematic().selection;
-        std::string selected = "Nothing selected";
-        if (selection.items.size() == 1) {
-            const ElementRef &item = selection.items[0];
-            CKObject *object = m_State.HasDocument() ? m_State.document->Context()->GetObject(item.object) : nullptr;
-            selected = object && object->GetName() ? AnsiToUtf8(object->GetName()) : std::string("1 element");
-        } else if (selection.items.size() > 1) {
-            selected = std::to_string(selection.items.size()) + " elements selected";
-        }
-        const std::string layoutAction = m_Layout.ActionText();
-        if (!layoutAction.empty()) selected = m_Layout.SelectionText();
-        BarText(dl, at(10.0f, 6.0f), fromRight(871.0f, 18.0f), selected, false);
+        BarText(dl, at(10.0f, 6.0f), fromRight(871.0f, 18.0f), info.selection, false);
         separator(866.0f);
-        BarText(dl, fromRight(863.0f, 4.0f), fromRight(713.0f, 17.0f),
-                layoutAction.empty() ? std::string(m_Schematics.Current().ActionText()) : layoutAction, true);
+        BarText(dl, fromRight(863.0f, 4.0f), fromRight(713.0f, 17.0f), info.action, true);
         separator(712.0f);
-        // X / Y / Z once a 3D Layout tool is used (sub_424CB0), else the info text.
-        std::string coordinates[3];
-        if (m_Layout.Coordinates(coordinates) && m_Layout.InfoText().empty()) {
+        if (info.showCoordinates && info.information.empty()) {
             static const char *const AXES[3] = {"X:", "Y:", "Z:"};
             const float labels[3] = {709.0f, 614.0f, 519.0f};
             for (int i = 0; i < 3; ++i) {
                 const float left = labels[i];
                 BarText(dl, fromRight(left, 4.0f), fromRight(left - 20.0f, 17.0f), AXES[i], true);
-                BarText(dl, fromRight(left - 21.0f, 6.0f), fromRight(left - 91.0f, 18.0f), coordinates[i], false);
+                BarText(dl, fromRight(left - 21.0f, 6.0f), fromRight(left - 91.0f, 18.0f), info.coordinates[i], false);
                 if (i < 2) separator(left - 92.0f);
             }
         } else {
-            BarText(dl, fromRight(710.0f, 6.0f), fromRight(428.0f, 18.0f), m_Layout.InfoText(), false, true);
+            BarText(dl, fromRight(710.0f, 6.0f), fromRight(428.0f, 18.0f), info.information, false, true);
         }
 
         // The Event Log: the bomb flashes red for 4 s after an error
         // (sub_422830: ZC 10, 250 ms); a click opens the log, a right click
         // clears it (sub_59C5C0).
         const double now = ImGui::GetTime();
-        const auto &log = m_Editor.ReadQuery("log.summary", {m_Editor.Scope(), nullptr, 0});
+        const auto &log = editor.Query("log.summary");
         std::string status;
         for (const auto &field : log.fields) {
             if (field.key == "status") status = field.text;
@@ -140,11 +137,11 @@ void EditorApp::StatusBar() {
                 dl->AddRectFilled(a, ImVec2(a.x + 19.0f * s, a.y + 19.0f * s), IM_COL32(255, 0, 0, 255));
             bool right = false;
             if (DevBitmapButton("eventlog", a, BOMB, false, true, s, "Event Log", &right)) {
-                Command("log.open");
+                editor.Command("log.open");
                 m_BombFlashUntil = 0.0;
             }
             if (right) {
-                const auto result = Command("log.clear");
+                const auto result = editor.Command("log.clear");
                 if (result.status == EDITOR_OK) status = "Event Log Cleared";
                 m_BombFlashUntil = 0.0;
             }
@@ -154,15 +151,15 @@ void EditorApp::StatusBar() {
         separator(206.0f);
         static const int PROFILER[5] = {961, 1343, 1344, 1344, 961};
         const EditorValue role{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("main.profiler")};
-        const auto &profiler = m_Editor.ReadQuery("workspace.role", {m_Editor.Scope(), &role, 1});
+        const auto &profiler = editor.Query("workspace.role", {role});
         if (DevBitmapButton("profiler", fromRight(203.0f, 2.0f), PROFILER, EditorClient::Integer(profiler, "view") != 0, true, s, "Profiler"))
-            Command("runtime.toggle-profiler");
+            editor.Command("runtime.toggle-profiler");
         // The frame rate: NA when not playing (Dev hides it with Hide Fps).
-        const auto &runtime = m_Editor.ReadQuery("runtime.state", {m_Editor.Scope(), nullptr, 0});
+        const auto &runtime = editor.Query("runtime.state");
         const bool running = EditorClient::Integer(runtime, "state") == EDITOR_EXECUTION_RUNNING;
         const auto *measured = EditorClient::Find(runtime, "measured-fps");
         const double measuredFps = measured ? measured->real : 0;
-        if (!m_HideFps) {
+        if (!hideFps) {
             std::string fps = "NA";
             if (running && measuredFps > 0) {
                 char text[32];
@@ -181,32 +178,33 @@ void EditorApp::StatusBar() {
         static const int STEP[5] = {914, 915, 916, 916, 914};
         if (DevBitmapButton("rewind", fromRight(120.0f, 2.0f), REWIND, false, usable, s,
                             "Restore Initial Conditions (Ctrl+Backspace)"))
-            Command("runtime.reset");
+            editor.Command("runtime.reset");
         bool timeSettings = false;
         if (DevBitmapButton("play", fromRight(81.0f, 2.0f), PLAY, running, usable, s, "Play/Pause (Ctrl+Spacebar)",
                             &timeSettings)) {
-            Command("runtime.play-pause");
+            editor.Command("runtime.play-pause");
         }
         if (timeSettings) m_OpenTimeSettings = true;
         if (DevBitmapButton("step", fromRight(42.0f, 2.0f), STEP, false, usable, s, "Step One Frame (Alt+Spacebar)"))
-            Command("runtime.step-frame");
+            editor.Command("runtime.step-frame");
     }
     ImGui::End();
     PopDarkChrome();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(2);
-    TimeSettingsDialog();
+    TimeSettingsDialog(editor);
 }
 
 // Dev's Time Settings (dialog 644, in its dialog units): the frame rate
 // free, synchronized to the screen or limited, the time scale, the
 // behavioral rate linked to the frame rate or limited, the delta time's
 // bounds (CKTimeManager), Hide Fps.
-void EditorApp::TimeSettingsDialog() {
+void EditorStatusBar::TimeSettingsDialog(const EditorClient &editor) {
     const char *id = "###TimeSettings";
     if (m_OpenTimeSettings) {
-        const auto settings = m_Editor.Query("runtime.time", {m_Editor.Scope(), nullptr, 0});
+        const auto settings = editor.Query("runtime.time");
         if (settings.status != EDITOR_OK) { m_OpenTimeSettings = false; return; }
+        m_HideFps = HideFps(settings);
         for (const auto &field : settings.fields) {
             if (field.key == "frame-mode") m_TimeFrame = int(field.integer);
             if (field.key == "behavior-mode") m_TimeBehavior = int(field.integer);
@@ -267,6 +265,7 @@ void EditorApp::TimeSettingsDialog() {
     const bool cancel = vi::DialogButton("Cancel", ImVec2(o.x + client.x - 70.0f * s, by), s, ImGuiKey_Escape);
     const bool ok = vi::DialogButton("OK", ImVec2(o.x + client.x - 140.0f * s, by), s, ImGuiKey_Enter);
     if (ok) {
+        const EditorValue hideFps{EDITOR_TEXT("hide-fps"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_HideFps)};
         const EditorValue settings[] = {
             {EDITOR_TEXT("frame-mode"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_TimeFrame)},
             {EDITOR_TEXT("behavior-mode"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_TimeBehavior)},
@@ -274,12 +273,11 @@ void EditorApp::TimeSettingsDialog() {
             {EDITOR_TEXT("behavior-limit"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeBehaviorLimit},
             {EDITOR_TEXT("scale"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeScale},
             {EDITOR_TEXT("minimum"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeMin},
-            {EDITOR_TEXT("maximum"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeMax}};
-        const auto result = m_Editor.Execute("runtime.set-time", {m_Editor.Scope(), settings, 7});
+            {EDITOR_TEXT("maximum"), EDITOR_REAL_VALUE, {}, {}, 0, {}, {}, {}, m_TimeMax},
+            {EDITOR_TEXT("display"), EDITOR_RECORD, {}, {}, 0, {}, {}, {}, 0, {}, {&hideFps, 1}}};
+        const auto result = editor.Command("runtime.set-time", {std::begin(settings), std::end(settings)});
         if (result.status != EDITOR_OK && result.status != EDITOR_QUEUED) { vi::EndDialog(); return; }
-        m_State.preferences.SetBool("Time Settings\\Hide Fps", m_HideFps);
     }
-    if (cancel) m_HideFps = m_State.preferences.Bool("Time Settings\\Hide Fps");
     if (ok || cancel) ImGui::CloseCurrentPopup();
     vi::EndDialog();
 }

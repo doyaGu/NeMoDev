@@ -469,6 +469,48 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         IM_CHECK(!WindowShown(ctx, window.c_str()));
     };
 
+    t = IM_REGISTER_TEST(engine, "app", "time_settings_display_draft_cancel_and_apply");
+    t->GuiFunc = MainThreadGui;
+    t->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        bool before = false;
+        size_t history = 0;
+        OnMainThread(ctx, [&] {
+            before = App().State().preferences.Bool("Time Settings\\Hide Fps");
+            history = App().State().History().UndoCount();
+        });
+        ctx->ItemClick("//##StatusBar/play/##bitmap", 1);
+        ctx->Yield(3);
+        ctx->ItemClick("//###TimeSettings/##hidefps");
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().preferences.Bool("Time Settings\\Hide Fps") == before); });
+        ctx->ItemClick("//###TimeSettings/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().preferences.Bool("Time Settings\\Hide Fps") == before); });
+        ctx->ItemClick("//##StatusBar/play/##bitmap", 1);
+        ctx->Yield(3);
+        ctx->ItemClick("//###TimeSettings/##hidefps");
+        ctx->ItemInput("//###TimeSettings/##min");
+        ctx->KeyCharsReplace("100000");
+        ctx->ItemClick("//###TimeSettings/OK/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(WindowShown(ctx, "//###TimeSettings"));
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().preferences.Bool("Time Settings\\Hide Fps") == before); });
+        ctx->ItemInput("//###TimeSettings/##min");
+        ctx->KeyCharsReplace("1");
+        ctx->ItemClick("//###TimeSettings/OK/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(!WindowShown(ctx, "//###TimeSettings"));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(App().State().preferences.Bool("Time Settings\\Hide Fps") != before &&
+                            App().State().History().UndoCount() == history);
+            auto &editor = App().State().workspace->Application();
+            auto settings = editor.Query("runtime.time", {editor.Scope(), nullptr, 0}).fields;
+            for (auto &field : settings) if (field.key == "display") field.fields.front().integer = before;
+            const auto values = vdev::BorrowEditorFields(settings);
+            IM_CHECK_NO_RET(editor.Execute("runtime.set-time", {editor.Scope(), values.data(), uint32_t(values.size())}).status == EDITOR_OK);
+        });
+    };
+
     t = IM_REGISTER_TEST(engine, "app", "duplicate_names_cancel");
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {

@@ -533,6 +533,7 @@ private:
     SchematicNavigation m_Navigation;
     ElementAddress m_PressAddress, m_MenuAddress, m_FoundAddress;
     // Published outside read-only view queries.
+    uint64_t m_QuerySelectionCount = 0;
     std::vector<ObjectRef> m_QuerySelection, m_QueryScripts;
     ObjectRef m_QueryScript{};
     ElementRef m_QueryElement;

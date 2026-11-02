@@ -188,7 +188,6 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         m_State.Log(LogLevel::Info, "Path Manager: Virtools Dev's paths");
     if (!m_Environment.InitializePaths(preferences.paths, error)) m_State.Log(LogLevel::Warning, error);
     ApplyRuntimeSettings();
-    m_HideFps = m_State.preferences.Bool("Time Settings\\Hide Fps");
     // The 3D Layout's render context (Dev makes it with its main window).
     m_Layout.createObject = [this](LayoutObject kind) { CreateObject(kind); };
 
@@ -667,6 +666,28 @@ void EditorApp::UpdateTitle() {
         SDL_SetWindowTitle(m_Window, WideToUtf8(title).c_str());
         m_Title = title;
     }
+}
+
+void EditorApp::StatusBar() {
+    const EditorClient client(m_Editor.Host(), 0);
+    StatusBarInfo info;
+    const auto schematic = client.Inspect(m_Schematics.CurrentId());
+    const auto count = EditorClient::Integer(schematic, "selection-count");
+    if (count == 1) {
+        info.selection = "1 element";
+        if (const auto *target = EditorClient::Find(schematic, "selection-target"); target && target->object) {
+            const auto object = client.Query("object.details", {ObjectArgument("target", target->object)});
+            const auto *hasName = EditorClient::Find(object, "has-name");
+            if (object.status == EDITOR_OK && (!hasName || hasName->integer))
+                info.selection = EditorClient::Text(object, "name");
+        }
+    } else if (count > 1) info.selection = std::to_string(count) + " elements selected";
+    const auto layoutAction = m_Layout.ActionText();
+    if (layoutAction.empty()) info.action = EditorClient::Text(schematic, "action-text");
+    else { info.action = layoutAction; info.selection = m_Layout.SelectionText(); }
+    info.information = m_Layout.InfoText();
+    info.showCoordinates = m_Layout.Coordinates(info.coordinates);
+    m_StatusBar.Draw(client, info);
 }
 
 void EditorApp::MainMenu() {

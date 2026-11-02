@@ -2682,7 +2682,9 @@ const EditorParameter schematicNavigation[] = {
 const EditorParameter schematicFields[] = {
     {EDITOR_TEXT("selection"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST},
     {EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE},
-    {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE}};
+    {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE},
+    {EDITOR_TEXT("selection-count"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("selection-target"), EDITOR_OBJECT},
+    {EDITOR_TEXT("action-text"), EDITOR_TEXT_VALUE}};
 }
 struct SchematicViews::Data {
     EditorState &state;
@@ -2918,6 +2920,7 @@ void SchematicCanvas::DocumentClosed() {
     m_Doc = {};
     m_InvalidRows.clear(); m_InvalidRevision = 0;
     m_QuerySelection.clear();
+    m_QuerySelectionCount = 0;
     m_QueryScripts.clear();
     m_QueryScript = {};
     m_QueryElement = {};
@@ -3084,11 +3087,13 @@ void SchematicCanvas::PublishNavigation() {
         return;
     m_QueryVersion = version;
     m_QuerySelection.clear();
+    m_QuerySelectionCount = 0;
     m_QueryScripts.clear();
     m_QueryScript = {};
     m_QueryElement = {};
     if (!Client().Scope().document.value)
         return;
+    m_QuerySelectionCount = m_Navigation.selection.items.size();
     for (const auto &address : m_Navigation.selection.Addresses()) {
         const auto ref = address.object ? address.object : address.owner;
         if (ref)
@@ -3100,7 +3105,14 @@ void SchematicCanvas::PublishNavigation() {
         m_QueryElement = m_Navigation.selection.items.front();
 }
 EditorStatus SchematicCanvas::Inspect(EditorSink sink) {
+    ObjectRef selected{};
+    if (m_QuerySelectionCount == 1 && m_QueryElement.object)
+        for (const auto &object : m_QuerySelection)
+            if (object.object == m_QueryElement.object) { selected = object; break; }
     const EditorValue values[] = {
+        {EDITOR_TEXT("selection-count"), EDITOR_INTEGER_VALUE, {}, {}, m_QuerySelectionCount},
+        {EDITOR_TEXT("selection-target"), EDITOR_OBJECT, selected},
+        {EDITOR_TEXT("action-text"), EDITOR_TEXT_VALUE, {}, EditorLiteral(ActionText())},
         {EDITOR_TEXT("selection"), EDITOR_OBJECT_LIST, {}, {}, 0, {m_QuerySelection.data(), uint32_t(m_QuerySelection.size())}},
         {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST, {}, {}, 0, {m_QueryScripts.data(), uint32_t(m_QueryScripts.size())}},
         {EDITOR_TEXT("target"), EDITOR_OBJECT, m_QueryScript},

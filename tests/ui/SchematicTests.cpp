@@ -1208,6 +1208,19 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const auto secondSelection = Read<vdev::EditorResponse>(ctx, [&] { return workspace.Inspect(second); });
         const auto firstState = Read<vdev::EditorResponse>(ctx, [&] { return workspace.Inspect(first); });
         IM_CHECK(firstState.status == EDITOR_OK && secondSelection.status == EDITOR_OK);
+        IM_CHECK(vdev::EditorClient::Integer(firstState, "selection-count") == firstSelection.items.size());
+        IM_CHECK(vdev::EditorClient::Integer(secondSelection, "selection-count") ==
+                 App().Canvas(second).Navigation().selection.items.size());
+        OnMainThread(ctx, [&] {
+            for (auto view : {first, second}) {
+                const auto data = workspace.Inspect(view);
+                const auto &chosen = App().Canvas(view).Navigation().selection.items;
+                const auto *target = vdev::EditorClient::Find(data, "selection-target");
+                const auto expected = chosen.size() == 1 ? state.document->Reference(chosen.front().object) : vdev::ObjectRef{};
+                IM_CHECK_NO_RET(target && target->object == expected);
+                IM_CHECK_NO_RET(vdev::EditorClient::Text(data, "action-text") == App().Canvas(view).ActionText());
+            }
+        });
         IM_CHECK_EQ(App().Canvas(first).Navigation().selection.script, a);
         const auto wasOpen = App().Canvas(first).ScriptOpen(b);
         OnMainThread(ctx, [&] {

@@ -5,6 +5,7 @@
 #include "core/level/LevelCommands.h"
 #include "core/runtime/CkRuntimeHost.h"
 #include "editor/ImGuiDrawing.h"
+#include "workspace/EditorClient.h"
 #include "features/objects/ObjectCommands.h"
 #include "features/objects/SelectionCommands.h"
 #include "workspace/ObjectDrag.h"
@@ -92,6 +93,22 @@ void TestObjectCommands(vdev::CkRuntimeHost &runtime, const std::string &moduleP
     const auto frame = Created(execute("object.create-frame3d"));
     const auto second = Created(execute("object.create-frame3d"));
     Check(frame && second && document.Resolve(frame) && document.Resolve(second), "registered creation failed");
+    const EditorClient client(editor.Host(), 0);
+    const auto description = client.Query("object.details", {ObjectArgument("target", frame)});
+    Check(description.status == EDITOR_OK && EditorClient::Find(description, "has-name") &&
+              bool(EditorClient::Integer(description, "has-name")) == bool(document.Resolve(frame)->GetName()),
+          "object name projection lost the distinction between unnamed and empty names");
+    const auto originalName = std::string(document.Resolve(frame)->GetName() ? document.Resolve(frame)->GetName() : "");
+    const auto nativeNameRevision = document.ChangeRevision();
+    for (const char *runtimeName : {static_cast<const char *>(nullptr), "", "Runtime status name"}) {
+        document.Resolve(frame)->SetName(const_cast<char *>(runtimeName));
+        const auto next = client.Query("object.details", {ObjectArgument("target", frame)});
+        Check(next.status == EDITOR_OK && EditorClient::Text(next, "name") == (runtimeName ? runtimeName : "") &&
+                  bool(EditorClient::Integer(next, "has-name")) == bool(document.Resolve(frame)->GetName()) &&
+                  document.ChangeRevision() == nativeNameRevision && EditorClient::Text(description, "name") == originalName,
+              "a runtime name change remained stale or changed a previously copied object projection");
+    }
+    document.Resolve(frame)->SetName(const_cast<char *>(originalName.c_str()));
     auto history = document.History().UndoCount();
     Check(history == 2 && document.History().Undo(), "creation did not form one history step");
     Check(!document.Resolve(second) && document.Resolve(frame), "undo removed the wrong creation");

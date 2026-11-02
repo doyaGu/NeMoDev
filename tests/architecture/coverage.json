@@ -127,7 +127,7 @@
         "ui/app/Main.cpp",
         "ui/app/EditorApp.*",
         "ui/app/EditorState.*",
-        "ui/app/StatusBar.cpp",
+        "ui/app/StatusBar.*",
         "ui/app/EditorEvents.h",
         "ui/app/UiTestRun.h"
       ]
@@ -1084,15 +1084,6 @@
     },
     {
       "file": "ui/app/Main.cpp",
-      "access": [
-        "editor-state",
-        "mutable-document",
-        "native-sdk"
-      ],
-      "remove_by": 5
-    },
-    {
-      "file": "ui/app/StatusBar.cpp",
       "access": [
         "editor-state",
         "mutable-document",
@@ -2410,7 +2401,7 @@
     {
       "id": "settings",
       "name": "preferences、style、ViewOptions、runtime 设置",
-      "owner": "Preferences 保存已提交值；General Preferences 由 PreferencesCommands 查询和修改；其他工作区和运行设置仍归原功能",
+      "owner": "Preferences 保存已提交值；General Preferences 由 PreferencesCommands 查询和修改；ExecutionCommands 管理运行时间、显示 FPS 和运行选项；视图仅保留草稿",
       "lifetime": "有效配置版本变化，需重建的项延期",
       "persistence": "保留原有配置、注册表和 dev.ini 读取；General Preferences 失败回滚，渲染引擎选择重启生效",
       "features": [
@@ -2772,6 +2763,18 @@
       "features": [
         "F08",
         "F23"
+      ]
+    },
+    {
+      "id": "application-status",
+      "name": "状态栏错误闪烁、Time Settings 草稿与显示预览",
+      "owner": "EditorStatusBar；Schematic 实例发布所选项数量、完整目标引用及动作文字；Layout 提供已有只读呈现数据",
+      "lifetime": "应用会话；打开时间设置时重新读取，取消丢弃草稿，确认通过 runtime.set-time 修改共享运行设置",
+      "persistence": "界面草稿和闪烁不保存；Hide Fps 沿用 Preferences 保存；不产生文档撤销",
+      "features": [
+        "F17",
+        "F25",
+        "F27"
       ]
     }
   ],
