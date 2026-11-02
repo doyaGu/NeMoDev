@@ -1,5 +1,6 @@
 #include "tests/ui/UiTests.h"
 #include "workspace/ResourceDrag.h"
+#include "workspace/ObjectDrag.h"
 #include "features/layout/SnapshotData.h"
 #include "features/scene/SceneViewData.h"
 #include <SDL3/SDL.h>
@@ -79,7 +80,98 @@ void Bitmap(const std::filesystem::path &path) {
 } // namespace
 
 void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
-    auto *test = IM_REGISTER_TEST(engine, "layout", "resource_image_modes_and_malformed_drags");
+    ImGuiTest *test = nullptr;
+
+    test = IM_REGISTER_TEST(engine, "layout", "locked_material_multi_drag_uses_grabbed_row_and_rejects_bad_tail");
+    test->GuiFunc = DropGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK(SelectEntity(ctx, found));
+        auto &state = App().State();
+        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        struct Cleanup {
+            ~Cleanup() {
+                source.visible = false;
+                source.bytes.clear();
+            }
+        } cleanup;
+        vdev::ObjectRef material{}, other{};
+        ImVec2 min, max;
+        IM_CHECK(App().Layout().ShownView(min, max));
+        const auto pick = [&] {
+            EditorValue x{EDITOR_TEXT("x"), EDITOR_REAL_VALUE}, y{EDITOR_TEXT("y"), EDITOR_REAL_VALUE};
+            x.real = found.at.x - min.x;
+            y.real = found.at.y - min.y;
+            return client.Query("layout.drop-target", {x, y, vdev::TextArgument("kind", std::string("material")),
+                                                       vdev::ObjectArgument("source", material)});
+        };
+        OnMainThread(ctx, [&] {
+            const auto first = client.Command("object.create-material"),
+                       second = client.Command("object.create-material");
+            const auto *a = vdev::EditorClient::Find(first, "created"),
+                       *b = vdev::EditorClient::Find(second, "created");
+            IM_CHECK_NO_RET(first.status == EDITOR_OK && second.status == EDITOR_OK && a && b);
+            material = a ? a->object : vdev::ObjectRef{};
+            other = b ? b->object : vdev::ObjectRef{};
+            bool hit = false;
+            for (int y = 1; y < 16 && !hit; ++y)
+                for (int x = 1; x < 20 && !hit; ++x) {
+                    found.at = {min.x + (max.x - min.x) * x / 20, min.y + (max.y - min.y) * y / 16};
+                    const auto info = pick();
+                    const auto *mesh = vdev::EditorClient::Find(info, "mesh");
+                    hit = info.status == EDITOR_OK && mesh && mesh->object;
+                }
+            IM_CHECK_NO_RET(hit);
+        });
+        source.visible = true;
+        source.type = EDITOR_OBJECT_PAYLOAD;
+        ctx->Yield(3);
+        for (bool locked : {false, true}) {
+            vdev::ObjectRef original{};
+            size_t steps = 0;
+            std::vector<vdev::ObjectRef> selected;
+            OnMainThread(ctx, [&] {
+                const auto changed = client.Command("selection.lock", {vdev::IntegerArgument("locked", locked)});
+                IM_CHECK_NO_RET(changed.status == EDITOR_OK || changed.status == EDITOR_NO_CHANGE);
+                const auto before = pick();
+                const auto *value = vdev::EditorClient::Find(before, "material");
+                IM_CHECK_NO_RET(before.status == EDITOR_OK && value && value->object);
+                original = value ? value->object : vdev::ObjectRef{};
+                selected = vdev::SceneObjects(client.Query("selection.objects"), "objects");
+                steps = state.History().UndoCount();
+            });
+            source.bytes = vdev::WriteObjectDrag(material, {other, material});
+            Drag(ctx, found.at);
+            OnMainThread(ctx, [&] {
+                const auto after = pick();
+                const auto *value = vdev::EditorClient::Find(after, "material");
+                IM_CHECK_NO_RET(value && value->object == material && state.History().UndoCount() == steps + 1);
+                IM_CHECK_NO_RET(vdev::SceneObjects(client.Query("selection.objects"), "objects") == selected &&
+                                bool(vdev::EditorClient::Integer(client.Query("selection.objects"), "locked")) ==
+                                    locked);
+                IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK);
+                const auto restored = pick();
+                value = vdev::EditorClient::Find(restored, "material");
+                IM_CHECK_NO_RET(value && value->object == original);
+            });
+            const vdev::ObjectRef invalid[] = {material, {}};
+            source.bytes.resize(sizeof(invalid));
+            std::memcpy(source.bytes.data(), invalid, sizeof(invalid));
+            Drag(ctx, found.at);
+            OnMainThread(ctx, [&] {
+                const auto after = pick();
+                const auto *value = vdev::EditorClient::Find(after, "material");
+                IM_CHECK_NO_RET(value && value->object == original && state.History().UndoCount() == steps &&
+                                state.History().CanRedo());
+            });
+        }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "layout", "resource_image_modes_and_malformed_drags");
     test->GuiFunc = DropGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         namespace fs = std::filesystem;
@@ -102,33 +194,40 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         source.visible = true;
         ctx->Yield(3);
         const CK_CLASSID kinds[] = {CKCID_TEXTURE, CKCID_SPRITE3D, CKCID_SPRITE, CKCID_2DENTITY};
-        for (unsigned mode = 0; mode < 4; ++mode) {
+        for (unsigned mode = 0; mode < 8; ++mode) {
+            const auto kind = mode & 3;
+            const bool locked = mode >= 4;
+            OnMainThread(ctx, [&] {
+                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const auto result = client.Command("selection.lock", {vdev::IntegerArgument("locked", locked)});
+                IM_CHECK_NO_RET(result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE);
+            });
             const auto path = folder / ("drop-" + std::to_string(mode) + ".bmp");
             Bitmap(path);
             source.type = EDITOR_RESOURCE_FILE_PAYLOAD;
             source.bytes = vdev::WriteResourceDrag(0, {{path.u8string(), CKCID_TEXTURE}});
-            const auto before = Read<std::set<CK_ID>>(ctx, [&] { return LiveObjects(kinds[mode]); });
+            const auto before = Read<std::set<CK_ID>>(ctx, [&] { return LiveObjects(kinds[kind]); });
             std::vector<vdev::ObjectRef> selected;
             size_t history = 0;
             OnMainThread(ctx, [&] {
                 selected = App().State().objectSelection.References();
                 history = App().State().History().UndoCount();
             });
-            if (mode & 1)
+            if (kind & 1)
                 ctx->KeyDown(ImGuiMod_Shift);
-            if (mode & 2)
+            if (kind & 2)
                 ctx->KeyDown(ImGuiMod_Ctrl);
             Drag(ctx, found.at);
-            if (mode & 2)
+            if (kind & 2)
                 ctx->KeyUp(ImGuiMod_Ctrl);
-            if (mode & 1)
+            if (kind & 1)
                 ctx->KeyUp(ImGuiMod_Shift);
             const auto deadline = SDL_GetTicks() + 10000;
             bool loaded = false;
             while (SDL_GetTicks() < deadline) {
                 loaded = Read<bool>(ctx, [&] {
                     return !App().State().runtimeOperation.Busy() &&
-                           LiveObjects(kinds[mode]).size() == before.size() + 1;
+                           LiveObjects(kinds[kind]).size() == before.size() + 1;
                 });
                 if (loaded)
                     break;
@@ -138,7 +237,8 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
             OnMainThread(ctx, [&] {
                 // Image resources retain their existing non-undoable adoption.
                 IM_CHECK_NO_RET(App().State().History().UndoCount() == history);
-                IM_CHECK_NO_RET(App().State().objectSelection.References() == selected);
+                IM_CHECK_NO_RET(App().State().objectSelection.References() == selected &&
+                                App().State().objectSelection.Locked() == locked);
             });
         }
         // Receivers must validate every payload size before reading its fields.
@@ -165,6 +265,109 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
                                 App().State().objectSelection.References() == selection);
             });
         }
+        OnMainThread(ctx, [&] {
+            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
+        });
+    };
+
+    test = IM_REGISTER_TEST(engine, "layout", "locked_attribute_and_snapshot_drops_keep_selection_and_undo");
+    test->GuiFunc = DropGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK(SelectEntity(ctx, found));
+        auto &state = App().State();
+        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        struct Cleanup {
+            ~Cleanup() {
+                source.visible = false;
+                source.bytes.clear();
+            }
+        } cleanup;
+        EditorAttributePayload attribute{};
+        vdev::SnapshotDrag image{};
+        vdev::SnapshotData snapshots;
+        std::vector<vdev::ObjectRef> selected;
+        uint64_t reads = 0;
+        OnMainThread(ctx, [&] {
+            selected = vdev::SceneObjects(client.Query("selection.objects"), "objects");
+            IM_CHECK_NO_RET(
+                client.Command("attribute.create-category", {vdev::TextArgument("name", std::string("Drop Tests"))})
+                    .status == EDITOR_OK);
+            const auto type =
+                client.Command("attribute.create-type",
+                               {vdev::TextArgument("name", std::string("Drop Value")),
+                                vdev::IntegerArgument("parameter", (uint64_t(CKPGUID_INT.d1) << 32) | CKPGUID_INT.d2),
+                                vdev::TextArgument("category", std::string("Drop Tests"))});
+            IM_CHECK_NO_RET(type.status == EDITOR_OK);
+            attribute.type = int32_t(vdev::EditorClient::Integer(type, "type"));
+            attribute.catalog = vdev::EditorClient::Integer(client.Query("attribute.catalog"), "catalog");
+            reads = App().Layout().View().ReadbackFrames();
+            const auto taken = client.Command("snapshot.take");
+            IM_CHECK_NO_RET(taken.status == EDITOR_OK && App().Layout().View().ReadbackFrames() == reads + 1);
+            IM_CHECK_NO_RET(vdev::ReadSnapshots(client, snapshots));
+            image.slot = uint32_t(vdev::EditorClient::Integer(taken, "slot"));
+            image.revision = snapshots.Revision(image.slot);
+        });
+        source.visible = true;
+        ctx->Yield(3);
+        for (bool locked : {false, true}) {
+            OnMainThread(ctx, [&] {
+                const auto changed = client.Command("selection.lock", {vdev::IntegerArgument("locked", locked)});
+                IM_CHECK_NO_RET(changed.status == EDITOR_OK || changed.status == EDITOR_NO_CHANGE);
+            });
+            for (bool bitmap : {false, true}) {
+                size_t steps = 0;
+                bool dirty = false;
+                OnMainThread(ctx, [&] {
+                    steps = state.History().UndoCount();
+                    dirty = state.document->Dirty();
+                });
+                source.type = bitmap ? vdev::SNAPSHOT_PAYLOAD : EDITOR_ATTRIBUTE_PAYLOAD;
+                const auto *data = bitmap ? static_cast<const void *>(&image) : static_cast<const void *>(&attribute);
+                const auto size = bitmap ? sizeof(image) : sizeof(attribute);
+                source.bytes.resize(size);
+                std::memcpy(source.bytes.data(), data, size);
+                Drag(ctx, found.at);
+                OnMainThread(ctx, [&] {
+                    IM_CHECK_NO_RET(state.History().UndoCount() == steps + 1);
+                    IM_CHECK_NO_RET(vdev::SceneObjects(client.Query("selection.objects"), "objects") == selected &&
+                                    bool(vdev::EditorClient::Integer(client.Query("selection.objects"), "locked")) ==
+                                        locked);
+                    if (!bitmap) {
+                        vdev::ObjectAttributes attributes;
+                        IM_CHECK_NO_RET(
+                            vdev::QueryObjectAttributes(client, selected.front(), attributes) &&
+                            std::any_of(attributes.rows.begin(), attributes.rows.end(),
+                                        [&](const auto &row) { return row.type == uint64_t(attribute.type); }));
+                    }
+                    IM_CHECK_NO_RET(client.Command("history.undo").status == EDITOR_OK &&
+                                    state.document->Dirty() == dirty);
+                    IM_CHECK_NO_RET(App().Layout().View().ReadbackFrames() == reads + 1);
+                });
+                // Replacing a catalog or image version must refuse the complete
+                // request and leave the Redo branch from Undo available.
+                if (bitmap) {
+                    auto stale = image;
+                    --stale.revision;
+                    std::memcpy(source.bytes.data(), &stale, sizeof(stale));
+                } else {
+                    auto stale = attribute;
+                    ++stale.catalog;
+                    std::memcpy(source.bytes.data(), &stale, sizeof(stale));
+                }
+                Drag(ctx, found.at);
+                OnMainThread(ctx, [&] {
+                    IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.History().CanRedo() &&
+                                    state.document->Dirty() == dirty);
+                });
+            }
+        }
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(vdev::RemoveSnapshots(client, snapshots, {int(image.slot)}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
+        });
     };
 
     test = IM_REGISTER_TEST(engine, "layout", "snapshot_drag_keeps_slot_revision_after_replacement");
@@ -356,6 +559,33 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         IM_CHECK(camera);
         Undo(ctx);
         IM_CHECK(Read<bool>(ctx, [&] { return !App().State().document->IsLive(camera); }));
+    };
+
+    // Permanent deletion remains the last Layout case: earlier cases need
+    // the sample mesh for real picking and material drops.
+    // Del on the selected entity: the Level Manager's Select Delete Options,
+    // OK (Enter) destroys it, out of the selection, and clears the undo
+    // steps (Dev). Last: the entity is gone.
+    test = IM_REGISTER_TEST(engine, "layout", "delete");
+    test->GuiFunc = MainThreadGui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        InView found;
+        IM_CHECK_SILENT(SelectEntity(ctx, found));
+        vdev::EditorState &state = App().State();
+        IM_CHECK_EQ(state.objectSelection.Objects().size(), 1u);
+        const size_t logged = state.eventLog.Entries().size();
+        ctx->KeyPress(ImGuiKey_Delete);
+        ctx->Yield(3);
+        ImGuiWindow *dialog = ctx->GetWindowByRef("//###DeleteOptions");
+        IM_CHECK_SILENT(dialog && dialog->WasActive);
+        ctx->KeyPress(ImGuiKey_Enter);
+        ctx->Yield(3);
+        LogEditor(ctx, logged);
+        IM_CHECK(!ObjectExists(ctx, found.entity));
+        IM_CHECK(!state.objectSelection.Contains(found.entity));
+        IM_CHECK(!state.History().CanUndo());
+        IM_CHECK(state.document->Dirty());
     };
 }
 } // namespace vdevuitest

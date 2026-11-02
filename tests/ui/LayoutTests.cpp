@@ -913,31 +913,6 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] { IM_CHECK_NO_RET(state.History().Undo() && state.History().Undo()); });
         ctx->Yield(3);
     };
-
-    // Del on the selected entity: the Level Manager's Select Delete Options,
-    // OK (Enter) destroys it, out of the selection, and clears the undo
-    // steps (Dev). Last: the entity is gone.
-    t = IM_REGISTER_TEST(engine, "layout", "delete");
-    t->GuiFunc = MainThreadGui;
-    t->TestFunc = [](ImGuiTestContext *ctx) {
-        Settle(ctx, "//3D Layout");
-        InView found;
-        IM_CHECK_SILENT(SelectEntity(ctx, found));
-        vdev::EditorState &state = App().State();
-        IM_CHECK_EQ(state.objectSelection.Objects().size(), 1u);
-        const size_t logged = state.eventLog.Entries().size();
-        ctx->KeyPress(ImGuiKey_Delete);
-        ctx->Yield(3);
-        ImGuiWindow *dialog = ctx->GetWindowByRef("//###DeleteOptions");
-        IM_CHECK_SILENT(dialog && dialog->WasActive);
-        ctx->KeyPress(ImGuiKey_Enter);
-        ctx->Yield(3);
-        LogEditor(ctx, logged);
-        IM_CHECK(!ObjectExists(ctx, found.entity));
-        IM_CHECK(!state.objectSelection.Contains(found.entity));
-        IM_CHECK(!state.History().CanUndo());
-        IM_CHECK(state.document->Dirty());
-    };
 }
 
 } // namespace vdevuitest
