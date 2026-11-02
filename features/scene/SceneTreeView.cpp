@@ -871,7 +871,13 @@ void SceneTreeView::Rows(const EditorClient &client, ImVec2 origin, ImVec2 room,
                                ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
                                    ImGuiButtonFlags_MouseButtonMiddle);
         const bool clicked = !toggled && ImGui::IsItemClicked(0), rightClicked = ImGui::IsItemClicked(1);
-        if (clicked || (rightClicked && !selected && row.kind != EDITOR_SCENE_WORKSET)) {
+        // Keep the source selection intact until a press is known to be a
+        // click. Starting a drag on an already-selected row moves that group.
+        const bool released = !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift && ImGui::IsItemDeactivated() &&
+                              ImGui::IsMouseReleased(0) && !ImGui::IsMouseDragPastThreshold(0) &&
+                              ImGui::IsItemHovered();
+        if ((clicked && (!selected || ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift)) || released ||
+            (rightClicked && !selected && row.kind != EDITOR_SCENE_WORKSET)) {
             Choose(i, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
         }
         if (row.object && ((ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) || ImGui::IsItemClicked(2))) {
