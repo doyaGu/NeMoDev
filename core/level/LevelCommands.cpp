@@ -56,36 +56,51 @@ std::vector<CK_ID> ScenesMissing(CKContext *context, CKBeObject *owner, CKBehavi
 }
 
 // Gives scripts to owner (and owner's scenes); the inverse takes them back.
-DocumentFn GiveScripts(CK_ID ownerId, std::vector<CK_ID> scripts, std::shared_ptr<std::vector<std::pair<CK_ID, CK_ID>>> added) {
-    return [ownerId, scripts, added](Document &document) {
-        CKBeObject *owner = Get<CKBeObject>(document, ownerId);
+class ScriptOwnershipAction final : public Action {
+public:
+    ScriptOwnershipAction(Document &document, CK_ID owner, const std::vector<CK_ID> &scripts)
+        : m_Owner(document.Reference(owner)), m_Scripts(RecordObjects(document, scripts)) {}
+    bool Redo(Document &document) override {
+        auto *owner = Get<CKBeObject>(document, m_Owner);
         if (!owner) return false;
-        added->clear();
-        for (CK_ID id : scripts) {
-            CKBehavior *script = Get<CKBehavior>(document, id);
+        m_Added.clear();
+        for (auto ref : m_Scripts) {
+            auto *script = Get<CKBehavior>(document, ref);
             if (!script || AddScriptLast(owner, script) != CK_OK) return false;
-            for (CK_ID scene : ScenesMissing(document.Context(), owner, script)) {
-                Get<CKScene>(document, scene)->AddObjectToScene(script, FALSE);
-                added->emplace_back(scene, id);
+            for (auto sceneId : ScenesMissing(document.Context(), owner, script)) {
+                Get<CKScene>(document, sceneId)->AddObjectToScene(script, FALSE);
+                m_Added.emplace_back(document.Reference(sceneId), ref);
             }
         }
         return true;
-    };
-}
-
-DocumentFn TakeScripts(CK_ID ownerId, std::vector<CK_ID> scripts, std::shared_ptr<std::vector<std::pair<CK_ID, CK_ID>>> added) {
-    return [ownerId, scripts, added](Document &document) {
-        CKBeObject *owner = Get<CKBeObject>(document, ownerId);
+    }
+    bool Undo(Document &document) override {
+        auto *owner = Get<CKBeObject>(document, m_Owner);
         if (!owner) return false;
-        for (const auto &entry : *added)
-            if (CKScene *scene = Get<CKScene>(document, entry.first))
-                if (CKSceneObject *script = Get<CKSceneObject>(document, entry.second)) scene->RemoveObjectFromScene(script, FALSE);
-        for (CK_ID id : scripts)
-            if (CKBehavior *script = Get<CKBehavior>(document, id))
-                if (script->GetOwner() == owner) owner->RemoveScript(id);
+        for (const auto &entry : m_Added)
+            if (auto *scene = Get<CKScene>(document, entry.first))
+                if (auto *script = Get<CKSceneObject>(document, entry.second))
+                    scene->RemoveObjectFromScene(script, FALSE);
+        for (auto ref : m_Scripts)
+            if (auto *script = Get<CKBehavior>(document, ref))
+                if (script->GetOwner() == owner)
+                    owner->RemoveScript(script->GetID());
         return true;
-    };
-}
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Owner);
+        KeepObjects(document, objects, m_Scripts);
+        for (const auto &entry : m_Added) {
+            KeepObjects(document, objects, entry.first);
+            KeepObjects(document, objects, entry.second);
+        }
+    }
+
+private:
+    ObjectRef m_Owner{};
+    std::vector<ObjectRef> m_Scripts;
+    std::vector<std::pair<ObjectRef, ObjectRef>> m_Added;
+};
 
 std::vector<CKSceneObject *> SceneObjects(Document &document, const std::vector<CK_ID> &ids) {
     std::vector<CKSceneObject *> objects;
@@ -111,9 +126,8 @@ EditResult CreateScript(Document &document, CK_ID ownerId, const std::string &na
     // Loaded Scripts carry CKBEHAVIOR_TOPMOST (no behavior includes them).
     script->ModifyFlags(CKBEHAVIOR_TOPMOST, 0);
     const CK_ID id = script->GetID();
-    auto added = std::make_shared<std::vector<std::pair<CK_ID, CK_ID>>>();
-    return Apply(document, "Create Script", GiveScripts(ownerId, {id}, added), TakeScripts(ownerId, {id}, added),
-                 {id}, id);
+    return Apply(document, "Create Script",
+                 std::make_unique<ScriptOwnershipAction>(document, ownerId, std::vector<CK_ID>{id}), {id}, id);
 }
 
 EditResult LoadScripts(Document &document, const std::string &path, CK_ID ownerId) {
@@ -155,10 +169,10 @@ EditResult LoadScripts(Document &document, const std::string &path, CK_ID ownerI
         if (CKBeObject *previous = script->GetOwner())
             if (previous != owner) previous->RemoveScript(id);
     }
-    auto added = std::make_shared<std::vector<std::pair<CK_ID, CK_ID>>>();
     const std::set<CK_ID> created(objects.begin(), objects.end());
-    EditResult result = Apply(document, "Load Script", GiveScripts(ownerId, scripts, added),
-                              TakeScripts(ownerId, scripts, added), created, scripts.front());
+    EditResult result =
+        Apply(document, "Load Script", std::make_unique<ScriptOwnershipAction>(document, ownerId, scripts), created,
+              scripts.front());
     if (!result.ok) {
         discard();
         return EditResult::Refused("The owner's class does not accept the Script");
@@ -213,36 +227,83 @@ EditResult DropBuildingBlockInto(Document &document, CK_ID scriptId, const CKGUI
     return InsertBuildingBlock(document, scriptId, scriptId, guid, at);
 }
 
-EditResult CreateScene(Document &document, const std::string &name,
-                       const std::vector<CK_ID> &objects) {
+namespace {
+class CreateSceneAction final : public Action {
+public:
+    CreateSceneAction(Document &document, CK_ID id, CK_ID levelId, const std::vector<CK_ID> &members)
+        : m_Document(document.Token()), m_Object(document.Reference(id)), m_Level(document.Reference(levelId)),
+          m_Members(RecordObjects(document, members)) {}
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        std::vector<CK_ID> members;
+        if (!ResolveObjects(doc, m_Members, members))
+            return false;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        CKScene *created = Get<CKScene>(doc, id);
+        if (!owner || !created || owner->AddScene(created) != CK_OK)
+            return false;
+        for (CK_ID member : members)
+            if (CKSceneObject *object = Get<CKSceneObject>(doc, member))
+                created->AddObjectToScene(object);
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        const auto levelId = doc.NativeId(m_Level, Document::ObjectScope::Existing);
+        if (m_Level != ObjectRef{} && !levelId)
+            return false;
+        std::vector<CK_ID> members;
+        if (!ResolveObjects(doc, m_Members, members))
+            return false;
+        CKLevel *owner = Get<CKLevel>(doc, levelId);
+        CKScene *created = Get<CKScene>(doc, id);
+        if (!owner || !created)
+            return false;
+        for (CK_ID member : members)
+            if (CKSceneObject *object = Get<CKSceneObject>(doc, member))
+                created->RemoveObjectFromScene(object);
+        return owner->RemoveScene(created) == CK_OK;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Object);
+        KeepObjects(document, objects, m_Level);
+        KeepObjects(document, objects, m_Members);
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_Object{};
+    ObjectRef m_Level{};
+    std::vector<ObjectRef> m_Members;
+};
+} // namespace
+
+EditResult CreateScene(Document &document, const std::string &name, const std::vector<CK_ID> &objects) {
     CKContext *context = document.Context();
     CKLevel *level = context->GetCurrentLevel();
-    if (!level) return EditResult::Refused("No current level");
+    if (!level)
+        return EditResult::Refused("No current level");
     const std::string label = name.empty() ? "New Scene" : name;
     CKScene *scene = CKScene::Cast(context->CreateObject(CKCID_SCENE, const_cast<CKSTRING>(label.c_str())));
-    if (!scene) return EditResult::Refused("CKContext::CreateObject failed");
+    if (!scene)
+        return EditResult::Refused("CKContext::CreateObject failed");
     const CK_ID id = scene->GetID(), levelId = level->GetID();
     std::vector<CK_ID> members;
-    for (CKSceneObject *object : SceneObjects(document, objects)) members.push_back(object->GetID());
-    return Apply(
-        document, "Create Scene",
-        [id, levelId, members](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKScene *created = Get<CKScene>(doc, id);
-            if (!owner || !created || owner->AddScene(created) != CK_OK) return false;
-            for (CK_ID member : members)
-                if (CKSceneObject *object = Get<CKSceneObject>(doc, member)) created->AddObjectToScene(object);
-            return true;
-        },
-        [id, levelId, members](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKScene *created = Get<CKScene>(doc, id);
-            if (!owner || !created) return false;
-            for (CK_ID member : members)
-                if (CKSceneObject *object = Get<CKSceneObject>(doc, member)) created->RemoveObjectFromScene(object);
-            return owner->RemoveScene(created) == CK_OK;
-        },
-        {id}, id);
+    for (CKSceneObject *object : SceneObjects(document, objects))
+        members.push_back(object->GetID());
+    return Apply(document, "Create Scene", std::make_unique<CreateSceneAction>(document, id, levelId, members), {id},
+                 id);
 }
 
 namespace {
@@ -255,7 +316,7 @@ std::set<CK_ID> SceneMembers(CKScene *scene) {
 
 // What a scene took or lost in a step, and how each was in it.
 struct SceneEntry {
-    CK_ID object = 0;
+    ObjectRef object{};
     CK_SCENEOBJECT_FLAGS flags = CK_SCENEOBJECT_FLAGS(0);
     std::shared_ptr<CKStateChunk> initial;
 };
@@ -264,6 +325,83 @@ std::shared_ptr<CKStateChunk> CopyChunk(CKStateChunk *chunk) {
     if (!chunk) return nullptr;
     return std::shared_ptr<CKStateChunk>(CreateCKStateChunk(chunk), [](CKStateChunk *c) { DeleteCKStateChunk(c); });
 }
+
+class SceneMembershipAction final : public Action {
+public:
+    SceneMembershipAction(Document &document, CK_ID scene, const std::vector<CK_ID> &members, bool add,
+                          bool dependencies)
+        : m_Scene(document.Reference(scene)), m_Members(RecordObjects(document, members)), m_Add(add),
+          m_Dependencies(dependencies) {}
+    bool Redo(Document &document) override {
+        auto *target = Get<CKScene>(document, m_Scene);
+        if (!target)
+            return false;
+        std::vector<CK_ID> members;
+        if (!ResolveObjects(document, m_Members, members))
+            return false;
+        if (m_Add) {
+            const auto before = SceneMembers(target);
+            m_Added.clear();
+            for (auto id : members)
+                if (auto *object = Get<CKSceneObject>(document, id))
+                    target->AddObjectToScene(object, CKGroup::Cast(object) ? m_Dependencies : TRUE);
+            for (auto id : SceneMembers(target))
+                if (!before.count(id))
+                    m_Added.push_back(document.Reference(id));
+        } else {
+            std::map<CK_ID, SceneEntry> before;
+            for (auto id : SceneMembers(target)) {
+                auto *object = Get<CKSceneObject>(document, id);
+                if (object)
+                    before.emplace(id, SceneEntry{document.Reference(id), target->GetObjectFlags(object),
+                                                  CopyChunk(target->GetObjectInitialValue(object))});
+            }
+            m_Removed.clear();
+            for (auto id : members)
+                if (auto *object = Get<CKSceneObject>(document, id))
+                    target->RemoveObjectFromScene(object, m_Dependencies);
+            const auto after = SceneMembers(target);
+            for (const auto &entry : before)
+                if (!after.count(entry.first))
+                    m_Removed.push_back(entry.second);
+        }
+        return true;
+    }
+    bool Undo(Document &document) override {
+        auto *target = Get<CKScene>(document, m_Scene);
+        if (!target)
+            return false;
+        if (m_Add) {
+            for (auto ref : m_Added)
+                if (auto *object = Get<CKSceneObject>(document, ref))
+                    target->RemoveObjectFromScene(object, FALSE);
+        } else {
+            for (const auto &entry : m_Removed) {
+                auto *object = Get<CKSceneObject>(document, entry.object);
+                if (!object)
+                    continue;
+                target->AddObjectToScene(object, FALSE);
+                target->SetObjectFlags(object, entry.flags);
+                if (entry.initial)
+                    target->SetObjectInitialValue(object, CreateCKStateChunk(entry.initial.get()));
+            }
+        }
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Scene);
+        KeepObjects(document, objects, m_Members);
+        KeepObjects(document, objects, m_Added);
+        for (const auto &entry : m_Removed)
+            KeepObjects(document, objects, entry.object);
+    }
+
+private:
+    ObjectRef m_Scene{};
+    std::vector<ObjectRef> m_Members, m_Added;
+    std::vector<SceneEntry> m_Removed;
+    bool m_Add, m_Dependencies;
+};
 
 } // namespace
 
@@ -274,28 +412,8 @@ EditResult SendToScene(Document &document, const std::vector<CK_ID> &objects, CK
     for (CKSceneObject *object : SceneObjects(document, objects))
         if (!scene->IsObjectHere(object)) members.push_back(object->GetID());
     if (members.empty()) return EditResult::Refused("The objects are already in the scene");
-    auto added = std::make_shared<std::vector<CK_ID>>();
-    return Apply(
-        document, "Send To Scene",
-        [sceneId, members, groupMembers, added](Document &doc) {
-            CKScene *target = Get<CKScene>(doc, sceneId);
-            if (!target) return false;
-            const std::set<CK_ID> before = SceneMembers(target);
-            for (CK_ID member : members)
-                if (CKSceneObject *object = Get<CKSceneObject>(doc, member))
-                    target->AddObjectToScene(object, CKGroup::Cast(object) ? groupMembers : TRUE);
-            added->clear();
-            for (CK_ID now : SceneMembers(target))
-                if (!before.count(now)) added->push_back(now);
-            return true;
-        },
-        [sceneId, added](Document &doc) {
-            CKScene *target = Get<CKScene>(doc, sceneId);
-            if (!target) return false;
-            for (CK_ID member : *added)
-                if (CKSceneObject *object = Get<CKSceneObject>(doc, member)) target->RemoveObjectFromScene(object, FALSE);
-            return true;
-        });
+    return Apply(document, "Send To Scene",
+                 std::make_unique<SceneMembershipAction>(document, sceneId, members, true, groupMembers));
 }
 
 EditResult RemoveFromScene(Document &document, const std::vector<CK_ID> &objects, CK_ID sceneId, bool dependencies) {
@@ -305,43 +423,8 @@ EditResult RemoveFromScene(Document &document, const std::vector<CK_ID> &objects
     for (CKSceneObject *object : SceneObjects(document, objects))
         if (scene->IsObjectHere(object) && !CKScene::Cast(object) && !CKLevel::Cast(object)) members.push_back(object->GetID());
     if (members.empty()) return EditResult::Refused("The objects are not in the scene");
-    auto removed = std::make_shared<std::vector<SceneEntry>>();
-    return Apply(
-        document, "Remove From Scene",
-        [sceneId, members, dependencies, removed](Document &doc) {
-            CKScene *target = Get<CKScene>(doc, sceneId);
-            if (!target) return false;
-            // How each was in the scene, for what leaves it.
-            std::map<CK_ID, SceneEntry> was;
-            for (CKSceneObjectIterator it = target->GetObjectIterator(); !it.End(); it++) {
-                CKSceneObject *object = Get<CKSceneObject>(doc, it.GetObjectID());
-                if (!object) continue;
-                SceneEntry entry;
-                entry.object = it.GetObjectID();
-                entry.flags = target->GetObjectFlags(object);
-                entry.initial = CopyChunk(target->GetObjectInitialValue(object));
-                was[entry.object] = entry;
-            }
-            for (CK_ID member : members)
-                if (CKSceneObject *object = Get<CKSceneObject>(doc, member)) target->RemoveObjectFromScene(object, dependencies);
-            const std::set<CK_ID> after = SceneMembers(target);
-            removed->clear();
-            for (const auto &entry : was)
-                if (!after.count(entry.first)) removed->push_back(entry.second);
-            return true;
-        },
-        [sceneId, removed](Document &doc) {
-            CKScene *target = Get<CKScene>(doc, sceneId);
-            if (!target) return false;
-            for (const SceneEntry &entry : *removed) {
-                CKSceneObject *object = Get<CKSceneObject>(doc, entry.object);
-                if (!object) continue;
-                target->AddObjectToScene(object, FALSE);
-                target->SetObjectFlags(object, entry.flags);
-                if (entry.initial) target->SetObjectInitialValue(object, CreateCKStateChunk(entry.initial.get()));
-            }
-            return true;
-        });
+    return Apply(document, "Remove From Scene",
+                 std::make_unique<SceneMembershipAction>(document, sceneId, members, false, dependencies));
 }
 
 namespace {
@@ -355,25 +438,92 @@ std::vector<CK_ID> BeObjects(Document &document, const std::vector<CK_ID> &ids, 
     return members;
 }
 
-DocumentFn AddToGroup(CK_ID groupId, std::vector<CK_ID> members) {
-    return [groupId, members](Document &doc) {
-        CKGroup *group = Get<CKGroup>(doc, groupId);
-        if (!group) return false;
-        for (CK_ID member : members)
-            if (CKBeObject *object = Get<CKBeObject>(doc, member)) group->AddObject(object);
-        return true;
-    };
-}
+class GroupMembersAction final : public Action {
+public:
+    GroupMembersAction(Document &document, CK_ID group, const std::vector<CK_ID> &members)
+        : m_Group(document.Reference(group)), m_Members(RecordObjects(document, members)) {}
+    bool Redo(Document &document) override { return Apply(document, true); }
+    bool Undo(Document &document) override { return Apply(document, false); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Group);
+        KeepObjects(document, objects, m_Members);
+    }
 
-DocumentFn RemoveFromGroup(CK_ID groupId, std::vector<CK_ID> members) {
-    return [groupId, members](Document &doc) {
-        CKGroup *group = Get<CKGroup>(doc, groupId);
+private:
+    bool Apply(Document &document, bool add) {
+        auto *group = Get<CKGroup>(document, m_Group);
         if (!group) return false;
-        for (CK_ID member : members)
-            if (CKBeObject *object = Get<CKBeObject>(doc, member)) group->RemoveObject(object);
+        for (auto ref : m_Members) {
+            auto *object = Get<CKBeObject>(document, ref);
+            if (!object)
+                return false;
+            if (add)
+                group->AddObject(object);
+            else
+                group->RemoveObject(object);
+        }
         return true;
-    };
-}
+    }
+    ObjectRef m_Group{};
+    std::vector<ObjectRef> m_Members;
+};
+class CreateGroupAction final : public Action {
+public:
+    CreateGroupAction(Document &document, CK_ID level, CK_ID group, CK_ID scene, const std::vector<CK_ID> &members,
+                      bool selection)
+        : m_Level(document.Reference(level)), m_Group(document.Reference(group)), m_Scene(document.Reference(scene)),
+          m_Members(document, group, members), m_Selection(selection) {}
+    bool Redo(Document &document) override {
+        auto *owner = Get<CKLevel>(document, m_Level);
+        auto *group = Get<CKGroup>(document, m_Group);
+        if (!owner || !group || owner->AddObject(group) != CK_OK || !m_Members.Redo(document))
+            return false;
+        if (auto *scene = Get<CKScene>(document, m_Scene)) {
+            const auto before = SceneMembers(scene);
+            scene->AddObjectToScene(group, TRUE);
+            m_Added.clear();
+            for (auto id : SceneMembers(scene))
+                if (!before.count(id))
+                    m_Added.push_back(document.Reference(id));
+        } else if (m_Selection || m_Scene)
+            return false;
+        return true;
+    }
+    bool Undo(Document &document) override {
+        auto *owner = Get<CKLevel>(document, m_Level);
+        auto *group = Get<CKGroup>(document, m_Group);
+        if (!owner || !group)
+            return false;
+        auto *scene = Get<CKScene>(document, m_Scene);
+        // Selection groups historically remove their scene dependencies.
+        // Ordinary group creation removes only the members it introduced.
+        if (m_Selection) {
+            if (!scene || !m_Members.Undo(document))
+                return false;
+            scene->RemoveObjectFromScene(group, TRUE);
+        } else {
+            if (scene)
+                for (auto ref : m_Added)
+                    if (auto *object = Get<CKSceneObject>(document, ref))
+                        scene->RemoveObjectFromScene(object, FALSE);
+            if (!m_Members.Undo(document))
+                return false;
+        }
+        return owner->RemoveObject(group) == CK_OK;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        for (auto ref : {m_Level, m_Group, m_Scene})
+            KeepObjects(document, objects, ref);
+        KeepObjects(document, objects, m_Added);
+        m_Members.RetainObjects(document, objects);
+    }
+
+private:
+    ObjectRef m_Level{}, m_Group{}, m_Scene{};
+    GroupMembersAction m_Members;
+    std::vector<ObjectRef> m_Added;
+    bool m_Selection;
+};
 
 } // namespace
 
@@ -388,33 +538,8 @@ EditResult CreateGroup(Document &document, const std::string &name,
     if (!group) return EditResult::Refused("CKContext::CreateObject failed");
     const CK_ID id = group->GetID(), levelId = level->GetID();
     const std::vector<CK_ID> members = BeObjects(document, objects);
-    const DocumentFn add = AddToGroup(id, members), remove = RemoveFromGroup(id, members);
-    // What the group took into the scene with it (Dev: its dependencies).
-    auto added = std::make_shared<std::vector<CK_ID>>();
-    return Apply(
-        document, "Create Group",
-        [id, levelId, sceneId, add, added](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKObject *created = doc.Context()->GetObject(id);
-            if (!owner || !created || owner->AddObject(created) != CK_OK || !add(doc)) return false;
-            if (CKScene *scene = sceneId ? Get<CKScene>(doc, sceneId) : nullptr) {
-                const std::set<CK_ID> before = SceneMembers(scene);
-                scene->AddObjectToScene(CKSceneObject::Cast(created), TRUE);
-                added->clear();
-                for (CK_ID now : SceneMembers(scene))
-                    if (!before.count(now)) added->push_back(now);
-            }
-            return true;
-        },
-        [id, levelId, sceneId, remove, added](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKObject *created = doc.Context()->GetObject(id);
-            if (CKScene *scene = sceneId ? Get<CKScene>(doc, sceneId) : nullptr)
-                for (CK_ID member : *added)
-                    if (CKSceneObject *object = Get<CKSceneObject>(doc, member)) scene->RemoveObjectFromScene(object, FALSE);
-            return owner && created && remove(doc) && owner->RemoveObject(created) == CK_OK;
-        },
-        {id}, id);
+    return Apply(document, "Create Group",
+                 std::make_unique<CreateGroupAction>(document, levelId, id, sceneId, members, false), {id}, id);
 }
 
 EditResult CreateSelectionGroup(Document &document, CK_ID sceneId, const std::string &name,
@@ -428,26 +553,8 @@ EditResult CreateSelectionGroup(Document &document, CK_ID sceneId, const std::st
     if (!group) return EditResult::Refused("CKContext::CreateObject failed");
     group->ModifyObjectFlags(CK_OBJECT_INTERFACEOBJ | CK_OBJECT_PRIVATE | CK_OBJECT_NOTTOBESAVED, 0);
     const CK_ID id = group->GetID(), levelId = level->GetID();
-    const DocumentFn add = AddToGroup(id, members), remove = RemoveFromGroup(id, members);
-    return Apply(
-        document, "Create Selection Group",
-        [id, levelId, sceneId, add](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKScene *scene = Get<CKScene>(doc, sceneId);
-            CKGroup *created = Get<CKGroup>(doc, id);
-            if (!owner || !scene || !created || owner->AddObject(created) != CK_OK || !add(doc)) return false;
-            scene->AddObjectToScene(created, TRUE);
-            return true;
-        },
-        [id, levelId, sceneId, remove](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKScene *scene = Get<CKScene>(doc, sceneId);
-            CKGroup *created = Get<CKGroup>(doc, id);
-            if (!owner || !scene || !created || !remove(doc)) return false;
-            scene->RemoveObjectFromScene(created, TRUE);
-            return owner->RemoveObject(created) == CK_OK;
-        },
-        {id}, id);
+    return Apply(document, "Create Selection Group",
+                 std::make_unique<CreateGroupAction>(document, levelId, id, sceneId, members, true), {id}, id);
 }
 
 EditResult SendToGroup(Document &document, const std::vector<CK_ID> &objects, CK_ID groupId) {
@@ -457,38 +564,126 @@ EditResult SendToGroup(Document &document, const std::vector<CK_ID> &objects, CK
     for (CK_ID id : BeObjects(document, objects, groupId))
         if (!Get<CKBeObject>(document, id)->IsInGroup(group)) members.push_back(id);
     if (members.empty()) return EditResult::Refused("The objects are already in the group");
-    return Apply(document, "Send To Group", AddToGroup(groupId, members), RemoveFromGroup(groupId, members));
+    return Apply(document, "Send To Group", std::make_unique<GroupMembersAction>(document, groupId, members));
 }
+
+namespace {
+class RemoveGroupMembersAction final : public Action {
+public:
+    RemoveGroupMembersAction(Document &document, CK_ID groupId, const std::vector<std::pair<int, CK_ID>> &places)
+        : m_Document(document.Token()), m_Group(document.Reference(groupId)) {
+        for (const auto &entry : places)
+            m_Places.emplace_back(entry.first, document.Reference(entry.second));
+    }
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto groupId = doc.NativeId(m_Group, Document::ObjectScope::Existing);
+        if (m_Group != ObjectRef{} && !groupId)
+            return false;
+        std::vector<std::pair<int, CK_ID>> places;
+        for (const auto &entry : m_Places) {
+            const auto id = doc.NativeId(entry.second, Document::ObjectScope::Existing);
+            if (entry.second != ObjectRef{} && !id)
+                return false;
+            places.emplace_back(entry.first, id);
+        }
+        CKGroup *target = Get<CKGroup>(doc, groupId);
+        if (!target)
+            return false;
+        for (const auto &place : places)
+            if (CKBeObject *object = Get<CKBeObject>(doc, place.second))
+                target->RemoveObject(object);
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto groupId = doc.NativeId(m_Group, Document::ObjectScope::Existing);
+        if (m_Group != ObjectRef{} && !groupId)
+            return false;
+        std::vector<std::pair<int, CK_ID>> places;
+        for (const auto &entry : m_Places) {
+            const auto id = doc.NativeId(entry.second, Document::ObjectScope::Existing);
+            if (entry.second != ObjectRef{} && !id)
+                return false;
+            places.emplace_back(entry.first, id);
+        }
+        CKGroup *target = Get<CKGroup>(doc, groupId);
+        if (!target)
+            return false;
+        for (const auto &place : places)
+            if (CKBeObject *object = Get<CKBeObject>(doc, place.second))
+                target->InsertObjectAt(object, std::min(place.first, target->GetObjectCount()));
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Group);
+        for (const auto &entry : m_Places)
+            KeepObjects(document, objects, entry.second);
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_Group{};
+    std::vector<std::pair<int, ObjectRef>> m_Places;
+};
+} // namespace
 
 EditResult RemoveGroupMembers(Document &document, CK_ID groupId, const std::vector<CK_ID> &objects) {
     CKGroup *group = Get<CKGroup>(document, groupId);
-    if (!group) return EditResult::Refused("Choose a group");
+    if (!group)
+        return EditResult::Refused("Choose a group");
     const std::set<CK_ID> chosen(objects.begin(), objects.end());
     std::vector<std::pair<int, CK_ID>> places; // the members' positions, ascending
     for (int i = 0; i < group->GetObjectCount(); ++i)
         if (CKBeObject *member = group->GetObject(i))
-            if (chosen.count(member->GetID())) places.push_back({i, member->GetID()});
-    if (places.empty()) return EditResult::Refused("The objects are not in the group");
-    return Apply(
-        document, "Remove From Group",
-        [groupId, places](Document &doc) {
-            CKGroup *target = Get<CKGroup>(doc, groupId);
-            if (!target) return false;
-            for (const auto &place : places)
-                if (CKBeObject *object = Get<CKBeObject>(doc, place.second)) target->RemoveObject(object);
-            return true;
-        },
-        [groupId, places](Document &doc) {
-            CKGroup *target = Get<CKGroup>(doc, groupId);
-            if (!target) return false;
-            for (const auto &place : places)
-                if (CKBeObject *object = Get<CKBeObject>(doc, place.second))
-                    target->InsertObjectAt(object, std::min(place.first, target->GetObjectCount()));
-            return true;
-        });
+            if (chosen.count(member->GetID()))
+                places.push_back({i, member->GetID()});
+    if (places.empty())
+        return EditResult::Refused("The objects are not in the group");
+    return Apply(document, "Remove From Group", std::make_unique<RemoveGroupMembersAction>(document, groupId, places));
 }
 
 namespace {
+
+class BodyPartsAction final : public Action {
+public:
+    BodyPartsAction(Document &document, CK_ID character, const std::vector<CK_ID> &parts, CK_ID root, bool add)
+        : m_Character(document.Reference(character)), m_Parts(RecordObjects(document, parts)),
+          m_Root(document.Reference(root)), m_Add(add) {}
+    bool Redo(Document &document) override { return Apply(document, m_Add, false); }
+    bool Undo(Document &document) override { return Apply(document, !m_Add, true); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Character);
+        KeepObjects(document, objects, m_Root);
+        KeepObjects(document, objects, m_Parts);
+    }
+
+private:
+    bool Apply(Document &document, bool add, bool restoreRoot) {
+        auto *target = Get<CKCharacter>(document, m_Character);
+        if (!target)
+            return false;
+        for (auto ref : m_Parts) {
+            auto *part = Get<CKBodyPart>(document, ref);
+            if (!part)
+                return false;
+            if (add)
+                target->AddBodyPart(part);
+            else
+                target->RemoveBodyPart(part);
+        }
+        if (restoreRoot)
+            if (auto *root = Get<CKBodyPart>(document, m_Root))
+                if (root->GetCharacter() == target)
+                    target->SetRootBodyPart(root);
+        return true;
+    }
+    ObjectRef m_Character{}, m_Root{};
+    std::vector<ObjectRef> m_Parts;
+    bool m_Add;
+};
 
 // Body parts into or out of a character; the root it had back with undo.
 EditResult BodyParts(Document &document, CK_ID characterId, const std::vector<CK_ID> &parts, bool add) {
@@ -500,30 +695,8 @@ EditResult BodyParts(Document &document, CK_ID characterId, const std::vector<CK
             if (add ? part->GetCharacter() == nullptr : part->GetCharacter() == character) chosen.push_back(id);
     if (chosen.empty()) return EditResult::Refused(add ? "The body parts belong to a character" : "Choose its body parts");
     const CK_ID root = character->GetRootBodyPart() ? character->GetRootBodyPart()->GetID() : 0;
-    auto in = [characterId, chosen](Document &doc) {
-        CKCharacter *target = Get<CKCharacter>(doc, characterId);
-        if (!target) return false;
-        for (CK_ID id : chosen)
-            if (CKBodyPart *part = Get<CKBodyPart>(doc, id)) target->AddBodyPart(part);
-        return true;
-    };
-    auto out = [characterId, chosen](Document &doc) {
-        CKCharacter *target = Get<CKCharacter>(doc, characterId);
-        if (!target) return false;
-        for (CK_ID id : chosen)
-            if (CKBodyPart *part = Get<CKBodyPart>(doc, id)) target->RemoveBodyPart(part);
-        return true;
-    };
-    auto rooted = [characterId, root](const DocumentFn &change) {
-        return [characterId, root, change](Document &doc) {
-            if (!change(doc)) return false;
-            CKCharacter *target = Get<CKCharacter>(doc, characterId);
-            if (CKBodyPart *part = root ? Get<CKBodyPart>(doc, root) : nullptr)
-                if (target && part->GetCharacter() == target) target->SetRootBodyPart(part);
-            return true;
-        };
-    };
-    return add ? Apply(document, "Add Body Part", in, rooted(out)) : Apply(document, "Remove Body Part", out, rooted(in));
+    return Apply(document, add ? "Add Body Part" : "Remove Body Part",
+                 std::make_unique<BodyPartsAction>(document, characterId, chosen, root, add));
 }
 
 } // namespace
@@ -536,82 +709,123 @@ EditResult RemoveBodyParts(Document &document, CK_ID character, const std::vecto
     return BodyParts(document, character, parts, false);
 }
 
+namespace {
+class MoveScriptsAction final : public Action {
+public:
+    MoveScriptsAction(Document &document, CK_ID targetId, const std::vector<std::pair<CK_ID, CK_ID>> &moves)
+        : m_Document(document.Token()), m_Target(document.Reference(targetId)) {
+        for (const auto &entry : moves)
+            m_Moves.emplace_back(document.Reference(entry.first), document.Reference(entry.second));
+    }
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto targetId = doc.NativeId(m_Target, Document::ObjectScope::Existing);
+        if (m_Target != ObjectRef{} && !targetId)
+            return false;
+        std::vector<std::pair<CK_ID, CK_ID>> moves;
+        for (const auto &entry : m_Moves) {
+            const auto first = doc.NativeId(entry.first, Document::ObjectScope::Existing),
+                       second = doc.NativeId(entry.second, Document::ObjectScope::Existing);
+            if (!first || !second)
+                return false;
+            moves.emplace_back(first, second);
+        }
+        CKBeObject *to = Get<CKBeObject>(doc, targetId);
+        if (!to)
+            return false;
+        for (const auto &move : moves) {
+            CKBehavior *script = Get<CKBehavior>(doc, move.first);
+            CKBeObject *from = Get<CKBeObject>(doc, move.second);
+            if (!script || !from || CKMoveScript(from, to, script) != CK_OK)
+                return false;
+        }
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto targetId = doc.NativeId(m_Target, Document::ObjectScope::Existing);
+        if (m_Target != ObjectRef{} && !targetId)
+            return false;
+        std::vector<std::pair<CK_ID, CK_ID>> moves;
+        for (const auto &entry : m_Moves) {
+            const auto first = doc.NativeId(entry.first, Document::ObjectScope::Existing),
+                       second = doc.NativeId(entry.second, Document::ObjectScope::Existing);
+            if (!first || !second)
+                return false;
+            moves.emplace_back(first, second);
+        }
+        CKBeObject *from = Get<CKBeObject>(doc, targetId);
+        if (!from)
+            return false;
+        for (auto it = moves.rbegin(); it != moves.rend(); ++it) {
+            CKBehavior *script = Get<CKBehavior>(doc, it->first);
+            CKBeObject *to = Get<CKBeObject>(doc, it->second);
+            if (!script || !to || CKMoveScript(from, to, script) != CK_OK)
+                return false;
+        }
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Target);
+        for (const auto &entry : m_Moves) {
+            KeepObjects(document, objects, entry.first);
+            KeepObjects(document, objects, entry.second);
+        }
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_Target{};
+    std::vector<std::pair<ObjectRef, ObjectRef>> m_Moves;
+};
+} // namespace
+
 EditResult MoveScripts(Document &document, const std::vector<CK_ID> &scripts, CK_ID targetId,
                        std::vector<std::string> *refused) {
     CKBeObject *target = Get<CKBeObject>(document, targetId);
-    if (!target || CKBehavior::Cast(target)) return EditResult::Refused("Choose an object");
+    if (!target || CKBehavior::Cast(target))
+        return EditResult::Refused("Choose an object");
     std::vector<std::pair<CK_ID, CK_ID>> moves; // the Script, its owner
     for (CK_ID id : scripts) {
         CKBehavior *script = Get<CKBehavior>(document, id);
-        if (!script || !(script->GetFlags() & CKBEHAVIOR_SCRIPT)) continue;
+        if (!script || !(script->GetFlags() & CKBEHAVIOR_SCRIPT))
+            continue;
         CKBeObject *owner = script->GetOwner();
-        if (!owner || owner == target) continue;
+        if (!owner || owner == target)
+            continue;
         if (!CKIsChildClassOf(target, script->GetCompatibleClassID())) {
-            if (refused) refused->push_back(script->GetName() ? script->GetName() : "");
+            if (refused)
+                refused->push_back(script->GetName() ? script->GetName() : "");
             continue;
         }
         moves.push_back({id, owner->GetID()});
     }
-    if (moves.empty()) return EditResult::Refused("Incompatible class");
-    return Apply(
-        document, "Move Script",
-        [targetId, moves](Document &doc) {
-            CKBeObject *to = Get<CKBeObject>(doc, targetId);
-            if (!to) return false;
-            for (const auto &move : moves) {
-                CKBehavior *script = Get<CKBehavior>(doc, move.first);
-                CKBeObject *from = Get<CKBeObject>(doc, move.second);
-                if (!script || !from || CKMoveScript(from, to, script) != CK_OK) return false;
-            }
-            return true;
-        },
-        [targetId, moves](Document &doc) {
-            CKBeObject *from = Get<CKBeObject>(doc, targetId);
-            if (!from) return false;
-            for (auto it = moves.rbegin(); it != moves.rend(); ++it) {
-                CKBehavior *script = Get<CKBehavior>(doc, it->first);
-                CKBeObject *to = Get<CKBeObject>(doc, it->second);
-                if (!script || !to || CKMoveScript(from, to, script) != CK_OK) return false;
-            }
-            return true;
-        });
+    if (moves.empty())
+        return EditResult::Refused("Incompatible class");
+    return Apply(document, "Move Script", std::make_unique<MoveScriptsAction>(document, targetId, moves));
 }
 
 namespace {
 
-// Entities' parents before a place move, restored by undo.
-struct Parents {
-    std::vector<std::pair<CK_ID, CK_ID>> entries; // entity, former parent (0: none)
-};
-
-DocumentFn SetParents(std::shared_ptr<Parents> parents, CK_ID place) {
-    return [parents, place](Document &doc) {
-        CK3dEntity *target = place ? Get<CK3dEntity>(doc, place) : nullptr;
-        if (place && !target) return false;
-        for (const auto &entry : parents->entries)
-            if (CK3dEntity *entity = Get<CK3dEntity>(doc, entry.first))
-                if (!entity->SetParent(target, TRUE)) return false;
-        return true;
-    };
-}
-
-DocumentFn RestoreParents(std::shared_ptr<Parents> parents) {
-    return [parents](Document &doc) {
-        for (const auto &entry : parents->entries)
-            if (CK3dEntity *entity = Get<CK3dEntity>(doc, entry.first))
-                entity->SetParent(entry.second ? Get<CK3dEntity>(doc, entry.second) : nullptr, TRUE);
-        return true;
-    };
-}
-
-std::shared_ptr<Parents> EntitiesOf(Document &document, const std::vector<CK_ID> &ids, CK_ID except) {
-    auto parents = std::make_shared<Parents>();
-    for (CK_ID id : ids) {
-        CK3dEntity *entity = Get<CK3dEntity>(document, id);
+std::vector<ObjectParentChange> EntitiesOf(Document &document, const std::vector<CK_ID> &ids, CK_ID except) {
+    std::vector<ObjectParentChange> parents;
+    for (auto id : ids) {
+        auto *entity = Get<CK3dEntity>(document, id);
         if (!entity || id == except || CKPlace::Cast(entity)) continue;
-        parents->entries.emplace_back(id, entity->GetParent() ? entity->GetParent()->GetID() : 0);
+        const ParentState parent{entity->GetParent() ? document.Reference(entity->GetParent()->GetID()) : ObjectRef{},
+                                 false};
+        parents.push_back({document.Reference(id), parent, {}});
     }
     return parents;
+}
+EditResult PlaceObjects(Document &document, const std::string &label, std::vector<ObjectParentChange> parents,
+                        CK_ID place) {
+    const auto target = document.Reference(place);
+    for (auto &entry : parents)
+        entry.after.parent = target;
+    return ApplyLevelActionRecord(document, label, {document.Token(), std::move(parents)});
 }
 
 } // namespace
@@ -626,37 +840,37 @@ EditResult CreatePlace(Document &document, const std::string &name,
     if (!place) return EditResult::Refused("CKContext::CreateObject failed");
     const CK_ID id = place->GetID(), levelId = level->GetID();
     auto parents = EntitiesOf(document, objects, id);
-    const DocumentFn move = SetParents(parents, id), back = RestoreParents(parents);
-    return Apply(
-        document, "Create Place",
-        [id, levelId, move](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKPlace *created = Get<CKPlace>(doc, id);
-            return owner && created && owner->AddPlace(created) == CK_OK && move(doc);
-        },
-        [id, levelId, back](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKPlace *created = Get<CKPlace>(doc, id);
-            return owner && created && back(doc) && owner->RemovePlace(created) == CK_OK;
-        },
-        {id}, id);
+    Edit edit(document, "Create Place");
+    const auto added =
+        Apply(document, "Create Place",
+              std::make_unique<LevelObjectAction>(document, levelId, id, LevelCollection::Places), {id}, id);
+    if (!added.ok)
+        return added;
+    if (!parents.empty()) {
+        const auto moved = PlaceObjects(document, "Send to Place", std::move(parents), id);
+        if (!moved.ok)
+            return edit.Fail(moved.message);
+    }
+    return edit.Commit({}, id);
 }
 
 EditResult SendToPlace(Document &document, const std::vector<CK_ID> &objects, CK_ID placeId) {
     if (!Get<CKPlace>(document, placeId)) return EditResult::Refused("Choose a place");
     auto parents = EntitiesOf(document, objects, placeId);
-    if (parents->entries.empty())
+    if (parents.empty())
         return EditResult::Refused("Cannot move object on place, can only add object derived from 3D Entity !");
-    return Apply(document, "Send to Place", SetParents(parents, placeId), RestoreParents(parents));
+    return PlaceObjects(document, "Send to Place", std::move(parents), placeId);
 }
 
 EditResult RemoveFromPlace(Document &document, const std::vector<CK_ID> &objects) {
     auto parents = EntitiesOf(document, objects, 0);
-    auto inPlace = std::make_shared<Parents>();
-    for (const auto &entry : parents->entries)
-        if (entry.second && Get<CKPlace>(document, entry.second)) inPlace->entries.push_back(entry);
-    if (inPlace->entries.empty()) return EditResult::Refused("The objects are not in a place");
-    return Apply(document, "Remove From Place", SetParents(inPlace, 0), RestoreParents(inPlace));
+    std::vector<ObjectParentChange> inPlace;
+    for (const auto &entry : parents)
+        if (entry.before.parent && Get<CKPlace>(document, entry.before.parent))
+            inPlace.push_back(entry);
+    if (inPlace.empty())
+        return EditResult::Refused("The objects are not in a place");
+    return PlaceObjects(document, "Remove From Place", std::move(inPlace), 0);
 }
 
 EditResult RenameLevelObject(Document &document, ObjectRef reference, const std::string &name) {
@@ -681,19 +895,7 @@ EditResult CreateArray(Document &document, const std::string &name) {
     CKObject *array = context->CreateObject(CKCID_DATAARRAY, const_cast<CKSTRING>(label.c_str()));
     if (!array) return EditResult::Refused("CKContext::CreateObject failed");
     const CK_ID id = array->GetID(), levelId = level->GetID();
-    return Apply(
-        document, "Create Array",
-        [id, levelId](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKObject *created = doc.Context()->GetObject(id);
-            return owner && created && owner->AddObject(created) == CK_OK;
-        },
-        [id, levelId](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKObject *created = doc.Context()->GetObject(id);
-            return owner && created && owner->RemoveObject(created) == CK_OK;
-        },
-        {id}, id);
+    return Apply(document, "Create Array", std::make_unique<LevelObjectAction>(document, levelId, id), {id}, id);
 }
 
 EditResult CreateNamedObject(Document &document, CK_CLASSID cid, const std::string &name) {
@@ -707,19 +909,9 @@ EditResult CreateNamedObject(Document &document, CK_CLASSID cid, const std::stri
     // The level keeps scene objects (in its scene); the others, as synchro
     // objects, are the composition's by themselves.
     const bool inScene = CKIsChildClassOf(cid, CKCID_SCENEOBJECT) != FALSE;
-    return Apply(
-        document, "Create Object",
-        [id, levelId, inScene](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKObject *created = doc.Context()->GetObject(id);
-            return owner && created && (!inScene || owner->AddObject(created) == CK_OK);
-        },
-        [id, levelId, inScene](Document &doc) {
-            CKLevel *owner = Get<CKLevel>(doc, levelId);
-            CKObject *created = doc.Context()->GetObject(id);
-            return owner && created && (!inScene || owner->RemoveObject(created) == CK_OK);
-        },
-        {id}, id);
+    return Apply(document, "Create Object",
+                 std::make_unique<LevelObjectAction>(document, levelId, id, LevelCollection::Objects, inScene), {id},
+                 id);
 }
 
 namespace {
@@ -746,6 +938,79 @@ EditResult ShowObjectsAs(Document &document, const std::vector<CK_ID> &objects, 
     return ApplyLevelActionRecord(document, label, std::move(record));
 }
 
+namespace {
+bool SetSceneActive(Document &doc, CK_ID scene, CK_ID id, bool active) {
+    auto *in = Get<CKScene>(doc, scene);
+    auto *object = Get<CKSceneObject>(doc, id);
+    if (!in || !object)
+        return false;
+    if (active)
+        in->Activate(object, FALSE);
+    else
+        in->DeActivate(object);
+    return true;
+}
+} // namespace
+
+namespace {
+class SceneActivationAction final : public Action {
+public:
+    SceneActivationAction(Document &document, CK_ID sceneId, const std::vector<std::pair<CK_ID, bool>> &before,
+                          const bool &active)
+        : m_Document(document.Token()), m_SceneId(document.Reference(sceneId)), m_Active(active) {
+        for (const auto &entry : before)
+            m_Before.emplace_back(document.Reference(entry.first), entry.second);
+    }
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto sceneId = doc.NativeId(m_SceneId, Document::ObjectScope::Existing);
+        if (m_SceneId != ObjectRef{} && !sceneId)
+            return false;
+        std::vector<std::pair<CK_ID, bool>> before;
+        for (const auto &entry : m_Before) {
+            const auto id = doc.NativeId(entry.first, Document::ObjectScope::Existing);
+            if (entry.first != ObjectRef{} && !id)
+                return false;
+            before.emplace_back(id, entry.second);
+        }
+        const auto &active = m_Active;
+        for (const auto &entry : before)
+            if (!SetSceneActive(doc, sceneId, entry.first, active))
+                return false;
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto sceneId = doc.NativeId(m_SceneId, Document::ObjectScope::Existing);
+        if (m_SceneId != ObjectRef{} && !sceneId)
+            return false;
+        std::vector<std::pair<CK_ID, bool>> before;
+        for (const auto &entry : m_Before) {
+            const auto id = doc.NativeId(entry.first, Document::ObjectScope::Existing);
+            if (entry.first != ObjectRef{} && !id)
+                return false;
+            before.emplace_back(id, entry.second);
+        }
+        for (const auto &entry : before)
+            SetSceneActive(doc, sceneId, entry.first, entry.second);
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_SceneId);
+        for (const auto &entry : m_Before)
+            KeepObjects(document, objects, entry.first);
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_SceneId{};
+    std::vector<std::pair<ObjectRef, bool>> m_Before;
+    bool m_Active;
+};
+} // namespace
+
 EditResult SetActiveNow(Document &document, const std::vector<CK_ID> &objects, CK_ID sceneId, bool active) {
     CKContext *context = document.Context();
     CKScene *scene = Get<CKScene>(document, sceneId);
@@ -759,25 +1024,8 @@ EditResult SetActiveNow(Document &document, const std::vector<CK_ID> &objects, C
         if (was != active) before.emplace_back(id, was);
     }
     if (before.empty()) return EditResult::NoChange("Nothing to change in the scene");
-    auto set = [sceneId](Document &doc, CK_ID id, bool on) {
-        CKScene *in = Get<CKScene>(doc, sceneId);
-        CKSceneObject *object = Get<CKSceneObject>(doc, id);
-        if (!in || !object) return false;
-        if (on) in->Activate(object, FALSE);
-        else in->DeActivate(object);
-        return true;
-    };
-    return Apply(
-        document, active ? "Activate Now" : "Deactivate Now",
-        [before, active, set](Document &doc) {
-            for (const auto &entry : before)
-                if (!set(doc, entry.first, active)) return false;
-            return true;
-        },
-        [before, set](Document &doc) {
-            for (const auto &entry : before) set(doc, entry.first, entry.second);
-            return true;
-        });
+    return Apply(document, active ? "Activate Now" : "Deactivate Now",
+                 std::make_unique<SceneActivationAction>(document, sceneId, before, active));
 }
 
 EditResult SetPriorities(Document &document, const std::vector<CK_ID> &objects, int priority) {
@@ -844,6 +1092,46 @@ bool GiveAttribute(Document &doc, CK_ID id, CKAttributeType type, const std::str
 
 } // namespace
 
+namespace {
+class AddAttributeAction final : public Action {
+public:
+    AddAttributeAction(Document &document, const std::vector<CK_ID> &targets, const CKAttributeType &type)
+        : m_Document(document.Token()), m_Targets(RecordObjects(document, targets)), m_Type(type) {}
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        std::vector<CK_ID> targets;
+        if (!ResolveObjects(doc, m_Targets, targets))
+            return false;
+        const auto &type = m_Type;
+        for (CK_ID id : targets)
+            if (!GiveAttribute(doc, id, type, nullptr))
+                return false;
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        std::vector<CK_ID> targets;
+        if (!ResolveObjects(doc, m_Targets, targets))
+            return false;
+        const auto &type = m_Type;
+        for (CK_ID id : targets)
+            if (CKBeObject *object = Get<CKBeObject>(doc, id))
+                object->RemoveAttribute(type);
+        return true;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Targets);
+    }
+
+private:
+    DocumentToken m_Document{};
+    std::vector<ObjectRef> m_Targets;
+    CKAttributeType m_Type;
+};
+} // namespace
+
 EditResult AddAttribute(Document &document, const std::vector<CK_ID> &objects,
                         CKAttributeType type, std::vector<std::pair<std::string, bool>> *each) {
     CKAttributeManager *attributes = document.Context()->GetAttributeManager();
@@ -858,32 +1146,57 @@ EditResult AddAttribute(Document &document, const std::vector<CK_ID> &objects,
             if (each) each->push_back({object->GetName() ? object->GetName() : "", takes});
         }
     if (targets.empty()) return EditResult::Refused("No selected object takes this attribute");
-    return Apply(
-        document, "Add Attributes",
-        [targets, type](Document &doc) {
-            for (CK_ID id : targets)
-                if (!GiveAttribute(doc, id, type, nullptr)) return false;
-            return true;
-        },
-        [targets, type](Document &doc) {
-            for (CK_ID id : targets)
-                if (CKBeObject *object = Get<CKBeObject>(doc, id)) object->RemoveAttribute(type);
-            return true;
-        });
+    return Apply(document, "Add Attributes", std::make_unique<AddAttributeAction>(document, targets, type));
 }
+
+namespace {
+class RemoveAttributeAction final : public Action {
+public:
+    RemoveAttributeAction(Document &document, CK_ID id, const CKAttributeType &type, const std::string &before,
+                          const bool &valued)
+        : m_Document(document.Token()), m_Object(document.Reference(id)), m_Type(type), m_Before(before),
+          m_Valued(valued) {}
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        const auto &type = m_Type;
+        CKBeObject *target = Get<CKBeObject>(doc, id);
+        return target && target->RemoveAttribute(type);
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        const auto id = doc.NativeId(m_Object, Document::ObjectScope::Existing);
+        if (m_Object != ObjectRef{} && !id)
+            return false;
+        const auto &type = m_Type;
+        const auto &before = m_Before;
+        const auto &valued = m_Valued;
+        return GiveAttribute(doc, id, type, valued ? &before : nullptr);
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Object);
+    }
+
+private:
+    DocumentToken m_Document{};
+    ObjectRef m_Object{};
+    CKAttributeType m_Type;
+    std::string m_Before;
+    bool m_Valued;
+};
+} // namespace
 
 EditResult RemoveAttribute(Document &document, CK_ID id, CKAttributeType type) {
     CKBeObject *object = Get<CKBeObject>(document, id);
     if (!object || !object->HasAttribute(type)) return EditResult::Refused("The object has no such attribute");
     const bool valued = object->GetAttributeParameter(type) != nullptr;
     const std::string before = TextOf(object->GetAttributeParameter(type));
-    return Apply(
-        document, "Remove Attribute",
-        [id, type](Document &doc) {
-            CKBeObject *target = Get<CKBeObject>(doc, id);
-            return target && target->RemoveAttribute(type);
-        },
-        [id, type, before, valued](Document &doc) { return GiveAttribute(doc, id, type, valued ? &before : nullptr); });
+    return Apply(document, "Remove Attribute",
+                 std::make_unique<RemoveAttributeAction>(document, id, type, before, valued));
 }
 
 EditResult RemoveAttributes(Document &document, CK_ID object, const std::vector<CKAttributeType> &types) {
@@ -930,6 +1243,29 @@ EditResult PasteAttributes(Document &document, CK_ID object, const std::vector<s
     return edit.Commit();
 }
 
+namespace {
+class AttributeTextAction final : public Action {
+public:
+    AttributeTextAction(Document &document, CK_ID object, CKAttributeType type, std::string before, std::string after)
+        : m_Object(document.Reference(object)), m_Type(type), m_Before(std::move(before)), m_After(std::move(after)) {}
+    bool Redo(Document &document) override { return Apply(document, m_After); }
+    bool Undo(Document &document) override { return Apply(document, m_Before); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Object);
+    }
+
+private:
+    bool Apply(Document &document, const std::string &text) {
+        auto *owner = Get<CKBeObject>(document, m_Object);
+        auto *parameter = owner ? owner->GetAttributeParameter(m_Type) : nullptr;
+        return parameter && parameter->SetStringValue(const_cast<CKSTRING>(text.c_str())) == CK_OK;
+    }
+    ObjectRef m_Object{};
+    CKAttributeType m_Type;
+    std::string m_Before, m_After;
+};
+} // namespace
+
 EditResult SetAttributeText(Document &document, CK_ID id, CKAttributeType type,
                             const std::string &text) {
     CKBeObject *object = Get<CKBeObject>(document, id);
@@ -937,14 +1273,7 @@ EditResult SetAttributeText(Document &document, CK_ID id, CKAttributeType type,
     if (!value) return EditResult::Refused("The attribute has no value");
     const std::string before = TextOf(value);
     if (before == text) return EditResult::NoChange("The value is unchanged");
-    auto set = [id, type](const std::string &next) {
-        return [id, type, next](Document &doc) {
-            CKBeObject *target = Get<CKBeObject>(doc, id);
-            CKParameterOut *parameter = target ? target->GetAttributeParameter(type) : nullptr;
-            return parameter && parameter->SetStringValue(const_cast<CKSTRING>(next.c_str())) == CK_OK;
-        };
-    };
-    return Apply(document, "Edit Attribute", set(text), set(before));
+    return Apply(document, "Edit Attribute", std::make_unique<AttributeTextAction>(document, id, type, before, text));
 }
 
 EditResult DropAttribute(Document &document, const std::vector<CK_ID> &objects, CKAttributeType type, CK_ID value,
@@ -974,6 +1303,76 @@ EditResult DropAttribute(Document &document, const std::vector<CK_ID> &objects, 
     return edit.Commit(added.ok ? added.message : std::string());
 }
 
+namespace {
+class PasteAttributeValueAction final : public Action {
+public:
+    PasteAttributeValueAction(Document &document, const std::vector<std::pair<CK_ID, std::string>> &before,
+                              CK_ID sourceId, const std::string &text, const CKAttributeType &type)
+        : m_Document(document.Token()), m_Source(document.Reference(sourceId)), m_Text(text), m_Type(type) {
+        for (const auto &entry : before)
+            m_Before.emplace_back(document.Reference(entry.first), entry.second);
+    }
+    bool Redo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        std::vector<std::pair<CK_ID, std::string>> before;
+        for (const auto &entry : m_Before) {
+            const auto id = doc.NativeId(entry.first, Document::ObjectScope::Existing);
+            if (entry.first != ObjectRef{} && !id)
+                return false;
+            before.emplace_back(id, entry.second);
+        }
+        const auto sourceId = doc.NativeId(m_Source, Document::ObjectScope::Existing);
+        const auto &text = m_Text;
+        const auto &type = m_Type;
+        CKParameter *from = Get<CKParameter>(doc, sourceId);
+        for (const auto &entry : before) {
+            CKBeObject *target = Get<CKBeObject>(doc, entry.first);
+            CKParameterOut *parameter = target ? target->GetAttributeParameter(type) : nullptr;
+            if (!parameter)
+                return false;
+            const CKERROR copied = from && from->GetGUID() == parameter->GetGUID()
+                                       ? parameter->CopyValue(from, FALSE)
+                                       : parameter->SetStringValue(const_cast<CKSTRING>(text.c_str()));
+            if (copied != CK_OK)
+                return false;
+        }
+        return true;
+    }
+    bool Undo(Document &doc) override {
+        if (doc.Token() != m_Document)
+            return false;
+        std::vector<std::pair<CK_ID, std::string>> before;
+        for (const auto &entry : m_Before) {
+            const auto id = doc.NativeId(entry.first, Document::ObjectScope::Existing);
+            if (entry.first != ObjectRef{} && !id)
+                return false;
+            before.emplace_back(id, entry.second);
+        }
+        const auto &type = m_Type;
+        bool ok = true;
+        for (const auto &entry : before) {
+            CKBeObject *target = Get<CKBeObject>(doc, entry.first);
+            CKParameterOut *parameter = target ? target->GetAttributeParameter(type) : nullptr;
+            ok = parameter && parameter->SetStringValue(const_cast<CKSTRING>(entry.second.c_str())) == CK_OK && ok;
+        }
+        return ok;
+    }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        for (const auto &entry : m_Before)
+            KeepObjects(document, objects, entry.first);
+        KeepObjects(document, objects, m_Source);
+    }
+
+private:
+    DocumentToken m_Document{};
+    std::vector<std::pair<ObjectRef, std::string>> m_Before;
+    ObjectRef m_Source{};
+    std::string m_Text;
+    CKAttributeType m_Type;
+};
+} // namespace
+
 EditResult PasteAttributeValue(Document &document, CK_ID sourceId, const std::vector<CK_ID> &objects,
                                CKAttributeType type) {
     CKParameter *source = Get<CKParameter>(document, sourceId);
@@ -994,33 +1393,40 @@ EditResult PasteAttributeValue(Document &document, CK_ID sourceId, const std::ve
     }
     if (before.empty())
         return mismatched ? EditResult::Refused("Parameters are not of same type!") : EditResult::NoChange("The values are unchanged");
-    EditResult result = Apply(
-        document, "Paste Attribute Value",
-        [before, sourceId, text, type](Document &doc) {
-            CKParameter *from = Get<CKParameter>(doc, sourceId);
-            for (const auto &entry : before) {
-                CKBeObject *target = Get<CKBeObject>(doc, entry.first);
-                CKParameterOut *parameter = target ? target->GetAttributeParameter(type) : nullptr;
-                if (!parameter) return false;
-                const CKERROR copied = from && from->GetGUID() == parameter->GetGUID()
-                                           ? parameter->CopyValue(from, FALSE)
-                                           : parameter->SetStringValue(const_cast<CKSTRING>(text.c_str()));
-                if (copied != CK_OK) return false;
-            }
-            return true;
-        },
-        [before, type](Document &doc) {
-            bool ok = true;
-            for (const auto &entry : before) {
-                CKBeObject *target = Get<CKBeObject>(doc, entry.first);
-                CKParameterOut *parameter = target ? target->GetAttributeParameter(type) : nullptr;
-                ok = parameter && parameter->SetStringValue(const_cast<CKSTRING>(entry.second.c_str())) == CK_OK && ok;
-            }
-            return ok;
-        });
+    EditResult result = Apply(document, "Paste Attribute Value",
+                              std::make_unique<PasteAttributeValueAction>(document, before, sourceId, text, type));
     if (result.ok && mismatched) result.message = "Parameters are not of same type!";
     return result;
 }
+
+namespace {
+class GroupOrderAction final : public Action {
+public:
+    GroupOrderAction(Document &document, CK_ID group, CK_ID object, int step)
+        : m_Group(document.Reference(group)), m_Object(document.Reference(object)), m_Step(step) {}
+    bool Redo(Document &document) override { return Apply(document, m_Step); }
+    bool Undo(Document &document) override { return Apply(document, -m_Step); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Group);
+        KeepObjects(document, objects, m_Object);
+    }
+
+private:
+    bool Apply(Document &document, int direction) {
+        auto *group = Get<CKGroup>(document, m_Group);
+        auto *object = Get<CKBeObject>(document, m_Object);
+        if (!group || !object)
+            return false;
+        if (direction < 0)
+            group->MoveObjectUp(object);
+        else
+            group->MoveObjectDown(object);
+        return true;
+    }
+    ObjectRef m_Group{}, m_Object{};
+    int m_Step;
+};
+} // namespace
 
 EditResult MoveInGroup(Document &document, CK_ID groupId, CK_ID objectId, int step) {
     CKGroup *group = Get<CKGroup>(document, groupId);
@@ -1030,17 +1436,8 @@ EditResult MoveInGroup(Document &document, CK_ID groupId, CK_ID objectId, int st
     for (int i = 0; i < group->GetObjectCount(); ++i)
         if (group->GetObject(i) == object) at = i;
     if (at + step < 0 || at + step >= group->GetObjectCount()) return EditResult::Refused("The object cannot move further");
-    auto move = [groupId, objectId](int direction) {
-        return [groupId, objectId, direction](Document &doc) {
-            CKGroup *g = Get<CKGroup>(doc, groupId);
-            CKBeObject *o = Get<CKBeObject>(doc, objectId);
-            if (!g || !o) return false;
-            if (direction < 0) g->MoveObjectUp(o);
-            else g->MoveObjectDown(o);
-            return true;
-        };
-    };
-    return Apply(document, step < 0 ? "Move Up" : "Move Down", move(step), move(-step));
+    return Apply(document, step < 0 ? "Move Up" : "Move Down",
+                 std::make_unique<GroupOrderAction>(document, groupId, objectId, step));
 }
 
 bool SaveObjectsAs(Document &document, const std::vector<CK_ID> &objects, const std::string &path,
@@ -1404,6 +1801,48 @@ EditResult CreateAutomaticPortals(Document &document, std::vector<CK_ID> *create
     return result;
 }
 
+namespace {
+class PlaceLinksAction final : public Action {
+public:
+    PlaceLinksAction(Document &document, CK_ID place, const std::vector<PlaceLink> &before,
+                     const std::vector<PlaceLink> &after)
+        : m_Place(document.Reference(place)) {
+        for (const auto &link : before)
+            m_Before.emplace_back(document.Reference(link.place), document.Reference(link.portal));
+        for (const auto &link : after)
+            m_After.emplace_back(document.Reference(link.place), document.Reference(link.portal));
+    }
+    bool Redo(Document &document) override { return Apply(document, m_After); }
+    bool Undo(Document &document) override { return Apply(document, m_Before); }
+    void RetainObjects(const Document &document, std::set<CK_ID> &objects) const override {
+        KeepObjects(document, objects, m_Place);
+        for (const auto *links : {&m_Before, &m_After})
+            for (const auto &link : *links) {
+                KeepObjects(document, objects, link.first);
+                KeepObjects(document, objects, link.second);
+            }
+    }
+
+private:
+    bool Apply(Document &document, const std::vector<std::pair<ObjectRef, ObjectRef>> &links) {
+        auto *target = Get<CKPlace>(document, m_Place);
+        if (!target)
+            return false;
+        for (const auto &link : links) {
+            if (!Get<CKPlace>(document, link.first) || (link.second && !Get<CK3dEntity>(document, link.second)))
+                return false;
+        }
+        for (const auto &link : PlaceLinksOf(target))
+            target->RemovePortal(Get<CKPlace>(document, link.place), Get<CK3dEntity>(document, link.portal));
+        for (const auto &link : links)
+            target->AddPortal(Get<CKPlace>(document, link.first), Get<CK3dEntity>(document, link.second));
+        return true;
+    }
+    ObjectRef m_Place{};
+    std::vector<std::pair<ObjectRef, ObjectRef>> m_Before, m_After;
+};
+} // namespace
+
 EditResult SetPlaceLinks(Document &document, CK_ID placeId, const std::vector<PlaceLink> &links,
                          const std::string &label) {
     CKPlace *place = Get<CKPlace>(document, placeId);
@@ -1416,18 +1855,7 @@ EditResult SetPlaceLinks(Document &document, CK_ID placeId, const std::vector<Pl
         return true;
     };
     if (same(before, links)) return EditResult::NoChange("No change");
-    auto set = [placeId](const std::vector<PlaceLink> &list) {
-        return [placeId, list](Document &doc) {
-            CKPlace *target = Get<CKPlace>(doc, placeId);
-            if (!target) return false;
-            for (const PlaceLink &link : PlaceLinksOf(target))
-                target->RemovePortal(Get<CKPlace>(doc, link.place), Get<CK3dEntity>(doc, link.portal));
-            for (const PlaceLink &link : list)
-                if (CKPlace *other = Get<CKPlace>(doc, link.place)) target->AddPortal(other, Get<CK3dEntity>(doc, link.portal));
-            return true;
-        };
-    };
-    return Apply(document, label, set(links), set(before));
+    return Apply(document, label, std::make_unique<PlaceLinksAction>(document, placeId, before, links));
 }
 
 // ---------------------------------------------------------------- Sprite Text
