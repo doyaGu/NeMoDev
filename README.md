@@ -185,6 +185,44 @@ from binutils and a build compatible with the older ABI baseline. DEB packaging
 needs `dpkg-dev` and derives its system dependencies from the actual ELF files.
 It packages and checks the installed program without copying the build tree.
 
+## Editor configuration
+
+The editor saves preferences, paths, recent files, module sources and provider
+choices together in `NeMoDev.json` in its existing user preference directory.
+Use `--editor-profile /path/to/settings.json` to select another file. Relative
+module paths are resolved from that file's directory. On first use, the editor
+reads its old preferences INI and imports existing Dev settings; subsequent
+writes use JSON and leave the INI intact. Invalid or unsupported JSON is reported
+without replacing the file. Unknown members are retained.
+
+The workspace's **Modules (Next Start)** menu saves module switches for the next
+launch. Builtin and external modules use the same module IDs, dependency checks
+and provider selection. To replace a module, set its `path` to a library that
+declares the same ID; `"source": "builtin"` selects the linked implementation.
+For example:
+
+```json
+{
+  "version": 1,
+  "modules": [
+    {"id": "example.document-info", "enabled": false},
+    {"id": "help.reference", "enabled": true, "path": "modules/reference.dylib"}
+  ],
+  "providers": [
+    {"kind": "view", "id": "layout.viewport", "provider": "custom.viewport", "module": "custom.tools"}
+  ]
+}
+```
+
+Use a platform library suffix and IDs supplied by the installed module. Explicit
+provider choices must exist; conflicts and missing dependencies stop startup
+with a diagnostic. Disable dependents together with their dependency. A known
+disabled library path is skipped before loading its entry; otherwise its entry
+must first supply the module ID. Module changes do not unload running code.
+Provider menu changes are saved after replacement views are prepared; a save
+failure preserves the current windows and configuration. Window private state
+across launches remains separate stage-six work.
+
 ## Development and tests
 
 The [stage zero architecture checks](tests/architecture/README.md) track source

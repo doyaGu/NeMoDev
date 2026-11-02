@@ -18,3 +18,8 @@ cmake --build --preset macos-arm64-release --target NeMoDevDocumentInfo
 执行常规安装会将显式启用的示例放入 `Bin/modules`；macOS 分发包使用
 `NeMoDev.app/Contents/PlugIns/EditorModules`。该目录随程序搬移，用户目录和显式模块路径也可使用。
 不需要修改 SDK，也不需要在宿主增加专用绘制分支。
+
+`--editor-module` 和 `--editor-module-dir` 的输入会写入当前 JSON 配置，下次启动无需重复传入。
+可用 `--editor-profile` 选择独立配置；Modules (Next Start) 菜单统一控制内置与外部模块。
+配置以实际模块标识 `example.document-info` 保存开关，禁用在下次启动生效。
+命令、查询、编辑器和视图的提供者选择也保存在该文件，沿用相同的登记与校验流程。
