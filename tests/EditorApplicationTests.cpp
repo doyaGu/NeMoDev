@@ -33,6 +33,7 @@ void TestRuntimeProjections(vdev::CkRuntimeHost &host);
 void TestEnvironmentCommands(vdev::CkRuntimeHost &host, const std::string &fixture);
 void TestDiagnosticCommands(vdev::CkRuntimeHost &host);
 void TestPreferencesCommands(vdev::CkRuntimeHost &host);
+void TestProfileCommands(vdev::CkRuntimeHost &host);
 void TestLayoutPresentation(vdev::CkRuntimeHost &host);
 void TestLayoutAuthoring(vdev::CkRuntimeHost &host);
 void TestCanvasCommands(vdev::CkRuntimeHost &host);
@@ -732,6 +733,7 @@ int main(int argc, char **argv) {
         TestEnvironmentCommands(runtime, argv[2]);
         TestDiagnosticCommands(runtime);
         TestPreferencesCommands(runtime);
+        TestProfileCommands(runtime);
         TestLayoutPresentation(runtime);
         TestLayoutAuthoring(runtime);
         TestCanvasCommands(runtime);

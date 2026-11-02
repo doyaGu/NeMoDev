@@ -172,7 +172,8 @@
       "name": "配置与选项",
       "patterns": [
         "application/Preferences.*",
-        "application/EditorProfile.*"
+        "application/EditorProfile.*",
+        "application/ProfileCommands.*"
       ]
     },
     {
@@ -334,7 +335,8 @@
         "!application/OutputCommands.*",
         "!application/Printing.h",
         "!application/Preferences.*",
-        "!application/EditorProfile.*"
+        "!application/EditorProfile.*",
+        "!application/ProfileCommands.*"
       ]
     },
     {
@@ -1655,7 +1657,7 @@
     {
       "id": "F25",
       "name": "自定义与偏好",
-      "owner": "EditorProfile / PreferencesCommands / Workspace",
+      "owner": "EditorProfile / ProfileCommands / PreferencesCommands / Workspace",
       "source_groups": [
         "S14",
         "S17",
