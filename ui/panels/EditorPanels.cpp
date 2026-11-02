@@ -4,6 +4,7 @@
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/DevBitmaps.h"
+#include "editor/ImGuiDrawing.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -25,6 +26,35 @@
 
 namespace vdev {
 
+bool EditorPanels::Register(EditorApplication &editor, std::string &error) {
+    EditorViewDesc view{};
+    view.size = sizeof(view); view.imguiVersion = EDITOR_IMGUI_VERSION;
+    view.id = EDITOR_TEXT("schematic.explorer"); view.provider = EDITOR_TEXT("builtin.schematic-explorer");
+    view.title = EDITOR_TEXT("Schematic Explorer"); view.area = EDITOR_DOCUMENT;
+    view.singleInstance = 1; view.documentBound = 1;
+    view.data = this;
+    view.create = [](void *data, const EditorHost *, EditorView) -> void * {
+        auto &panel = *static_cast<EditorPanels *>(data);
+        panel.FocusExplorer(); return data;
+    };
+    view.closing = [](void *data, const EditorHost *, EditorView) {
+        static_cast<EditorPanels *>(data)->CloseExplorer(false);
+    };
+    // The document search survives this singleton window for F3 navigation.
+    // Closing releases its drafts; DocumentClosed clears the saved results.
+    view.destroy = [](void *) {};
+    view.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        EditorPrepareViewWindow(*frame);
+        bool open = true;
+        static_cast<EditorPanels *>(data)->ExplorerPanel(&open);
+        frame->close = !open;
+    };
+    EditorModuleDesc module{};
+    module.size = sizeof(module); module.version = EDITOR_VERSION;
+    module.id = EDITOR_TEXT("schematic.explorer"); module.views = &view; module.viewCount = 1;
+    return editor.Register(module, error);
+}
+
 void EditorPanels::DocumentClosed() {
     m_ExplorerBox.Clear();
     m_FilterValue.Clear();
@@ -39,7 +69,7 @@ void EditorPanels::DocumentClosed() {
 
 void EditorPanels::FindNext(int direction) {
     if (m_Doc.results.empty()) {
-        m_State.Log(LogLevel::Info, "No Explorer results (Ctrl+F)");
+        Client().Log(EDITOR_LOG_INFO, "No Explorer results (Ctrl+F)");
         return;
     }
     const int count = static_cast<int>(m_Doc.results.size());
@@ -49,7 +79,7 @@ void EditorPanels::FindNext(int direction) {
     m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
 }
 
-void EditorPanels::ShowScript(CK_ID script, const ElementRef &ref, CK_ID focusBehavior, bool focus) {
+void EditorPanels::ShowScript(uint32_t script, const ElementRef &ref, uint32_t focusBehavior, bool focus) {
     if (auto *canvas = m_Schematics.Find(m_Doc.explorerView ? m_Doc.explorerView : m_Schematics.CurrentId()))
         canvas->ShowScript(script, ref, focusBehavior, focus);
 }
@@ -61,7 +91,7 @@ SchematicNavigation &EditorPanels::ExplorerNavigation() {
 }
 
 EditorClient EditorPanels::Client() const {
-    return EditorClient(m_State.workspace->Application().Host(),
+    return EditorClient(m_Workspace.Application().Host(),
                         m_Doc.explorerView ? m_Doc.explorerView : m_Schematics.CurrentId());
 }
 bool EditorPanels::ReadSearch(bool tree, std::vector<SearchResult> &out) {
@@ -123,6 +153,7 @@ bool EditorPanels::ReadSearch(bool tree, std::vector<SearchResult> &out) {
             row.scriptName = EditorClient::Text(r, "script-name");
             row.objectName = EditorClient::Text(r, "object-name");
             row.objectClass = int32_t(EditorClient::Integer(r, "class"));
+            row.classIcon = int(EditorClient::Integer(r, "class-icon"));
             rows.push_back(std::move(row));
         }
         first = next;
@@ -136,7 +167,7 @@ void EditorPanels::Command(const char *id, const std::vector<EditorField> &field
     if (result.status == EDITOR_QUEUED)
         m_Pending.emplace_back(result.operation, std::string(id) == "schematic.replace-search-values");
     else if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE)
-        m_State.Log(LogLevel::Warning,
+        Client().Log(EDITOR_LOG_WARNING,
                     result.message.empty() ? "The Schematic target changed; select it again" : result.message);
 }
 void EditorPanels::Rename(const SearchResult &result) {
@@ -152,7 +183,7 @@ void EditorPanels::Poll() {
             continue;
         }
         if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE)
-            m_State.Log(LogLevel::Warning,
+            Client().Log(EDITOR_LOG_WARNING,
                         result.message.empty() ? "The Schematic target changed; select it again" : result.message);
         else if (it->second)
             m_FilterValue.CopyDraft(m_ReplaceValue);
@@ -205,7 +236,7 @@ void EditorPanels::RunSearch() {
 ParameterBox *EditorPanels::ExplorerValue(bool replace) {
     if (!Client().Scope().document.value)
         return nullptr;
-    const auto revision = m_State.workspace->Application().Revision();
+    const auto revision = m_Workspace.Application().Revision();
     if (m_ParameterTypes.empty() || m_TypesRevision != revision) {
         const auto types = Client().Query("schematic.parameter-types");
         if (types.status == EDITOR_OK)
@@ -310,6 +341,33 @@ void EditorPanels::ExplorerTree(const ImVec2 &min, const ImVec2 &max) {
 // Invert, GoTo, Delete), the Parameter Filter (No Filter, Filter Type,
 // Filter Value: Type, Derived, Edit Value, Edit Replace Value, Replace
 // Value); Select keeps the selection made, Cancel gives the Schematic's back.
+void EditorPanels::CloseExplorer(bool keep) {
+    if (!m_ExplorerShown) return;
+        if (!keep && m_Schematics.Find(m_Doc.explorerView)) {
+            m_Doc.selectionBefore.Validate([&](const ElementAddress &address) {
+                EditorField elements{"elements", EDITOR_RECORD};
+                elements.fields = {SchematicPosition(address, "0")};
+                const std::vector<EditorField> owned{elements};
+                const auto values = BorrowEditorFields(owned);
+                const auto result =
+                    EditorClient(m_Workspace.Application().Host(), m_Doc.explorerView)
+                        .Query("schematic.validate-positions", {values.data(), values.data() + values.size()});
+                const auto *valid = EditorClient::Find(result, "elements");
+                return result.status == EDITOR_OK && valid && valid->fields.size() == 1;
+            });
+            ExplorerNavigation().selection.Assign(m_Doc.selectionBefore.Addresses());
+        }
+    const EditorValue settings[] = {
+        IntegerArgument("Schematic Explorer\\Show In List", m_SearchKinds),
+        IntegerArgument("Schematic Explorer\\Parse All Items", m_SearchAllScripts),
+        IntegerArgument("Schematic Explorer\\Tree View", m_SearchTree),
+        IntegerArgument("Schematic Explorer\\Parameter Filter", m_SearchFilter),
+        IntegerArgument("Schematic Explorer\\Derived", m_SearchDerived)};
+    const EditorValue value{EDITOR_TEXT("value"), EDITOR_RECORD, {}, {}, 0, {}, {}, {}, 0, {}, {settings, 5}};
+    EditorClient(m_Workspace.Application().Host(), 0).Command("preferences.set-explorer-options", {value});
+    m_ExplorerBox.Clear(); m_FilterValue.Clear(); m_ReplaceValue.Clear();
+    m_ExplorerShown = false;
+}
 void EditorPanels::ExplorerPanel(bool *open) {
     if (m_ExplorerShown && !m_Schematics.Find(m_Doc.explorerView)) {
         m_ExplorerBox.Clear();
@@ -323,7 +381,8 @@ void EditorPanels::ExplorerPanel(bool *open) {
     const ImVec2 units(345.0f, 279.0f);
     constexpr float PAD = 4.5f;
     ImVec2 o;
-    Preferences &prefs = m_State.preferences;
+    m_Preferences.Refresh(Client());
+    const auto &prefs = m_Preferences;
     if (!m_ExplorerShown) {
         m_ExplorerShown = true;
         m_Doc.explorerView = m_Schematics.CurrentId();
@@ -336,32 +395,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
         m_SearchFilter = std::max(0, std::min(2, prefs.Int("Schematic Explorer\\Parameter Filter")));
         m_SearchDerived = prefs.Bool("Schematic Explorer\\Derived");
     }
-    auto close = [&](bool keep) {
-        if (!keep && m_Schematics.Find(m_Doc.explorerView)) {
-            m_Doc.selectionBefore.Validate([&](const ElementAddress &address) {
-                EditorField elements{"elements", EDITOR_RECORD};
-                elements.fields = {SchematicPosition(address, "0")};
-                const std::vector<EditorField> owned{elements};
-                const auto values = BorrowEditorFields(owned);
-                const auto result =
-                    EditorClient(m_State.workspace->Application().Host(), m_Doc.explorerView)
-                        .Query("schematic.validate-positions", {values.data(), values.data() + values.size()});
-                const auto *valid = EditorClient::Find(result, "elements");
-                return result.status == EDITOR_OK && valid && valid->fields.size() == 1;
-            });
-            ExplorerNavigation().selection.Assign(m_Doc.selectionBefore.Addresses());
-        }
-        prefs.SetInt("Schematic Explorer\\Show In List", static_cast<int>(m_SearchKinds));
-        prefs.SetBool("Schematic Explorer\\Parse All Items", m_SearchAllScripts);
-        prefs.SetBool("Schematic Explorer\\Tree View", m_SearchTree);
-        prefs.SetInt("Schematic Explorer\\Parameter Filter", m_SearchFilter);
-        prefs.SetBool("Schematic Explorer\\Derived", m_SearchDerived);
-        m_ExplorerBox.Clear();
-        m_FilterValue.Clear();
-        m_ReplaceValue.Clear();
-        m_ExplorerShown = false;
-        *open = false;
-    };
+    auto close = [&](bool keep) { CloseExplorer(keep); *open = false; };
     if (!vi::BeginWindow("Schematic Explorer", "Schematic Explorer", vi::TemplateClient(units, s, PAD), s, o)) {
         vi::EndWindow();
         return;
@@ -398,8 +432,8 @@ void EditorPanels::ExplorerPanel(bool *open) {
             // Documentation "Schematic Explorer": "Icons in front of an item is
             // the element type" (Dev's class icons).
             [&](int r) -> ImTextureID {
-                const auto cid = m_Doc.results[r].objectClass;
-                return cid ? DevIconImage(DevClassIconId(cid)) : ImTextureID();
+                const auto icon = m_Doc.results[r].classIcon;
+                return icon ? DevIconImage(icon) : ImTextureID();
             });
         if (clicked >= 0) {
             const ImGuiIO &io = ImGui::GetIO();
@@ -434,7 +468,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
                 if (result.focusReference)
                     values.push_back({"focus-target", EDITOR_OBJECT, result.focusReference});
                 Command("script.edit-element", values);
-                m_State.events.Post(FocusSchematic{});
+                m_Schematics.Focus(m_Doc.explorerView);
             }
             ImGui::EndPopup();
         }
@@ -484,7 +518,7 @@ void EditorPanels::ExplorerPanel(bool *open) {
         if (vi::CheckButton(KINDS[k].label, l.Min(237, y), l.Max(237, y, 104, 10), on, KINDS[k].label, !m_SearchTree))
             m_SearchKinds = on ? (m_SearchKinds | KINDS[k].bit) : (m_SearchKinds & ~KINDS[k].bit);
     }
-    text(237, 137, 60, 10, "Filter CK_ID");
+    text(237, 137, 60, 10, "Filter uint32_t");
     vi::Edit("##ckid", l.Min(299, 137), l.Max(299, 137, 43, 12), m_SearchIdText);
     text(237, 149, 105, 10, "Text Filter");
     if (m_FocusSearch) {

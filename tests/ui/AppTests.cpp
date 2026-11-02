@@ -2,6 +2,7 @@
 // the dialogs of the Options and Help menus and their shortcuts.
 
 #include "core/level/LevelCommands.h"
+#include "core/runtime/Bitmaps.h"
 #include "core/layout/LayoutCommands.h"
 #include "core/graph/ScriptCommands.h"
 #include "core/graph/TopologyCommands.h"
@@ -67,30 +68,34 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             auto &state = App().State();
             // The shared follower consumes document queries and excludes
             // graveyard objects while a clipboard can still retain them.
-            vdev::SelectionFollower follower;
             auto &selected = state.objectSelection;
-            auto &editor = state.workspace->Application();
             selected.Restore(*state.document, {object}, true);
             std::set<CK_ID> own;
-            follower.Pull(selected, own);
+            const auto push = [&] {
+                const std::vector<CK_ID> ids(own.begin(), own.end());
+                const auto refs = state.document->References(ids);
+                return EditorCommands().Command("selection.replace", {
+                    vdev::ObjectsArgument("objects", refs), vdev::IntegerArgument("render-only", 1)});
+            };
+            own = std::set<CK_ID>(selected.Objects().begin(), selected.Objects().end());
             own.clear();
-            follower.Push(selected, own, state.document.get(), editor);
+            push();
             IM_CHECK_NO_RET(selected.Objects() == std::vector<CK_ID>{object});
             selected.Restore(*state.document, {});
-            own.clear(); follower.Push(selected, own, state.document.get(), editor);
-            own.insert(object); follower.Push(selected, own, state.document.get(), editor);
+            own.clear(); push();
+            own.insert(object); push();
             IM_CHECK_NO_RET(selected.Objects() == std::vector<CK_ID>{object});
             selected.Restore(*state.document, {});
-            follower.Pull(selected, own);
+            own = std::set<CK_ID>(selected.Objects().begin(), selected.Objects().end());
             own.insert(object);
             EditorEdit draft = 0;
             EditorView owner = 0;
-            IM_CHECK_NO_RET(state.workspace->Begin("object.name", state.document->Reference(object), draft, owner));
-            follower.Push(selected, own, state.document.get(), editor);
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Begin("object.name", state.document->Reference(object), draft, owner));
+            push();
             IM_CHECK_NO_RET(selected.Objects().empty());
-            state.workspace->Finish(draft, false);
-            state.workspace->CloseOwner(owner);
-            follower.Push(selected, own, state.document.get(), editor);
+            (&App().WorkspaceForTests())->Finish(draft, false);
+            (&App().WorkspaceForTests())->CloseOwner(owner);
+            push();
             IM_CHECK_NO_RET(selected.Objects() == std::vector<CK_ID>{object});
             state.objectSelection.Restore(*state.document, {});
             IM_CHECK_NO_RET(vdev::DestroyLevelObjects(*state.document, {object}).ok);
@@ -213,7 +218,11 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
                 void *bitmap = vdev::BitmapFromPixels(pixel, 1, 1);
                 IM_CHECK(bitmap);
                 vdev::SetObjectPicture(*state.document, object, bitmap);
-                IM_CHECK(vdev::SnapshotTexture(bitmap, nullptr, document.BitmapOwner(bitmap)) != ImTextureID());
+                auto image = std::make_shared<vdev::SchematicSnapshot>();
+                int width = 0, height = 0;
+                IM_CHECK(vdev::PixelsOfBitmap(bitmap, image->pixels, width, height));
+                image->width = width; image->height = height;
+                IM_CHECK(vdev::SnapshotTexture(image, nullptr) != ImTextureID());
                 if (pass) {
                     IM_CHECK(state.History().Undo());
                     IM_CHECK(state.History().Redo());
@@ -252,7 +261,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             id = object->GetID(); original = document.Reference(id);
             state.objectSelection.Restore(document, {id}, true);
             state.objectClipboard.SetObjects(document, {id});
-            state.events.Post(vdev::ShowObjectSetup{original});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", original)});
         });
         ctx->Yield(3);
         IM_CHECK(Read<bool>(ctx, [id] { return ShowsObject(id); }));
@@ -261,7 +270,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             auto &document = *state.document;
             // A queued request must retain its original target, even when the
             // native ID names a different class before the next UI frame.
-            state.events.Post(vdev::ShowObjectSetup{original});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", original)});
             IM_CHECK_NO_RET(document.Context()->DestroyObject(id, CK_DESTROY_NONOTIFY | CK_DESTROY_FREEID) == CK_OK);
             auto *replacement = document.Context()->CreateObject(CKCID_2DENTITY, "Replacement UI target");
             IM_CHECK_NO_RET(replacement && replacement->GetID() == id);
@@ -294,16 +303,16 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             IM_CHECK(script.ok);
             const auto graph = vdev::CreateBehaviorGraph(document, script.created, script.created, "Copied graph", Point(240, 120));
             IM_CHECK(graph.ok);
-            state.Schematic().selection.Set(script.created, vdev::ElementRef{vdev::ElementKind::Behavior, script.created, graph.created});
+            App().Canvas().Navigation().selection.Set(script.created, vdev::ElementRef{vdev::ElementKind::Behavior, script.created, graph.created});
             App().Canvas().Copy();
             IM_CHECK(!state.clipboard.Empty());
-            IM_CHECK(vdev::DeleteElements(document, script.created, state.Schematic().selection.items).ok);
+            IM_CHECK(vdev::DeleteElements(document, script.created, App().Canvas().Navigation().selection.items).ok);
             document.History().Clear();
             const auto pasted = vdev::PasteBehaviors(document, state.clipboard.data, state.clipboard.behaviors,
                                                       state.clipboard.comments, script.created, script.created, Point(500, 200));
             IM_CHECK(pasted.ok && pasted.created);
             state.clipboard = {};
-            state.Schematic().selection.Clear();
+            App().Canvas().Navigation().selection.Clear();
             state.objectClipboard.SetScripts(document, {script.created});
             IM_CHECK(state.objectClipboard.Objects(*state.document).empty());
             IM_CHECK(vdev::DeleteScript(document, script.created).ok);
@@ -417,7 +426,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         Settle(ctx);
         ctx->MenuClick("//##MainMenuBar/File/New Composition");
         ctx->Yield(5);
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         IM_CHECK(state.HasDocument());
         IM_CHECK(!state.document->Dirty());
         IM_CHECK(state.document->Scripts().empty());
@@ -492,7 +501,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
             selection = state.objectSelection.Revision();
             dirty = state.document->Dirty();
             redo = state.History().CanRedo();
-            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             const auto request = client.Command("document.new");
             IM_CHECK_NO_RET(request.status == EDITOR_QUEUED);
             replacing = request.operation;
@@ -508,7 +517,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         IM_CHECK(visible("//###ApplicationMessage"));
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             IM_CHECK_NO_RET(client.Completion(replacing).status == EDITOR_CANCELLED);
             const auto message = client.Query("message.current");
             IM_CHECK_NO_RET(vdev::EditorClient::Text(message, "text") == u8"第一条消息" &&
@@ -518,7 +527,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//###ApplicationMessage/Cancel/##dialogbutton");
         ctx->Yield(4);
         OnMainThread(ctx, [] {
-            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             IM_CHECK_NO_RET(vdev::EditorClient::Text(client.Query("message.current"), "text") == "Second message");
         });
         ctx->KeyPress(ImGuiKey_Escape);
@@ -531,7 +540,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             IM_CHECK_NO_RET(client.Query("message.current").status == EDITOR_NO_CHANGE && state.document->Token().value == token &&
                 state.History().UndoCount() == history && state.History().CanRedo() == redo &&
                 state.document->Dirty() == dirty && state.objectSelection.Revision() == selection);
@@ -545,9 +554,9 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         std::vector<std::string> before;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            before = state.preferences.recentFiles;
-            state.preferences.AddRecentFile(u8"近期 项目.cmo");
-            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            before = App().SettingsForTests().recentFiles;
+            App().SettingsForTests().AddRecentFile(u8"近期 项目.cmo");
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             const auto paths = client.Query("preferences.recent-files");
             IM_CHECK_NO_RET(vdev::EditorClient::Find(paths, "paths")->texts.front() == u8"近期 项目.cmo");
         });
@@ -555,7 +564,7 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         IM_CHECK(ctx->ItemExists(u8"//$FOCUSED/1) 近期 项目.cmo"));
         ctx->KeyPress(ImGuiKey_Escape);
         ctx->Yield(3);
-        OnMainThread(ctx, [&] { App().State().preferences.recentFiles = before; });
+        OnMainThread(ctx, [&] { App().SettingsForTests().recentFiles = before; });
     };
 
     t = IM_REGISTER_TEST(engine, "app", "time_settings_display_draft_cancel_and_apply");
@@ -565,16 +574,16 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         bool before = false;
         size_t history = 0;
         OnMainThread(ctx, [&] {
-            before = App().State().preferences.Bool("Time Settings\\Hide Fps");
+            before = App().SettingsForTests().Bool("Time Settings\\Hide Fps");
             history = App().State().History().UndoCount();
         });
         ctx->ItemClick("//##StatusBar/play/##bitmap", 1);
         ctx->Yield(3);
         ctx->ItemClick("//###TimeSettings/##hidefps");
-        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().preferences.Bool("Time Settings\\Hide Fps") == before); });
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().SettingsForTests().Bool("Time Settings\\Hide Fps") == before); });
         ctx->ItemClick("//###TimeSettings/Cancel/##dialogbutton");
         ctx->Yield(3);
-        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().preferences.Bool("Time Settings\\Hide Fps") == before); });
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().SettingsForTests().Bool("Time Settings\\Hide Fps") == before); });
         ctx->ItemClick("//##StatusBar/play/##bitmap", 1);
         ctx->Yield(3);
         ctx->ItemClick("//###TimeSettings/##hidefps");
@@ -583,16 +592,16 @@ void RegisterAppTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("//###TimeSettings/OK/##dialogbutton");
         ctx->Yield(3);
         IM_CHECK(WindowShown(ctx, "//###TimeSettings"));
-        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().preferences.Bool("Time Settings\\Hide Fps") == before); });
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().SettingsForTests().Bool("Time Settings\\Hide Fps") == before); });
         ctx->ItemInput("//###TimeSettings/##min");
         ctx->KeyCharsReplace("1");
         ctx->ItemClick("//###TimeSettings/OK/##dialogbutton");
         ctx->Yield(3);
         IM_CHECK(!WindowShown(ctx, "//###TimeSettings"));
         OnMainThread(ctx, [&] {
-            IM_CHECK_NO_RET(App().State().preferences.Bool("Time Settings\\Hide Fps") != before &&
+            IM_CHECK_NO_RET(App().SettingsForTests().Bool("Time Settings\\Hide Fps") != before &&
                             App().State().History().UndoCount() == history);
-            auto &editor = App().State().workspace->Application();
+            auto &editor = App().WorkspaceForTests().Application();
             auto settings = editor.Query("runtime.time", {editor.Scope(), nullptr, 0}).fields;
             for (auto &field : settings) if (field.key == "display") field.fields.front().integer = before;
             const auto values = vdev::BorrowEditorFields(settings);

@@ -6,7 +6,10 @@
 #include <string>
 #include <vector>
 
-#include "ui/app/EditorState.h"
+#include "workspace/EditorWorkspace.h"
+#include "ui/schematic/SchematicStyle.h"
+#include "features/preferences/PreferencesData.h"
+#include "application/Printing.h"
 #include "features/schematic/SchematicScriptData.h"
 #include "ui/schematic/SchematicParameterDialog.h"
 #include "features/resources/BuildingBlockData.h"
@@ -19,20 +22,21 @@
 #include "workspace/EditorClient.h"
 
 namespace vdev {
+class SchematicViews;
 
 // The Schematic View: a vertical stack of Scripts with pan/zoom, selection
 // and direct-manipulation editing. Each Script keeps a model rebuilt when
 // its session revision or the document topology changes.
 class SchematicCanvas {
 public:
-    explicit SchematicCanvas(EditorState &state, EditorView instance);
+    SchematicCanvas(EditorWorkspace &workspace, const SchematicStyle &style, SchematicViews &views, EditorView instance);
     ~SchematicCanvas();
     SchematicNavigation &Navigation() { return m_Navigation; }
     const SchematicNavigation &Navigation() const { return m_Navigation; }
     void ValidateNavigation();
-    void ShowScript(CK_ID, const ElementRef & = {}, CK_ID focusBehavior = 0, bool focus = true);
+    void ShowScript(uint32_t, const ElementRef & = {}, uint32_t focusBehavior = 0, bool focus = true);
     void RefreshStack();
-    bool ScriptOpen(CK_ID) const;
+    bool ScriptOpen(uint32_t) const;
     EditorStatus Navigate(const EditorRequest &);
     EditorStatus Inspect(EditorSink);
     EditorStatus Save(EditorSink) const;
@@ -64,7 +68,7 @@ public:
     // A file dropped at a screen point (EditorApp::DropFiles); false when unused.
     bool DropFile(const std::wstring &path, const std::string &ansiPath, const ImVec2 &screen);
     // Zoom of one Script body, applied when its view exists (--zoom-script).
-    void SetScriptZoom(CK_ID script, float scale) { m_PendingZoom.emplace_back(script, scale); }
+    void SetScriptZoom(uint32_t script, float scale) { m_PendingZoom.emplace_back(script, scale); }
     // Opens the context menu at a canvas-relative point (--menu-at, capture checks).
     void RequestMenuAt(const ImVec2 &offset) {
         m_MenuRequest = offset;
@@ -73,9 +77,9 @@ public:
     }
 
     // Commands shared with menus and shortcuts.
-    void ToggleFold(CK_ID script, CK_ID behavior);
-    void ToggleScriptOpen(CK_ID script);
-    void AddComment(CK_ID script, const Point &local);
+    void ToggleFold(uint32_t script, uint32_t behavior);
+    void ToggleScriptOpen(uint32_t script);
+    void AddComment(uint32_t script, const Point &local);
     // graphsConfirmed: Dev's "Confirm Graph(es) Deletion" answered (asked
     // when behavior graphs are among the behaviors deleted).
     void DeleteSelection(bool graphsConfirmed = false);
@@ -94,15 +98,14 @@ public:
     // E / Return: parameters of the selected behavior or operation.
     void OpenParametersDialog();
     // The same for a behavior or operation of a Script (it is selected).
-    void OpenParametersOf(CK_ID script, CK_ID object);
+    void OpenParametersOf(uint32_t script, uint32_t object);
     // The Schematic Explorer's Edit (Dev.exe sub_5B8690): the element's
     // dialog - a behavior's settings (else its parameters), an operation's
     // or a parameter pin's owner's parameters, a comment's text, a local's
     // or a shortcut's value.
-    void EditElement(CK_ID script, const ElementRef &ref);
+    void EditElement(uint32_t script, const ElementRef &ref);
     // A Building Block's page of documentation.chm (Html Help; the Building
     // Blocks panel's too).
-    void OpenHtmlHelpOf(const BuildingBlockEntry &entry);
     // Dev's Find (Dev.exe sub_544BF0; documentation "Schematic Find"):
     // Ctrl+F asks for the text (Search Closed Scripts/Graphs, Search Hidden
     // Scripts, Search Backward; Find Next); F3 / Shift+F3 the next /
@@ -116,7 +119,7 @@ public:
     void FindSelected(bool backward);
     // Behaviors saved as an .nms file (the file asked for, then Behavior
     // Information): the Schematic's Save As, the Level Manager's Script rows.
-    void SaveBehaviorsAs(const std::vector<CK_ID> &behaviors, const std::string &suggestion);
+    void SaveBehaviorsAs(const std::vector<uint32_t> &behaviors, const std::string &suggestion);
     // Y: priority of the selected behaviors.
     void OpenPriorityDialog();
     // Shift+R: rebuild every Script model from the runtime and display data.
@@ -127,18 +130,18 @@ public:
     // Topology commands (CK graph + display data, undoable).
     void ToggleTargetOfSelection();
     void BeginRename();
-    void OpenLocalParameterPicker(CK_ID script, const Point &local);
-    void OpenOperationPicker(CK_ID script, const Point &local);
+    void OpenLocalParameterPicker(uint32_t script, const Point &local);
+    void OpenOperationPicker(uint32_t script, const Point &local);
     // Pins of the selected behavior graph (or the Script, for parameters).
     void AddGraphIo(bool input);
     void OpenGraphParameterPicker(bool input);
-    void CreateGraphAt(CK_ID script, const Point &local);
+    void CreateGraphAt(uint32_t script, const Point &local);
 #ifdef VIRTOOLSDEV_UI_TESTS
     // A behavior drawn at the last frame, wholly in the canvas and in its
     // open Script's body (the UI tests find what they click with it); none
     // when the canvas was not drawn.
     struct ShownBehavior {
-        CK_ID script = 0, behavior = 0;
+        uint32_t script = 0, behavior = 0;
         std::string name; // UTF-8
         bool buildingBlock = false;
         ImVec2 min, max; // screen
@@ -147,7 +150,7 @@ public:
     // A pin of a behavior of an open graph drawn at the last frame, in the
     // canvas: its Script, owner, kind, index and center on the screen.
     struct ShownPin {
-        CK_ID script = 0, owner = 0;
+        uint32_t script = 0, owner = 0;
         PinKind kind = PinKind::None;
         int index = 0;
         ImVec2 center; // screen
@@ -158,7 +161,7 @@ public:
     // its header (the name, the owner's row under it; a right click there:
     // the Script's menu), whole; its Start's center when it has one.
     struct ShownScript {
-        CK_ID script = 0;
+        uint32_t script = 0;
         ImVec2 min, max;             // screen
         ImVec2 headerMin, headerMax; // screen
         bool hasStart = false;
@@ -188,7 +191,7 @@ public:
 private:
     friend class SchematicViews;
     struct ScriptView {
-        CK_ID id = 0;
+        uint32_t id = 0;
         ObjectRef identity{};
         SchematicModel model;
         std::map<ElementRef, ElementAddress> positions;
@@ -219,12 +222,11 @@ private:
     };
     enum class Tool { Idle, Pending, Pan, Zoom, Resize, ResizeElement, Reorder, RectSelect, Move, Link, CopyDrag, ExportDrag };
 
-    void RequestFile(const FileDialogOptions &, FileDialogs::Completion);
-    CK_ID ToolbarScript() const;
+    uint32_t ToolbarScript() const;
 
     // The Scripts whose header is selected, else ToolbarScript.
 
-    std::vector<CK_ID> ToolbarScripts() const;
+    std::vector<uint32_t> ToolbarScripts() const;
 
     void SyncViews(ImFont *font);
     ElementAddress CapturePosition(uint32_t, const ElementRef &);
@@ -236,7 +238,7 @@ private:
     uint64_t m_Topology = 0, m_ContentRevision = 0, m_ScriptsRevision = 0, m_ModelRefresh = 1;
     bool m_SceneExcluded = false;
 
-    ScriptView *ViewFor(CK_ID script);
+    ScriptView *ViewFor(uint32_t script);
     ScriptView *ViewAtScreen(const ImVec2 &screen);
     void UpdateTransforms();
     void PanBy(float dx, float dy); // screen pixels: stack vertically, every body horizontally
@@ -253,7 +255,7 @@ private:
     int m_PickFrame = -1;
     void ApplyFocus(const ImVec2 &size);
     void HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasMax, bool hovered, bool focused);
-    bool BeginGeometry(CK_ID script, uint64_t mode, const std::vector<ElementRef> &, const ElementRef &primary = {});
+    bool BeginGeometry(uint32_t script, uint64_t mode, const std::vector<ElementRef> &, const ElementRef &primary = {});
     bool UpdateGeometry(EditorField);
     void BeginMove();
     void UpdateMove(const Point &world);
@@ -261,13 +263,13 @@ private:
     void ContextMenu();
     void CommentEditor();
     void Tooltip(const Hit &hit);
-    bool IsSelected(CK_ID script, const ElementRef &ref) const { return m_Navigation.selection.Contains(script, ref); }
+    bool IsSelected(uint32_t script, const ElementRef &ref) const { return m_Navigation.selection.Contains(script, ref); }
     void Click(const Hit &hit);
     void DoubleClick(const Hit &hit);
     // Link endpoint named by a hit: pins, Start, local parameters, shortcuts.
-    CK_ID SelectedGraph();
+    uint32_t SelectedGraph();
     bool EndpointOf(const Hit &hit, LinkEndpoint &endpoint, bool &behaviorLink, Point &position) const;
-    ElementAddress EndpointAddress(CK_ID script, const LinkEndpoint &);
+    ElementAddress EndpointAddress(uint32_t script, const LinkEndpoint &);
     void EndLink(const Hit &hit);
     // Links from the selected pins of the pressed kind (SchematicLinking.cpp); false: not a multi link.
     void RetainLinkSources();
@@ -279,10 +281,10 @@ private:
     // Moved locals dropped across a graph border export (re-import) their input.
 
     void AcceptBuildingBlockDrop();
-    CK_ID GraphAt(ScriptView &view, const Point &local) const;
+    uint32_t GraphAt(ScriptView &view, const Point &local) const;
     void RenameDialog();
     void DelayDialog();
-    void OpenLinkDelay(CK_ID script, const ElementRef &);
+    void OpenLinkDelay(uint32_t script, const ElementRef &);
     void LocalParameterDialog();
     void OperationDialog();
     // Dev's Edit Parameters (Dev.exe sub_582930: a Building Block's or a
@@ -293,24 +295,24 @@ private:
     void ConfirmGraphDeletion();
     void BlockMenus();
     // parameter: the pin (CKParameterIn or Out), the local or the output edited.
-    void OpenValueDialog(CK_ID script, ObjectRef parameter);
+    void OpenValueDialog(uint32_t script, ObjectRef parameter);
     void OpenParameterEditor(ObjectRef script, ObjectRef object, unsigned mode);
-    void InsertBlockAt(const CKGUID &guid, CK_ID script, const Point &local);
+    void InsertBlockAt(uint64_t guid, uint32_t script, const Point &local);
     void BeginCopyDrag();
     void EndCopyDrag(const Point &world);
     void Toolbar();
     // Context menus and their commands (SchematicMenus.cpp).
     const ParamItem *FindParam(const ScriptView &view, const ElementRef &ref) const;
-    void SetParamStyle(CK_ID script, const ParamItem &param, ParameterStyle style);
-    void ToggleCommentIcon(CK_ID script, const ElementRef &ref);
+    void SetParamStyle(uint32_t script, const ParamItem &param, ParameterStyle style);
+    void ToggleCommentIcon(uint32_t script, const ElementRef &ref);
     void SpaceAction();
     void BeginDrawGraph();
     void EndDrawGraph(ScriptView &view, const Rect &local);
-    void AddThisAt(CK_ID script, const Point &local);
+    void AddThisAt(uint32_t script, const Point &local);
     void GoToShortcutSource(ObjectRef source);
-    void OpenHtmlHelp(CK_ID behavior);
+    void OpenHtmlHelp(uint32_t behavior);
     void SortScripts(ScriptSort sort);
-    void OpenQuickAdd(CK_ID script, const Point &local);
+    void OpenQuickAdd(uint32_t script, const Point &local);
     void CkPropertiesDialog();
     void ShortcutAnalysisDialog();
     void QuickAddDialog();
@@ -322,7 +324,7 @@ private:
     // Parameter operation links (Dev): choose the conversion of an
     // incompatible link, change it, or insert a visible operation in a link.
     enum class OperationChoice { NewLink, ReplaceConversion, InsertInLink };
-    void OpenOperationChoice(OperationChoice mode, CK_ID script, const LinkEndpoint &from, const LinkEndpoint &to,
+    void OpenOperationChoice(OperationChoice mode, uint32_t script, const LinkEndpoint &from, const LinkEndpoint &to,
                              const ElementRef &link = ElementRef());
     void OperationChoiceDialog();
     void ApplyOperationChoice(const EditorField &choice);
@@ -330,18 +332,18 @@ private:
     void OpenModifyOperation();
     // Shortcut sources, in every Script of the composition, as one undo step.
     // In every Script, or (scripts given) in those only.
-    void ConvertToShortcutSource(ObjectRef source, const std::vector<CK_ID> &scripts = {});
+    void ConvertToShortcutSource(ObjectRef source, const std::vector<uint32_t> &scripts = {});
     // .nms behavior files (Dev Save As... Alt+S, Import Behavior Graph).
     void SaveSelectionAsNms();          // selected behaviors, else the current Script
     void FindDialog();
     bool m_OpenFind = false, m_FindClosed = false, m_FindHidden = false, m_FindBackward = false;
     std::string m_FindText;
-    CK_ID m_FoundScript = 0;
+    uint32_t m_FoundScript = 0;
     ElementRef m_FoundRef;
-    void ImportBehaviorFile(CK_ID script, const Point &local);
+    void ImportBehaviorFile(uint32_t script, const Point &local);
     void ConfirmScriptDeletion();
     // Dev "Replacing BBs and BGs" (SchematicMenus.cpp).
-    void OpenReplaceBlock(ObjectRef script, ObjectRef behavior, const CKGUID &prototype);
+    void OpenReplaceBlock(ObjectRef script, ObjectRef behavior, uint64_t prototype);
     void ReplaceBlockDialog();
     bool LoadReplacements(ObjectRef);
     // Script Debugger: breakpoints of the selection (F9), their conditions
@@ -364,12 +366,12 @@ private:
     // The parameter a breakpoint condition can pick at hit: a local, a
     // shortcut's, a behavior's or an operation's parameter pin (0: none).
     ObjectRef ConditionParameterAt(const Hit &hit);
-    void LoadSnapshotFor(CK_ID script, const std::string &path = {});
+    void LoadSnapshotFor(uint32_t script, const std::string &path = {});
     void SetSnapshotPixels(ObjectRef script, const std::vector<unsigned char> &, unsigned width, unsigned height);
     void ReplaceGraphDialog();
-    void ReplaceWithFile(CK_ID script, CK_ID graph);
+    void ReplaceWithFile(uint32_t script, uint32_t graph);
     bool IsBuildingBlockAt(const Hit &hit) const;
-    CKGUID m_ReplaceGuid;
+    uint64_t m_ReplaceGuid = 0;
     bool m_ReplaceAll = false;
     // Dev "Message - Sender and Receiver Retrieval" (H).
     EditorClient Client() const { return {m_EditorHost, m_Instance}; }
@@ -386,9 +388,9 @@ private:
     };
     std::vector<GraphCommand> m_GraphCommands;
     EditorResponse GraphState(uint32_t script, uint32_t object = 0);
-    EditorResponse ObjectInfo(CK_ID script, CK_ID object);
-    EditorResponse ElementInfo(CK_ID script, const ElementRef &);
-    std::vector<EditorField> AuthoringArguments(CK_ID script, CK_ID owner, const Point &at = {});
+    EditorResponse ObjectInfo(uint32_t script, uint32_t object);
+    EditorResponse ElementInfo(uint32_t script, const ElementRef &);
+    std::vector<EditorField> AuthoringArguments(uint32_t script, uint32_t owner, const Point &at = {});
     void ExecuteAuthoring(const char *, std::vector<EditorField>, GraphFollow = GraphFollow::None);
     void LoadParameterTypes();
     void RememberBlocks(const std::vector<uint64_t> &);
@@ -406,7 +408,7 @@ private:
     // Dev Shift+Q / Ctrl+Q / Alt+Q: initial conditions of the selected (else current) Scripts.
     void InitialConditionsOfScripts(int action);
     // The selected variable Building Block (Construct), or 0.
-    CK_ID SelectedVariableBlock(PinKind kind);
+    uint32_t SelectedVariableBlock(PinKind kind);
     // Dev P: links of the selection switch between direct (no control point) and best path.
     void UpdateLinkPaths();
 
@@ -420,7 +422,7 @@ private:
     void BehaviorMenu(ScriptView &view, const BehaviorItem &behavior);
     void ParameterMenu(ScriptView &view, const ParamItem &param);
     void LinkMenu(ScriptView &view, const LinkItem &link, const Point &local);
-    bool BlockCategoryMenu(CKGUID &chosen); // inside an open menu: the Building Block categories
+    bool BlockCategoryMenu(uint64_t &chosen); // inside an open menu: the Building Block categories
 
     // What names the open composition's objects (CK gives their ids to the
     // next document's objects): the Script last clicked and the one under
@@ -429,11 +431,11 @@ private:
     // (DocumentClosed); a field naming an object goes here.
     struct DocumentState {
         ElementAddress editAddress;
-        CK_ID currentScript = 0; // last Script clicked or selected (Dev's dark header)
-        CK_ID mouseScript = 0;
+        uint32_t currentScript = 0; // last Script clicked or selected (Dev's dark header)
+        uint32_t mouseScript = 0;
         Point mouseLocal; // last Script-local mouse position over mouseScript
         ElementRef hovered;
-        CK_ID hoveredScript = 0;
+        uint32_t hoveredScript = 0;
         ElementRef tooltipRef;
         // Script Debugger breakpoint conditions (Shift+F9); Dev "Pick
         // Schematic Parameter in Schematic" / "Pick Reference Parameter in
@@ -457,45 +459,45 @@ private:
         ObjectRef pickShortcutFrom{}; // Set Shortcut Source: the next click picks the new source
         // Drags and gestures.
         Hit press;
-        CK_ID zoomScript = 0;   // Zoom Mode drag
-        CK_ID resizeScript = 0; // band boundary dragged (Tool::Resize)
-        CK_ID reorderScript = 0; // Tool::Reorder
+        uint32_t zoomScript = 0;   // Zoom Mode drag
+        uint32_t resizeScript = 0; // band boundary dragged (Tool::Resize)
+        uint32_t reorderScript = 0; // Tool::Reorder
         ElementRef resizeRef;   // Tool::ResizeElement: comment or expanded graph
-        CK_ID moveScript = 0;
+        uint32_t moveScript = 0;
         bool moveChanged = false;
         EditorEdit gesture = 0;
         EditorField geometryValue;
         std::vector<ElementAddress> geometrySelection;
         uint64_t geometryRevision = 0;
-        CK_ID linkScript = 0;
+        uint32_t linkScript = 0;
         std::vector<ElementAddress> linkSources;
         ElementAddress linkAddress, linkFixedAddress;
         bool linkReverse = false;
         std::vector<EditorField> connection;
         LinkEndpoint linkFrom;
-        CK_ID relinkLink = 0; // Alt+drag of a linked I/O moves this link's end
+        uint32_t relinkLink = 0; // Alt+drag of a linked I/O moves this link's end
         ElementRef relinkRef;
-        CK_ID exportScript = 0; // Shift+drag export
+        uint32_t exportScript = 0; // Shift+drag export
         std::vector<PinItem> exportPins;
         std::vector<ElementAddress> exportAddresses;
-        CK_ID copyScript = 0; // Shift+drag copy
+        uint32_t copyScript = 0; // Shift+drag copy
         std::vector<EditorField> copySelection;
         Rect copyBounds;
         // Menus and dialogs: their targets and open requests.
         Hit menuHit;
         // Ctrl + right-click on a local with Script headers selected: those
         // Scripts (Convert to Shortcut Source in them only).
-        std::vector<CK_ID> menuScripts;
+        std::vector<uint32_t> menuScripts;
         bool openCommentEditor = false;
         ElementAddress commentAddress;
-        CK_ID dialogScript = 0; // target Script, graph and Script-local position
+        uint32_t dialogScript = 0; // target Script, graph and Script-local position
         std::vector<EditorField> creation;
         bool openReplaceBlock = false;
         bool openReplaceGraph = false;
         ObjectRef replaceScript{};
         ObjectRef replaceBehavior{}; // the Building Block menus replace it (Shift+middle/right click)
         EditorOperation replaceOperation = 0;
-        CKGUID replacePrototype = CKGUID();
+        uint64_t replacePrototype = 0;
         ObjectRef replaceSource{};
         EditorResponse replacement;
         std::vector<EditorField> replacementGraphs;
@@ -515,19 +517,22 @@ private:
         bool openScriptColor = false;
         std::vector<ObjectRef> colorScripts;
         bool openRename = false;
-        CK_ID renameObject = 0;
+        uint32_t renameObject = 0;
         bool openDelay = false;
         ObjectRef delayTarget{};
         bool openLocalPicker = false;
         bool openOperationPicker = false;
         bool openBlockMenu = false;
         bool openRecentMenu = false;
-        CK_ID blockMenuScript = 0;
+        uint32_t blockMenuScript = 0;
         Point blockMenuLocal;
         std::vector<EditorField> blockCreation, quickCreation;
     };
 
-    EditorState &m_State;
+    EditorWorkspace &m_Workspace;
+    const SchematicStyle &m_Style;
+    SchematicViews &m_Canvases;
+    PreferencesData m_Preferences;
     EditorView m_Instance = 0;
     DocumentToken m_Document{};
     SchematicNavigation m_Navigation;
@@ -551,7 +556,7 @@ private:
     ImGuiMouseButton m_DragButton = ImGuiMouseButton_Left;
     ImVec2 m_PressScreen;
     Point m_PressWorld;
-    std::vector<std::pair<CK_ID, float>> m_PendingZoom;
+    std::vector<std::pair<uint32_t, float>> m_PendingZoom;
     ImVec2 m_MenuRequest;
     bool m_MenuRequested = false;
     int m_MenuDelay = 0;
@@ -618,9 +623,8 @@ private:
     int m_TypeIndex = -1;
     // Add / Modify Parameter Operation: the parts (input 1, input 2, output,
     // operation; Dev keeps them between openings), their locks, their lists.
-    uint64_t m_OperationParts[4] = {(uint64_t(CKPGUID_NONE.d1) << 32) | CKPGUID_NONE.d2,
-                                    (uint64_t(CKPGUID_NONE.d1) << 32) | CKPGUID_NONE.d2,
-                                    (uint64_t(CKPGUID_NONE.d1) << 32) | CKPGUID_NONE.d2, 0};
+    bool m_OperationDefaults = false;
+    uint64_t m_OperationParts[4] = {};
     bool m_OperationLocks[4] = {false, false, false, false};
     std::vector<TypeChoice> m_OperationChoices[4];
     std::string m_OperationNames[4];

@@ -15,7 +15,7 @@ void SchematicCanvas::BeginExportDrag() {
     m_Doc.exportPins.clear();
     m_Doc.exportAddresses.clear();
     if (!m_Doc.press.view || m_Doc.press.ref.kind != ElementKind::Pin) return;
-    const CK_ID script = m_Doc.press.view->id;
+    const uint32_t script = m_Doc.press.view->id;
     const bool group = IsSelected(script, m_Doc.press.ref);
     for (const auto &pin : m_Doc.press.view->model.pins) {
         if (pin.onOperation || pin.kind == PinKind::Target) continue;
@@ -48,7 +48,7 @@ void SchematicCanvas::UpdateExportDrag(const ImVec2 &mouse) {
     ImDrawList *drawList = ImGui::GetWindowDrawList();
     for (const auto &pin : m_Doc.exportPins) {
         const ImVec2 from = view->transform.ToScreen(pin.center.h, pin.center.v + view->offsetY);
-        drawList->AddLine(from, mouse, m_State.style.highlightLink, 2.0f);
+        drawList->AddLine(from, mouse, m_Style.highlightLink, 2.0f);
     }
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) EndExportDrag(mouse);
 }

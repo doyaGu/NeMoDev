@@ -21,7 +21,7 @@ void Gui(ImGuiTestContext *ctx) {
         return;
     ImGui::SetNextWindowSize({760, 400}, ImGuiCond_Always);
     ImGui::Begin(window);
-    auto &app = App().State().workspace->Application();
+    auto &app = (&App().WorkspaceForTests())->Application();
     app.EnterDraw();
     editing.table.Draw(vdev::EditorClient(app.Host(), editing.owner), App().State().document->Reference(editing.array));
     app.LeaveDraw();
@@ -30,7 +30,7 @@ void Gui(ImGuiTestContext *ctx) {
 void Fixture(ImGuiTestContext *ctx) {
     OnMainThread(ctx, [] {
         auto &state = App().State();
-        auto &app = state.workspace->Application();
+        auto &app = (&App().WorkspaceForTests())->Application();
         auto *a = CKDataArray::Cast(state.host.Context()->CreateObject(CKCID_DATAARRAY, "Interactive array"));
         state.document->Include(a->GetID());
         a->InsertColumn(-1, CKARRAYTYPE_STRING, "Name");
@@ -51,14 +51,14 @@ void Fixture(ImGuiTestContext *ctx) {
 void Cleanup(ImGuiTestContext *ctx) {
     OnMainThread(ctx, [] {
         auto &state = App().State();
-        auto &app = state.workspace->Application();
+        auto &app = (&App().WorkspaceForTests())->Application();
         editing.table.Cancel(vdev::EditorClient(app.Host(), editing.owner));
         app.CloseScope(editing.owner);
         if (!ImGui::GetCurrentContext()->OpenPopupStack.empty())
             ImGui::ClosePopupToLevel(0, false);
         if (editing.configuration) {
             std::string error;
-            state.workspace->Configure(*editing.configuration, error);
+            (&App().WorkspaceForTests())->Configure(*editing.configuration, error);
         }
         state.History().Clear();
         for (auto id : editing.arrays)
@@ -239,7 +239,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         Undo(ctx);
         Type(ctx, Cell(ctx, 0, 0), "close me");
         OnMainThread(ctx, [] {
-            auto &app = App().State().workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             app.CloseScope(editing.owner);
             editing.visible = false;
         });
@@ -266,7 +266,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(Value(ctx) == "A" && UndoCount(ctx) == 0);
         IM_CHECK(
-            Read<bool>(ctx, [] { return !editing.table.cell && !App().State().workspace->Application().HasEdits(); }));
+            Read<bool>(ctx, [] { return !editing.table.cell && !(&App().WorkspaceForTests())->Application().HasEdits(); }));
         OnMainThread(ctx, [] {
             auto *root = ImGui::FindWindowByName(window);
             auto *table = ImGui::GetCurrentContext()->Tables.GetByKey(ImHashStr("array", 0, root->ID));
@@ -307,7 +307,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         Fixture(ctx);
         vdev::EditorConfiguration previous;
         OnMainThread(ctx, [&] {
-            auto &workspace = *App().State().workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             previous = workspace.Application().Configuration();
             editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
             auto next = previous;
@@ -321,14 +321,14 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         });
         ctx->Yield(3);
         const auto before = Read<std::vector<uint64_t>>(ctx, [] {
-            auto &app = App().State().workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             const auto q = app.Query("example.array-count", {app.Scope(editing.owner), nullptr, 0});
             return vdev::EditorClient::Find(q, "writes")->integers;
         });
         Type(ctx, ctx->ItemInfo("**/External cell").ID, "external value");
         OnMainThread(ctx, [&] {
             std::string error;
-            IM_CHECK_NO_RET(!App().State().workspace->Configure(previous, error));
+            IM_CHECK_NO_RET(!(&App().WorkspaceForTests())->Configure(previous, error));
         });
         ctx->Yield(2);
         // Reconfiguration respects the existing open-draft check; the selected
@@ -344,7 +344,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
                     provider.id == "value.array-column")
                     provider.provider = "example.arrays";
             std::string error;
-            IM_CHECK_NO_RET(App().State().workspace->Configure(next, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(next, error));
         });
         ctx->Yield(2);
         ctx->ItemClick("**/0 : Name", ImGuiMouseButton_Right);
@@ -354,7 +354,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         Type(ctx, ctx->ItemInfo("//$FOCUSED/External column").ID, "External name");
         OnMainThread(ctx, [&] {
             std::string error;
-            IM_CHECK_NO_RET(!App().State().workspace->Configure(previous, error));
+            IM_CHECK_NO_RET(!(&App().WorkspaceForTests())->Configure(previous, error));
         });
         ctx->Yield(2);
         ctx->ItemClick("//$FOCUSED/OK");
@@ -362,7 +362,7 @@ void RegisterArrayEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Read<std::string>(ctx, [] { return std::string(Array()->GetColumnName(0)); }) == "External name" &&
                  UndoCount(ctx) == 1);
         const auto after = Read<std::vector<uint64_t>>(ctx, [] {
-            auto &app = App().State().workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             const auto q = app.Query("example.array-count", {app.Scope(editing.owner), nullptr, 0});
             return vdev::EditorClient::Find(q, "writes")->integers;
         });

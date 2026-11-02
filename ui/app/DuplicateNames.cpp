@@ -24,6 +24,7 @@ struct DuplicateName {
     std::string name, categoryName;
     int cid = 0, categoryClass = 0;
     uint64_t category = 0, action = 0;
+    int icon = 0, categoryIcon = 0;
 };
 const char *const ACTIONS[] = {"Ignore", "Rename", "Use Current"};
 constexpr int ARROW_CLOSED = 0xD9, ARROW_OPEN = 0xDA; // Dev.exe's icons
@@ -55,10 +56,10 @@ void Build(Tree &tree, const std::vector<DuplicateName> &duplicates, uint64_t re
         const auto &duplicate = duplicates[i];
         auto [category, inserted] = categories.emplace(duplicate.category, int(tree.nodes.size()));
         if (inserted) {
-            tree.nodes.push_back(Node{duplicate.categoryName, DevClassIconId(duplicate.categoryClass)});
+            tree.nodes.push_back(Node{duplicate.categoryName, duplicate.categoryIcon});
             tree.nodes[0].children.push_back(category->second);
         }
-        Node item{duplicate.name, DevClassIconId(duplicate.cid), static_cast<int>(i)};
+        Node item{duplicate.name, duplicate.icon, static_cast<int>(i)};
         tree.nodes[category->second].children.push_back(static_cast<int>(tree.nodes.size()));
         tree.nodes.push_back(std::move(item));
     }
@@ -126,6 +127,9 @@ struct DuplicateNamesDialog::Data {
                     categoryClass->integer > INT_MAX || !action || action->integer >= std::size(ACTIONS)) return false;
                 next.push_back({name->text, categoryName->text, int(cid->integer), int(categoryClass->integer),
                                 category->integer, action->integer});
+                const auto *icon = field("icon", EDITOR_INTEGER_VALUE), *categoryIcon = field("category-icon", EDITOR_INTEGER_VALUE);
+                if (!icon || !categoryIcon || icon->integer > INT_MAX || categoryIcon->integer > INT_MAX) return false;
+                next.back().icon = int(icon->integer); next.back().categoryIcon = int(categoryIcon->integer);
             }
             first = end->integer;
         } while (first < total);

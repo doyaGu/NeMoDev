@@ -8,8 +8,9 @@
 
 #include "imgui.h"
 
-#include "ui/app/EditorState.h"
-#include "core/graph/ParameterValues.h"
+#include "ui/controls/ParameterCopies.h"
+#include "core/catalog/ParameterUIInfo.h"
+#include "core/graph/ParameterValueData.h"
 #include "application/EditorApplication.h"
 
 namespace vdev {
@@ -20,14 +21,9 @@ namespace vdev {
 // (CK2UI sub_24E64940), every row edits a working copy (a dynamic
 // CKParameterOut of the type); Apply writes the copies that changed to
 // their parameters as undo steps.
-// The object of the class under the mouse in the topmost window that
-// answers through the workspace view, as CK2UI asks the window under the
-// mouse (message 0x607); popups and tooltips are passed. 0: none.
-CK_ID ObjectUnderMouse(const EditorState &state, const ImVec2 &mouse, CK_CLASSID cid);
-
 class ParameterBox {
 public:
-    explicit ParameterBox(EditorState &state) : m_State(state) {}
+    explicit ParameterBox(ParameterCopies &copies) : m_Copies(copies) {}
     ~ParameterBox();
     ParameterBox(const ParameterBox &) = delete;
     ParameterBox &operator=(const ParameterBox &) = delete;
@@ -37,22 +33,12 @@ public:
     // A row for target (label: its name, ANSI); type: the working copy's
     // type when target takes another one before Apply (Edit Parameter's
     // type), the target's otherwise. False without a CK context.
-    bool Add(CKParameter *target, const std::string &label, const CKGUID &type = CKGUID());
-    // Resolve a live parameter only when opening its native value editor.
-    bool Retarget(size_t row, CKParameter *target);
-    bool Add(CK_ID target, const std::string &label, const CKGUID &type = CKGUID());
     // Copied query rows use full identities and UTF-8 names.
-    bool Add(ObjectRef target, const std::string &label);
-    // Dev.exe sub_582930's rows for a Building Block (its Target first) or
-    // a parameter operation: each input whose value holder is a local
-    // parameter (not <This>, the input not disabled), named after the local.
-    void AddInputs(CKObject *owner);
+    bool Add(ObjectRef target, const std::string &label, uint64_t type = 0);
     bool Empty() const { return m_Rows.empty(); }
     size_t Count() const { return m_Rows.size(); }
     // A row's working copy as text (ANSI, CKParameter::GetStringValue).
     std::string Text(size_t row) const;
-    // A row's working copy (what a dialog without a target reads back).
-    CKParameter *Work(size_t row) const;
     // A row of a dependencies value of no parameter (Dev's Copy Options and
     // Select Delete Options, Dev.exe sub_5BDD60 / sub_5BF7B0: a parameter
     // of the type holding them); Dependencies reads the row back.
@@ -60,8 +46,8 @@ public:
     bool AddDraft(const ParameterBox &, const std::string &label);
     bool CopyDraft(const ParameterBox &);
     ObjectRef WorkReference(size_t row = 0) const;
-    bool AddDependencies(const std::string &label, const CKGUID &type, const CKDependencies &value);
-    bool Dependencies(size_t row, CKDependencies &value) const;
+    bool AddDependencies(const std::string &label, uint64_t type, const ParameterDependencies &value);
+    bool Dependencies(size_t row, ParameterDependencies &value) const;
     // The rows' size in pixels at scale. minimum: the name column at least
     // 100 pixels wide (Dev's Edit Parameters, Dev.exe sub_582930); else the
     // widest name (Dev's Edit Parameter).
@@ -74,7 +60,7 @@ public:
     bool InputActive() const { return (m_InputAction & EDITOR_INPUT_ACTIVE) != 0; }
     // Writes the working copies that differ (script: the Script edited;
     // its session follows the values). The undo steps made.
-    size_t Apply(CK_ID script);
+    size_t Apply(uint32_t script);
     // A target button clicked waits for the next click (CK2UI's StartPick
     // captures the mouse): the dialog's buttons wait too.
     bool Picking() const { return m_PickWork != 0; }
@@ -97,15 +83,15 @@ private:
         ParameterValue beforeInteraction;
         PropertyBinding property;
         EditorField schema;
-        CK_ID target = 0; // the parameter Apply writes (0: a member of a structure's copy)
-        CK_ID work = 0;   // the working copy (or a member of the structure's)
+        uint32_t target = 0; // the parameter Apply writes (0: a member of a structure's copy)
+        uint32_t work = 0;   // the working copy (or a member of the structure's)
         bool owned = false;
         std::string label; // UTF-8
         ParameterUIInfo info;
         bool extended = false;           // Object: the class filter shown; String: the multi-line edit
         unsigned representation = 0; // Rect: corners, size or center/half-size
         bool collapsed = false;          // Matrix, Flags, 2D curve: shown small (the wrapper's second button)
-        CK_CLASSID filterClass = 0;      // Object: the class listed
+        int32_t filterClass = 0;      // Object: the class listed
         bool derived = true;             // Object: with the derived classes
         std::string filter;              // Object: the Text Filter
         ObjectArrayInput arrayInput;
@@ -116,11 +102,12 @@ private:
         float labelWidth = 0.0f; // the names' column (Dev's wrapper: 14 DLU + this + 2)
         float uiX = 0.0f, uiWidth = 0.0f, uiHeight = 0.0f, height = 0.0f;
     };
-    void InitRow(Row &row, CKParameter *work);
-    void InitRow(Row &row, CKParameter *work, unsigned depth, unsigned &remaining);
+    void InitRow(Row &row, ObjectRef work);
+    void InitRow(Row &row, ObjectRef work, unsigned depth, unsigned &remaining);
     void AddRow(Row row);
     void ShareValues(Row &, ParameterValue *owner = nullptr, std::vector<size_t> path = {});
-    void TargetRow(Row &, CKParameter *);
+    void ForgetRow(const Row &);
+    void TargetRow(Row &, ObjectRef );
     bool ValuesCurrent(const Row &) const;
     bool TargetsCurrent(const Row &) const;
     // The rows were made before a ClearAll (CkRuntimeHost::Generation): they
@@ -136,27 +123,29 @@ private:
     // The target button (CK2UI's StartPick and WindowProc): the row being
     // picked for, the object of its class under the mouse (message 0x607 to
     // the window there), another row's value (0x606, pick mode 1).
-    Row *RowOf(std::vector<Row> &rows, CK_ID work);
-    Row *RowAt(std::vector<Row> &rows, const ImVec2 &mouse, CK_ID except);
-    CK_ID ObjectAt(const ImVec2 &mouse, CK_CLASSID cid) const;
+    Row *RowOf(std::vector<Row> &rows, uint32_t work);
+    Row *RowAt(std::vector<Row> &rows, const ImVec2 &mouse, uint32_t except);
+    ObjectRef ObjectAt(const ImVec2 &mouse, int32_t cid) const;
     bool PickFrom(Row &row, const ImVec2 &mouse);
     // CK2UI's On_PickResult: a parameter of a compatible type gives its
     // value, an object what the type takes from it.
-    bool PickResult(Row &row, CK_ID picked);
+    bool PickResult(Row &row, ObjectRef picked);
     bool RowChanged(const Row &row) const;
     size_t ApplyRow(const Row &row);
 
-    EditorState &m_State;
+    ParameterCopies &m_Copies;
     std::vector<Row> m_Rows;
     std::uint64_t m_Generation = 0; // the host's when the rows were made
     bool m_ApplyFailed = false;
     uint32_t m_InputAction = 0;
     EditorValueEditors m_Editors;
     std::string m_CopyProvider;
-    CK_ID m_PickWork = 0;    // the row whose target button is picking
+    uint32_t m_PickWork = 0;    // the row whose target button is picking
     bool m_PickClick = false; // clicked: until the next click (else until the button is released)
     bool m_PickToggle = false;
+    bool m_PickShift = false;
     int m_PickFrame = 0;
+    void EndPicking();
 };
 
 // Dev's Edit Parameters dialog around a box (Dev.exe sub_582930 and
@@ -175,7 +164,3 @@ DialogAction EditParameterValueDialog(const char *id, const std::string &title, 
                                       const char *typeName = nullptr);
 
 } // namespace vdev
-
-namespace vdev {
-bool RegisterParameterDialogs(EditorApplication &, EditorState &, std::string &error);
-}

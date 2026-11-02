@@ -7,6 +7,7 @@
 #include <set>
 
 #include "tests/ui/UiTests.h"
+#include "core/graph/RuntimeGraph.h"
 #include "workspace/EditorClient.h"
 #include "core/graph/TopologyCommands.h"
 #include "ui/controls/ValueEditor.h"
@@ -70,7 +71,7 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         vdev::ObjectRef local{}, script{}, output{}, input{};
         EditorView first = 0, second = 0;
         OnMainThread(ctx, [&] {
@@ -111,13 +112,13 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
         ctx->ItemInputValue(widget.c_str(), "accepted"); ctx->Yield(3);
         OnMainThread(ctx, [&] {
             auto *value = CKParameter::Cast(state.document->Resolve(local));
-            IM_CHECK_NO_RET(vdev::ParameterValueText(value) == "accepted" && state.History().UndoCount() == 1);
-            IM_CHECK_NO_RET(state.History().Undo() && vdev::ParameterValueText(value) == "before");
+            IM_CHECK_NO_RET(vdev::ParameterText(value) == "accepted" && state.History().UndoCount() == 1);
+            IM_CHECK_NO_RET(state.History().Undo() && vdev::ParameterText(value) == "before");
         }); ctx->Yield(3);
         ctx->ItemClick(widget.c_str()); ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A); ctx->KeyChars("cancelled");
         ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
         OnMainThread(ctx, [&] {
-            IM_CHECK_NO_RET(vdev::ParameterValueText(CKParameter::Cast(state.document->Resolve(local))) == "before" &&
+            IM_CHECK_NO_RET(vdev::ParameterText(CKParameter::Cast(state.document->Resolve(local))) == "before" &&
                             !state.History().UndoCount() && state.History().CanRedo() && !state.document->Dirty());
             const auto target = vdev::ObjectArgument("target", local);
             IM_CHECK_NO_RET(editor.Execute("script.show-parameter", {editor.Scope(first), &target, 1}).status == EDITOR_OK);
@@ -239,7 +240,7 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
         bool ready = false;
         for (int i = 0; i < 100 && !ready; ++i) {
             ready = Read<bool>(ctx, [] {
-                auto &workspace = *App().State().workspace;
+                auto &workspace = *(&App().WorkspaceForTests());
                 const auto snapshot = vdev::EditorClient(workspace.Application().Host(), 0).Inspect(workspace.Role("main.unused"));
                 return snapshot.status == EDITOR_OK && vdev::EditorClient::Integer(snapshot, "revision") != 0;
             }); ctx->Yield();

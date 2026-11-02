@@ -108,7 +108,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         const auto path = (sample.folder / "Script image.bmp").u8string();
         Bitmap(std::filesystem::u8path(path));
         auto &state = App().State();
-        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
         vdev::ObjectRef script{};
         OnMainThread(ctx, [&] {
             const auto scripts = vdev::SceneObjects(client.Query("schematic.stack"), "all");
@@ -184,7 +184,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK(SelectEntity(ctx, found));
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         const vdev::EditorClient client(workspace.Application().Host(), 0);
         const auto textures = [&] {
             std::vector<vdev::SetupObjectRow> rows;
@@ -281,7 +281,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         Bitmap(std::filesystem::u8path(second));
         IM_CHECK(first.size() > 260 && second.size() > 260);
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         const vdev::EditorClient client(workspace.Application().Host(), 0);
         vdev::ObjectRef target{};
         EditorView setup = 0;
@@ -369,7 +369,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK(SelectEntity(ctx, found));
         auto &state = App().State();
-        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
         struct Cleanup {
             ~Cleanup() {
                 source.visible = false;
@@ -478,7 +478,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
             const auto kind = mode & 3;
             const bool locked = mode >= 4;
             OnMainThread(ctx, [&] {
-                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
                 const auto result = client.Command("selection.lock", {vdev::IntegerArgument("locked", locked)});
                 IM_CHECK_NO_RET(result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE);
             });
@@ -546,7 +546,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
             });
         }
         OnMainThread(ctx, [&] {
-            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             IM_CHECK_NO_RET(client.Command("selection.lock", {vdev::IntegerArgument("locked", 0)}).status == EDITOR_OK);
         });
     };
@@ -558,7 +558,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK(SelectEntity(ctx, found));
         auto &state = App().State();
-        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
         struct Cleanup {
             ~Cleanup() {
                 source.visible = false;
@@ -657,7 +657,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK(SelectEntity(ctx, found));
         auto &state = App().State();
-        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
         vdev::SnapshotData snapshots;
         vdev::SnapshotDrag original{};
         std::vector<vdev::ObjectRef> selected;
@@ -725,7 +725,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK(SelectEntity(ctx, found));
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         const vdev::EditorClient client(workspace.Application().Host(), 0);
         EditorView view = 0;
         std::vector<vdev::ObjectRef> selected;
@@ -808,7 +808,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         bool gpu = false;
         std::uint64_t reads = 0, uploads = 0, creations = 0;
         OnMainThread(ctx, [&] {
-            auto &editor = App().State().workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             before = LiveObjects(CKCID_TARGETCAMERA);
             auto &layout = App().Layout();
             gpu = layout.UsesGpuViewport();
@@ -852,7 +852,7 @@ void RegisterLayoutDropTests(ImGuiTestEngine *engine) {
         Settle(ctx, "//3D Layout");
         InView found;
         IM_CHECK_SILENT(SelectEntity(ctx, found));
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         IM_CHECK_EQ(state.objectSelection.Objects().size(), 1u);
         const size_t logged = state.eventLog.Entries().size();
         ctx->KeyPress(ImGuiKey_Delete);

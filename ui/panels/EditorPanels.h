@@ -3,22 +3,26 @@
 #include <map>
 #include <optional>
 #include "workspace/EditorClient.h"
+#include "features/preferences/PreferencesData.h"
 #include <set>
 #include <string>
 #include <vector>
 
-#include "ui/app/EditorState.h"
 #include "ui/controls/ParameterBox.h"
 #include "core/schematic/SchematicSearch.h"
+#include "core/schematic/SchematicNavigation.h"
 #include "ui/controls/ValueEditor.h"
 
 namespace vdev {
 
 class SchematicViews;
+class EditorWorkspace;
 
 class EditorPanels {
 public:
-    EditorPanels(EditorState &state, SchematicViews &canvases) : m_State(state), m_Schematics(canvases) {}
+    EditorPanels(ParameterCopies &copies, EditorWorkspace &workspace, SchematicViews &canvases)
+        : m_Workspace(workspace), m_Schematics(canvases), m_ExplorerBox(copies), m_FilterValue(copies), m_ReplaceValue(copies) {}
+    bool Register(EditorApplication &, std::string &error);
 
     void ExplorerPanel(bool *open);
 
@@ -26,7 +30,7 @@ public:
     // the selected object) and centers the view on it.
     // Shows the Script's stack (all Scripts, or the owner's); focus scrolls
     // the Schematic to it (opening a file starts at the top of the stack).
-    void ShowScript(CK_ID script, const ElementRef &ref = ElementRef(), CK_ID focusBehavior = 0, bool focus = true);
+    void ShowScript(uint32_t script, const ElementRef &ref = ElementRef(), uint32_t focusBehavior = 0, bool focus = true);
     // The stack made again (the Scripts or the filters changed), for the
     // Script it was made for while it exists.
     void RefreshStack();
@@ -40,6 +44,8 @@ public:
     void DocumentClosed();
 private:
     void RunSearch();
+    void CloseExplorer(bool keep);
+    PreferencesData m_Preferences;
     // The Schematic Explorer's parts: the rows chosen made the Schematic's
     // selection; the tree view; the parameters of the Parameter Filter.
     void ExplorerSelect();
@@ -77,7 +83,7 @@ private:
         std::string resultsKey;
     };
 
-    EditorState &m_State;
+    EditorWorkspace &m_Workspace;
     DocumentState m_Doc;
     SchematicViews &m_Schematics;
     // Schematic Explorer (Dev's Schematic Filter Box, dialog 732): Show in
@@ -93,7 +99,7 @@ private:
     bool m_SearchDerived = false;
     bool m_FocusSearch = false;
     bool m_ExplorerShown = false;
-    ParameterBox m_ExplorerBox{m_State}, m_FilterValue{m_State}, m_ReplaceValue{m_State};
+    ParameterBox m_ExplorerBox, m_FilterValue, m_ReplaceValue;
     bool m_ExplorerEditReplace = false;
     bool m_OpenExplorerValue = false;
 };

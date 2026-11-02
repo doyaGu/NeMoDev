@@ -65,8 +65,11 @@ void LayoutWindow::DropTarget(const ImVec2 &at) {
                 DropResources(x, y, files);
             else {
                 highlight = ObjectField(DropInfo(x, y, "resource"), "highlight");
-                const auto cid = files[source].cid;
-                if (cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D)
+                const uint64_t cid = files[source].cid;
+                const auto classification = Client().Query("resource.import-classes", {
+                    {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {&cid, 1}}, IntegerArgument("image-kind", 0)});
+                const auto *images = EditorClient::Find(classification, "images");
+                if (classification.status == EDITOR_OK && images && images->integers.size() == 1 && images->integers[0])
                     Window().dropText = io.KeyShift && io.KeyCtrl ? "Drop as 2D Entity (Release CTRL or SHIFT for more)"
                                         : io.KeyShift ? "Drop as 3D Sprite (Release SHIFT or hold CTRL for more)"
                                         : io.KeyCtrl  ? "Drop as 2D Sprite (Release CTRL or hold SHIFT for more)"
@@ -151,15 +154,15 @@ void LayoutWindow::DropResources(int x, int y, const std::vector<ResourceFile> &
     std::vector<EditorString> paths;
     std::vector<uint64_t> classes;
     for (const auto &file : files) {
-        auto cid = file.cid;
-        if (cid == CKCID_TEXTURE || cid == CKCID_SPRITE || cid == CKCID_SPRITE3D)
-            cid = io.KeyShift && io.KeyCtrl ? CKCID_2DENTITY
-                  : io.KeyShift             ? CKCID_SPRITE3D
-                  : io.KeyCtrl              ? CKCID_SPRITE
-                                            : CKCID_TEXTURE;
         paths.push_back(EditorText(file.path));
-        classes.push_back(cid);
+        classes.push_back(file.cid);
     }
+    const auto classification = Client().Query("resource.import-classes", {
+        {EDITOR_TEXT("classes"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {classes.data(), uint32_t(classes.size())}},
+        IntegerArgument("image-kind", io.KeyShift && io.KeyCtrl ? 4 : io.KeyShift ? 3 : io.KeyCtrl ? 2 : 1)});
+    const auto *resolved = EditorClient::Find(classification, "classes");
+    if (classification.status != EDITOR_OK || !resolved || resolved->integers.size() != classes.size()) return;
+    classes = resolved->integers;
     const auto *targets = EditorClient::Find(info, "objects");
     if (!targets)
         return;

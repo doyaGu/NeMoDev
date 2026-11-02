@@ -14,10 +14,10 @@ const EditorField &Field(const EditorField &row, const char *key) {
     throw std::runtime_error("Missing preference value");
 }
 EditorResponse Current() {
-    auto &editor = App().State().workspace->Application(); return EditorClient(editor.Host(), 0).Query("preferences.values");
+    auto &editor = (&App().WorkspaceForTests())->Application(); return EditorClient(editor.Host(), 0).Query("preferences.values");
 }
 EditorResponse Apply(const std::vector<EditorField> &fields) {
-    auto &editor = App().State().workspace->Application(); const auto current = Current();
+    auto &editor = (&App().WorkspaceForTests())->Application(); const auto current = Current();
     EditorField value{"value", EDITOR_RECORD}; value.fields = fields;
     const std::vector<EditorField> owned{value}; const auto borrowed = BorrowEditorFields(owned);
     return EditorClient(editor.Host(), 0).Command("preferences.apply", {IntegerArgument("revision", Field(current, "revision").integer), borrowed.values.front()});
@@ -28,7 +28,7 @@ struct Restore {
     std::optional<EditorConfiguration> configuration;
     ~Restore() {
         OnMainThread(ctx, [&] {
-            auto &workspace = *App().State().workspace; auto &editor = workspace.Application();
+            auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
             editor.Execute("preferences.close", {editor.Scope(), nullptr, 0});
             if (configuration) { std::string error; IM_CHECK_NO_RET(workspace.Configure(*configuration, error)); }
             if (original.status == EDITOR_OK) IM_CHECK_NO_RET(Apply(Field(original, "value").fields).status <= EDITOR_NO_CHANGE);
@@ -37,14 +37,14 @@ struct Restore {
 };
 EditorView Open(ImGuiTestContext *ctx, const char *page = "") {
     const auto id = Read<EditorView>(ctx, [&] {
-        auto &workspace = *App().State().workspace; auto &editor = workspace.Application();
+        auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         const EditorValue value{EDITOR_TEXT("page"), EDITOR_TEXT_VALUE, {}, EditorLiteral(page)};
         const auto result = editor.Execute("preferences.open", {editor.Scope(), &value, 1});
         IM_CHECK_NO_RET(result.status == EDITOR_OK); return workspace.Role("main.preferences");
     }); ctx->Yield(4); return id;
 }
 EditorResponse Inspect(EditorView view) {
-    return EditorClient(App().State().workspace->Application().Host(), 0).Inspect(view);
+    return EditorClient((&App().WorkspaceForTests())->Application().Host(), 0).Inspect(view);
 }
 void Cancel(ImGuiTestContext *ctx) { ctx->ItemClick(PreferencesRef("/Cancel").c_str()); ctx->Yield(3); }
 }
@@ -53,7 +53,7 @@ void RegisterPreferencesTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Restore restore{ctx};
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         size_t undo = 0; bool redo = false, dirty = false; ObjectRef selection{};
         OnMainThread(ctx, [&] {
             restore.original = Current(); undo = state.History().UndoCount(); redo = state.History().CanRedo();
@@ -89,17 +89,17 @@ void RegisterPreferencesTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Restore restore{ctx};
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         size_t undo = 0; bool redo = false, dirty = false, automatic = false; ObjectRef selection{}; CKContext *context = nullptr;
         OnMainThread(ctx, [&] {
             restore.original = Current(); undo = state.History().UndoCount(); redo = state.History().CanRedo(); dirty = state.document->Dirty();
-            automatic = state.preferences.automaticLink; selection = editor.Selection(); context = state.document->Context();
+            automatic = App().SettingsForTests().automaticLink; selection = editor.Selection(); context = state.document->Context();
         });
         Open(ctx, "schematic"); ctx->ItemClick(PreferencesRef("/**/Automatic Link").c_str());
         ctx->ItemInputValue(PreferencesRef("/**/##maxrecent").c_str(), 27); ctx->Yield(2);
         ctx->ItemClick(PreferencesRef("/OK").c_str()); ctx->Yield(5);
         OnMainThread(ctx, [&] {
-            IM_CHECK_NO_RET(!workspace.Role("main.preferences") && state.preferences.maxRecentBlocks == 27 && state.preferences.automaticLink != automatic);
+            IM_CHECK_NO_RET(!workspace.Role("main.preferences") && App().SettingsForTests().maxRecentBlocks == 27 && App().SettingsForTests().automaticLink != automatic);
             IM_CHECK_NO_RET(state.document->Context() == context && state.History().UndoCount() == undo && state.History().CanRedo() == redo &&
                 state.document->Dirty() == dirty && editor.Selection() == selection);
         });
@@ -111,7 +111,7 @@ void RegisterPreferencesTests(ImGuiTestEngine *engine) {
         });
         ctx->ItemClick(PreferencesRef("/OK").c_str()); ctx->Yield(4);
         OnMainThread(ctx, [&] {
-            IM_CHECK_NO_RET(workspace.Role("main.preferences") && !EditorClient::Text(Inspect(reopened), "message").empty() && state.preferences.maxRecentBlocks == 28);
+            IM_CHECK_NO_RET(workspace.Role("main.preferences") && !EditorClient::Text(Inspect(reopened), "message").empty() && App().SettingsForTests().maxRecentBlocks == 28);
         });
         Cancel(ctx);
         OnMainThread(ctx, [&] {
@@ -123,7 +123,7 @@ void RegisterPreferencesTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Restore restore{ctx};
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         OnMainThread(ctx, [&] {
             restore.original = Current(); restore.configuration = editor.Configuration();
             auto configuration = *restore.configuration;
@@ -141,12 +141,12 @@ void RegisterPreferencesTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             const auto counts = EditorClient(editor.Host(), 0).Query("example.preference-counts");
             IM_CHECK_NO_RET(EditorClient::Integer(counts, "reads") && EditorClient::Integer(counts, "writes") == 1 &&
-                state.preferences.maxRecentBlocks == 37 && state.preferences.Int("3D Layout\\Snap\\Translation Influence (3D Entities)") == 18);
+                App().SettingsForTests().maxRecentBlocks == 37 && App().SettingsForTests().Int("3D Layout\\Snap\\Translation Influence (3D Entities)") == 18);
         });
-        const bool dynamic = Read<bool>(ctx, [&] { return state.preferences.Bool("3D Layout\\Show Dynamic Objects"); });
+        const bool dynamic = Read<bool>(ctx, [&] { return App().SettingsForTests().Bool("3D Layout\\Show Dynamic Objects"); });
         ctx->MenuClick(dynamic ? "//##MainMenuBar/Options/Hide Dynamic Objects" : "//##MainMenuBar/Options/Show Dynamic Objects"); ctx->Yield(4);
         OnMainThread(ctx, [&] {
-            IM_CHECK_NO_RET(state.preferences.Bool("3D Layout\\Show Dynamic Objects") != dynamic &&
+            IM_CHECK_NO_RET(App().SettingsForTests().Bool("3D Layout\\Show Dynamic Objects") != dynamic &&
                 EditorClient::Integer(EditorClient(editor.Host(), 0).Query("example.preference-counts"), "writes") == 2);
         });
         Open(ctx, "reference-guide");

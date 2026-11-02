@@ -13,7 +13,6 @@
 #include "misc/cpp/imgui_stdlib.h"
 
 #include "ui/controls/DevTheme.h"
-#include "core/schematic/LinkRouting.h"
 #include "ui/schematic/SchematicCanvasDetail.h"
 #include "core/schematic/SchematicGrid.h"
 #include "core/schematic/SchematicHitTest.h"
@@ -131,7 +130,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 // Breakpoint condition: a local, a shortcut or a behavior parameter.
                 const auto picked = ConditionParameterAt(hit);
                 if (picked) PickConditionParameter(picked);
-                else m_State.Log(LogLevel::Info, "Pick a parameter: a local parameter, a shortcut or a parameter pin");
+                else Client().Log(EDITOR_LOG_INFO, "Pick a parameter: a local parameter, a shortcut or a parameter pin");
             } else if (m_Doc.pickShortcutFrom) {
                 ObjectRef picked{};
                 if (hit.view && (hit.ref.kind == ElementKind::LocalParam || hit.ref.kind == ElementKind::Shortcut ||
@@ -146,7 +145,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 if (picked)
                     RetargetAllShortcuts(from, picked);
                 else
-                    m_State.Log(LogLevel::Info, "Set Shortcut Source: pick a local parameter, a shortcut or an output");
+                    Client().Log(EDITOR_LOG_INFO, "Set Shortcut Source: pick a local parameter, a shortcut or an output");
             } else if (io.KeyCtrl && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hit.view && !hit.onHeader) {
                 // Dev: Ctrl+double-click adds a Building Block by name.
                 OpenQuickAdd(hit.view->id, hit.local);
@@ -358,10 +357,10 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
             lineY = bottom;
         }
         ImGui::GetWindowDrawList()->AddLine(ImVec2(canvasMin.x, lineY), ImVec2(canvasMax.x, lineY),
-                                            m_State.style.selection, 3.0f);
+                                            m_Style.selection, 3.0f);
         ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            std::vector<CK_ID> order;
+            std::vector<uint32_t> order;
             for (const auto &view : m_Views) order.push_back(view.id);
             auto from = std::find(order.begin(), order.end(), m_Doc.reorderScript);
             if (from != order.end()) {
@@ -370,7 +369,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
                 if (insert > at) --insert;
                 order.insert(order.begin() + std::min(insert, order.size()), m_Doc.reorderScript);
                 // Hidden Scripts keep their place after the shown ones.
-                for (CK_ID id : m_Navigation.visibleScripts)
+                for (uint32_t id : m_Navigation.visibleScripts)
                     if (std::find(order.begin(), order.end(), id) == order.end()) order.push_back(id);
                 m_Navigation.scriptOrder = ScriptReferences(order);
                 RefreshStack();
@@ -409,8 +408,8 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         ImDrawList *drawList = ImGui::GetWindowDrawList();
         const ImVec2 a(std::min(m_PressScreen.x, mouse.x), std::min(m_PressScreen.y, mouse.y));
         const ImVec2 b(std::max(m_PressScreen.x, mouse.x), std::max(m_PressScreen.y, mouse.y));
-        drawList->AddRectFilled(a, b, m_State.style.rubberBand);
-        drawList->AddRect(a, b, m_State.style.rubberBandBorder);
+        drawList->AddRectFilled(a, b, m_Style.rubberBand);
+        drawList->AddRect(a, b, m_Style.rubberBandBorder);
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             ScriptView *view = ViewAtScreen(m_PressScreen);
             if (m_DrawGraphMode) {
@@ -426,7 +425,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
             if (view) {
                 const Point wa = view->transform.ToWorld(a), wb = view->transform.ToWorld(b);
                 const Rect local(wa.h, wa.v - view->offsetY, wb.h - wa.h, wb.v - wa.v);
-                for (const auto &ref : ElementsInRect(view->model, local, m_State.preferences.strictMultiSelection)) {
+                for (const auto &ref : ElementsInRect(view->model, local, m_Preferences.Bool("Schematic\\Strict MultiSelection"))) {
                     if (ref.kind == ElementKind::LocalParam && !m_Navigation.options.showLocalParams) {
                         bool shown = true;
                         for (const auto &param : view->model.params)
@@ -462,7 +461,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         ImVec2 from = view->transform.ToScreen(m_LinkFromPoint.h, m_LinkFromPoint.v + view->offsetY);
         const ImVec2 to = onEndpoint ? view->transform.ToScreen(target.h, target.v + view->offsetY) : mouse;
         ImDrawList *drawList = ImGui::GetWindowDrawList();
-        const ImU32 color = onEndpoint ? m_State.style.validLink : IM_COL32(240, 240, 240, 200);
+        const ImU32 color = onEndpoint ? m_Style.validLink : IM_COL32(240, 240, 240, 200);
         // Through the control points clicked so far.
         for (const Point &point : m_LinkPoints) {
             const ImVec2 at = view->transform.ToScreen(point.h, point.v + view->offsetY);
@@ -497,7 +496,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         const float dx = world.h - m_PressWorld.h, dy = world.v - m_PressWorld.v;
         const ImVec2 a = view->transform.ToScreen(m_Doc.copyBounds.hPos + dx, m_Doc.copyBounds.vPos + dy + view->offsetY);
         const ImVec2 b = view->transform.ToScreen(m_Doc.copyBounds.Right() + dx, m_Doc.copyBounds.Bottom() + dy + view->offsetY);
-        ImGui::GetWindowDrawList()->AddRect(a, b, m_State.style.selection, 0.0f, 0, 2.0f);
+        ImGui::GetWindowDrawList()->AddRect(a, b, m_Style.selection, 0.0f, 0, 2.0f);
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) EndCopyDrag(world);
         break;
     }
@@ -684,11 +683,11 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
     }
     const float step = 60.0f / m_View.zoom;
     // Dev: Right/Left open/close the selected Scripts; otherwise arrows scroll.
-    const std::vector<CK_ID> selectedScripts = m_Navigation.selection.Scripts();
+    const std::vector<uint32_t> selectedScripts = m_Navigation.selection.Scripts();
     if (!selectedScripts.empty() &&
         (ImGui::IsKeyPressed(ImGuiKey_LeftArrow) || ImGui::IsKeyPressed(ImGuiKey_RightArrow))) {
         const bool open = ImGui::IsKeyPressed(ImGuiKey_RightArrow);
-        for (CK_ID script : selectedScripts) {
+        for (uint32_t script : selectedScripts) {
             if (ScriptOpen(script) != open)
                 ToggleScriptOpen(script);
         }

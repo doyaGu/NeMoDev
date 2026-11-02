@@ -18,21 +18,21 @@ struct RestorePaths {
     std::optional<vdev::EditorConfiguration> configuration;
     ~RestorePaths() {
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &editor = state.workspace->Application();
+            auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
             editor.Execute("environment.close-managers", {editor.Scope(), nullptr, 0});
-            if (configuration) { std::string error; IM_CHECK_NO_RET(state.workspace->Configure(*configuration, error)); }
+            if (configuration) { std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(*configuration, error)); }
             const vdev::EditorClient client(editor.Host(), 0);
             const auto current = client.Query("paths.list");
             const std::vector<vdev::EditorField> fields{Field(original, "categories")};
             const auto values = vdev::BorrowEditorFields(fields);
             client.Command("paths.apply", {vdev::IntegerArgument("revision", Field(current, "revision").integer), values.values.front()});
-            state.preferences.paths = preferences; state.preferences.pathsSaved = saved;
+            App().SettingsForTests().paths = preferences; App().SettingsForTests().pathsSaved = saved;
         });
     }
 };
 void OpenPaths(ImGuiTestContext *ctx) {
     OnMainThread(ctx, [] {
-        auto &editor = App().State().workspace->Application();
+        auto &editor = (&App().WorkspaceForTests())->Application();
         IM_CHECK_NO_RET(editor.Execute("environment.open-paths", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
     }); ctx->Yield(3);
 }
@@ -46,43 +46,43 @@ void RegisterEnvironmentTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &editor = state.workspace->Application();
+        auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
         RestorePaths restore{ctx};
         size_t undo = 0; bool redo = false, dirty = false; vdev::ObjectRef selection{};
         OnMainThread(ctx, [&] {
             const vdev::EditorClient client(editor.Host(), 0);
-            restore.original = client.Query("paths.list"); restore.preferences = state.preferences.paths; restore.saved = state.preferences.pathsSaved;
+            restore.original = client.Query("paths.list"); restore.preferences = App().SettingsForTests().paths; restore.saved = App().SettingsForTests().pathsSaved;
             undo = state.History().UndoCount(); redo = state.History().CanRedo(); dirty = state.document->Dirty(); selection = editor.Selection();
         });
         OpenPaths(ctx);
         ctx->ItemClick(EnvironmentRef("paths", "/Add Path").c_str()); ctx->Yield(2);
         ctx->KeyChars("discarded path"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
-        IM_CHECK(state.workspace->Role("main.paths") != 0);
+        IM_CHECK((&App().WorkspaceForTests())->Role("main.paths") != 0);
         OnMainThread(ctx, [&] {
             const vdev::EditorClient client(editor.Host(), 0);
-            const auto draft = client.Inspect(state.workspace->Role("main.paths"));
+            const auto draft = client.Inspect((&App().WorkspaceForTests())->Role("main.paths"));
             IM_CHECK_NO_RET(draft.status == EDITOR_OK && Field(draft, "categories").fields == Field(restore.original, "categories").fields);
         });
         AddPath(ctx, "Environment draft A"); AddPath(ctx, "Environment draft B");
         ctx->ItemClick(EnvironmentRef("paths", "/Up").c_str()); ctx->Yield(2);
         OnMainThread(ctx, [&] {
             const vdev::EditorClient client(editor.Host(), 0);
-            const auto draft = client.Inspect(state.workspace->Role("main.paths"));
+            const auto draft = client.Inspect((&App().WorkspaceForTests())->Role("main.paths"));
             if (draft.status != EDITOR_OK || Field(draft, "categories").fields.empty()) { IM_CHECK_NO_RET(false); return; }
             const auto &paths = Field(draft, "categories").fields[0].fields[1].texts;
             IM_CHECK_NO_RET(paths.size() >= 2 && paths[paths.size() - 2] == "Environment draft B" && paths.back() == "Environment draft A");
-            IM_CHECK_NO_RET(Field(client.Query("paths.list"), "categories").fields == Field(restore.original, "categories").fields && state.preferences.paths == restore.preferences);
+            IM_CHECK_NO_RET(Field(client.Query("paths.list"), "categories").fields == Field(restore.original, "categories").fields && App().SettingsForTests().paths == restore.preferences);
         });
         ctx->ItemClick(EnvironmentRef("paths", "/Cancel").c_str()); ctx->Yield(3);
-        IM_CHECK(!state.workspace->Role("main.paths"));
+        IM_CHECK(!(&App().WorkspaceForTests())->Role("main.paths"));
         OpenPaths(ctx); AddPath(ctx, "Environment committed A"); AddPath(ctx, "Environment committed B");
         ctx->ItemClick(EnvironmentRef("paths", "/Ok").c_str()); ctx->Yield(4);
-        IM_CHECK(!state.workspace->Role("main.paths"));
+        IM_CHECK(!(&App().WorkspaceForTests())->Role("main.paths"));
         OnMainThread(ctx, [&] {
             const auto paths = vdev::EditorClient(editor.Host(), 0).Query("paths.list");
             const auto &values = Field(paths, "categories").fields[0].fields[1].texts;
             IM_CHECK_NO_RET(values.size() >= 2 && values[values.size() - 2] == "Environment committed A" && values.back() == "Environment committed B");
-            IM_CHECK_NO_RET(state.preferences.pathsSaved && state.preferences.paths[0].second.back() == "Environment committed B");
+            IM_CHECK_NO_RET(App().SettingsForTests().pathsSaved && App().SettingsForTests().paths[0].second.back() == "Environment committed B");
             IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && state.document->Dirty() == dirty && editor.Selection() == selection);
         });
     };
@@ -90,7 +90,7 @@ void RegisterEnvironmentTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         EditorView first = 0;
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(editor.Execute("environment.open-plugins", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
@@ -125,11 +125,11 @@ void RegisterEnvironmentTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         RestorePaths restore{ctx};
         OnMainThread(ctx, [&] {
             const vdev::EditorClient client(editor.Host(), 0);
-            restore.original = client.Query("paths.list"); restore.preferences = state.preferences.paths; restore.saved = state.preferences.pathsSaved;
+            restore.original = client.Query("paths.list"); restore.preferences = App().SettingsForTests().paths; restore.saved = App().SettingsForTests().pathsSaved;
             restore.configuration = editor.Configuration(); auto selected = *restore.configuration;
             for (auto &provider : selected.providers)
                 if (provider.kind == "command" && (provider.id == "paths.choose-folder" || provider.id == "paths.apply"))
@@ -156,7 +156,7 @@ void RegisterEnvironmentTests(ImGuiTestEngine *engine) {
             const vdev::EditorClient client(editor.Host(), 0);
             const auto calls = client.Query("example.environment-counts");
             IM_CHECK_NO_RET(calls.status == EDITOR_OK && vdev::EditorClient::Integer(calls, "folders") == 2 && vdev::EditorClient::Integer(calls, "paths") == 1);
-            IM_CHECK_NO_RET(state.preferences.paths[0].second.back() == "External chosen folder");
+            IM_CHECK_NO_RET(App().SettingsForTests().paths[0].second.back() == "External chosen folder");
         });
     };
 }

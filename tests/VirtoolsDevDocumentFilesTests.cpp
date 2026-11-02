@@ -1,4 +1,6 @@
-#include "ui/app/EditorState.h"
+#include "ui/native/EditorSession.h"
+#include "core/document/Edit.h"
+#include "core/schematic/SchematicNavigation.h"
 #include "core/document/FileCommands.h"
 #include "core/graph/ScriptCommands.h"
 #include "core/layout/LayoutCommands.h"
@@ -24,7 +26,7 @@ struct Folder {
 
 // Exercise the same duplicate-check/answer/load sequence as the UI, with
 // production runtime scheduling and native files; only the dialog is absent.
-void Drain(vdev::EditorState &state) {
+void Drain(vdev::EditorSession &state) {
     for (int step = 0; step < 10; ++step) {
         state.FinishRuntimeOperations();
         if (!state.files.PendingDuplicates()) return;
@@ -66,7 +68,7 @@ public:
 };
 
 void Workflows() {
-    vdev::EditorState state;
+    vdev::EditorSession state;
     std::string error;
     CHECK(state.host.Start(VirtoolsRuntimeDirectory(SDL_GetBasePath()), [&state](vdev::LogLevel level, const std::string &message) {
         state.RuntimeLog(level, message);

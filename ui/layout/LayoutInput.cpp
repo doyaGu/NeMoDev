@@ -19,69 +19,6 @@
 namespace vdev {
 
 namespace {
-EditorField GestureOptions(const CameraSteps &camera, const LayoutTransformSettings &settings,
-                           const TransformSteps &transform, const Snap2D &snapping, const Preferences &preferences,
-                           int scaleMode, bool locked) {
-    EditorField result{"options", EDITOR_RECORD};
-    const auto real = [&](const char *key, float n) {
-        EditorField v{key, EDITOR_REAL_VALUE};
-        v.real = n;
-        result.fields.push_back(std::move(v));
-    };
-    const auto number = [&](const char *key, uint64_t n) {
-        result.fields.push_back({key, EDITOR_INTEGER_VALUE, {}, {}, n});
-    };
-    const auto vector = [&](const char *key, std::initializer_list<double> n) {
-        EditorField v{key, EDITOR_REAL_LIST};
-        v.reals = n;
-        result.fields.push_back(std::move(v));
-    };
-    real("camera-rotate", camera.rotate);
-    real("camera-translate", camera.translate);
-    real("camera-zoom", camera.zoom);
-    real("camera-ortho-zoom", camera.orthoZoom);
-    real("camera-roll", camera.roll);
-    real("camera-fov", camera.fov);
-    real("free-orbit-value", camera.freeOrbitValue);
-    real("object-translate", transform.translate);
-    real("object-rotate", transform.rotate);
-    real("object-scale", transform.scale);
-    real("snap-angle", transform.snapAngle);
-    real("snap-scale", transform.snapScale);
-    number("camera-rotate-constant", camera.rotateConstant);
-    number("camera-translate-constant", camera.translateConstant);
-    number("camera-zoom-constant", camera.zoomConstant);
-    number("camera-ortho-zoom-constant", camera.orthoZoomConstant);
-    number("camera-roll-constant", camera.rollConstant);
-    number("camera-fov-constant", camera.fovConstant);
-    number("translate-sticky", transform.translateSticky);
-    number("rotate-sticky", transform.rotateSticky);
-    number("scale-sticky", transform.scaleSticky);
-    number("hierarchy", settings.hierarchy);
-    number("snap", settings.snap);
-    number("homogenous", snapping.homogenous);
-    number("shift", ImGui::GetIO().KeyShift);
-    number("ctrl", ImGui::GetIO().KeyCtrl);
-    number("locked", locked);
-    number("free-orbit-type", camera.freeOrbitType);
-    number("orbit-selection-type", camera.orbitSelectionType);
-    number("axes", settings.axes);
-    number("referential", settings.referential);
-    number("pivot", settings.pivot);
-    number("scale-mode", scaleMode);
-    number("snap-mode", transform.snapMode);
-    number("snap-radius", transform.snapRadius);
-    number("snap-influence", snapping.influence);
-    real("fly-turn", preferences.Float("3D Layout\\Actions\\Camera Fly Turn Step"));
-    real("fly-advance", preferences.Float("3D Layout\\Actions\\Camera Fly Advance Step"));
-    number("fly-constant", preferences.Bool("3D Layout\\Actions\\Camera Navigate Constant Speed Mode"));
-    vector("world-min", {camera.worldMin.x, camera.worldMin.y, camera.worldMin.z});
-    vector("world-max", {camera.worldMax.x, camera.worldMax.y, camera.worldMax.z});
-    vector("world-step", {transform.worldStep.x, transform.worldStep.y, transform.worldStep.z});
-    vector("screen-step", {snapping.screenStep[0], snapping.screenStep[1]});
-    vector("screen-offset", {snapping.screenOffset[0], snapping.screenOffset[1]});
-    return result;
-}
 EditorField MotionValue(int x, int y, bool move = false, bool idle = false) {
     const auto &io = ImGui::GetIO();
     EditorField value{"value", EDITOR_RECORD}, at{"position", EDITOR_REAL_LIST}, time{"time", EDITOR_REAL_VALUE};
@@ -102,6 +39,64 @@ EditorField MotionValue(int x, int y, bool move = false, bool idle = false) {
     return value;
 }
 } // namespace
+EditorField LayoutWindow::GestureOptions(const LayoutTransformSettings &settings, bool locked) const {
+    EditorField result{"options", EDITOR_RECORD};
+    const auto real = [&](const char *key, const char *preference) {
+        EditorField field{key, EDITOR_REAL_VALUE}; field.real = m_Preferences.Float(preference);
+        result.fields.push_back(std::move(field));
+    };
+    const auto number = [&](const char *key, uint64_t value) { result.fields.push_back({key, EDITOR_INTEGER_VALUE, {}, {}, value}); };
+    real("camera-rotate", "3D Layout\\Actions\\Camera Rotate Step");
+    real("camera-translate", "3D Layout\\Actions\\Camera Translate Step");
+    real("camera-zoom", "3D Layout\\Actions\\Camera Zoom Step");
+    real("camera-ortho-zoom", "3D Layout\\Actions\\Camera Orthographic Zoom Step");
+    real("camera-roll", "3D Layout\\Actions\\Camera Roll Step");
+    real("camera-fov", "3D Layout\\Actions\\Camera Fov Step");
+    real("free-orbit-value", "3D Layout\\Actions\\Free Camera Orbit Value");
+    real("object-translate", "3D Layout\\Actions\\Object Translate Step");
+    real("object-rotate", "3D Layout\\Actions\\Object Rotate Step");
+    real("object-scale", "3D Layout\\Actions\\Object Scale Step");
+    real("snap-angle", "3D Layout\\Snap\\Rotation Angle");
+    real("snap-scale", "3D Layout\\Snap\\Scaling Percentage");
+    real("fly-turn", "3D Layout\\Actions\\Camera Fly Turn Step");
+    real("fly-advance", "3D Layout\\Actions\\Camera Fly Advance Step");
+    number("camera-rotate-constant", m_Preferences.Bool("3D Layout\\Actions\\Camera Rotate Constant Speed Mode"));
+    number("camera-translate-constant", m_Preferences.Bool("3D Layout\\Actions\\Camera Translate Constant Speed Mode"));
+    number("camera-zoom-constant", m_Preferences.Bool("3D Layout\\Actions\\Camera Zoom Constant Speed Mode"));
+    number("camera-ortho-zoom-constant", m_Preferences.Bool("3D Layout\\Actions\\Camera OrthoZoom Constant Speed Mode"));
+    number("camera-roll-constant", m_Preferences.Bool("3D Layout\\Actions\\Camera Roll Constant Speed Mode"));
+    number("camera-fov-constant", m_Preferences.Bool("3D Layout\\Actions\\Camera Fov Constant Speed Mode"));
+    number("translate-sticky", m_Preferences.Bool("3D Layout\\Actions\\Object Translate Sticky Mode"));
+    number("rotate-sticky", m_Preferences.Bool("3D Layout\\Actions\\Object Rotate Sticky Mode"));
+    number("scale-sticky", m_Preferences.Bool("3D Layout\\Actions\\Object Scale Sticky Mode"));
+    number("homogenous", m_Preferences.Bool("3D Layout\\Homogenous Screen Grid"));
+    number("fly-constant", m_Preferences.Bool("3D Layout\\Actions\\Camera Navigate Constant Speed Mode"));
+    number("free-orbit-type", uint64_t(m_Preferences.Int("3D Layout\\Actions\\Free Camera Orbit Type")));
+    number("orbit-selection-type", uint64_t(m_Preferences.Int("3D Layout\\Actions\\Orbit Selection Type")));
+    number("snap-mode", uint64_t(m_Preferences.Int("3D Layout\\Snap\\Mode")));
+    number("snap-radius", uint64_t(m_Preferences.Int("3D Layout\\Snap\\Translation Influence (3D Entities)")));
+    number("snap-influence", uint64_t(m_Preferences.Int("3D Layout\\Snap\\Translation Influence (Sprites)")));
+    number("hierarchy", settings.hierarchy); number("snap", settings.snap);
+    number("shift", ImGui::GetIO().KeyShift); number("ctrl", ImGui::GetIO().KeyCtrl); number("locked", locked);
+    number("axes", settings.axes); number("referential", settings.referential); number("pivot", settings.pivot);
+    number("scale-mode", Window().scaleMode);
+    const auto vector = [&](const char *key, const char *preference, size_t count) {
+        const auto text = m_Preferences.Text(preference);
+        EditorField field{key, EDITOR_REAL_LIST}; size_t start = 0;
+        for (size_t i = 0; i < count; ++i) {
+            field.reals.push_back(start <= text.size() ? float(std::atof(text.c_str() + start)) : 0.0f);
+            const auto next = text.find('|', start); start = next == std::string::npos ? text.size() + 1 : next + 1;
+        }
+        result.fields.push_back(std::move(field));
+    };
+    vector("world-min", "3D Layout\\World Size Min", 3);
+    vector("world-max", "3D Layout\\World Size Max", 3);
+    vector("world-step", "3D Layout\\World Step", 3);
+    vector("screen-step", "3D Layout\\Screen Step", 2);
+    vector("screen-offset", "3D Layout\\Screen Offset", 2);
+    return result;
+}
+
 
 EditorResponse LayoutWindow::InputState(int x, int y, bool pick, ObjectRef curve, bool ignoreUnpickable) const {
     EditorField position{"position", EDITOR_REAL_LIST};
@@ -181,8 +176,7 @@ std::vector<EditorField> LayoutWindow::GestureFields(const EditorResponse &input
             {"action", EDITOR_INTEGER_VALUE, {}, {}, action},
             std::move(start),
             std::move(selected),
-            GestureOptions(Steps(), settings, TransformStepsOf(), Snap2DOf(), m_Preferences, Window().scaleMode,
-                           selection.locked),
+            GestureOptions(settings, selection.locked),
             MotionValue(x, y),
             started};
 }
@@ -258,7 +252,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
 #endif
         if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             if (Window().rectangle)
-                ApplyRect(VxRect(Window().pressAt.x, Window().pressAt.y, static_cast<float>(x), static_cast<float>(y)));
+                ApplyRect(ImVec4(Window().pressAt.x, Window().pressAt.y, static_cast<float>(x), static_cast<float>(y)));
             else {
                 const auto input = InputState(int(Window().pressAt.x), int(Window().pressAt.y), true, {}, true);
                 if (input.status == EDITOR_OK)
@@ -293,7 +287,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
             if (input.status == EDITOR_OK)
                 if (const auto *picked = EditorClient::Find(input, "entity"); picked && picked->object) {
                     Settings().referent = picked->object;
-                    m_State.Log(LogLevel::Info, "Referent: " + EditorClient::Text(input, "name"));
+                    Client().Log(EDITOR_LOG_INFO, "Referent: " + EditorClient::Text(input, "name"));
                 }
         }
         return;
@@ -380,8 +374,7 @@ void LayoutWindow::ViewInput(const ImVec2 &at, bool hovered) {
             extent.real = Window().zoomExtent;
             count.real = notches;
             std::vector<EditorField> args{{"target", EDITOR_OBJECT, target->object},
-                                          GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(),
-                                                         m_Preferences, Window().scaleMode, false),
+                                          GestureOptions(Settings(), false),
                                           extent,
                                           count};
             const auto values = BorrowEditorFields(args);
@@ -407,7 +400,7 @@ void LayoutWindow::StartupOptions(const std::string &tool, const std::string &ca
         const LayoutObjectRow *curve = nullptr;
         if (ReadLayoutScene(Client(), "explorer", scene))
             for (const auto &row : scene.rows)
-                if (row.cid == CKCID_CURVE) {
+                if (row.curve) {
                     curve = &row;
                     break;
                 }
@@ -416,16 +409,16 @@ void LayoutWindow::StartupOptions(const std::string &tool, const std::string &ca
                                               IntegerArgument("tool", curveTool->second), IntegerArgument("plane", 0)});
             SyncCurveTool();
         } else
-            m_State.Log(LogLevel::Warning, "--layout-tool: no curve");
+            Client().Log(EDITOR_LOG_WARNING, "--layout-tool: no curve");
     } else if (!tool.empty()) {
-        m_State.Log(LogLevel::Warning, "--layout-tool: unknown tool " + tool);
+        Client().Log(EDITOR_LOG_WARNING, "--layout-tool: unknown tool " + tool);
     }
     if (camera.empty()) return;
     LayoutSceneData cameras;
     if (ReadLayoutScene(Client(), "cameras", cameras)) for (const auto &row : cameras.rows) if (row.name == camera) {
         Execute("layout.set-camera", {ObjectArgument("target", row.object)}); return;
     }
-    m_State.Log(LogLevel::Warning, "--layout-view: no camera named " + AnsiToUtf8(camera));
+    Client().Log(EDITOR_LOG_WARNING, "--layout-view: no camera named " + AnsiToUtf8(camera));
 }
 
 void LayoutWindow::StartupSelection(const std::vector<std::string> &names, const std::string &group,
@@ -438,14 +431,14 @@ void LayoutWindow::StartupSelection(const std::vector<std::string> &names, const
                                         [&](const LayoutObjectRow &row) { return row.name == AnsiToUtf8(name); });
         if (found != scene.rows.end())
             objects.push_back(found->object);
-        else m_State.Log(LogLevel::Warning, "--layout-select: no 2D or 3D entity named " + AnsiToUtf8(name));
+        else Client().Log(EDITOR_LOG_WARNING, "--layout-select: no 2D or 3D entity named " + AnsiToUtf8(name));
     }
     if (!objects.empty()) SetSelection(objects);
     if (!group.empty()) EnterGroup(AnsiToUtf8(group));
     for (int command : commands) Command(command);
 }
 
-void LayoutWindow::StartupDrop(const CKGUID &guid, float x, float y) {
+void LayoutWindow::StartupDrop(uint64_t guid, float x, float y) {
     m_StartupDrop = guid;
     m_StartupDropAt = ImVec2(x, y);
     m_StartupDropFrames = 10;
@@ -494,12 +487,12 @@ void LayoutWindow::ApplyClick(ObjectRef picked) {
     SetSelection(std::move(objects));
 }
 
-void LayoutWindow::ApplyRect(const VxRect &rect) {
+void LayoutWindow::ApplyRect(const ImVec4 &rect) {
     LayoutSelectionData selection;
     if (!ReadLayoutSelection(Client(), selection) || selection.locked)
         return;
     EditorField rectangle{"rectangle", EDITOR_REAL_LIST};
-    rectangle.reals = {rect.left, rect.top, rect.right, rect.bottom};
+    rectangle.reals = {rect.x, rect.y, rect.z, rect.w};
     const std::vector<EditorField> fields{
         rectangle,
         {"select", EDITOR_INTEGER_VALUE, {}, {}, 2},
@@ -614,7 +607,7 @@ bool LayoutWindow::BeginTransform(int x, int y) {
     return BeginGesture(std::move(fields), kind, unsigned(action), selection);
 }
 
-int LayoutWindow::HandleAt(int x, int y, CK_ID *entity) const {
+int LayoutWindow::HandleAt(int x, int y, uint32_t *entity) const {
     if (Window().tool == LayoutTool::Translate || Window().tool == LayoutTool::Fly || CurveToolActive())
         return 0;
     const auto input = InputState(x, y, true);
@@ -662,9 +655,7 @@ void LayoutWindow::ZoomOn(bool scene) {
     const std::vector<EditorField> fields{{"target", EDITOR_OBJECT, target->object},
                                           {"objects", EDITOR_OBJECT_LIST, {}, {}, 0, Window().selectionData.objects},
                                           {"scene", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(scene)},
-                                          GestureOptions(Steps(), Settings(), TransformStepsOf(), Snap2DOf(),
-                                                         m_Preferences, Window().scaleMode,
-                                                         Window().selectionData.locked)};
+                                          GestureOptions(Settings(), Window().selectionData.locked)};
     const auto values = BorrowEditorFields(fields);
     Execute("layout.zoom-on", {values.data(), values.data() + values.size()}, AfterCommand::Zoom);
 }

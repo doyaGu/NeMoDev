@@ -1044,10 +1044,10 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
                                         data};
     static const EditorParameter messageArgs[] = {{EDITOR_TEXT("text"), EDITOR_TEXT_VALUE},
         {EDITOR_TEXT("title"), EDITOR_TEXT_VALUE, 1}, {EDITOR_TEXT("icon"), EDITOR_INTEGER_VALUE, 1},
-        {EDITOR_TEXT("cancel"), EDITOR_INTEGER_VALUE, 1}};
+        {EDITOR_TEXT("cancel"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("format"), EDITOR_TEXT_VALUE, 1}};
     static const EditorParameter messageReply[] = {{EDITOR_TEXT("message"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("choice"), EDITOR_TEXT_VALUE}};
     descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("message.show"), EDITOR_TEXT("example.messages"),
-        EDITOR_TEXT("Show external message"), messageArgs, 4, ShowApplicationMessage, data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
+        EDITOR_TEXT("Show external message"), messageArgs, 5, ShowApplicationMessage, data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
     descriptors->commands.push_back({sizeof(EditorCommandDesc), EDITOR_TEXT("message.respond"), EDITOR_TEXT("example.messages"),
         EDITOR_TEXT("Answer external message"), messageReply, 2, ReplyToApplicationMessage, data, EDITOR_APPLICATION, EDITOR_SESSION_CHANGE});
     static const EditorParameter messageOptions[] = {{EDITOR_TEXT("reply"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE}};

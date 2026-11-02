@@ -1,4 +1,4 @@
-#include "ui/app/EditorState.h"
+#include "ui/native/EditorSession.h"
 #include "core/document/Edit.h"
 #include "core/runtime/TextEncoding.h"
 #include <SDL3/SDL.h>
@@ -21,7 +21,7 @@ static PendingDialog Take() { Require(pending.size() == 1, "one native request")
 int main() {
     try {
         Require(SDL_Init(0), "SDL initialization");
-        vdev::EditorState editor;
+        vdev::EditorSession editor;
         const auto mainThread = std::this_thread::get_id();
         bool called = false;
         {

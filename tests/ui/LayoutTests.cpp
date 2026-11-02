@@ -12,6 +12,7 @@
 #include <algorithm>
 
 #include "tests/ui/UiTests.h"
+#include "core/layout/LayoutExplorer.h"
 #include "ui/render/UiRenderer.h"
 #include "features/layout/LayoutSceneData.h"
 
@@ -145,7 +146,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK(SelectEntity(ctx, found));
         auto &state = App().State();
-        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
         vdev::LayoutSelectionData selected;
         ImVec2 min, max, background(-1, -1);
         IM_CHECK(App().Layout().ShownView(min, max));
@@ -221,7 +222,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK_SILENT(SelectEntity(ctx, found));
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         vdev::WorkspaceConfiguration initial;
         EditorView source = 0;
         size_t steps = 0;
@@ -240,7 +241,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
             steps = state.History().UndoCount();
             dirty = state.document->Dirty();
             redo = state.History().CanRedo();
-            IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, found.at, CKCID_3DENTITY) == found.entity);
+            IM_CHECK_NO_RET(App().ParameterCopiesForTests().Pick((found.at).x, (found.at).y, CKCID_3DENTITY).object == found.entity);
             selection = state.objectSelection.Revision();
             allocations = App().Layout().GpuViewportCreationsForTests();
             uploads = App().Layout().ViewportUploadsForTests();
@@ -298,7 +299,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         bool locked = false;
         OnMainThread(ctx, [&] {
             uint64_t prototype = 0;
-            for (const auto &entry : state.catalog.Entries())
+            for (const auto &entry : App().CatalogForTests().Entries())
                 if (entry.name == "Rotate")
                     prototype = (uint64_t(entry.guid.d1) << 32) | entry.guid.d2;
             IM_CHECK_NO_RET(prototype);
@@ -411,7 +412,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         ImVec2 min, max;
         IM_CHECK(App().Layout().ShownView(min, max));
         ctx->MouseMoveToPos(Center(min, max));
-        IM_CHECK_SILENT(!App().State().workspace->Role("main.preferences"));
+        IM_CHECK_SILENT(!(&App().WorkspaceForTests())->Role("main.preferences"));
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_G);
         ctx->Yield(3);
         const auto window = PreferencesRef();
@@ -447,7 +448,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         Settle(ctx, "//3D Layout");
         InView found;
         IM_CHECK_SILENT(SelectEntity(ctx, found));
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         IM_CHECK_EQ(state.objectSelection.Objects().size(), 1u);
         IM_CHECK(state.objectSelection.Contains(found.entity));
         IM_CHECK(Read<bool>(ctx, [&] { return App().LevelSelection().count(found.entity) == 1; }));
@@ -585,7 +586,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         Settle(ctx, "//3D Layout");
         InView found;
         IM_CHECK_SILENT(SelectEntity(ctx, found));
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const VxVector before = Position(ctx, found.entity);
         ctx->KeyPress(ImGuiKey_X);
         ctx->Yield(2);
@@ -616,7 +617,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         Settle(ctx, "//3D Layout");
         InView found;
         IM_CHECK_SILENT(SelectEntity(ctx, found));
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const VxMatrix before = WorldMatrix(ctx, found.entity);
         ctx->KeyPress(ImGuiKey_C);
         ctx->Yield(2);
@@ -637,7 +638,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
         Settle(ctx, "//3D Layout");
         InView found;
         IM_CHECK_SILENT(SelectEntity(ctx, found));
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const VxVector before = Scale(ctx, found.entity);
         ctx->KeyPress(ImGuiKey_V);
         ctx->Yield(2);
@@ -873,7 +874,7 @@ void RegisterLayoutTests(ImGuiTestEngine *engine) {
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, "//3D Layout");
-        auto &state = App().State(); auto &editor = state.workspace->Application();
+        auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
         vdev::ObjectRef source{}, other{}; size_t steps = 0; bool dirty = false;
         OnMainThread(ctx, [&] {
             const auto a = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);

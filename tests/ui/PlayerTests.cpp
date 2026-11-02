@@ -19,7 +19,7 @@ namespace vdevuitest {
 namespace {
 vdev::SnapshotData Snapshots() {
     vdev::SnapshotData data;
-    vdev::ReadSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), data);
+    vdev::ReadSnapshots(vdev::EditorClient((&App().WorkspaceForTests())->Application().Host(), 0), data);
     return data;
 }
 constexpr const char *PLAY = "//##StatusBar/play/##bitmap";
@@ -109,7 +109,7 @@ struct Session {
     bool hadMinimize = false;
     explicit Session(ImGuiTestContext *value) : ctx(value) {
         OnMainThread(ctx, [&] {
-            auto &p = App().State().preferences;
+            auto &p = App().SettingsForTests();
             mode = p.Text("3D Layout\\Player Mode\\Render Mode");
             automatic = p.Bool("3D Layout\\Player Mode\\Auto FullScreen");
             p.SetBool("3D Layout\\Player Mode\\Auto FullScreen", false);
@@ -127,9 +127,9 @@ struct Session {
     }
     ~Session() {
         OnMainThread(ctx, [&] {
-            auto &editor = App().State().workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             editor.Execute("runtime.reset", {editor.Scope(), nullptr, 0});
-            auto &p = App().State().preferences;
+            auto &p = App().SettingsForTests();
             p.Set("3D Layout\\Player Mode\\Render Mode", mode);
             p.SetBool("3D Layout\\Player Mode\\Auto FullScreen", automatic);
             if (other) SDL_DestroyWindow(other);
@@ -206,13 +206,13 @@ void MoveNativePointer(ImGuiTestContext *ctx, const ImVec2 &at) {
 
 bool Start(ImGuiTestContext *ctx) {
     ctx->ItemClick(PLAY);
-    return Until(ctx, [] { return App().Layout().PlayerMode() && App().State().debugger->Frames() > 3; });
+    return Until(ctx, [] { return App().Layout().PlayerMode() && App().DebuggerForTests()->Frames() > 3; });
 }
 
 bool ChooseMode(ImGuiTestContext *ctx) {
     return Read<bool>(ctx, [ctx] {
         CKRenderManager *renderer = App().State().host.Context()->GetRenderManager();
-        const auto &p = App().State().preferences;
+        const auto &p = App().SettingsForTests();
         const int driver = vdev::LayoutFullScreenDriver(App().State().host.Context(), p.Text("3D Layout\\Player Mode\\FullScren Driver"));
         const VxDriverDesc *desc = renderer->GetRenderDriverDescription(driver);
         const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(SDL_GetDisplayForWindow(EditorWindow()));
@@ -235,7 +235,7 @@ bool ChooseMode(ImGuiTestContext *ctx) {
         ctx->LogInfo("Fullscreen mode %dx%dx%d at %d Hz; desktop %dx%d at %.3f Hz",
             mode.Width, mode.Height, mode.Bpp, mode.RefreshRate,
             desktop ? desktop->w : 0, desktop ? desktop->h : 0, desktop ? desktop->refresh_rate : 0.0f);
-        App().State().preferences.Set("3D Layout\\Player Mode\\Render Mode",
+        App().SettingsForTests().Set("3D Layout\\Player Mode\\Render Mode",
             std::to_string(mode.Width) + "x" + std::to_string(mode.Height) + "x" + std::to_string(mode.Bpp) + "x" + std::to_string(mode.RefreshRate));
         return true;
     });
@@ -360,7 +360,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         NativeWindowInput nativeInput(ctx);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, "0"));
-            IM_CHECK_NO_RET(vdev::EditorClient(App().State().workspace->Application().Host(), 0)
+            IM_CHECK_NO_RET(vdev::EditorClient((&App().WorkspaceForTests())->Application().Host(), 0)
                                 .Command("layout.toggle-fullscreen").status == EDITOR_OK);
         });
         IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && NativeFocus(RenderWindow()); }));
@@ -404,17 +404,17 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
                 IM_CHECK_NO_RET(SDL_SetHint(SDL_HINT_VIDEO_MINIMIZE_ON_FOCUS_LOSS, cycle >= 3 ? "1" : "0"));
             });
             if (cycle) {
-                const int frames = App().State().debugger->Frames();
+                const int frames = App().DebuggerForTests()->Frames();
                 OnMainThread(ctx, [&] {
-                    IM_CHECK_NO_RET(vdev::EditorClient(App().State().workspace->Application().Host(), 0)
+                    IM_CHECK_NO_RET(vdev::EditorClient((&App().WorkspaceForTests())->Application().Host(), 0)
                                         .Command("runtime.play").status == EDITOR_OK);
                 });
                 IM_CHECK(Until(ctx, [&] {
-                    return App().Layout().PlayerMode() && App().State().debugger->Frames() > frames + 3;
+                    return App().Layout().PlayerMode() && App().DebuggerForTests()->Frames() > frames + 3;
                 }));
             }
             OnMainThread(ctx, [&] {
-                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
                 IM_CHECK_NO_RET(client.Command("layout.toggle-fullscreen").status == EDITOR_OK);
             });
             IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && SDL_GetKeyboardFocus() == RenderWindow(); }));
@@ -428,7 +428,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             const size_t steps = App().State().History().UndoCount();
             const bool dirty = App().State().document->Dirty();
             const auto selection = Read<std::vector<vdev::ObjectRef>>(ctx, [] {
-                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
                 const auto result = client.Query("selection.objects");
                 const auto *objects = vdev::EditorClient::Find(result, "objects");
                 return objects ? objects->objects : std::vector<vdev::ObjectRef>{};
@@ -450,14 +450,14 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
                        !SDL_GetWindowMouseGrab(RenderWindow());
             }));
             IM_CHECK(Released(ctx));
-            IM_CHECK(App().State().debugger->GetState() == vdev::Debugger::State::Paused);
-            const int frames = App().State().debugger->Frames();
+            IM_CHECK(App().DebuggerForTests()->GetState() == vdev::Debugger::State::Paused);
+            const int frames = App().DebuggerForTests()->Frames();
             IM_CHECK(Until(ctx, [] { return App().Layout().UsesGpuViewport(); }));
             const uint64_t allocations = App().Layout().GpuViewportCreationsForTests();
             ctx->Yield(12);
-            IM_CHECK_EQ(App().State().debugger->Frames(), frames);
+            IM_CHECK_EQ(App().DebuggerForTests()->Frames(), frames);
             OnMainThread(ctx, [&] {
-                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
                 const auto result = client.Query("selection.objects");
                 const auto *objects = vdev::EditorClient::Find(result, "objects");
                 IM_CHECK_NO_RET(objects && objects->objects == selection && App().State().History().UndoCount() == steps &&
@@ -511,10 +511,10 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             IM_CHECK(std::fabs(mouse.x - (at.x - min.x)) < 2 && std::fabs(mouse.y - (at.y - min.y)) < 2);
             session.StealFocus();
             IM_CHECK(Until(ctx, [&] { return SDL_GetKeyboardFocus() == session.other; }));
-            IM_CHECK(Until(ctx, [] { return App().State().debugger->GetState() == vdev::Debugger::State::Paused; }));
-            const int frames = App().State().debugger->Frames();
+            IM_CHECK(Until(ctx, [] { return App().DebuggerForTests()->GetState() == vdev::Debugger::State::Paused; }));
+            const int frames = App().DebuggerForTests()->Frames();
             ctx->Yield(12);
-            IM_CHECK_EQ(App().State().debugger->Frames(), frames);
+            IM_CHECK_EQ(App().DebuggerForTests()->Frames(), frames);
             IM_CHECK(Read<bool>(ctx, [] { return !App().Layout().PlayerMode(); }));
             IM_CHECK(Released(ctx));
             // Closing the other window returns focus through the window manager;
@@ -525,7 +525,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             });
             IM_CHECK(Until(ctx, [] { return SDL_GetKeyboardFocus() == EditorWindow(); }));
             ctx->Yield(5);
-            IM_CHECK_EQ(App().State().debugger->Frames(), frames);
+            IM_CHECK_EQ(App().DebuggerForTests()->Frames(), frames);
         }
         IM_CHECK(Start(ctx));
         IM_CHECK(Released(ctx));
@@ -538,7 +538,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         Session session(ctx);
         const bool available = Read<bool>(ctx, [] {
             const vdev::Preferences defaults;
-            auto &p = App().State().preferences;
+            auto &p = App().SettingsForTests();
             p.Set("3D Layout\\Player Mode\\Render Mode", defaults.Text("3D Layout\\Player Mode\\Render Mode"));
             CKContext *context = App().State().host.Context();
             const int driver = vdev::LayoutFullScreenDriver(context, p.Text("3D Layout\\Player Mode\\FullScren Driver"));
@@ -589,7 +589,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
                 const auto history = App().State().History().UndoCount();
                 const auto selected = App().State().objectSelection.References();
                 layout.FailNextGpuViewportReleaseForTests();
-                const auto result = vdev::EditorClient(App().State().workspace->Application().Host(), 0)
+                const auto result = vdev::EditorClient((&App().WorkspaceForTests())->Application().Host(), 0)
                                         .Command("layout.toggle-fullscreen");
                 IM_CHECK(result.status == EDITOR_ERROR && !layout.FullScreen());
                 IM_CHECK(layout.GpuViewportTextureForTests() == texture &&
@@ -605,14 +605,14 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             AltEnter(ctx, Read<SDL_Window *>(ctx, [] { return EditorWindow(); }));
             IM_CHECK(Until(ctx, [] { return App().Layout().FullScreen() && SDL_GetKeyboardFocus() == RenderWindow(); }));
             IM_CHECK(Read<bool>(ctx, [] { return (SDL_GetWindowFlags(RenderWindow()) & SDL_WINDOW_FULLSCREEN) != 0; }));
-            const int frames = App().State().debugger->Frames();
+            const int frames = App().DebuggerForTests()->Frames();
             ctx->Yield(6);
-            IM_CHECK_GT(App().State().debugger->Frames(), frames);
+            IM_CHECK_GT(App().DebuggerForTests()->Frames(), frames);
             // Check sustained presentation before any readback can synchronize
             // the render queue or change the backbuffer being inspected.
             if (cycle == 0) {
                 ctx->Yield(600);
-                IM_CHECK_GT(App().State().debugger->Frames(), frames + 6);
+                IM_CHECK_GT(App().DebuggerForTests()->Frames(), frames + 6);
             }
 #if defined(_WIN32)
             const Image beforeReadback = DisplayedImage(ctx);
@@ -623,7 +623,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             IM_CHECK(SaveImage("fullscreen.png", full));
             if (cycle == 0)
                 OnMainThread(ctx, [&] {
-                    const auto client = vdev::EditorClient(App().State().workspace->Application().Host(), 0);
+                    const auto client = vdev::EditorClient((&App().WorkspaceForTests())->Application().Host(), 0);
                     vdev::SnapshotData data;
                     IM_CHECK(vdev::ReadSnapshots(client, data));
                     const auto slot = data.FirstFree();
@@ -701,14 +701,14 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
             ctx, [] { return Input()->IsKeyDown(CKKEY_F6) && Input()->IsMouseButtonDown(CK_MOUSEBUTTON_RIGHT); }));
         session.StealFocus();
         IM_CHECK(Until(ctx, [] { return !App().Layout().FullScreen() && !App().Layout().PlayerMode(); }));
-        IM_CHECK(App().State().debugger->GetState() == vdev::Debugger::State::Paused);
+        IM_CHECK(App().DebuggerForTests()->GetState() == vdev::Debugger::State::Paused);
         IM_CHECK(Released(ctx));
         IM_CHECK(Until(ctx, [&] {
             return NativeFocus(session.other) && !(SDL_GetWindowFlags(EditorWindow()) & SDL_WINDOW_HIDDEN);
         }));
-        const int paused = App().State().debugger->Frames();
+        const int paused = App().DebuggerForTests()->Frames();
         ctx->Yield(12);
-        IM_CHECK_EQ(App().State().debugger->Frames(), paused);
+        IM_CHECK_EQ(App().DebuggerForTests()->Frames(), paused);
     };
 
     t = IM_REGISTER_TEST(engine, "player", "snapshot_take_capture_cancel");
@@ -761,7 +761,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(App().State().document->Dirty(), dirty);
         IM_CHECK_EQ(App().State().History().UndoCount(), steps);
         OnMainThread(ctx, [=] {
-            vdev::RemoveSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), Snapshots(),
+            vdev::RemoveSnapshots(vdev::EditorClient((&App().WorkspaceForTests())->Application().Host(), 0), Snapshots(),
                                   {slot, next});
         });
     };

@@ -63,7 +63,7 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
         ctx->KeyPress(ImGuiKey_Enter);
         ctx->Yield(3);
         IM_CHECK(InFront(ctx, SchematicRef().c_str()));
-        IM_CHECK_EQ(App().State().Schematic().stackScript, App().State().document->Reference(row->object));
+        IM_CHECK_EQ(App().Canvas().Navigation().stackScript, App().State().document->Reference(row->object));
         bool shown = false;
         for (const vdev::SchematicCanvas::ShownScript &each : App().Canvas().ShownScripts())
             shown |= each.script == row->object;
@@ -79,7 +79,7 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
         const std::optional<Row> row = FindLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK_SILENT(row.has_value());
         IM_CHECK_SILENT(row->eyeMax.x > row->eyeMin.x);
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const bool before = Visible(ctx, row->object);
         ctx->MouseMoveToPos(Center(row->eyeMin, row->eyeMax));
         ctx->MouseClick(0);
@@ -207,7 +207,7 @@ void RegisterLevelTests(ImGuiTestEngine *engine) {
         Settle(ctx, SceneRef("level", "").c_str());
         const std::optional<Row> row = ClickLevelRow(ctx, CKCID_3DENTITY);
         IM_CHECK_SILENT(row.has_value());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const size_t logged = state.eventLog.Entries().size();
         ctx->KeyPress(ImGuiKey_Delete);
         ctx->Yield(3);

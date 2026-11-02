@@ -11,14 +11,14 @@
 
 namespace vdevuitest {
 static void OpenHelp(const char *topic) {
-    auto &editor = App().State().workspace->Application();
+    auto &editor = (&App().WorkspaceForTests())->Application();
     const EditorValue value{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, {}, vdev::EditorLiteral(topic)};
     const auto result = editor.Execute("help.open", {editor.Scope(), &value, 1});
     IM_CHECK_NO_RET(result.status == EDITOR_OK || result.status == EDITOR_QUEUED);
 }
 static std::string HelpRef(const char *suffix = "") {
     const auto id = vdev::HelpViewForTests();
-    return id ? "//" + App().State().workspace->WindowName(id) + suffix : "//##closed-help";
+    return id ? "//" + (&App().WorkspaceForTests())->WindowName(id) + suffix : "//##closed-help";
 }
 struct HelpScaleLifetime {
     ImGuiStyle style = ImGui::GetStyle();
@@ -288,13 +288,13 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, BlocksRef().c_str());
         ctx->ItemInputValue(BlocksRef("/##filter").c_str(), "Rotate");
-        const auto initial = Read<vdev::EditorConfiguration>(ctx, [] { return App().State().workspace->Application().Configuration(); });
+        const auto initial = Read<vdev::EditorConfiguration>(ctx, [] { return (&App().WorkspaceForTests())->Application().Configuration(); });
         for (int action = 0; action < 4; ++action) {
             if (action == 3) OnMainThread(ctx, [&] {
                 auto configuration = initial;
                 configuration.bindings.emplace_back("help.open", "Alt+H");
                 std::string error;
-                IM_CHECK_NO_RET(App().State().workspace->Configure(configuration, error));
+                IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(configuration, error));
             });
             ctx->WindowFocus(BlocksRef().c_str());
             ctx->MouseMove(BlocksRef("/**/Rotate").c_str());
@@ -317,7 +317,7 @@ void RegisterHelpTests(ImGuiTestEngine *engine) {
         }
         OnMainThread(ctx, [&] {
             std::string error;
-            IM_CHECK_NO_RET(App().State().workspace->Configure(initial, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(initial, error));
             OpenHelp("missing-source.html");
         });
         ctx->Yield(3);

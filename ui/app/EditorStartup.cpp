@@ -44,24 +44,24 @@ void EditorApp::RunStartupActions(bool opened) {
     m_Layout.debugData = m_Startup.layoutDebug;
     if (!m_Startup.dropBlock.empty()) {
         const BuildingBlockEntry *found = nullptr;
-        for (const auto &entry : m_State.catalog.Entries())
+        for (const auto &entry : m_Catalog.Entries())
             if (entry.name == m_Startup.dropBlock) found = &entry;
-        if (found) m_Layout.StartupDrop(found->guid, m_Startup.dropX, m_Startup.dropY);
-        else m_State.Log(LogLevel::Error, "--drop-block: unknown Building Block " + m_Startup.dropBlock);
+        if (found) m_Layout.StartupDrop((uint64_t(found->guid.d1) << 32) | found->guid.d2, m_Startup.dropX, m_Startup.dropY);
+        else m_Session.Log(LogLevel::Error, "--drop-block: unknown Building Block " + m_Startup.dropBlock);
     }
     if (opened || m_Startup.newComposition) {
-        for (CK_ID script : m_State.Schematic().visibleScripts) {
+        for (CK_ID script : m_Schematics.Current().Navigation().visibleScripts) {
             if (m_Startup.openScripts)
                 if (!m_Schematics.Current().ScriptOpen(script)) m_Schematics.Current().ToggleScriptOpen(script);
             if (m_Startup.expandGraphs)
-                EditScriptData(*m_State.document, script, "Expand graphs", [](InterfaceData &data) {
+                EditScriptData(*m_Session.document, script, "Expand graphs", [](InterfaceData &data) {
                     for (auto &record : data.behaviors)
                         if (record.isBehaviorGraph) SetBehaviorFolded(data, record.id, false);
                 });
         }
-        if (!m_Startup.insertBlock.empty() && !m_State.Schematic().visibleScripts.empty()) InsertStartupBlock();
+        if (!m_Startup.insertBlock.empty() && !m_Schematics.Current().Navigation().visibleScripts.empty()) InsertStartupBlock();
         if (m_Startup.fit) m_FitFrames = 3;
-        for (const auto &script : m_State.document->Scripts()) {
+        for (const auto &script : m_Session.document->Scripts()) {
             const std::string name = AnsiToUtf8(script.name);
             for (const auto &closed : m_Startup.closeScripts)
                 if (closed == name)
@@ -82,13 +82,13 @@ void EditorApp::RunStartupActions(bool opened) {
                 {"material", LayoutObject::Material}, {"texture", LayoutObject::Texture}, {"portal", LayoutObject::Portal}};
             auto kind = kinds.find(name);
             if (kind != kinds.end()) CreateObject(kind->second);
-            else m_State.Log(LogLevel::Warning, "--create: unknown kind " + name);
+            else m_Session.Log(LogLevel::Warning, "--create: unknown kind " + name);
         }
         // After --create: the objects made can be selected.
         if (!m_Startup.layoutSelect.empty() || !m_Startup.layoutGroup.empty() || !m_Startup.layoutCommands.empty())
             m_Layout.StartupSelection(m_Startup.layoutSelect, m_Startup.layoutGroup, m_Startup.layoutCommands);
         for (const auto &name : m_Startup.setups) {
-            CKContext *context = m_State.document->Context();
+            CKContext *context = m_Session.document->Context();
             // "@attributes", "@hierarchy", "@addattribute": the managers.
             if (name == "@attributes") {
                 OpenSceneView("attributes");
@@ -136,11 +136,11 @@ void EditorApp::RunStartupActions(bool opened) {
                         object = list[i];
             }
             if (object)
-                m_Setups.Open(m_State.document->Reference(object->GetID()));
+                m_Setups.Open(m_Session.document->Reference(object->GetID()));
             else
-                m_State.Log(LogLevel::Warning, "--setup: no object named " + AnsiToUtf8(name));
+                m_Session.Log(LogLevel::Warning, "--setup: no object named " + AnsiToUtf8(name));
         }
-        if (m_Startup.playFrames > 0 && m_State.debugger) {
+        if (m_Startup.playFrames > 0 && m_Debugger) {
             Command("runtime.open-debugger");
             const EditorValue trace{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, 1};
             m_Editor.Execute("runtime.set-trace", {m_Editor.Scope(), &trace, 1});
@@ -151,7 +151,7 @@ void EditorApp::RunStartupActions(bool opened) {
         if (m_Startup.menuAt) m_Schematics.Current().RequestMenuAt(ImVec2(m_Startup.menuX, m_Startup.menuY));
         if (!m_Startup.editParameters.empty()) {
             // The first behavior or operation of that name, in a Script.
-            CKContext *context = m_State.document->Context();
+            CKContext *context = m_Session.document->Context();
             std::function<bool(CKBehavior *, CK_ID)> find = [&](CKBehavior *graph, CK_ID script) {
                 for (int i = 0; i < graph->GetSubBehaviorCount(); ++i) {
                     CKBehavior *child = graph->GetSubBehavior(i);
@@ -174,49 +174,49 @@ void EditorApp::RunStartupActions(bool opened) {
                 return false;
             };
             bool found = false;
-            for (const auto &script : m_State.document->Scripts())
+            for (const auto &script : m_Session.document->Scripts())
                 if (CKBehavior *behavior = CKBehavior::Cast(context->GetObject(script.id)))
                     if ((found = find(behavior, script.id))) break;
-            if (!found) m_State.Log(LogLevel::Error, "--edit-parameters: nothing named " + AnsiToUtf8(m_Startup.editParameters));
+            if (!found) m_Session.Log(LogLevel::Error, "--edit-parameters: nothing named " + AnsiToUtf8(m_Startup.editParameters));
         }
         if (!m_Startup.showScript.empty()) {
             bool found = false;
-            for (const auto &script : m_State.document->Scripts()) {
+            for (const auto &script : m_Session.document->Scripts()) {
                 if (AnsiToUtf8(script.name) != m_Startup.showScript) continue;
                 m_Panels.ShowScript(script.id);
                 found = true;
                 break;
             }
-            if (!found) m_State.Log(LogLevel::Error, "--show-script: no Script named " + m_Startup.showScript);
+            if (!found) m_Session.Log(LogLevel::Error, "--show-script: no Script named " + m_Startup.showScript);
         }
     }
 }
 
 // --insert-block: exercises the topology commands for --capture checks.
 void EditorApp::InsertStartupBlock() {
-    const CK_ID script = m_State.Schematic().visibleScripts.front();
+    const CK_ID script = m_Schematics.Current().Navigation().visibleScripts.front();
     const BuildingBlockEntry *found = nullptr;
-    for (const auto &entry : m_State.catalog.Entries())
+    for (const auto &entry : m_Catalog.Entries())
         if (entry.name == m_Startup.insertBlock) found = &entry;
-    ScriptSession *session = m_State.document->Session(script);
+    ScriptSession *session = m_Session.document->Session(script);
     if (!found || !session) {
-        m_State.Log(LogLevel::Error, "--insert-block: unknown Building Block " + m_Startup.insertBlock);
+        m_Session.Log(LogLevel::Error, "--insert-block: unknown Building Block " + m_Startup.insertBlock);
         return;
     }
     const InterfaceData &data = session->Data();
     const Point position(data.header.hStartPos + 120.0f, data.rootBehavior.rect.vPos + data.header.vStartPos);
     const EditResult inserted =
-        InsertBuildingBlock(*m_State.document, script, script, found->guid, position);
+        InsertBuildingBlock(*m_Session.document, script, script, found->guid, position);
     if (!inserted.ok) {
-        m_State.Log(LogLevel::Error, "--insert-block: " + AnsiToUtf8(inserted.message));
+        m_Session.Log(LogLevel::Error, "--insert-block: " + AnsiToUtf8(inserted.message));
         return;
     }
-    CKBehavior *root = CKBehavior::Cast(m_State.document->Context()->GetObject(script));
+    CKBehavior *root = CKBehavior::Cast(m_Session.document->Context()->GetObject(script));
     CKBehaviorIO *start = root && root->GetInputCount() ? root->GetInput(0) : nullptr;
-    const EditResult linked = CreateBehaviorLink(*m_State.document, script,
+    const EditResult linked = CreateBehaviorLink(*m_Session.document, script,
                                                  LinkEndpoint(start ? start->GetID() : 0, 0, ENDPOINT_START_BIN),
                                                  LinkEndpoint(inserted.created, 0, ENDPOINT_BIN));
-    m_State.Log(linked.ok ? LogLevel::Info : LogLevel::Error,
+    m_Session.Log(linked.ok ? LogLevel::Info : LogLevel::Error,
                 "--insert-block: inserted " + m_Startup.insertBlock + (linked.ok ? ", linked from Start" : ", " + AnsiToUtf8(linked.message)));
 }
 
@@ -275,7 +275,7 @@ void EditorApp::OpenStartupTool(const std::string &name) {
         ShowSchematicExplorer();
     } else if (name == "breakpointconfig" || name == "breakpoints" || name == "invalidlinks") {
         // The Schematic in front (it draws them), then once the start's focus settled.
-        m_State.events.Post(FocusSchematic{});
+        m_Schematics.Focus();
         m_PendingStartupDialog = name;
     } else if (name == "webpage") {
         Command("document.export-web");
@@ -288,7 +288,7 @@ void EditorApp::OpenStartupTool(const std::string &name) {
     } else if (name.compare(0, 6, "print:") == 0) {
         m_PendingPrintDialog = name.substr(6);
     } else {
-        m_State.Log(LogLevel::Warning, "--tool: unknown window " + name);
+        m_Session.Log(LogLevel::Warning, "--tool: unknown window " + name);
     }
 }
 
@@ -296,12 +296,12 @@ void EditorApp::OpenStartupTool(const std::string &name) {
 void EditorApp::OpenStartupDialog(const std::string &name) {
     if (name == "breakpointconfig" || name == "breakpoints") {
         // A breakpoint on the first Script's first behavior when there is none.
-        CKContext *context = m_State.HasDocument() ? m_State.document->Context() : nullptr;
-        CKBehavior *script = context && !m_State.Schematic().visibleScripts.empty()
-                                 ? CKBehavior::Cast(context->GetObject(m_State.Schematic().visibleScripts.front()))
+        CKContext *context = m_Session.HasDocument() ? m_Session.document->Context() : nullptr;
+        CKBehavior *script = context && !m_Schematics.Current().Navigation().visibleScripts.empty()
+                                 ? CKBehavior::Cast(context->GetObject(m_Schematics.Current().Navigation().visibleScripts.front()))
                                  : nullptr;
-        if (m_State.debugger && m_State.debugger->Breakpoints().empty() && script && script->GetSubBehaviorCount() > 0)
-            ToggleBreakpoint(*m_State.document, script->GetID(), EXTRA_DATA_BEHAVIOR, script->GetSubBehavior(0)->GetID());
+        if (m_Debugger && m_Debugger->Breakpoints().empty() && script && script->GetSubBehaviorCount() > 0)
+            ToggleBreakpoint(*m_Session.document, script->GetID(), EXTRA_DATA_BEHAVIOR, script->GetSubBehavior(0)->GetID());
         if (name == "breakpoints") m_Schematics.Current().OpenBreakpointList();
         else m_Schematics.Current().ConfigureBreakpoints();
     } else if (name == "invalidlinks") {
@@ -312,13 +312,23 @@ void EditorApp::OpenStartupDialog(const std::string &name) {
 // The per-frame actions, once the start's window focus has settled (a focus
 // change closes popups).
 void EditorApp::StartupFrame(bool settled) {
+    if (m_StartupResourceOperation) {
+        const EditorClient client(m_Editor.Host(), 0);
+        const auto result = client.Completion(m_StartupResourceOperation);
+        if (result.status != EDITOR_QUEUED) {
+            if (result.status == EDITOR_OK) client.Command("resource.browse", {
+                IntegerArgument("view", EditorClient::Integer(result, "view")),
+                TextArgument("folder", m_Startup.resourceFolder)});
+            m_StartupResourceOperation = 0;
+        }
+    }
     if (!settled) {
     } else if (m_StartupParameters) {
         // --edit-parameters once the focus settled (a focus change closes popups).
         m_Schematics.Current().OpenParametersOf(m_StartupParametersScript, m_StartupParameters);
         m_StartupParameters = 0;
-    } else if (!m_Startup.editValue.empty() && m_StartupValueState == 0 && m_State.HasDocument()) {
-        CKContext *context = m_State.document->Context();
+    } else if (!m_Startup.editValue.empty() && m_StartupValueState == 0 && m_Session.HasDocument()) {
+        CKContext *context = m_Session.document->Context();
         CKParameterManager *manager = context->GetParameterManager();
         // The type's name, or its GUID as "0xd1,0xd2".
         CKParameterType type = manager->ParameterNameToType(const_cast<CKSTRING>(m_Startup.editValue.c_str()));
@@ -329,13 +339,13 @@ void EditorApp::StartupFrame(bool settled) {
         CKParameterOut *parameter =
             type >= 0 ? context->CreateCKParameterOut(const_cast<CKSTRING>(name.c_str()), manager->ParameterTypeToGuid(type), TRUE)
                       : nullptr;
-        const bool added = parameter && m_StartupValue.Add(parameter, name);
+        const bool added = parameter && m_StartupValue.Add(m_Session.document->Reference(parameter->GetID()), AnsiToUtf8(name));
         if (parameter) context->DestroyObject(parameter); // the box edits its own copy
         if (added) {
             ImGui::OpenPopup("Edit Parameter###StartupValue");
             m_StartupValueState = 1;
         } else {
-            m_State.Log(LogLevel::Error, "--edit-value: no type named " + AnsiToUtf8(m_Startup.editValue));
+            m_Session.Log(LogLevel::Error, "--edit-value: no type named " + AnsiToUtf8(m_Startup.editValue));
             m_StartupValueState = 2;
         }
     }

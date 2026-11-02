@@ -10,7 +10,10 @@
 
 #include "imgui.h"
 
-#include "VxMath.h"
+#include "VxMatrix.h"
+#include "VxBbox.h"
+#include "VxColor.h"
+#include "VxRect.h"
 #include "application/Preferences.h"
 #include "features/layout/SnapshotData.h"
 #include "ui/render/UiRenderer.h"

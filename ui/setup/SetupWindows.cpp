@@ -1077,6 +1077,7 @@ void SetupWindows::Picture(Setup &setup) {
         RetireTexture(std::move(setup.pictureTexture));
         setup.pictureRevision = setup.picture.Revision();
     }
+    if (setup.pictureTexture && !setup.pictureTexture->NativeTexture()) setup.pictureTexture.reset();
     if (read && setup.picture.present && !setup.pictureTexture) {
         auto rgba = setup.picture.pixels;
         for (size_t i = 0; i < rgba.size(); i += 4)

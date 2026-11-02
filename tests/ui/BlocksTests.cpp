@@ -109,7 +109,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "blocks", "drop_into_schematic_undo");
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, SchematicRef().c_str());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint(0, ImVec2(200, 120));
         IM_CHECK_SILENT(point.has_value());
         const CK_ID script = point->first;
@@ -117,7 +117,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         Filter(ctx, BLOCK);
         DragBlockTo(ctx, point->second);
         IM_CHECK_EQ(ShownNamed(script), before + 1);
-        IM_CHECK_EQ(state.Schematic().selection.items.size(), 1u);
+        IM_CHECK_EQ(App().Canvas().Navigation().selection.items.size(), 1u);
         IM_CHECK(state.History().CanUndo());
         IM_CHECK(state.document->Dirty());
         Undo(ctx);
@@ -131,14 +131,14 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "blocks", "multi_drag_into_schematic");
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, SchematicRef().c_str());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint(0, ImVec2(200, 120));
         IM_CHECK_SILENT(point.has_value());
         const CK_ID script = point->first;
         Filter(ctx, BLOCK);
         // The first two the filter lists, in the catalog's order.
         std::vector<std::string> names;
-        for (const vdev::BuildingBlockEntry &entry : state.catalog.Entries())
+        for (const vdev::BuildingBlockEntry &entry : App().CatalogForTests().Entries())
             if (entry.name.find(BLOCK) != std::string::npos &&
                 std::find(names.begin(), names.end(), entry.name) == names.end() && names.size() < 2)
                 names.push_back(entry.name);
@@ -185,12 +185,12 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(before >= 0);
         ctx->KeyPress(ImGuiKey_Enter);
         ctx->Yield(3);
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         IM_CHECK_EQ(BlocksOn(ctx, found.entity), before + 1);
         IM_CHECK(state.document->Dirty());
         // The Schematic's stack made for the entity's Script, which shows the
         // block; the Schematic in front once the dialog is closed.
-        const vdev::ScriptInfo *shown = state.document->FindScript(state.document->NativeId(state.Schematic().stackScript));
+        const vdev::ScriptInfo *shown = state.document->FindScript(state.document->NativeId(App().Canvas().Navigation().stackScript));
         IM_CHECK(shown && shown->ownerId == found.entity);
         IM_CHECK(InFront(ctx, SchematicRef().c_str()));
         Undo(ctx);
@@ -254,7 +254,7 @@ void RegisterBlocksTests(ImGuiTestEngine *engine) {
         InView found;
         IM_CHECK(SelectEntity(ctx, found));
         auto &state = App().State();
-        const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+        const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
         std::vector<vdev::ObjectRef> objects;
         OnMainThread(ctx, [&] {
             vdev::LayoutSceneData scene;

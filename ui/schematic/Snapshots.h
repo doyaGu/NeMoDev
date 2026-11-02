@@ -6,7 +6,6 @@
 
 #include "imgui.h"
 #include <cstdint>
-#include "core/runtime/Bitmaps.h"
 
 namespace vdev {
 class UiTexture;
@@ -17,7 +16,6 @@ class SnapshotBuffer;
 // The editor texture of a bitmap handle, made on first use; size in pixels.
 // Null when the handle cannot be read.
 ImTextureID SnapshotTexture(const std::shared_ptr<const SchematicSnapshot> &, ImVec2 *size);
-ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size, const std::shared_ptr<void> &owner = {});
 #ifdef VIRTOOLSDEV_UI_TESTS
 size_t SnapshotTextureCountForTests();
 #endif

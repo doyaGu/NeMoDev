@@ -7,7 +7,6 @@
 #include "workspace/EditorWorkspace.h"
 #include "CKDefines.h"
 #include "CKEnums.h"
-#include "CKCamera.h"
 #include "VxDefines.h"
 #include "editor/Scene.h"
 
@@ -319,12 +318,14 @@ void SetupWindows::CameraPage(ObjectRef target) {
     page.Label(220, 110, 400, 130, "Projection Type");
     page.Line(225, 130, 226, 170);
     const int projection = int(values.Integer("camera.projection"));
-    bool perspective = projection == CK_PERSPECTIVEPROJECTION, orthographic = !perspective;
+    const auto perspectiveType = uint32_t(data.Integer("perspective-type"));
+    const auto orthographicType = uint32_t(data.Integer("orthographic-type"));
+    bool perspective = projection == perspectiveType, orthographic = !perspective;
     if (page.Check("Perspective", 245, 134, perspective))
-        PreviewValue(id, "camera.projection", CK_PERSPECTIVEPROJECTION);
+        PreviewValue(id, "camera.projection", perspectiveType);
     page.Label(260, 132, 400, 148, "Perspective");
     if (page.Check("Orthographic", 245, 154, orthographic))
-        PreviewValue(id, "camera.projection", CK_ORTHOGRAPHICPROJECTION);
+        PreviewValue(id, "camera.projection", orthographicType);
     page.Label(260, 152, 400, 168, "Orthographic");
 
     // Aspect Ratio: Dev's presets (Custom, Normal 4:3, Extended 16:9,

@@ -182,7 +182,10 @@ int main(int argc, char **argv) {
         }
         ImGui_ImplSDL3_NewFrame();
 #ifdef VIRTOOLSDEV_UI_TESTS
-        if (capture && !app.State().runtimeOperation.Busy()) line.FeedInput(frame, app);
+        if (capture && !app.State().runtimeOperation.Busy()) {
+            line.FeedInput(frame);
+            if (line.drag && frame == vdev::CommandLine::DRAG_START + vdev::CommandLine::DRAG_STEPS + 6) app.LogUndoTop();
+        }
 #endif
         ImGui::NewFrame();
         ImGuiErrorRecoveryState recovery;
@@ -193,7 +196,7 @@ int main(int argc, char **argv) {
             io.ConfigErrorRecoveryEnableAssert = false;
             ImGui::ErrorRecoveryTryToRecoverState(&recovery);
             io.ConfigErrorRecoveryEnableAssert = assertRecovery;
-            app.State().Log(vdev::LogLevel::Error, failure.what());
+            app.ReportFailure(failure.what());
         }
         ImGui::Render();
         if (!vdev::MainRenderer().Render(ImGui::GetDrawData(), !headless, &error)) {

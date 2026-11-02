@@ -11,7 +11,7 @@ const EditorField &Field(const EditorResponse &response, const char *key) {
 bool Ready(ImGuiTestContext *ctx, EditorView view) {
     for (int i = 0; i < 100; ++i) {
         if (Read<bool>(ctx, [&] {
-            auto &editor = App().State().workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             return EditorClient::Integer(EditorClient(editor.Host(), 0).Inspect(view), "revision") != 0;
         })) return true;
         ctx->Yield();
@@ -20,7 +20,7 @@ bool Ready(ImGuiTestContext *ctx, EditorView view) {
 }
 EditorView Open(ImGuiTestContext *ctx, const char *name) {
     return Read<EditorView>(ctx, [&] {
-        auto &workspace = *App().State().workspace; auto &editor = workspace.Application();
+        auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         const auto opened = editor.Execute(std::string("diagnostics.open-") + name, {editor.Scope(), nullptr, 0});
         IM_CHECK_NO_RET(opened.status == EDITOR_OK);
         return workspace.Role(std::string("main.") + name);
@@ -32,7 +32,7 @@ struct Restore {
     EditorResponse links;
     ~Restore() {
         OnMainThread(ctx, [&] {
-            auto &workspace = *App().State().workspace; auto &editor = workspace.Application();
+            auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
             editor.Execute("diagnostics.close-tools", {editor.Scope(), nullptr, 0});
             editor.Execute("environment.close-managers", {editor.Scope(), nullptr, 0});
             if (configuration) { std::string error; IM_CHECK_NO_RET(workspace.Configure(*configuration, error)); }
@@ -47,12 +47,12 @@ struct Restore {
 };
 void OpenLinks(ImGuiTestContext *ctx) {
     OnMainThread(ctx, [] {
-        auto &editor = App().State().workspace->Application(); editor.Execute("environment.open-link-options", {editor.Scope(), nullptr, 0});
+        auto &editor = (&App().WorkspaceForTests())->Application(); editor.Execute("environment.open-link-options", {editor.Scope(), nullptr, 0});
     }); ctx->Yield(3);
 }
 void SetLinkDelay(ImGuiTestContext *ctx, const char *text) {
     const auto input = Read<ImGuiID>(ctx, [&] {
-        auto &workspace = *App().State().workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto *window = ImGui::FindWindowByName(workspace.WindowName(workspace.Role("main.link-options")).c_str());
         if (!window) return ImGuiID(0);
         const auto *table = ImGui::TableFindByID(ImHashStr("parameters", 0, window->ID));
@@ -78,12 +78,12 @@ void RegisterDiagnosticTests(ImGuiTestEngine *engine) {
                 if (block.buildingBlock) { target = block; break; }
             if (!target) return;
             prototype = Object<CKBehavior>(target->behavior)->GetPrototypeGuid();
-            recent = state.recentBlocks; state.recentBlocks = {prototype};
+            recent = App().RecentBlocksForTests(); App().RecentBlocksForTests() = {prototype};
         });
         IM_CHECK(target.has_value());
         struct RestoreRecent {
             ImGuiTestContext *ctx; std::vector<CKGUID> value;
-            ~RestoreRecent() { OnMainThread(ctx, [&] { App().State().recentBlocks = value; }); }
+            ~RestoreRecent() { OnMainThread(ctx, [&] { App().RecentBlocksForTests() = value; }); }
         } restore{ctx, recent};
         const auto steps = state.History().UndoCount();
         const auto dirty = state.document->Dirty();
@@ -92,13 +92,13 @@ void RegisterDiagnosticTests(ImGuiTestEngine *engine) {
         ctx->ItemClick(("//$FOCUSED/" + target->name).c_str()); ctx->Yield(2);
         uint64_t logSequence = 0;
         OnMainThread(ctx, [&] {
-            state.recentBlocks.clear();
+            App().RecentBlocksForTests().clear();
             if (!state.eventLog.Entries().empty()) logSequence = state.eventLog.Entries().back().sequence;
         });
         ctx->ItemClick("//Replace Building Block/Yes"); ctx->Yield(5);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(state.History().UndoCount() == steps + 1 && state.document->IsDiscarded(target->behavior));
-            IM_CHECK_NO_RET(!state.recentBlocks.empty() && state.recentBlocks.front() == prototype);
+            IM_CHECK_NO_RET(!App().RecentBlocksForTests().empty() && App().RecentBlocksForTests().front() == prototype);
             bool logged = false;
             for (const auto &entry : state.eventLog.Entries())
                 if (entry.sequence > logSequence && entry.text == "Replaced 1 Building Block(s)") logged = true;
@@ -111,7 +111,7 @@ void RegisterDiagnosticTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Restore restore{ctx};
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         size_t undo = 0; bool redo = false, dirty = false; ObjectRef selection{};
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(CreateLayoutObject(*state.document, LayoutObject::Material).ok);
@@ -157,7 +157,7 @@ void RegisterDiagnosticTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, SchematicRef().c_str()); Restore restore{ctx};
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         size_t undo = 0; bool redo = false, dirty = false; ObjectRef selection{}; int parameters = 0;
         OnMainThread(ctx, [&] {
             restore.links = EditorClient(editor.Host(), 0).Query("environment.link-options");
@@ -177,7 +177,7 @@ void RegisterDiagnosticTests(ImGuiTestEngine *engine) {
         ctx->ItemClick(EnvironmentRef("link-options", "/OK").c_str()); ctx->Yield(4);
         IM_CHECK(!workspace.Role("main.link-options"));
         OnMainThread(ctx, [&] {
-            IM_CHECK_NO_RET(state.preferences.defaultLinkDelay == 17 && state.History().UndoCount() == undo && state.History().CanRedo() == redo &&
+            IM_CHECK_NO_RET(App().SettingsForTests().defaultLinkDelay == 17 && state.History().UndoCount() == undo && state.History().CanRedo() == redo &&
                 state.document->Dirty() == dirty && editor.Selection() == selection);
         });
         OpenLinks(ctx); ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(3);
@@ -190,14 +190,14 @@ void RegisterDiagnosticTests(ImGuiTestEngine *engine) {
                 IntegerArgument("iterations", EditorClient::Integer(current, "iterations"))}).status == EDITOR_OK);
         });
         ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(3);
-        IM_CHECK(workspace.Role("main.link-options") != 0 && state.preferences.defaultLinkDelay == 23);
+        IM_CHECK(workspace.Role("main.link-options") != 0 && App().SettingsForTests().defaultLinkDelay == 23);
         ctx->ItemClick(EnvironmentRef("link-options", "/Cancel").c_str()); ctx->Yield(2);
     };
     test = IM_REGISTER_TEST(engine, "modules", "diagnostics_and_link_properties_use_external_commands");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Restore restore{ctx};
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         OnMainThread(ctx, [&] {
             restore.configuration = editor.Configuration(); restore.links = EditorClient(editor.Host(), 0).Query("environment.link-options");
             auto configuration = *restore.configuration;
@@ -220,7 +220,7 @@ void RegisterDiagnosticTests(ImGuiTestEngine *engine) {
         ctx->ItemClick(EnvironmentRef("link-options", "/OK").c_str()); ctx->Yield(4);
         OnMainThread(ctx, [&] {
             const auto count = EditorClient(editor.Host(), 0).Query("example.diagnostic-counts");
-            IM_CHECK_NO_RET(EditorClient::Integer(count, "links") == 1 && state.preferences.defaultLinkDelay == 26);
+            IM_CHECK_NO_RET(EditorClient::Integer(count, "links") == 1 && App().SettingsForTests().defaultLinkDelay == 26);
         });
     };
 }

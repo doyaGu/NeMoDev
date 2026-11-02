@@ -12,7 +12,8 @@
 #include "imgui_internal.h"
 #include "misc/cpp/imgui_stdlib.h"
 
-#include "CKAll.h"
+#include "CKDefines.h"
+#include "CKEnums.h"
 
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"

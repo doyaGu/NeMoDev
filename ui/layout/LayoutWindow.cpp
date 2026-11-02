@@ -2,7 +2,6 @@
 #include "ui/schematic/Snapshots.h"
 
 #include "ui/render/UiRenderer.h"
-#include "core/layout/SdlGpuInterop.h"
 #include <SDL3/SDL.h>
 
 #include "imgui_internal.h"
@@ -15,10 +14,8 @@
 #include <map>
 
 #include "ui/controls/DevBitmaps.h"
-#include "core/level/LevelCommands.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/TypeAhead.h"
-#include "core/level/ObjectEditCommands.h"
 #include "core/runtime/TextEncoding.h"
 
 
@@ -38,10 +35,6 @@ float Component(const std::string &text, int index, char separator) {
     return static_cast<float>(std::atof(text.c_str() + start));
 }
 
-VxVector Vector(const std::string &text) {
-    return VxVector(Component(text, 0, '|'), Component(text, 1, '|'), Component(text, 2, '|'));
-}
-
 // Dev's colors (screenshots): the top bar strip, the left toolbar.
 const ImU32 TOP_BAR = IM_COL32(65, 65, 65, 255);
 const ImU32 TOP_BAR_BORDER = IM_COL32(157, 157, 157, 255);
@@ -53,16 +46,9 @@ const char *const REFERENTIALS[] = {"Local", "World", "View", "Parent", "Ref. Gu
 
 } // namespace
 
-LayoutWindow::LayoutWindow(EditorState &state, EditorApplication &editor)
-    : m_State(state), m_CommandEditor(editor), m_EditorHost(editor.Host()), m_View(state.host) {}
 
-LayoutWindow::~LayoutWindow() {
-    CancelEdits();
-    if (!ReleaseTexture()) {
-        m_View.Stop();
-        ResetViewportAfterContextStop();
-    }
-}
+
+
 
 void LayoutWindow::Report(EditorStatus status, const std::string &message) {
     if (m_CommandEditor.report)
@@ -120,7 +106,7 @@ bool LayoutWindow::Register(std::string &error) {
         const auto &state = *static_cast<WindowState *>(data);
         const auto &owner = *state.owner;
         double x = 0, y = 0;
-        uint64_t objectClass = CKCID_OBJECT;
+        uint64_t objectClass = 0;
         for (uint32_t i = 0; i < request->count; ++i) {
             const auto &v = request->values[i];
             if (std::string(v.key.data, v.key.size) == "x")
@@ -183,7 +169,7 @@ void LayoutWindow::Closing() {
     Window().dropText.clear();
     Window().dropHighlight = {};
     if (m_Started)
-        m_View.SetDropTarget(0);
+        ClearDropHighlight();
     auto texture = std::move(m_GpuTexture);
     std::string error;
     if (!ExitFullScreen(true, error) && !error.empty())
@@ -334,43 +320,9 @@ EditorStatus LayoutWindow::RestoreWindow(const EditorRequest &request) {
     return EDITOR_OK;
 }
 
-bool LayoutWindow::Start(SDL_Window *window, std::string *error) {
-    m_MainWindow = window;
-    if (!m_Window)
-        return true;
-    Window().needsStart = false;
-    Window().capturing = 0;
-    CancelEdits();
-    if (!ReleaseTexture()) {
-        // Keep the borrowed SDL texture alive until the old Context, and with
-        // it the stale logical handle, has ceased to exist.
-        m_View.Stop();
-        ResetViewportAfterContextStop();
-    }
-    m_MainWindow = window;
-    ApplyPreferences();
-    std::string message;
-    m_Started = m_View.Start(Utf8ToAnsi(m_Preferences.Text("3D Layout\\Author Mode\\Device Driver")), &message,
-                             MainRenderer().Device());
-    SelectViewportContext();
-    if (!m_Started) m_StartError = message;
-    if (error) *error = message;
-    m_View.windowEvent = [this](const SDL_Event &event) {
-        if (!m_Switching) FullScreenEvent(event);
-    };
-    return m_Started;
-}
 
-void LayoutWindow::Stop() {
-    if (m_Window)
-        Window().capturing = 0;
-    CancelEdits();
-    const bool released = ReleaseTexture();
-    m_View.Stop();
-    if (!released)
-        ResetViewportAfterContextStop();
-    m_Started = false;
-}
+
+
 
 // Dev's CUIKApp +0x100: set by Play (sub_5CD5D0), cleared by Pause and
 // Stop (sub_5CD3D0) and when the context no longer plays (sub_5CD650).
@@ -422,7 +374,7 @@ void LayoutWindow::Draw(EditorViewFrame &frame) {
         ImGui::IsKeyPressed(ImGuiKey_Enter, false))
         ToggleFullScreen();
     // Fullscreen, the frame goes to the screen, the 3D Layout shown or not.
-    if (m_View.FullScreen()) m_View.RenderFullScreen();
+    RenderPlayer();
     Window().openPopups = !frame.focus;
     EditorPrepareViewWindow(frame);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -694,7 +646,7 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
                         // Pick Obj.: the next click in the view picks it.
                         if (i == 5) {
                             Window().pickingReferent = true;
-                            m_State.Log(LogLevel::Info, "Pick the referential object in the 3D Layout");
+                            Client().Log(EDITOR_LOG_INFO, "Pick the referential object in the 3D Layout");
                         }
                     }
                 ImGui::EndCombo();
@@ -720,7 +672,7 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     // Guides.
     static const Button guide = {29, 31, 166, 52, 187, {1258, 1259, 1260, 1260, 1258}, "Toggle Reference Guide (G)"};
     static const Button screenGuide = {67, 53, 166, 74, 187, {678, 680, 679, 679, 678}, "Toggle Screen Guide (Shift+G)"};
-    if (ToolbarButton(guide, m_View.Display().showGrid)) Command(guide.command);
+    if (ToolbarButton(guide, m_Preferences.Bool("3D Layout\\Author Mode\\Show Grid"))) Command(guide.command);
     if (ToolbarButton(screenGuide, m_Preferences.Bool("3D Layout\\Show Screen Grid")))
         Command(screenGuide.command);
     line(191);
@@ -817,7 +769,7 @@ void LayoutWindow::Command(int command) {
         // Pivot Axis Object: the next click in the view picks the referent.
         if (command == 72) {
             Window().pickingReferent = true;
-            m_State.Log(LogLevel::Info, "Pick the referent object in the 3D Layout");
+            Client().Log(EDITOR_LOG_INFO, "Pick the referent object in the 3D Layout");
         }
         break;
     case 29: ToggleGuide(false); break;
@@ -837,7 +789,7 @@ void LayoutWindow::Command(int command) {
         if (Client().Scope().document.value) {
             const auto made = Client().Command("object.create-automatic-portals");
             if (made.status != EDITOR_QUEUED)
-                m_State.Log(made.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, "Automatic Portals: " + made.message);
+                Client().Log(made.status == EDITOR_OK ? EDITOR_LOG_INFO : EDITOR_LOG_WARNING, "Automatic Portals: " + made.message);
         }
         break;
     case 23:
@@ -979,8 +931,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     m_ViewMax = ImVec2(std::min(at.x + size.x, visibleMax.x), std::min(at.y + size.y, visibleMax.y));
     m_ViewFrame = ImGui::GetFrameCount();
     if (m_Started && m_MainWindow) {
-        const VxRect inputRect(at.x, at.y, at.x + size.x, at.y + size.y);
-        m_View.SetInputViewport(m_MainWindow, inputRect, width, height);
+        InputViewport(ImVec4(at.x, at.y, at.x + size.x, at.y + size.y), width, height);
     }
     ImGui::SetCursorScreenPos(viewAt);
     ImGui::InvisibleButton("##view", visible,
@@ -998,7 +949,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (m_Started && m_StartupDropFrames > 0 && --m_StartupDropFrames == 0)
         DropBuildingBlocks(static_cast<int>(m_StartupDropAt.x - at.x), static_cast<int>(m_StartupDropAt.y - at.y),
-                           {(uint64_t(m_StartupDrop.d1) << 32) | m_StartupDrop.d2});
+                           {m_StartupDrop});
 #endif
     if (!m_Started) {
         dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), LEFT_BAR);
@@ -1008,23 +959,9 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     }
     ContextMenuPopup();
     dl->PushClipRect(viewAt, visibleMax, true);
-    const bool resized = width != m_View.Width() || height != m_View.Height();
-    bool targetReleased = true;
-    if (resized && m_ViewportRenderer == &LayoutWindow::RenderGpuViewport) {
-        targetReleased = ReleaseGpuViewport();
-        if (targetReleased)
-            m_ViewportRenderer = &LayoutWindow::RenderUnselectedViewport;
-    }
-    UiTexture *frame = nullptr;
-    if (targetReleased && m_View.PrepareFrame(width, height)) {
-        const bool contextSelected =
-            m_View.RasterizerContext() == m_ViewportContext ||
-            SelectViewportContext();
-        if (contextSelected)
-            frame = (this->*m_ViewportRenderer)();
-    }
+    UiTexture *frame = RenderViewport(width, height);
     if (frame)
-        dl->AddImage(frame->Id(), at, ImVec2(at.x + m_View.Width(), at.y + m_View.Height()));
+        dl->AddImage(frame->Id(), at, ImVec2(at.x + frame->Width(), at.y + frame->Height()));
     else
         dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), LEFT_BAR);
     // The selection rectangle being dragged.
@@ -1070,28 +1007,7 @@ void LayoutWindow::DebugData(const ImVec2 &at, int x, int y) {
 }
 
 // "3D Layout\Actions\..." and the World Size (Interface page).
-CameraSteps LayoutWindow::Steps() const {
-    const Preferences &p = m_Preferences;
-    CameraSteps steps;
-    steps.rotate = p.Float("3D Layout\\Actions\\Camera Rotate Step");
-    steps.translate = p.Float("3D Layout\\Actions\\Camera Translate Step");
-    steps.zoom = p.Float("3D Layout\\Actions\\Camera Zoom Step");
-    steps.orthoZoom = p.Float("3D Layout\\Actions\\Camera Orthographic Zoom Step");
-    steps.roll = p.Float("3D Layout\\Actions\\Camera Roll Step");
-    steps.fov = p.Float("3D Layout\\Actions\\Camera Fov Step");
-    steps.rotateConstant = p.Bool("3D Layout\\Actions\\Camera Rotate Constant Speed Mode");
-    steps.translateConstant = p.Bool("3D Layout\\Actions\\Camera Translate Constant Speed Mode");
-    steps.zoomConstant = p.Bool("3D Layout\\Actions\\Camera Zoom Constant Speed Mode");
-    steps.orthoZoomConstant = p.Bool("3D Layout\\Actions\\Camera OrthoZoom Constant Speed Mode");
-    steps.rollConstant = p.Bool("3D Layout\\Actions\\Camera Roll Constant Speed Mode");
-    steps.fovConstant = p.Bool("3D Layout\\Actions\\Camera Fov Constant Speed Mode");
-    steps.freeOrbitType = p.Int("3D Layout\\Actions\\Free Camera Orbit Type");
-    steps.freeOrbitValue = p.Float("3D Layout\\Actions\\Free Camera Orbit Value");
-    steps.orbitSelectionType = p.Int("3D Layout\\Actions\\Orbit Selection Type");
-    steps.worldMin = Vector(p.Text("3D Layout\\World Size Min"));
-    steps.worldMax = Vector(p.Text("3D Layout\\World Size Max"));
-    return steps;
-}
+
 
 std::string LayoutWindow::ActionText() const {
     if (!m_Window || !Window().lastUsed)
@@ -1171,241 +1087,31 @@ std::string LayoutWindow::SelectionText() const {
 }
 
 // "3D Layout\Actions\Object ..." and the Snap & Align steps.
-TransformSteps LayoutWindow::TransformStepsOf() const {
-    const Preferences &p = m_Preferences;
-    TransformSteps steps;
-    steps.translate = p.Float("3D Layout\\Actions\\Object Translate Step");
-    steps.rotate = p.Float("3D Layout\\Actions\\Object Rotate Step");
-    steps.scale = p.Float("3D Layout\\Actions\\Object Scale Step");
-    steps.translateSticky = p.Bool("3D Layout\\Actions\\Object Translate Sticky Mode");
-    steps.rotateSticky = p.Bool("3D Layout\\Actions\\Object Rotate Sticky Mode");
-    steps.scaleSticky = p.Bool("3D Layout\\Actions\\Object Scale Sticky Mode");
-    steps.snapAngle = p.Float("3D Layout\\Snap\\Rotation Angle");
-    steps.snapScale = p.Float("3D Layout\\Snap\\Scaling Percentage");
-    steps.snapMode = p.Int("3D Layout\\Snap\\Mode");
-    steps.snapRadius = p.Int("3D Layout\\Snap\\Translation Influence (3D Entities)");
-    steps.worldStep = Vector(p.Text("3D Layout\\World Step"));
-    return steps;
-}
+
 
 // "3D Layout\Snap\..." for 2D entities and the Screen Guide (Interface page).
-Snap2D LayoutWindow::Snap2DOf() const {
-    const Preferences &p = m_Preferences;
-    Snap2D snap;
-    snap.mode = p.Int("3D Layout\\Snap\\Mode");
-    snap.influence = p.Int("3D Layout\\Snap\\Translation Influence (Sprites)");
-    const std::string step = p.Text("3D Layout\\Screen Step"), offset = p.Text("3D Layout\\Screen Offset");
-    snap.screenStep[0] = Component(step, 0, '|');
-    snap.screenStep[1] = Component(step, 1, '|');
-    snap.screenOffset[0] = Component(offset, 0, '|');
-    snap.screenOffset[1] = Component(offset, 1, '|');
-    snap.homogenous = p.Bool("3D Layout\\Homogenous Screen Grid");
-    return snap;
-}
 
-bool LayoutWindow::Upload(const std::vector<unsigned char> &pixels, int width, int height) {
-    if (width <= 0 || height <= 0 || pixels.size() < static_cast<size_t>(width) * height * 4) return false;
-    std::vector<unsigned char> rgba = pixels;
-    for (size_t i = 0; i < rgba.size(); i += 4) std::swap(rgba[i], rgba[i+2]);
-    if (!m_Texture || width != m_TextureWidth || height != m_TextureHeight) {
-        auto texture = MainRenderer().CreateTexture(width, height, rgba.data());
-        if (!texture) return false;
-        if (m_Texture) RetireTexture(std::move(m_Texture));
-        m_Texture = std::move(texture);
-        m_TextureWidth = width; m_TextureHeight = height;
-#ifdef VIRTOOLSDEV_UI_TESTS
-        ++m_ViewportUploads;
-#endif
-        return true;
-    }
-    const bool updated = MainRenderer().UpdateTexture(*m_Texture, rgba.data());
-#ifdef VIRTOOLSDEV_UI_TESTS
-    if (updated) ++m_ViewportUploads;
-#endif
-    return updated;
-}
-bool LayoutWindow::SelectViewportContext() {
-    if (!ReleaseGpuViewport())
-        return false;
-    m_ViewportContext = m_View.RasterizerContext();
-#ifdef VIRTOOLSDEV_UI_TESTS
-    ++m_GpuViewportSelections;
-#endif
-    m_ViewportRenderer = m_ViewportContext && MainRenderer().Device()
-        ? &LayoutWindow::RenderUnselectedViewport
-        : &LayoutWindow::RenderReadbackViewport;
-    return true;
-}
 
-bool LayoutWindow::ConfigureGpuViewport(int width, int height) {
-    if (!m_ViewportContext || !MainRenderer().Device() || width <= 0 || height <= 0)
-        return false;
-    auto texture = MainRenderer().CreateRenderTarget(width, height);
-    if (!texture) return false;
-#ifdef VIRTOOLSDEV_UI_TESTS
-    if (m_FailNextGpuViewport) {
-        m_FailNextGpuViewport = false;
-        return false;
-    }
-#endif
-    CKDWORD handle = 0;
-    if (!BindSdlGpuBackBuffer(m_ViewportContext, MainRenderer().Device(),
-                              texture->NativeTexture(), width, height,
-                              &handle))
-        return false;
-    // The selected path owns exactly one persistent viewport image. A CPU
-    // fallback texture may exist when a rebuilt Context becomes eligible for
-    // direct rendering; retire it before adopting the imported target.
-    if (m_Texture)
-        RetireTexture(std::move(m_Texture));
-    m_TextureWidth = m_TextureHeight = 0;
-    m_GpuTextureHandle = handle;
-    m_GpuTexture = std::move(texture);
-#ifdef VIRTOOLSDEV_UI_TESTS
-    ++m_GpuViewportCreations;
-#endif
-    return true;
-}
 
-bool LayoutWindow::ReleaseGpuViewport() {
-#ifdef VIRTOOLSDEV_UI_TESTS
-    if (m_FailNextGpuViewportRelease) {
-        m_FailNextGpuViewportRelease = false;
-        return false;
-    }
-#endif
-    const bool hadTexture = m_GpuTextureHandle != 0;
-    if (m_GpuTextureHandle &&
-        !ReleaseSdlGpuBackBuffer(m_ViewportContext, &m_GpuTextureHandle))
-        return false;
-    m_GpuTexture.reset();
-#ifdef VIRTOOLSDEV_UI_TESTS
-    if (hadTexture)
-        ++m_GpuViewportReleases;
-#endif
-    return true;
-}
 
-UiTexture *LayoutWindow::RenderUnselectedViewport() {
-    if (ConfigureGpuViewport(m_View.Width(), m_View.Height()))
-        m_ViewportRenderer = &LayoutWindow::RenderGpuViewport;
-    else
-        m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
-    return (this->*m_ViewportRenderer)();
-}
 
-UiTexture *LayoutWindow::RenderReadbackViewport() {
-    if (!m_View.RenderFrame() || !m_View.ReadPixels(m_Pixels) ||
-        !Upload(m_Pixels, m_View.Width(), m_View.Height()))
-        return nullptr;
-    return m_Texture.get();
-}
 
-UiTexture *LayoutWindow::RenderGpuViewport() {
-    return m_View.RenderFrame() ? m_GpuTexture.get() : nullptr;
-}
 
-bool LayoutWindow::ReleaseTexture() {
-    if (!ReleaseGpuViewport())
-        return false;
-    m_ViewportContext = nullptr;
-    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
-    if (m_Texture) RetireTexture(std::move(m_Texture));
-    m_TextureWidth = m_TextureHeight = 0;
-    return true;
-}
 
-void LayoutWindow::ResetViewportAfterContextStop() {
-    // Context shutdown destroys its borrowed logical handles without touching
-    // external resources. Releasing the UI texture is safe only afterwards.
-    m_GpuTextureHandle = 0;
-    m_GpuTexture.reset();
-    m_ViewportContext = nullptr;
-    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
-    if (m_Texture)
-        RetireTexture(std::move(m_Texture));
-    m_TextureWidth = m_TextureHeight = 0;
-}
+
+
+
+
+
+
+
+
+
+
 
 // Private window and GPU resource operations used by the Layout commands.
-bool LayoutWindow::CapturePixels(std::vector<unsigned char> &pixels, int &width, int &height) {
-    if (!m_Started || m_View.Width() <= 0 || m_View.Height() <= 0)
-        return false;
-    if ((UsesGpuViewport() || m_View.FullScreen()) && !m_View.ReadPixels(m_Pixels))
-        return false;
-    if (m_Pixels.size() != size_t(m_View.Width()) * size_t(m_View.Height()) * 4)
-        return false;
-    pixels = m_Pixels;
-    width = m_View.Width();
-    height = m_View.Height();
-    return true;
-}
-bool LayoutWindow::EnterFullScreen(const LayoutScreenMode &mode, std::string &error) {
-    if (m_Window)
-        Window().capturing = 0;
-    // Fullscreen presents the render window normally; remove the editor-owned
-    // virtual backbuffer before the Context changes mode or is recreated.
-    if (!ReleaseGpuViewport()) {
-        error = "3D Layout: cannot release the GPU viewport";
-        return false;
-    }
-    m_ViewportContext = nullptr;
-    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
-    m_Switching = true;
-    VxDisplayMode nativeMode;
-    nativeMode.Width = mode.width;
-    nativeMode.Height = mode.height;
-    nativeMode.Bpp = mode.bitsPerPixel;
-    nativeMode.RefreshRate = mode.refreshRate;
-    const bool full = m_View.GoFullScreen(mode.driver, nativeMode);
-    if (full && m_MainWindow && !(SDL_GetWindowFlags(m_MainWindow) & SDL_WINDOW_HIDDEN))
-        m_MainHiddenForFullScreen = SDL_HideWindow(m_MainWindow);
-    m_Switching = false;
-    SelectViewportContext();
-    if (!full)
-        error = "3D Layout: cannot enter fullscreen";
-    return full;
-}
-bool LayoutWindow::ExitFullScreen(bool activateEditor, std::string &error) {
-    if (m_Window)
-        Window().capturing = 0;
-    m_PendingToggle = m_PendingDeactivate = false;
-    if (!m_View.FullScreen())
-        return true;
-    if (!ReleaseGpuViewport()) {
-        error = "3D Layout: cannot release the GPU viewport";
-        return false;
-    }
-    m_ViewportContext = nullptr;
-    m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
-    m_Switching = true;
-    const bool stopped = m_View.StopFullScreen();
-    m_Switching = false;
-    SelectViewportContext();
-    if (!stopped) {
-        error = "3D Layout: cannot leave fullscreen";
-        return false;
-    }
-    if (m_MainWindow && m_MainHiddenForFullScreen) {
-        // Showing the editor after another application takes focus must not
-        // activate it and immediately take that application's focus back.
-        const char *hint = SDL_GetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN);
-        const bool hadHint = hint != nullptr;
-        const std::string previous = hint ? hint : "";
-        if (!activateEditor)
-            SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
-        SDL_ShowWindow(m_MainWindow);
-        if (!activateEditor) {
-            if (hadHint)
-                SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, previous.c_str());
-            else
-                SDL_ResetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN);
-        }
-        m_MainHiddenForFullScreen = false;
-    }
-    if (m_MainWindow && activateEditor)
-        SDL_RaiseWindow(m_MainWindow);
-    return true;
-}
+
+
+
 
 } // namespace vdev

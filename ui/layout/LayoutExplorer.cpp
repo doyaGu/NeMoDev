@@ -1,6 +1,7 @@
 // The 3D Layout's Selection Groups and its 3D Layout Explorer (Dev.exe
 // sub_4B95C0 id 18, sub_4C3D10; the Filter Box dialog sub_59D400).
 #include "ui/layout/LayoutWindow.h"
+#include "core/layout/LayoutExplorerTypes.h"
 
 #include <algorithm>
 #include <cctype>
@@ -11,7 +12,6 @@
 #include "ui/controls/DevIcons.h"
 #include "ui/controls/DevBitmaps.h"
 #include "features/layout/LayoutSceneData.h"
-#include "core/layout/LayoutExplorer.h"
 #include "core/runtime/TextEncoding.h"
 
 namespace vdev {
@@ -101,28 +101,10 @@ void LayoutWindow::ChooseGroup(ObjectRef group) {
 
 // Dev.exe sub_4B46C0: a group that exists is shown and its objects are
 // selected, else the objects saved are; then the lock.
-void LayoutWindow::ApplyLayoutData(const LayoutInterfaceData &data, const LayoutRestoreData &restore, bool restoreSelection) {
-    m_Interface = data; m_Group = {}; m_GroupRevision = ~0u;
-    if (data.present && Client().Scope().document.value)
-        Execute("layout.restore-interface", {IntegerArgument("restore-selection", restoreSelection), ObjectArgument("group", restore.group),
-            ObjectArgument("camera", restore.camera), ObjectsArgument("objects", restore.selection), IntegerArgument("locked", restore.locked)}, AfterCommand::Group);
-}
+
 
 // Dev.exe sub_4B4E50: the group shown, else the selection; the lock.
-LayoutInterfaceData LayoutWindow::LayoutData() const {
-    LayoutInterfaceData data = m_Interface; data.present = true;
-    LayoutSelectionData selection; LayoutSceneData scene, groups;
-    if (ReadLayoutSelection(Client(), selection)) {
-        data.selection.clear(); for (auto object : selection.objects) data.selection.push_back(object.object);
-        data.locked = selection.locked;
-    }
-    if (ReadLayoutScene(Client(), "groups", groups)) {
-        const auto *group = groups.Find(m_Group.object);
-        data.group = group && group->object == m_Group ? m_Group.object : 0;
-    }
-    if (ReadLayoutScene(Client(), "cameras", scene)) data.cameras.assign(1, scene.savedCamera.object);
-    return data;
-}
+
 
 // ------------------------------------------------------------ 3D Layout Explorer
 
@@ -347,7 +329,7 @@ void LayoutWindow::ExplorerWindow() {
             ImGui::SetScrollHereY();
         DrawDevIcon(ImGui::GetWindowDrawList(),
                     ImVec2(at.x + 2.0f * Window().scale, at.y + (rowHeight - 10.0f * iconScale) * 0.5f), iconScale,
-                    IconForClass(row.cid), IM_COL32(0, 0, 0, 255), IM_COL32(230, 230, 230, 255));
+                    row.icon, IM_COL32(0, 0, 0, 255), IM_COL32(230, 230, 230, 255));
         ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 16.0f * Window().scale, at.y + 1.0f * Window().scale),
                                             ImGui::GetColorU32(ImGuiCol_Text), row.name.c_str());
         // The focused item's dotted frame while the list has the focus.

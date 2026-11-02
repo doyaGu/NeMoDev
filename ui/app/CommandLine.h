@@ -7,7 +7,7 @@
 #include <vector>
 
 #ifdef VIRTOOLSDEV_UI_TESTS
-#include "ui/app/EditorApp.h"
+#include "ui/app/EditorStartup.h"
 #endif
 
 namespace vdev {
@@ -65,7 +65,7 @@ struct CommandLine {
         return Capture();
     }
     // The capture mode's input events of frame frameCount, before ImGui::NewFrame.
-    void FeedInput(int frameCount, EditorApp &app) const;
+    void FeedInput(int frameCount) const;
 #endif
 };
 

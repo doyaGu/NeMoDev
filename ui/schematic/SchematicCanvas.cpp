@@ -21,7 +21,6 @@
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/TypeAhead.h"
-#include "core/schematic/LinkRouting.h"
 #include "ui/schematic/SchematicCanvasDetail.h"
 #include "core/schematic/SchematicGrid.h"
 #include "core/schematic/SchematicHitTest.h"
@@ -108,7 +107,7 @@ bool FindCenter(const SchematicModel &model, const ElementRef &ref, Point &cente
 
 } // namespace
 
-SchematicCanvas::ScriptView *SchematicCanvas::ViewFor(CK_ID script) {
+SchematicCanvas::ScriptView *SchematicCanvas::ViewFor(uint32_t script) {
     for (auto &view : m_Views)
         if (view.id == script) return &view;
     return nullptr;
@@ -158,9 +157,9 @@ void SchematicCanvas::UpdateTransforms() {
 void SchematicCanvas::AutoScroll(const ImVec2 &canvasMin, const ImVec2 &canvasMax) {
     const bool dragging = m_Tool == Tool::Link || m_Tool == Tool::Move || m_Tool == Tool::RectSelect ||
                           m_Tool == Tool::CopyDrag || m_Tool == Tool::ExportDrag || m_Tool == Tool::ResizeElement;
-    if (!dragging || !m_State.preferences.Bool("Schematic\\Automatic Scroll")) return;
+    if (!dragging || !m_Preferences.Bool("Schematic\\Automatic Scroll")) return;
     const double now = ImGui::GetTime();
-    if ((now - m_AutoScrollTime) * 1000.0 < std::max(1, m_State.preferences.Int("Schematic\\Autoscroll Delay"))) return;
+    if ((now - m_AutoScrollTime) * 1000.0 < std::max(1, m_Preferences.Int("Schematic\\Autoscroll Delay"))) return;
     const ImVec2 mouse = ImGui::GetIO().MousePos;
     const float step = SchematicGrid::SPACING * m_View.zoom, margin = step * 0.5f;
     float dx = 0.0f, dy = 0.0f;
@@ -304,7 +303,7 @@ SchematicCanvas::ScriptView *SchematicCanvas::BoundaryAt(const ImVec2 &screen) {
     return nullptr;
 }
 
-void SchematicCanvas::ShowScript(CK_ID script, const ElementRef &ref, CK_ID focusBehavior, bool focus) {
+void SchematicCanvas::ShowScript(uint32_t script, const ElementRef &ref, uint32_t focusBehavior, bool focus) {
     if (!Client().Scope().document.value)
         return;
     if (ScriptReferences({script}).empty())
@@ -338,7 +337,7 @@ void SchematicCanvas::RefreshStack() {
          {},
          {},
          uint64_t(m_Navigation.options.showAllScripts) | (uint64_t(m_Navigation.options.sceneFilter) << 1) |
-             (uint64_t(m_State.preferences.Bool("3D Layout\\Show Dynamic Objects")) << 2)}};
+             (uint64_t(m_Preferences.Bool("3D Layout\\Show Dynamic Objects")) << 2)}};
     args[1].objects = m_VisibleScripts;
     args[2].objects.assign(m_Navigation.hiddenScripts.begin(), m_Navigation.hiddenScripts.end());
     args[3].objects = m_Navigation.scriptOrder;
@@ -451,7 +450,7 @@ void SchematicCanvas::ApplyNavigation(const ElementAddress &address, const std::
     if (!focus)
         return;
     if (m_SceneExcluded)
-        m_State.Log(LogLevel::Warning, "Script is not in current scene. Remove Schematic scene filter to show it");
+        Client().Log(EDITOR_LOG_WARNING, "Script is not in current scene. Remove Schematic scene filter to show it");
     if (reveal)
         m_Navigation.closedScripts.erase(address.script);
     if (auto *view = ViewFor(address.script.object))
@@ -559,7 +558,7 @@ bool SchematicCanvas::ReadModel(ScriptView &view, const EditorField &row, ImFont
     const auto stored = EditorClient::Find(meta, "height");
     if (changed && next.script.open && stored && stored->real > 0 && !EditorClient::Integer(meta, "readonly") &&
         (content > stored->real ||
-         (content < stored->real && m_State.preferences.Bool("Schematic\\Auto Resize Scripts"))))
+         (content < stored->real && m_Preferences.Bool("Schematic\\Auto Resize Scripts"))))
         EditorClient(Client().Host(), 0)
             .Command("schematic.fit-content",
                      {ObjectArgument("target", view.identity), IntegerArgument("revision", revision),
@@ -780,7 +779,7 @@ void SchematicCanvas::ApplyFocus(const ImVec2 &size) {
             center = Center(view->model.script.header);
             shown = view->model.script.ref;
         }
-        m_State.Log(LogLevel::Info, "The element is inside a folded graph or a closed Script; showing its container");
+        Client().Log(EDITOR_LOG_INFO, "The element is inside a folded graph or a closed Script; showing its container");
     }
     if (shown.kind == ElementKind::Script) {
         const auto &bounds = view->model.script.bounds;
@@ -799,11 +798,11 @@ void SchematicCanvas::ApplyFocus(const ImVec2 &size) {
     m_Navigation.selection.Set(script, shown);
 }
 
-void SchematicCanvas::ToggleFold(CK_ID script, CK_ID behavior) {
+void SchematicCanvas::ToggleFold(uint32_t script, uint32_t behavior) {
     ExecuteGraph("schematic.toggle-fold", script, behavior, "object");
 }
 
-void SchematicCanvas::ToggleScriptOpen(CK_ID script) {
+void SchematicCanvas::ToggleScriptOpen(uint32_t script) {
     const auto refs = ScriptReferences({script});
     if (refs.empty())
         return;
@@ -815,7 +814,7 @@ void SchematicCanvas::ToggleScriptOpen(CK_ID script) {
         view->viewRevision = ~0ull;
 }
 
-void SchematicCanvas::AddComment(CK_ID script, const Point &local) {
+void SchematicCanvas::AddComment(uint32_t script, const Point &local) {
     auto *view = ViewFor(script);
     const auto graph = view ? GraphAt(*view, local) : 0;
     if (!graph)
@@ -937,11 +936,11 @@ void SchematicCanvas::CompleteGraph(const EditorResponse &result, const GraphCom
     const bool file = command.follow == GraphFollow::FileCreated || command.follow == GraphFollow::FileReplaced;
     if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) {
         if (!file && !result.message.empty())
-            m_State.Log(LogLevel::Warning, result.message);
+            Client().Log(EDITOR_LOG_WARNING, result.message);
         return;
     }
     if (!file && !result.message.empty())
-        m_State.Log(LogLevel::Info, result.message);
+        Client().Log(EDITOR_LOG_INFO, result.message);
     if (command.follow == GraphFollow::ClearSelection || command.follow == GraphFollow::FileReplaced)
         m_Navigation.selection.Clear();
     if (command.follow == GraphFollow::Block)
@@ -992,13 +991,13 @@ void SchematicCanvas::PollGraphCommands() {
     }
 }
 
-CK_ID SchematicCanvas::GraphAt(ScriptView &view, const Point &local) const {
+uint32_t SchematicCanvas::GraphAt(ScriptView &view, const Point &local) const {
     if (!view.model.script.open) return 0;
-    const CK_ID graph = view.model.GraphAt(local);
+    const uint32_t graph = view.model.GraphAt(local);
     return graph ? graph : view.id;
 }
 
-std::vector<EditorField> SchematicCanvas::AuthoringArguments(CK_ID script, CK_ID owner, const Point &at) {
+std::vector<EditorField> SchematicCanvas::AuthoringArguments(uint32_t script, uint32_t owner, const Point &at) {
     const auto state = GraphState(script, owner);
     const auto *target = EditorClient::Find(state, "target"), *object = EditorClient::Find(state, "object");
     if (state.status != EDITOR_OK || !target || !object || !object->object || EditorClient::Integer(state, "readonly"))
@@ -1029,7 +1028,7 @@ void SchematicCanvas::ExecuteAuthoring(const char *id, std::vector<EditorField> 
     const auto values = BorrowEditorFields(fields);
     Execute(id, {values.data(), values.data() + values.size()}, follow, script, owner);
 }
-EditorResponse SchematicCanvas::ElementInfo(CK_ID script, const ElementRef &ref) {
+EditorResponse SchematicCanvas::ElementInfo(uint32_t script, const ElementRef &ref) {
     ElementAddress address;
     if (auto *view = ViewFor(script)) {
         Hit hit;
@@ -1049,7 +1048,7 @@ EditorResponse SchematicCanvas::ElementInfo(CK_ID script, const ElementRef &ref)
     const auto values = BorrowEditorFields(fields);
     return Client().Query("schematic.element-info", {values.data(), values.data() + values.size()});
 }
-EditorResponse SchematicCanvas::ObjectInfo(CK_ID script, CK_ID id) {
+EditorResponse SchematicCanvas::ObjectInfo(uint32_t script, uint32_t id) {
     const auto state = GraphState(script, id);
     const auto *object = EditorClient::Find(state, "object");
     return state.status == EDITOR_OK && object && object->object
@@ -1071,8 +1070,14 @@ std::vector<uint64_t> SchematicCanvas::RecentBlocks() {
     return {};
 }
 void SchematicCanvas::LoadParameterTypes() {
-    m_Types.clear();
     const auto result = Client().Query("schematic.parameter-types");
+    if (result.status != EDITOR_OK) return;
+    if (!m_OperationDefaults) {
+        const auto none = EditorClient::Integer(result, "none");
+        std::fill_n(m_OperationParts, 3, none);
+        m_OperationDefaults = true;
+    }
+    m_Types.clear();
     if (result.status == EDITOR_OK)
         if (const auto *types = EditorClient::Find(result, "types"))
             for (const auto &row : types->fields) {
@@ -1082,15 +1087,15 @@ void SchematicCanvas::LoadParameterTypes() {
             }
 }
 void SchematicCanvas::OpenParameterEditor(ObjectRef script, ObjectRef object, unsigned mode) {
-    if (!m_State.workspace || !script || !object)
+    if (!script || !object)
         return;
     if (!m_ParameterDialog)
         m_ParameterDialog =
-            std::make_unique<SchematicParameterDialog>(m_State.workspace->Application(), m_EditorHost, m_Instance);
+            std::make_unique<SchematicParameterDialog>(m_Workspace.Application(), m_EditorHost, m_Instance);
     m_ParameterDialog->Open(script, object, mode);
     const auto message = m_ParameterDialog->TakeMessage();
     if (!message.empty())
-        m_State.Log(LogLevel::Warning, message);
+        Client().Log(EDITOR_LOG_WARNING, message);
 }
 
 void SchematicCanvas::ToggleTargetOfSelection() {
@@ -1098,7 +1103,7 @@ void SchematicCanvas::ToggleTargetOfSelection() {
     for (const auto &address : m_Navigation.selection.Addresses())
         if ((address.element.kind == ElementKind::Behavior || address.element.kind == ElementKind::Script) && address.object)
             objects.push_back(address.object);
-    if (objects.empty()) { m_State.Log(LogLevel::Info, "Select a behavior to add or remove its Target parameter (T)"); return; }
+    if (objects.empty()) { Client().Log(EDITOR_LOG_INFO, "Select a behavior to add or remove its Target parameter (T)"); return; }
     EditorField targets{"objects", EDITOR_OBJECT_LIST}; targets.objects = std::move(objects);
     ExecuteGraph("schematic.toggle-targets", m_Navigation.selection.script, 0, nullptr, {std::move(targets)});
 }
@@ -1115,7 +1120,7 @@ void SchematicCanvas::BeginRename() {
     m_Doc.openRename = true;
 }
 
-CK_ID SchematicCanvas::SelectedGraph() {
+uint32_t SchematicCanvas::SelectedGraph() {
     const auto &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || selection.items.front().kind != ElementKind::Behavior)
         return 0;
@@ -1123,7 +1128,7 @@ CK_ID SchematicCanvas::SelectedGraph() {
     return info.status == EDITOR_OK && EditorClient::Integer(info, "graph") ? selection.items.front().object : 0;
 }
 
-CK_ID SchematicCanvas::SelectedVariableBlock(PinKind kind) {
+uint32_t SchematicCanvas::SelectedVariableBlock(PinKind kind) {
     const auto &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || selection.items.front().kind != ElementKind::Behavior)
         return 0;
@@ -1140,7 +1145,7 @@ void SchematicCanvas::AddGraphIo(bool input) {
     if (!owner)
         owner = SelectedGraph();
     if (!owner) {
-        m_State.Log(LogLevel::Info, "Select a behavior graph to add a behavior input (I) or output (O)");
+        Client().Log(EDITOR_LOG_INFO, "Select a behavior graph to add a behavior input (I) or output (O)");
         return;
     }
     auto fields = AuthoringArguments(m_Navigation.selection.script, owner);
@@ -1152,12 +1157,12 @@ void SchematicCanvas::AddGraphIo(bool input) {
 }
 
 void SchematicCanvas::OpenGraphParameterPicker(bool input) {
-    CK_ID owner = SelectedGraph(), script = m_Navigation.selection.script;
+    uint32_t owner = SelectedGraph(), script = m_Navigation.selection.script;
     if (!owner) owner = SelectedVariableBlock(input ? PinKind::ParamIn : PinKind::ParamOut);
     if (!owner && m_Doc.hoveredScript)
         owner = script = m_Doc.hoveredScript;
     if (!owner) {
-        m_State.Log(LogLevel::Info, "Select a behavior graph, or point at a Script, to add a parameter");
+        Client().Log(EDITOR_LOG_INFO, "Select a behavior graph, or point at a Script, to add a parameter");
         return;
     }
     m_Doc.creation = AuthoringArguments(script, owner);
@@ -1172,19 +1177,19 @@ void SchematicCanvas::OpenGraphParameterPicker(bool input) {
     m_Doc.openLocalPicker = true;
 }
 
-void SchematicCanvas::CreateGraphAt(CK_ID script, const Point &local) {
+void SchematicCanvas::CreateGraphAt(uint32_t script, const Point &local) {
     auto *view = ViewFor(script); const auto graph = view ? GraphAt(*view, local) : 0;
     if (!graph) return;
     EditorField point{"at", EDITOR_REAL_LIST}; point.reals = {local.h, local.v};
     ExecuteGraph("schematic.create-graph", script, graph, "owner", {std::move(point)}, GraphFollow::Created);
 }
 
-void SchematicCanvas::OpenLocalParameterPicker(CK_ID script, const Point &local) {
+void SchematicCanvas::OpenLocalParameterPicker(uint32_t script, const Point &local) {
     auto *view = ViewFor(script);
     const auto graph = view ? GraphAt(*view, local) : 0;
     m_Doc.creation = graph ? AuthoringArguments(script, graph, local) : std::vector<EditorField>{};
     if (m_Doc.creation.empty()) {
-        m_State.Log(LogLevel::Info, "Open the Script to add a local parameter");
+        Client().Log(EDITOR_LOG_INFO, "Open the Script to add a local parameter");
         return;
     }
     m_TypePurpose = TypePurpose::Local;
@@ -1195,12 +1200,12 @@ void SchematicCanvas::OpenLocalParameterPicker(CK_ID script, const Point &local)
     m_Doc.openLocalPicker = true;
 }
 
-void SchematicCanvas::OpenOperationPicker(CK_ID script, const Point &local) {
+void SchematicCanvas::OpenOperationPicker(uint32_t script, const Point &local) {
     auto *view = ViewFor(script);
     const auto graph = view ? GraphAt(*view, local) : 0;
     m_Doc.creation = graph ? AuthoringArguments(script, graph, local) : std::vector<EditorField>{};
     if (m_Doc.creation.empty()) {
-        m_State.Log(LogLevel::Info, "Open the Script to add a parameter operation");
+        Client().Log(EDITOR_LOG_INFO, "Open the Script to add a parameter operation");
         return;
     }
     m_Doc.modifyOperation = {};
@@ -1244,7 +1249,7 @@ bool SchematicCanvas::EndpointOf(const Hit &hit, LinkEndpoint &endpoint, bool &b
     }
 }
 
-ElementAddress SchematicCanvas::EndpointAddress(CK_ID script, const LinkEndpoint &endpoint) {
+ElementAddress SchematicCanvas::EndpointAddress(uint32_t script, const LinkEndpoint &endpoint) {
     auto *view = ViewFor(script);
     if (!view)
         return {};
@@ -1317,13 +1322,13 @@ void SchematicCanvas::EndLink(const Hit &hit) {
         SchematicPosition(m_PressAddress, "from"),
         SchematicPosition(destination, "to"),
         {"alt", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ImGui::GetIO().KeyAlt)},
-        {"delay", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_State.preferences.defaultLinkDelay)},
-        {"auto-loop", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_State.preferences.autoLoopLinkDelay)},
+        {"delay", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_Preferences.Int("Schematic\\Default Link Delay"))},
+        {"auto-loop", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_Preferences.Bool("Schematic\\Auto Loop Link Delay", true))},
         {"route",
          EDITOR_INTEGER_VALUE,
          {},
          {},
-         uint64_t(m_LinkPoints.empty() && m_State.preferences.searchBestPath != ImGui::GetIO().KeyCtrl)}};
+         uint64_t(m_LinkPoints.empty() && m_Preferences.Bool("Schematic\\Search Best Path Link", true) != ImGui::GetIO().KeyCtrl)}};
     EditorField selected{"selected", EDITOR_RECORD}, points{"points", EDITOR_REAL_LIST};
     for (const auto &address : m_Doc.linkSources)
         selected.fields.push_back(SchematicPosition(address, std::to_string(selected.fields.size()).c_str()));
@@ -1351,7 +1356,7 @@ void SchematicCanvas::ContinueConnection(bool clearSelection) {
     const auto state = Client().Query("schematic.connection", {values.data(), values.data() + values.size()});
     if (state.status != EDITOR_OK) {
         if (state.status == EDITOR_REFUSED)
-            m_State.Log(LogLevel::Warning, "Link: these endpoints cannot be connected");
+            Client().Log(EDITOR_LOG_WARNING, "Link: these endpoints cannot be connected");
         return;
     }
     if (EditorClient::Integer(state, "replace")) {
@@ -1398,9 +1403,9 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
         EditorBuildingBlock source{};
         std::vector<EditorBuildingBlock> blocks;
         if (ReadBuildingBlockDrag(payload->Data, size_t(payload->DataSize), source, blocks)) {
-            const CKGUID guid(source.first, source.second);
+            const uint64_t guid = (uint64_t(source.first) << 32) | source.second;
             const Hit hit = HitAt(ImGui::GetIO().MousePos);
-            const CK_ID graph = hit.view ? GraphAt(*hit.view, hit.local) : 0;
+            const uint32_t graph = hit.view ? GraphAt(*hit.view, hit.local) : 0;
             if (IsBuildingBlockAt(hit)) {
                 // Dev: a Building Block dropped on another replaces it.
                 const auto info = ElementInfo(hit.view->id, hit.ref);
@@ -1408,7 +1413,7 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
                     if (const auto *object = EditorClient::Find(info, "object"))
                         OpenReplaceBlock(hit.view->identity, object->object, guid);
             } else if (!graph) {
-                m_State.Log(LogLevel::Info, "Drop Building Blocks into an open Script or an expanded graph");
+                Client().Log(EDITOR_LOG_INFO, "Drop Building Blocks into an open Script or an expanded graph");
             } else {
                 auto fields = AuthoringArguments(hit.view->id, graph, hit.local);
                 if (!fields.empty()) {
@@ -1429,13 +1434,13 @@ void SchematicCanvas::AcceptBuildingBlockDrop() {
         if (ReadResourceDrag(payload->Data, size_t(payload->DataSize), source, files))
         for (const ResourceFile &each : files)
             if (!DropFile(Utf8ToWide(each.path), each.path, ImGui::GetIO().MousePos))
-                m_State.Log(LogLevel::Info, "Drop behavior graph files on a graph or a Script, images on a Script header");
+                Client().Log(EDITOR_LOG_INFO, "Drop behavior graph files on a graph or a Script, images on a Script header");
     }
     // A 3D Layout snapshot (Dev.exe sub_53BF70, "Bitmap"): the Script's snapshot.
     if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(SNAPSHOT_PAYLOAD)) {
         const Hit hit = HitAt(ImGui::GetIO().MousePos);
         if (!hit.view || !Client().Scope().document.value) {
-            m_State.Log(LogLevel::Info, "Drop snapshots on a Script");
+            Client().Log(EDITOR_LOG_INFO, "Drop snapshots on a Script");
         } else if (payload->DataSize == sizeof(SnapshotDrag)) {
             SnapshotDrag drag;
             std::memcpy(&drag, payload->Data, sizeof(drag));
@@ -1512,7 +1517,7 @@ void SchematicCanvas::UngroupSelection() {
             objects.objects.push_back(object->object);
         }
     if (objects.objects.empty()) {
-        m_State.Log(LogLevel::Info, "Shift+Del: select behavior graphs to remove while keeping their contents");
+        Client().Log(EDITOR_LOG_INFO, "Shift+Del: select behavior graphs to remove while keeping their contents");
         return;
     }
     ExecuteGraph("schematic.ungroup", m_Navigation.selection.script, 0, nullptr, {std::move(objects)},
@@ -1532,7 +1537,7 @@ void SchematicCanvas::PasteClipboard(bool shortcuts) {
     const auto clipboard = Client().Query("schematic.clipboard");
     if (clipboard.status != EDITOR_OK || !EditorClient::Integer(clipboard, "available"))
         return;
-    CK_ID script = m_Doc.mouseScript;
+    uint32_t script = m_Doc.mouseScript;
     Point at = m_Doc.mouseLocal;
     if (!script && !m_Views.empty() && !shortcuts &&
         (EditorClient::Integer(clipboard, "behaviors") || EditorClient::Integer(clipboard, "comments"))) {
@@ -1577,13 +1582,13 @@ void SchematicCanvas::Duplicate() {
 void SchematicCanvas::Refresh() {
     Client().Command("schematic.refresh");
     Invalidate();
-    m_State.Log(LogLevel::Info, "Schematic refreshed");
+    Client().Log(EDITOR_LOG_INFO, "Schematic refreshed");
 }
 
 // Dev's Edit Parameter (Dev.exe sub_523480 opens dialog 354): the name and
 // the type (Dev's default; not of <This>), the value of a local or of an
 // input's value holder; other values are only shown.
-void SchematicCanvas::OpenValueDialog(CK_ID script, ObjectRef parameter) {
+void SchematicCanvas::OpenValueDialog(uint32_t script, ObjectRef parameter) {
     const auto scripts = ScriptReferences({script});
     if (!scripts.empty())
         OpenParameterEditor(scripts.front(), parameter, 0);
@@ -1605,7 +1610,7 @@ void SchematicCanvas::OpenParametersDialog() {
         OpenParameterEditor(scripts.front(), object->object, 1);
 }
 
-void SchematicCanvas::OpenParametersOf(CK_ID script, CK_ID object) {
+void SchematicCanvas::OpenParametersOf(uint32_t script, uint32_t object) {
     const auto info = ObjectInfo(script, object);
     if (info.status != EDITOR_OK)
         return;
@@ -1624,20 +1629,20 @@ void SchematicCanvas::OpenPriorityDialog() {
     else for (const auto &address : selection.Addresses())
         if (address.element.kind == ElementKind::Behavior && address.object) m_PriorityTargets.push_back(address.object);
     m_OpenPriority = !m_PriorityTargets.empty();
-    if (!m_OpenPriority) m_State.Log(LogLevel::Info, "Select behaviors to edit their priority (Y)");
+    if (!m_OpenPriority) Client().Log(EDITOR_LOG_INFO, "Select behaviors to edit their priority (Y)");
 }
 
-void SchematicCanvas::InsertBlockAt(const CKGUID &guid, CK_ID script, const Point &local) {
+void SchematicCanvas::InsertBlockAt(uint64_t guid, uint32_t script, const Point &local) {
     auto *view = ViewFor(script);
     const auto graph = view ? GraphAt(*view, local) : 0;
     if (!graph) {
-        m_State.Log(LogLevel::Info, "Insert Building Blocks into an open Script or an expanded graph");
+        Client().Log(EDITOR_LOG_INFO, "Insert Building Blocks into an open Script or an expanded graph");
         return;
     }
     auto fields = AuthoringArguments(script, graph, local);
     if (fields.empty())
         return;
-    fields.push_back({"prototype", EDITOR_INTEGER_VALUE, {}, {}, (uint64_t(guid.d1) << 32) | guid.d2});
+    fields.push_back({"prototype", EDITOR_INTEGER_VALUE, {}, {}, guid});
     ExecuteAuthoring("schematic.insert-block", std::move(fields), GraphFollow::Block);
 }
 
@@ -1684,7 +1689,7 @@ void SchematicCanvas::EndCopyDrag(const Point &world) {
 }
 
 void SchematicCanvas::SelectAll() {
-    CK_ID script = m_Navigation.selection.script;
+    uint32_t script = m_Navigation.selection.script;
     if (!script && !m_Views.empty()) script = m_Views.front().id;
     ScriptView *view = ViewFor(script);
     if (!view) return;
@@ -1759,7 +1764,7 @@ void SchematicCanvas::DoubleClick(const Hit &hit) {
     }
 }
 
-bool SchematicCanvas::BeginGeometry(CK_ID script, uint64_t mode, const std::vector<ElementRef> &items,
+bool SchematicCanvas::BeginGeometry(uint32_t script, uint64_t mode, const std::vector<ElementRef> &items,
                                     const ElementRef &primary) {
     auto *view = ViewFor(script);
     if (!view || !m_EditorHost)
@@ -1782,12 +1787,12 @@ bool SchematicCanvas::BeginGeometry(CK_ID script, uint64_t mode, const std::vect
                                    EDITOR_INTEGER_VALUE,
                                    {},
                                    {},
-                                   uint64_t(m_State.preferences.Bool("Schematic\\Move Item Coherence Test"))},
+                                   uint64_t(m_Preferences.Bool("Schematic\\Move Item Coherence Test"))},
                                   {"auto-resize",
                                    EDITOR_INTEGER_VALUE,
                                    {},
                                    {},
-                                   uint64_t(m_State.preferences.Bool("Schematic\\Auto Resize Scripts"))}};
+                                   uint64_t(m_Preferences.Bool("Schematic\\Auto Resize Scripts"))}};
     if (mode == 0) {
         Hit hit;
         hit.view = view;
@@ -1831,7 +1836,7 @@ bool SchematicCanvas::UpdateGeometry(EditorField value) {
 void SchematicCanvas::BeginMove() {
     if (!m_Doc.press.view)
         return;
-    const CK_ID script = m_Doc.press.view->id;
+    const uint32_t script = m_Doc.press.view->id;
     if (!IsSelected(script, m_Doc.press.ref)) m_Navigation.selection.Set(script, m_Doc.press.ref);
     std::vector<ElementRef> items;
     for (const auto &item : m_Navigation.selection.items)
@@ -1858,7 +1863,7 @@ void SchematicCanvas::EndMove(bool commit) {
                                 EDITOR_INTEGER_VALUE,
                                 {},
                                 {},
-                                uint64_t(m_State.preferences.searchBestPath != ImGui::GetIO().KeyCtrl)});
+                                uint64_t(m_Preferences.Bool("Schematic\\Search Best Path Link", true) != ImGui::GetIO().KeyCtrl)});
         if (const auto *view = ViewFor(m_Doc.moveScript)) {
             const auto world = view->transform.ToWorld(ImGui::GetIO().MousePos);
             EditorField drop{"drop", EDITOR_REAL_LIST};
@@ -1907,7 +1912,7 @@ void SchematicCanvas::Tooltip(const Hit &hit) {
         if (const BehaviorItem *behavior = model.FindBehavior(hit.ref.object)) {
             ImGui::TextUnformatted(behavior->name.c_str());
             if (!behavior->prototype.empty()) ImGui::TextDisabled("%s", behavior->prototype.c_str());
-            ImGui::TextDisabled("%s  CK_ID %u", behavior->buildingBlock ? "Building Block"
+            ImGui::TextDisabled("%s  uint32_t %u", behavior->buildingBlock ? "Building Block"
                                                 : behavior->graph       ? "Behavior Graph"
                                                                         : "Behavior",
                                 behavior->id);
@@ -1981,14 +1986,14 @@ const char *SchematicCanvas::ActionText() const {
 
 // The Script the Expand/Collapse/Hide buttons act on: the selected one or,
 // failing that, the current one.
-CK_ID SchematicCanvas::ToolbarScript() const {
+uint32_t SchematicCanvas::ToolbarScript() const {
     return m_Navigation.selection.script ? m_Navigation.selection.script : m_Doc.currentScript;
 }
 
-std::vector<CK_ID> SchematicCanvas::ToolbarScripts() const {
-    std::vector<CK_ID> scripts = m_Navigation.selection.Scripts();
+std::vector<uint32_t> SchematicCanvas::ToolbarScripts() const {
+    std::vector<uint32_t> scripts = m_Navigation.selection.Scripts();
     if (scripts.empty())
-        if (const CK_ID script = ToolbarScript()) scripts.push_back(script);
+        if (const uint32_t script = ToolbarScript()) scripts.push_back(script);
     return scripts;
 }
 
@@ -2007,7 +2012,7 @@ void SchematicCanvas::Toolbar() {
                       DEV_CHROME);
     PushDarkChrome();
     const bool document = Client().Scope().document.value != 0;
-    const CK_ID script = ToolbarScript();
+    const uint32_t script = ToolbarScript();
     float x = 9.0f;
     auto at = [&](float y) { return ImVec2(IM_ROUND(stripMin.x + x * s), IM_ROUND(stripMin.y + y * s)); };
     auto icon = [&](const char *id, const int (&bitmaps)[5], bool on, bool enabled, const char *tooltip, float width = 17.0f,
@@ -2044,13 +2049,13 @@ void SchematicCanvas::Toolbar() {
     static const int DEBUGGER[5] = {1080, 1078, 1079, 1077, 1080};
     static const int LINK_ERRORS[5] = {1335, 1334, 1333, 1333, 1335};
     auto setOpen = [&](bool open) {
-        for (CK_ID each : document ? ToolbarScripts() : std::vector<CK_ID>())
+        for (uint32_t each : document ? ToolbarScripts() : std::vector<uint32_t>())
             if (ScriptOpen(each) != open) ToggleScriptOpen(each);
     };
     if (icon("expand", EXPAND, false, script != 0, "Expand Selected Scripts (Right Arrow)")) setOpen(true);
     if (icon("collapse", COLLAPSE, false, script != 0, "Collapse Selected Scripts (Left Arrow)")) setOpen(false);
     if (icon("explorer", EXPLORER, false, true, "Schematic Explorer (Ctrl+Shift+F)", 19.0f))
-        m_State.events.Post(OpenSchematicExplorer{});
+        Client().Command("workspace.open-role", {TextArgument("role", "main.schematic-explorer")});
     if (icon("messages", MESSAGES, DiagnosticOpen(false), true, "Message Explorer (H)")) ToggleDiagnostic(false);
     if (icon("find", FIND, false, true, "Find (Ctrl+F)")) OpenFind();
     separator();
@@ -2083,7 +2088,7 @@ void SchematicCanvas::Toolbar() {
         RefreshStack();
     }
     if (pill("hideother", "Hide Other", false, script != 0, "Hide Unselected Scripts", 70.0f)) {
-        const std::vector<CK_ID> kept = ToolbarScripts();
+        const std::vector<uint32_t> kept = ToolbarScripts();
         for (auto ref : m_AllScripts)
             if (std::find(kept.begin(), kept.end(), ref.object) == kept.end())
                 m_Navigation.hiddenScripts.insert(ref);
@@ -2104,7 +2109,7 @@ void SchematicCanvas::Toolbar() {
     if (icon("info", INFO, !options.showLinkInfo, true, "Show/Hide Link Informations"))
         options.showLinkInfo = !options.showLinkInfo;
     if (icon("linkprops", LINK_PROPERTIES, false, true, "Behavior Link Properties (default link delay)")) {
-        auto &editor = m_State.workspace->Application();
+        auto &editor = m_Workspace.Application();
         editor.Execute("environment.open-link-options", {editor.Scope(m_Instance), nullptr, 0});
     }
     if (icon("priorities", PRIORITIES, !options.showPriorities, true, "Show/Hide Priorities"))
@@ -2113,14 +2118,14 @@ void SchematicCanvas::Toolbar() {
     if (icon("reset", RESET, false, true, "Reset Schematic Zoom and Position")) ResetView();
     if (icon("zoom", ZOOM, options.zoomMode, true, "Zoom Mode")) options.zoomMode = !options.zoomMode;
     separator();
-    auto &application = m_State.workspace->Application();
+    auto &application = m_Workspace.Application();
     const EditorClient runtime(application.Host(), m_Instance);
     const EditorValue role{EDITOR_TEXT("role"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("main.debugger")};
     const bool debuggerOpen = EditorClient::Integer(application.ReadQuery("workspace.role", {application.Scope(m_Instance), &role, 1}), "view") != 0;
     if (icon("debugger", DEBUGGER, debuggerOpen, true, "Script Debugger")) runtime.Command("runtime.toggle-debugger");
     const auto &execution = application.ReadQuery("runtime.state", {application.Scope(m_Instance), nullptr, 0});
     if (EditorClient::Integer(execution, "available") && pill("trace", "Trace", EditorClient::Integer(execution, "trace") != 0, true, "Trace Mode (Ctrl+T)", 66.0f))
-        m_State.workspace->Application().Execute("runtime.toggle-trace", {m_State.workspace->Application().Scope(m_Instance), nullptr, 0});
+        m_Workspace.Application().Execute("runtime.toggle-trace", {m_Workspace.Application().Scope(m_Instance), nullptr, 0});
     // Dev: right of Trace, the Invalid Link Explorer's icon, shown only when
     // the composition has invalid links kept after loading.
     if (EditorClient::Integer(Client().Query("schematic.invalid-summary"), "total") &&
@@ -2135,6 +2140,7 @@ void SchematicCanvas::Toolbar() {
 }
 
 void SchematicCanvas::Draw(const char *title, bool *open) {
+    m_Preferences.Refresh(Client());
     PollGraphCommands();
     // Asked whether the Schematic shows or not (a Level Manager Script saved).
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
@@ -2154,8 +2160,8 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
     // Dev's Horizontal / Vertical Scrollbar (Schematic preferences): the
     // canvas leaves them their room.
     const float scrollbar = ImGui::GetStyle().ScrollbarSize;
-    const bool hScroll = m_State.preferences.Bool("Schematic\\Horizontal Scrollbar");
-    const bool vScroll = m_State.preferences.Bool("Schematic\\Vertical Scrollbar");
+    const bool hScroll = m_Preferences.Bool("Schematic\\Horizontal Scrollbar");
+    const bool vScroll = m_Preferences.Bool("Schematic\\Vertical Scrollbar");
     if (hScroll) size.y -= scrollbar;
     if (vScroll) size.x -= scrollbar;
     size.x = std::max(size.x, 50.0f);
@@ -2198,11 +2204,11 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
 
     ImDrawList *drawList = ImGui::GetWindowDrawList();
     drawList->PushClipRect(canvasMin, canvasMax, true);
-    drawList->AddRectFilled(canvasMin, canvasMax, m_State.style.canvas);
-    if (options.showGrid) DrawGrid(drawList, m_View, canvasMin, canvasMax, m_State.style);
+    drawList->AddRectFilled(canvasMin, canvasMax, m_Style.canvas);
+    if (options.showGrid) DrawGrid(drawList, m_View, canvasMin, canvasMax, m_Style);
 
     DrawOptions draw;
-    draw.style = &m_State.style;
+    draw.style = &m_Style;
     draw.font = font;
     draw.boldFont = BoldFont();
     draw.fontSize = WORLD_FONT_SIZE;
@@ -2302,8 +2308,8 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
         m_Doc.tooltipRef = m_Doc.hovered;
         m_TooltipSince = ImGui::GetTime();
     }
-    const double delay = m_State.preferences.tooltipDelayMs / 1000.0;
-    if (hovered && m_Tool == Tool::Idle && m_State.preferences.tooltips && ImGui::GetTime() - m_TooltipSince >= delay)
+    const double delay = m_Preferences.Int("Schematic\\Tooltips Delay(ms)", 500) / 1000.0;
+    if (hovered && m_Tool == Tool::Idle && m_Preferences.Bool("Schematic\\Enable Tooltips", true) && ImGui::GetTime() - m_TooltipSince >= delay)
         Tooltip(HitAt(ImGui::GetIO().MousePos));
     ImGui::End();
 }
@@ -2317,7 +2323,7 @@ void SchematicCanvas::UpdateLinkPaths() {
     auto *view = ViewFor(selection.script);
     if (!view)
         return;
-    std::set<CK_ID> owners;
+    std::set<uint32_t> owners;
     std::set<ElementRef> selected;
     for (const auto &item : selection.items) {
         if (item.kind == ElementKind::Link)
@@ -2337,7 +2343,7 @@ void SchematicCanvas::UpdateLinkPaths() {
             elements.fields.push_back(SchematicPosition(address, std::to_string(elements.fields.size()).c_str()));
         }
     if (elements.fields.empty()) {
-        m_State.Log(LogLevel::Info, "P: select links, or behaviors and operations whose links to update");
+        Client().Log(EDITOR_LOG_INFO, "P: select links, or behaviors and operations whose links to update");
         return;
     }
     ExecuteGraph("schematic.route-links", view->id, 0, nullptr, {elements});
@@ -2435,7 +2441,7 @@ void SchematicCanvas::InitialConditionsOfScripts(int action) {
 
 namespace vdev {
 
-void SchematicCanvas::OpenOperationChoice(OperationChoice mode, CK_ID script, const LinkEndpoint &from,
+void SchematicCanvas::OpenOperationChoice(OperationChoice mode, uint32_t script, const LinkEndpoint &from,
                                           const LinkEndpoint &to, const ElementRef &link) {
     auto *view = ViewFor(script);
     if (!view || !link.IsValid())
@@ -2461,7 +2467,7 @@ void SchematicCanvas::OpenOperationChoice(OperationChoice mode, CK_ID script, co
     const auto state = Client().Query("schematic.connection", {values.data(), values.data() + values.size()});
     const auto *choices = EditorClient::Find(state, "choices");
     if (state.status != EDITOR_OK || !choices || choices->fields.empty()) {
-        m_State.Log(LogLevel::Info, "No parameter operation fits these parameter types");
+        Client().Log(EDITOR_LOG_INFO, "No parameter operation fits these parameter types");
         return;
     }
     m_Doc.choices = choices->fields;
@@ -2519,7 +2525,7 @@ void SchematicCanvas::ApplyOperationChoice(const EditorField &choice) {
 void SchematicCanvas::OpenModifyOperation() {
     const auto &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || selection.items.front().kind != ElementKind::Operation) {
-        m_State.Log(LogLevel::Info, "M: select a parameter operation to modify");
+        Client().Log(EDITOR_LOG_INFO, "M: select a parameter operation to modify");
         return;
     }
     const auto info = ElementInfo(selection.script, selection.items.front());
@@ -2542,7 +2548,7 @@ void SchematicCanvas::OpenModifyOperation() {
 
 namespace vdev {
 
-void SchematicCanvas::ConvertToShortcutSource(ObjectRef source, const std::vector<CK_ID> &scripts) {
+void SchematicCanvas::ConvertToShortcutSource(ObjectRef source, const std::vector<uint32_t> &scripts) {
     if (!source)
         return;
     const auto refs = ScriptReferences(scripts);
@@ -2553,7 +2559,7 @@ void SchematicCanvas::ConvertToShortcutSource(ObjectRef source, const std::vecto
 
 void SchematicCanvas::BeginPickShortcutSource(ObjectRef from) {
     m_Doc.pickShortcutFrom = from;
-    m_State.Log(LogLevel::Info, "Set Shortcut Source: click the new source (Esc cancels)");
+    Client().Log(EDITOR_LOG_INFO, "Set Shortcut Source: click the new source (Esc cancels)");
 }
 
 void SchematicCanvas::RetargetAllShortcuts(ObjectRef from, ObjectRef to) {
@@ -2591,7 +2597,7 @@ void SchematicCanvas::FindNext(bool backward) {
     if (result.status != EDITOR_OK)
         return;
     if (!EditorClient::Integer(result, "found")) {
-        m_State.Log(LogLevel::Warning, "Passed the end of Schematic");
+        Client().Log(EDITOR_LOG_WARNING, "Passed the end of Schematic");
         m_Navigation.selection.Clear();
         m_FoundScript = 0;
         m_FoundRef = {};
@@ -2620,7 +2626,7 @@ void SchematicCanvas::FindNext(bool backward) {
 void SchematicCanvas::FindSelected(bool backward) {
     const auto &selection = m_Navigation.selection;
     if (selection.items.size() != 1 || !Client().Scope().document.value) {
-        m_State.Log(LogLevel::Info, "Ctrl+F3: select one element");
+        Client().Log(EDITOR_LOG_INFO, "Ctrl+F3: select one element");
         return;
     }
     const auto info = ElementInfo(selection.script, selection.items.front());
@@ -2670,244 +2676,16 @@ void SchematicCanvas::FindDialog() {
 } // namespace vdev
 
 namespace vdev {
-namespace {
-const EditorParameter schematicNavigation[] = {
-    {EDITOR_TEXT("target"), EDITOR_OBJECT, 1},          {EDITOR_TEXT("owner"), EDITOR_OBJECT, 1},
-    {EDITOR_TEXT("object"), EDITOR_OBJECT, 1},          {EDITOR_TEXT("endpoint"), EDITOR_OBJECT, 1},
-    {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, 1},     {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE, 1},
-    {EDITOR_TEXT("sub"), EDITOR_INTEGER_VALUE, 1},      {EDITOR_TEXT("pin"), EDITOR_INTEGER_VALUE, 1},
-    {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, 1}, {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE, 1},
-    {EDITOR_TEXT("focus-target"), EDITOR_OBJECT, 1},    {EDITOR_TEXT("background"), EDITOR_INTEGER_VALUE, 1},
-    {EDITOR_TEXT("reveal"), EDITOR_INTEGER_VALUE, 1}};
-const EditorParameter schematicFields[] = {
-    {EDITOR_TEXT("selection"), EDITOR_OBJECT_LIST}, {EDITOR_TEXT("scripts"), EDITOR_OBJECT_LIST},
-    {EDITOR_TEXT("target"), EDITOR_OBJECT}, {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE},
-    {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE},
-    {EDITOR_TEXT("selection-count"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("selection-target"), EDITOR_OBJECT},
-    {EDITOR_TEXT("action-text"), EDITOR_TEXT_VALUE}};
-}
-struct SchematicViews::Data {
-    EditorState &state;
-    ViewOptions defaults;
-    std::multimap<EditorView, SchematicCanvas *> canvases;
-    mutable EditorView current = 0;
-    SchematicCanvas *Canvas(EditorView id) const {
-        auto &views = *state.schematics;
-        return views.Find(views.Find(id) ? id : views.CurrentId());
-    }
-};
-SchematicViews::SchematicViews(EditorState &state) : m_Data(new Data{state, {}, {}}) { state.schematics = this; }
-SchematicViews::~SchematicViews() { m_Data->state.schematics = nullptr; }
-ViewOptions &SchematicViews::Defaults() { return m_Data->defaults; }
-SchematicCanvas *SchematicViews::Find(EditorView id) const {
-    const auto range = m_Data->canvases.equal_range(id);
-    return range.first == range.second ? nullptr : std::prev(range.second)->second;
-}
-EditorView SchematicViews::CurrentId() const {
-    auto &data = *m_Data;
-    if (auto *workspace = data.state.workspace) {
-        const auto focused = workspace->Focused();
-        if (Find(focused)) data.current = focused;
-        if (!Find(data.current)) data.current = workspace->Role("main.schematic");
-    }
-    if (!Find(data.current) && !data.canvases.empty()) data.current = data.canvases.begin()->first;
-    return data.current;
-}
-SchematicCanvas &SchematicViews::Current() const {
-    auto *canvas = Find(CurrentId());
-    if (!canvas) throw std::logic_error("No Schematic view is open");
-    const auto scope = canvas->Client().Scope();
-    if (scope.view == canvas->m_Instance && canvas->m_Document != scope.document)
-        canvas->ValidateNavigation();
-    return *canvas;
-}
-SchematicNavigation &EditorState::Schematic() const {
-    if (!schematics) throw std::logic_error("Schematic views are not available");
-    return schematics->Current().Navigation();
-}
-std::string SchematicViews::Window(EditorView id) const {
-    return m_Data->state.workspace->WindowName(id ? id : CurrentId());
-}
-void SchematicViews::Focus(EditorView id) { m_Data->state.workspace->Focus(id ? id : CurrentId()); }
-void SchematicViews::ApplyOptions(const ViewOptions &options) {
-    m_Data->defaults = options;
-    for (auto &entry : m_Data->canvases) entry.second->Navigation().options = options;
-    RefreshStacks();
-}
-void SchematicViews::Validate() { for (auto &entry : m_Data->canvases) entry.second->ValidateNavigation(); }
-void SchematicViews::CancelInteraction() { for (auto &entry : m_Data->canvases) entry.second->CancelInteraction(); }
-void SchematicViews::DocumentClosed() { for (auto &entry : m_Data->canvases) entry.second->DocumentClosed(); }
-void SchematicViews::Invalidate() { for (auto &entry : m_Data->canvases) entry.second->Invalidate(); }
-void SchematicViews::RefreshValues() { for (auto &entry : m_Data->canvases) entry.second->RefreshValues(); }
-void SchematicViews::RefreshStacks() { for (auto &entry : m_Data->canvases) entry.second->RefreshStack(); }
-void SchematicViews::ClearSelections() { for (auto &entry : m_Data->canvases) entry.second->Navigation().selection.Clear(); }
-bool SchematicViews::Busy() const {
-    for (const auto &entry : m_Data->canvases) if (entry.second->Busy()) return true;
-    return false;
-}
-bool SchematicViews::DropFile(const std::wstring &path, const std::string &ansi, float x, float y) {
-    for (auto &entry : m_Data->canvases)
-        if (entry.second->DropFile(path, ansi, ImVec2(x, y))) return true;
-    return false;
-}
-EditorStatus SchematicViews::Show(const ElementAddress &address, ObjectRef focus, bool select, EditorView id) {
-    if (!address) return EDITOR_STALE;
-    auto &state = m_Data->state;
-    if (!id) id = CurrentId();
-    if (!Find(id)) return EDITOR_STALE;
-    const auto &ref = address.element;
-    const EditorValue values[] = {
-        {EDITOR_TEXT("target"), EDITOR_OBJECT, address.script}, {EDITOR_TEXT("owner"), EDITOR_OBJECT, address.owner},
-        {EDITOR_TEXT("object"), EDITOR_OBJECT, address.object}, {EDITOR_TEXT("endpoint"), EDITOR_OBJECT, address.endpoint},
-        {EDITOR_TEXT("kind"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ref.kind)},
-        {EDITOR_TEXT("index"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(ref.index))},
-        {EDITOR_TEXT("sub"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(ref.sub))},
-        {EDITOR_TEXT("pin"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(ref.pin)},
-        {EDITOR_TEXT("revision"), EDITOR_INTEGER_VALUE, {}, {}, address.revision},
-        {EDITOR_TEXT("topology"), EDITOR_INTEGER_VALUE, {}, {}, address.topology},
-        {EDITOR_TEXT("focus-target"), EDITOR_OBJECT, focus},
-        {EDITOR_TEXT("background"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(!select)}};
-    auto &editor = state.workspace->Application();
-    const EditorRequest request{editor.Scope(id), values, uint32_t(std::size(values))};
-    return editor.Execute("script.navigate", request).status;
-}
-bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
-    EditorViewDesc view{};
-    view.size = sizeof(view);
-    view.imguiVersion = EDITOR_IMGUI_VERSION;
-    view.id = EDITOR_TEXT("script.schematic");
-    view.provider = EDITOR_TEXT("builtin.schematic");
-    view.title = EDITOR_TEXT("Schematic");
-    view.area = EDITOR_DOCUMENT;
-    view.data = m_Data.get();
-    view.create = [](void *data, const EditorHost *, EditorView id) -> void * {
-        auto &module = *static_cast<Data *>(data);
-        auto canvas = std::make_unique<SchematicCanvas>(module.state, id);
-        canvas->Navigation().options = module.defaults;
-        canvas->RefreshStack();
-        module.canvases.emplace(id, canvas.get());
-        return canvas.release();
-    };
-    view.destroy = [](void *data) {
-        auto *canvas = static_cast<SchematicCanvas *>(data);
-        auto &module = *canvas->m_State.schematics->m_Data;
-        canvas->CancelEdits();
-        const auto range = module.canvases.equal_range(canvas->m_Instance);
-        for (auto it = range.first; it != range.second; ++it)
-            if (it->second == canvas) { module.canvases.erase(it); break; }
-        delete canvas;
-    };
-    view.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
-        static_cast<SchematicCanvas *>(data)->Draw(*frame);
-    };
-    view.pick = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
-        return static_cast<SchematicCanvas *>(data)->PickObjectsAt(
-            ImVec2(float(request->values[0].real), float(request->values[1].real)), sink);
-    };
-    view.parameters = schematicNavigation;
-    view.count = uint32_t(std::size(schematicNavigation));
-    view.navigate = [](void *data, const EditorHost *, const EditorRequest *request) {
-        return static_cast<SchematicCanvas *>(data)->Navigate(*request);
-    };
-    view.inspect = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
-        return static_cast<SchematicCanvas *>(data)->Inspect(sink);
-    };
-    view.fields = schematicFields;
-    view.fieldCount = uint32_t(std::size(schematicFields));
-    view.stateVersion = 1;
-    view.saveState = [](void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
-        return static_cast<SchematicCanvas *>(data)->Save(sink);
-    };
-    view.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
-        return static_cast<SchematicCanvas *>(data)->Restore(*request);
-    };
-    EditorCommandDesc commands[] = {{sizeof(EditorCommandDesc), EDITOR_TEXT("script.navigate"),
-        EDITOR_TEXT("builtin.schematic"), EDITOR_TEXT("Show Schematic Element"), schematicNavigation,
-        uint32_t(std::size(schematicNavigation)),
-        [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
-            const auto &views = *static_cast<Data *>(data)->state.schematics;
-            const auto id = views.Find(request->scope.view) ? request->scope.view : views.CurrentId();
-            return host->navigateView(host->data, EditorString EDITOR_TEXT("script.schematic"), id, request, sink);
-        }, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("script.pick-breakpoint"), EDITOR_TEXT("builtin.schematic"),
-            EDITOR_TEXT("Add Breakpoint"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("script.configure-breakpoints"), EDITOR_TEXT("builtin.schematic"),
-            EDITOR_TEXT("Configure Breakpoints"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("script.open-breakpoints"), EDITOR_TEXT("builtin.schematic"),
-            EDITOR_TEXT("Breakpoint List"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
-        {sizeof(EditorCommandDesc), EDITOR_TEXT("script.show-parameter"), EDITOR_TEXT("builtin.schematic"),
-            EDITOR_TEXT("Go to Parameter Source"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE}};
-    const EditorParameter parameter{EDITOR_TEXT("target"), EDITOR_OBJECT};
-    commands[4].parameters = &parameter; commands[4].count = 1;
-    for (size_t i = 1; i < std::size(commands); ++i)
-        commands[i].state = [](void *data, const EditorHost *, const EditorRequest *request) {
-            const auto &module = *static_cast<Data *>(data);
-            if (!module.state.workspace->Application().NativeAvailable()) return EDITOR_REFUSED;
-            return module.state.HasDocument() && module.Canvas(request->scope.view) ? EDITOR_OK : EDITOR_REFUSED;
-        };
-    commands[1].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
-        static_cast<Data *>(data)->Canvas(request->scope.view)->PickBreakpoint(); return EDITOR_OK;
-    };
-    commands[2].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
-        static_cast<Data *>(data)->Canvas(request->scope.view)->ConfigureBreakpoints(); return EDITOR_OK;
-    };
-    commands[3].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
-        static_cast<Data *>(data)->Canvas(request->scope.view)->OpenBreakpointList(); return EDITOR_OK;
-    };
-    commands[4].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
-        auto &module = *static_cast<Data *>(data);
-        const auto target = request->values[0].object;
-        if (!module.state.document->Resolve(target, CKCID_PARAMETER)) return EDITOR_INVALID;
-        module.Canvas(request->scope.view)->GoToParameter(target);
-        return EDITOR_OK;
-    };
-    std::vector<EditorCommandDesc> all(std::begin(commands), std::end(commands));
-    EditorCommandDesc edit{sizeof(EditorCommandDesc),
-                           EDITOR_TEXT("script.edit-element"),
-                           EDITOR_TEXT("builtin.schematic"),
-                           EDITOR_TEXT("Edit Schematic Element"),
-                           schematicNavigation,
-                           uint32_t(std::size(schematicNavigation)),
-                           [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
-                               auto *canvas = static_cast<Data *>(data)->Canvas(request->scope.view);
-                               if (!canvas)
-                                   return EDITOR_STALE;
-                               for (uint32_t i = 0; i < request->count; ++i)
-                                   if (std::string(request->values[i].key.data, request->values[i].key.size) ==
-                                           "background" &&
-                                       request->values[i].integer)
-                                       return EDITOR_INVALID;
-                               const auto status = canvas->Navigate(*request);
-                               if (status == EDITOR_OK)
-                                   canvas->m_Doc.editAddress = canvas->m_Navigation.focus.address;
-                               return status;
-                           },
-                           m_Data.get(),
-                           EDITOR_DOCUMENT,
-                           EDITOR_SESSION_CHANGE};
-    edit.state = commands[1].state;
-    all.push_back(edit);
-    EditorModuleDesc module{};
-    module.size = sizeof(module);
-    module.version = EDITOR_VERSION;
-    module.id = EDITOR_TEXT("schematic.views");
-    module.commands = all.data();
-    module.commandCount = uint32_t(all.size());
-    module.views = &view;
-    module.viewCount = 1;
-    return editor.Register(module, error);
-}
-SchematicCanvas::SchematicCanvas(EditorState &state, EditorView instance) : m_State(state), m_Instance(instance) {
-    m_EditorHost = state.workspace->Application().Host();
+SchematicCanvas::SchematicCanvas(EditorWorkspace &workspace, const SchematicStyle &style, SchematicViews &views, EditorView instance)
+    : m_Workspace(workspace), m_Style(style), m_Canvases(views), m_Instance(instance) {
+    m_EditorHost = workspace.Application().Host();
+    m_Preferences.Refresh(Client());
     m_Navigation.selection.Bind(
         [this](uint32_t script, const ElementRef &ref) { return CapturePosition(script, ref); });
     m_Document = Client().Scope().document;
 }
-SchematicCanvas::~SchematicCanvas() { m_State.fileDialogs.Cancel(this); }
-void SchematicCanvas::RequestFile(const FileDialogOptions &options, FileDialogs::Completion completion) {
-    m_State.RequestFile(options, std::move(completion), false, this);
-}
-bool SchematicCanvas::ScriptOpen(CK_ID id) const {
+SchematicCanvas::~SchematicCanvas() = default;
+bool SchematicCanvas::ScriptOpen(uint32_t id) const {
     const auto refs = ScriptReferences({id});
     return !refs.empty() && !m_Navigation.closedScripts.count(refs.front());
 }

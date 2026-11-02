@@ -21,7 +21,7 @@ set(_editor_sources
         app/Main.cpp
         app/CommandLine.cpp
         app/EditorApp.cpp
-        app/EditorState.cpp
+        native/EditorSession.cpp
         app/FileInputs.cpp
         app/OutputInputs.cpp
         app/EnvironmentInputs.cpp
@@ -41,11 +41,16 @@ set(_editor_sources
         controls/FileDialogs.cpp
         controls/ValueEditor.cpp
         controls/ParameterBox.cpp
+        controls/ParameterDialog.cpp
+        native/LayoutRenderer.cpp
+        native/ParameterCopies.cpp
+        native/ParameterDialogs.cpp
         controls/ObjectArrayInput.cpp
         controls/TypeAhead.cpp
         controls/BehaviorInfoFields.cpp
         # The Schematic.
         schematic/SchematicCanvas.cpp
+        schematic/SchematicViews.cpp
         schematic/SchematicInput.cpp
         schematic/SchematicDialogs.cpp
         schematic/SchematicParameterDialog.cpp

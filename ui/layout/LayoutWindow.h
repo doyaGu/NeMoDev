@@ -9,12 +9,12 @@
 #include <SDL3/SDL.h>
 
 #include "imgui.h"
+#include "application/Preferences.h"
 
-#include "ui/app/EditorState.h"
-#include "core/layout/LayoutInterface.h"
-#include "core/layout/LayoutTools.h"
-#include "core/layout/LayoutView.h"
-#include "core/level/LevelCommands.h"
+
+#include "core/layout/LayoutActions.h"
+
+#include "core/level/LayoutObject.h"
 #include "ui/controls/ParameterBox.h"
 #include "ui/controls/ValueEditor.h"
 #include "workspace/ResourceDrag.h"
@@ -23,7 +23,12 @@
 #include "features/layout/LayoutViewport.h"
 #include "features/layout/SnapshotData.h"
 
+class CKRasterizerContext;
+
 namespace vdev {
+class CkRuntimeHost;
+class LayoutView;
+struct LayoutInterfaceData;
 
 // Dev's 3D Layout tools: the command ids of its toolbar (Dev.exe sub_4B6C70)
 // and of its tool factory (sub_4C4530).
@@ -46,12 +51,6 @@ enum class LayoutTool {
     DeletePoints = 131
 };
 
-// Dev's names in its menus and messages: the class (Dev.exe sub_5D3550: 3D
-// Frame, Portal, the light types, 2D Frame, Script; else the CK class) and
-// the object (sub_5D3880: its name, else "<class>_<id>").
-std::string DevClassName(CKObject *object);
-std::string DevObjectName(CKObject *object);
-
 // The 3D Layout window: Dev's top bar (Snapshot, 3D Layout Explorer,
 // Selection Groups, the camera combo, General Preferences), its left
 // toolbar and the view. LayoutWindow.cpp: the window, the toolbar, the view
@@ -62,7 +61,7 @@ std::string DevObjectName(CKObject *object);
 // LayoutSnapshot.cpp: the Snapshot Buffer.
 class LayoutWindow : public LayoutViewport {
   public:
-    LayoutWindow(EditorState &state, EditorApplication &editor);
+    LayoutWindow(CkRuntimeHost &, ParameterCopies &, EditorApplication &editor);
     ~LayoutWindow();
     LayoutWindow(const LayoutWindow &) = delete;
     LayoutWindow &operator=(const LayoutWindow &) = delete;
@@ -70,15 +69,17 @@ class LayoutWindow : public LayoutViewport {
     // The render context (a hidden window owned by window).
     bool Start(SDL_Window * window, std::string *error);
     void Stop();
-    bool HandleEvent(const SDL_Event &event) { return m_View.HandleEvent(event); }
+    bool HandleEvent(const SDL_Event &event);
     // The workspace supplies placement, focus and close requests.
     bool Register(std::string &error);
     void Draw(EditorViewFrame &frame);
     // --layout-debug (capture checks): the On-screen Debug Data for the
     // session, the preference left as it is.
     bool debugData = false;
-    LayoutView &View() { return m_View; }
-    const LayoutView &View() const { return m_View; }
+#ifdef VIRTOOLSDEV_UI_TESTS
+    LayoutView &View() { return *m_View; }
+    const LayoutView &View() const { return *m_View; }
+#endif
     LayoutTool Tool() const { return m_Window ? Window().tool : LayoutTool::Select; }
     // Dev's Player Mode (Dev.exe sub_4A11D0, sub_4A1E00): while the
     // composition plays, the Player Mode preferences, no navigation but the
@@ -100,7 +101,7 @@ class LayoutWindow : public LayoutViewport {
     // --layout-tool / --layout-view (capture checks): a tool by name, a camera by name.
     void StartupOptions(const std::string &tool, const std::string &camera);
     // --drop-block: a Building Block dropped at a client point once the view has drawn.
-    void StartupDrop(const CKGUID &guid, float x, float y);
+    void StartupDrop(uint64_t guid, float x, float y);
     // --layout-select / --layout-group / --layout-command: objects selected by
     // name, a name entered in the Selection Groups combo, commands by Dev's id.
     void StartupSelection(const std::vector<std::string> &names, const std::string &group, const std::vector<int> &commands);
@@ -137,7 +138,7 @@ class LayoutWindow : public LayoutViewport {
     bool UsesGpuViewport() const { return m_GpuTexture != nullptr; }
 #ifdef VIRTOOLSDEV_UI_TESTS
     UiTexture *GpuViewportTextureForTests() const { return m_GpuTexture.get(); }
-    CKDWORD GpuViewportHandleForTests() const { return m_GpuTextureHandle; }
+    uint32_t GpuViewportHandleForTests() const { return m_GpuTextureHandle; }
     void FailNextGpuViewportForTests() { m_FailNextGpuViewport = true; }
     void FailNextGpuViewportReleaseForTests() {
         m_FailNextGpuViewportRelease = true;
@@ -219,8 +220,17 @@ private:
     UiTexture *RenderGpuViewport();
     bool ReleaseTexture();
     void ResetViewportAfterContextStop();
+    UiTexture *RenderViewport(int width, int height);
+    void InputViewport(const ImVec4 &, int width, int height);
+    void RenderPlayer();
+    void ClearDropHighlight();
+    friend class EditorApp;
+#ifndef VIRTOOLSDEV_UI_TESTS
+    LayoutView &View() { return *m_View; }
+    const LayoutView &View() const { return *m_View; }
+#endif
     // Camera tools.
-    CameraSteps Steps() const;
+    EditorField GestureOptions(const LayoutTransformSettings &, bool locked) const;
     bool BeginCamera(CameraAction action, int x, int y, ImGuiMouseButton button);
     void NextCamera(bool previous);
     void ZoomOn(bool scene);
@@ -229,20 +239,18 @@ private:
     void SelectAll(bool invert);
     void ClearSelection();
     void ApplyClick(ObjectRef picked);
-    void ApplyRect(const VxRect &rect);
+    void ApplyRect(const ImVec4 &rect);
     void SetSelection(std::vector<ObjectRef> objects, bool invert = false);
     void RestoreSelection(const std::vector<ObjectRef> &objects, bool locked);
     void LockSelection(bool locked);
     // Transformations.
     LayoutTransformSettings &Settings();
-    TransformSteps TransformStepsOf() const;
     bool BeginTransform(int x, int y);
     // The 2D entities (Dev.exe sub_4C4A70): a selected one's handle starts a
     // Translate (top-left) or a Scale (the others) whatever the tool, but
     // Translate; Snap & Align for them.
-    int HandleAt(int x, int y, CK_ID *entity) const;
+    int HandleAt(int x, int y, uint32_t *entity) const;
     bool BeginHandle(int x, int y);
-    Snap2D Snap2DOf() const;
     // The curve tools (Dev.exe sub_49ACC0, sub_49CD00, sub_49B870, sub_49B400).
     bool CurveToolActive() const;
     void SyncCurveTool();
@@ -352,7 +360,7 @@ private:
     // The renderer belongs to the editing session; workspace views own their
     // input, dialogs and copied display data. Closing a view releases its GPU
     // target without creating another native CKContext.
-    EditorState &m_State;
+    ParameterCopies &m_ParameterCopies;
     EditorApplication &m_CommandEditor;
     const EditorHost *m_EditorHost = nullptr;
     EditorClient Client() const { return {m_EditorHost, m_Window ? m_Window->id : 0}; }
@@ -362,7 +370,7 @@ private:
     EditorResponse Execute(const char *, const std::vector<EditorValue> & = {}, AfterCommand = AfterCommand::None);
     void Complete(const EditorResponse &, AfterCommand);
     void PollCommands();
-    LayoutView m_View;
+    std::unique_ptr<LayoutView> m_View;
     bool m_Started = false;
     std::string m_StartError;
     SDL_Window *m_MainWindow = nullptr;
@@ -380,13 +388,13 @@ private:
     std::unique_ptr<UiTexture> m_Texture;
     CKRasterizerContext *m_ViewportContext = nullptr;
     std::unique_ptr<UiTexture> m_GpuTexture;
-    CKDWORD m_GpuTextureHandle = 0;
+    uint32_t m_GpuTextureHandle = 0;
     UiTexture *(LayoutWindow::*m_ViewportRenderer)() = &LayoutWindow::RenderReadbackViewport;
 #ifdef VIRTOOLSDEV_UI_TESTS
     bool m_FailNextGpuViewport = false, m_FailNextGpuViewportRelease = false;
     std::uint64_t m_GpuViewportCreations = 0, m_GpuViewportSelections = 0, m_GpuViewportReleases = 0,
                   m_ViewportUploads = 0;
-    CKGUID m_StartupDrop;
+    uint64_t m_StartupDrop = 0;
     ImVec2 m_StartupDropAt;
     int m_StartupDropFrames = 0;
 #endif
@@ -397,7 +405,7 @@ private:
     // when another provider draws the Layout window.
     ObjectRef m_Group{};
     unsigned m_GroupRevision = ~0u;
-    LayoutInterfaceData m_Interface;
+    std::unique_ptr<LayoutInterfaceData> m_Interface;
     int AllowedAxes() const;
     void UpdateCoordinates();
     bool GestureActive(unsigned kind) const {
@@ -416,7 +424,7 @@ private:
         EditorView id;
         bool needsStart = true;
         WindowState(LayoutWindow &layout, EditorView view)
-            : owner(&layout), id(view), dropBox(layout.m_State), copyBox(layout.m_State) {}
+            : owner(&layout), id(view), dropBox(layout.m_ParameterCopies), copyBox(layout.m_ParameterCopies) {}
         LayoutSceneData groupData, cameraData, explorerData;
         LayoutSelectionData selectionData;
         SnapshotData snapshots;
@@ -456,7 +464,8 @@ private:
         bool rightPressed = false;
         ContextMenu menu;
         bool openPopups = true;
-        CKDependencies copyOptions;
+        ParameterDependencies copyOptions;
+        uint64_t copyType = 0;
         std::string dropText;
         ObjectRef dropHighlight{};
         ParameterBox dropBox;

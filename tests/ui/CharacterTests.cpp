@@ -6,7 +6,7 @@
 #include <string>
 
 #include "tests/ui/UiTests.h"
-#include "ui/controls/ObjectText.h"
+#include "core/runtime/TextEncoding.h"
 
 namespace vdevuitest {
 
@@ -46,7 +46,7 @@ void RegisterCharacterTests(ImGuiTestEngine *engine) {
             if (!first) return;
             part = first->GetID();
             // CharacterPage's row: the name, "  (Root)" after the root's.
-            label = vdev::DisplayName(first, "-- None --") + (first == owner->GetRootBodyPart() ? "  (Root)" : "");
+            label = (first ? (first->GetName() && *first->GetName() ? vdev::AnsiToUtf8(first->GetName()) : std::string("<Unnamed>")) : std::string("-- None --")) + (first == owner->GetRootBodyPart() ? "  (Root)" : "");
         });
         IM_CHECK_SILENT(part != 0);
         ctx->LogInfo("body part '%s'", label.c_str());

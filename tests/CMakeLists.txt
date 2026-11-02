@@ -113,7 +113,7 @@ add_test(NAME VirtoolsDevFontDeployment COMMAND ${CMAKE_COMMAND}
 
 set(_application_test_sources
     ../ui/controls/FileDialogs.cpp ../application/RuntimeOperation.cpp
-    ../ui/app/EditorState.cpp ../application/DocumentFiles.cpp)
+    ../ui/native/EditorSession.cpp ../application/DocumentFiles.cpp)
 foreach(_test IN ITEMS FileDialog DocumentFiles)
     add_executable(VirtoolsDev${_test}Tests VirtoolsDev${_test}Tests.cpp ${_application_test_sources})
     target_link_libraries(VirtoolsDev${_test}Tests PRIVATE VirtoolsDevCore NeMoDevEditorApplication Threads::Threads)

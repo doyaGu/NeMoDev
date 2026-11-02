@@ -1,4 +1,10 @@
 #pragma once
+#include "ui/native/EditorSession.h"
+#include "core/layout/LayoutView.h"
+#include "core/layout/LayoutInterface.h"
+#include "core/catalog/BuildingBlockCatalog.h"
+#include "core/graph/Debugger.h"
+#include "ui/schematic/SchematicStyle.h"
 
 #include "application/DocumentCommands.h"
 #include "application/ExecutionCommands.h"
@@ -28,7 +34,7 @@
 
 #include "core/document/DocumentSaver.h"
 #include "ui/panels/EditorPanels.h"
-#include "ui/app/EditorState.h"
+#include "ui/app/EditorStartup.h"
 #include "ui/app/StatusBar.h"
 #include "ui/layout/LayoutWindow.h"
 #include "ui/schematic/SchematicCanvas.h"
@@ -41,62 +47,6 @@
 
 namespace vdev {
 
-#ifdef VIRTOOLSDEV_UI_TESTS
-// Command-line display options for the regression executable.
-struct StartupOptions {
-    bool openScripts = false;  // open every shown Script (an undoable display edit)
-    bool expandGraphs = false; // expand every behavior graph of the shown Scripts
-    bool showAllScripts = true; // Dev: every Script in one Schematic (--owner-scripts: only the owner's)
-    bool fit = false;
-    std::string insertBlock; // --insert-block <name>: insert into the first shown Script, link from Start
-    std::string showScript;  // --show-script <name>: scroll the Schematic to this Script (UTF-8)
-    std::string focusWindow; // --focus-window <name>[|<name>...]: bring these panels to front (capture checks)
-    bool messages = false;   // --messages: open the Message Explorer
-    int playFrames = 0;      // --play N: show the Script Debugger and run N traced frames
-    std::vector<std::string> setups; // --setup NAME: open the Setup of the object NAME (repeatable)
-    bool expandLevel = false; // --expand-level: open every Level Manager node
-    bool newComposition = false; // --new: File > New Composition first
-    std::vector<std::pair<std::string, bool>> merges; // --merge FILE / --merge-scene FILE (as a new scene)
-    // --import FILE, --import-character / --import-place / --import-scene FILE
-    std::vector<std::pair<std::string, int>> imports; // Document::ImportMode
-    std::vector<std::string> resources; // --resource FILE.rsc: open a Data Resource
-    // --resource-folder PATH: the folder of the last one shown (its path ends with PATH)
-    std::string resourceFolder;
-    // --tool NAME: open a window (prefs[:page], plugins, paths, unused, versiontest,
-    // profiler, watch, about, linkprops) for capture checks
-    std::vector<std::string> tools;
-    // --layout-tool NAME: the 3D Layout's tool (select, translate, rotate, scale,
-    // orbit, orbitcamera, dolly, zoom, pan, roll, fov); --layout-view NAME: its camera
-    std::string layoutTool;
-    std::string layoutView;
-    // --layout-select NAME (repeatable): objects selected in the 3D Layout;
-    // --layout-group NAME: that name entered in its Selection Groups combo;
-    // --layout-command ID (repeatable): a 3D Layout command by Dev's id (41
-    // the 3D Layout Explorer, 56 the Snapshot Buffer, ...).
-    std::vector<std::string> layoutSelect;
-    std::string layoutGroup;
-    std::vector<int> layoutCommands;
-    bool layoutDebug = false; // --layout-debug: the 3D Layout's On-screen Debug Data
-    // --drop-block NAME X Y: a Building Block dropped on the 3D Layout at a client point.
-    std::string dropBlock;
-    float dropX = 0.0f, dropY = 0.0f;
-    std::vector<std::string> creates; // --create camera|light|frame|curve|grid|2d|material|texture|portal
-    bool menuAt = false;     // --menu-at <x> <y>: context menu at a canvas point
-    float menuX = 0.0f, menuY = 0.0f;
-    std::vector<std::string> closeScripts;                 // --close-script <name> (repeatable)
-    // --edit-parameters NAME: Dev's Edit Parameters of the first Building
-    // Block or parameter operation named NAME (ANSI), once the window is up.
-    std::string editParameters;
-    // --edit-value TYPE: Dev's Edit Parameter dialog (value only) on a new
-    // parameter of the type named TYPE (ANSI): a type's UI alone.
-    std::string editValue;
-    std::vector<std::pair<std::string, float>> zoomScripts; // --zoom-script <name> <scale>
-    // --isolated (and the UI tests): Dev's default preferences, none read
-    // from or saved to the preferences file or Dev's registry, no window
-    // layout file (Main.cpp): the same start on every machine.
-    bool isolated = false;
-};
-#endif
 
 class EditorApp : private DocumentFiles::Views, private DocumentCommands::Presentation, private OutputCommands::Presentation {
 public:
@@ -110,13 +60,18 @@ public:
                     , const StartupOptions &startup = StartupOptions()
 #endif
                     );
+#ifdef VIRTOOLSDEV_UI_TESTS
+    bool StartupSettled() const {
+        return !m_Session.runtimeOperation.Busy() && m_FocusSchematic <= 0 && !m_StartupAfterLoads;
+    }
+#endif
     void Frame();
     // Called only after rendering and releasing this frame's UI textures.
     void EndFrame() {
-        m_Editor.NativeAvailable(!m_State.runtimeOperation.Busy());
+        m_Editor.NativeAvailable(!m_Session.runtimeOperation.Busy());
         m_Editor.EndFrame();
-        if (!m_State.runtimeOperation.Busy() && m_State.document) m_State.document->CollectBitmaps();
-        m_State.runtimeOperation.Start();
+        if (!m_Session.runtimeOperation.Busy() && m_Session.document) m_Session.document->CollectBitmaps();
+        m_Session.runtimeOperation.Start();
     }
     void HandleEvent(const SDL_Event &event);
     void Shutdown();
@@ -135,6 +90,7 @@ public:
     std::string SceneWindow(const std::string &type) const;
     std::string BuildingBlocksWindow() const { return m_Workspace.WindowName(m_Workspace.Role("main.building-blocks")); }
     bool ShouldQuit() const { return m_Quit; }
+    void ReportFailure(const std::string &message) { m_Session.Log(LogLevel::Error, message); }
     // The 3D Layout is fullscreen: the editor's window, hidden, keeps its frames going.
     bool LayoutFullScreen() const { return m_Layout.FullScreen(); }
     // Files dropped on the window at a client point: a composition opens;
@@ -142,8 +98,17 @@ public:
     // it is dropped on or is imported where it is dropped (Dev drag and drop
     // of resources).
     void DropFiles(const std::vector<std::wstring> &paths, float x, float y);
-    EditorState &State() { return m_State; }
+    void ShowSchematic(const ElementAddress &address, ObjectRef focus = {}, EditorView view = 0) {
+        m_Schematics.RequestShow(address, focus, view);
+    }
 #ifdef VIRTOOLSDEV_UI_TESTS
+    ParameterCopies &ParameterCopiesForTests() { return m_ParameterCopies; }
+    const Debugger *DebuggerForTests() const { return m_Debugger; }
+    Preferences &SettingsForTests() { return m_Settings; }
+    BuildingBlockCatalog &CatalogForTests() { return m_Catalog; }
+    std::vector<CKGUID> &RecentBlocksForTests() { return m_RecentBlocks; }
+    EditorWorkspace &WorkspaceForTests() { return m_Workspace; }
+    EditorSession &State() { return m_Session; }
     // What the UI tests (tests/ui) check the UI's work on.
     SchematicCanvas &Canvas(EditorView view = 0) const { return view ? *m_Schematics.Find(view) : m_Schematics.Current(); }
     std::string SchematicWindow(EditorView view = 0) const { return m_Schematics.Window(view); }
@@ -158,8 +123,9 @@ public:
 
 private:
     void MainMenu();
-    // What the windows asked of each other the frame before (EditorState::events).
-    void DispatchEvents();
+    // Refresh stacks and finish view navigation after document edits settle.
+    void RefreshSchematicViews();
+
     void ShowSchematicExplorer();
     bool m_CloseSeparated = false;
     void GlobalShortcuts();
@@ -168,7 +134,6 @@ private:
     // composition after an undo or another file. Shortcuts and dropped files
     // wait for them.
     bool Busy() const;
-    void SaveReportDialog();
     void UpdateTitle();
 
     EditorResponse Command(const char *id, const std::string &path = {});
@@ -214,6 +179,7 @@ private:
     void OutputFinished(const OutputCommands::Result &result) override;
 #ifdef VIRTOOLSDEV_UI_TESTS
     std::string m_PendingPrintPages, m_PendingPrintDialog; // --tool printpages:DIR, print:DIR
+    EditorOperation m_StartupResourceOperation = 0;
     std::string m_PendingStartupDialog;                     // --tool breakpoints, breakpointconfig, invalidlinks
     int m_PrintPagesFrames = 0;
     EditorOperation m_PrintPagesOperation = 0;
@@ -225,7 +191,7 @@ private:
     void StatusBar();
     void ApplyPreferences();
     bool FileOperationAvailable() const {
-        return !m_State.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy();
+        return !m_Session.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy();
     }
     std::string PreferencesPath() const;
     void SavePreferences(); // not when isolated
@@ -233,80 +199,104 @@ private:
     bool SaveSettings(Preferences next, std::string &error);
     bool WriteSettings(const Preferences &, std::string &error);
 
-    EditorState m_State;
+    Preferences m_Settings;
+    SchematicStyle m_Style;
+    BuildingBlockCatalog m_Catalog;
+    std::vector<CKGUID> m_RecentBlocks;
+    CKDependencies m_CopyDependencies;
+    bool m_CopyDependenciesSet = false;
+    const Debugger *m_Debugger = nullptr;
+    CKDependencies &CopyDependencies() {
+        if (!m_CopyDependenciesSet) {
+            if (auto *defaults = CKGetDefaultClassDependencies(CK_DEPENDENCIES_COPY)) m_CopyDependencies = *defaults;
+            else m_CopyDependencies.m_Flags = CK_DEPENDENCIES_CUSTOM;
+            m_CopyDependenciesSet = true;
+        }
+        return m_CopyDependencies;
+    }
+    void RememberBlock(CKGUID guid) {
+        m_RecentBlocks.erase(std::remove(m_RecentBlocks.begin(), m_RecentBlocks.end(), guid), m_RecentBlocks.end());
+        m_RecentBlocks.insert(m_RecentBlocks.begin(), guid);
+        const auto limit = size_t(std::max(1, m_Settings.maxRecentBlocks));
+        if (m_RecentBlocks.size() > limit) m_RecentBlocks.resize(limit);
+    }
+    EditorSession m_Session;
     EditorApplication m_Editor;
     MessageCommands m_Messages;
-    DocumentCommands m_FileCommands{m_Editor, m_State.files, m_State.runtimeOperation,
-                                    [this] { return m_State.document.get(); }, *this};
-    OutputCommands m_Outputs{m_Editor, m_State.files, m_State.runtimeOperation,
-                              [this] { return m_State.document.get(); }, *this};
-    ExecutionCommands m_Execution{m_Editor, [this] { return m_State.document.get(); },
+    DocumentCommands m_FileCommands{m_Editor, m_Session.files, m_Session.runtimeOperation,
+                                    [this] { return m_Session.document.get(); }, *this};
+    OutputCommands m_Outputs{m_Editor, m_Session.files, m_Session.runtimeOperation,
+                              [this] { return m_Session.document.get(); }, *this};
+    ExecutionCommands m_Execution{m_Editor, [this] { return m_Session.document.get(); },
                                   [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
-                                  m_State.preferences};
+                                  m_Settings};
     EditorWorkspace m_Workspace{m_Editor};
-    DataResourceCommands m_ResourceCommands{m_Editor, m_State.host, [this] { return FileOperationAvailable(); }};
-    DiagnosticCommands m_Diagnostics{m_Editor, m_State.runtimeOperation, m_State.host,
-        [this] { return m_State.document.get(); }, [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }};
-    PreferencesCommands m_Preferences{m_Editor, m_State.host, m_State.preferences,
+    DataResourceCommands m_ResourceCommands{m_Editor, m_Session.host, [this] { return FileOperationAvailable(); }};
+    DiagnosticCommands m_Diagnostics{m_Editor, m_Session.runtimeOperation, m_Session.host,
+        [this] { return m_Session.document.get(); }, [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }};
+    PreferencesCommands m_Preferences{m_Editor, m_Session.host, m_Settings,
         [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
         [this](const Preferences &preferences, std::string &error) { return WriteSettings(preferences, error); },
         [this] { ApplyPreferences(); m_Panels.RefreshStack(); }};
-    EnvironmentCommands m_Environment{m_Editor, m_State.host,
+    EnvironmentCommands m_Environment{m_Editor, m_Session.host,
         [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
         [this](const PathCategories &paths, std::string &error) { return SaveSearchPaths(paths, error); },
-        [this] { m_State.catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); m_Preferences.InvalidateCatalog(); }};
+        [this] { m_Catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); m_Preferences.InvalidateCatalog(); }};
     ObjectCommands m_ObjectCommands;
-    ParameterCommands m_ParameterCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, &m_State.clipboard};
-    ArrayCommands m_ArrayCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }, m_State.clipboard};
-    SetupCommands m_SetupCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
-    SchematicCommands m_SchematicCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
+    ParameterCommands m_ParameterCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }, &m_Session.clipboard};
+    ArrayCommands m_ArrayCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }, m_Session.clipboard};
+    SetupCommands m_SetupCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }};
+    SchematicCommands m_SchematicCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }};
     SchematicGraphCommands m_SchematicGraph{
-        [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
-        [this] { return m_State.preferences.Bool("Schematic\\Test Parameter Link after Loading"); }, m_State.clipboard};
-    SelectionCommands m_SelectionCommands{[this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
-                                          m_State.objectSelection};
+        [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
+        [this] { return m_Settings.Bool("Schematic\\Test Parameter Link after Loading"); }, m_Session.clipboard};
+    SelectionCommands m_SelectionCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
+                                          m_Session.objectSelection};
     SchematicViews m_Schematics;
+    ParameterCopies m_ParameterCopies{m_Session.host, m_Workspace, [this] { return m_Session.document.get(); },
+        [this] {
+            const auto &native = CopyDependencies();
+            ParameterDependencies value; value.flags = uint32_t(native.m_Flags);
+            for (int i = 0; i < native.Size(); ++i) value.options.push_back(native[i]);
+            return value;
+        }, [this] { m_Schematics.ClearSelections(); }};
     EditorPanels m_Panels;
-    SetupWindows m_Setups{m_Workspace, m_State.fileDialogs};
-    SceneCommands m_SceneCommands{m_Editor, [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
-        m_State.objectClipboard, m_State.clipboard, [this]() -> SchematicNavigation & { return m_State.Schematic(); }, [this]() -> CKDependencies & { return m_State.CopyDependencies(); }};
+    SetupWindows m_Setups{m_Workspace, m_Session.fileDialogs};
+    SceneCommands m_SceneCommands{m_Editor, [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
+        m_Session.objectClipboard, m_Session.clipboard, [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }, [this]() -> CKDependencies & { return CopyDependencies(); }};
     HtmlFonts m_HtmlFonts;
-    LayoutWindow m_Layout{m_State, m_Editor};
+    LayoutWindow m_Layout{m_Session.host, m_ParameterCopies, m_Editor};
     LayoutCommands m_LayoutCommands{m_Editor,
-        [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
-        [this]() -> LayoutView & { return m_Layout.View(); }, m_State.objectSelection};
+        [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
+        [this]() -> LayoutView & { return m_Layout.View(); }, m_Session.objectSelection};
     LayoutAuthoring m_LayoutAuthoring{m_Editor,
-                                      [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
+                                      [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
                                       [this]() -> LayoutView & { return m_Layout.View(); },
-                                      m_State.objectSelection,
-                                      m_State.preferences,
-                                      [this]() -> SchematicNavigation & { return m_State.Schematic(); }};
+                                      m_Session.objectSelection,
+                                      m_Settings,
+                                      [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }};
     LayoutPresentation m_LayoutPresentation{m_Editor,
-                                            [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; },
+                                            [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
                                             [this]() -> LayoutView & { return m_Layout.View(); },
                                             m_Layout,
-                                            m_State.objectSelection,
-                                            m_State.preferences,
+                                            m_Session.objectSelection,
+                                            m_Settings,
                                             [this] { return m_Execution.State().state == EDITOR_EXECUTION_RUNNING; }};
-    SnapshotCommands m_Snapshots{m_Editor, m_State.runtimeOperation, m_Layout,
-                                 [this] { return m_State.HasDocument() ? m_State.document.get() : nullptr; }};
+    SnapshotCommands m_Snapshots{m_Editor, m_Session.runtimeOperation, m_Layout,
+                                 [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }};
 
 #ifdef VIRTOOLSDEV_UI_TESTS
-    ParameterBox m_StartupValue{m_State}; // --edit-value
+    ParameterBox m_StartupValue{m_ParameterCopies}; // --edit-value
     int m_StartupValueState = 0;          // 1: to open, 2: open
 #endif
     SDL_Window * m_Window = nullptr;
     bool m_Quit = false;
     bool m_Shutdown = false;
-    bool m_OpenSaveReport = false;
-    std::string m_SaveReportText;
     std::wstring m_Title;
     // Dev's main windows (3D Layout, Schematic, Level Manager, Building
     // Blocks) are always there; the Schematic Explorer opens from the toolbar.
-    bool m_ShowExplorer = false;
     bool m_ResetLayout = false;
     int m_FocusSchematic = 0; // frames left to bring the default layout's front tabs forward
-    const char *m_ToFront = nullptr; // the window an event brings forward, once no popup is open (DispatchEvents)
 #ifdef VIRTOOLSDEV_UI_TESTS
     StartupOptions m_Startup;
     bool m_RunStartupAfterOpen = false;

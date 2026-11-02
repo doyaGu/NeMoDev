@@ -9,7 +9,9 @@
 
 #include "imgui.h"
 
-#include "VxMath.h"
+#include "VxMatrix.h"
+#include "VxColor.h"
+#include "VxRect.h"
 
 #include "features/setup/SetupViewData.h"
 

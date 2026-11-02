@@ -18,7 +18,7 @@ namespace vdevuitest {
 namespace {
 vdev::SnapshotData Snapshots() {
     vdev::SnapshotData data;
-    vdev::ReadSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), data);
+    vdev::ReadSnapshots(vdev::EditorClient((&App().WorkspaceForTests())->Application().Host(), 0), data);
     return data;
 }
 
@@ -184,7 +184,7 @@ void RegisterGpuViewportTests(ImGuiTestEngine *engine) {
         }), before + 1);
         ctx->ItemClick("//Snapshot Buffer/Close");
         OnMainThread(ctx, [slot, background] {
-            vdev::RemoveSnapshots(vdev::EditorClient(App().State().workspace->Application().Host(), 0), Snapshots(),
+            vdev::RemoveSnapshots(vdev::EditorClient((&App().WorkspaceForTests())->Application().Host(), 0), Snapshots(),
                                   {slot});
             Background(background);
         });

@@ -37,7 +37,7 @@ void Gui(ImGuiTestContext *ctx) {
     if (editing.inlineValue) {
         ImGui::SetNextWindowSize(ImVec2(500, editing.inlineHeight), ImGuiCond_Always);
         ImGui::Begin("Typed inline");
-        auto &app = App().State().workspace->Application();
+        auto &app = (&App().WorkspaceForTests())->Application();
         app.EnterDraw();
         app.DrawProperty(editing.property, app.Scope(editing.owner), editing.target, editing.edit, vdev::EditorLiteral("##integer"));
         app.LeaveDraw();
@@ -52,12 +52,12 @@ void Gui(ImGuiTestContext *ctx) {
 void Cleanup(ImGuiTestContext *ctx) {
     OnMainThread(ctx, [] {
         auto &state = App().State();
-        auto &app = state.workspace->Application();
+        auto &app = (&App().WorkspaceForTests())->Application();
         if (editing.edit) app.FinishEdit(editing.edit, false);
         if (editing.owner) app.CloseScope(editing.owner);
         editing.box.reset();
         if (!ImGui::GetCurrentContext()->OpenPopupStack.empty()) ImGui::ClosePopupToLevel(0, false);
-        if (editing.configuration) { std::string error; state.workspace->Configure(*editing.configuration, error); }
+        if (editing.configuration) { std::string error; (&App().WorkspaceForTests())->Configure(*editing.configuration, error); }
         state.History().Clear();
         for (auto id : editing.parameters) if (state.host.Context()->GetObject(id)) state.host.Context()->DestroyObject(id);
         for (auto id = editing.objects.rbegin(); id != editing.objects.rend(); ++id) if (state.host.Context()->GetObject(*id)) state.host.Context()->DestroyObject(*id);
@@ -83,7 +83,7 @@ std::vector<float> Components(ImGuiTestContext *ctx, CK_ID id) {
 }
 std::vector<float> WorkingComponents(ImGuiTestContext *ctx, size_t row) {
     return Read<std::vector<float>>(ctx, [=] {
-        auto *parameter = editing.box ? editing.box->Work(row) : nullptr;
+        auto *parameter = editing.box ? CKParameter::Cast(App().State().document->Resolve(editing.box->WorkReference(row), CKCID_PARAMETER, vdev::Document::ObjectScope::Existing)) : nullptr;
         std::vector<float> values(parameter ? size_t(parameter->GetDataSize()) / sizeof(float) : 0);
         if (parameter) parameter->GetValue(values.data(), FALSE);
         return values;
@@ -99,7 +99,7 @@ vdev::ParameterValue Value(ImGuiTestContext *ctx, CK_ID id) {
 vdev::ParameterValue WorkingValue(ImGuiTestContext *ctx, size_t row = 0) {
     return Read<vdev::ParameterValue>(ctx, [=] {
         vdev::ParameterValueDescription value;
-        IM_CHECK_NO_RET(editing.box && vdev::DescribeParameterValue(*App().State().document, editing.box->Work(row), value));
+        IM_CHECK_NO_RET(editing.box && vdev::DescribeParameterValue(*App().State().document, CKParameter::Cast(App().State().document->Resolve(editing.box->WorkReference(row), CKCID_PARAMETER, vdev::Document::ObjectScope::Existing)), value));
         return value.value;
     });
 }
@@ -126,8 +126,8 @@ void NestedFixture(bool dialog = true) {
     auto *parameter = context->CreateCKParameterLocal("Nested editor", outerType);
     IM_CHECK_NO_RET(parameter != nullptr);
     editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
-    if (dialog) { editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(parameter, "Nested")); editing.open = true; }
-    else { editing.property = "parameter.structure"; editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true; }
+    if (dialog) { editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests()); IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(parameter->GetID()), "Nested")); editing.open = true; }
+    else { editing.property = "parameter.structure"; editing.owner = (&App().WorkspaceForTests())->Application().OpenScope(); editing.inlineValue = true; }
     state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
 void FlagsFixture(bool dialog, bool nested = false) {
@@ -153,11 +153,11 @@ void FlagsFixture(bool dialog, bool nested = false) {
     IM_CHECK_NO_RET(flags && flags->SetValue(&initial, sizeof(initial)) == CK_OK);
     editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
     if (dialog) {
-        editing.box = std::make_unique<vdev::ParameterBox>(state);
-        IM_CHECK_NO_RET(editing.box->Add(parameter, "Flags")); editing.open = true;
+        editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests());
+        IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(parameter->GetID()), "Flags")); editing.open = true;
     } else {
         editing.property = nested ? "parameter.structure" : "parameter.flags";
-        editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true;
+        editing.owner = (&App().WorkspaceForTests())->Application().OpenScope(); editing.inlineValue = true;
     }
     state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
@@ -187,13 +187,13 @@ void SpecializedFixture(bool dialog, bool nested = false, bool curveOnly = false
     }
     editing.target = state.document->Reference(editing.parameters.front());
     if (dialog) {
-        editing.box = std::make_unique<vdev::ParameterBox>(state);
-        if (nested) IM_CHECK_NO_RET(editing.box->Add(Object<CKParameter>(editing.parameters.front()), "Specialized"));
-        else for (unsigned i = 0; i < values.size(); ++i) IM_CHECK_NO_RET(editing.box->Add(values[i], i == 0 ? "Curve" : i == 1 ? "Dependencies" : "LOD"));
+        editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests());
+        if (nested) IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(Object<CKParameter>(editing.parameters.front())->GetID()), "Specialized"));
+        else for (unsigned i = 0; i < values.size(); ++i) IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(values[i]->GetID()), i == 0 ? "Curve" : i == 1 ? "Dependencies" : "LOD"));
         editing.open = true;
     } else {
         editing.property = nested ? "parameter.structure" : "parameter.curve2d";
-        editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true; editing.inlineHeight = 400;
+        editing.owner = (&App().WorkspaceForTests())->Application().OpenScope(); editing.inlineValue = true; editing.inlineHeight = 400;
     }
     state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
@@ -240,11 +240,11 @@ void SelectorFixture(bool dialog = true, bool nested = false, bool compact = fal
     }
     editing.target=state.document->Reference(editing.parameters.front());
     if (dialog) {
-        editing.box=std::make_unique<vdev::ParameterBox>(state);
-        if (nested) IM_CHECK_NO_RET(editing.box->Add(Object<CKParameter>(editing.parameters.front()),"Selectors"));
-        else for (unsigned i=0;i<values.size();++i) IM_CHECK_NO_RET(editing.box->Add(values[i],i==0?"Time":i==1?"Key":i==2?"Script":i==3?"Animation":i==4?"Message":i==5?"Attribute":"Synchro"));
+        editing.box=std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests());
+        if (nested) IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(Object<CKParameter>(editing.parameters.front())->GetID()),"Selectors"));
+        else for (unsigned i=0;i<values.size();++i) IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(values[i]->GetID()),i==0?"Time":i==1?"Key":i==2?"Script":i==3?"Animation":i==4?"Message":i==5?"Attribute":"Synchro"));
         editing.open=true;
-    } else { editing.property=nested?"parameter.structure":"parameter.time"; editing.owner=state.workspace->Application().OpenScope(); editing.inlineValue=true; editing.inlineHeight=600; }
+    } else { editing.property=nested?"parameter.structure":"parameter.time"; editing.owner=(&App().WorkspaceForTests())->Application().OpenScope(); editing.inlineValue=true; editing.inlineHeight=600; }
     state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
 void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
@@ -266,13 +266,13 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             editing.enumType = CKGUID(0x6e76616c, 0x00000402);
             IM_CHECK_NO_RET(context->GetParameterManager()->RegisterNewEnum(editing.enumType, "Primitive UI enum", "First=2,Last=90") == CK_OK);
             const CKGUID types[] = {CKPGUID_INT, CKPGUID_FLOAT, CKPGUID_BOOL, editing.enumType};
-            editing.box = std::make_unique<vdev::ParameterBox>(state);
+            editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests());
             for (auto type : types) {
                 auto *parameter = context->CreateCKParameterLocal("Primitive edit", type);
                 IM_CHECK_NO_RET(parameter != nullptr);
                 if (type == editing.enumType) { int value = 2; parameter->SetValue(&value, sizeof(value)); }
                 editing.parameters.push_back(parameter->GetID());
-                IM_CHECK_NO_RET(editing.box->Add(parameter, "Value"));
+                IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(parameter->GetID()), "Value"));
             }
             state.History().Clear();
             state.document->MarkSaved(); state.History().MarkSavePoint();
@@ -319,8 +319,8 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             auto *b = context->CreateCKParameterLocal("Batch B", CKPGUID_INT);
             IM_CHECK_NO_RET(a && b);
             editing.parameters = {a->GetID()};
-            editing.box = std::make_unique<vdev::ParameterBox>(state);
-            IM_CHECK_NO_RET(editing.box->Add(a, "A") && editing.box->Add(b, "B"));
+            editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests());
+            IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(a->GetID()), "A") && editing.box->Add(state.document->Reference(b->GetID()), "B"));
             state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
             vdev::ParameterValueDescription description;
             IM_CHECK_NO_RET(vdev::DescribeParameterValue(*state.document, a, description));
@@ -328,13 +328,13 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::SetParameterValue(*state.document, state.document->Reference(a->GetID()), description.type, description.value).ok);
             IM_CHECK_NO_RET(state.History().Undo() && state.History().CanRedo());
             description.value.integer = 33;
-            IM_CHECK_NO_RET(vdev::WriteParameterDraft(*state.document, editing.box->Work(0), description.value));
-            const auto selected = state.workspace->Application().Selection();
+            IM_CHECK_NO_RET(vdev::WriteParameterDraft(*state.document, CKParameter::Cast(state.document->Resolve(editing.box->WorkReference(), CKCID_PARAMETER, vdev::Document::ObjectScope::Existing)), description.value));
+            const auto selected = (&App().WorkspaceForTests())->Application().Selection();
             context->DestroyObject(b);
             IM_CHECK_NO_RET(editing.box->Apply(0) == 0);
             int value = -1; a->GetValue(&value, FALSE);
             IM_CHECK_NO_RET(value == 0 && state.History().UndoCount() == 0 && state.History().CanRedo() && !state.document->Dirty());
-            IM_CHECK_NO_RET(state.workspace->Application().Selection() == selected);
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Application().Selection() == selected);
         });
     };
     test = IM_REGISTER_TEST(engine, "modules", "external_integer_editor_shared_by_inline_and_dialog");
@@ -344,14 +344,14 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         vdev::EditorConfiguration previous;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &app = state.workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             previous = app.Configuration();
             editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
             auto selected = previous;
             for (auto &choice : selected.providers)
                 if (choice.kind == "command" && choice.id == "parameter.integer-set") choice.provider = "example.integer";
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(selected, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(selected, error));
             auto *parameter = state.host.Context()->CreateCKParameterLocal("External integer", CKPGUID_INT);
             IM_CHECK_NO_RET(parameter != nullptr);
             editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
@@ -368,7 +368,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [] {
             editing.inlineValue = false;
             auto &state = App().State();
-            auto &app = state.workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, editing.target};
             IM_CHECK_NO_RET(app.Execute("parameter.edit", {app.Scope(), &target, 1}).status == EDITOR_OK);
         });
@@ -377,7 +377,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             auto changed = previous;
             std::string error;
-            IM_CHECK_NO_RET(App().State().workspace->Configure(changed, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(changed, error));
         });
         // An open dialog keeps the editor and modifier it started with.
         ctx->Yield(2);
@@ -387,7 +387,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("**/OK/##dialogbutton"); ctx->Yield(3);
         IM_CHECK(IntegerValue(ctx, editing.parameters[0]) == 14);
         IM_CHECK(Read<uint64_t>(ctx, [] {
-            auto &app = App().State().workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             const auto result = app.Query("example.integer-count", {app.Scope(), nullptr, 0});
             return result.status == EDITOR_OK ? result.fields.front().integer : 0;
         }) == 2);
@@ -395,7 +395,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(App().State().History().Undo());
             std::string error;
-            IM_CHECK_NO_RET(App().State().workspace->Configure(previous, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error));
         });
         IM_CHECK(IntegerValue(ctx, editing.parameters[0]) == 7);
     };
@@ -404,7 +404,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &workspace = *state.workspace; auto &app = workspace.Application();
+            auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &app = workspace.Application();
             editing.configuration = std::make_unique<vdev::EditorConfiguration>(app.Configuration());
             auto selected = *editing.configuration;
             for (auto &choice : selected.providers)
@@ -424,7 +424,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         }); ctx->Yield(3);
         ctx->MenuClick("//##MainMenuBar/Views/Value Editors/External integer"); ctx->Yield(3);
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &workspace = *state.workspace; auto &app = workspace.Application();
+            auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &app = workspace.Application();
             const auto id = workspace.Role("main.parameters");
             const auto watched = vdev::EditorClient(app.Host(), id).Inspect(id);
             IM_CHECK_NO_RET(watched.status == EDITOR_OK && vdev::EditorClient::Find(watched, "objects")->objects ==
@@ -438,7 +438,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(IntegerValue(ctx, editing.parameters.front()) == 7);
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
         OnMainThread(ctx, [] {
-            auto &state = App().State(); auto &app = state.workspace->Application();
+            auto &state = App().State(); auto &app = (&App().WorkspaceForTests())->Application();
             IM_CHECK_NO_RET(state.History().Undo() && !state.document->Dirty());
             IM_CHECK_NO_RET(app.Execute("runtime.close-tools", {app.Scope(), nullptr, 0}).status == EDITOR_OK);
         });
@@ -456,7 +456,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             editing.parameters = {parameter->GetID(), object->GetID()};
             editing.target = state.document->Reference(parameter->GetID());
             state.History().Clear();
-            auto &app = state.workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, editing.target};
             IM_CHECK_NO_RET(app.Execute("parameter.edit", {app.Scope(), &target, 1}).status == EDITOR_OK);
         });
@@ -468,7 +468,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(3);
         IM_CHECK(IntegerValue(ctx, editing.parameters[0]) == 0);
         OnMainThread(ctx, [] {
-            auto &app = App().State().workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, editing.target};
             IM_CHECK_NO_RET(app.Execute("parameter.edit", {app.Scope(), &target, 1}).status == EDITOR_OK);
         });
@@ -489,7 +489,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         Settle(ctx); Clean cleanup{ctx};
         OnMainThread(ctx, [] {
             auto &state = App().State();
-            editing.box = std::make_unique<vdev::ParameterBox>(state);
+            editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests());
             const CKGUID types[] = {CKPGUID_VECTOR, CKPGUID_MATRIX, CKPGUID_COLOR, CKPGUID_RECT, CKPGUID_ANGLE, CKPGUID_EULERANGLES, CKPGUID_QUATERNION, CKPGUID_BOX};
             for (unsigned i = 0; i < 8; ++i) {
                 auto *parameter = state.host.Context()->CreateCKParameterLocal("Compound edit", types[i]);
@@ -498,7 +498,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
                 if (i == 2) { const VxColor color(.1f, .2f, .3f, 1.0f); parameter->SetValue(&color, sizeof(color)); }
                 if (i == 3) { const VxRect rect(1, 2, 3, 4); parameter->SetValue(&rect, sizeof(rect)); }
                 editing.parameters.push_back(parameter->GetID());
-                IM_CHECK_NO_RET(editing.box->Add(parameter, "Compound"));
+                IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(parameter->GetID()), "Compound"));
             }
             state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint(); editing.open = true;
         });
@@ -562,7 +562,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             auto *parameter = state.host.Context()->CreateCKParameterLocal("Picker edit", CKPGUID_COLOR);
             const VxColor color(.2f, .3f, .4f, 1.0f); parameter->SetValue(&color, sizeof(color));
             editing.parameters = {parameter->GetID()};
-            editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(parameter, "Color"));
+            editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests()); IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(parameter->GetID()), "Color"));
             state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint(); editing.open = true;
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
@@ -589,7 +589,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx};
         OnMainThread(ctx, [] {
-            auto &state = App().State(); auto &app = state.workspace->Application();
+            auto &state = App().State(); auto &app = (&App().WorkspaceForTests())->Application();
             auto *parameter = state.host.Context()->CreateCKParameterLocal("Inline vector", CKPGUID_VECTOR);
             editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
             editing.property = "parameter.vector3"; editing.owner = app.OpenScope(); editing.inlineValue = true;
@@ -617,13 +617,13 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         Settle(ctx); Clean cleanup{ctx};
         vdev::EditorConfiguration previous;
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &app = state.workspace->Application();
+            auto &state = App().State(); auto &app = (&App().WorkspaceForTests())->Application();
             previous = app.Configuration(); editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
             auto config = previous;
             for (auto &choice : config.providers)
                 if ((choice.kind == "command" && choice.id == "parameter.vector3-set") ||
                     (choice.kind == "query" && choice.id == "parameter.vector3-value")) choice.provider = "example.vector";
-            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(config, error));
+            std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(config, error));
             auto *parameter = state.host.Context()->CreateCKParameterLocal("External vector", CKPGUID_VECTOR);
             editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
             editing.property = "parameter.vector3"; editing.owner = app.OpenScope(); editing.inlineValue = true; state.History().Clear();
@@ -632,7 +632,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->Yield(2); ctx->SetRef("//Typed inline"); ctx->ItemClick("Offset vector"); ctx->Yield(3);
         IM_CHECK(Components(ctx, editing.parameters[0]) == std::vector<float>({1, 2, 3}));
         OnMainThread(ctx, [] {
-            editing.inlineValue = false; auto &app = App().State().workspace->Application();
+            editing.inlineValue = false; auto &app = (&App().WorkspaceForTests())->Application();
             const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, editing.target};
             IM_CHECK_NO_RET(app.Execute("parameter.edit", {app.Scope(), &target, 1}).status == EDITOR_OK);
         });
@@ -640,13 +640,13 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(ctx->ItemExists("**/Offset vector"));
         const auto reads = [&] {
             return Read<uint64_t>(ctx, [] {
-                auto &app = App().State().workspace->Application();
+                auto &app = (&App().WorkspaceForTests())->Application();
                 const auto result = app.Query("example.vector-count", {app.Scope(), nullptr, 0});
                 return vdev::EditorClient::Integer(result, "reads");
             });
         };
         const auto beforeSwitch = reads();
-        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().State().workspace->Configure(previous, error)); });
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error)); });
         ctx->Yield(2);
         IM_CHECK(reads() > beforeSwitch);
         ctx->ItemClick("**/Offset vector");
@@ -655,7 +655,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Components(ctx, editing.parameters[0]) == std::vector<float>({2, 4, 6}));
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 2);
         IM_CHECK(Read<uint64_t>(ctx, [] {
-            auto &app = App().State().workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             const auto result = app.Query("example.vector-count", {app.Scope(), nullptr, 0});
             return result.status == EDITOR_OK ? result.fields.front().integer : 0;
         }) == 2);
@@ -672,7 +672,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             auto *parameter = state.host.Context()->CreateCKParameterLocal("Dial cancel", CKPGUID_ANGLE);
             const float value = 7.853981634f; parameter->SetValue(&value, sizeof(value));
             editing.parameters = {parameter->GetID()};
-            editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(parameter, "Angle"));
+            editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests()); IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(parameter->GetID()), "Angle"));
             state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint(); editing.open = true;
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
@@ -728,7 +728,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             XObjectArray list; list.PushBack(a->GetID()); list.PushBack(b->GetID());
             IM_CHECK_NO_RET(vdev::SetHeldValue(parameter, &list));
             editing.parameters = {parameter->GetID(), a->GetID(), b->GetID()};
-            editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(parameter, "Objects")); editing.open = true;
+            editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests()); IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(parameter->GetID()), "Objects")); editing.open = true;
             state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
@@ -744,7 +744,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
         OnMainThread(ctx, [] {
             auto &state = App().State(); IM_CHECK_NO_RET(state.History().Undo());
-            editing.box = std::make_unique<vdev::ParameterBox>(state); IM_CHECK_NO_RET(editing.box->Add(Object<CKParameter>(editing.parameters[0]), "Objects"));
+            editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests()); IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(Object<CKParameter>(editing.parameters[0])->GetID()), "Objects"));
             editing.open = true; editing.popup = false;
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
@@ -770,7 +770,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::DescribeParameterValue(*state.document, parameter, value));
             value.value.objects = {state.document->Reference(first->GetID()), state.document->Reference(second->GetID())};
             IM_CHECK_NO_RET(vdev::SetParameterValue(*state.document, editing.target, value.type, value.value).ok);
-            editing.property = "parameter.object-array"; editing.owner = state.workspace->Application().OpenScope(); editing.inlineValue = true;
+            editing.property = "parameter.object-array"; editing.owner = (&App().WorkspaceForTests())->Application().OpenScope(); editing.inlineValue = true;
             state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
         });
         ctx->Yield(3); ctx->SetRef("//Typed inline");
@@ -817,7 +817,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         Settle(ctx); Clean cleanup{ctx};
         vdev::EditorConfiguration previous;
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &app = state.workspace->Application(); previous = app.Configuration();
+            auto &state = App().State(); auto &app = (&App().WorkspaceForTests())->Application(); previous = app.Configuration();
             editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
             auto config = previous;
             for (auto &choice : config.providers) {
@@ -826,7 +826,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
                 if ((choice.kind == "command" && choice.id == "parameter.structure-set") ||
                     (choice.kind == "query" && choice.id == "parameter.structure-value")) choice.provider = "example.structure";
             }
-            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(config, error)); NestedFixture(false);
+            std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(config, error)); NestedFixture(false);
         });
         ctx->Yield(3); ctx->SetRef("//Typed inline");
         ctx->ItemClick("Offset nested count"); ctx->Yield(2);
@@ -836,16 +836,16 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 2);
         const auto inlineValue = Value(ctx, editing.parameters[0]);
         OnMainThread(ctx, [] {
-            editing.inlineValue = false; auto &app = App().State().workspace->Application();
+            editing.inlineValue = false; auto &app = (&App().WorkspaceForTests())->Application();
             const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, editing.target};
             IM_CHECK_NO_RET(app.Execute("parameter.edit", {app.Scope(), &target, 1}).status == EDITOR_OK);
         });
         ctx->Yield(3); ctx->SetRef("//Edit Parameter###AttributeManagerValue");
         const auto reads = [&] {
-            return Read<uint64_t>(ctx, [] { auto &app = App().State().workspace->Application(); const auto result = app.Query("example.structure-count", {app.Scope(), nullptr, 0}); return vdev::EditorClient::Integer(result, "reads"); });
+            return Read<uint64_t>(ctx, [] { auto &app = (&App().WorkspaceForTests())->Application(); const auto result = app.Query("example.structure-count", {app.Scope(), nullptr, 0}); return vdev::EditorClient::Integer(result, "reads"); });
         };
         const auto beforeSwitch = reads();
-        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().State().workspace->Configure(previous, error)); });
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error)); });
         ctx->Yield(2);
         IM_CHECK(reads() > beforeSwitch && ctx->ItemExists("**/Offset nested count") && ctx->ItemExists("**/Offset vector"));
         ctx->ItemClick("**/Offset nested count"); ctx->ItemClick("**/Offset vector"); ctx->Yield(2);
@@ -854,7 +854,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         const auto applied = Value(ctx, editing.parameters[0]);
         IM_CHECK(applied.members[0].members[0].integer == 2 && applied.members[1].components == std::vector<double>({2, 4, 6}));
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 3);
-        IM_CHECK(Read<uint64_t>(ctx, [] { auto &app = App().State().workspace->Application(); const auto result = app.Query("example.structure-count", {app.Scope(), nullptr, 0}); return vdev::EditorClient::Integer(result, "count"); }) == 3);
+        IM_CHECK(Read<uint64_t>(ctx, [] { auto &app = (&App().WorkspaceForTests())->Application(); const auto result = app.Query("example.structure-count", {app.Scope(), nullptr, 0}); return vdev::EditorClient::Integer(result, "count"); }) == 3);
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[0]) == inlineValue);
     };
@@ -911,33 +911,33 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); previous = state.workspace->Application().Configuration();
+            auto &state = App().State(); previous = (&App().WorkspaceForTests())->Application().Configuration();
             editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
             auto selected = previous;
             for (auto &choice : selected.providers)
                 if ((choice.kind == "editor" && choice.id == "value.flags") ||
                     (choice.kind == "command" && choice.id == "parameter.flags-set") ||
                     (choice.kind == "query" && choice.id == "parameter.flags-value")) choice.provider = "example.flags";
-            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(selected, error)); FlagsFixture(false);
+            std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(selected, error)); FlagsFixture(false);
         });
         ctx->Yield(3); ctx->SetRef("//Typed inline"); ctx->ItemClick("Toggle external flag"); ctx->Yield(2);
         IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000001);
         OnMainThread(ctx, [] {
-            editing.inlineValue = false; auto &app = App().State().workspace->Application();
+            editing.inlineValue = false; auto &app = (&App().WorkspaceForTests())->Application();
             const EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT, editing.target};
             IM_CHECK_NO_RET(app.Execute("parameter.edit", {app.Scope(), &target, 1}).status == EDITOR_OK);
         });
         ctx->Yield(3); ctx->SetRef("//Edit Parameter###AttributeManagerValue");
-        const auto reads = [&] { return Read<uint64_t>(ctx, [] { auto &app = App().State().workspace->Application();
+        const auto reads = [&] { return Read<uint64_t>(ctx, [] { auto &app = (&App().WorkspaceForTests())->Application();
             return vdev::EditorClient::Integer(app.Query("example.flags-count", {app.Scope(), nullptr, 0}), "reads"); }); };
         const auto beforeSwitch = reads();
-        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().State().workspace->Configure(previous, error)); });
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error)); });
         ctx->Yield(2); IM_CHECK(reads() > beforeSwitch && ctx->ItemExists("**/Toggle external flag"));
         ctx->ItemClick("**/Toggle external flag"); ctx->Yield(2);
         IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000001);
         ctx->ItemClick("**/OK/##dialogbutton"); ctx->Yield(3);
         IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000000 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 2);
-        IM_CHECK(Read<uint64_t>(ctx, [] { auto &app = App().State().workspace->Application();
+        IM_CHECK(Read<uint64_t>(ctx, [] { auto &app = (&App().WorkspaceForTests())->Application();
             return vdev::EditorClient::Integer(app.Query("example.flags-count", {app.Scope(), nullptr, 0}), "count"); }) == 2);
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(Value(ctx, editing.parameters[0]).integer == 0x40000001);
@@ -1004,8 +1004,8 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] {
             SpecializedFixture(true); auto &state = App().State();
-            editing.box = std::make_unique<vdev::ParameterBox>(state);
-            IM_CHECK_NO_RET(editing.box->Add(Object<CKParameter>(editing.parameters[1]), "Dependencies"));
+            editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests());
+            IM_CHECK_NO_RET(editing.box->Add(state.document->Reference(Object<CKParameter>(editing.parameters[1])->GetID()), "Dependencies"));
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
         const auto before = Value(ctx, editing.parameters[1]);
@@ -1043,21 +1043,21 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); previous = state.workspace->Application().Configuration(); editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
+            auto &state = App().State(); previous = (&App().WorkspaceForTests())->Application().Configuration(); editing.configuration = std::make_unique<vdev::EditorConfiguration>(previous);
             auto selected = previous;
             for (auto &entry : selected.providers)
                 if (entry.id.find("value.curve2d") == 0 || entry.id.find("value.dependencies") == 0 || entry.id.find("value.lod-options") == 0 ||
                     entry.id.find("parameter.curve2d-") == 0 || entry.id.find("parameter.dependencies-") == 0 || entry.id.find("parameter.lod-options-") == 0)
                     entry.provider = "example.specialized";
-            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(selected, error)); SpecializedFixture(true);
+            std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(selected, error)); SpecializedFixture(true);
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
-        const auto counts = [&](const char *key) { return Read<std::vector<uint64_t>>(ctx, [=] { auto &app = App().State().workspace->Application();
+        const auto counts = [&](const char *key) { return Read<std::vector<uint64_t>>(ctx, [=] { auto &app = (&App().WorkspaceForTests())->Application();
             const auto result = app.Query("example.specialized-count", {app.Scope(), nullptr, 0});
             for (const auto &field : result.fields) if (field.key == key) return field.integers;
             return std::vector<uint64_t>{}; }); };
         const auto reads = counts("reads"), writes = counts("count");
-        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().State().workspace->Configure(previous, error)); }); ctx->Yield(2);
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error)); }); ctx->Yield(2);
         const auto retained = counts("reads"); IM_CHECK(retained.size() == 3 && reads.size() == 3 && writes.size() == 3);
         for (unsigned i = 0; i < 3; ++i) IM_CHECK(retained[i] > reads[i]);
         ctx->ItemClick("**/Change external curve"); ctx->ItemClick("**/Change external dependencies"); ctx->ItemClick("**/Change external LOD");
@@ -1101,7 +1101,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx,editing.parameters[0]).real==61700.25 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
         Input(ctx,"**/##s","4"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
         IM_CHECK(Value(ctx,editing.parameters[0]).real==61700.25 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
-        OnMainThread(ctx, [] { auto &app=App().State().workspace->Application(); if(editing.edit)app.FinishEdit(editing.edit,false); editing.edit=0;
+        OnMainThread(ctx, [] { auto &app=(&App().WorkspaceForTests())->Application(); if(editing.edit)app.FinishEdit(editing.edit,false); editing.edit=0;
             editing.target=App().State().document->Reference(editing.parameters[1]); editing.property="parameter.key"; });
         ctx->Yield(3); ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_B); ctx->Yield(3);
         IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==2);
@@ -1184,18 +1184,18 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
     test->GuiFunc = Gui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration previous;
-        OnMainThread(ctx,[&]{auto &state=App().State(); previous=state.workspace->Application().Configuration(); editing.configuration=std::make_unique<vdev::EditorConfiguration>(previous);
+        OnMainThread(ctx,[&]{auto &state=App().State(); previous=(&App().WorkspaceForTests())->Application().Configuration(); editing.configuration=std::make_unique<vdev::EditorConfiguration>(previous);
             auto selected=previous;
             for(auto &entry:selected.providers) {
                 if(entry.id=="parameter.selection-choices")entry.provider="example.selectors";
                 for(const auto *name:{"time","key","script","animation","message","attribute","synchro"})
                     if(entry.id==std::string("value.")+name || entry.id.find(std::string("parameter.")+name+"-")==0)entry.provider="example.selectors";
             }
-            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(selected,error)); SelectorFixture(); });
+            std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(selected,error)); SelectorFixture(); });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
-        const auto counts=[&]{return Read<std::vector<vdev::EditorField>>(ctx,[]{auto &app=App().State().workspace->Application();return app.Query("example.selector-count",{app.Scope(),nullptr,0}).fields;});};
+        const auto counts=[&]{return Read<std::vector<vdev::EditorField>>(ctx,[]{auto &app=(&App().WorkspaceForTests())->Application();return app.Query("example.selector-count",{app.Scope(),nullptr,0}).fields;});};
         const auto before=counts(); IM_CHECK(before.size()==3 && before[0].integers.size()==7);
-        OnMainThread(ctx,[&]{std::string error;IM_CHECK_NO_RET(App().State().workspace->Configure(previous,error));}); ctx->Yield(2);
+        OnMainThread(ctx,[&]{std::string error;IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous,error));}); ctx->Yield(2);
         const auto retained=counts(); for(unsigned i=0;i<7;++i)IM_CHECK(retained[1].integers[i]>before[1].integers[i]);
         IM_CHECK(retained[2].integer>before[2].integer);
         for(const auto *name:{"time","key","script","animation","message","attribute","synchro"})ctx->ItemClick((std::string("**/Change external ")+name).c_str());

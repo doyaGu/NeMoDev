@@ -1,4 +1,5 @@
 #pragma once
+#include "core/runtime/TextEncoding.h"
 
 // The UI tests of VirtoolsDevUiTests: Dear ImGui Test Engine moves the mouse
 // and presses the keys in the editor's frames, the tests check what the
@@ -111,6 +112,11 @@ bool HasInitialConditions(ImGuiTestContext *ctx, CK_ID id);
 // the window of ref (e.g. "//3D Layout") in front and focused.
 inline void Settle(ImGuiTestContext *ctx, const char *window = nullptr) {
     ctx->Yield(30);
+    // A frame count does not bound a background load. Wait for its actual
+    // completion and startup focus changes before sending menu input.
+    const auto deadline = SDL_GetTicks() + 10000;
+    while (!App().StartupSettled() && SDL_GetTicks() < deadline) ctx->Yield();
+    IM_CHECK_NO_RET(App().StartupSettled());
     if (window) {
         ctx->WindowFocus(window);
         ctx->Yield(3);
@@ -158,23 +164,26 @@ std::optional<std::pair<CK_ID, ImVec2>> EmptySchematicPoint(CK_ID in = 0, const 
 // that class, not a derived one), the closed rows opened with their arrows
 // (the shallowest first) until one shows; ClickLevelRow clicks it on its
 // name too. The Level Manager must be in front.
+inline vdev::EditorClient EditorCommands(EditorView view = 0) {
+    return {App().WorkspaceForTests().Application().Host(), view};
+}
 inline std::string SchematicRef(const char *suffix = "") { return "//" + App().SchematicWindow() + suffix; }
 inline std::string BlocksRef(const char *suffix = "") { return "//" + App().BuildingBlocksWindow() + suffix; }
 inline std::string SceneRef(const char *type, const char *suffix = "") { return "//" + App().SceneWindow(type) + suffix; }
 inline std::string RuntimeRef(const char *type, const char *suffix = "") {
-    auto &workspace = *App().State().workspace;
+    auto &workspace = *(&App().WorkspaceForTests());
     return "//" + workspace.WindowName(workspace.Role(std::string("main.") + type)) + suffix;
 }
 inline std::string EnvironmentRef(const char *type, const char *suffix = "") {
-    auto &workspace = *App().State().workspace;
+    auto &workspace = *(&App().WorkspaceForTests());
     return "//" + workspace.WindowName(workspace.Role(std::string("main.") + type)) + suffix;
 }
 inline std::string PreferencesRef(const char *suffix = "") {
-    auto &workspace = *App().State().workspace;
+    auto &workspace = *(&App().WorkspaceForTests());
     return "//" + workspace.WindowName(workspace.Role("main.preferences")) + suffix;
 }
 inline std::string DiagnosticRef(const char *type, const char *suffix = "") {
-    auto &workspace = *App().State().workspace;
+    auto &workspace = *(&App().WorkspaceForTests());
     return "//" + workspace.WindowName(workspace.Role(std::string("main.") + type)) + suffix;
 }
 using LevelRow = vdev::SceneShownRow;

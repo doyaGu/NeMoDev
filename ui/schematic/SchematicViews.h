@@ -4,7 +4,8 @@
 #include <string>
 
 namespace vdev {
-struct EditorState;
+class EditorWorkspace;
+struct SchematicStyle;
 struct ViewOptions;
 struct SchematicNavigation;
 struct ElementRef;
@@ -16,7 +17,7 @@ class EditorApplication;
 // particular instance and applies document-wide notifications to all of them.
 class SchematicViews {
 public:
-    explicit SchematicViews(EditorState &);
+    SchematicViews(EditorWorkspace &, const SchematicStyle &);
     ~SchematicViews();
     bool Register(EditorApplication &, std::string &error);
     SchematicCanvas *Find(EditorView) const;
@@ -34,6 +35,8 @@ public:
     bool Busy() const;
     bool DropFile(const std::wstring &, const std::string &, float x, float y);
     EditorStatus Show(const ElementAddress &, ObjectRef focus = {}, bool select = true, EditorView view = 0);
+    void RequestShow(const ElementAddress &, ObjectRef focus = {}, EditorView view = 0);
+    void ShowRequested();
     void Focus(EditorView view = 0);
     std::string Window(EditorView view = 0) const;
 private:

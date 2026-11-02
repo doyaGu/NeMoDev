@@ -1,10 +1,6 @@
 #include "ui/schematic/Snapshots.h"
 #include "core/schematic/SchematicModel.h"
 #include "ui/render/UiRenderer.h"
-#include "core/runtime/TextEncoding.h"
-#include "CKAll.h"
-#include "core/document/ObjectPictures.h"
-#include "core/runtime/Bitmaps.h"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <cstring>
@@ -68,31 +64,6 @@ ImTextureID SnapshotTexture(const std::shared_ptr<const SchematicSnapshot> &imag
     }
     if (size)
         *size = found->second.size;
-    return found->second.view ? found->second.view->Id() : ImTextureID();
-}
-ImTextureID SnapshotTexture(void *bitmap, ImVec2 *size, const std::shared_ptr<void> &owner) {
-    if (!bitmap || !MainRenderer().Started()) return ImTextureID();
-    auto found = Textures().find(bitmap);
-    if (found != Textures().end() &&
-        (found->second.owner.owner_before(owner) || owner.owner_before(found->second.owner))) {
-        RetireTexture(std::move(found->second.view));
-        Textures().erase(found);
-        found = Textures().end();
-    }
-    if (found == Textures().end()) {
-        Texture texture;
-        texture.owner = owner;
-        texture.tracked = bool(owner);
-        std::vector<unsigned char> pixels;
-        int width = 0, height = 0;
-        if (PixelsOfBitmap(bitmap, pixels, width, height)) {
-            for (size_t i = 0; i < pixels.size(); i += 4) std::swap(pixels[i], pixels[i+2]);
-            texture.view = MainRenderer().CreateTexture(width, height, pixels.data());
-            if (texture.view) texture.size = ImVec2(float(width), float(height));
-        }
-        found = Textures().emplace(bitmap, std::move(texture)).first;
-    }
-    if (size) *size = found->second.size;
     return found->second.view ? found->second.view->Id() : ImTextureID();
 }
 ImTextureID PixelTexture(unsigned long long key, int width, int height, const void *bgra, int pitch, bool alphaAsGray) {

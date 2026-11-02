@@ -20,11 +20,10 @@ namespace vdev {
 bool SchematicCanvas::BeginPropertyInput(const char *property, ObjectRef target,
                                          const std::vector<EditorField> &arguments) {
     ClosePropertyInput();
-    return m_State.workspace && m_State.workspace->Begin(property, target, m_PropertyEdit, m_PropertyOwner, arguments);
+    return m_Workspace.Begin(property, target, m_PropertyEdit, m_PropertyOwner, arguments);
 }
 void SchematicCanvas::ClosePropertyInput() {
-    if (!m_State.workspace) return;
-    m_State.workspace->Finish(m_PropertyEdit, false);
+        m_Workspace.Finish(m_PropertyEdit, false);
 }
 void SchematicCanvas::CommentEditor() {
     if (m_Doc.openCommentEditor) {
@@ -39,10 +38,10 @@ void SchematicCanvas::CommentEditor() {
         ImGui::OpenPopup("Edit Comment");
     }
     if (!ImGui::BeginPopupModal("Edit Comment", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    m_State.workspace->DrawInput(m_PropertyEdit, "##text", ImGui::IsWindowAppearing(), nullptr, EDITOR_VALUE_DIALOG,
+    m_Workspace.DrawInput(m_PropertyEdit, "##text", ImGui::IsWindowAppearing(), nullptr, EDITOR_VALUE_DIALOG,
                                  420, 160);
     bool close = false;
-    if (ImGui::Button("OK", ImVec2(100, 0))) close = m_State.workspace->Finish(m_PropertyEdit, true);
+    if (ImGui::Button("OK", ImVec2(100, 0))) close = m_Workspace.Finish(m_PropertyEdit, true);
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_PropertyEdit)
         close = true;
@@ -55,35 +54,35 @@ void SchematicCanvas::CommentEditor() {
 
 void SchematicCanvas::CloseValueInputs() {
     ClosePropertyInput();
-    if (m_State.workspace) m_State.workspace->CloseOwner(m_PropertyOwner);
+    m_Workspace.CloseOwner(m_PropertyOwner);
     m_PriorityTargets.clear();
     if (m_ParameterDialog)
         m_ParameterDialog->Close();
-    if (m_State.workspace) {
-        m_State.workspace->Finish(m_RenameEdit, false);
-        m_State.workspace->CloseOwner(m_RenameOwner);
+    {
+        m_Workspace.Finish(m_RenameEdit, false);
+        m_Workspace.CloseOwner(m_RenameOwner);
     }
     m_RenameTarget = {};
 }
 void SchematicCanvas::RenameDialog() {
     if (m_Doc.openRename) {
         m_Doc.openRename = false;
-        if (!m_State.workspace || !m_State.workspace->Begin("object.name", m_RenameTarget, m_RenameEdit, m_RenameOwner)) return;
+        if (!m_Workspace.Begin("object.name", m_RenameTarget, m_RenameEdit, m_RenameOwner)) return;
         ImGui::OpenPopup("Rename");
     }
     if (!ImGui::BeginPopupModal("Rename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    const bool entered = m_State.workspace->DrawInput(m_RenameEdit, "Name", ImGui::IsWindowAppearing());
+    const bool entered = m_Workspace.DrawInput(m_RenameEdit, "Name", ImGui::IsWindowAppearing());
     bool close = false;
-    if (ImGui::Button("OK", ImVec2(100, 0)) || entered) close = m_State.workspace->Finish(m_RenameEdit, true);
+    if (ImGui::Button("OK", ImVec2(100, 0)) || entered) close = m_Workspace.Finish(m_RenameEdit, true);
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_RenameEdit) {
-        m_State.workspace->Finish(m_RenameEdit, false); close = true;
+        m_Workspace.Finish(m_RenameEdit, false); close = true;
     }
     if (close) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
 }
 
-void SchematicCanvas::OpenLinkDelay(CK_ID script, const ElementRef &ref) {
+void SchematicCanvas::OpenLinkDelay(uint32_t script, const ElementRef &ref) {
     ElementAddress address;
     if (auto *view = ViewFor(script)) {
         Hit hit;
@@ -102,10 +101,10 @@ void SchematicCanvas::DelayDialog() {
         ImGui::OpenPopup("Link Delay");
     }
     if (!ImGui::BeginPopupModal("Link Delay", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    const bool entered = m_State.workspace->DrawInput(m_PropertyEdit, "Frames", ImGui::IsWindowAppearing());
+    const bool entered = m_Workspace.DrawInput(m_PropertyEdit, "Frames", ImGui::IsWindowAppearing());
     bool close = false;
     if (ImGui::Button("OK", ImVec2(100, 0)) || entered || ImGui::IsKeyPressed(ImGuiKey_Enter))
-        close = m_State.workspace->Finish(m_PropertyEdit, true);
+        close = m_Workspace.Finish(m_PropertyEdit, true);
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_PropertyEdit)
         close = true;
@@ -184,7 +183,7 @@ void SchematicCanvas::LocalParameterDialog() {
 // line below tells whether the four make an operation (sub_5977D0: language
 // strings 634 / 635). The parts stay from one opening to the next, as Dev's.
 void SchematicCanvas::RefreshOperationChoices() {
-    const bool easy = m_State.preferences.Int("Schematic\\Edit Parameter Operation Mode") != 0;
+    const bool easy = m_Preferences.Int("Schematic\\Edit Parameter Operation Mode") != 0;
     if (!easy)
         for (auto &lock : m_OperationLocks)
             lock = false;
@@ -221,7 +220,7 @@ void SchematicCanvas::OperationDialog() {
     }
     if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
     if (m_OperationChoicesDirty) RefreshOperationChoices();
-    const bool easy = m_State.preferences.Int("Schematic\\Edit Parameter Operation Mode") != 0;
+    const bool easy = m_Preferences.Int("Schematic\\Edit Parameter Operation Mode") != 0;
     auto row = [&](int part, const char *id) {
         ImGui::PushID(id);
         if (easy) {
@@ -284,7 +283,7 @@ void SchematicCanvas::ParametersDialog() {
     m_ParameterDialog->Draw();
     const auto message = m_ParameterDialog->TakeMessage();
     if (!message.empty())
-        m_State.Log(LogLevel::Warning, message);
+        Client().Log(EDITOR_LOG_WARNING, message);
 }
 
 // Dev's Edit Parameter (Dev.exe sub_589D50, VIDialog margins 10, padding 6,
@@ -294,7 +293,7 @@ void SchematicCanvas::ParametersDialog() {
 
 // Opened over Edit Parameter (its OK waits for the answer).
 
-void SchematicCanvas::EditElement(CK_ID script, const ElementRef &ref) {
+void SchematicCanvas::EditElement(uint32_t script, const ElementRef &ref) {
     const auto info = ElementInfo(script, ref);
     const auto *object = EditorClient::Find(info, "object");
     switch (ref.kind) {
@@ -339,7 +338,7 @@ void SchematicCanvas::OpenSettingsDialog() {
     if (info.status != EDITOR_OK || !object)
         return;
     if (!EditorClient::Integer(info, "settings")) {
-        m_State.Log(LogLevel::Info, "This behavior has no settings");
+        Client().Log(EDITOR_LOG_INFO, "This behavior has no settings");
         return;
     }
     const auto scripts = ScriptReferences({selection.script});
@@ -357,10 +356,10 @@ void SchematicCanvas::PriorityDialog() {
         ImGui::OpenPopup("Priority");
     }
     if (!ImGui::BeginPopupModal("Priority", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    const bool entered = m_State.workspace->DrawInput(m_PropertyEdit, "Priority", ImGui::IsWindowAppearing());
+    const bool entered = m_Workspace.DrawInput(m_PropertyEdit, "Priority", ImGui::IsWindowAppearing());
     bool close = false;
     if (ImGui::Button("OK", ImVec2(100, 0)) || entered || ImGui::IsKeyPressed(ImGuiKey_Enter))
-        close = m_State.workspace->Finish(m_PropertyEdit, true);
+        close = m_Workspace.Finish(m_PropertyEdit, true);
     ImGui::SameLine();
     if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_PropertyEdit)
         close = true;
@@ -372,7 +371,7 @@ void SchematicCanvas::PriorityDialog() {
     ImGui::EndPopup();
 }
 
-bool SchematicCanvas::BlockCategoryMenu(CKGUID &chosen) {
+bool SchematicCanvas::BlockCategoryMenu(uint64_t &chosen) {
     m_BlockCatalog.Refresh(Client());
     const auto &catalog = m_BlockCatalog;
     bool picked = false;
@@ -385,7 +384,7 @@ bool SchematicCanvas::BlockCategoryMenu(CKGUID &chosen) {
         for (size_t index : node.entries) {
             const auto &entry = catalog.Entries()[index];
             if (ImGui::MenuItem(entry.name.c_str())) {
-                chosen = CKGUID(CKDWORD(entry.prototype >> 32), CKDWORD(entry.prototype));
+                chosen = entry.prototype;
                 picked = true;
             }
         }
@@ -410,7 +409,7 @@ void SchematicCanvas::BlockMenus() {
     }
     m_BlockCatalog.Refresh(Client());
     const auto &catalog = m_BlockCatalog;
-    CKGUID chosen;
+    uint64_t chosen = 0;
     bool picked = false;
     PushDevMenuStyle();
     if (ImGui::BeginPopup("BlockCategories")) {
@@ -426,7 +425,7 @@ void SchematicCanvas::BlockMenus() {
         for (const auto prototype : recent)
             if (const auto *entry = catalog.Find(prototype))
                 if (ImGui::MenuItem(entry->name.c_str())) {
-                    chosen = CKGUID(CKDWORD(prototype >> 32), CKDWORD(prototype));
+                    chosen = prototype;
                     picked = true;
                 }
         ImGui::EndPopup();
@@ -436,7 +435,7 @@ void SchematicCanvas::BlockMenus() {
         OpenReplaceBlock(m_Doc.replaceScript, m_Doc.replaceBehavior, chosen);
     else if (picked && !m_Doc.blockCreation.empty()) {
         auto fields = m_Doc.blockCreation;
-        fields.push_back({"prototype", EDITOR_INTEGER_VALUE, {}, {}, (uint64_t(chosen.d1) << 32) | chosen.d2});
+        fields.push_back({"prototype", EDITOR_INTEGER_VALUE, {}, {}, chosen});
         ExecuteAuthoring("schematic.insert-block", std::move(fields), GraphFollow::Block);
     }
     // A menu closed without a choice no longer replaces.

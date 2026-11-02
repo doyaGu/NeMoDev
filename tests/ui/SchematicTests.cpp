@@ -1,3 +1,4 @@
+#include "core/runtime/Bitmaps.h"
 // "schematic": the Schematic on the sample opened from the command line,
 // driven with the mouse and the keys: a Building Block moved, deleted, and
 // each undone and redone (Ctrl+Z, Ctrl+Y); its Target (T), its priority from
@@ -84,7 +85,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &editor = workspace.Application();
         vdev::EditorConfiguration previous;
         EditorView views[2]{};
@@ -171,21 +172,21 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
             ctx->MouseMoveToPos(*pin);
             ctx->Yield(2);
             OnMainThread(ctx, [&] {
-                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_3DENTITY) == held[i]);
-                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_BEHAVIOR) == graphs[i]);
-                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_BEOBJECT) == held[i]);
-                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_PARAMETER) == 0);
+                IM_CHECK_NO_RET(App().ParameterCopiesForTests().Pick((*pin).x, (*pin).y, CKCID_3DENTITY).object == held[i]);
+                IM_CHECK_NO_RET(App().ParameterCopiesForTests().Pick((*pin).x, (*pin).y, CKCID_BEHAVIOR).object == graphs[i]);
+                IM_CHECK_NO_RET(App().ParameterCopiesForTests().Pick((*pin).x, (*pin).y, CKCID_BEOBJECT).object == held[i]);
+                IM_CHECK_NO_RET(App().ParameterCopiesForTests().Pick((*pin).x, (*pin).y, CKCID_PARAMETER).object == 0);
                 const auto picked = vdev::EditorClient(editor.Host(), 0).Query("example.pick-state");
                 IM_CHECK_NO_RET(vdev::EditorClient::Integer(picked, "reads") >= 4 &&
                                 vdev::EditorClient::Integer(picked, "view") == views[i]);
                 const vdev::EditorClient client(editor.Host(), 0);
                 IM_CHECK_NO_RET(client.Command("example.pick-failure", {vdev::IntegerArgument("value", 1)}).status ==
                                 EDITOR_OK);
-                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, *pin, CKCID_3DENTITY) == 0);
+                IM_CHECK_NO_RET(App().ParameterCopiesForTests().Pick((*pin).x, (*pin).y, CKCID_3DENTITY).object == 0);
                 IM_CHECK_NO_RET(client.Command("example.pick-failure", {vdev::IntegerArgument("value", 0)}).status ==
                                 EDITOR_OK);
                 editor.NativeAvailable(false);
-                const auto busyPick = vdev::ObjectUnderMouse(state, *pin, CKCID_3DENTITY);
+                const auto busyPick = App().ParameterCopiesForTests().Pick((*pin).x, (*pin).y, CKCID_3DENTITY).object;
                 editor.NativeAvailable(true);
                 IM_CHECK_NO_RET(busyPick == 0);
                 IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.document->ChangeRevision() == revision &&
@@ -195,8 +196,8 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
             IM_CHECK(!shown.empty());
             const auto header = ImVec2(shown.front().headerMin.x + 40, shown.front().headerMin.y + 8);
             OnMainThread(ctx, [&] {
-                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, header, CKCID_3DENTITY) == owners[i]);
-                IM_CHECK_NO_RET(vdev::ObjectUnderMouse(state, header, CKCID_BEHAVIOR) == scripts[i]);
+                IM_CHECK_NO_RET(App().ParameterCopiesForTests().Pick((header).x, (header).y, CKCID_3DENTITY).object == owners[i]);
+                IM_CHECK_NO_RET(App().ParameterCopiesForTests().Pick((header).x, (header).y, CKCID_BEHAVIOR).object == scripts[i]);
                 if (i == 0) {
                     // An unfilled print must retain the behavior's outline.
                     const auto content = App().Canvas(views[i]).CapturePrint();
@@ -268,9 +269,9 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const auto steps = state.History().UndoCount();
         const auto dirty = state.document->Dirty();
         OnMainThread(ctx, [&] {
-            state.Schematic().selection.Clear();
+            App().Canvas().Navigation().selection.Clear();
             for (const auto &block : blocks)
-                state.Schematic().selection.Add(block.script, {vdev::ElementKind::Behavior, 0, block.behavior});
+                App().Canvas().Navigation().selection.Add(block.script, {vdev::ElementKind::Behavior, 0, block.behavior});
         });
         ctx->KeyPress(ImGuiKey_Y);
         ctx->Yield(3);
@@ -337,7 +338,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "move_block_undo");
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, SchematicRef().c_str());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         IM_CHECK(state.HasDocument());
         const std::optional<Shown> block = FirstBlock();
         IM_CHECK_SILENT(block.has_value());
@@ -387,7 +388,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(preview.has_value());
         IM_CHECK_GT(preview->min.x - block->min.x, 30.0f);
         IM_CHECK(!state.document->EditOpen());
-        IM_CHECK(state.workspace->Application().HasEdits());
+        IM_CHECK((&App().WorkspaceForTests())->Application().HasEdits());
         IM_CHECK_EQ(state.History().UndoCount(), steps);
         IM_CHECK_EQ(state.document->Dirty(), dirty);
         ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(3);
@@ -434,7 +435,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->MouseMoveToPos(ImVec2(at.x + 60, at.y));
         ctx->Yield(3);
         IM_CHECK(!state.document->EditOpen());
-        IM_CHECK(state.workspace->Application().HasEdits());
+        IM_CHECK((&App().WorkspaceForTests())->Application().HasEdits());
         IM_CHECK_EQ(state.History().UndoCount(), steps);
         IM_CHECK_EQ(state.document->Dirty(), dirty);
         OnMainThread(ctx, [] { ImGui::SetWindowFocus("3D Layout"); });
@@ -480,7 +481,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t = IM_REGISTER_TEST(engine, "schematic", "delete_block_undo");
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, SchematicRef().c_str());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         IM_CHECK(state.HasDocument());
         const std::optional<Shown> block = FirstBlock();
         IM_CHECK_SILENT(block.has_value());
@@ -488,7 +489,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->MouseMoveToPos(Center(block->min, block->max));
         ctx->MouseClick(0);
         ctx->Yield(2);
-        IM_CHECK_EQ(state.Schematic().selection.items.size(), 1u);
+        IM_CHECK_EQ(App().Canvas().Navigation().selection.items.size(), 1u);
         ctx->KeyPress(ImGuiKey_Delete);
         ctx->Yield(3);
         IM_CHECK(!Find(block->behavior).has_value());
@@ -577,7 +578,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK_STR_EQ(App().State().History().UndoLabel().c_str(), "Add Comment");
         // Its text editor opens on it (the shortcuts wait while it is open): Escape.
         IM_CHECK(WindowShown(ctx, "//Edit Comment"));
-        const auto ref = Read<vdev::ElementRef>(ctx, [] { return App().State().Schematic().selection.items.front(); });
+        const auto ref = Read<vdev::ElementRef>(ctx, [] { return App().Canvas().Navigation().selection.items.front(); });
         const auto text = [&] {
             return Read<std::string>(ctx, [&] {
                 const auto *session = App().State().document->Session(point->first);
@@ -641,7 +642,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         // F3: the next result (the first) shown, its Script in the Schematic.
         ctx->KeyPress(ImGuiKey_F3);
         ctx->Yield(3);
-        IM_CHECK_EQ(App().State().Schematic().stackScript, App().State().document->Reference(results[0].script));
+        IM_CHECK_EQ(App().Canvas().Navigation().stackScript, App().State().document->Reference(results[0].script));
     };
 
     t = IM_REGISTER_TEST(engine, "schematic", "explorer_value_drafts_cancel_and_release");
@@ -750,14 +751,14 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const std::optional<Shown> block = FirstBlock();
         IM_CHECK_SILENT(block.has_value());
         ctx->WindowFocus(SchematicRef().c_str());
-        App().State().Schematic().selection.Clear();
+        App().Canvas().Navigation().selection.Clear();
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_F);
         ctx->Yield(3);
         IM_CHECK_SILENT(WindowShown(ctx, "//Find###SchematicFind"));
         // Enter: Find Next.
         ctx->ItemInputValue("//Find###SchematicFind/Find", block->name.c_str());
         ctx->Yield(5);
-        const vdev::Selection &selection = App().State().Schematic().selection;
+        const vdev::Selection &selection = App().Canvas().Navigation().selection;
         const vdev::ElementRef found = App().Canvas().Found();
         IM_CHECK_SILENT(found.IsValid());
         IM_CHECK_EQ(selection.items.size(), 1u);
@@ -858,7 +859,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(found.has_value());
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint(found->script);
         IM_CHECK_SILENT(point.has_value());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const size_t steps = state.History().UndoCount(), logged = state.eventLog.Entries().size();
         ctx->KeyDown(ImGuiMod_Shift);
         ctx->MouseMoveToPos(found->center);
@@ -891,8 +892,8 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->KeyPress(ImGuiKey_End);
         ctx->Yield(3);
         // Auto Link on (a click on an I/O begins a link), as it was after.
-        const bool autoLink = App().State().Schematic().options.autoLink;
-        OnMainThread(ctx, [] { App().State().Schematic().options.autoLink = true; });
+        const bool autoLink = App().Canvas().Navigation().options.autoLink;
+        OnMainThread(ctx, [] { App().Canvas().Navigation().options.autoLink = true; });
         // Start's links to the owner's inputs (none wanted: a new one is made).
         auto startLinks = [](CK_ID script, CK_ID owner) {
             CKBehavior *graph = Object<CKBehavior>(script);
@@ -925,7 +926,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
             }
         }
         IM_CHECK_SILENT(script.has_value() && input.has_value());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const size_t steps = state.History().UndoCount();
         const CK_ID id = script->script, owner = input->owner;
         ctx->MouseMoveToPos(script->start);
@@ -940,7 +941,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         Undo(ctx);
         IM_CHECK_EQ(Read<int>(ctx, [&] { return startLinks(id, owner); }), 0);
         IM_CHECK(!state.document->Dirty());
-        OnMainThread(ctx, [autoLink] { App().State().Schematic().options.autoLink = autoLink; });
+        OnMainThread(ctx, [autoLink] { App().Canvas().Navigation().options.autoLink = autoLink; });
     };
 
     // H over the Schematic: the Message Explorer; H again closes it.
@@ -952,7 +953,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->MouseMoveToPos(point->second);
         ctx->KeyPress(ImGuiKey_H);
         ctx->Yield(3);
-        const auto window = "//" + App().State().workspace->WindowName(App().State().workspace->Role("main.messages"));
+        const auto window = "//" + (&App().WorkspaceForTests())->WindowName((&App().WorkspaceForTests())->Role("main.messages"));
         IM_CHECK(WindowShown(ctx, window.c_str()));
         ctx->WindowFocus(SchematicRef().c_str());
         ctx->MouseMoveToPos(point->second);
@@ -969,7 +970,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         const std::optional<Shown> block = ClickFirstBlock(ctx);
         IM_CHECK_SILENT(block.has_value());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         // Grouped by the core command (the test is the deletion): the block's
         // parent is then the new graph, selected for Del.
         CK_ID graph = 0, parent = 0;
@@ -983,7 +984,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(graph != 0 && graph != parent);
         auto alive = [&] { return Read<bool>(ctx, [&] { return !state.document->IsDiscarded(graph) && state.document->Context()->GetObject(graph); }); };
         auto selectGraph = [&] {
-            OnMainThread(ctx, [&] { state.Schematic().selection.Set(block->script, vdev::ElementRef{vdev::ElementKind::Behavior, parent, graph}); });
+            OnMainThread(ctx, [&] { App().Canvas().Navigation().selection.Set(block->script, vdev::ElementRef{vdev::ElementKind::Behavior, parent, graph}); });
             ctx->Yield(2);
         };
         const size_t steps = state.History().UndoCount();
@@ -1042,7 +1043,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, SchematicRef().c_str());
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         // Two Logics Building Blocks with an Int input inserted in an open
         // Script, at an empty place (core commands; the test is the dialog).
         const std::optional<std::pair<CK_ID, ImVec2>> point = EmptySchematicPoint();
@@ -1051,7 +1052,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         CK_ID script = point->first, a = 0, b = 0, local = 0;
         OnMainThread(ctx, [&] {
             CKContext *context = state.document->Context();
-            for (const vdev::BuildingBlockEntry &entry : state.catalog.Entries()) {
+            for (const vdev::BuildingBlockEntry &entry : App().CatalogForTests().Entries()) {
                 if (entry.category.rfind("Logics", 0) != 0) continue;
                 CKBehaviorPrototype *prototype = CKGetPrototypeFromGuid(entry.guid);
                 if (!prototype || prototype->GetInputCount() < 1) continue;
@@ -1114,7 +1115,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
                 if (behavior->GetInputParameter(i) == in) index = i;
             // Scrolled to (the blocks are inserted out of the view).
             CKBehavior *graph = behavior->GetParent();
-            state.events.Post(vdev::ShowElement{*state.document, script, vdev::ElementRef{vdev::ElementKind::Behavior, graph ? graph->GetID() : script, owner}, owner});
+            App().ShowSchematic(vdev::ElementAddress::Capture(*state.document, script, vdev::ElementRef{vdev::ElementKind::Behavior, graph ? graph->GetID() : script, owner}), state.document->Reference(owner));
         });
         ctx->Yield(6);
         std::optional<ImVec2> pin;
@@ -1160,7 +1161,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, SchematicRef().c_str());
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &editor = workspace.Application();
         const auto first = workspace.Role("main.schematic");
         const auto scripts = Read<std::vector<vdev::ScriptInfo>>(ctx, [&] { return state.document->Scripts(); });
@@ -1238,9 +1239,9 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         // A failed document switch must retain both windows' navigation.
         OnMainThread(ctx, [&] {
             struct FailingViews : vdev::DocumentFiles::Views {
-                vdev::EditorState &state;
+                vdev::EditorSession &state;
                 vdev::DocumentFiles::Views *original;
-                explicit FailingViews(vdev::EditorState &s) : state(s), original(s.documentViews) { state.documentViews = this; }
+                explicit FailingViews(vdev::EditorSession &s) : state(s), original(s.documentViews) { state.documentViews = this; }
                 ~FailingViews() { state.documentViews = original; }
                 bool DocumentInteractionActive() const override { return original->DocumentInteractionActive(); }
                 void DetachDocument(bool context) override {
@@ -1266,7 +1267,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         // A deferred navigation to a closed instance cannot go to the first.
         OnMainThread(ctx, [&] {
-            state.events.Post(vdev::ShowElement{*state.document, a, {}, 0, second});
+            App().ShowSchematic(vdev::ElementAddress::Capture(*state.document, a, vdev::Selection::HeaderOf(a)), {}, second);
             IM_CHECK_NO_RET(workspace.Close(second));
         });
         ctx->Yield(4);
@@ -1288,7 +1289,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         const auto block = ClickFirstBlock(ctx);
         IM_CHECK(block.has_value());
         auto &state = App().State();
-        const auto view = state.workspace->Role("main.schematic");
+        const auto view = (&App().WorkspaceForTests())->Role("main.schematic");
         const auto selected = App().Canvas(view).Navigation().selection;
         const auto undo = state.History().UndoCount();
         const auto dirty = state.document->Dirty();
@@ -1303,7 +1304,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(made);
             const vdev::ElementRef ref{vdev::ElementKind::Comment, block->script, 0, index};
             old = vdev::ElementAddress::Capture(*state.document, block->script, ref);
-            state.events.Post(vdev::ShowElement{*state.document, block->script, ref, 0, view});
+            App().ShowSchematic(vdev::ElementAddress::Capture(*state.document, block->script, ref), {}, view);
             auto changed = vdev::EditScriptData(*state.document, block->script, "Replace navigation comment", [&](InterfaceData &data) {
                 data.rootBehavior.comments.erase(data.rootBehavior.comments.begin() + index);
                 Comment note; note.text = "Replacement must not be selected";
@@ -1398,7 +1399,7 @@ void RegisterSchematicTests(ImGuiTestEngine *engine) {
         ctx->KeyPress(ImGuiKey_Enter);
         ctx->Yield(3);
         IM_CHECK(WindowShown(ctx, "//###EditParameter"));
-        IM_CHECK(Read<bool>(ctx, [&] { return state.workspace->Application().HasEdits(); }));
+        IM_CHECK(Read<bool>(ctx, [&] { return (&App().WorkspaceForTests())->Application().HasEdits(); }));
         ctx->ItemClick("**/##expand");
         ctx->Yield(3);
         IM_CHECK(ctx->ItemInfo("**/##string").RectFull.GetHeight() > 100);

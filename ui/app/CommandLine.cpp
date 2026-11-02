@@ -155,7 +155,7 @@ void CommandLine::Parse(const std::vector<std::wstring> &args) {
 }
 
 #ifdef VIRTOOLSDEV_UI_TESTS
-void CommandLine::FeedInput(int frameCount, EditorApp &app) const {
+void CommandLine::FeedInput(int frameCount) const {
     const bool capture = Capture();
         if (capture && drag) {
             // Move, press, drag in steps, release, then report the last undo step.
@@ -167,7 +167,6 @@ void CommandLine::FeedInput(int frameCount, EditorApp &app) const {
                 if (step == 1) input.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
                 if (step == DRAG_STEPS + 3) input.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
             }
-            if (step == DRAG_STEPS + 6) app.LogUndoTop();
         }
         if (capture && doubleClick) {
             // Press and release twice within ImGui's double-click time.

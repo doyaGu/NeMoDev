@@ -7,10 +7,6 @@
 #include "imgui.h"
 
 namespace vdev {
-enum class DevIcon;
-// Legacy native class classification, used by the remaining Layout adapter.
-DevIcon IconForClass(int32_t cid);
-
 // The ui group: Dev's interface bitmaps, those of resvis.dll (Dev.exe
 // sub_42A2E0 loads it) the editor draws, built into the program
 // (resources/images). Toolbar buttons name their bitmaps by resource id
@@ -29,9 +25,6 @@ ImTextureID DevExeIcon(int id);
 // A 32 x 32 icon of the ui group: the icons of Dev's messages (Dev.exe
 // sub_5A07E0's dialog, icons 0x525 to 0x52A).
 ImTextureID DevMessageIcon(int id);
-// The ui icon of a class in Dev's lists (Dev.exe sub_5D1F80, the
-// index in LoadIcons' list).
-int DevClassIconId(int cid);
 // The bitmaps and icons asked for that the program does not have (named as
 // in resources/resources.rc): ones resources/images.txt should list.
 const std::set<std::string> &MissingResources();

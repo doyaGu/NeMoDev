@@ -27,13 +27,13 @@ constexpr const char *PLAY = "//##StatusBar/play/##bitmap";
 constexpr const char *STEP = "//##StatusBar/step/##bitmap";
 constexpr const char *REWIND = "//##StatusBar/rewind/##bitmap";
 
-const vdev::Debugger &TheDebugger() { return *App().State().debugger; }
+const vdev::Debugger &TheDebugger() { return *App().DebuggerForTests(); }
 
 // The Schematic in front, its toolbar's Dbg: the Script Debugger shown.
 bool OpenDebugger(ImGuiTestContext *ctx) {
     Settle(ctx, SchematicRef().c_str());
-    if (!App().State().debugger) return false;
-    if (!App().State().workspace->Role("main.debugger")) ctx->ItemClick(SchematicRef("/**/debugger/##bitmap").c_str());
+    if (!App().DebuggerForTests()) return false;
+    if (!(&App().WorkspaceForTests())->Role("main.debugger")) ctx->ItemClick(SchematicRef("/**/debugger/##bitmap").c_str());
     ctx->Yield(3);
     ImGuiWindow *window = ctx->GetWindowByRef(RuntimeRef("debugger").c_str());
     return window && window->WasActive;
@@ -134,7 +134,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(debugger.CurrentBehavior(), block->behavior);
         IM_CHECK(!debugger.ReachedBreakpoints().empty());
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &editor = state.workspace->Application();
+            auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
             const EditorValue args[] = {vdev::IntegerArgument("index", 0), vdev::IntegerArgument("reached", uint64_t(debugger.Reached()))};
             const auto hit = editor.Query("runtime.reached-breakpoint", {editor.Scope(), args, 2});
             IM_CHECK_NO_RET(hit.status == EDITOR_OK);
@@ -146,7 +146,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         ctx->Yield(2);
         IM_CHECK(!debugger.insideFrames);
         OnMainThread(ctx, [] {
-            auto &editor = App().State().workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             const EditorValue value{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, 0};
             editor.Execute("runtime.set-trace", {editor.Scope(), &value, 1});
         });
@@ -301,7 +301,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &workspace = *App().State().workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &editor = workspace.Application();
         EditorView first = 0, second = 0;
         size_t undo = 0; bool redo = false;
@@ -334,7 +334,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     t->GuiFunc = MainThreadGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         EditorView first = 0, second = 0;
         bool originally = false;
         OnMainThread(ctx, [&] {
@@ -373,7 +373,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     t->GuiFunc = RuntimeGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
         EditorView profiler = 0, parameters = 0;
         std::vector<vdev::ObjectRef> watches;
@@ -441,7 +441,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     t->GuiFunc = RuntimeGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
         vdev::EditorResponse plugins, paths;
         EditorView pluginView = 0, pathView = 0;
@@ -486,7 +486,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     t->GuiFunc = RuntimeGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
         EditorView unused = 0, memory = 0, versions = 0, links = 0, invalid = 0, messages = 0;
         OnMainThread(ctx, [&] {
@@ -548,7 +548,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
     t->GuiFunc = RuntimeGui;
     t->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         auto gate = std::make_shared<Gate>(); ReleaseGate release{gate};
         EditorView view = 0; vdev::EditorResponse beforeView, beforeValues, beforeCatalog;
         size_t undo = 0; bool redo = false, dirty = false; vdev::ObjectRef selection{};

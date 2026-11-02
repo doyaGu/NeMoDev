@@ -19,7 +19,7 @@
 namespace vdevuitest {
 namespace {
 int LiveViews() {
-    auto &app = App().State().workspace->Application();
+    auto &app = (&App().WorkspaceForTests())->Application();
     const EditorRequest request{app.Scope(), nullptr, 0};
     const auto result = app.Query("example.views", request);
     return result.status == EDITOR_OK && !result.fields.empty() ? std::stoi(result.fields.front().text) : -1;
@@ -31,7 +31,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     setupTest->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &editor = workspace.Application();
         vdev::EditorConfiguration initial;
         vdev::ObjectRef target{};
@@ -59,7 +59,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             steps = state.History().UndoCount();
             selection = state.objectSelection.Revision();
             dirty = state.document->Dirty();
-            state.events.Post(vdev::ShowObjectSetup{target});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", target)});
         });
         ctx->Yield(4);
         auto *window = ctx->GetWindowByRef("//###setup3d");
@@ -99,7 +99,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     setupTest->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &editor = workspace.Application();
         vdev::EditorConfiguration initial;
         vdev::ObjectRef target{};
@@ -130,7 +130,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             properties = vdev::EditorClient::Integer(old, "properties");
             actions = vdev::EditorClient::Integer(old, "actions");
             steps = state.History().UndoCount();
-            state.events.Post(vdev::ShowObjectSetup{target});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", target)});
         });
         ctx->Yield(4);
         ctx->SetRef("//###setup3d");
@@ -160,7 +160,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->KeyPress(ImGuiKey_X);
         ctx->Yield(3);
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &app = workspace.Application();
         const vdev::EditorClient client(app.Host(), 0);
         vdev::EditorConfiguration initial;
@@ -244,7 +244,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     setupTest->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &app = workspace.Application();
         const vdev::EditorClient client(app.Host(), 0);
         vdev::ObjectRef target{};
@@ -263,7 +263,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             steps = state.History().UndoCount();
             dirty = state.document->Dirty();
             selection = state.objectSelection.Revision();
-            state.events.Post(vdev::ShowObjectSetup{target});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", target)});
         });
         ctx->Yield(4);
         ctx->SetRef("//###setup3d");
@@ -322,7 +322,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     setupTest->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &editor = workspace.Application();
         const vdev::EditorClient client(editor.Host(), 0);
         vdev::EditorConfiguration initial;
@@ -366,7 +366,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             const auto *counts = vdev::EditorClient::Find(before, "counts");
             IM_CHECK_NO_RET(counts && counts->integers.size() == 8);
             std::copy(counts->integers.begin(), counts->integers.end(), calls);
-            state.events.Post(vdev::ShowObjectSetup{source});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", source)});
         });
         ctx->Yield(4);
         ctx->SetRef("//###setup3d");
@@ -377,7 +377,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("Copy Attribute Parameter Value");
         OnMainThread(ctx, [&] {
             const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
-            state.events.Post(vdev::ShowObjectSetup{destination});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", destination)});
         });
         ctx->Yield(4);
         ctx->SetRef("//###setup3d");
@@ -425,7 +425,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx, "//3D Layout");
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         vdev::EditorConfiguration initial; vdev::ObjectRef script{}, graph{}, camera{};
         EditorView schematic = 0, diagnostic = 0;
         size_t steps = 0; bool dirty = false; uint64_t selection = 0;
@@ -494,7 +494,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
-        auto &state = App().State(); auto &workspace = *state.workspace; auto &editor = workspace.Application();
+        auto &state = App().State(); auto &workspace = *(&App().WorkspaceForTests()); auto &editor = workspace.Application();
         EditorView first = 0, second = 0, messages = 0, invalid = 0;
         CK_ID script = 0, senderId = 0; size_t steps = 0;
         OnMainThread(ctx, [&] {
@@ -560,7 +560,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         auto &editor = workspace.Application();
         vdev::EditorConfiguration initial;
         vdev::SchematicNavigation navigation;
@@ -677,7 +677,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         vdev::EditorConfiguration initial;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            initial = state.workspace->Application().Configuration();
+            initial = (&App().WorkspaceForTests())->Application().Configuration();
             const auto created = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
             IM_CHECK_NO_RET(created.ok);
             object = created.created;
@@ -710,7 +710,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         EditorView first = 0, second = 0, external = 0;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &workspace = *state.workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             state.objectSelection.Restore(*state.document, {object});
             first = workspace.Open("object.properties");
             second = workspace.Open("object.summary");
@@ -746,7 +746,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         IM_CHECK(ObjectName(ctx, object) == "Moved Menu");
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &app = state.workspace->Application();
+            auto &app = (&App().WorkspaceForTests())->Application();
             const auto reference = state.document->Reference(object);
             const EditorValue args[] = {{EDITOR_TEXT("target"), EDITOR_OBJECT, reference, {}},
                                         {EDITOR_TEXT("name"), EDITOR_TEXT_VALUE, {}, EDITOR_TEXT("Command")}};
@@ -759,7 +759,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         IM_CHECK(ObjectName(ctx, object) == "External Command");
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &workspace = *state.workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             workspace.Close(external);
             IM_CHECK_NO_RET(LiveViews() == 0);
             const auto context = state.document->Context();
@@ -818,7 +818,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         ctx->KeyPress(ImGuiKey_F2);
         ctx->Yield(3);
-        IM_CHECK(Read<bool>(ctx, [] { return App().State().workspace->Application().HasEdits(); }));
+        IM_CHECK(Read<bool>(ctx, [] { return (&App().WorkspaceForTests())->Application().HasEdits(); }));
         ctx->KeyCharsReplaceEnter("Hierarchy Name");
         ctx->Yield(3);
         IM_CHECK(ObjectName(ctx, object) == "Hierarchy Name");
@@ -830,7 +830,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         ctx->WindowClose(SceneRef("hierarchy", "").c_str());
         ctx->Yield(3);
-        IM_CHECK(!Read<bool>(ctx, [] { return App().State().workspace->Application().HasEdits(); }));
+        IM_CHECK(!Read<bool>(ctx, [] { return (&App().WorkspaceForTests())->Application().HasEdits(); }));
         IM_CHECK(ShowSetup(ctx, object, "//###setup3d"));
         ctx->WindowFocus("//###setup3d");
         ctx->KeyPress(ImGuiKey_F2);
@@ -847,7 +847,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             auto &state = App().State();
             state.objectSelection.Restore(*state.document, {object});
-            view = state.workspace->Open("object.properties");
+            view = (&App().WorkspaceForTests())->Open("object.properties");
             IM_CHECK_NO_RET(view);
         });
         ctx->Yield(4);
@@ -862,7 +862,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(2);
         ctx->WindowClose(window.c_str());
         ctx->Yield(3);
-        IM_CHECK(!Read<bool>(ctx, [] { return App().State().workspace->Application().HasEdits(); }));
+        IM_CHECK(!Read<bool>(ctx, [] { return (&App().WorkspaceForTests())->Application().HasEdits(); }));
         IM_CHECK(ObjectName(ctx, object) == original);
     };
     test = IM_REGISTER_TEST(engine, "modules", "stale_native_target_cannot_be_renamed");
@@ -875,7 +875,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             auto &state = App().State();
             auto &document = *state.document;
-            auto &workspace = *state.workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             auto *object = document.Context()->CreateObject(CKCID_OBJECT, "Original target");
             IM_CHECK_NO_RET(object);
             id = object->GetID();
@@ -895,7 +895,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         IM_CHECK(ObjectName(ctx, id) == "Replacement target");
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == history);
         OnMainThread(ctx, [&] {
-            App().State().workspace->CloseOwner(owner);
+            (&App().WorkspaceForTests())->CloseOwner(owner);
             IM_CHECK_NO_RET(App().State().document->Context()->DestroyObject(id) == CK_OK);
         });
     };
@@ -912,14 +912,14 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         vdev::EditorResponse pending;
         const auto configureOptions = [&](bool refuseReply, bool refuseView) {
             OnMainThread(ctx, [&] {
-                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
                 IM_CHECK_NO_RET(client.Command("example.message-options", {
                     vdev::IntegerArgument("reply", refuseReply), vdev::IntegerArgument("view", refuseView)}).status == EDITOR_OK);
             });
         };
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &workspace = *state.workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             auto &editor = workspace.Application();
             original = editor.Configuration();
             selected = original;
@@ -941,7 +941,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->MenuClick("//##MainMenuBar/File/Source Control/Get Latest Version...");
         ctx->Yield(4);
         OnMainThread(ctx, [&] {
-            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             pending = client.Query("message.current");
             IM_CHECK_NO_RET(vdev::EditorClient::Text(pending, "text") == "Get Latest Version function not available" &&
                 vdev::EditorClient::Integer(client.Query("example.message-counts"), "shows") == shows + 1);
@@ -950,7 +950,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         IM_CHECK(ctx->GetWindowByRef("//###ApplicationMessage")->WasActive);
         OnMainThread(ctx, [&] {
-            auto &workspace = *App().State().workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             const vdev::EditorClient client(workspace.Application().Host(), 0);
             IM_CHECK_NO_RET(client.Query("message.current").fields == pending.fields &&
                 vdev::EditorClient::Integer(client.Query("example.message-counts"), "replies") == replies + 1);
@@ -960,7 +960,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(!ctx->GetWindowByRef("//###ApplicationMessage")->WasActive);
         OnMainThread(ctx, [&] {
-            auto &workspace = *App().State().workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             IM_CHECK_NO_RET(workspace.Open("application.messages"));
             const vdev::EditorClient client(workspace.Application().Host(), 0);
             IM_CHECK_NO_RET(client.Query("message.current").fields == pending.fields);
@@ -972,7 +972,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             for (auto &choice : replacement.providers)
                 if (choice.kind == "view" && choice.id == "application.messages") choice.provider = "example.messages";
             std::string error;
-            IM_CHECK_NO_RET(!App().State().workspace->Configure(replacement, error));
+            IM_CHECK_NO_RET(!(&App().WorkspaceForTests())->Configure(replacement, error));
         });
         ctx->Yield(3);
         IM_CHECK(ctx->GetWindowByRef("//###ApplicationMessage")->WasActive);
@@ -981,7 +981,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             for (auto &choice : selected.providers)
                 if (choice.kind == "view" && choice.id == "application.messages") choice.provider = "example.messages";
             std::string error;
-            IM_CHECK_NO_RET(App().State().workspace->Configure(selected, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(selected, error));
         });
         ctx->Yield(4);
         IM_CHECK(!ctx->GetWindowByRef("//###ApplicationMessage")->WasActive);
@@ -989,7 +989,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &workspace = *state.workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             const vdev::EditorClient client(workspace.Application().Host(), 0);
             IM_CHECK_NO_RET(client.Query("message.current").status == EDITOR_NO_CHANGE &&
                 vdev::EditorClient::Integer(client.Query("example.message-counts"), "replies") == replies + 2);
@@ -1021,7 +1021,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         std::vector<vdev::ObjectRef> selection;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             previous = editor.Configuration();
             auto selected = previous;
             bool replaced = false;
@@ -1032,7 +1032,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                 }
             if (!replaced) selected.providers.push_back({"command", "document.respond", "example.file-replies"});
             std::string error;
-            if (!state.workspace->Configure(selected, error)) ctx->LogError("Configure: %s", error.c_str());
+            if (!(&App().WorkspaceForTests())->Configure(selected, error)) ctx->LogError("Configure: %s", error.c_str());
             IM_CHECK_NO_RET(error.empty());
             std::vector<CK_ID> objects;
             for (auto kind : {vdev::LayoutObject::Frame3D, vdev::LayoutObject::Material, vdev::LayoutObject::Texture}) {
@@ -1079,7 +1079,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         choose(0, "Use Current");
         choose(2, "Rename");
         OnMainThread(ctx, [&] {
-            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             IM_CHECK_NO_RET(client.Command("example.file-view-state", {vdev::IntegerArgument("refuse", 1)}).status == EDITOR_OK);
         });
         ctx->ItemClick("//###DuplicateNames/OK/##dialogbutton");
@@ -1087,7 +1087,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         IM_CHECK(visible() && choices->calls == 0);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             IM_CHECK_NO_RET(state.files.PendingDuplicates() && state.History().UndoCount() == history &&
                             state.document->Dirty() == dirty && state.document->Token() == token &&
                             state.objectSelection.References() == selection);
@@ -1110,13 +1110,13 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(state.History().UndoCount() == history && state.document->Dirty() == dirty &&
                             state.document->Token() == token && state.objectSelection.References() == selection);
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error));
         });
         EditorOperation importing = 0;
         size_t entities = 0;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             std::vector<vdev::SetupObjectRow> rows;
             IM_CHECK_NO_RET(vdev::ReadSetupChoices(client, CKCID_3DENTITY, rows));
             entities = rows.size();
@@ -1132,13 +1132,13 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         for (int i = 0; i < 1000 && completed == EDITOR_QUEUED; ++i) {
             ctx->Sleep(.01f);
             completed = Read<EditorStatus>(ctx, [&] {
-                const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+                const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
                 return client.Completion(importing).status;
             });
         }
         IM_CHECK(completed == EDITOR_OK && !visible());
         OnMainThread(ctx, [&] {
-            const vdev::EditorClient client(App().State().workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             std::vector<vdev::SetupObjectRow> rows;
             IM_CHECK_NO_RET(vdev::ReadSetupChoices(client, CKCID_3DENTITY, rows) && rows.size() == entities + 1);
         });
@@ -1158,7 +1158,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         const auto loaded = std::make_shared<bool>(false), cancelled = std::make_shared<bool>(false);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &workspace = *state.workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             auto &editor = workspace.Application();
             original = editor.Configuration();
             const auto fixture = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
@@ -1192,7 +1192,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(5);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             const EditorValue id{vdev::EditorLiteral("operation"), EDITOR_INTEGER_VALUE, {}, {}, operation};
             const auto result = editor.Query("application.operation", {editor.Scope(), &id, 1});
             IM_CHECK_NO_RET(result.status == EDITOR_OK);
@@ -1211,8 +1211,8 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(!state.files.PendingDuplicates() && (!popup || !popup->WasActive));
             IM_CHECK_NO_RET(state.document->Token() == document && state.History().UndoCount() == history);
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(original, error));
-            IM_CHECK_NO_RET(state.workspace->ViewCount() == views);
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(original, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->ViewCount() == views);
         });
     };
 
@@ -1224,7 +1224,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         CK_ID object = 0;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &workspace = *state.workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             state.History().Clear();
             state.document->MarkSaved(); state.History().MarkSavePoint();
             const auto result = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
@@ -1254,7 +1254,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             auto &state = App().State();
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error));
             IM_CHECK_NO_RET(state.History().Redo());
         });
     };
@@ -1268,14 +1268,14 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         CK_ID object = 0;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            previous = state.workspace->Application().Configuration();
-            showSetup = state.preferences.Bool("3D Layout\\Auto Show Setup");
-            state.preferences.SetBool("3D Layout\\Auto Show Setup", false);
+            previous = (&App().WorkspaceForTests())->Application().Configuration();
+            showSetup = App().SettingsForTests().Bool("3D Layout\\Auto Show Setup");
+            App().SettingsForTests().SetBool("3D Layout\\Auto Show Setup", false);
             auto configured = previous;
             for (auto &choice : configured.providers)
                 if (choice.kind == "command" && choice.id == "object.create-frame3d") choice.provider = "example.objects";
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(configured, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(configured, error));
             state.History().Clear();
         });
         ctx->WindowFocus("//3D Layout");
@@ -1327,12 +1327,12 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             auto &state = App().State();
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
-            state.preferences.SetBool("3D Layout\\Auto Show Setup", showSetup);
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error));
+            App().SettingsForTests().SetBool("3D Layout\\Auto Show Setup", showSetup);
             state.History().Clear();
             state.document->MarkSaved(); state.History().MarkSavePoint();
             const auto oldDocument = state.document->Token();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             IM_CHECK_NO_RET(editor.Execute("document.new", {editor.Scope(), nullptr, 0}).status == EDITOR_QUEUED);
             state.FinishRuntimeOperations();
             IM_CHECK_NO_RET(state.document->IsOpen() && state.document->Token() != oldDocument && !state.runtimeOperation.Busy());
@@ -1355,7 +1355,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         std::vector<vdev::ObjectRef> selection;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             const auto created = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
             IM_CHECK_NO_RET(created.ok);
             object = created.created;
@@ -1384,7 +1384,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             auto &state = App().State();
             IM_CHECK_NO_RET(fs::exists(nmo) && state.document->Token() == token && state.History().UndoCount() == history &&
                             state.objectSelection.References() == selection);
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             const auto ref = state.document->Reference(script);
             const EditorValue args[] = {
                 {EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {&ref, 1}},
@@ -1403,7 +1403,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(5);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             vdev::BehaviorDescription info;
             IM_CHECK_NO_RET(fs::exists(nms) && vdev::ReadBehaviorDescription(nms, info) && info.author == "UI Author" && info.version == 2.5f);
             IM_CHECK_NO_RET(state.History().UndoCount() == history && state.objectSelection.References() == selection);
@@ -1421,7 +1421,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(5);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             IM_CHECK_NO_RET(Object<CKBeObject>(object)->GetScriptCount() == 2 && state.History().UndoCount() == history + 1 &&
                             state.objectSelection.References() == selection);
             for (const auto operation : {nmoOperation, nmsOperation, loadOperation}) {
@@ -1445,14 +1445,14 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         uint64_t plays = 0;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             previous = editor.Configuration();
             auto selected = previous;
             for (auto &provider : selected.providers)
                 if (provider.kind == "command" && provider.id == "runtime.play") provider.provider = "example.execution";
             selected.bindings.emplace_back("runtime.toggle-trace", "Alt+T");
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(selected, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(selected, error));
             editor.Execute("runtime.open-debugger", {editor.Scope(), nullptr, 0});
             history = state.History().UndoCount();
             time = editor.Query("runtime.time", {editor.Scope(), nullptr, 0}).fields;
@@ -1465,27 +1465,27 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(5);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
-            IM_CHECK_NO_RET(state.debugger->Frames() == 1 && state.debugger->GetState() == vdev::Debugger::State::Paused);
+            auto &editor = (&App().WorkspaceForTests())->Application();
+            IM_CHECK_NO_RET(App().DebuggerForTests()->Frames() == 1 && App().DebuggerForTests()->GetState() == vdev::Debugger::State::Paused);
             IM_CHECK_NO_RET(editor.Query("example.play-count", {editor.Scope(), nullptr, 0}).fields.front().integer == plays + 1);
         });
         ctx->ItemClick("//##StatusBar/step/##bitmap");
         ctx->Yield(3);
-        IM_CHECK(Read<int>(ctx, [] { return App().State().debugger->Frames(); }) == 2);
+        IM_CHECK(Read<int>(ctx, [] { return App().DebuggerForTests()->Frames(); }) == 2);
         ctx->ItemClick("//##StatusBar/rewind/##bitmap");
         ctx->Yield(3);
-        IM_CHECK(Read<int>(ctx, [] { return App().State().debugger->Frames(); }) == 0);
+        IM_CHECK(Read<int>(ctx, [] { return App().DebuggerForTests()->Frames(); }) == 0);
         ctx->WindowFocus(RuntimeRef("debugger", "").c_str());
         ctx->ItemClick(RuntimeRef("debugger", "/Debug Inside Frames").c_str());
         ctx->Yield(3);
-        IM_CHECK(Read<bool>(ctx, [] { return App().State().debugger->trace && App().State().debugger->insideFrames; }));
+        IM_CHECK(Read<bool>(ctx, [] { return App().DebuggerForTests()->trace && App().DebuggerForTests()->insideFrames; }));
         ctx->WindowFocus(SchematicRef().c_str());
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_T);
         ctx->Yield(3);
-        IM_CHECK(Read<bool>(ctx, [] { return App().State().debugger->trace; }));
+        IM_CHECK(Read<bool>(ctx, [] { return App().DebuggerForTests()->trace; }));
         ctx->KeyPress(ImGuiMod_Alt | ImGuiKey_T);
         ctx->Yield(3);
-        IM_CHECK(!Read<bool>(ctx, [] { return App().State().debugger->trace; }));
+        IM_CHECK(!Read<bool>(ctx, [] { return App().DebuggerForTests()->trace; }));
         ctx->ItemClick("//##StatusBar/play/##bitmap", 1);
         ctx->Yield(3);
         IM_CHECK(ctx->ItemExists("//###TimeSettings/##scale"));
@@ -1495,7 +1495,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             const auto settings = editor.Query("runtime.time", {editor.Scope(), nullptr, 0});
             IM_CHECK_NO_RET(settings.status == EDITOR_OK && std::any_of(settings.fields.begin(), settings.fields.end(), [](const auto &f) {
                 return f.key == "scale" && f.real == 1.5;
@@ -1507,9 +1507,9 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             editor.Execute("runtime.set-inside-frames", {editor.Scope(), &disabled, 1});
             const EditorValue frames{EDITOR_TEXT("value"), EDITOR_INTEGER_VALUE, {}, {}, 0};
             editor.Execute("runtime.set-max-frames", {editor.Scope(), &frames, 1});
-            state.workspace->Close(state.workspace->Role("main.debugger"));
+            (&App().WorkspaceForTests())->Close((&App().WorkspaceForTests())->Role("main.debugger"));
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error));
         });
     };
 
@@ -1528,9 +1528,9 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         bool dirty = false;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             state.document->MarkSaved(); state.History().MarkSavePoint();
-            IM_CHECK_NO_RET(state.workspace->Application().Execute("document.new", {state.workspace->Application().Scope(), nullptr, 0}).status == EDITOR_QUEUED);
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Application().Execute("document.new", {(&App().WorkspaceForTests())->Application().Scope(), nullptr, 0}).status == EDITOR_QUEUED);
             state.FinishRuntimeOperations();
             const auto frame = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
             IM_CHECK_NO_RET(frame.ok);
@@ -1546,7 +1546,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         });
         ctx->Yield(6);
         OnMainThread(ctx, [&] {
-            auto &editor = App().State().workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             const EditorValue values[] = {{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, {}, vdev::EditorText(html)},
                 {EDITOR_TEXT("ask-options"), EDITOR_INTEGER_VALUE, {}, {}, 1}};
             const auto result = editor.Execute("example.export-web", {editor.Scope(), values, 2});
@@ -1567,7 +1567,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         IM_CHECK(page.find("WIDTH=\"640\" HEIGHT=\"480\"") != std::string::npos);
         IM_CHECK(!vdev::IsPlayerFile((root / "page.cmo").u8string()));
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &editor = state.workspace->Application();
+            auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
             IM_CHECK_NO_RET(state.History().UndoCount() == history && state.document->Dirty() == dirty);
             const EditorValue value{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE, {}, vdev::EditorText(pages)};
             const auto result = editor.Execute("example.print", {editor.Scope(), &value, 1});
@@ -1578,7 +1578,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
         IM_CHECK(!fs::exists(root / "pages" / "page1.png"));
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &editor = state.workspace->Application();
+            auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
             const EditorValue id{EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE, {}, {}, print};
             const auto result = editor.Query("application.operation", {editor.Scope(), &id, 1});
             IM_CHECK_NO_RET(std::any_of(result.fields.begin(), result.fields.end(), [](const auto &f) { return f.key == "status" && f.integer == EDITOR_CANCELLED; }));
@@ -1599,7 +1599,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK(opaque);
         }
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &editor = state.workspace->Application();
+            auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
             IM_CHECK_NO_RET(state.History().UndoCount() == history && state.document->Dirty() == dirty);
             for (const auto operation : {web, print}) {
                 const EditorValue id{EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE, {}, {}, operation};
@@ -1610,14 +1610,14 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             for (auto &provider : selected.providers)
                 if (provider.kind == "view" && provider.id == "document.output-dialogs") provider.provider = "example.outputs";
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(selected, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(selected, error));
             IM_CHECK_NO_RET(editor.Execute("document.export-web", {editor.Scope(), nullptr, 0}).status == EDITOR_QUEUED);
         });
         ctx->Yield(4);
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &editor = state.workspace->Application();
+            auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
             IM_CHECK_NO_RET(editor.Query("output.input", {editor.Scope(), nullptr, 0}).status == EDITOR_NO_CHANGE);
-            std::string error; IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
+            std::string error; IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error));
         });
         // The actual print renderer retains models and cloned bitmaps after
         // the original document/view has disappeared.
@@ -1625,7 +1625,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] { snapshot = App().Canvas().CapturePrint(); IM_CHECK_NO_RET(bool(snapshot)); });
         OnMainThread(ctx, [&] {
             auto &state = App().State(); state.document->MarkSaved(); state.History().MarkSavePoint();
-            IM_CHECK_NO_RET(state.workspace->Application().Execute("document.new", {state.workspace->Application().Scope(), nullptr, 0}).status == EDITOR_QUEUED);
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Application().Execute("document.new", {(&App().WorkspaceForTests())->Application().Scope(), nullptr, 0}).status == EDITOR_QUEUED);
             state.FinishRuntimeOperations();
             std::vector<unsigned char> pixels; std::string error;
             vdev::SchematicPrint options; options.bitmaps = true;
@@ -1646,7 +1646,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx);
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &editor = state.workspace->Application();
+            auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
             const auto frame = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
             IM_CHECK_NO_RET(frame.ok);
             const auto script = vdev::CreateScript(*state.document, frame.created, "Retained Script");
@@ -1655,23 +1655,23 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::RenameLevelObject(*state.document, state.document->Reference(frame.created), "Redo after failed switch").ok);
             IM_CHECK_NO_RET(state.History().Undo());
             state.objectSelection.Restore(*state.document, {frame.created}, true);
-            state.Schematic().selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
+            App().Canvas().Navigation().selection.Set(script.created, vdev::Selection::HeaderOf(script.created));
         });
         ctx->Yield(4);
         OnMainThread(ctx, [&] {
-            auto &state = App().State(); auto &editor = state.workspace->Application();
+            auto &state = App().State(); auto &editor = (&App().WorkspaceForTests())->Application();
             const auto context = state.document->Context(); const auto token = state.document->Token();
             const auto objectSelection = state.objectSelection;
-            const auto selection = state.Schematic().selection;
+            const auto selection = App().Canvas().Navigation().selection;
             const auto undo = state.History().UndoCount(); const auto redo = state.History().RedoLabel();
             const auto revision = state.document->TopologyRevision(); const auto dirty = state.document->Dirty();
             IM_CHECK_NO_RET(editor.Execute("runtime.play", {editor.Scope(), nullptr, 0}).status == EDITOR_OK);
             struct Views final : vdev::DocumentFiles::Views {
-                vdev::EditorState &state;
+                vdev::EditorSession &state;
                 vdev::DocumentFiles::Views *original;
                 int mode = 0, detached = 0;
                 bool released = false;
-                explicit Views(vdev::EditorState &state) : state(state), original(state.documentViews) { state.documentViews = this; }
+                explicit Views(vdev::EditorSession &state) : state(state), original(state.documentViews) { state.documentViews = this; }
                 ~Views() { state.documentViews = original; }
                 bool DocumentInteractionActive() const override { return mode == 3 || (mode == 2 && released) || original->DocumentInteractionActive(); }
                 void DetachDocument(bool replaceContext) override {
@@ -1698,9 +1698,9 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                 IM_CHECK_NO_RET(state.document->Context() == context && state.document->Token() == token);
                 IM_CHECK_NO_RET(state.document->TopologyRevision() == revision && state.document->Dirty() == dirty);
                 IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() && state.History().RedoLabel() == redo);
-                IM_CHECK_NO_RET(state.Schematic().selection.script == selection.script && state.Schematic().selection.items == selection.items);
+                IM_CHECK_NO_RET(App().Canvas().Navigation().selection.script == selection.script && App().Canvas().Navigation().selection.items == selection.items);
                 IM_CHECK_NO_RET(state.objectSelection.References() == objectSelection.References() && state.objectSelection.Locked() == objectSelection.Locked() && state.objectSelection.Revision() == objectSelection.Revision());
-                IM_CHECK_NO_RET(state.debugger->GetState() == vdev::Debugger::State::Running);
+                IM_CHECK_NO_RET(App().DebuggerForTests()->GetState() == vdev::Debugger::State::Running);
             }
             IM_CHECK_NO_RET(views.detached == 3);
             editor.Execute("runtime.pause", {editor.Scope(), nullptr, 0});
@@ -1719,7 +1719,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         size_t history = 0;
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             previous = editor.Configuration();
             auto chosen = previous;
             for (auto &provider : chosen.providers)
@@ -1727,12 +1727,12 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
                     (provider.id == "scene.drop-behavior" || provider.id == "layout.finish-drop"))
                     provider.provider = "example.authoring";
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(chosen, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(chosen, error));
             const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
             IM_CHECK_NO_RET(made.ok);
             owner = state.document->Reference(made.created);
             history = state.History().UndoCount();
-            for (const auto &entry : state.catalog.Entries())
+            for (const auto &entry : App().CatalogForTests().Entries())
                 if (entry.name == "Rotate")
                     prototype = (uint64_t(entry.guid.d1) << 32) | entry.guid.d2;
             IM_CHECK_NO_RET(prototype);
@@ -1753,7 +1753,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             const auto counts = editor.Query("example.authoring-counts", {editor.Scope(), nullptr, 0});
             IM_CHECK_NO_RET(vdev::EditorClient::Integer(counts, "drops") == drops + 1 &&
                             vdev::EditorClient::Integer(counts, "finishes") == finishes + 1);
@@ -1769,14 +1769,14 @@ void RegisterModuleTests(ImGuiTestEngine *engine) {
         ctx->Yield(4);
         OnMainThread(ctx, [&] {
             auto &state = App().State();
-            auto &editor = state.workspace->Application();
+            auto &editor = (&App().WorkspaceForTests())->Application();
             const auto counts = editor.Query("example.authoring-counts", {editor.Scope(), nullptr, 0});
             IM_CHECK_NO_RET(vdev::EditorClient::Integer(counts, "drops") == drops + 2 &&
                             vdev::EditorClient::Integer(counts, "finishes") == finishes + 2);
             IM_CHECK_NO_RET(!state.document->EditOpen() && state.History().UndoCount() == history &&
                             state.History().CanRedo());
             std::string error;
-            IM_CHECK_NO_RET(state.workspace->Configure(previous, error));
+            IM_CHECK_NO_RET((&App().WorkspaceForTests())->Configure(previous, error));
         });
     };
 }

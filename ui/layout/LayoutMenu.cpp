@@ -20,7 +20,7 @@ EditorResponse LayoutWindow::Execute(const char *id, const std::vector<EditorVal
 }
 void LayoutWindow::Complete(const EditorResponse &result, AfterCommand after) {
     if (result.status != EDITOR_OK && result.status != EDITOR_NO_CHANGE) {
-        if (!result.message.empty()) m_State.Log(LogLevel::Warning, result.message);
+        if (!result.message.empty()) Client().Log(EDITOR_LOG_WARNING, result.message);
         return;
     }
     if (m_Window && after == AfterCommand::Zoom)
@@ -31,7 +31,7 @@ void LayoutWindow::Complete(const EditorResponse &result, AfterCommand after) {
         const auto details = Client().Query("object.details", {ObjectArgument("target", created->object)});
         if (details.status != EDITOR_OK)
             return;
-        m_State.Log(LogLevel::Info,
+        Client().Log(EDITOR_LOG_INFO,
                     EditorClient::Text(details, "class") + " '" + EditorClient::Text(details, "name") + "' created.");
         if (EditorClient::Integer(result, "camera"))
             Execute("layout.set-camera", {ObjectArgument("target", created->object)});
@@ -42,7 +42,7 @@ void LayoutWindow::Complete(const EditorResponse &result, AfterCommand after) {
         ShowScriptInSchematic(created->object);
     if (after == AfterCommand::ScriptsAdded)
         if (const auto *objects = EditorClient::Find(result, "objects"); objects && objects->type == EDITOR_OBJECT_LIST)
-            m_State.Log(LogLevel::Info, std::to_string(objects->objects.size()) + " scripts added to selection.");
+            Client().Log(EDITOR_LOG_INFO, std::to_string(objects->objects.size()) + " scripts added to selection.");
     if (after == AfterCommand::Group && created && created->type == EDITOR_OBJECT && created->object) {
         m_Group = created->object;
         LayoutSelectionData selection;
@@ -254,11 +254,12 @@ void LayoutWindow::Duplicate(const std::vector<ObjectRef> &objects, uint64_t cli
     Window().document.copyTarget = scene.scene;
     Window().document.copyClipboardRevision = clipboardRevision;
     if (const auto *values = EditorClient::Find(options, "options")) {
-        Window().copyOptions.Resize(int(values->integers.size()));
+        Window().copyOptions.options.resize(values->integers.size());
         for (size_t i = 0; i < values->integers.size(); ++i)
-            Window().copyOptions[int(i)] = CKDWORD(values->integers[i]);
+            Window().copyOptions.options[i] = uint32_t(values->integers[i]);
     }
-    Window().copyOptions.m_Flags = CK_DEPENDENCIES_FLAGS(EditorClient::Integer(options, "flags"));
+    Window().copyType = EditorClient::Integer(options, "type");
+    Window().copyOptions.flags = uint32_t(EditorClient::Integer(options, "flags"));
     Window().document.openCopyOptions = true;
 }
 
@@ -268,7 +269,7 @@ void LayoutWindow::CopyOptionsDialog() {
     const char *id = "Edit Parameter###CopyOptions";
     if (Window().document.openCopyOptions && Window().openPopups) {
         Window().copyBox.Clear();
-        Window().copyBox.AddDependencies("Copy options", CKPGUID_COPYDEPENDENCIES, Window().copyOptions);
+        Window().copyBox.AddDependencies("Copy options", Window().copyType, Window().copyOptions);
         ImGui::OpenPopup(id);
         Window().document.openCopyOptions = false;
     }
@@ -284,12 +285,12 @@ void LayoutWindow::CopyOptionsDialog() {
     Window().document.pendingCopy.clear();
     if (objects.empty()) return;
     std::vector<uint64_t> dependencies;
-    for (int i = 0; i < Window().copyOptions.Size(); ++i)
-        dependencies.push_back(Window().copyOptions[i]);
+    for (int i = 0; i < int(Window().copyOptions.options.size()); ++i)
+        dependencies.push_back(Window().copyOptions.options[size_t(i)]);
     const EditorValue options{EDITOR_TEXT("options"), EDITOR_INTEGER_LIST, {}, {}, 0, {}, {dependencies.data(), uint32_t(dependencies.size())}};
     std::vector<EditorValue> arguments{ObjectArgument("target", Window().document.copyTarget),
                                        IntegerArgument("custom", 1),
-                                       IntegerArgument("flags", Window().copyOptions.m_Flags), options};
+                                       IntegerArgument("flags", Window().copyOptions.flags), options};
     if (Window().document.copyClipboardRevision)
         arguments.push_back(IntegerArgument("clipboard-revision", Window().document.copyClipboardRevision));
     else arguments.push_back(ObjectsArgument("objects", objects));

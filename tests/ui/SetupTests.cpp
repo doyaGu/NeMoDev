@@ -118,7 +118,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             steps = state.History().UndoCount();
             dirty = state.document->Dirty();
             parameters = count();
-            state.events.Post(vdev::ShowObjectSetup{target});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", target)});
         });
         ctx->Yield(4);
         ctx->SetRef(SETUP);
@@ -182,9 +182,9 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         size_t steps = 0;
         uint64_t selection = 0;
         bool dirty = false;
-        const bool showNew = state.preferences.Bool("3D Layout\\Show New Setups");
+        const bool showNew = App().SettingsForTests().Bool("3D Layout\\Show New Setups");
         const auto setNew = [&](bool enabled) {
-            const vdev::EditorClient client(state.workspace->Application().Host(), 0);
+            const vdev::EditorClient client((&App().WorkspaceForTests())->Application().Host(), 0);
             const auto source = client.Query("preferences.values");
             const EditorValue field{EDITOR_TEXT("3D Layout\\Show New Setups"), EDITOR_INTEGER_VALUE, {}, {}, enabled};
             EditorValue value{EDITOR_TEXT("value"), EDITOR_RECORD};
@@ -209,32 +209,32 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             selection = state.objectSelection.Revision();
             dirty = state.document->Dirty();
             setNew(false);
-            state.events.Post(vdev::ShowObjectSetup{first});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", first)});
         });
         ctx->Yield(3);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(vdev::SetupEditTests::BeginRenameAndPick(App(), first));
-            state.events.Post(vdev::ShowObjectSetup{second});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", second)});
         });
         ctx->Yield(3);
         IM_CHECK(!ShowsObject(ctx, first.object) && ShowsObject(ctx, second.object));
         IM_CHECK(Read<bool>(ctx, [&] {
-            return vdev::SetupEditTests::CleanTarget(App(), second) && !state.workspace->Application().HasEdits();
+            return vdev::SetupEditTests::CleanTarget(App(), second) && !(&App().WorkspaceForTests())->Application().HasEdits();
         }));
         OnMainThread(ctx, [&] {
             setNew(true);
-            state.events.Post(vdev::ShowObjectSetup{third});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", third)});
         });
         ctx->Yield(3);
         IM_CHECK(ShowsObject(ctx, second.object) && ShowsObject(ctx, third.object));
         IM_CHECK(Read<size_t>(ctx, [] { return App().Setups().OpenSetups().size(); }) == 2);
-        OnMainThread(ctx, [&] { state.events.Post(vdev::ShowObjectSetup{third}); });
+        OnMainThread(ctx, [&] { EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", third)}); });
         ctx->Yield(3);
         IM_CHECK(Read<size_t>(ctx, [] { return App().Setups().OpenSetups().size(); }) == 2);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(vdev::SetupEditTests::BeginRenameAndPick(App(), third));
             const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
-            IM_CHECK_NO_RET(vdev::SetupEditTests::NoPicker(App()) && !state.workspace->Application().HasEdits());
+            IM_CHECK_NO_RET(vdev::SetupEditTests::NoPicker(App()) && !(&App().WorkspaceForTests())->Application().HasEdits());
             IM_CHECK_NO_RET(state.History().UndoCount() == steps && state.objectSelection.Revision() == selection &&
                             state.document->Dirty() == dirty);
             setNew(showNew);
@@ -285,7 +285,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         ctx->MouseMoveToPos({at.x + 35, at.y});
         IM_CHECK(!Near(Position(ctx, row->object).x, before.x));
         OnMainThread(ctx, [] {
-            auto &workspace = *App().State().workspace;
+            auto &workspace = *(&App().WorkspaceForTests());
             const auto view = workspace.Role("setup3d");
             IM_CHECK_NO_RET(view);
             const vdev::EditorClient client(workspace.Application().Host(), 0);
@@ -297,7 +297,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(Near(Position(ctx, row->object).x, before.x));
         IM_CHECK(App().State().History().UndoCount() == count && !App().State().document->Dirty());
-        IM_CHECK(Read<bool>(ctx, [] { return !App().State().workspace->Application().HasEdits(); }));
+        IM_CHECK(Read<bool>(ctx, [] { return !(&App().WorkspaceForTests())->Application().HasEdits(); }));
     };
     t = IM_REGISTER_TEST(engine, "setup", "workspace_close_cancels_rename_and_reopens_cleanly");
     t->GuiFunc = MainThreadGui;
@@ -313,7 +313,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             return vdev::SetupEditTests::NoPicker(App()) && vdev::SetupEditTests::CanSave(App(), row->object);
         }));
         auto &state = App().State();
-        auto &workspace = *state.workspace;
+        auto &workspace = *(&App().WorkspaceForTests());
         size_t undo = 0;
         std::string redo;
         uint64_t selection = 0;
@@ -383,8 +383,8 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             auto *object = state.document->Context()->CreateObject(CKCID_3DOBJECT, "Next Setup object");
             state.document->Context()->GetCurrentLevel()->AddObject(object);
             state.document->Include(object->GetID());
-            state.preferences.SetBool("3D Layout\\Show New Setups", false);
-            state.events.Post(vdev::ShowObjectSetup{state.document->Reference(object->GetID())});
+            App().SettingsForTests().SetBool("3D Layout\\Show New Setups", false);
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", state.document->Reference(object->GetID()))});
             return object->GetID();
         });
         ctx->Yield(3);
@@ -627,7 +627,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
     t->TestFunc = [](ImGuiTestContext *ctx) {
         const std::optional<LevelRow> row = OpenSetup(ctx);
         IM_CHECK_SILENT(row.has_value() && SetupShown(ctx));
-        vdev::EditorState &state = App().State();
+        vdev::EditorSession &state = App().State();
         const VxVector before = Position(ctx, row->object);
         const float x = before.x + 12.5f;
         ctx->SetRef(SETUP);
@@ -701,7 +701,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
                 }
                 if (other) {
                     window = cls.second;
-                    App().State().events.Post(vdev::ShowObjectSetup{App().State().document->Reference(first)});
+                    EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", App().State().document->Reference(first))});
                     return;
                 }
             }
@@ -1120,7 +1120,7 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
             target = state.document->Reference(texture->GetID());
             IM_CHECK_NO_RET(vdev::ReadBitmapFormat(texture, original));
             const_cast<vdev::SetupWindows &>(App().Setups()).CloseAll();
-            state.events.Post(vdev::ShowObjectSetup{target});
+            EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", target)});
             steps = state.History().UndoCount();
             dirty = state.document->Dirty();
             parameters = count();
@@ -1233,12 +1233,12 @@ void RegisterSetupTests(ImGuiTestEngine *engine) {
         IM_CHECK_SILENT(!scripts.empty());
         const CK_ID script = scripts.back().id;
         IM_CHECK_SILENT(ShowSetup(ctx, script, "//###setupbehavior"));
-        OnMainThread(ctx, [] { App().State().Schematic().focus = vdev::FocusRequest(); });
+        OnMainThread(ctx, [] { App().Canvas().Navigation().focus = vdev::FocusRequest(); });
         ctx->ItemClick("**/Show in Schematic");
         ctx->Yield(3);
         IM_CHECK(InFront(ctx, SchematicRef().c_str()));
-        IM_CHECK_EQ(App().State().Schematic().stackScript, App().State().document->Reference(script));
-        IM_CHECK_EQ(App().State().Schematic().focus.address.script, App().State().document->Reference(script));
+        IM_CHECK_EQ(App().Canvas().Navigation().stackScript, App().State().document->Reference(script));
+        IM_CHECK_EQ(App().Canvas().Navigation().focus.address.script, App().State().document->Reference(script));
         bool shown = false;
         for (const vdev::SchematicCanvas::ShownScript &each : App().Canvas().ShownScripts()) shown |= each.script == script;
         IM_CHECK(shown);
