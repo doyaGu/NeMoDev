@@ -18,6 +18,8 @@
 #include "CKCharacter.h"
 #include "CKBodyPart.h"
 #include "CKAnimation.h"
+#include "CKWaveSound.h"
+#include "CKSoundManager.h"
 #include <algorithm>
 #include <utility>
 #include <cmath>
@@ -1939,6 +1941,212 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         ctx->Yield(3);
         IM_CHECK(ShowsObject(ctx, animation.object));
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *sound = IM_REGISTER_TEST(engine, "appearance", "sound_reflow_spatial_edits_cancel_and_undo");
+    sound->GuiFunc = MainThreadGui;
+    sound->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target, empty, attached;
+        EditorView view = 0;
+        EditorConfiguration original;
+        std::string attachedName;
+        OnMainThread(ctx, [&] {
+            auto client = EditorCommands();
+            const auto frame = client.Command("object.create-frame3d");
+            IM_CHECK_NO_RET(EditorClient::Find(frame, "created"));
+            attached = EditorClient::Find(frame, "created")->object;
+            SetupPageData page;
+            IM_CHECK_NO_RET(ReadSetupPage(client, attached, -1, page));
+            attachedName = page.name;
+            auto &doc = *App().State().document;
+            auto *wave =
+                CKWaveSound::Cast(doc.Context()->CreateObject(CKCID_WAVESOUND, "Reflow point sound"));
+            auto *noSource =
+                CKWaveSound::Cast(doc.Context()->CreateObject(CKCID_WAVESOUND, "Reflow empty sound"));
+            IM_CHECK_NO_RET(wave && noSource);
+            doc.Include(wave->GetID());
+            doc.Include(noSource->GetID());
+            target = doc.Reference(wave->GetID());
+            empty = doc.Reference(noSource->GetID());
+            wave->SetType(CK_WAVESOUND_POINT);
+            CKWaveFormat format{1, 1, 22050, 44100, 2, 16, 0};
+            IM_CHECK_NO_RET(wave->Create(CK_WAVESOUND_POINT, &format, 44100) == CK_OK);
+            std::vector<CKBYTE> silence(44100);
+            IM_CHECK_NO_RET(wave->WriteData(silence.data(), int(silence.size())) == CK_OK);
+            wave->SetGain(.2f);
+            wave->SetPitch(1.f);
+            wave->SetLoopMode(TRUE);
+            VxVector position{1, 2, 3}, direction{0, 0, 1};
+            wave->PositionSound(nullptr, &position, &direction);
+            wave->SetCone(30, 60, .2f);
+            wave->SetMinMaxDistance(1, 100);
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupsound");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID gain = 0, position = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##sound-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##sound-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            IM_CHECK(!gain || gain == page->GetID("Gain"));
+            gain = page->GetID("Gain");
+            const int axis = 0;
+            const auto x = ImHashData(&axis, sizeof(axis), page->GetID("Relative Position"));
+            IM_CHECK(!position || position == x);
+            position = x;
+            for (const auto id : {gain, position, page->GetID("Outside gain"), page->GetID("##attached")}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                bool inside = false;
+                for (int i = 0; i < table->ColumnsCount; ++i)
+                    inside |= rect.Min.x >= table->Columns[i].WorkMinX - 1 &&
+                              rect.Max.x <= table->Columns[i].WorkMaxX + 1;
+                IM_CHECK(inside);
+            }
+            IM_CHECK(ctx->ItemInfo(page->GetID("Pan")).ItemFlags & ImGuiItemFlags_Disabled);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto real = [&](const char *property) {
+            return Read<double>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {property}, data);
+                return data.Values().Real(property);
+            });
+        };
+        const auto vector = [&](const char *property) {
+            return Read<std::vector<double>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {property}, data);
+                return data.Values().Reals(property);
+            });
+        };
+        const auto drag = [&](ImGuiID id) {
+            ctx->SetRef(SetupRef(view).c_str());
+            ctx->ScrollToItemY(id);
+            ctx->Yield(3);
+            const auto at = ctx->ItemInfo(id).RectFull.GetCenter();
+            ctx->MouseMoveToPos(at);
+            ctx->MouseDown(0);
+            ctx->MouseMoveToPos({at.x + 25, at.y});
+            ctx->Yield(3);
+        };
+        const double gainBefore = real("wavesound.gain");
+        drag(gain);
+        IM_CHECK(std::fabs(real("wavesound.gain") - gainBefore) > .01);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(std::fabs(real("wavesound.gain") - gainBefore) < .001);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(gain, .65f);
+        ctx->Yield(3);
+        IM_CHECK(std::fabs(real("wavesound.gain") - .65) < .001);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(std::fabs(real("wavesound.gain") - gainBefore) < .001);
+        const auto before = vector("wavesound.position");
+        drag(position);
+        IM_CHECK(vector("wavesound.position") != before);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(vector("wavesound.position") == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(position, float(before[0] + .5));
+        ctx->Yield(3);
+        const auto after = vector("wavesound.position");
+        IM_CHECK(std::fabs(after[0] - before[0] - .5) < .001 && after[1] == before[1] &&
+                 after[2] == before[2]);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(vector("wavesound.position") == before);
+        const auto cone = vector("wavesound.cone");
+        const auto outside = SetupPage(ctx, view)->GetID("Outside gain");
+        drag(outside);
+        IM_CHECK(vector("wavesound.cone") != cone);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(vector("wavesound.cone") == cone);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(outside, .35f);
+        ctx->Yield(3);
+        const auto changedCone = vector("wavesound.cone");
+        IM_CHECK(std::fabs(changedCone[2] - .35) < .001 && changedCone[0] == cone[0] &&
+                 changedCone[1] == cone[1]);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(vector("wavesound.cone") == cone);
+        ChooseInCombo(ctx, SetupRef(view).c_str(), "##attached", attachedName.c_str());
+        const auto attachedTo = [&] {
+            return Read<ObjectRef>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {"wavesound.attached"}, data);
+                return data.Values().Object("wavesound.attached");
+            });
+        };
+        IM_CHECK(attachedTo() == attached);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK(!attachedTo());
+        ShowSetupTable(ctx, view, "##sound-settings");
+        const auto paused = [&] {
+            return Read<bool>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "sound", data);
+                return data.Values().Boolean("paused");
+            });
+        };
+        ctx->ItemClick("**/Play");
+        ctx->ItemClick("**/Pause");
+        ctx->Yield(3);
+        IM_CHECK(paused());
+        ResizeSetup(ctx, view, 690);
+        ShowSetupTable(ctx, view, "##sound-settings");
+        ctx->ItemClick("**/Resume");
+        ctx->Yield(3);
+        IM_CHECK(!paused());
+        ctx->ItemClick("**/Stop");
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", empty)}).status <=
+                EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##sound-settings");
+        auto *page = SetupPage(ctx, view);
+        for (const auto name : {"Play", "Pause", "Stop"})
+            IM_CHECK(ctx->ItemInfo(page->GetID(name)).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK(!(ctx->ItemInfo(page->GetID("Pan")).ItemFlags & ImGuiItemFlags_Disabled));
+        IM_CHECK(ctx->ItemInfo(position).ItemFlags & ImGuiItemFlags_Disabled);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));

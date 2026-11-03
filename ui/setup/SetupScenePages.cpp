@@ -312,30 +312,42 @@ void SetupWindows::SoundPage(ObjectRef target) {
     const auto values = propertyData.Values();
     const bool source = data.Boolean("source");
     const bool point = values.Integer("wavesound.type") == CK_WAVESOUND_POINT;
-    // Left: the sound file, save options, type.
-    ImGui::BeginGroup();
+    SetupColumns columns("##sound-settings", 3);
+    if (!columns) return;
+    const auto widthFor = [](const char *label) {
+        ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(label).x -
+                                                  ImGui::GetStyle().ItemInnerSpacing.x));
+    };
+    columns.Next();
     Group("Sound Info");
-    ImGui::Text("Sampling rate :  %d Hz", int(data.Integer("sample-rate")));
-    ImGui::Text("Sample size :    %d bits", int(data.Integer("sample-bits")));
-    ImGui::Text("Channels :       %d (%s)", int(data.Integer("channels")),
-                data.Integer("channels") > 1 ? "Stereo" : "Mono");
-    // Documentation "Sound Setup": "Sound duration (in minutes:seconds:milliseconds)".
     {
-        const int length = std::max(0, int(data.Integer("length")));
-        ImGui::Text("Duration :       %d:%02d:%03d", length / 60000, (length / 1000) % 60, length % 1000);
+        SetupForm form("##sound-info");
+        if (form) {
+            form.Row("Sampling rate");
+            ImGui::Text("%d Hz", int(data.Integer("sample-rate")));
+            form.Row("Sample size");
+            ImGui::Text("%d bits", int(data.Integer("sample-bits")));
+            form.Row("Channels");
+            ImGui::TextWrapped("%d (%s)", int(data.Integer("channels")),
+                                data.Integer("channels") > 1 ? "Stereo" : "Mono");
+            // Documentation "Sound Setup": minutes:seconds:milliseconds.
+            const int length = std::max(0, int(data.Integer("length")));
+            form.Row("Duration");
+            ImGui::Text("%d:%02d:%03d", length / 60000, (length / 1000) % 60, length % 1000);
+        }
     }
     // Streamed (documentation "Sound Setup": "Enables streaming"): the
     // sound made again from its file (SetFileStreaming, recreated).
     bool streamed = values.Boolean("wavesound.streaming") != 0;
     if (ImGui::Checkbox("Streamed", &streamed))
         PreviewValue(id, "wavesound.streaming", streamed);
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     const char *saves[] = {"External", "Include Original File", "Use Global"};
     int save = std::max(0, std::min(2, static_cast<int>(values.Integer("sound.save-options"))));
-    ImGui::SetNextItemWidth(170);
+    widthFor("Save Options");
     if (TypeAheadCombo("Save Options", &save, saves, 3))
         PreviewValue(id, "sound.save-options", save);
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     Group("Type");
     if (ImGui::RadioButton("Background", !point) && point)
         PreviewValue(id, "wavesound.type", CK_WAVESOUND_BACKGROUND);
@@ -345,64 +357,67 @@ void SetupWindows::SoundPage(ObjectRef target) {
     if (point && source) {
         const auto position = VectorOf(data, "listener-position");
         const float distance = float(data.Real("distance"));
-        ImGui::Text("Distance to listener :  %.3f", distance);
-        ImGui::Text("Sound position :  %.2f  %.2f  %.2f", position.x, position.y, position.z);
+        ImGui::TextWrapped("Distance to listener :  %.3f", distance);
+        ImGui::TextWrapped("Sound position :  %.2f  %.2f  %.2f", position.x, position.y, position.z);
         ImGui::Text("Relative angle :  %.1f", std::atan2(position.x, position.z) * RAD_TO_DEG);
     } else if (point) {
+        ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled("Distance to listener :  (not available)");
+        ImGui::PopTextWrapPos();
     }
-    ImGui::EndGroup();
-    // Middle: Misc and 2D settings.
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
+    columns.Next();
     Group("Misc");
     bool loop = values.Boolean("wavesound.loop") != 0;
     if (ImGui::Checkbox("Loop", &loop))
         PreviewValue(id, "wavesound.loop", loop);
     ImGui::BeginDisabled(!source);
-    if (ImGui::Button("Play", ImVec2(60, 0)))
+    if (ImGui::Button("Play"))
         RunSetupCommand("setup.sound-play", {ObjectArgument("target", target)});
-    ImGui::SameLine();
+    const auto sameLine = [](const char *label) {
+        ImGui::SameLine();
+        if (ImGui::GetContentRegionAvail().x < ImGui::CalcTextSize(label).x + 2 * ImGui::GetStyle().FramePadding.x)
+            ImGui::NewLine();
+    };
     // Pause (documentation: "Plays, pauses or stops"); again: on from there.
-    if (ImGui::Button(data.Boolean("paused") ? "Resume" : "Pause", ImVec2(60, 0)))
+    const char *pause = data.Boolean("paused") ? "Resume" : "Pause";
+    sameLine(pause);
+    if (ImGui::Button(pause))
         RunSetupCommand("setup.sound-pause", {ObjectArgument("target", target)});
-    ImGui::SameLine();
-    if (ImGui::Button("Stop", ImVec2(60, 0)))
+    sameLine("Stop");
+    if (ImGui::Button("Stop"))
         RunSetupCommand("setup.sound-stop", {ObjectArgument("target", target)});
     ImGui::EndDisabled();
     if (!source) ImGui::TextDisabled("(no sound device)");
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     Group("2D");
     float gain = values.Real("wavesound.gain");
-    ImGui::SetNextItemWidth(160);
+    widthFor("Gain");
     if (ImGui::SliderFloat("Gain", &gain, 0.0f, 1.0f, "%.3f"))
         PreviewValue(id, "wavesound.gain", gain);
     float pitch = values.Real("wavesound.pitch");
-    ImGui::SetNextItemWidth(160);
+    widthFor("Pitch");
     if (ImGui::SliderFloat("Pitch", &pitch, 0.5f, 2.0f, "%.3f"))
         PreviewValue(id, "wavesound.pitch", pitch);
     // Pan (documentation: "Background Sounds only"): -1 left to 1 right.
     ImGui::BeginDisabled(point);
     float pan = values.Real("wavesound.pan");
-    ImGui::SetNextItemWidth(160);
+    widthFor("Pan");
     if (ImGui::SliderFloat("Pan", &pan, -1.0f, 1.0f, "%.3f"))
         PreviewValue(id, "wavesound.pan", pan);
     ImGui::EndDisabled();
-    ImGui::EndGroup();
-    // Right: 3D settings (point sounds).
-    ImGui::SameLine(640);
-    ImGui::BeginGroup();
+    columns.Next();
     Group("3D");
     ImGui::BeginDisabled(!point);
     const auto attached = data.Object("attached");
     const auto position = VectorOf(values, "wavesound.position"), direction = VectorOf(values, "wavesound.direction");
     ObjectRef chosen{};
     ImGui::TextUnformatted("Attached Object");
-    if (ObjectChoice("##attached", CKCID_3DENTITY, attached, data.Text("attached-name"), &chosen, 200))
+    if (ObjectChoice("##attached", CKCID_3DENTITY, attached, data.Text("attached-name"), &chosen,
+                     ImGui::GetContentRegionAvail().x))
         PreviewValue(id, "wavesound.attached", chosen);
     auto vector3 = [&](const char *label, VxVector value, bool isPosition) {
         float v[3] = {value.x, value.y, value.z};
-        ImGui::SetNextItemWidth(240);
+        widthFor(label);
         if (ImGui::DragFloat3(label, v, 0.01f, 0.0f, 0.0f, "%.3f")) {
             PreviewValue(id, isPosition ? "wavesound.position" : "wavesound.direction", VxVector(v[0], v[1], v[2]));
         }
@@ -412,21 +427,20 @@ void SetupWindows::SoundPage(ObjectRef target) {
     const auto coneValue = VectorOf(values, "wavesound.cone");
     float cone[3] = {coneValue.x, coneValue.y, coneValue.z};
     bool coneChanged = false;
-    ImGui::SetNextItemWidth(120);
+    widthFor("Cone inside angle");
     coneChanged |= ImGui::SliderFloat("Cone inside angle", &cone[0], 0.0f, 360.0f, "%.1f");
-    ImGui::SetNextItemWidth(120);
+    widthFor("Cone outside angle");
     coneChanged |= ImGui::SliderFloat("Cone outside angle", &cone[1], 0.0f, 360.0f, "%.1f");
-    ImGui::SetNextItemWidth(120);
+    widthFor("Outside gain");
     coneChanged |= ImGui::SliderFloat("Outside gain", &cone[2], 0.0f, 1.0f, "%.3f");
     if (coneChanged)
         PreviewValue(id, "wavesound.cone", VxVector(cone[0], cone[1], cone[2]));
     const auto distance = Vector2Of(values, "wavesound.distance");
     float range[2] = {distance.x, distance.y};
-    ImGui::SetNextItemWidth(160);
+    widthFor("Min / Max distance");
     if (ImGui::DragFloat2("Min / Max distance", range, 0.1f, 0.0f, 100000.0f, "%.2f"))
         PreviewValue(id, "wavesound.distance", Vx2DVector(range[0], range[1]));
     ImGui::EndDisabled();
-    ImGui::EndGroup();
 }
 
 void SetupWindows::ArrayPage(Setup &setup) {
