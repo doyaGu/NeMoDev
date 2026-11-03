@@ -311,11 +311,14 @@ void SetupWindows::MidiSoundPage(ObjectRef target) {
     if (!ReadProperties(target, {"sound.save-options"}, propertyData))
         return;
     const auto values = propertyData.Values();
-    ImGui::BeginGroup();
+    SetupColumns columns("##midi-settings", 2);
+    if (!columns)
+        return;
+    columns.Next();
     Group("Midi File");
     const auto file = data.Text("file");
-    ImGui::TextUnformatted(!file.empty() ? file.c_str() : "-- None --");
-    if (ImGui::Button("Change File...", ImVec2(130, 0))) {
+    ImGui::TextWrapped("%s", !file.empty() ? file.c_str() : "-- None --");
+    if (ImGui::Button("Change File...")) {
         FileDialogOptions options;
         options.filter = L"Midi files (*.mid;*.midi;*.rmi)\0*.mid;*.midi;*.rmi\0All files (*.*)\0*.*\0";
         FlushPending();
@@ -326,30 +329,42 @@ void SetupWindows::MidiSoundPage(ObjectRef target) {
             SetProperty(target, owner, "sound.file", EditorField{"value", EDITOR_TEXT_VALUE, {}, chosen});
         });
     }
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     const char *saves[] = {"External", "Include Original File", "Use Global"};
     int save = std::max(0, std::min(2, static_cast<int>(values.Integer("sound.save-options"))));
-    ImGui::SetNextItemWidth(170);
+    ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x -
+                                              ImGui::CalcTextSize("Save Options").x -
+                                              ImGui::GetStyle().ItemInnerSpacing.x));
     if (TypeAheadCombo("Save Options", &save, saves, 3))
         PreviewValue(id, "sound.save-options", save);
-    ImGui::EndGroup();
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
+    columns.Next();
     Group("Playback");
     // The Midi Manager plays the file; without it (or a file) there is nothing to play.
     const bool playable = data.Boolean("playable");
     ImGui::BeginDisabled(!playable);
-    if (ImGui::Button(data.Boolean("playing") && !data.Boolean("paused") ? "Pause" : "Play", ImVec2(60, 0)))
+    if (ImGui::Button(data.Boolean("playing") && !data.Boolean("paused") ? "Pause" : "Play"))
         RunSetupCommand("setup.sound-play", {ObjectArgument("target", target)});
     ImGui::SameLine();
-    if (ImGui::Button("Stop", ImVec2(60, 0)))
+    if (ImGui::GetContentRegionAvail().x <
+        ImGui::CalcTextSize("Stop").x + 2 * ImGui::GetStyle().FramePadding.x)
+        ImGui::NewLine();
+    if (ImGui::Button("Stop"))
         RunSetupCommand("setup.sound-stop", {ObjectArgument("target", target)});
     ImGui::EndDisabled();
-    if (!playable)
+    if (!playable) {
+        ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled(!file.empty() ? "(no Midi Manager)" : "(no file)");
-    ImGui::Text("State:      %s", data.Boolean("paused") ? "Paused" : data.Boolean("playing") ? "Playing" : "Stopped");
-    ImGui::Text("Position:   %u", static_cast<unsigned>(data.Integer("position")));
-    ImGui::EndGroup();
+        ImGui::PopTextWrapPos();
+    }
+    SetupForm form("##midi-state");
+    if (form) {
+        form.Row("State");
+        ImGui::TextUnformatted(data.Boolean("paused")    ? "Paused"
+                               : data.Boolean("playing") ? "Playing"
+                                                         : "Stopped");
+        form.Row("Position");
+        ImGui::Text("%u", static_cast<unsigned>(data.Integer("position")));
+    }
 }
 
 void SetupWindows::SpriteTextPage(ObjectRef target) {

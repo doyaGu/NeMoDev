@@ -22,6 +22,9 @@
 #include "CKSoundManager.h"
 #include "CKKeyedAnimation.h"
 #include "CKObjectAnimation.h"
+#include "CKMidiSound.h"
+#include "CKMidiManager.h"
+#include <chrono>
 #include <algorithm>
 #include <utility>
 #include <cmath>
@@ -183,6 +186,55 @@ AnimationSetupObjects MakeSetupAnimations(ImGuiTestContext *ctx) {
     });
     return result;
 }
+// The SDK owns registered managers until Context destruction. Sources are released first.
+class SetupMidiManager final : public CKMidiManager {
+    struct Source {
+        std::string file;
+        CKBOOL playing = FALSE, paused = FALSE;
+        CKDWORD position = 0;
+    };
+    static Source &Of(void *source) { return *static_cast<Source *>(source); }
+
+  public:
+    explicit SetupMidiManager(CKContext *context) : CKMidiManager(context, "Setup MIDI test manager") {}
+    void *Create(void *) override { return new Source; }
+    void Release(void *source) override { delete static_cast<Source *>(source); }
+    CKERROR SetSoundFileName(void *source, CKSTRING file) override {
+        Of(source).file = file ? file : "";
+        return CK_OK;
+    }
+    CKSTRING GetSoundFileName(void *source) override { return const_cast<char *>(Of(source).file.c_str()); }
+    CKERROR Play(void *source) override {
+        Of(source).playing = TRUE;
+        Of(source).paused = FALSE;
+        Of(source).position = 321;
+        return CK_OK;
+    }
+    CKERROR Restart(void *source) override {
+        Of(source).paused = FALSE;
+        return CK_OK;
+    }
+    CKERROR Stop(void *source) override {
+        Of(source).playing = Of(source).paused = FALSE;
+        Of(source).position = 0;
+        return CK_OK;
+    }
+    CKERROR Pause(void *source, CKBOOL pause = TRUE) override {
+        Of(source).paused = pause;
+        return CK_OK;
+    }
+    CKBOOL IsPlaying(void *source) override { return Of(source).playing; }
+    CKBOOL IsPaused(void *source) override { return Of(source).paused; }
+    CKERROR OpenFile(void *) override { return CK_OK; }
+    CKERROR CloseFile(void *) override { return CK_OK; }
+    CKERROR Preroll(void *) override { return CK_OK; }
+    CKERROR Time(void *source, CKDWORD *ticks) override {
+        *ticks = Of(source).position;
+        return CK_OK;
+    }
+    CKDWORD MillisecsToTicks(void *, CKDWORD value) override { return value; }
+    CKDWORD TicksToMillisecs(void *, CKDWORD value) override { return value; }
+};
 } // namespace
 void RegisterAppearanceTests(ImGuiTestEngine *engine) {
     auto *edit = IM_REGISTER_TEST(engine, "appearance", "theme_font_and_image_switch_at_frame_boundary");
@@ -2722,6 +2774,210 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK(ShowsObject(ctx, objects.entity.object));
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *midi = IM_REGISTER_TEST(engine, "appearance", "midi_reflow_file_edit_playback_and_undo");
+    midi->GuiFunc = MainThreadGui;
+    midi->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        struct Files {
+            std::filesystem::path folder, first, second;
+            ~Files() {
+                std::error_code e;
+                std::filesystem::remove(first, e);
+                std::filesystem::remove(second, e);
+                std::filesystem::remove(folder, e);
+            }
+        } files;
+        files.folder =
+            std::filesystem::temp_directory_path() /
+            ("nemodev-midi-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        IM_CHECK(std::filesystem::create_directory(files.folder));
+        files.first = files.folder / (std::string(100, 'M') + ".mid");
+        files.second = files.folder / "replacement.mid";
+        const unsigned char bytes[] = {'M', 'T', 'h', 'd', 0,   0, 0, 6, 0, 0, 0,    1,    0,
+                                       96,  'M', 'T', 'r', 'k', 0, 0, 0, 4, 0, 0xff, 0x2f, 0};
+        for (const auto &path : {files.first, files.second}) {
+            std::ofstream stream(path, std::ios::binary);
+            stream.write(reinterpret_cast<const char *>(bytes), sizeof(bytes));
+            IM_CHECK(bool(stream));
+        }
+        const auto firstPath = files.first.string(), secondPath = files.second.string();
+        ObjectRef offline, live, empty;
+        CKBaseManager *originalManager = nullptr;
+        SetupMidiManager *manager = nullptr;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *context = doc.Context();
+            originalManager = context->GetManagerByGuid(MIDI_MANAGER_GUID);
+            if (originalManager)
+                context->ActivateManager(originalManager, FALSE);
+            auto *sound = CKMidiSound::Cast(context->CreateObject(CKCID_MIDISOUND, "Setup offline MIDI"));
+            IM_CHECK_NO_RET(sound);
+            sound->SetSoundFileName(firstPath.c_str());
+            doc.Include(sound->GetID());
+            offline = doc.Reference(sound->GetID());
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", offline)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupmidi");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID save = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##midi-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##midi-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            IM_CHECK(!save || save == page->GetID("Save Options"));
+            save = page->GetID("Save Options");
+            for (const auto id : {save, page->GetID("Change File...")}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                IM_CHECK(rect.Min.x >= table->Columns[0].WorkMinX - 1 &&
+                         rect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            }
+            for (const char *label : {"Play", "Stop"})
+                IM_CHECK(ctx->ItemInfo(page->GetID(label)).ItemFlags & ImGuiItemFlags_Disabled);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto saveOption = [&] {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), offline, {"sound.save-options"}, data);
+                return int(data.Values().Integer("sound.save-options"));
+            });
+        };
+        ctx->SetRef(SetupRef(view).c_str());
+        const int beforeSave = saveOption();
+        ctx->ItemClick(save);
+        ctx->Yield(3);
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK(!ctx->UiContext->OpenPopupStack.empty() &&
+                 ctx->UiContext->OpenPopupStack.back().PopupId == popup);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK_EQ(saveOption(), beforeSave);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ChooseInCombo(ctx, SetupRef(view).c_str(), "Save Options",
+                      beforeSave == 2 ? "External" : "Use Global");
+        IM_CHECK_EQ(saveOption(), beforeSave == 2 ? 0 : 2);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(saveOption(), beforeSave);
+        const auto filename = [&](ObjectRef target) {
+            return Read<std::string>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {"sound.file"}, data);
+                return data.Values().Text("sound.file");
+            });
+        };
+        const auto beforeFile = filename(offline);
+        OnMainThread(ctx, [&] {
+            auto &app = App().WorkspaceForTests().Application();
+            auto client = EditorCommands();
+            const auto target = ObjectArgument("target", offline);
+            EditorEdit edit = 0;
+            IM_CHECK_NO_RET(app.BeginEdit("setup.sound.file", {client.Scope(), &target, 1}, edit) ==
+                            EDITOR_OK);
+            const auto value = TextArgument("value", secondPath);
+            IM_CHECK_NO_RET(app.UpdateEdit(edit, value) == EDITOR_OK);
+            IM_CHECK_NO_RET(app.FinishEdit(edit, false) == EDITOR_CANCELLED);
+            auto &doc = *App().State().document;
+            auto *context = doc.Context();
+            manager = new SetupMidiManager(context);
+            IM_CHECK_NO_RET(context->RegisterNewManager(manager) == CK_OK);
+            auto *sound = CKMidiSound::Cast(context->CreateObject(CKCID_MIDISOUND, "Setup MIDI playback"));
+            auto *noFile =
+                CKMidiSound::Cast(context->CreateObject(CKCID_MIDISOUND, "Setup MIDI without file"));
+            IM_CHECK_NO_RET(sound && noFile);
+            IM_CHECK_NO_RET(sound->SetSoundFileName(firstPath.c_str()) == CK_OK);
+            doc.Include(sound->GetID());
+            doc.Include(noFile->GetID());
+            live = doc.Reference(sound->GetID());
+            empty = doc.Reference(noFile->GetID());
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", live)}).status <=
+                            EDITOR_NO_CHANGE);
+        });
+        ctx->Yield(4);
+        IM_CHECK_EQ(filename(offline), beforeFile);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            auto &app = App().WorkspaceForTests().Application();
+            const auto client = EditorCommands();
+            const auto target = ObjectArgument("target", live);
+            EditorEdit edit = 0;
+            IM_CHECK_NO_RET(app.BeginEdit("setup.sound.file", {client.Scope(), &target, 1}, edit) ==
+                            EDITOR_OK);
+            IM_CHECK_NO_RET(app.UpdateEdit(edit, TextArgument("value", secondPath)) == EDITOR_OK);
+            IM_CHECK_NO_RET(app.FinishEdit(edit, true) == EDITOR_QUEUED);
+        });
+        ctx->Yield(3);
+        IM_CHECK_EQ(filename(live), secondPath);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(filename(live), firstPath);
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##midi-settings");
+        const auto state = [&](const char *key) {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), live, "midi", data);
+                return int(data.Values().Integer(key));
+            });
+        };
+        ctx->ItemClick("**/Play");
+        ctx->Yield(3);
+        IM_CHECK_EQ(state("playing"), 1);
+        IM_CHECK_EQ(state("position"), 321);
+        ResizeSetup(ctx, view, 690);
+        ShowSetupTable(ctx, view, "##midi-settings");
+        ctx->ItemClick("**/Pause");
+        ctx->Yield(3);
+        IM_CHECK_EQ(state("paused"), 1);
+        ctx->ItemClick("**/Play");
+        ctx->Yield(3);
+        IM_CHECK_EQ(state("paused"), 0);
+        ctx->ItemClick("**/Stop");
+        ctx->Yield(3);
+        IM_CHECK_EQ(state("playing"), 0);
+        IM_CHECK_EQ(state("position"), 0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", empty)}).status <=
+                EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##midi-settings");
+        for (const char *label : {"Play", "Stop"})
+            IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID(label)).ItemFlags & ImGuiItemFlags_Disabled);
+        OnMainThread(ctx, [&] {
+            auto *context = App().State().document->Context();
+            context->ActivateManager(manager, FALSE);
+            if (originalManager)
+                context->ActivateManager(originalManager, TRUE);
+            IM_CHECK_NO_RET(context->GetManagerByGuid(MIDI_MANAGER_GUID) == originalManager);
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
             IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
