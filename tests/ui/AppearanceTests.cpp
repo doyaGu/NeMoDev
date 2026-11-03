@@ -11,6 +11,7 @@
 #include "CKTexture.h"
 #include "CKMaterial.h"
 #include "CKPatchMesh.h"
+#include "CKGrid.h"
 #include <algorithm>
 #include <utility>
 #include <cmath>
@@ -1261,6 +1262,190 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
         Undo(ctx);
         IM_CHECK_EQ(iterations(), before);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *grid = IM_REGISTER_TEST(engine, "appearance", "grid_reflow_multilayer_strokes_cancel_and_undo");
+    grid->GuiFunc = MainThreadGui;
+    grid->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target;
+        EditorView view = 0;
+        EditorConfiguration original;
+        int first = -1, second = -1;
+        OnMainThread(ctx, [&] {
+            auto client = EditorCommands();
+            const auto made = client.Command("object.create-grid");
+            IM_CHECK_NO_RET(EditorClient::Find(made, "created"));
+            target = EditorClient::Find(made, "created")->object;
+            for (const char *name : {"Layout grid first", "Layout grid second"}) {
+                SetupDetails data;
+                IM_CHECK_NO_RET(ReadSetupDetails(client, target, "grid", data));
+                const auto registered =
+                    client.Command("setup.grid-register-layer",
+                                   {ObjectArgument("target", target), TextArgument("name", name),
+                                    IntegerArgument("document-revision", data.documentRevision)});
+                const auto *created = EditorClient::Find(registered, "created");
+                IM_CHECK_NO_RET(registered.status == EDITOR_OK && created);
+                const auto type = created->integer;
+                IM_CHECK_NO_RET(ReadSetupDetails(client, target, "grid", data));
+                IM_CHECK_NO_RET(client
+                                    .Command("setup.grid-add-layer",
+                                             {ObjectArgument("target", target), IntegerArgument("type", type),
+                                              IntegerArgument("document-revision", data.documentRevision)})
+                                    .status == EDITOR_OK);
+                IM_CHECK_NO_RET(ReadSetupDetails(client, target, "grid", data));
+                const auto &layers = data.Values().Rows("layers");
+                for (size_t i = 0; i < layers.size(); ++i)
+                    if (SetupFields(layers[i].fields).Integer("type") == type)
+                        (first < 0 ? first : second) = int(i);
+            }
+            IM_CHECK_NO_RET(first >= 0 && second >= 0 && first != second);
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupgrid");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID squares = 0;
+        const auto canvas = [&]() -> ImGuiWindow * {
+            auto *page = SetupPage(ctx, view);
+            for (auto *child : page->DC.ChildWindows)
+                if (child->ChildId == page->GetID("##grid-canvas"))
+                    return child;
+            return nullptr;
+        };
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ctx->ScrollToTop(SetupPage(ctx, view)->ID);
+            ctx->Yield(3);
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##grid-sections");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            const auto id = page->GetID("##squares");
+            IM_CHECK(!squares || squares == id);
+            squares = id;
+            auto *child = canvas();
+            IM_CHECK(child);
+            IM_CHECK(child->Pos.x >= table->Columns[0].WorkMinX - 1 &&
+                     child->Pos.x + child->Size.x <= table->Columns[0].WorkMaxX + 1);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        ctx->SetRef(SetupRef(view).c_str());
+        ShowSetupTable(ctx, view, "layers");
+        const auto selectLayer = [&](int row, const char *name) {
+            const auto seed = ImHashData(&row, sizeof(row), SetupTable(ctx, view, "layers")->ID);
+            ctx->ItemClick(ImHashStr(name, 0, seed));
+        };
+        selectLayer(first, "Layout grid first");
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        selectLayer(second, "Layout grid second");
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ctx->ScrollToTop(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        const auto cells = [&] {
+            return Read<std::vector<std::vector<uint64_t>>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "grid", data);
+                std::vector<std::vector<uint64_t>> result;
+                for (const auto &layer : data.Values().Rows("layers"))
+                    result.push_back(SetupFields(layer.fields).Integers("squares"));
+                return result;
+            });
+        };
+        const auto before = cells();
+        const auto beginStroke = [&] {
+            const auto rect = ctx->ItemInfo(squares).RectFull;
+            const ImVec2 at{rect.Min.x + rect.GetWidth() * .05f, rect.Min.y + rect.GetHeight() * .05f};
+            ctx->MouseMoveToPos(at);
+            ctx->MouseDown(0);
+            ctx->MouseMoveToPos({at.x + rect.GetWidth() * .15f, at.y});
+            ctx->Yield(3);
+        };
+        beginStroke();
+        const auto preview = cells();
+        IM_CHECK(preview != before && preview[size_t(first)] == preview[size_t(second)]);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK(cells() == preview);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(cells() == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ScrollToTop(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        beginStroke();
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        const auto after = cells();
+        IM_CHECK(after != before && after[size_t(first)] == after[size_t(second)]);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(cells() == before);
+        Redo(ctx);
+        IM_CHECK(cells() == after);
+        Undo(ctx);
+        IM_CHECK(cells() == before);
+        const auto priority = [&] {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {"grid.priority"}, data);
+                return int(data.Values().Integer("grid.priority"));
+            });
+        };
+        const auto input = SetupPage(ctx, view)->GetID("Priority");
+        const int oldPriority = priority();
+        ctx->ItemInputValue(input, oldPriority + 3);
+        ctx->Yield(3);
+        IM_CHECK_EQ(priority(), oldPriority + 3);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(priority(), oldPriority);
+        const auto length = [&] {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "grid", data);
+                return int(data.Values().Integer("length"));
+            });
+        };
+        const int oldLength = length();
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Add Row (Top)"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(length(), oldLength + 1);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(length(), oldLength);
+        IM_CHECK(cells() == before);
+        ctx->ScrollToTop(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        ctx->ItemClick("**/3D Properties");
+        ctx->Yield(3);
+        IM_CHECK(SetupTable(ctx, view, "##entity-transform") && SetupTable(ctx, view, "##entity-details"));
+        ctx->ItemClick("**/Grid Properties");
+        ctx->Yield(3);
+        IM_CHECK(cells() == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] { Object<CKGrid>(target.object)->SetDimensions(256, 256, 256, 256); });
+        ResizeSetup(ctx, view, 450);
+        auto *child = canvas();
+        IM_CHECK(child);
+        IM_CHECK_GT(child->ScrollMax.x, 0);
+        IM_CHECK_GT(child->ScrollMax.y, 0);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));

@@ -1891,12 +1891,10 @@ void SetupWindows::TexturePage(Setup &setup, ObjectRef target) {
 void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
     const auto id = target;
     SetupDetails description;
-    if (!ReadDetails(target, "grid", description))
-        return;
+    if (!ReadDetails(target, "grid", description)) return;
     const auto data = description.Values();
     SetupDetails propertyData;
-    if (!ReadProperties(target, {"grid.orientation", "grid.priority"}, propertyData))
-        return;
+    if (!ReadProperties(target, {"grid.orientation", "grid.priority"}, propertyData)) return;
     const auto values = propertyData.Values();
     // Its 3D Properties (documentation: the Level Manager's "Setup") or the
     // grid's own (its "Grid Setup").
@@ -1911,11 +1909,9 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
     const int width = int(data.Integer("width")), length = int(data.Integer("length"));
     const auto &layerRows = data.Rows("layers"), &types = data.Rows("types"),
                &classifications = data.Rows("classifications");
-    if (width < 0 || length < 0)
-        return;
+    if (width < 0 || length < 0) return;
     for (const auto &row : layerRows)
-        if (SetupFields(row.fields).Integers("squares").size() != uint64_t(width) * uint64_t(length))
-            return;
+        if (SetupFields(row.fields).Integers("squares").size() != uint64_t(width) * uint64_t(length)) return;
     const int layers = int(layerRows.size());
     if (setup.layer >= layers) setup.layer = std::max(0, layers - 1);
     for (auto it = setup.layers.begin(); it != setup.layers.end();)
@@ -1928,16 +1924,14 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
     auto typeAt = [&](int type) {
         for (const auto &item : types) {
             const SetupFields row(item.fields);
-            if (int(row.Integer("type")) == type)
-                return row;
+            if (int(row.Integer("type")) == type) return row;
         }
         return SetupFields{};
     };
     auto classAt = [&](int type) {
         for (const auto &item : classifications) {
             const SetupFields row(item.fields);
-            if (int(row.Integer("type")) == type)
-                return row;
+            if (int(row.Integer("type")) == type) return row;
         }
         return SetupFields{};
     };
@@ -1953,8 +1947,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
     auto linker = [&](int type) { return typeAt(type).Boolean("linker"); };
     auto hasLayer = [&](int type) {
         for (const auto &item : layerRows)
-            if (int(SetupFields(item.fields).Integer("type")) == type)
-                return true;
+            if (int(SetupFields(item.fields).Integer("type")) == type) return true;
         return false;
     };
     auto gridAction = [&](const char *id, int type) {
@@ -1971,117 +1964,138 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
         setup.gridRenameIndex = setup.renamingClassification ? setup.classification : setup.layerType;
         setup.openGridRename = true;
     };
+    const float unit = PageUnit();
     // Status line: the square under the mouse and the grid size.
     if (setup.hoverX >= 0)
-        ImGui::Text("X : %d    Y : %d    Value : %d        Width : %d    Length : %d", setup.hoverX, setup.hoverY,
-                    valueAt(selected, setup.hoverX, setup.hoverY), width, length);
+        ImGui::TextWrapped("X : %d    Y : %d    Value : %d        Width : %d    Length : %d", setup.hoverX,
+                           setup.hoverY, valueAt(selected, setup.hoverX, setup.hoverY), width, length);
     else
-        ImGui::Text("X : #    Y : #    Value : #        Width : %d    Length : %d", width, length);
+        ImGui::TextWrapped("X : #    Y : #    Value : #        Width : %d    Length : %d", width, length);
     setup.hoverX = setup.hoverY = -1;
-    ImGui::BeginGroup();
+    SetupColumns columns("##grid-sections", 3);
+    if (!columns) return;
+    columns.Next();
+    Group("Paint");
     // The value painted: Dev's 0..255 gradient.
     {
         const ImVec2 at = ImGui::GetCursorScreenPos();
-        const float barWidth = 384.0f;
+        const float barWidth = std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("255").x -
+                                                 ImGui::GetStyle().ItemSpacing.x);
         ImDrawList *dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilledMultiColor(at, ImVec2(at.x + barWidth, at.y + 12), IM_COL32(0, 0, 0, 255),
+        dl->AddRectFilledMultiColor(at, ImVec2(at.x + barWidth, at.y + 12 * unit), IM_COL32(0, 0, 0, 255),
                                     IM_COL32(255, 255, 255, 255), IM_COL32(255, 255, 255, 255), IM_COL32(0, 0, 0, 255));
         const float marker = at.x + barWidth * setup.paint / 255.0f;
-        dl->AddTriangleFilled(ImVec2(marker, at.y + 12), ImVec2(marker - 4, at.y + 18), ImVec2(marker + 4, at.y + 18),
-                              CurrentDevTheme().previewMarker);
-        ImGui::InvisibleButton("##paintvalue", ImVec2(barWidth, 18));
+        dl->AddTriangleFilled(ImVec2(marker, at.y + 12 * unit), ImVec2(marker - 4 * unit, at.y + 18 * unit),
+                              ImVec2(marker + 4 * unit, at.y + 18 * unit), CurrentDevTheme().previewMarker);
+        ImGui::InvisibleButton("##paintvalue", ImVec2(barWidth, 18 * unit));
         if (ImGui::IsItemActive())
-            setup.paint = std::max(0, std::min(255, static_cast<int>((ImGui::GetIO().MousePos.x - at.x) / barWidth * 255.0f + 0.5f)));
+            setup.paint = std::max(
+                0, std::min(255, static_cast<int>((ImGui::GetIO().MousePos.x - at.x) / barWidth * 255.0f + 0.5f)));
         ImGui::SameLine();
         ImGui::Text("%d", setup.paint);
     }
     // The squares (documentation: "Layers are cumulated and their square
     // value (intensity*layer color) are added").
     {
-        const float side = 384.0f;
-        const float cell = width > 0 && length > 0 ? std::max(2.0f, std::min(side / width, side / length)) : 10.0f;
-        const ImVec2 at = ImGui::GetCursorScreenPos();
-        ImDrawList *dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(at, ImVec2(at.x + side + 40, at.y + side + 40), CurrentDevTheme().previewBackground);
-        const ImVec2 origin(at.x + 20, at.y + 20);
-        for (int y = 0; y < length; ++y)
-            for (int x = 0; x < width; ++x) {
-                float r = 0.0f, g = 0.0f, b = 0.0f;
-                for (int l = 0; l < layers; ++l) {
-                    const auto layer = layerAt(l);
-                    if (!layer.Object("target") || !layer.Boolean("visible"))
-                        continue;
-                    const int value = valueAt(layer, x, y);
-                    if (value <= 0) continue;
-                    const VxColor c = typeColor(int(layer.Integer("type")));
-                    const float k = std::min(255, value) / 255.0f;
-                    r += c.r * k;
-                    g += c.g * k;
-                    b += c.b * k;
+        const float margin = 20 * unit;
+        const float side = std::max(1.f, std::min(384 * unit, ImGui::GetContentRegionAvail().x - 2 * margin));
+        const float cell = width > 0 && length > 0 ? std::max(2.f, std::min(side / width, side / length)) : 10.f;
+        const auto contentId = ImGui::GetID("");
+        if (ImGui::BeginChild("##grid-canvas", {0, side + 2 * margin}, ImGuiChildFlags_None,
+                              ImGuiWindowFlags_HorizontalScrollbar)) {
+            ImGui::PushOverrideID(contentId);
+            const auto at = ImGui::GetCursorScreenPos();
+            const ImVec2 extent{std::max(side, width * cell) + 2 * margin, std::max(side, length * cell) + 2 * margin};
+            auto *dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(at, {at.x + extent.x, at.y + extent.y}, CurrentDevTheme().previewBackground);
+            const ImVec2 origin{at.x + margin, at.y + margin};
+            const auto clip = ImGui::GetCurrentWindow()->ClipRect;
+            const int firstX = int(std::clamp(std::floor((double(clip.Min.x) - origin.x) / cell), 0., double(width))),
+                      lastX = int(std::clamp(std::ceil((double(clip.Max.x) - origin.x) / cell), 0., double(width))),
+                      firstRow =
+                          int(std::clamp(std::floor((double(clip.Min.y) - origin.y) / cell), 0., double(length))),
+                      lastRow = int(std::clamp(std::ceil((double(clip.Max.y) - origin.y) / cell), 0., double(length)));
+            for (int row = firstRow; row < lastRow; ++row)
+                for (int x = firstX; x < lastX; ++x) {
+                    const int y = length - 1 - row;
+                    float r = 0.0f, g = 0.0f, b = 0.0f;
+                    for (int l = 0; l < layers; ++l) {
+                        const auto layer = layerAt(l);
+                        if (!layer.Object("target") || !layer.Boolean("visible")) continue;
+                        const int value = valueAt(layer, x, y);
+                        if (value <= 0) continue;
+                        const VxColor c = typeColor(int(layer.Integer("type")));
+                        const float k = std::min(255, value) / 255.0f;
+                        r += c.r * k;
+                        g += c.g * k;
+                        b += c.b * k;
+                    }
+                    const ImU32 fill =
+                        IM_COL32(static_cast<int>(std::min(1.0f, r) * 255), static_cast<int>(std::min(1.0f, g) * 255),
+                                 static_cast<int>(std::min(1.0f, b) * 255), 255);
+                    // Row 0 at the bottom (the grid seen from above).
+                    const ImVec2 a(origin.x + x * cell, origin.y + (length - 1 - y) * cell);
+                    dl->AddRectFilled(a, ImVec2(a.x + cell, a.y + cell), fill);
+                    dl->AddRect(a, ImVec2(a.x + cell + 1, a.y + cell + 1), CurrentDevTheme().previewGrid);
                 }
-                const ImU32 fill = IM_COL32(static_cast<int>(std::min(1.0f, r) * 255), static_cast<int>(std::min(1.0f, g) * 255),
-                                            static_cast<int>(std::min(1.0f, b) * 255), 255);
-                // Row 0 at the bottom (the grid seen from above).
-                const ImVec2 a(origin.x + x * cell, origin.y + (length - 1 - y) * cell);
-                dl->AddRectFilled(a, ImVec2(a.x + cell, a.y + cell), fill);
-                dl->AddRect(a, ImVec2(a.x + cell + 1, a.y + cell + 1), CurrentDevTheme().previewGrid);
-            }
-        ImGui::SetCursorScreenPos(origin);
-        ImGui::InvisibleButton("##squares", ImVec2(std::max(1.0f, width * cell), std::max(1.0f, length * cell)),
-                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-        if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
-            const ImVec2 mouse = ImGui::GetIO().MousePos;
-            const int x = static_cast<int>((mouse.x - origin.x) / cell);
-            const int y = length - 1 - static_cast<int>((mouse.y - origin.y) / cell);
-            if (x >= 0 && x < width && y >= 0 && y < length) {
-                setup.hoverX = x;
-                setup.hoverY = y;
-                // A double click: the Square Value dialog.
-                if (selected.Object("target") && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    setup.squareX = x;
-                    setup.squareY = y;
-                    setup.squareValue = valueAt(selected, x, y);
-                    setup.squareTargets.clear();
-                    for (int l : setup.layers)
-                        if (auto object = layerAt(l).Object("target"))
-                            setup.squareTargets.push_back(object);
-                    setup.squareRevision = description.documentRevision;
-                    setup.openSquare = true;
-                } else {
-                    // One stroke edits all selected layers in one property draft.
-                    const bool paint = ImGui::IsMouseDown(ImGuiMouseButton_Left),
-                               clear = ImGui::IsMouseDown(ImGuiMouseButton_Right);
-                    if (ImGui::IsItemActive() && (paint || clear)) {
-                        std::vector<ObjectRef> targets;
+            ImGui::SetCursorScreenPos(origin);
+            ImGui::InvisibleButton("##squares", ImVec2(std::max(1.0f, width * cell), std::max(1.0f, length * cell)),
+                                   ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+            if (ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+                const ImVec2 mouse = ImGui::GetIO().MousePos;
+                const int x = static_cast<int>((mouse.x - origin.x) / cell);
+                const int y = length - 1 - static_cast<int>((mouse.y - origin.y) / cell);
+                if (x >= 0 && x < width && y >= 0 && y < length) {
+                    setup.hoverX = x;
+                    setup.hoverY = y;
+                    // A double click: the Square Value dialog.
+                    if (selected.Object("target") && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                        setup.squareX = x;
+                        setup.squareY = y;
+                        setup.squareValue = valueAt(selected, x, y);
+                        setup.squareTargets.clear();
                         for (int l : setup.layers)
-                            if (auto object = layerAt(l).Object("target"))
-                                targets.push_back(object);
-                        if (!targets.empty()) {
-                            EditorField field{"value", EDITOR_RECORD};
-                            field.fields = {{"cells", EDITOR_INTEGER_LIST}};
-                            EditorValueEditorDesc editor{};
-                            if (m_PropertyKey == "setup.layer.cells")
-                                m_Workspace.Application().EditState(m_PropertyEdit, field, editor);
-                            const auto value = uint64_t(paint ? setup.paint : 0);
-                            bool found = false;
-                            auto &cells = field.fields.front().integers;
-                            for (size_t i = 0; i < cells.size(); i += 3)
-                                if (cells[i] == uint64_t(x) && cells[i + 1] == uint64_t(y)) {
-                                    cells[i + 2] = value;
-                                    found = true;
-                                    break;
-                                }
-                            if (!found)
-                                cells.insert(cells.end(), {uint64_t(x), uint64_t(y), value});
-                            const auto first = targets.front();
-                            PreviewProperty(first, "layer.cells", std::move(field), {}, {}, std::move(targets));
+                            if (auto object = layerAt(l).Object("target")) setup.squareTargets.push_back(object);
+                        setup.squareRevision = description.documentRevision;
+                        setup.openSquare = true;
+                    } else {
+                        // One stroke edits all selected layers in one property draft.
+                        const bool paint = ImGui::IsMouseDown(ImGuiMouseButton_Left),
+                                   clear = ImGui::IsMouseDown(ImGuiMouseButton_Right);
+                        const auto delta = ImGui::GetIO().MouseDelta;
+                        if (ImGui::IsItemActive() && (paint || clear) &&
+                            (ImGui::IsItemActivated() || delta.x != 0 || delta.y != 0)) {
+                            std::vector<ObjectRef> targets;
+                            for (int l : setup.layers)
+                                if (auto object = layerAt(l).Object("target")) targets.push_back(object);
+                            if (!targets.empty()) {
+                                EditorField field{"value", EDITOR_RECORD};
+                                field.fields = {{"cells", EDITOR_INTEGER_LIST}};
+                                EditorValueEditorDesc editor{};
+                                if (m_PropertyKey == "setup.layer.cells")
+                                    m_Workspace.Application().EditState(m_PropertyEdit, field, editor);
+                                const auto value = uint64_t(paint ? setup.paint : 0);
+                                bool found = false;
+                                auto &cells = field.fields.front().integers;
+                                for (size_t i = 0; i < cells.size(); i += 3)
+                                    if (cells[i] == uint64_t(x) && cells[i + 1] == uint64_t(y)) {
+                                        cells[i + 2] = value;
+                                        found = true;
+                                        break;
+                                    }
+                                if (!found) cells.insert(cells.end(), {uint64_t(x), uint64_t(y), value});
+                                const auto first = targets.front();
+                                PreviewProperty(first, "layer.cells", std::move(field), {}, {}, std::move(targets));
+                            }
                         }
                     }
                 }
             }
+            ImGui::SetCursorScreenPos(at);
+            ImGui::Dummy(extent);
+            ImGui::PopID();
         }
-        ImGui::SetCursorScreenPos(ImVec2(at.x, at.y + side + 44));
-        ImGui::Dummy(ImVec2(side + 40, 1));
+        ImGui::EndChild();
     }
     // The Square Value dialog (a Linker layer: None, Start, End, Start/End, Door).
     if (setup.openSquare) {
@@ -2125,14 +2139,14 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
     // Orientation Mode / Priority
     const char *orientations[] = {"Free", "XZ", "XY", "YZ"};
     int orientation = std::max(0, std::min(3, int(values.Integer("grid.orientation"))));
-    ImGui::SetNextItemWidth(90);
+    ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Orientation Mode").x -
+                                              ImGui::GetStyle().ItemInnerSpacing.x));
     if (TypeAheadCombo("Orientation Mode", &orientation, orientations, 4))
         PreviewValue(id, "grid.orientation", orientation);
-    ImGui::SameLine();
     int priority = int(values.Integer("grid.priority"));
-    ImGui::SetNextItemWidth(60);
-    if (ImGui::DragInt("Priority", &priority, 0.2f))
-        PreviewValue(id, "grid.priority", priority);
+    ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Priority").x -
+                                              ImGui::GetStyle().ItemInnerSpacing.x));
+    if (ImGui::DragInt("Priority", &priority, 0.2f)) PreviewValue(id, "grid.priority", priority);
     // The Grid Cross: columns and rows added (large arrows) or deleted.
     {
         auto resize = [&](const char *label, int sideOf, bool add) {
@@ -2142,35 +2156,30 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
                                  IntegerArgument("add", add),
                                  IntegerArgument("document-revision", description.documentRevision)});
         };
-        ImGui::TextUnformatted("Grid Cross");
-        ImGui::SameLine();
-        resize("<< Add Column##left", 0, true);
-        ImGui::SameLine();
-        resize("Add Column >>##right", 1, true);
-        ImGui::SameLine();
-        resize("Add Row (Top)", 3, true);
-        ImGui::SameLine();
-        resize("Add Row (Bottom)", 2, true);
-        ImGui::Dummy(ImVec2(70, 1));
-        ImGui::SameLine();
-        resize("x Left Column", 0, false);
-        ImGui::SameLine();
-        resize("x Right Column", 1, false);
-        ImGui::SameLine();
-        resize("x Top Row", 3, false);
-        ImGui::SameLine();
-        resize("x Bottom Row", 2, false);
+        Group("Grid Cross");
+        const struct {
+            const char *add, *remove;
+            int side;
+        } sides[] = {{"<< Add Column##left", "x Left Column", 0},
+                     {"Add Column >>##right", "x Right Column", 1},
+                     {"Add Row (Top)", "x Top Row", 3},
+                     {"Add Row (Bottom)", "x Bottom Row", 2}};
+        for (const auto &side : sides) {
+            resize(side.add, side.side, true);
+            ImGui::SameLine();
+            if (ImGui::GetContentRegionAvail().x <
+                ImGui::CalcTextSize(side.remove).x + 2 * ImGui::GetStyle().FramePadding.x)
+                ImGui::NewLine();
+            resize(side.remove, side.side, false);
+        }
     }
-    ImGui::EndGroup();
-    ImGui::SameLine();
-    ImGui::BeginGroup();
+    columns.Next();
+    Group("Layers and Classifications");
     // A layer type's color and parameter (its row's menu, in either list).
     auto typeMenu = [&](int type) {
-        if (!typeAt(type).Has("name"))
-            return;
+        if (!typeAt(type).Has("name")) return;
         SetupDetails properties;
-        if (!ReadProperties(target, {"grid.layer-color", "grid.layer-linker"}, properties, {uint64_t(type)}))
-            return;
+        if (!ReadProperties(target, {"grid.layer-color", "grid.layer-linker"}, properties, {uint64_t(type)})) return;
         const auto typeValues = properties.Values();
         VxColor color = ColorOf(typeValues, "grid.layer-color");
         float rgb[3] = {color.r, color.g, color.b};
@@ -2191,31 +2200,36 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
     // Layers of the grid: color, name, visibility (V). Ctrl+click chooses
     // several; right-click: the type's color and parameter, Remove Layer. A
     // layer type dragged from the Global Layer List is added.
-    if (ImGui::BeginTable("layers", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2(330, 200))) {
+    if (ImGui::BeginTable("layers", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_NoSavedSettings,
+                          ImVec2(0, 200 * unit))) {
         TypeAhead typeAhead(TypeAhead::Shared);
-        ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 40);
+        ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 40 * unit);
         ImGui::TableSetupColumn("Layer Name");
-        ImGui::TableSetupColumn("V", ImGuiTableColumnFlags_WidthFixed, 26);
+        ImGui::TableSetupColumn("V", ImGuiTableColumnFlags_WidthFixed, 26 * unit);
         ImGui::TableHeadersRow();
         int removeType = -1;
         for (int l = 0; l < layers; ++l) {
             const auto layer = layerAt(l);
-            if (!layer.Object("target"))
-                continue;
+            if (!layer.Object("target")) continue;
             ImGui::PushID(l);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             const ImVec2 c = ImGui::GetCursorScreenPos();
-            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(c.x + 2, c.y + 1), ImVec2(c.x + 22, c.y + 15),
+            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(c.x + 2 * unit, c.y + unit),
+                                                      ImVec2(c.x + 22 * unit, c.y + 15 * unit),
                                                       ToImColor(typeColor(int(layer.Integer("type")))));
-            ImGui::Dummy(ImVec2(24, 15));
+            ImGui::Dummy(ImVec2(24 * unit, 15 * unit));
             ImGui::TableNextColumn();
             const auto name = typeAt(int(layer.Integer("type"))).Text("name");
             if (typeAhead.Selectable(name.empty() ? "?" : name.c_str(), setup.layers.count(l) != 0)) {
                 if (ImGui::GetIO().KeyCtrl) {
                     if (!setup.layers.erase(l)) setup.layers.insert(l);
-                    if (setup.layers.count(l)) setup.layer = l;
-                    else if (!setup.layers.empty()) setup.layer = *setup.layers.begin();
+                    if (setup.layers.count(l))
+                        setup.layer = l;
+                    else if (!setup.layers.empty())
+                        setup.layer = *setup.layers.begin();
                 } else {
                     setup.layer = l;
                     setup.layers = {l};
@@ -2224,8 +2238,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
             if (ImGui::BeginPopupContextItem()) {
                 typeMenu(int(layer.Integer("type")));
                 ImGui::Separator();
-                if (ImGui::MenuItem("Remove Layer"))
-                    removeType = int(layer.Integer("type"));
+                if (ImGui::MenuItem("Remove Layer")) removeType = int(layer.Integer("type"));
                 ImGui::EndPopup();
             }
             ImGui::TableNextColumn();
@@ -2235,8 +2248,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
                 const std::set<int> targets = setup.layers.count(l) ? setup.layers : std::set<int>{l};
                 std::vector<ObjectRef> objects;
                 for (int t : targets)
-                    if (auto each = layerAt(t).Object("target"))
-                        objects.push_back(each);
+                    if (auto each = layerAt(t).Object("target")) objects.push_back(each);
                 if (!objects.empty()) {
                     const auto first = objects.front();
                     PreviewProperty(first, "layer.visible",
@@ -2252,17 +2264,18 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
                 int type = 0;
                 if (payload->DataSize == sizeof(type)) {
                     std::memcpy(&type, payload->Data, sizeof(type));
-                    if (!hasLayer(type))
-                        gridAction("setup.grid-add-layer", type);
+                    if (!hasLayer(type)) gridAction("setup.grid-add-layer", type);
                 }
             }
             ImGui::EndDragDropTarget();
         }
-        if (removeType >= 0)
-            gridAction("setup.grid-remove-layer", removeType);
+        if (removeType >= 0) gridAction("setup.grid-remove-layer", removeType);
     }
     // Grid is Class of ... (its classification attributes); double-click removes.
-    if (ImGui::BeginTable("gridclass", 1, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2(330, 120))) {
+    if (ImGui::BeginTable("gridclass", 1,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_NoSavedSettings,
+                          ImVec2(0, 120 * unit))) {
         TypeAhead typeAhead(TypeAhead::Shared);
         ImGui::TableSetupColumn("Grid is Class of ...");
         ImGui::TableHeadersRow();
@@ -2281,17 +2294,19 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
             }
         ImGui::EndTable();
     }
-    ImGui::EndGroup();
-    ImGui::SameLine();
-    ImGui::BeginGroup();
+    columns.Next();
+    Group("Global Lists");
     // The Global Layer List (CKGridManager): a type dragged to the layers or
     // double-clicked adds a layer of it; right-click: New Layer Type, the
     // type's color and parameter, Rename (F2).
-    if (ImGui::BeginTable("layertypes", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2(450, 200))) {
+    if (ImGui::BeginTable("layertypes", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_ScrollX | ImGuiTableFlags_NoSavedSettings,
+                          ImVec2(0, 200 * unit), std::max(450 * unit, ImGui::GetContentRegionAvail().x))) {
         TypeAhead typeAhead(TypeAhead::Shared);
-        ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 40);
+        ImGui::TableSetupColumn("Color", ImGuiTableColumnFlags_WidthFixed, 40 * unit);
         ImGui::TableSetupColumn("Layer Type Name");
-        ImGui::TableSetupColumn("Param Type", ImGuiTableColumnFlags_WidthFixed, 140);
+        ImGui::TableSetupColumn("Param Type", ImGuiTableColumnFlags_WidthFixed, 140 * unit);
         ImGui::TableHeadersRow();
         // Type 0 is the manager's "invalid layer type".
         for (const auto &item : types) {
@@ -2302,8 +2317,9 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             const ImVec2 c = ImGui::GetCursorScreenPos();
-            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(c.x + 2, c.y + 1), ImVec2(c.x + 22, c.y + 15), ToImColor(typeColor(type)));
-            ImGui::Dummy(ImVec2(24, 15));
+            ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(c.x + 2 * unit, c.y + unit),
+                                                      ImVec2(c.x + 22 * unit, c.y + 15 * unit), ToImColor(typeColor(type)));
+            ImGui::Dummy(ImVec2(24 * unit, 15 * unit));
             ImGui::TableNextColumn();
             if (typeAhead.Selectable(name.c_str(), setup.layerType == type, ImGuiSelectableFlags_AllowDoubleClick)) {
                 setup.layerType = type;
@@ -2315,11 +2331,11 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
                 ImGui::TextUnformatted(name.c_str());
                 ImGui::EndDragDropSource();
             }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag to the Layer List, or double-click: add a layer of this type");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Drag to the Layer List, or double-click: add a layer of this type");
             if (ImGui::BeginPopupContextItem("typemenu")) {
                 setup.layerType = type;
-                if (ImGui::MenuItem("New Layer Type"))
-                    registerType(false);
+                if (ImGui::MenuItem("New Layer Type")) registerType(false);
                 if (ImGui::MenuItem("Rename", "F2")) {
                     setup.gridRenameText = name;
                     setup.renamingClassification = false;
@@ -2335,8 +2351,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
         }
         ImGui::EndTable();
         if (ImGui::BeginPopupContextItem("layertypesmenu")) {
-            if (ImGui::MenuItem("New Layer Type"))
-                registerType(false);
+            if (ImGui::MenuItem("New Layer Type")) registerType(false);
             ImGui::EndPopup();
         }
         if (ImGui::IsItemHovered() && ImGui::IsKeyPressed(ImGuiKey_F2, false) && manager &&
@@ -2349,7 +2364,10 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
     // The Global Classification List (attributes of the grid category):
     // double-click adds it to the grid; right-click: New Classification,
     // Rename (F2).
-    if (ImGui::BeginTable("classifications", 1, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2(450, 120))) {
+    if (ImGui::BeginTable("classifications", 1,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_NoSavedSettings,
+                          ImVec2(0, 120 * unit))) {
         TypeAhead typeAhead(TypeAhead::Shared);
         ImGui::TableSetupColumn("Classifications");
         ImGui::TableHeadersRow();
@@ -2369,8 +2387,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
             }
             if (ImGui::BeginPopupContextItem("classmenu")) {
                 setup.classification = type;
-                if (ImGui::MenuItem("New Classification"))
-                    registerType(true);
+                if (ImGui::MenuItem("New Classification")) registerType(true);
                 if (ImGui::MenuItem("Rename", "F2")) {
                     setup.gridRenameText = name;
                     setup.renamingClassification = true;
@@ -2382,8 +2399,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
         }
         ImGui::EndTable();
         if (ImGui::BeginPopupContextItem("classesmenu")) {
-            if (ImGui::MenuItem("New Classification"))
-                registerType(true);
+            if (ImGui::MenuItem("New Classification")) registerType(true);
             ImGui::EndPopup();
         }
         if (ImGui::IsItemHovered() && ImGui::IsKeyPressed(ImGuiKey_F2, false) && attributes &&
@@ -2394,7 +2410,6 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
             beginRename();
         }
     }
-    ImGui::EndGroup();
     // Rename a layer type or a classification (a name in use is not taken).
     if (setup.openGridRename) {
         setup.openGridRename = false;
