@@ -507,6 +507,9 @@ struct SetupCommands::Data {
         return sink.write(sink.data, fields, 3);
     }
     template <class T> void Add(const char *id, const ObjectProperty<T> &property) {
+        // Sound files use native filesystem paths and deferred loading in AddSpecial.
+        if (std::strcmp(id, "sound.file") == 0)
+            return;
         auto entry = std::make_unique<Entry>();
         entry->owner = this;
         entry->property = id;
@@ -793,10 +796,7 @@ struct SetupCommands::Data {
         Extra(
             "sound.file", "Change File", CKCID_SOUND, EDITOR_TEXT_VALUE, "value.string",
             [](Document &, CKObject *o, const EditorRequest &) {
-                auto *wave = CKWaveSound::Cast(o);
-                auto *midi = CKMidiSound::Cast(o);
-                const char *file = wave ? wave->GetSoundFileName() : midi ? midi->GetSoundFileName() : nullptr;
-                return Field(std::string(file ? file : ""));
+                return Field(properties::SoundFile.get(o));
             },
             [](Document &, CKObject *o, const EditorRequest &, const EditorValue &v) {
                 if (v.type != EDITOR_TEXT_VALUE)
@@ -805,13 +805,9 @@ struct SetupCommands::Data {
                 if (utf8.find('\0') != std::string::npos)
                     return false;
                 std::string file = std::filesystem::u8path(utf8).string();
-                if (auto *wave = CKWaveSound::Cast(o)) {
-                    wave->SetSoundFileName(file.data());
-                    wave->SetFileStreaming(wave->GetFileStreaming(), TRUE);
-                } else if (auto *midi = CKMidiSound::Cast(o))
-                    midi->SetSoundFileName(file.data());
-                else
+                if (!CKWaveSound::Cast(o) && !CKMidiSound::Cast(o))
                     return false;
+                properties::SoundFile.set(o, std::move(file));
                 return true;
             })
             .live = false;

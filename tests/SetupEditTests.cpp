@@ -16,7 +16,9 @@
 #include "workspace/EditorClient.h"
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <limits>
+#include <set>
 #include <stdexcept>
 #include <thread>
 
@@ -203,6 +205,9 @@ void TestSetupEdits(vdev::CkRuntimeHost &runtime) {
     std::string error;
     Check(doc.New(&error), error.c_str());
     SetupCommands commands([&] { return &doc; });
+    std::set<std::pair<std::string, std::string>> providers;
+    for (const auto &provider : SetupCommands::DefaultProviders())
+        Check(providers.emplace(provider.kind, provider.id).second, "duplicate default Setup provider");
     FailureProvider failure{doc};
     Replacement replacement;
     EditorApplication app([&] { return &doc; }, [] { return true; });
@@ -470,6 +475,47 @@ void TestSetupEdits(vdev::CkRuntimeHost &runtime) {
     accept();
     Check(count() == 1 && doc.History().Undo(), "long text undo");
     sync();
+    saved();
+    auto *midi = CKMidiSound::Cast(create(CKCID_MIDISOUND));
+    const auto firstMidi = (std::filesystem::temp_directory_path() / "nemodev-midi-original" /
+                            "setup-file-restore.mid").string();
+    const auto secondMidi = (std::filesystem::temp_directory_path() / "nemodev-midi-replacement" /
+                             "setup-file-restore.mid").string();
+    midi->SetSoundFileName(firstMidi.c_str());
+    Check(std::string(midi->GetSoundFileName()) == firstMidi, "MIDI path fixture");
+    saved();
+    Check(begin("sound.file", midi) == EDITOR_OK &&
+              update({"value", EDITOR_TEXT_VALUE, {}, secondMidi}) == EDITOR_OK,
+          "begin MIDI file replacement");
+    Check(std::string(midi->GetSoundFileName()) == firstMidi, "MIDI file changed before confirmation");
+    cancel();
+    Check(std::string(midi->GetSoundFileName()) == firstMidi && count() == 0 && !doc.Dirty(),
+          "cancel MIDI file changed path or history");
+    Check(begin("sound.file", midi) == EDITOR_OK &&
+              update({"value", EDITOR_TEXT_VALUE, {}, secondMidi}) == EDITOR_OK,
+          "replace MIDI file with the same basename");
+    accept();
+    Check(std::string(midi->GetSoundFileName()) == secondMidi && count() == 1,
+          "MIDI path-only change was not one Undo");
+    Check(doc.History().Undo() && std::string(midi->GetSoundFileName()) == firstMidi &&
+              doc.History().Redo() && std::string(midi->GetSoundFileName()) == secondMidi,
+          "MIDI file Undo/Redo lost its directory");
+    saved();
+    const int midiSave = midi->GetSaveOptions();
+    Check(begin("sound.save-options", midi) == EDITOR_OK &&
+              update(Int(midiSave == CKSOUND_EXTERNAL ? CKSOUND_USEGLOBAL : CKSOUND_EXTERNAL)) == EDITOR_OK,
+          "preview MIDI save options");
+    cancel();
+    Check(midi->GetSaveOptions() == midiSave && std::string(midi->GetSoundFileName()) == secondMidi &&
+              count() == 0 && !doc.Dirty(),
+          "cancel MIDI save options lost file path");
+    Check(begin("sound.save-options", midi) == EDITOR_OK &&
+              update(Int(midiSave == CKSOUND_EXTERNAL ? CKSOUND_USEGLOBAL : CKSOUND_EXTERNAL)) == EDITOR_OK,
+          "edit MIDI save options");
+    accept();
+    Check(count() == 1 && doc.History().Undo() && midi->GetSaveOptions() == midiSave &&
+              std::string(midi->GetSoundFileName()) == secondMidi,
+          "MIDI save options Undo lost file path");
     saved();
     const auto environment = ReadSceneEnvironment(scene);
     Check(begin("scene.fog-start", scene) == EDITOR_OK && update(Real(environment.fogStart + 50)) == EDITOR_OK,

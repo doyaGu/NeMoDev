@@ -329,6 +329,23 @@ const ObjectProperty<float> CurvePointTension = {"Tension", CKCID_CURVEPOINT, []
 const ObjectProperty<float> CurvePointContinuity = {"Continuity", CKCID_CURVEPOINT, [](CKObject *o) { return CurvePoint(o)->GetContinuity(); }, [](CKObject *o, float v) { CurvePoint(o)->SetContinuity(v); UpdatePoint(o); }, AwayUnit};
 const ObjectProperty<bool> CurvePointLinear = {"Next Segment Is Linear", CKCID_CURVEPOINT, [](CKObject *o) { return CurvePoint(o)->IsLinear() != 0; }, [](CKObject *o, bool v) { CurvePoint(o)->SetLinear(v); UpdatePoint(o); }, Not};
 const ObjectProperty<int> SoundSaveOptions = {"Save Options", CKCID_SOUND, [](CKObject *o) { return static_cast<int>(Sound(o)->GetSaveOptions()); }, [](CKObject *o, int v) { Sound(o)->SetSaveOptions(static_cast<CK_SOUND_SAVEOPTIONS>(v)); }, NextSoundSave};
+// Native sound states keep only the basename; edits must also keep its directory.
+const ObjectProperty<std::string> SoundFile = {
+    "Change File", CKCID_SOUND,
+    [](CKObject *o) {
+        auto *wave = CKWaveSound::Cast(o);
+        auto *midi = CKMidiSound::Cast(o);
+        const char *file = wave ? wave->GetSoundFileName() : midi ? midi->GetSoundFileName() : nullptr;
+        return std::string(file ? file : "");
+    },
+    [](CKObject *o, std::string file) {
+        if (auto *wave = CKWaveSound::Cast(o)) {
+            wave->SetSoundFileName(file.data());
+            wave->SetFileStreaming(wave->GetFileStreaming(), TRUE);
+        } else if (auto *midi = CKMidiSound::Cast(o))
+            midi->SetSoundFileName(file.data());
+    },
+    nullptr, false, false};
 const ObjectProperty<int> WaveSoundType = {"Sound Type", CKCID_WAVESOUND, [](CKObject *o) { return static_cast<int>(WaveSound(o)->GetType()); }, [](CKObject *o, int v) { WaveSound(o)->SetType(static_cast<CK_WAVESOUND_TYPE>(v)); }, OtherSoundType, true, false};
 const ObjectProperty<bool> WaveSoundLoop = {"Loop", CKCID_WAVESOUND, [](CKObject *o) { return WaveSound(o)->GetLoopMode() != 0; }, [](CKObject *o, bool v) { WaveSound(o)->SetLoopMode(v); }, Not};
 const ObjectProperty<float> WaveSoundGain = {"Gain", CKCID_WAVESOUND, [](CKObject *o) { return WaveSound(o)->GetGain(); }, [](CKObject *o, float v) { WaveSound(o)->SetGain(v); }, AwayUnit};

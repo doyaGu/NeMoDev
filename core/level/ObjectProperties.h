@@ -133,6 +133,7 @@ extern const ObjectProperty<float> CurvePointTension;
 extern const ObjectProperty<float> CurvePointContinuity;
 extern const ObjectProperty<bool> CurvePointLinear;
 extern const ObjectProperty<int> SoundSaveOptions;
+extern const ObjectProperty<std::string> SoundFile;
 extern const ObjectProperty<int> WaveSoundType;
 extern const ObjectProperty<bool> WaveSoundLoop;
 extern const ObjectProperty<float> WaveSoundGain;
