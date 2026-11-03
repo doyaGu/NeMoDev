@@ -1706,7 +1706,7 @@
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material、Entity 的 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character 页面及公共页头使用共享响应式分栏或字段布局，控件身份不随布局变化。Texture 与 Sprite 共用内存格式和槽位概览，图像预览保留原缓存；Mesh 通道保留多选、菜单和横向滚动；Grid 保留多图层笔画，重排不误涂，大网格按可见区域绘制并可滚动。Sprite 的保存、透明色和预览复用分栏；拾色不因静止指针下的重排重新取样，仍可在同次交互继续编辑、取消或确认。Curve 保留点导航、TCB 编辑和曲线工具；Character 部件表保留可调列宽、多选、增删及根部件恢复，动画使用原有导航。修改、取消与单步撤销仍走已有流程。旧坐标页按实际控件和文字扩展滚动范围；Sound、Place 链接、Animation/ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
+          "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material、Entity 的 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character、Sound 页面及公共页头使用共享响应式分栏或字段布局，控件身份不随布局变化。Texture 与 Sprite 共用内存格式和槽位概览，图像预览保留原缓存；Mesh 通道保留多选、菜单和横向滚动；Grid 保留多图层笔画，重排不误涂，大网格按可见区域绘制并可滚动。Sprite 的保存、透明色和预览复用分栏；拾色不因静止指针下的重排重新取样，仍可在同次交互继续编辑、取消或确认。Curve 保留点导航、TCB 编辑和曲线工具；Character 部件表保留可调列宽、多选、增删及根部件恢复，动画使用原有导航。Sound 的信息与 2D/3D 参数使用同一分栏，保留播放及参数启用条件；Place 链接表随页面调整并可横向滚动，选择、激活标志、链接增删及 Setup 导航仍走原命令。修改、取消与单步撤销仍走已有流程。旧坐标页按实际控件和文字扩展滚动范围；Animation/ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
         }
       ]
     },

@@ -1,0 +1,566 @@
+{
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "editor_version": 23,
+    "profile_version": 1,
+    "workspace_version": 1
+  },
+  "remaining": {
+    "performance": "按用户要求继续暂缓，原定 3% 门槛不变；本批验证功能、资源复用、GPU/fallback 和读回上传计数，没有计时验收。",
+    "runtime_process_isolation": "单独实施。",
+    "not_executed": [
+      "Windows/Linux 实机",
+      "原版 Level_1.NMO（合法 NMO 直接打开包含在完整回归）",
+      "完整原版帮助与真实系统打印",
+      "完整发布包及整个原生桌面 Player 组（仅复验双视口全屏）"
+    ],
+    "stage_six_gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "双视口及其 GPU 稳定帧计数、独立 fallback、快照和原生全屏已覆盖；性能计时验收按用户要求暂缓，原定门槛不变"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material、Entity 的 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character、Sound 页面及公共页头使用共享响应式分栏或字段布局，控件身份不随布局变化。Texture 与 Sprite 共用内存格式和槽位概览，图像预览保留原缓存；Mesh 通道保留多选、菜单和横向滚动；Grid 保留多图层笔画，重排不误涂，大网格按可见区域绘制并可滚动。Sprite 的保存、透明色和预览复用分栏；拾色不因静止指针下的重排重新取样，仍可在同次交互继续编辑、取消或确认。Curve 保留点导航、TCB 编辑和曲线工具；Character 部件表保留可调列宽、多选、增删及根部件恢复，动画使用原有导航。Sound 的信息与 2D/3D 参数使用同一分栏，保留播放及参数启用条件；Place 链接表随页面调整并可横向滚动，选择、激活标志、链接增删及 Setup 导航仍走原命令。修改、取消与单步撤销仍走已有流程。旧坐标页按实际控件和文字扩展滚动范围；Animation/ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产模块发现、统一装配、按身份启用禁用及替换、配置和窗口状态保存恢复已实现；完整模块发布包的各平台实机验证仍待完成"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "尚未实现通用模块文档数据。需补登记与版本升级、文档所有权、保存加载、未知模块原样保留、对象引用重映射、Import/Merge 冲突及失败恢复、撤销和无数据时不写空区。现有 Layout/Pictures 文档数据回归不能替代这些测试。"
+      }
+    ],
+    "separate_work": [
+      {
+        "id": "runtime-isolation",
+        "feature": "F17",
+        "name": "运行时进程隔离",
+        "reason": "用户明确安排单独实施；本轮阶段五收尾不包含它。原生单次调用仍不能强制中断。中断后保留文档、选区和撤销历史，并继续嵌入 3D 视口的要求不变。"
+      }
+    ]
+  },
+  "description": "阶段六：Sound 和 Place 链接 Setup 布局，复用已有查询与修改，保留取消、撤销、播放和导航；性能验收暂缓，进程隔离单独实施。",
+  "base_revision": "231ffd0c93200dfdbb00af463519db200218c616",
+  "starting_worktree": "本批开始时 main 工作区干净；source-before.json 和空 starting.patch 保存改动起点。",
+  "verification_status": "passed functional regression; performance deferred",
+  "changes": [
+    "Sound 的音频信息、2D 和 3D 参数复用已有分栏与字段布局，输入编号和原有参数范围不变。",
+    "Play、Pause/Resume、Stop 按可用宽度排列，保留无声源、点声源与背景声源时的启用条件；播放操作沿用已有运行命令。",
+    "Sound 的音量、相对位置、声锥和对象引用继续使用同一草稿、取消恢复及单步撤销，没有新增状态或接口。",
+    "Place 链接表适应页面宽度，窄窗口使用原生横向滚动；地点、Portal、激活标志、链接增删及 Setup 导航仍走原命令，表格和弹窗编号保持。",
+    "SDK、Editor C 接口、共享 SetupLayout、GPU 快通道和通用 fallback 未改；动画、SpriteText、参数和行为等其余专用页及弹窗继续保留在 F25。"
+  ],
+  "coverage": {
+    "files": 1138,
+    "groups": 59,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 8,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-sound-place-setup/build-final.log",
+      "sha256": "0cf1c9e79b427924167dcad765526ca5704e2b3819df819b78c0685507ac4bbe"
+    },
+    "incremental_test_build": {
+      "path": "out/phase-six-sound-place-setup/build-tests-second.log",
+      "sha256": "533a20a434077702e4cc6c3baddb5ec0d2dd6828acbb353dbfe90f732aa7782d"
+    },
+    "complete_nonperformance_ctest": {
+      "total": 137,
+      "passed": 137,
+      "failures": 0,
+      "skipped": 0,
+      "core_tests": 113,
+      "ui_ctest_groups": 24,
+      "report": {
+        "path": "out/phase-six-sound-place-setup/full-final.xml",
+        "sha256": "6e54d3fa7dc52bbe1385002bd5743b17a2a4e06699e32531c87900b2b6cc7b5b"
+      },
+      "inventory": {
+        "path": "out/phase-six-sound-place-setup/ctest-inventory-final.json",
+        "sha256": "4dd799dd28778dcfef1e814ef2fc7fb2ebb70d70b32510a652de125a321ab076"
+      },
+      "validation": {
+        "path": "out/phase-six-sound-place-setup/results-check-final.log",
+        "sha256": "669b999a673e1ba6ac2af78a841ea026f180c3f566a55a911fd6e9624c54972f"
+      }
+    },
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "executed": 3,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/html.xml",
+          "sha256": "ee27c186df1013cf1459f73047db05545096e7c32afc47f678864705bb84ce56"
+        }
+      },
+      "VirtoolsDevUi.app": {
+        "executed": 28,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/app.xml",
+          "sha256": "32d77e316e4d3e1bfba9b42f779de8e92d75d0e0e1cbb0bd9727c8aecbb70a84"
+        }
+      },
+      "VirtoolsDevUi.layoutviews": {
+        "executed": 4,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/layoutviews.xml",
+          "sha256": "4e0e1f23171b03dcd7910f2c304a916ec9e64263a00eae7f826d36f08f565517"
+        }
+      },
+      "VirtoolsDevUi.filemenu": {
+        "executed": 10,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/filemenu.xml",
+          "sha256": "bb7cd1349ade3807278c394aa866e551363077aad6b50866f49c271d90aee0d2"
+        }
+      },
+      "VirtoolsDevUi.schematic": {
+        "executed": 26,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/schematic.xml",
+          "sha256": "11e1019592f3197bc6ce334b7de96c479798b0a7d66b2861cdd1361df544dfc6"
+        }
+      },
+      "VirtoolsDevUi.debugger": {
+        "executed": 10,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/debugger.xml",
+          "sha256": "8f6adeefc551ea43ea7c36fb540e8a9f58cf7cc1d1e581c501c8a04b8e5cf4e6"
+        }
+      },
+      "VirtoolsDevUi.layout": {
+        "executed": 33,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/layout.xml",
+          "sha256": "abea319b17c10a2e04baf5bfd010649b1695a1db61080b77dcb67ebb10198bbd"
+        }
+      },
+      "VirtoolsDevUi.level": {
+        "executed": 7,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/level.xml",
+          "sha256": "1e06852d1788f0105592de5615a17364ea97a33ea093c373a5e10bab65cd2636"
+        }
+      },
+      "VirtoolsDevUi.setup": {
+        "executed": 21,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/setup.xml",
+          "sha256": "40742aa161de29fe1b51c7e5b901c0dc6dd768adcb018ad2d28bd23a859583a9"
+        }
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "executed": 7,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/propertyedits.xml",
+          "sha256": "d39c434934cbdc6216bc42ec3b78f5131114382c7c4b2cce7df3c4936121cf18"
+        }
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "executed": 8,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/hierarchy.xml",
+          "sha256": "f73ec344e5ffbfeeb83928228658451d6ab951d56d85a4b34180962b5ae786b9"
+        }
+      },
+      "VirtoolsDevUi.blocks": {
+        "executed": 7,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/blocks.xml",
+          "sha256": "b87533269a637824f8f4f27b5da8269ef0e920f39158ba87a3d9938bee1584e4"
+        }
+      },
+      "VirtoolsDevUi.attributes": {
+        "executed": 6,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/attributes.xml",
+          "sha256": "05792461ff8226bad2196d01b41d06cc59ac99c6207bb83009aea2727af72eaf"
+        }
+      },
+      "VirtoolsDevUi.create": {
+        "executed": 6,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/create.xml",
+          "sha256": "0ef625586a43c086750dd67288b91481df440f079e7aa39d5a1c68621ee933f2"
+        }
+      },
+      "VirtoolsDevUi.tools": {
+        "executed": 13,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/tools.xml",
+          "sha256": "1100ae8574e3a4a8b5063cbece61559eb39a5165250cc8156c68214cffff3d59"
+        }
+      },
+      "VirtoolsDevUi.sound": {
+        "executed": 2,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/sound.xml",
+          "sha256": "175a9abad0aba795f859c1dccabe6d80c9e1acdc0c4d8ca12002007703604a4e"
+        }
+      },
+      "VirtoolsDevUi.character": {
+        "executed": 2,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/character.xml",
+          "sha256": "17a6df8106deb7534ecc78e229eff739760df1475955e45ea65a0ce7d85f0b2a"
+        }
+      },
+      "VirtoolsDevUi.modules": {
+        "executed": 74,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/virtoolsdev-ui/modules.xml",
+          "sha256": "f29c539816c6086f555a3416514f6f9fb7c256165d2e6720086cbc486769cd94"
+        }
+      }
+    },
+    "appearance_startup_cases": [
+      {
+        "executed": 1,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/appearance-startup/builtin-disabled.xml",
+          "sha256": "69a8524206271f5943a0f8edc214df7dde4dc59b80778d699d1e082064cda582"
+        }
+      },
+      {
+        "executed": 15,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/appearance-startup/editing.xml",
+          "sha256": "67ca3f362ce16dcf738434d9171c3d1a939b137574fb4f2578c17253012b1ab7"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/appearance-startup/missing-provider.xml",
+          "sha256": "fee282a4a145c2390e6fa377ac64a964ac54be011ca0daca81bd23228ea153fb"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/appearance-startup/provider-returned.xml",
+          "sha256": "80f6173571b61127ddca8276dd1552a16085145d21c819fcea6c26d7bb7b12d8"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/appearance-startup/restore.xml",
+          "sha256": "32d770f44a35aa9ceea8c482514e251415654eaf0f5a837f5c79b7ecfb712a3c"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 307,
+        "report": {
+          "path": "out/phase-six-sound-place-setup/reports/appearance-startup/save.xml",
+          "sha256": "1763962641faf8fe3f0618fa039d288b0c3baffcdddee9846465953f52110c4e"
+        }
+      }
+    ],
+    "appearance_expected_startup_failures": [
+      {
+        "path": "out/phase-six-sound-place-setup/reports/appearance-startup/invalid-theme.log",
+        "sha256": "dd8d53b7a26403aee7c7a0b706658885aad7f4a48c43168b6c4416ad0a729605"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/appearance-startup/invalid-font.log",
+        "sha256": "e9d6622e9d288ad3ae9b8b109e53ee3512991a43f2c470b832255e4e32400f0e"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/appearance-startup/invalid-layout.log",
+        "sha256": "78564aeb1ed411798200889440b5d4db4e2cc511a087b2fc265ad22d626c2246"
+      }
+    ],
+    "workspace_startup_combinations": [
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/bad-dock-tree.xml",
+        "sha256": "2ee19dd72a3d9a0deb66ee2cb07d5f8ce0c9ecc1961de609fa9d4ddfe1912dc1"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/bad-view-version.xml",
+        "sha256": "7340eba507a62cd64cbab7d7818f298d0b226c6d2c1ece419d32e55e0052a54b"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/close-missing-provider.xml",
+        "sha256": "68428252d4d94f34fd2eae011529b757ebbb03e1cf231ec5cd292b8c8f299488"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/discard-unrestored.xml",
+        "sha256": "d7025b9bb6c93917818c6fec185343801c846525c6f618e1b25c2a86f3d31ea4"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/first-start-with-document.xml",
+        "sha256": "532fa7f74d000d459f10ded7cc78796bdc488336c58606078bd4ab7f4658d4f8"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/missing-provider.xml",
+        "sha256": "26304be736cd8e39b0e4e2586fe9260ce7bdb0e3dafeec50f8bc5d98dfe75453"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/provider-returned.xml",
+        "sha256": "c405bb337f92fb3903a845a1923732f52e12e1de985ce8831d728cd14fc7ba65"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/restore.xml",
+        "sha256": "e22efe8ba5aae5856f87780bf920679d81b1bd2d9f9a5760938f654d770792a3"
+      },
+      {
+        "path": "out/phase-six-sound-place-setup/reports/workspace-startup/save.xml",
+        "sha256": "7cb55b81855f31553525090316ccaa502b7606ffd768509ca2f77519a9ae023e"
+      }
+    ],
+    "architecture_checker_cases": 58,
+    "architecture_checker_log": {
+      "path": "out/phase-six-sound-place-setup/architecture-tests-final.log",
+      "sha256": "22552d23666159b61af11bee751fb75ad03436831d71996a9b6fe8640bbd52e6"
+    },
+    "architecture_log": {
+      "path": "out/phase-six-sound-place-setup/architecture-final.log",
+      "sha256": "ff091c8c92f6ac679262b5d0a5a0f2391e2a2b6231c189236eea44fc400d84ac"
+    },
+    "native_desktop": {
+      "case": "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+      "executed": 1,
+      "registered": 307,
+      "report": {
+        "path": "out/phase-six-sound-place-setup/player-final.xml",
+        "sha256": "c8780718246f2cccea0ea94c5ba3126cddb8f99e702f2fd4231d59f2a34a828b"
+      },
+      "log": {
+        "path": "out/phase-six-sound-place-setup/player-final.log",
+        "sha256": "e2104e470a7c0f6a10fb976587371e6824641aeeabd4b45c9d8f88bdeaae79f7"
+      }
+    },
+    "new_regressions": [
+      "Sound 与 Place 链接在 1500、690、450、1500 宽度及替代字体、主题缩放下往返；验证分栏、输入及分量编号、内容范围和窄窗口横向滚动。",
+      "Sound 音量、相对位置和声锥在拖动中重排后 Escape 恢复且不增加历史；数值确认各一步撤销，未编辑的向量分量和声锥角度保持。",
+      "Sound 附加对象使用原有对象选择并只一步撤销；静音 PCM 声源验证 Play、Pause、重排后 Resume、Stop 不增加文档历史。",
+      "空声源验证播放按钮禁用；点声源 Pan 禁用，背景声源的 Pan 启用且 3D 参数禁用。",
+      "Place 链接空表菜单取消保留历史，Attach New Place 一步 Undo/Redo；地点选择弹窗跨重排保持编号，取消不改链接，确认选择只一步撤销。",
+      "Place Portal 选择、初始激活标志和链接移除各一步撤销；移除后 Undo 恢复地点及 Portal，Portal/Place Setup 导航不增加历史。",
+      "原有 SetupTests、SoundTests、CreateTests 和 UiTests 输入辅助代码未改；完整套件保留文件失败恢复、导出保护、撤销、合法 NMO 直接打开、GPU 快通道、通用 fallback 和显式快照。",
+      "新页面交互后的 GPU 视口读回和上传计数为零，原生双视口全屏退出后的焦点及 GPU 恢复通过。"
+    ],
+    "discarded_runs": [
+      "Place 链接测试最初要求宽窗口也必须出现横向滚动；完整内容可容纳时不需要滚动条，最终仅在窄窗口断言横向滚动，仍保留表格边界、弹窗、取消和撤销检查。未放宽超时。"
+    ],
+    "ordinary_ui_cases": 267,
+    "appearance_selected_cases": 20
+  },
+  "preservation": {
+    "sdk_source_writes_by_this_batch": false,
+    "sdk_changes_during_work": [],
+    "sdk_changes_during_final_test": [],
+    "sdk_record_note": "本批未写入 SDK；16 个仓库按当前源码内容比较，22 项运行文件按完整哈希比较，最终构建与回归使用同一份 SDK。",
+    "sdk_start_record": {
+      "path": "out/phase-six-sound-place-setup/sdk-start.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_build_start_record": {
+      "path": "out/phase-six-sound-place-setup/sdk-build-start-final.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_test_start_record": {
+      "path": "out/phase-six-sound-place-setup/sdk-test-start-final.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_end_record": {
+      "path": "out/phase-six-sound-place-setup/sdk-after.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_tested": {
+      ".": {
+        "revision": "659f81eb129fcca7e5e867886ff1a83a8cf454f9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks": {
+        "revision": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/3DTrans/qhull": {
+        "revision": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/physics_RT/ivp": {
+        "revision": "7579664996e68040dd0158081b04f612e6a2d515",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2": {
+        "revision": "895d6d64a93b72b221e24477c3ba4b145e801f01",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2/deps/miniz": {
+        "revision": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/ParameterOperations": {
+        "revision": "85767adbdf70c327fcb9da9d179285a390bd6756",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlInputManager": {
+        "revision": "9129b619483d6f75a8947b4af7a4d51d3f4afb9f",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlSoundManager": {
+        "revision": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Player": {
+        "revision": "650c3676bea4b1535f2522395d8f907056303488",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Plugins": {
+        "revision": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/RenderEngine": {
+        "revision": "aa4fc6165c4d9ca6ff8b46de167fe0681dda0016",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath": {
+        "revision": "37ab8af3619f7bcf38f39e7561ab88fffe8bbf3d",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde": {
+        "revision": "2e5224981e9123b8fe89a9833a978556d636a565",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde/test/munit": {
+        "revision": "da8f73412998e4f1adf1100dc187533a51af77fd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/stb": {
+        "revision": "31c1ad37456438565541f4919958214b6e762fb4",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "sdk_source_contents_unchanged_during_final_test": true,
+    "sdk_content_check": {
+      "path": "out/phase-six-sound-place-setup/sdk-content-check-final.json",
+      "sha256": "d094581c5f7e8f452ba2c56ab8d7d2fa684f5afbdf6f3895c8f78893d7943b47"
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "runtime_files_unchanged_during_final_test": true,
+    "runtime_test_start_record": {
+      "path": "out/phase-six-sound-place-setup/runtime-test-start-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_end_record": {
+      "path": "out/phase-six-sound-place-setup/runtime-after.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "unchanged_gpu_source_sha256": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "editor_c_interface_changed_this_batch": false,
+    "editor_header_sha256": "53193de3459aabe594dd9fb1b0a10ea9791f0a63ae110bcf52e9a4ccea541462",
+    "document_formats_changed": false,
+    "unchanged_layout_helpers_sha256": {
+      "ui/setup/SetupLayout.cpp": "44607d9ce54fbd80d33a73db6cf03504538c029fb0e3cd91e43b25e87ccd75df",
+      "ui/setup/SetupLayout.h": "cb3863187b57da9737815142a6e50724d3e861cbdc394c7f19e6c27f4241c8cd"
+    },
+    "unchanged_original_setup_test_sha256": {
+      "tests/ui/SetupTests.cpp": "3149c207a52fbda6560138c4bbd8ae762d8362201a89d0460f928c8ccb43c868",
+      "tests/ui/SoundTests.cpp": "2996ad9c0851516e29fa74da8812504432afdecfd564ffb9d04a1842199cb159",
+      "tests/ui/CreateTests.cpp": "2364443c3f0d9c2dbdb8fbeb8eef8bd2b7dea74d90d79c754979d2139304fe08",
+      "tests/ui/UiTests.cpp": "be02e3b97ce666c0df4a8e4622d1d94012dbf8d651122922777cca3f2c45e1ba"
+    },
+    "starting_source_record": {
+      "path": "out/phase-six-sound-place-setup/source-before.json",
+      "sha256": "9f72bad33f85730f8423342f63204fa78aada302f9ebfe550a002fdb8a987dfd"
+    },
+    "starting_patch": {
+      "path": "out/phase-six-sound-place-setup/starting.patch",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

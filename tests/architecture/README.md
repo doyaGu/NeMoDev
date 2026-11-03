@@ -2136,3 +2136,15 @@ Sprite 的保存、透明色和图像预览使用已有分栏；图像仍复用�
 macOS arm64 Release 构建通过，完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观六次成功进程共执行 **18** 个用例，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1137** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。结果见[Sprite、Curve 和 Character Setup 验证记录](baselines/sprite-curve-character-setup-macos-arm64-metal.json)。
 
 本批未写入 SDK，16 个 SDK 仓库和 22 项运行文件与本批起点一致。Editor C 公开头维持版本二十三，共享 SetupLayout 与五份 GPU 渲染和互操作源码保持原样；GPU 快通道、通用 fallback、显式快照及合法 `.NMO` 直接打开回归通过。F25 仍保留 Sound、Place 链接、Animation/ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗，以及其他平台实机复验。`functional_phase` 保持五，`completed_phase` 保持三，八项阶段六待办继续保留；性能计时验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。
+
+### 阶段六：Sound 和 Place 链接 Setup 布局
+
+Sound 的音频信息、2D 和 3D 参数使用已有分栏和字段布局；采样率、位数、通道与时长按字段显示，播放按钮随可用宽度排列。参数范围、输入编号、点声源、背景声源和无声源时的启用条件保持原样。音量、相对位置、声锥和附加对象继续使用原有草稿及命令，取消恢复、确认只记一步撤销；播放、暂停、恢复和停止仍走运行命令。
+
+Place 链接表适应页面宽度，窄窗口使用原生横向滚动，表格列宽及高度随页面字体缩放。地点与 Portal 选择、初始激活标志、链接增删、Automatic Portal 拾取及 Setup 导航沿用原实现；输入、菜单和弹窗编号不随宽度改变。没有新增查询、修改入口或编辑状态。
+
+新增两个原生组合覆盖宽窄往返、替代字体与主题缩放、分栏与控件编号、内容边界及窄窗口滚动。Sound 使用静音 PCM 声源验证音量、位置和声锥拖动中重排后取消、数值确认的单步撤销、未编辑分量保持、附加对象恢复，以及播放中重排后继续控制且历史不变；空声源验证播放禁用，点声源和背景声源分别保留原参数启用条件。Place 验证空表菜单取消、Attach New Place 的 Undo/Redo、地点弹窗跨重排后取消、地点与 Portal 选择、激活标志、链接移除与恢复，以及 Portal/Place Setup 导航不增加历史。宽窗口可容纳完整表时不要求出现滚动条，窄窗口仍明确验证水平滚动及内容边界。原有 SetupTests、SoundTests、CreateTests 和 UiTests 输入辅助代码未改。
+
+macOS arm64 Release 构建通过；完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观六次成功进程执行 **20** 个用例，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1138** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。结果见[Sound 和 Place 链接 Setup 验证记录](baselines/sound-place-setup-macos-arm64-metal.json)。
+
+本批未写入 SDK，16 个 SDK 仓库和 22 项运行文件与本批起点一致；Editor C 公开头维持版本二十三，共享 SetupLayout 及五份 GPU 渲染和互操作源码保持原样。GPU 快通道、通用 fallback、显式快照和合法 `.NMO` 直接打开回归通过。F25 仍保留 Animation/ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗，以及其他平台实机复验。`functional_phase` 保持五，`completed_phase` 保持三，八项阶段六待办继续保留；性能计时验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。
