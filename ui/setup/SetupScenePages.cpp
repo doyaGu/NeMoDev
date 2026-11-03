@@ -176,18 +176,21 @@ void SetupWindows::CharacterPage(Setup &setup, ObjectRef target) {
         return;
     const auto values = propertyData.Values();
     Entity3DPage(target);
-    const float lower = ImGui::GetCursorPosY();
-    ImGui::SetCursorPos(ImVec2(8, lower));
-    ImGui::BeginGroup();
+    const float unit = PageUnit();
+    SetupColumns columns("##character-settings", 2);
+    if (!columns) return;
+    columns.Next();
     Group("Character Bodyparts");
-    if (ImGui::BeginTable("bodyparts", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                                              ImGuiTableFlags_Resizable, ImVec2(700, 230))) {
+    if (ImGui::BeginTable("bodyparts", 4,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp,
+                          ImVec2(0, 230 * unit), std::max(700 * unit, ImGui::GetContentRegionAvail().x))) {
         TypeAhead typeAhead;
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Name");
         ImGui::TableSetupColumn("Parent");
         ImGui::TableSetupColumn("Current Mesh");
-        ImGui::TableSetupColumn("Vertices", ImGuiTableColumnFlags_WidthFixed, 70);
+        ImGui::TableSetupColumn("Vertices", ImGuiTableColumnFlags_WidthFixed, 70 * unit);
         ImGui::TableHeadersRow();
         const auto root = data.Object("root");
         // The rows (Dev.exe sub_44F330): a click selects (Ctrl: adds or
@@ -269,21 +272,28 @@ void SetupWindows::CharacterPage(Setup &setup, ObjectRef target) {
         if (!any) ImGui::TextDisabled("No body part without a character");
         ImGui::EndPopup();
     }
-    ImGui::EndGroup();
-    ImGui::SameLine(740);
-    ImGui::BeginGroup();
+    columns.Next();
+    Group("Character");
     bool pickable = values.Boolean("entity3d.pickable");
     if (ImGui::Checkbox("Pickable", &pickable))
         PreviewValue(id, "entity3d.pickable", pickable);
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("(Hold shift to pick it anyway)");
-    ImGui::Dummy(ImVec2(1, 8));
-    ImGui::Text("Body parts:  %d", int(data.Rows("bodies").size()));
-    ImGui::Text("Animations:  %d", int(data.Rows("animations").size()));
-    ImGui::Text("Active:      %s", data.Text("active-name").c_str());
-    ImGui::Dummy(ImVec2(1, 8));
+    ImGui::PopTextWrapPos();
+    {
+        SetupForm form("##character-info");
+        if (form) {
+            form.Row("Body parts");
+            ImGui::Text("%d", int(data.Rows("bodies").size()));
+            form.Row("Animations");
+            ImGui::Text("%d", int(data.Rows("animations").size()));
+            form.Row("Active");
+            ImGui::TextWrapped("%s", data.Text("active-name").c_str());
+        }
+    }
     // The character's animations; double-click opens the Animation Setup.
-    UsedByRows("Animations", data.Rows("animations"), 150);
-    ImGui::EndGroup();
+    Group("Animations");
+    UsedByList("Animations", data.Rows("animations"), {0, 150 * unit});
 }
 
 void SetupWindows::SoundPage(ObjectRef target) {

@@ -15,6 +15,9 @@
 #include "CKSprite.h"
 #include "CKCurve.h"
 #include "CKCurvePoint.h"
+#include "CKCharacter.h"
+#include "CKBodyPart.h"
+#include "CKAnimation.h"
 #include <algorithm>
 #include <utility>
 #include <cmath>
@@ -1743,6 +1746,198 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         ctx->ItemClick(SetupPage(ctx, view)->GetID("Add Points"));
         ctx->Yield(3);
         IM_CHECK_EQ(tool(), 0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *character =
+        IM_REGISTER_TEST(engine, "appearance", "character_reflow_bodyparts_navigation_and_undo");
+    character->GuiFunc = MainThreadGui;
+    character->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target, root, available, animation;
+        EditorView view = 0;
+        EditorConfiguration original;
+        std::vector<std::string> labels;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *context = doc.Context();
+            auto *made = CKCharacter::Cast(context->CreateObject(CKCID_CHARACTER, "Reflow character"));
+            IM_CHECK_NO_RET(made);
+            doc.Include(made->GetID());
+            target = doc.Reference(made->GetID());
+            for (int i = 0; i < 3; ++i) {
+                auto *part = CKBodyPart::Cast(
+                    context->CreateObject(CKCID_BODYPART, ("Reflow body " + std::to_string(i)).c_str()));
+                IM_CHECK_NO_RET(part);
+                doc.Include(part->GetID());
+                if (i < 2) {
+                    IM_CHECK_NO_RET(made->AddBodyPart(part) == CK_OK);
+                    if (i == 0) {
+                        root = doc.Reference(part->GetID());
+                        IM_CHECK_NO_RET(made->SetRootBodyPart(part) == CK_OK);
+                    }
+                } else
+                    available = doc.Reference(part->GetID());
+            }
+            auto *walk = CKAnimation::Cast(context->CreateObject(CKCID_ANIMATION, "Reflow character walk"));
+            auto *active = CKAnimation::Cast(context->CreateObject(
+                CKCID_ANIMATION, ("Active animation " + std::string(150, 'A')).c_str()));
+            IM_CHECK_NO_RET(walk && active);
+            doc.Include(walk->GetID());
+            doc.Include(active->GetID());
+            animation = doc.Reference(walk->GetID());
+            IM_CHECK_NO_RET(made->AddAnimation(walk) == CK_OK && made->AddAnimation(active) == CK_OK);
+            IM_CHECK_NO_RET(made->SetActiveAnimation(active) == CK_OK);
+            SetupDetails data;
+            IM_CHECK_NO_RET(ReadSetupDetails(EditorCommands(), target, "character", data));
+            root = data.Values().Object("root");
+            for (const auto &row : data.Values().Rows("bodies")) {
+                const SetupFields part(row.fields);
+                labels.push_back(part.Text("name") + (part.Object("target") == root ? "  (Root)" : ""));
+            }
+            IM_CHECK_NO_RET(labels.size() == 2);
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupcharacter");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID bodyparts = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "bodyparts");
+            auto *table = SetupTable(ctx, view, "##character-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            auto *list = SetupTable(ctx, view, "bodyparts");
+            IM_CHECK(list && list->InnerWindow);
+            IM_CHECK(!bodyparts || bodyparts == list->ID);
+            bodyparts = list->ID;
+            IM_CHECK_GT(list->InnerWindow->ScrollMax.x, 0);
+            IM_CHECK(list->Flags & ImGuiTableFlags_Resizable);
+            IM_CHECK(list->OuterRect.Min.x >= table->Columns[0].WorkMinX - 1 &&
+                     list->OuterRect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            if (width == 450)
+                IM_CHECK_GT(SetupPage(ctx, view)->ScrollMax.x, 0);
+        }
+        auto *table = SetupTable(ctx, view, "bodyparts");
+        ctx->ScrollToX(table->InnerWindow->ID, 0);
+        ctx->Yield(3);
+        const float oldWidth = table->Columns[0].WidthGiven;
+        const ImVec2 border{table->Columns[0].MaxX, table->InnerWindow->InnerRect.Min.y + 10};
+        ctx->MouseMoveToPos(border);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({border.x + 35, border.y});
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        table = SetupTable(ctx, view, "bodyparts");
+        const float changedWidth = table->Columns[0].WidthGiven;
+        IM_CHECK(std::fabs(changedWidth - oldWidth) > 10);
+        ResizeSetup(ctx, view, 690);
+        ShowSetupTable(ctx, view, "bodyparts");
+        IM_CHECK(std::fabs(SetupTable(ctx, view, "bodyparts")->Columns[0].WidthGiven - changedWidth) < 3);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "bodyparts");
+        ctx->SetRef(SetupRef(view).c_str());
+        const auto pickable = [&] {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {"entity3d.pickable"}, data);
+                return int(data.Values().Integer("entity3d.pickable"));
+            });
+        };
+        const int beforePick = pickable();
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Pickable"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(pickable(), !beforePick);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(pickable(), beforePick);
+        const auto select = [&](int row, ImGuiMouseButton button = 0) {
+            const auto seed = ImHashData(&row, sizeof(row), bodyparts);
+            ctx->ItemClick(ImHashStr(labels[size_t(row)].c_str(), 0, seed), button, ImGuiTestOpFlags_MoveToEdgeL);
+        };
+        ShowSetupTable(ctx, view, "bodyparts");
+        select(0);
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        select(1);
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ResizeSetup(ctx, view, 690);
+        ShowSetupTable(ctx, view, "bodyparts");
+        select(1, ImGuiMouseButton_Right);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("**/Remove Body Part");
+        ctx->Yield(3);
+        const auto bodies = [&] {
+            return Read<std::vector<ObjectRef>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "character", data);
+                std::vector<ObjectRef> result;
+                for (const auto &row : data.Values().Rows("bodies"))
+                    result.push_back(SetupFields(row.fields).Object("target"));
+                return result;
+            });
+        };
+        IM_CHECK(bodies().empty());
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(bodies().size(), 2);
+        IM_CHECK(Read<ObjectRef>(ctx, [&] {
+                     SetupDetails data;
+                     ReadSetupDetails(EditorCommands(), target, "character", data);
+                     return data.Values().Object("root");
+                 }) == root);
+        const auto openAdd = [&] {
+            ctx->SetRef(SetupRef(view).c_str());
+            ShowSetupTable(ctx, view, "bodyparts");
+            auto *list = SetupTable(ctx, view, "bodyparts");
+            ctx->MouseMoveToPos({list->OuterRect.Min.x + 15, list->OuterRect.Max.y - 35});
+            ctx->MouseClick(ImGuiMouseButton_Right);
+            ctx->Yield(3);
+            ctx->SetRef("//$FOCUSED");
+            ctx->ItemClick("**/Add Body Part");
+            ctx->Yield(3);
+        };
+        openAdd();
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        ResizeSetup(ctx, view, 1500, false);
+        IM_CHECK(!ctx->UiContext->OpenPopupStack.empty() &&
+                 ctx->UiContext->OpenPopupStack.back().PopupId == popup);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK_EQ(bodies().size(), 2);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        openAdd();
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("**/Reflow body 2");
+        ctx->Yield(3);
+        const auto added = bodies();
+        IM_CHECK_EQ(added.size(), 3);
+        IM_CHECK(std::find(added.begin(), added.end(), available) != added.end());
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(bodies().size(), 2);
+        ctx->ScrollToBottom(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        ctx->ItemDoubleClick("**/Reflow character walk (Animation)");
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, animation.object));
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {
             std::string error;
