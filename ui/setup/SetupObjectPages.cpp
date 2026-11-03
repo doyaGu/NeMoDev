@@ -384,85 +384,99 @@ void SetupWindows::SpriteTextPage(ObjectRef target) {
     SetupFont font{fontValues.Text("face"), int(fontValues.Integer("size")), int(fontValues.Integer("weight")),
                    fontValues.Boolean("italic"), fontValues.Boolean("underline")};
     const bool hasFont = data.Boolean("has-font");
-    auto typed = [&](const char *label, const std::string &value, bool multiline, bool fontFace) {
-        std::string shown = value;
-        const bool changed = multiline ? ImGui::InputTextMultiline(label, &shown, ImVec2(300, 70))
-                                       : (ImGui::SetNextItemWidth(160), ImGui::InputText(label, &shown));
-        if (changed) {
-            if (fontFace) {
-                auto changedFont = font;
-                changedFont.face = shown;
-                PreviewFont(id, changedFont);
-            } else
-                PreviewValue(id, "spritetext.text", shown);
+    {
+        SetupColumns columns("##spritetext-settings", 3);
+        if (columns) {
+            const auto widthFor = [](const char *label) {
+                ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(label).x -
+                                                          ImGui::GetStyle().ItemInnerSpacing.x));
+            };
+            const auto nextChoice = [](const char *label) {
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x < ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x +
+                                                           ImGui::CalcTextSize(label, nullptr, true).x)
+                    ImGui::NewLine();
+            };
+            auto typed = [&](const char *label, const std::string &value, bool multiline, bool fontFace) {
+                std::string shown = value;
+                widthFor(label);
+                const bool changed =
+                    multiline ? ImGui::InputTextMultiline(
+                                    label, &shown, {std::max(1.f, ImGui::GetContentRegionAvail().x), 70 * PageUnit()})
+                              : ImGui::InputText(label, &shown);
+                if (changed) {
+                    if (fontFace) {
+                        auto changedFont = font;
+                        changedFont.face = shown;
+                        PreviewFont(id, changedFont);
+                    } else
+                        PreviewValue(id, "spritetext.text", shown);
+                }
+            };
+            columns.Next();
+            Group("Text");
+            typed("##text", values.Text("spritetext.text"), true, false);
+            columns.Next();
+            Group("Font");
+            auto setFont = [&](const SetupFont &changed) { PreviewFont(id, changed); };
+            if (!hasFont)
+                ImGui::TextDisabled("(no font yet)");
+            typed("Face", font.face, false, true);
+            SetupFont edited = font;
+            widthFor("Size");
+            if (ImGui::DragInt("Size", &edited.size, 0.2f, 1, 512))
+                setFont(edited);
+            edited = font;
+            bool bold = font.weight >= 600;
+            if (ImGui::Checkbox("Bold", &bold)) {
+                edited.weight = bold ? 700 : 400;
+                setFont(edited);
+            }
+            nextChoice("Italic");
+            edited = font;
+            if (ImGui::Checkbox("Italic", &edited.italic))
+                setFont(edited);
+            nextChoice("Underline");
+            edited = font;
+            if (ImGui::Checkbox("Underline", &edited.underline))
+                setFont(edited);
+            columns.Next();
+            Group("Colors");
+            auto color = [&](const char *property, const char *label) {
+                const auto &value = values.Reals(property);
+                float c[4] = {0, 0, 0, 1};
+                if (value.size() == 4)
+                    for (int i = 0; i < 4; ++i)
+                        c[i] = float(value[i]);
+                if (ImGui::ColorEdit4(label, c, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaPreviewHalf))
+                    PreviewValue(id, property, VxColor(c[0], c[1], c[2], c[3]));
+            };
+            color("spritetext.color", "Text Color");
+            color("spritetext.background-color", "Background Color");
+            ImGui::Spacing();
+            // CKSPRITETEXT_CENTER centers both the horizontal and vertical choices.
+            Group("Alignment");
+            CKDWORD align = static_cast<CKDWORD>(values.Integer("spritetext.alignment"));
+            if (align & CKSPRITETEXT_CENTER)
+                align = CKSPRITETEXT_HCENTER | CKSPRITETEXT_VCENTER;
+            const CKDWORD horizontal = CKSPRITETEXT_LEFT | CKSPRITETEXT_HCENTER | CKSPRITETEXT_RIGHT;
+            const CKDWORD vertical = CKSPRITETEXT_TOP | CKSPRITETEXT_VCENTER | CKSPRITETEXT_BOTTOM;
+            auto choice = [&](const char *label, CKDWORD bit, CKDWORD group) {
+                if (ImGui::RadioButton(label, (align & bit) != 0) && !(align & bit))
+                    PreviewValue(id, "spritetext.alignment", static_cast<int>((align & ~group) | bit));
+            };
+            choice("Left", CKSPRITETEXT_LEFT, horizontal);
+            nextChoice("Center##h");
+            choice("Center##h", CKSPRITETEXT_HCENTER, horizontal);
+            nextChoice("Right");
+            choice("Right", CKSPRITETEXT_RIGHT, horizontal);
+            choice("Top", CKSPRITETEXT_TOP, vertical);
+            nextChoice("Center##v");
+            choice("Center##v", CKSPRITETEXT_VCENTER, vertical);
+            nextChoice("Bottom");
+            choice("Bottom", CKSPRITETEXT_BOTTOM, vertical);
         }
-    };
-    ImGui::BeginGroup();
-    Group("Text");
-    typed("##text", values.Text("spritetext.text"), true, false);
-    ImGui::EndGroup();
-    ImGui::SameLine(340);
-    ImGui::BeginGroup();
-    Group("Font");
-    auto setFont = [&](const char *, const SetupFont &changed) { PreviewFont(id, changed); };
-    if (!hasFont)
-        ImGui::TextDisabled("(no font yet)");
-    typed("Face", font.face, false, true);
-    SetupFont edited = font;
-    ImGui::SetNextItemWidth(100);
-    if (ImGui::DragInt("Size", &edited.size, 0.2f, 1, 512)) setFont("Font Size", edited);
-    edited = font;
-    bool bold = font.weight >= 600;
-    if (ImGui::Checkbox("Bold", &bold)) {
-        edited.weight = bold ? 700 : 400;
-        setFont("Font Weight", edited);
     }
-    ImGui::SameLine();
-    edited = font;
-    if (ImGui::Checkbox("Italic", &edited.italic)) setFont("Font Italic", edited);
-    ImGui::SameLine();
-    edited = font;
-    if (ImGui::Checkbox("Underline", &edited.underline)) setFont("Font Underline", edited);
-    ImGui::EndGroup();
-    ImGui::SameLine(640);
-    ImGui::BeginGroup();
-    Group("Colors");
-    auto color = [&](const char *property, const char *label) {
-        const auto &value = values.Reals(property);
-        float c[4] = {0, 0, 0, 1};
-        if (value.size() == 4)
-            for (int i = 0; i < 4; ++i)
-                c[i] = float(value[i]);
-        if (ImGui::ColorEdit4(label, c, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaPreviewHalf))
-            PreviewValue(id, property, VxColor(c[0], c[1], c[2], c[3]));
-    };
-    color("spritetext.color", "Text Color");
-    color("spritetext.background-color", "Background Color");
-    ImGui::Dummy(ImVec2(1, 6));
-    // CKSPRITETEXT_ALIGNMENT: a horizontal and a vertical choice
-    // (CKSPRITETEXT_CENTER centers both ways).
-    Group("Alignment");
-    CKDWORD align = static_cast<CKDWORD>(values.Integer("spritetext.alignment"));
-    if (align & CKSPRITETEXT_CENTER) align = CKSPRITETEXT_HCENTER | CKSPRITETEXT_VCENTER;
-    const CKDWORD horizontal = CKSPRITETEXT_LEFT | CKSPRITETEXT_HCENTER | CKSPRITETEXT_RIGHT;
-    const CKDWORD vertical = CKSPRITETEXT_TOP | CKSPRITETEXT_VCENTER | CKSPRITETEXT_BOTTOM;
-    auto choice = [&](const char *label, CKDWORD bit, CKDWORD group) {
-        if (ImGui::RadioButton(label, (align & bit) != 0) && !(align & bit)) {
-            const CKDWORD changed = (align & ~group) | bit;
-            PreviewValue(id, "spritetext.alignment", static_cast<int>(changed));
-        }
-    };
-    choice("Left", CKSPRITETEXT_LEFT, horizontal);
-    ImGui::SameLine();
-    choice("Center##h", CKSPRITETEXT_HCENTER, horizontal);
-    ImGui::SameLine();
-    choice("Right", CKSPRITETEXT_RIGHT, horizontal);
-    choice("Top", CKSPRITETEXT_TOP, vertical);
-    ImGui::SameLine();
-    choice("Center##v", CKSPRITETEXT_VCENTER, vertical);
-    ImGui::SameLine();
-    choice("Bottom", CKSPRITETEXT_BOTTOM, vertical);
-    ImGui::EndGroup();
     ImGui::Separator();
     Entity2DPage(target, true);
 }

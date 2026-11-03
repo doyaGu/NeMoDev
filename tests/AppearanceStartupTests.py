@@ -78,7 +78,7 @@ def main():
             if result.returncode or not report.is_file():
                 raise RuntimeError(name + ': ' + result.stdout.decode(errors='replace'))
             cases = [c for c in ET.parse(report).getroot().iter('testcase') if c.find('skipped') is None]
-            if len(cases) != (18 if phase == 'edit' else 1) or any(c.get('status') != 'Success' for c in cases):
+            if len(cases) != (19 if phase == 'edit' else 1) or any(c.get('status') != 'Success' for c in cases):
                 raise RuntimeError(name + ': appearance assertions failed\n' + result.stdout.decode(errors='replace'))
             data = json.loads(profile.read_text(encoding='utf-8'))
             (args.results / (name + '.json')).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')

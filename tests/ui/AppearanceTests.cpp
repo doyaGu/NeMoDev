@@ -24,6 +24,7 @@
 #include "CKObjectAnimation.h"
 #include "CKMidiSound.h"
 #include "CKMidiManager.h"
+#include "CKSpriteText.h"
 #include <chrono>
 #include <algorithm>
 #include <utility>
@@ -2978,6 +2979,183 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
             if (originalManager)
                 context->ActivateManager(originalManager, TRUE);
             IM_CHECK_NO_RET(context->GetManagerByGuid(MIDI_MANAGER_GUID) == originalManager);
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *spriteText = IM_REGISTER_TEST(engine, "appearance", "sprite_text_reflow_text_font_color_cancel_and_undo");
+    spriteText->GuiFunc = MainThreadGui;
+    spriteText->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *text = CKSpriteText::Cast(doc.Context()->CreateObject(CKCID_SPRITETEXT, "Reflow sprite text"));
+            IM_CHECK_NO_RET(text && text->Create(128, 64, 32, 0));
+            text->SetText("Original text\nSecond line");
+            text->SetFont("Arial", 14, 400, FALSE, FALSE);
+            text->SetTextColor(0xff204060);
+            text->SetBackgroundColor(0x80402010);
+            text->SetAlign(static_cast<CKSPRITETEXT_ALIGNMENT>(CKSPRITETEXT_LEFT | CKSPRITETEXT_TOP));
+            doc.Context()->GetCurrentLevel()->AddObject(text);
+            doc.Include(text->GetID());
+            target = doc.Reference(text->GetID());
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupspritetext");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        const auto values = [&] {
+            return Read<SetupDetails>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target,
+                                    {"spritetext.text", "spritetext.font", "spritetext.color",
+                                     "spritetext.background-color", "spritetext.alignment"},
+                                    data);
+                return data;
+            });
+        };
+        const auto text = [&] { return values().Values().Text("spritetext.text"); };
+        const auto font = [&](const char *key) {
+            return int(values().Values().Record("spritetext.font").Integer(key));
+        };
+        const auto alignment = [&] { return int(values().Values().Integer("spritetext.alignment")); };
+        ImGuiID input = 0, size = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##spritetext-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##spritetext-settings");
+            IM_CHECK(table && SetupTable(ctx, view, "##entity2d-settings"));
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            IM_CHECK(!input || input == page->GetID("##text"));
+            IM_CHECK(!size || size == page->GetID("Size"));
+            input = page->GetID("##text");
+            size = page->GetID("Size");
+            for (const char *label : {"##text", "Face", "Size", "Underline", "Right", "Bottom"}) {
+                const auto rect = ctx->ItemInfo(page->GetID(label)).RectFull;
+                bool inside = false;
+                for (int c = 0; c < table->ColumnsCount; ++c)
+                    inside |=
+                        rect.Min.x >= table->Columns[c].WorkMinX - 1 && rect.Max.x <= table->Columns[c].WorkMaxX + 1;
+                IM_CHECK(inside);
+            }
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        ctx->SetRef(SetupRef(view).c_str());
+        const auto before = text();
+        ctx->ItemClick(input);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("Cancelled sprite text");
+        ctx->Yield(2);
+        IM_CHECK(text() != before);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK_EQ(text(), before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemClick(input);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("Confirmed sprite text");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_Enter);
+        ctx->Yield(3);
+        IM_CHECK_EQ(text(), "Confirmed sprite text");
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(text(), before);
+        const int beforeSize = font("size");
+        const auto at = ctx->ItemInfo(size).RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 35, at.y});
+        ctx->Yield(3);
+        IM_CHECK(font("size") != beforeSize);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(font("size"), beforeSize);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(size, beforeSize + 5);
+        ctx->Yield(3);
+        IM_CHECK_EQ(font("size"), beforeSize + 5);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(font("size"), beforeSize);
+        for (const auto &field : {std::make_pair("Bold", "weight"), std::make_pair("Italic", "italic"),
+                                  std::make_pair("Underline", "underline")}) {
+            const int was = font(field.second);
+            ctx->ItemClick(SetupPage(ctx, view)->GetID(field.first));
+            ctx->Yield(3);
+            IM_CHECK(font(field.second) != was);
+            IM_CHECK_EQ(font("size"), beforeSize);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            Undo(ctx);
+            IM_CHECK_EQ(font(field.second), was);
+        }
+        for (const auto &choice : {std::make_pair("Right", CKSPRITETEXT_RIGHT | CKSPRITETEXT_TOP),
+                                   std::make_pair("Bottom", CKSPRITETEXT_LEFT | CKSPRITETEXT_BOTTOM)}) {
+            ctx->ItemClick(SetupPage(ctx, view)->GetID(choice.first));
+            ctx->Yield(3);
+            IM_CHECK_EQ(alignment(), choice.second);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            Undo(ctx);
+            IM_CHECK_EQ(alignment(), CKSPRITETEXT_LEFT | CKSPRITETEXT_TOP);
+        }
+        const auto color = [&](const char *property) { return values().Values().Reals(property); };
+        const auto textColor = color("spritetext.color"), background = color("spritetext.background-color");
+        const auto openColor = [&](const char *label) {
+            ctx->SetRef(SetupRef(view).c_str());
+            ctx->ItemClick(ImHashStr("##ColorButton", 0, SetupPage(ctx, view)->GetID(label)));
+            ctx->Yield(2);
+        };
+        const auto enterColor = [&] {
+            ctx->SetRef("//$FOCUSED");
+            ctx->ItemClick("**/##picker/##hex/##Text");
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+            ctx->KeyChars("7F3344CC");
+            ctx->Yield(2);
+        };
+        openColor("Text Color");
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK(!ctx->UiContext->OpenPopupStack.empty() && ctx->UiContext->OpenPopupStack.back().PopupId == popup);
+        enterColor();
+        IM_CHECK(color("spritetext.color") != textColor);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(color("spritetext.color") == textColor && color("spritetext.background-color") == background);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        openColor("Background Color");
+        enterColor();
+        IM_CHECK(color("spritetext.background-color") != background);
+        ctx->KeyPress(ImGuiKey_Enter);
+        auto *window = ctx->GetWindowByRef(SetupRef(view).c_str());
+        ctx->MouseMoveToPos({window->Pos.x + window->Size.x * .7f, window->Pos.y + 10});
+        ctx->MouseClick(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        IM_CHECK(color("spritetext.color") == textColor);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK(color("spritetext.background-color") == background);
+        OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
             IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
