@@ -12,6 +12,7 @@
 #include "CKMaterial.h"
 #include "CKPatchMesh.h"
 #include "CKGrid.h"
+#include "CKSprite.h"
 #include <algorithm>
 #include <utility>
 #include <cmath>
@@ -1446,6 +1447,144 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK(child);
         IM_CHECK_GT(child->ScrollMax.x, 0);
         IM_CHECK_GT(child->ScrollMax.y, 0);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *sprite = IM_REGISTER_TEST(engine, "appearance", "sprite_reflow_picking_slots_cancel_and_undo");
+    sprite->GuiFunc = MainThreadGui;
+    sprite->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *image = CKSprite::Cast(doc.Context()->CreateObject(CKCID_SPRITE, "Reflow sprite"));
+            IM_CHECK_NO_RET(image && image->Create(16, 16, 32, 0) && image->Create(16, 16, 32, 1));
+            doc.Include(image->GetID());
+            for (int slot = 0; slot < 2; ++slot) {
+                image->SetCurrentSlot(slot);
+                for (int y = 0; y < 16; ++y)
+                    for (int x = 0; x < 16; ++x)
+                        image->SetPixel(x, y,
+                                        0xff000000u | uint32_t(x * 16) << 16 | uint32_t(y * 16) << 8 |
+                                            uint32_t(slot * 32));
+            }
+            image->SetCurrentSlot(0);
+            image->SetSaveOptions(CKTEXTURE_RAWDATA);
+            image->SetTransparentColor(0xff010203);
+            target = doc.Reference(image->GetID());
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupsprite2d");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID preview = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##sprite-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##sprite-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            const auto id = ImHashStr("##preview", 0, page->GetID("image"));
+            IM_CHECK(!preview || preview == id);
+            preview = id;
+            const auto rect = ctx->ItemInfo(preview).RectFull;
+            const int column = table->ColumnsCount - 1;
+            IM_CHECK(rect.Min.x >= table->Columns[column].WorkMinX - 1 &&
+                     rect.Max.x <= table->Columns[column].WorkMaxX + 1);
+            IM_CHECK(SetupTable(ctx, view, "##entity2d-settings"));
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto integer = [&](const char *property) {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {property}, data);
+                return int(data.Values().Integer(property));
+            });
+        };
+        const auto color = [&] {
+            return Read<std::vector<double>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {"sprite.transparent-color"}, data);
+                return data.Values().Reals("sprite.transparent-color");
+            });
+        };
+        const auto ref = SetupRef(view);
+        ChooseInCombo(ctx, ref.c_str(), "##saveoptions", "External");
+        ctx->Yield(3);
+        IM_CHECK_EQ(integer("sprite.save-options"), CKTEXTURE_EXTERNAL);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(ref.c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(integer("sprite.save-options"), CKTEXTURE_RAWDATA);
+        const auto before = color();
+        const auto beginPicking = [&] {
+            ctx->SetRef(ref.c_str());
+            ShowSetupTable(ctx, view, "##sprite-settings");
+            ctx->ItemClick("**/Pick");
+            ctx->Yield(3);
+            ctx->ScrollToItemY(preview);
+            ctx->Yield(3);
+            const auto rect = ctx->ItemInfo(preview).RectFull;
+            const auto at = rect.GetCenter();
+            ctx->MouseMoveToPos(at);
+            ctx->MouseDown(0);
+            ctx->MouseMoveToPos({at.x + 25, at.y});
+            ctx->Yield(3);
+        };
+        beginPicking();
+        const auto picked = color();
+        IM_CHECK(picked != before);
+        const auto mouse = ctx->UiContext->IO.MousePos;
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, preview);
+        ResizeSetup(ctx, view, 1300, false);
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, preview);
+        IM_CHECK(ctx->UiContext->IO.MousePos.x == mouse.x && ctx->UiContext->IO.MousePos.y == mouse.y);
+        IM_CHECK(ctx->UiContext->IO.MouseDelta.x == 0 && ctx->UiContext->IO.MouseDelta.y == 0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        IM_CHECK(color() == picked);
+        ctx->MouseMoveToPos({mouse.x - 25, mouse.y + 30});
+        ctx->Yield(3);
+        IM_CHECK(color() != picked);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(color() == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        beginPicking();
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        const auto after = color();
+        IM_CHECK(after != before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(color() == before);
+        Redo(ctx);
+        IM_CHECK(color() == after);
+        Undo(ctx);
+        ctx->KeyPress(ImGuiKey_N);
+        ctx->Yield(3);
+        IM_CHECK_EQ(integer("sprite.current-slot"), 1);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(integer("sprite.current-slot"), 0);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));

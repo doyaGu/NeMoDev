@@ -750,34 +750,8 @@ void SetupWindows::SpritePage(Setup &setup, ObjectRef target) {
     BitmapInfo(setup, target, data, values);
     const int slot = int(data.Integer("slot"));
     ImGui::Separator();
-    // Save Options and Color Key Transparency, left of the preview.
-    ImGui::BeginGroup();
-    Group("Save Options");
-    const char *options[] = {"Raw Data", "External", "Specific Format", "Global Settings", "Original File"};
-    int option = std::max(0, std::min(4, int(values.Integer("sprite.save-options"))));
-    ImGui::SetNextItemWidth(160);
-    if (TypeAheadCombo("##saveoptions", &option, options, 5))
-        PreviewValue(id, "sprite.save-options", option);
-    if (option == CKTEXTURE_IMAGEFORMAT)
-        SaveFormatControls(target);
-    ImGui::Dummy(ImVec2(1, 6));
-    Group("Color Key Transparency");
-    bool key = values.Boolean("sprite.transparent");
-    if (ImGui::Checkbox("Active", &key))
-        PreviewValue(id, "sprite.transparent", key);
-    const auto keyColor = ColorOf(values, "sprite.transparent-color");
-    float rgb[3] = {keyColor.r, keyColor.g, keyColor.b};
-    if (ImGui::ColorEdit3("Picking", rgb, ImGuiColorEditFlags_NoInputs))
-        PreviewValue(id, "sprite.transparent-color", VxColor(rgb[0], rgb[1], rgb[2], 1.0f));
-    ImGui::SameLine();
-    if (ImGui::Button(setup.pickingColor ? "Picking..." : "Pick")) setup.pickingColor = !setup.pickingColor;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pick a color on the sprite");
-    ImGui::TextDisabled("Activating the color key destroys the alpha channel.");
-    ImGui::EndGroup();
-    // Preview of the current slot.
-    ImGui::SameLine(400);
     const int width = int(data.Integer("width")), height = int(data.Integer("height"));
-    const auto colorKey = ImageKey(target), alphaKey = colorKey | 1ull;
+    const auto colorKey = ImageKey(target);
     if (setup.shownTexture != target || setup.shownSlot != slot || ++setup.textureFrames > 120) {
         setup.shownTexture = target;
         setup.shownSlot = slot;
@@ -788,7 +762,43 @@ void SetupWindows::SpritePage(Setup &setup, ObjectRef target) {
             PixelTexture(colorKey, w, h, pixels.data(), w * 4, false);
         }
     }
-    SlotPreview(setup, target, colorKey, width, height, 220.0f, false);
+    {
+        SetupColumns columns("##sprite-settings", 2);
+        if (columns) {
+            columns.Next();
+            Group("Save Options");
+            const char *options[] = {"Raw Data", "External", "Specific Format", "Global Settings", "Original File"};
+            int option = std::max(0, std::min(4, int(values.Integer("sprite.save-options"))));
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (TypeAheadCombo("##saveoptions", &option, options, 5))
+                PreviewValue(id, "sprite.save-options", option);
+            if (option == CKTEXTURE_IMAGEFORMAT)
+                SaveFormatControls(target);
+            ImGui::Spacing();
+            Group("Color Key Transparency");
+            bool key = values.Boolean("sprite.transparent");
+            if (ImGui::Checkbox("Active", &key))
+                PreviewValue(id, "sprite.transparent", key);
+            const auto keyColor = ColorOf(values, "sprite.transparent-color");
+            float rgb[3] = {keyColor.r, keyColor.g, keyColor.b};
+            if (ImGui::ColorEdit3("Picking", rgb, ImGuiColorEditFlags_NoInputs))
+                PreviewValue(id, "sprite.transparent-color", VxColor(rgb[0], rgb[1], rgb[2], 1.0f));
+            ImGui::SameLine();
+            const char *pickLabel = setup.pickingColor ? "Picking..." : "Pick";
+            if (ImGui::GetContentRegionAvail().x <
+                ImGui::CalcTextSize(pickLabel).x + 2 * ImGui::GetStyle().FramePadding.x)
+                ImGui::NewLine();
+            if (ImGui::Button(pickLabel)) setup.pickingColor = !setup.pickingColor;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pick a color on the sprite");
+            ImGui::PushTextWrapPos(0);
+            ImGui::TextDisabled("Activating the color key destroys the alpha channel.");
+            ImGui::PopTextWrapPos();
+            columns.Next();
+            Group("Image");
+            const float side = std::max(1.f, std::min(384 * PageUnit(), ImGui::GetContentRegionAvail().x - 2));
+            SlotPreview(setup, target, colorKey, width, height, side, false);
+        }
+    }
     ImGui::Separator();
     Entity2DPage(target, true);
 }
@@ -834,8 +844,10 @@ void SetupWindows::SlotPreview(Setup &setup, ObjectRef target, unsigned long lon
     }
     // Picking a color (the image's preview only): the pixel under the mouse
     // while the button is held is the color key (one undo step a drag).
+    // Reflow alone must not sample a new pixel under a stationary pointer.
+    const auto delta = ImGui::GetIO().MouseDelta;
     if (setup.pickingColor && !alpha && ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
-        width > 0 && height > 0) {
+        width > 0 && height > 0 && (ImGui::IsItemActivated() || delta.x != 0 || delta.y != 0)) {
         const ImVec2 mouse = ImGui::GetMousePos();
         const int px = static_cast<int>((mouse.x - at.x - 1.0f + scroll.x) / scale),
                   py = static_cast<int>((mouse.y - at.y - 1.0f + scroll.y) / scale);
