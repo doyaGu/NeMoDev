@@ -844,6 +844,135 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *entity2d = IM_REGISTER_TEST(engine, "appearance", "entity2d_reflow_cancel_and_object_choices");
+    entity2d->GuiFunc = MainThreadGui;
+    entity2d->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef object, parent, material;
+        EditorView view = 0;
+        EditorConfiguration original;
+        std::string parentName, materialName, ownName;
+        OnMainThread(ctx, [&] {
+            auto client = EditorCommands();
+            for (const auto &entry :
+                 {std::make_pair("object.create-frame2d", &parent), std::make_pair("object.create-material", &material),
+                  std::make_pair("object.create-frame2d", &object)}) {
+                const auto made = client.Command(entry.first);
+                const auto *created = EditorClient::Find(made, "created");
+                IM_CHECK_NO_RET(created && created->object);
+                *entry.second = created->object;
+            }
+            SetupPageData page;
+            IM_CHECK_NO_RET(ReadSetupPage(client, parent, -1, page));
+            parentName = page.name;
+            IM_CHECK_NO_RET(ReadSetupPage(client, material, -1, page));
+            materialName = page.name;
+            IM_CHECK_NO_RET(ReadSetupPage(client, object, -1, page));
+            ownName = page.name;
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", object)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setup2d");
+            IM_CHECK_NO_RET(view);
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID input = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            auto *page = SetupPage(ctx, view);
+            const auto *table = ctx->UiContext->Tables.GetByKey(page->GetID("##entity2d-settings"));
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            const int axis = 0;
+            const auto id = ImHashData(&axis, sizeof(axis), page->GetID("X / Y"));
+            IM_CHECK(!input || input == id);
+            input = id;
+            for (const auto &field : {std::make_pair("X / Y", 2), std::make_pair("Width / Height", 2),
+                                      std::make_pair("Z Order", 1), std::make_pair("L / T / R / B", 4)}) {
+                for (int component = 0; component < field.second; ++component) {
+                    const auto id = field.second == 1
+                                        ? page->GetID(field.first)
+                                        : ImHashData(&component, sizeof(component), page->GetID(field.first));
+                    const auto rect = ctx->ItemInfo(id).RectFull;
+                    bool inside = false;
+                    for (int i = 0; i < table->ColumnsCount; ++i)
+                        inside |= rect.Min.x >= table->Columns[i].WorkMinX - 1 &&
+                                  rect.Max.x <= table->Columns[i].WorkMaxX + 1;
+                    IM_CHECK(inside);
+                }
+            }
+            if (width == 450) IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto position = [&] {
+            return Read<std::vector<double>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), object, {"entity2d.position"}, data);
+                return data.Values().Reals("entity2d.position");
+            });
+        };
+        const auto before = position();
+        IM_CHECK_EQ(before.size(), 2);
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ScrollToItemY(input);
+        const auto at = ctx->ItemInfo(input).RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 40, at.y});
+        ctx->Yield(3);
+        IM_CHECK(position() != before);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(position() == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(input, float(before[0] + .25));
+        ctx->Yield(3);
+        const auto after = position();
+        IM_CHECK(std::fabs(after[0] - before[0] - .25) < .001 && after[1] == before[1]);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(position() == before);
+        const auto choice = [&](const char *property) {
+            return Read<ObjectRef>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), object, {property}, data);
+                return data.Values().Object(property);
+            });
+        };
+        const auto originalMaterial = choice("entity2d.material"), originalParent = choice("entity2d.parent");
+        const auto ref = SetupRef(view);
+        ChooseInCombo(ctx, ref.c_str(), "##material", materialName.c_str());
+        ctx->Yield(3);
+        IM_CHECK(choice("entity2d.material") == material);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(choice("entity2d.material") == originalMaterial);
+        ChooseInCombo(ctx, ref.c_str(), "##parent", ownName.c_str());
+        ctx->Yield(3);
+        IM_CHECK(choice("entity2d.parent") == originalParent);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ChooseInCombo(ctx, ref.c_str(), "##parent", parentName.c_str());
+        ctx->Yield(3);
+        IM_CHECK(choice("entity2d.parent") == parent);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(choice("entity2d.parent") == originalParent);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

@@ -509,8 +509,7 @@ void SetupWindows::LightPage(ObjectRef target) {
 void SetupWindows::Entity2DPage(ObjectRef target, bool sprite) {
     const auto id = target;
     SetupDetails description;
-    if (!ReadDetails(target, "entity2d", description))
-        return;
+    if (!ReadDetails(target, "entity2d", description)) return;
     const auto data = description.Values();
     SetupDetails propertyData;
     if (!ReadProperties(target,
@@ -522,98 +521,81 @@ void SetupWindows::Entity2DPage(ObjectRef target, bool sprite) {
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    ImGui::BeginGroup();
-    Group("General");
+    SetupColumns columns("##entity2d-settings", 3);
+    if (!columns) return;
     auto flag = [&](const char *property, const char *label) {
         bool value = values.Boolean(property);
-        if (ImGui::Checkbox(label, &value))
-            PreviewValue(id, property, value);
+        if (ImGui::Checkbox(label, &value)) PreviewValue(id, property, value);
     };
-    ImGui::Indent(20);
+    // Native inputs keep their visible label and component IDs from the existing page.
+    const auto width = [](const char *label) {
+        ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(label).x -
+                                                  ImGui::GetStyle().ItemInnerSpacing.x));
+    };
+    columns.Next();
+    Group("General");
     flag("entity2d.pickable", "Pickable");
-    ImGui::SameLine();
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("(Hold shift to pick it anyway)");
+    ImGui::PopTextWrapPos();
     const bool homogeneous = values.Boolean("entity2d.homogeneous");
     flag("entity2d.homogeneous", "Homogeneous Coordinates");
     flag("entity2d.clip-to-camera", "Clip To Camera");
     flag("entity2d.ratio-offset", "Relative To Viewport");
-    ImGui::Unindent(20);
+    columns.Next();
     Group("Position");
-    ImGui::Indent(20);
     const auto position = Vector2Of(values, "entity2d.position"), size = Vector2Of(values, "entity2d.size");
-    float xy[2] = {position.x, position.y};
-    ImGui::SetNextItemWidth(200);
-    if (ImGui::DragFloat2("X / Y", xy, homogeneous ? 0.001f : 1.0f, 0.0f, 0.0f, "%.4f"))
+    float xy[] = {position.x, position.y};
+    width("X / Y");
+    if (ImGui::DragFloat2("X / Y", xy, homogeneous ? .001f : 1.f, 0, 0, "%.4f"))
         PreviewValue(id, "entity2d.position", Vx2DVector(xy[0], xy[1]));
     int z = int(values.Integer("entity2d.zorder"));
-    ImGui::SetNextItemWidth(80);
-    if (ImGui::DragInt("Z Order", &z, 0.2f))
-        PreviewValue(id, "entity2d.zorder", z);
+    width("Z Order");
+    if (ImGui::DragInt("Z Order", &z, .2f)) PreviewValue(id, "entity2d.zorder", z);
     flag("entity2d.background", "Background Sprite");
-    ImGui::Unindent(20);
-    ImGui::Dummy(ImVec2(1, 10));
     Group("Size");
-    ImGui::Indent(20);
-    float wh[2] = {size.x, size.y};
-    ImGui::SetNextItemWidth(200);
-    if (ImGui::DragFloat2("Width / Height", wh, homogeneous ? 0.001f : 1.0f, 0.0f, 0.0f, "%.4f"))
+    float wh[] = {size.x, size.y};
+    width("Width / Height");
+    if (ImGui::DragFloat2("Width / Height", wh, homogeneous ? .001f : 1.f, 0, 0, "%.4f"))
         PreviewValue(id, "entity2d.size", Vx2DVector(wh[0], wh[1]));
-    ImGui::Unindent(20);
-    ImGui::EndGroup();
-    ImGui::SameLine(380);
-    ImGui::BeginGroup();
+    columns.Next();
     ObjectRef chosen{};
     if (!sprite) {
         Group("Material:");
-        ImGui::SameLine();
-        if (ObjectChoice("##material", CKCID_MATERIAL, data.Object("material"), data.Text("material-name"), &chosen))
-            PreviewValue(id, "entity2d.material", chosen);
-        // Documentation "2D Frame Setup": "Clicking on the icon opens the Material setup".
-        ImGui::SameLine();
-        ImGui::BeginDisabled(!data.Object("material"));
-        if (ImGui::SmallButton(">##materialsetup") && data.Object("material"))
-            Open(data.Object("material"));
+        const auto material = data.Object("material");
+        ImGui::BeginDisabled(!material);
+        if (ImGui::SmallButton(">##materialsetup") && material) Open(material);
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Show Material Setup");
-        ImGui::Dummy(ImVec2(1, 50));
+        ImGui::SameLine();
+        if (ObjectChoice("##material", CKCID_MATERIAL, material, data.Text("material-name"), &chosen,
+                         ImGui::GetContentRegionAvail().x))
+            PreviewValue(id, "entity2d.material", chosen);
     }
-    // 2D Frame "UVMapping" (homogeneous source rectangle); 2D Sprite
-    // "Cropping" (the same CK2dEntity source rectangle, in pixels).
     Group(sprite ? "Cropping" : "UVMapping");
-    ImGui::SameLine();
     flag("entity2d.source-rect", "Active");
     const auto source = RectOf(values, "entity2d.uv");
-    float uv[4] = {source.left, source.top, source.right, source.bottom};
-    ImGui::SetNextItemWidth(260);
-    if (ImGui::DragFloat4("L / T / R / B", uv, sprite ? 1.0f : 0.005f, 0.0f, 0.0f, sprite ? "%.0f" : "%.3f"))
+    float uv[] = {source.left, source.top, source.right, source.bottom};
+    width("L / T / R / B");
+    if (ImGui::DragFloat4("L / T / R / B", uv, sprite ? 1.f : .005f, 0, 0, sprite ? "%.0f" : "%.3f"))
         PreviewValue(id, "entity2d.uv", VxRect(uv[0], uv[1], uv[2], uv[3]));
-    ImGui::Dummy(ImVec2(1, 10));
+    columns.Next();
     Group("Parent");
-    ImGui::SameLine();
-    if (ObjectChoice("##parent", CKCID_2DENTITY, data.Object("parent"), data.Text("parent-name"), &chosen) &&
-        chosen != id)
-        PreviewValue(id, "entity2d.parent", chosen);
-    // Show Parent Setup (Dev.exe sub_479A10, command 816).
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!data.Object("parent"));
-    if (ImGui::SmallButton(">##parentsetup") && data.Object("parent"))
-        Open(data.Object("parent"));
+    const auto parent = data.Object("parent");
+    ImGui::BeginDisabled(!parent);
+    if (ImGui::SmallButton(">##parentsetup") && parent) Open(parent);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Show Parent Setup");
+    ImGui::SameLine();
+    if (ObjectChoice("##parent", CKCID_2DENTITY, parent, data.Text("parent-name"), &chosen,
+                     ImGui::GetContentRegionAvail().x) &&
+        chosen != id)
+        PreviewValue(id, "entity2d.parent", chosen);
     flag("entity2d.clip-to-parent", "Clip to Parent");
-    // Stick Left / Right / Top / Bottom: keep the distance to the parent's borders.
-    const std::pair<const char *, const char *> sticks[] = {
-        {"entity2d.stick-left", "Stick Left"},
-        {"entity2d.stick-right", "Stick Right"},
-        {"entity2d.stick-top", "Stick Top"},
-        {"entity2d.stick-bottom", "Stick Bottom"},
-    };
-    for (int k = 0; k < 4; ++k) {
-        if (k % 2)
-            ImGui::SameLine(150);
-        flag(sticks[k].first, sticks[k].second);
-    }
-    ImGui::EndGroup();
+    flag("entity2d.stick-left", "Stick Left");
+    flag("entity2d.stick-right", "Stick Right");
+    flag("entity2d.stick-top", "Stick Top");
+    flag("entity2d.stick-bottom", "Stick Bottom");
 }
 
 namespace {
