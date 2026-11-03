@@ -1,0 +1,565 @@
+{
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "editor_version": 23,
+    "profile_version": 1,
+    "workspace_version": 1
+  },
+  "remaining": {
+    "performance": "按用户要求继续暂缓，原定 3% 门槛不变；本批验证功能、资源复用、GPU/fallback 和读回上传计数，没有计时验收。",
+    "runtime_process_isolation": "单独实施。",
+    "not_executed": [
+      "Windows/Linux 实机",
+      "原版 Level_1.NMO（合法 NMO 直接打开包含在完整回归）",
+      "完整原版帮助与真实系统打印",
+      "完整发布包及整个原生桌面 Player 组（仅复验双视口全屏）"
+    ],
+    "stage_six_gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "双视口及其 GPU 稳定帧计数、独立 fallback、快照和原生全屏已覆盖；性能计时验收按用户要求暂缓，原定门槛不变"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material、Entity 的 2D/3D、Texture、Mesh、Grid 页面及公共页头使用共享响应式分栏或字段布局，控件身份不随布局变化。Texture 与 Sprite 共用内存格式和槽位概览，图像预览保留原缓存；Mesh 通道保留多选、菜单和横向滚动；Grid 保留多图层笔画，重排不误涂，大网格按可见区域绘制并可滚动。修改、取消与单步撤销仍走已有流程。旧坐标页按实际控件和文字扩展滚动范围；Sprite 专用保存与预览区、Curve/Character 等剩余固定坐标页及专用弹窗仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产模块发现、统一装配、按身份启用禁用及替换、配置和窗口状态保存恢复已实现；完整模块发布包的各平台实机验证仍待完成"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "尚未实现通用模块文档数据。需补登记与版本升级、文档所有权、保存加载、未知模块原样保留、对象引用重映射、Import/Merge 冲突及失败恢复、撤销和无数据时不写空区。现有 Layout/Pictures 文档数据回归不能替代这些测试。"
+      }
+    ],
+    "separate_work": [
+      {
+        "id": "runtime-isolation",
+        "feature": "F17",
+        "name": "运行时进程隔离",
+        "reason": "用户明确安排单独实施；本轮阶段五收尾不包含它。原生单次调用仍不能强制中断。中断后保留文档、选区和撤销历史，并继续嵌入 3D 视口的要求不变。"
+      }
+    ]
+  },
+  "description": "阶段六：Texture、Mesh 和 Grid Setup 布局，复用既有查询、修改、取消和撤销；性能验收暂缓，进程隔离单独实施。",
+  "base_revision": "b0dbcbbb2227bd51c060ae454ae95516c8f9c829",
+  "starting_worktree": "本批开始时 main 工作区干净；source-before.json 和空 starting.patch 保存改动起点。",
+  "verification_status": "passed functional regression; performance deferred",
+  "changes": [
+    "Texture 与 Sprite 共用内存格式和槽位概览，删除重复绘制；槽位导航和文件动作仍走原有命令。",
+    "Texture 的保存、透明色、引用列表及图像和 Alpha 预览使用原有分栏；保留原像素缓存、缩放、平移、拾色、拖放及弹窗编号。",
+    "Mesh 的渲染参数、几何信息、通道和材质列表复用分栏及字段布局；通道支持横向滚动，原有多选、菜单、拖放和属性编辑保持。",
+    "Grid 的笔画、图层与分类、全局列表使用相同分栏；画布保留最小单元格尺寸，大网格在原生子窗口内横纵滚动，只绘制可见区域。",
+    "Grid 按实际按下或鼠标移动更新笔画，避免按住鼠标重排窗口时误涂新的单元格；仍用同一多目标草稿，取消恢复、确认一步撤销。",
+    "SDK、Editor C 接口、共享 SetupLayout、GPU 快通道和通用 fallback 未改；F25 保留 Sprite 专用区、Curve/Character 等剩余坐标页、弹窗及其他平台复验。"
+  ],
+  "coverage": {
+    "files": 1136,
+    "groups": 59,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 8,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-texture-mesh-grid/build-final.log",
+      "sha256": "0cf1c9e79b427924167dcad765526ca5704e2b3819df819b78c0685507ac4bbe"
+    },
+    "incremental_test_build": {
+      "path": "out/phase-six-texture-mesh-grid/build-tests-third.log",
+      "sha256": "74b7b14a5c824e9fa74ccd3e81cd2dc694d84c9a93ac15c87e2815909e432347"
+    },
+    "complete_nonperformance_ctest": {
+      "total": 137,
+      "passed": 137,
+      "failures": 0,
+      "skipped": 0,
+      "core_tests": 113,
+      "ui_ctest_groups": 24,
+      "report": {
+        "path": "out/phase-six-texture-mesh-grid/full-final.xml",
+        "sha256": "de568a16927602187399a6007df8276527f1a5cb8315d8ca0f7b24fe10858d6e"
+      },
+      "inventory": {
+        "path": "out/phase-six-texture-mesh-grid/ctest-inventory-final.json",
+        "sha256": "4dd799dd28778dcfef1e814ef2fc7fb2ebb70d70b32510a652de125a321ab076"
+      },
+      "validation": {
+        "path": "out/phase-six-texture-mesh-grid/results-check-final.log",
+        "sha256": "669b999a673e1ba6ac2af78a841ea026f180c3f566a55a911fd6e9624c54972f"
+      }
+    },
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "executed": 3,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/html.xml",
+          "sha256": "fc7b36ced68b713f20f57281f749f3b9440bfe6d3ab80377d198ebbd887bf10e"
+        }
+      },
+      "VirtoolsDevUi.app": {
+        "executed": 28,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/app.xml",
+          "sha256": "0d45fc65f8f7e864a3abb35d31e3d2192c35f7ce1e557377ef8fe2dd9f6e2923"
+        }
+      },
+      "VirtoolsDevUi.layoutviews": {
+        "executed": 4,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/layoutviews.xml",
+          "sha256": "5f085295e7b22f9b1cfcb566296694281cdd0b09bc75260753bf0e7008f8a4a6"
+        }
+      },
+      "VirtoolsDevUi.filemenu": {
+        "executed": 10,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/filemenu.xml",
+          "sha256": "bb4583af9e4af86b47ad90c54e3ad3b7ea7cd489747ceb6951b10666ea72b464"
+        }
+      },
+      "VirtoolsDevUi.schematic": {
+        "executed": 26,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/schematic.xml",
+          "sha256": "568b6e902075f1c3d70046d22d99cf1c6b62276682c01e9210d825059de7ff96"
+        }
+      },
+      "VirtoolsDevUi.debugger": {
+        "executed": 10,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/debugger.xml",
+          "sha256": "d96c28167a4a510b0b4065c42520975dfd4cd94bc707052fd7efeca56e0d8021"
+        }
+      },
+      "VirtoolsDevUi.layout": {
+        "executed": 33,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/layout.xml",
+          "sha256": "6963ef91e640c750d3c04b26adac55d7c5d7bbd1b1bd9ed026aff79857053c41"
+        }
+      },
+      "VirtoolsDevUi.level": {
+        "executed": 7,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/level.xml",
+          "sha256": "14b11fb5e6f6ac4b33d44fbf3fdde438d697975545b6d6c1819a123647c123bc"
+        }
+      },
+      "VirtoolsDevUi.setup": {
+        "executed": 21,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/setup.xml",
+          "sha256": "712f0c62c7686ec5f0919d6e415e49f505b723dcffa266793d7820b9a3a5086f"
+        }
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "executed": 7,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/propertyedits.xml",
+          "sha256": "085418ec0209b18e32d71e13394c8031d4e6f037dc64c3616ac6cc61e21fdc87"
+        }
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "executed": 8,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/hierarchy.xml",
+          "sha256": "5d77f48ea1944900feba1f1a39ceb38dd428650f57d1ebc2290498042818d355"
+        }
+      },
+      "VirtoolsDevUi.blocks": {
+        "executed": 7,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/blocks.xml",
+          "sha256": "b75d3ff01c22b7eebde18057ab75ebe9daafa9337a246392abdc2e01ea183732"
+        }
+      },
+      "VirtoolsDevUi.attributes": {
+        "executed": 6,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/attributes.xml",
+          "sha256": "0950acd6d53ae30e06ba524521aad1c5360a5c45d678e899e1e8b6b5376518a5"
+        }
+      },
+      "VirtoolsDevUi.create": {
+        "executed": 6,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/create.xml",
+          "sha256": "74fe8236bc77c93f562167d5176e14a0594b9047eb44482ee96a21a2ef9a7531"
+        }
+      },
+      "VirtoolsDevUi.tools": {
+        "executed": 13,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/tools.xml",
+          "sha256": "3b5377ab5bada3e05ba6639345ab0d9a23bdc970d955eb76202656940893cab1"
+        }
+      },
+      "VirtoolsDevUi.sound": {
+        "executed": 2,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/sound.xml",
+          "sha256": "910e5778fe8446bdb4aff9c68c5eba1e73ed4d762503b8999588c401a76ac481"
+        }
+      },
+      "VirtoolsDevUi.character": {
+        "executed": 2,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/character.xml",
+          "sha256": "ea0d2768ddfcfff172c6ae73a8843e433e6df464c179128373a0b92a8a464741"
+        }
+      },
+      "VirtoolsDevUi.modules": {
+        "executed": 74,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/virtoolsdev-ui/modules.xml",
+          "sha256": "7e5bd880650f27f01e691b6258431769133c78df8d85b5c1e248143c0221f4d3"
+        }
+      }
+    },
+    "appearance_startup_cases": [
+      {
+        "executed": 1,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/builtin-disabled.xml",
+          "sha256": "b0f711e113acc9ad507d57209562c6837cedea1a162428dcbb9385efa7f21b0a"
+        }
+      },
+      {
+        "executed": 10,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/editing.xml",
+          "sha256": "994893a4d54ee00117e7764eaeec40248c5e53cbdd0b4fa50f13ea7693c7d514"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/missing-provider.xml",
+          "sha256": "2b59f1e330eaffb0a7402baf674616502b4651aa496991fc0d9f2e71888e8c36"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/provider-returned.xml",
+          "sha256": "d3c748afff54385406fff73301baa5e900fe13a79fdbe38fb0fd3375abe691f5"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/restore.xml",
+          "sha256": "78a69f09181ca143e8994b91b54c60fd85030fee1a4739f6a5df763ddc3e200a"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 302,
+        "report": {
+          "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/save.xml",
+          "sha256": "7d779795cd23c8c409eb10ba052f7138b3f45f7a4e987806b2d7ff87e8c2e3aa"
+        }
+      }
+    ],
+    "appearance_expected_startup_failures": [
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/invalid-theme.log",
+        "sha256": "83786bfa34f2ec9797efa4e0b95ba265a8b5869c1398ecd4d5d7865aa04990f1"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/invalid-font.log",
+        "sha256": "6de9a2ff64ce74ada08037c0e18d2a5fe89059952a35ebf0b46203cd22a277ed"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/appearance-startup/invalid-layout.log",
+        "sha256": "b25d71b4749814a5cde4238380855e2919f9225aa49f7e962eebfff666cf8103"
+      }
+    ],
+    "workspace_startup_combinations": [
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/bad-dock-tree.xml",
+        "sha256": "75cd36765e5bbaa8ac4ca525377770dae6540a5c2eaf036d30404704779cb721"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/bad-view-version.xml",
+        "sha256": "414d9e6c5a3ef4f9d4c10e2a6d1b96f631b76202ff3aef67770fc628f7899f62"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/close-missing-provider.xml",
+        "sha256": "1a7c72dff3686d60ac4564b4a084457d35bbc0ecb8f3f9bc856d7320459af94f"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/discard-unrestored.xml",
+        "sha256": "823fca68ddde6ac108b99f1691d3750b75e94ab4fc3c2590b01451ddaf8dc601"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/first-start-with-document.xml",
+        "sha256": "16e62449cece10314d7895036e8e3cd03b04f73106d19641897fed2fee592b90"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/missing-provider.xml",
+        "sha256": "2b63713e2ca2ab05cd7aa39cc9b416aa508338631e3bdc7079b783e481d4b2c7"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/provider-returned.xml",
+        "sha256": "f1cb5573c3b9f0da2530dea5776d1866c3d9fd91cc5d299ad39a1e9f67cfe010"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/restore.xml",
+        "sha256": "911e177f0a87c9070ac6e574c343ef56100c7ccb67fafc444e7b409ab57308f2"
+      },
+      {
+        "path": "out/phase-six-texture-mesh-grid/reports/workspace-startup/save.xml",
+        "sha256": "7b6cb84b494de315f801a60e9d68df57316776e278803bb6b5b73f6e0133ca56"
+      }
+    ],
+    "architecture_checker_cases": 58,
+    "architecture_checker_log": {
+      "path": "out/phase-six-texture-mesh-grid/architecture-tests-final.log",
+      "sha256": "5a18f52c03cfa36752f5eb230dd6afc27bda29b472e928002bfaad6d1e841aa5"
+    },
+    "architecture_log": {
+      "path": "out/phase-six-texture-mesh-grid/architecture-final.log",
+      "sha256": "3cacdfaebe08e7f88c5f6615c9f51a0cab73e43ee651fd5ebb28136c5ebf2427"
+    },
+    "native_desktop": {
+      "case": "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+      "executed": 1,
+      "registered": 302,
+      "report": {
+        "path": "out/phase-six-texture-mesh-grid/player-final.xml",
+        "sha256": "82fb2327cec00b62e2d5687375411805c665e05ff35e9260e3d3333870545fbb"
+      },
+      "log": {
+        "path": "out/phase-six-texture-mesh-grid/player-final.log",
+        "sha256": "c9b8945e38239b72960bb15129a8dad411db9380395d57e2a61f8b32d2e63eb2"
+      }
+    },
+    "new_regressions": [
+      "Texture、Mesh、Grid 在 1500、690、450、1500 宽度及替代字体、主题缩放下往返，验证分栏、控件编号、预览与表格边界、窄窗口滚动。",
+      "Texture 两个图像槽和双预览；阈值拖动中重排后 Escape 恢复且不增加历史，数值确认和槽位导航各只增加一步撤销。",
+      "Mesh 通道横向滚动后修改 Active 和目标混合模式，各只产生一步撤销；多选跨重排后一次移除两个通道，Undo 恢复数量及属性。",
+      "PatchMesh 迭代拖动中重排后取消恢复，数值确认仅一步撤销，Undo 恢复。",
+      "Grid 通过统一命令创建并添加两个图层，原生界面 Ctrl 多选；一笔修改两个图层，重排时静止指针不误涂，Escape 恢复全部单元格且历史不变。",
+      "Grid 笔画确认仅一步 Undo/Redo；Priority 和 Grid Cross 各一步撤销，切换 3D 属性不修改文档；256×256 网格在窄窗口可横纵滚动。",
+      "原有 SetupTests 和 UiTests 输入辅助代码保持，完整回归覆盖图像资源拖放、槽位失败恢复、文件和导出保护、撤销、合法 NMO 直接打开、GPU 快通道与通用 fallback。",
+      "新页面交互后的 GPU 视口仍使用原生纹理，读回与上传计数为零；原生双视口全屏退出后焦点与 GPU 恢复。"
+    ],
+    "discarded_runs": [
+      "新增 Grid 测试最初查询了不存在的 Entity 表格编号；改为验证现有变换和详情分组后通过，未放宽断言或超时。"
+    ],
+    "ordinary_ui_cases": 267,
+    "appearance_selected_cases": 15
+  },
+  "preservation": {
+    "sdk_source_writes_by_this_batch": false,
+    "sdk_changes_during_work": [],
+    "sdk_changes_during_final_test": [],
+    "sdk_record_note": "本批未写入 SDK；16 个仓库按当前源码内容比较，22 项运行文件按完整哈希比较，最终构建与回归使用同一份 SDK。",
+    "sdk_start_record": {
+      "path": "out/phase-six-texture-mesh-grid/sdk-start.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_build_start_record": {
+      "path": "out/phase-six-texture-mesh-grid/sdk-build-start-final.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_test_start_record": {
+      "path": "out/phase-six-texture-mesh-grid/sdk-test-start-final.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_end_record": {
+      "path": "out/phase-six-texture-mesh-grid/sdk-after.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_tested": {
+      ".": {
+        "revision": "659f81eb129fcca7e5e867886ff1a83a8cf454f9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks": {
+        "revision": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/3DTrans/qhull": {
+        "revision": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/physics_RT/ivp": {
+        "revision": "7579664996e68040dd0158081b04f612e6a2d515",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2": {
+        "revision": "895d6d64a93b72b221e24477c3ba4b145e801f01",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2/deps/miniz": {
+        "revision": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/ParameterOperations": {
+        "revision": "85767adbdf70c327fcb9da9d179285a390bd6756",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlInputManager": {
+        "revision": "9129b619483d6f75a8947b4af7a4d51d3f4afb9f",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlSoundManager": {
+        "revision": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Player": {
+        "revision": "650c3676bea4b1535f2522395d8f907056303488",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Plugins": {
+        "revision": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/RenderEngine": {
+        "revision": "aa4fc6165c4d9ca6ff8b46de167fe0681dda0016",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath": {
+        "revision": "37ab8af3619f7bcf38f39e7561ab88fffe8bbf3d",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde": {
+        "revision": "2e5224981e9123b8fe89a9833a978556d636a565",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde/test/munit": {
+        "revision": "da8f73412998e4f1adf1100dc187533a51af77fd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/stb": {
+        "revision": "31c1ad37456438565541f4919958214b6e762fb4",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "sdk_source_contents_unchanged_during_final_test": true,
+    "sdk_content_check": {
+      "path": "out/phase-six-texture-mesh-grid/sdk-content-check-final.json",
+      "sha256": "d094581c5f7e8f452ba2c56ab8d7d2fa684f5afbdf6f3895c8f78893d7943b47"
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "runtime_files_unchanged_during_final_test": true,
+    "runtime_test_start_record": {
+      "path": "out/phase-six-texture-mesh-grid/runtime-test-start-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_end_record": {
+      "path": "out/phase-six-texture-mesh-grid/runtime-after.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "unchanged_gpu_source_sha256": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "editor_c_interface_changed_this_batch": false,
+    "editor_header_sha256": "53193de3459aabe594dd9fb1b0a10ea9791f0a63ae110bcf52e9a4ccea541462",
+    "document_formats_changed": false,
+    "unchanged_layout_helpers_sha256": {
+      "ui/setup/SetupLayout.cpp": "44607d9ce54fbd80d33a73db6cf03504538c029fb0e3cd91e43b25e87ccd75df",
+      "ui/setup/SetupLayout.h": "cb3863187b57da9737815142a6e50724d3e861cbdc394c7f19e6c27f4241c8cd"
+    },
+    "unchanged_original_setup_test_sha256": {
+      "tests/ui/SetupTests.cpp": "3149c207a52fbda6560138c4bbd8ae762d8362201a89d0460f928c8ccb43c868",
+      "tests/ui/UiTests.cpp": "be02e3b97ce666c0df4a8e4622d1d94012dbf8d651122922777cca3f2c45e1ba"
+    },
+    "starting_source_record": {
+      "path": "out/phase-six-texture-mesh-grid/source-before.json",
+      "sha256": "07b54832d3bf59d4adae7e25ab49187cc58f63ef4848b2b475ed1c7d19b3605c"
+    },
+    "starting_patch": {
+      "path": "out/phase-six-texture-mesh-grid/starting.patch",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}
