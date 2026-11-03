@@ -1,0 +1,526 @@
+{
+  "description": "阶段六：页面配色与共享尺寸使用现有主题；SDK、GPU 快通道及通用 fallback 保留。性能验收暂缓，进程隔离单独实施。",
+  "base_revision": "7265e8f16eddbb0f8962231fd34efa2e9f6e838b",
+  "starting_worktree": "继续上一批尚未提交的外观资源改动；本批起点由 source-before.json 和 starting.patch 保存，未创建提交。",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "editor_version": 23,
+    "profile_version": 1,
+    "workspace_version": 1
+  },
+  "changes": [
+    "Schematic 纯绘制样式移到 ui/controls，去除偏好头依赖；主题编译读取同一份颜色字段，不增加 UI 对 SDK 的访问。",
+    "Schematic 画布、节点、选区、运行、断点和状态提示采用主题颜色；General Preferences 原有连线及对象状态配色仍由原设置管理。",
+    "Setup、快照窗口、对象列表和 Event Log 的界面配色使用已编译主题，保留对象自身颜色、Script 文档配色、灰阶和黑白打印纸色。",
+    "共享标题高度、圆角、面板轮廓、列表留白、Setup 项间距和旧式页面坐标缩放进入原有尺寸值，默认外观不变。",
+    "应用仅在外观版本变化时生成 Schematic 绘制副本；稳定帧直接读取数值，不查询资源描述或重新解析主题。",
+    "补齐新样式、错误缩放、Schematic 绘制和原生窗口组合；主题切换和恢复保留文档、选区、Dirty 及 Undo/Redo。",
+    "删除失效的 S21 → S17 依赖例外，补正外观状态与资源的所有权说明；F25 仍保留旧式 Setup 版式及平台复验。"
+  ],
+  "coverage": {
+    "files": 1130,
+    "groups": 59,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 8,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-page-appearance/build-final.log",
+      "sha256": "9b67309afda74f85583eda1468d69a6d65b08acdfd3b203b9eca760867130396"
+    },
+    "complete_nonperformance_ctest": {
+      "total": 137,
+      "passed": 137,
+      "failures": 0,
+      "skipped": 0,
+      "core_tests": 113,
+      "ui_ctest_groups": 24,
+      "report": {
+        "path": "out/phase-six-page-appearance/full-final.xml",
+        "sha256": "811250fed463cacdee5d89371e68f758c8d31c26c10965dccefdb1e40d429b42"
+      },
+      "inventory": {
+        "path": "out/phase-six-page-appearance/ctest-inventory-final.json",
+        "sha256": "e7bc95c047b0128c144a890286a0b16866a7ee02441c9eef33c8ef3f7d375684"
+      },
+      "validation": {
+        "path": "out/phase-six-page-appearance/results-check-final.log",
+        "sha256": "669b999a673e1ba6ac2af78a841ea026f180c3f566a55a911fd6e9624c54972f"
+      }
+    },
+    "ordinary_ui_cases": 267,
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "executed": 3,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/html.xml",
+          "sha256": "fd780a9e179deda46dac234c77a57c47d3b91aa85ae9e0e979c5298eba68ce5c"
+        }
+      },
+      "VirtoolsDevUi.app": {
+        "executed": 28,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/app.xml",
+          "sha256": "69d2c0b11b5c32c6ae7d086c8951b5447c5a4d650847eaf4bb30d280f639d4f4"
+        }
+      },
+      "VirtoolsDevUi.layoutviews": {
+        "executed": 4,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/layoutviews.xml",
+          "sha256": "2e2ef197d78b9c9c034c49516615bb022de37a6e25f2ef661ed6178d600e1635"
+        }
+      },
+      "VirtoolsDevUi.filemenu": {
+        "executed": 10,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/filemenu.xml",
+          "sha256": "0a68ef1581c4d17bff3b4eb9cf655ba6513b48f78c50778a648e33b3d9b6aeae"
+        }
+      },
+      "VirtoolsDevUi.schematic": {
+        "executed": 26,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/schematic.xml",
+          "sha256": "b85f319f3421e79c01818ff5a13e432c3e40cc3c56f2041175646c66ffa6e0b5"
+        }
+      },
+      "VirtoolsDevUi.debugger": {
+        "executed": 10,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/debugger.xml",
+          "sha256": "56d4d099f5f8986241aec82de9df3a2aec074f1c57e4af55611a85ace6f0c7c3"
+        }
+      },
+      "VirtoolsDevUi.layout": {
+        "executed": 33,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/layout.xml",
+          "sha256": "1061b1b47d6857326309a44b0fdc08c7b63f085ad58fbebc29c889bee8e3265d"
+        }
+      },
+      "VirtoolsDevUi.level": {
+        "executed": 7,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/level.xml",
+          "sha256": "ff59c5418cdde2b65f602d314d9a41853d88e3a0ff7af0d747a6358d0fd29835"
+        }
+      },
+      "VirtoolsDevUi.setup": {
+        "executed": 21,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/setup.xml",
+          "sha256": "8b2e9de8801b2b63f4d9a8f585d88d95676c687fbc685fb8c1d596944e1e9f1e"
+        }
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "executed": 7,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/propertyedits.xml",
+          "sha256": "30a8ef6a2f1e16f6800fd9008a1c1894c86019aca82de1af602dd19175e9f93f"
+        }
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "executed": 8,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/hierarchy.xml",
+          "sha256": "a8498b6f03621fe02c4fc6ca735e4cf2df95dbef5c61edd2e29f8a133ce555df"
+        }
+      },
+      "VirtoolsDevUi.blocks": {
+        "executed": 7,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/blocks.xml",
+          "sha256": "d3c5b5ea0438de9b570ca53d369302ace7d10623f25faeb0585ee8dd181eed48"
+        }
+      },
+      "VirtoolsDevUi.attributes": {
+        "executed": 6,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/attributes.xml",
+          "sha256": "902f6737042dfbf2fb11c334a2ffee59dcfa53addd7bd87d2e346b8db0353ccc"
+        }
+      },
+      "VirtoolsDevUi.create": {
+        "executed": 6,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/create.xml",
+          "sha256": "35eff2e6c0f4dfdfb9227ac5b504fd6143f9e2b50409e33a3d765743dbb4b466"
+        }
+      },
+      "VirtoolsDevUi.tools": {
+        "executed": 13,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/tools.xml",
+          "sha256": "05aaaa3838edd769aed422bcdd79b71a51883fc570c9ad4de09121dba31611fd"
+        }
+      },
+      "VirtoolsDevUi.sound": {
+        "executed": 2,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/sound.xml",
+          "sha256": "b9b67cc61d972348526b64645903eb9904718bbd323d08c68e91f78385d4ea9c"
+        }
+      },
+      "VirtoolsDevUi.character": {
+        "executed": 2,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/character.xml",
+          "sha256": "62946efb5053ef8b22c5bd2a5a986dc4532cb6b1797a08a79ee5b2c5863d4bec"
+        }
+      },
+      "VirtoolsDevUi.modules": {
+        "executed": 74,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/virtoolsdev-ui/modules.xml",
+          "sha256": "3bff39e7c713c47614d587619ddeaa61762b12a6037f5ead8cab72da0be21245"
+        }
+      }
+    },
+    "appearance_startup_cases": [
+      {
+        "executed": 1,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/appearance-startup/builtin-disabled.xml",
+          "sha256": "ee273a6db1a650c55ee3fb38c87c76cdabb384c8e66d2b22039e1f940a69ab42"
+        }
+      },
+      {
+        "executed": 2,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/appearance-startup/editing.xml",
+          "sha256": "155ee0cce50d9680962e184a013172baa9a2ef9aa4446c3bf23f15dae94de106"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/appearance-startup/missing-provider.xml",
+          "sha256": "6707f9a9203c330edfcd2895dfd526aa3e6e9eebe1ed08e757dcd81c39a4df42"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/appearance-startup/provider-returned.xml",
+          "sha256": "808857cfaaff5ae69f307766547396fd74dd6aa9b89005793e21c0a4667bfdc4"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/appearance-startup/restore.xml",
+          "sha256": "b968ef1bef7c2880a7ffdd54749537ca43dc9603c2ae70e8f9e09b5a2ffef3ad"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 294,
+        "report": {
+          "path": "out/macos-arm64/appearance-startup/save.xml",
+          "sha256": "e5044339b7ed9d9e18095f6a3472d816b12b49632db02b19dbb011ef1a73dc68"
+        }
+      }
+    ],
+    "appearance_selected_cases": 7,
+    "appearance_expected_startup_failures": [
+      {
+        "path": "out/macos-arm64/appearance-startup/invalid-theme.log",
+        "sha256": "47c52019a2022c2d6c885e8920ba2c1b060c67be315f0bcaf3efb8548e8bb645"
+      },
+      {
+        "path": "out/macos-arm64/appearance-startup/invalid-font.log",
+        "sha256": "c5be95fdc24f27396b3393d16a1d64b54de81c6b33424e7efa66b3271af71755"
+      }
+    ],
+    "workspace_startup_combinations": [
+      {
+        "path": "out/macos-arm64/workspace-startup/bad-dock-tree.xml",
+        "sha256": "a2e165b3513e396c5d2fabde76e5fcf83abed66f222940931dbecf2e6f19267d"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/bad-view-version.xml",
+        "sha256": "4861d801a2653df624cddc248297856c32011226ed75f91008f8143e644d5268"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/close-missing-provider.xml",
+        "sha256": "28655fc8abcaacbf718a0b2e540ae8ba55bb01f329bdf96b13e061a8fa4dc498"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/discard-unrestored.xml",
+        "sha256": "4ea1fbeb634326f518e325448aaa8db6ddc894006aaac3e1cbc12c05e2d1bf7a"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/first-start-with-document.xml",
+        "sha256": "145c59e88b125a03a572d9d9368e18e01dd4f42529d4e6faed786967b2df6fe8"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/missing-provider.xml",
+        "sha256": "3a1400389f651a1062f4da87172e590507efb7dfe516a3b625e5f9b9bcb95e43"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/provider-returned.xml",
+        "sha256": "797c85a670306735358f189953056175bae21f06ca9840963150df5711eed23b"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/restore.xml",
+        "sha256": "5a426976adcfe20dc3db60ee32651cc25d55aeb9b882efd655ee07e159d82ceb"
+      },
+      {
+        "path": "out/macos-arm64/workspace-startup/save.xml",
+        "sha256": "3ae493001c75b7ec141cb52ebcac64e42f17088c86a5b442b14891593dda0ef7"
+      }
+    ],
+    "architecture_checker_cases": 58,
+    "architecture_checker_log": {
+      "path": "out/phase-six-page-appearance/architecture-tests-final.log",
+      "sha256": "3b22d770ee1079b8be1be2f242e9b6c93cb3def32ecfab8d3f38e31607ed2ad7"
+    },
+    "architecture_log": {
+      "path": "out/phase-six-page-appearance/architecture-final.log",
+      "sha256": "6ac82f8b6e364c7063c5e2fd9301fb197f53ba5bee610b40ffd1f714e660704a"
+    },
+    "native_desktop": {
+      "case": "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+      "executed": 1,
+      "registered": 294,
+      "report": {
+        "path": "out/phase-six-page-appearance/player-final.xml",
+        "sha256": "822f008fe618748718b52ca0421322a97db6b8d2c5d464a95ffc9595cf0db26b"
+      },
+      "log": {
+        "path": "out/phase-six-page-appearance/player-final.log",
+        "sha256": "3f66b1aec83bd182b2b07646f82b336236351d10cecdfe2aef040e27bc726a6c"
+      }
+    },
+    "new_regressions": [
+      "通过真实 Schematic 绘制顶点验证主题运行和断点颜色；黑白打印保持黑色连线。",
+      "资源生命周期测试验证页面颜色与尺寸、三次 Context 生命周期、DPI 往返、字体复用，以及零坐标缩放拒绝并保留实际外观。",
+      "仅使用 Editor 公共头的外部资源模块提供新页面样式与尺寸，沿用现有提供者选择及启动恢复。",
+      "原生窗口通过统一命令创建 Light 和 Frame、撤销 Frame 后保留 Redo；切换与恢复主题，核对 Schematic、Light Setup 曲线和标签、快照窗口及 Event Log 的真实绘制颜色、标题高度与圆角。",
+      "整个主题切换组合保持文档 token、选区、Dirty、Undo/Redo，以及 GPU 视口零读回和零上传。",
+      "既有文件失败保护、NMO 直接打开、导出、撤销、多视图、GPU/fallback、显式快照及全屏返回回归全部通过。"
+    ]
+  },
+  "preservation": {
+    "sdk_source_writes_by_this_batch": false,
+    "sdk_changes_during_work": [],
+    "sdk_changes_during_final_test": [],
+    "sdk_start_record": {
+      "path": "out/phase-six-page-appearance/sdk-before.json",
+      "sha256": "73859f983302d500f1c7a94d1cf1043ec38a0f9de0fff33085995b809f46c26f"
+    },
+    "sdk_test_start_record": {
+      "path": "out/phase-six-page-appearance/sdk-test-start-final.json",
+      "sha256": "73859f983302d500f1c7a94d1cf1043ec38a0f9de0fff33085995b809f46c26f"
+    },
+    "sdk_end_record": {
+      "path": "out/phase-six-page-appearance/sdk-after.json",
+      "sha256": "73859f983302d500f1c7a94d1cf1043ec38a0f9de0fff33085995b809f46c26f"
+    },
+    "sdk_tested": {
+      ".": {
+        "revision": "33467ec5c539c83f7fbf74f466b4d30ecc63068c",
+        "patch_sha256": "80e953818cfc58b950f5bcaadaa18cc10321439d361d8f689754402939ff70b6"
+      },
+      "Source/BuildingBlocks": {
+        "revision": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/3DTrans/qhull": {
+        "revision": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/physics_RT/ivp": {
+        "revision": "7579664996e68040dd0158081b04f612e6a2d515",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2": {
+        "revision": "d582265e7e1208472d5e5ac22ebbdf3378fd4fb1",
+        "patch_sha256": "c0448e434a9e0ee3c119eaa9b3623b460cba6de8f3e5015fc6eba14329d15af2"
+      },
+      "Source/CK2/deps/miniz": {
+        "revision": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/ParameterOperations": {
+        "revision": "85767adbdf70c327fcb9da9d179285a390bd6756",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlInputManager": {
+        "revision": "368d414378410ddeb4a0e42e523f86c90b842a68",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlSoundManager": {
+        "revision": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Player": {
+        "revision": "650c3676bea4b1535f2522395d8f907056303488",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Plugins": {
+        "revision": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/RenderEngine": {
+        "revision": "3fe16295c357ca1a6951900480484a2a87905c9f",
+        "patch_sha256": "483ff96acf4ca171088ca3ee9261df0fb3cf99cf1fae9c4b8b72392a70205ab8"
+      },
+      "Source/VxMath": {
+        "revision": "37ab8af3619f7bcf38f39e7561ab88fffe8bbf3d",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde": {
+        "revision": "2e5224981e9123b8fe89a9833a978556d636a565",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde/test/munit": {
+        "revision": "da8f73412998e4f1adf1100dc187533a51af77fd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/stb": {
+        "revision": "31c1ad37456438565541f4919958214b6e762fb4",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ec375b4cf74d5fb262386dd378b79372a3728e9f62a8c8242d7e517d4c706623",
+      "lib/libCK2.0.dylib": "ec375b4cf74d5fb262386dd378b79372a3728e9f62a8c8242d7e517d4c706623",
+      "lib/libCK2.dylib": "ec375b4cf74d5fb262386dd378b79372a3728e9f62a8c8242d7e517d4c706623",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ec375b4cf74d5fb262386dd378b79372a3728e9f62a8c8242d7e517d4c706623",
+      "runtime/Bin/libCK2.0.dylib": "ec375b4cf74d5fb262386dd378b79372a3728e9f62a8c8242d7e517d4c706623",
+      "runtime/Bin/libCK2.dylib": "ec375b4cf74d5fb262386dd378b79372a3728e9f62a8c8242d7e517d4c706623",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "runtime_files_unchanged_during_final_test": true,
+    "unchanged_gpu_source_sha256": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "editor_c_interface_changed_this_batch": false,
+    "editor_header_sha256": "53193de3459aabe594dd9fb1b0a10ea9791f0a63ae110bcf52e9a4ccea541462",
+    "document_formats_changed": false,
+    "starting_source_record": {
+      "path": "out/phase-six-page-appearance/source-before.json",
+      "sha256": "5f9e6c05edd23643783a61079ec08007d2e55caa86dcf88d35344adcd82baa1e"
+    },
+    "starting_patch": {
+      "path": "out/phase-six-page-appearance/starting.patch",
+      "sha256": "dcfdef104274da85203dfe3cfc09cf1439473e80d60b9b82fcb0dcc6faf8cf21"
+    }
+  },
+  "remaining": {
+    "performance": "按用户要求继续暂缓，原定 3% 门槛不变；本批验证功能、资源复用、GPU/fallback 和读回上传计数，没有计时验收。",
+    "runtime_process_isolation": "单独实施。",
+    "not_executed": [
+      "Windows/Linux 实机",
+      "原版 Level_1.NMO（合法 NMO 直接打开包含在完整回归）",
+      "完整原版帮助与真实系统打印",
+      "完整发布包及整个原生桌面 Player 组（仅复验双视口全屏）"
+    ],
+    "stage_six_gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "双视口及其 GPU 稳定帧计数、独立 fallback、快照和原生全屏已覆盖；性能计时验收按用户要求暂缓，原定门槛不变"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "主题、字体和图标使用同一模块登记、提供者选择及配置保存恢复；Schematic、Setup、快照、对象列表、Event Log 和共享控件已使用编译后的主题配色，标题、圆角、面板、留白和 Setup 坐标缩放可配置。旧式 Setup 页的固定坐标版式仍需整理，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产模块发现、统一装配、按身份启用禁用及替换、配置和窗口状态保存恢复已实现；完整模块发布包的各平台实机验证仍待完成"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "尚未实现通用模块文档数据。需补登记与版本升级、文档所有权、保存加载、未知模块原样保留、对象引用重映射、Import/Merge 冲突及失败恢复、撤销和无数据时不写空区。现有 Layout/Pictures 文档数据回归不能替代这些测试。"
+      }
+    ],
+    "separate_work": [
+      {
+        "id": "runtime-isolation",
+        "feature": "F17",
+        "name": "运行时进程隔离",
+        "reason": "用户明确安排单独实施；本轮阶段五收尾不包含它。原生单次调用仍不能强制中断。中断后保留文档、选区和撤销历史，并继续嵌入 3D 视口的要求不变。"
+      }
+    ]
+  }
+}

@@ -750,7 +750,6 @@
       "S13",
       "S15",
       "S16",
-      "S17",
       "S20",
       "S23",
       "S27",
@@ -800,7 +799,8 @@
       "S13",
       "S23",
       "S26",
-      "S12"
+      "S12",
+      "S34"
     ],
     "S28": [
       "S13"
@@ -1688,7 +1688,9 @@
       "tests": [
         "VirtoolsDevPortable",
         "NeMoDevEditor",
-        "NeMoDevProfile"
+        "NeMoDevProfile",
+        "NeMoDevUiAppearance",
+        "NeMoDevSchematicDrawing"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1698,12 +1700,13 @@
         "VirtoolsDevUi.tools",
         "VirtoolsDevUi.profileStartup",
         "VirtoolsDevUi.workspaceStartup",
-        "VirtoolsDevUi.layoutviews"
+        "VirtoolsDevUi.layoutviews",
+        "VirtoolsDevUi.appearance"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "工具、工具栏项目与按视图生效的输入绑定通过统一模块登记，支持配置增删、移动、替换、重绑及启动恢复；主题、字体和图标尚未成为可替换的模块资源，不能将 F25 记为完成。Windows/Linux 实机复验仍待完成。"
+          "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material 使用共享响应式分栏及标签布局，控件身份不随布局变化，坐标字段、颜色弹窗和数值滑块复用已有绘制；旧坐标页按实际控件和文字扩展滚动范围。公共页头及 Entity、Texture、Mesh、Grid 等其余固定坐标页仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
         }
       ]
     },
@@ -1997,7 +2000,7 @@
       "name": "视图实例的对象引用、行选区、筛选、展开与编辑草稿",
       "owner": "对应视图或交互实例",
       "lifetime": "关闭实例、目标失效或成功替换文档；失败的文件操作保留原状态",
-      "persistence": "目标使用完整对象引用；工作区拥有 Setup 实例、绘制、窗口角色、前台选择和关闭流程，每个 Setup 保存页签、筛选、曲线点、行选区及只读图像缓存，SetupWindows 仅保留非拥有索引和共享工具缓存；切换对象或关闭窗口时取消该窗口的草稿、弹窗、文件输入和拾取；更换提供者仅在当前文档内迁移经校验的完整对象引用，失败保留原窗口，文档切换前销毁这些实例；UI 纹理按帧末流程释放；完整 Layout 实例也归工作区，独立保存工具、手势输入、Explorer、Snapshot Buffer 和拖放参数副本；更换提供者只恢复与文档无关的显示设置，关闭先取消交互并恢复临时选区，随后停止呈现并按帧末流程释放纹理；锁定的是共享 3D 选区，树视图仍可保留独立行选区；跨视图对象拖放携带来源行选区，不能借用接收实例的行选区",
+      "persistence": "目标使用完整对象引用；工作区拥有 Setup 实例、绘制、窗口角色、前台选择和关闭流程，每个 Setup 保存页签、筛选、曲线点、行选区及只读图像缓存，SetupWindows 仅保留非拥有索引和共享工具缓存；切换对象或关闭窗口时取消该窗口的草稿、弹窗、文件输入和拾取；更换提供者仅在当前文档内迁移经校验的完整对象引用，失败保留原窗口，文档切换前销毁这些实例；UI 纹理按帧末流程释放；完整 Layout 实例也归工作区，独立保存工具、手势输入、Explorer、Snapshot Buffer 和拖放参数副本；更换提供者只恢复与文档无关的显示设置，关闭先取消交互并恢复临时选区，随后停止呈现并按帧末流程释放纹理；锁定的是共享 3D 选区，树视图仍可保留独立行选区；跨视图对象拖放携带来源行选区，不能借用接收实例的行选区；Setup 分栏与标签布局使用 ImGui 原生表格，宽度由已编译主题及可用空间确定；布局容器不改变控件或弹窗身份，布局缓存不写入文档或工作区。",
       "features": [
         "F09",
         "F10",
@@ -2090,8 +2093,8 @@
     {
       "id": "settings",
       "name": "preferences、style、ViewOptions、runtime 设置",
-      "owner": "Preferences 保存本次已提交值；EditorProfile 拥有对应的已保存配置；PreferencesCommands 查询和修改偏好；ExecutionCommands 管理运行时间、显示 FPS 和运行选项；视图仅保留草稿",
-      "lifetime": "有效配置版本变化，需重建的项延期",
+      "owner": "Preferences 保存本次已提交值；EditorProfile 拥有对应的已保存配置；PreferencesCommands 查询和修改偏好；ExecutionCommands 管理运行时间、显示 FPS 和运行选项；视图仅保留草稿；UiAppearance 拥有已编译的外观，应用只在外观版本变化时生成 Schematic 绘制副本，并沿用 General Preferences 的连线与对象状态配色",
+      "lifetime": "有效配置版本变化，需重建的项延期；外观在已提交帧之间切换，绘制期间不改变当前资源",
       "persistence": "单一 JSON 保存；旧 INI、注册表和 dev.ini 只读迁移，General Preferences 保存失败回滚，渲染引擎选择重启生效",
       "features": [
         "F25"
@@ -2167,8 +2170,8 @@
     {
       "id": "image_cache",
       "name": "SnapshotTexture/PixelTexture、HTML images、Dev bitmaps/icons/fonts",
-      "owner": "UiRenderer/资源缓存；源图像仍归原所有者",
-      "lifetime": "源图像身份和版本、UiRenderer device generation 变化时失效；同地址新图像重新创建纹理；设备停止前使所有存活 UiTexture 失效，重建后按需恢复",
+      "owner": "UiRenderer/资源缓存；源图像仍归原所有者；UiAppearance 准备和应用已选字体及图标，模块资源描述及像素归 EditorApplication，原生资源归 UI",
+      "lifetime": "源图像身份和版本、UiRenderer device generation 变化时失效；同地址新图像重新创建纹理；设备停止前使所有存活 UiTexture 失效，重建后按需恢复；失败保留原外观，字体缓存按资源及提供者复用到 ImGui 图集关闭，纹理随设备失效重建",
       "persistence": "缓存不成为图片数据所有者；键含有效身份/版本",
       "features": [
         "F24",

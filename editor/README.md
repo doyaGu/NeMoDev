@@ -5,7 +5,7 @@
 
 模块导出 `NeMoDevModule(const EditorHost *, EditorModuleDesc *)`。内置功能也提交同一种
 `EditorModuleDesc`，没有另一条注册路径。命令、查询、编辑器、视图的用途标识与具体实现标识分开；
-同一用途有多个实现时，必须在配置中明确选择，登记顺序不会覆盖已有实现。当前 `EDITOR_VERSION` 为 22，模块与宿主使用相同版本重新编译。
+同一用途有多个实现时，必须在配置中明确选择，登记顺序不会覆盖已有实现。当前 `EDITOR_VERSION` 为 23，模块与宿主使用相同版本重新编译。
 模块描述、参数和文字在注册时复制。注册失败不会留下部分项目。依赖缺失、依赖环、参数不一致、
 重复标识、绘制版本或布局不匹配会使启用失败。
 
@@ -211,3 +211,62 @@ ScriptSession 只为绘制保存显示副本，查询与保存仍读取原值；
 ```
 
 普通会话动作调用文档命令时，该文档命令使用自己的完成编号；只有嵌套的文档编辑共用外层编号和撤销步骤。立即或延后执行的修改均可通过 `application.operation` 读取最终文档版本，界面据此恢复对象位置和选区。
+主题、字体和图像通过 `EditorModuleDesc.themes/fonts/images` 与其他贡献一起收集、校验和启用。
+提供者配置的种类为 `theme`、`font`、`image`。默认 Classic 外观属于普通模块 `appearance.classic`；
+替换、停用和启动恢复使用同一路径。没有图片贡献时，共享按钮使用基本绘制回退。
+
+`EditorThemeDesc` 以具名值描述外观：`color.*` 是 `0xRRGGBBAA` 整数，`metric.*` 是非负有限数值或二元数值列表，
+`font.*`、`image.*` 是已登记的字体或图像标识。`parent` 指向同一主题标识的另一个提供者；父链不能成环，覆盖不能改变值类型。
+`editor.theme` 用于整个编辑器。典型值包括 `color.window-bg`、`color.chrome.text`、`color.control.toolbar`、
+`color.layout.panel`、`metric.window-padding`、`metric.vi-normal-width` 和 `font.body`。
+已选主题的只读数据由 `appearance.values` 查询返回，结果为 `values` 记录；可选 `theme` 参数默认是 `editor.theme`。
+其查询版本独立于文档修改，外部视图可以缓存这些描述数据。
+
+`EditorFontDesc` 给出基准字号及有顺序的 UTF-8 字体文件：第一份提供字体，后面的文件补缺失字形。
+空的第一份请求渲染器内置等宽字体。相对路径从模块库所在目录解析，不使用进程当前目录。
+默认字体标识为 `ui.font.body`、`ui.font.vi-normal`、`ui.font.vi-bold`、`ui.font.monospace`。
+字体文件在第一次选用时读取，原生字体和图集由 UI 拥有；扩展不得清空或销毁宿主的字体图集。
+接口文字的横向压缩属于主题尺寸值，与字体文件分开。
+
+`EditorImageDesc` 是完整、连续、top-left 的 RGBA8 像素，`byteCount` 必须等于 `width * height * 4`。
+宿主在登记时复制像素，不接收原生纹理或销毁回调。默认资源继续使用 `ui.bitmap.<编号>`、`ui.icon.<编号>`、
+`parameter.bitmap.<编号>`、`app.icon.<编号>` 等标识；例如可以单独替换 `ui.bitmap.777`。
+主题可用 `image.<显示标识>` 将某一显示位置指向另一张已登记图像。
+
+配置先验证主题引用并准备字体、已使用图像的替代资源，再写入原有 JSON；任一步失败保留当前配置和外观。
+原生外观在已提交帧之间生效，进行中的绘制仍使用旧资源。稳定帧复用字体和纹理，不解析主题或重新加载文件。
+DPI 变化从未缩放的尺寸重新计算，图标在设备重建后重建纹理；Context 销毁通过 ImGui 的关闭通知清理字体引用。
+旧字体保留到其图集销毁，避免 Help 及在途绘制引用失效；字体变化使 Help 保持阅读位置后重新排版。
+
+```json
+{
+  "providers": [
+    {"kind": "theme", "id": "editor.theme", "provider": "example.appearance"},
+    {"kind": "font", "id": "ui.font.body", "provider": "example.appearance"},
+    {"kind": "image", "id": "ui.bitmap.777", "provider": "example.appearance"}
+  ]
+}
+```
+
+共享控件、Schematic、Setup、快照窗口、对象列表和 Event Log 使用这些外观数据。
+`color.schematic.*` 控制画布、节点、选区和调试标记；`color.preview.*` 控制预览外框、背景和曲线，
+`color.selection.*` 与 `color.snapshot.*` 控制列表选择和快照窗口。
+General Preferences 中原有连线和对象状态配色继续生效，这些项不由主题重复定义。
+对象自身颜色、预览灰阶、文档 Script 配色和黑白打印的纸色仍按原内容绘制。
+
+`metric.dialog.title-height/rounding`、`metric.group.rounding/border`、`metric.list.padding` 和
+`metric.event-log.padding` 控制共享窗口与控件的尺寸。`metric.setup.spacing` 控制 Setup 页项间距，
+`metric.setup.coordinate-scale` 在当前字体缩放之外调整旧式 Setup 页的坐标间距和控件区域，取值大于零且不超过四，
+不改文档对象、相机或曲线数据。默认值保持原来的外观与布局。
+
+旧式 Setup 的固定坐标版式及其他平台的资源、字体和 DPI 实机验证仍在 F25 清单中，不能据此认为全部页面布局已经可自定义。
+
+
+Scene、Frame、Sprite3D、Camera、Light 和 Material Setup 的完整分组随可用宽度换行；标签和值使用同一列区域。
+`metric.setup.column-width`（120–2000）控制分组的最小内容宽度，
+`metric.setup.label-width`（20–600）控制标签列宽，窄列会限制标签宽度并换行。
+`metric.setup.sidebar-width`（72–400）控制左侧对象图片与操作区域。
+这些值经字体和页面缩放换算；窄到不足一组时保留水平滚动，完整内容仍可到达。
+布局保留原有字段、动作、数值单位和编辑方式；布局容器不改变已有控件或弹窗的编号。
+Camera 和 Light 的位置、朝向与 Frame 共用世界和局部坐标字段；Material 的透明度、深度、纹理及效果按完整分组布局，条件显示、禁用和对象选择沿用原有逻辑。
+公共页头及 Entity、Texture、Mesh、Grid 等尚未迁移的坐标页仍使用同一页面定位函数，滚动范围包括超出原版式的文字和控件。
