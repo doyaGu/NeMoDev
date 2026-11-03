@@ -28,32 +28,6 @@
 #endif
 
 namespace fs = std::filesystem;
-static vdev::HtmlFonts LoadFonts() {
-    ImGuiIO &io = ImGui::GetIO();
-    const fs::path directory = fs::u8path(vdev::DataFilePath("fonts"));
-    const auto regular = (directory / "NotoSans-Regular.ttf").u8string();
-    const auto bold = (directory / "NotoSans-Bold.ttf").u8string();
-    const auto cjk = (directory / "NotoSansSC-Regular.otf").u8string();
-    auto add = [&](float size, bool strong) {
-        ImFont *font = io.Fonts->AddFontFromFileTTF((strong ? bold : regular).c_str(), size);
-        if (!font) font = io.Fonts->AddFontDefault();
-        ImFontConfig merge; merge.MergeMode = true; merge.DstFont = font;
-        if (fs::exists(fs::u8path(cjk))) io.Fonts->AddFontFromFileTTF(cjk.c_str(), size, &merge);
-        return font;
-    };
-    io.FontDefault = add(14.0f, false);
-    ImFont *normal = add(12.0f, false);
-    ImFont *strong = add(14.0f, true);
-    vdev::SetVIFonts(normal, strong);
-    ImFontConfig monoConfig;
-    monoConfig.SizePixels = 14.0f;
-    ImFont *mono = io.Fonts->AddFontDefaultVector(&monoConfig);
-    ImFontConfig fallback; fallback.MergeMode = true; fallback.DstFont = mono;
-    io.Fonts->AddFontFromFileTTF(regular.c_str(), 14.0f, &fallback);
-    if (fs::exists(fs::u8path(cjk)))
-        io.Fonts->AddFontFromFileTTF(cjk.c_str(), 14.0f, &fallback);
-    return {io.FontDefault, strong, mono};
-}
 // ImGui uses window coordinates; its SDL backend applies pixel density to the
 // framebuffer. Only the remaining content scale belongs in fonts and spacing.
 static float WindowContentScale(SDL_Window *window) {
@@ -121,8 +95,7 @@ int main(int argc, char **argv) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
     io.ConfigDpiScaleViewports = true;
     scale = WindowContentScale(window);
-    vdev::ApplyDevTheme(ImGui::GetStyle(), scale);
-    const vdev::HtmlFonts helpFonts = LoadFonts();
+    ImGui::GetStyle().FontScaleDpi = scale;
     ImGui_ImplSDL3_InitForSDLGPU(window);
     std::string error;
     if (!vdev::MainRenderer().Start(window, &error)) {
@@ -130,7 +103,7 @@ int main(int argc, char **argv) {
         ImGui_ImplSDL3_Shutdown(); ImGui::DestroyContext(); SDL_DestroyWindow(window); SDL_Quit(); return 1;
     }
     if (!headless) SDL_ShowWindow(window);
-    vdev::EditorApp app(helpFonts);
+    vdev::EditorApp app;
     int exitCode = 0;
     if (!app.Initialize(window, runtime, vdev::WideToUtf8(line.fileToOpen), line.editorModules, line.editorModuleDirectories, line.editorProfile
 #ifdef VIRTOOLSDEV_UI_TESTS
@@ -162,10 +135,12 @@ int main(int argc, char **argv) {
             if (event.type == SDL_EVENT_DROP_COMPLETE && !dropped.empty()) { app.DropFiles(dropped, event.drop.x, event.drop.y); dropped.clear(); }
         }
         const float contentScale = WindowContentScale(window);
-        if (contentScale != scale) {
-            vdev::ApplyDevTheme(ImGui::GetStyle(), contentScale);
-            scale = contentScale;
+        if (!app.PrepareUiFrame(contentScale, error)) {
+            std::fprintf(stderr, "UI appearance failed: %s\n", error.c_str());
+            exitCode = 3;
+            break;
         }
+        scale = contentScale;
         if (!vdev::MainRenderer().NewFrame(&error)) {
             std::fprintf(stderr, "UI frame failed: %s\n", error.c_str()); exitCode = 3; break;
         }

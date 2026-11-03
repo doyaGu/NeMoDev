@@ -6,6 +6,7 @@
 namespace vdev {
 struct HtmlFonts {
     ImFont *normal = nullptr, *bold = nullptr, *monospace = nullptr;
+    uint64_t revision = 0;
 };
 
 // The ImGui/SDL graphics adapter. HTML parsing, CSS and layout stay in html/.
@@ -14,6 +15,7 @@ public:
     explicit HtmlRenderer(HtmlFonts fonts);
     ~HtmlRenderer();
     void Begin(ImDrawList *draw);
+    void SetFonts(HtmlFonts fonts);
     // Apply the supported native cursor shape; unknown CSS shapes use Arrow.
     void SetCursor(std::string_view cursor);
     std::shared_ptr<HtmlFont> CreateFont(const HtmlFontDescription &description) override;

@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "workspace/EditorWorkspace.h"
-#include "ui/schematic/SchematicStyle.h"
+#include "ui/controls/SchematicStyle.h"
 #include "features/preferences/PreferencesData.h"
 #include "application/Printing.h"
 #include "features/schematic/SchematicScriptData.h"

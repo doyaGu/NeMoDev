@@ -35,6 +35,7 @@ set(_editor_sources
         render/HtmlRenderer.cpp
         # Dev's look and the shared widgets.
         controls/DevTheme.cpp
+        controls/UiAppearance.cpp
         controls/DevControls.cpp
         controls/DevIcons.cpp
         controls/DevBitmaps.cpp
@@ -93,6 +94,7 @@ set(_editor_sources
         ../features/diagnostics/DiagnosticViews.cpp
         # The Setups.
         setup/SetupWindows.cpp
+        setup/SetupLayout.cpp
         ../features/setup/SetupViewData.cpp
         setup/SetupRenderPages.cpp
         setup/SetupScenePages.cpp
@@ -207,6 +209,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WorkspaceTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ValueEditTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArrayEditTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AppearanceTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArchitectureBaselineTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/GpuViewportTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/LayoutViewportTests.cpp
@@ -286,7 +289,7 @@ if(VIRTOOLSDEV_BUILD_EXAMPLES)
     nemodev_install_module(NeMoDevDocumentInfo)
 endif()
 if(VIRTOOLSDEV_BUILD_TESTS)
-    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/EditorToolTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/WorkspacePersistenceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp ../tests/BuildingBlockQueryTests.cpp ../tests/DataResourceTests.cpp ../tests/ArrayEditTests.cpp ../tests/SetupEditTests.cpp ../tests/SchematicEditTests.cpp ../tests/ParameterEditTests.cpp ../tests/SpecializedParameterEditTests.cpp ../tests/SelectionParameterEditTests.cpp ../features/resources/DataResourceViews.cpp)
+    add_executable(NeMoDevEditorTests ../tests/EditorApplicationTests.cpp ../tests/EditorToolTests.cpp ../tests/EditorAppearanceTests.cpp ../tests/DocumentCommandTests.cpp ../tests/ObjectCommandTests.cpp ../tests/ResourceCommandTests.cpp ../tests/ExecutionCommandTests.cpp ../tests/DocumentTransitionTests.cpp ../tests/OutputCommandTests.cpp ../tests/WorkspaceTests.cpp ../tests/WorkspacePersistenceTests.cpp ../tests/EventLogTests.cpp ../tests/SceneCommandTests.cpp ../tests/BuildingBlockQueryTests.cpp ../tests/DataResourceTests.cpp ../tests/ArrayEditTests.cpp ../tests/SetupEditTests.cpp ../tests/SchematicEditTests.cpp ../tests/ParameterEditTests.cpp ../tests/SpecializedParameterEditTests.cpp ../tests/SelectionParameterEditTests.cpp ../features/resources/DataResourceViews.cpp)
     target_link_libraries(NeMoDevEditorTests PRIVATE VirtoolsDevWorkspace NeMoDevObjectCommands VirtoolsDevCore NeMoDevEditorApplication "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
     target_sources(NeMoDevEditorTests PRIVATE ../tests/RuntimeProjectionTests.cpp)
     target_sources(NeMoDevEditorTests PRIVATE ../tests/MessageCommandTests.cpp)
@@ -295,7 +298,7 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     target_compile_definitions(NeMoDevEditorTests PRIVATE VIRTOOLSDEV_PREFERENCES_FIXTURES="${VIRTOOLSDEV_SOURCE_DIR}/tests/fixtures/preferences")
     target_sources(NeMoDevEditorTests PRIVATE ../tests/LayoutPresentationTests.cpp ../tests/CanvasCommandTests.cpp ../tests/GestureCommandTests.cpp ../tests/GraphEditingTests.cpp ../tests/SchematicAuthoringTests.cpp ../tests/SchematicProjectionTests.cpp ../tests/SchematicScriptCommandTests.cpp ../tests/GraphFileCommandTests.cpp ../features/layout/LayoutSceneData.cpp ../features/layout/SnapshotData.cpp)
     target_sources(NeMoDevEditorTests PRIVATE ../tests/LayoutAuthoringTests.cpp ../tests/SetupProjectionTests.cpp ../tests/SetupPageTests.cpp ../features/setup/SetupViewData.cpp ../features/scene/SceneViewData.cpp)
-    target_sources(NeMoDevEditorTests PRIVATE ../tests/SchematicPickingTests.cpp)
+    target_sources(NeMoDevEditorTests PRIVATE ../tests/SchematicPickingTests.cpp controls/DevTheme.cpp)
     target_sources(NeMoDevEditorTests PRIVATE ../tests/LayoutViewportTests.cpp)
     set_target_properties(NeMoDevEditorTests PROPERTIES ENABLE_EXPORTS TRUE)
     nemodev_add_module(NeMoDevEditorModule HOST NeMoDevEditorTests SOURCES ../tests/modules/ObjectModule.cpp)
@@ -304,8 +307,16 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     set_target_properties(NeMoDevEnvironmentPlugin PROPERTIES SUFFIX "${CMAKE_SHARED_LIBRARY_SUFFIX}")
     nemodev_add_module(NeMoDevGestureModule SOURCES ../tests/modules/GestureModule.cpp)
     nemodev_add_module(NeMoDevToolModule SOURCES ../tests/modules/ToolModule.cpp)
-    add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule)
-    add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>")
+    add_executable(NeMoDevUiAppearanceTests ../tests/UiAppearanceTests.cpp
+            controls/UiAppearance.cpp controls/DevTheme.cpp controls/DevBitmaps.cpp render/UiRenderer.cpp setup/SetupLayout.cpp)
+    target_include_directories(NeMoDevUiAppearanceTests PRIVATE "${VIRTOOLSDEV_SOURCE_DIR}")
+    target_link_libraries(NeMoDevUiAppearanceTests PRIVATE NeMoDevEditorApplication VirtoolsDevCore VirtoolsDevImGui SDL3::SDL3)
+    virtoolsdev_add_resources(NeMoDevUiAppearanceTests)
+    add_test(NAME NeMoDevUiAppearance COMMAND NeMoDevUiAppearanceTests)
+    set_tests_properties(NeMoDevUiAppearance PROPERTIES LABELS self-contained)
+    nemodev_add_module(NeMoDevAppearanceModule SOURCES ../tests/modules/AppearanceModule.cpp)
+    add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule NeMoDevAppearanceModule)
+    add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
     set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
     if(TARGET VirtoolsDevUiTests)
         nemodev_add_module(NeMoDevUiDocumentInfo HOST VirtoolsDevUiTests
@@ -323,6 +334,12 @@ if(VIRTOOLSDEV_BUILD_TESTS)
                 --editor-module-dir "$<TARGET_FILE_DIR:NeMoDevUiDocumentInfo>"
                 --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/modules.xml")
         set_tests_properties(VirtoolsDevUi.modules PROPERTIES LABELS self-contained)
+        add_test(NAME VirtoolsDevUi.appearance COMMAND ${Python3_EXECUTABLE}
+                "${VIRTOOLSDEV_SOURCE_DIR}/tests/AppearanceStartupTests.py"
+                --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevAppearanceModule>"
+                --help-dir "${_runtime_data}/help"
+                --results "${PROJECT_BINARY_DIR}/appearance-startup")
+        set_tests_properties(VirtoolsDevUi.appearance PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 300)
         add_test(NAME VirtoolsDevUi.moduleStartup COMMAND ${Python3_EXECUTABLE}
                 "${VIRTOOLSDEV_SOURCE_DIR}/tests/ModuleStartupTests.py"
                 --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevUiDocumentInfo>"

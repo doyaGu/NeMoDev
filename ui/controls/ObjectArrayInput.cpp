@@ -80,9 +80,8 @@ uint32_t ObjectArrayInput::Draw(const EditorHost *host, const EditorValueInput &
             menu = i;
         ImGui::PopID();
         const bool selected = m_Chosen.count(i);
-        if (selected)
-            items->AddRectFilled(a, b, IM_COL32(10, 36, 106, 255));
-        const auto ink = selected ? vi::Color(9) : vi::Color(0);
+        if (selected) items->AddRectFilled(a, b, CurrentDevTheme().selectionFill);
+        const auto ink = selected ? CurrentDevTheme().selectionText : vi::Color(0);
         const std::string cells[] = {EditorClient::Text(info, "name"), std::to_string(objects[size_t(i)].object),
                                      EditorClient::Text(info, "class"),
                                      EditorClient::Integer(info, "dynamic") ? "X" : "-"};

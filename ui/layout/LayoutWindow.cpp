@@ -37,11 +37,6 @@ float Component(const std::string &text, int index, char separator) {
 }
 
 // Dev's colors (screenshots): the top bar strip, the left toolbar.
-const ImU32 TOP_BAR = IM_COL32(65, 65, 65, 255);
-const ImU32 TOP_BAR_BORDER = IM_COL32(157, 157, 157, 255);
-const ImU32 LEFT_BAR = IM_COL32(128, 128, 128, 255);
-const ImU32 LEFT_BAR_BORDER = IM_COL32(21, 21, 21, 255);
-const ImU32 PANEL = IM_COL32(100, 100, 100, 255);
 
 const char *const REFERENTIALS[] = {"Local", "World", "View", "Parent", "Ref. Guide", "Pick Obj."};
 
@@ -298,7 +293,7 @@ void LayoutWindow::Draw(EditorViewFrame &frame) {
     Window().windowKey = separator == std::string::npos ? windowName : windowName.substr(separator + 3);
     EditorPrepareViewWindow(frame);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, PANEL);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, CurrentDevTheme().layout[4]);
     bool open = true;
     const bool visible = BeginDevWindow(frame.window.data, frame.closable ? &open : nullptr,
                                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
@@ -369,7 +364,8 @@ bool LayoutWindow::ToolbarButton(const Button &button, bool checked, bool enable
     if (ImTextureID texture = DevBitmap(bitmap, &bitmapSize))
         ImGui::GetWindowDrawList()->AddImage(texture, a, ImVec2(a.x + bitmapSize.x * s, a.y + bitmapSize.y * s));
     else
-        ImGui::GetWindowDrawList()->AddRect(a, ImVec2(a.x + size.x, a.y + size.y), checked ? IM_COL32_WHITE : IM_COL32(40, 40, 40, 255));
+        ImGui::GetWindowDrawList()->AddRect(a, ImVec2(a.x + size.x, a.y + size.y),
+                                            checked ? CurrentDevTheme().layout[12] : CurrentDevTheme().layout[5]);
     if (hovered && button.tooltip) ImGui::SetTooltip("%s", button.tooltip);
     if (right) {
         RightClick(button.command);
@@ -408,7 +404,7 @@ bool LayoutWindow::MenuButton(const Button &button, const std::vector<Item> &ite
     ImGui::SetNextWindowPos(a);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, LEFT_BAR);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, CurrentDevTheme().layout[2]);
     if (ImGui::BeginPopup(popup)) {
         run = false;
         const ImVec2 itemSize((button.x1 - button.x0) * s, (button.y1 - button.y0) * s);
@@ -440,9 +436,9 @@ void LayoutWindow::TopBar(const ImVec2 &origin, float width) {
     const float s = Window().scale;
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(ImVec2(origin.x + 2.0f * s, origin.y), ImVec2(origin.x + width - 2.0f * s, origin.y + 21.0f * s),
-                      TOP_BAR, 3.0f * s);
+                      CurrentDevTheme().layout[0], 3.0f * s);
     dl->AddRect(ImVec2(origin.x + 2.0f * s, origin.y), ImVec2(origin.x + width - 2.0f * s, origin.y + 21.0f * s),
-                TOP_BAR_BORDER, 3.0f * s);
+                CurrentDevTheme().layout[1], 3.0f * s);
     EditorToolbarFrame area{};
     area.size = sizeof(area);
     area.left = origin.x;
@@ -457,13 +453,13 @@ void LayoutWindow::LeftBar(const ImVec2 &origin, float height) {
     const float s = Window().scale;
     ImDrawList *dl = ImGui::GetWindowDrawList();
     const ImVec2 a(origin.x + 6.0f * s, origin.y + 21.0f * s), b(origin.x + 76.0f * s, origin.y + height);
-    dl->AddRectFilled(a, b, LEFT_BAR);
-    dl->AddRect(a, b, LEFT_BAR_BORDER);
+    dl->AddRectFilled(a, b, CurrentDevTheme().layout[2]);
+    dl->AddRect(a, b, CurrentDevTheme().layout[3]);
     auto line = [&](int y) {
         dl->AddLine(ImVec2(origin.x + 10.0f * s, origin.y + y * s), ImVec2(origin.x + 72.0f * s, origin.y + y * s),
-                    IM_COL32(100, 100, 100, 255));
-        dl->AddLine(ImVec2(origin.x + 10.0f * s, origin.y + (y + 1) * s), ImVec2(origin.x + 72.0f * s, origin.y + (y + 1) * s),
-                    IM_COL32(150, 150, 150, 255));
+                    CurrentDevTheme().layout[6]);
+        dl->AddLine(ImVec2(origin.x + 10.0f * s, origin.y + (y + 1) * s),
+                    ImVec2(origin.x + 72.0f * s, origin.y + (y + 1) * s), CurrentDevTheme().layout[7]);
     };
     for (int y : {49, 160, 191, 264}) line(y);
     EditorToolbarFrame area{};
@@ -705,7 +701,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
                 Window().screenScroll.y = static_cast<float>(scroll);
         }
         // Around the render context: Dev's editor view background.
-        dl->AddRectFilled(viewAt, ImVec2(viewAt.x + visible.x, viewAt.y + visible.y), PANEL);
+        dl->AddRectFilled(viewAt, ImVec2(viewAt.x + visible.x, viewAt.y + visible.y), CurrentDevTheme().layout[4]);
     }
     const ImVec2 visibleMax(viewAt.x + visible.x, viewAt.y + visible.y);
     const int width = static_cast<int>(size.x), height = static_cast<int>(size.y);
@@ -738,9 +734,9 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
                            {m_StartupDrop});
 #endif
     if (!m_Started) {
-        dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), LEFT_BAR);
+        dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), CurrentDevTheme().layout[2]);
         const std::string text = "No 3D Layout: " + AnsiToUtf8(m_StartError);
-        dl->AddText(ImVec2(at.x + 8.0f, at.y + 8.0f), IM_COL32(20, 20, 20, 255), text.c_str());
+        dl->AddText(ImVec2(at.x + 8.0f, at.y + 8.0f), CurrentDevTheme().layout[8], text.c_str());
         return;
     }
     ContextMenuPopup();
@@ -749,11 +745,11 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     if (frame)
         dl->AddImage(frame->Id(), at, ImVec2(at.x + frame->Width(), at.y + frame->Height()));
     else
-        dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), LEFT_BAR);
+        dl->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), CurrentDevTheme().layout[2]);
     // The selection rectangle being dragged.
     if (Window().rectangle) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
-        dl->AddRect(ImVec2(at.x + Window().pressAt.x, at.y + Window().pressAt.y), mouse, IM_COL32(255, 255, 255, 255));
+        dl->AddRect(ImVec2(at.x + Window().pressAt.x, at.y + Window().pressAt.y), mouse, CurrentDevTheme().layout[9]);
     }
     if (debugData || m_Preferences.Bool("3D Layout\\Debug Mode")) {
         const ImVec2 mouse = ImGui::GetIO().MousePos;
@@ -761,8 +757,7 @@ void LayoutWindow::Viewport(const ImVec2 &viewAt, const ImVec2 &viewSize) {
     }
     dl->PopClipRect();
     // Lock Selection: "a thin green border around the preview pane".
-    if (Window().selectionData.locked)
-        dl->AddRect(viewAt, visibleMax, IM_COL32(0, 255, 0, 255), 0.0f, 0, 2.0f);
+    if (Window().selectionData.locked) dl->AddRect(viewAt, visibleMax, CurrentDevTheme().layout[11], 0.0f, 0, 2.0f);
 }
 
 // Dev.exe sub_4A01F0: the mouse (and the frame rate while playing), then
@@ -789,7 +784,7 @@ void LayoutWindow::DebugData(const ImVec2 &at, int x, int y) {
         std::snprintf(line, sizeof(line), "X:%5d Y:%5d M:%3d\n", x, y, buttons);
     const auto text = line + EditorClient::Text(result, "text");
     ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 10.0f * Window().scale, at.y + 10.0f * Window().scale),
-                                        IM_COL32(255, 255, 255, 255), text.c_str());
+                                        CurrentDevTheme().layout[9], text.c_str());
 }
 
 // "3D Layout\Actions\..." and the World Size (Interface page).

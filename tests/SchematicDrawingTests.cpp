@@ -108,5 +108,28 @@ int main() {
     image.reset();
     Draw(model, options);
     Check(imageReads == 1, "copied snapshot was not presented");
+    model.script.snapshot.reset();
+    model.behaviors.front().breakpoint = true;
+    options.activity = &activity;
+    activity.trace = false;
+    activity.current = behavior.ref;
+    style.trace = IM_COL32(120, 40, 210, 255);
+    style.running = IM_COL32(40, 210, 120, 255);
+    style.breakpointFill = IM_COL32(30, 100, 220, 255);
+    const auto themedCurrent = Draw(model, options);
+    Check(Colored(themedCurrent, style.trace) && Colored(themedCurrent, style.breakpointFill) &&
+              !Colored(themedCurrent, red),
+          "debug and breakpoint drawing ignored the supplied theme");
+    activity.current = {};
+    activity.running = {behavior.ref};
+    Check(Colored(Draw(model, options), style.running) > 0, "running frame ignored the supplied theme");
+    options.activity = nullptr;
+    model.behaviors.front().breakpoint = false;
+    SchematicPrint print;
+    options.print = &print;
+    style.behaviorLink = IM_COL32(17, 83, 149, 255);
+    const auto printed = Draw(model, options);
+    Check(Colored(printed, IM_COL32(0, 0, 0, 255)) && !Colored(printed, style.behaviorLink),
+          "monochrome printing adopted the screen link color");
     return 0;
 }

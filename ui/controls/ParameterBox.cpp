@@ -553,7 +553,8 @@ DialogAction EditParametersDialog(const char *id, const std::string &title, Para
     vi::Panel(panelMin, panelMax, s);
     box.Draw(ImVec2(panelMin.x + inset, panelMin.y + inset), s, true);
     // The panel's outline over the rows' corners.
-    ImGui::GetWindowDrawList()->AddRect(panelMin, panelMax, IM_COL32(34, 34, 34, 255), 7.0f * s, 0, 1.5f * s);
+    ImGui::GetWindowDrawList()->AddRect(panelMin, panelMax, CurrentDevTheme().controlLine,
+                                        CurrentDevTheme().groupRounding * s, 0, CurrentDevTheme().groupBorder * s);
     float x = o.x + width - 10.0f * s - 60.0f * s;
     const float y = o.y + panelBottom + 4.0f * s;
     DialogAction action = DialogAction::None;

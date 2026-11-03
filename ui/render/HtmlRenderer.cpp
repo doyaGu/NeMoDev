@@ -140,6 +140,7 @@ struct HtmlRenderer::Impl {
     }
 };
 HtmlRenderer::HtmlRenderer(HtmlFonts fonts) : m_Impl(new Impl(fonts)) {}
+void HtmlRenderer::SetFonts(HtmlFonts fonts) { m_Impl->fonts = fonts; }
 HtmlRenderer::~HtmlRenderer() = default;
 void HtmlRenderer::Begin(ImDrawList *draw) {
     m_Impl->draw = draw;

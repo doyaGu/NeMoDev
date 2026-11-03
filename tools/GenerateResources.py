@@ -33,7 +33,7 @@ for index, (*_, data) in enumerate(images):
 result.append('const EmbeddedImage images[] = {')
 for index, (group, kind, identifier, width, height, _) in enumerate(images):
     result.append(f'{{"{group}","{kind}",{identifier},{width},{height},pixels_{index}}},')
-result += ['}; }', 'const EmbeddedImage *FindEmbeddedImage(const char *group, const char *kind, int id) {',
+result += ['}; }', 'const EmbeddedImage *EmbeddedImages(unsigned int *count) { if (count) *count = sizeof(images)/sizeof(images[0]); return images; }', 'const EmbeddedImage *FindEmbeddedImage(const char *group, const char *kind, int id) {',
            'for (const auto &image : images) if (image.id == id && std::strcmp(image.group, group) == 0 && std::strcmp(image.kind, kind) == 0) return &image;',
            'return nullptr; } }']
 args.output.parent.mkdir(parents=True, exist_ok=True)

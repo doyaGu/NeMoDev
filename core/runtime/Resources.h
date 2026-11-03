@@ -16,6 +16,7 @@ struct EmbeddedImage {
     int height;
     const unsigned char *rgba;
 };
+const EmbeddedImage *EmbeddedImages(unsigned int *count);
 const EmbeddedImage *FindEmbeddedImage(const char *group, const char *kind, int id);
 
 // The images built into the program (resources/images.txt lists them,

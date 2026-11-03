@@ -80,7 +80,7 @@ target_include_directories(NeMoDevSchematicWindowsHeaders PRIVATE
 target_compile_features(NeMoDevSchematicWindowsHeaders PRIVATE cxx_std_17)
 add_library(NeMoDevWindowDrawingHeaders OBJECT
         ../ui/controls/ParameterBox.cpp ../ui/controls/ValueEditor.cpp ../ui/controls/ParameterDialog.cpp
-        ../ui/controls/DevBitmaps.cpp ../ui/panels/EditorPanels.cpp
+        ../ui/controls/DevBitmaps.cpp ../ui/controls/UiAppearance.cpp ../ui/setup/SetupLayout.cpp ../ui/panels/EditorPanels.cpp
         ../ui/layout/LayoutWindow.cpp ../ui/layout/LayoutWindows.cpp ../ui/layout/LayoutControls.cpp ../ui/layout/LayoutInput.cpp ../ui/layout/LayoutMenu.cpp
         ../ui/layout/LayoutDrop.cpp ../ui/layout/LayoutExplorer.cpp ../ui/layout/LayoutSnapshot.cpp
         ../ui/layout/LayoutFullScreen.cpp)

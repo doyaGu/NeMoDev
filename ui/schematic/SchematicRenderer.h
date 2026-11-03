@@ -6,7 +6,7 @@
 #include "application/Printing.h"
 
 #include "core/schematic/SchematicModel.h"
-#include "ui/schematic/SchematicStyle.h"
+#include "ui/controls/SchematicStyle.h"
 
 namespace vdev {
 

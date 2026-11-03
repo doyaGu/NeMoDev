@@ -6,6 +6,7 @@
 #include <algorithm>
 
 #include "ui/controls/DevBitmaps.h"
+#include "ui/controls/DevTheme.h"
 #include "ui/schematic/Snapshots.h"
 
 namespace vdev {
@@ -39,8 +40,8 @@ void LayoutWindow::CaptureInput(const ImVec2 &at) {
         return;
     }
     const ImVec2 mouse = io.MousePos;
-    ImGui::GetForegroundDrawList()->AddRect(mouse, ImVec2(mouse.x + 104.0f, mouse.y + 80.0f), IM_COL32(255, 255, 255, 255),
-                                            0.0f, 0, 2.0f);
+    ImGui::GetForegroundDrawList()->AddRect(mouse, ImVec2(mouse.x + 104.0f, mouse.y + 80.0f),
+                                            CurrentDevTheme().snapshotBackground, 0.0f, 0, 2.0f);
     ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         Window().capturing = 0;
@@ -93,7 +94,8 @@ void LayoutWindow::SnapshotWindow() {
     }
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(origin, ImVec2(origin.x + 362.0f * s, origin.y + 304.0f * s), IM_COL32(255, 255, 255, 255));
+    dl->AddRectFilled(origin, ImVec2(origin.x + 362.0f * s, origin.y + 304.0f * s),
+                      CurrentDevTheme().snapshotBackground);
     auto selected = [&](int slot) {
         return std::find(Window().snapshotSelection.begin(), Window().snapshotSelection.end(), slot) !=
                Window().snapshotSelection.end();
@@ -133,13 +135,15 @@ void LayoutWindow::SnapshotWindow() {
         ImGui::PopID();
         ImTextureID texture = buffer.Has(slot) ? SlotTexture(buffer, slot, Window().snapshotRevisions) : DevBitmap(929);
         if (texture) dl->AddImage(texture, at, ImVec2(at.x + size.x, at.y + size.y));
-        else dl->AddRect(at, ImVec2(at.x + size.x, at.y + size.y), IM_COL32(160, 160, 160, 255));
+        else
+            dl->AddRect(at, ImVec2(at.x + size.x, at.y + size.y), CurrentDevTheme().snapshotEmptyBorder);
         if (selected(slot))
-            dl->AddRect(ImVec2(at.x - 2.0f * s, at.y - 2.0f * s), ImVec2(at.x + size.x + 2.0f * s, at.y + size.y + 2.0f * s),
-                        IM_COL32(10, 36, 106, 255), 0.0f, 0, 2.0f * s);
+            dl->AddRect(ImVec2(at.x - 2.0f * s, at.y - 2.0f * s),
+                        ImVec2(at.x + size.x + 2.0f * s, at.y + size.y + 2.0f * s), CurrentDevTheme().selectionBorder,
+                        0.0f, 0, 2.0f * s);
         else if (hovered)
-            dl->AddRect(ImVec2(at.x - 1.0f * s, at.y - 1.0f * s), ImVec2(at.x + size.x + 1.0f * s, at.y + size.y + 1.0f * s),
-                        IM_COL32(120, 120, 120, 255));
+            dl->AddRect(ImVec2(at.x - 1.0f * s, at.y - 1.0f * s),
+                        ImVec2(at.x + size.x + 1.0f * s, at.y + size.y + 1.0f * s), CurrentDevTheme().hoverBorder);
     }
     // The shortcut menu (sub_5BC500): Load bitmap; with an image Save as...
     // and Delete (Del).

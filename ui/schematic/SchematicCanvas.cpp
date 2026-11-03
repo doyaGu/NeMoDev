@@ -1943,7 +1943,8 @@ void SchematicCanvas::Tooltip(const Hit &hit) {
             if (link.ref == hit.ref) {
                 ImGui::Text("%s link", link.behaviorLink ? "Behavior" : "Parameter");
                 if (link.behaviorLink) ImGui::TextDisabled("Delay %d", link.delay);
-                if (!link.resolved) ImGui::TextColored(ImVec4(1, 0.3f, 0.3f, 1), "Unresolved endpoint");
+                if (!link.resolved)
+                    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(m_Style.unresolvedText), "Unresolved endpoint");
             }
         break;
     case ElementKind::Comment:
@@ -2002,7 +2003,8 @@ void SchematicCanvas::Toolbar() {
     const float scale = ImGui::GetFontSize() / 13.0f;
     const ImVec2 at = ImGui::GetCursorScreenPos();
     const float height = IM_ROUND(21 * scale);
-    ImGui::GetWindowDrawList()->AddRectFilled(at, {at.x + ImGui::GetContentRegionAvail().x, at.y + height}, DEV_CHROME);
+    ImGui::GetWindowDrawList()->AddRectFilled(at, {at.x + ImGui::GetContentRegionAvail().x, at.y + height},
+                                              DevChrome());
     PushDarkChrome();
     EditorToolbarFrame frame{};
     frame.size = sizeof(frame);
@@ -2142,8 +2144,9 @@ void SchematicCanvas::Draw(const char *title, bool *open) {
         const char *message = !Client().Scope().document.value ? "File > Open a composition (.cmo, .nmo, .vmo)"
                                                                : "Select an object or Script in the Level Manager";
         const ImVec2 textSize = ImGui::CalcTextSize(message);
-        drawList->AddText(ImVec2(canvasMin.x + (size.x - textSize.x) * 0.5f, canvasMin.y + (size.y - textSize.y) * 0.5f),
-                          IM_COL32(230, 230, 230, 255), message);
+        drawList->AddText(
+            ImVec2(canvasMin.x + (size.x - textSize.x) * 0.5f, canvasMin.y + (size.y - textSize.y) * 0.5f),
+            m_Style.message, message);
     }
     drawList->PopClipRect();
     Scrollbars(canvasMin, canvasMax, hScroll, vScroll);

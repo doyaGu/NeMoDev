@@ -461,7 +461,7 @@ void SchematicCanvas::HandleInput(const ImVec2 &canvasMin, const ImVec2 &canvasM
         ImVec2 from = view->transform.ToScreen(m_LinkFromPoint.h, m_LinkFromPoint.v + view->offsetY);
         const ImVec2 to = onEndpoint ? view->transform.ToScreen(target.h, target.v + view->offsetY) : mouse;
         ImDrawList *drawList = ImGui::GetWindowDrawList();
-        const ImU32 color = onEndpoint ? m_Style.validLink : IM_COL32(240, 240, 240, 200);
+        const ImU32 color = onEndpoint ? m_Style.validLink : m_Style.linkPreview;
         // Through the control points clicked so far.
         for (const Point &point : m_LinkPoints) {
             const ImVec2 at = view->transform.ToScreen(point.h, point.v + view->offsetY);

@@ -1,3 +1,4 @@
+#include "ui/controls/DevTheme.h"
 #include "ui/layout/LayoutWindows.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/TypeAhead.h"
@@ -361,9 +362,9 @@ uint32_t LayoutWindow::DrawControl(int command, const EditorToolbarFrame &frame)
     if (frame.tooltip.size) b.tooltip = frame.tooltip.data;
     auto &settings = Settings();
     if (command == 18 || command == 19) {
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(65, 65, 65, 255));
-        ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(65, 65, 65, 255));
-        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(236, 236, 236, 255));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, CurrentDevTheme().controls[2]);
+        ImGui::PushStyleColor(ImGuiCol_Button, CurrentDevTheme().controls[2]);
+        ImGui::PushStyleColor(ImGuiCol_Text, CurrentDevTheme().pill[3]);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
                             ImVec2(4 * s, std::max(0.0f, (19 * s - ImGui::GetFontSize()) * .5f)));
@@ -399,7 +400,7 @@ uint32_t LayoutWindow::DrawControl(int command, const EditorToolbarFrame &frame)
         ImGui::SetNextItemWidth(frame.width);
         ImGui::PushFont(nullptr, 10 * s);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2 * s, 0));
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(200, 200, 200, 255));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, CurrentDevTheme().controls[7]);
         if (ImGui::BeginCombo("##referential", names[std::clamp(settings.referential, 0, 5)])) {
             TypeAhead typeAhead;
             for (int i = 0; i < 6; ++i)

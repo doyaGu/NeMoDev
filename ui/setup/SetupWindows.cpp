@@ -675,8 +675,8 @@ void SetupWindows::DrawSetup(Setup &setup, EditorViewFrame &frame) {
         FinishProperty(false);
     ImGui::SameLine();
     ImGui::BeginChild("page", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 255));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 5));
+    ImGui::PushStyleColor(ImGuiCol_Text, vi::Color(0));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, CurrentDevTheme().setupSpacing);
     // Dev Group Setup has the Attribute page only.
     if (setup.kind == Kind::Group) setup.attributes = true;
     if (setup.kind == Kind::Array && setup.attributes && setup.nameOwner)
@@ -938,7 +938,7 @@ void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
     const ImVec2 stripMin = ImGui::GetCursorScreenPos();
     const float stripHeight = ImGui::GetFrameHeight() + 6.0f;
     ImGui::GetWindowDrawList()->AddRectFilled(
-        stripMin, ImVec2(stripMin.x + ImGui::GetContentRegionAvail().x, stripMin.y + stripHeight), DEV_CHROME);
+        stripMin, ImVec2(stripMin.x + ImGui::GetContentRegionAvail().x, stripMin.y + stripHeight), DevChrome());
     PushDarkChrome();
     // Dev.exe sub_442A30: the picker (Pick an entity of the same type) and
     // the Level / Current Scene filter (pressed: the current scene) before
@@ -1022,20 +1022,22 @@ void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
 
 // Dev's left column: the object's picture, Parameter / Attribute, initial conditions.
 void SetupWindows::Sidebar(Setup &setup, const SetupPageData &page) {
-    ImGui::BeginChild("sidebar", ImVec2(104, 0), ImGuiChildFlags_None);
+    const float unit = ImGui::GetFontSize() / 14.0f;
+    const float width = CurrentDevTheme().setupSidebarWidth * unit;
+    const float button = std::max(1.0f, width - 12 * unit);
+    ImGui::BeginChild("sidebar", ImVec2(width, 0), ImGuiChildFlags_None);
     Picture(setup);
     // Animations are scene objects, not behavioral objects: no attributes.
     const bool behavioral = page.behavioral;
     if (!behavioral)
         setup.attributes = false;
-    if (setup.kind != Kind::Group && behavioral && ImGui::Button("Parameter", ImVec2(92, 0)))
+    if (setup.kind != Kind::Group && behavioral && ImGui::Button("Parameter", ImVec2(button, 0)))
         setup.attributes = false;
-    if (behavioral && ImGui::Button("Attribute", ImVec2(92, 0)))
-        setup.attributes = true;
-    ImGui::Dummy(ImVec2(1, 18));
+    if (behavioral && ImGui::Button("Attribute", ImVec2(button, 0))) setup.attributes = true;
+    ImGui::Dummy(ImVec2(1, 18 * unit));
     auto ic = [&](const char *label, uint64_t mode, bool enabled) {
         ImGui::BeginDisabled(!enabled);
-        if (ImGui::Button(label, ImVec2(92, 0))) {
+        if (ImGui::Button(label, ImVec2(button, 0))) {
             FlushPending();
             Client(setup.nameOwner)
                 .Command("scene.initial-conditions",
@@ -1084,13 +1086,14 @@ void SetupWindows::Picture(Setup &setup) {
             std::swap(rgba[i], rgba[i + 2]);
         setup.pictureTexture = MainRenderer().CreateTexture(SnapshotData::WIDTH, SnapshotData::HEIGHT, rgba.data());
     }
+    const float unit = ImGui::GetFontSize() / 14.0f;
     const auto at = ImGui::GetCursorScreenPos();
     auto *draw = ImGui::GetWindowDrawList();
-    const ImVec2 picture(at.x + 23, at.y + 12), pictureMax(picture.x + 52, picture.y + 40);
+    const ImVec2 picture(at.x + 23 * unit, at.y + 12 * unit), pictureMax(picture.x + 52 * unit, picture.y + 40 * unit);
     const auto texture = read && setup.pictureTexture ? setup.pictureTexture->Id() : DevBitmap(835);
     if (texture)
         draw->AddImage(texture, picture, pictureMax);
-    ImGui::Dummy(ImVec2(98, 64));
+    ImGui::Dummy(ImVec2(98 * unit, 64 * unit));
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) ImGui::OpenPopup("picturemenu");
     if (ImGui::BeginPopup("picturemenu")) {
         if (ImGui::MenuItem("Load Snapshot"))
@@ -1258,90 +1261,6 @@ void SetupWindows::UsedByList(const char *id, const std::vector<EditorField> &ro
     ImGui::EndChild();
 }
 
-// ---------------------------------------------------------------- Dev's layout
 
-namespace setup {
-
-ImVec2 DevPage::At(float x, float y) const { return ImVec2(IM_ROUND(origin.x + x * s), IM_ROUND(origin.y + y * s)); }
-
-float DevPage::Place(float x1, float y1, float x2, float y2) const {
-    const ImVec2 a = At(x1, y1), b = At(x2, y2);
-    ImGui::SetCursorScreenPos(ImVec2(a.x, a.y + std::max(0.0f, IM_ROUND((b.y - a.y - ImGui::GetFrameHeight()) * 0.5f))));
-    const float width = std::max(1.0f, b.x - a.x);
-    ImGui::SetNextItemWidth(width);
-    return width;
-}
-
-void DevPage::Label(float x1, float y1, float x2, float y2, const char *text) const {
-    const ImVec2 a = At(x1, y1), b = At(x2, y2);
-    const float frame = ImGui::GetFrameHeight();
-    const float top = a.y + std::max(0.0f, IM_ROUND((b.y - a.y - frame) * 0.5f));
-    const float y = top + std::max(0.0f, IM_ROUND((std::min(frame, b.y - a.y) - ImGui::GetFontSize()) * 0.5f));
-    ImGui::GetWindowDrawList()->AddText(ImVec2(a.x, y), IM_COL32(0, 0, 0, 255), text);
-}
-
-void DevPage::Line(float x1, float y1, float x2, float y2) const {
-    const ImVec2 a = At(x1, y1);
-    ImVec2 b = At(x2, y2);
-    b.x = std::max(b.x, a.x + 1.0f);
-    b.y = std::max(b.y, a.y + 1.0f);
-    ImGui::GetWindowDrawList()->AddRectFilled(a, b, vi::Color(4));
-}
-
-bool DevPage::Check(const char *id, float x, float y, bool &on) const {
-    // On: the box with the cross (609, hovered 611), as VICheckButton draws
-    // it; off: the plain box (610, 612).
-    static const int CHECK[4] = {610, 612, 609, 611};
-    ImVec2 size;
-    DevBitmap(CHECK[0], &size);
-    if (size.x <= 0.0f) size = ImVec2(11.0f, 11.0f);
-    const ImVec2 at = At(x, y), max(at.x + size.x * s, at.y + size.y * s);
-    ImGui::SetCursorScreenPos(at);
-    const bool clicked = ImGui::InvisibleButton(id, ImVec2(max.x - at.x, max.y - at.y));
-    if (clicked) on = !on;
-    const bool hovered = ImGui::IsItemHovered();
-    if (ImTextureID texture = DevBitmap(CHECK[(on ? 2 : 0) + (hovered ? 1 : 0)]))
-        ImGui::GetWindowDrawList()->AddImage(texture, at, max);
-    return clicked;
-}
-
-bool DevPage::EditSlider(const char *id, const ImVec4 &edit, const ImVec4 &slider, float *value, float low, float high,
-                         const char *format, float speed) const {
-    Place(edit.x, edit.y, edit.z, edit.w);
-    bool changed = ImGui::DragFloat(id, value, speed, 0.0f, 0.0f, format);
-    ImGui::PushID(id);
-    Place(slider.x, slider.y, slider.z, slider.w);
-    float shown = std::max(low, std::min(high, *value));
-    if (ImGui::SliderFloat("##slider", &shown, low, high, "")) {
-        *value = shown;
-        changed = true;
-    }
-    ImGui::PopID();
-    return changed;
-}
-
-bool DevPage::ColorBar(const char *id, float x1, float y1, float x2, float y2, float *color, bool alpha) const {
-    const ImVec2 a = At(x1, y1), b = At(x2, y2);
-    ImGui::PushID(id);
-    ImGui::SetCursorScreenPos(a);
-    const ImGuiColorEditFlags flags = alpha ? ImGuiColorEditFlags_AlphaPreviewHalf : ImGuiColorEditFlags_NoAlpha;
-    if (ImGui::ColorButton(id, ImVec4(color[0], color[1], color[2], alpha ? color[3] : 1.0f), flags,
-                           ImVec2(b.x - a.x, b.y - a.y)))
-        ImGui::OpenPopup("picker");
-    bool changed = false;
-    if (ImGui::BeginPopup("picker")) {
-        changed = alpha ? ImGui::ColorPicker4("##picker", color, flags) : ImGui::ColorPicker3("##picker", color, flags);
-        ImGui::EndPopup();
-    }
-    ImGui::PopID();
-    return changed;
-}
-
-void DevPage::End(float x, float y) const {
-    ImGui::SetCursorScreenPos(origin);
-    ImGui::Dummy(ImVec2(x * s, y * s));
-}
-
-} // namespace setup
 
 } // namespace vdev

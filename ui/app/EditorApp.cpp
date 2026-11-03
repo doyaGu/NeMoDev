@@ -50,11 +50,24 @@
 
 namespace vdev {
 
-EditorApp::EditorApp(HtmlFonts fonts)
+static void ApplyColors(const Preferences &preferences, SchematicStyle &style) {
+    style.behaviorLink = ColorRefToImU32(preferences.ioLinkColor);
+    style.parameterLink = ColorRefToImU32(preferences.parameterLinkColor);
+    style.highlightLink = ColorRefToImU32(preferences.exportedLinkColor);
+    style.operationLink = ColorRefToImU32(preferences.operationLinkColor);
+    style.validLink = ColorRefToImU32(preferences.validLinkColor);
+    style.invalidLink = ColorRefToImU32(preferences.invalidLinkColor);
+    style.obsoleteBorder = ColorRefToImU32(preferences.obsoleteColor);
+    style.noPrototypeBorder = ColorRefToImU32(preferences.noPrototypeColor);
+    style.missingBorder = ColorRefToImU32(preferences.noObjectColor);
+    style.toReplaceBorder = ColorRefToImU32(preferences.toReplaceColor);
+}
+
+EditorApp::EditorApp()
     : m_Editor([this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
                [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }),
       m_ObjectCommands([this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }),
-      m_Schematics(m_Workspace, m_Style), m_Panels(m_ParameterCopies, m_Workspace, m_Schematics), m_HtmlFonts(fonts) {
+      m_Schematics(m_Workspace, m_Style), m_Panels(m_ParameterCopies, m_Workspace, m_Schematics) {
     m_Session.interactionActive = [this] { return m_Editor.HasEdits(); };
     m_Session.documentViews = this;
     m_Session.files.Execution(&m_Execution);
@@ -197,6 +210,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
          [&](EditorApplication &editor, std::string &error) { return RegisterResourceInputs(editor, window, error); }},
         {"RegisterDefaultWorkspace",
          [&](EditorApplication &editor, std::string &error) { return RegisterDefaultWorkspace(editor, error); }},
+        {"RegisterDefaultAppearance",
+         [](EditorApplication &editor, std::string &error) { return RegisterDefaultAppearance(editor, error); }},
         {"Workspace.Register", [&](EditorApplication &, std::string &error) { return m_Workspace.Register(error); }},
         {"Session.eventLog.Register",
          [&](EditorApplication &editor, std::string &error) { return m_Session.eventLog.Register(editor, error); }},
@@ -209,7 +224,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         {"RegisterMessageDialogs",
          [&](EditorApplication &editor, std::string &error) { return RegisterMessageDialogs(editor, error); }},
         {"RegisterHelpViews",
-         [&](EditorApplication &editor, std::string &error) { return RegisterHelpViews(editor, m_HtmlFonts, error); }},
+         [&](EditorApplication &editor, std::string &error) { return RegisterHelpViews(editor, &m_HtmlFonts, error); }},
         {"FileCommands.Register",
          [&](EditorApplication &, std::string &error) { return m_FileCommands.Register(error); }},
         {"RegisterFileInputs",
@@ -254,9 +269,8 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
         {"SchematicGraph.Register",
          [&](EditorApplication &editor, std::string &error) { return m_SchematicGraph.Register(editor, error); }},
         {"RegisterSchematicDiagnosticViews",
-         [&](EditorApplication &editor, std::string &error) {
-             return RegisterSchematicDiagnosticViews(editor, error);
-         }},
+         [&](EditorApplication &editor,
+             std::string &error) { return RegisterSchematicDiagnosticViews(editor, error); }},
         {"RegisterArrayValueEditors",
          [&](EditorApplication &editor, std::string &error) { return RegisterArrayValueEditors(editor, error); }},
         {"RegisterObjectViews",
@@ -286,9 +300,13 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
          [&](EditorApplication &, std::string &error) { return RegisterSceneNavigation(error); }}};
     sources.insert(sources.end(), std::make_move_iterator(external.begin()), std::make_move_iterator(external.end()));
     auto configuration = DefaultWorkspaceConfiguration();
+    const auto appearance = DefaultAppearanceConfiguration();
+    configuration.contributions.providers.insert(configuration.contributions.providers.end(),
+                                                 appearance.providers.begin(), appearance.providers.end());
     if (!m_Editor.Assemble(sources, EDITOR_IMGUI_VERSION, error, configuration.contributions, selectedModules, m_Profile.Contributions())) {
         return fail(error);
     }
+    if (!PrepareUiFrame(ImGui::GetStyle().FontScaleDpi, error)) return fail(error);
     configuration = AvailableWorkspaceConfiguration(std::move(configuration), m_Editor);
     m_Session.document = std::make_unique<Document>(m_Session.host);
     m_Editor.Attach({}, 0, true, false);
@@ -456,6 +474,7 @@ bool EditorApp::WriteProfile(EditorProfile &profile, const Preferences &settings
 }
 bool EditorApp::SaveConfiguration(const EditorConfiguration &configuration, std::string &error,
                                   const WorkspaceState *workspace) {
+    if (!m_Appearance.Prepare(m_Editor, error)) return false;
     if (!m_ProfileReady) return true;
     auto next = m_Profile;
     if (!WriteProfile(next, m_Settings, configuration, error, workspace))
@@ -517,6 +536,17 @@ void EditorApp::CloseSetupsAndManagers() {
     Command("preferences.close");
 }
 
+bool EditorApp::PrepareUiFrame(float contentScale, std::string &error) {
+    const auto revision = m_Appearance.Revision();
+    if (!m_Appearance.Apply(m_Editor, contentScale, error)) return false;
+    if (revision != m_Appearance.Revision()) {
+        m_Style = CurrentDevTheme().schematic;
+        ApplyColors(m_Settings, m_Style);
+    }
+    m_HtmlFonts = m_Appearance.Fonts();
+    return true;
+}
+
 EditorApp::~EditorApp() { Shutdown(); }
 
 void EditorApp::Shutdown() {
@@ -563,6 +593,7 @@ void EditorApp::Shutdown() {
     m_Session.host.Stop();
     m_Session.documentViews = nullptr;
     m_Workspace.CloseAll();
+    m_Appearance.Reset();
     m_Editor.Stop();
     // The textures every window draws with, before the device goes (Main.cpp).
     ReleaseDevBitmaps();

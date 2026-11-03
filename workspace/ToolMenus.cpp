@@ -25,6 +25,26 @@ void EditorWorkspace::ToolMenus() {
         config.providers.push_back({kind, id, provider});
         Configure(config, m_Error);
     };
+    if (ImGui::BeginMenu("Appearance")) {
+        const auto providers = [&](const char *title, const char *kind, const auto &all) {
+            if (!ImGui::BeginMenu(title)) return;
+            const auto &configuration = m_Application.Configuration();
+            for (const auto &desc : all) {
+                const auto id = Text(desc.id), provider = Text(desc.provider);
+                const auto label = Text(desc.title) + " (" + id + ", " + provider + ")";
+                const auto chosen = std::find_if(configuration.providers.begin(), configuration.providers.end(),
+                                                 [&](const auto &p) { return p.kind == kind && p.id == id; });
+                if (ImGui::MenuItem(label.c_str(), nullptr,
+                                    chosen != configuration.providers.end() && chosen->provider == provider))
+                    selectProvider(kind, id, provider);
+            }
+            ImGui::EndMenu();
+        };
+        providers("Themes", "theme", m_Application.Themes(true));
+        providers("Fonts", "font", m_Application.Fonts(true));
+        providers("Images", "image", m_Application.Images(true));
+        ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("Tools")) {
         for (const auto &tool : m_Application.Tools()) {
             const auto view = ActionView(Text(tool.view), Focused());

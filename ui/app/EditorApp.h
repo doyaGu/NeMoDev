@@ -4,7 +4,7 @@
 #include "core/layout/LayoutInterface.h"
 #include "core/catalog/BuildingBlockCatalog.h"
 #include "core/graph/Debugger.h"
-#include "ui/schematic/SchematicStyle.h"
+#include "ui/controls/SchematicStyle.h"
 
 #include "application/DocumentCommands.h"
 #include "application/ExecutionCommands.h"
@@ -40,6 +40,7 @@
 #include "features/scene/SceneViews.h"
 #include "ui/app/EditorStartup.h"
 #include "ui/app/StatusBar.h"
+#include "ui/controls/UiAppearance.h"
 #include "ui/help/HelpWindow.h"
 #include "ui/layout/LayoutWindows.h"
 #include "ui/panels/EditorPanels.h"
@@ -52,7 +53,8 @@ namespace vdev {
 
 class EditorApp : private DocumentFiles::Views, private DocumentCommands::Presentation, private OutputCommands::Presentation {
 public:
-    explicit EditorApp(HtmlFonts fonts);
+    EditorApp();
+    bool PrepareUiFrame(float contentScale, std::string &error);
     ~EditorApp();
 
     // Starts the CK runtime; runtimeDirectory must already be on the DLL
@@ -281,6 +283,7 @@ private:
     SetupWindows m_Setups{m_Workspace, m_Session.fileDialogs};
     SceneCommands m_SceneCommands{m_Editor, [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
         m_Session.objectClipboard, m_Session.clipboard, [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }, [this]() -> CKDependencies & { return CopyDependencies(); }};
+    UiAppearance m_Appearance;
     HtmlFonts m_HtmlFonts;
     LayoutWindows m_Layouts{m_Session.host, m_ParameterCopies, m_Editor, m_Workspace};
     LayoutCommands m_LayoutCommands{

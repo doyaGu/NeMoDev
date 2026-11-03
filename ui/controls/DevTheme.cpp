@@ -21,7 +21,7 @@ ImVec4 Rgb(int r, int g, int b, int alpha = 255) {
 
 } // namespace
 
-void ApplyDevTheme(ImGuiStyle &style, float contentScale) {
+static void DefaultDevStyle(ImGuiStyle &style) {
     style = ImGuiStyle();
     style.WindowRounding = 0.0f;
     style.ChildRounding = 0.0f;
@@ -90,23 +90,131 @@ void ApplyDevTheme(ImGuiStyle &style, float contentScale) {
     c[ImGuiCol_DragDropTarget] = Rgb(40, 60, 200);
     c[ImGuiCol_NavCursor] = Rgb(40, 60, 200);
     c[ImGuiCol_ModalWindowDimBg] = Gray(0, 70);
-    if (!std::isfinite(contentScale) || contentScale <= 0)
-        contentScale = 1;
-    style.ScaleAllSizes(contentScale);
     style.FontSizeBase = 14;
+}
+
+DevTheme DefaultDevTheme() {
+    DevTheme theme{};
+    DefaultDevStyle(theme.style);
+    const int chrome[] = {235, 170, 66, 51, 65, 96, 100, 58, 90, 110, 200, 70, 90, 240, 120};
+    const int menu[] = {249, 200, 229, 229, 215, 0};
+    const int controls[] = {0, 51, 65, 100, 128, 152, 176, 200, 230, 255};
+    const int pill[] = {118, 80, 196, 236, 130};
+    for (int i = 0; i < 15; ++i) theme.chrome[i] = Gray(chrome[i]);
+    for (int i = 0; i < 6; ++i) theme.menu[i] = Gray(menu[i]);
+    for (int i = 0; i < 10; ++i) theme.controls[i] = IM_COL32(controls[i], controls[i], controls[i], 255);
+    theme.controls[10] = IM_COL32(255, 0, 0, 255);
+    for (int i = 0; i < 5; ++i) theme.pill[i] = IM_COL32(pill[i], pill[i], pill[i], 255);
+    theme.tabText = IM_COL32(236, 236, 236, 255);
+    theme.controlLine = IM_COL32(34, 34, 34, 255);
+    theme.controlOutline = IM_COL32(188, 188, 188, 255);
+    theme.controlTableHeader = IM_COL32(240, 240, 240, 255);
+    theme.controlTableSort = IM_COL32(0, 0, 0, 24);
+    const int layout[] = {65, 157, 128, 21, 100, 40, 100, 150, 20, 255, 255, 255, 255};
+    for (int i = 0; i < 13; ++i) theme.layout[i] = IM_COL32(layout[i], layout[i], layout[i], 255);
+    theme.layout[11] = IM_COL32(0, 255, 0, 255);
+    theme.viWidth[0] = theme.viWidth[1] = 5.0f / 6.0f;
+    theme.menuRounding = 8;
+    theme.menuPadding = {10, 8};
+    theme.menuSpacing = {12, 8};
+    theme.selectionFill = theme.selectionBorder = IM_COL32(10, 36, 106, 255);
+    theme.selectionText = IM_COL32(255, 255, 255, 255);
+    theme.hoverBorder = IM_COL32(120, 120, 120, 255);
+    theme.previewBackground = IM_COL32(128, 128, 128, 255);
+    theme.previewBorder = IM_COL32(0, 0, 0, 255);
+    theme.previewGrid = IM_COL32(110, 110, 110, 255);
+    theme.previewCurve = IM_COL32(255, 0, 0, 255);
+    theme.previewMarker = IM_COL32(220, 0, 0, 255);
+    theme.imageBackground = theme.snapshotBackground = IM_COL32(255, 255, 255, 255);
+    theme.warningText = IM_COL32(153, 0, 0, 255);
+    theme.snapshotEmptyBorder = IM_COL32(160, 160, 160, 255);
+    return theme;
+}
+DevTheme DefaultUiTheme() {
+    DevTheme theme{};
+    const ImGuiCol chrome[] = {
+        ImGuiCol_Text,   ImGuiCol_TextDisabled,  ImGuiCol_PopupBg,        ImGuiCol_MenuBarBg,     ImGuiCol_WindowBg,
+        ImGuiCol_Header, ImGuiCol_HeaderHovered, ImGuiCol_Button,         ImGuiCol_ButtonHovered, ImGuiCol_ButtonActive,
+        ImGuiCol_Border, ImGuiCol_FrameBg,       ImGuiCol_FrameBgHovered, ImGuiCol_CheckMark,     ImGuiCol_Separator};
+    const ImGuiCol menu[] = {ImGuiCol_PopupBg, ImGuiCol_Border,    ImGuiCol_HeaderHovered,
+                             ImGuiCol_Header,  ImGuiCol_Separator, ImGuiCol_Text};
+    const ImGuiCol control[] = {ImGuiCol_Text,          ImGuiCol_MenuBarBg, ImGuiCol_FrameBg,      ImGuiCol_TitleBg,
+                                ImGuiCol_TextDisabled,  ImGuiCol_Separator, ImGuiCol_WindowBg,     ImGuiCol_Border,
+                                ImGuiCol_HeaderHovered, ImGuiCol_FrameBg,   ImGuiCol_PlotHistogram};
+    const ImGuiCol pill[] = {ImGuiCol_ButtonActive, ImGuiCol_ButtonHovered, ImGuiCol_Border, ImGuiCol_Text,
+                             ImGuiCol_TextDisabled};
+    for (int i = 0; i < 15; ++i) theme.chrome[i] = theme.style.Colors[chrome[i]];
+    for (int i = 0; i < 6; ++i) theme.menu[i] = theme.style.Colors[menu[i]];
+    for (int i = 0; i < 11; ++i) theme.controls[i] = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[control[i]]);
+    for (int i = 0; i < 5; ++i) theme.pill[i] = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[pill[i]]);
+    for (auto &color : theme.layout) color = theme.controls[2];
+    for (const int i : {1, 3, 5, 7}) theme.layout[i] = theme.controls[7];
+    theme.layout[4] = theme.controls[6];
+    for (const int i : {8, 10, 12}) theme.layout[i] = theme.controls[0];
+    theme.layout[9] = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[ImGuiCol_NavCursor]);
+    theme.layout[11] = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[ImGuiCol_PlotHistogram]);
+    theme.tabText = theme.controls[0];
+    theme.controlLine = theme.controlOutline = theme.controls[7];
+    theme.controlTableHeader = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[ImGuiCol_TableHeaderBg]);
+    theme.controlTableSort = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[ImGuiCol_HeaderActive]);
+    theme.menuRounding = theme.style.PopupRounding;
+    theme.menuPadding = theme.style.WindowPadding;
+    theme.menuSpacing = theme.style.ItemSpacing;
+    theme.viWidth[0] = theme.viWidth[1] = 1;
+    theme.selectionFill = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[ImGuiCol_HeaderActive]);
+    theme.selectionText = theme.controls[0];
+    theme.selectionBorder = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[ImGuiCol_NavCursor]);
+    theme.hoverBorder = theme.controls[8];
+    theme.previewBackground = theme.imageBackground = theme.snapshotBackground = theme.controls[6];
+    theme.previewBorder = theme.previewGrid = theme.snapshotEmptyBorder = theme.controls[7];
+    theme.previewCurve = ImGui::ColorConvertFloat4ToU32(theme.style.Colors[ImGuiCol_PlotLines]);
+    theme.previewMarker = theme.warningText =
+        ImGui::ColorConvertFloat4ToU32(theme.style.Colors[ImGuiCol_PlotHistogram]);
+    VisitSchematicColors(theme.schematic, [&](const char *, ImU32 &color) { color = theme.controls[0]; });
+    auto &graph = theme.schematic;
+    graph.canvas = graph.thumbnailFill = theme.controls[6];
+    graph.grid = graph.headerEdge = graph.thumbnailBorder = graph.bevelDark = graph.graphNameEdge =
+        graph.behaviorBorder = graph.pinBorder = graph.parameterBorder = graph.operationBorder = graph.commentBorder =
+            graph.startBorder = theme.controls[7];
+    graph.behaviorFill = graph.buildingBlockFill = graph.graphFill = graph.openGraphFill = graph.openGraphTitle =
+        graph.pinFill = graph.targetFill = graph.plainLocalFill = graph.collapsedFill = graph.operationFill =
+            graph.commentFill = graph.startFill = theme.controls[2];
+    graph.currentHeaderFill = graph.hover = theme.controls[8];
+    graph.mutedText = theme.controls[4];
+    graph.selection = graph.rubberBandBorder = theme.selectionBorder;
+    graph.rubberBand = theme.selectionFill;
+    graph.trace = graph.breakpointFill = graph.unresolvedText = theme.warningText;
+    graph.running = theme.previewCurve;
+    graph.breakpointEdge = theme.previewBorder;
+    theme.dialogRounding = theme.style.WindowRounding;
+    theme.groupRounding = theme.style.ChildRounding;
+    theme.groupBorder = theme.style.ChildBorderSize;
+    theme.setupSpacing = theme.style.ItemSpacing;
+    theme.listPadding = theme.eventLogPadding = theme.style.WindowPadding;
+    return theme;
+}
+namespace {
+DevTheme g_Theme = DefaultUiTheme();
+}
+const DevTheme &CurrentDevTheme() { return g_Theme; }
+void SetDevTheme(const DevTheme &theme) { g_Theme = theme; }
+void ApplyDevTheme(ImGuiStyle &style, float contentScale) {
+    if (!std::isfinite(contentScale) || contentScale <= 0) contentScale = 1;
+    style = CurrentDevTheme().style;
+    style.ScaleAllSizes(contentScale);
     style.FontScaleDpi = contentScale;
 }
 
 void PushDevMenuStyle() {
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, Gray(249));
-    ImGui::PushStyleColor(ImGuiCol_Border, Gray(200));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Gray(229));
-    ImGui::PushStyleColor(ImGuiCol_Header, Gray(229));
-    ImGui::PushStyleColor(ImGuiCol_Separator, Gray(215));
-    ImGui::PushStyleColor(ImGuiCol_Text, Gray(0));
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 8.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(12.0f, 8.0f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, CurrentDevTheme().menu[0]);
+    ImGui::PushStyleColor(ImGuiCol_Border, CurrentDevTheme().menu[1]);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, CurrentDevTheme().menu[2]);
+    ImGui::PushStyleColor(ImGuiCol_Header, CurrentDevTheme().menu[3]);
+    ImGui::PushStyleColor(ImGuiCol_Separator, CurrentDevTheme().menu[4]);
+    ImGui::PushStyleColor(ImGuiCol_Text, CurrentDevTheme().menu[5]);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, CurrentDevTheme().menuRounding);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, CurrentDevTheme().menuPadding);
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, CurrentDevTheme().menuSpacing);
 }
 
 void PopDevMenuStyle() {
@@ -116,7 +224,7 @@ void PopDevMenuStyle() {
 
 bool BeginDevWindow(const char *name, bool *open, ImGuiWindowFlags flags) {
     // The dock node draws its tab bar inside the first Begin of the frame.
-    ImGui::PushStyleColor(ImGuiCol_Text, Gray(236));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(CurrentDevTheme().tabText));
     const bool visible = ImGui::Begin(name, open, flags);
     ImGui::PopStyleColor();
     return visible;
@@ -161,21 +269,21 @@ void DevTabClose(bool *open, const char *label) {
 }
 
 void PushDarkChrome() {
-    ImGui::PushStyleColor(ImGuiCol_Text, Gray(235));
-    ImGui::PushStyleColor(ImGuiCol_TextDisabled, Gray(170));
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, Gray(66));
-    ImGui::PushStyleColor(ImGuiCol_MenuBarBg, Gray(51));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, Gray(65));
-    ImGui::PushStyleColor(ImGuiCol_Header, Gray(96));
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Gray(100));
-    ImGui::PushStyleColor(ImGuiCol_Button, Gray(58));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, Gray(90));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, Gray(110));
-    ImGui::PushStyleColor(ImGuiCol_Border, Gray(200));
-    ImGui::PushStyleColor(ImGuiCol_FrameBg, Gray(70));
-    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, Gray(90));
-    ImGui::PushStyleColor(ImGuiCol_CheckMark, Gray(240));
-    ImGui::PushStyleColor(ImGuiCol_Separator, Gray(120));
+    ImGui::PushStyleColor(ImGuiCol_Text, CurrentDevTheme().chrome[0]);
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, CurrentDevTheme().chrome[1]);
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, CurrentDevTheme().chrome[2]);
+    ImGui::PushStyleColor(ImGuiCol_MenuBarBg, CurrentDevTheme().chrome[3]);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, CurrentDevTheme().chrome[4]);
+    ImGui::PushStyleColor(ImGuiCol_Header, CurrentDevTheme().chrome[5]);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, CurrentDevTheme().chrome[6]);
+    ImGui::PushStyleColor(ImGuiCol_Button, CurrentDevTheme().chrome[7]);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, CurrentDevTheme().chrome[8]);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, CurrentDevTheme().chrome[9]);
+    ImGui::PushStyleColor(ImGuiCol_Border, CurrentDevTheme().chrome[10]);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, CurrentDevTheme().chrome[11]);
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, CurrentDevTheme().chrome[12]);
+    ImGui::PushStyleColor(ImGuiCol_CheckMark, CurrentDevTheme().chrome[13]);
+    ImGui::PushStyleColor(ImGuiCol_Separator, CurrentDevTheme().chrome[14]);
 }
 
 void PopDarkChrome() {
@@ -195,11 +303,11 @@ bool DevToolbarPill(const char *id, const char *label, const ImVec2 &a, const Im
     const bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     const float rounding = (b.y - a.y) * 0.5f;
-    const ImU32 fill = (on || held) && enabled ? IM_COL32(118, 118, 118, 255)
-                       : hovered && enabled    ? IM_COL32(80, 80, 80, 255)
+    const ImU32 fill = (on || held) && enabled ? CurrentDevTheme().pill[0]
+                       : hovered && enabled    ? CurrentDevTheme().pill[1]
                                                : 0;
     if (fill) dl->AddRectFilled(a, b, fill, rounding);
-    dl->AddRect(a, b, IM_COL32(196, 196, 196, 255), rounding);
+    dl->AddRect(a, b, CurrentDevTheme().pill[2], rounding);
     // The label, smaller when it does not fit (Dev's font is smaller).
     ImVec2 textSize = ImGui::CalcTextSize(label);
     float size = ImGui::GetFontSize();
@@ -208,7 +316,7 @@ bool DevToolbarPill(const char *id, const char *label, const ImVec2 &a, const Im
         size *= room / textSize.x;
         textSize = ImVec2(room, textSize.y * room / textSize.x);
     }
-    const ImU32 text = enabled ? IM_COL32(236, 236, 236, 255) : IM_COL32(130, 130, 130, 255);
+    const ImU32 text = enabled ? CurrentDevTheme().pill[3] : CurrentDevTheme().pill[4];
     dl->AddText(ImGui::GetFont(), size, ImVec2(a.x + (b.x - a.x - textSize.x) * 0.5f, a.y + (b.y - a.y - textSize.y) * 0.5f),
                 text, label);
     if (hovered && tooltip) ImGui::SetTooltip("%s", tooltip);
@@ -221,12 +329,18 @@ bool DevToolbarPill(const char *id, const char *label, const ImVec2 &a, const Im
 namespace {
 ImFont *g_BoldFont = nullptr;
 ImFont *g_VIFonts[2] = {};
+float g_VIHeights[2] = {12, 14}, g_VIWidths[2] = {5.0f / 6.0f, 5.0f / 6.0f};
 } // namespace
 
 void SetBoldFont(ImFont *font) { g_BoldFont = font; }
 ImFont *BoldFont() { return g_BoldFont; }
 
-void SetVIFonts(ImFont *normal, ImFont *bold) {
+void SetVIFonts(ImFont *normal, ImFont *bold, float normalHeight, float boldHeight, float normalWidth,
+                float boldWidth) {
+    g_VIHeights[0] = normalHeight;
+    g_VIHeights[1] = boldHeight;
+    g_VIWidths[0] = normalWidth;
+    g_VIWidths[1] = boldWidth;
     g_VIFonts[0] = normal;
     g_VIFonts[1] = bold;
 }
@@ -236,12 +350,12 @@ ImFont *VIFont(bool bold) {
     return font ? font : bold && g_BoldFont ? g_BoldFont : ImGui::GetFont();
 }
 
-float VIFontHeight(bool bold) { return bold ? 14.0f : 12.0f; }
+float VIFontHeight(bool bold) { return g_VIHeights[bold ? 1 : 0]; }
 
 // GDI's lfWidth 5 against the fonts' average character width of 6: Dev's
 // status bar texts are 5/6 as wide as Arial's own (measured on a Dev
 // screenshot: "Nothing selected" 0.82, "No action" in bold 0.84).
-float VIFontWidth(bool bold) { return g_VIFonts[bold ? 1 : 0] ? 5.0f / 6.0f : 1.0f; }
+float VIFontWidth(bool bold) { return g_VIFonts[bold ? 1 : 0] ? g_VIWidths[bold ? 1 : 0] : 1.0f; }
 
 float VITextWidth(const char *text, bool bold, float scale) {
     ImFont *font = VIFont(bold);

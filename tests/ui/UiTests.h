@@ -49,6 +49,7 @@ namespace vdevuitest {
 vdev::EditorApp &App();
 
 void RegisterModuleTests(ImGuiTestEngine *engine);
+void RegisterAppearanceTests(ImGuiTestEngine *engine);
 void RegisterWorkspaceTests(ImGuiTestEngine *engine);
 void RegisterValueEditTests(ImGuiTestEngine *engine);
 void RegisterArrayEditTests(ImGuiTestEngine *engine);

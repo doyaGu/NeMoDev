@@ -13,6 +13,7 @@
 
 using namespace vdev;
 void TestEditorTools(vdev::CkRuntimeHost &, const std::string &);
+void TestEditorAppearance(vdev::CkRuntimeHost &, const std::string &);
 void TestWorkspace(vdev::CkRuntimeHost &host);
 void TestWorkspacePersistence(vdev::CkRuntimeHost &host);
 void TestEventLog();
@@ -698,7 +699,7 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
 } // namespace
 int main(int argc, char **argv) {
     try {
-        Check(argc == 5, "module, environment and gesture fixture paths are required");
+        Check(argc == 6, "module, environment and gesture fixture paths are required");
         Registration();
         VersionedQueries();
         QueryProviderVersions();
@@ -718,6 +719,7 @@ int main(int argc, char **argv) {
         TestDocumentTransitions(runtime);
         TestOutputCommands(runtime);
         TestEditorTools(runtime, argv[4]);
+        TestEditorAppearance(runtime, argv[5]);
         TestWorkspace(runtime);
         TestWorkspacePersistence(runtime);
         TestEventLog();

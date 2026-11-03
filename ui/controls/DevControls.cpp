@@ -16,17 +16,9 @@ namespace {
 
 ImFont *FontOf(bool bold) { return bold && BoldFont() ? BoldFont() : ImGui::GetFont(); }
 
-constexpr ImU32 DARK_LINE = IM_COL32(34, 34, 34, 255);
-
 } // namespace
 
-ImU32 Color(int index) {
-    static const ImU32 TABLE[] = {IM_COL32(0, 0, 0, 255),       IM_COL32(51, 51, 51, 255),    IM_COL32(65, 65, 65, 255),
-                                  IM_COL32(100, 100, 100, 255), IM_COL32(128, 128, 128, 255), IM_COL32(152, 152, 152, 255),
-                                  IM_COL32(176, 176, 176, 255), IM_COL32(200, 200, 200, 255), IM_COL32(230, 230, 230, 255),
-                                  IM_COL32(255, 255, 255, 255), IM_COL32(255, 0, 0, 255)};
-    return index >= 0 && index < static_cast<int>(sizeof(TABLE) / sizeof(TABLE[0])) ? TABLE[index] : TABLE[0];
-}
+ImU32 Color(int index) { return CurrentDevTheme().controls[index >= 0 && index < 11 ? index : 0]; }
 
 float TextWidth(const char *text, bool bold) {
     ImGui::PushFont(FontOf(bold));
@@ -103,7 +95,7 @@ int Combo(const char *id, const ImVec2 &min, const ImVec2 &max, const std::strin
     dl->AddTriangleFilled(ImVec2(arrowX - 4.5f * s, ay - 2.0f * s), ImVec2(arrowX + 4.5f * s, ay - 2.0f * s),
                           ImVec2(arrowX, ay + 2.5f * s), Color(0));
     if (!open) {
-        dl->AddLine(ImVec2(min.x, max.y - 1.5f), ImVec2(max.x, max.y - 1.5f), DARK_LINE);
+        dl->AddLine(ImVec2(min.x, max.y - 1.5f), ImVec2(max.x, max.y - 1.5f), CurrentDevTheme().controlLine);
         dl->AddLine(ImVec2(min.x, max.y - 0.5f), ImVec2(max.x, max.y - 0.5f), Color(3));
     }
     int chosen = -1;
@@ -113,7 +105,8 @@ int Combo(const char *id, const ImVec2 &min, const ImVec2 &max, const std::strin
     ImGui::PushStyleColor(ImGuiCol_Text, Color(0));
     ImGui::PushStyleColor(ImGuiCol_Header, Color(4));
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Color(6));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f * s, 2.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+                        ImVec2(CurrentDevTheme().listPadding.x * s, CurrentDevTheme().listPadding.y * s));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
     if (ImGui::BeginPopup("##list")) {
         TypeAhead typeAhead;
@@ -151,14 +144,15 @@ bool EditCombo(const char *id, const ImVec2 &min, const ImVec2 &max, std::string
     const float ax = max.x - 6.5f * s, ay = (min.y + max.y) * 0.5f;
     dl->AddTriangleFilled(ImVec2(ax - 4.5f * s, ay - 2.0f * s), ImVec2(ax + 4.5f * s, ay - 2.0f * s), ImVec2(ax, ay + 2.5f * s),
                           Color(0));
-    dl->AddLine(ImVec2(arrowLeft, max.y - 1.5f), ImVec2(max.x, max.y - 1.5f), DARK_LINE);
+    dl->AddLine(ImVec2(arrowLeft, max.y - 1.5f), ImVec2(max.x, max.y - 1.5f), CurrentDevTheme().controlLine);
     ImGui::SetNextWindowPos(ImVec2(min.x, max.y));
     ImGui::SetNextWindowSizeConstraints(ImVec2(max.x - min.x, 0.0f), ImVec2(std::max(max.x - min.x, 400.0f * s), 320.0f * s));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, Color(8));
     ImGui::PushStyleColor(ImGuiCol_Text, Color(0));
     ImGui::PushStyleColor(ImGuiCol_Header, Color(4));
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, Color(6));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f * s, 2.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+                        ImVec2(CurrentDevTheme().listPadding.x * s, CurrentDevTheme().listPadding.y * s));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
     if (ImGui::BeginPopup("##list")) {
         if (active) *active = true;
@@ -340,7 +334,7 @@ int ListView(const char *id, const ImVec2 &min, const ImVec2 &max, float s, cons
             outer->AddText(ImVec2(IM_ROUND((inMin.x + inMax.x - w) * 0.5f), IM_ROUND(inMin.y + textY)), Color(0), columns[0].label);
         }
     } else {
-        outer->AddRectFilled(inMin, ImVec2(inMax.x, inMin.y + headerHeight), IM_COL32(240, 240, 240, 255));
+        outer->AddRectFilled(inMin, ImVec2(inMax.x, inMin.y + headerHeight), CurrentDevTheme().controlTableHeader);
         outer->AddLine(ImVec2(inMin.x, inMin.y + headerHeight - 1.0f), ImVec2(inMax.x, inMin.y + headerHeight - 1.0f), Color(9));
         float x = inMin.x;
         outer->PushClipRect(inMin, ImVec2(inMax.x, inMin.y + headerHeight), true);
@@ -355,7 +349,8 @@ int ListView(const char *id, const ImVec2 &min, const ImVec2 &max, float s, cons
                 ImGui::PushID(static_cast<int>(c));
                 if (ImGui::InvisibleButton("##header", ImVec2(widths[c], headerHeight))) *headerClicked = static_cast<int>(c);
                 if (ImGui::IsItemActive())
-                    outer->AddRectFilled(ImVec2(x, inMin.y), ImVec2(x + widths[c], inMin.y + headerHeight), IM_COL32(0, 0, 0, 24));
+                    outer->AddRectFilled(ImVec2(x, inMin.y), ImVec2(x + widths[c], inMin.y + headerHeight),
+                                         CurrentDevTheme().controlTableSort);
                 ImGui::PopID();
                 ImGui::PopID();
             }
@@ -428,7 +423,7 @@ int ListView(const char *id, const ImVec2 &min, const ImVec2 &max, float s, cons
     return clicked;
 }
 
-float TitleHeight(float scale) { return 24.0f * scale; }
+float TitleHeight(float scale) { return CurrentDevTheme().dialogTitleHeight * scale; }
 
 namespace {
 
@@ -439,9 +434,9 @@ ImVec2 DialogChrome(const std::string &title, const ImVec2 &size, float s) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
     const ImVec2 at = ImGui::GetWindowPos();
     dl->AddRectFilled(ImVec2(at.x + 1.0f, at.y + 1.0f), ImVec2(at.x + size.x - 1.0f, at.y + 1.0f + title_), Color(2),
-                      6.0f * s, ImDrawFlags_RoundCornersTop);
+                      CurrentDevTheme().dialogRounding * s, ImDrawFlags_RoundCornersTop);
     dl->AddLine(ImVec2(at.x + 1.0f, at.y + 1.0f + title_), ImVec2(at.x + size.x - 1.0f, at.y + 1.0f + title_),
-                IM_COL32(188, 188, 188, 255));
+                CurrentDevTheme().controlOutline);
     ImGui::PushFont(FontOf(true));
     dl->PushClipRect(at, ImVec2(at.x + size.x - 6.0f * s, at.y + title_), true);
     dl->AddText(ImVec2(at.x + 9.0f * s, at.y + 1.0f + (title_ - ImGui::GetFontSize()) * 0.5f), Color(9), title.c_str());
@@ -464,7 +459,7 @@ bool BeginWindow(const char *id, const std::string &title, const ImVec2 &client,
     ImGui::SetNextWindowSize(size, ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f * s);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, CurrentDevTheme().dialogRounding * s);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, Color(4));
@@ -488,7 +483,7 @@ bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client,
     ImGui::SetNextWindowSize(size, ImGuiCond_Always);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f * s);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, CurrentDevTheme().dialogRounding * s);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, Color(4));
@@ -510,8 +505,9 @@ void EndDialog() { ImGui::EndPopup(); }
 
 void Panel(const ImVec2 &min, const ImVec2 &max, float s) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(min, max, Color(7), 7.0f * s);
-    dl->AddRect(min, max, DARK_LINE, 7.0f * s, 0, 1.5f * s);
+    dl->AddRectFilled(min, max, Color(7), CurrentDevTheme().groupRounding * s);
+    dl->AddRect(min, max, CurrentDevTheme().controlLine, CurrentDevTheme().groupRounding * s, 0,
+                CurrentDevTheme().groupBorder * s);
 }
 
 ImVec2 TemplateClient(const ImVec2 &units, float s, float pad, bool buttons) {
@@ -550,7 +546,7 @@ bool DialogButton(const char *label, const ImVec2 &min, float s, ImGuiKey key) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
     if (held) dl->AddRectFilled(min, max, Color(3), size.y * 0.5f);
     else if (hovered) dl->AddRectFilled(min, max, Color(5), size.y * 0.5f);
-    dl->AddRect(min, max, IM_COL32(188, 188, 188, 255), size.y * 0.5f, 0, 1.0f * s);
+    dl->AddRect(min, max, CurrentDevTheme().controlOutline, size.y * 0.5f, 0, 1.0f * s);
     ImGui::PushFont(FontOf(true));
     const ImVec2 textSize = ImGui::CalcTextSize(label);
     dl->AddText(ImVec2((min.x + max.x - textSize.x) * 0.5f, (min.y + max.y - textSize.y) * 0.5f), Color(9), label);

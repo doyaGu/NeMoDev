@@ -3,6 +3,7 @@
 #include "ui/render/UiRenderer.h"
 #include "core/runtime/Resources.h"
 #include "ui/schematic/Snapshots.h"
+#include <algorithm>
 #include <map>
 #include <memory>
 #include <set>
@@ -11,24 +12,33 @@
 
 namespace vdev {
 namespace {
-struct Bitmap { std::unique_ptr<UiTexture> view; ImVec2 size; bool tried = false; };
+struct Bitmap {
+    std::unique_ptr<UiTexture> view;
+    ImVec2 size;
+    bool tried = false;
+    std::string id;
+    EditorImageDesc source{};
+};
 enum Group { UI, PARAMETER, APP, GROUP_COUNT };
 const char *const GROUP_NAMES[] = {"ui", "parameter", "app"};
-std::map<std::pair<int,int>,Bitmap> g_Bitmaps, g_Icons;
+using Bitmaps = std::map<std::pair<int, int>, Bitmap>;
+Bitmaps g_Bitmaps, g_Icons, g_PreparedBitmaps, g_PreparedIcons;
+std::map<std::string, EditorImageDesc> g_Images, g_PreparedImages;
 std::set<std::string> g_Missing;
-Bitmap &Load(Group group, const char *kind, int id, int size, bool icon) {
-    auto &map = icon ? g_Icons : g_Bitmaps;
-    Bitmap &bitmap = map[{static_cast<int>(group) + GROUP_COUNT * size, id}];
-    if (bitmap.view && !bitmap.view->NativeTexture()) bitmap = {};
-    if (bitmap.tried) return bitmap;
-    bitmap.tried = true;
-    const EmbeddedImage *image = FindEmbeddedImage(GROUP_NAMES[group], kind, id);
-    if (!image) { g_Missing.insert(ResourceName(GROUP_NAMES[group], kind, id)); return bitmap; }
-    const int width = icon && size > 0 ? size : image->width;
-    const int height = icon && size > 0 ? size : image->height;
+std::string Text(EditorString s) { return {s.data ? s.data : "", s.size}; }
+bool SameImage(const EditorImageDesc &a, const EditorImageDesc &b) {
+    return a.pixels == b.pixels && a.width == b.width && a.height == b.height && a.byteCount == b.byteCount;
+}
+Bitmap Make(const std::string &id, const EditorImageDesc *image, int size) {
+    Bitmap result;
+    result.tried = true;
+    result.id = id;
+    if (!image) return result;
+    result.source = *image;
+    const int width = size > 0 ? size : int(image->width), height = size > 0 ? size : int(image->height);
     std::vector<unsigned char> scaled;
-    const unsigned char *pixels = image->rgba;
-    if (width != image->width || height != image->height) {
+    const unsigned char *pixels = image->pixels;
+    if (width != int(image->width) || height != int(image->height)) {
         scaled.resize(static_cast<size_t>(width) * height * 4);
         for (int y = 0; y < height; ++y)
             for (int x = 0; x < width; ++x)
@@ -38,9 +48,21 @@ Bitmap &Load(Group group, const char *kind, int id, int size, bool icon) {
                                 x * image->width / width) * 4 + channel];
         pixels = scaled.data();
     }
-    bitmap.view = MainRenderer().CreateTexture(width, height, pixels);
-    bitmap.size = ImVec2(float(width), float(height));
-    if (!bitmap.view) g_Missing.insert(ResourceName(GROUP_NAMES[group], kind, id));
+    result.view = MainRenderer().CreateTexture(width, height, pixels);
+    result.size = ImVec2(float(width), float(height));
+    return result;
+}
+Bitmap &Load(Group group, const char *kind, int id, int size, bool icon) {
+    auto &map = icon ? g_Icons : g_Bitmaps;
+    Bitmap &bitmap = map[{static_cast<int>(group) + GROUP_COUNT * size, id}];
+    if (bitmap.view && !bitmap.view->NativeTexture()) bitmap = {};
+    if (bitmap.tried) return bitmap;
+    const auto name = std::string(GROUP_NAMES[group]) + "." + kind + "." + std::to_string(id);
+    const auto image = g_Images.find(name);
+    bitmap = Make(name, image == g_Images.end() ? nullptr : &image->second, icon ? size : 0);
+    // No image catalogue is the renderer's basic text/vector presentation.
+    // Keep reporting missing assets and upload failures in configured catalogues.
+    if (!bitmap.view && !g_Images.empty()) g_Missing.insert(ResourceName(GROUP_NAMES[group], kind, id));
     return bitmap;
 }
 Bitmap &LoadBitmapOf(Group group, int id) { return Load(group, "bitmap", id, 0, false); }
@@ -80,7 +102,75 @@ const std::set<std::string> &MissingResources() {
 void ReleaseDevBitmaps() {
     g_Bitmaps.clear();
     g_Icons.clear();
+    g_PreparedBitmaps.clear();
+    g_PreparedIcons.clear();
 }
+bool PrepareDevImages(const std::vector<EditorImageDesc> &images, const std::map<std::string, EditorField> &values,
+                      std::string &error) {
+    g_PreparedImages.clear();
+    g_PreparedBitmaps.clear();
+    g_PreparedIcons.clear();
+    for (const auto &image : images) g_PreparedImages.emplace(Text(image.id), image);
+    for (const auto &entry : values)
+        if (entry.first.compare(0, 6, "image.") == 0) {
+            const auto source = std::find_if(images.begin(), images.end(),
+                                             [&](const auto &i) { return Text(i.id) == entry.second.text; });
+            if (source == images.end()) {
+                error = "Unavailable theme image: " + entry.second.text;
+                return false;
+            }
+            g_PreparedImages[entry.first.substr(6)] = *source;
+        }
+    const auto prepare = [&](const Bitmaps &current, Bitmaps &prepared, bool icons) {
+        for (const auto &entry : current) {
+            if (!entry.second.tried) continue;
+            const auto next = g_PreparedImages.find(entry.second.id);
+            const EditorImageDesc *source = next == g_PreparedImages.end() ? nullptr : &next->second;
+            if (SameImage(entry.second.source, source ? *source : EditorImageDesc{})) continue;
+            auto bitmap = Make(entry.second.id, source, icons ? entry.first.first / GROUP_COUNT : 0);
+            if (source && !bitmap.view) {
+                error = "Cannot prepare UI image: " + entry.second.id;
+                return false;
+            }
+            prepared.emplace(entry.first, std::move(bitmap));
+        }
+        return true;
+    };
+    if (!prepare(g_Bitmaps, g_PreparedBitmaps, false) || !prepare(g_Icons, g_PreparedIcons, true)) {
+        g_PreparedImages.clear();
+        g_PreparedBitmaps.clear();
+        g_PreparedIcons.clear();
+        return false;
+    }
+    return true;
+}
+void ApplyDevImages() {
+    g_Images = std::move(g_PreparedImages);
+    for (auto &entry : g_PreparedBitmaps) g_Bitmaps[entry.first] = std::move(entry.second);
+    for (auto &entry : g_PreparedIcons) g_Icons[entry.first] = std::move(entry.second);
+    g_PreparedBitmaps.clear();
+    g_PreparedIcons.clear();
+    g_Missing.clear();
+    const auto missing = [&](const Bitmaps &cache, const char *kind) {
+        for (const auto &entry : cache)
+            if (entry.second.tried && !entry.second.view)
+                g_Missing.insert(ResourceName(GROUP_NAMES[entry.first.first % GROUP_COUNT], kind, entry.first.second));
+    };
+    if (!g_Images.empty()) {
+        missing(g_Bitmaps, "bitmap");
+        missing(g_Icons, "icon");
+    }
+}
+void ResetDevImages() {
+    ReleaseDevBitmaps();
+    g_Images.clear();
+    g_PreparedImages.clear();
+    g_Missing.clear();
+}
+
+#ifdef VIRTOOLSDEV_UI_TESTS
+const UiTexture *DevBitmapForTests(int id) { return LoadBitmapOf(UI, id).view.get(); }
+#endif
 
 bool DevBitmapButton(const char *id, const ImVec2 &at, const int bitmaps[5], bool checked, bool enabled, float scale,
                      const char *tooltip, bool *rightClicked) {
@@ -101,6 +191,17 @@ bool DevBitmapButton(const char *id, const ImVec2 &at, const int bitmaps[5], boo
     const int bitmap = !enabled ? bitmaps[4] : (checked || held) ? bitmaps[hovered ? 3 : 2] : bitmaps[hovered ? 1 : 0];
     if (ImTextureID texture = DevBitmap(bitmap))
         ImGui::GetWindowDrawList()->AddImage(texture, at, ImVec2(at.x + size.x, at.y + size.y));
+    else {
+        auto *draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(at, {at.x + size.x, at.y + size.y},
+                            ImGui::GetColorU32(held || checked ? ImGuiCol_ButtonActive
+                                               : hovered       ? ImGuiCol_ButtonHovered
+                                                               : ImGuiCol_Button));
+        draw->AddRect(at, {at.x + size.x, at.y + size.y}, ImGui::GetColorU32(ImGuiCol_Border));
+        const auto text = ImGui::CalcTextSize("?");
+        draw->AddText({at.x + (size.x - text.x) * .5f, at.y + (size.y - text.y) * .5f},
+                      ImGui::GetColorU32(ImGuiCol_Text), "?");
+    }
     if (hovered && tooltip && *tooltip) ImGui::SetTooltip("%s", tooltip);
     if (rightClicked) *rightClicked = right && enabled;
     return clicked && !right && enabled;

@@ -104,6 +104,13 @@ void HelpWindow::FollowLink(const HtmlNavigation &navigation) {
         m_Notice = "This link requires an external application: " + url;
 }
 bool HelpWindow::DrawPage(const HelpTopic &topic) {
+    if (m_Fonts->revision != m_AppliedFonts.revision || m_Fonts->normal != m_AppliedFonts.normal ||
+        m_Fonts->bold != m_AppliedFonts.bold || m_Fonts->monospace != m_AppliedFonts.monospace) {
+        if (m_Document && !m_RestorePosition) m_RestorePosition = ReadingPosition();
+        m_Renderer.SetFonts(*m_Fonts);
+        m_AppliedFonts = *m_Fonts;
+        m_LayoutTopic = nullptr;
+    }
     const ImGuiWindow *window = ImGui::GetCurrentWindow();
     const float width = std::max(1.0f, window->InnerRect.GetWidth() - 2 * window->WindowPadding.x);
     const float scale = ImGui::GetFontSize() / 14.0f * m_Zoom;
@@ -394,7 +401,11 @@ EditorStatus OpenHelp(void *, const EditorHost *host, const EditorRequest *reque
     return host->navigateView(host->data, EditorString EDITOR_TEXT("help.reference"), id, &navigation, sink);
 }
 } // namespace
-bool RegisterHelpViews(EditorApplication &editor, HtmlFonts fonts, std::string &error) {
+bool RegisterHelpViews(EditorApplication &editor, const HtmlFonts *fonts, std::string &error) {
+    if (!fonts) {
+        error = "Help fonts are unavailable";
+        return false;
+    }
     const EditorParameter topic{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, 1};
     const EditorParameter arguments[] = {topic, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
     const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("help.open"), EDITOR_TEXT("builtin.help"),
@@ -404,14 +415,14 @@ bool RegisterHelpViews(EditorApplication &editor, HtmlFonts fonts, std::string &
             return std::filesystem::is_regular_file(std::filesystem::u8path(DataFilePath("help/help.ndh")), error) ?
                 EDITOR_OK : EDITOR_REFUSED;
         }};
-    auto *data = new HtmlFonts(fonts);
+    auto *data = const_cast<HtmlFonts *>(fonts);
     EditorViewDesc view{sizeof(EditorViewDesc),
                         EDITOR_IMGUI_VERSION,
                         EDITOR_TEXT("help.reference"),
                         EDITOR_TEXT("builtin.help"),
                         EDITOR_TEXT("Help"),
                         [](void *data, const EditorHost *, EditorView id) -> void * {
-                            auto view = std::make_unique<HelpWindow>(*static_cast<HtmlFonts *>(data));
+                            auto view = std::make_unique<HelpWindow>(static_cast<const HtmlFonts *>(data));
                             view->Open();
 #ifdef VIRTOOLSDEV_UI_TESTS
                             shownHelp.emplace(id, view.get());
@@ -479,10 +490,7 @@ bool RegisterHelpViews(EditorApplication &editor, HtmlFonts fonts, std::string &
     module.locations = &location;
     module.locationCount = 1;
     module.data = data;
-    module.stop = [](void *data) { delete static_cast<HtmlFonts *>(data); };
-    if (editor.Register(module, error)) return true;
-    delete data;
-    return false;
+    return editor.Register(module, error);
 }
 #ifdef VIRTOOLSDEV_UI_TESTS
 const HelpWindow &HelpForTests() { return *shownHelp.at(HelpViewForTests()); }

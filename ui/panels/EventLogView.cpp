@@ -1,6 +1,7 @@
 #include "ui/panels/EventLogView.h"
 #include "editor/ImGuiDrawing.h"
 #include "ui/controls/DevControls.h"
+#include "ui/controls/DevTheme.h"
 #include <cfloat>
 #include <limits>
 
@@ -94,7 +95,7 @@ void EventLogView::Draw(const EditorHost *host, EditorView id, EditorViewFrame &
     }
     ImGui::SetNextWindowSizeConstraints(ImVec2(200.0f * s, title + 80.0f * s), ImVec2(FLT_MAX, FLT_MAX));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f * s);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, CurrentDevTheme().dialogRounding * s);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, vi::Color(4));
     ImGui::PushStyleColor(ImGuiCol_Border, vi::Color(0));
@@ -108,9 +109,9 @@ void EventLogView::Draw(const EditorHost *host, EditorView id, EditorViewFrame &
     ImDrawList *dl = ImGui::GetWindowDrawList();
     const ImVec2 at = ImGui::GetWindowPos(), size = ImGui::GetWindowSize();
     dl->AddRectFilled(ImVec2(at.x + 1.0f, at.y + 1.0f), ImVec2(at.x + size.x - 1.0f, at.y + 1.0f + title), vi::Color(2),
-                      6.0f * s, ImDrawFlags_RoundCornersTop);
+                      CurrentDevTheme().dialogRounding * s, ImDrawFlags_RoundCornersTop);
     dl->AddLine(ImVec2(at.x + 1.0f, at.y + 1.0f + title), ImVec2(at.x + size.x - 1.0f, at.y + 1.0f + title),
-                IM_COL32(188, 188, 188, 255));
+                CurrentDevTheme().controlOutline);
     vi::Text(ImVec2(at.x + 9.0f * s, at.y + 1.0f + (title - ImGui::GetFontSize()) * 0.5f),
              ImVec2(at.x + size.x - 6.0f * s, at.y + title), "Event Log", true, vi::LEFT, vi::Color(9));
     ImGui::SetCursorScreenPos(at);
@@ -126,7 +127,8 @@ void EventLogView::Draw(const EditorHost *host, EditorView id, EditorViewFrame &
     ImGui::SetCursorScreenPos(ImVec2(client.x + 1.0f, client.y + 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ChildBg, vi::Color(7));
     ImGui::PushStyleColor(ImGuiCol_Text, vi::Color(0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(3.0f * s, 2.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+                        ImVec2(CurrentDevTheme().eventLogPadding.x * s, CurrentDevTheme().eventLogPadding.y * s));
     ImGui::BeginChild("lines", ImVec2(clientMax.x - client.x - 2.0f, buttons - client.y - 3.0f * s),
                       ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_HorizontalScrollbar);
     ImGuiListClipper clipper;

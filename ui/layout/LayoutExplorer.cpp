@@ -11,6 +11,7 @@
 
 #include "ui/controls/DevIcons.h"
 #include "ui/controls/DevBitmaps.h"
+#include "ui/controls/DevTheme.h"
 #include "features/layout/LayoutSceneData.h"
 #include "core/runtime/TextEncoding.h"
 
@@ -214,7 +215,7 @@ void LayoutWindow::ExplorerWindow() {
     place(0, 2);
     ImGui::TextUnformatted("Item List");
     place(0, 14);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(255, 255, 255, 255));
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, CurrentDevTheme().controls[9]);
     ImGui::BeginChild("##items", ImVec2(230.0f * dx, 181.0f * dy), ImGuiChildFlags_Borders);
     const ImGuiIO &io = ImGui::GetIO();
     const bool listFocused = ImGui::IsWindowFocused();
@@ -330,19 +331,23 @@ void LayoutWindow::ExplorerWindow() {
             ImGui::SetScrollHereY();
         DrawDevIcon(ImGui::GetWindowDrawList(),
                     ImVec2(at.x + 2.0f * Window().scale, at.y + (rowHeight - 10.0f * iconScale) * 0.5f), iconScale,
-                    row.icon, IM_COL32(0, 0, 0, 255), IM_COL32(230, 230, 230, 255));
+                    row.icon, CurrentDevTheme().controls[0], CurrentDevTheme().controls[8]);
         ImGui::GetWindowDrawList()->AddText(ImVec2(at.x + 16.0f * Window().scale, at.y + 1.0f * Window().scale),
                                             ImGui::GetColorU32(ImGuiCol_Text), row.name.c_str());
         // The focused item's dotted frame while the list has the focus.
         if (listFocused && row.object == Window().document.explorerFocus) {
             const ImVec2 b(at.x + ImGui::GetContentRegionAvail().x, at.y + rowHeight);
             for (float x = at.x; x < b.x; x += 2.0f) {
-                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, at.y), ImVec2(x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 255));
-                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, b.y - 1.0f), ImVec2(x + 1.0f, b.y), IM_COL32(0, 0, 0, 255));
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, at.y), ImVec2(x + 1.0f, at.y + 1.0f),
+                                                          CurrentDevTheme().controls[0]);
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, b.y - 1.0f), ImVec2(x + 1.0f, b.y),
+                                                          CurrentDevTheme().controls[0]);
             }
             for (float y = at.y; y < b.y; y += 2.0f) {
-                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(at.x, y), ImVec2(at.x + 1.0f, y + 1.0f), IM_COL32(0, 0, 0, 255));
-                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(b.x - 1.0f, y), ImVec2(b.x, y + 1.0f), IM_COL32(0, 0, 0, 255));
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(at.x, y), ImVec2(at.x + 1.0f, y + 1.0f),
+                                                          CurrentDevTheme().controls[0]);
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(b.x - 1.0f, y), ImVec2(b.x, y + 1.0f),
+                                                          CurrentDevTheme().controls[0]);
             }
         }
         ImGui::PopID();
@@ -406,7 +411,7 @@ void LayoutWindow::ExplorerWindow() {
     ImGui::PopStyleVar();
     if (locked) {
         place(243, 131);
-        ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "Selection Locked");
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(CurrentDevTheme().selectionText), "Selection Locked");
     }
     place(243, 142);
     // sub_59F2B0: the count of the 3D Layout's selection the list shows.

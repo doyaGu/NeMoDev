@@ -510,7 +510,8 @@ void SetupWindows::ScenePage(ObjectRef target) {
         number("Fog End:", float(values.Real("scene.fog-end")), 0.5f, "scene.fog-end");
         number("Fog Density:", float(values.Real("scene.fog-density")), 0.001f, "scene.fog-density");
         if (float(values.Real("scene.fog-start")) > float(values.Real("scene.fog-end")))
-            ImGui::TextColored(ImVec4(0.6f, 0.0f, 0.0f, 1.0f), "Fog Start must be smaller than Fog End");
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(CurrentDevTheme().warningText),
+                               "Fog Start must be smaller than Fog End");
     }
     ImGui::EndGroup();
     // Other Settings (bottom right).

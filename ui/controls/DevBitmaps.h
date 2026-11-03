@@ -5,6 +5,7 @@
 #include <cstdint>
 
 #include "imgui.h"
+#include "application/EditorApplication.h"
 
 namespace vdev {
 // The ui group: Dev's interface bitmaps, those of resvis.dll (Dev.exe
@@ -29,6 +30,16 @@ ImTextureID DevMessageIcon(int id);
 // in resources/resources.rc): ones resources/images.txt should list.
 const std::set<std::string> &MissingResources();
 void ReleaseDevBitmaps();
+// Prepare replacements for images already in use without discarding their
+// current textures. Apply only between submitted frames; reset before modules.
+bool PrepareDevImages(const std::vector<EditorImageDesc> &, const std::map<std::string, EditorField> &,
+                      std::string &error);
+void ApplyDevImages();
+void ResetDevImages();
+#ifdef VIRTOOLSDEV_UI_TESTS
+class UiTexture;
+const UiTexture *DevBitmapForTests(int id);
+#endif
 
 // One of Dev's bitmap buttons (VIBitmapButton) at a screen point: its
 // bitmaps normal, hover, checked (or held), checked hover, disabled, drawn

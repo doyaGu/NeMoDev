@@ -535,7 +535,7 @@ void SetupWindows::LightPage(ObjectRef target) {
                                   float(values.Real("light.quadratic-attenuation")) * d * d;
             const float intensity = divisor > 0.0f ? std::min(1.0f, 1.0f / divisor) : 1.0f;
             const ImVec2 point(a.x + i, top + (1.0f - intensity) * height);
-            if (i) dl->AddLine(previous, point, IM_COL32(255, 0, 0, 255));
+            if (i) dl->AddLine(previous, point, CurrentDevTheme().previewCurve);
             previous = point;
         }
     }
@@ -854,8 +854,8 @@ void SetupWindows::SlotPreview(Setup &setup, ObjectRef target, unsigned long lon
     ImGui::PushID(alpha ? "alpha" : "image");
     const ImVec2 at = ImGui::GetCursorScreenPos();
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(at, ImVec2(at.x + side + 2, at.y + side + 2), IM_COL32(255, 255, 255, 255));
-    dl->AddRect(at, ImVec2(at.x + side + 2, at.y + side + 2), IM_COL32(0, 0, 0, 255));
+    dl->AddRectFilled(at, ImVec2(at.x + side + 2, at.y + side + 2), CurrentDevTheme().imageBackground);
+    dl->AddRect(at, ImVec2(at.x + side + 2, at.y + side + 2), CurrentDevTheme().previewBorder);
     if (ImTextureID image = CachedPixelTexture(key)) {
         dl->PushClipRect(ImVec2(at.x + 1, at.y + 1), ImVec2(at.x + 1 + side, at.y + 1 + side), true);
         dl->AddImage(image, ImVec2(at.x + 1 - scroll.x, at.y + 1 - scroll.y),
@@ -2070,7 +2070,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
                                     IM_COL32(255, 255, 255, 255), IM_COL32(255, 255, 255, 255), IM_COL32(0, 0, 0, 255));
         const float marker = at.x + barWidth * setup.paint / 255.0f;
         dl->AddTriangleFilled(ImVec2(marker, at.y + 12), ImVec2(marker - 4, at.y + 18), ImVec2(marker + 4, at.y + 18),
-                              IM_COL32(220, 0, 0, 255));
+                              CurrentDevTheme().previewMarker);
         ImGui::InvisibleButton("##paintvalue", ImVec2(barWidth, 18));
         if (ImGui::IsItemActive())
             setup.paint = std::max(0, std::min(255, static_cast<int>((ImGui::GetIO().MousePos.x - at.x) / barWidth * 255.0f + 0.5f)));
@@ -2084,7 +2084,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
         const float cell = width > 0 && length > 0 ? std::max(2.0f, std::min(side / width, side / length)) : 10.0f;
         const ImVec2 at = ImGui::GetCursorScreenPos();
         ImDrawList *dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(at, ImVec2(at.x + side + 40, at.y + side + 40), IM_COL32(128, 128, 128, 255));
+        dl->AddRectFilled(at, ImVec2(at.x + side + 40, at.y + side + 40), CurrentDevTheme().previewBackground);
         const ImVec2 origin(at.x + 20, at.y + 20);
         for (int y = 0; y < length; ++y)
             for (int x = 0; x < width; ++x) {
@@ -2106,7 +2106,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
                 // Row 0 at the bottom (the grid seen from above).
                 const ImVec2 a(origin.x + x * cell, origin.y + (length - 1 - y) * cell);
                 dl->AddRectFilled(a, ImVec2(a.x + cell, a.y + cell), fill);
-                dl->AddRect(a, ImVec2(a.x + cell + 1, a.y + cell + 1), IM_COL32(110, 110, 110, 255));
+                dl->AddRect(a, ImVec2(a.x + cell + 1, a.y + cell + 1), CurrentDevTheme().previewGrid);
             }
         ImGui::SetCursorScreenPos(origin);
         ImGui::InvisibleButton("##squares", ImVec2(std::max(1.0f, width * cell), std::max(1.0f, length * cell)),

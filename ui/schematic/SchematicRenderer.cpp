@@ -222,8 +222,7 @@ void DrawScriptFrame(const Painter &p, const SchematicModel &model) {
     DrawHeaderTriangle(p, Point(header.hPos + 9.0f, header.vPos + 10.0f), script.open);
     const Rect clip(header.hPos + 2, header.vPos, header.hSize - 4, header.vSize);
     p.Text(Point(header.hPos + 19, header.vPos + 3),
-           p.o.activity && p.o.activity->trace && p.o.activity->active ? IM_COL32(230, 0, 0, 255) : text, script.name,
-           clip, 0.95f);
+           p.o.activity && p.o.activity->trace && p.o.activity->active ? p.s.trace : text, script.name, clip, 0.95f);
     if (script.open) {
         DrawOwnerIcon(p, Point(header.hPos + 20, header.vPos + 23), script.ownerKind, text);
         p.Text(Point(header.hPos + 35, header.vPos + 22), text, script.ownerName, clip, 0.9f);
@@ -446,8 +445,7 @@ void DrawLink(const Painter &p, const LinkItem &link) {
                                           : p.s.parameterLink;
     // Printing without Use Color for Links, every link is black (CUIKLink::DrawLink).
     if (p.o.print && !p.o.print->colorLinks) color = IM_COL32(0, 0, 0, 255);
-    if (p.o.activity && p.o.activity->trace && p.o.activity->firing.count(link.ref))
-        color = IM_COL32(230, 0, 0, 255);
+    if (p.o.activity && p.o.activity->trace && p.o.activity->firing.count(link.ref)) color = p.s.trace;
     const float thickness = 1.0f + (selected || p.Hovered(link.ref) ? 1.0f : 0.0f);
     p.Polyline(link.path, color, thickness, !link.behaviorLink);
     if (p.o.showControlPoints) {
@@ -701,7 +699,7 @@ void DrawScriptBody(ImDrawList *drawList, const SchematicModel &model, float off
 
     // Script Debugger marks (library drawing): running behaviors framed in
     // orange, the debug context's behavior in red; breakpoints as red dots.
-    const ImU32 breakpointFill = IM_COL32(220, 30, 30, 255), breakpointEdge = IM_COL32(90, 0, 0, 255);
+    const ImU32 breakpointFill = p.s.breakpointFill, breakpointEdge = p.s.breakpointEdge;
     auto dot = [&](const Point &at) {
         const float r = std::max(3.0f, p.Scale(4.5f));
         p.dl->AddCircleFilled(p.P(at), r, breakpointFill);
@@ -714,8 +712,7 @@ void DrawScriptBody(ImDrawList *drawList, const SchematicModel &model, float off
         if (current || (options.activity && options.activity->running.count(behavior.ref))) {
             const Rect &b = behavior.box;
             p.dl->AddRect(p.P(b.hPos - 2, b.vPos - 2), p.P(b.Right() + 2, b.Bottom() + 2),
-                          current || options.activity->trace ? IM_COL32(230, 0, 0, 255) : IM_COL32(255, 140, 0, 255),
-                          0.0f, 0, current ? 3.0f : 2.0f);
+                          current || options.activity->trace ? p.s.trace : p.s.running, 0.0f, 0, current ? 3.0f : 2.0f);
         }
         if (behavior.breakpoint) dot(Point(behavior.box.hPos + 6.0f, behavior.box.vPos + 6.0f));
     }

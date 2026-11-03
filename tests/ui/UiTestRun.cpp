@@ -81,6 +81,7 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     }
     ImGuiTestEngine_Start(engine, ImGui::GetCurrentContext());
     vdevuitest::RegisterModuleTests(engine);
+    vdevuitest::RegisterAppearanceTests(engine);
     vdevuitest::RegisterWorkspaceTests(engine);
     vdevuitest::RegisterValueEditTests(engine);
     vdevuitest::RegisterArrayEditTests(engine);

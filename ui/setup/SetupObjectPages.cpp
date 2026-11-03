@@ -544,7 +544,7 @@ void SetupWindows::LayerPage(ObjectRef target) {
     const float cell = width > 0 && length > 0 ? std::max(1.0f, std::min(side / width, side / length)) : 0.0f;
     const ImVec2 at = ImGui::GetCursorScreenPos();
     ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(at, ImVec2(at.x + side + 16, at.y + side + 16), IM_COL32(128, 128, 128, 255));
+    dl->AddRectFilled(at, ImVec2(at.x + side + 16, at.y + side + 16), CurrentDevTheme().previewBackground);
     const ImVec2 origin(at.x + 8, at.y + 8);
     for (int y = 0; y < length; ++y)
         for (int x = 0; x < width; ++x) {

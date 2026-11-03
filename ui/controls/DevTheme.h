@@ -3,6 +3,7 @@
 #include <vector>
 
 #include "imgui.h"
+#include "ui/controls/SchematicStyle.h"
 
 namespace vdev {
 
@@ -10,6 +11,28 @@ namespace vdev {
 // black text, dark menu bar, toolbars and status bar with light text.
 // Rebuild sizes from the unscaled theme; repeated display changes do not
 // accumulate rounding. The font atlas and its font objects remain in use.
+struct DevTheme {
+    ImGuiStyle style;
+    ImVec4 chrome[15], menu[6];
+    ImU32 controls[11], pill[5];
+    ImU32 tabText, controlLine, controlOutline, controlTableHeader, controlTableSort;
+    ImU32 layout[13];
+    float viWidth[2];
+    float menuRounding;
+    ImVec2 menuPadding, menuSpacing;
+    SchematicStyle schematic;
+    ImU32 selectionFill, selectionText, selectionBorder, hoverBorder;
+    ImU32 previewBackground, previewBorder, previewGrid, previewCurve, previewMarker, imageBackground, warningText;
+    ImU32 snapshotBackground, snapshotEmptyBorder;
+    float dialogTitleHeight = 24, dialogRounding = 6, groupRounding = 7, groupBorder = 1.5f;
+    float setupCoordinateScale = 1;
+    float setupColumnWidth = 300, setupSidebarWidth = 104, setupLabelWidth = 100;
+    ImVec2 setupSpacing = {8, 5}, listPadding = {2, 2}, eventLogPadding = {3, 2};
+};
+DevTheme DefaultDevTheme();
+DevTheme DefaultUiTheme();
+const DevTheme &CurrentDevTheme();
+void SetDevTheme(const DevTheme &);
 void ApplyDevTheme(ImGuiStyle &style, float contentScale = 1.0f);
 
 // Dark chrome (menu bar, toolbars, status bar): push before, pop after.
@@ -50,7 +73,8 @@ ImFont *BoldFont();
 // of height 12 and width 5, Arial Bold of height 14 and width 5 (the status
 // bar's texts); null when Arial was not found. VIFontWidth: the horizontal
 // scale GDI gives them for that width (5 of an average of 6).
-void SetVIFonts(ImFont *normal, ImFont *bold);
+void SetVIFonts(ImFont *normal, ImFont *bold, float normalHeight = 12, float boldHeight = 14,
+                float normalWidth = 5.0f / 6.0f, float boldWidth = 5.0f / 6.0f);
 ImFont *VIFont(bool bold);
 float VIFontHeight(bool bold);
 float VIFontWidth(bool bold);
@@ -60,6 +84,6 @@ float VITextWidth(const char *text, bool bold, float scale);
 void DrawVIText(ImDrawList *dl, const ImVec2 &at, ImU32 color, const char *text, bool bold, float scale,
                 const ImVec2 *clipMax = nullptr);
 
-constexpr ImU32 DEV_CHROME = IM_COL32(65, 65, 65, 255); // toolbars, status bar (screenshot)
+inline ImU32 DevChrome() { return CurrentDevTheme().controls[2]; }
 
 } // namespace vdev

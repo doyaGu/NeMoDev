@@ -21,7 +21,7 @@ enum Align { LEFT, CENTER, RIGHT };
 
 // A static text (VIStaticText) in its rectangle, vertically from the top.
 void Text(const ImVec2 &min, const ImVec2 &max, const char *text, bool bold = false, Align align = LEFT,
-          ImU32 color = IM_COL32(0, 0, 0, 255));
+          ImU32 color = Color(0));
 float TextWidth(const char *text, bool bold);
 
 // A VIEdit: the text on the dialog's background over a thin line. True

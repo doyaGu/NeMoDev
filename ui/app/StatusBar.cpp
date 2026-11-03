@@ -29,9 +29,6 @@ bool HideFps(const EditorResponse &time) {
 
 // InterfaceControls.dll's colors (sub_24211910): ZC_MAINBACK 100,
 // ZC_TOOLBARBACK 65 (the bar), ZC_TOOLBARBORDER 176 (its outline and texts).
-constexpr ImU32 MAIN_BACK = IM_COL32(100, 100, 100, 255);
-constexpr ImU32 BAR_BACK = IM_COL32(65, 65, 65, 255);
-constexpr ImU32 BAR_TEXT = IM_COL32(176, 176, 176, 255);
 
 // A static text of the bar in its rectangle (Dev's VIStaticText: top left,
 // clipped; the Event Log's text ends with "..."), in the VI font (GetVIFont
@@ -46,12 +43,12 @@ static void BarText(ImDrawList *dl, const ImVec2 &min, const ImVec2 &max, const 
     const int first = dl->VtxBuffer.Size;
     ImGui::PushFont(VIFont(bold), VIFontHeight(bold) * s);
     if (ellipsis) {
-        ImGui::PushStyleColor(ImGuiCol_Text, BAR_TEXT);
+        ImGui::PushStyleColor(ImGuiCol_Text, CurrentDevTheme().controls[6]);
         ImGui::RenderTextEllipsis(dl, min, wide, wide.x, text.c_str(), text.c_str() + text.size(), nullptr);
         ImGui::PopStyleColor();
     } else {
         dl->PushClipRect(min, wide, true);
-        dl->AddText(min, BAR_TEXT, text.c_str());
+        dl->AddText(min, CurrentDevTheme().controls[6], text.c_str());
         dl->PopClipRect();
     }
     ImGui::PopFont();
@@ -76,7 +73,7 @@ void EditorStatusBar::Draw(const EditorClient &editor, const StatusBarInfo &info
     const float height = IM_ROUND(23.0f * s); // whole pixels: crisp lines and bitmaps
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, MAIN_BACK);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, CurrentDevTheme().controls[3]);
     PushDarkChrome();
     const bool open = ImGui::BeginViewportSideBar("##StatusBar", viewport, ImGuiDir_Down, height,
                                                   ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings |
@@ -91,9 +88,9 @@ void EditorStatusBar::Draw(const EditorClient &editor, const StatusBarInfo &info
         // The bar (Dev.exe sub_419650, WM_PAINT): RoundRect over the whole
         // window, ellipse 9 x 9, ZC_TOOLBARBACK brush and a ZC_TOOLBARBORDER
         // pen; the window's round region shows the main back at the corners.
-        dl->AddRectFilled(o, ImVec2(o.x + width, o.y + height), BAR_BACK, 4.5f * s);
-        dl->AddRect(ImVec2(o.x + 0.5f, o.y + 0.5f), ImVec2(o.x + width - 1.5f, o.y + height - 1.5f), BAR_TEXT, 4.5f * s,
-                    0, 1.0f);
+        dl->AddRectFilled(o, ImVec2(o.x + width, o.y + height), DevChrome(), 4.5f * s);
+        dl->AddRect(ImVec2(o.x + 0.5f, o.y + 0.5f), ImVec2(o.x + width - 1.5f, o.y + height - 1.5f),
+                    CurrentDevTheme().controls[6], 4.5f * s, 0, 1.0f);
         auto separator = [&](float right) {
             const ImVec2 a = fromRight(right, 5.0f);
             if (ImTextureID texture = DevBitmap(705)) dl->AddImage(texture, a, ImVec2(a.x + 1.0f * s, a.y + 19.0f * s));
@@ -226,7 +223,7 @@ uint32_t EditorStatusBar::DrawControl(const EditorClient &editor, const EditorTo
         const auto now = ImGui::GetTime();
         if (now < m_BombFlashUntil && int(now * 4) % 2 == 0)
             ImGui::GetWindowDrawList()->AddRectFilled(at, {at.x + frame.width, at.y + frame.height},
-                                                      IM_COL32(255, 0, 0, 255));
+                                                      CurrentDevTheme().controls[10]);
     } else if (action == "runtime.toggle-profiler") {
         icons = &PROFILER;
         id = "profiler";

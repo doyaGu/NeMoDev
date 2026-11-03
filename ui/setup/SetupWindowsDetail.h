@@ -14,6 +14,8 @@
 #include "VxRect.h"
 
 #include "features/setup/SetupViewData.h"
+#include "ui/controls/DevTheme.h"
+#include "ui/setup/SetupLayout.h"
 
 namespace vdev {
 namespace setup {
@@ -26,39 +28,11 @@ inline ImU32 ToImColor(const VxColor &c) {
 
 // A Dev group title with a vertical rule below it.
 inline void Group(const char *title) {
-    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 255));
+    ImGui::PushStyleColor(ImGuiCol_Text, CurrentDevTheme().controls[0]);
     ImGui::TextUnformatted(title);
     ImGui::PopStyleColor();
 }
 
-// A Setup page laid out as Dev's builders lay theirs (Dev.exe sub_464E20
-// and the others: SetRect, pixels from the page's top left), scaled with
-// the font. Made where the page begins.
-struct DevPage {
-    ImVec2 origin = ImGui::GetCursorScreenPos();
-    float s = ImGui::GetFontSize() / 13.0f;
-    ImVec2 At(float x, float y) const;
-    // The next item in the rect: at its left, its frame centered in the
-    // rect's height (at its top in a lower rect), as wide; the width.
-    float Place(float x1, float y1, float x2, float y2) const;
-    // A static text (VIStaticText) in its rect, level with a frame's text.
-    void Label(float x1, float y1, float x2, float y2, const char *text) const;
-    // One of Dev's "Lines" (a rect 1 pixel wide or high, color 4).
-    void Line(float x1, float y1, float x2, float y2) const;
-    // A check button (VIBitmapButton, bitmaps 609 to 612) at the point:
-    // true when clicked (on toggled).
-    bool Check(const char *id, float x, float y, bool &on) const;
-    // A value's edit (VIEdit, a drag here) and slider (VISlider) in their
-    // rects (x1, y1, x2, y2): true when changed. The slider is the id's
-    // "##slider" (the edit the id).
-    bool EditSlider(const char *id, const ImVec4 &edit, const ImVec4 &slider, float *value, float low, float high,
-                    const char *format, float speed = 0.01f) const;
-    // A color's hue bar (Dev's "Huebar"; a click shows the picker): true
-    // when the color (rgb, or rgba with alpha) is changed.
-    bool ColorBar(const char *id, float x1, float y1, float x2, float y2, float *color, bool alpha = false) const;
-    // The page's extent (what it scrolls) to the point.
-    void End(float x, float y) const;
-};
 
 inline VxVector VectorOf(SetupFields values, const char *key) {
     const auto &v = values.Reals(key);

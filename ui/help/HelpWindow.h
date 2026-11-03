@@ -8,7 +8,8 @@
 namespace vdev {
 class HelpWindow {
 public:
-    explicit HelpWindow(HtmlFonts fonts) : m_Renderer(fonts) {}
+    // The application owns this font selection for the lifetime of its views.
+    explicit HelpWindow(const HtmlFonts *fonts) : m_Renderer(*fonts), m_Fonts(fonts), m_AppliedFonts(*fonts) {}
     void Open(const std::string &topic = std::string());
     void Draw(EditorViewFrame &frame);
     EditorStatus SaveState(EditorSink sink) const;
@@ -38,6 +39,8 @@ private:
     };
     HelpBook m_Book;
     HtmlRenderer m_Renderer;
+    const HtmlFonts *m_Fonts;
+    HtmlFonts m_AppliedFonts;
     std::unique_ptr<HtmlDocument> m_Document;
     const HelpTopic *m_LayoutTopic = nullptr;
     float m_LayoutWidth = 0, m_LayoutHeight = 0, m_LayoutScale = 0;
@@ -57,7 +60,7 @@ private:
 #endif
 };
 class EditorApplication;
-bool RegisterHelpViews(EditorApplication &editor, HtmlFonts fonts, std::string &error);
+bool RegisterHelpViews(EditorApplication &editor, const HtmlFonts *fonts, std::string &error);
 #ifdef VIRTOOLSDEV_UI_TESTS
 const HelpWindow &HelpForTests();
 EditorView HelpViewForTests();
