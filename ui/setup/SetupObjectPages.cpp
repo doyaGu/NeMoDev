@@ -33,15 +33,16 @@ void SetupWindows::AnimationPage(ObjectRef target) {
         return;
     const auto data = description.Values();
     SetupDetails propertyData;
-    if (!ReadProperties(target,
-                        {"animation.length", "animation.linked", "animation.frame-rate", "animation.can-be-interrupted",
-                         "animation.align-orientation", "animation.merge-factor", "animation.transition-preset",
-                         "animation.transition-from-now", "animation.transition-warp-from-current",
-                         "animation.transition-to-start", "animation.transition-warp-to-start",
-                         "animation.transition-warp-to-best", "animation.transition-warp-to-same-position",
-                         "animation.transition-use-velocity", "animation.transition-loop-if-equal",
-                         "animation.secondary-preset", "animation.secondary-play", "animation.secondary-warp"},
-                        propertyData))
+    if (!ReadProperties(
+            target,
+            {"animation.length", "animation.linked", "animation.frame-rate", "animation.can-be-interrupted",
+             "animation.align-orientation", "animation.merge-factor", "animation.transition-preset",
+             "animation.transition-from-now", "animation.transition-warp-from-current",
+             "animation.transition-to-start", "animation.transition-warp-to-start",
+             "animation.transition-warp-to-best", "animation.transition-warp-to-same-position",
+             "animation.transition-use-velocity", "animation.transition-loop-if-equal",
+             "animation.secondary-preset", "animation.secondary-play", "animation.secondary-warp"},
+            propertyData))
         return;
     const auto values = propertyData.Values();
     const bool keyed = data.Boolean("keyed");
@@ -50,107 +51,130 @@ void SetupWindows::AnimationPage(ObjectRef target) {
         if (ImGui::Checkbox(label, &on))
             PreviewValue(id, property, on);
     };
-    // Left: the animation.
-    ImGui::BeginGroup();
-    Group("Animation");
-    float length = float(values.Real("animation.length"));
-    ImGui::SetNextItemWidth(120);
-    if (ImGui::DragFloat("Length (frames)", &length, 0.5f, 1.0f, 100000.0f, "%.1f"))
-        PreviewValue(id, "animation.length", length);
-    ImGui::Text("Current frame:  %.2f  (step %.3f)", data.Real("frame"), data.Real("step"));
-    ImGui::Dummy(ImVec2(1, 6));
-    bool linked = values.Boolean("animation.linked");
-    float fps = float(values.Real("animation.frame-rate"));
-    if (ImGui::Checkbox("Linked to frame rate", &linked))
-        PreviewValue(id, "animation.linked", linked);
-    ImGui::BeginDisabled(!linked);
-    ImGui::SetNextItemWidth(120);
-    if (ImGui::DragFloat("Frames per second", &fps, 0.1f, 1.0f, 1000.0f, "%.1f"))
-        PreviewValue(id, "animation.frame-rate", fps);
-    ImGui::EndDisabled();
-    ImGui::Dummy(ImVec2(1, 6));
-    SetupLink("Character", data.Object("character"), data.Text("character-name"));
-    SetupLink("Root Entity", data.Object("root"), data.Text("root-name"));
-    ImGui::EndGroup();
-    // Middle: play options and merging.
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
-    Group("Play Options");
-    flag("animation.can-be-interrupted", "Can be interrupted");
-    flag("animation.align-orientation", "Character takes its orientation");
-    ImGui::Dummy(ImVec2(1, 6));
-    Group("Merge");
-    if (data.Boolean("merged")) {
-        float factor = float(values.Real("animation.merge-factor"));
-        ImGui::SetNextItemWidth(160);
-        if (ImGui::SliderFloat("Merge Factor", &factor, 0.0f, 1.0f, "%.3f")) {
-            PreviewValue(id, "animation.merge-factor", factor);
+    {
+        SetupColumns columns("##animation-settings", 4);
+        if (columns) {
+            const auto widthFor = [](const char *label) {
+                ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x -
+                                                          ImGui::CalcTextSize(label).x -
+                                                          ImGui::GetStyle().ItemInnerSpacing.x));
+            };
+            ImGui::PushTextWrapPos(0);
+            columns.Next();
+            Group("Animation");
+            float length = float(values.Real("animation.length"));
+            widthFor("Length (frames)");
+            if (ImGui::DragFloat("Length (frames)", &length, 0.5f, 1.0f, 100000.0f, "%.1f"))
+                PreviewValue(id, "animation.length", length);
+            ImGui::TextWrapped("Current frame:  %.2f  (step %.3f)", data.Real("frame"), data.Real("step"));
+            ImGui::Spacing();
+            bool linked = values.Boolean("animation.linked");
+            float fps = float(values.Real("animation.frame-rate"));
+            if (ImGui::Checkbox("Linked to frame rate", &linked))
+                PreviewValue(id, "animation.linked", linked);
+            ImGui::BeginDisabled(!linked);
+            widthFor("Frames per second");
+            if (ImGui::DragFloat("Frames per second", &fps, 0.1f, 1.0f, 1000.0f, "%.1f"))
+                PreviewValue(id, "animation.frame-rate", fps);
+            ImGui::EndDisabled();
+            ImGui::Spacing();
+            {
+                SetupForm form("##animation-character");
+                if (form) {
+                    form.Row("Character");
+                    SetupLink("Character", data.Object("character"), data.Text("character-name"));
+                }
+            }
+            {
+                SetupForm form("##animation-root");
+                if (form) {
+                    form.Row("Root Entity");
+                    SetupLink("Root Entity", data.Object("root"), data.Text("root-name"));
+                }
+            }
+            columns.Next();
+            Group("Play Options");
+            flag("animation.can-be-interrupted", "Can be interrupted");
+            flag("animation.align-orientation", "Character takes its orientation");
+            ImGui::Spacing();
+            Group("Merge");
+            if (data.Boolean("merged")) {
+                float factor = float(values.Real("animation.merge-factor"));
+                widthFor("Merge Factor");
+                if (ImGui::SliderFloat("Merge Factor", &factor, 0.0f, 1.0f, "%.3f")) {
+                    PreviewValue(id, "animation.merge-factor", factor);
+                }
+            } else {
+                ImGui::TextDisabled("Not a merged animation");
+            }
+            columns.Next();
+            // The transition and secondary modes (CK_ANIMATION_TRANSITION_MODE,
+            // CK_SECONDARYANIMATION_FLAGS), used when a behavior asks for the
+            // animation's own settings or when the animation is preset.
+            Group("Transition Mode");
+            flag("animation.transition-preset", "Preset (ignore the modes asked for)");
+            const std::pair<const char *, const char *> transitions[] = {
+                {"Break (from now)", "animation.transition-from-now"},
+                {"Warp from current", "animation.transition-warp-from-current"},
+                {"To start", "animation.transition-to-start"},
+                {"Warp to start", "animation.transition-warp-to-start"},
+                {"Warp to best", "animation.transition-warp-to-best"},
+                {"Warp to same position", "animation.transition-warp-to-same-position"},
+                {"Use velocity", "animation.transition-use-velocity"},
+                {"Loop if equal", "animation.transition-loop-if-equal"}};
+            for (int i = 0; i < 8; ++i) {
+                const char *property = transitions[i].second;
+                bool on = values.Boolean(property);
+                if (ImGui::Checkbox(transitions[i].first, &on))
+                    PreviewValue(id, property, on);
+            }
+            ImGui::Spacing();
+            columns.Next();
+            Group("Secondary Animation");
+            flag("animation.secondary-preset", "Preset##secondary");
+            const CKDWORD secondary = uint32_t(data.Integer("secondary"));
+            const CKDWORD playMask = CKSECONDARYANIMATION_ONESHOT | CKSECONDARYANIMATION_LOOP |
+                                     CKSECONDARYANIMATION_LASTFRAME | CKSECONDARYANIMATION_LOOPNTIMES;
+            const std::pair<const char *, CKDWORD> plays[] = {
+                {"One shot", CKSECONDARYANIMATION_ONESHOT},
+                {"Loop", CKSECONDARYANIMATION_LOOP},
+                {"Stay on last frame", CKSECONDARYANIMATION_LASTFRAME},
+                {"Loop N times", CKSECONDARYANIMATION_LOOPNTIMES}};
+            for (int i = 0; i < 4; ++i) {
+                const CKDWORD bit = plays[i].second;
+                if (ImGui::RadioButton(plays[i].first, (secondary & playMask) == bit) &&
+                    (secondary & playMask) != bit)
+                    PreviewValue(id, "animation.secondary-play", static_cast<int>(bit));
+            }
+            bool warp = (secondary & CKSECONDARYANIMATION_DOWARP) != 0;
+            if (ImGui::Checkbox("Warp when starting or stopping", &warp))
+                PreviewValue(id, "animation.secondary-warp", warp);
+            ImGui::PopTextWrapPos();
         }
-    } else {
-        ImGui::TextDisabled("Not a merged animation");
     }
-    ImGui::EndGroup();
-    // Right: the transition and secondary modes (CK_ANIMATION_TRANSITION_MODE,
-    // CK_SECONDARYANIMATION_FLAGS), used when a behavior asks for the
-    // animation's own settings or when the animation is preset.
-    ImGui::SameLine(640);
-    ImGui::BeginGroup();
-    Group("Transition Mode");
-    flag("animation.transition-preset", "Preset (ignore the modes asked for)");
-    const std::pair<const char *, const char *> transitions[] = {
-        {"Break (from now)", "animation.transition-from-now"},
-        {"Warp from current", "animation.transition-warp-from-current"},
-        {"To start", "animation.transition-to-start"},
-        {"Warp to start", "animation.transition-warp-to-start"},
-        {"Warp to best", "animation.transition-warp-to-best"},
-        {"Warp to same position", "animation.transition-warp-to-same-position"},
-        {"Use velocity", "animation.transition-use-velocity"},
-        {"Loop if equal", "animation.transition-loop-if-equal"}};
-    for (int i = 0; i < 8; ++i) {
-        if (i % 2) ImGui::SameLine(190);
-        const char *property = transitions[i].second;
-        bool on = values.Boolean(property);
-        if (ImGui::Checkbox(transitions[i].first, &on))
-            PreviewValue(id, property, on);
-    }
-    ImGui::Dummy(ImVec2(1, 6));
-    Group("Secondary Animation");
-    flag("animation.secondary-preset", "Preset##secondary");
-    const CKDWORD secondary = uint32_t(data.Integer("secondary"));
-    const CKDWORD playMask = CKSECONDARYANIMATION_ONESHOT | CKSECONDARYANIMATION_LOOP | CKSECONDARYANIMATION_LASTFRAME |
-                             CKSECONDARYANIMATION_LOOPNTIMES;
-    const std::pair<const char *, CKDWORD> plays[] = {{"One shot", CKSECONDARYANIMATION_ONESHOT},
-                                                      {"Loop", CKSECONDARYANIMATION_LOOP},
-                                                      {"Stay on last frame", CKSECONDARYANIMATION_LASTFRAME},
-                                                      {"Loop N times", CKSECONDARYANIMATION_LOOPNTIMES}};
-    for (int i = 0; i < 4; ++i) {
-        if (i % 2) ImGui::SameLine(190);
-        const CKDWORD bit = plays[i].second;
-        if (ImGui::RadioButton(plays[i].first, (secondary & playMask) == bit) && (secondary & playMask) != bit)
-            PreviewValue(id, "animation.secondary-play", static_cast<int>(bit));
-    }
-    bool warp = (secondary & CKSECONDARYANIMATION_DOWARP) != 0;
-    if (ImGui::Checkbox("Warp when starting or stopping", &warp))
-        PreviewValue(id, "animation.secondary-warp", warp);
-    ImGui::EndGroup();
-    if (!keyed) return;
+    if (!keyed)
+        return;
     // The object animations of a keyed animation: double-click opens the
     // Object Animation Setup, the entity column the entity's Setup.
     ImGui::Separator();
     Group("Object Animations");
-    if (ImGui::BeginTable("objectanimations", 8, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                                                     ImGuiTableFlags_Resizable,
-                          ImVec2(0, std::max(120.0f, ImGui::GetContentRegionAvail().y - 4)))) {
+    const float unit = PageUnit();
+    if (ImGui::BeginTable("objectanimations", 8,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_ScrollX | ImGuiTableFlags_Resizable |
+                              ImGuiTableFlags_SizingStretchProp,
+                          ImVec2(0, std::max(120 * unit, ImGui::GetContentRegionAvail().y - 4 * unit)),
+                          std::max(1000 * unit, ImGui::GetContentRegionAvail().x))) {
         TypeAhead typeAhead;
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Entity");
         ImGui::TableSetupColumn("Animation");
-        ImGui::TableSetupColumn("Length", ImGuiTableColumnFlags_WidthFixed, 60);
-        ImGui::TableSetupColumn("Position", ImGuiTableColumnFlags_WidthFixed, 90);
-        ImGui::TableSetupColumn("Rotation", ImGuiTableColumnFlags_WidthFixed, 90);
-        ImGui::TableSetupColumn("Scale", ImGuiTableColumnFlags_WidthFixed, 90);
-        ImGui::TableSetupColumn("Off-Axis Scale", ImGuiTableColumnFlags_WidthFixed, 100);
-        ImGui::TableSetupColumn("Morph", ImGuiTableColumnFlags_WidthFixed, 90);
+        ImGui::TableSetupColumn("Length", ImGuiTableColumnFlags_WidthFixed, 60 * unit);
+        ImGui::TableSetupColumn("Position", ImGuiTableColumnFlags_WidthFixed, 90 * unit);
+        ImGui::TableSetupColumn("Rotation", ImGuiTableColumnFlags_WidthFixed, 90 * unit);
+        ImGui::TableSetupColumn("Scale", ImGuiTableColumnFlags_WidthFixed, 90 * unit);
+        ImGui::TableSetupColumn("Off-Axis Scale", ImGuiTableColumnFlags_WidthFixed, 100 * unit);
+        ImGui::TableSetupColumn("Morph", ImGuiTableColumnFlags_WidthFixed, 90 * unit);
         ImGui::TableHeadersRow();
         for (size_t i = 0; i < data.Rows("animations").size(); ++i) {
             const SetupFields part(data.Rows("animations")[i].fields);
@@ -164,7 +188,8 @@ void SetupWindows::AnimationPage(ObjectRef target) {
             ImGui::TextUnformatted(part.Text("entity-name").c_str());
             ImGui::TableNextColumn();
             if (typeAhead.Selectable(part.Text("name").c_str(), false,
-                                     ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
+                                     ImGuiSelectableFlags_SpanAllColumns |
+                                         ImGuiSelectableFlags_AllowDoubleClick) &&
                 ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                 Open(part.Object("target"));
             ImGui::TableNextColumn();
@@ -193,60 +218,87 @@ void SetupWindows::ObjectAnimationPage(ObjectRef target) {
     const auto data = description.Values();
     SetupDetails propertyData;
     if (!ReadProperties(target,
-                        {"objectanimation.length", "objectanimation.merge-factor", "objectanimation.ignore-position",
-                         "objectanimation.ignore-rotation", "objectanimation.ignore-scale",
-                         "objectanimation.ignore-off-axis-scale", "objectanimation.ignore-morph"},
+                        {"objectanimation.length", "objectanimation.merge-factor",
+                         "objectanimation.ignore-position", "objectanimation.ignore-rotation",
+                         "objectanimation.ignore-scale", "objectanimation.ignore-off-axis-scale",
+                         "objectanimation.ignore-morph"},
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    ImGui::BeginGroup();
-    Group("Object Animation");
-    SetupLink("Entity", data.Object("entity"), data.Text("entity-name"));
-    float length = float(values.Real("objectanimation.length"));
-    ImGui::SetNextItemWidth(120);
-    if (ImGui::DragFloat("Length (frames)", &length, 0.5f, 1.0f, 100000.0f, "%.1f"))
-        PreviewValue(id, "objectanimation.length", length);
-    ImGui::Text("Current step:  %.3f", data.Real("step"));
-    ImGui::Dummy(ImVec2(1, 6));
-    SetupLink("Shares data of", data.Object("shared"), data.Text("shared-name"));
-    if (data.Boolean("merged")) {
-        float factor = float(values.Real("objectanimation.merge-factor"));
-        ImGui::SetNextItemWidth(160);
-        if (ImGui::SliderFloat("Merge Factor", &factor, 0.0f, 1.0f, "%.3f"))
-            PreviewValue(id, "objectanimation.merge-factor", factor);
+    {
+        SetupColumns columns("##objectanimation-settings", 3);
+        if (columns) {
+            const auto widthFor = [](const char *label) {
+                ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x -
+                                                          ImGui::CalcTextSize(label).x -
+                                                          ImGui::GetStyle().ItemInnerSpacing.x));
+            };
+            ImGui::PushTextWrapPos(0);
+            columns.Next();
+            Group("Object Animation");
+            {
+                SetupForm form("##objectanimation-entity");
+                if (form) {
+                    form.Row("Entity");
+                    SetupLink("Entity", data.Object("entity"), data.Text("entity-name"));
+                }
+            }
+            float length = float(values.Real("objectanimation.length"));
+            widthFor("Length (frames)");
+            if (ImGui::DragFloat("Length (frames)", &length, 0.5f, 1.0f, 100000.0f, "%.1f"))
+                PreviewValue(id, "objectanimation.length", length);
+            ImGui::TextWrapped("Current step:  %.3f", data.Real("step"));
+            ImGui::Spacing();
+            {
+                SetupForm form("##objectanimation-shared");
+                if (form) {
+                    form.Row("Shares data of");
+                    SetupLink("Shares data of", data.Object("shared"), data.Text("shared-name"));
+                }
+            }
+            if (data.Boolean("merged")) {
+                float factor = float(values.Real("objectanimation.merge-factor"));
+                widthFor("Merge Factor");
+                if (ImGui::SliderFloat("Merge Factor", &factor, 0.0f, 1.0f, "%.3f"))
+                    PreviewValue(id, "objectanimation.merge-factor", factor);
+            }
+            columns.Next();
+            // CK_OBJECTANIMATION_FLAGS.
+            Group("Ignore");
+            const std::pair<const char *, const char *> ignored[] = {
+                {"Position", "objectanimation.ignore-position"},
+                {"Rotation", "objectanimation.ignore-rotation"},
+                {"Scale", "objectanimation.ignore-scale"},
+                {"Off-Axis Scale", "objectanimation.ignore-off-axis-scale"},
+                {"Morph", "objectanimation.ignore-morph"}};
+            for (const auto &entry : ignored) {
+                bool on = values.Boolean(entry.second);
+                if (ImGui::Checkbox(entry.first, &on))
+                    PreviewValue(id, entry.second, on);
+            }
+            columns.Next();
+            Group("Keys");
+            {
+                SetupForm form("##objectanimation-keys");
+                if (form) {
+                    const char *labels[] = {"Position", "Rotation", "Scale", "Off-Axis Scale", "Morph"};
+                    const char *fields[] = {"position-keys", "rotation-keys", "scale-keys", "axis-keys",
+                                            "morph-keys"};
+                    for (int i = 0; i < 5; ++i) {
+                        form.Row(labels[i]);
+                        ImGui::TextWrapped("%s", data.Text(fields[i]).c_str());
+                    }
+                }
+            }
+            if (data.Boolean("morph"))
+                ImGui::TextWrapped("Morph vertices:  %d%s", int(data.Integer("morph-count")),
+                                   data.Boolean("morph-normals") ? "  (with normals)" : "");
+            ImGui::PopTextWrapPos();
+        }
     }
-    ImGui::EndGroup();
-    // Middle: CK_OBJECTANIMATION_FLAGS.
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
-    Group("Ignore");
-    const std::pair<const char *, const char *> ignored[] = {
-        {"Position", "objectanimation.ignore-position"},
-        {"Rotation", "objectanimation.ignore-rotation"},
-        {"Scale", "objectanimation.ignore-scale"},
-        {"Off-Axis Scale", "objectanimation.ignore-off-axis-scale"},
-        {"Morph", "objectanimation.ignore-morph"}};
-    for (const auto &entry : ignored) {
-        bool on = values.Boolean(entry.second);
-        if (ImGui::Checkbox(entry.first, &on))
-            PreviewValue(id, entry.second, on);
-    }
-    ImGui::EndGroup();
-    // Right: the controllers.
-    ImGui::SameLine(560);
-    ImGui::BeginGroup();
-    Group("Keys");
-    ImGui::Text("Position:        %s", data.Text("position-keys").c_str());
-    ImGui::Text("Rotation:        %s", data.Text("rotation-keys").c_str());
-    ImGui::Text("Scale:           %s", data.Text("scale-keys").c_str());
-    ImGui::Text("Off-Axis Scale:  %s", data.Text("axis-keys").c_str());
-    ImGui::Text("Morph:           %s", data.Text("morph-keys").c_str());
-    if (data.Boolean("morph"))
-        ImGui::Text("Morph vertices:  %d%s", int(data.Integer("morph-count")),
-                    data.Boolean("morph-normals") ? "  (with normals)" : "");
-    ImGui::EndGroup();
     ImGui::Separator();
-    UsedByRows("Used By", data.Rows("users"), 150);
+    Group("Used By");
+    UsedByList("Used By", data.Rows("users"), {0, 150 * PageUnit()});
 }
 
 void SetupWindows::MidiSoundPage(ObjectRef target) {
@@ -584,9 +636,14 @@ void SetupWindows::ParameterPage(ObjectRef target) {
     ImGui::TextUnformatted("Type");
     ImGui::SameLine(110);
     ImGui::TextUnformatted(data.Text("type-name").c_str());
+    ImGui::TextUnformatted("Owner");
+    ImGui::SameLine(110);
     SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
-    if (data.Object("behavior") && data.Object("behavior") != data.Object("owner"))
+    if (data.Object("behavior") && data.Object("behavior") != data.Object("owner")) {
+        ImGui::TextUnformatted("Behavior");
+        ImGui::SameLine(110);
         SetupLink("Behavior", data.Object("behavior"), data.Text("behavior-name"));
+    }
     ImGui::Dummy(ImVec2(1, 6));
     // The value of a This parameter is its owner (CKParameterLocal::SetOwner).
     ParameterValue(data, data.Boolean("editable"));
@@ -634,15 +691,27 @@ void SetupWindows::ParameterInPage(ObjectRef target) {
     ImGui::TextUnformatted("Type");
     ImGui::SameLine(110);
     ImGui::TextUnformatted(data.Text("type-name").c_str());
+    ImGui::TextUnformatted("Owner");
+    ImGui::SameLine(110);
     SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
-    if (data.Object("behavior") && data.Object("behavior") != data.Object("owner"))
+    if (data.Object("behavior") && data.Object("behavior") != data.Object("owner")) {
+        ImGui::TextUnformatted("Behavior");
+        ImGui::SameLine(110);
         SetupLink("Behavior", data.Object("behavior"), data.Text("behavior-name"));
+    }
     ImGui::Dummy(ImVec2(1, 6));
     Group("Source");
+    ImGui::TextUnformatted("Linked to");
+    ImGui::SameLine(110);
     SetupLink("Linked to", data.Object("direct"), data.Text("direct-name"));
+    ImGui::TextUnformatted("Shares with");
+    ImGui::SameLine(110);
     SetupLink("Shares with", data.Object("shared"), data.Text("shared-name"));
-    if (data.Object("value") && data.Object("value") != data.Object("direct"))
+    if (data.Object("value") && data.Object("value") != data.Object("direct")) {
+        ImGui::TextUnformatted("Real source");
+        ImGui::SameLine(110);
         SetupLink("Real source", data.Object("value"), data.Text("value-name"));
+    }
     ImGui::Dummy(ImVec2(1, 6));
     // The value is the source's; only a local of its own (Dev's value
     // holder) is edited from here.
@@ -666,6 +735,8 @@ void SetupWindows::OperationPage(ObjectRef target) {
     ImGui::TextUnformatted("GUID");
     ImGui::SameLine(110);
     ImGui::TextUnformatted(data.Text("guid").c_str());
+    ImGui::TextUnformatted("Owner");
+    ImGui::SameLine(110);
     SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
     ImGui::Dummy(ImVec2(1, 6));
     ShowInSchematic(data);
@@ -728,11 +799,18 @@ void SetupWindows::BehaviorPage(ObjectRef target) {
         ImGui::SameLine(110);
         ImGui::Text("0x%08x", static_cast<unsigned>(data.Integer("version")));
     }
+    ImGui::TextUnformatted("Owner");
+    ImGui::SameLine(110);
     SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
     if (target != script) {
+        ImGui::TextUnformatted("Script");
+        ImGui::SameLine(110);
         SetupLink("Script", script, data.Text("script-name"));
-        if (data.Object("parent") != script)
+        if (data.Object("parent") != script) {
+            ImGui::TextUnformatted("Parent");
+            ImGui::SameLine(110);
             SetupLink("Parent", data.Object("parent"), data.Text("parent-name"));
+        }
     }
     // Priority (Dev's Edit Priority, Y): one undo step, in the Script.
     ImGui::TextUnformatted("Priority");
@@ -747,8 +825,11 @@ void SetupWindows::BehaviorPage(ObjectRef target) {
     ImGui::TextUnformatted("Active");
     ImGui::SameLine(110);
     ImGui::TextUnformatted(data.Boolean("active") ? "Yes" : "No");
-    if (data.Boolean("using-target"))
+    if (data.Boolean("using-target")) {
+        ImGui::TextUnformatted("Target");
+        ImGui::SameLine(110);
         SetupLink("Target", data.Object("target-parameter"), data.Text("target-parameter-name"));
+    }
     ImGui::TextUnformatted("Applies to");
     ImGui::SameLine(110);
     ImGui::TextUnformatted(data.Text("compatible").c_str());
@@ -842,6 +923,8 @@ void SetupWindows::BehaviorIOPage(ObjectRef target) {
     const bool input = data.Boolean("input");
     ImGui::BeginGroup();
     Group(input ? "Behavior Input" : "Behavior Output");
+    ImGui::TextUnformatted("Owner");
+    ImGui::SameLine(110);
     SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
     ImGui::TextUnformatted("Active");
     ImGui::SameLine(110);
@@ -893,9 +976,13 @@ void SetupWindows::BehaviorLinkPage(ObjectRef target) {
     const auto values = propertyData.Values();
     ImGui::BeginGroup();
     Group("Behavior Link");
+    ImGui::TextUnformatted("From");
+    ImGui::SameLine(110);
     SetupLink("From", data.Object("from"), data.Text("from-name"));
     ImGui::SameLine();
     ImGui::TextDisabled("%s", data.Object("start") ? ("of " + data.Text("start-name")).c_str() : "");
+    ImGui::TextUnformatted("To");
+    ImGui::SameLine(110);
     SetupLink("To", data.Object("to"), data.Text("to-name"));
     ImGui::SameLine();
     ImGui::TextDisabled("%s", data.Object("end") ? ("of " + data.Text("end-name")).c_str() : "");
@@ -1041,8 +1128,11 @@ void SetupWindows::ParameterValue(const SetupFields &data, bool editable) {
     ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 380.0f);
     ImGui::TextUnformatted(text.size() > 2000 ? (text.substr(0, 2000) + "...").c_str() : text.c_str());
     ImGui::PopTextWrapPos();
-    if (data.Object("value-object"))
+    if (data.Object("value-object")) {
+        ImGui::TextUnformatted("Object");
+        ImGui::SameLine(110);
         SetupLink("Object", data.Object("value-object"), data.Text("value-object-name"));
+    }
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 110.0f);
     ImGui::BeginDisabled(!data.Object("value") || !editable);
     if (ImGui::Button("Edit Value...", ImVec2(110, 0)))

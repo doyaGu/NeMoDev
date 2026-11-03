@@ -20,6 +20,8 @@
 #include "CKAnimation.h"
 #include "CKWaveSound.h"
 #include "CKSoundManager.h"
+#include "CKKeyedAnimation.h"
+#include "CKObjectAnimation.h"
 #include <algorithm>
 #include <utility>
 #include <cmath>
@@ -111,6 +113,75 @@ void ShowSetupTable(ImGuiTestContext *ctx, EditorView view, const char *id) {
         ctx->ScrollTo(page->ID, ImGuiAxis_Y, page->Scroll.y + table->OuterRect.Min.y - page->InnerRect.Min.y);
         ctx->Yield(3);
     }
+}
+struct AnimationSetupObjects {
+    vdev::ObjectRef first, merged, part, shared, mergedPart, entity, character;
+    std::string partName, userName;
+};
+AnimationSetupObjects MakeSetupAnimations(ImGuiTestContext *ctx) {
+    AnimationSetupObjects result;
+    OnMainThread(ctx, [&] {
+        auto &doc = *App().State().document;
+        auto *context = doc.Context();
+        auto *character =
+            CKCharacter::Cast(context->CreateObject(CKCID_CHARACTER, "Setup animation character"));
+        auto *entity = CKBodyPart::Cast(context->CreateObject(
+            CKCID_BODYPART, ("Setup animation entity " + std::string(110, 'E')).c_str()));
+        auto *first =
+            CKKeyedAnimation::Cast(context->CreateObject(CKCID_KEYEDANIMATION, "Setup keyed animation"));
+        auto *second =
+            CKKeyedAnimation::Cast(context->CreateObject(CKCID_KEYEDANIMATION, "Setup second animation"));
+        auto *a =
+            CKObjectAnimation::Cast(context->CreateObject(CKCID_OBJECTANIMATION, "Setup object animation"));
+        auto *b = CKObjectAnimation::Cast(context->CreateObject(CKCID_OBJECTANIMATION, "Setup second track"));
+        auto *shared =
+            CKObjectAnimation::Cast(context->CreateObject(CKCID_OBJECTANIMATION, "Setup shared track"));
+        IM_CHECK_NO_RET(character && entity && first && second && a && b && shared);
+        for (CKObject *object :
+             {static_cast<CKObject *>(character), static_cast<CKObject *>(entity),
+              static_cast<CKObject *>(first), static_cast<CKObject *>(second), static_cast<CKObject *>(a),
+              static_cast<CKObject *>(b), static_cast<CKObject *>(shared)})
+            doc.Include(object->GetID());
+        IM_CHECK_NO_RET(character->AddBodyPart(entity) == CK_OK &&
+                        character->SetRootBodyPart(entity) == CK_OK);
+        VxVector start{0, 0, 0}, end{1, 2, 3};
+        for (auto *part : {a, b}) {
+            part->Set3dEntity(entity);
+            part->AddPositionKey(0, &start);
+            part->AddPositionKey(1, &end);
+            part->SetLength(60);
+        }
+        IM_CHECK_NO_RET(first->AddAnimation(a) == CK_OK && second->AddAnimation(b) == CK_OK);
+        first->SetLength(60);
+        second->SetLength(60);
+        first->LinkToFrameRate(TRUE, 30);
+        first->SetSecondaryAnimationMode(static_cast<CK_SECONDARYANIMATION_FLAGS>(
+            CKSECONDARYANIMATION_ONESHOT | CKSECONDARYANIMATION_DOWARP));
+        IM_CHECK_NO_RET(character->AddAnimation(first) == CK_OK && character->AddAnimation(second) == CK_OK);
+        auto *merged = CKKeyedAnimation::Cast(first->CreateMergedAnimation(second));
+        IM_CHECK_NO_RET(merged && merged->IsMerged() && merged->GetAnimationCount() == 1);
+        merged->SetMergeFactor(.2f);
+        doc.Include(merged->GetID());
+        auto *mergedPart = merged->GetAnimation(0);
+        IM_CHECK_NO_RET(mergedPart && mergedPart->IsMerged());
+        doc.Include(mergedPart->GetID());
+        IM_CHECK_NO_RET(shared->ShareDataFrom(a));
+        shared->Set3dEntity(entity);
+        result = {doc.Reference(first->GetID()),      doc.Reference(merged->GetID()),
+                  doc.Reference(a->GetID()),          doc.Reference(shared->GetID()),
+                  doc.Reference(mergedPart->GetID()), doc.Reference(entity->GetID()),
+                  doc.Reference(character->GetID())};
+        result.partName = vdev::AnsiToUtf8(a->GetName());
+        vdev::SetupDetails users;
+        IM_CHECK_NO_RET(vdev::ReadSetupDetails(EditorCommands(), result.part, "object-animation", users));
+        for (const auto &row : users.Values().Rows("users")) {
+            const vdev::SetupFields value(row.fields);
+            if (value.Object("target") == result.first)
+                result.userName = value.Text("name") + " (" + value.Text("class-name") + ")";
+        }
+        IM_CHECK_NO_RET(!result.userName.empty());
+    });
+    return result;
 }
 } // namespace
 void RegisterAppearanceTests(ImGuiTestEngine *engine) {
@@ -2341,6 +2412,315 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK(links() == initial);
         Undo(ctx);
         IM_CHECK(links().empty());
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *animation = IM_REGISTER_TEST(engine, "appearance", "animation_reflow_modes_merge_cancel_and_undo");
+    animation->GuiFunc = MainThreadGui;
+    animation->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupAnimations(ctx);
+        IM_CHECK(objects.first && objects.merged);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.first)})
+                                .status <= EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupanimation");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID length = 0, listId = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##animation-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##animation-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            IM_CHECK(!length || length == page->GetID("Length (frames)"));
+            length = page->GetID("Length (frames)");
+            for (const char *label : {"Length (frames)", "Frames per second", "Can be interrupted",
+                                      "Use velocity", "Loop N times"}) {
+                const auto rect = ctx->ItemInfo(page->GetID(label)).RectFull;
+                bool inside = false;
+                for (int i = 0; i < table->ColumnsCount; ++i)
+                    inside |= rect.Min.x >= table->Columns[i].WorkMinX - 1 &&
+                              rect.Max.x <= table->Columns[i].WorkMaxX + 1;
+                IM_CHECK(inside);
+            }
+            ShowSetupTable(ctx, view, "objectanimations");
+            table = SetupTable(ctx, view, "objectanimations");
+            IM_CHECK(table && table->InnerWindow);
+            IM_CHECK(!listId || listId == table->ID);
+            listId = table->ID;
+            IM_CHECK_GT(table->InnerWindow->ScrollMax.x, 0);
+            IM_CHECK(table->Flags & ImGuiTableFlags_Resizable);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto real = [&](ObjectRef target, const char *property) {
+            return Read<double>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {property}, data);
+                return data.Values().Real(property);
+            });
+        };
+        const auto integer = [&](const char *property) {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), objects.first, {property}, data);
+                return int(data.Values().Integer(property));
+            });
+        };
+        const auto drag = [&](ImGuiID input) {
+            ctx->SetRef(SetupRef(view).c_str());
+            ctx->ScrollToItemY(input);
+            ctx->Yield(3);
+            const auto at = ctx->ItemInfo(input).RectFull.GetCenter();
+            ctx->MouseMoveToPos(at);
+            ctx->MouseDown(0);
+            ctx->MouseMoveToPos({at.x + 30, at.y});
+            ctx->Yield(3);
+        };
+        const double before = real(objects.first, "animation.length");
+        drag(length);
+        IM_CHECK(real(objects.first, "animation.length") != before);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(real(objects.first, "animation.length"), before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(length, float(before + 15));
+        ctx->Yield(3);
+        IM_CHECK_EQ(real(objects.first, "animation.length"), before + 15);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(real(objects.first, "animation.length"), before);
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Linked to frame rate"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(integer("animation.linked"), 0);
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Frames per second")).ItemFlags &
+                 ImGuiItemFlags_Disabled);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        const int velocity = integer("animation.transition-use-velocity"),
+                  warp = integer("animation.secondary-warp");
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Use velocity"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(integer("animation.transition-use-velocity"), !velocity);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Loop N times"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(integer("animation.secondary-play"), CKSECONDARYANIMATION_LOOPNTIMES);
+        IM_CHECK_EQ(integer("animation.secondary-warp"), warp);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        ShowSetupTable(ctx, view, "objectanimations");
+        auto *table = SetupTable(ctx, view, "objectanimations");
+        ctx->ScrollToX(table->InnerWindow->ID, 0);
+        ctx->Yield(3);
+        const int row = 0;
+        const auto seed = ImHashData(&row, sizeof(row), listId);
+        ctx->ItemDoubleClick(ImHashStr(objects.partName.c_str(), 0, seed), ImGuiTestOpFlags_MoveToEdgeL);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.part.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.merged)})
+                                .status <= EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##animation-settings");
+        const auto merge = SetupPage(ctx, view)->GetID("Merge Factor");
+        const double factor = real(objects.merged, "animation.merge-factor");
+        drag(merge);
+        IM_CHECK(std::fabs(real(objects.merged, "animation.merge-factor") - factor) > .01);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(real(objects.merged, "animation.merge-factor"), factor);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(merge, .7f);
+        ctx->Yield(3);
+        IM_CHECK(std::fabs(real(objects.merged, "animation.merge-factor") - .7) < .001);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(real(objects.merged, "animation.merge-factor"), factor);
+        ctx->ScrollToTop(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Character")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.character.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *objectAnimation =
+        IM_REGISTER_TEST(engine, "appearance", "object_animation_reflow_shared_merge_cancel_and_undo");
+    objectAnimation->GuiFunc = MainThreadGui;
+    objectAnimation->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupAnimations(ctx);
+        IM_CHECK(objects.part && objects.shared && objects.mergedPart);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.part)})
+                                .status <= EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupobjectanimation");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID length = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##objectanimation-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##objectanimation-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            IM_CHECK(!length || length == page->GetID("Length (frames)"));
+            length = page->GetID("Length (frames)");
+            for (const auto id :
+                 {length, ImHashStr(">", 0, page->GetID("Entity")), page->GetID("Off-Axis Scale")}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                bool inside = false;
+                for (int i = 0; i < table->ColumnsCount; ++i)
+                    inside |= rect.Min.x >= table->Columns[i].WorkMinX - 1 &&
+                              rect.Max.x <= table->Columns[i].WorkMaxX + 1;
+                IM_CHECK(inside);
+            }
+            IM_CHECK(SetupTable(ctx, view, "##objectanimation-keys"));
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto real = [&](ObjectRef target, const char *property) {
+            return Read<double>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {property}, data);
+                return data.Values().Real(property);
+            });
+        };
+        const auto drag = [&](ImGuiID input) {
+            ctx->SetRef(SetupRef(view).c_str());
+            ctx->ScrollToItemY(input);
+            ctx->Yield(3);
+            const auto at = ctx->ItemInfo(input).RectFull.GetCenter();
+            ctx->MouseMoveToPos(at);
+            ctx->MouseDown(0);
+            ctx->MouseMoveToPos({at.x + 30, at.y});
+            ctx->Yield(3);
+        };
+        const double before = real(objects.part, "objectanimation.length");
+        drag(length);
+        IM_CHECK(real(objects.part, "objectanimation.length") != before);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(real(objects.part, "objectanimation.length"), before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(length, float(before + 10));
+        ctx->Yield(3);
+        IM_CHECK_EQ(real(objects.part, "objectanimation.length"), before + 10);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(real(objects.part, "objectanimation.length"), before);
+        for (const auto &flag : {std::make_pair("Rotation", "objectanimation.ignore-rotation"),
+                                 std::make_pair("Morph", "objectanimation.ignore-morph")}) {
+            const auto get = [&] {
+                return Read<int>(ctx, [&] {
+                    SetupDetails data;
+                    ReadSetupProperties(EditorCommands(), objects.part, {flag.second}, data);
+                    return int(data.Values().Integer(flag.second));
+                });
+            };
+            const int was = get();
+            ctx->ItemClick(SetupPage(ctx, view)->GetID(flag.first));
+            ctx->Yield(3);
+            IM_CHECK_EQ(get(), !was);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            Undo(ctx);
+            IM_CHECK_EQ(get(), was);
+        }
+        ctx->ScrollToBottom(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        ctx->ItemDoubleClick(("**/" + objects.userName).c_str());
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.first.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.shared)})
+                                .status <= EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##objectanimation-settings");
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Shares data of")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.part.object));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.mergedPart)})
+                                .status <= EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##objectanimation-settings");
+        const auto merge = SetupPage(ctx, view)->GetID("Merge Factor");
+        const double factor = real(objects.mergedPart, "objectanimation.merge-factor");
+        drag(merge);
+        IM_CHECK(std::fabs(real(objects.mergedPart, "objectanimation.merge-factor") - factor) > .01);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(real(objects.mergedPart, "objectanimation.merge-factor"), factor);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(merge, .65f);
+        ctx->Yield(3);
+        IM_CHECK(std::fabs(real(objects.mergedPart, "objectanimation.merge-factor") - .65) < .001);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(real(objects.mergedPart, "objectanimation.merge-factor"), factor);
+        ctx->ScrollToTop(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Entity")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.entity.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));

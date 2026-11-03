@@ -892,8 +892,6 @@ void SetupWindows::PreviewIndexedProperty(ObjectRef target, const char *property
 }
 void SetupWindows::SetupLink(const char *label, ObjectRef target, const std::string &name) {
     ImGui::PushID(label);
-    ImGui::TextUnformatted(label);
-    ImGui::SameLine(110);
     ImGui::BeginDisabled(!target);
     if (ImGui::SmallButton(">") && target)
         Open(target);

@@ -210,7 +210,7 @@ private:
     void ObjectAnimationPage(ObjectRef target);
     void MidiSoundPage(ObjectRef target);
     void SpriteTextPage(ObjectRef target);
-    // A name and a button opening the object's Setup.
+    // An object's name and Setup button; the caller lays out the field label.
     // The classes that are not behavioral objects (Dev has no Setup for them
     // either): pages after their class definitions (SDK headers).
     void KinematicChainPage(ObjectRef target);
