@@ -1,0 +1,587 @@
+{
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "editor_version": 23,
+    "profile_version": 1,
+    "workspace_version": 1
+  },
+  "remaining": {
+    "performance": "按用户要求继续暂缓，原定 3% 门槛不变；本批验证功能、资源复用、GPU/fallback 和读回上传计数，没有计时验收。",
+    "runtime_process_isolation": "单独实施。",
+    "not_executed": [
+      "Windows/Linux 实机",
+      "原版 Level_1.NMO（合法 NMO 直接打开包含在完整回归）",
+      "完整原版帮助与真实系统打印",
+      "完整发布包及整个原生桌面 Player 组（仅复验双视口全屏）"
+    ],
+    "stage_six_gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "双视口及其 GPU 稳定帧计数、独立 fallback、快照和原生全屏已覆盖；性能计时验收按用户要求暂缓，原定门槛不变"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material、Entity 的 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character 页面及公共页头使用共享响应式分栏或字段布局，控件身份不随布局变化。Texture 与 Sprite 共用内存格式和槽位概览，图像预览保留原缓存；Mesh 通道保留多选、菜单和横向滚动；Grid 保留多图层笔画，重排不误涂，大网格按可见区域绘制并可滚动。Sprite 的保存、透明色和预览复用分栏；拾色不因静止指针下的重排重新取样，仍可在同次交互继续编辑、取消或确认。Curve 保留点导航、TCB 编辑和曲线工具；Character 部件表保留可调列宽、多选、增删及根部件恢复，动画使用原有导航。修改、取消与单步撤销仍走已有流程。旧坐标页按实际控件和文字扩展滚动范围；Sound、Place 链接、Animation/ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产模块发现、统一装配、按身份启用禁用及替换、配置和窗口状态保存恢复已实现；完整模块发布包的各平台实机验证仍待完成"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "尚未实现通用模块文档数据。需补登记与版本升级、文档所有权、保存加载、未知模块原样保留、对象引用重映射、Import/Merge 冲突及失败恢复、撤销和无数据时不写空区。现有 Layout/Pictures 文档数据回归不能替代这些测试。"
+      }
+    ],
+    "separate_work": [
+      {
+        "id": "runtime-isolation",
+        "feature": "F17",
+        "name": "运行时进程隔离",
+        "reason": "用户明确安排单独实施；本轮阶段五收尾不包含它。原生单次调用仍不能强制中断。中断后保留文档、选区和撤销历史，并继续嵌入 3D 视口的要求不变。"
+      }
+    ]
+  },
+  "description": "阶段六：Sprite、Curve 和 Character Setup 剩余专用区域布局，保留取消恢复、单步撤销和原有导航；性能验收暂缓，进程隔离单独实施。",
+  "base_revision": "4e55282e189e392157d07697c5426fefe20713fb",
+  "starting_worktree": "本批开始时 main 工作区干净；source-before.json 和空 starting.patch 保存改动起点。",
+  "verification_status": "passed functional regression; performance deferred",
+  "changes": [
+    "Sprite 的保存、透明色和图像预览复用既有分栏，保留图像缓存、槽位键盘导航、缩放、平移、菜单、资源拖放及共享 Entity 2D 页面。",
+    "共享图像预览只在按下或鼠标实际移动时拾色，避免重排时静止指针错误取样；仍使用同一草稿，继续拾色、取消恢复和确认一步撤销均保留。",
+    "Curve 的类型、步数、拟合系数、工具、参考平面和当前点 TCB 复用分栏；当前点位置继续复用 Entity 3D 字段，输入和弹窗编号不变。",
+    "Character 的部件表、信息和动画使用分栏与字段布局；保留可调列宽、多选、菜单、增删、根部件恢复及双击导航，部件表增加横向滚动。",
+    "SDK、Editor C 接口、共享 SetupLayout、GPU 快通道和通用 fallback 未改；Sound、Place 链接、动画、SpriteText、参数和行为等剩余专用页及弹窗仍列入 F25。"
+  ],
+  "coverage": {
+    "files": 1137,
+    "groups": 59,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 8,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-sprite-curve-character/build-final.log",
+      "sha256": "0cf1c9e79b427924167dcad765526ca5704e2b3819df819b78c0685507ac4bbe"
+    },
+    "incremental_test_build": {
+      "path": "out/phase-six-sprite-curve-character/build-picking-fix.log",
+      "sha256": "25d8b09727327e739ed0511795dc1810886a7e8a7c5ff1c84b83cb5a92707c8d"
+    },
+    "complete_nonperformance_ctest": {
+      "total": 137,
+      "passed": 137,
+      "failures": 0,
+      "skipped": 0,
+      "core_tests": 113,
+      "ui_ctest_groups": 24,
+      "report": {
+        "path": "out/phase-six-sprite-curve-character/full-final.xml",
+        "sha256": "8018622682b35986c38ac18818a3c81f9d821a33dd5b36a4f262c175bcd0e9c0"
+      },
+      "inventory": {
+        "path": "out/phase-six-sprite-curve-character/ctest-inventory-final.json",
+        "sha256": "4dd799dd28778dcfef1e814ef2fc7fb2ebb70d70b32510a652de125a321ab076"
+      },
+      "validation": {
+        "path": "out/phase-six-sprite-curve-character/results-check-final.log",
+        "sha256": "669b999a673e1ba6ac2af78a841ea026f180c3f566a55a911fd6e9624c54972f"
+      }
+    },
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "executed": 3,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/html.xml",
+          "sha256": "3d2188ba59f2015ad6793d66d26ca2497c55b6fd2e3bd8ca83542319414b4910"
+        }
+      },
+      "VirtoolsDevUi.app": {
+        "executed": 28,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/app.xml",
+          "sha256": "c3c58d9d24a6c100fd68fda6e50297ce8020220769171af76cc3c7ce53a119bd"
+        }
+      },
+      "VirtoolsDevUi.layoutviews": {
+        "executed": 4,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/layoutviews.xml",
+          "sha256": "0ee15ebfb383e491bf10d80f24d034308a8958d895456076d616853ddd181161"
+        }
+      },
+      "VirtoolsDevUi.filemenu": {
+        "executed": 10,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/filemenu.xml",
+          "sha256": "012e82622026e3870d153fd031889809005c396d6eee7448ca80b27a4ffa5592"
+        }
+      },
+      "VirtoolsDevUi.schematic": {
+        "executed": 26,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/schematic.xml",
+          "sha256": "73bb4a50b69fcdd8842ab4639f29c2cab34cf05215ee8646ae4a75694c50ece2"
+        }
+      },
+      "VirtoolsDevUi.debugger": {
+        "executed": 10,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/debugger.xml",
+          "sha256": "4dcdad7dee30306fe9964c86f90b95029bf499dd45ea7c013f2844fc0588f976"
+        }
+      },
+      "VirtoolsDevUi.layout": {
+        "executed": 33,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/layout.xml",
+          "sha256": "8a9230c8bb6ed481263fd882745b6702a56e12e34122b25510126decaa0f8e92"
+        }
+      },
+      "VirtoolsDevUi.level": {
+        "executed": 7,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/level.xml",
+          "sha256": "2a6332e90bf685a460fed09473c4451171a20781db11ed98141c9be7c63b7306"
+        }
+      },
+      "VirtoolsDevUi.setup": {
+        "executed": 21,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/setup.xml",
+          "sha256": "2f46e287c06fafe13e1ec4a68ab645f67b9d7f6dcfacd6162f6da1585e4f40a1"
+        }
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "executed": 7,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/propertyedits.xml",
+          "sha256": "076ee16c83884f10690ecabaf6ce68b9090641ea595a15f0d0c89ce60cc25554"
+        }
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "executed": 8,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/hierarchy.xml",
+          "sha256": "4a3b5feb30e41d8ecf6697634b647a2f340d5e2d3dc1b8ae11fade527d23232b"
+        }
+      },
+      "VirtoolsDevUi.blocks": {
+        "executed": 7,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/blocks.xml",
+          "sha256": "7fadf10cbef7bc9662c52f63f7f98532c2017a1bddf5e1bdb2fe35a7333e1fb4"
+        }
+      },
+      "VirtoolsDevUi.attributes": {
+        "executed": 6,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/attributes.xml",
+          "sha256": "78cfae5ead1c91e676c377356e214ad478a2b9b179c7c40a3e65190eff4344f8"
+        }
+      },
+      "VirtoolsDevUi.create": {
+        "executed": 6,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/create.xml",
+          "sha256": "e868334e4ad29d065c5ea205f51c3d7bf8a30f4703b741b116eb321a1f9af3c8"
+        }
+      },
+      "VirtoolsDevUi.tools": {
+        "executed": 13,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/tools.xml",
+          "sha256": "e4e8159a5a81346beed7f8b2bc0ab9d3f64008d095d7899534b28a907a63b809"
+        }
+      },
+      "VirtoolsDevUi.sound": {
+        "executed": 2,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/sound.xml",
+          "sha256": "d70bfeb2c88e04b8206cdcf21749dfce3a4bdc82915eb6092a96c3e4da6c6946"
+        }
+      },
+      "VirtoolsDevUi.character": {
+        "executed": 2,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/character.xml",
+          "sha256": "7b8260ce7a06c81e305dca419d1bc20044806e98ccdfc349303ef504c2b860f0"
+        }
+      },
+      "VirtoolsDevUi.modules": {
+        "executed": 74,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/virtoolsdev-ui/modules.xml",
+          "sha256": "44d4a6f2f4afc88f9da1c486973168c55f7d08459e3b0c764e6503842f142975"
+        }
+      }
+    },
+    "appearance_startup_cases": [
+      {
+        "executed": 1,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/builtin-disabled.xml",
+          "sha256": "cd59fff3a90fefcb3645035701065dee2d8b615ccf242908b4150c9818f22dea"
+        }
+      },
+      {
+        "executed": 13,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/editing.xml",
+          "sha256": "354424ba630a47f315981f25f3ad98768cd941664449408faa0a053ca251e95c"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/missing-provider.xml",
+          "sha256": "5eec9c39c217b1cf6d62f55a136033d327b79524792e8fd51ada1cc84d93dbdb"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/provider-returned.xml",
+          "sha256": "c0e6b5f13a9111edd7e3662c64bd060b01d681e56c0c70ba9e3124d811607458"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/restore.xml",
+          "sha256": "0e986dc87407d7f15eed02026bdd8781bff44f3743d8c978988558f376e67c47"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 305,
+        "report": {
+          "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/save.xml",
+          "sha256": "2d7e76cfff14ef9154cd7d87db1bc0a6184d986e9bf2bb5cfbc96722bd5d41de"
+        }
+      }
+    ],
+    "appearance_expected_startup_failures": [
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/invalid-theme.log",
+        "sha256": "ef9a6566359acb1214b2119b43508a37356f334362d3eb1144a7e6f167e63986"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/invalid-font.log",
+        "sha256": "595945da9dc15639d18171ae574e410a559c8dcad10baec0dde2ef86004e8b45"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/appearance-startup/invalid-layout.log",
+        "sha256": "ee4e3e3c02ca3c4f1a4ecd354e1c350540abbfdaab43444285c930c7d85a8375"
+      }
+    ],
+    "workspace_startup_combinations": [
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/bad-dock-tree.xml",
+        "sha256": "96c3d78ac1fffc3b2a2064925930c4f1b85aba9be8b38570da6ff7f581f0b8fe"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/bad-view-version.xml",
+        "sha256": "415104148e7c6f834a43156b2a655337ea7b72be3443a3242d03297342acf7db"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/close-missing-provider.xml",
+        "sha256": "def1a53d012bacef7b0d408e45f231bfc8dce4e3726694472607bf424bb48826"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/discard-unrestored.xml",
+        "sha256": "84f39052091da473e1ac19005d712f0503eb15f29e8b841854d1d7bb3a4c3c49"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/first-start-with-document.xml",
+        "sha256": "4d0922bec3f1e40fce67a4bd8561ceeed42bce281b0ac58577ea33828fbbcc6a"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/missing-provider.xml",
+        "sha256": "7eeb8b2e5f7c8c0b4947b77b32acbaa87e374ac0f47c40971d12ecbf12e7ca9d"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/provider-returned.xml",
+        "sha256": "2cc5d2535528ac522f06ccf40b8acc704c74d97d25c167eba5197ecdfc52bdda"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/restore.xml",
+        "sha256": "34595338b2186b8985083dfde158bb015fe0e69ae4bf1106f7cf1f4261958fb9"
+      },
+      {
+        "path": "out/phase-six-sprite-curve-character/reports/workspace-startup/save.xml",
+        "sha256": "f24f0dffa71d5025333508dbba3ea9e82858186a5d1b71f457dfebce6bb3d7a5"
+      }
+    ],
+    "architecture_checker_cases": 58,
+    "architecture_checker_log": {
+      "path": "out/phase-six-sprite-curve-character/architecture-tests-final.log",
+      "sha256": "03119950e8a01eb04417e4a5305d3b5428425ba9348a16ede46851b6533a2c84"
+    },
+    "architecture_log": {
+      "path": "out/phase-six-sprite-curve-character/architecture-final.log",
+      "sha256": "0a389c7196bb2e96a38d2f20ca8af2bca02f88b25ad144bd14e7005d102769f8"
+    },
+    "native_desktop": {
+      "case": "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+      "executed": 1,
+      "registered": 305,
+      "report": {
+        "path": "out/phase-six-sprite-curve-character/player-final.xml",
+        "sha256": "910e7cb45bef7e9070bf291a296e77573db02855351388680a65f1d5a6e1f516"
+      },
+      "log": {
+        "path": "out/phase-six-sprite-curve-character/player-final.log",
+        "sha256": "4033df4ae4f6212f781541af88e1ef1b775f156f450e0a3076eb3b319933bfb2"
+      }
+    },
+    "new_regressions": [
+      "Sprite、Curve、Character 在 1500、690、450、1500 宽度与替代字体、主题缩放下往返，验证分栏、控件编号、预览及表格边界和窄窗口滚动。",
+      "Sprite 保存方式和槽位键盘切换分别一步撤销；拾色拖动中重排保持活跃控件、指针位置、零鼠标位移和历史，静止指针下颜色不变，继续移动可拾色。",
+      "Sprite 同一次拾色交互取消恢复原色且历史不变；确认只一步 Undo/Redo，撤销与重做分别恢复原色和最终颜色。",
+      "Curve 拟合系数与 TCB 拖动中重排后取消恢复，确认各一步撤销；控制点导航不记历史，Bias、Tension、Continuity 只修改当前点，Undo 恢复。",
+      "Curve Add Points 工具跨重排后仍可选择 View Plane，再次按下关闭工具；工具与参考平面切换不增加文档撤销。",
+      "Character 原生列边拖动改变列宽，重排后保留；Pickable 一步撤销，多选两个部件跨重排后统一移除，Undo 恢复部件及原根部件。",
+      "Character 添加部件弹窗跨重排保留编号，取消不修改历史；确认添加一份部件只一步撤销；动画双击使用原有 Setup 导航，历史不变。",
+      "原有 SetupTests、CharacterTests 和 UiTests 输入辅助代码未改，完整回归保留图像资源拖放、文件失败恢复、导出保护、撤销、合法 NMO 直接打开、GPU 快通道与通用 fallback。",
+      "新页面交互后的 GPU 视口读回及上传计数为零；原生双视口全屏退出后的焦点和 GPU 恢复通过。"
+    ],
+    "picking_failure_before_fix": {
+      "result": "expected failure, excluded from acceptance",
+      "case": "sprite_reflow_picking_slots_cancel_and_undo",
+      "cause": "每帧按当前画布尺寸取样；指针、活跃控件和历史不变时，重排仍改变透明色预览。",
+      "report": {
+        "path": "out/phase-six-sprite-curve-character/sprite-confirm.xml",
+        "sha256": "c6af5aab2e29c56eee125d89758b72c0a4ba799fba032bdfaf2a4f20f1888d99"
+      },
+      "log": {
+        "path": "out/phase-six-sprite-curve-character/sprite-confirm.log",
+        "sha256": "4484efe5aca5c196c8f62a87210f60912b90b2274154bf30bad3cc49006024d4"
+      }
+    },
+    "picking_regression_after_fix": {
+      "executed": 1,
+      "registered": 305,
+      "report": {
+        "path": "out/phase-six-sprite-curve-character/sprite-fixed.xml",
+        "sha256": "2e2037c22c3257bc078104bbf71ac520cfdcebe7bd675e2bce7117d8977ea67c"
+      }
+    },
+    "discarded_runs": [
+      "新增 Sprite 测试最初使用了错误的视图角色名，已改为原有 setupsprite2d。Character 的跨列行范围大于可见区域，改为点击该行可见的左侧，仍检查真实 HoveredId；未放宽断言或超时。单独筛选不支持正则分支，随后使用各用例名称分别运行。"
+    ],
+    "ordinary_ui_cases": 267,
+    "appearance_selected_cases": 18
+  },
+  "preservation": {
+    "sdk_source_writes_by_this_batch": false,
+    "sdk_changes_during_work": [],
+    "sdk_changes_during_final_test": [],
+    "sdk_record_note": "本批未写入 SDK；16 个仓库按当前源码内容比较，22 项运行文件按完整哈希比较，最终构建与回归使用同一份 SDK。",
+    "sdk_start_record": {
+      "path": "out/phase-six-sprite-curve-character/sdk-start.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_build_start_record": {
+      "path": "out/phase-six-sprite-curve-character/sdk-build-start-final.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_test_start_record": {
+      "path": "out/phase-six-sprite-curve-character/sdk-test-start-final.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_end_record": {
+      "path": "out/phase-six-sprite-curve-character/sdk-after.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_tested": {
+      ".": {
+        "revision": "659f81eb129fcca7e5e867886ff1a83a8cf454f9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks": {
+        "revision": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/3DTrans/qhull": {
+        "revision": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/physics_RT/ivp": {
+        "revision": "7579664996e68040dd0158081b04f612e6a2d515",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2": {
+        "revision": "895d6d64a93b72b221e24477c3ba4b145e801f01",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2/deps/miniz": {
+        "revision": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/ParameterOperations": {
+        "revision": "85767adbdf70c327fcb9da9d179285a390bd6756",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlInputManager": {
+        "revision": "9129b619483d6f75a8947b4af7a4d51d3f4afb9f",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlSoundManager": {
+        "revision": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Player": {
+        "revision": "650c3676bea4b1535f2522395d8f907056303488",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Plugins": {
+        "revision": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/RenderEngine": {
+        "revision": "aa4fc6165c4d9ca6ff8b46de167fe0681dda0016",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath": {
+        "revision": "37ab8af3619f7bcf38f39e7561ab88fffe8bbf3d",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde": {
+        "revision": "2e5224981e9123b8fe89a9833a978556d636a565",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde/test/munit": {
+        "revision": "da8f73412998e4f1adf1100dc187533a51af77fd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/stb": {
+        "revision": "31c1ad37456438565541f4919958214b6e762fb4",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "sdk_source_contents_unchanged_during_final_test": true,
+    "sdk_content_check": {
+      "path": "out/phase-six-sprite-curve-character/sdk-content-check-final.json",
+      "sha256": "d094581c5f7e8f452ba2c56ab8d7d2fa684f5afbdf6f3895c8f78893d7943b47"
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "runtime_files_unchanged_during_final_test": true,
+    "runtime_test_start_record": {
+      "path": "out/phase-six-sprite-curve-character/runtime-test-start-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_end_record": {
+      "path": "out/phase-six-sprite-curve-character/runtime-after.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "unchanged_gpu_source_sha256": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "editor_c_interface_changed_this_batch": false,
+    "editor_header_sha256": "53193de3459aabe594dd9fb1b0a10ea9791f0a63ae110bcf52e9a4ccea541462",
+    "document_formats_changed": false,
+    "unchanged_layout_helpers_sha256": {
+      "ui/setup/SetupLayout.cpp": "44607d9ce54fbd80d33a73db6cf03504538c029fb0e3cd91e43b25e87ccd75df",
+      "ui/setup/SetupLayout.h": "cb3863187b57da9737815142a6e50724d3e861cbdc394c7f19e6c27f4241c8cd"
+    },
+    "unchanged_original_setup_test_sha256": {
+      "tests/ui/SetupTests.cpp": "3149c207a52fbda6560138c4bbd8ae762d8362201a89d0460f928c8ccb43c868",
+      "tests/ui/CharacterTests.cpp": "87a358f4eb4ac7667a72738ee3bf4508fb807b3e02eac0574da1b10895585a23",
+      "tests/ui/UiTests.cpp": "be02e3b97ce666c0df4a8e4622d1d94012dbf8d651122922777cca3f2c45e1ba"
+    },
+    "starting_source_record": {
+      "path": "out/phase-six-sprite-curve-character/source-before.json",
+      "sha256": "6b6c233cb874f219df2ffd2db5dead9502257e9b988c42100ac13fd96dd87485"
+    },
+    "starting_patch": {
+      "path": "out/phase-six-sprite-curve-character/starting.patch",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}
