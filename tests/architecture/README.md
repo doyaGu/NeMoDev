@@ -2148,3 +2148,15 @@ Place 链接表适应页面宽度，窄窗口使用原生横向滚动，表格�
 macOS arm64 Release 构建通过；完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观六次成功进程执行 **20** 个用例，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1138** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。结果见[Sound 和 Place 链接 Setup 验证记录](baselines/sound-place-setup-macos-arm64-metal.json)。
 
 本批未写入 SDK，16 个 SDK 仓库和 22 项运行文件与本批起点一致；Editor C 公开头维持版本二十三，共享 SetupLayout 及五份 GPU 渲染和互操作源码保持原样。GPU 快通道、通用 fallback、显式快照和合法 `.NMO` 直接打开回归通过。F25 仍保留 Animation/ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗，以及其他平台实机复验。`functional_phase` 保持五，`completed_phase` 保持三，八项阶段六待办继续保留；性能计时验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。
+
+### 阶段六：Animation、ObjectAnimation 和 MidiSound Setup 布局
+
+Animation 的基本信息、播放选项、转换和次级模式使用已有分栏；ObjectAnimation 的关联对象、共享数据、合并比例、忽略标志和关键帧信息使用同一布局。原有数值范围、模式标志及启用条件保持。动画轨道表保留可调列宽与表格编号，窄窗口可横向滚动；Used By 随页面宽度调整。对象跳转控件只绘制按钮和值，标签使用既有字段表格，其余十六处旧调用仍保留原标签位置。
+
+MidiSound 的文件、保存选项、播放控制和状态使用同一分栏；文件选择仍在确认后执行，缺少文件或 Midi Manager 时禁用播放。新增回归发现原生声音状态只保存文件名，导致撤销丢失目录，且不同目录的同名文件被误判为未修改。完整路径现已纳入原有属性恢复机制，文件取消、Undo/Redo 及保存选项恢复均保留目录，没有修改 SDK 或原生文件格式。
+
+新增三个原生组合覆盖宽窄往返、替代字体与主题缩放、输入与弹窗编号、动画列表滚动、拖动中重排后取消、数值确认的单步撤销、模式标志和共享数据导航。MIDI 文件编辑验证确认前不修改、取消不增加历史、确认及撤销保留路径；测试管理器验证 Play、Pause、重排后 Resume 和 Stop，结束后恢复原管理器选择。核心回归覆盖同名文件路径变化、保存选项取消与撤销，并检查默认 Setup 提供者没有重复登记。原有 SetupTests、SoundTests、CharacterTests、CreateTests 和 UiTests 输入辅助代码未改。真实 MIDI 输出与系统文件选择操作仍待实机验证。
+
+macOS arm64 Release 构建通过；完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观六次成功进程执行 **23** 个用例，其中编辑用例 **18** 项，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1139** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。结果见[Animation、ObjectAnimation 和 MidiSound Setup 验证记录](baselines/animation-midi-setup-macos-arm64-metal.json)。
+
+本批未写入 SDK；Editor C 公开头维持版本二十三，共享 SetupLayout 及五份 GPU 渲染和互操作源码保持原样。GPU 快通道、通用 fallback、显式快照和合法 `.NMO` 直接打开回归通过。F25 仍保留 SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗，以及其他平台实机复验。`functional_phase` 保持五，`completed_phase` 保持三，八项阶段六待办继续保留；性能计时验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。

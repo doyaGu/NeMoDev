@@ -1,0 +1,583 @@
+{
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "editor_version": 23,
+    "profile_version": 1,
+    "workspace_version": 1
+  },
+  "remaining": {
+    "performance": "按用户要求继续暂缓，原定 3% 门槛不变；本批验证功能、资源复用、GPU/fallback 和读回上传计数，没有计时验收。",
+    "runtime_process_isolation": "单独实施。",
+    "not_executed": [
+      "Windows/Linux 实机",
+      "原版 Level_1.NMO（合法 NMO 直接打开包含在完整回归）",
+      "完整原版帮助与真实系统打印",
+      "完整发布包及整个原生桌面 Player 组（仅复验双视口全屏）",
+      "真实 MIDI 设备、音频输出和 macOS 系统文件选择操作；MIDI 控制使用仅测试目标内的管理器夹具，文件修改走原有属性编辑流程。"
+    ],
+    "stage_six_gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "双视口及其 GPU 稳定帧计数、独立 fallback、快照和原生全屏已覆盖；性能计时验收按用户要求暂缓，原定门槛不变"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material、Entity 的 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character、Sound、Animation、ObjectAnimation、MidiSound 页面及公共页头使用共享响应式分栏或字段布局，控件身份不随布局变化。Texture 与 Sprite 共用内存格式和槽位概览，图像预览保留原缓存；Mesh 通道保留多选、菜单和横向滚动；Grid 保留多图层笔画，重排不误涂，大网格按可见区域绘制并可滚动。Sprite 的保存、透明色和预览复用分栏；拾色不因静止指针下的重排重新取样，仍可在同次交互继续编辑、取消或确认。Curve 保留点导航、TCB 编辑和曲线工具；Character 部件表保留可调列宽、多选、增删及根部件恢复，动画使用原有导航。Sound 的信息与 2D/3D 参数使用同一分栏，保留播放及参数启用条件；Place 链接表随页面调整并可横向滚动，选择、激活标志、链接增删及 Setup 导航仍走原命令。Animation 的播放、转换和次级模式以及 ObjectAnimation 的忽略标志、共享数据和合并比例复用原编辑流程；动画轨道表保留可调列宽和横向滚动。MidiSound 的文件、保存选项和播放控制使用同一分栏，保留原启用条件。声音完整路径通过原有属性恢复机制保留，取消、Undo/Redo 不丢目录，同名文件的路径变化也能撤销。修改、取消与单步撤销仍走已有流程。旧坐标页按实际控件和文字扩展滚动范围；SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产模块发现、统一装配、按身份启用禁用及替换、配置和窗口状态保存恢复已实现；完整模块发布包的各平台实机验证仍待完成"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "尚未实现通用模块文档数据。需补登记与版本升级、文档所有权、保存加载、未知模块原样保留、对象引用重映射、Import/Merge 冲突及失败恢复、撤销和无数据时不写空区。现有 Layout/Pictures 文档数据回归不能替代这些测试。"
+      }
+    ],
+    "separate_work": [
+      {
+        "id": "runtime-isolation",
+        "feature": "F17",
+        "name": "运行时进程隔离",
+        "reason": "用户明确安排单独实施；本轮阶段五收尾不包含它。原生单次调用仍不能强制中断。中断后保留文档、选区和撤销历史，并继续嵌入 3D 视口的要求不变。"
+      }
+    ]
+  },
+  "description": "阶段六：Animation、ObjectAnimation 和 MidiSound Setup 复用原有分栏及编辑流程，补齐声音完整文件路径恢复；性能验收暂缓，进程隔离单独实施。",
+  "base_revision": "9900a77d5d1111448a282d3473a3cfcb9b929f0a",
+  "starting_worktree": "本批开始时 main 工作区干净；source-before.json 和空 starting.patch 保存改动起点。",
+  "verification_status": "passed functional regression; performance deferred",
+  "changes": [
+    "Animation 的长度、帧率、播放、转换和次级模式使用原有 SetupColumns；角色和根对象链接使用原有 SetupForm，控件编号和条件显示保持。",
+    "ObjectAnimation 的对象、共享数据、合并比例、忽略标志和关键帧信息使用同一分栏；Used By 沿用原列表，宽度与页面一致。",
+    "动画轨道表保留原表格编号、可调列宽、对象与轨道导航，窄窗口可横向滚动，尺寸随页面字体和主题缩放。",
+    "MidiSound 的文件、保存选项和播放状态使用同一分栏；文件选择及 Play/Pause/Resume/Stop 保留原命令，缺少管理器或文件时仍禁用播放。",
+    "对象跳转控件只绘制按钮和值，标签交给现有字段布局；其余十六处旧调用保留原标签位置，无新增模式或包装。",
+    "声音的完整文件路径纳入现有属性恢复机制，原生状态只保存文件名时仍可取消及 Undo/Redo；两个目录下的同名文件不会误判为未修改。文件读取继续延期到确认之后。",
+    "SDK、Editor C 接口、共享 SetupLayout、GPU 快通道和通用 fallback 未改；SpriteText、参数和行为等其余专用页与弹窗继续保留在 F25。"
+  ],
+  "coverage": {
+    "files": 1139,
+    "groups": 59,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 8,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-animation-midi-setup/build-final.log",
+      "sha256": "0cf1c9e79b427924167dcad765526ca5704e2b3819df819b78c0685507ac4bbe"
+    },
+    "incremental_test_build": {
+      "path": "out/phase-six-animation-midi-setup/build-midi-restore-second.log",
+      "sha256": "b3d15189cfaf98d31c992a34636f30a1758f2814018f286f071d52fbcb591e1e"
+    },
+    "complete_nonperformance_ctest": {
+      "total": 137,
+      "passed": 137,
+      "failures": 0,
+      "skipped": 0,
+      "core_tests": 113,
+      "ui_ctest_groups": 24,
+      "report": {
+        "path": "out/phase-six-animation-midi-setup/full-final.xml",
+        "sha256": "fbe6c214c841f08b326f901da14f49b33dca8b611ccbc3ce8e2bfcf2e6d97bd2"
+      },
+      "inventory": {
+        "path": "out/phase-six-animation-midi-setup/ctest-inventory-final.json",
+        "sha256": "4dd799dd28778dcfef1e814ef2fc7fb2ebb70d70b32510a652de125a321ab076"
+      },
+      "validation": {
+        "path": "out/phase-six-animation-midi-setup/results-check-final.log",
+        "sha256": "669b999a673e1ba6ac2af78a841ea026f180c3f566a55a911fd6e9624c54972f"
+      }
+    },
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "executed": 3,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/html.xml",
+          "sha256": "2c792eaf2de65183b70813ce4b9b3551eb6fd00733a3db7b3055525da00e8644"
+        }
+      },
+      "VirtoolsDevUi.app": {
+        "executed": 28,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/app.xml",
+          "sha256": "f407c8c5e2f1ab847de230846101cd7e41ef5115a69424c0c85281bd5ed33c1e"
+        }
+      },
+      "VirtoolsDevUi.layoutviews": {
+        "executed": 4,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/layoutviews.xml",
+          "sha256": "e2479adb1b5bf7df5f52e55c68a77b68f77cab30994773d32fc17ea6b0475b5a"
+        }
+      },
+      "VirtoolsDevUi.filemenu": {
+        "executed": 10,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/filemenu.xml",
+          "sha256": "3dfe878b5a19083f27b5311da7810f7abb1dfac6e55d9b8a88bc8821d91d992a"
+        }
+      },
+      "VirtoolsDevUi.schematic": {
+        "executed": 26,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/schematic.xml",
+          "sha256": "5abace97aa7deea9dd7f35581a9cd6203e039cc4dedb19673c6005a835fed4d5"
+        }
+      },
+      "VirtoolsDevUi.debugger": {
+        "executed": 10,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/debugger.xml",
+          "sha256": "a4ea9f62e5105842afc95b1cc4c9d3a4d2fd6d6ea410557deddcb812200a3549"
+        }
+      },
+      "VirtoolsDevUi.layout": {
+        "executed": 33,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/layout.xml",
+          "sha256": "402dfd184b60ee840ec023b59935b637cea5ec65ef81b2b108a26795d011a09e"
+        }
+      },
+      "VirtoolsDevUi.level": {
+        "executed": 7,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/level.xml",
+          "sha256": "2efc0cb4a26aa407c55f1064f4887c7e5233d99dcfc1abbac1140b797b2c6599"
+        }
+      },
+      "VirtoolsDevUi.setup": {
+        "executed": 21,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/setup.xml",
+          "sha256": "f81e56931574e4e0da0a2737908498380d272dec9344d41147b733419a274118"
+        }
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "executed": 7,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/propertyedits.xml",
+          "sha256": "9340fdc625286328447164f8243f3d1bfb0937ce924dad73fc5b71395f6fe187"
+        }
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "executed": 8,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/hierarchy.xml",
+          "sha256": "2f09a753dbea3bca27845d2eff8b8cb43ed93e7712b73a7cace9516ea8002f1f"
+        }
+      },
+      "VirtoolsDevUi.blocks": {
+        "executed": 7,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/blocks.xml",
+          "sha256": "30a1df7a6415be507db6f48c222db9f5399cbafe20e211c960cb5b1a580f9276"
+        }
+      },
+      "VirtoolsDevUi.attributes": {
+        "executed": 6,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/attributes.xml",
+          "sha256": "018b6f88e7efe5898e0df7759f1163c68823eb0c0f2a6cfe8ea23fb1d5dd4a8b"
+        }
+      },
+      "VirtoolsDevUi.create": {
+        "executed": 6,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/create.xml",
+          "sha256": "4aac95411dac577a95f3f3927cd04e650ecb0e193e3d325a86676537672690f0"
+        }
+      },
+      "VirtoolsDevUi.tools": {
+        "executed": 13,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/tools.xml",
+          "sha256": "5d1627e900dc3d7160016156d9587f5b63d5df5aab5f2e5cec5cf7324350dba2"
+        }
+      },
+      "VirtoolsDevUi.sound": {
+        "executed": 2,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/sound.xml",
+          "sha256": "17f6620a76bb87aebaa33c839ff44fbaedf452d9724441778f5dc3920d82b70e"
+        }
+      },
+      "VirtoolsDevUi.character": {
+        "executed": 2,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/character.xml",
+          "sha256": "e1cfde98dc38ed54a61167ec7f4dc9e0980e8b90d3b61f8a484b14df9bb592ad"
+        }
+      },
+      "VirtoolsDevUi.modules": {
+        "executed": 74,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/virtoolsdev-ui/modules.xml",
+          "sha256": "2d9853b6d4a3801f1606796d728ed0b3629be902e6f684df9facd5748bff9389"
+        }
+      }
+    },
+    "appearance_startup_cases": [
+      {
+        "executed": 1,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/builtin-disabled.xml",
+          "sha256": "c9aeeb5ee096a828072262734f54d2f4e918d025d7ae3bf2b5c8ec1b4fa3f920"
+        }
+      },
+      {
+        "executed": 18,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/editing.xml",
+          "sha256": "dacf20d941b4ed9e630fe9a179aefb2fab699d2b8d3c195a7fbeda8ebf823977"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/missing-provider.xml",
+          "sha256": "b69c03b56831396a947be92d37caaba06f4cad465359478c05c0c96b8b39522e"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/provider-returned.xml",
+          "sha256": "9e53cc1d9d91e508974a5bb20cb3d3c727c087eff8ee70fefd72a4f2604ae86f"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/restore.xml",
+          "sha256": "ea65f6067830b665f32f476bd9f5920f60da1bb4d129cf99f19cea5d54151791"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 310,
+        "report": {
+          "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/save.xml",
+          "sha256": "0f62043d292c27106f01a70b0f8faf3e96ce2fcd372ad767c4eb60077cf287d6"
+        }
+      }
+    ],
+    "appearance_expected_startup_failures": [
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/invalid-theme.log",
+        "sha256": "163cb27245f31ada0f4fa3620baa3d57923f6c7f2f5932d197c02cfcc104924c"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/invalid-font.log",
+        "sha256": "0b551219f9a650c3e2fd202965b58cf4eb64eb8dbbeaf293a28728590f8a4494"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/appearance-startup/invalid-layout.log",
+        "sha256": "3a3cac1d366a8e85869d8768c8b5bc94a042d93c7a04c1e27c488be65f77a8b5"
+      }
+    ],
+    "workspace_startup_combinations": [
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/bad-dock-tree.xml",
+        "sha256": "8ffabdf7ceaaca7510be94628bd880a88c670a93bbd6a1aec69cc3c499e6ee23"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/bad-view-version.xml",
+        "sha256": "14b673b22f040606cd448200a10971c85e20ad6053254abf2685cb184aa32ea3"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/close-missing-provider.xml",
+        "sha256": "dcb8e2d9c35336188ec2a776b9d01c5ee22dc9fb4b39e19d208770e52d5623c1"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/discard-unrestored.xml",
+        "sha256": "1299dfaf80d800aa5493a89f0e58255888461cf629b96dcd98149a95c499eef6"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/first-start-with-document.xml",
+        "sha256": "4496f362bf54aeebacba03d88d877ebabba61be5a4ec4215049ff37f3ebbd3af"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/missing-provider.xml",
+        "sha256": "b2900ac08cca5e9d59559f3397f4e2459e46cb7b515827cefb3b9627438c9b91"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/provider-returned.xml",
+        "sha256": "3a9e6d3f8981d86782d0d99cbad210f612db4e978a46178073b8f329a7b9db2c"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/restore.xml",
+        "sha256": "3fb3cd14879a9f35479505ed50416342bf6098f6c4462d1e8748769709571940"
+      },
+      {
+        "path": "out/phase-six-animation-midi-setup/reports/workspace-startup/save.xml",
+        "sha256": "a1c959df9e51ebc4590302f0b248194179fafbf38b9b9021821131a51092e5a7"
+      }
+    ],
+    "architecture_checker_cases": 58,
+    "architecture_checker_log": {
+      "path": "out/phase-six-animation-midi-setup/architecture-tests-final.log",
+      "sha256": "cea1d28a3ff61347c13510ba23cae3d71c25a47698089492464ceee8f22d1454"
+    },
+    "architecture_log": {
+      "path": "out/phase-six-animation-midi-setup/architecture-final.log",
+      "sha256": "f2a1063d7657b534f258596b84ac0c21133c1ab6d939a33f748ae14ca7d129d0"
+    },
+    "native_desktop": {
+      "case": "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+      "executed": 1,
+      "registered": 310,
+      "report": {
+        "path": "out/phase-six-animation-midi-setup/player-final.xml",
+        "sha256": "523848cd96dc02abc4ba25be23ec1a8a8d5c69987829b635f44963d4e8e09a06"
+      },
+      "log": {
+        "path": "out/phase-six-animation-midi-setup/player-final.log",
+        "sha256": "d9d9701e49f69b8429b0ac713ae09fe52e2b951989fd5a8534fa602289ecb6fe"
+      }
+    },
+    "new_regressions": [
+      "三个 Setup 在 1500、690、450、1500 宽度及替代字体、主题缩放下往返；检查分栏数、控件与弹窗编号、内容边界和窄页水平滚动。",
+      "Animation 与 ObjectAnimation 长度及合并比例的拖动在重排后 Escape 恢复且不增加历史；数值确认各一步撤销。",
+      "帧率联动保留 FPS 启用条件，转换模式、次级播放模式及对象忽略标志各一步撤销，次级 warp 等无关标志保持。",
+      "动画轨道表保留列宽调整及横向滚动，轨道、角色、对象、共享数据和 Used By 导航不增加撤销历史。",
+      "MidiSound 保存选项弹窗跨重排后取消不增加历史，确认只一步撤销；无管理器或无文件时禁用播放。",
+      "MidiSound 文件编辑在确认前不读取替代文件，取消保留原文件和历史，确认及 Undo 恢复完整路径。测试管理器验证 Play、Pause、重排后 Resume 和 Stop 不增加历史，并恢复原管理器选择。",
+      "核心回归先复现两个目录同名 MIDI 文件被误判为无修改，再验证文件取消、同名路径替换的单步 Undo/Redo，以及保存选项预览取消与 Undo 保留完整目录；默认 Setup 提供者不重复登记。",
+      "原有 SetupTests、SoundTests、CharacterTests、CreateTests 和 UiTests 输入辅助代码未改；完整回归保留文件失败恢复、导出保护、合法 NMO 直接打开、GPU 快通道、通用 fallback 和显式快照。",
+      "页面交互后的 GPU 视口读回和上传计数为零，原生双视口全屏退出后的焦点及 GPU 恢复通过。"
+    ],
+    "path_restore_before_fix": {
+      "core_log": {
+        "path": "out/phase-six-animation-midi-setup/test-midi-restore-red.log",
+        "sha256": "ba0b77778fa84bdb784711177928ee33dbe9140ac218b5783648234912021432"
+      },
+      "ui_log": {
+        "path": "out/phase-six-animation-midi-setup/midi-second.log",
+        "sha256": "f94a75ad6db2e0211675746bc983071c17c61aa145e6fa2a721bddc338f8c27e"
+      }
+    },
+    "discarded_runs": [
+      "新增动画表导航测试最初向 ItemDoubleClick 传入三个参数，改为其正确的两参数形式。",
+      "新增 MIDI 测试直接调用文件修改命令时遗漏版本参数；改用页面实际使用的 BeginEdit/UpdateEdit/FinishEdit，并精确检查取消与排队状态。",
+      "完整路径恢复初稿只在实际登记处跳过特殊文件属性，默认提供者列表仍重复生成；改为在共用的属性收集处处理文件路径，并补默认列表唯一性回归。未修改断言标准或超时。"
+    ],
+    "ordinary_ui_cases": 267,
+    "appearance_selected_cases": 23
+  },
+  "preservation": {
+    "sdk_source_writes_by_this_batch": false,
+    "sdk_changes_during_work": [],
+    "sdk_changes_during_final_test": [],
+    "sdk_record_note": "本批未写入 SDK；16 个仓库按当前源码内容比较，22 项运行文件按完整哈希比较，最终构建与回归使用同一份 SDK。",
+    "sdk_start_record": {
+      "path": "out/phase-six-animation-midi-setup/sdk-start.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_build_start_record": {
+      "path": "out/phase-six-animation-midi-setup/sdk-build-start-final.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_test_start_record": {
+      "path": "out/phase-six-animation-midi-setup/sdk-test-start-final.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_end_record": {
+      "path": "out/phase-six-animation-midi-setup/sdk-after.json",
+      "sha256": "ceae56fe6516a76ae15657b6b831371461eec876148d4f250e976ab4aee7e1bc"
+    },
+    "sdk_tested": {
+      ".": {
+        "revision": "659f81eb129fcca7e5e867886ff1a83a8cf454f9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks": {
+        "revision": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/3DTrans/qhull": {
+        "revision": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/physics_RT/ivp": {
+        "revision": "7579664996e68040dd0158081b04f612e6a2d515",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2": {
+        "revision": "895d6d64a93b72b221e24477c3ba4b145e801f01",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2/deps/miniz": {
+        "revision": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/ParameterOperations": {
+        "revision": "85767adbdf70c327fcb9da9d179285a390bd6756",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlInputManager": {
+        "revision": "9129b619483d6f75a8947b4af7a4d51d3f4afb9f",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlSoundManager": {
+        "revision": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Player": {
+        "revision": "650c3676bea4b1535f2522395d8f907056303488",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Plugins": {
+        "revision": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/RenderEngine": {
+        "revision": "aa4fc6165c4d9ca6ff8b46de167fe0681dda0016",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath": {
+        "revision": "37ab8af3619f7bcf38f39e7561ab88fffe8bbf3d",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde": {
+        "revision": "2e5224981e9123b8fe89a9833a978556d636a565",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde/test/munit": {
+        "revision": "da8f73412998e4f1adf1100dc187533a51af77fd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/stb": {
+        "revision": "31c1ad37456438565541f4919958214b6e762fb4",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "sdk_source_contents_unchanged_during_final_test": true,
+    "sdk_content_check": {
+      "path": "out/phase-six-animation-midi-setup/sdk-content-check-final.json",
+      "sha256": "d094581c5f7e8f452ba2c56ab8d7d2fa684f5afbdf6f3895c8f78893d7943b47"
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "runtime_files_unchanged_during_final_test": true,
+    "runtime_test_start_record": {
+      "path": "out/phase-six-animation-midi-setup/runtime-test-start-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_end_record": {
+      "path": "out/phase-six-animation-midi-setup/runtime-after.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "unchanged_gpu_source_sha256": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "editor_c_interface_changed_this_batch": false,
+    "editor_header_sha256": "53193de3459aabe594dd9fb1b0a10ea9791f0a63ae110bcf52e9a4ccea541462",
+    "document_formats_changed": false,
+    "unchanged_layout_helpers_sha256": {
+      "ui/setup/SetupLayout.cpp": "44607d9ce54fbd80d33a73db6cf03504538c029fb0e3cd91e43b25e87ccd75df",
+      "ui/setup/SetupLayout.h": "cb3863187b57da9737815142a6e50724d3e861cbdc394c7f19e6c27f4241c8cd"
+    },
+    "unchanged_original_setup_test_sha256": {
+      "tests/ui/SetupTests.cpp": "3149c207a52fbda6560138c4bbd8ae762d8362201a89d0460f928c8ccb43c868",
+      "tests/ui/SoundTests.cpp": "2996ad9c0851516e29fa74da8812504432afdecfd564ffb9d04a1842199cb159",
+      "tests/ui/CharacterTests.cpp": "87a358f4eb4ac7667a72738ee3bf4508fb807b3e02eac0574da1b10895585a23",
+      "tests/ui/CreateTests.cpp": "2364443c3f0d9c2dbdb8fbeb8eef8bd2b7dea74d90d79c754979d2139304fe08",
+      "tests/ui/UiTests.cpp": "be02e3b97ce666c0df4a8e4622d1d94012dbf8d651122922777cca3f2c45e1ba"
+    },
+    "starting_source_record": {
+      "path": "out/phase-six-animation-midi-setup/source-before.json",
+      "sha256": "ed8a83d8a7f5cc026fdac98c6faeb0348ee34d7c690cf84eda32ede536b9db9d"
+    },
+    "starting_patch": {
+      "path": "out/phase-six-animation-midi-setup/starting.patch",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  }
+}

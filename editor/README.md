@@ -262,7 +262,7 @@ General Preferences 中原有连线和对象状态配色继续生效，这些项
 旧式 Setup 的固定坐标版式及其他平台的资源、字体和 DPI 实机验证仍在 F25 清单中，不能据此认为全部页面布局已经可自定义。
 
 
-Scene、Frame、Sprite3D、Camera、Light、Material、Entity 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character 和 Sound Setup 的完整分组随可用宽度换行；标签和值使用同一列区域。
+Scene、Frame、Sprite3D、Camera、Light、Material、Entity 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character、Sound、Animation、ObjectAnimation 和 MidiSound Setup 的完整分组随可用宽度换行；标签和值使用同一列区域。
 `metric.setup.column-width`（120–2000）控制分组的最小内容宽度，
 `metric.setup.label-width`（20–600）控制标签列宽，窄列会限制标签宽度并换行。
 `metric.setup.sidebar-width`（72–400）控制左侧对象图片与操作区域。
@@ -274,4 +274,6 @@ Entity 3D 的变换、世界尺寸及网格信息复用已有分栏和坐标字�
 Texture 与 Sprite 共用内存格式和槽位概览；Texture 的保存选项、引用列表、图像及 Alpha 预览按分组排列，重排保留槽位缓存与缩放、平移、拾色和资源拖放流程。Mesh 的通道和材质列表使用各自的原生滚动区域，通道的多选、菜单、拖放及编辑仍使用原有命令。Grid 的笔画区域随列宽调整，保留最小单元格尺寸，大网格可以横纵滚动且只绘制可见单元格；图层、分类、Grid Cross 和 3D 属性仍使用原有流程。重排时保持当前编辑和笔画，取消恢复原值，确认只记一步撤销。
 Sprite 的保存、透明色和图像预览也使用同一分栏，复用槽位缓存、拾色、缩放和平移；拾色只在按下或实际移动时取样，重排不会改变静止指针对应的预览值。Curve 的参数、曲线工具和当前控制点按完整分组排列，点导航与工具选择不额外产生撤销。Character 部件表保留可调列宽、多选和菜单，并可横向滚动；部件增删、根部件恢复和动画导航沿用已有流程。
 Sound 的音频信息、2D 和 3D 参数复用同一分栏，播放按钮按可用宽度排列，保留点声源、背景声源和无声源时的启用条件；参数仍使用原草稿、取消恢复与单步撤销。Place 链接表适应页面宽度，窄窗口可横向滚动；地点与 Portal 选择、激活标志、链接增删和 Setup 导航沿用原命令，重排不改变表格或弹窗编号。
-Animation/ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗仍需迁移；尚未迁移的坐标页使用同一页面定位函数，滚动范围包括超出原版式的文字和控件。
+Animation 的长度、帧率、播放、转换和次级模式及 ObjectAnimation 的关联对象、忽略标志和关键帧信息复用同一分栏；合并比例、共享数据与 Used By 导航保留原编辑方式。动画轨道表保留可调列宽，窄窗口可横向滚动。MidiSound 的文件、保存选项和播放状态使用同一布局，文件选择继续在确认后修改，缺少文件或 Midi Manager 时禁用播放。
+对象跳转控件只绘制按钮和值，标签由所在页面布局；未迁移页面保留原标签位置。声音的完整文件路径随原有对象状态保存，取消、撤销和重做保留目录，同名文件的路径变化也产生一步撤销；不改变原生文档格式。
+SpriteText、Layer、KinematicChain、参数和行为等剩余专用页及弹窗仍需迁移；尚未迁移的坐标页使用同一页面定位函数，滚动范围包括超出原版式的文字和控件。
