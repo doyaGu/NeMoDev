@@ -386,6 +386,193 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *render = IM_REGISTER_TEST(engine, "appearance", "render_setup_reflows_and_keeps_edits");
+    render->GuiFunc = MainThreadGui;
+    render->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        struct Page {
+            const char *create, *role, *table, *input, *property;
+            float typed, divisor;
+            ObjectRef object{};
+            EditorView view = 0;
+            ImGuiID inputId = 0;
+        } pages[] = {
+            {"object.create-camera", "setupcamera", "##camera-settings", "##fov", "camera.fov", 70,
+             (180.f / 3.14159265358979323846f)},
+            {"object.create-light", "setuplight", "##light-settings", "##range", "light.range", 325, 1},
+            {"object.create-material", "setupmaterial", "##material-settings", "##power", "material.power", 60, 1}};
+        EditorConfiguration original;
+        DocumentToken token;
+        std::vector<ObjectRef> selection;
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            auto client = EditorCommands();
+            for (auto &page : pages) {
+                const auto made = client.Command(page.create);
+                const auto *created = EditorClient::Find(made, "created");
+                IM_CHECK_NO_RET(made.status == EDITOR_OK && created && created->object);
+                page.object = created->object;
+                IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", page.object)}).status <=
+                                EDITOR_NO_CHANGE);
+                page.view = workspace.Role(page.role);
+                IM_CHECK_NO_RET(page.view);
+            }
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+            token = App().State().document->Token();
+            selection = App().State().objectSelection.References();
+        });
+        ctx->Yield(4);
+        const auto windowName = [](const Page &page) { return App().WorkspaceForTests().WindowName(page.view); };
+        const auto pageWindow = [&](const Page &page) -> ImGuiWindow * {
+            const auto ref = "//" + windowName(page);
+            for (auto *child : ctx->GetWindowByRef(ref.c_str())->DC.ChildWindows)
+                if (std::string(child->Name).find("/page_") != std::string::npos) return child;
+            return nullptr;
+        };
+        const auto resize = [&](const Page &page, float width) {
+            OnMainThread(ctx, [&] {
+                const auto name = windowName(page);
+                ImGui::SetWindowDock(ImGui::FindWindowByName(name.c_str()), 0, ImGuiCond_Always);
+                ImGui::SetWindowPos(name.c_str(), {10, 60});
+                ImGui::SetWindowSize(name.c_str(), {width, 680});
+            });
+            ctx->Yield(4);
+        };
+        const auto number = [&](const Page &page) {
+            return Read<double>(ctx, [&] {
+                SetupDetails data;
+                IM_CHECK_NO_RET(ReadSetupProperties(EditorCommands(), page.object, {page.property}, data));
+                return data.Values().Real(page.property);
+            });
+        };
+        const auto history = App().State().History().UndoCount();
+        for (auto &page : pages) {
+            const auto ref = "//" + windowName(page);
+            ctx->WindowFocus(ref.c_str());
+            for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+                resize(page, width);
+                auto *window = pageWindow(page);
+                IM_CHECK(window);
+                auto *table = ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID(page.table));
+                IM_CHECK(table);
+                IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+                const auto id = window->GetID(page.input);
+                IM_CHECK(!page.inputId || page.inputId == id);
+                page.inputId = id;
+                const auto field = ctx->ItemInfo(id).RectFull;
+                IM_CHECK_GT(field.GetWidth(), 1);
+                bool inside = false;
+                for (int i = 0; i < table->ColumnsCount; ++i)
+                    inside |=
+                        field.Min.x >= table->Columns[i].WorkMinX - 1 && field.Max.x <= table->Columns[i].WorkMaxX + 1;
+                IM_CHECK(inside);
+                if (width == 450) IM_CHECK_GT(window->ScrollMax.x, 0);
+            }
+            ctx->WindowFocus(ref.c_str());
+            ctx->Yield(3);
+            ctx->SetRef(ref.c_str());
+            const auto before = number(page);
+            ctx->ScrollToItemY(page.inputId);
+            ctx->Yield(3);
+            const auto at = ctx->ItemInfo(page.inputId).RectFull.GetCenter();
+            ctx->MouseMoveToPos(at);
+            ctx->MouseDown(0);
+            ctx->MouseMoveToPos({at.x + 35, at.y});
+            ctx->Yield(3);
+            IM_CHECK(std::fabs(number(page) - before) > .0001);
+            resize(page, 690);
+            IM_CHECK_EQ(pageWindow(page)->GetID(page.input), page.inputId);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history);
+            ctx->KeyPress(ImGuiKey_Escape);
+            ctx->MouseUp(0);
+            ctx->Yield(3);
+            IM_CHECK(std::fabs(number(page) - before) < .0001);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history);
+            resize(page, 1500);
+            ctx->ItemInputValue(page.inputId, page.typed);
+            ctx->Yield(3);
+            IM_CHECK(std::fabs(number(page) * page.divisor - page.typed) < .01);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            Undo(ctx);
+            IM_CHECK(std::fabs(number(page) - before) < .0001);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        }
+        // Directional lights keep range and attenuation unavailable; spot angles stay in degrees on screen.
+        const auto lightRef = "//" + windowName(pages[1]);
+        ctx->WindowFocus(lightRef.c_str());
+        ctx->Yield(3);
+        ChooseInCombo(ctx, lightRef.c_str(), "##type", "Directional");
+        ctx->Yield(3);
+        IM_CHECK(ctx->ItemInfo(pageWindow(pages[1])->GetID("##range")).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK(ctx->ItemInfo(pageWindow(pages[1])->GetID("##constant")).ItemFlags & ImGuiItemFlags_Disabled);
+        Undo(ctx);
+        ChooseInCombo(ctx, lightRef.c_str(), "##type", "Spot");
+        ctx->Yield(3);
+        const auto hotSpot = pageWindow(pages[1])->GetID("##hotspot");
+        IM_CHECK(!(ctx->ItemInfo(hotSpot).ItemFlags & ImGuiItemFlags_Disabled));
+        ctx->ItemInputValue(hotSpot, 45.f);
+        ctx->Yield(3);
+        const auto angle = Read<double>(ctx, [&] {
+            SetupDetails data;
+            IM_CHECK_NO_RET(ReadSetupProperties(EditorCommands(), pages[1].object, {"light.hot-spot"}, data));
+            return data.Values().Real("light.hot-spot");
+        });
+        IM_CHECK(std::fabs(angle * (180.f / 3.14159265358979323846f) - 45) < .01);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 2);
+        Undo(ctx);
+        Undo(ctx);
+        // Custom is only a page choice; depth and texture controls remain reachable after reflow.
+        const auto materialRef = "//" + windowName(pages[2]);
+        ctx->WindowFocus(materialRef.c_str());
+        ctx->Yield(3);
+        ChooseInCombo(ctx, materialRef.c_str(), "##mode", "Custom");
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        auto *materialPage = pageWindow(pages[2]);
+        IM_CHECK_GT(ctx->ItemInfo(materialPage->GetID("##zfunc")).RectFull.GetWidth(), 1);
+        ChooseInCombo(ctx, materialRef.c_str(), "##addressmode", "Border");
+        ctx->Yield(3);
+        const auto border = ImHashStr("Border Color", 0, ImHashStr("Border Color", 0, materialPage->ID));
+        IM_CHECK_GT(ctx->ItemInfo(border).RectFull.GetWidth(), 1);
+        Undo(ctx);
+        const auto diffuse = [&] {
+            return Read<std::vector<double>>(ctx, [&] {
+                SetupDetails data;
+                IM_CHECK_NO_RET(ReadSetupProperties(EditorCommands(), pages[2].object, {"material.diffuse"}, data));
+                return data.Values().Reals("material.diffuse");
+            });
+        };
+        const auto color = diffuse();
+        const auto swatch = ImHashStr("Diffuse", 0, ImHashStr("Diffuse", 0, materialPage->ID));
+        ctx->ItemClick(swatch);
+        ctx->Yield(3);
+        resize(pages[2], 690);
+        const auto popup = ImHashStr("picker", 0, ImHashStr("Diffuse", 0, materialPage->ID));
+        IM_CHECK(ImGui::IsPopupOpen(popup, ImGuiPopupFlags_AnyPopupLevel));
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("**/##picker/##hex/##Text");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("7F3344");
+        ctx->Yield(3);
+        IM_CHECK(diffuse() != color);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(4);
+        IM_CHECK(diffuse() == color);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().State().document->Token() == token &&
+                            App().State().objectSelection.References() == selection);
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

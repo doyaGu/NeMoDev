@@ -263,11 +263,36 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
     page.End(800, 262);
 }
 
+void SetupWindows::Entity3DTransform(ObjectRef target) {
+    SetupColumns columns("##entity-transform", 2);
+    if (!columns) return;
+    const auto &shown = Shown(target);
+    const auto wp = Translation(shown.world), lp = Translation(shown.local);
+    float world[] = {wp.x, wp.y, wp.z}, local[] = {lp.x, lp.y, lp.z};
+    columns.Next();
+    Group("Position");
+    if (ImGui::SmallButton("Reset World Matrix"))
+        RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)});
+    ImGui::PushID("Position");
+    TransformFields(target, "position", world, local, 1, "##v");
+    ImGui::PopID();
+    columns.Next();
+    Group("Orientation");
+    Vx3DMatrixToEulerAngles(shown.world, &world[0], &world[1], &world[2]);
+    Vx3DMatrixToEulerAngles(shown.local, &local[0], &local[1], &local[2]);
+    for (int i = 0; i < 3; ++i) {
+        world[i] *= RAD_TO_DEG;
+        local[i] *= RAD_TO_DEG;
+    }
+    ImGui::PushID("Orientation");
+    TransformFields(target, "orientation", world, local, RAD_TO_DEG, "##v");
+    ImGui::PopID();
+}
+
 void SetupWindows::CameraPage(ObjectRef target) {
     const auto id = target;
     SetupDetails description;
-    if (!ReadDetails(target, "camera", description))
-        return;
+    if (!ReadDetails(target, "camera", description)) return;
     const auto data = description.Values();
     SetupDetails propertyData;
     if (!ReadProperties(target,
@@ -276,160 +301,138 @@ void SetupWindows::CameraPage(ObjectRef target) {
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    const DevPage page;
-    Entity3DPage(target, false, false);
-    const auto cameraTarget = data.Object("target");
-    if (cameraTarget) {
-        const auto to = VectorOf(data, "target-position");
-        char text[32];
-        std::snprintf(text, sizeof(text), "%.3f", float(data.Real("distance")));
-        page.Label(430, 55, 580, 70, "Distance from camera");
-        page.Label(430, 70, 530, 85, "to target:");
-        page.Label(540, 70, 600, 88, text);
-        // Target position (documentation "Camera Setup": "Coordinates of the
-        // target in the world coordinate system"): the target moves.
-        page.Label(430, 90, 560, 105, "Target position");
-        float at[3] = {to.x, to.y, to.z};
-        page.Place(430, 105, 640, 125);
-        if (ImGui::DragFloat3("##targetposition", at, 0.05f, 0.0f, 0.0f, "%.3f"))
-            PreviewValue(cameraTarget, "entity3d.world-position", VxVector(at[0], at[1], at[2]));
-    }
-    // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player
-    // Mode (not the object's visibility); the 3D Layout draws the camera's
-    // frustum (its own state, not the camera's).
-    page.Line(25, 110, 26, 150);
-    bool shown = data.Boolean("player-shown");
-    if (page.Check("Show In Player Mode", 45, 114, shown))
+    Entity3DTransform(target);
+    ImGui::Separator();
+    SetupColumns columns("##camera-settings", 3);
+    if (!columns) return;
+    columns.Next();
+    Group("Display and Target");
+    bool shown = data.Boolean("player-shown"), cone = data.Boolean("cone");
+    if (ImGui::Checkbox("Show In Player Mode", &shown))
         RunSetupCommand("setup.player-shown", {ObjectArgument("target", target), IntegerArgument("value", shown)});
-    page.Label(60, 112, 210, 128, "Show In Player Mode");
-    bool cone = data.Boolean("cone");
-    if (page.Check("Show cone", 45, 134, cone))
+    if (ImGui::Checkbox("Show cone", &cone))
         RunSetupCommand("setup.cone-shown", {ObjectArgument("target", target), IntegerArgument("value", cone)});
-    page.Label(60, 132, 200, 148, "Show cone");
-    if (data.Boolean("targeted")) {
-        page.Label(20, 190, 80, 210, "Target");
-        ObjectRef chosen{};
-        if (ObjectChoice("##target", CKCID_3DENTITY, cameraTarget, data.Text("target-name"), &chosen,
-                         page.Place(80, 190, 210, 210)))
-            PreviewValue(id, "camera.target", chosen);
+    const auto cameraTarget = data.Object("target");
+    {
+        SetupForm form("##camera-target");
+        if (form) {
+            if (data.Boolean("targeted")) {
+                form.Row("Target");
+                ObjectRef chosen{};
+                if (ObjectChoice("##target", CKCID_3DENTITY, cameraTarget, data.Text("target-name"), &chosen,
+                                 ImGui::GetContentRegionAvail().x))
+                    PreviewValue(id, "camera.target", chosen);
+            }
+            if (cameraTarget) {
+                form.Row("Distance to target");
+                ImGui::Text("%.3f", float(data.Real("distance")));
+                form.Row("Target position");
+                const auto to = VectorOf(data, "target-position");
+                float at[] = {to.x, to.y, to.z};
+                if (ImGui::DragFloat3("##targetposition", at, .05f, 0, 0, "%.3f"))
+                    PreviewValue(cameraTarget, "entity3d.world-position", VxVector(at[0], at[1], at[2]));
+            }
+        }
     }
-
-    // Projection Type.
-    page.Label(220, 110, 400, 130, "Projection Type");
-    page.Line(225, 130, 226, 170);
-    const int projection = int(values.Integer("camera.projection"));
+    columns.Next();
+    Group("Projection Type");
     const auto perspectiveType = uint32_t(data.Integer("perspective-type"));
     const auto orthographicType = uint32_t(data.Integer("orthographic-type"));
-    bool perspective = projection == perspectiveType, orthographic = !perspective;
-    if (page.Check("Perspective", 245, 134, perspective))
-        PreviewValue(id, "camera.projection", perspectiveType);
-    page.Label(260, 132, 400, 148, "Perspective");
-    if (page.Check("Orthographic", 245, 154, orthographic))
-        PreviewValue(id, "camera.projection", orthographicType);
-    page.Label(260, 152, 400, 168, "Orthographic");
-
-    // Aspect Ratio: Dev's presets (Custom, Normal 4:3, Extended 16:9,
-    // Widescreen 7:3, Panoramic 20:7).
-    page.Label(220, 190, 310, 210, "Aspect Ratio");
+    const bool perspective = values.Integer("camera.projection") == perspectiveType;
+    if (ImGui::RadioButton("Perspective", perspective)) PreviewValue(id, "camera.projection", perspectiveType);
+    if (ImGui::RadioButton("Orthographic", !perspective)) PreviewValue(id, "camera.projection", orthographicType);
+    Group("Aspect Ratio");
     bool aspect = values.Boolean("camera.aspect-ratio-active");
-    if (page.Check("Active", 325, 194, aspect))
-        PreviewValue(id, "camera.aspect-ratio-active", aspect);
-    page.Label(340, 190, 400, 210, "Active");
-    page.Line(225, 210, 226, 270);
-    const auto aspectRatio = Vector2Of(values, "camera.ratio");
-    const int width = int(aspectRatio.x), height = int(aspectRatio.y);
-    static const char *const types[] = {"Custom", "Normal", "Extended", "Widescreen", "Panoramic"};
-    static const int RATIOS[5][2] = {{0, 0}, {4, 3}, {16, 9}, {7, 3}, {20, 7}};
-    int type = 0;
-    for (int r = 1; r < 5; ++r)
-        if (width * RATIOS[r][1] == height * RATIOS[r][0]) type = r;
-    page.Label(240, 210, 300, 230, "Type");
-    page.Place(300, 210, 400, 230);
-    int picked = type;
-    if (TypeAheadCombo("##aspecttype", &picked, types, 5) && picked != type && picked > 0)
-        PreviewValue(id, "camera.ratio", Vx2DVector(float(RATIOS[picked][0]), float(RATIOS[picked][1])));
-    int x = width, y = height;
-    page.Label(240, 230, 270, 250, "X :");
-    page.Place(270, 230, 310, 250);
-    if (ImGui::DragInt("##aspectx", &x, 0.1f, 1, 10000) && x > 0)
-        PreviewValue(id, "camera.ratio", Vx2DVector(float(x), float(height)));
-    page.Label(330, 230, 360, 250, "Y :");
-    page.Place(360, 230, 400, 250);
-    if (ImGui::DragInt("##aspecty", &y, 0.1f, 1, 10000) && y > 0)
-        PreviewValue(id, "camera.ratio", Vx2DVector(float(width), float(y)));
-    char ratio[32];
-    std::snprintf(ratio, sizeof(ratio), "%.4f", height ? static_cast<float>(width) / height : 0.0f);
-    page.Label(240, 250, 295, 270, "Ratio:");
-    page.Label(303, 250, 370, 270, ratio);
-
-    // Perspective: the field of view and the focal length (Dev.exe
-    // sub_4531F0 140 / 142: the 35 mm film's, 18 / tan(FOV / 2)), the
-    // presets (Custom first).
-    page.Label(420, 110, 500, 130, "Perspective");
-    const float half = float(values.Real("camera.fov")) * 0.5f;
-    float focal = half > 0.0f ? 18.0f / std::tan(half) : 0.0f;
-    static const int LENSES[] = {15, 20, 24, 28, 35, 50, 85, 135, 200};
-    int lens = -1;
-    for (int i = 0; i < 9; ++i)
-        if (std::fabs(focal - LENSES[i]) < 0.01f) lens = i;
-    const std::string preset = lens >= 0 ? std::to_string(LENSES[lens]) + " mm" : std::string("Custom");
-    page.Place(540, 110, 600, 130);
-    if (ImGui::BeginCombo("##lens", preset.c_str())) {
-        TypeAhead typeAhead;
-        typeAhead.Selectable("Custom", lens < 0);
-        for (int i = 0; i < 9; ++i)
-            if (typeAhead.Selectable((std::to_string(LENSES[i]) + " mm").c_str(), lens == i))
-                PreviewValue(id, "camera.fov", 2.0f * std::atan(18.0f / LENSES[i]));
-        ImGui::EndCombo();
+    if (ImGui::Checkbox("Active", &aspect)) PreviewValue(id, "camera.aspect-ratio-active", aspect);
+    {
+        SetupForm form("##camera-aspect");
+        if (form) {
+            const auto aspectRatio = Vector2Of(values, "camera.ratio");
+            const int width = int(aspectRatio.x), height = int(aspectRatio.y);
+            static const char *const types[] = {"Custom", "Normal", "Extended", "Widescreen", "Panoramic"};
+            static const int ratios[5][2] = {{0, 0}, {4, 3}, {16, 9}, {7, 3}, {20, 7}};
+            int type = 0;
+            for (int r = 1; r < 5; ++r)
+                if (width * ratios[r][1] == height * ratios[r][0]) type = r;
+            form.Row("Type");
+            int picked = type;
+            if (TypeAheadCombo("##aspecttype", &picked, types, 5) && picked != type && picked > 0)
+                PreviewValue(id, "camera.ratio", Vx2DVector(float(ratios[picked][0]), float(ratios[picked][1])));
+            form.Row("X");
+            int x = width, y = height;
+            if (ImGui::DragInt("##aspectx", &x, .1f, 1, 10000) && x > 0)
+                PreviewValue(id, "camera.ratio", Vx2DVector(float(x), float(height)));
+            form.Row("Y");
+            if (ImGui::DragInt("##aspecty", &y, .1f, 1, 10000) && y > 0)
+                PreviewValue(id, "camera.ratio", Vx2DVector(float(width), float(y)));
+            form.Row("Ratio");
+            ImGui::Text("%.4f", height ? float(width) / height : 0.f);
+        }
     }
-    page.Line(425, 130, 426, 210);
-    float fov = float(values.Real("camera.fov")) * RAD_TO_DEG;
-    page.Label(430, 130, 560, 150, "Field of view");
-    if (page.EditSlider("##fov", ImVec4(535, 130, 595, 150), ImVec4(455, 150, 590, 170), &fov, 1.0f, 179.0f, "%.2f", 0.1f) &&
-        fov > 0.0f && fov < 180.0f)
-        PreviewValue(id, "camera.fov", fov / RAD_TO_DEG);
-    page.Label(430, 170, 560, 190, "Focal length");
-    if (page.EditSlider("##focal", ImVec4(535, 170, 595, 190), ImVec4(455, 190, 590, 210), &focal, 1.0f, 250.0f, "%.2f", 0.5f) &&
-        focal > 0.0f)
-        PreviewValue(id, "camera.fov", 2.0f * std::atan(18.0f / focal));
-
-    // Orthographic Parameter.
-    page.Label(420, 230, 610, 250, "Orthographic Parameter");
-    page.Line(425, 250, 426, 290);
-    float zoom = float(values.Real("camera.ortho-zoom"));
-    page.Label(430, 250, 560, 270, "Ortho zoom");
-    if (page.EditSlider("##orthozoom", ImVec4(560, 250, 600, 270), ImVec4(455, 270, 590, 290), &zoom, 0.0f, 0.5f, "%.3f", 0.001f))
-        PreviewValue(id, "camera.ortho-zoom", zoom);
-
-    // Clipping.
-    page.Label(620, 110, 750, 130, "Clipping");
-    page.Line(625, 130, 626, 210);
+    columns.Next();
+    Group("Perspective");
+    {
+        SetupForm form("##camera-lens");
+        if (form) {
+            form.Row("Lens");
+            const float half = float(values.Real("camera.fov")) * .5f;
+            float focal = half > 0 ? 18.f / std::tan(half) : 0;
+            static const int lenses[] = {15, 20, 24, 28, 35, 50, 85, 135, 200};
+            int lens = -1;
+            for (int i = 0; i < 9; ++i)
+                if (std::fabs(focal - lenses[i]) < .01f) lens = i;
+            const std::string preset = lens >= 0 ? std::to_string(lenses[lens]) + " mm" : "Custom";
+            if (ImGui::BeginCombo("##lens", preset.c_str())) {
+                TypeAhead typeAhead;
+                typeAhead.Selectable("Custom", lens < 0);
+                for (int i = 0; i < 9; ++i)
+                    if (typeAhead.Selectable((std::to_string(lenses[i]) + " mm").c_str(), lens == i))
+                        PreviewValue(id, "camera.fov", 2.f * std::atan(18.f / lenses[i]));
+                ImGui::EndCombo();
+            }
+            form.Row("Field of view");
+            float fov = float(values.Real("camera.fov")) * RAD_TO_DEG;
+            if (EditSlider("##fov", &fov, 1, 179, "%.2f", .1f) && fov > 0 && fov < 180)
+                PreviewValue(id, "camera.fov", fov / RAD_TO_DEG);
+            form.Row("Focal length");
+            if (EditSlider("##focal", &focal, 1, 250, "%.2f", .5f) && focal > 0)
+                PreviewValue(id, "camera.fov", 2.f * std::atan(18.f / focal));
+        }
+    }
+    Group("Orthographic Parameter");
+    {
+        SetupForm form("##camera-ortho");
+        if (form) {
+            form.Row("Ortho zoom");
+            float zoom = float(values.Real("camera.ortho-zoom"));
+            if (EditSlider("##orthozoom", &zoom, 0, .5f, "%.3f", .001f)) PreviewValue(id, "camera.ortho-zoom", zoom);
+        }
+    }
+    columns.Next();
+    Group("Clipping");
+    SetupForm form("##camera-clipping");
+    if (!form) return;
     float nearClip = float(values.Real("camera.near-clip")), farClip = float(values.Real("camera.far-clip"));
-    page.Label(640, 130, 730, 150, "Near clip");
-    if (page.EditSlider("##near", ImVec4(735, 130, 795, 150), ImVec4(645, 150, 770, 170), &nearClip, 0.01f,
-                        std::max(100.0f, farClip), "%.2f", 0.05f)) {
-        // Documentation "Camera Setup": "Near clip must be smaller than far clip".
+    form.Row("Near clip");
+    if (EditSlider("##near", &nearClip, .01f, std::max(100.f, farClip), "%.2f", .05f)) {
         if (nearClip < farClip)
             PreviewValue(id, "camera.near-clip", nearClip);
         else
             Warn("Near clip must be smaller than far clip");
     }
-    page.Label(640, 170, 730, 190, "Far clip");
-    if (page.EditSlider("##far", ImVec4(735, 170, 795, 190), ImVec4(645, 190, 770, 210), &farClip, 1.0f,
-                        std::max(5000.0f, farClip), "%.2f", 1.0f)) {
+    form.Row("Far clip");
+    if (EditSlider("##far", &farClip, 1, std::max(5000.f, farClip), "%.2f", 1)) {
         if (farClip > nearClip)
             PreviewValue(id, "camera.far-clip", farClip);
         else
             Warn("Near clip must be smaller than far clip");
     }
-    page.End(800, 290);
 }
 
 void SetupWindows::LightPage(ObjectRef target) {
     const auto id = target;
     SetupDetails description;
-    if (!ReadDetails(target, "light", description))
-        return;
+    if (!ReadDetails(target, "light", description)) return;
     const auto data = description.Values();
     SetupDetails propertyData;
     if (!ReadProperties(target,
@@ -439,124 +442,122 @@ void SetupWindows::LightPage(ObjectRef target) {
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    const DevPage page;
-    Entity3DPage(target, false, false);
-    // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player
-    // Mode (not the object's visibility).
-    page.Line(25, 110, 26, 170);
+    Entity3DTransform(target);
+    ImGui::Separator();
+    SetupColumns columns("##light-settings", 3);
+    if (!columns) return;
+    columns.Next();
+    Group("Light");
     bool shown = data.Boolean("player-shown"), specular = values.Boolean("light.specular");
-    if (page.Check("Show In Player Mode", 45, 114, shown))
+    if (ImGui::Checkbox("Show In Player Mode", &shown))
         RunSetupCommand("setup.player-shown", {ObjectArgument("target", target), IntegerArgument("value", shown)});
-    page.Label(60, 112, 210, 128, "Show In Player Mode");
-    if (page.Check("Specular", 45, 134, specular))
-        PreviewValue(id, "light.specular", specular);
-    page.Label(60, 132, 200, 148, "Specular");
+    if (ImGui::Checkbox("Specular", &specular)) PreviewValue(id, "light.specular", specular);
     const char *types[] = {"Point", "Spot", "Directional"};
     const int lightType = int(values.Integer("light.type"));
     int type = lightType == VX_LIGHTSPOT ? 1 : lightType == VX_LIGHTDIREC ? 2 : 0;
-    page.Label(20, 170, 120, 190, "Type");
-    page.Place(120, 170, 210, 190);
-    if (TypeAheadCombo("##type", &type, types, 3))
-        PreviewValue(id, "light.type", type == 1 ? VX_LIGHTSPOT : type == 2 ? VX_LIGHTDIREC : VX_LIGHTPOINT);
-    if (data.Boolean("targeted")) {
-        ObjectRef chosen{};
-        page.Label(20, 190, 80, 210, "Target");
-        if (ObjectChoice("##target", CKCID_3DENTITY, data.Object("target"), data.Text("target-name"), &chosen,
-                         page.Place(80, 190, 210, 210)))
-            PreviewValue(id, "light.target", chosen);
-    }
-    // The power (not in Dev's page; CKLight::SetPower).
-    float power = float(values.Real("light.power"));
-    page.Label(20, 215, 120, 235, "Power");
-    page.Place(120, 215, 210, 235);
-    if (ImGui::DragFloat("##power", &power, 0.01f, 0.0f, 10.0f, "%.2f"))
-        PreviewValue(id, "light.power", power);
-
-    // Influence.
-    page.Label(220, 110, 300, 130, "Influence");
-    bool active = values.Boolean("light.active");
-    if (page.Check("Active", 325, 114, active))
-        PreviewValue(id, "light.active", active);
-    page.Label(340, 112, 400, 128, "Active");
-    page.Line(225, 130, 226, 220);
-    const VxColor color = ColorOf(values, "light.color");
-    float rgb[3] = {color.r, color.g, color.b};
-    page.Label(235, 130, 305, 150, "Color");
-    if (page.ColorBar("Color", 345, 130, 375, 150, rgb))
-        PreviewValue(id, "light.color", VxColor(rgb[0], rgb[1], rgb[2]));
-    float range = float(values.Real("light.range"));
-    // Documentation "Light Setup": "Range and Show Influence are not
-    // available for Directional Type Lights", nor is the attenuation.
-    const bool directional = type == 2;
-    ImGui::BeginDisabled(directional);
-    page.Label(235, 155, 315, 175, "Range");
-    if (page.EditSlider("##range", ImVec4(345, 155, 395, 175), ImVec4(245, 175, 370, 195), &range, 0.0f,
-                        std::max(200.0f, range), "%.1f", 0.5f))
-        PreviewValue(id, "light.range", range);
-    // The 3D Layout draws the light's cone or range (its own state).
-    bool influence = data.Boolean("cone");
-    if (page.Check("Show Influence", 245, 204, influence))
-        RunSetupCommand("setup.cone-shown", {ObjectArgument("target", target), IntegerArgument("value", influence)});
-    page.Label(260, 200, 410, 220, "Show Influence");
-    ImGui::EndDisabled();
-
-    // Attenuation, and its curve (VIFunctionDrawer, sub_4622F0: the
-    // intensity at a distance, 1 / (constant + linear d + quadratic d2),
-    // none beyond the range).
-    page.Label(420, 110, 610, 130, "Attenuation");
-    page.Line(425, 130, 426, 260);
-    ImGui::BeginDisabled(directional);
-    float constant = float(values.Real("light.constant-attenuation")),
-          linear = float(values.Real("light.linear-attenuation")),
-          quadratic = float(values.Real("light.quadratic-attenuation"));
-    page.Label(440, 130, 540, 150, "Constant");
-    if (page.EditSlider("##constant", ImVec4(545, 130, 595, 150), ImVec4(445, 150, 570, 170), &constant, 0.0f, 10.0f, "%.3f"))
-        PreviewValue(id, "light.constant-attenuation", constant);
-    page.Label(440, 170, 540, 190, "Linear");
-    if (page.EditSlider("##linear", ImVec4(545, 170, 595, 190), ImVec4(445, 190, 570, 210), &linear, 0.0f, 10.0f, "%.3f"))
-        PreviewValue(id, "light.linear-attenuation", linear);
-    page.Label(440, 210, 540, 230, "Quadratic");
-    if (page.EditSlider("##quadratic", ImVec4(545, 210, 595, 230), ImVec4(445, 230, 570, 250), &quadratic, 0.0f, 10.0f, "%.3f"))
-        PreviewValue(id, "light.quadratic-attenuation", quadratic);
-    ImGui::EndDisabled();
-    if (!directional) {
-        const ImVec2 a = page.At(240, 230), b = page.At(400, 320);
-        ImDrawList *dl = ImGui::GetWindowDrawList();
-        dl->AddRectFilled(a, b, vi::Color(9));
-        dl->AddRect(a, b, vi::Color(4));
-        const float top = a.y + 1.0f, height = b.y - a.y - 2.0f;
-        dl->AddLine(ImVec2(a.x, top), ImVec2(b.x, top), vi::Color(6));
-        ImVec2 previous;
-        const int steps = static_cast<int>(b.x - a.x);
-        for (int i = 0; i <= steps; ++i) {
-            const float d = steps ? range * i / steps : 0.0f;
-            const float divisor = float(values.Real("light.constant-attenuation")) +
-                                  float(values.Real("light.linear-attenuation")) * d +
-                                  float(values.Real("light.quadratic-attenuation")) * d * d;
-            const float intensity = divisor > 0.0f ? std::min(1.0f, 1.0f / divisor) : 1.0f;
-            const ImVec2 point(a.x + i, top + (1.0f - intensity) * height);
-            if (i) dl->AddLine(previous, point, CurrentDevTheme().previewCurve);
-            previous = point;
+    {
+        SetupForm form("##light-main");
+        if (form) {
+            form.Row("Type");
+            if (TypeAheadCombo("##type", &type, types, 3))
+                PreviewValue(id, "light.type", type == 1 ? VX_LIGHTSPOT : type == 2 ? VX_LIGHTDIREC : VX_LIGHTPOINT);
+            if (data.Boolean("targeted")) {
+                form.Row("Target");
+                ObjectRef chosen{};
+                if (ObjectChoice("##target", CKCID_3DENTITY, data.Object("target"), data.Text("target-name"), &chosen,
+                                 ImGui::GetContentRegionAvail().x))
+                    PreviewValue(id, "light.target", chosen);
+            }
+            form.Row("Power");
+            float power = float(values.Real("light.power"));
+            if (ImGui::DragFloat("##power", &power, .01f, 0, 10, "%.2f")) PreviewValue(id, "light.power", power);
         }
     }
-
-    // Spot Cone (a spot's).
-    page.Label(620, 110, 800, 130, "Spot Cone");
-    page.Line(625, 130, 626, 260);
-    ImGui::BeginDisabled(type != 1);
-    float hot = float(values.Real("light.hot-spot")) * RAD_TO_DEG,
-          fall = float(values.Real("light.fall-off")) * RAD_TO_DEG, shape = float(values.Real("light.fall-off-shape"));
-    page.Label(640, 130, 760, 150, "Hot Spot");
-    if (page.EditSlider("##hotspot", ImVec4(760, 130, 800, 150), ImVec4(655, 150, 790, 170), &hot, 0.0f, 180.0f, "%.1f", 0.1f))
-        PreviewValue(id, "light.hot-spot", hot / RAD_TO_DEG);
-    page.Label(640, 170, 760, 190, "Fall Off");
-    if (page.EditSlider("##falloff", ImVec4(760, 170, 800, 190), ImVec4(655, 190, 790, 210), &fall, 0.0f, 180.0f, "%.1f", 0.1f))
-        PreviewValue(id, "light.fall-off", fall / RAD_TO_DEG);
-    page.Label(640, 210, 760, 230, "Fall Off Shape");
-    if (page.EditSlider("##falloffshape", ImVec4(760, 210, 800, 230), ImVec4(655, 230, 790, 250), &shape, 0.0f, 10.0f, "%.2f"))
-        PreviewValue(id, "light.fall-off-shape", shape);
+    columns.Next();
+    Group("Influence");
+    bool active = values.Boolean("light.active");
+    if (ImGui::Checkbox("Active", &active)) PreviewValue(id, "light.active", active);
+    const bool directional = type == 2;
+    float range = float(values.Real("light.range"));
+    {
+        SetupForm form("##light-influence");
+        if (form) {
+            form.Row("Color");
+            const auto color = ColorOf(values, "light.color");
+            float rgb[] = {color.r, color.g, color.b};
+            if (ColorBar("Color", rgb)) PreviewValue(id, "light.color", VxColor(rgb[0], rgb[1], rgb[2]));
+            ImGui::BeginDisabled(directional);
+            form.Row("Range");
+            if (EditSlider("##range", &range, 0, std::max(200.f, range), "%.1f", .5f))
+                PreviewValue(id, "light.range", range);
+            ImGui::EndDisabled();
+        }
+    }
+    ImGui::BeginDisabled(directional);
+    bool influence = data.Boolean("cone");
+    if (ImGui::Checkbox("Show Influence", &influence))
+        RunSetupCommand("setup.cone-shown", {ObjectArgument("target", target), IntegerArgument("value", influence)});
     ImGui::EndDisabled();
-    page.End(800, 320);
+    columns.Next();
+    Group("Attenuation");
+    ImGui::BeginDisabled(directional);
+    {
+        SetupForm form("##light-attenuation");
+        if (form) {
+            const char *labels[] = {"Constant", "Linear", "Quadratic"};
+            const char *fields[] = {"light.constant-attenuation", "light.linear-attenuation",
+                                    "light.quadratic-attenuation"};
+            const char *ids[] = {"##constant", "##linear", "##quadratic"};
+            for (int i = 0; i < 3; ++i) {
+                form.Row(labels[i]);
+                float value = float(values.Real(fields[i]));
+                if (EditSlider(ids[i], &value, 0, 10, "%.3f")) PreviewValue(id, fields[i], value);
+            }
+        }
+    }
+    ImGui::EndDisabled();
+    if (!directional) {
+        const auto a = ImGui::GetCursorScreenPos();
+        const ImVec2 size{ImGui::GetContentRegionAvail().x, 90 * PageUnit()}, b{a.x + size.x, a.y + size.y};
+        auto *draw = ImGui::GetWindowDrawList();
+        draw->AddRectFilled(a, b, vi::Color(9));
+        draw->AddRect(a, b, vi::Color(4));
+        const float top = a.y + 1, height = size.y - 2;
+        draw->AddLine({a.x, top}, {b.x, top}, vi::Color(6));
+        const int steps = std::max(1, int(size.x));
+        ImVec2 previous;
+        for (int i = 0; i <= steps; ++i) {
+            const float distance = range * i / steps;
+            const float divisor = float(values.Real("light.constant-attenuation")) +
+                                  float(values.Real("light.linear-attenuation")) * distance +
+                                  float(values.Real("light.quadratic-attenuation")) * distance * distance;
+            const float intensity = divisor > 0 ? std::min(1.f, 1.f / divisor) : 1.f;
+            const ImVec2 point{a.x + size.x * i / steps, top + (1 - intensity) * height};
+            if (i) draw->AddLine(previous, point, CurrentDevTheme().previewCurve);
+            previous = point;
+        }
+        ImGui::Dummy(size);
+    }
+    columns.Next();
+    Group("Spot Cone");
+    ImGui::BeginDisabled(type != 1);
+    {
+        SetupForm form("##light-spot");
+        if (form) {
+            form.Row("Hot Spot");
+            float hot = float(values.Real("light.hot-spot")) * RAD_TO_DEG;
+            if (EditSlider("##hotspot", &hot, 0, 180, "%.1f", .1f))
+                PreviewValue(id, "light.hot-spot", hot / RAD_TO_DEG);
+            form.Row("Fall Off");
+            float fall = float(values.Real("light.fall-off")) * RAD_TO_DEG;
+            if (EditSlider("##falloff", &fall, 0, 180, "%.1f", .1f))
+                PreviewValue(id, "light.fall-off", fall / RAD_TO_DEG);
+            form.Row("Fall Off Shape");
+            float shape = float(values.Real("light.fall-off-shape"));
+            if (EditSlider("##falloffshape", &shape, 0, 10, "%.2f")) PreviewValue(id, "light.fall-off-shape", shape);
+        }
+    }
+    ImGui::EndDisabled();
 }
 
 void SetupWindows::Entity2DPage(ObjectRef target, bool sprite) {
@@ -1213,8 +1214,7 @@ void SetupWindows::SlotMenu(Setup &setup, ObjectRef target, bool alpha) {
 void SetupWindows::MaterialPage(Setup &setup, ObjectRef target) {
     const auto id = target;
     SetupDetails description;
-    if (!ReadDetails(target, "material", description))
-        return;
+    if (!ReadDetails(target, "material", description)) return;
     const auto data = description.Values();
     SetupDetails propertyData;
     if (!ReadProperties(target,
@@ -1247,221 +1247,214 @@ void SetupWindows::MaterialPage(Setup &setup, ObjectRef target) {
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    const DevPage page;
-    // Mode (sub_4634E0 712): Opaque, Transparent, Mask set the blend, Z and
-    // alpha test settings; Custom shows them to edit. The combo keeps Custom
-    // once chosen (sub_46A670).
-    int mode = int(values.Integer("material.mode"));
-    if (setup.materialCustom) mode = 3;
-    // The colors' hue bars (each keeps its alpha; the diffuse's is the Alpha
-    // slider).
-    page.Line(22, 9, 23, 121);
-    const char *const COLORS[] = {"material.ambient", "material.diffuse", "material.specular", "material.emissive"};
-    const char *const COLOR_LABELS[] = {"Ambient", "Diffuse", "Specular", "Emissive"};
-    for (int i = 0; i < 4; ++i) {
-        const float y = 10.0f + 30.0f * i;
-        const VxColor c = ColorOf(values, COLORS[i]);
-        float rgb[3] = {c.r, c.g, c.b};
-        page.Label(30, y, 90, y + 20, COLOR_LABELS[i]);
-        if (page.ColorBar(COLOR_LABELS[i], 90, y, 120, y + 20, rgb))
-            PreviewValue(id, COLORS[i], VxColor(rgb[0], rgb[1], rgb[2]));
+    // Custom is a view choice; the other modes edit the existing blend, Z and alpha properties together.
+    int mode = setup.materialCustom ? 3 : int(values.Integer("material.mode"));
+    SetupColumns columns("##material-settings", 3);
+    if (!columns) return;
+    columns.Next();
+    Group("Colors");
+    {
+        SetupForm form("##material-colors");
+        if (form) {
+            const char *fields[] = {"material.ambient", "material.diffuse", "material.specular", "material.emissive"};
+            const char *labels[] = {"Ambient", "Diffuse", "Specular", "Emissive"};
+            for (int i = 0; i < 4; ++i) {
+                form.Row(labels[i]);
+                const auto color = ColorOf(values, fields[i]);
+                float rgb[] = {color.r, color.g, color.b};
+                if (ColorBar(labels[i], rgb)) PreviewValue(id, fields[i], VxColor(rgb[0], rgb[1], rgb[2]));
+            }
+            if (mode == 1 || mode == 3) {
+                form.Row("Alpha");
+                int alpha = int(values.Integer("material.alpha"));
+                if (ImGui::SliderInt("##alpha", &alpha, 0, 255)) PreviewValue(id, "material.alpha", alpha);
+            }
+            form.Row("Power");
+            float power = float(values.Real("material.power"));
+            if (ImGui::SliderFloat("##power", &power, 0, 100, "%.0f")) PreviewValue(id, "material.power", power);
+        }
     }
-    // Alpha with Transparent and Custom (sub_469C90).
-    if (mode == 1 || mode == 3) {
-        int alpha = int(values.Integer("material.alpha"));
-        page.Label(123, 40, 160, 60, "Alpha");
-        page.Place(160, 40, 225, 60);
-        if (ImGui::SliderInt("##alpha", &alpha, 0, 255))
-            PreviewValue(id, "material.alpha", alpha);
+    columns.Next();
+    Group("Surface");
+    {
+        SetupForm form("##material-surface");
+        if (form) {
+            form.Row("Mode");
+            const char *modes[] = {"Opaque", "Transparent", "Mask", "Custom"};
+            const int before = mode;
+            if (TypeAheadCombo("##mode", &mode, modes, 4) && mode != before) {
+                setup.materialCustom = mode == 3;
+                if (mode != 3) PreviewValue(id, "material.mode", mode);
+            }
+            form.Row("Both Sided");
+            bool twoSided = values.Boolean("material.both-sided");
+            if (ImGui::Checkbox("##bothsided", &twoSided)) PreviewValue(id, "material.both-sided", twoSided);
+            form.Row("Fill Mode");
+            const char *fills[] = {"Point", "Wireframe", "Solid"};
+            int fill = std::clamp(int(values.Integer("material.fill-mode")) - 1, 0, 2);
+            if (TypeAheadCombo("##fillmode", &fill, fills, 3)) PreviewValue(id, "material.fill-mode", fill + 1);
+            form.Row("Shade Mode");
+            const char *shades[] = {"Flat", "Gouraud", "Phong"};
+            int shade = std::clamp(int(values.Integer("material.shade-mode")) - 1, 0, 2);
+            if (TypeAheadCombo("##shademode", &shade, shades, 3)) PreviewValue(id, "material.shade-mode", shade + 1);
+        }
     }
-    float power = float(values.Real("material.power"));
-    page.Label(123, 70, 160, 90, "Power");
-    page.Place(160, 70, 225, 90);
-    if (ImGui::SliderFloat("##power", &power, 0.0f, 100.0f, "%.0f"))
-        PreviewValue(id, "material.power", power);
-    page.Line(3, 130, 435, 131);
-    page.Line(230, 9, 231, 120);
-    const char *modes[] = {"Opaque", "Transparent", "Mask", "Custom"};
-    page.Label(235, 10, 350, 30, "Mode");
-    page.Place(350, 10, 440, 30);
-    const int before = mode;
-    if (TypeAheadCombo("##mode", &mode, modes, 4) && mode != before) {
-        setup.materialCustom = mode == 3;
-        if (mode != 3)
-            PreviewValue(id, "material.mode", mode);
-    }
-    page.Line(235, 40, 440, 41);
-    bool twoSided = values.Boolean("material.both-sided");
-    page.Label(235, 52, 350, 68, "Both Sided");
-    if (page.Check("##bothsided", 350, 55, twoSided))
-        PreviewValue(id, "material.both-sided", twoSided);
-    const char *fills[] = {"Point", "Wireframe", "Solid"};
-    int fill = std::max(0, std::min(2, int(values.Integer("material.fill-mode")) - 1));
-    page.Label(235, 70, 350, 90, "Fill Mode");
-    page.Place(350, 70, 440, 90);
-    if (TypeAheadCombo("##fillmode", &fill, fills, 3))
-        PreviewValue(id, "material.fill-mode", fill + 1);
-    const char *shades[] = {"Flat", "Gouraud", "Phong"};
-    int shade = std::max(0, std::min(2, int(values.Integer("material.shade-mode")) - 1));
-    page.Label(235, 90, 350, 110, "Shade Mode");
-    page.Place(350, 90, 440, 110);
-    if (TypeAheadCombo("##shademode", &shade, shades, 3))
-        PreviewValue(id, "material.shade-mode", shade + 1);
-
-    // Mask: the alpha reference; Custom: the alpha test, blend and Z
-    // settings too (sub_469C90, sub_469F00, sub_46A440).
-    static const char *const BLENDS[] = {"Zero", "One", "Src Color", "Inv Src Color", "Src Alpha", "Inv Src Alpha",
-                                         "Dest Alpha", "Inv Dest Alpha", "Dest Color", "Inv Dest Color", "Src Alpha Sat",
-                                         "Both Src Alpha", "Both Inv Src Alpha"};
-    static const char *const COMPARES[] = {"Never", "Less", "Equal", "Less Equal", "Greater", "Not Equal", "Greater Equal",
-                                           "Always"};
+    static const char *const blends[] = {"Zero",
+                                         "One",
+                                         "Src Color",
+                                         "Inv Src Color",
+                                         "Src Alpha",
+                                         "Inv Src Alpha",
+                                         "Dest Alpha",
+                                         "Inv Dest Alpha",
+                                         "Dest Color",
+                                         "Inv Dest Color",
+                                         "Src Alpha Sat",
+                                         "Both Src Alpha",
+                                         "Both Inv Src Alpha"};
+    static const char *const compares[] = {"Never",   "Less",      "Equal",         "Less Equal",
+                                           "Greater", "Not Equal", "Greater Equal", "Always"};
     auto compare = [&](const char *label, const char *property) {
-        int func = std::max(0, std::min(7, int(values.Integer(property)) - 1));
-        if (TypeAheadCombo(label, &func, COMPARES, 8))
-            PreviewValue(id, property, func + 1);
+        int func = std::clamp(int(values.Integer(property)) - 1, 0, 7);
+        if (TypeAheadCombo(label, &func, compares, 8)) PreviewValue(id, property, func + 1);
     };
-    if (mode == 2 || mode == 3) page.Line(455, 9, 456, mode == 3 ? 250 : 80);
-    if (mode == 3) {
-        bool test = values.Boolean("material.alpha-test");
-        page.Label(465, 12, 600, 28, "Alpha Test");
-        if (page.Check("##alphatest", 600, 15, test))
-            PreviewValue(id, "material.alpha-test", test);
-        page.Label(465, 30, 600, 50, "Alpha Test Function");
-        page.Place(600, 30, 700, 50);
-        compare("##alphafunc", "material.alpha-func");
-    }
     if (mode == 2 || mode == 3) {
-        int ref = int(values.Integer("material.alpha-ref"));
-        page.Label(465, 60, 600, 80, "Alpha Ref Value");
-        page.Place(600, 60, 700, 80);
-        if (ImGui::SliderInt("##alpharef", &ref, 0, 255))
-            PreviewValue(id, "material.alpha-ref", ref);
+        columns.Next();
+        Group("Alpha and Depth");
+        SetupForm form("##material-alpha");
+        if (form) {
+            if (mode == 3) {
+                form.Row("Alpha Test");
+                bool test = values.Boolean("material.alpha-test");
+                if (ImGui::Checkbox("##alphatest", &test)) PreviewValue(id, "material.alpha-test", test);
+                form.Row("Alpha Test Function");
+                compare("##alphafunc", "material.alpha-func");
+            }
+            form.Row("Alpha Ref Value");
+            int ref = int(values.Integer("material.alpha-ref"));
+            if (ImGui::SliderInt("##alpharef", &ref, 0, 255)) PreviewValue(id, "material.alpha-ref", ref);
+            if (mode == 3) {
+                form.Row("Blend");
+                bool blend = values.Boolean("material.alpha-blend");
+                if (ImGui::Checkbox("##blend", &blend)) PreviewValue(id, "material.alpha-blend", blend);
+                form.Row("Source Blend");
+                int src = std::max(0, int(values.Integer("material.source-blend")) - 1);
+                if (TypeAheadCombo("##sourceblend", &src, blends, 13))
+                    PreviewValue(id, "material.source-blend", src + 1);
+                form.Row("Destination Blend");
+                int dst = std::max(0, int(values.Integer("material.dest-blend")) - 1);
+                if (TypeAheadCombo("##destblend", &dst, blends, 13)) PreviewValue(id, "material.dest-blend", dst + 1);
+                form.Row("Z-Buffer Write");
+                bool zwrite = values.Boolean("material.zwrite");
+                if (ImGui::Checkbox("##zwrite", &zwrite)) PreviewValue(id, "material.zwrite", zwrite);
+                form.Row("Z Compare Function");
+                compare("##zfunc", "material.zfunc");
+            }
+        }
     }
-    if (mode == 3) {
-        page.Line(465, 90, 710, 91);
-        bool blend = values.Boolean("material.alpha-blend");
-        page.Label(465, 102, 600, 118, "Blend");
-        if (page.Check("##blend", 600, 105, blend))
-            PreviewValue(id, "material.alpha-blend", blend);
-        int src = std::max(0, int(values.Integer("material.source-blend")) - 1),
-            dst = std::max(0, int(values.Integer("material.dest-blend")) - 1);
-        page.Label(465, 120, 600, 140, "Source Blend");
-        page.Place(600, 120, 700, 140);
-        if (TypeAheadCombo("##sourceblend", &src, BLENDS, 13))
-            PreviewValue(id, "material.source-blend", src + 1);
-        page.Label(465, 140, 600, 160, "Destination Blend");
-        page.Place(600, 140, 700, 160);
-        if (TypeAheadCombo("##destblend", &dst, BLENDS, 13))
-            PreviewValue(id, "material.dest-blend", dst + 1);
-        page.Line(465, 170, 710, 171);
-        bool zwrite = values.Boolean("material.zwrite");
-        page.Label(465, 182, 600, 198, "Z-Buffer Write");
-        if (page.Check("##zwrite", 600, 184, zwrite))
-            PreviewValue(id, "material.zwrite", zwrite);
-        page.Label(465, 200, 600, 220, "Z Compare Function");
-        page.Place(600, 200, 700, 220);
-        compare("##zfunc", "material.zfunc");
+    columns.Next();
+    Group("Texture");
+    static const int setupButton[5] = {1145, 1141, 1142, 1142, 1145};
+    {
+        SetupForm form("##material-texture");
+        if (form) {
+            form.Row("Texture");
+            const auto texture = data.Object("texture");
+            if (texture) {
+                if (DevBitmapButton("texturesetup", ImGui::GetCursorScreenPos(), setupButton, false, true, PageUnit(),
+                                    "Show Texture Setup"))
+                    Open(texture);
+                ImGui::SameLine();
+            }
+            ObjectRef chosen{};
+            if (ObjectChoice("##texture", CKCID_TEXTURE, texture, data.Text("texture-name"), &chosen,
+                             ImGui::GetContentRegionAvail().x))
+                PreviewValue(id, "material.texture", chosen);
+            form.Row("Texture Blend");
+            const char *textureBlends[] = {"Decal",         "Modulate", "Decal Alpha", "Modulate Alpha", "Decal Mask",
+                                           "Modulate Mask", "Copy",     "Add",         "Dot Product 3",  "Max"};
+            int textureBlend = std::clamp(int(values.Integer("material.texture-blend")) - 1, 0, 9);
+            if (TypeAheadCombo("##textureblend", &textureBlend, textureBlends, 10))
+                PreviewValue(id, "material.texture-blend", textureBlend + 1);
+            const char *filters[] = {
+                "Nearest",           "Linear",     "Mip Nearest", "Mip Linear", "Linear Mip Nearest",
+                "Linear Mip Linear", "Anisotropic"};
+            form.Row("Filter Min");
+            int minFilter = std::clamp(int(values.Integer("material.texture-min-mode")) - 1, 0, 6);
+            if (TypeAheadCombo("##filtermin", &minFilter, filters, 7))
+                PreviewValue(id, "material.texture-min-mode", minFilter + 1);
+            form.Row("Filter Mag");
+            int magFilter = std::clamp(int(values.Integer("material.texture-mag-mode")) - 1, 0, 6);
+            if (TypeAheadCombo("##filtermag", &magFilter, filters, 7))
+                PreviewValue(id, "material.texture-mag-mode", magFilter + 1);
+            form.Row("Address Mode");
+            const char *addresses[] = {"Wrap", "Mirror", "Clamp", "Border", "Mirror Once"};
+            int address = std::clamp(int(values.Integer("material.texture-address")) - 1, 0, 4);
+            if (TypeAheadCombo("##addressmode", &address, addresses, 5))
+                PreviewValue(id, "material.texture-address", address + 1);
+            form.Row("Perspective Correct");
+            bool perspective = values.Boolean("material.perspective-correct");
+            if (ImGui::Checkbox("##perspective", &perspective))
+                PreviewValue(id, "material.perspective-correct", perspective);
+            if (values.Integer("material.texture-address") == VXTEXTURE_ADDRESSBORDER) {
+                form.Row("Border Color");
+                const auto border = ColorOf(values, "material.texture-border-color");
+                float rgba[] = {border.r, border.g, border.b, border.a};
+                if (ColorBar("Border Color", rgba, true))
+                    PreviewValue(id, "material.texture-border-color", VxColor(rgba[0], rgba[1], rgba[2], rgba[3]));
+            }
+        }
     }
-
-    // Used By (meshes, 2D entities and 3D sprites: documentation "all the
-    // elements curently using the Material").
-    page.Label(25, 131, 200, 150, "Used By");
-    ImGui::SetCursorScreenPos(page.At(20, 150));
-    UsedByList("Used By", data.Rows("users"), ImVec2(190.0f * page.s, 150.0f * page.s));
-
-    // The texture and its settings.
-    static const int SETUP[5] = {1145, 1141, 1142, 1142, 1145};
-    page.Label(220, 140, 280, 160, "Texture");
-    const auto texture = data.Object("texture");
-    if (texture && DevBitmapButton("texturesetup", page.At(280, 142), SETUP, false, true, page.s, "Show Texture Setup"))
-        Open(texture);
-    ObjectRef chosen{};
-    if (ObjectChoice("##texture", CKCID_TEXTURE, texture, data.Text("texture-name"), &chosen,
-                     page.Place(300, 140, 445, 160)))
-        PreviewValue(id, "material.texture", chosen);
-    page.Line(230, 159, 231, 280);
-    const char *blends[] = {"Decal", "Modulate", "Decal Alpha", "Modulate Alpha", "Decal Mask", "Modulate Mask", "Copy", "Add", "Dot Product 3", "Max"};
-    int textureBlend = std::max(0, std::min(9, int(values.Integer("material.texture-blend")) - 1));
-    page.Label(235, 160, 350, 180, "Texture Blend");
-    page.Place(350, 160, 445, 180);
-    if (TypeAheadCombo("##textureblend", &textureBlend, blends, 10))
-        PreviewValue(id, "material.texture-blend", textureBlend + 1);
-    const char *filters[] = {"Nearest", "Linear", "Mip Nearest", "Mip Linear", "Linear Mip Nearest", "Linear Mip Linear", "Anisotropic"};
-    int minFilter = std::max(0, std::min(6, int(values.Integer("material.texture-min-mode")) - 1));
-    int magFilter = std::max(0, std::min(6, int(values.Integer("material.texture-mag-mode")) - 1));
-    page.Label(235, 180, 350, 200, "Filter Min");
-    page.Place(350, 180, 445, 200);
-    if (TypeAheadCombo("##filtermin", &minFilter, filters, 7))
-        PreviewValue(id, "material.texture-min-mode", minFilter + 1);
-    page.Label(235, 200, 350, 220, "Filter Mag");
-    page.Place(350, 200, 445, 220);
-    if (TypeAheadCombo("##filtermag", &magFilter, filters, 7))
-        PreviewValue(id, "material.texture-mag-mode", magFilter + 1);
-    const char *addresses[] = {"Wrap", "Mirror", "Clamp", "Border", "Mirror Once"};
-    int address = std::max(0, std::min(4, int(values.Integer("material.texture-address")) - 1));
-    page.Label(235, 220, 350, 240, "Address Mode");
-    page.Place(350, 220, 445, 240);
-    if (TypeAheadCombo("##addressmode", &address, addresses, 5))
-        PreviewValue(id, "material.texture-address", address + 1);
-    bool perspective = values.Boolean("material.perspective-correct");
-    page.Label(235, 242, 360, 258, "Perspective Correct");
-    if (page.Check("##perspective", 360, 245, perspective))
-        PreviewValue(id, "material.perspective-correct", perspective);
-    // Border Color with the Border address mode (Dev.exe sub_468440).
-    if (values.Integer("material.texture-address") == VXTEXTURE_ADDRESSBORDER) {
-        const VxColor border = ColorOf(values, "material.texture-border-color");
-        float rgba[4] = {border.r, border.g, border.b, border.a};
-        page.Label(235, 260, 335, 280, "Border Color");
-        if (page.ColorBar("Border Color", 350, 260, 380, 280, rgba, true))
-            PreviewValue(id, "material.texture-border-color", VxColor(rgba[0], rgba[1], rgba[2], rgba[3]));
-    }
-
-    // The effect (sub_469070): the render engine's effects, the textures the
-    // effect takes (Texture 1 to 3, else its own words for them), its
-    // parameter (745: Edit Parameter) and description.
+    columns.Next();
+    Group("Effect");
     const int effectCount = int(data.Integer("effect-count"));
     const auto &names = data.Texts("effects");
     std::vector<const char *> items;
-    for (const std::string &name : names) items.push_back(name.c_str());
-    int effect = std::max(0, std::min(static_cast<int>(items.size()) - 1, int(values.Integer("material.effect"))));
-    page.Line(720, 9, 721, 250);
-    page.Label(730, 10, 780, 30, "Effect");
-    page.Place(780, 10, 930, 30);
-    if (TypeAheadCombo("##effect", &effect, items.data(), int(items.size()))) {
-        PreviewValue(id, "material.effect", effect);
-        // Effect descriptors may change the parameter and extra texture slots.
-        FlushPending();
-        return;
+    for (const auto &name : names) items.push_back(name.c_str());
+    int effect = std::max(0, std::min(int(items.size()) - 1, int(values.Integer("material.effect"))));
+    {
+        SetupForm form("##material-effect");
+        if (form) {
+            form.Row("Effect");
+            if (TypeAheadCombo("##effect", &effect, items.data(), int(items.size()))) {
+                PreviewValue(id, "material.effect", effect);
+                FlushPending();
+                return;
+            }
+            if (effect > 0 && effect < effectCount) {
+                const auto &textures = data.Rows("effect-textures");
+                for (size_t i = 0; i < textures.size(); ++i) {
+                    const SetupFields row(textures[i].fields);
+                    form.Row(row.Text("label").c_str());
+                    const auto extra = row.Object("target");
+                    ImGui::PushID(int(i));
+                    if (extra) {
+                        if (DevBitmapButton("effecttexturesetup", ImGui::GetCursorScreenPos(), setupButton, false, true,
+                                            PageUnit(), "Show Texture Setup"))
+                            Open(extra);
+                        ImGui::SameLine();
+                    }
+                    ObjectRef picked{};
+                    if (ObjectChoice("##effecttexture", CKCID_TEXTURE, extra, row.Text("name"), &picked,
+                                     ImGui::GetContentRegionAvail().x)) {
+                        PreviewIndexedProperty(id, "material.effect-texture", {"value", EDITOR_OBJECT, picked},
+                                               {uint64_t(i + 1)}, description.documentRevision);
+                        FlushPending();
+                    }
+                    ImGui::PopID();
+                }
+            }
+        }
     }
     if (effect > 0 && effect < effectCount) {
-        const auto &textures = data.Rows("effect-textures");
-        for (size_t i = 0; i < textures.size(); ++i) {
-            const SetupFields row(textures[i].fields);
-            const auto extra = row.Object("target");
-            const float y = 32.0f + 20.0f * i;
-            page.Label(730, y, 810, y + 20, row.Text("label").c_str());
-            ImGui::PushID(int(i));
-            if (extra && DevBitmapButton("effecttexturesetup", page.At(810, y + 2), SETUP, false, true, page.s,
-                                         "Show Texture Setup"))
-                Open(extra);
-            ObjectRef picked{};
-            if (ObjectChoice("##effecttexture", CKCID_TEXTURE, extra, row.Text("name"), &picked,
-                             page.Place(830, y, 930, y + 20))) {
-                PreviewIndexedProperty(id, "material.effect-texture", {"value", EDITOR_OBJECT, picked},
-                                       {uint64_t(i + 1)}, description.documentRevision);
-                FlushPending();
-            }
-            ImGui::PopID();
-        }
         if (data.Boolean("has-parameter")) {
-            const ImVec2 a = page.At(730, 100), b = page.At(930, 118);
-            ImGui::SetCursorScreenPos(a);
             if (ImGui::Button((data.Text("parameter-text") + "##effectparameter").c_str(),
-                              ImVec2(b.x - a.x, b.y - a.y)))
+                              {ImGui::GetContentRegionAvail().x, 0}))
                 RunSetupCommand("parameter.edit", {ObjectArgument("target", data.Object("parameter"))});
             if (ImGui::IsItemHovered() && !data.Text("parameter-description").empty())
                 ImGui::SetTooltip("%s", data.Text("parameter-description").c_str());
         }
+        if (!data.Text("description").empty()) ImGui::TextWrapped("%s", data.Text("description").c_str());
         const auto path = data.Text("image-path");
         if (!path.empty()) {
             const auto imageKey = (std::hash<std::string>()(path) | 1ull) << 2 | 3ull;
@@ -1472,17 +1465,15 @@ void SetupWindows::MaterialPage(Setup &setup, ObjectRef target) {
                 if (ReadPixels(target, "material-effect-image", uint64_t(effect), width, height, pixels))
                     PixelTexture(imageKey, width, height, pixels.data(), width * 4, false);
             }
-            if (ImTextureID image = CachedPixelTexture(imageKey))
-                ImGui::GetWindowDrawList()->AddImage(image, page.At(766, 183), page.At(894, 311));
-        }
-        if (!data.Text("description").empty()) {
-            ImGui::SetCursorScreenPos(page.At(730, 120));
-            ImGui::PushTextWrapPos(page.At(930, 0).x - ImGui::GetWindowPos().x + ImGui::GetScrollX());
-            ImGui::TextUnformatted(data.Text("description").c_str());
-            ImGui::PopTextWrapPos();
+            if (ImTextureID image = CachedPixelTexture(imageKey)) {
+                const float side = std::min(128 * PageUnit(), ImGui::GetContentRegionAvail().x);
+                ImGui::Image(image, {side, side});
+            }
         }
     }
-    page.End(935, 300);
+    columns.Next();
+    Group("Used By");
+    UsedByList("Used By", data.Rows("users"), {0, 150 * PageUnit()});
 }
 
 void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
