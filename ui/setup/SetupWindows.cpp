@@ -719,7 +719,7 @@ void SetupWindows::DrawObjectPage(Setup &setup) {
             if (setup.page.frame) {
                 FramePage(setup.reference);
             } else {
-                Entity3DPage(setup.reference, true, true, nullptr, &setup);
+                Entity3DPage(setup.reference, &setup);
             }
             break;
         case Kind::Sprite3D:

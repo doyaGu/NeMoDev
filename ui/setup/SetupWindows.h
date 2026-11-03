@@ -31,10 +31,6 @@ class EditorWorkspace;
 // the Name list of the objects of that class, Parameter / Attribute pages,
 // Set / Remove / Restore IC - and the page of its class. Every edit is one
 // undo step (object state before and after, ObjectEditCommands).
-namespace setup {
-struct DevPage;
-}
-
 class SetupWindows {
 public:
     explicit SetupWindows(EditorWorkspace &workspace, FileDialogs &files) : m_Workspace(workspace), m_Files(files) {}
@@ -163,13 +159,11 @@ private:
     void ReplaceFile(Setup &, SetupFileKind);
     void DrawObjectPage(Setup &);
     void AttributePage(Setup &setup);
-    // sized: Scale and World Size (fourth: what replaces World Size, drawn
-    // at Dev's x 620); details: meshes, Pickable.
-    void Entity3DPage(ObjectRef target, bool sized, bool details,
-                      const std::function<void(const setup::DevPage &page)> &fourth = nullptr, Setup *setup = nullptr);
+    // The transform and, when provided, the object's mesh and selection controls.
+    void Entity3DPage(ObjectRef target, Setup *setup = nullptr, const std::function<void()> &fourth = nullptr);
     void TransformFields(ObjectRef target, const char *field, float *world, float *local, float divisor,
                          const char *worldId);
-    void Entity3DTransform(ObjectRef target);
+    void Entity3DTransform(ObjectRef target, bool sized = false, const std::function<void()> &fourth = nullptr);
     void CameraPage(ObjectRef target);
     void LightPage(ObjectRef target);
     // sprite: the lower part of the 2D Sprite Setup (Cropping instead of

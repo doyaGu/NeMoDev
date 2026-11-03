@@ -723,6 +723,127 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *entity = IM_REGISTER_TEST(engine, "appearance", "entity3d_reflow_cancel_and_mesh_selection");
+    entity->GuiFunc = MainThreadGui;
+    entity->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef object, first, second;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &document = *App().State().document;
+            auto *context = document.Context();
+            // A mesh-bearing object is not available from the built-in creation menu.
+            auto *made = CK3dObject::Cast(context->CreateObject(CKCID_3DOBJECT, "Entity layout object"));
+            auto *a = CKMesh::Cast(context->CreateObject(CKCID_MESH, "Entity layout first mesh"));
+            auto *b = CKMesh::Cast(context->CreateObject(CKCID_MESH, "Entity layout second mesh"));
+            IM_CHECK_NO_RET(made && a && b);
+            for (auto *value : {static_cast<CKObject *>(made), static_cast<CKObject *>(a), static_cast<CKObject *>(b)})
+                document.Include(value->GetID());
+            made->AddMesh(a);
+            made->AddMesh(b);
+            made->SetCurrentMesh(a);
+            made->SetPosition3f(10, 20, 30);
+            object = document.Reference(made->GetID());
+            first = document.Reference(a->GetID());
+            second = document.Reference(b->GetID());
+            auto &workspace = App().WorkspaceForTests();
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", object)}).status <=
+                            EDITOR_NO_CHANGE);
+            view = workspace.Role("setup3d");
+            IM_CHECK_NO_RET(view);
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID input = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            auto *page = SetupPage(ctx, view);
+            IM_CHECK(page);
+            for (const auto *id : {"##entity-transform", "##entity-details"}) {
+                const auto *table = ctx->UiContext->Tables.GetByKey(page->GetID(id));
+                IM_CHECK(table);
+                IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            }
+            const int axis = 0;
+            const auto id = ImHashStr("##v", 0, ImHashData(&axis, sizeof(axis), page->GetID("Position")));
+            IM_CHECK(!input || input == id);
+            input = id;
+            IM_CHECK_GT(ctx->ItemInfo(id).RectFull.GetWidth(), 1);
+            if (width == 450) IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto position = [&] {
+            return Read<std::vector<double>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), object, {"entity3d.world-position"}, data);
+                return data.Values().Reals("entity3d.world-position");
+            });
+        };
+        const auto before = position();
+        IM_CHECK_EQ(before.size(), 3);
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ScrollToItemY(input);
+        const auto at = ctx->ItemInfo(input).RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 40, at.y});
+        ctx->Yield(3);
+        IM_CHECK(position() != before);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(position() == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(input, float(before[0] + 12.5));
+        ctx->Yield(3);
+        const auto after = position();
+        IM_CHECK(std::fabs(after[0] - before[0] - 12.5) < .001 && after[1] == before[1] && after[2] == before[2]);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(position() == before);
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemClick("**/Entity layout first mesh (Mesh)");
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        ctx->ItemClick("**/Entity layout second mesh (Mesh)");
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ResizeSetup(ctx, view, 690);
+        ctx->ScrollToBottom(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemClick("**/Entity layout second mesh (Mesh)", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("Remove Mesh(es)");
+        ctx->Yield(3);
+        const auto meshes = [&] {
+            return Read<std::vector<ObjectRef>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), object, {"entity3d.meshes"}, data);
+                return data.Values().Objects("entity3d.meshes");
+            });
+        };
+        IM_CHECK(meshes().empty());
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        const auto restored = meshes();
+        IM_CHECK(restored.size() == 2 && std::find(restored.begin(), restored.end(), first) != restored.end() &&
+                 std::find(restored.begin(), restored.end(), second) != restored.end());
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

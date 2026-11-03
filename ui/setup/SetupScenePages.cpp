@@ -49,19 +49,18 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
     const auto pointValues = pointData.Values();
     // Position / Orientation / Scale, and the current point's position.
     // Dev's second object position (sub_449270 40..43): the point's.
-    Entity3DPage(target, true, false, [&](const DevPage &page) {
-        page.Label(620, 2, 800, 20, "Current Point Position");
-        page.Line(625, 20, 626, 97);
+    Entity3DPage(target, nullptr, [&] {
+        Group("Current Point Position");
+        SetupForm form("##curve-point-position");
+        if (!form) return;
         const auto p = VectorOf(pointValues, "curvepoint.position");
         float v[3] = {p.x, p.y, p.z};
         const char *axes[] = {"X :", "Y :", "Z :"};
         ImGui::BeginDisabled(!point);
         for (int i = 0; i < 3; ++i) {
+            form.Row(axes[i]);
             ImGui::PushID(i);
-            const float y = 37.0f + 20.0f * i;
-            page.Label(640, y, 665, y + 20, axes[i]);
-            page.Place(670, y, 740, y + 20);
-            if (ImGui::DragFloat("##point", &v[i], 0.01f, 0.0f, 0.0f, "%.4f") && point)
+            if (ImGui::DragFloat("##point", &v[i], .01f, 0, 0, "%.4f") && point)
                 PreviewValue(point, "curvepoint.position", VxVector(v[0], v[1], v[2]));
             ImGui::PopID();
         }
@@ -179,7 +178,7 @@ void SetupWindows::CharacterPage(Setup &setup, ObjectRef target) {
     if (!ReadProperties(target, {"entity3d.pickable"}, propertyData))
         return;
     const auto values = propertyData.Values();
-    Entity3DPage(target, true, false);
+    Entity3DPage(target);
     const float lower = ImGui::GetCursorPosY();
     ImGui::SetCursorPos(ImVec2(8, lower));
     ImGui::BeginGroup();

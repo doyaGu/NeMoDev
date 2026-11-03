@@ -33,99 +33,26 @@
 namespace vdev {
 using namespace setup;
 
-void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
-                                const std::function<void(const DevPage &page)> &fourth, Setup *setup) {
+void SetupWindows::Entity3DPage(ObjectRef target, Setup *setup, const std::function<void()> &fourth) {
     const auto id = target;
     SetupDetails description;
-    if (!ReadDetails(target, "entity3d", description))
-        return;
+    if (!ReadDetails(target, "entity3d", description)) return;
     const auto data = description.Values();
+    Entity3DTransform(target, true, fourth);
+    ImGui::Separator();
+    if (!setup) return;
     SetupDetails propertyData;
     if (!ReadProperties(target, {"entity3d.current-mesh", "entity3d.pickable", "entity3d.meshes"}, propertyData))
         return;
     const auto values = propertyData.Values();
-    // Dev: cameras and lights show Position and Orientation only.
-    const DevPage page;
-    const ShownTransform &shown = Shown(target);
-    float ex = 0, ey = 0, ez = 0;
-    Vx3DMatrixToEulerAngles(shown.world, &ex, &ey, &ez);
-    const float worldEuler[3] = {ex * RAD_TO_DEG, ey * RAD_TO_DEG, ez * RAD_TO_DEG};
-    Vx3DMatrixToEulerAngles(shown.local, &ex, &ey, &ez);
-    const float localEuler[3] = {ex * RAD_TO_DEG, ey * RAD_TO_DEG, ez * RAD_TO_DEG};
-    // A group at x (0, 200, 400): its title (and button), X, Y and Z in the
-    // World and the Local (the parent's) referential.
-    auto group = [&](float x, const char *title, float titleRight, const char *button, float buttonRight,
-                     const float *world, const float *local, const char *label, const char *field, float divisor,
-                     const std::function<void()> &press) {
-        page.Label(x + 20, 2, titleRight, 17, title);
-        if (button) {
-            const ImVec2 a = page.At(x + 105, 1), b = page.At(buttonRight, 17);
-            ImGui::SetCursorScreenPos(a);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 0.0f));
-            if (ImGui::Button(button, ImVec2(b.x - a.x, b.y - a.y)))
-                press();
-            ImGui::PopStyleVar();
-        }
-        page.Line(x + 25, 17, x + 26, 97);
-        page.Label(x + 70, 17, x + 140, 32, "World");
-        page.Label(x + 150, 17, x + 220, 32, "Local");
-        static const char *const AXES[] = {"X :", "Y :", "Z :"};
-        ImGui::PushID(title);
-        for (int i = 0; i < 3; ++i) {
-            const float y = 37.0f + 20.0f * i;
-            page.Label(x + 40, y, x + 65, y + 20, AXES[i]);
-            ImGui::PushID(i);
-            float w[3] = {world[0], world[1], world[2]}, l[3] = {local[0], local[1], local[2]};
-            page.Place(x + 70, y, x + 140, y + 20);
-            if (ImGui::DragFloat("##v", &w[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                PreviewNumbers(id, ("entity3d.world-" + std::string(field)).c_str(), w, 3, divisor);
-            page.Place(x + 150, y, x + 220, y + 20);
-            if (ImGui::DragFloat("##local", &l[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                PreviewNumbers(id, ("entity3d.local-" + std::string(field)).c_str(), l, 3, divisor);
-            ImGui::PopID();
-        }
-        ImGui::PopID();
-    };
-    const VxVector position = Translation(shown.world), localPosition = Translation(shown.local);
-    const float p[3] = {position.x, position.y, position.z}, lp[3] = {localPosition.x, localPosition.y, localPosition.z};
-    group(0, "Position", 95, "Reset World Matrix", 195, p, lp, "Set Position", "position", 1.0f,
-          [&] { RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)}); });
-    group(200, "Orientation", 295, nullptr, 0, worldEuler, localEuler, "Set Orientation", "orientation", RAD_TO_DEG,
-          nullptr);
-    if (sized) {
-        const VxVector scale = ScaleOf(shown.world), localScale = ScaleOf(shown.local);
-        const float sc[3] = {scale.x, scale.y, scale.z}, ls[3] = {localScale.x, localScale.y, localScale.z};
-        group(400, "Scale", 465, "Set as Unit", 574, sc, ls, "Set Scale", "scale", 1.0f,
-              [&] { RunSetupCommand("setup.scale-unit", {ObjectArgument("target", target)}); });
-    }
-    if (fourth) {
-        fourth(page);
-    } else if (sized) {
-        // World Size (read only): the world bounding box.
-        const VxBbox &box = shown.box;
-        const float size[3] = {box.Max.x - box.Min.x, box.Max.y - box.Min.y, box.Max.z - box.Min.z};
-        page.Label(620, 2, 690, 17, "World Size");
-        page.Line(625, 17, 626, 97);
-        static const char *const AXES[] = {"X :", "Y :", "Z :"};
-        for (int i = 0; i < 3; ++i) {
-            const float y = 37.0f + 20.0f * i;
-            char text[32];
-            std::snprintf(text, sizeof(text), "%.4f", size[i]);
-            page.Label(640, y, 665, y + 20, AXES[i]);
-            page.Label(673, y, 740, y + 20, text);
-        }
-    }
-    const float right = (ImGui::GetWindowPos().x + ImGui::GetWindowWidth() - page.origin.x) / page.s;
-    page.Line(0, 100, std::max(1.0f, right), 101);
-    ImGui::SetCursorScreenPos(page.At(0, 104));
-    if (!details) return;
-
+    SetupColumns columns("##entity-details", 3);
+    if (!columns) return;
+    columns.Next();
     // Object Meshes (Dev.exe sub_44F330): a click selects (Ctrl: adds or
     // takes off), a double click opens the Mesh Setup; the menu: Show Mesh
     // Setup, Set As Current, Add Mesh, Remove Mesh(es) (also Delete).
-    page.Label(20, 110, 200, 130, "Object Meshes");
-    static std::set<ObjectRef> none;
-    auto &rows = setup ? setup->meshRows : none;
+    Group("Object Meshes");
+    auto &rows = setup->meshRows;
     for (auto it = rows.begin(); it != rows.end();) {
         const bool held = std::any_of(data.Rows("meshes").begin(), data.Rows("meshes").end(),
                                       [&](const auto &row) { return SetupFields(row.fields).Object("target") == *it; });
@@ -133,14 +60,13 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
     }
     auto removeMeshes = [&] {
         const std::vector<ObjectRef> chosen(rows.begin(), rows.end());
-        if (chosen.empty())
-            return;
+        if (chosen.empty()) return;
         EditObjectList(id, "entity3d.meshes", {}, chosen);
         FlushPending();
         rows.clear();
     };
-    ImGui::SetCursorScreenPos(page.At(20, 130));
-    if (ImGui::BeginChild("meshes", ImVec2(190.0f * page.s, 130.0f * page.s), ImGuiChildFlags_Borders)) {
+    if (ImGui::BeginChild("meshes", ImVec2(0, 130 * PageUnit()), ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar)) {
         TypeAhead typeAhead;
         for (size_t i = 0; i < data.Rows("meshes").size(); ++i) {
             const SetupFields mesh(data.Rows("meshes")[i].fields);
@@ -151,15 +77,17 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
             if (typeAhead.Selectable(text.c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick)) {
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                     Open(meshId);
-                else if (!ImGui::GetIO().KeyCtrl) rows = {meshId};
-                else if (selected) rows.erase(meshId);
-                else rows.insert(meshId);
+                else if (!ImGui::GetIO().KeyCtrl)
+                    rows = {meshId};
+                else if (selected)
+                    rows.erase(meshId);
+                else
+                    rows.insert(meshId);
             }
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) rows = {meshId};
             if (ImGui::BeginPopupContextItem("meshmenu")) {
                 const bool single = rows.size() == 1;
-                if (ImGui::MenuItem("Show Mesh Setup", nullptr, false, single))
-                    Open(*rows.begin());
+                if (ImGui::MenuItem("Show Mesh Setup", nullptr, false, single)) Open(*rows.begin());
                 ImGui::Separator();
                 if (ImGui::MenuItem("Set As Current", nullptr, false, single)) {
                     const auto chosen = *rows.begin();
@@ -168,7 +96,7 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
                 }
                 ImGui::Separator();
                 if (ImGui::MenuItem("Add Mesh")) {
-                    if (setup) setup->openAddMesh = true;
+                    setup->openAddMesh = true;
                 }
                 if (ImGui::MenuItem("Remove Mesh(es)", "Delete", false, !rows.empty())) removeMeshes();
                 ImGui::EndPopup();
@@ -176,8 +104,9 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
             ImGui::PopID();
         }
         // Elsewhere in the list: Add Mesh.
-        if (ImGui::BeginPopupContextWindow("meshesmenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
-            if (ImGui::MenuItem("Add Mesh") && setup) setup->openAddMesh = true;
+        if (ImGui::BeginPopupContextWindow("meshesmenu",
+                                           ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+            if (ImGui::MenuItem("Add Mesh")) setup->openAddMesh = true;
             ImGui::EndPopup();
         }
         if (ImGui::IsWindowFocused() && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
@@ -186,7 +115,8 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
     ImGui::EndChild();
     // A mesh dragged from the Level Manager (documentation "3D Object Setup").
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+        if (const ImGuiPayload *payload =
+                ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
             const auto reference = ObjectDragSource(payload->Data, size_t(payload->DataSize));
             SetupPageData dragged;
             const bool mesh =
@@ -194,8 +124,7 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
             const bool held = std::any_of(data.Rows("meshes").begin(), data.Rows("meshes").end(), [&](const auto &row) {
                 return SetupFields(row.fields).Object("target") == reference;
             });
-            if (mesh && !held && !payload->IsDelivery())
-                ImGui::SetTooltip("Add Mesh %s", dragged.name.c_str());
+            if (mesh && !held && !payload->IsDelivery()) ImGui::SetTooltip("Add Mesh %s", dragged.name.c_str());
             if (mesh && !held && payload->IsDelivery()) {
                 EditObjectList(id, "entity3d.meshes", {reference});
                 FlushPending();
@@ -204,7 +133,7 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
         ImGui::EndDragDropTarget();
     }
     // Add Mesh (Dev: an Edit Parameter of a Mesh): the composition's meshes.
-    if (setup && setup->openAddMesh) {
+    if (setup->openAddMesh) {
         setup->openAddMesh = false;
         ImGui::OpenPopup("Add Mesh");
     }
@@ -224,69 +153,86 @@ void SetupWindows::Entity3DPage(ObjectRef target, bool sized, bool details,
         }
         ImGui::EndPopup();
     }
-    // Current Mesh.
-    page.Label(220, 110, 320, 130, "Current Mesh");
-    page.Line(225, 130, 226, 260);
-    const auto current = data.Object("mesh");
-    page.Label(240, 130, 400, 150, data.Text("mesh-name").c_str());
-    if (current) {
-        char text[4][32];
-        std::snprintf(text[0], sizeof(text[0]), "%d", int(data.Integer("vertices")));
-        std::snprintf(text[1], sizeof(text[1]), "%d", int(data.Integer("faces")));
-        std::snprintf(text[2], sizeof(text[2]), "%d", int(data.Integer("channel-count")));
-        std::snprintf(text[3], sizeof(text[3]), "%s", data.Boolean("patch") ? "Patch" : "Triangular");
-        static const char *const names[] = {"Vertices:", "Faces:", "Channels:", "Type:"};
-        for (int i = 0; i < 4; ++i) {
-            const float y = 160 + 15.0f * i;
-            page.Label(240, y, 300, y + 15, names[i]);
-            page.Label(320, y, 400, y + 15, text[i]);
+    columns.Next();
+    Group("Current Mesh");
+    ImGui::TextWrapped("%s", data.Text("mesh-name").c_str());
+    if (data.Object("mesh")) {
+        SetupForm form("##mesh-summary");
+        if (form) {
+            form.Row("Vertices");
+            ImGui::Text("%d", int(data.Integer("vertices")));
+            form.Row("Faces");
+            ImGui::Text("%d", int(data.Integer("faces")));
+            form.Row("Channels");
+            ImGui::Text("%d", int(data.Integer("channel-count")));
+            form.Row("Type");
+            ImGui::TextUnformatted(data.Boolean("patch") ? "Patch" : "Triangular");
         }
     }
+    columns.Next();
     if (data.Boolean("body-part")) {
+        Group("Character");
         static const int button[5] = {1145, 1141, 1142, 1142, 1145};
         const auto character = data.Object("character");
-        page.Label(420, 108, 500, 130, "Character:");
-        if (DevBitmapButton("charactersetup", page.At(500, 110), button, false, bool(character), page.s,
+        if (DevBitmapButton("charactersetup", ImGui::GetCursorScreenPos(), button, false, bool(character), PageUnit(),
                             "Show Character Setup") &&
             character)
             Open(character);
-        page.Label(520, 111, 620, 132, data.Text("character-name").c_str());
+        ImGui::TextWrapped("%s", data.Text("character-name").c_str());
     } else if (data.Object("parent")) {
-        page.Label(420, 108, 500, 130, "Parent:");
-        page.Label(500, 108, 620, 130, data.Text("parent-name").c_str());
+        Group("Parent");
+        ImGui::TextWrapped("%s", data.Text("parent-name").c_str());
     }
     bool pickable = values.Boolean("entity3d.pickable");
-    if (page.Check("Pickable", 620, 111, pickable))
-        PreviewValue(id, "entity3d.pickable", pickable);
-    page.Label(635, 109, 775, 125, "Pickable");
-    page.Label(635, 124, 800, 140, "(Hold shift to pick it anyway)");
-    page.End(800, 262);
+    if (ImGui::Checkbox("Pickable", &pickable)) PreviewValue(id, "entity3d.pickable", pickable);
+    ImGui::PushTextWrapPos(0);
+    ImGui::TextDisabled("(Hold shift to pick it anyway)");
+    ImGui::PopTextWrapPos();
 }
 
-void SetupWindows::Entity3DTransform(ObjectRef target) {
-    SetupColumns columns("##entity-transform", 2);
+void SetupWindows::Entity3DTransform(ObjectRef target, bool sized, const std::function<void()> &fourth) {
+    SetupColumns columns("##entity-transform", sized ? 4 : 2);
     if (!columns) return;
     const auto &shown = Shown(target);
+    const auto group = [&](const char *title, const char *field, float *world, float *local, float divisor,
+                           const char *button, const char *command) {
+        columns.Next();
+        Group(title);
+        if (button && ImGui::SmallButton(button)) RunSetupCommand(command, {ObjectArgument("target", target)});
+        ImGui::PushID(title);
+        TransformFields(target, field, world, local, divisor, "##v");
+        ImGui::PopID();
+    };
     const auto wp = Translation(shown.world), lp = Translation(shown.local);
     float world[] = {wp.x, wp.y, wp.z}, local[] = {lp.x, lp.y, lp.z};
-    columns.Next();
-    Group("Position");
-    if (ImGui::SmallButton("Reset World Matrix"))
-        RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)});
-    ImGui::PushID("Position");
-    TransformFields(target, "position", world, local, 1, "##v");
-    ImGui::PopID();
-    columns.Next();
-    Group("Orientation");
+    group("Position", "position", world, local, 1, "Reset World Matrix", "setup.reset-world-matrix");
     Vx3DMatrixToEulerAngles(shown.world, &world[0], &world[1], &world[2]);
     Vx3DMatrixToEulerAngles(shown.local, &local[0], &local[1], &local[2]);
     for (int i = 0; i < 3; ++i) {
         world[i] *= RAD_TO_DEG;
         local[i] *= RAD_TO_DEG;
     }
-    ImGui::PushID("Orientation");
-    TransformFields(target, "orientation", world, local, RAD_TO_DEG, "##v");
-    ImGui::PopID();
+    group("Orientation", "orientation", world, local, RAD_TO_DEG, nullptr, nullptr);
+    if (!sized) return;
+    const auto ws = ScaleOf(shown.world), ls = ScaleOf(shown.local);
+    float scale[] = {ws.x, ws.y, ws.z}, localScale[] = {ls.x, ls.y, ls.z};
+    group("Scale", "scale", scale, localScale, 1, "Set as Unit", "setup.scale-unit");
+    columns.Next();
+    if (fourth) {
+        fourth();
+    } else {
+        Group("World Size");
+        SetupForm form("##world-size");
+        if (form) {
+            const auto &box = shown.box;
+            const float size[] = {box.Max.x - box.Min.x, box.Max.y - box.Min.y, box.Max.z - box.Min.z};
+            const char *axes[] = {"X :", "Y :", "Z :"};
+            for (int i = 0; i < 3; ++i) {
+                form.Row(axes[i]);
+                ImGui::Text("%.4f", size[i]);
+            }
+        }
+    }
 }
 
 void SetupWindows::CameraPage(ObjectRef target) {
@@ -1977,7 +1923,7 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
     ImGui::SameLine();
     if (ImGui::RadioButton("3D Properties", setup.grid3d)) setup.grid3d = true;
     if (setup.grid3d) {
-        Entity3DPage(target, true, true, nullptr, &setup);
+        Entity3DPage(target, &setup);
         return;
     }
     const bool manager = data.Boolean("manager"), attributes = data.Boolean("attributes");
