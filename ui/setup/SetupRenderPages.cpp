@@ -645,6 +645,94 @@ bool SetupWindows::ReadPixels(ObjectRef target, const char *section, uint64_t in
     return true;
 }
 
+void SetupWindows::BitmapInfo(Setup &setup, ObjectRef target, SetupFields data, SetupFields values) {
+    SetupColumns columns("##bitmap-info", 3);
+    if (!columns) return;
+    ImGui::PushTextWrapPos(0);
+    const bool texture = data.Boolean("texture");
+    columns.Next();
+    Group("System Memory Format");
+    {
+        SetupForm form("##bitmap-system");
+        if (form) {
+            if (data.Boolean("system-present") && data.Boolean("system-described")) {
+                form.Row("Dimensions");
+                ImGui::Text("%d x %d", int(data.Integer("system-width")), int(data.Integer("system-height")));
+                form.Row("Bits");
+                ImGui::Text("%d", int(data.Integer("system-bits")));
+                form.Row("Format");
+                ImGui::TextWrapped("%s", data.Text("system-format").c_str());
+            } else {
+                form.Row("Status");
+                ImGui::TextWrapped("not in system memory");
+            }
+            form.Row("Desired Video Format");
+            int format = int(values.Integer(texture ? "texture.video-format" : "sprite.video-format"));
+            const auto &formats = data.Texts("formats");
+            const auto label = [&](int f) {
+                return f >= 0 && size_t(f) < formats.size() ? formats[size_t(f)] : std::string("Unknown");
+            };
+            if (ImGui::BeginCombo("##videoformat", label(format).c_str())) {
+                TypeAhead typeAhead;
+                for (int f = 1; f <= 23; ++f)
+                    if (typeAhead.Selectable(label(f).c_str(), f == format))
+                        PreviewValue(target, texture ? "texture.video-format" : "sprite.video-format", f);
+                ImGui::EndCombo();
+            }
+        }
+    }
+    columns.Next();
+    Group("Video Memory Information");
+    {
+        SetupForm form("##bitmap-video");
+        if (form) {
+            if (data.Boolean("video-present") && data.Boolean("video-described")) {
+                form.Row("Width");
+                ImGui::Text("%d", int(data.Integer("video-width")));
+                form.Row("Height");
+                ImGui::Text("%d", int(data.Integer("video-height")));
+                form.Row("Bits");
+                ImGui::Text("%d", int(data.Integer("video-bits")));
+                form.Row("Format");
+                ImGui::TextWrapped("%s", data.Text("video-format").c_str());
+            } else {
+                form.Row("Status");
+                ImGui::TextWrapped("%s", data.Boolean("video-present") ? "Not available" : "not in video memory");
+            }
+        }
+    }
+    columns.Next();
+    Group("Slots");
+    const int slots = int(data.Integer("slots")), slot = int(data.Integer("slot"));
+    const auto go = [&](const char *label, int to) {
+        ImGui::BeginDisabled(to < 0 || to >= slots || to == slot);
+        if (ImGui::Button(label)) PreviewValue(target, texture ? "texture.current-slot" : "sprite.current-slot", to);
+        ImGui::EndDisabled();
+    };
+    {
+        SetupForm form("##bitmap-slots");
+        if (form) {
+            form.Row("Current slot");
+            go("Prev", slot - 1);
+            ImGui::SameLine();
+            ImGui::Text("%d/ %d", slot, slots);
+            ImGui::SameLine();
+            if (ImGui::GetContentRegionAvail().x < ImGui::CalcTextSize("Next").x + 2 * ImGui::GetStyle().FramePadding.x)
+                ImGui::NewLine();
+            go("Next", slot + 1);
+            form.Row("Jump");
+            go("First", 0);
+            ImGui::SameLine();
+            go("Last", slots - 1);
+        }
+    }
+    if (ImGui::Button(texture ? "Add Slot..." : "Add Sprites")) RunSlotCommand(setup, target, SlotCommand::Add);
+    ImGui::BeginDisabled(slots <= 1);
+    if (ImGui::Button("Remove Current Slot")) setup.confirmRemoveSlot = true;
+    ImGui::EndDisabled();
+    ImGui::PopTextWrapPos();
+}
+
 void SetupWindows::SpritePage(Setup &setup, ObjectRef target) {
     const auto id = target;
     SetupDetails description;
@@ -658,70 +746,8 @@ void SetupWindows::SpritePage(Setup &setup, ObjectRef target) {
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    ImGui::BeginGroup();
-    if (data.Boolean("system-present") && data.Boolean("system-described"))
-        ImGui::Text("System Memory Format   %dx%d %d bits  %s", int(data.Integer("system-width")),
-                    int(data.Integer("system-height")), int(data.Integer("system-bits")),
-                    data.Text("system-format").c_str());
-    else
-        ImGui::TextUnformatted("System Memory Format   not in system memory");
-    int format = int(values.Integer("sprite.video-format"));
-    ImGui::TextUnformatted("Desired Video Format");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(170);
-    const auto &formats = data.Texts("formats");
-    auto formatLabel = [&](int f) {
-        return f >= 0 && size_t(f) < formats.size() ? formats[size_t(f)] : std::string("Unknown");
-    };
-    if (ImGui::BeginCombo("##videoformat", formatLabel(format).c_str())) {
-        TypeAhead typeAhead;
-        for (int f = 1; f <= 23; ++f)
-            if (typeAhead.Selectable(formatLabel(f).c_str(), f == format))
-                PreviewValue(id, "sprite.video-format", f);
-        ImGui::EndCombo();
-    }
-    ImGui::EndGroup();
-    ImGui::SameLine(460);
-    ImGui::BeginGroup();
-    Group("Video Memory Information");
-    {
-        if (data.Boolean("video-present") && data.Boolean("video-described")) {
-            ImGui::Text("Width:  %d", int(data.Integer("video-width")));
-            ImGui::Text("Height: %d", int(data.Integer("video-height")));
-            ImGui::Text("Bits:   %d", int(data.Integer("video-bits")));
-            ImGui::Text("Format: %s", data.Text("video-format").c_str());
-        } else
-            ImGui::TextUnformatted(data.Boolean("video-present") ? "Not available" : "not in video memory");
-    }
-    ImGui::EndGroup();
-    ImGui::SameLine(760);
-    ImGui::BeginGroup();
-    const int slots = int(data.Integer("slots")), slot = int(data.Integer("slot"));
-    auto go = [&](const char *label, int to) {
-        ImGui::BeginDisabled(to < 0 || to >= slots || to == slot);
-        if (ImGui::Button(label, ImVec2(60, 0)))
-            PreviewValue(id, "sprite.current-slot", to);
-        ImGui::EndDisabled();
-    };
-    go("Prev", slot - 1);
-    ImGui::SameLine();
-    ImGui::Text("%d/ %d", slot, slots);
-    ImGui::SameLine();
-    go("Next", slot + 1);
-    go("First", 0);
-    ImGui::SameLine(124);
-    go("Last", slots - 1);
-    ImGui::EndGroup();
-    ImGui::SameLine();
-    ImGui::BeginGroup();
-    // "Add Sprites" (Dev.exe sub_479A10, command 500 as the slot menu's Add
-    // new slot): an image file of the same size in a new slot.
-    if (ImGui::Button("Add Sprites", ImVec2(170, 0)))
-        RunSlotCommand(setup, target, SlotCommand::Add);
-    ImGui::BeginDisabled(slots <= 1);
-    if (ImGui::Button("Remove Current Slot", ImVec2(170, 0))) setup.confirmRemoveSlot = true;
-    ImGui::EndDisabled();
-    ImGui::EndGroup();
+    BitmapInfo(setup, target, data, values);
+    const int slot = int(data.Integer("slot"));
     ImGui::Separator();
     // Save Options and Color Key Transparency, left of the preview.
     ImGui::BeginGroup();
@@ -902,30 +928,28 @@ void SetupWindows::SlotPreview(Setup &setup, ObjectRef target, unsigned long lon
 
 void SetupWindows::SaveFormatControls(ObjectRef target) {
     SetupDetails description;
-    if (!ReadDetails(target, "bitmap-format", description))
-        return;
+    if (!ReadDetails(target, "bitmap-format", description)) return;
     const auto data = description.Values();
     const auto &extensions = data.Texts("extensions"), &labels = data.Texts("labels");
-    if (extensions.empty() || extensions.size() != labels.size())
-        return;
+    if (extensions.empty() || extensions.size() != labels.size()) return;
     int chosen = -1;
     for (size_t i = 0; i < extensions.size(); ++i)
-        if (ImStricmp(extensions[i].c_str(), data.Text("extension").c_str()) == 0)
-            chosen = int(i);
+        if (ImStricmp(extensions[i].c_str(), data.Text("extension").c_str()) == 0) chosen = int(i);
     std::vector<const char *> items;
-    for (const auto &label : labels)
-        items.push_back(label.c_str());
-    ImGui::SetNextItemWidth(160);
+    for (const auto &label : labels) items.push_back(label.c_str());
+    ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Format").x -
+                                              ImGui::GetStyle().ItemInnerSpacing.x));
     int picked = chosen;
     if (TypeAheadCombo("Format", &picked, items.data(), int(items.size())) && picked != chosen && picked >= 0) {
         PreviewValue(target, "bitmap.save-format", extensions[size_t(picked)]);
         FlushPending();
         return;
     }
-    if (!data.Boolean("present"))
-        return;
+    if (!data.Boolean("present")) return;
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("%s", data.Boolean("alpha") ? "Alpha Channel is also saved."
                                                     : "This mode does not support Alpha Channel.");
+    ImGui::PopTextWrapPos();
     if (data.Boolean("options") && ImGui::Button("Format Options..."))
         RunSetupCommand("bitmap.edit-options", {ObjectArgument("target", target)});
     const auto key = data.Text("encoding-key");
@@ -935,8 +959,11 @@ void SetupWindows::SaveFormatControls(ObjectRef target) {
             ReadDetails(target, "bitmap-encoding", encoding) ? encoding.Values().Text("info") : std::string();
         m_FormatInfoKey[target] = key;
     }
-    if (!m_FormatInfo[target].empty())
+    if (!m_FormatInfo[target].empty()) {
+        ImGui::PushTextWrapPos(0);
         ImGui::TextDisabled("%s", m_FormatInfo[target].c_str());
+        ImGui::PopTextWrapPos();
+    }
 }
 
 void SetupWindows::RunSlotCommand(Setup &setup, ObjectRef target, SlotCommand command) {

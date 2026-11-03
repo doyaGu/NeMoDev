@@ -181,6 +181,7 @@ private:
     // sub_5889B0): a bitmap reader that saves, with its default options;
     // whether the alpha channel goes with it.
     void SaveFormatControls(ObjectRef target);
+    void BitmapInfo(Setup &, ObjectRef, SetupFields, SetupFields);
     // The slot menu's commands, and their keys (Dev.exe sub_485C10 /
     // sub_476FA0, sub_487640: O add, R replace, Shift+R replace alpha, S
     // save, n / p the next / previous slot, + - / * the zoom).
