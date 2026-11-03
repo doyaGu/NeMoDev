@@ -490,65 +490,80 @@ void SetupWindows::KinematicChainPage(ObjectRef target) {
     SetupDetails propertyData;
     if (!ReadProperties(target, {"kinematic.start", "kinematic.end"}, propertyData))
         return;
-    const auto values = propertyData.Values();
-    ImGui::BeginGroup();
-    Group("Kinematic Chain");
-    ObjectRef chosen{};
-    ImGui::TextUnformatted("Start Effector");
-    ImGui::SameLine(110);
-    if (ObjectChoice("##start", CKCID_BODYPART, data.Object("start"), data.Text("start-name"), &chosen)) {
-        PreviewValue(id, "kinematic.start", chosen);
-        FlushPending();
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!data.Object("start"));
-    if (ImGui::SmallButton(">##startsetup") && data.Object("start"))
-        Open(data.Object("start"));
-    ImGui::EndDisabled();
-    ImGui::TextUnformatted("End Effector");
-    ImGui::SameLine(110);
-    if (ObjectChoice("##end", CKCID_BODYPART, data.Object("end"), data.Text("end-name"), &chosen)) {
-        PreviewValue(id, "kinematic.end", chosen);
-        FlushPending();
-    }
-    ImGui::SameLine();
-    ImGui::BeginDisabled(!data.Object("end"));
-    if (ImGui::SmallButton(">##endsetup") && data.Object("end"))
-        Open(data.Object("end"));
-    ImGui::EndDisabled();
     const bool complete = data.Object("start") && data.Object("end");
     const int bodies = complete ? int(data.Integer("body-count")) : 0;
-    ImGui::Dummy(ImVec2(1, 6));
-    ImGui::Text("Chain Length:   %s", complete ? std::to_string(data.Real("length")).c_str() : "-");
-    ImGui::Text("Body Parts:     %d", bodies);
-    if (complete && bodies <= 0) ImGui::TextDisabled("The end effector is not below the start effector.");
-    ImGui::EndGroup();
-    // Right: the body parts of the chain, from the start effector.
-    ImGui::SameLine(420);
-    ImGui::BeginGroup();
-    Group("Chain");
-    if (ImGui::BeginTable("chain", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                          ImVec2(300, 150))) {
-        TypeAhead typeAhead;
-        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 26);
-        ImGui::TableSetupColumn("Body Part");
-        ImGui::TableHeadersRow();
-        for (int i = 0; i < bodies; ++i) {
-            const SetupFields part(data.Rows("bodies")[size_t(i)].fields);
-            const auto body = part.Object("target");
-            ImGui::PushID(i);
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::Text("%d", i);
-            ImGui::TableNextColumn();
-            if (typeAhead.Selectable(part.Text("name").c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) && body &&
-                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                Open(body);
-            ImGui::PopID();
+    const float unit = PageUnit();
+    {
+        SetupColumns columns("##kinematic-settings", 2);
+        if (columns) {
+            columns.Next();
+            Group("Kinematic Chain");
+            {
+                SetupForm form("##kinematic-effectors");
+                if (form) {
+                    const auto effector = [&](const char *label, const char *combo, const char *button,
+                                              const char *property, const char *field, const char *name) {
+                        form.Row(label);
+                        ObjectRef chosen{};
+                        const float buttonWidth = ImGui::CalcTextSize(">").x + 2 * ImGui::GetStyle().FramePadding.x;
+                        const float width = std::max(1.f, ImGui::GetContentRegionAvail().x - buttonWidth -
+                                                              ImGui::GetStyle().ItemSpacing.x);
+                        if (ObjectChoice(combo, CKCID_BODYPART, data.Object(field), data.Text(name), &chosen, width)) {
+                            PreviewValue(id, property, chosen);
+                            FlushPending();
+                        }
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled(!data.Object(field));
+                        if (ImGui::SmallButton(button) && data.Object(field))
+                            Open(data.Object(field));
+                        ImGui::EndDisabled();
+                    };
+                    effector("Start Effector", "##start", ">##startsetup", "kinematic.start", "start", "start-name");
+                    effector("End Effector", "##end", ">##endsetup", "kinematic.end", "end", "end-name");
+                }
+            }
+            ImGui::Spacing();
+            {
+                SetupForm form("##kinematic-values");
+                if (form) {
+                    form.Row("Chain Length");
+                    ImGui::TextUnformatted(complete ? std::to_string(data.Real("length")).c_str() : "-");
+                    form.Row("Body Parts");
+                    ImGui::Text("%d", bodies);
+                }
+            }
+            if (complete && bodies <= 0) {
+                ImGui::PushTextWrapPos(0);
+                ImGui::TextDisabled("The end effector is not below the start effector.");
+                ImGui::PopTextWrapPos();
+            }
+            columns.Next();
+            Group("Chain");
+            if (ImGui::BeginTable("chain", 2,
+                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                                      ImGuiTableFlags_ScrollX,
+                                  {0, 150 * unit}, std::max(300 * unit, ImGui::GetContentRegionAvail().x))) {
+                TypeAhead typeAhead;
+                ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, 26 * unit);
+                ImGui::TableSetupColumn("Body Part");
+                ImGui::TableHeadersRow();
+                for (int i = 0; i < bodies; ++i) {
+                    const SetupFields part(data.Rows("bodies")[size_t(i)].fields);
+                    const auto body = part.Object("target");
+                    ImGui::PushID(i);
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn();
+                    ImGui::Text("%d", i);
+                    ImGui::TableNextColumn();
+                    if (typeAhead.Selectable(part.Text("name").c_str(), false, ImGuiSelectableFlags_AllowDoubleClick) &&
+                        body && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                        Open(body);
+                    ImGui::PopID();
+                }
+                ImGui::EndTable();
+            }
         }
-        ImGui::EndTable();
     }
-    ImGui::EndGroup();
     ImGui::Separator();
     ParameterUsers(target);
 }
@@ -1194,13 +1209,16 @@ void SetupWindows::ParameterUsers(ObjectRef target) {
         return;
     const auto data = description.Values();
     Group("Used By");
-    if (!ImGui::BeginTable("users", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                           ImVec2(760, 150)))
+    const float unit = PageUnit();
+    if (!ImGui::BeginTable("users", 3,
+                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                               ImGuiTableFlags_ScrollX,
+                           {0, 150 * unit}, std::max(760 * unit, ImGui::GetContentRegionAvail().x)))
         return;
     TypeAhead ahead;
     ImGui::TableSetupScrollFreeze(0, 1);
-    ImGui::TableSetupColumn("Behavior", ImGuiTableColumnFlags_WidthFixed, 220);
-    ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthFixed, 180);
+    ImGui::TableSetupColumn("Behavior", ImGuiTableColumnFlags_WidthFixed, 220 * unit);
+    ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthFixed, 180 * unit);
     ImGui::TableSetupColumn("Script");
     ImGui::TableHeadersRow();
     for (const auto &value : data.Rows("users")) {
@@ -1220,7 +1238,6 @@ void SetupWindows::ParameterUsers(ObjectRef target) {
     }
     ImGui::EndTable();
 }
-
 void SetupWindows::AttributePage(Setup &setup) {
     const auto client = Client(setup.nameOwner);
     ObjectAttributes data;

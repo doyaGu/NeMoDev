@@ -27,6 +27,7 @@
 #include "CKMidiManager.h"
 #include "CKSpriteText.h"
 #include "CKLayer.h"
+#include "CKKinematicChain.h"
 #include <chrono>
 #include <algorithm>
 #include <utility>
@@ -3326,6 +3327,174 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         ShowSetupTable(ctx, view, "##layer-settings");
         IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID(">")).ItemFlags & ImGuiItemFlags_Disabled);
         IM_CHECK(canvas());
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *kinematic = IM_REGISTER_TEST(engine, "appearance", "kinematic_reflow_effectors_popup_navigation_and_undo");
+    kinematic->GuiFunc = MainThreadGui;
+    kinematic->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target, start, middle, end, outside, owner, parameter;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *context = doc.Context();
+            const auto part = [&](const char *name) {
+                auto *body = CKBodyPart::Cast(context->CreateObject(CKCID_BODYPART, name));
+                if (body)
+                    doc.Include(body->GetID());
+                return body;
+            };
+            auto *a = part(("Chain start " + std::string(90, 'S')).c_str()), *b = part("Chain middle"),
+                 *c = part("Chain end"), *d = part("Chain outside");
+            auto *chain = CKKinematicChain::Cast(context->CreateObject(CKCID_KINEMATICCHAIN, "Reflow kinematic chain"));
+            auto *behavior = CKBehavior::Cast(context->CreateObject(CKCID_BEHAVIOR, "Chain parameter owner"));
+            IM_CHECK_NO_RET(a && b && c && d && chain && behavior);
+            IM_CHECK_NO_RET(b->SetParent(a) && c->SetParent(b));
+            VxVector position{0, 0, 0};
+            a->SetPosition(&position);
+            position.y = 2;
+            b->SetPosition(&position);
+            position.y = 5;
+            c->SetPosition(&position);
+            chain->SetStartEffector(a);
+            chain->SetEndEffector(c);
+            behavior->SetType(CKBEHAVIORTYPE_SCRIPT);
+            auto *user = behavior->CreateLocalParameter("Chain parameter", CKPGUID_KINEMATICCHAIN);
+            IM_CHECK_NO_RET(user);
+            auto chainId = chain->GetID();
+            user->SetValue(&chainId, sizeof(chainId));
+            for (auto *object :
+                 {static_cast<CKObject *>(chain), static_cast<CKObject *>(behavior), static_cast<CKObject *>(user)})
+                doc.Include(object->GetID());
+            target = doc.Reference(chain->GetID());
+            start = doc.Reference(a->GetID());
+            middle = doc.Reference(b->GetID());
+            end = doc.Reference(c->GetID());
+            outside = doc.Reference(d->GetID());
+            owner = doc.Reference(behavior->GetID());
+            parameter = doc.Reference(user->GetID());
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupchain");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        const auto details = [&] {
+            return Read<SetupDetails>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "kinematic", data);
+                return data;
+            });
+        };
+        IM_CHECK_EQ(details().Values().Integer("body-count"), 3);
+        IM_CHECK(std::fabs(details().Values().Real("length") - 5) < .001);
+        ImGuiID first = 0, last = 0, chainTable = 0, usersTable = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##kinematic-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##kinematic-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            IM_CHECK(!first || first == page->GetID("##start"));
+            first = page->GetID("##start");
+            IM_CHECK(!last || last == page->GetID("##end"));
+            last = page->GetID("##end");
+            for (const auto id : {first, last, page->GetID(">##startsetup"), page->GetID(">##endsetup")}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                IM_CHECK(rect.Min.x >= table->Columns[0].WorkMinX - 1 && rect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            }
+            auto *list = SetupTable(ctx, view, "chain");
+            IM_CHECK(list && list->InnerWindow);
+            IM_CHECK(!chainTable || chainTable == list->ID);
+            chainTable = list->ID;
+            ShowSetupTable(ctx, view, "users");
+            list = SetupTable(ctx, view, "users");
+            IM_CHECK(list && list->InnerWindow);
+            IM_CHECK(!usersTable || usersTable == list->ID);
+            usersTable = list->ID;
+            IM_CHECK_LE(list->OuterRect.Max.x, page->WorkRect.Max.x + 1);
+            if (width < 1000)
+                IM_CHECK_GT(list->InnerWindow->ScrollMax.x, 0);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        ctx->SetRef(SetupRef(view).c_str());
+        ShowSetupTable(ctx, view, "##kinematic-settings");
+        ctx->ItemClick(last);
+        ctx->Yield(2);
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK(!ctx->UiContext->OpenPopupStack.empty() && ctx->UiContext->OpenPopupStack.back().PopupId == popup);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(2);
+        IM_CHECK(details().Values().Object("end") == end);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##kinematic-settings");
+        ChooseInCombo(ctx, SetupRef(view).c_str(), "##end", "-- None --");
+        IM_CHECK(!details().Values().Object("end"));
+        IM_CHECK_EQ(details().Values().Integer("body-count"), 0);
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID(">##endsetup")).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK(details().Values().Object("end") == end);
+        IM_CHECK_EQ(details().Values().Integer("body-count"), 3);
+        ChooseInCombo(ctx, SetupRef(view).c_str(), "##end", "Chain outside");
+        IM_CHECK(details().Values().Object("end") == outside);
+        IM_CHECK_EQ(details().Values().Integer("body-count"), 0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        ChooseInCombo(ctx, SetupRef(view).c_str(), "##start", "Chain middle");
+        IM_CHECK(details().Values().Object("start") == middle);
+        IM_CHECK_EQ(details().Values().Integer("body-count"), 2);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK(details().Values().Object("start") == start);
+        ShowSetupTable(ctx, view, "chain");
+        const int row = 1;
+        const auto seed = ImHashData(&row, sizeof(row), chainTable);
+        ctx->ItemDoubleClick(ImHashStr("Chain middle", 0, seed), ImGuiTestOpFlags_MoveToEdgeL);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, middle.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "users");
+        const auto userSeed = ImHashData(&parameter.object, sizeof(int), usersTable);
+        ctx->ItemDoubleClick(ImHashStr("Chain parameter owner", 0, userSeed), ImGuiTestOpFlags_MoveToEdgeL);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, owner.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##kinematic-settings");
+        ctx->ItemClick(SetupPage(ctx, view)->GetID(">##startsetup"));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, start.object));
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {
             std::string error;
