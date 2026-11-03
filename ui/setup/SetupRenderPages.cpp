@@ -1435,8 +1435,7 @@ void SetupWindows::MaterialPage(Setup &setup, ObjectRef target) {
 void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
     const auto id = target;
     SetupDetails description;
-    if (!ReadDetails(target, "mesh", description))
-        return;
+    if (!ReadDetails(target, "mesh", description)) return;
     const auto data = description.Values();
     SetupDetails propertyData;
     if (!ReadProperties(target,
@@ -1449,97 +1448,117 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
         return;
     SetupDetails patchData;
     const bool patch = data.Boolean("patch");
-    if (patch && !ReadProperties(target, {"patchmesh.iterations"}, patchData))
-        return;
-    ImGui::BeginGroup();
-    bool progressive = values.Boolean("mesh.progressive");
-    if (ImGui::Checkbox("Progressive Mesh", &progressive))
-        PreviewValue(id, "mesh.progressive", progressive);
-    // Progressive meshes (documentation "Mesh Setup"): the vertices
-    // rendered, the GeoMorphic Transition and its decimation (0: by halves).
-    if (values.Boolean("mesh.progressive")) {
-        int vertices = int(values.Integer("mesh.vertices-rendered"));
-        ImGui::SetNextItemWidth(200);
-        if (ImGui::SliderInt("Vertices", &vertices, 0, std::max(1, int(data.Integer("vertices")))))
-            PreviewValue(id, "mesh.vertices-rendered", vertices);
-        bool geomorph = values.Boolean("mesh.geo-morph");
-        if (ImGui::Checkbox("GeoMorphic Transition", &geomorph))
-            PreviewValue(id, "mesh.geo-morph", geomorph);
-        ImGui::SameLine();
-        int step = int(values.Integer("mesh.geo-morph-step"));
-        ImGui::SetNextItemWidth(80);
-        if (ImGui::InputInt("Decimation", &step, 1, 10))
-            PreviewValue(id, "mesh.geo-morph-step", step);
-    } else {
-        ImGui::Dummy(ImVec2(1, 30));
+    if (patch && !ReadProperties(target, {"patchmesh.iterations"}, patchData)) return;
+    {
+        SetupColumns columns("##mesh-settings", 3);
+        if (columns) {
+            ImGui::PushTextWrapPos(0);
+            const auto widthFor = [](const char *label) {
+                ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(label).x -
+                                                          ImGui::GetStyle().ItemInnerSpacing.x));
+            };
+            columns.Next();
+            Group("Rendering");
+            bool progressive = values.Boolean("mesh.progressive");
+            if (ImGui::Checkbox("Progressive Mesh", &progressive)) PreviewValue(id, "mesh.progressive", progressive);
+            if (values.Boolean("mesh.progressive")) {
+                int vertices = int(values.Integer("mesh.vertices-rendered"));
+                widthFor("Vertices");
+                if (ImGui::SliderInt("Vertices", &vertices, 0, std::max(1, int(data.Integer("vertices")))))
+                    PreviewValue(id, "mesh.vertices-rendered", vertices);
+                bool geomorph = values.Boolean("mesh.geo-morph");
+                if (ImGui::Checkbox("GeoMorphic Transition", &geomorph)) PreviewValue(id, "mesh.geo-morph", geomorph);
+                int step = int(values.Integer("mesh.geo-morph-step"));
+                widthFor("Decimation");
+                if (ImGui::InputInt("Decimation", &step, 1, 10)) PreviewValue(id, "mesh.geo-morph-step", step);
+            }
+            bool stripify = values.Boolean("mesh.stripify");
+            if (ImGui::Checkbox("Stripify", &stripify)) PreviewValue(id, "mesh.stripify", stripify);
+            const char *wraps[] = {"None", "U", "V", "UV"};
+            int wrap = std::clamp(int(values.Integer("mesh.wrap-mode")), 0, 3);
+            widthFor("Texture Wrap");
+            if (TypeAheadCombo("Texture Wrap", &wrap, wraps, 4)) PreviewValue(id, "mesh.wrap-mode", wrap);
+            const char *lits[] = {"Prelit", "Lit"};
+            int lit = int(values.Boolean("mesh.lit"));
+            widthFor("Lit Mode");
+            if (TypeAheadCombo("Lit Mode", &lit, lits, 2)) PreviewValue(id, "mesh.lit", lit != 0);
+            if (patch) {
+                int iterations = int(patchData.Values().Integer("patchmesh.iterations"));
+                widthFor("Iterations");
+                if (ImGui::SliderInt("Iterations", &iterations, 0, 10))
+                    PreviewValue(id, "patchmesh.iterations", iterations);
+            }
+            columns.Next();
+            Group("Mesh Info");
+            {
+                SetupForm form("##mesh-info");
+                if (form) {
+                    const char *labels[] = {"Vertices", "Faces", "Channels", "Line Count"};
+                    const char *fields[] = {"vertices", "faces", "channel-count", "lines"};
+                    for (int i = 0; i < 4; ++i) {
+                        form.Row(labels[i]);
+                        ImGui::Text("%d", int(data.Integer(fields[i])));
+                    }
+                    form.Row("Type");
+                    ImGui::TextUnformatted(patch ? "Patch" : "Triangular");
+                }
+            }
+            ImGui::BeginDisabled(patch);
+            if (ImGui::Button("Consolidate"))
+                RunSetupCommand("setup.mesh-consolidate", {ObjectArgument("target", target)});
+            ImGui::EndDisabled();
+            if (patch) {
+                Group("PatchMesh Info");
+                SetupForm form("##patch-info");
+                if (form) {
+                    const char *labels[] = {"Control Points", "Vectors", "Edges", "Patches", "Texture Vertices"};
+                    const char *fields[] = {"control-points", "vectors", "edges", "patches", "texture-vertices"};
+                    for (int i = 0; i < 5; ++i) {
+                        form.Row(labels[i]);
+                        ImGui::Text("%d", int(data.Integer(fields[i])));
+                    }
+                }
+            }
+            columns.Next();
+            Group("Geometry Info (Local Referential)");
+            {
+                SetupForm form("##mesh-geometry");
+                if (form) {
+                    form.Row("Radius");
+                    ImGui::Text("%.2f", float(data.Real("radius")));
+                    const char *labels[] = {"BBox Min", "BBox Max", "Barycenter"};
+                    const char *fields[] = {"box-min", "box-max", "barycenter"};
+                    for (int i = 0; i < 3; ++i) {
+                        const auto value = VectorOf(data, fields[i]);
+                        form.Row(labels[i]);
+                        ImGui::TextWrapped("%.2f %.2f %.2f", value.x, value.y, value.z);
+                    }
+                }
+            }
+            ImGui::PopTextWrapPos();
+        }
     }
-    // Stripify (VXMESH_STRIPIFY: the mesh is stripified each time it loads).
-    bool stripify = values.Boolean("mesh.stripify");
-    if (ImGui::Checkbox("Stripify", &stripify))
-        PreviewValue(id, "mesh.stripify", stripify);
-    const char *wraps[] = {"None", "U", "V", "UV"};
-    int wrap = std::max(0, std::min(3, int(values.Integer("mesh.wrap-mode"))));
-    ImGui::SetNextItemWidth(120);
-    if (TypeAheadCombo("Texture Wrap", &wrap, wraps, 4))
-        PreviewValue(id, "mesh.wrap-mode", wrap);
-    const char *lits[] = {"Prelit", "Lit"};
-    int lit = int(values.Boolean("mesh.lit"));
-    ImGui::SetNextItemWidth(120);
-    if (TypeAheadCombo("Lit Mode", &lit, lits, 2))
-        PreviewValue(id, "mesh.lit", lit != 0);
-    // Patch meshes (language pack [Mesh Setup]: "Iterations"): the subdivision
-    // steps of the render mesh built from the patches.
-    if (patch) {
-        int iterations = int(patchData.Values().Integer("patchmesh.iterations"));
-        ImGui::SetNextItemWidth(120);
-        if (ImGui::SliderInt("Iterations", &iterations, 0, 10))
-            PreviewValue(id, "patchmesh.iterations", iterations);
-    }
-    ImGui::EndGroup();
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
-    Group("Mesh Info");
-    ImGui::Text("Vertices:     %d", int(data.Integer("vertices")));
-    ImGui::Text("Faces:        %d", int(data.Integer("faces")));
-    ImGui::Text("Channels:     %d", int(data.Integer("channel-count")));
-    ImGui::Text("Line Count    %d", int(data.Integer("lines")));
-    ImGui::Text("Type:         %s", patch ? "Patch" : "Triangular");
-    ImGui::BeginDisabled(patch); // a patch mesh rebuilds its faces from the patches
-    if (ImGui::Button("Consolidate"))
-        RunSetupCommand("setup.mesh-consolidate", {ObjectArgument("target", target)});
-    ImGui::EndDisabled();
-    if (patch) {
-        ImGui::Dummy(ImVec2(1, 6));
-        Group("PatchMesh Info");
-        ImGui::Text("Control Points:     %d", int(data.Integer("control-points")));
-        ImGui::Text("Vectors:            %d", int(data.Integer("vectors")));
-        ImGui::Text("Edges:              %d", int(data.Integer("edges")));
-        ImGui::Text("Patches:            %d", int(data.Integer("patches")));
-        ImGui::Text("Texture Vertices:   %d", int(data.Integer("texture-vertices")));
-    }
-    ImGui::EndGroup();
-    ImGui::SameLine(620);
-    ImGui::BeginGroup();
-    Group("Geometry Info (Local Referential)");
-    VxBbox box;
-    box.Min = VectorOf(data, "box-min");
-    box.Max = VectorOf(data, "box-max");
-    const auto bary = VectorOf(data, "barycenter");
-    ImGui::Text("Radius:      %.2f", float(data.Real("radius")));
-    ImGui::Text("BBox:        Min: %.2f %.2f %.2f", box.Min.x, box.Min.y, box.Min.z);
-    ImGui::Text("             Max: %.2f %.2f %.2f", box.Max.x, box.Max.y, box.Max.z);
-    ImGui::Text("Barycenter:  %.2f %.2f %.2f", bary.x, bary.y, bary.z);
-    ImGui::EndGroup();
     ImGui::Separator();
-    ImGui::BeginGroup();
-    UsedByRows("Used By", data.Rows("users"), 220);
-    ImGui::EndGroup();
-    ImGui::SameLine(310);
-    ImGui::BeginGroup();
+    SetupColumns columns("##mesh-lists", 3);
+    if (!columns) return;
+    columns.Next();
+    Group("Used By");
+    UsedByList("Used By", data.Rows("users"), {0, 220 * PageUnit()});
+    columns.Next();
     Group("Channels");
-    static const char *const BLENDS[] = {"Zero", "One", "Src Color", "Inv Src Color", "Src Alpha", "Inv Src Alpha",
-                                         "Dest Alpha", "Inv Dest Alpha", "Dest Color", "Inv Dest Color", "Src Alpha Sat",
-                                         "Both Src Alpha", "Both Inv Src Alpha"};
+    static const char *const BLENDS[] = {"Zero",
+                                         "One",
+                                         "Src Color",
+                                         "Inv Src Color",
+                                         "Src Alpha",
+                                         "Inv Src Alpha",
+                                         "Dest Alpha",
+                                         "Inv Dest Alpha",
+                                         "Dest Color",
+                                         "Inv Dest Color",
+                                         "Src Alpha Sat",
+                                         "Both Src Alpha",
+                                         "Both Inv Src Alpha"};
     // The channels' menu (Dev.exe sub_46B1F0): Show Material Setup, Add
     // Channel, Remove Channel(s) (also Delete); a click on a material name
     // selects (Ctrl: adds or takes off).
@@ -1553,10 +1572,8 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
     auto removeChannels = [&] {
         std::vector<ObjectRef> materials;
         for (int channel : setup.channelRows)
-            if (auto material = channelAt(channel))
-                materials.push_back(material);
-        if (materials.empty())
-            return;
+            if (auto material = channelAt(channel)) materials.push_back(material);
+        if (materials.empty()) return;
         EditObjectList(id, "mesh.channels", {}, materials);
         FlushPending();
         setup.channelRows.clear();
@@ -1577,18 +1594,19 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
         bool added = false;
         added = EditObjectList(id, "mesh.channels", {material});
         FlushPending();
-        if (!added)
-            Warn("Add Channel: the channel cannot be added");
+        if (!added) Warn("Add Channel: the channel cannot be added");
     };
-    if (ImGui::BeginTable("channels", 6, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                          ImVec2(670, 220))) {
+    if (ImGui::BeginTable("channels", 6,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_ScrollX | ImGuiTableFlags_NoSavedSettings,
+                          ImVec2(0, 220 * PageUnit()), std::max(670 * PageUnit(), ImGui::GetContentRegionAvail().x))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Material Name");
-        ImGui::TableSetupColumn("Active", ImGuiTableColumnFlags_WidthFixed, 50);
-        ImGui::TableSetupColumn("Lit Mode", ImGuiTableColumnFlags_WidthFixed, 60);
-        ImGui::TableSetupColumn("Src Blend", ImGuiTableColumnFlags_WidthFixed, 120);
-        ImGui::TableSetupColumn("Dest Blend", ImGuiTableColumnFlags_WidthFixed, 120);
-        ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 40);
+        ImGui::TableSetupColumn("Active", ImGuiTableColumnFlags_WidthFixed, 50 * PageUnit());
+        ImGui::TableSetupColumn("Lit Mode", ImGuiTableColumnFlags_WidthFixed, 60 * PageUnit());
+        ImGui::TableSetupColumn("Src Blend", ImGuiTableColumnFlags_WidthFixed, 120 * PageUnit());
+        ImGui::TableSetupColumn("Dest Blend", ImGuiTableColumnFlags_WidthFixed, 120 * PageUnit());
+        ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthFixed, 40 * PageUnit());
         ImGui::TableHeadersRow();
         // The pass each active channel is rendered in (the faces' materials
         // the first; here a pass per active channel).
@@ -1609,16 +1627,18 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
             if (ImGui::Selectable(row.Text("name").c_str(), selected, ImGuiSelectableFlags_AllowDoubleClick)) {
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && channelAt(i))
                     Open(channelAt(i));
-                else if (!ImGui::GetIO().KeyCtrl) setup.channelRows = {i};
-                else if (selected) setup.channelRows.erase(i);
-                else setup.channelRows.insert(i);
+                else if (!ImGui::GetIO().KeyCtrl)
+                    setup.channelRows = {i};
+                else if (selected)
+                    setup.channelRows.erase(i);
+                else
+                    setup.channelRows.insert(i);
             }
             if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && !selected) setup.channelRows = {i};
             if (ImGui::BeginPopupContextItem("channelmenu")) {
                 const auto material =
                     setup.channelRows.size() == 1 ? channelAt(*setup.channelRows.begin()) : ObjectRef{};
-                if (ImGui::MenuItem("Show Material Setup", nullptr, false, bool(material)))
-                    Open(material);
+                if (ImGui::MenuItem("Show Material Setup", nullptr, false, bool(material))) Open(material);
                 ImGui::Separator();
                 if (ImGui::MenuItem("Add Channel")) addChannel();
                 if (ImGui::MenuItem("Remove Channel(s)", "Delete", false, !setup.channelRows.empty())) removeChannels();
@@ -1652,10 +1672,12 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
             ImGui::TableNextColumn();
             if (channel.Boolean("mesh.channel-active"))
                 ImGui::Text("%d", ++pass);
-            else ImGui::TextDisabled("-");
+            else
+                ImGui::TextDisabled("-");
             ImGui::PopID();
         }
-        if (ImGui::BeginPopupContextWindow("channelsmenu", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        if (ImGui::BeginPopupContextWindow("channelsmenu",
+                                           ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
             if (ImGui::MenuItem("Add Channel")) addChannel();
             ImGui::EndPopup();
         }
@@ -1666,7 +1688,8 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
     // A material dragged onto the channels: a new channel of it ("Add a new
     // channel").
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
+        if (const ImGuiPayload *payload =
+                ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery)) {
             const auto reference = ObjectDragSource(payload->Data, size_t(payload->DataSize));
             SetupPageData dropped;
             if (ReadSetupPage(Client(m_CurrentOwner), reference, -1, dropped) && dropped.kind == Kind::Material) {
@@ -1700,19 +1723,18 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
         }
         ImGui::EndPopup();
     }
-    ImGui::EndGroup();
-    ImGui::SameLine(950);
+    columns.Next();
     // Materials Used; a material dragged onto one replaces it on the faces
     // (Dev.exe sub_46FD90: "Replace '%s' with '%s'"), elsewhere in the list
     // it is every face's ("Add material or replace existing material").
-    ImGui::BeginGroup();
     Group("Materials Used");
     auto droppedMaterial = [this](const ImGuiPayload *payload, SetupPageData &page) -> ObjectRef {
         const auto reference = ObjectDragSource(payload->Data, size_t(payload->DataSize));
         return ReadSetupPage(Client(m_CurrentOwner), reference, -1, page) && page.kind == Kind::Material ? reference
                                                                                                          : ObjectRef{};
     };
-    if (ImGui::BeginChild("Materials Used", ImVec2(280, 220), ImGuiChildFlags_Borders)) {
+    if (ImGui::BeginChild("Materials Used", ImVec2(0, 220 * PageUnit()), ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar)) {
         TypeAhead typeAhead;
         for (const auto &item : data.Rows("materials")) {
             const SetupFields row(item.fields);
@@ -1724,12 +1746,12 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
                 Open(material);
             // Its menu (documentation: "right-click and select Show Setup").
             if (ImGui::BeginPopupContextItem("usedmenu")) {
-                if (ImGui::MenuItem("Show Setup"))
-                    Open(material);
+                if (ImGui::MenuItem("Show Setup")) Open(material);
                 ImGui::EndPopup();
             }
             if (ImGui::BeginDragDropTarget()) {
-                if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery))
+                if (const ImGuiPayload *payload =
+                        ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery))
                     if (SetupPageData page; auto with = droppedMaterial(payload, page)) {
                         if (!payload->IsDelivery())
                             ImGui::SetTooltip("Replace '%s' with '%s'", row.Text("name").c_str(), page.name.c_str());
@@ -1746,7 +1768,8 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
     }
     ImGui::EndChild();
     if (ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery))
+        if (const ImGuiPayload *payload =
+                ImGui::AcceptDragDropPayload(EDITOR_OBJECT_PAYLOAD, ImGuiDragDropFlags_AcceptBeforeDelivery))
             if (SetupPageData page; auto with = droppedMaterial(payload, page)) {
                 if (!payload->IsDelivery()) {
                     ImGui::SetTooltip("Add material or replace existing material");
@@ -1757,7 +1780,6 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
             }
         ImGui::EndDragDropTarget();
     }
-    ImGui::EndGroup();
 }
 
 void SetupWindows::TexturePage(Setup &setup, ObjectRef target) {

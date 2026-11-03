@@ -9,6 +9,8 @@
 #include "CK3dObject.h"
 #include "CKMesh.h"
 #include "CKTexture.h"
+#include "CKMaterial.h"
+#include "CKPatchMesh.h"
 #include <algorithm>
 #include <utility>
 #include <cmath>
@@ -91,6 +93,15 @@ void ResizeSetup(ImGuiTestContext *ctx, EditorView view, float width, bool focus
 ImGuiTable *SetupTable(ImGuiTestContext *ctx, EditorView view, const char *id) {
     auto *page = SetupPage(ctx, view);
     return page ? ctx->UiContext->Tables.GetByKey(page->GetID(id)) : nullptr;
+}
+void ShowSetupTable(ImGuiTestContext *ctx, EditorView view, const char *id) {
+    auto *page = SetupPage(ctx, view);
+    ctx->ScrollToBottom(page->ID);
+    ctx->Yield(3);
+    if (auto *table = SetupTable(ctx, view, id)) {
+        ctx->ScrollTo(page->ID, ImGuiAxis_Y, page->Scroll.y + table->OuterRect.Min.y - page->InnerRect.Min.y);
+        ctx->Yield(3);
+    }
 }
 } // namespace
 void RegisterAppearanceTests(ImGuiTestEngine *engine) {
@@ -1083,6 +1094,173 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
         Undo(ctx);
         IM_CHECK_EQ(value("texture.current-slot"), 0);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *mesh = IM_REGISTER_TEST(engine, "appearance", "mesh_reflow_channels_patch_cancel_and_undo");
+    mesh->GuiFunc = MainThreadGui;
+    mesh->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target, patch;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *made = CKMesh::Cast(doc.Context()->CreateObject(CKCID_MESH, "Layout channels mesh"));
+            auto *subdivided =
+                CKPatchMesh::Cast(doc.Context()->CreateObject(CKCID_PATCHMESH, "Layout patch mesh"));
+            auto *a = CKMaterial::Cast(doc.Context()->CreateObject(CKCID_MATERIAL, "Layout channel first"));
+            auto *b = CKMaterial::Cast(doc.Context()->CreateObject(CKCID_MATERIAL, "Layout channel second"));
+            IM_CHECK_NO_RET(made && subdivided && a && b);
+            subdivided->SetIterationCount(0);
+            for (CKObject *value : {static_cast<CKObject *>(made), static_cast<CKObject *>(subdivided),
+                                    static_cast<CKObject *>(a), static_cast<CKObject *>(b)})
+                doc.Include(value->GetID());
+            IM_CHECK_NO_RET(made->AddChannel(a) >= 0 && made->AddChannel(b) >= 0);
+            target = doc.Reference(made->GetID());
+            patch = doc.Reference(subdivided->GetID());
+            auto &workspace = App().WorkspaceForTests();
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                EDITOR_NO_CHANGE);
+            view = workspace.Role("setupmesh");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID channelsId = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            for (const char *name : {"##mesh-settings", "##mesh-lists"}) {
+                auto *table = SetupTable(ctx, view, name);
+                IM_CHECK(table);
+                IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            }
+            ShowSetupTable(ctx, view, "channels");
+            auto *table = SetupTable(ctx, view, "channels");
+            IM_CHECK(table && table->InnerWindow);
+            IM_CHECK(!channelsId || channelsId == table->ID);
+            channelsId = table->ID;
+            IM_CHECK_GT(table->InnerWindow->ScrollMax.x, 0);
+            const auto *outer = SetupTable(ctx, view, "##mesh-lists");
+            bool inside = false;
+            for (int i = 0; i < outer->ColumnsCount; ++i)
+                inside |= table->OuterRect.Min.x >= outer->Columns[i].WorkMinX - 1 &&
+                          table->OuterRect.Max.x <= outer->Columns[i].WorkMaxX + 1;
+            IM_CHECK(inside);
+        }
+        const auto channelValue = [&](const char *property) {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {property}, data, {0});
+                return int(data.Values().Integer(property));
+            });
+        };
+        auto *table = SetupTable(ctx, view, "channels");
+        ctx->ScrollToX(table->InnerWindow->ID, 0);
+        ctx->Yield(3);
+        const int row = 0;
+        const auto seed = ImHashData(&row, sizeof(row), table->ID);
+        const auto active = ImHashStr("##active", 0, seed);
+        ctx->SetRef(SetupRef(view).c_str());
+        const int wasActive = channelValue("mesh.channel-active");
+        ctx->ItemClick(active);
+        ctx->Yield(3);
+        IM_CHECK_EQ(channelValue("mesh.channel-active"), !wasActive);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(channelValue("mesh.channel-active"), wasActive);
+        table = SetupTable(ctx, view, "channels");
+        ctx->ScrollToX(table->InnerWindow->ID, table->InnerWindow->ScrollMax.x);
+        ctx->Yield(3);
+        const int blend = channelValue("mesh.channel-dest-blend"), desired = blend == 2 ? 1 : 2;
+        ctx->ItemClick(ImHashStr("##dst", 0, seed));
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick(desired == 1 ? "**/Zero" : "**/One");
+        ctx->Yield(3);
+        IM_CHECK_EQ(channelValue("mesh.channel-dest-blend"), desired);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(channelValue("mesh.channel-dest-blend"), blend);
+        table = SetupTable(ctx, view, "channels");
+        ctx->ScrollToX(table->InnerWindow->ID, 0);
+        ctx->Yield(3);
+        const auto selectChannel = [&](int index, const char *name, ImGuiMouseButton button = 0) {
+            const auto rowId = ImHashData(&index, sizeof(index), channelsId);
+            ctx->ItemClick(ImHashStr(name, 0, rowId), button);
+        };
+        selectChannel(0, "Layout channel first");
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        selectChannel(1, "Layout channel second");
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ResizeSetup(ctx, view, 690);
+        ShowSetupTable(ctx, view, "channels");
+        selectChannel(1, "Layout channel second", ImGuiMouseButton_Right);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("**/Remove Channel(s)");
+        ctx->Yield(3);
+        const auto channelCount = [&] {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "mesh", data);
+                return int(data.Values().Integer("channel-count"));
+            });
+        };
+        IM_CHECK_EQ(channelCount(), 0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(channelCount(), 2);
+        IM_CHECK_EQ(channelValue("mesh.channel-dest-blend"), blend);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", patch)}).status <=
+                EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        auto *page = SetupPage(ctx, view);
+        const auto input = page->GetID("Iterations");
+        ctx->ScrollToTop(page->ID);
+        ctx->Yield(3);
+        const auto iterations = [&] {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), patch, {"patchmesh.iterations"}, data);
+                return int(data.Values().Integer("patchmesh.iterations"));
+            });
+        };
+        const int before = iterations();
+        const auto at = ctx->ItemInfo(input).RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 35, at.y});
+        ctx->Yield(3);
+        IM_CHECK(iterations() != before);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(iterations(), before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        const int typed = before < 5 ? 7 : 2;
+        ctx->ItemInputValue(input, typed);
+        ctx->Yield(3);
+        IM_CHECK_EQ(iterations(), typed);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(iterations(), before);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
