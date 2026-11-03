@@ -205,3 +205,7 @@ uint32_t EditorToolInputSizeFromC(void) { return sizeof(EditorToolInput); }
 uint32_t EditorToolbarSizeFromC(void) { return sizeof(EditorToolbarItemDesc); }
 uint32_t EditorToolbarFrameSizeFromC(void) { return sizeof(EditorToolbarFrame); }
 uint32_t EditorBindingSizeFromC(void) { return sizeof(EditorBindingDesc); }
+
+uint32_t EditorThemeSizeFromC(void) { return (uint32_t)sizeof(EditorThemeDesc); }
+uint32_t EditorFontSizeFromC(void) { return (uint32_t)sizeof(EditorFontDesc); }
+uint32_t EditorImageSizeFromC(void) { return (uint32_t)sizeof(EditorImageDesc); }

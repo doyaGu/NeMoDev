@@ -49,7 +49,7 @@ extern "C" EditorStatus BeginCommandFromC(const EditorHost *, EditorString, cons
 extern "C" EditorStatus FinishCommandFromC(const EditorHost *, EditorEdit, EditorOperation *);
 extern "C" uint32_t EditorCommandSizeFromC(void);
 static_assert(__is_standard_layout(EditorCommandDesc), "C command callbacks");
-static_assert(EDITOR_VERSION == 22, "Editor tools and input version");
+static_assert(EDITOR_VERSION == 23, "Editor appearance resources version");
 extern "C" EditorQueryDesc RetainedQueryFromC(void *);
 extern "C" uint32_t EditorQuerySizeFromC(void);
 extern "C" EditorViewDesc PickViewFromC(EditorObject *);
@@ -65,7 +65,16 @@ extern "C" uint32_t EditorToolInputSizeFromC(void);
 extern "C" uint32_t EditorToolbarSizeFromC(void);
 extern "C" uint32_t EditorToolbarFrameSizeFromC(void);
 extern "C" uint32_t EditorBindingSizeFromC(void);
+static_assert(__is_standard_layout(EditorThemeDesc) && __is_trivially_copyable(EditorThemeDesc), "C theme data");
+static_assert(__is_standard_layout(EditorFontDesc) && __is_trivially_copyable(EditorImageDesc),
+              "C font and image data");
+extern "C" uint32_t EditorThemeSizeFromC(void);
+extern "C" uint32_t EditorFontSizeFromC(void);
+extern "C" uint32_t EditorImageSizeFromC(void);
 int main() {
+    if (EditorThemeSizeFromC() != sizeof(EditorThemeDesc) || EditorFontSizeFromC() != sizeof(EditorFontDesc) ||
+        EditorImageSizeFromC() != sizeof(EditorImageDesc))
+        return 1;
     if (EditorToolSizeFromC() != sizeof(EditorToolDesc) || EditorToolInputSizeFromC() != sizeof(EditorToolInput) ||
         EditorToolbarSizeFromC() != sizeof(EditorToolbarItemDesc) ||
         EditorToolbarFrameSizeFromC() != sizeof(EditorToolbarFrame) ||

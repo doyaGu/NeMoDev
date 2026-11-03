@@ -203,6 +203,11 @@ class EditorApplication {
     std::vector<EditorCommandDesc> Commands(bool allProviders = false) const;
     std::vector<EditorToolDesc> Tools(bool allProviders = false) const;
     const std::map<std::string, EditorToolbarLocation> &Toolbars() const;
+    std::vector<EditorThemeDesc> Themes(bool allProviders = false) const;
+    std::vector<EditorFontDesc> Fonts(bool allProviders = false) const;
+    std::vector<EditorImageDesc> Images(bool allProviders = false) const;
+    const std::map<std::string, EditorField> &ThemeValues(const std::string &id) const;
+    uint64_t AppearanceRevision() const;
     std::string ActionView(const std::string &action) const;
     const std::map<std::string, std::string> &BindingViews() const;
     EditorInputPhase BindingPhase(const std::string &) const;

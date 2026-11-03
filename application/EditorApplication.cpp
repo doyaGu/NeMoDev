@@ -217,6 +217,13 @@ struct Module {
     std::vector<EditorToolbarLocation> toolbars;
     std::deque<std::vector<EditorField>> toolbarArguments;
     std::deque<EditorFieldValues> toolbarValues;
+    std::vector<EditorThemeDesc> themes;
+    std::vector<EditorFontDesc> fonts;
+    std::vector<EditorImageDesc> images;
+    std::deque<std::vector<EditorField>> themeFields;
+    std::deque<EditorFieldValues> themeValues;
+    std::deque<std::vector<EditorString>> fontFiles;
+    std::deque<std::vector<unsigned char>> imagePixels;
     void *library = nullptr;
     std::string file;
     bool enabled = true;
@@ -240,7 +247,7 @@ struct Module {
         }
         return parameters.back().data();
     }
-    explicit Module(const EditorModuleDesc &source) {
+    explicit Module(const EditorModuleDesc &source, const std::string &origin) {
         if (source.size != sizeof(source) || source.version != EDITOR_VERSION)
             throw std::invalid_argument("Module version/size mismatch");
         id = Text(source.id, true);
@@ -260,6 +267,11 @@ struct Module {
         Array(source.tools, source.toolCount);
         Array(source.toolbarItems, source.toolbarItemCount);
         Array(source.toolbars, source.toolbarCount);
+        Array(source.themes, source.themeCount);
+        Array(source.fonts, source.fontCount);
+        Array(source.images, source.imageCount);
+        if (source.themeCount > 256 || source.fontCount > 1024 || source.imageCount > 4096)
+            throw std::invalid_argument("Too many appearance resources");
         for (uint32_t i = 0; i < source.commandCount; ++i) {
             auto d = source.commands[i];
             if (d.size != sizeof(d) || !d.run || d.area < EDITOR_DOCUMENT || d.area > EDITOR_APPLICATION ||
@@ -421,6 +433,79 @@ struct Module {
             d.arguments = toolbarValues.back().data();
             toolbarItems.push_back(d);
         }
+        for (uint32_t i = 0; i < source.themeCount; ++i) {
+            auto d = source.themes[i];
+            if (d.size != sizeof(d) || d.count > 4096) throw std::invalid_argument("Invalid theme descriptor");
+            d.id = Text(d.id, true);
+            d.provider = Text(d.provider, true);
+            d.title = Text(d.title);
+            d.parent = Text(d.parent, d.parent.size != 0);
+            EditorValue record{};
+            record.key = EDITOR_TEXT("theme");
+            record.type = EDITOR_RECORD;
+            record.fields = {d.values, d.count};
+            std::vector<EditorField> copied;
+            if (CopyEditorFields(copied, &record, 1) != EDITOR_OK) throw std::invalid_argument("Invalid theme values");
+            themeFields.push_back(std::move(copied.front().fields));
+            for (const auto &f : themeFields.back()) {
+                Id(EditorText(f.key));
+                const bool color =
+                    f.key.compare(0, 6, "color.") == 0 && f.type == EDITOR_INTEGER_VALUE && f.integer <= UINT32_MAX;
+                const bool metric =
+                    f.key.compare(0, 7, "metric.") == 0 &&
+                    ((f.type == EDITOR_REAL_VALUE && f.real >= 0 && f.real <= 10000) ||
+                     (f.type == EDITOR_REAL_LIST && f.reals.size() == 2 &&
+                      std::all_of(f.reals.begin(), f.reals.end(), [](double v) { return v >= 0 && v <= 10000; })));
+                const bool resource = (f.key.compare(0, 5, "font.") == 0 || f.key.compare(0, 6, "image.") == 0) &&
+                                      f.type == EDITOR_TEXT_VALUE;
+                if (!color && !metric && !resource) throw std::invalid_argument("Invalid theme role: " + f.key);
+                if (resource) Id(EditorText(f.text));
+            }
+            themeValues.push_back(BorrowEditorFields(themeFields.back()));
+            d.values = themeValues.back().data();
+            themes.push_back(d);
+        }
+        for (uint32_t i = 0; i < source.fontCount; ++i) {
+            auto d = source.fonts[i];
+            if (d.size != sizeof(d) || !d.count || d.count > 16 || !std::isfinite(d.height) || d.height < 4 ||
+                d.height > 128)
+                throw std::invalid_argument("Invalid font descriptor");
+            Array(d.files, d.count);
+            d.id = Text(d.id, true);
+            d.provider = Text(d.provider, true);
+            d.title = Text(d.title);
+            fontFiles.emplace_back();
+            for (uint32_t j = 0; j < d.count; ++j) {
+                auto name = String(d.files[j]);
+                if (name.empty() && j != 0) throw std::invalid_argument("Only the first font source may be built-in");
+                if (!name.empty()) {
+                    auto path = std::filesystem::u8path(name);
+                    if (path.is_relative()) {
+                        if (origin.empty()) throw std::invalid_argument("Relative font path requires a module library");
+                        path = std::filesystem::u8path(origin).parent_path() / path;
+                    }
+                    name = path.lexically_normal().u8string();
+                }
+                fontFiles.back().push_back(Text(EditorText(name)));
+            }
+            d.files = fontFiles.back().data();
+            fonts.push_back(d);
+        }
+        uint64_t imageBytes = 0;
+        for (uint32_t i = 0; i < source.imageCount; ++i) {
+            auto d = source.images[i];
+            const uint64_t bytes = uint64_t(d.width) * d.height * 4;
+            if (d.size != sizeof(d) || !d.width || !d.height || d.width > 16384 || d.height > 16384 ||
+                bytes > 64 * 1024 * 1024 || bytes != d.byteCount || !d.pixels ||
+                (imageBytes += bytes) > 128 * 1024 * 1024)
+                throw std::invalid_argument("Invalid RGBA image descriptor");
+            d.id = Text(d.id, true);
+            d.provider = Text(d.provider, true);
+            d.title = Text(d.title);
+            imagePixels.emplace_back(d.pixels, d.pixels + d.byteCount);
+            d.pixels = imagePixels.back().data();
+            images.push_back(d);
+        }
     }
     ~Module() { CloseLibrary(library); }
 };
@@ -509,6 +594,11 @@ struct EditorApplication::State {
     const EditorValueEditors *drawingValues = nullptr;
     std::map<std::string, const EditorViewDesc *> views;
     std::map<std::string, const EditorToolDesc *> tools;
+    std::map<std::string, const EditorThemeDesc *> themes;
+    std::map<std::string, const EditorFontDesc *> fonts;
+    std::map<std::string, const EditorImageDesc *> images;
+    std::map<std::string, std::map<std::string, EditorField>> themeValues;
+    uint64_t appearanceRevision = 1;
     std::map<std::string, EditorToolbarLocation> toolbars;
     std::vector<ToolbarEntry> toolbarItems;
     std::map<std::string, std::string> bindingViews;
@@ -1329,11 +1419,40 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
              {field.reals.data(), static_cast<uint32_t>(field.reals.size())}}, record};
         return sink.write ? sink.write(sink.data, values, 11) : EDITOR_INVALID;
     };
-    const EditorQueryDesc queries[] = {query, output};
+    const EditorParameter themeArgument{EDITOR_TEXT("theme"), EDITOR_TEXT_VALUE, 1};
+    const EditorParameter themeField{EDITOR_TEXT("values"), EDITOR_RECORD};
+    const EditorQueryDesc appearance{
+        sizeof(EditorQueryDesc),
+        EDITOR_TEXT("appearance.values"),
+        EDITOR_TEXT("builtin.application"),
+        &themeArgument,
+        1,
+        [](void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
+            const auto &state = *static_cast<State *>(data);
+            std::string id = "editor.theme";
+            for (uint32_t i = 0; i < request->count; ++i)
+                if (String(request->values[i].key) == "theme" && request->values[i].text.size)
+                    id = String(request->values[i].text);
+            const auto found = state.themeValues.find(id);
+            if (found == state.themeValues.end()) return EDITOR_INVALID;
+            EditorField record{"values", EDITOR_RECORD};
+            for (const auto &entry : found->second) record.fields.push_back(entry.second);
+            const std::vector<EditorField> owned{std::move(record)};
+            const auto values = BorrowEditorFields(owned);
+            return sink.write ? sink.write(sink.data, values.data(), uint32_t(values.size())) : EDITOR_INVALID;
+        },
+        m_State.get(),
+        EDITOR_QUERY_VERSIONED,
+        EDITOR_APPLICATION,
+        &themeField,
+        1,
+        [](void *data, const EditorHost *) { return static_cast<State *>(data)->appearanceRevision; }};
+    const EditorQueryDesc queries[] = {query, output, appearance};
     EditorModuleDesc module{};
     module.size = sizeof(module); module.version = EDITOR_VERSION;
     module.id = EditorLiteral("application.operations");
-    module.queries = queries; module.queryCount = 2;
+    module.queries = queries;
+    module.queryCount = 3;
     std::string error;
     if (!Register(module, error)) throw std::logic_error(error);
 }
@@ -1609,7 +1728,7 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
         return false;
     }
     try {
-        auto copy = std::make_unique<Module>(module);
+        auto copy = std::make_unique<Module>(module, s.sourceFile);
         copy->file = s.sourceFile;
         for (const auto &setting : s.moduleSettings) if (setting.id == String(copy->id)) {
             copy->enabled = setting.enabled && (!setting.builtin || copy->file.empty()) &&
@@ -1685,6 +1804,9 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
         validate(&Module::views);
         validate(&Module::tools);
         validate(&Module::toolbarItems);
+        validate(&Module::themes);
+        validate(&Module::fonts);
+        validate(&Module::images);
         std::set<std::string> properties, menus, locations, toolbarLocations;
         auto unique = [&](Module &m) {
             if (!m.enabled) return;
@@ -1849,6 +1971,9 @@ bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources,
                    : choice.kind == "query"   ? has(&Module::queries)
                    : choice.kind == "editor"  ? has(&Module::editors)
                    : choice.kind == "view"    ? has(&Module::views)
+                   : choice.kind == "theme"   ? has(&Module::themes)
+                   : choice.kind == "font"    ? has(&Module::fonts)
+                   : choice.kind == "image"   ? has(&Module::images)
                    : choice.kind == "toolbar" ? has(&Module::toolbarItems)
                                               : false;
         };
@@ -1948,6 +2073,9 @@ std::string EditorApplication::ProviderModule(const ProviderChoice &choice) cons
            : choice.kind == "query"   ? find(&Module::queries)
            : choice.kind == "editor"  ? find(&Module::editors)
            : choice.kind == "view"    ? find(&Module::views)
+           : choice.kind == "theme"   ? find(&Module::themes)
+           : choice.kind == "font"    ? find(&Module::fonts)
+           : choice.kind == "image"   ? find(&Module::images)
            : choice.kind == "toolbar" ? find(&Module::toolbarItems)
                                       : std::string{};
 }
@@ -1996,6 +2124,10 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
             s.tools.clear();
             s.toolbars.clear();
             s.toolbarItems.clear();
+            s.themes.clear();
+            s.fonts.clear();
+            s.images.clear();
+            s.themeValues.clear();
             s.bindingViews.clear();
             s.activation.clear();
             return false;
@@ -2007,6 +2139,10 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
         s.tools.clear();
         s.toolbars.clear();
         s.toolbarItems.clear();
+        s.themes.clear();
+        s.fonts.clear();
+        s.images.clear();
+        s.themeValues.clear();
         s.bindingViews.clear();
         s.activation.clear();
         error = e.what();
@@ -2028,6 +2164,10 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         decltype(s.queries) queries;
         decltype(s.editors) editors;
         decltype(s.views) views;
+        decltype(s.themes) themes;
+        decltype(s.fonts) fonts;
+        decltype(s.images) images;
+        decltype(s.themeValues) themeValues;
         std::map<std::string, const EditorToolbarItemDesc *> toolbarDescriptors;
         auto choose = [&](auto member, auto &table, const char *kind) {
             for (auto *m : s.activation)
@@ -2048,6 +2188,9 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         choose(&Module::editors, editors, "editor");
         choose(&Module::views, views, "view");
         choose(&Module::toolbarItems, toolbarDescriptors, "toolbar");
+        choose(&Module::themes, themes, "theme");
+        choose(&Module::fonts, fonts, "font");
+        choose(&Module::images, images, "image");
         std::set<std::pair<std::string, std::string>> choices;
         for (auto &c : configuration.providers) {
             if (!choices.emplace(c.kind, c.id).second)
@@ -2056,10 +2199,50 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
                                : c.kind == "query"   ? queries.count(c.id)
                                : c.kind == "editor"  ? editors.count(c.id)
                                : c.kind == "view"    ? views.count(c.id)
+                               : c.kind == "theme"   ? themes.count(c.id)
+                               : c.kind == "font"    ? fonts.count(c.id)
+                               : c.kind == "image"   ? images.count(c.id)
                                : c.kind == "toolbar" ? toolbarDescriptors.count(c.id)
                                                      : false;
             if (!found)
                 throw std::invalid_argument("Unknown provider selection");
+        }
+        std::set<const EditorThemeDesc *> visiting;
+        const auto compose = [&](const auto &self, const EditorThemeDesc &theme,
+                                 std::map<std::string, EditorField> &values) -> void {
+            if (visiting.size() >= 64 || !visiting.insert(&theme).second)
+                throw std::invalid_argument("Theme inheritance cycle: " + String(theme.id));
+            if (theme.parent.size) {
+                const EditorThemeDesc *parent = nullptr;
+                for (const auto *module : s.activation)
+                    for (const auto &d : module->themes)
+                        if (String(d.id) == String(theme.id) && String(d.provider) == String(theme.parent)) parent = &d;
+                if (!parent) throw std::invalid_argument("Missing parent theme provider: " + String(theme.parent));
+                self(self, *parent, values);
+            }
+            EditorValue record{};
+            record.key = EDITOR_TEXT("theme");
+            record.type = EDITOR_RECORD;
+            record.fields = {theme.values, theme.count};
+            std::vector<EditorField> copied;
+            if (CopyEditorFields(copied, &record, 1) != EDITOR_OK) throw std::invalid_argument("Invalid theme roles");
+            for (auto &field : copied.front().fields) {
+                const auto old = values.find(field.key);
+                if (old != values.end() && old->second.type != field.type)
+                    throw std::invalid_argument("Incompatible inherited theme role: " + field.key);
+                values[field.key] = std::move(field);
+            }
+            visiting.erase(&theme);
+        };
+        for (const auto &theme : themes) {
+            auto &values = themeValues[theme.first];
+            compose(compose, *theme.second, values);
+            for (const auto &field : values) {
+                if (field.first.compare(0, 5, "font.") == 0 && !fonts.count(field.second.text))
+                    throw std::invalid_argument("Unknown theme font: " + field.second.text);
+                if (field.first.compare(0, 6, "image.") == 0 && !images.count(field.second.text))
+                    throw std::invalid_argument("Unknown theme image: " + field.second.text);
+            }
         }
         auto properties = s.properties;
         for (auto &p : properties) {
@@ -2312,6 +2495,12 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         s.editors = std::move(editors);
         s.views = std::move(views);
         s.tools = std::move(tools);
+        if (s.themes != themes || s.fonts != fonts || s.images != images || s.themeValues != themeValues)
+            ++s.appearanceRevision;
+        s.themes = std::move(themes);
+        s.fonts = std::move(fonts);
+        s.images = std::move(images);
+        s.themeValues = std::move(themeValues);
         s.toolbars = std::move(toolbars);
         s.toolbarItems = std::move(toolbarItems);
         s.bindingViews = std::move(bindingViews);
@@ -3093,6 +3282,43 @@ std::vector<EditorToolbarItemDesc> EditorApplication::ToolbarProviders() const {
         for (const auto &d : module->toolbarItems) result.push_back(d);
     return result;
 }
+std::vector<EditorThemeDesc> EditorApplication::Themes(bool all) const {
+    std::vector<EditorThemeDesc> result;
+    if (!m_State->Thread()) return result;
+    if (all) {
+        for (const auto &module : m_State->modules)
+            for (const auto &desc : module->themes) result.push_back(desc);
+    } else
+        for (const auto &entry : m_State->themes) result.push_back(*entry.second);
+    return result;
+}
+std::vector<EditorFontDesc> EditorApplication::Fonts(bool all) const {
+    std::vector<EditorFontDesc> result;
+    if (!m_State->Thread()) return result;
+    if (all) {
+        for (const auto &module : m_State->modules)
+            for (const auto &desc : module->fonts) result.push_back(desc);
+    } else
+        for (const auto &entry : m_State->fonts) result.push_back(*entry.second);
+    return result;
+}
+std::vector<EditorImageDesc> EditorApplication::Images(bool all) const {
+    std::vector<EditorImageDesc> result;
+    if (!m_State->Thread()) return result;
+    if (all) {
+        for (const auto &module : m_State->modules)
+            for (const auto &desc : module->images) result.push_back(desc);
+    } else
+        for (const auto &entry : m_State->images) result.push_back(*entry.second);
+    return result;
+}
+const std::map<std::string, EditorField> &EditorApplication::ThemeValues(const std::string &id) const {
+    static const std::map<std::string, EditorField> empty;
+    if (!m_State->Thread()) return empty;
+    const auto found = m_State->themeValues.find(id);
+    return found == m_State->themeValues.end() ? empty : found->second;
+}
+uint64_t EditorApplication::AppearanceRevision() const { return m_State->Thread() ? m_State->appearanceRevision : 0; }
 const std::vector<ToolbarEntry> &EditorApplication::ToolbarItems() const { return m_State->toolbarItems; }
 const std::map<std::string, EditorToolbarLocation> &EditorApplication::Toolbars() const { return m_State->toolbars; }
 EditorInputPhase EditorApplication::BindingPhase(const std::string &action) const {
@@ -3444,6 +3670,10 @@ void EditorApplication::Stop() {
     s.tools.clear();
     s.toolbars.clear();
     s.toolbarItems.clear();
+    s.themes.clear();
+    s.fonts.clear();
+    s.images.clear();
+    s.themeValues.clear();
     s.bindingViews.clear();
     s.activation.clear();
     s.modules.clear();

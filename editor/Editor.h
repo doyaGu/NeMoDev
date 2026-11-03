@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 22u
+#define EDITOR_VERSION 23u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -424,6 +424,35 @@ typedef struct EditorToolbarItemDesc {
 typedef struct EditorToolbarLocation {
     EditorString id, title, view;
 } EditorToolbarLocation;
+// Theme values use named roles: color.* is 0xRRGGBBAA, metric.* is a
+// finite REAL or pair of REALs, and font.*/image.* refer to resource IDs.
+// A parent names another provider of this same theme ID. Values override
+// the parent's roles without changing their types; inheritance is acyclic.
+typedef struct EditorThemeDesc {
+    uint32_t size;
+    EditorString id, provider, title, parent;
+    const EditorValue *values;
+    uint32_t count;
+} EditorThemeDesc;
+// Ordered font files: the first provides the face, later files fill missing
+// glyphs. An empty first file requests the renderer's built-in monospace face.
+// Paths are UTF-8, absolute or relative to the contributing module library.
+typedef struct EditorFontDesc {
+    uint32_t size;
+    EditorString id, provider, title;
+    const EditorString *files;
+    uint32_t count;
+    float height;
+} EditorFontDesc;
+// Complete top-left RGBA8 pixels, copied on registration. Image and font
+// declarations own no native resource; the UI owns their rendered resources.
+typedef struct EditorImageDesc {
+    uint32_t size;
+    EditorString id, provider, title;
+    uint32_t width, height;
+    const unsigned char *pixels;
+    uint32_t byteCount;
+} EditorImageDesc;
 typedef struct EditorModuleDesc {
     uint32_t size, version;
     EditorString id;
@@ -453,6 +482,12 @@ typedef struct EditorModuleDesc {
     uint32_t toolbarItemCount;
     const EditorToolbarLocation *toolbars;
     uint32_t toolbarCount;
+    const EditorThemeDesc *themes;
+    uint32_t themeCount;
+    const EditorFontDesc *fonts;
+    uint32_t fontCount;
+    const EditorImageDesc *images;
+    uint32_t imageCount;
 } EditorModuleDesc;
 typedef EditorStatus(EDITOR_CALL *EditorModuleEntry)(const EditorHost *, EditorModuleDesc *);
 

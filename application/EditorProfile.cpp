@@ -59,7 +59,7 @@ ProviderChoice Provider(const Json &row) {
     Require(row.is_object(), "Invalid provider choice");
     ProviderChoice result{Text(row.at("kind")), Identifier(row.at("id")), Identifier(row.at("provider"))};
     Require(result.kind == "command" || result.kind == "query" || result.kind == "editor" || result.kind == "view" ||
-                result.kind == "toolbar",
+                result.kind == "toolbar" || result.kind == "theme" || result.kind == "font" || result.kind == "image",
             "Unknown provider kind");
     if (row.contains("module")) Identifier(row.at("module"));
     return result;
