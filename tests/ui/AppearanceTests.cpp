@@ -13,6 +13,8 @@
 #include "CKPatchMesh.h"
 #include "CKGrid.h"
 #include "CKSprite.h"
+#include "CKCurve.h"
+#include "CKCurvePoint.h"
 #include <algorithm>
 #include <utility>
 #include <cmath>
@@ -1585,6 +1587,163 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
         Undo(ctx);
         IM_CHECK_EQ(integer("sprite.current-slot"), 0);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *curve = IM_REGISTER_TEST(engine, "appearance", "curve_reflow_points_tools_cancel_and_undo");
+    curve->GuiFunc = MainThreadGui;
+    curve->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target, points[3];
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto client = EditorCommands();
+            const auto result = client.Command("object.create-curve");
+            IM_CHECK_NO_RET(EditorClient::Find(result, "created"));
+            target = EditorClient::Find(result, "created")->object;
+            auto &doc = *App().State().document;
+            auto *made = Object<CKCurve>(target.object);
+            IM_CHECK_NO_RET(made);
+            for (int i = 0; i < 3; ++i) {
+                auto *point = CKCurvePoint::Cast(doc.Context()->CreateObject(
+                    CKCID_CURVEPOINT, ("Reflow point " + std::to_string(i)).c_str()));
+                IM_CHECK_NO_RET(point);
+                doc.Include(point->GetID());
+                points[i] = doc.Reference(point->GetID());
+                const VxVector position(float(i), float(i % 2), 0.f);
+                point->SetPosition(&position);
+                point->SetBias(0);
+                point->SetTension(0);
+                point->SetContinuity(0);
+                point->SetLinear(FALSE);
+                IM_CHECK_NO_RET(made->AddControlPoint(point) == CK_OK);
+            }
+            made->SetStepCount(10);
+            made->SetFittingCoeff(0);
+            made->Update();
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupcurve");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID bias = 0, fitting = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##curve-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##curve-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            IM_CHECK(!bias || bias == page->GetID("Bias"));
+            bias = page->GetID("Bias");
+            IM_CHECK(!fitting || fitting == page->GetID("Fitting Coef"));
+            fitting = page->GetID("Fitting Coef");
+            for (const auto name : {"Bias", "Tension", "Continuity", "Fitting Coef", "Step count",
+                                    "Add Points", "##referential"}) {
+                const auto rect = ctx->ItemInfo(page->GetID(name)).RectFull;
+                bool inside = false;
+                for (int i = 0; i < table->ColumnsCount; ++i)
+                    inside |= rect.Min.x >= table->Columns[i].WorkMinX - 1 &&
+                              rect.Max.x <= table->Columns[i].WorkMaxX + 1;
+                IM_CHECK(inside);
+            }
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto value = [&](ObjectRef object, const char *property) {
+            return Read<double>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), object, {property}, data);
+                return data.Values().Real(property);
+            });
+        };
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ScrollToItemY(fitting);
+        ctx->Yield(3);
+        auto at = ctx->ItemInfo(fitting).RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 25, at.y});
+        ctx->Yield(3);
+        IM_CHECK(std::fabs(value(target, "curve.fitting")) > .01);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(value(target, "curve.fitting"), 0.0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemInputValue(fitting, .25f);
+        ctx->Yield(3);
+        IM_CHECK(std::fabs(value(target, "curve.fitting") - .25) < .001);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(value(target, "curve.fitting"), 0.0);
+        ctx->ScrollToItemY(bias);
+        ctx->Yield(3);
+        at = ctx->ItemInfo(bias).RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 25, at.y});
+        ctx->Yield(3);
+        IM_CHECK(std::fabs(value(points[0], "curvepoint.bias")) > .01);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(value(points[0], "curvepoint.bias"), 0.0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "##curve-settings");
+        ctx->ItemClick(SetupPage(ctx, view)->GetID(">"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        for (const auto &field :
+             {std::make_pair("Bias", "curvepoint.bias"), std::make_pair("Tension", "curvepoint.tension"),
+              std::make_pair("Continuity", "curvepoint.continuity")}) {
+            ctx->ItemInputValue(SetupPage(ctx, view)->GetID(field.first), .5f);
+            ctx->Yield(3);
+            IM_CHECK(std::fabs(value(points[1], field.second) - .5) < .001);
+            IM_CHECK_EQ(value(points[0], field.second), 0.0);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            Undo(ctx);
+            IM_CHECK_EQ(value(points[1], field.second), 0.0);
+        }
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Add Points"));
+        ctx->Yield(3);
+        const auto tool = [&] {
+            return Read<int>(ctx, [&] {
+                return int(EditorClient::Integer(EditorCommands().Query("layout.curve-tool"), "tool"));
+            });
+        };
+        IM_CHECK_EQ(tool(), 128);
+        ResizeSetup(ctx, view, 690);
+        ShowSetupTable(ctx, view, "##curve-settings");
+        ChooseInCombo(ctx, SetupRef(view).c_str(), "##referential", "View Plane");
+        IM_CHECK_EQ(Read<int>(ctx,
+                              [&] {
+                                  return int(EditorClient::Integer(
+                                      EditorCommands().Query("layout.curve-tool"), "plane"));
+                              }),
+                    1);
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Add Points"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(tool(), 0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));

@@ -66,16 +66,20 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
         }
         ImGui::EndDisabled();
     });
-    const float lower = ImGui::GetCursorPosY();
-    // Left: player visibility, type, steps, fitting, length.
-    ImGui::SetCursorPos(ImVec2(8, lower));
-    ImGui::BeginGroup();
+    SetupColumns columns("##curve-settings", 3);
+    if (!columns) return;
+    const auto widthFor = [](const char *label) {
+        ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(label).x -
+                                                  ImGui::GetStyle().ItemInnerSpacing.x));
+    };
+    columns.Next();
+    // Player visibility, type, steps, fitting and length.
     bool shown = data.Boolean("player-shown");
     // Dev.exe sub_4584A0: the 3D Layout's list of the objects shown in Player Mode
     // (not the object's visibility).
     if (ImGui::Checkbox("Show In Player Mode", &shown))
         RunSetupCommand("setup.player-shown", {ObjectArgument("target", target), IntegerArgument("value", shown)});
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     Group("Curve type");
     const bool linear = data.Boolean("linear");
     auto setLinear = [&](bool on) {
@@ -90,20 +94,17 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
     ImGui::SameLine();
     if (ImGui::RadioButton("Close", !open) && open)
         PreviewValue(id, "curve.open", false);
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     int steps = int(values.Integer("curve.step-count"));
-    ImGui::SetNextItemWidth(120);
+    widthFor("Step count");
     if (ImGui::SliderInt("Step count", &steps, 1, 1000))
         PreviewValue(id, "curve.step-count", steps);
     float fitting = float(values.Real("curve.fitting"));
-    ImGui::SetNextItemWidth(120);
+    widthFor("Fitting Coef");
     if (ImGui::SliderFloat("Fitting Coef", &fitting, -1.0f, 1.0f, "%.3f"))
         PreviewValue(id, "curve.fitting", fitting);
-    ImGui::Text("Curve length :  %.4f", data.Real("length"));
-    ImGui::EndGroup();
-    // Middle: Modify Curve.
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
+    ImGui::TextWrapped("Curve length :  %.4f", data.Real("length"));
+    columns.Next();
     Group("Modify Curve");
     // Dev (sub_4584A0, commands 128..131): each button turns on the 3D
     // Layout's tool on this curve (pressed again: off); Referential is the
@@ -117,7 +118,7 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
     for (int i = 0; i < 4; ++i) {
         const bool active = toolTarget && toolTarget->object == setup.reference && toolId == uint64_t(128 + i);
         if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (ImGui::Button(tools[i], ImVec2(110, 0))) {
+        if (ImGui::Button(tools[i], ImVec2(-FLT_MIN, 0))) {
             client.Command("layout.set-curve-tool",
                            {ObjectArgument("target", setup.reference), IntegerArgument("tool", active ? 0 : 128 + i),
                             IntegerArgument("plane", plane)});
@@ -126,7 +127,7 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
     }
     ImGui::TextUnformatted("Referential");
     static const char *const referentials[2] = {"Guide", "View Plane"};
-    ImGui::SetNextItemWidth(110);
+    ImGui::SetNextItemWidth(-FLT_MIN);
     if (TypeAheadCombo("##referential", &plane, referentials, 2))
         client.Command("layout.set-curve-tool",
                        {ObjectArgument("target", toolTarget ? toolTarget->object : ObjectRef{}),
@@ -137,10 +138,7 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
     if (ImGui::Checkbox("Show curve points", &showPoints))
         RunSetupCommand("setup.curve-points-shown",
                         {ObjectArgument("target", target), IntegerArgument("value", showPoints)});
-    ImGui::EndGroup();
-    // Right: the current control point.
-    ImGui::SameLine(560);
-    ImGui::BeginGroup();
+    columns.Next();
     Group("Current Point");
     ImGui::Text("%d  out of  %d", count ? setup.point + 1 : 0, count);
     if (ImGui::Button("|<")) setup.point = 0;
@@ -153,7 +151,7 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
     ImGui::BeginDisabled(!point);
     auto tcb = [&](const char *property, const char *label) {
         float value = point ? float(pointValues.Real(property)) : 0;
-        ImGui::SetNextItemWidth(160);
+        widthFor(label);
         if (ImGui::SliderFloat(label, &value, -10, 10, "%.3f") && point)
             PreviewValue(point, property, value);
     };
@@ -163,9 +161,8 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
     bool segment = point && pointValues.Boolean("curvepoint.linear");
     if (ImGui::Checkbox("Next Segment Is Linear", &segment) && point)
         PreviewValue(point, "curvepoint.linear", segment);
-    ImGui::Text("Point distance on curve :  %.4f", data.Real("point-length"));
+    ImGui::TextWrapped("Point distance on curve :  %.4f", data.Real("point-length"));
     ImGui::EndDisabled();
-    ImGui::EndGroup();
 }
 
 void SetupWindows::CharacterPage(Setup &setup, ObjectRef target) {
