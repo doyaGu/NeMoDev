@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -447,92 +448,114 @@ void SetupWindows::ScenePage(ObjectRef target) {
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    const float top = ImGui::GetCursorPosY();
-    // Colors: large swatches; a click opens the color picker.
-    ImGui::SetCursorPos(ImVec2(8, top));
-    ImGui::BeginGroup();
+    SetupColumns columns("##scene-sections", 2);
+    if (!columns) return;
+    columns.Next();
     Group("Colors");
-    auto color = [&](const char *label, const char *field) {
-        const auto c = ColorOf(values, field);
-        const float alpha = c.a;
-        ImGui::PushID(label);
-        ImGui::SetCursorPosX(38);
-        ImGui::AlignTextToFramePadding();
-        ImGui::TextUnformatted(label);
-        ImGui::SameLine(180);
-        if (ImGui::ColorButton("##swatch", ImVec4(c.r, c.g, c.b, 1.0f), ImGuiColorEditFlags_NoTooltip, ImVec2(46, 30)))
-            ImGui::OpenPopup("picker");
-        if (ImGui::BeginPopup("picker")) {
-            float rgb[3] = {c.r, c.g, c.b};
-            if (ImGui::ColorPicker3("##picker", rgb))
-                PreviewValue(id, field, VxColor(rgb[0], rgb[1], rgb[2], alpha));
-            ImGui::EndPopup();
+    {
+        SetupForm form("##scene-colors");
+        if (form) {
+            auto color = [&](const char *label, const char *field) {
+                form.Row(label);
+                const auto c = ColorOf(values, field);
+                ImGui::PushID(label);
+                const float side = ImGui::GetFrameHeight();
+                if (ImGui::ColorButton("##swatch", {c.r, c.g, c.b, 1}, ImGuiColorEditFlags_NoTooltip,
+                                       {std::max(side, 46 * PageUnit()), side}))
+                    ImGui::OpenPopup("picker");
+                if (ImGui::BeginPopup("picker")) {
+                    float rgb[3] = {c.r, c.g, c.b};
+                    if (ImGui::ColorPicker3("##picker", rgb))
+                        PreviewValue(id, field, VxColor(rgb[0], rgb[1], rgb[2], c.a));
+                    ImGui::EndPopup();
+                }
+                ImGui::PopID();
+            };
+            color("Ambient", "scene.ambient");
+            color("Fog", "scene.fog");
+            color("Background", "scene.background");
         }
-        ImGui::PopID();
-        ImGui::Dummy(ImVec2(1, 4));
-    };
-    color("Ambient", "scene.ambient");
-    color("Fog", "scene.fog");
-    color("Background", "scene.background");
-    ImGui::EndGroup();
-    const float lower = ImGui::GetCursorPosY() + 12.0f;
-    // Use settings at Scene Start (top right).
-    ImGui::SetCursorPos(ImVec2(450, top));
+    }
+    columns.Next();
     bool use = values.Boolean("scene.use-environment");
     if (ImGui::Checkbox("Use settings at Scene Start", &use))
         PreviewValue(id, "scene.use-environment", use);
-    // Fog Settings (bottom left).
-    ImGui::SetCursorPos(ImVec2(8, lower));
-    ImGui::BeginGroup();
+    columns.Next();
     Group("Fog Settings");
-    const char *types[] = {"None", "Exponential", "Exponential Squared", "Linear"};
-    int type = std::max(0, std::min(3, static_cast<int>(values.Integer("scene.fog-mode"))));
-    ImGui::SetCursorPosX(38);
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Type:");
-    ImGui::SameLine(180);
-    ImGui::SetNextItemWidth(190);
-    if (TypeAheadCombo("##fogtype", &type, types, 4))
-        PreviewValue(id, "scene.fog-mode", type);
-    if (type != 0) {
-        auto number = [&](const char *label, float value, float step, const char *field) {
-            ImGui::PushID(label);
-            ImGui::SetCursorPosX(38);
-            ImGui::AlignTextToFramePadding();
-            ImGui::TextUnformatted(label);
-            ImGui::SameLine(180);
-            ImGui::SetNextItemWidth(190);
-            if (ImGui::DragFloat("##value", &value, step, 0.0f, 0.0f, "%.3f"))
-                PreviewValue(id, field, value);
-            ImGui::PopID();
-        };
-        number("Fog Start:", float(values.Real("scene.fog-start")), 0.5f, "scene.fog-start");
-        number("Fog End:", float(values.Real("scene.fog-end")), 0.5f, "scene.fog-end");
-        number("Fog Density:", float(values.Real("scene.fog-density")), 0.001f, "scene.fog-density");
-        if (float(values.Real("scene.fog-start")) > float(values.Real("scene.fog-end")))
-            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(CurrentDevTheme().warningText),
-                               "Fog Start must be smaller than Fog End");
+    int type = std::clamp(int(values.Integer("scene.fog-mode")), 0, 3);
+    {
+        SetupForm form("##scene-fog");
+        if (form) {
+            form.Row("Type:");
+            const char *types[] = {"None", "Exponential", "Exponential Squared", "Linear"};
+            if (TypeAheadCombo("##fogtype", &type, types, 4)) PreviewValue(id, "scene.fog-mode", type);
+            if (type != 0) {
+                auto number = [&](const char *label, float value, float step, const char *field) {
+                    form.Row(label);
+                    ImGui::PushID(label);
+                    if (ImGui::DragFloat("##value", &value, step, 0, 0, "%.3f")) PreviewValue(id, field, value);
+                    ImGui::PopID();
+                };
+                number("Fog Start:", float(values.Real("scene.fog-start")), .5f, "scene.fog-start");
+                number("Fog End:", float(values.Real("scene.fog-end")), .5f, "scene.fog-end");
+                number("Fog Density:", float(values.Real("scene.fog-density")), .001f, "scene.fog-density");
+            }
+        }
     }
-    ImGui::EndGroup();
-    // Other Settings (bottom right).
-    ImGui::SetCursorPos(ImVec2(450, lower));
-    ImGui::BeginGroup();
+    if (type != 0 && values.Real("scene.fog-start") > values.Real("scene.fog-end")) {
+        ImGui::PushTextWrapPos(0);
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(CurrentDevTheme().warningText),
+                           "Fog Start must be smaller than Fog End");
+        ImGui::PopTextWrapPos();
+    }
+    columns.Next();
     Group("Other Settings");
-    ObjectRef chosen{};
-    ImGui::SetCursorPosX(480);
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Background Image");
-    ImGui::SameLine(210);
-    if (ObjectChoice("##background", CKCID_TEXTURE, data.Object("background"), data.Text("background-name"), &chosen,
-                     210))
-        PreviewValue(id, "scene.background-image", chosen);
-    ImGui::SetCursorPosX(480);
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted("Starting Camera");
-    ImGui::SameLine(210);
-    if (ObjectChoice("##camera", CKCID_CAMERA, data.Object("camera"), data.Text("camera-name"), &chosen, 210))
-        PreviewValue(id, "scene.starting-camera", chosen);
-    ImGui::EndGroup();
+    SetupForm form("##scene-other");
+    if (form) {
+        ObjectRef chosen{};
+        form.Row("Background Image");
+        if (ObjectChoice("##background", CKCID_TEXTURE, data.Object("background"), data.Text("background-name"),
+                         &chosen, ImGui::GetContentRegionAvail().x))
+            PreviewValue(id, "scene.background-image", chosen);
+        form.Row("Starting Camera");
+        if (ObjectChoice("##camera", CKCID_CAMERA, data.Object("camera"), data.Text("camera-name"), &chosen,
+                         ImGui::GetContentRegionAvail().x))
+            PreviewValue(id, "scene.starting-camera", chosen);
+    }
+}
+
+void SetupWindows::TransformFields(ObjectRef target, const char *field, float *world, float *local, float divisor,
+                                   const char *worldId) {
+    const auto contentId = ImGui::GetID("");
+    if (!ImGui::BeginTable("##components", local ? 3 : 2,
+                           ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_NoSavedSettings))
+        return;
+    ImGui::TableSetupColumn("##axis", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("X :").x);
+    ImGui::TableSetupColumn("World");
+    if (local) ImGui::TableSetupColumn("Local");
+    ImGui::TableHeadersRow();
+    ImGui::PushOverrideID(contentId);
+    const char *axes[] = {"X :", "Y :", "Z :"};
+    for (int i = 0; i < 3; ++i) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(axes[i]);
+        ImGui::PushID(i);
+        ImGui::TableNextColumn();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::DragFloat(worldId, &world[i], .01f, 0, 0, "%.4f"))
+            PreviewNumbers(target, ("entity3d.world-" + std::string(field)).c_str(), world, 3, divisor);
+        if (local) {
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::DragFloat("##local", &local[i], .01f, 0, 0, "%.4f"))
+                PreviewNumbers(target, ("entity3d.local-" + std::string(field)).c_str(), local, 3, divisor);
+        }
+        ImGui::PopID();
+    }
+    ImGui::PopID();
+    ImGui::EndTable();
 }
 
 void SetupWindows::FramePage(ObjectRef target) {
@@ -546,74 +569,46 @@ void SetupWindows::FramePage(ObjectRef target) {
         return;
     const auto values = propertyData.Values();
     const auto parent = data.Object("parent");
-    const float top = ImGui::GetCursorPosY();
-    float bottom = top;
-    const char *axes[] = {"X :", "Y :", "Z :"};
-    // One group: title (+ button), World and Local columns of X / Y / Z.
-    auto group = [&](float x, const char *title, const char *button, const std::function<void()> &press, float *world,
-                     float *local, const char *label, const char *field, float divisor) {
-        ImGui::SetCursorPos(ImVec2(x + 8, top));
-        Group(title);
-        if (button) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton(button))
-                press();
-        }
-        ImGui::SetCursorPosX(x + 60);
-        ImGui::TextUnformatted("World");
-        if (parent) {
-            ImGui::SameLine(x + 180);
-            ImGui::TextUnformatted("Local");
-        }
-        for (int i = 0; i < 3; ++i) {
-            ImGui::PushID(title);
-            ImGui::PushID(i);
-            ImGui::SetCursorPosX(x + 30);
-            ImGui::TextUnformatted(axes[i]);
-            ImGui::SameLine(x + 60);
-            ImGui::SetNextItemWidth(100);
-            if (ImGui::DragFloat("##world", &world[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                PreviewNumbers(id, ("entity3d.world-" + std::string(field)).c_str(), world, 3, divisor);
-            if (parent) {
-                ImGui::SameLine(x + 175);
-                ImGui::SetNextItemWidth(100);
-                if (ImGui::DragFloat("##local", &local[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                    PreviewNumbers(id, ("entity3d.local-" + std::string(field)).c_str(), local, 3, divisor);
+    {
+        SetupColumns columns("##frame-transform", 3);
+        if (columns) {
+            auto group = [&](const char *title, const char *button, const std::function<void()> &press, float *world,
+                             float *local, const char *field, float divisor) {
+                columns.Next();
+                Group(title);
+                if (button && ImGui::SmallButton(button)) press();
+                ImGui::PushID(title);
+                TransformFields(id, field, world, parent ? local : nullptr, divisor, "##world");
+                ImGui::PopID();
+            };
+            const ShownTransform &transform = Shown(target);
+            const VxVector wp = Translation(transform.world), lp = Translation(transform.local);
+            float pw[] = {wp.x, wp.y, wp.z}, pl[] = {lp.x, lp.y, lp.z};
+            group(
+                "Position", "Reset World Matrix",
+                [&] { RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)}); }, pw, pl,
+                "position", 1);
+            float ow[3]{}, ol[3]{};
+            Vx3DMatrixToEulerAngles(transform.world, &ow[0], &ow[1], &ow[2]);
+            Vx3DMatrixToEulerAngles(transform.local, &ol[0], &ol[1], &ol[2]);
+            for (int i = 0; i < 3; ++i) {
+                ow[i] *= RAD_TO_DEG;
+                ol[i] *= RAD_TO_DEG;
             }
-            ImGui::PopID();
-            ImGui::PopID();
+            group("Orientation", nullptr, nullptr, ow, ol, "orientation", RAD_TO_DEG);
+            const auto ws = ScaleOf(transform.world), ls = ScaleOf(transform.local);
+            float sw[] = {ws.x, ws.y, ws.z}, sl[] = {ls.x, ls.y, ls.z};
+            group(
+                "Scale", data.Boolean("place") ? "Set as Unit" : nullptr,
+                [&] { RunSetupCommand("setup.scale-unit", {ObjectArgument("target", target)}); }, sw, sl, "scale", 1);
         }
-        bottom = std::max(bottom, ImGui::GetCursorPosY());
-    };
-    const ShownTransform &transform = Shown(target);
-    const VxVector wp = Translation(transform.world), lp = Translation(transform.local);
-    float pw[3] = {wp.x, wp.y, wp.z}, pl[3] = {lp.x, lp.y, lp.z};
-    group(
-        0, "Position", "Reset World Matrix",
-        [&] { RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)}); }, pw, pl,
-        "Set Position", "position", 1.0f);
-    float ow[3] = {0, 0, 0}, ol[3] = {0, 0, 0};
-    Vx3DMatrixToEulerAngles(transform.world, &ow[0], &ow[1], &ow[2]);
-    Vx3DMatrixToEulerAngles(transform.local, &ol[0], &ol[1], &ol[2]);
-    for (int i = 0; i < 3; ++i) {
-        ow[i] *= RAD_TO_DEG;
-        ol[i] *= RAD_TO_DEG;
     }
-    group(300, "Orientation", nullptr, nullptr, ow, ol, "Set Orientation", "orientation", RAD_TO_DEG);
-    const VxVector ws = ScaleOf(transform.world), ls = ScaleOf(transform.local);
-    float sw[3] = {ws.x, ws.y, ws.z}, sl[3] = {ls.x, ls.y, ls.z};
     const bool place = data.Boolean("place"), portal = data.Boolean("portal");
-    group(
-        600, "Scale", place ? "Set as Unit" : nullptr,
-        [&] { RunSetupCommand("setup.scale-unit", {ObjectArgument("target", target)}); }, sw, sl, "Set Scale", "scale",
-        1.0f);
-    ImGui::SetCursorPos(ImVec2(0, bottom + 4));
     ImGui::Separator();
     if (place) {
         PlaceLinks(target);
         return;
     }
-    ImGui::SetCursorPosX(40);
     ImGui::BeginGroup();
     if (portal) {
         // Portal Setup: Pickable.
@@ -788,125 +783,101 @@ void SetupWindows::Sprite3DPage(ObjectRef target) {
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    const float top = ImGui::GetCursorPosY();
-    float bottom = top;
     const char *axes[] = {"X :", "Y :", "Z :"};
-    auto group = [&](float x, const char *title, const char *button, const std::function<void()> &press, float *v,
-                     int count, const char *label, const char *heading, const char *field, float divisor) {
-        ImGui::SetCursorPos(ImVec2(x + 8, top));
-        Group(title);
-        if (button) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton(button))
-                press();
+    {
+        SetupColumns columns("##sprite-transform", 3);
+        if (columns) {
+            auto group = [&](const char *title, const char *button, const std::function<void()> &press, float *v,
+                             int count, const char *heading, const char *field, float divisor) {
+                columns.Next();
+                Group(title);
+                if (button && ImGui::SmallButton(button)) press();
+                ImGui::TextUnformatted(heading);
+                ImGui::PushID(title);
+                {
+                    SetupForm form("##components");
+                    if (form)
+                        for (int i = 0; i < count; ++i) {
+                            form.Row(axes[i]);
+                            ImGui::PushID(i);
+                            if (ImGui::DragFloat("##v", &v[i], .01f, 0, 0, "%.4f"))
+                                PreviewNumbers(id, field, v, count, divisor);
+                            ImGui::PopID();
+                        }
+                }
+                ImGui::PopID();
+            };
+            const ShownTransform &shown = Shown(target);
+            const auto position = Translation(shown.world);
+            float p[] = {position.x, position.y, position.z};
+            group(
+                "Position", "Reset World Matrix",
+                [&] { RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)}); }, p, 3, "World",
+                "entity3d.world-position", 1);
+            float e[3]{};
+            Vx3DMatrixToEulerAngles(shown.world, &e[0], &e[1], &e[2]);
+            for (auto &angle : e) angle *= RAD_TO_DEG;
+            group("Orientation", nullptr, nullptr, e, 3, "World", "entity3d.world-orientation", RAD_TO_DEG);
+            const auto size = Vector2Of(values, "sprite3d.size");
+            float sz[] = {size.x, size.y};
+            group("Scale", nullptr, nullptr, sz, 2, " ", "sprite3d.size", 1);
         }
-        ImGui::SetCursorPosX(x + 60);
-        ImGui::TextUnformatted(heading);
-        for (int i = 0; i < count; ++i) {
-            ImGui::PushID(title);
-            ImGui::PushID(i);
-            ImGui::SetCursorPosX(x + 30);
-            ImGui::TextUnformatted(axes[i]);
-            ImGui::SameLine(x + 75);
-            ImGui::SetNextItemWidth(105);
-            if (ImGui::DragFloat("##v", &v[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-                PreviewNumbers(id, field, v, count, divisor);
-            ImGui::PopID();
-            ImGui::PopID();
-        }
-        bottom = std::max(bottom, ImGui::GetCursorPosY());
-    };
-    const ShownTransform &shown = Shown(target);
-    const VxVector position = Translation(shown.world);
-    float p[3] = {position.x, position.y, position.z};
-    group(
-        0, "Position", "Reset World Matrix",
-        [&] { RunSetupCommand("setup.reset-world-matrix", {ObjectArgument("target", target)}); }, p, 3, "Set Position",
-        "World", "entity3d.world-position", 1.0f);
-    float e[3] = {0, 0, 0};
-    Vx3DMatrixToEulerAngles(shown.world, &e[0], &e[1], &e[2]);
-    for (float &angle : e) angle *= RAD_TO_DEG;
-    group(300, "Orientation", nullptr, nullptr, e, 3, "Set Orientation", "World", "entity3d.world-orientation",
-          RAD_TO_DEG);
-    const auto size = Vector2Of(values, "sprite3d.size");
-    float sz[2] = {size.x, size.y};
-    group(600, "Scale", nullptr, nullptr, sz, 2, "Set Size", " ", "sprite3d.size", 1.0f);
-    ImGui::SetCursorPos(ImVec2(0, bottom + 4));
+    }
     ImGui::Separator();
-    const float lower = ImGui::GetCursorPosY();
-    // Sprite Type (one of four) and Pickable.
-    ImGui::SetCursorPos(ImVec2(8, lower));
-    ImGui::BeginGroup();
+    SetupColumns columns("##sprite-properties", 3);
+    if (!columns) return;
+    columns.Next();
     Group("Sprite Type");
     const char *types[] = {"Billboard", "X Rotate", "Y Rotate", "Orientable"};
-    const int mode = static_cast<int>(values.Integer("sprite3d.mode"));
+    const int mode = int(values.Integer("sprite3d.mode"));
     for (int t = 0; t < 4; ++t) {
         bool on = mode == t;
-        ImGui::SetCursorPosX(40);
-        if (ImGui::Checkbox(types[t], &on) && on && mode != t)
-            PreviewValue(id, "sprite3d.mode", t);
+        if (ImGui::Checkbox(types[t], &on) && on && mode != t) PreviewValue(id, "sprite3d.mode", t);
     }
     bool pickable = values.Boolean("entity3d.pickable");
-    ImGui::SetCursorPosX(40);
-    if (ImGui::Checkbox("Pickable", &pickable))
-        PreviewValue(id, "entity3d.pickable", pickable);
-    ImGui::SetCursorPosX(68);
-    ImGui::TextUnformatted("(Hold shift to pick it anyway)");
-    ImGui::EndGroup();
-    // Offset and UVMapping (inside the group, SameLine offsets count from its left).
-    ImGui::SetCursorPos(ImVec2(308, lower));
-    ImGui::BeginGroup();
+    if (ImGui::Checkbox("Pickable", &pickable)) PreviewValue(id, "entity3d.pickable", pickable);
+    ImGui::TextWrapped("(Hold shift to pick it anyway)");
+    columns.Next();
     Group("Offset");
     const auto offset = Vector2Of(values, "sprite3d.offset");
-    float off[2] = {offset.x, offset.y};
-    for (int i = 0; i < 2; ++i) {
-        ImGui::PushID(i);
-        ImGui::SetCursorPosX(338);
-        ImGui::TextUnformatted(axes[i]);
-        ImGui::SameLine(75);
-        ImGui::SetNextItemWidth(90);
-        if (ImGui::DragFloat("##offset", &off[i], 0.01f, 0.0f, 0.0f, "%.4f"))
-            PreviewValue(id, "sprite3d.offset", Vx2DVector(off[0], off[1]));
-        ImGui::PopID();
+    float off[] = {offset.x, offset.y};
+    {
+        SetupForm form("##offset-fields");
+        if (form)
+            for (int i = 0; i < 2; ++i) {
+                form.Row(axes[i]);
+                ImGui::PushID(i);
+                if (ImGui::DragFloat("##offset", &off[i], .01f, 0, 0, "%.4f"))
+                    PreviewValue(id, "sprite3d.offset", Vx2DVector(off[0], off[1]));
+                ImGui::PopID();
+            }
     }
-    ImGui::Dummy(ImVec2(1, 6));
     Group("UVMapping");
     const auto uv = RectOf(values, "sprite3d.uv");
-    float r[4] = {uv.left, uv.top, uv.right, uv.bottom};
-    auto uvField = [&](int index) {
-        ImGui::PushID(index);
-        ImGui::SetNextItemWidth(90);
-        if (ImGui::DragFloat("##uv", &r[index], 0.001f, 0.0f, 0.0f, "%.4f"))
-            PreviewValue(id, "sprite3d.uv", VxRect(r[0], r[1], r[2], r[3]));
-        ImGui::PopID();
-    };
-    for (int row = 0; row < 2; ++row) {
-        ImGui::SetCursorPosX(338);
-        ImGui::TextUnformatted("U :");
-        ImGui::SameLine(75);
-        uvField(row * 2);
-        ImGui::SameLine(192);
-        ImGui::TextUnformatted("V :");
-        ImGui::SameLine(237);
-        uvField(row * 2 + 1);
+    float r[] = {uv.left, uv.top, uv.right, uv.bottom};
+    {
+        SetupForm form("##uv-fields");
+        const char *labels[] = {"U min", "V min", "U max", "V max"};
+        if (form)
+            for (int i = 0; i < 4; ++i) {
+                form.Row(labels[i]);
+                ImGui::PushID(i);
+                if (ImGui::DragFloat("##uv", &r[i], .001f, 0, 0, "%.4f"))
+                    PreviewValue(id, "sprite3d.uv", VxRect(r[0], r[1], r[2], r[3]));
+                ImGui::PopID();
+            }
     }
-    ImGui::EndGroup();
-    // Material (the button opens its Setup).
-    ImGui::SetCursorPos(ImVec2(720, lower));
-    ImGui::BeginGroup();
+    columns.Next();
     Group("Material:");
-    ImGui::SameLine();
     const auto material = data.Object("material");
     ImGui::BeginDisabled(!material);
-    if (ImGui::SmallButton(">") && material)
-        Open(material);
+    if (ImGui::SmallButton(">") && material) Open(material);
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Material Setup");
-    ImGui::SameLine();
     ObjectRef chosen{};
-    if (ObjectChoice("##material", CKCID_MATERIAL, material, data.Text("material-name"), &chosen, 190))
+    if (ObjectChoice("##material", CKCID_MATERIAL, material, data.Text("material-name"), &chosen,
+                     ImGui::GetContentRegionAvail().x))
         PreviewValue(id, "sprite3d.material", chosen);
-    ImGui::EndGroup();
 }
 
 } // namespace vdev
