@@ -1706,7 +1706,7 @@
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material 使用共享响应式分栏及标签布局，控件身份不随布局变化，坐标字段、颜色弹窗和数值滑块复用已有绘制；旧坐标页按实际控件和文字扩展滚动范围。公共页头及 Entity、Texture、Mesh、Grid 等其余固定坐标页仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
+          "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material、Entity 的 2D/3D 页面及公共页头使用共享响应式分栏或字段布局，控件身份不随布局变化；变换、颜色弹窗和数值滑块复用已有绘制，名称导航、重命名、拾取、文件替换和网格多选、菜单及拖放使用原有流程，长文件名不挤出按钮。旧坐标页按实际控件和文字扩展滚动范围。Texture、Mesh、Grid、Curve/Character 的专用区等剩余固定坐标页仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
         }
       ]
     },

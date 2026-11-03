@@ -1,0 +1,576 @@
+{
+  "description": "阶段六：Setup 公共页头及 Entity 2D/3D 布局，复用既有查询、修改、取消和撤销；性能验收暂缓，进程隔离单独实施。",
+  "base_revision": "7265e8f16eddbb0f8962231fd34efa2e9f6e838b",
+  "starting_worktree": "继续此前尚未提交的外观和 Setup 布局改动；本批起点由 source-before.json 和 starting.patch 保存，未创建提交。",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal",
+    "editor_version": 23,
+    "profile_version": 1,
+    "workspace_version": 1
+  },
+  "changes": [
+    "公共页头使用已有 SetupForm 和原生行背景，按内容计算高度；名称、拾取和场景筛选按可用空间排列，保留原有编号和窗口状态。",
+    "文件替换按钮保留在字段内，长文件名省略显示，悬停显示按宽度换行的完整路径，不通过文件名撑高整个 Setup。",
+    "Entity 3D 的位置、朝向、缩放和世界尺寸使用已有分栏；与 Camera/Light 复用同一变换区，与 Frame 复用世界和局部坐标字段。",
+    "删除已经无调用的旧布局参数、DevPage 回调和全局空网格选区；Curve 的当前点在同一扩展列绘制，网格选区继续归当前 Setup 实例。",
+    "网格列表、当前网格、父对象和角色信息按完整分组排列；多选、键盘、菜单、拖放和修改入口沿用原有流程。",
+    "Entity 2D 使用已有分栏及原生输入，保留输入编号、单位、UV/裁剪、材质及父对象选择、自引用拒绝和边界固定标志；SpriteText 等复用者仍走同一实现。",
+    "SDK、Editor C 接口、共享布局助手、GPU 快通道和通用 fallback 未改；Texture、Mesh、Grid 及 Curve/Character 专用区和其他平台仍列入 F25。"
+  ],
+  "coverage": {
+    "files": 1135,
+    "groups": 59,
+    "features": 32,
+    "states": 50,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 8,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-entity-setup/build-final.log",
+      "sha256": "533a20a434077702e4cc6c3baddb5ec0d2dd6828acbb353dbfe90f732aa7782d"
+    },
+    "complete_nonperformance_ctest": {
+      "total": 137,
+      "passed": 137,
+      "failures": 0,
+      "skipped": 0,
+      "core_tests": 113,
+      "ui_ctest_groups": 24,
+      "report": {
+        "path": "out/phase-six-entity-setup/full-final.xml",
+        "sha256": "6485cbceb0aebeee92e578dabcd1a1bcc178b6209f03211ed2c105102a7ede60"
+      },
+      "inventory": {
+        "path": "out/phase-six-entity-setup/ctest-inventory-final.json",
+        "sha256": "4dd799dd28778dcfef1e814ef2fc7fb2ebb70d70b32510a652de125a321ab076"
+      },
+      "validation": {
+        "path": "out/phase-six-entity-setup/results-check-final.log",
+        "sha256": "669b999a673e1ba6ac2af78a841ea026f180c3f566a55a911fd6e9624c54972f"
+      }
+    },
+    "ordinary_ui_cases": 267,
+    "ui_groups": {
+      "VirtoolsDevUi.html": {
+        "executed": 3,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/html.xml",
+          "sha256": "2ea3ebe0fe0d217296d2795daa55d866abd0ab2f75030b2a89d1938a2917ee44"
+        }
+      },
+      "VirtoolsDevUi.app": {
+        "executed": 28,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/app.xml",
+          "sha256": "5ada69d66d363f8ab6d1ede151ee26df18dc62b283d6f580127d45524dd5cd41"
+        }
+      },
+      "VirtoolsDevUi.layoutviews": {
+        "executed": 4,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/layoutviews.xml",
+          "sha256": "91ba34ec7e1aac50d0934b570334e3a79785a358ea450ffb2a75280cbafd4bfc"
+        }
+      },
+      "VirtoolsDevUi.filemenu": {
+        "executed": 10,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/filemenu.xml",
+          "sha256": "5593131514ea194da2e4345681f5eda9bb194bfc2f1e08eb64a8d9fca533929c"
+        }
+      },
+      "VirtoolsDevUi.schematic": {
+        "executed": 26,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/schematic.xml",
+          "sha256": "ea93e716bf0577368d35a753c26f5b6f12b5de5f357f22f09e54482b3ba0df2c"
+        }
+      },
+      "VirtoolsDevUi.debugger": {
+        "executed": 10,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/debugger.xml",
+          "sha256": "b3d906cd0062584c6a11431ce734c4f758cfcc8fbc69c30a2e98ecbfa57a4bd3"
+        }
+      },
+      "VirtoolsDevUi.layout": {
+        "executed": 33,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/layout.xml",
+          "sha256": "6d234b637fd77e57bbfcdfd4cdb642efd08a4c95b6c78cace63dd7e55c9eb30c"
+        }
+      },
+      "VirtoolsDevUi.level": {
+        "executed": 7,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/level.xml",
+          "sha256": "257a742bf8e7ac85082c339fcd4cfaafc998fdf0e9519c3de3ee3b7f248bc2f9"
+        }
+      },
+      "VirtoolsDevUi.setup": {
+        "executed": 21,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/setup.xml",
+          "sha256": "7a35c26c48d206fecf12c0b050a79f8c3e9fcf0bb463d37173f3d51e09dafea4"
+        }
+      },
+      "VirtoolsDevUi.propertyedits": {
+        "executed": 7,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/propertyedits.xml",
+          "sha256": "fcca6417fc5abc35ad00466f57f560fd357ee5c5ca0fa5540cc584b38fa0d9b0"
+        }
+      },
+      "VirtoolsDevUi.hierarchy": {
+        "executed": 8,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/hierarchy.xml",
+          "sha256": "3244414a988decc779dde3252c01fa1d41ea01f7f0515764cccf6125103bc768"
+        }
+      },
+      "VirtoolsDevUi.blocks": {
+        "executed": 7,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/blocks.xml",
+          "sha256": "30ed5315c2d0c3ff96f2c3893178113e1f363091f9ab00d2bc73c4c89e3a114b"
+        }
+      },
+      "VirtoolsDevUi.attributes": {
+        "executed": 6,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/attributes.xml",
+          "sha256": "ee7f583c7494fe40eac0e599f670f56f4197ce54dbea2b08b4158002fa6aeb7c"
+        }
+      },
+      "VirtoolsDevUi.create": {
+        "executed": 6,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/create.xml",
+          "sha256": "ed327faa1e7daa801359fc4e82456fa2fe72f2cfcba648acbe38c2488ef8613c"
+        }
+      },
+      "VirtoolsDevUi.tools": {
+        "executed": 13,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/tools.xml",
+          "sha256": "aa30d406df4b3bd520ef5cfd0d639d8f7bb9114096d7abb98ec426d8e1bb98da"
+        }
+      },
+      "VirtoolsDevUi.sound": {
+        "executed": 2,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/sound.xml",
+          "sha256": "00241f4e5301827e0b6cb8b6b83af1d427abcda04b35e3d3e653c173f0152d8a"
+        }
+      },
+      "VirtoolsDevUi.character": {
+        "executed": 2,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/character.xml",
+          "sha256": "b7dfc3868c32b98cd281f88d2f73a0bdf1b0b058417bf446bb387ab56fde6c92"
+        }
+      },
+      "VirtoolsDevUi.modules": {
+        "executed": 74,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/virtoolsdev-ui/modules.xml",
+          "sha256": "36b0cca11fec635d3c7772d8001b11e14bc8f33a04b4fcc86ef7f652e51f1445"
+        }
+      }
+    },
+    "appearance_startup_cases": [
+      {
+        "executed": 1,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/appearance-startup/builtin-disabled.xml",
+          "sha256": "e9d36d5e7b57a0a121c1710cb346ad2af270c34515bf5c972187b177677f82e1"
+        }
+      },
+      {
+        "executed": 7,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/appearance-startup/editing.xml",
+          "sha256": "66499bd4c5242e52490a62472d31b97b6087ba9df599e7caa3a62b23e2de3c63"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/appearance-startup/missing-provider.xml",
+          "sha256": "84c025bf91bd11bc57d12cdec53da172cabf0aee3f8fd27635addd358613a5be"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/appearance-startup/provider-returned.xml",
+          "sha256": "8439432ccf0978ab79c685948b23649efefac881a47c60295f7f7a9a9d5b4a55"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/appearance-startup/restore.xml",
+          "sha256": "83d6f35b7150ee9fe4360444cfe72ac7ba6bb6435254e1f3cd9147eba3e17c97"
+        }
+      },
+      {
+        "executed": 1,
+        "registered": 299,
+        "report": {
+          "path": "out/phase-six-entity-setup/reports/appearance-startup/save.xml",
+          "sha256": "8f9d7169ec1798c61b318cec2078fa4818eb15917d22a215e721dc0dc55a3644"
+        }
+      }
+    ],
+    "appearance_selected_cases": 12,
+    "appearance_expected_startup_failures": [
+      {
+        "path": "out/phase-six-entity-setup/reports/appearance-startup/invalid-theme.log",
+        "sha256": "75f01d5889c4d575af2d5cc81aa7d203712a5a15280543a90261fc0a4acccdff"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/appearance-startup/invalid-font.log",
+        "sha256": "c03a4ec46f1ec365f726ddec04a2cfff6300dd12196d208cf98a4153842f26c3"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/appearance-startup/invalid-layout.log",
+        "sha256": "59f63ade54bd096b60fd484b772bc2dcc3561a4e2e979e269d5d4370ae792d16"
+      }
+    ],
+    "workspace_startup_combinations": [
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/bad-dock-tree.xml",
+        "sha256": "443ecaa908fc92422998376e6637b7e1ca261c8551d4fc35b638a75e64955f7a"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/bad-view-version.xml",
+        "sha256": "35280310c3bdda1e9d013b0764f72ede3fc46f790f3ea079c8142fa7c3306828"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/close-missing-provider.xml",
+        "sha256": "519719d95d85362bfba6dc8b1a7b724e50cb69d72d27319cb3ed2164bc3bc38f"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/discard-unrestored.xml",
+        "sha256": "9b3fb1085ce06eb7e8a16af2f4346f2411f2c3fb4a99c0c8874132e45a230e61"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/first-start-with-document.xml",
+        "sha256": "b2e67a149e8ee57fde4c076cd77cc2240dbd6c4b6281a58eb55728822a74e6b3"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/missing-provider.xml",
+        "sha256": "189b70d7f80da450aea203c46c6b25c4d9004e977def706bfac757c76d0a589d"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/provider-returned.xml",
+        "sha256": "25e4ffa1366d54663b2c5640c08cf757ae7f6471637e597b442a108a0d01a2d6"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/restore.xml",
+        "sha256": "61b77bde325853dadc5b20e2aef5f568c9ef4c6fc0ccd17daa430860360f4f89"
+      },
+      {
+        "path": "out/phase-six-entity-setup/reports/workspace-startup/save.xml",
+        "sha256": "aade7d053b0db1318cbffe42b5316203027826dad4b1f22267d7b05dfc2f0a71"
+      }
+    ],
+    "architecture_checker_cases": 58,
+    "architecture_checker_log": {
+      "path": "out/phase-six-entity-setup/architecture-tests-final.log",
+      "sha256": "5d3a2da72be750984d8e4a8c7af381a79cb2b47dd5e5133c7c4bb2e0bfeb07b9"
+    },
+    "architecture_log": {
+      "path": "out/phase-six-entity-setup/architecture-final.log",
+      "sha256": "5d0a6fede3404eda32c92e413c6e49a903f8e3391f7e1ca2d416a2efd4c73ea9"
+    },
+    "native_desktop": {
+      "case": "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+      "executed": 1,
+      "registered": 299,
+      "report": {
+        "path": "out/phase-six-entity-setup/player-final.xml",
+        "sha256": "6cb6f5d5610ae5e30cf029f3af8fad77f0f260fbfdc78b2cbd2945d5bcb2e2ef"
+      },
+      "log": {
+        "path": "out/phase-six-entity-setup/player-final.log",
+        "sha256": "07ba152636eb4ffebacaa9686d626fb848939bbf18974509a620b8fe61c711d3"
+      }
+    },
+    "new_regressions": [
+      "公共页头在 1500、450、260、1500 窗口宽度间往返，验证名称、拾取、场景筛选和文件按钮的编号、边界及实际高度；长文件名不挤出按钮或覆盖页面。",
+      "名称弹窗跨重排保持同一编号，导航不新增历史；重命名预览后重排并 Escape 恢复原名，确认只增加一步撤销；拾取后关闭重开不残留草稿。",
+      "Entity 3D/2D 在 1500、690、450、1500 宽度间往返，验证分栏、输入及分量编号、字段范围和水平滚动。",
+      "3D 和 2D 位置拖动中重排后 Escape 恢复原值且不增加历史，输入确认仅产生一步撤销；未编辑的分量保持原值，Undo 恢复。",
+      "两个网格在 Ctrl 多选后重排，右键一次移除全部选中网格，仅增加一步撤销；Undo 恢复两份对象引用。",
+      "2D 材质和父对象选择分别只产生一步撤销，自引用拒绝且不增加历史；Undo 恢复原引用。",
+      "原有 SetupTests 和 UiTests 输入辅助代码未改，文件替换、类型搜索、网格菜单、初始条件、拾取、颜色取消、角色、声音、Curve 和 Grid 既有回归通过。",
+      "完整套件保留合法 NMO 直接打开、文件失败回滚、导出保护、撤销、模块启动恢复、GPU 快通道、通用 fallback 和显式快照；原生双视口全屏及退出后的焦点和 GPU 恢复通过。"
+    ],
+    "discarded_runs": [
+      "新增测试最初在重排后尚未滚动到网格列表便点击，并试图按组合控件总编号查找其分量；随后改为滚动到可见列表及读取实际分量控件。断言和超时未放宽。"
+    ],
+    "synchronized_runtime_build": {
+      "path": "out/phase-six-entity-setup/build-tests.log",
+      "sha256": "cfb09d495a7c77278758d46e64dae80e0df1446c61e04de545d2e87d54891535"
+    }
+  },
+  "preservation": {
+    "sdk_source_writes_by_this_batch": false,
+    "sdk_changes_during_work": [
+      ".",
+      "Source/CK2",
+      "Source/Managers/SdlInputManager",
+      "Source/RenderEngine"
+    ],
+    "sdk_changes_during_final_test": [
+      ".",
+      "Source/CK2",
+      "Source/Managers/SdlInputManager",
+      "Source/RenderEngine"
+    ],
+    "sdk_start_record": {
+      "path": "out/phase-six-entity-setup/sdk-start.json",
+      "sha256": "70bc5376e32cb110bed1c30c2f632f341b78405a83829c36849763cd77d87f7b"
+    },
+    "sdk_test_start_record": {
+      "path": "out/phase-six-entity-setup/sdk-test-start-final.json",
+      "sha256": "f4c5868f95818fe58715e335cb8837f87a62e8996a8612767ef0c3fda2745420"
+    },
+    "sdk_end_record": {
+      "path": "out/phase-six-entity-setup/sdk-after.json",
+      "sha256": "b0a9c6d888b3be13d9ed1697fadd063e6044bd54a92c50194932a5d03ea7af3d"
+    },
+    "sdk_tested": {
+      ".": {
+        "revision": "33467ec5c539c83f7fbf74f466b4d30ecc63068c",
+        "patch_sha256": "e1349fecc8cc844c8bee579f5892ab205ae4f81f8476d37da7bad3fe3031caee"
+      },
+      "Source/BuildingBlocks": {
+        "revision": "5b833b9243459221e0afc3179f7ac28baf2ec215",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/3DTrans/qhull": {
+        "revision": "d1c2fc0caa5f644f3a0f220290d4a868c68ed4f6",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/BuildingBlocks/physics_RT/ivp": {
+        "revision": "7579664996e68040dd0158081b04f612e6a2d515",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/CK2": {
+        "revision": "d582265e7e1208472d5e5ac22ebbdf3378fd4fb1",
+        "patch_sha256": "1c4ee72d01d7277c2ac6673a64f4af81970e6c8870cbbed73f8a15e423bf2eff"
+      },
+      "Source/CK2/deps/miniz": {
+        "revision": "d10b03cc73475af673df40f06e5cefd1d5f940d9",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/ParameterOperations": {
+        "revision": "85767adbdf70c327fcb9da9d179285a390bd6756",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Managers/SdlInputManager": {
+        "revision": "368d414378410ddeb4a0e42e523f86c90b842a68",
+        "patch_sha256": "f66725ea3d4c154b812ddea7d3bf17c026836858ff1231aad0853a8361d1c182"
+      },
+      "Source/Managers/SdlSoundManager": {
+        "revision": "4ada4c473e9884c9c6f759a8e9f0b3d4f988c6bd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Player": {
+        "revision": "650c3676bea4b1535f2522395d8f907056303488",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/Plugins": {
+        "revision": "b82cbeb0b028e68a3edc0355699d3f50131aed60",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/RenderEngine": {
+        "revision": "3fe16295c357ca1a6951900480484a2a87905c9f",
+        "patch_sha256": "483ff96acf4ca171088ca3ee9261df0fb3cf99cf1fae9c4b8b72392a70205ab8"
+      },
+      "Source/VxMath": {
+        "revision": "37ab8af3619f7bcf38f39e7561ab88fffe8bbf3d",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde": {
+        "revision": "2e5224981e9123b8fe89a9833a978556d636a565",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/simde/test/munit": {
+        "revision": "da8f73412998e4f1adf1100dc187533a51af77fd",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "Source/VxMath/deps/stb": {
+        "revision": "31c1ad37456438565541f4919958214b6e762fb4",
+        "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "runtime_files_unchanged_during_final_test": true,
+    "unchanged_gpu_source_sha256": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "editor_c_interface_changed_this_batch": false,
+    "editor_header_sha256": "53193de3459aabe594dd9fb1b0a10ea9791f0a63ae110bcf52e9a4ccea541462",
+    "document_formats_changed": false,
+    "starting_source_record": {
+      "path": "out/phase-six-entity-setup/source-before.json",
+      "sha256": "0730009e4b4e7d74b0dd288275f93f1d16f0e7e3300166cb7624d06c5f9dd8b3"
+    },
+    "starting_patch": {
+      "path": "out/phase-six-entity-setup/starting.patch",
+      "sha256": "767a5aa38d66767850d5bdaaf086d6f1dbd43b5f7519d01190c6f55776939ae5"
+    },
+    "sdk_record_note": "SDK 工作区在本批期间有独立修改并触发同步重编译；本批未写入 SDK。最终回归期间其他任务提交了这些修改，16 个仓库按测试时版本核对，源码内容一致，22 项运行文件也一致。提交号和补丁元数据的变化另行记录。",
+    "sdk_build_start_record": {
+      "path": "out/phase-six-entity-setup/sdk-build-start-final.json",
+      "sha256": "f4c5868f95818fe58715e335cb8837f87a62e8996a8612767ef0c3fda2745420"
+    },
+    "runtime_test_start_record": {
+      "path": "out/phase-six-entity-setup/runtime-test-start-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_end_record": {
+      "path": "out/phase-six-entity-setup/runtime-after.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "unchanged_original_setup_test_sha256": {
+      "tests/ui/SetupTests.cpp": "3149c207a52fbda6560138c4bbd8ae762d8362201a89d0460f928c8ccb43c868",
+      "tests/ui/UiTests.cpp": "be02e3b97ce666c0df4a8e4622d1d94012dbf8d651122922777cca3f2c45e1ba"
+    },
+    "sdk_source_contents_unchanged_during_final_test": true,
+    "sdk_content_check": {
+      "path": "out/phase-six-entity-setup/sdk-content-check-final.json",
+      "sha256": "bc1327d1f0968917530b3d29ae7447ba05e7ac7093632b998a64b3433c1c1d52"
+    },
+    "unchanged_layout_helpers_sha256": {
+      "ui/setup/SetupLayout.cpp": "44607d9ce54fbd80d33a73db6cf03504538c029fb0e3cd91e43b25e87ccd75df",
+      "ui/setup/SetupLayout.h": "cb3863187b57da9737815142a6e50724d3e861cbdc394c7f19e6c27f4241c8cd"
+    }
+  },
+  "remaining": {
+    "performance": "按用户要求继续暂缓，原定 3% 门槛不变；本批验证功能、资源复用、GPU/fallback 和读回上传计数，没有计时验收。",
+    "runtime_process_isolation": "单独实施。",
+    "not_executed": [
+      "Windows/Linux 实机",
+      "原版 Level_1.NMO（合法 NMO 直接打开包含在完整回归）",
+      "完整原版帮助与真实系统打印",
+      "完整发布包及整个原生桌面 Player 组（仅复验双视口全屏）"
+    ],
+    "stage_six_gaps": [
+      {
+        "feature": "F01",
+        "due_phase": 6,
+        "reason": "补全部入口同语义与生产不含测试驱动"
+      },
+      {
+        "feature": "F07",
+        "due_phase": 6,
+        "reason": "取消、各阶段失败、提交标识和源文档关闭后的独立打印内容已覆盖；真实系统打印提交及 Windows/Linux 原生打印仍待实机验证"
+      },
+      {
+        "feature": "F16",
+        "due_phase": 6,
+        "reason": "双视口及其 GPU 稳定帧计数、独立 fallback、快照和原生全屏已覆盖；性能计时验收按用户要求暂缓，原定门槛不变"
+      },
+      {
+        "feature": "F25",
+        "due_phase": 6,
+        "reason": "主题资源、页面配色和共享尺寸已接入原有模块与配置；Scene、Frame、Sprite3D、Camera、Light、Material、Entity 的 2D/3D 页面及公共页头使用共享响应式分栏或字段布局，控件身份不随布局变化；变换、颜色弹窗和数值滑块复用已有绘制，名称导航、重命名、拾取、文件替换和网格多选、菜单及拖放使用原有流程，长文件名不挤出按钮。旧坐标页按实际控件和文字扩展滚动范围。Texture、Mesh、Grid、Curve/Character 的专用区等剩余固定坐标页仍需迁移，并完成 Windows/Linux 的资源、字体和 DPI 实机复验，不能将 F25 记为完成。"
+      },
+      {
+        "feature": "F26",
+        "due_phase": 6,
+        "reason": "自包含帮助导航和生命周期已覆盖；仍需原版帮助包复验全书，并验证跨启动状态和替代 Help 提供者"
+      },
+      {
+        "feature": "F30",
+        "due_phase": 6,
+        "reason": "阶段六在各平台的发布构建和安装产物上复验资源、运行库、模块打包及生命周期；本轮已有 macOS Release 回归"
+      },
+      {
+        "feature": "F31",
+        "due_phase": 6,
+        "reason": "生产模块发现、统一装配、按身份启用禁用及替换、配置和窗口状态保存恢复已实现；完整模块发布包的各平台实机验证仍待完成"
+      },
+      {
+        "feature": "F32",
+        "due_phase": 6,
+        "reason": "尚未实现通用模块文档数据。需补登记与版本升级、文档所有权、保存加载、未知模块原样保留、对象引用重映射、Import/Merge 冲突及失败恢复、撤销和无数据时不写空区。现有 Layout/Pictures 文档数据回归不能替代这些测试。"
+      }
+    ],
+    "separate_work": [
+      {
+        "id": "runtime-isolation",
+        "feature": "F17",
+        "name": "运行时进程隔离",
+        "reason": "用户明确安排单独实施；本轮阶段五收尾不包含它。原生单次调用仍不能强制中断。中断后保留文档、选区和撤销历史，并继续嵌入 3D 视口的要求不变。"
+      }
+    ]
+  },
+  "verification_status": "passed functional regression; performance deferred"
+}
