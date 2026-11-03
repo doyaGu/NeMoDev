@@ -935,44 +935,72 @@ bool SetupWindows::ObjectChoice(const char *label, uint32_t classId, ObjectRef c
 
 // Dev's dark strip: the Name list of the objects of the same class.
 void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
-    const ImVec2 stripMin = ImGui::GetCursorScreenPos();
-    const float stripHeight = ImGui::GetFrameHeight() + 6.0f;
-    ImGui::GetWindowDrawList()->AddRectFilled(
-        stripMin, ImVec2(stripMin.x + ImGui::GetContentRegionAvail().x, stripMin.y + stripHeight), DevChrome());
     PushDarkChrome();
-    // Dev.exe sub_442A30: the picker (Pick an entity of the same type) and
-    // the Level / Current Scene filter (pressed: the current scene) before
-    // the Name combo.
-    const float s = ImGui::GetFontSize() / 13.0f;
-    static const int PICKER[5] = {719, 721, 720, 720, 719};
-    static const int FILTER[5] = {1355, 1356, 1357, 1354, 1357};
-    const bool picking = m_PickSetup == setup.reference && m_PickSetupView == setup.nameOwner;
-    if (DevBitmapButton("picker", ImVec2(stripMin.x + 40.0f * s, stripMin.y + 1.0f), PICKER, picking, true, s,
-                        "Pick an entity of the same type")) {
-        m_PickSetup = picking ? ObjectRef{} : setup.reference;
-        m_PickSetupView = picking ? 0 : setup.nameOwner;
-    }
-    if (DevBitmapButton("scenefilter", ImVec2(stripMin.x + 62.0f * s, stripMin.y + 1.0f), FILTER, setup.sceneFilter, true,
-                        s, "Toggle Level/Current Scene Filter")) {
-        setup.sceneFilter = !setup.sceneFilter;
-        if (setup.sceneFilter && page.sceneScoped && page.currentScene && !page.inCurrentScene) {
-            setup.sceneFilter = false;
-            Warn("Object not in current scene !");
+    {
+        SetupForm form("##setup-header");
+        if (form) {
+            form.Row("Name");
+            ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, DevChrome());
+            const float unit = PageUnit();
+            static const int picker[5] = {719, 721, 720, 720, 719};
+            static const int filter[5] = {1355, 1356, 1357, 1354, 1357};
+            const bool picking = m_PickSetup == setup.reference && m_PickSetupView == setup.nameOwner;
+            if (DevBitmapButton("picker", ImGui::GetCursorScreenPos(), picker, picking, true, unit,
+                                "Pick an entity of the same type")) {
+                m_PickSetup = picking ? ObjectRef{} : setup.reference;
+                m_PickSetupView = picking ? 0 : setup.nameOwner;
+            }
+            ImGui::SameLine();
+            if (ImGui::GetContentRegionAvail().x < 22 * unit) ImGui::NewLine();
+            if (DevBitmapButton("scenefilter", ImGui::GetCursorScreenPos(), filter, setup.sceneFilter, true, unit,
+                                "Toggle Level/Current Scene Filter")) {
+                setup.sceneFilter = !setup.sceneFilter;
+                if (setup.sceneFilter && page.sceneScoped && page.currentScene && !page.inCurrentScene) {
+                    setup.sceneFilter = false;
+                    Warn("Object not in current scene !");
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::GetContentRegionAvail().x < 3 * ImGui::GetFrameHeight()) ImGui::NewLine();
+            ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x));
+            if (ImGui::BeginCombo("##name", page.name.c_str())) {
+                std::vector<SetupObjectRow> rows;
+                if (ReadSetupObjects(Client(setup.nameOwner), setup.reference, setup.sceneFilter, rows)) {
+                    TypeAhead typeAhead;
+                    for (const auto &row : rows)
+                        if (typeAhead.Selectable(row.name.c_str(), row.object == setup.reference))
+                            Client(setup.nameOwner).Command("setup.navigate", {ObjectArgument("target", row.object)});
+                }
+                ImGui::EndCombo();
+            }
+            if (page.fileKind != SetupFileKind::None) {
+                form.Row("Filename");
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, DevChrome());
+                const char *id = page.fileKind == SetupFileKind::Texture  ? "...##texturefile"
+                                 : page.fileKind == SetupFileKind::Sprite ? "...##spritefile"
+                                 : page.fileKind == SetupFileKind::Wave   ? "...##soundfile"
+                                                                          : "...##midifile";
+                if (ImGui::SmallButton(id)) ReplaceFile(setup, page.fileKind);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(page.fileKind == SetupFileKind::Wave   ? "Replace the sound's file"
+                                      : page.fileKind == SetupFileKind::Midi ? "Replace the MIDI file"
+                                                                             : "Replace the slot's image");
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x < ImGui::GetFrameHeight()) ImGui::NewLine();
+                const auto at = ImGui::GetCursorScreenPos();
+                const ImVec2 size{std::max(1.f, ImGui::GetContentRegionAvail().x), ImGui::GetFrameHeight()};
+                const ImVec2 min{at.x, at.y + ImGui::GetStyle().FramePadding.y}, max{at.x + size.x, at.y + size.y};
+                const char *filename = page.filename.empty() ? "-" : page.filename.c_str();
+                ImGui::Dummy(size);
+                ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), min, max, max.x, filename, nullptr, nullptr);
+                if (ImGui::IsItemHovered() && ImGui::BeginTooltip()) {
+                    ImGui::PushTextWrapPos(35 * ImGui::GetFontSize());
+                    ImGui::TextUnformatted(filename);
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
+            }
         }
-    }
-    ImGui::SetCursorScreenPos(ImVec2(stripMin.x + 86.0f * s, stripMin.y + 3.0f));
-    ImGui::TextUnformatted("Name");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(200.0f);
-    if (ImGui::BeginCombo("##name", page.name.c_str())) {
-        std::vector<SetupObjectRow> rows;
-        if (ReadSetupObjects(Client(setup.nameOwner), setup.reference, setup.sceneFilter, rows)) {
-            TypeAhead typeAhead;
-            for (const auto &row : rows)
-                if (typeAhead.Selectable(row.name.c_str(), row.object == setup.reference))
-                    Client(setup.nameOwner).Command("setup.navigate", {ObjectArgument("target", row.object)});
-        }
-        ImGui::EndCombo();
     }
     // F2: the object renamed (the setup's window focused).
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
@@ -989,8 +1017,7 @@ void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
         const bool entered = m_Workspace.DrawInput(setup.renameEdit, "##name", ImGui::IsWindowAppearing());
         if (ImGui::Button("OK", ImVec2(80, 0)) || entered) {
             FlushPending();
-            if (m_Workspace.Finish(setup.renameEdit, true))
-                ImGui::CloseCurrentPopup();
+            if (m_Workspace.Finish(setup.renameEdit, true)) ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !setup.renameEdit) {
@@ -999,25 +1026,8 @@ void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
         }
         ImGui::EndPopup();
     }
-    if (page.fileKind != SetupFileKind::None) {
-        ImGui::SameLine();
-        ImGui::TextUnformatted("   Filename");
-        ImGui::SameLine();
-        ImGui::TextUnformatted(page.filename.empty() ? "-" : page.filename.c_str());
-        ImGui::SameLine();
-        const char *id = page.fileKind == SetupFileKind::Texture  ? "...##texturefile"
-                         : page.fileKind == SetupFileKind::Sprite ? "...##spritefile"
-                         : page.fileKind == SetupFileKind::Wave   ? "...##soundfile"
-                                                                  : "...##midifile";
-        if (ImGui::SmallButton(id))
-            ReplaceFile(setup, page.fileKind);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(page.fileKind == SetupFileKind::Wave   ? "Replace the sound's file"
-                              : page.fileKind == SetupFileKind::Midi ? "Replace the MIDI file"
-                                                                     : "Replace the slot's image");
-    }
     PopDarkChrome();
-    ImGui::SetCursorScreenPos(ImVec2(stripMin.x, stripMin.y + stripHeight + 2.0f));
+    ImGui::Spacing();
 }
 
 // Dev's left column: the object's picture, Parameter / Attribute, initial conditions.

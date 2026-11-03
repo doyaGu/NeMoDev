@@ -6,6 +6,11 @@
 #include "ui/render/UiRenderer.h"
 #include "imgui_internal.h"
 #include "CKSprite3D.h"
+#include "CK3dObject.h"
+#include "CKMesh.h"
+#include "CKTexture.h"
+#include <algorithm>
+#include <utility>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -64,6 +69,24 @@ size_t Colored(ImGuiWindow *window, ImU32 color, bool children = false) {
     if (children)
         for (auto *child : window->DC.ChildWindows) count += Colored(child, color, true);
     return count;
+}
+std::string SetupRef(EditorView view) {
+    return "//" + App().WorkspaceForTests().WindowName(view);
+}
+ImGuiWindow *SetupPage(ImGuiTestContext *ctx, EditorView view) {
+    for (auto *child : ctx->GetWindowByRef(SetupRef(view).c_str())->DC.ChildWindows)
+        if (std::string(child->Name).find("/page_") != std::string::npos) return child;
+    return nullptr;
+}
+void ResizeSetup(ImGuiTestContext *ctx, EditorView view, float width, bool focus = true) {
+    OnMainThread(ctx, [&] {
+        const auto name = App().WorkspaceForTests().WindowName(view);
+        ImGui::SetWindowDock(ImGui::FindWindowByName(name.c_str()), 0, ImGuiCond_Always);
+        ImGui::SetWindowPos(name.c_str(), {10, 60});
+        ImGui::SetWindowSize(name.c_str(), {width, 680});
+    });
+    if (focus) ctx->WindowFocus(SetupRef(view).c_str());
+    ctx->Yield(4);
 }
 } // namespace
 void RegisterAppearanceTests(ImGuiTestEngine *engine) {
@@ -567,6 +590,133 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().State().document->Token() == token &&
+                            App().State().objectSelection.References() == selection);
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *header = IM_REGISTER_TEST(engine, "appearance", "setup_header_reflow_navigation_and_rename");
+    header->GuiFunc = MainThreadGui;
+    header->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        EditorView view = 0;
+        ObjectRef texture, other;
+        EditorConfiguration original;
+        std::string otherName, filename = "/tmp/";
+        for (int i = 0; i < 80; ++i) filename += "long_header_component/";
+        filename += "image.bmp";
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            auto client = EditorCommands();
+            for (auto *object : {&texture, &other}) {
+                const auto made = client.Command("object.create-texture");
+                const auto *created = EditorClient::Find(made, "created");
+                IM_CHECK_NO_RET(created && created->object);
+                *object = created->object;
+            }
+            // Image content and a filename longer than the header; no filesystem access is needed.
+            auto *image = Object<CKTexture>(texture.object);
+            IM_CHECK_NO_RET(image && image->Create(2, 2, 32) && image->SetSlotFileName(0, filename.data()));
+            SetupPageData page;
+            IM_CHECK_NO_RET(ReadSetupPage(client, other, -1, page));
+            otherName = page.name;
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", texture)}).status <=
+                            EDITOR_NO_CHANGE);
+            view = workspace.Role("setuptexture");
+            IM_CHECK_NO_RET(view);
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        const auto token = App().State().document->Token();
+        const auto selection = App().State().objectSelection.References();
+        ImGuiID nameId = 0, replaceId = 0;
+        for (const float width : {1500.f, 450.f, 260.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            auto *root = ctx->GetWindowByRef(SetupRef(view).c_str());
+            auto *table = ctx->UiContext->Tables.GetByKey(root->GetID("##setup-header"));
+            IM_CHECK(table);
+            IM_CHECK(table->OuterRect.Min.x >= root->WorkRect.Min.x - 1 &&
+                     table->OuterRect.Max.x <= root->WorkRect.Max.x + 1);
+            IM_CHECK_LT(table->OuterRect.GetHeight(), 7 * ImGui::GetFrameHeight());
+            IM_CHECK(!nameId || nameId == root->GetID("##name"));
+            IM_CHECK(!replaceId || replaceId == root->GetID("...##texturefile"));
+            nameId = root->GetID("##name");
+            replaceId = root->GetID("...##texturefile");
+            for (const auto id : {nameId, replaceId, ImHashStr("##bitmap", 0, root->GetID("picker")),
+                                  ImHashStr("##bitmap", 0, root->GetID("scenefilter"))}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                IM_CHECK_GT(rect.GetWidth(), 1);
+                IM_CHECK(rect.Min.x >= root->WorkRect.Min.x - 1 && rect.Max.x <= root->WorkRect.Max.x + 1);
+                IM_CHECK(rect.Min.y >= table->OuterRect.Min.y && rect.Max.y <= table->OuterRect.Max.y + 1);
+            }
+            IM_CHECK(SetupPage(ctx, view)->Pos.y >= table->OuterRect.Max.y);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        }
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemClick("scenefilter/##bitmap");
+        ctx->ItemClick("scenefilter/##bitmap");
+        ctx->ItemClick(nameId);
+        ctx->Yield(3);
+        IM_CHECK(!ctx->UiContext->OpenPopupStack.empty());
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        ResizeSetup(ctx, view, 450, false);
+        IM_CHECK(!ctx->UiContext->OpenPopupStack.empty() && ctx->UiContext->OpenPopupStack.back().PopupId == popup);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->WindowFocus(SetupRef(view).c_str());
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ComboClick(("##name/" + otherName).c_str());
+        ctx->Yield(3);
+        OnMainThread(ctx, [&] {
+            const auto info = EditorCommands().Inspect(view);
+            const auto *target = EditorClient::Find(info, "target");
+            IM_CHECK_NO_RET(target && target->object == other);
+        });
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        const auto beforeName = Read<std::string>(ctx, [&] {
+            SetupPageData page;
+            ReadSetupPage(EditorCommands(), other, -1, page);
+            return page.name;
+        });
+        ctx->WindowFocus(SetupRef(view).c_str());
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(3);
+        ctx->ItemInput("//###setuprename/##name");
+        ctx->KeyCharsReplace("Cancelled header name");
+        ResizeSetup(ctx, view, 260, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(ObjectName(ctx, other.object) == beforeName);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ctx->WindowFocus(SetupRef(view).c_str());
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(3);
+        ctx->ItemInputValue("//###setuprename/##name", "Accepted header name");
+        ctx->Yield(3);
+        IM_CHECK(ObjectName(ctx, other.object) == "Accepted header name");
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(ObjectName(ctx, other.object) == beforeName);
+        ctx->WindowFocus(SetupRef(view).c_str());
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemClick("picker/##bitmap");
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests();
+            IM_CHECK_NO_RET(workspace.Close(view));
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", texture)}).status <=
+                            EDITOR_NO_CHANGE);
+            view = workspace.Role("setuptexture");
+            IM_CHECK_NO_RET(view && !workspace.Application().HasEdits());
+            SetupPageData page;
+            IM_CHECK_NO_RET(ReadSetupPage(EditorCommands(), texture, -1, page) && page.filename == filename);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(original, error));
             IM_CHECK_NO_RET(App().State().document->Token() == token &&
                             App().State().objectSelection.References() == selection);
             IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
