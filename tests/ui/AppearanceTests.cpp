@@ -1,4 +1,5 @@
 #include "tests/ui/UiTests.h"
+#include "core/level/SetupCommands.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/DevControls.h"
@@ -25,6 +26,7 @@
 #include "CKMidiSound.h"
 #include "CKMidiManager.h"
 #include "CKSpriteText.h"
+#include "CKLayer.h"
 #include <chrono>
 #include <algorithm>
 #include <utility>
@@ -3155,6 +3157,176 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         ctx->SetRef(SetupRef(view).c_str());
         Undo(ctx);
         IM_CHECK(color("spritetext.background-color") == background);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *layer = IM_REGISTER_TEST(engine, "appearance", "layer_reflow_readonly_preview_visibility_cancel_and_undo");
+    layer->GuiFunc = MainThreadGui;
+    layer->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target, gridRef, large, empty;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *grid =
+                CKGrid::Cast(doc.Context()->CreateObject(CKCID_GRID, ("Layer grid " + std::string(100, 'G')).c_str()));
+            IM_CHECK_NO_RET(grid);
+            grid->SetDimensions(8, 8, 8, 8);
+            doc.Include(grid->GetID());
+            const auto type = RegisterGridLayerType(doc, "Reflow layer type");
+            IM_CHECK_NO_RET(type.ok);
+            const auto made = AddGridLayer(doc, grid->GetID(), int(type.created));
+            IM_CHECK_NO_RET(made.ok && made.created);
+            auto *nativeLayer = CKLayer::Cast(doc.Context()->GetObject(made.created));
+            IM_CHECK_NO_RET(nativeLayer);
+            for (int y = 0; y < 8; ++y)
+                for (int x = 0; x < 8; ++x) {
+                    int value = y * 16 + x;
+                    nativeLayer->SetValue2(x, y, &value);
+                }
+            auto *orphan = doc.Context()->CreateObject(CKCID_LAYER, "Layer without grid");
+            IM_CHECK_NO_RET(orphan);
+            doc.Include(orphan->GetID());
+            target = doc.Reference(nativeLayer->GetID());
+            gridRef = doc.Reference(grid->GetID());
+            empty = doc.Reference(orphan->GetID());
+            auto *largeGrid = CKGrid::Cast(doc.Context()->CreateObject(CKCID_GRID, "Large layer grid"));
+            IM_CHECK_NO_RET(largeGrid);
+            largeGrid->SetDimensions(512, 512, 512, 512);
+            doc.Include(largeGrid->GetID());
+            const auto largeLayer = AddGridLayer(doc, largeGrid->GetID(), int(type.created));
+            IM_CHECK_NO_RET(largeLayer.ok && largeLayer.created);
+            large = doc.Reference(largeLayer.created);
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setuplayer");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        const auto cells = [&] {
+            return Read<std::vector<uint64_t>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "layer", data);
+                return data.Values().Integers("squares");
+            });
+        };
+        const auto visible = [&] {
+            return Read<bool>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {"layer.visible"}, data);
+                return data.Values().Boolean("layer.visible");
+            });
+        };
+        const auto canvas = [&]() -> ImGuiWindow * {
+            auto *page = SetupPage(ctx, view);
+            for (auto *child : page->DC.ChildWindows)
+                if (child->ChildId == page->GetID("##layer-canvas"))
+                    return child;
+            return nullptr;
+        };
+        const auto before = cells();
+        const bool wasVisible = visible();
+        ImGuiID squares = 0, checkbox = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##layer-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##layer-settings");
+            auto *child = canvas();
+            IM_CHECK(table && child);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            IM_CHECK(!squares || squares == page->GetID("##squares"));
+            squares = page->GetID("##squares");
+            IM_CHECK(!checkbox || checkbox == page->GetID("Visible"));
+            checkbox = page->GetID("Visible");
+            const int column = table->ColumnsCount - 1;
+            IM_CHECK(child->Pos.x >= table->Columns[column].WorkMinX - 1 &&
+                     child->Pos.x + child->Size.x <= table->Columns[column].WorkMaxX + 1);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        IM_CHECK(cells() == before);
+        ctx->SetRef(SetupRef(view).c_str());
+        const auto rect = ctx->ItemInfo(squares).RectFull;
+        ctx->MouseMoveToPos({rect.Min.x + rect.GetWidth() * .3f, rect.Min.y + rect.GetHeight() * .7f});
+        ctx->MouseClick(0);
+        ctx->Yield(2);
+        IM_CHECK(cells() == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        EditorEdit edit = 0;
+        OnMainThread(ctx, [&] {
+            auto &app = App().WorkspaceForTests().Application();
+            const auto argument = ObjectArgument("target", target);
+            IM_CHECK_NO_RET(app.BeginEdit("setup.layer.visible", {app.Scope(view), &argument, 1}, edit) == EDITOR_OK);
+            IM_CHECK_NO_RET(app.UpdateEdit(edit, IntegerArgument("value", !wasVisible)) == EDITOR_OK);
+        });
+        IM_CHECK_EQ(visible(), !wasVisible);
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK_EQ(visible(), !wasVisible);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Application().FinishEdit(edit, false) == EDITOR_CANCELLED);
+        });
+        ctx->Yield(2);
+        IM_CHECK_EQ(visible(), wasVisible);
+        IM_CHECK(cells() == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->ItemClick(checkbox);
+        ctx->Yield(3);
+        IM_CHECK_EQ(visible(), !wasVisible);
+        IM_CHECK(cells() == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(visible(), wasVisible);
+        Redo(ctx);
+        IM_CHECK_EQ(visible(), !wasVisible);
+        Undo(ctx);
+        IM_CHECK(cells() == before);
+        ctx->ItemClick(SetupPage(ctx, view)->GetID(">"));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, gridRef.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", large)}).status <=
+                            EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 450);
+        ctx->ScrollToBottom(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        auto *child = canvas();
+        IM_CHECK(child);
+        IM_CHECK_GE(child->Pos.y, SetupPage(ctx, view)->InnerRect.Min.y - 1);
+        IM_CHECK_LE(child->Pos.y + child->Size.y, SetupPage(ctx, view)->InnerRect.Max.y + 1);
+        IM_CHECK_GT(child->ScrollMax.x, 0);
+        IM_CHECK_GT(child->ScrollMax.y, 0);
+        IM_CHECK_LT(child->DrawList->VtxBuffer.Size, 4 * 512 * 512);
+        ctx->ScrollToX(child->ID, child->ScrollMax.x);
+        ctx->ScrollToBottom(child->ID);
+        ctx->Yield(2);
+        IM_CHECK_GT(child->Scroll.x, 0);
+        IM_CHECK_GT(child->Scroll.y, 0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", empty)}).status <=
+                            EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 690);
+        ShowSetupTable(ctx, view, "##layer-settings");
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID(">")).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK(canvas());
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));

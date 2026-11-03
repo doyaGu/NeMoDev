@@ -554,7 +554,6 @@ void SetupWindows::KinematicChainPage(ObjectRef target) {
 }
 
 void SetupWindows::LayerPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "layer", description))
         return;
@@ -571,89 +570,110 @@ void SetupWindows::LayerPage(ObjectRef target) {
     const auto &channels = data.Reals("color");
     if (channels.size() != 4)
         return;
-    VxColor color{float(channels[0]), float(channels[1]), float(channels[2]), float(channels[3])};
+    const VxColor color{float(channels[0]), float(channels[1]), float(channels[2]), float(channels[3])};
     const auto square = [&](int x, int y) { return int(int64_t(squares[size_t(y) * size_t(width) + size_t(x)])); };
-    ImGui::BeginGroup();
+    const float unit = PageUnit();
+    SetupColumns columns("##layer-settings", 2);
+    if (!columns)
+        return;
+    columns.Next();
     Group("Layer");
-    ImGui::TextUnformatted("Grid");
-    ImGui::SameLine(110);
-    ImGui::BeginDisabled(!grid);
-    if (ImGui::SmallButton(">") && grid) {
-        Open(grid);
-        m_GridLayer = target;
+    {
+        SetupForm form("##layer-properties");
+        if (form) {
+            form.Row("Grid");
+            ImGui::BeginDisabled(!grid);
+            if (ImGui::SmallButton(">") && grid) {
+                Open(grid);
+                m_GridLayer = target;
+            }
+            ImGui::EndDisabled();
+            if (grid && ImGui::IsItemHovered())
+                ImGui::SetTooltip("Grid Setup");
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s", data.Text("grid-name").c_str());
+            form.Row("Type");
+            const ImVec2 swatch = ImGui::GetCursorScreenPos();
+            ImGui::GetWindowDrawList()->AddRectFilled({swatch.x, swatch.y + unit},
+                                                      {swatch.x + 20 * unit, swatch.y + 14 * unit}, ToImColor(color));
+            ImGui::Dummy({24 * unit, 15 * unit});
+            ImGui::SameLine();
+            ImGui::TextWrapped("%s  (%d)", data.Text("type-name").c_str(), int(data.Integer("type")));
+            form.Row("Format");
+            ImGui::TextUnformatted(int(data.Integer("format")) == CKGRID_LAYER_FORMAT_NORMAL
+                                       ? "Normal"
+                                       : std::to_string(int(data.Integer("format"))).c_str());
+        }
     }
-    ImGui::EndDisabled();
-    if (grid && ImGui::IsItemHovered()) ImGui::SetTooltip("Grid Setup");
-    ImGui::SameLine();
-    ImGui::TextUnformatted(data.Text("grid-name").c_str());
-    ImGui::TextUnformatted("Type");
-    ImGui::SameLine(110);
-    const ImVec2 swatch = ImGui::GetCursorScreenPos();
-    ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(swatch.x, swatch.y + 1), ImVec2(swatch.x + 20, swatch.y + 14),
-                                              ToImColor(color));
-    ImGui::Dummy(ImVec2(24, 15));
-    ImGui::SameLine();
-    ImGui::Text("%s  (%d)", data.Text("type-name").c_str(), int(data.Integer("type")));
-    ImGui::TextUnformatted("Format");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(int(data.Integer("format")) == CKGRID_LAYER_FORMAT_NORMAL
-                               ? "Normal"
-                               : std::to_string(int(data.Integer("format"))).c_str());
     bool visible = values.Boolean("layer.visible");
     if (ImGui::Checkbox("Visible", &visible))
         PreviewValue(target, "layer.visible", visible);
-    // The values: how many squares have one, their range.
     int filled = 0, low = 255, high = 0;
     for (int y = 0; y < length; ++y)
         for (int x = 0; x < width; ++x) {
-            int value = 0;
-            value = square(x, y);
-            if (value > 0) ++filled;
+            const int value = square(x, y);
+            if (value > 0)
+                ++filled;
             low = std::min(low, value);
             high = std::max(high, value);
         }
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     Group("Squares");
-    ImGui::Text("Width : %d    Length : %d", width, length);
-    ImGui::Text("With a value : %d of %d", filled, width * length);
-    if (width * length > 0) ImGui::Text("Values : %d to %d", low, high);
-    ImGui::EndGroup();
-    // Right: the squares (row 0 at the bottom, as in the Grid Setup).
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
-    const float side = 256.0f;
-    const float cell = width > 0 && length > 0 ? std::max(1.0f, std::min(side / width, side / length)) : 0.0f;
-    const ImVec2 at = ImGui::GetCursorScreenPos();
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(at, ImVec2(at.x + side + 16, at.y + side + 16), CurrentDevTheme().previewBackground);
-    const ImVec2 origin(at.x + 8, at.y + 8);
-    for (int y = 0; y < length; ++y)
-        for (int x = 0; x < width; ++x) {
-            int value = 0;
-            value = square(x, y);
-            const float k = std::max(0, std::min(255, value)) / 255.0f;
-            const ImVec2 a(origin.x + x * cell, origin.y + (length - 1 - y) * cell);
-            dl->AddRectFilled(a, ImVec2(a.x + cell, a.y + cell),
-                              IM_COL32(static_cast<int>(color.r * 255 * k), static_cast<int>(color.g * 255 * k),
-                                       static_cast<int>(color.b * 255 * k), 255));
-        }
-    ImGui::SetCursorScreenPos(origin);
-    ImGui::InvisibleButton("##squares", ImVec2(std::max(1.0f, width * cell), std::max(1.0f, length * cell)));
-    if (ImGui::IsItemHovered() && cell > 0.0f) {
-        const ImVec2 mouse = ImGui::GetIO().MousePos;
-        const int x = static_cast<int>((mouse.x - origin.x) / cell);
-        const int y = length - 1 - static_cast<int>((mouse.y - origin.y) / cell);
-        int value = 0;
-        if (x >= 0 && x < width && y >= 0 && y < length) {
-            value = square(x, y);
-            ImGui::SetTooltip("X : %d    Y : %d    Value : %d", x, y, value);
+    {
+        SetupForm form("##layer-values");
+        if (form) {
+            form.Row("Width / Length");
+            ImGui::Text("%d / %d", width, length);
+            form.Row("With a value");
+            ImGui::Text("%d of %d", filled, width * length);
+            if (!squares.empty()) {
+                form.Row("Values");
+                ImGui::Text("%d to %d", low, high);
+            }
         }
     }
-    ImGui::SetCursorScreenPos(ImVec2(at.x, at.y + side + 20));
-    ImGui::Dummy(ImVec2(side + 16, 1));
-    ImGui::EndGroup();
+    columns.Next();
+    // Read-only, with row zero at the bottom as in the Grid Setup.
+    const float margin = 8 * unit;
+    const float side = std::max(1.f, std::min(256 * unit, ImGui::GetContentRegionAvail().x - 2 * margin));
+    const float cell = width > 0 && length > 0 ? std::max(unit, std::min(side / width, side / length)) : unit;
+    const auto contentId = ImGui::GetID("");
+    if (ImGui::BeginChild("##layer-canvas", {0, side + 2 * margin}, ImGuiChildFlags_None,
+                          ImGuiWindowFlags_HorizontalScrollbar)) {
+        ImGui::PushOverrideID(contentId);
+        const auto at = ImGui::GetCursorScreenPos();
+        const ImVec2 extent{std::max(side, width * cell) + 2 * margin, std::max(side, length * cell) + 2 * margin};
+        auto *dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled(at, {at.x + extent.x, at.y + extent.y}, CurrentDevTheme().previewBackground);
+        const ImVec2 origin{at.x + margin, at.y + margin};
+        const auto clip = ImGui::GetCurrentWindow()->ClipRect;
+        const int firstX = int(std::clamp(std::floor((double(clip.Min.x) - origin.x) / cell), 0., double(width))),
+                  lastX = int(std::clamp(std::ceil((double(clip.Max.x) - origin.x) / cell), 0., double(width))),
+                  firstRow = int(std::clamp(std::floor((double(clip.Min.y) - origin.y) / cell), 0., double(length))),
+                  lastRow = int(std::clamp(std::ceil((double(clip.Max.y) - origin.y) / cell), 0., double(length)));
+        for (int row = firstRow; row < lastRow; ++row)
+            for (int x = firstX; x < lastX; ++x) {
+                const int y = length - 1 - row;
+                const float k = std::clamp(square(x, y), 0, 255) / 255.f;
+                const ImVec2 a{origin.x + x * cell, origin.y + row * cell};
+                dl->AddRectFilled(
+                    a, {a.x + cell, a.y + cell},
+                    IM_COL32(int(color.r * 255 * k), int(color.g * 255 * k), int(color.b * 255 * k), 255));
+            }
+        ImGui::SetCursorScreenPos(origin);
+        ImGui::InvisibleButton("##squares", {std::max(1.f, width * cell), std::max(1.f, length * cell)});
+        if (ImGui::IsItemHovered()) {
+            const auto mouse = ImGui::GetIO().MousePos;
+            const int x = int((mouse.x - origin.x) / cell), y = length - 1 - int((mouse.y - origin.y) / cell);
+            if (x >= 0 && x < width && y >= 0 && y < length)
+                ImGui::SetTooltip("X : %d    Y : %d    Value : %d", x, y, square(x, y));
+        }
+        ImGui::SetCursorScreenPos(at);
+        ImGui::Dummy(extent);
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
 }
-
 void SetupWindows::ParameterPage(ObjectRef target) {
     const auto id = target;
     SetupDetails description;
