@@ -2154,6 +2154,200 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *place = IM_REGISTER_TEST(engine, "appearance", "place_links_reflow_cancel_navigation_and_undo");
+    place->GuiFunc = MainThreadGui;
+    place->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target, first, second, portal;
+        std::string firstName, secondName, portalName;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto client = EditorCommands();
+            for (const auto &entry : {std::make_pair("Reflow source place", &target),
+                                      std::make_pair("Reflow linked first", &first),
+                                      std::make_pair("Reflow linked second", &second)}) {
+                const auto made = client.Command("object.create-place", {TextArgument("name", entry.first)});
+                IM_CHECK_NO_RET(EditorClient::Find(made, "created"));
+                *entry.second = EditorClient::Find(made, "created")->object;
+            }
+            const auto made = client.Command("object.create-portal");
+            IM_CHECK_NO_RET(EditorClient::Find(made, "created"));
+            portal = EditorClient::Find(made, "created")->object;
+            SetupPageData page;
+            for (const auto &entry : {std::make_pair(first, &firstName), std::make_pair(second, &secondName),
+                                      std::make_pair(portal, &portalName)}) {
+                IM_CHECK_NO_RET(ReadSetupPage(client, entry.first, -1, page));
+                *entry.second = page.name;
+            }
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setup3d");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID tableId = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "placelinks");
+            auto *table = SetupTable(ctx, view, "placelinks");
+            auto *page = SetupPage(ctx, view);
+            IM_CHECK(table && table->InnerWindow);
+            IM_CHECK(!tableId || tableId == table->ID);
+            tableId = table->ID;
+            IM_CHECK(table->OuterRect.Min.x >= page->WorkRect.Min.x - 1 &&
+                     table->OuterRect.Max.x <= page->WorkRect.Max.x + 1);
+            if (width < 1000)
+                IM_CHECK_GT(table->InnerWindow->ScrollMax.x, 0);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto links = [&] {
+            return Read<std::vector<std::pair<ObjectRef, ObjectRef>>>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "place", data);
+                std::vector<std::pair<ObjectRef, ObjectRef>> result;
+                for (const auto &row : data.Values().Rows("links")) {
+                    const SetupFields value(row.fields);
+                    result.emplace_back(value.Object("place"), value.Object("portal"));
+                }
+                return result;
+            });
+        };
+        IM_CHECK(links().empty());
+        const auto menu = [&](bool row) {
+            ctx->SetRef(SetupRef(view).c_str());
+            ShowSetupTable(ctx, view, "placelinks");
+            auto *table = SetupTable(ctx, view, "placelinks");
+            ctx->ScrollToX(table->InnerWindow->ID, 0);
+            ctx->Yield(3);
+            if (row) {
+                const int index = 0;
+                const auto seed = ImHashData(&index, sizeof(index), tableId);
+                ctx->ItemClick(ImHashStr("##place", 0, seed), ImGuiMouseButton_Right,
+                               ImGuiTestOpFlags_MoveToEdgeL);
+            } else {
+                ImRect visible = table->OuterRect;
+                visible.ClipWith(table->InnerWindow->ClipRect);
+                ctx->MouseMoveToPos({visible.Min.x + 15, visible.Max.y - 20});
+                ctx->MouseClick(ImGuiMouseButton_Right);
+            }
+            ctx->Yield(3);
+            ctx->SetRef("//$FOCUSED");
+        };
+        menu(false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(links().empty());
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        menu(false);
+        ctx->ItemClick("**/Attach New Place");
+        ctx->Yield(3);
+        const auto initial = links();
+        IM_CHECK_EQ(initial.size(), 1);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK(links().empty());
+        Redo(ctx);
+        IM_CHECK(links() == initial);
+        const ObjectRef other = initial[0].first == first ? second : first;
+        const std::string otherName = other == first ? firstName : secondName;
+        const int row = 0;
+        const auto seed = ImHashData(&row, sizeof(row), tableId);
+        const auto placeCombo = ImHashStr("##place", 0, seed), portalCombo = ImHashStr("##portal", 0, seed);
+        ShowSetupTable(ctx, view, "placelinks");
+        ctx->ItemClick(placeCombo);
+        ctx->Yield(3);
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK(!ctx->UiContext->OpenPopupStack.empty() &&
+                 ctx->UiContext->OpenPopupStack.back().PopupId == popup);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(links() == initial);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "placelinks");
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemClick(placeCombo);
+        ctx->Yield(3);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick(("**/" + otherName).c_str());
+        ctx->Yield(3);
+        IM_CHECK(links()[0].first == other);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 2);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK(links() == initial);
+        auto *table = SetupTable(ctx, view, "placelinks");
+        ctx->ScrollToX(table->InnerWindow->ID, table->InnerWindow->ScrollMax.x);
+        ctx->Yield(3);
+        ctx->ItemClick(portalCombo);
+        ctx->Yield(3);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick(("**/" + portalName).c_str());
+        ctx->Yield(3);
+        const auto withPortal = links();
+        IM_CHECK(withPortal[0].second == portal);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 2);
+        ctx->SetRef(SetupRef(view).c_str());
+        const auto active = [&] {
+            return Read<bool>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "place", data);
+                return SetupFields(data.Values().Rows("links")[0].fields).Boolean("active");
+            });
+        };
+        const bool wasActive = active();
+        ctx->ItemClick(ImHashStr("##active", 0, seed));
+        ctx->Yield(3);
+        IM_CHECK(active() != wasActive);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 3);
+        Undo(ctx);
+        IM_CHECK_EQ(active(), wasActive);
+        menu(true);
+        ctx->ItemClick("**/Remove Place");
+        ctx->Yield(3);
+        IM_CHECK(links().empty());
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 3);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK(links() == withPortal);
+        menu(true);
+        ctx->ItemClick("**/Portal Setup");
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, portal.object));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        menu(true);
+        ctx->ItemClick("**/Place Setup");
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, initial[0].first.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 2);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK(links() == initial);
+        Undo(ctx);
+        IM_CHECK(links().empty());
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

@@ -696,12 +696,15 @@ void SetupWindows::PlaceLinks(ObjectRef target) {
     };
     std::vector<Link> links;
     int hoveredRow = -1;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 16);
-    if (ImGui::BeginTable("placelinks", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY, ImVec2(860, 380))) {
+    const float unit = PageUnit();
+    if (ImGui::BeginTable("placelinks", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY | ImGuiTableFlags_ScrollX |
+                              ImGuiTableFlags_SizingStretchProp,
+                          ImVec2(0, 380 * unit), std::max(860 * unit, ImGui::GetContentRegionAvail().x))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("Visible Place");
         ImGui::TableSetupColumn("Through Portal");
-        ImGui::TableSetupColumn("Active", ImGuiTableColumnFlags_WidthFixed, 90);
+        ImGui::TableSetupColumn("Active", ImGuiTableColumnFlags_WidthFixed, 90 * unit);
         ImGui::TableHeadersRow();
         for (size_t i = 0; i < data.Rows("links").size(); ++i) {
             const SetupFields current(data.Rows("links")[i].fields);
