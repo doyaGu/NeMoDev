@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -1762,8 +1763,7 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
 void SetupWindows::TexturePage(Setup &setup, ObjectRef target) {
     const auto id = target;
     SetupDetails description;
-    if (!ReadDetails(target, "bitmap", description))
-        return;
+    if (!ReadDetails(target, "bitmap", description)) return;
     const auto data = description.Values();
     SetupDetails propertyData;
     if (!ReadProperties(target,
@@ -1773,107 +1773,54 @@ void SetupWindows::TexturePage(Setup &setup, ObjectRef target) {
                         propertyData))
         return;
     const auto values = propertyData.Values();
-    ImGui::BeginGroup();
-    if (data.Boolean("system-present") && data.Boolean("system-described"))
-        ImGui::Text("System Memory Format   %dx%d %d bits  %s", int(data.Integer("system-width")),
-                    int(data.Integer("system-height")), int(data.Integer("system-bits")),
-                    data.Text("system-format").c_str());
-    else
-        ImGui::TextUnformatted("System Memory Format   not in system memory");
-    int format = int(values.Integer("texture.video-format"));
-    ImGui::TextUnformatted("Desired Video Format");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(170);
-    const auto &formats = data.Texts("formats");
-    auto formatLabel = [&](int f) {
-        return f >= 0 && size_t(f) < formats.size() ? formats[size_t(f)] : std::string("Unknown");
-    };
-    if (ImGui::BeginCombo("##videoformat", formatLabel(format).c_str())) {
-        TypeAhead typeAhead;
-        for (int f = 1; f <= 23; ++f)
-            if (typeAhead.Selectable(formatLabel(f).c_str(), f == format))
-                PreviewValue(id, "texture.video-format", f);
-        ImGui::EndCombo();
-    }
-    ImGui::EndGroup();
-    ImGui::SameLine(460);
-    ImGui::BeginGroup();
-    Group("Video Memory Information");
-    {
-        if (data.Boolean("video-present") && data.Boolean("video-described")) {
-            ImGui::Text("Width:  %d", int(data.Integer("video-width")));
-            ImGui::Text("Height: %d", int(data.Integer("video-height")));
-            ImGui::Text("Bits:   %d", int(data.Integer("video-bits")));
-            ImGui::Text("Format: %s", data.Text("video-format").c_str());
-        } else
-            ImGui::TextUnformatted(data.Boolean("video-present") ? "Not available" : "not in video memory");
-    }
-    ImGui::EndGroup();
-    ImGui::SameLine(760);
-    ImGui::BeginGroup();
-    const int slots = int(data.Integer("slots")), slot = int(data.Integer("slot"));
-    auto go = [&](const char *label, int to) {
-        ImGui::BeginDisabled(to < 0 || to >= slots || to == slot);
-        if (ImGui::Button(label, ImVec2(60, 0)))
-            PreviewValue(id, "texture.current-slot", to);
-        ImGui::EndDisabled();
-    };
-    go("Prev", slot - 1);
-    ImGui::SameLine();
-    ImGui::Text("%d/ %d", slot, slots);
-    ImGui::SameLine();
-    go("Next", slot + 1);
-    go("First", 0);
-    ImGui::SameLine(124);
-    go("Last", slots - 1);
-    ImGui::EndGroup();
-    ImGui::SameLine();
-    ImGui::BeginGroup();
-    // Documentation "Texture Setup": "Add Texture - O: Opens a dialog box ...
-    // choose an image file" (as the preview's menu and the O key).
-    if (ImGui::Button("Add Slot...", ImVec2(150, 0)))
-        RunSlotCommand(setup, target, SlotCommand::Add);
-    ImGui::BeginDisabled(slots <= 1);
-    if (ImGui::Button("Remove Current Slot", ImVec2(150, 0))) setup.confirmRemoveSlot = true;
-    ImGui::EndDisabled();
-    ImGui::EndGroup();
+    BitmapInfo(setup, target, data, values);
     ImGui::Separator();
-    ImGui::BeginGroup();
-    const char *options[] = {"Raw Data", "External", "Image Format", "Global settings", "Include Original File"};
-    int option = std::max(0, std::min(4, int(values.Integer("texture.save-options"))));
-    ImGui::SetNextItemWidth(160);
-    if (TypeAheadCombo("Save Options", &option, options, 5))
-        PreviewValue(id, "texture.save-options", option);
-    if (option == CKTEXTURE_IMAGEFORMAT)
-        SaveFormatControls(target);
-    const char *mips[] = {"None", "Automatic"};
-    int mip = int(values.Integer("texture.mipmap"));
-    ImGui::SetNextItemWidth(160);
-    if (TypeAheadCombo("Mip Levels", &mip, mips, 2))
-        PreviewValue(id, "texture.mipmap", mip);
-    bool cube = values.Boolean("texture.cube-map");
-    if (ImGui::Checkbox("Cube Map", &cube))
-        PreviewValue(id, "texture.cube-map", cube);
-    bool key = values.Boolean("texture.transparent");
-    if (ImGui::Checkbox("Color Key Transparency", &key))
-        PreviewValue(id, "texture.transparent", key);
-    const auto keyColor = ColorOf(values, "texture.transparent-color");
-    float rgb[3] = {keyColor.r, keyColor.g, keyColor.b};
-    if (ImGui::ColorEdit3("Pick Color", rgb, ImGuiColorEditFlags_NoInputs))
-        PreviewValue(id, "texture.transparent-color", VxColor(rgb[0], rgb[1], rgb[2], 1.0f));
-    ImGui::SameLine();
-    if (ImGui::Button(setup.pickingColor ? "Picking..." : "Pick")) setup.pickingColor = !setup.pickingColor;
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pick a color on the texture");
-    int threshold = int(values.Integer("texture.pick-threshold"));
-    ImGui::TextUnformatted("Alpha Picking Threshold");
-    ImGui::SetNextItemWidth(200);
-    if (ImGui::SliderInt("##threshold", &threshold, 0, 255))
-        PreviewValue(id, "texture.pick-threshold", threshold);
-    UsedByRows("Used By", data.Rows("users"), 110);
-    ImGui::EndGroup();
-    // Previews of the current slot: colors and alpha (uploaded again when
-    // the slot changes, and every two seconds for changing images).
-    ImGui::SameLine(320);
+    const int slot = int(data.Integer("slot"));
+    {
+        SetupColumns columns("##texture-settings", 2);
+        if (columns) {
+            columns.Next();
+            Group("Save Options");
+            const auto widthFor = [](const char *label) {
+                ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(label).x -
+                                                          ImGui::GetStyle().ItemInnerSpacing.x));
+            };
+            const char *options[] = {"Raw Data", "External", "Image Format", "Global settings",
+                                     "Include Original File"};
+            int option = std::clamp(int(values.Integer("texture.save-options")), 0, 4);
+            widthFor("Save Options");
+            if (TypeAheadCombo("Save Options", &option, options, 5)) PreviewValue(id, "texture.save-options", option);
+            if (option == CKTEXTURE_IMAGEFORMAT) SaveFormatControls(target);
+            const char *mips[] = {"None", "Automatic"};
+            int mip = int(values.Integer("texture.mipmap"));
+            widthFor("Mip Levels");
+            if (TypeAheadCombo("Mip Levels", &mip, mips, 2)) PreviewValue(id, "texture.mipmap", mip);
+            bool cube = values.Boolean("texture.cube-map");
+            if (ImGui::Checkbox("Cube Map", &cube)) PreviewValue(id, "texture.cube-map", cube);
+            bool key = values.Boolean("texture.transparent");
+            if (ImGui::Checkbox("Color Key Transparency", &key)) PreviewValue(id, "texture.transparent", key);
+            const auto keyColor = ColorOf(values, "texture.transparent-color");
+            float rgb[] = {keyColor.r, keyColor.g, keyColor.b};
+            if (ImGui::ColorEdit3("Pick Color", rgb, ImGuiColorEditFlags_NoInputs))
+                PreviewValue(id, "texture.transparent-color", VxColor(rgb[0], rgb[1], rgb[2], 1.0f));
+            ImGui::SameLine();
+            const char *pickLabel = setup.pickingColor ? "Picking..." : "Pick";
+            if (ImGui::GetContentRegionAvail().x <
+                ImGui::CalcTextSize(pickLabel).x + 2 * ImGui::GetStyle().FramePadding.x)
+                ImGui::NewLine();
+            if (ImGui::Button(pickLabel)) setup.pickingColor = !setup.pickingColor;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pick a color on the texture");
+            int threshold = int(values.Integer("texture.pick-threshold"));
+            ImGui::TextWrapped("Alpha Picking Threshold");
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::SliderInt("##threshold", &threshold, 0, 255))
+                PreviewValue(id, "texture.pick-threshold", threshold);
+            columns.Next();
+            Group("Used By");
+            UsedByList("Used By", data.Rows("users"), {0, 110 * PageUnit()});
+        }
+    }
+    // Keep the existing per-slot texture cache; window reflow does not request new pixels.
     const int width = int(data.Integer("width")), height = int(data.Integer("height"));
     const auto colorKey = ImageKey(target), alphaKey = colorKey | 1ull;
     if (setup.shownTexture != target || setup.shownSlot != slot || ++setup.textureFrames > 120) {
@@ -1887,13 +1834,16 @@ void SetupWindows::TexturePage(Setup &setup, ObjectRef target) {
             PixelTexture(alphaKey, w, h, pixels.data(), w * 4, true);
         }
     }
-    for (unsigned long long key : {colorKey, alphaKey}) {
-        ImGui::BeginGroup();
-        SlotPreview(setup, target, key, width, height, 384.0f, key == alphaKey);
-        ImGui::EndGroup();
-        ImGui::SameLine();
+    {
+        SetupColumns columns("##texture-previews", 2);
+        if (columns)
+            for (const auto key : {colorKey, alphaKey}) {
+                columns.Next();
+                Group(key == alphaKey ? "Alpha" : "Image");
+                const float side = std::max(1.f, std::min(384 * PageUnit(), ImGui::GetContentRegionAvail().x - 2));
+                SlotPreview(setup, target, key, width, height, side, key == alphaKey);
+            }
     }
-    ImGui::NewLine();
     // Resize Slot (Dev: an Edit Parameter of a 2D Vector, the size).
     if (setup.openResize) {
         setup.openResize = false;

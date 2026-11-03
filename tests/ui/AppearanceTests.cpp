@@ -88,6 +88,10 @@ void ResizeSetup(ImGuiTestContext *ctx, EditorView view, float width, bool focus
     if (focus) ctx->WindowFocus(SetupRef(view).c_str());
     ctx->Yield(4);
 }
+ImGuiTable *SetupTable(ImGuiTestContext *ctx, EditorView view, const char *id) {
+    auto *page = SetupPage(ctx, view);
+    return page ? ctx->UiContext->Tables.GetByKey(page->GetID(id)) : nullptr;
+}
 } // namespace
 void RegisterAppearanceTests(ImGuiTestEngine *engine) {
     auto *edit = IM_REGISTER_TEST(engine, "appearance", "theme_font_and_image_switch_at_frame_boundary");
@@ -966,6 +970,119 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
         Undo(ctx);
         IM_CHECK(choice("entity2d.parent") == originalParent);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *texture = IM_REGISTER_TEST(engine, "appearance", "texture_reflow_slots_previews_cancel_and_undo");
+    texture->GuiFunc = MainThreadGui;
+    texture->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto client = EditorCommands();
+            const auto made = client.Command("object.create-texture");
+            IM_CHECK_NO_RET(EditorClient::Find(made, "created"));
+            target = EditorClient::Find(made, "created")->object;
+            auto *image = Object<CKTexture>(target.object);
+            IM_CHECK_NO_RET(image && image->Create(8, 8, 32, 0) && image->Create(8, 8, 32, 1));
+            for (int slot = 0; slot < 2; ++slot) {
+                image->SetCurrentSlot(slot);
+                for (int y = 0; y < 8; ++y)
+                    for (int x = 0; x < 8; ++x)
+                        image->SetPixel(x, y, slot ? 0x7f123456 : 0xffabcdef);
+            }
+            image->SetCurrentSlot(0);
+            image->SetPickThreshold(0);
+            IM_CHECK_NO_RET(client.Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setuptexture");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID threshold = 0, preview = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ctx->ScrollToBottom(SetupPage(ctx, view)->ID);
+            ctx->Yield(3);
+            auto *page = SetupPage(ctx, view);
+            for (const auto &row :
+                 {std::make_pair("##bitmap-info", 3), std::make_pair("##texture-settings", 2),
+                  std::make_pair("##texture-previews", 2)}) {
+                auto *table = SetupTable(ctx, view, row.first);
+                IM_CHECK(table);
+                IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? row.second : 1);
+            }
+            const auto id = page->GetID("##threshold");
+            IM_CHECK(!threshold || threshold == id);
+            threshold = id;
+            const auto imageId = ImHashStr("##preview", 0, page->GetID("image"));
+            IM_CHECK(!preview || preview == imageId);
+            preview = imageId;
+            const auto *table = SetupTable(ctx, view, "##texture-previews");
+            for (const char *name : {"image", "alpha"}) {
+                const auto rect = ctx->ItemInfo(ImHashStr("##preview", 0, page->GetID(name))).RectFull;
+                bool inside = false;
+                for (int i = 0; i < table->ColumnsCount; ++i)
+                    inside |= rect.Min.x >= table->Columns[i].WorkMinX - 1 &&
+                              rect.Max.x <= table->Columns[i].WorkMaxX + 1;
+                IM_CHECK(inside && rect.GetWidth() > 1);
+            }
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto value = [&](const char *property) {
+            return Read<int>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupProperties(EditorCommands(), target, {property}, data);
+                return int(data.Values().Integer(property));
+            });
+        };
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ScrollToItemY(threshold);
+        ctx->Yield(3);
+        const int before = value("texture.pick-threshold");
+        const auto at = ctx->ItemInfo(threshold).RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 35, at.y});
+        ctx->Yield(3);
+        IM_CHECK(value("texture.pick-threshold") != before);
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(value("texture.pick-threshold"), before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ResizeSetup(ctx, view, 1500);
+        ctx->SetRef(SetupRef(view).c_str());
+        const int typed = before < 128 ? 200 : 40;
+        ctx->ItemInputValue(threshold, typed);
+        ctx->Yield(3);
+        IM_CHECK_EQ(value("texture.pick-threshold"), typed);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(value("texture.pick-threshold"), before);
+        ctx->ScrollToTop(SetupPage(ctx, view)->ID);
+        ctx->Yield(3);
+        ctx->ItemClick("**/Next");
+        ctx->Yield(3);
+        IM_CHECK_EQ(value("texture.current-slot"), 1);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(value("texture.current-slot"), 0);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
