@@ -57,19 +57,24 @@ def main():
         profile = Path(temporary) / '外观.json'
         profile.write_text('{"version":1}', encoding='utf-8')
 
-        def run(name, phase, module=False, error=None):
+        def run(name, phase, module=False, error=None, selection=None, expected=None):
             report = args.results / (name + '.xml')
             report.unlink(missing_ok=True)
             before = profile.read_bytes()
             env = dict(os.environ, NEMODEV_APPEARANCE_PHASE=phase,
                        NEMODEV_APPEARANCE_PROFILE=str(profile))
-            command = [str(args.binary), '--editor-profile', str(profile), '--ui-tests',
-                       '^appearance$' if phase == 'edit' else 'appearance_startup_state',
+            selected = selection or ('^appearance$' if phase == 'edit' else 'appearance_startup_state')
+            count = expected if expected is not None else (15 if phase == 'edit' else 1)
+            command = [str(args.binary), '--editor-profile', str(profile), '--ui-tests', selected,
                        '--ui-results', str(report)]
             if module:
                 command += ['--editor-module', str(args.module)]
-            result = subprocess.run(command, env=env, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, timeout=45)
+            try:
+                result = subprocess.run(command, env=env, stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, timeout=45)
+            except subprocess.TimeoutExpired as timeout:
+                (args.results / (name + '.log')).write_bytes(timeout.stdout or b'')
+                raise
             (args.results / (name + '.log')).write_bytes(result.stdout)
             if error:
                 if result.returncode != 1 or error not in result.stdout.decode(errors='replace') or profile.read_bytes() != before:
@@ -78,7 +83,7 @@ def main():
             if result.returncode or not report.is_file():
                 raise RuntimeError(name + ': ' + result.stdout.decode(errors='replace'))
             cases = [c for c in ET.parse(report).getroot().iter('testcase') if c.find('skipped') is None]
-            if len(cases) != (21 if phase == 'edit' else 1) or any(c.get('status') != 'Success' for c in cases):
+            if len(cases) != count or any(c.get('status') != 'Success' for c in cases):
                 raise RuntimeError(name + ': appearance assertions failed\n' + result.stdout.decode(errors='replace'))
             data = json.loads(profile.read_text(encoding='utf-8'))
             (args.results / (name + '.json')).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -86,6 +91,7 @@ def main():
 
         with help_page(args.help_dir):
             run('editing', 'edit', module=True)
+            run('specialized-editing', 'edit', module=True, selection='^appearancespecialized$', expected=6)
         profile.write_text('{"version":1}', encoding='utf-8')
         saved = run('save', 'save', module=True)
         assert {p['kind'] for p in saved['providers']} == {'theme', 'font', 'image'}

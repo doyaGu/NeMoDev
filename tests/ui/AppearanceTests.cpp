@@ -2475,7 +2475,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
-    auto *animation = IM_REGISTER_TEST(engine, "appearance", "animation_reflow_modes_merge_cancel_and_undo");
+    auto *animation = IM_REGISTER_TEST(engine, "appearancespecialized", "animation_reflow_modes_merge_cancel_and_undo");
     animation->GuiFunc = MainThreadGui;
     animation->TestFunc = [](ImGuiTestContext *ctx) {
         using namespace vdev;
@@ -2635,7 +2635,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         });
     };
     auto *objectAnimation =
-        IM_REGISTER_TEST(engine, "appearance", "object_animation_reflow_shared_merge_cancel_and_undo");
+        IM_REGISTER_TEST(engine, "appearancespecialized", "object_animation_reflow_shared_merge_cancel_and_undo");
     objectAnimation->GuiFunc = MainThreadGui;
     objectAnimation->TestFunc = [](ImGuiTestContext *ctx) {
         using namespace vdev;
@@ -2784,7 +2784,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
-    auto *midi = IM_REGISTER_TEST(engine, "appearance", "midi_reflow_file_edit_playback_and_undo");
+    auto *midi = IM_REGISTER_TEST(engine, "appearancespecialized", "midi_reflow_file_edit_playback_and_undo");
     midi->GuiFunc = MainThreadGui;
     midi->TestFunc = [](ImGuiTestContext *ctx) {
         using namespace vdev;
@@ -2988,7 +2988,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
-    auto *spriteText = IM_REGISTER_TEST(engine, "appearance", "sprite_text_reflow_text_font_color_cancel_and_undo");
+    auto *spriteText = IM_REGISTER_TEST(engine, "appearancespecialized", "sprite_text_reflow_text_font_color_cancel_and_undo");
     spriteText->GuiFunc = MainThreadGui;
     spriteText->TestFunc = [](ImGuiTestContext *ctx) {
         using namespace vdev;
@@ -3165,7 +3165,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
-    auto *layer = IM_REGISTER_TEST(engine, "appearance", "layer_reflow_readonly_preview_visibility_cancel_and_undo");
+    auto *layer = IM_REGISTER_TEST(engine, "appearancespecialized", "layer_reflow_readonly_preview_visibility_cancel_and_undo");
     layer->GuiFunc = MainThreadGui;
     layer->TestFunc = [](ImGuiTestContext *ctx) {
         using namespace vdev;
@@ -3335,7 +3335,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
-    auto *kinematic = IM_REGISTER_TEST(engine, "appearance", "kinematic_reflow_effectors_popup_navigation_and_undo");
+    auto *kinematic = IM_REGISTER_TEST(engine, "appearancespecialized", "kinematic_reflow_effectors_popup_navigation_and_undo");
     kinematic->GuiFunc = MainThreadGui;
     kinematic->TestFunc = [](ImGuiTestContext *ctx) {
         using namespace vdev;
