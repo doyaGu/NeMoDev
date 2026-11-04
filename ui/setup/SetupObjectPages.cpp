@@ -1068,7 +1068,6 @@ void SetupWindows::BehaviorIOPage(ObjectRef target) {
 }
 
 void SetupWindows::BehaviorLinkPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "behavior-link", description))
         return;
@@ -1077,37 +1076,50 @@ void SetupWindows::BehaviorLinkPage(ObjectRef target) {
     if (!ReadProperties(target, {"behavior-link.delay"}, propertyData))
         return;
     const auto values = propertyData.Values();
-    ImGui::BeginGroup();
+    SetupColumns columns("##behaviorlink-settings", 2);
+    if (!columns)
+        return;
+    columns.Next();
     Group("Behavior Link");
-    ImGui::TextUnformatted("From");
-    ImGui::SameLine(110);
-    SetupLink("From", data.Object("from"), data.Text("from-name"));
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", data.Object("start") ? ("of " + data.Text("start-name")).c_str() : "");
-    ImGui::TextUnformatted("To");
-    ImGui::SameLine(110);
-    SetupLink("To", data.Object("to"), data.Text("to-name"));
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", data.Object("end") ? ("of " + data.Text("end-name")).c_str() : "");
-    ImGui::Dummy(ImVec2(1, 6));
-    ImGui::TextUnformatted("Delay");
-    ImGui::SameLine(110);
-    int delay = int(values.Integer("behavior-link.delay"));
-    const bool editable = data.Boolean("schematic-enabled");
-    ImGui::BeginDisabled(!editable);
-    ImGui::SetNextItemWidth(90);
-    if (ImGui::InputInt("##delay", &delay, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable)
-        PreviewValue(target, "behavior-link.delay", delay);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextUnformatted("frames");
-    ImGui::TextUnformatted("Current Delay");
-    ImGui::SameLine(110);
-    ImGui::Text("%d", int(data.Integer("current-delay")));
-    ImGui::Dummy(ImVec2(1, 6));
+    {
+        SetupForm form("##behaviorlink-ends");
+        if (form) {
+            ImGui::PushTextWrapPos(0);
+            form.Row("From");
+            SetupLink("From", data.Object("from"), data.Text("from-name"));
+            if (data.Object("start"))
+                ImGui::TextDisabled("of %s", data.Text("start-name").c_str());
+            form.Row("To");
+            SetupLink("To", data.Object("to"), data.Text("to-name"));
+            if (data.Object("end"))
+                ImGui::TextDisabled("of %s", data.Text("end-name").c_str());
+            ImGui::PopTextWrapPos();
+        }
+    }
+    columns.Next();
+    Group("Delay");
+    {
+        SetupForm form("##behaviorlink-delay");
+        if (form) {
+            form.Row("Delay");
+            int delay = int(values.Integer("behavior-link.delay"));
+            const bool editable = data.Boolean("schematic-enabled");
+            ImGui::BeginDisabled(!editable);
+            const float suffix = ImGui::CalcTextSize("frames").x + ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetNextItemWidth(
+                std::max(1.f, std::min(90 * PageUnit(), ImGui::GetContentRegionAvail().x - suffix)));
+            if (ImGui::InputInt("##delay", &delay, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable)
+                PreviewValue(target, "behavior-link.delay", delay);
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::TextUnformatted("frames");
+            form.Row("Current Delay");
+            ImGui::Text("%d", int(data.Integer("current-delay")));
+        }
+    }
+    ImGui::Spacing();
     if (data.Object("start"))
         ShowInSchematic(data);
-    ImGui::EndGroup();
 }
 
 void SetupWindows::SynchroPage(ObjectRef target) {

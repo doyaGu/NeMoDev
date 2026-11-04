@@ -4312,6 +4312,142 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *behaviorLink =
+        IM_REGISTER_TEST(engine, "appearancebehaviors", "behavior_link_reflow_delay_cancel_undo_and_endpoints");
+    behaviorLink->GuiFunc = MainThreadGui;
+    behaviorLink->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupBehaviors(ctx);
+        IM_CHECK(objects.innerInputLink && objects.input && objects.childInput);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.innerInputLink)})
+                                .status <= EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupbehaviorlink");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID delay = 0, from = 0, to = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##behaviorlink-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##behaviorlink-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            IM_CHECK(!delay || delay == page->GetID("##delay"));
+            delay = page->GetID("##delay");
+            const auto a = ImHashStr(">", 0, page->GetID("From")), b = ImHashStr(">", 0, page->GetID("To"));
+            IM_CHECK((!from || from == a) && (!to || to == b));
+            from = a;
+            to = b;
+            for (const auto id : {delay, from, to}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                const auto &column = table->Columns[id == delay ? table->ColumnsCount - 1 : 0];
+                IM_CHECK(rect.Min.x >= column.WorkMinX - 1 && rect.Max.x <= column.WorkMaxX + 1);
+            }
+            auto *form = SetupTable(ctx, view, "##behaviorlink-ends");
+            IM_CHECK(form && form->OuterRect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            IM_CHECK_GT(form->OuterRect.GetHeight(), ImGui::GetTextLineHeight() * 4);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto details = [&](ObjectRef target) {
+            return Read<SetupDetails>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "behavior-link", data);
+                return data;
+            });
+        };
+        const auto nativeDelay = [&] {
+            return Read<int>(ctx, [&] {
+                return CKBehaviorLink::Cast(App().State().document->Resolve(objects.innerInputLink))
+                    ->GetInitialActivationDelay();
+            });
+        };
+        const auto link = details(objects.innerInputLink);
+        IM_CHECK(link.Values().Object("from") == objects.input && link.Values().Object("to") == objects.childInput);
+        IM_CHECK_EQ(link.Values().Integer("current-delay"), 2);
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemInput(delay);
+        ctx->KeyCharsReplace("12");
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, delay);
+        IM_CHECK_EQ(nativeDelay(), 4);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK_EQ(nativeDelay(), 4);
+        IM_CHECK_EQ(details(objects.innerInputLink).Values().Integer("current-delay"), 2);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ctx->ItemInputValue(delay, 9);
+        ctx->Yield(3);
+        IM_CHECK_EQ(nativeDelay(), 9);
+        // The existing graph command resets both delays on commit and Undo/Redo.
+        IM_CHECK_EQ(details(objects.innerInputLink).Values().Integer("current-delay"), 9);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(nativeDelay(), 4);
+        IM_CHECK_EQ(details(objects.innerInputLink).Values().Integer("current-delay"), 4);
+        Redo(ctx);
+        IM_CHECK_EQ(nativeDelay(), 9);
+        IM_CHECK_EQ(details(objects.innerInputLink).Values().Integer("current-delay"), 9);
+        Undo(ctx);
+        IM_CHECK_EQ(nativeDelay(), 4);
+        for (const auto typed : {-1, 32765}) {
+            ctx->ItemInputValue(delay, typed);
+            ctx->Yield(3);
+            const int expected = typed < 0 ? 0 : 32764;
+            IM_CHECK_EQ(nativeDelay(), expected);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            Undo(ctx);
+            IM_CHECK_EQ(nativeDelay(), 4);
+        }
+        const auto show = [&](ObjectRef target) {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(
+                    EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                    EDITOR_NO_CHANGE);
+            });
+            ResizeSetup(ctx, view, 1500);
+            ctx->SetRef(SetupRef(view).c_str());
+        };
+        ctx->ItemClick(from);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.input.object));
+        show(objects.innerInputLink);
+        ctx->ItemClick(to);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.childInput.object));
+        show(objects.innerInputLink);
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Show in Schematic"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().Canvas().Navigation().selection.script, objects.script.object);
+        show(objects.partialLink);
+        const auto partial = details(objects.partialLink);
+        IM_CHECK(!partial.Values().Object("from") && partial.Values().Object("to") == objects.childInput);
+        IM_CHECK(ctx->ItemInfo(from).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK(!(ctx->ItemInfo(to).ItemFlags & ImGuiItemFlags_Disabled));
+        show(objects.emptyLink);
+        IM_CHECK(ctx->ItemInfo(from).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK(ctx->ItemInfo(to).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK(ctx->ItemInfo(delay).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {
