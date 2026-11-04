@@ -1173,20 +1173,22 @@ void SetupWindows::SynchroPage(ObjectRef target) {
 }
 
 void SetupWindows::StatePage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "state", description))
         return;
-    const auto data = description.Values();
     SetupDetails propertyData;
     if (!ReadProperties(target, {"state.active"}, propertyData))
         return;
     const auto values = propertyData.Values();
+    SetupColumns columns("##state-settings", 2);
+    if (!columns)
+        return;
+    columns.Next();
     Group("State");
     bool active = values.Boolean("state.active");
     if (ImGui::Checkbox("Active (entered)", &active))
         PreviewValue(target, "state.active", active);
-    ImGui::Separator();
+    columns.Next();
     ParameterUsers(target);
 }
 

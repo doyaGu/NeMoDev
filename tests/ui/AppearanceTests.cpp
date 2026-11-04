@@ -503,6 +503,32 @@ SetupControlObjects MakeSetupControls(ImGuiTestContext *ctx) {
     });
     return objects;
 }
+void CheckSetupRename(ImGuiTestContext *ctx, EditorView view, vdev::ObjectRef target) {
+    const auto before = ObjectName(ctx, target.object);
+    const auto history = App().State().History().UndoCount();
+    ctx->WindowFocus(SetupRef(view).c_str());
+    ctx->KeyPress(ImGuiKey_F2);
+    ctx->Yield(3);
+    ctx->ItemInput("//###setuprename/##name");
+    ctx->KeyCharsReplace("Cancelled Setup control name");
+    const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+    ResizeSetup(ctx, view, 690, false);
+    IM_CHECK_NO_RET(!ctx->UiContext->OpenPopupStack.empty() && ctx->UiContext->OpenPopupStack.back().PopupId == popup);
+    ctx->KeyPress(ImGuiKey_Escape);
+    ctx->Yield(3);
+    IM_CHECK_NO_RET(ObjectName(ctx, target.object) == before);
+    IM_CHECK_NO_RET(App().State().History().UndoCount() == history);
+    ctx->WindowFocus(SetupRef(view).c_str());
+    ctx->KeyPress(ImGuiKey_F2);
+    ctx->Yield(3);
+    ctx->ItemInputValue("//###setuprename/##name", "Confirmed Setup control name");
+    ctx->Yield(3);
+    IM_CHECK_NO_RET(ObjectName(ctx, target.object) == "Confirmed Setup control name");
+    IM_CHECK_NO_RET(App().State().History().UndoCount() == history + 1);
+    Undo(ctx);
+    IM_CHECK_NO_RET(ObjectName(ctx, target.object) == before);
+    IM_CHECK_NO_RET(App().State().History().UndoCount() == history);
+}
 void CheckSetupUser(ImGuiTestContext *ctx, EditorView view, vdev::ObjectRef target, vdev::ObjectRef parameter,
                     vdev::ObjectRef behavior) {
     const auto data = Read<vdev::SetupDetails>(ctx, [&] {
@@ -4693,6 +4719,76 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
         IM_CHECK_EQ(App().State().History().CanRedo(), redo);
         CheckSetupUser(ctx, view, objects.synchro, objects.synchroParameter, objects.user);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *state = IM_REGISTER_TEST(engine, "appearancesyncstate", "state_reflow_toggle_undo_rename_cancel_and_users");
+    state->GuiFunc = MainThreadGui;
+    state->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupControls(ctx);
+        IM_CHECK(objects.state);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.state)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupstate");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID active = 0, usedBy = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##state-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##state-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            IM_CHECK(!active || active == page->GetID("Active (entered)"));
+            active = page->GetID("Active (entered)");
+            const auto rect = ctx->ItemInfo(active).RectFull;
+            IM_CHECK(rect.Min.x >= table->Columns[0].WorkMinX - 1 && rect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            auto *list = SetupTable(ctx, view, "users");
+            IM_CHECK(list && list->InnerWindow);
+            IM_CHECK(!usedBy || usedBy == list->ID);
+            usedBy = list->ID;
+            IM_CHECK_GT(list->InnerWindow->ScrollMax.x, 0);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto entered = [&] {
+            return Read<bool>(ctx, [&] {
+                return CKStateObject::Cast(App().State().document->Resolve(objects.state))->IsStateActive() != FALSE;
+            });
+        };
+        CheckSetupRename(ctx, view, objects.state);
+        IM_CHECK(!entered());
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemClick(active);
+        ctx->Yield(3);
+        IM_CHECK(entered());
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK(!entered());
+        Redo(ctx);
+        IM_CHECK(entered());
+        Undo(ctx);
+        IM_CHECK(!entered());
+        CheckSetupUser(ctx, view, objects.state, objects.stateParameter, objects.user);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
