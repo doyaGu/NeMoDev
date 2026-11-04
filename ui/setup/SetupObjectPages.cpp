@@ -1193,16 +1193,19 @@ void SetupWindows::StatePage(ObjectRef target) {
 }
 
 void SetupWindows::CriticalSectionPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "critical-section", description))
         return;
-    const auto data = description.Values();
+    SetupColumns columns("##criticalsection-settings", 2);
+    if (!columns)
+        return;
+    columns.Next();
     Group("Critical Section");
-    if (ImGui::Button("Reset", ImVec2(90, 0)))
+    if (ImGui::Button("Reset"))
         RunSetupCommand("setup.critical-section-reset", {ObjectArgument("target", target)});
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lets the object inside the critical section go");
-    ImGui::Separator();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Lets the object inside the critical section go");
+    columns.Next();
     ParameterUsers(target);
 }
 
