@@ -512,6 +512,47 @@ bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client,
 
 void EndDialog() { ImGui::EndPopup(); }
 
+bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec2 &content, float s,
+                           DialogLayout &layout) {
+    const float padding = 10 * s, gap = 4 * s, buttonHeight = 18 * s;
+    const auto *viewport = ImGui::GetMainViewport();
+    const ImVec2 maximum{std::max(1.f, viewport->WorkSize.x - 16 * s), std::max(1.f, viewport->WorkSize.y - 16 * s)};
+    const float titleHeight = TitleHeight(s) + 2;
+    const ImVec2 minimum{std::min(240 * s, maximum.x), std::min(120 * s + titleHeight, maximum.y)};
+    ImGui::SetNextWindowSizeConstraints(minimum, maximum);
+    const float width = std::max({265 * s, content.x, TextWidth(title.c_str(), true) + 20 * s}) + 2 * padding;
+    const float height = content.y + 2 * padding + gap + buttonHeight;
+    const ImVec2 initial{std::clamp(width + 2, minimum.x, maximum.x) - 2,
+                         std::clamp(height + titleHeight, minimum.y, maximum.y) - titleHeight};
+    ImVec2 origin;
+    if (!BeginDialog(id, title, initial, s, origin, ImGuiWindowFlags_NoMove))
+        return false;
+    const auto size = ImGui::GetWindowSize();
+    const ImVec2 client{size.x - 2, size.y - titleHeight};
+    layout = {{origin.x + padding, origin.y + padding},
+              {std::max(1.f, client.x - 2 * padding), std::max(1.f, client.y - 2 * padding - gap - buttonHeight)},
+              s, origin.x + client.x - padding, origin.y + client.y - padding - buttonHeight};
+    Panel(layout.contentMin,
+          {layout.contentMin.x + layout.contentSize.x, layout.contentMin.y + layout.contentSize.y}, s);
+    return true;
+}
+
+bool BeginDialogContent(const char *id, const DialogLayout &layout) {
+    const auto contentId = ImGui::GetID("");
+    ImGui::SetCursorScreenPos(layout.contentMin);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {2 * layout.scale, 2 * layout.scale});
+    const bool visible = ImGui::BeginChild(id, layout.contentSize, ImGuiChildFlags_Borders,
+                                          ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoBackground);
+    ImGui::PushOverrideID(contentId);
+    return visible;
+}
+
+void EndDialogContent() {
+    ImGui::PopID();
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+}
+
 void Panel(const ImVec2 &min, const ImVec2 &max, float s) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(min, max, Color(7), CurrentDevTheme().groupRounding * s);

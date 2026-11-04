@@ -534,35 +534,12 @@ DialogAction DrawParameterDialog(const char *id, const std::string &title, Param
     if (!ImGui::IsPopupOpen(id))
         return DialogAction::None;
     const float s = setup::PageUnit();
-    const float padding = 10 * s, inset = 2 * s, gap = 4 * s, buttonHeight = 18 * s;
-    const auto *viewport = ImGui::GetMainViewport();
-    const ImVec2 maximum{std::max(1.f, viewport->WorkSize.x - 16 * s), std::max(1.f, viewport->WorkSize.y - 16 * s)};
-    const float titleHeight = vi::TitleHeight(s) + 2;
-    const ImVec2 minSize{std::min(240 * s, maximum.x), std::min(120 * s + titleHeight, maximum.y)};
-    ImGui::SetNextWindowSizeConstraints(minSize, maximum);
     const auto rows = box.Size(s, minimum);
-    const float desiredWidth =
-        std::max({265 * s, rows.x + 2 * inset, vi::TextWidth(title.c_str(), true) + 20 * s, (apply ? 3 : 2) * 70 * s}) +
-        2 * padding;
-    const float desiredHeight = rows.y + 2 * inset + (typeName ? 21 * s : 0) + 2 * padding + gap + buttonHeight;
-    const ImVec2 initial{std::clamp(desiredWidth + 2, minSize.x, maximum.x) - 2,
-                         std::clamp(desiredHeight + titleHeight, minSize.y, maximum.y) - titleHeight};
-    ImVec2 origin;
-    if (!vi::BeginDialog(id, title, initial, s, origin, ImGuiWindowFlags_NoMove))
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog(id, title, {rows.x + 4 * s, rows.y + 4 * s + (typeName ? 21 * s : 0)}, s,
+                                    layout))
         return DialogAction::None;
-    const auto windowSize = ImGui::GetWindowSize();
-    const ImVec2 client{windowSize.x - 2, windowSize.y - titleHeight};
-    const ImVec2 panelMin{origin.x + padding, origin.y + padding};
-    const ImVec2 panelSize{std::max(1.f, client.x - 2 * padding),
-                           std::max(1.f, client.y - 2 * padding - gap - buttonHeight)};
-    vi::Panel(panelMin, {panelMin.x + panelSize.x, panelMin.y + panelSize.y}, s);
-    // Scrolling and arranging the values must not rename their controls or popups.
-    const auto contentId = ImGui::GetID("");
-    ImGui::SetCursorScreenPos(panelMin);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {inset, inset});
-    if (ImGui::BeginChild("##parameter-values", panelSize, ImGuiChildFlags_Borders,
-                          ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoBackground)) {
-        ImGui::PushOverrideID(contentId);
+    if (vi::BeginDialogContent("##parameter-values", layout)) {
         if (typeName) {
             setup::SetupForm form("##parameter-type");
             if (form) {
@@ -577,12 +554,10 @@ DialogAction DrawParameterDialog(const char *id, const std::string &title, Param
                                             vi::Color(0));
         ImGui::SetCursorScreenPos(at);
         ImGui::Dummy({std::max(1.f, measured.x), std::max(1.f, measured.y)});
-        ImGui::PopID();
     }
-    ImGui::EndChild();
-    ImGui::PopStyleVar();
-    float x = origin.x + client.x - padding - 60 * s;
-    const float y = origin.y + client.y - padding - buttonHeight;
+    vi::EndDialogContent();
+    float x = layout.right - 60 * s;
+    const float y = layout.buttonsY;
     DialogAction action = DialogAction::None;
     if (vi::DialogButton("Cancel", {x, y}, s, ImGuiKey_Escape) && !box.InputActive())
         action = DialogAction::Cancel;

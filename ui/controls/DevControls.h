@@ -91,6 +91,18 @@ int ListView(const char *id, const ImVec2 &min, const ImVec2 &max, float scale, 
 bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client, float scale, ImVec2 &origin,
                  ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 void EndDialog();
+// A resizable dialog keeps its scrolling content above a fixed button bar.
+// content is the natural size of the controls, before panel padding.
+struct DialogLayout {
+    ImVec2 contentMin, contentSize;
+    float scale = 1, right = 0, buttonsY = 0;
+};
+bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec2 &content, float scale,
+                           DialogLayout &layout);
+// EndDialogContent is required even when the content is clipped. Controls keep
+// their dialog IDs, so scrolling does not rename inputs or nested popups.
+bool BeginDialogContent(const char *id, const DialogLayout &layout);
+void EndDialogContent();
 // A modeless VIDialog (the Script Debugger, the explorers): a window drawn
 // as BeginDialog's, placed at the center when it first shows. EndWindow
 // after it whatever it returns (ImGui::End).
