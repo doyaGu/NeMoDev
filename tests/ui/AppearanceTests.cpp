@@ -34,6 +34,8 @@
 #include "CKParameterOut.h"
 #include "CKParameterIn.h"
 #include "CKParameterOperation.h"
+#include "CKBehaviorIO.h"
+#include "CKBehaviorLink.h"
 #include <chrono>
 #include <algorithm>
 #include <utility>
@@ -41,6 +43,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <set>
 
 namespace vdevuitest {
 namespace {
@@ -317,6 +320,84 @@ void EditSetupInteger(ImGuiTestContext *ctx, EditorView view, int value, float w
     ctx->SetRef("//Edit Parameter###AttributeManagerValue");
     ctx->ItemClick(accept ? "**/OK/##dialogbutton" : "**/Cancel/##dialogbutton");
     ctx->Yield(3);
+}
+struct SetupBehaviorObjects {
+    vdev::ObjectRef owner, script, graph, child, block, target;
+    vdev::ObjectRef input, output, childInput, outerInputLink, innerInputLink, innerOutputLink, outerOutputLink;
+    vdev::ObjectRef detached, emptyIO, emptyLink, partialLink;
+};
+SetupBehaviorObjects MakeSetupBehaviors(ImGuiTestContext *ctx) {
+    SetupBehaviorObjects objects;
+    OnMainThread(ctx, [&] {
+        using namespace vdev;
+        auto &doc = *App().State().document;
+        auto *context = doc.Context();
+        auto *owner = context->CreateObject(CKCID_3DOBJECT, ("Setup behavior owner " + std::string(90, 'O')).c_str());
+        IM_CHECK_NO_RET(owner);
+        doc.Include(owner->GetID());
+        const auto script = CreateScript(doc, owner->GetID(), "Setup behavior Script " + std::string(90, 'S'));
+        IM_CHECK_NO_RET(script.ok);
+        const auto graph = CreateBehaviorGraph(doc, script.created, script.created,
+                                               "Setup outer graph " + std::string(90, 'G'), {240, 120});
+        const auto sibling = CreateBehaviorGraph(doc, script.created, script.created, "Setup sibling", {600, 120});
+        IM_CHECK_NO_RET(graph.ok && sibling.ok);
+        const auto child = CreateBehaviorGraph(doc, script.created, graph.created,
+                                               "Setup nested graph " + std::string(90, 'N'), {280, 180});
+        IM_CHECK_NO_RET(child.ok);
+        CKGUID prototype;
+        for (const auto &entry : App().CatalogForTests().Entries())
+            if (entry.name == "Set Position" && entry.targetable)
+                prototype = entry.guid;
+        IM_CHECK_NO_RET(prototype != CKGUID());
+        const auto block = InsertBuildingBlock(doc, script.created, graph.created, prototype, {460, 180});
+        IM_CHECK_NO_RET(block.ok && SetTargetUsed(doc, script.created, block.created, true).ok);
+        auto *root = CKBehavior::Cast(context->GetObject(script.created));
+        auto *outer = CKBehavior::Cast(context->GetObject(graph.created));
+        auto *nested = CKBehavior::Cast(context->GetObject(child.created));
+        auto *base = CKBehavior::Cast(context->GetObject(block.created));
+        IM_CHECK_NO_RET(root && outer && nested && base && base->GetTargetParameter());
+        const auto outerIn =
+            CreateBehaviorLink(doc, script.created, {root->GetInput(0)->GetID(), 0, ENDPOINT_START_BIN},
+                               {graph.created, 0, ENDPOINT_BIN}, 3);
+        const auto innerIn = CreateBehaviorLink(doc, script.created, {graph.created, 0, ENDPOINT_BIN},
+                                                {child.created, 0, ENDPOINT_BIN}, 4);
+        const auto innerOut = CreateBehaviorLink(doc, script.created, {child.created, 0, ENDPOINT_BOUT},
+                                                 {graph.created, 0, ENDPOINT_BOUT}, 5);
+        const auto outerOut = CreateBehaviorLink(doc, script.created, {graph.created, 0, ENDPOINT_BOUT},
+                                                 {sibling.created, 0, ENDPOINT_BIN}, 6);
+        IM_CHECK_NO_RET(outerIn.ok && innerIn.ok && innerOut.ok && outerOut.ok);
+        outer->SetPriority(7);
+        CKBehaviorLink::Cast(context->GetObject(innerIn.created))->SetActivationDelay(2);
+        auto *detached = CKBehavior::Cast(context->CreateObject(CKCID_BEHAVIOR, "Unattached Setup behavior"));
+        auto *emptyIO = context->CreateObject(CKCID_BEHAVIORIO, "Ownerless Setup IO");
+        auto *emptyLink = context->CreateObject(CKCID_BEHAVIORLINK, "Unconnected Setup link");
+        auto *partialLink = CKBehaviorLink::Cast(context->CreateObject(CKCID_BEHAVIORLINK, "Partial Setup link"));
+        IM_CHECK_NO_RET(detached && emptyIO && emptyLink && partialLink);
+        detached->UseGraph();
+        detached->SetType(CKBEHAVIORTYPE_BEHAVIOR);
+        partialLink->SetOutBehaviorIO(nested->GetInput(0));
+        for (CKObject *item :
+             {static_cast<CKObject *>(detached), emptyIO, emptyLink, static_cast<CKObject *>(partialLink)})
+            doc.Include(item->GetID());
+        objects.owner = doc.Reference(owner->GetID());
+        objects.script = doc.Reference(script.created);
+        objects.graph = doc.Reference(graph.created);
+        objects.child = doc.Reference(child.created);
+        objects.block = doc.Reference(block.created);
+        objects.target = doc.Reference(base->GetTargetParameter()->GetID());
+        objects.input = doc.Reference(outer->GetInput(0)->GetID());
+        objects.output = doc.Reference(outer->GetOutput(0)->GetID());
+        objects.childInput = doc.Reference(nested->GetInput(0)->GetID());
+        objects.outerInputLink = doc.Reference(outerIn.created);
+        objects.innerInputLink = doc.Reference(innerIn.created);
+        objects.innerOutputLink = doc.Reference(innerOut.created);
+        objects.outerOutputLink = doc.Reference(outerOut.created);
+        objects.detached = doc.Reference(detached->GetID());
+        objects.emptyIO = doc.Reference(emptyIO->GetID());
+        objects.emptyLink = doc.Reference(emptyLink->GetID());
+        objects.partialLink = doc.Reference(partialLink->GetID());
+    });
+    return objects;
 }
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
@@ -3951,6 +4032,149 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         ResizeSetup(ctx, view, 690);
         ShowSetupTable(ctx, view, "##operation-settings");
         IM_CHECK(SetupTable(ctx, view, "operands"));
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Show in Schematic")).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *behavior =
+        IM_REGISTER_TEST(engine, "appearancebehaviors", "behavior_reflow_priority_cancel_undo_and_navigation");
+    behavior->GuiFunc = MainThreadGui;
+    behavior->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupBehaviors(ctx);
+        IM_CHECK(objects.graph && objects.block && objects.target);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.graph)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupbehavior");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID priority = 0, children = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##behavior-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##behavior-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            IM_CHECK(!priority || priority == page->GetID("##priority"));
+            priority = page->GetID("##priority");
+            for (const auto id :
+                 {priority, ImHashStr(">", 0, page->GetID("Owner")), ImHashStr(">", 0, page->GetID("Script"))}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                IM_CHECK(rect.Min.x >= table->Columns[0].WorkMinX - 1 && rect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            }
+            for (const char *label : {"Active", "Building Block", "Variable Output Parameters"})
+                IM_CHECK(ctx->ItemInfo(page->GetID(label)).ItemFlags & ImGuiItemFlags_Disabled);
+            ShowSetupTable(ctx, view, "behaviors");
+            auto *list = SetupTable(ctx, view, "behaviors");
+            IM_CHECK(list && list->InnerWindow);
+            IM_CHECK(!children || children == list->ID);
+            children = list->ID;
+            IM_CHECK_GT(list->InnerWindow->ScrollMax.x, 0);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto details = [&](ObjectRef target) {
+            return Read<SetupDetails>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "behavior", data);
+                return data;
+            });
+        };
+        const auto nativePriority = [&] {
+            return Read<int>(
+                ctx, [&] { return CKBehavior::Cast(App().State().document->Resolve(objects.graph))->GetPriority(); });
+        };
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemInput(priority);
+        ctx->KeyCharsReplace("41");
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, priority);
+        IM_CHECK_EQ(nativePriority(), 7);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK_EQ(nativePriority(), 7);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ctx->ItemInputValue(priority, -17);
+        ctx->Yield(3);
+        IM_CHECK_EQ(nativePriority(), -17);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(nativePriority(), 7);
+        Redo(ctx);
+        IM_CHECK_EQ(nativePriority(), -17);
+        Undo(ctx);
+        IM_CHECK_EQ(nativePriority(), 7);
+        ResizeSetup(ctx, view, 1500);
+        ShowSetupTable(ctx, view, "behaviors");
+        auto *list = SetupTable(ctx, view, "behaviors");
+        ctx->ScrollToX(list->InnerWindow->ID, 0);
+        ctx->Yield(2);
+        const auto graph = details(objects.graph);
+        IM_CHECK(graph.Values().Boolean("graph") && graph.Values().Rows("behaviors").size() == 2);
+        const auto &rows = graph.Values().Rows("behaviors");
+        const auto child = std::find_if(rows.begin(), rows.end(), [&](const auto &row) {
+            return SetupFields(row.fields).Object("target") == objects.child;
+        });
+        IM_CHECK(child != rows.end());
+        const int index = int(child - rows.begin());
+        const auto seed = ImHashData(&index, sizeof(index), children);
+        ctx->ItemDoubleClick(ImHashStr(SetupFields(child->fields).Text("name").c_str(), 0, seed),
+                             ImGuiTestOpFlags_MoveToEdgeL);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.child.object));
+        const auto nested = details(objects.child);
+        IM_CHECK(nested.Values().Object("parent") == objects.graph &&
+                 nested.Values().Object("script") == objects.script);
+        ResizeSetup(ctx, view, 690);
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Parent")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.graph.object));
+        const auto show = [&](ObjectRef target) {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(
+                    EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                    EDITOR_NO_CHANGE);
+            });
+            ResizeSetup(ctx, view, 1500);
+            ShowSetupTable(ctx, view, "##behavior-settings");
+            ctx->SetRef(SetupRef(view).c_str());
+        };
+        show(objects.block);
+        const auto block = details(objects.block);
+        IM_CHECK(!block.Values().Boolean("graph") && block.Values().Boolean("prototype") &&
+                 block.Values().Boolean("using-target") && !block.Values().Text("guid").empty());
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Target")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.target.object));
+        show(objects.script);
+        IM_CHECK_EQ(details(objects.script).Values().Text("heading"), "Script");
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Owner")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.owner.object));
+        show(objects.graph);
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Show in Schematic"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().Canvas().Navigation().selection.script, objects.script.object);
+        show(objects.detached);
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("##priority")).ItemFlags & ImGuiItemFlags_Disabled);
         IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Show in Schematic")).ItemFlags & ImGuiItemFlags_Disabled);
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {

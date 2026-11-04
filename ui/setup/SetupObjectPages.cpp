@@ -863,7 +863,6 @@ void SetupWindows::OperationPage(ObjectRef target) {
     ImGui::PopTextWrapPos();
 }
 void SetupWindows::BehaviorPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "behavior", description))
         return;
@@ -874,59 +873,56 @@ void SetupWindows::BehaviorPage(ObjectRef target) {
     const auto values = propertyData.Values();
     const auto script = data.Object("script");
     const bool graph = data.Boolean("graph");
-    ImGui::BeginGroup();
+    SetupColumns columns("##behavior-settings", 3);
+    if (!columns)
+        return;
+    columns.Next();
     Group(data.Text("heading").c_str());
-    if (data.Boolean("prototype")) {
-        ImGui::TextUnformatted("Prototype");
-        ImGui::SameLine(110);
-        ImGui::TextUnformatted(data.Text("prototype-name").c_str());
-        ImGui::TextUnformatted("GUID");
-        ImGui::SameLine(110);
-        ImGui::TextUnformatted(data.Text("guid").c_str());
-        ImGui::TextUnformatted("Version");
-        ImGui::SameLine(110);
-        ImGui::Text("0x%08x", static_cast<unsigned>(data.Integer("version")));
-    }
-    ImGui::TextUnformatted("Owner");
-    ImGui::SameLine(110);
-    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
-    if (target != script) {
-        ImGui::TextUnformatted("Script");
-        ImGui::SameLine(110);
-        SetupLink("Script", script, data.Text("script-name"));
-        if (data.Object("parent") != script) {
-            ImGui::TextUnformatted("Parent");
-            ImGui::SameLine(110);
-            SetupLink("Parent", data.Object("parent"), data.Text("parent-name"));
+    {
+        SetupForm form("##behavior-info");
+        if (form) {
+            ImGui::PushTextWrapPos(0);
+            if (data.Boolean("prototype")) {
+                form.Row("Prototype");
+                ImGui::TextUnformatted(data.Text("prototype-name").c_str());
+                form.Row("GUID");
+                ImGui::TextUnformatted(data.Text("guid").c_str());
+                form.Row("Version");
+                ImGui::Text("0x%08x", static_cast<unsigned>(data.Integer("version")));
+            }
+            form.Row("Owner");
+            SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
+            if (target != script) {
+                form.Row("Script");
+                SetupLink("Script", script, data.Text("script-name"));
+                if (data.Object("parent") != script) {
+                    form.Row("Parent");
+                    SetupLink("Parent", data.Object("parent"), data.Text("parent-name"));
+                }
+            }
+            // Priority keeps the existing Enter-to-submit edit in the Script.
+            form.Row("Priority");
+            int priority = int(values.Integer("behavior.priority"));
+            const bool editable = data.Boolean("schematic-enabled");
+            ImGui::BeginDisabled(!editable);
+            if (ImGui::InputInt("##priority", &priority, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable)
+                PreviewValue(target, "behavior.priority", priority);
+            ImGui::EndDisabled();
+            form.Row("Active");
+            ImGui::TextUnformatted(data.Boolean("active") ? "Yes" : "No");
+            if (data.Boolean("using-target")) {
+                form.Row("Target");
+                SetupLink("Target", data.Object("target-parameter"), data.Text("target-parameter-name"));
+            }
+            form.Row("Applies to");
+            ImGui::TextUnformatted(data.Text("compatible").c_str());
+            ImGui::PopTextWrapPos();
         }
     }
-    // Priority (Dev's Edit Priority, Y): one undo step, in the Script.
-    ImGui::TextUnformatted("Priority");
-    ImGui::SameLine(110);
-    int priority = int(values.Integer("behavior.priority"));
-    const bool editable = data.Boolean("schematic-enabled");
-    ImGui::BeginDisabled(!editable);
-    ImGui::SetNextItemWidth(90);
-    if (ImGui::InputInt("##priority", &priority, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && editable)
-        PreviewValue(target, "behavior.priority", priority);
-    ImGui::EndDisabled();
-    ImGui::TextUnformatted("Active");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(data.Boolean("active") ? "Yes" : "No");
-    if (data.Boolean("using-target")) {
-        ImGui::TextUnformatted("Target");
-        ImGui::SameLine(110);
-        SetupLink("Target", data.Object("target-parameter"), data.Text("target-parameter-name"));
-    }
-    ImGui::TextUnformatted("Applies to");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(data.Text("compatible").c_str());
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     ShowInSchematic(data);
-    ImGui::EndGroup();
-    // Middle: CK_BEHAVIOR_FLAGS (shown, set by CK and the prototype).
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
+    // CK_BEHAVIOR_FLAGS remain read-only, set by CK and the prototype.
+    columns.Next();
     Group("Flags");
     static const std::pair<CKDWORD, const char *> FLAGS[] = {
         {CKBEHAVIOR_ACTIVE, "Active"},
@@ -954,31 +950,44 @@ void SetupWindows::BehaviorPage(ObjectRef target) {
         ImGui::Checkbox(flag.second, &on);
     }
     ImGui::EndDisabled();
-    ImGui::EndGroup();
-    // Right: the contents.
-    ImGui::SameLine(610);
-    ImGui::BeginGroup();
+    columns.Next();
     Group("Contents");
-    ImGui::Text("Inputs:                %d", int(data.Integer("inputs")));
-    ImGui::Text("Outputs:               %d", int(data.Integer("outputs")));
-    ImGui::Text("Input Parameters:      %d", int(data.Integer("input-parameters")));
-    ImGui::Text("Output Parameters:     %d", int(data.Integer("output-parameters")));
-    ImGui::Text("Local Parameters:      %d", int(data.Integer("local-parameters")));
-    if (graph) {
-        ImGui::Text("Behaviors:             %d", int(data.Rows("behaviors").size()));
-        ImGui::Text("Behavior Links:        %d", int(data.Integer("links")));
-        ImGui::Text("Parameter Operations:  %d", int(data.Integer("operations")));
+    {
+        SetupForm form("##behavior-contents");
+        if (form) {
+            form.Row("Inputs");
+            ImGui::Text("%d", int(data.Integer("inputs")));
+            form.Row("Outputs");
+            ImGui::Text("%d", int(data.Integer("outputs")));
+            form.Row("Input Parameters");
+            ImGui::Text("%d", int(data.Integer("input-parameters")));
+            form.Row("Output Parameters");
+            ImGui::Text("%d", int(data.Integer("output-parameters")));
+            form.Row("Local Parameters");
+            ImGui::Text("%d", int(data.Integer("local-parameters")));
+            if (graph) {
+                form.Row("Behaviors");
+                ImGui::Text("%d", int(data.Rows("behaviors").size()));
+                form.Row("Behavior Links");
+                ImGui::Text("%d", int(data.Integer("links")));
+                form.Row("Parameter Operations");
+                ImGui::Text("%d", int(data.Integer("operations")));
+            }
+        }
     }
     // A graph's behaviors; a double click shows one's Setup.
     if (graph) {
-        ImGui::Dummy(ImVec2(1, 6));
+        ImGui::Spacing();
         Group("Behaviors");
-        if (ImGui::BeginTable("behaviors", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                              ImVec2(520, 260))) {
+        const float unit = PageUnit();
+        if (ImGui::BeginTable("behaviors", 3,
+                              ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                                  ImGuiTableFlags_ScrollX,
+                              {0, 260 * unit}, std::max(520 * unit, ImGui::GetContentRegionAvail().x))) {
             TypeAhead typeAhead;
             ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 260);
-            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 130);
+            ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 260 * unit);
+            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 130 * unit);
             ImGui::TableSetupColumn("Priority");
             ImGui::TableHeadersRow();
             for (int i = 0; i < int(data.Rows("behaviors").size()); ++i) {
@@ -999,7 +1008,6 @@ void SetupWindows::BehaviorPage(ObjectRef target) {
             ImGui::EndTable();
         }
     }
-    ImGui::EndGroup();
 }
 
 void SetupWindows::BehaviorIOPage(ObjectRef target) {
