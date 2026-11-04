@@ -752,44 +752,52 @@ void SetupWindows::ParameterPage(ObjectRef target) {
 }
 
 void SetupWindows::ParameterInPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "parameter-input", description))
         return;
     const auto data = description.Values();
-    ImGui::BeginGroup();
+    SetupColumns columns("##parameterinput-settings", 3);
+    if (!columns)
+        return;
+    columns.Next();
     Group(data.Boolean("enabled") ? "Input Parameter" : "Input Parameter (disabled)");
-    ImGui::TextUnformatted("Type");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(data.Text("type-name").c_str());
-    ImGui::TextUnformatted("Owner");
-    ImGui::SameLine(110);
-    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
-    if (data.Object("behavior") && data.Object("behavior") != data.Object("owner")) {
-        ImGui::TextUnformatted("Behavior");
-        ImGui::SameLine(110);
-        SetupLink("Behavior", data.Object("behavior"), data.Text("behavior-name"));
+    {
+        SetupForm form("##parameterinput-info");
+        if (form) {
+            ImGui::PushTextWrapPos(0);
+            form.Row("Type");
+            ImGui::TextUnformatted(data.Text("type-name").c_str());
+            form.Row("Owner");
+            SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
+            if (data.Object("behavior") && data.Object("behavior") != data.Object("owner")) {
+                form.Row("Behavior");
+                SetupLink("Behavior", data.Object("behavior"), data.Text("behavior-name"));
+            }
+            ImGui::PopTextWrapPos();
+        }
     }
-    ImGui::Dummy(ImVec2(1, 6));
-    Group("Source");
-    ImGui::TextUnformatted("Linked to");
-    ImGui::SameLine(110);
-    SetupLink("Linked to", data.Object("direct"), data.Text("direct-name"));
-    ImGui::TextUnformatted("Shares with");
-    ImGui::SameLine(110);
-    SetupLink("Shares with", data.Object("shared"), data.Text("shared-name"));
-    if (data.Object("value") && data.Object("value") != data.Object("direct")) {
-        ImGui::TextUnformatted("Real source");
-        ImGui::SameLine(110);
-        SetupLink("Real source", data.Object("value"), data.Text("value-name"));
-    }
-    ImGui::Dummy(ImVec2(1, 6));
-    // The value is the source's; only a local of its own (Dev's value
-    // holder) is edited from here.
-    ParameterValue(data, data.Boolean("editable"));
-    ImGui::Dummy(ImVec2(1, 6));
+    ImGui::Spacing();
     ShowInSchematic(data);
-    ImGui::EndGroup();
+    columns.Next();
+    Group("Source");
+    {
+        SetupForm form("##parameterinput-source");
+        if (form) {
+            ImGui::PushTextWrapPos(0);
+            form.Row("Linked to");
+            SetupLink("Linked to", data.Object("direct"), data.Text("direct-name"));
+            form.Row("Shares with");
+            SetupLink("Shares with", data.Object("shared"), data.Text("shared-name"));
+            if (data.Object("value") && data.Object("value") != data.Object("direct")) {
+                form.Row("Real source");
+                SetupLink("Real source", data.Object("value"), data.Text("value-name"));
+            }
+            ImGui::PopTextWrapPos();
+        }
+    }
+    columns.Next();
+    // Edit only an input's own local value, as before.
+    ParameterValue(data, data.Boolean("editable"));
 }
 
 void SetupWindows::OperationPage(ObjectRef target) {

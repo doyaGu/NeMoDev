@@ -3739,6 +3739,109 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *input =
+        IM_REGISTER_TEST(engine, "appearanceparameters", "parameter_input_reflow_sources_editability_and_undo");
+    input->GuiFunc = MainThreadGui;
+    input->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupParameters(ctx);
+        IM_CHECK(objects.ownedInput && objects.sharedInput && objects.linkedInput);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.ownedInput)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupparameterin");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID edit = 0, direct = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##parameterinput-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##parameterinput-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            IM_CHECK(!edit || edit == page->GetID("Edit Value..."));
+            edit = page->GetID("Edit Value...");
+            const auto link = ImHashStr(">", 0, page->GetID("Linked to"));
+            IM_CHECK(!direct || direct == link);
+            direct = link;
+            for (const auto id : {edit, direct, ImHashStr(">", 0, page->GetID("Owner"))}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                bool inside = false;
+                for (int c = 0; c < table->ColumnsCount; ++c)
+                    inside |=
+                        rect.Min.x >= table->Columns[c].WorkMinX - 1 && rect.Max.x <= table->Columns[c].WorkMaxX + 1;
+                IM_CHECK(inside);
+            }
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        EditSetupInteger(ctx, view, 77, 690, false);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.ownedValue), 13);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        EditSetupInteger(ctx, view, 85, 1500, true);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.ownedValue), 85);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.ownedValue), 13);
+        const auto show = [&](ObjectRef target) {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(
+                    EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                    EDITOR_NO_CHANGE);
+            });
+            ResizeSetup(ctx, view, 1500);
+            ShowSetupTable(ctx, view, "##parameterinput-settings");
+            ctx->SetRef(SetupRef(view).c_str());
+        };
+        show(objects.sharedInput);
+        const auto shared = SetupParameterDetails(ctx, objects.sharedInput, "parameter-input");
+        IM_CHECK(shared.Values().Object("shared") == objects.ownedInput &&
+                 shared.Values().Object("value") == objects.ownedValue);
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Edit Value...")).ItemFlags & ImGuiItemFlags_Disabled);
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Shares with")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.ownedInput.object));
+        show(objects.sharedInput);
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Real source")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.ownedValue.object));
+        show(objects.linkedInput);
+        const auto linked = SetupParameterDetails(ctx, objects.linkedInput, "parameter-input");
+        IM_CHECK(linked.Values().Object("direct") == objects.output);
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Edit Value...")).ItemFlags & ImGuiItemFlags_Disabled);
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Linked to")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.output.object));
+        show(objects.emptyInput);
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Edit Value...")).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK(ctx->ItemInfo(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Linked to"))).ItemFlags &
+                 ImGuiItemFlags_Disabled);
+        OnMainThread(ctx,
+                     [&] { CKParameterIn::Cast(App().State().document->Resolve(objects.ownedInput))->Enable(FALSE); });
+        show(objects.ownedInput);
+        IM_CHECK(!SetupParameterDetails(ctx, objects.ownedInput, "parameter-input").Values().Boolean("enabled"));
+        IM_CHECK(!(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Edit Value...")).ItemFlags & ImGuiItemFlags_Disabled));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

@@ -92,7 +92,7 @@ def main():
         with help_page(args.help_dir):
             run('editing', 'edit', module=True)
             run('specialized-editing', 'edit', module=True, selection='^appearancespecialized$', expected=6)
-            run('parameter-editing', 'edit', module=True, selection='^appearanceparameters$', expected=1)
+            run('parameter-editing', 'edit', module=True, selection='^appearanceparameters$', expected=2)
         profile.write_text('{"version":1}', encoding='utf-8')
         saved = run('save', 'save', module=True)
         assert {p['kind'] for p in saved['providers']} == {'theme', 'font', 'image'}
