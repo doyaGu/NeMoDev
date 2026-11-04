@@ -1,5 +1,7 @@
 #include "tests/ui/UiTests.h"
 #include "core/level/SetupCommands.h"
+#include "core/level/LevelCommands.h"
+#include "core/graph/TopologyCommands.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/DevControls.h"
@@ -28,6 +30,10 @@
 #include "CKSpriteText.h"
 #include "CKLayer.h"
 #include "CKKinematicChain.h"
+#include "CKParameterLocal.h"
+#include "CKParameterOut.h"
+#include "CKParameterIn.h"
+#include "CKParameterOperation.h"
 #include <chrono>
 #include <algorithm>
 #include <utility>
@@ -189,6 +195,128 @@ AnimationSetupObjects MakeSetupAnimations(ImGuiTestContext *ctx) {
         IM_CHECK_NO_RET(!result.userName.empty());
     });
     return result;
+}
+struct SetupParameterObjects {
+    vdev::ObjectRef script, local, output, destination, text, reference, referenced, myself;
+    vdev::ObjectRef ownedInput, ownedValue, sharedInput, linkedInput, emptyInput;
+    vdev::ObjectRef operation, firstOperand, secondOperand, result, operandValue, emptyOperation;
+    std::string destinationName;
+};
+SetupParameterObjects MakeSetupParameters(ImGuiTestContext *ctx) {
+    SetupParameterObjects objects;
+    OnMainThread(ctx, [&] {
+        using namespace vdev;
+        auto &doc = *App().State().document;
+        auto *context = doc.Context();
+        const auto made = CreateScript(doc, context->GetCurrentLevel()->GetID(), "Setup owner " + std::string(90, 'S'));
+        IM_CHECK_NO_RET(made.ok);
+        auto *script = CKBehavior::Cast(context->GetObject(made.created));
+        IM_CHECK_NO_RET(script);
+        objects.script = doc.Reference(script->GetID());
+        const auto local = [&](const char *name, CKGUID type, int y) {
+            const auto added = AddLocalParameter(doc, made.created, made.created, name, type, Point(40, float(y)));
+            return added.ok ? CKParameterLocal::Cast(context->GetObject(added.created)) : nullptr;
+        };
+        auto *integer = local("Setup local integer", CKPGUID_INT, 60);
+        auto *text = local("Setup long text", CKPGUID_STRING, 110);
+        auto *reference = local("Setup object reference", CKPGUID_3DENTITY, 160);
+        auto *destination = local("Setup destination", CKPGUID_INT, 210);
+        const auto myself = AddThisParameter(doc, made.created, made.created, Point(40, 260));
+        IM_CHECK_NO_RET(integer && text && reference && destination && myself.ok);
+        auto *object = context->CreateObject(CKCID_3DOBJECT, ("Referenced object " + std::string(90, 'R')).c_str());
+        auto *output = script->CreateOutputParameter("Setup output", CKPGUID_INT);
+        auto *owned = script->CreateInputParameter("Owned input", CKPGUID_INT);
+        auto *shared = script->CreateInputParameter("Shared input", CKPGUID_INT);
+        auto *linked = script->CreateInputParameter("Linked input", CKPGUID_INT);
+        auto *empty = script->CreateInputParameter("Unlinked input", CKPGUID_INT);
+        auto *holder = context->CreateCKParameterLocal("Owned input value", CKPGUID_INT);
+        IM_CHECK_NO_RET(object && output && owned && shared && linked && empty && holder);
+        int value = 7;
+        integer->SetValue(&value, sizeof(value));
+        value = 13;
+        holder->SetValue(&value, sizeof(value));
+        holder->SetOwner(owned);
+        IM_CHECK_NO_RET(owned->SetDirectSource(holder) == CK_OK && shared->ShareSourceWith(owned) == CK_OK &&
+                        linked->SetDirectSource(output) == CK_OK && output->AddDestination(destination) == CK_OK);
+        value = 31;
+        output->SetValue(&value, sizeof(value));
+        const std::string longText = std::string(260, 'T') + "\nA second line";
+        text->SetStringValue(longText.c_str());
+        const CK_ID objectId = object->GetID();
+        reference->SetValue(&objectId, sizeof(objectId));
+        const auto addition = context->GetParameterManager()->OperationNameToGuid("Addition");
+        const auto added = AddParameterOperation(doc, made.created, made.created, addition, CKPGUID_INT, CKPGUID_INT,
+                                                 CKPGUID_INT, Point(400, 80));
+        IM_CHECK_NO_RET(added.ok);
+        auto *operation = CKParameterOperation::Cast(context->GetObject(added.created));
+        auto *operandValue = context->CreateCKParameterLocal("Operand value", CKPGUID_INT);
+        auto *emptyOperation = context->CreateObject(CKCID_PARAMETEROPERATION, "Unconfigured operation");
+        IM_CHECK_NO_RET(operation && operandValue && emptyOperation && operation->GetInParameter1() &&
+                        operation->GetInParameter2() && operation->GetOutParameter());
+        value = 17;
+        operandValue->SetValue(&value, sizeof(value));
+        operandValue->SetOwner(operation->GetInParameter1());
+        IM_CHECK_NO_RET(operation->GetInParameter1()->SetDirectSource(operandValue) == CK_OK &&
+                        operation->GetInParameter2()->SetDirectSource(output) == CK_OK);
+        for (CKObject *item :
+             {object, static_cast<CKObject *>(output), static_cast<CKObject *>(owned), static_cast<CKObject *>(shared),
+              static_cast<CKObject *>(linked), static_cast<CKObject *>(empty), static_cast<CKObject *>(holder),
+              static_cast<CKObject *>(operandValue), emptyOperation})
+            doc.Include(item->GetID());
+        objects.local = doc.Reference(integer->GetID());
+        objects.text = doc.Reference(text->GetID());
+        objects.reference = doc.Reference(reference->GetID());
+        objects.referenced = doc.Reference(object->GetID());
+        objects.myself = doc.Reference(myself.created);
+        objects.output = doc.Reference(output->GetID());
+        objects.destination = doc.Reference(destination->GetID());
+        objects.destinationName = destination->GetName();
+        objects.ownedInput = doc.Reference(owned->GetID());
+        objects.ownedValue = doc.Reference(holder->GetID());
+        objects.sharedInput = doc.Reference(shared->GetID());
+        objects.linkedInput = doc.Reference(linked->GetID());
+        objects.emptyInput = doc.Reference(empty->GetID());
+        objects.operation = doc.Reference(operation->GetID());
+        objects.firstOperand = doc.Reference(operation->GetInParameter1()->GetID());
+        objects.secondOperand = doc.Reference(operation->GetInParameter2()->GetID());
+        objects.result = doc.Reference(operation->GetOutParameter()->GetID());
+        objects.operandValue = doc.Reference(operandValue->GetID());
+        objects.emptyOperation = doc.Reference(emptyOperation->GetID());
+    });
+    return objects;
+}
+vdev::SetupDetails SetupParameterDetails(ImGuiTestContext *ctx, vdev::ObjectRef target, const char *section) {
+    return Read<vdev::SetupDetails>(ctx, [&] {
+        vdev::SetupDetails data;
+        vdev::ReadSetupDetails(EditorCommands(), target, section, data);
+        return data;
+    });
+}
+int SetupInteger(ImGuiTestContext *ctx, vdev::ObjectRef target) {
+    return Read<int>(ctx, [&] {
+        int value = 0;
+        if (auto *parameter = CKParameter::Cast(App().State().document->Resolve(target)))
+            parameter->GetValue(&value);
+        return value;
+    });
+}
+void EditSetupInteger(ImGuiTestContext *ctx, EditorView view, int value, float width, bool accept) {
+    ctx->SetRef(SetupRef(view).c_str());
+    const auto button = SetupPage(ctx, view)->GetID("Edit Value...");
+    ctx->ScrollToItemY(button);
+    ctx->ItemClick(button);
+    ctx->Yield(3);
+    const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+    ctx->SetRef("//Edit Parameter###AttributeManagerValue");
+    ctx->ItemClick("**/##number");
+    ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+    ctx->KeyChars(std::to_string(value).c_str());
+    ctx->Yield(2);
+    ResizeSetup(ctx, view, width, false);
+    IM_CHECK_NO_RET(!ctx->UiContext->OpenPopupStack.empty() && ctx->UiContext->OpenPopupStack.back().PopupId == popup);
+    ctx->SetRef("//Edit Parameter###AttributeManagerValue");
+    ctx->ItemClick(accept ? "**/OK/##dialogbutton" : "**/Cancel/##dialogbutton");
+    ctx->Yield(3);
 }
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
@@ -3495,6 +3623,114 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         ctx->ItemClick(SetupPage(ctx, view)->GetID(">##startsetup"));
         ctx->Yield(3);
         IM_CHECK(ShowsObject(ctx, start.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *parameter =
+        IM_REGISTER_TEST(engine, "appearanceparameters", "parameter_reflow_value_destinations_cancel_and_undo");
+    parameter->GuiFunc = MainThreadGui;
+    parameter->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupParameters(ctx);
+        IM_CHECK(objects.local && objects.output && objects.myself);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.output)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupparameter");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID edit = 0, destinations = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##parameter-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##parameter-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            IM_CHECK(!edit || edit == page->GetID("Edit Value..."));
+            edit = page->GetID("Edit Value...");
+            const auto rect = ctx->ItemInfo(edit).RectFull;
+            IM_CHECK(rect.Min.x >= table->Columns[0].WorkMinX - 1 && rect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            auto *list = SetupTable(ctx, view, "destinations");
+            IM_CHECK(list && list->InnerWindow);
+            IM_CHECK(!destinations || destinations == list->ID);
+            destinations = list->ID;
+            if (width < 1000)
+                IM_CHECK_GT(list->InnerWindow->ScrollMax.x, 0);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto output = SetupParameterDetails(ctx, objects.output, "parameter");
+        IM_CHECK(output.Values().Boolean("output") && output.Values().Rows("destinations").size() == 1);
+        ShowSetupTable(ctx, view, "destinations");
+        ctx->SetRef(SetupRef(view).c_str());
+        const int row = 0;
+        const auto seed = ImHashData(&row, sizeof(row), destinations);
+        ctx->ItemDoubleClick(ImHashStr(objects.destinationName.c_str(), 0, seed), ImGuiTestOpFlags_MoveToEdgeL);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.destination.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.local)}).status <=
+                EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 7);
+        EditSetupInteger(ctx, view, 41, 690, false);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 7);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        EditSetupInteger(ctx, view, 52, 1500, true);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 52);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(view).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 7);
+        const auto show = [&](ObjectRef target) {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(
+                    EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                    EDITOR_NO_CHANGE);
+            });
+            ResizeSetup(ctx, view, 690);
+            ShowSetupTable(ctx, view, "##parameter-settings");
+        };
+        show(objects.myself);
+        const auto myself = SetupParameterDetails(ctx, objects.myself, "parameter");
+        IM_CHECK_EQ(myself.Values().Text("heading"), "This Parameter");
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Edit Value...")).ItemFlags & ImGuiItemFlags_Disabled);
+        show(objects.text);
+        auto *form = SetupTable(ctx, view, "##parameter-value");
+        auto *section = SetupTable(ctx, view, "##parameter-settings");
+        IM_CHECK(form && section);
+        IM_CHECK_LE(form->OuterRect.Max.x, section->Columns[0].WorkMaxX + 1);
+        IM_CHECK_GT(form->OuterRect.GetHeight(), ImGui::GetTextLineHeight() * 2);
+        show(objects.reference);
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ItemClick(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Object")));
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.referenced.object));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        show(objects.local);
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Show in Schematic"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().Canvas().Navigation().selection.script, objects.script.object);
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
         OnMainThread(ctx, [&] {
             std::string error;

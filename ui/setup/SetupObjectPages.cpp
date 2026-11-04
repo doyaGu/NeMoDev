@@ -690,57 +690,64 @@ void SetupWindows::LayerPage(ObjectRef target) {
     ImGui::EndChild();
 }
 void SetupWindows::ParameterPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "parameter", description))
         return;
     const auto data = description.Values();
-    ImGui::BeginGroup();
+    const bool output = data.Boolean("output");
+    SetupColumns columns("##parameter-settings", output ? 2 : 1);
+    if (!columns)
+        return;
+    columns.Next();
     Group(data.Text("heading").c_str());
-    ImGui::TextUnformatted("Type");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(data.Text("type-name").c_str());
-    ImGui::TextUnformatted("Owner");
-    ImGui::SameLine(110);
-    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
-    if (data.Object("behavior") && data.Object("behavior") != data.Object("owner")) {
-        ImGui::TextUnformatted("Behavior");
-        ImGui::SameLine(110);
-        SetupLink("Behavior", data.Object("behavior"), data.Text("behavior-name"));
-    }
-    ImGui::Dummy(ImVec2(1, 6));
-    // The value of a This parameter is its owner (CKParameterLocal::SetOwner).
-    ParameterValue(data, data.Boolean("editable"));
-    ImGui::Dummy(ImVec2(1, 6));
-    ShowInSchematic(data);
-    ImGui::EndGroup();
-    if (data.Boolean("output")) {
-        ImGui::SameLine(560);
-        ImGui::BeginGroup();
-        Group("Destinations");
-        if (ImGui::BeginTable("destinations", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                              ImVec2(380, 180))) {
-            TypeAhead typeAhead;
-            ImGui::TableSetupScrollFreeze(0, 1);
-            ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthFixed, 170);
-            ImGui::TableSetupColumn("Owner");
-            ImGui::TableHeadersRow();
-            for (size_t i = 0; i < data.Rows("destinations").size(); ++i) {
-                const SetupFields destination(data.Rows("destinations")[i].fields);
-                ImGui::PushID(i);
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                if (typeAhead.Selectable(destination.Text("name").c_str(), false,
-                                         ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
-                    ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    Open(destination.Object("target"));
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(destination.Text("owner-name").c_str());
-                ImGui::PopID();
+    {
+        SetupForm form("##parameter-info");
+        if (form) {
+            ImGui::PushTextWrapPos(0);
+            form.Row("Type");
+            ImGui::TextUnformatted(data.Text("type-name").c_str());
+            form.Row("Owner");
+            SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
+            if (data.Object("behavior") && data.Object("behavior") != data.Object("owner")) {
+                form.Row("Behavior");
+                SetupLink("Behavior", data.Object("behavior"), data.Text("behavior-name"));
             }
-            ImGui::EndTable();
+            ImGui::PopTextWrapPos();
         }
-        ImGui::EndGroup();
+    }
+    ImGui::Spacing();
+    // A This parameter still shows its owner and cannot be edited.
+    ParameterValue(data, data.Boolean("editable"));
+    ImGui::Spacing();
+    ShowInSchematic(data);
+    if (!output)
+        return;
+    columns.Next();
+    Group("Destinations");
+    const float unit = PageUnit();
+    if (ImGui::BeginTable("destinations", 2,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_ScrollX,
+                          {0, 180 * unit}, std::max(380 * unit, ImGui::GetContentRegionAvail().x))) {
+        TypeAhead typeAhead;
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("Parameter", ImGuiTableColumnFlags_WidthFixed, 170 * unit);
+        ImGui::TableSetupColumn("Owner");
+        ImGui::TableHeadersRow();
+        for (size_t i = 0; i < data.Rows("destinations").size(); ++i) {
+            const SetupFields destination(data.Rows("destinations")[i].fields);
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (typeAhead.Selectable(destination.Text("name").c_str(), false,
+                                     ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) &&
+                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                Open(destination.Object("target"));
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(destination.Text("owner-name").c_str());
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
     }
 }
 
@@ -1186,20 +1193,22 @@ void SetupWindows::ShowInSchematic(const SetupFields &data) {
     ImGui::EndDisabled();
 }
 void SetupWindows::ParameterValue(const SetupFields &data, bool editable) {
-    ImGui::TextUnformatted("Value");
-    ImGui::SameLine(110);
-    const auto text = data.Text("value-text");
-    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 380.0f);
-    ImGui::TextUnformatted(text.size() > 2000 ? (text.substr(0, 2000) + "...").c_str() : text.c_str());
-    ImGui::PopTextWrapPos();
-    if (data.Object("value-object")) {
-        ImGui::TextUnformatted("Object");
-        ImGui::SameLine(110);
-        SetupLink("Object", data.Object("value-object"), data.Text("value-object-name"));
+    {
+        SetupForm form("##parameter-value");
+        if (form) {
+            form.Row("Value");
+            const auto text = data.Text("value-text");
+            ImGui::TextWrapped("%s", text.size() > 2000 ? (text.substr(0, 2000) + "...").c_str() : text.c_str());
+            if (data.Object("value-object")) {
+                form.Row("Object");
+                ImGui::PushTextWrapPos(0);
+                SetupLink("Object", data.Object("value-object"), data.Text("value-object-name"));
+                ImGui::PopTextWrapPos();
+            }
+        }
     }
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 110.0f);
     ImGui::BeginDisabled(!data.Object("value") || !editable);
-    if (ImGui::Button("Edit Value...", ImVec2(110, 0)))
+    if (ImGui::Button("Edit Value..."))
         RunSetupCommand("parameter.edit", {ObjectArgument("target", data.Object("value"))});
     ImGui::EndDisabled();
 }
