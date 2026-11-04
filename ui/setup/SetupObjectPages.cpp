@@ -1241,13 +1241,29 @@ void SetupWindows::InterfaceObjectsPage(ObjectRef target) {
 }
 
 void SetupWindows::OtherPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "other", description))
         return;
     const auto data = description.Values();
-    ImGui::Text("%s  (%s, ID %u)", data.Text("name").c_str(), data.Text("class-name").c_str(), unsigned(target.object));
+    SetupColumns columns("##object-info", 1);
+    if (!columns)
+        return;
+    columns.Next();
+    Group("Object");
+    {
+        SetupForm form("##object-details");
+        if (form) {
+            form.Row("Name");
+            ImGui::TextWrapped("%s", data.Text("name").c_str());
+            form.Row("Class");
+            ImGui::TextWrapped("%s", data.Text("class-name").c_str());
+            form.Row("ID");
+            ImGui::Text("%u", unsigned(target.object));
+        }
+    }
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("This class has no specific Setup page; see its attributes.");
+    ImGui::PopTextWrapPos();
 }
 
 void SetupWindows::ShowInSchematic(const SetupFields &data) {

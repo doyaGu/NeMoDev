@@ -4950,6 +4950,65 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *generic =
+        IM_REGISTER_TEST(engine, "appearancevaluedialogs", "generic_object_reflow_description_rename_cancel_and_undo");
+    generic->GuiFunc = MainThreadGui;
+    generic->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target;
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *object =
+                doc.Context()->CreateObject(CKCID_BEOBJECT, ("Generic object " + std::string(260, 'G')).c_str());
+            IM_CHECK_NO_RET(object);
+            doc.Include(object->GetID());
+            target = doc.Reference(object->GetID());
+            IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                            EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupother");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        const auto revision = App().State().document->ChangeRevision();
+        float wideHeight = 0;
+        ImGuiID formId = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##object-info");
+            const auto *columns = SetupTable(ctx, view, "##object-info");
+            const auto *form = SetupTable(ctx, view, "##object-details");
+            IM_CHECK(columns && form && columns->ColumnsCount == 1);
+            IM_CHECK(!formId || formId == form->ID);
+            formId = form->ID;
+            IM_CHECK(form->OuterRect.Min.x >= columns->Columns[0].WorkMinX - 1 &&
+                     form->OuterRect.Max.x <= columns->Columns[0].WorkMaxX + 1);
+            if (!wideHeight)
+                wideHeight = form->OuterRect.GetHeight();
+            if (width == 690)
+                IM_CHECK_GT(form->OuterRect.GetHeight(), wideHeight);
+            if (width == 450)
+                IM_CHECK_GT(SetupPage(ctx, view)->ScrollMax.x, 0);
+        }
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        IM_CHECK_EQ(App().State().document->ChangeRevision(), revision);
+        CheckSetupRename(ctx, view, target);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {
