@@ -553,6 +553,33 @@ void CheckSetupUser(ImGuiTestContext *ctx, EditorView view, vdev::ObjectRef targ
     IM_CHECK_NO_RET(ShowsObject(ctx, behavior.object));
     IM_CHECK_NO_RET(App().State().History().UndoCount() == history);
 }
+ImGuiWindow *ParameterDialogValues(ImGuiTestContext *ctx, const char *ref) {
+    auto *window = ctx->GetWindowByRef(ref);
+    for (auto *child : window->DC.ChildWindows)
+        if (child->ChildId == window->GetID("##parameter-values"))
+            return child;
+    return nullptr;
+}
+void ResizeParameterDialog(ImGuiTestContext *ctx, const char *ref, ImVec2 size) {
+    auto *window = ctx->GetWindowByRef(ref);
+    OnMainThread(ctx, [&] { ImGui::SetWindowSize(window->Name, size); });
+    ctx->Yield(4);
+}
+void CheckParameterDialogBounds(ImGuiTestContext *ctx, const char *ref) {
+    auto *window = ctx->GetWindowByRef(ref);
+    auto *values = ParameterDialogValues(ctx, ref);
+    IM_CHECK_NO_RET(window->WasActive && values && !(window->Flags & ImGuiWindowFlags_NoResize));
+    const auto *viewport = ImGui::GetMainViewport();
+    IM_CHECK_NO_RET(window->Pos.x >= viewport->WorkPos.x - 1 && window->Pos.y >= viewport->WorkPos.y - 1 &&
+                    window->Pos.x + window->Size.x <= viewport->WorkPos.x + viewport->WorkSize.x + 1 &&
+                    window->Pos.y + window->Size.y <= viewport->WorkPos.y + viewport->WorkSize.y + 1);
+    for (const char *label : {"OK", "Cancel"}) {
+        const auto id = ImHashStr("##dialogbutton", 0, window->GetID(label));
+        const auto rect = ctx->ItemInfo(id).RectFull;
+        IM_CHECK_NO_RET(rect.Min.x >= window->Pos.x && rect.Max.x <= window->Pos.x + window->Size.x &&
+                        rect.Min.y >= values->Pos.y + values->Size.y && rect.Max.y <= window->Pos.y + window->Size.y);
+    }
+}
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
     struct Source {
@@ -5008,6 +5035,234 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
                             App().Layout().ViewportUploadsForTests() == 0);
         });
+    };
+    auto *scalarDialog =
+        IM_REGISTER_TEST(engine, "appearancevaluedialogs", "parameter_value_dialog_resize_keeps_input_cancel_and_undo");
+    scalarDialog->GuiFunc = MainThreadGui;
+    scalarDialog->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupParameters(ctx);
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            App()
+                .State()
+                .document->Resolve(objects.local)
+                ->SetName(("Dialog integer " + std::string(130, 'I')).c_str());
+            auto &workspace = App().WorkspaceForTests();
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+        });
+        const auto history = App().State().History().UndoCount();
+        const char *ref = "//Edit Parameter###AttributeManagerValue";
+        const auto open = [&] {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(
+                    EditorCommands().Command("parameter.edit", {ObjectArgument("target", objects.local)}).status <=
+                    EDITOR_NO_CHANGE);
+            });
+            ctx->Yield(4);
+            ctx->SetRef(ref);
+        };
+        open();
+        ctx->ItemClick("**/##number");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("41");
+        ctx->Yield(2);
+        const auto input = ctx->ItemInfo("**/##number").ID;
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        for (const float width : {1200.f, 430.f, 760.f, 430.f}) {
+            ResizeParameterDialog(ctx, ref, {width, 270});
+            CheckParameterDialogBounds(ctx, ref);
+            IM_CHECK_EQ(ctx->UiContext->ActiveId, input);
+            IM_CHECK_EQ(ctx->UiContext->OpenPopupStack.back().PopupId, popup);
+            IM_CHECK_EQ(ctx->ItemInfo("**/##number").ID, input);
+            IM_CHECK_GT(ParameterDialogValues(ctx, ref)->ScrollMax.x, 0);
+            IM_CHECK_EQ(SetupInteger(ctx, objects.local), 7);
+        }
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(!ctx->UiContext->OpenPopupStack.empty());
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 7);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        open();
+        ctx->ItemClick("**/##number");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("52");
+        ResizeParameterDialog(ctx, ref, {430, 270});
+        CheckParameterDialogBounds(ctx, ref);
+        ctx->ItemClick("**/OK/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 52);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 7);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 52);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(App().State().History().Undo());
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *matrixDialog =
+        IM_REGISTER_TEST(engine, "appearancevaluedialogs", "parameter_matrix_dialog_scroll_resize_cancel_and_undo");
+    matrixDialog->GuiFunc = MainThreadGui;
+    matrixDialog->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef target;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *parameter = doc.Context()->CreateCKParameterLocal(("Dialog matrix " + std::string(130, 'M')).c_str(),
+                                                                    CKPGUID_MATRIX);
+            IM_CHECK_NO_RET(parameter);
+            VxMatrix matrix;
+            matrix.SetIdentity();
+            parameter->SetValue(&matrix, sizeof(matrix));
+            doc.Include(parameter->GetID());
+            target = doc.Reference(parameter->GetID());
+            auto &workspace = App().WorkspaceForTests();
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+        });
+        const auto history = App().State().History().UndoCount();
+        const char *ref = "//Edit Parameter###AttributeManagerValue";
+        const auto first = [&] {
+            return Read<float>(ctx, [&] {
+                VxMatrix matrix;
+                CKParameter::Cast(App().State().document->Resolve(target))->GetValue(&matrix);
+                return matrix[0][0];
+            });
+        };
+        const auto open = [&] {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(EditorCommands().Command("parameter.edit", {ObjectArgument("target", target)}).status <=
+                                EDITOR_NO_CHANGE);
+            });
+            ctx->Yield(4);
+            ctx->SetRef(ref);
+        };
+        open();
+        ctx->ItemClick("**/##components/$$0/##m");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("3.5");
+        ResizeParameterDialog(ctx, ref, {430, 150});
+        CheckParameterDialogBounds(ctx, ref);
+        auto *values = ParameterDialogValues(ctx, ref);
+        IM_CHECK_GT(values->ScrollMax.x, 0);
+        IM_CHECK_GT(values->ScrollMax.y, 0);
+        IM_CHECK_EQ(first(), 1.f);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(first(), 1.f);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        open();
+        ctx->ItemClick("**/##components/$$0/##m");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("4.5");
+        ResizeParameterDialog(ctx, ref, {430, 250});
+        ctx->ItemClick("**/OK/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(first(), 4.5f);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(App().State().History().Undo());
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+        IM_CHECK_EQ(first(), 1.f);
+    };
+    auto *attributeDialog =
+        IM_REGISTER_TEST(engine, "appearancevaluedialogs", "attribute_value_dialog_type_layout_resize_cancel_and_undo");
+    attributeDialog->GuiFunc = MainThreadGui;
+    attributeDialog->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        ObjectRef owner, parameter;
+        int type = -1;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *object = CKBeObject::Cast(doc.Context()->CreateObject(CKCID_3DOBJECT, "Dialog attribute owner"));
+            IM_CHECK_NO_RET(object);
+            doc.Include(object->GetID());
+            type = doc.Context()->GetAttributeManager()->RegisterNewAttributeType(
+                "Dialog appearance attribute", CKPGUID_INT, CKCID_BEOBJECT, CK_ATTRIBUT_USER);
+            IM_CHECK_NO_RET(type >= 0 && object->SetAttribute(type));
+            auto *value = object->GetAttributeParameter(type);
+            const int initial = 3;
+            value->SetValue(&initial);
+            doc.Include(value->GetID());
+            owner = doc.Reference(object->GetID());
+            parameter = doc.Reference(value->GetID());
+            auto &workspace = App().WorkspaceForTests();
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(workspace.Configure(config, error));
+        });
+        const auto history = App().State().History().UndoCount();
+        const char *ref = "//Edit Parameter###AttributeValue";
+        const auto open = [&] {
+            OnMainThread(ctx, [&] {
+                const auto client = EditorCommands();
+                const auto catalog = EditorClient::Integer(client.Query("attribute.catalog"), "catalog");
+                IM_CHECK_NO_RET(
+                    client
+                        .Command("attribute.edit-value",
+                                 {ObjectArgument("target", owner), IntegerArgument("type", type),
+                                  IntegerArgument("catalog", catalog), ObjectArgument("parameter", parameter)})
+                        .status <= EDITOR_NO_CHANGE);
+            });
+            ctx->Yield(4);
+            ctx->SetRef(ref);
+        };
+        open();
+        ResizeParameterDialog(ctx, ref, {430, 280});
+        CheckParameterDialogBounds(ctx, ref);
+        auto *values = ParameterDialogValues(ctx, ref);
+        auto *form = ctx->UiContext->Tables.GetByKey(ctx->GetWindowByRef(ref)->GetID("##parameter-type"));
+        IM_CHECK(form && form->OuterRect.Min.x >= values->InnerRect.Min.x - 1 &&
+                 form->OuterRect.Max.x <= values->InnerRect.Max.x + 1);
+        ctx->ItemClick("**/##number");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("17");
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(SetupInteger(ctx, parameter), 3);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        open();
+        ctx->ItemClick("**/##number");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("21");
+        ResizeParameterDialog(ctx, ref, {600, 350});
+        ctx->ItemClick("**/OK/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(SetupInteger(ctx, parameter), 21);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(App().State().History().Undo());
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+        IM_CHECK_EQ(SetupInteger(ctx, parameter), 3);
     };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;

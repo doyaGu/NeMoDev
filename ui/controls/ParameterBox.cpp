@@ -3,6 +3,7 @@
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/setup/SetupLayout.h"
 #include "features/values/ParameterCommands.h"
 #include "workspace/EditorClient.h"
 #include "imgui_internal.h"
@@ -527,84 +528,88 @@ bool ParameterBox::PickFrom(Row &row, const ImVec2 &mouse) {
 // takes from the object, Shift taking it relative to the parent (the
 // position, orientation and matrix), the local box, the 2D entity's size.
 
-
-
-
-
-
-
-
-DialogAction EditParametersDialog(const char *id, const std::string &title, ParameterBox &box, bool apply) {
-    if (!ImGui::IsPopupOpen(id)) return DialogAction::None;
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const ImVec2 rows = box.Size(s, true);
-    // The panel 10 from the sides and 6 below the title, the rows 2 inside
-    // it; the buttons (60 x 18) 10 apart, 10 from the right, 4 below.
-    const float inset = 2.0f * s;
-    float width = rows.x + 2.0f * (10.0f * s + inset);
-    width = std::max(width, vi::TextWidth(title.c_str(), true) + 40.0f * s);
-    width = std::max(width, (apply ? 3 : 2) * 70.0f * s + 10.0f * s);
-    const float panelBottom = 6.0f * s + rows.y + 2.0f * inset;
-    const ImVec2 client(width, panelBottom + 4.0f * s + 18.0f * s + 5.0f * s);
-    ImVec2 o;
-    if (!vi::BeginDialog(id, title, client, s, o)) return DialogAction::None;
-    const ImVec2 panelMin(o.x + 10.0f * s, o.y + 6.0f * s);
-    const ImVec2 panelMax(o.x + width - 10.0f * s, o.y + panelBottom);
-    vi::Panel(panelMin, panelMax, s);
-    box.Draw(ImVec2(panelMin.x + inset, panelMin.y + inset), s, true);
-    // The panel's outline over the rows' corners.
-    ImGui::GetWindowDrawList()->AddRect(panelMin, panelMax, CurrentDevTheme().controlLine,
-                                        CurrentDevTheme().groupRounding * s, 0, CurrentDevTheme().groupBorder * s);
-    float x = o.x + width - 10.0f * s - 60.0f * s;
-    const float y = o.y + panelBottom + 4.0f * s;
+namespace {
+DialogAction DrawParameterDialog(const char *id, const std::string &title, ParameterBox &box, bool minimum, bool apply,
+                                 const char *typeName) {
+    if (!ImGui::IsPopupOpen(id))
+        return DialogAction::None;
+    const float s = setup::PageUnit();
+    const float padding = 10 * s, inset = 2 * s, gap = 4 * s, buttonHeight = 18 * s;
+    const auto *viewport = ImGui::GetMainViewport();
+    const ImVec2 maximum{std::max(1.f, viewport->WorkSize.x - 16 * s), std::max(1.f, viewport->WorkSize.y - 16 * s)};
+    const float titleHeight = vi::TitleHeight(s) + 2;
+    const ImVec2 minSize{std::min(240 * s, maximum.x), std::min(120 * s + titleHeight, maximum.y)};
+    ImGui::SetNextWindowSizeConstraints(minSize, maximum);
+    const auto rows = box.Size(s, minimum);
+    const float desiredWidth =
+        std::max({265 * s, rows.x + 2 * inset, vi::TextWidth(title.c_str(), true) + 20 * s, (apply ? 3 : 2) * 70 * s}) +
+        2 * padding;
+    const float desiredHeight = rows.y + 2 * inset + (typeName ? 21 * s : 0) + 2 * padding + gap + buttonHeight;
+    const ImVec2 initial{std::clamp(desiredWidth + 2, minSize.x, maximum.x) - 2,
+                         std::clamp(desiredHeight + titleHeight, minSize.y, maximum.y) - titleHeight};
+    ImVec2 origin;
+    if (!vi::BeginDialog(id, title, initial, s, origin, ImGuiWindowFlags_NoMove))
+        return DialogAction::None;
+    const auto windowSize = ImGui::GetWindowSize();
+    const ImVec2 client{windowSize.x - 2, windowSize.y - titleHeight};
+    const ImVec2 panelMin{origin.x + padding, origin.y + padding};
+    const ImVec2 panelSize{std::max(1.f, client.x - 2 * padding),
+                           std::max(1.f, client.y - 2 * padding - gap - buttonHeight)};
+    vi::Panel(panelMin, {panelMin.x + panelSize.x, panelMin.y + panelSize.y}, s);
+    // Scrolling and arranging the values must not rename their controls or popups.
+    const auto contentId = ImGui::GetID("");
+    ImGui::SetCursorScreenPos(panelMin);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {inset, inset});
+    if (ImGui::BeginChild("##parameter-values", panelSize, ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoBackground)) {
+        ImGui::PushOverrideID(contentId);
+        if (typeName) {
+            setup::SetupForm form("##parameter-type");
+            if (form) {
+                form.Row("Parameter Type :");
+                ImGui::TextWrapped("%s", typeName);
+            }
+        }
+        const auto at = ImGui::GetCursorScreenPos();
+        box.Draw(at, s, minimum);
+        const auto measured = box.Size(s, minimum);
+        ImGui::GetWindowDrawList()->AddRect({at.x - s, at.y - s}, {at.x + measured.x + s, at.y + measured.y + s},
+                                            vi::Color(0));
+        ImGui::SetCursorScreenPos(at);
+        ImGui::Dummy({std::max(1.f, measured.x), std::max(1.f, measured.y)});
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleVar();
+    float x = origin.x + client.x - padding - 60 * s;
+    const float y = origin.y + client.y - padding - buttonHeight;
     DialogAction action = DialogAction::None;
-    if (vi::DialogButton("Cancel", ImVec2(x, y), s, ImGuiKey_Escape) && !box.InputActive()) action = DialogAction::Cancel;
+    if (vi::DialogButton("Cancel", {x, y}, s, ImGuiKey_Escape) && !box.InputActive())
+        action = DialogAction::Cancel;
     ImGui::BeginDisabled(!box.Valid());
     if (apply) {
-        x -= 70.0f * s;
-        if (vi::DialogButton("Apply", ImVec2(x, y), s) && box.Valid() && !box.InputActive()) action = DialogAction::Apply;
+        x -= 70 * s;
+        if (vi::DialogButton("Apply", {x, y}, s) && box.Valid() && !box.InputActive())
+            action = DialogAction::Apply;
     }
-    x -= 70.0f * s;
-    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter) && box.Valid() && !box.InputActive()) action = DialogAction::Ok;
+    x -= 70 * s;
+    if (vi::DialogButton("OK", {x, y}, s, ImGuiKey_Enter) && box.Valid() && !box.InputActive())
+        action = DialogAction::Ok;
     ImGui::EndDisabled();
-    if (action == DialogAction::Ok || action == DialogAction::Cancel) ImGui::CloseCurrentPopup();
+    if (action == DialogAction::Ok || action == DialogAction::Cancel)
+        ImGui::CloseCurrentPopup();
     vi::EndDialog();
     return action;
 }
+} // namespace
 
-DialogAction EditParameterValueDialog(const char *id, const std::string &title, ParameterBox &box, const char *typeName) {
-    if (!ImGui::IsPopupOpen(id)) return DialogAction::None;
-    const float s = ImGui::GetFontSize() / 13.0f;
-    // Dev.exe sub_589D50's layout: 265 pixels at least, the rows from (16,
-    // 11), 21 apart.
-    const ImVec2 rows = box.Size(s, false);
-    const float width = std::max(265.0f * s, rows.x + 2.0f * s) + 2.0f * 6.0f * s + 20.0f * s;
-    const float X = 16.0f * s, typeY = 11.0f * s, rowY = typeName ? typeY + 21.0f * s : typeY;
-    const float panelBottom = rowY + rows.y + 2.0f * s + 5.0f * s + 1.0f * s;
-    const ImVec2 client(width, panelBottom + 4.0f * s + 18.0f * s + 5.0f * s);
-    ImVec2 o;
-    if (!vi::BeginDialog(id, title, client, s, o)) return DialogAction::None;
-    vi::Panel(ImVec2(o.x + 10.0f * s, o.y + 5.0f * s), ImVec2(o.x + width - 10.0f * s, o.y + panelBottom), s);
-    if (typeName) {
-        const float right = width - 16.0f * s, field = 165.0f * s;
-        vi::Text(ImVec2(o.x + X, o.y + typeY + 2.0f * s), ImVec2(o.x + X + 120.0f * s, o.y + typeY + 16.0f * s),
-                 "Parameter Type :", true);
-        vi::Text(ImVec2(o.x + right - field, o.y + typeY + 3.0f * s), ImVec2(o.x + right, o.y + typeY + 16.0f * s), typeName);
-    }
-    box.Draw(ImVec2(o.x + X + 1.0f * s, o.y + rowY + 1.0f * s), s, false);
-    ImGui::GetWindowDrawList()->AddRect(ImVec2(o.x + X, o.y + rowY), ImVec2(o.x + X + rows.x + 2.0f * s, o.y + rowY + rows.y + 2.0f * s),
-                                        vi::Color(0));
-    float x = o.x + width - 10.0f * s - 60.0f * s;
-    const float y = o.y + panelBottom + 4.0f * s;
-    DialogAction action = DialogAction::None;
-    if (vi::DialogButton("Cancel", ImVec2(x, y), s, ImGuiKey_Escape) && !box.InputActive()) action = DialogAction::Cancel;
-    x -= 70.0f * s;
-    ImGui::BeginDisabled(!box.Valid());
-    if (vi::DialogButton("OK", ImVec2(x, y), s, ImGuiKey_Enter) && box.Valid() && !box.InputActive()) action = DialogAction::Ok;
-    ImGui::EndDisabled();
-    if (action != DialogAction::None) ImGui::CloseCurrentPopup();
-    vi::EndDialog();
-    return action;
+DialogAction EditParametersDialog(const char *id, const std::string &title, ParameterBox &box, bool apply) {
+    return DrawParameterDialog(id, title, box, true, apply, nullptr);
+}
+
+DialogAction EditParameterValueDialog(const char *id, const std::string &title, ParameterBox &box,
+                                      const char *typeName) {
+    return DrawParameterDialog(id, title, box, false, false, typeName);
 }
 
 bool ParameterBox::Valid() const {
