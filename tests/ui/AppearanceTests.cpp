@@ -36,6 +36,9 @@
 #include "CKParameterOperation.h"
 #include "CKBehaviorIO.h"
 #include "CKBehaviorLink.h"
+#include "CKSynchroObject.h"
+#include "CKInterfaceObjectManager.h"
+#include "CKStateChunk.h"
 #include <chrono>
 #include <algorithm>
 #include <utility>
@@ -120,6 +123,14 @@ void ResizeSetup(ImGuiTestContext *ctx, EditorView view, float width, bool focus
 ImGuiTable *SetupTable(ImGuiTestContext *ctx, EditorView view, const char *id) {
     auto *page = SetupPage(ctx, view);
     return page ? ctx->UiContext->Tables.GetByKey(page->GetID(id)) : nullptr;
+}
+ImGuiWindow *SetupChild(ImGuiTestContext *ctx, EditorView view, const char *id) {
+    auto *page = SetupPage(ctx, view);
+    if (page)
+        for (auto *child : page->DC.ChildWindows)
+            if (child->ChildId == page->GetID(id))
+                return child;
+    return nullptr;
 }
 void ShowSetupTable(ImGuiTestContext *ctx, EditorView view, const char *id) {
     auto *page = SetupPage(ctx, view);
@@ -398,6 +409,123 @@ SetupBehaviorObjects MakeSetupBehaviors(ImGuiTestContext *ctx) {
         objects.partialLink = doc.Reference(partialLink->GetID());
     });
     return objects;
+}
+struct SetupControlObjects {
+    vdev::ObjectRef synchro, state, section, interfaceObjects, emptyInterface, user;
+    vdev::ObjectRef synchroParameter, stateParameter, sectionParameter;
+    std::vector<vdev::ObjectRef> arrived;
+    std::vector<uint64_t> chunkSizes;
+};
+SetupControlObjects MakeSetupControls(ImGuiTestContext *ctx) {
+    SetupControlObjects objects;
+    OnMainThread(ctx, [&] {
+        using namespace vdev;
+        auto &doc = *App().State().document;
+        auto *context = doc.Context();
+        // Synchronization classes may reuse an existing object by name.
+        const auto suffix = " " + std::to_string(doc.LiveObjects(CKCID_SYNCHRO, true).size());
+        auto *synchro =
+            CKSynchroObject::Cast(context->CreateObject(CKCID_SYNCHRO, ("Setup rendez-vous" + suffix).c_str()));
+        auto *state = CKStateObject::Cast(context->CreateObject(CKCID_STATE, ("Setup state" + suffix).c_str()));
+        auto *section = CKCriticalSectionObject::Cast(
+            context->CreateObject(CKCID_CRITICALSECTION, ("Setup critical section" + suffix).c_str()));
+        auto *manager = static_cast<CKInterfaceObjectManager *>(
+            context->CreateObject(CKCID_INTERFACEOBJECTMANAGER, ("Setup interface objects" + suffix).c_str()));
+        auto *empty = static_cast<CKInterfaceObjectManager *>(
+            context->CreateObject(CKCID_INTERFACEOBJECTMANAGER, ("Empty Setup interface objects" + suffix).c_str()));
+        IM_CHECK_NO_RET(synchro && state && section && manager && empty);
+        for (CKObject *item :
+             {static_cast<CKObject *>(synchro), static_cast<CKObject *>(state), static_cast<CKObject *>(section),
+              static_cast<CKObject *>(manager), static_cast<CKObject *>(empty)})
+            doc.Include(item->GetID());
+        synchro->SetRendezVousNumberOfWaiters(100);
+        state->LeaveState();
+        for (int i = 0; i < 16; ++i) {
+            const auto name = "Arrived" + suffix + " " + std::to_string(i) + " " + std::string(90, 'A');
+            auto *object = CKBeObject::Cast(context->CreateObject(CKCID_3DOBJECT, name.c_str()));
+            IM_CHECK_NO_RET(object && !synchro->CanIPassRendezVous(object));
+            doc.Include(object->GetID());
+            objects.arrived.push_back(doc.Reference(object->GetID()));
+        }
+        auto *holder = CKBeObject::Cast(doc.Resolve(objects.arrived[0]));
+        IM_CHECK_NO_RET(section->EnterCriticalSection(holder));
+        const auto script = CreateScript(doc, holder->GetID(), "Setup control Script " + std::string(90, 'S'));
+        IM_CHECK_NO_RET(script.ok);
+        const auto graph = CreateBehaviorGraph(doc, script.created, script.created,
+                                               "Setup control user " + std::string(90, 'B'), {240, 120});
+        IM_CHECK_NO_RET(graph.ok);
+        auto *root = CKBehavior::Cast(context->GetObject(script.created));
+        auto *user = CKBehavior::Cast(context->GetObject(graph.created));
+        const auto parameter = [&](CKObject *target, CKGUID type, const char *name) {
+            auto *value = root->CreateLocalParameter(name, type);
+            auto *input = user->CreateInputParameter(name, type);
+            if (!value || !input)
+                return ObjectRef{};
+            const auto id = target->GetID();
+            value->SetValue(&id, sizeof(id));
+            if (input->SetDirectSource(value) != CK_OK)
+                return ObjectRef{};
+            doc.Include(value->GetID());
+            doc.Include(input->GetID());
+            return doc.Reference(input->GetID());
+        };
+        objects.synchroParameter = parameter(synchro, CKPGUID_SYNCHRO, "Synchro user parameter");
+        objects.stateParameter = parameter(state, CKPGUID_STATE, "State user parameter");
+        objects.sectionParameter = parameter(section, CKPGUID_CRITICALSECTION, "Critical section user parameter");
+        IM_CHECK_NO_RET(objects.synchroParameter && objects.stateParameter && objects.sectionParameter);
+        manager->SetGuid(CKGUID(0x12345678, 0x23456789));
+        empty->SetGuid(CKGUID());
+        manager->AddStateChunk(nullptr);
+        auto *blank = CreateCKStateChunk(CKCID_OBJECT, nullptr);
+        IM_CHECK_NO_RET(blank);
+        blank->StartWrite();
+        blank->CloseChunk();
+        manager->AddStateChunk(blank);
+        for (int i = 0; i < 32; ++i) {
+            auto *chunk = CreateCKStateChunk(CKCID_OBJECT, nullptr);
+            IM_CHECK_NO_RET(chunk);
+            chunk->StartWrite();
+            chunk->WriteIdentifier(0x12340000 + i);
+            chunk->WriteInt(i);
+            chunk->CloseChunk();
+            manager->AddStateChunk(chunk);
+        }
+        for (int i = 0; i < manager->GetChunkCount(); ++i) {
+            auto *chunk = manager->GetChunk(i);
+            objects.chunkSizes.push_back(chunk ? uint64_t(chunk->GetDataSize()) : UINT64_MAX);
+        }
+        objects.synchro = doc.Reference(synchro->GetID());
+        objects.state = doc.Reference(state->GetID());
+        objects.section = doc.Reference(section->GetID());
+        objects.interfaceObjects = doc.Reference(manager->GetID());
+        objects.emptyInterface = doc.Reference(empty->GetID());
+        objects.user = doc.Reference(user->GetID());
+    });
+    return objects;
+}
+void CheckSetupUser(ImGuiTestContext *ctx, EditorView view, vdev::ObjectRef target, vdev::ObjectRef parameter,
+                    vdev::ObjectRef behavior) {
+    const auto data = Read<vdev::SetupDetails>(ctx, [&] {
+        vdev::SetupDetails data;
+        vdev::ReadSetupDetails(EditorCommands(), target, "parameter-users", data);
+        return data;
+    });
+    IM_CHECK_NO_RET(data.Values().Rows("users").size() == 1);
+    const vdev::SetupFields row(data.Values().Rows("users").front().fields);
+    IM_CHECK_NO_RET(row.Object("target") == parameter && row.Object("behavior") == behavior);
+    const auto history = App().State().History().UndoCount();
+    ctx->SetRef(SetupRef(view).c_str());
+    ShowSetupTable(ctx, view, "users");
+    auto *table = SetupTable(ctx, view, "users");
+    IM_CHECK_NO_RET(table && table->InnerWindow);
+    ctx->ScrollToX(table->InnerWindow->ID, 0);
+    ctx->Yield(2);
+    const int id = int(parameter.object);
+    const auto seed = ImHashData(&id, sizeof(id), table->ID);
+    ctx->ItemDoubleClick(ImHashStr(row.Text("behavior-name").c_str(), 0, seed), ImGuiTestOpFlags_MoveToEdgeL);
+    ctx->Yield(3);
+    IM_CHECK_NO_RET(ShowsObject(ctx, behavior.object));
+    IM_CHECK_NO_RET(App().State().History().UndoCount() == history);
 }
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
@@ -4441,6 +4569,130 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK(ctx->ItemInfo(to).ItemFlags & ImGuiItemFlags_Disabled);
         IM_CHECK(ctx->ItemInfo(delay).ItemFlags & ImGuiItemFlags_Disabled);
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
+    auto *synchro = IM_REGISTER_TEST(engine, "appearancesyncstate", "synchro_reflow_cancel_undo_reset_and_navigation");
+    synchro->GuiFunc = MainThreadGui;
+    synchro->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupControls(ctx);
+        IM_CHECK(objects.synchro && objects.arrived.size() == 16);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.synchro)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupsynchro");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID users = 0, arrived = 0, usedBy = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##synchro-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##synchro-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 3 : 1);
+            IM_CHECK(!users || users == page->GetID("##users"));
+            users = page->GetID("##users");
+            for (const auto id : {users, page->GetID("Reset")}) {
+                const auto rect = ctx->ItemInfo(id).RectFull;
+                IM_CHECK(rect.Min.x >= table->Columns[0].WorkMinX - 1 && rect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            }
+            auto *list = SetupChild(ctx, view, "arrived");
+            IM_CHECK(list);
+            IM_CHECK(!arrived || arrived == list->ID);
+            arrived = list->ID;
+            IM_CHECK_GT(list->ScrollMax.x, 0);
+            IM_CHECK_GT(list->ScrollMax.y, 0);
+            auto *used = SetupTable(ctx, view, "users");
+            IM_CHECK(used && used->InnerWindow);
+            IM_CHECK(!usedBy || usedBy == used->ID);
+            usedBy = used->ID;
+            IM_CHECK_GT(used->InnerWindow->ScrollMax.x, 0);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto count = [&] {
+            return Read<int>(ctx, [&] {
+                return CKSynchroObject::Cast(App().State().document->Resolve(objects.synchro))
+                    ->GetRendezVousNumberOfWaiters();
+            });
+        };
+        const auto arrivals = [&] {
+            return Read<int>(ctx, [&] {
+                return CKSynchroObject::Cast(App().State().document->Resolve(objects.synchro))
+                    ->GetRendezVousNumberOfArrivedObjects();
+            });
+        };
+        ctx->SetRef(SetupRef(view).c_str());
+        ctx->ScrollToItemY(users);
+        const auto at = ctx->ItemInfo(users).RectFull.GetCenter();
+        ctx->MouseMoveToPos(at);
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 40, at.y});
+        ctx->Yield(3);
+        IM_CHECK(count() != 100);
+        ResizeSetup(ctx, view, 690, false);
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, users);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_EQ(count(), 100);
+        IM_CHECK_EQ(arrivals(), 16);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ctx->ItemInputValue(users, 103);
+        ctx->Yield(3);
+        IM_CHECK_EQ(count(), 103);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(count(), 100);
+        Redo(ctx);
+        IM_CHECK_EQ(count(), 103);
+        Undo(ctx);
+        IM_CHECK_EQ(arrivals(), 16);
+        ResizeSetup(ctx, view, 1500);
+        auto *list = SetupChild(ctx, view, "arrived");
+        ctx->ScrollToX(list->ID, 0);
+        ctx->ScrollToTop(list->ID);
+        ctx->Yield(2);
+        const int index = 0;
+        const auto seed = ImHashData(&index, sizeof(index), list->ID);
+        const auto name = ObjectName(ctx, objects.arrived.front().object);
+        ctx->ItemDoubleClick(ImHashStr(name.c_str(), 0, seed), ImGuiTestOpFlags_MoveToEdgeL);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.arrived.front().object));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.synchro)}).status <=
+                EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 1500);
+        const auto revision = App().State().document->ChangeRevision();
+        const bool dirty = App().State().document->Dirty(), redo = App().State().History().CanRedo();
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Reset"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(arrivals(), 0);
+        IM_CHECK_EQ(count(), 100);
+        IM_CHECK_EQ(App().State().document->ChangeRevision(), revision);
+        IM_CHECK_EQ(App().State().document->Dirty(), dirty);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        IM_CHECK_EQ(App().State().History().CanRedo(), redo);
+        CheckSetupUser(ctx, view, objects.synchro, objects.synchroParameter, objects.user);
         OnMainThread(ctx, [&] {
             std::string error;
             IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));

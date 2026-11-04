@@ -1123,7 +1123,6 @@ void SetupWindows::BehaviorLinkPage(ObjectRef target) {
 }
 
 void SetupWindows::SynchroPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "synchro", description))
         return;
@@ -1132,24 +1131,31 @@ void SetupWindows::SynchroPage(ObjectRef target) {
     if (!ReadProperties(target, {"synchro.users"}, propertyData))
         return;
     const auto values = propertyData.Values();
-    ImGui::BeginGroup();
+    SetupColumns columns("##synchro-settings", 3);
+    if (!columns)
+        return;
+    columns.Next();
     Group("Rendez-Vous");
-    ImGui::TextUnformatted("Number Of Users");
-    ImGui::SameLine(160);
-    int users = int(values.Integer("synchro.users"));
-    ImGui::SetNextItemWidth(90);
-    if (ImGui::DragInt("##users", &users, 0.1f, 0, 10000))
-        PreviewValue(id, "synchro.users", users);
     const int arrived = int(data.Rows("arrived").size());
-    ImGui::Text("Arrived:  %d", arrived);
-    if (ImGui::Button("Reset", ImVec2(90, 0)))
+    {
+        SetupForm form("##synchro-info");
+        if (form) {
+            form.Row("Number Of Users");
+            int users = int(values.Integer("synchro.users"));
+            if (ImGui::DragInt("##users", &users, 0.1f, 0, 10000))
+                PreviewValue(target, "synchro.users", users);
+            form.Row("Arrived");
+            ImGui::Text("%d", arrived);
+        }
+    }
+    if (ImGui::Button("Reset"))
         RunSetupCommand("setup.synchro-reset", {ObjectArgument("target", target)});
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Forgets the objects arrived");
-    ImGui::EndGroup();
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Forgets the objects arrived");
+    columns.Next();
     Group("Arrived Objects");
-    if (ImGui::BeginChild("arrived", ImVec2(280, 120), ImGuiChildFlags_Borders)) {
+    if (ImGui::BeginChild("arrived", {0, 120 * PageUnit()}, ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar)) {
         TypeAhead typeAhead;
         for (int i = 0; i < arrived; ++i) {
             const SetupFields object(data.Rows("arrived")[size_t(i)].fields);
@@ -1162,8 +1168,7 @@ void SetupWindows::SynchroPage(ObjectRef target) {
         }
     }
     ImGui::EndChild();
-    ImGui::EndGroup();
-    ImGui::Separator();
+    columns.Next();
     ParameterUsers(target);
 }
 
