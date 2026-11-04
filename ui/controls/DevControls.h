@@ -103,6 +103,9 @@ bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec
 // their dialog IDs, so scrolling does not rename inputs or nested popups.
 bool BeginDialogContent(const char *id, const DialogLayout &layout);
 void EndDialogContent();
+// Choice lists keep their existing selection behavior and scroll when their
+// natural size exceeds the viewport. End with ImGui::EndPopup after true.
+bool BeginChoicePopup(const char *id, float scale);
 // A modeless VIDialog (the Script Debugger, the explorers): a window drawn
 // as BeginDialog's, placed at the center when it first shows. EndWindow
 // after it whatever it returns (ImGui::End).

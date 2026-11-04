@@ -477,6 +477,17 @@ bool BeginWindow(const char *id, const std::string &title, const ImVec2 &client,
 
 void EndWindow() { ImGui::End(); }
 
+namespace {
+void KeepWindowInWorkArea() {
+    const auto *viewport = ImGui::GetMainViewport();
+    const auto pos = ImGui::GetWindowPos(), actual = ImGui::GetWindowSize();
+    ImGui::SetWindowPos({std::clamp(pos.x, viewport->WorkPos.x,
+                                    viewport->WorkPos.x + std::max(0.f, viewport->WorkSize.x - actual.x)),
+                         std::clamp(pos.y, viewport->WorkPos.y,
+                                    viewport->WorkPos.y + std::max(0.f, viewport->WorkSize.y - actual.y))});
+}
+} // namespace
+
 bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client, float s, ImVec2 &origin,
                  ImGuiWindowFlags flags) {
     const float title_ = TitleHeight(s);
@@ -498,14 +509,8 @@ bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client,
     ImGui::PopStyleVar(4);
     if (!open)
         return false;
-    if (!(flags & ImGuiWindowFlags_NoResize)) {
-        const auto *viewport = ImGui::GetMainViewport();
-        const auto pos = ImGui::GetWindowPos(), actual = ImGui::GetWindowSize();
-        ImGui::SetWindowPos({std::clamp(pos.x, viewport->WorkPos.x,
-                                        viewport->WorkPos.x + std::max(0.f, viewport->WorkSize.x - actual.x)),
-                             std::clamp(pos.y, viewport->WorkPos.y,
-                                        viewport->WorkPos.y + std::max(0.f, viewport->WorkSize.y - actual.y))});
-    }
+    if (!(flags & ImGuiWindowFlags_NoResize))
+        KeepWindowInWorkArea();
     origin = DialogChrome(title, ImGui::GetWindowSize(), s);
     return true;
 }
@@ -514,6 +519,8 @@ void EndDialog() { ImGui::EndPopup(); }
 
 bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec2 &content, float s,
                            DialogLayout &layout) {
+    if (!ImGui::IsPopupOpen(id))
+        return false;
     const float padding = 10 * s, gap = 4 * s, buttonHeight = 18 * s;
     const auto *viewport = ImGui::GetMainViewport();
     const ImVec2 maximum{std::max(1.f, viewport->WorkSize.x - 16 * s), std::max(1.f, viewport->WorkSize.y - 16 * s)};
@@ -551,6 +558,18 @@ void EndDialogContent() {
     ImGui::PopID();
     ImGui::EndChild();
     ImGui::PopStyleVar();
+}
+
+bool BeginChoicePopup(const char *id, float s) {
+    if (!ImGui::IsPopupOpen(id))
+        return false;
+    const auto *viewport = ImGui::GetMainViewport();
+    const ImVec2 maximum{std::max(1.f, viewport->WorkSize.x - 16 * s), std::max(1.f, viewport->WorkSize.y - 16 * s)};
+    ImGui::SetNextWindowSizeConstraints({std::min(160 * s, maximum.x), 0}, maximum);
+    const bool open = ImGui::BeginPopup(id, ImGuiWindowFlags_HorizontalScrollbar);
+    if (open)
+        KeepWindowInWorkArea();
+    return open;
 }
 
 void Panel(const ImVec2 &min, const ImVec2 &max, float s) {
