@@ -1508,6 +1508,65 @@ void SetupActions(CkRuntimeHost &host) {
     CHECK(document.History().Redo() && slots(1, 0));
     CHECK(!RemoveCurrentSlot(document, texture->GetID()).ok);
 
+    // Removing an image slot keeps all pixels and filenames in order; Sprite
+    // object state alone only restores the slot count and selected slot.
+    for (bool sprite : {false, true}) {
+        CKObject *object = context->CreateObject(sprite ? CKCID_SPRITE : CKCID_TEXTURE, "Slot removal pixels");
+        CHECK(object);
+        const auto verify = [&](auto *images) {
+            constexpr CKDWORD colors[] = {0xffabcdef, 0x7f123456, 0x30405060};
+            for (int slot = 0; slot < 3; ++slot) {
+                CHECK(images->Create(4, 3, 32, slot));
+                for (int y = 0; y < 3; ++y)
+                    for (int x = 0; x < 4; ++x) CHECK(images->SetPixel(x, y, colors[slot] + CKDWORD(x + 4 * y), slot));
+                const auto file = "slot-image-" + std::to_string(slot) + ".png";
+                CHECK(images->SetSlotFileName(slot, const_cast<char *>(file.c_str())));
+            }
+            const auto saveOptions = images->GetSaveOptions();
+            const VxRect spriteRect(23, 41, 227, 195);
+            VxRect spriteSource(1, .5f, 3, 2.5f);
+            if (auto *spriteObject = CKSprite::Cast(object)) {
+                spriteObject->SetRect(spriteRect);
+                spriteObject->SetSourceRect(spriteSource);
+                spriteObject->UseSourceRect(TRUE);
+            }
+            const auto check = [&](const std::vector<int> &order, int current) {
+                CHECK(images->GetSlotCount() == int(order.size()) && images->GetCurrentSlot() == current);
+                CHECK(images->GetWidth() == 4 && images->GetHeight() == 3 && images->GetSaveOptions() == saveOptions);
+                if (auto *spriteObject = CKSprite::Cast(object)) {
+                    VxRect rect, source;
+                    spriteObject->GetRect(rect);
+                    spriteObject->GetSourceRect(source);
+                    CHECK(rect == spriteRect && source == spriteSource && spriteObject->IsUsingSourceRect());
+                }
+                for (size_t slot = 0; slot < order.size(); ++slot) {
+                    const auto file = "slot-image-" + std::to_string(order[slot]) + ".png";
+                    CHECK(images->GetSlotFileName(int(slot)) && file == images->GetSlotFileName(int(slot)));
+                    for (int y = 0; y < 3; ++y)
+                        for (int x = 0; x < 4; ++x)
+                            CHECK(images->GetPixel(x, y, int(slot)) == colors[order[slot]] + CKDWORD(x + 4 * y));
+                }
+            };
+            for (int removed : {1, 0, 2}) {
+                CHECK(images->SetCurrentSlot(removed));
+                const auto history = document.History().UndoCount();
+                std::vector<int> order{0, 1, 2};
+                order.erase(order.begin() + removed);
+                CHECK(RemoveCurrentSlot(document, object->GetID()).ok);
+                CHECK(document.History().UndoCount() == history + 1);
+                check(order, std::max(0, removed - 1));
+                CHECK(document.History().Undo());
+                check({0, 1, 2}, removed);
+                CHECK(document.History().Redo());
+                check(order, std::max(0, removed - 1));
+                CHECK(document.History().Undo());
+                check({0, 1, 2}, removed);
+            }
+        };
+        if (sprite) verify(CKSprite::Cast(object));
+        else verify(CKTexture::Cast(object));
+    }
+
     // The slot menu (Dev.exe sub_485C10): each edit undone and redone with the
     // images (pixels, size, slots) as they were.
     {

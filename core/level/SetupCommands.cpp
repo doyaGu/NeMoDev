@@ -37,6 +37,12 @@ struct Images {
     int Current() const { return texture ? texture->GetCurrentSlot() : sprite->GetCurrentSlot(); }
     void SetSlots(int count) const { texture ? texture->SetSlotCount(count) : sprite->SetSlotCount(count); }
     void SetCurrent(int slot) const { texture ? texture->SetCurrentSlot(slot) : sprite->SetCurrentSlot(slot); }
+    bool RemoveCurrent() const {
+        const int slot = Current();
+        const bool released = (texture ? texture->ReleaseSlot(slot) : sprite->ReleaseSlot(slot)) != FALSE;
+        SetCurrent(std::max(0, slot - 1));
+        return released;
+    }
     int Width() const { return texture ? texture->GetWidth() : sprite->GetWidth(); }
     int Height() const { return texture ? texture->GetHeight() : sprite->GetHeight(); }
     CKBYTE *Lock(int slot) const { return texture ? texture->LockSurfacePtr(slot) : sprite->LockSurfacePtr(slot); }
@@ -65,10 +71,11 @@ struct ImagesState {
     int width = 0, height = 0, current = 0;
     std::vector<std::vector<CKBYTE>> pixels;
     std::vector<std::string> files;
+    VxRect spriteRect{0, 0, 0, 0}, spriteSource{0, 0, 0, 0};
 
     bool operator==(const ImagesState &other) const {
         return width == other.width && height == other.height && current == other.current && pixels == other.pixels &&
-               files == other.files;
+               files == other.files && spriteRect == other.spriteRect && spriteSource == other.spriteSource;
     }
 };
 
@@ -77,6 +84,10 @@ ImagesState Take(const Images &images) {
     state.width = images.Width();
     state.height = images.Height();
     state.current = images.Current();
+    if (images.sprite) {
+        images.sprite->GetRect(state.spriteRect);
+        images.sprite->GetSourceRect(state.spriteSource);
+    }
     const size_t size = static_cast<size_t>(std::max(0, state.width)) * std::max(0, state.height) * 4;
     for (int slot = 0; slot < images.Slots(); ++slot) {
         std::vector<CKBYTE> copy;
@@ -111,6 +122,12 @@ bool Put(const Images &images, const ImagesState &state) {
         images.SetFile(slot, state.files[slot]);
     }
     images.SetCurrent(std::min(std::max(0, state.current), std::max(0, slots - 1)));
+    if (images.sprite) {
+        // Creating a missing Sprite slot also resets its display size and crop.
+        images.sprite->SetRect(state.spriteRect);
+        auto source = state.spriteSource;
+        images.sprite->SetSourceRect(source);
+    }
     return true;
 }
 
@@ -368,17 +385,13 @@ EditResult AddBitmapSlot(Document &document, CK_ID texture) {
 EditResult RemoveCurrentSlot(Document &document, CK_ID bitmap) {
     CKObject *object = document.Context()->GetObject(bitmap);
     if (SlotCount(object) <= 1) return EditResult::Refused("The last slot cannot be removed");
-    return EditObjectState(document, bitmap, "Remove Current Slot", [](CKObject *o) {
-        if (CKTexture *t = CKTexture::Cast(o)) {
-            const int slot = t->GetCurrentSlot();
-            t->ReleaseSlot(slot);
-            t->SetCurrentSlot(std::max(0, slot - 1));
-        } else if (CKSprite *s = CKSprite::Cast(o)) {
-            const int slot = s->GetCurrentSlot();
-            s->ReleaseSlot(slot);
-            s->SetCurrentSlot(std::max(0, slot - 1));
-        }
-    });
+    // Movie frame selection keeps its existing object-state behavior. Image
+    // slots need the pixels and filenames already kept by other image edits;
+    // a Sprite's ordinary object state does not contain its bitmap data.
+    if (Images(object).Movie())
+        return EditObjectState(document, bitmap, "Remove Current Slot", [](CKObject *o) { Images(o).RemoveCurrent(); });
+    return EditImages(document, bitmap, "Remove Current Slot", "Cannot remove current slot",
+                      [](const Images &images) { return images.RemoveCurrent(); });
 }
 
 std::vector<char> MakeSaveFormat(CKContext *context, const std::string &extension) {
