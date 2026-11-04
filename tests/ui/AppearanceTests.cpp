@@ -2,6 +2,9 @@
 #include "core/level/SetupCommands.h"
 #include "core/level/LevelCommands.h"
 #include "core/graph/TopologyCommands.h"
+#include "core/graph/BehaviorCommands.h"
+#include "core/graph/ValueCommands.h"
+#include "core/graph/RuntimeGraph.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/DevControls.h"
@@ -579,6 +582,78 @@ void CheckParameterDialogBounds(ImGuiTestContext *ctx, const char *ref) {
         IM_CHECK_NO_RET(rect.Min.x >= window->Pos.x && rect.Max.x <= window->Pos.x + window->Size.x &&
                         rect.Min.y >= values->Pos.y + values->Size.y && rect.Max.y <= window->Pos.y + window->Size.y);
     }
+}
+struct SchematicDialogObjects {
+    vdev::ObjectRef script, local, block, first, last, setting;
+    vdev::ElementRef element;
+    vdev::EditorConfiguration original;
+    std::string name;
+};
+SchematicDialogObjects MakeSchematicDialogs(ImGuiTestContext *ctx, bool floatBounds = false) {
+    SchematicDialogObjects objects;
+    OnMainThread(ctx, [&] {
+        using namespace vdev;
+        auto &doc = *App().State().document;
+        const auto script = CreateScript(doc, doc.Context()->GetCurrentLevel()->GetID(),
+                                          "Parameter dialog Script " + std::string(100, 'S'));
+        objects.name = "Schematic local " + std::string(130, 'L');
+        const auto local = AddLocalParameter(doc, script.created, script.created, objects.name, CKPGUID_INT, {60, 160});
+        CKGUID prototype;
+        for (const auto &entry : App().CatalogForTests().Entries())
+            if (entry.name == "Bezier Transform")
+                prototype = entry.guid;
+        IM_CHECK_NO_RET(script.ok && local.ok && prototype != CKGUID());
+        const auto block = InsertBuildingBlock(doc, script.created, script.created, prototype, {440, 180});
+        IM_CHECK_NO_RET(block.ok);
+        auto *behavior = CKBehavior::Cast(doc.Context()->GetObject(block.created));
+        IM_CHECK_NO_RET(behavior && behavior->GetLocalParameter(0));
+        behavior->SetName(("Bezier dialog " + std::string(110, 'B')).c_str());
+        behavior->GetLocalParameter(0)->SetName(("Use 4 Floats " + std::string(90, 'F')).c_str());
+        if (floatBounds)
+            IM_CHECK_NO_RET(EditBehaviorSettings(doc, script.created, block.created, {{0, "TRUE"}}).ok);
+        auto *first = EditableValueOf(behavior->GetInputParameter(0));
+        auto *last = EditableValueOf(behavior->GetInputParameter(behavior->GetInputParameterCount() - 1));
+        IM_CHECK_NO_RET(first && last);
+        const float initial = 2;
+        first->SetValue(&initial);
+        first->SetName(("First input " + std::string(90, 'X')).c_str());
+        if (floatBounds) {
+            last->SetValue(&initial);
+            last->SetName(("Last input " + std::string(90, 'Y')).c_str());
+        }
+        auto *parameter = CKParameter::Cast(doc.Context()->GetObject(local.created));
+        const int number = 7;
+        parameter->SetValue(&number);
+        objects.script = doc.Reference(script.created);
+        objects.local = doc.Reference(local.created);
+        objects.block = doc.Reference(block.created);
+        objects.first = doc.Reference(first->GetID());
+        objects.last = doc.Reference(last->GetID());
+        objects.setting = doc.Reference(behavior->GetLocalParameter(0)->GetID());
+        const auto &locals = doc.Session(script.created)->Data().rootBehavior.localParams;
+        for (size_t i = 0; i < locals.size(); ++i)
+            if (locals[i].id == local.created)
+                objects.element = {ElementKind::LocalParam, script.created, local.created, int(i)};
+        IM_CHECK_NO_RET(objects.element.object == local.created);
+        auto &workspace = App().WorkspaceForTests();
+        objects.original = workspace.Application().Configuration();
+        auto config = objects.original;
+        Alternate(config);
+        std::string error;
+        IM_CHECK_NO_RET(workspace.Configure(config, error));
+        App().Canvas().ShowScript(script.created, objects.element);
+    });
+    ctx->Yield(4);
+    return objects;
+}
+void CloseSchematicDialogs(ImGuiTestContext *ctx, const SchematicDialogObjects &objects) {
+    OnMainThread(ctx, [&] {
+        std::string error;
+        IM_CHECK_NO_RET(!App().WorkspaceForTests().Application().HasEdits());
+        IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(objects.original, error));
+        IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                        App().Layout().ViewportUploadsForTests() == 0);
+    });
 }
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
@@ -5263,6 +5338,274 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
         IM_CHECK_EQ(SetupInteger(ctx, parameter), 3);
+    };
+    auto *schematicLocal = IM_REGISTER_TEST(
+        engine, "appearanceschematicdialogs", "schematic_parameter_resize_keeps_name_value_cancel_and_undo");
+    schematicLocal->GuiFunc = MainThreadGui;
+    schematicLocal->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSchematicDialogs(ctx);
+        const auto history = App().State().History().UndoCount();
+        const auto revision = App().State().document->ChangeRevision();
+        const bool redo = App().State().History().CanRedo();
+        const char *ref = "//###EditParameter";
+        const auto open = [&] {
+            OnMainThread(ctx, [&] { App().Canvas().EditElement(objects.script.object, objects.element); });
+            ctx->Yield(4);
+            ctx->SetRef(ref);
+        };
+        const auto input = [&](const char *id, const char *text) {
+            ctx->ItemClick(id);
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+            ctx->KeyChars(text);
+            ctx->Yield(2);
+        };
+        open();
+        input("##name", "Cancelled Schematic name");
+        const auto nameId = ctx->ItemInfo("##name").ID;
+        IM_CHECK(nameId != 0);
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        for (const float width : {1400.f, 520.f, 880.f, 430.f}) {
+            ResizeParameterDialog(ctx, ref, {width, 310});
+            CheckParameterDialogBounds(ctx, ref);
+            IM_CHECK_EQ(ctx->UiContext->ActiveId, nameId);
+            IM_CHECK_EQ(ctx->ItemInfo("##name").ID, nameId);
+            IM_CHECK_EQ(ctx->UiContext->OpenPopupStack.back().PopupId, popup);
+            auto *window = ctx->GetWindowByRef(ref);
+            const auto *form = ctx->UiContext->Tables.GetByKey(window->GetID("##parameter-info"));
+            IM_CHECK(form && form->ColumnsCount == 2);
+            IM_CHECK(form->OuterRect.GetWidth() <= ParameterDialogValues(ctx, ref)->InnerRect.GetWidth() + 1);
+            IM_CHECK_EQ(SetupInteger(ctx, objects.local), 7);
+            IM_CHECK(ObjectName(ctx, objects.local.object) == objects.name);
+        }
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(ctx->GetWindowByRef(ref)->WasActive);
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(ObjectName(ctx, objects.local.object) == objects.name);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        IM_CHECK_EQ(App().State().document->ChangeRevision(), revision);
+        IM_CHECK(App().State().History().CanRedo() == redo);
+        open();
+        input("##name", "Accepted Schematic name");
+        input("**/##number", "42");
+        const auto numberId = ctx->ItemInfo("**/##number").ID;
+        ResizeParameterDialog(ctx, ref, {430, 260});
+        CheckParameterDialogBounds(ctx, ref);
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, numberId);
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 42);
+        IM_CHECK(ObjectName(ctx, objects.local.object) == "Accepted Schematic name");
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 7);
+        IM_CHECK(ObjectName(ctx, objects.local.object) == objects.name);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK_EQ(SetupInteger(ctx, objects.local), 42);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        CloseSchematicDialogs(ctx, objects);
+    };
+    auto *schematicType = IM_REGISTER_TEST(
+        engine, "appearanceschematicdialogs", "schematic_parameter_type_and_expanded_value_resize_cancel_and_undo");
+    schematicType->GuiFunc = MainThreadGui;
+    schematicType->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSchematicDialogs(ctx);
+        const auto history = App().State().History().UndoCount();
+        const char *ref = "//###EditParameter";
+        const auto open = [&] {
+            OnMainThread(ctx, [&] { App().Canvas().EditElement(objects.script.object, objects.element); });
+            ctx->Yield(4);
+            ctx->SetRef(ref);
+            ctx->ItemClick("##type/##combo");
+            ctx->Yield(2);
+            ctx->KeyChars("String");
+            ctx->Yield(3);
+            ctx->KeyPress(ImGuiKey_Enter);
+            ctx->Yield(3);
+            ctx->ItemClick("**/##expand");
+            ctx->Yield(3);
+            IM_CHECK_NO_RET(ctx->ItemInfo("**/##string").RectFull.GetHeight() > 100);
+        };
+        const auto type = [&] {
+            return Read<CKGUID>(ctx, [&] {
+                return CKParameter::Cast(App().State().document->Resolve(objects.local))->GetGUID();
+            });
+        };
+        open();
+        ctx->ItemClick("**/##string");
+        ctx->KeyChars("Cancelled expanded string");
+        const auto input = ctx->ItemInfo("**/##string").ID;
+        IM_CHECK(input != 0);
+        for (const float width : {1300.f, 430.f, 850.f, 430.f}) {
+            ResizeParameterDialog(ctx, ref, {width, 200});
+            CheckParameterDialogBounds(ctx, ref);
+            IM_CHECK_EQ(ctx->UiContext->ActiveId, input);
+            IM_CHECK_GT(ParameterDialogValues(ctx, ref)->ScrollMax.x, 0);
+            IM_CHECK_GT(ParameterDialogValues(ctx, ref)->ScrollMax.y, 0);
+            IM_CHECK(type() == CKPGUID_INT);
+        }
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(type() == CKPGUID_INT && SetupInteger(ctx, objects.local) == 7);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        open();
+        ctx->ItemClick("**/##string");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("Accepted expanded string");
+        ResizeParameterDialog(ctx, ref, {520, 280});
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(type() == CKPGUID_STRING);
+        IM_CHECK(Read<std::string>(ctx, [&] {
+            return ParameterText(CKParameter::Cast(App().State().document->Resolve(objects.local)));
+        }) == "Accepted expanded string");
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(type() == CKPGUID_INT && SetupInteger(ctx, objects.local) == 7);
+        CloseSchematicDialogs(ctx, objects);
+    };
+    auto *schematicInputs = IM_REGISTER_TEST(
+        engine, "appearanceschematicdialogs", "schematic_inputs_resize_scroll_apply_cancel_and_single_undo");
+    schematicInputs->GuiFunc = MainThreadGui;
+    schematicInputs->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSchematicDialogs(ctx, true);
+        const auto history = App().State().History().UndoCount();
+        const char *ref = "//###EditParameters";
+        const auto open = [&] {
+            OnMainThread(ctx, [&] {
+                App().Canvas().Navigation().selection.Set(objects.script.object,
+                                                          {ElementKind::Behavior, 0, objects.block.object});
+                App().Canvas().OpenParametersDialog();
+                const auto projection = EditorCommands().Query(
+                    "schematic.parameter-editor",
+                    {ObjectArgument("target", objects.script), ObjectArgument("object", objects.block),
+                     IntegerArgument("mode", 1)});
+                const auto *rows = EditorClient::Find(projection, "rows");
+                IM_CHECK_NO_RET(rows && rows->fields.size() == 6);
+            });
+            ctx->Yield(4);
+            ctx->SetRef(ref);
+        };
+        const auto number = [&](ObjectRef target) {
+            return Read<float>(ctx, [&] {
+                float value = 0;
+                CKParameter::Cast(App().State().document->Resolve(target))->GetValue(&value);
+                return value;
+            });
+        };
+        const auto input = [&](const char *id, const char *text) {
+            ctx->ItemClick(id);
+            ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+            ctx->KeyChars(text);
+            ctx->Yield(2);
+        };
+        open();
+        input("**/$$0/##number", "3.5");
+        const auto active = ctx->UiContext->ActiveId;
+        IM_CHECK(active != 0);
+        ResizeParameterDialog(ctx, ref, {520, 240});
+        CheckParameterDialogBounds(ctx, ref);
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, active);
+        IM_CHECK_GT(ParameterDialogValues(ctx, ref)->ScrollMax.x, 0);
+        IM_CHECK_GT(ParameterDialogValues(ctx, ref)->ScrollMax.y, 0);
+        IM_CHECK_EQ(number(objects.first), 2.f);
+        const auto title = ctx->GetWindowByRef(ref)->Pos;
+        ctx->MouseMoveToPos({title.x + 10, title.y + 10});
+        ctx->MouseClick(0);
+        ctx->Yield(2);
+        ctx->ScrollTo(ParameterDialogValues(ctx, ref)->ID, ImGuiAxis_X,
+                      ParameterDialogValues(ctx, ref)->ScrollMax.x);
+        ctx->ScrollToBottom(ParameterDialogValues(ctx, ref)->ID);
+        ctx->Yield(3);
+        input("**/$$5/##number", "6.5");
+        ctx->ItemClick("Apply/##dialogbutton");
+        ctx->Yield(5);
+        IM_CHECK(ctx->GetWindowByRef(ref)->WasActive);
+        IM_CHECK_EQ(number(objects.first), 3.5f);
+        IM_CHECK_EQ(number(objects.last), 6.5f);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->ScrollToTop(ParameterDialogValues(ctx, ref)->ID);
+        ctx->Yield(3);
+        input("**/$$0/##number", "9.5");
+        ResizeParameterDialog(ctx, ref, {1100, 350});
+        CheckParameterDialogBounds(ctx, ref);
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(number(objects.first), 3.5f);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK_EQ(number(objects.first), 2.f);
+        IM_CHECK_EQ(number(objects.last), 2.f);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK_EQ(number(objects.first), 3.5f);
+        IM_CHECK_EQ(number(objects.last), 6.5f);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        open();
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        IM_CHECK(App().State().History().CanRedo());
+        CloseSchematicDialogs(ctx, objects);
+    };
+    auto *schematicSettings = IM_REGISTER_TEST(
+        engine, "appearanceschematicdialogs", "building_block_settings_resize_cancel_callback_and_single_undo");
+    schematicSettings->GuiFunc = MainThreadGui;
+    schematicSettings->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSchematicDialogs(ctx);
+        const auto history = App().State().History().UndoCount();
+        const auto revision = App().State().document->ChangeRevision();
+        const char *ref = "//###Settings";
+        const auto count = [&] {
+            return Read<int>(ctx, [&] {
+                return CKBehavior::Cast(App().State().document->Resolve(objects.block))->GetInputParameterCount();
+            });
+        };
+        const auto open = [&] {
+            OnMainThread(ctx, [&] {
+                App().Canvas().EditElement(objects.script.object, {ElementKind::Behavior, 0, objects.block.object});
+            });
+            ctx->Yield(4);
+            ctx->SetRef(ref);
+        };
+        IM_CHECK_EQ(count(), 3);
+        open();
+        ctx->ItemClick("**/##bool");
+        ResizeParameterDialog(ctx, ref, {430, 200});
+        CheckParameterDialogBounds(ctx, ref);
+        IM_CHECK_GT(ParameterDialogValues(ctx, ref)->ScrollMax.x, 0);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.setting), 0);
+        IM_CHECK_EQ(count(), 3);
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK_EQ(count(), 3);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.setting), 0);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        IM_CHECK_EQ(App().State().document->ChangeRevision(), revision);
+        open();
+        ctx->ItemClick("**/##bool");
+        ResizeParameterDialog(ctx, ref, {700, 250});
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK_EQ(count(), 6);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.setting), 1);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK_EQ(count(), 3);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.setting), 0);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK_EQ(count(), 6);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.setting), 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        CloseSchematicDialogs(ctx, objects);
     };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;

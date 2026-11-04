@@ -3,6 +3,7 @@
 #include "ui/controls/ObjectArrayInput.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/setup/SetupLayout.h"
 #include "imgui_internal.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include <algorithm>
@@ -480,7 +481,7 @@ struct SchematicParameterDialog::Data {
     }
     bool Pick(Row &row, ImVec2 mouse) {
         ObjectRef picked{};
-        if ((row.pick & 1))
+        if ((row.pick & 1) && ImGui::GetCurrentWindow()->InnerClipRect.Contains(mouse))
             if (auto *other = RowAt(rows, mouse))
                 picked = other->target;
         if (!picked) {
@@ -577,115 +578,117 @@ struct SchematicParameterDialog::Data {
             Close();
             return;
         }
-        const auto s = ImGui::GetFontSize() / 13.f;
+        const auto s = setup::PageUnit();
         const bool single = mode == 0;
         const auto size = RowsSize(rows, values->fields, s, !single);
-        float width, bottom, rowY;
-        ImVec2 origin;
-        if (single) {
-            width = std::max(265 * s, size.x + 2 * s) + 32 * s;
-            rowY = (rows.empty() ? 74 : 53) * s;
-            bottom = rowY + (rows.empty() ? 0 : size.y + 7 * s) + s;
-        } else {
-            width = std::max({size.x + 24 * s, vi::TextWidth(title.c_str(), true) + 40 * s, (apply ? 220 : 150) * s});
-            rowY = 8 * s;
-            bottom = 10 * s + size.y;
-        }
-        const auto P = [&](float x, float y) { return ImVec2(origin.x + x, origin.y + y); };
-        if (!vi::BeginDialog(Id(), title, {width, bottom + 27 * s}, s, origin))
+        vi::DialogLayout layout;
+        if (!vi::BeginScrollableDialog(Id(), title,
+                                        {size.x + 4 * s, size.y + (single ? (rows.empty() ? 74 : 53) : 4) * s}, s,
+                                        layout))
             return;
-        vi::Panel(P(10 * s, single ? 5 * s : 6 * s), P(width - 10 * s, bottom), s);
         ImGui::BeginDisabled(operation || !open);
         bool changed = false, changedType = false;
-        if (single) {
-            auto *name = Field(value.fields, "name");
-            const auto right = width - 16 * s, fieldWidth = 165 * s;
-            vi::Text(P(16 * s, 13 * s), P(136 * s, 27 * s), "Parameter Name :", true);
-            if (nameEditable && name) {
-                const auto owned = std::vector<EditorField>{*name};
-                const auto values = BorrowEditorFields(owned);
-                struct Update {
-                    EditorField *name;
-                    bool *changed;
-                } update{name, &changed};
-                const auto write = [](void *data, const EditorValue *v, uint32_t n) {
-                    auto &u = *static_cast<Update *>(data);
-                    std::vector<EditorField> fields;
-                    if (n != 1 || v->type != EDITOR_TEXT_VALUE || CopyEditorFields(fields, v, n) != EDITOR_OK)
-                        return EDITOR_INVALID;
-                    fields[0].key = "name";
-                    *u.name = std::move(fields[0]);
-                    *u.changed = true;
-                    return EDITOR_OK;
-                };
-                ImGui::SetCursorScreenPos(P(right - fieldWidth, 11 * s));
-                const EditorValueInput input{sizeof(input),
-                                             0,
-                                             EDITOR_TEXT("##name"),
-                                             values.values.front(),
-                                             nullptr,
-                                             0,
-                                             0,
-                                             {&update, write},
-                                             EDITOR_VALUE_DIALOG,
-                                             fieldWidth,
-                                             16 * s};
-                const auto editor = editors.find(nameProperty.editor);
-                const auto action =
-                    editor == editors.end() ? EDITOR_INPUT_INVALID : app.DrawValue(*editor->second, input, &editors);
-                if (!nameBefore && (changed || (action & EDITOR_INPUT_ACTIVE)))
-                    nameBefore = owned.front();
-                if (nameBefore && (action & EDITOR_INPUT_CANCEL)) {
-                    *name = *nameBefore;
-                    nameBefore.reset();
-                    changed = true;
-                    inputActive = true;
-                } else {
-                    inputActive = action & EDITOR_INPUT_ACTIVE;
-                    if (action & (EDITOR_INPUT_ACCEPT | EDITOR_INPUT_DEACTIVATED))
-                        nameBefore.reset();
-                }
-            } else {
-                inputActive = false;
-                vi::Text(P(right - fieldWidth, 14 * s), P(right, 27 * s), name ? name->text.c_str() : "", false,
-                         vi::RIGHT);
-            }
-            vi::Text(P(16 * s, 34 * s), P(136 * s, 48 * s), "Parameter Type :", true);
-            if (typeEditable) {
-                std::vector<std::string> names;
-                for (const auto &type : types)
-                    names.push_back(Text(type.fields, "name"));
-                const auto selected = vi::Combo(
-                    "##type", P(right - fieldWidth, 32 * s), P(right, 48 * s), typeName, [&] { return names; }, -1);
-                if (selected >= 0) {
-                    Field(value.fields, "type")->integer = Number(types[size_t(selected)].fields, "type");
-                    values->fields.clear();
-                    changed = changedType = true;
-                }
-            } else
-                vi::Text(P(right - fieldWidth, 35 * s), P(right, 48 * s), typeName.c_str());
-            if (rows.empty()) {
-                vi::Text(P(16 * s, 55 * s), P(136 * s, 69 * s), "Parameter Value :", true);
-                vi::Text(P(right - fieldWidth, 56 * s), P(right, 69 * s), display.c_str(), false, vi::RIGHT);
-            }
-        } else
-            inputActive = false;
+        inputActive = false;
         const bool captured = bool(picking);
-        if (picking) {
-            const auto mouse = ImGui::GetIO().MousePos;
-            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-            ImGui::GetForegroundDrawList()->AddCircle(mouse, 6 * s, vi::Color(10), 0, 2);
-            if (auto *row = FindRow(rows, picking))
-                changed = Pick(*row, mouse) || changed;
-            if (pickingClick && ImGui::GetFrameCount() > pickingFrame &&
-                (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(1) || ImGui::IsKeyPressed(ImGuiKey_Escape)))
-                picking = {};
+        uint32_t action = 0;
+        if (vi::BeginDialogContent("##parameter-values", layout)) {
+            if (single) {
+                setup::SetupForm form("##parameter-info");
+                if (form) {
+                    auto *name = Field(value.fields, "name");
+                    form.Row("Parameter Name :");
+                    if (nameEditable && name) {
+                        const auto owned = std::vector<EditorField>{*name};
+                        const auto values = BorrowEditorFields(owned);
+                        struct Update {
+                            EditorField *name;
+                            bool *changed;
+                        } update{name, &changed};
+                        const auto write = [](void *data, const EditorValue *v, uint32_t n) {
+                            auto &u = *static_cast<Update *>(data);
+                            std::vector<EditorField> fields;
+                            if (n != 1 || v->type != EDITOR_TEXT_VALUE || CopyEditorFields(fields, v, n) != EDITOR_OK)
+                                return EDITOR_INVALID;
+                            fields[0].key = "name";
+                            *u.name = std::move(fields[0]);
+                            *u.changed = true;
+                            return EDITOR_OK;
+                        };
+                        const EditorValueInput input{sizeof(input),
+                                                     0,
+                                                     EDITOR_TEXT("##name"),
+                                                     values.values.front(),
+                                                     nullptr,
+                                                     0,
+                                                     0,
+                                                     {&update, write},
+                                                     EDITOR_VALUE_DIALOG,
+                                                     std::max(1.f, ImGui::GetContentRegionAvail().x),
+                                                     16 * s};
+                        const auto editor = editors.find(nameProperty.editor);
+                        const auto action = editor == editors.end()
+                                                ? EDITOR_INPUT_INVALID
+                                                : app.DrawValue(*editor->second, input, &editors);
+                        if (!nameBefore && (changed || (action & EDITOR_INPUT_ACTIVE)))
+                            nameBefore = owned.front();
+                        if (nameBefore && (action & EDITOR_INPUT_CANCEL)) {
+                            *name = *nameBefore;
+                            nameBefore.reset();
+                            changed = true;
+                            inputActive = true;
+                        } else {
+                            inputActive = action & EDITOR_INPUT_ACTIVE;
+                            if (action & (EDITOR_INPUT_ACCEPT | EDITOR_INPUT_DEACTIVATED))
+                                nameBefore.reset();
+                        }
+                    } else
+                        ImGui::TextWrapped("%s", name ? name->text.c_str() : "");
+                    form.Row("Parameter Type :");
+                    if (typeEditable) {
+                        std::vector<std::string> names;
+                        for (const auto &type : types)
+                            names.push_back(Text(type.fields, "name"));
+                        const auto at = ImGui::GetCursorScreenPos();
+                        const ImVec2 max{at.x + std::max(1.f, ImGui::GetContentRegionAvail().x), at.y + 16 * s};
+                        const auto selected =
+                            vi::Combo("##type", at, max, typeName, [&] { return names; }, -1);
+                        if (selected >= 0) {
+                            Field(value.fields, "type")->integer = Number(types[size_t(selected)].fields, "type");
+                            values->fields.clear();
+                            changed = changedType = true;
+                        }
+                    } else
+                        ImGui::TextWrapped("%s", typeName.c_str());
+                    if (rows.empty()) {
+                        form.Row("Parameter Value :");
+                        ImGui::TextWrapped("%s", display.c_str());
+                    }
+                }
+            }
+            if (picking) {
+                const auto mouse = ImGui::GetIO().MousePos;
+                ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                ImGui::GetForegroundDrawList()->AddCircle(mouse, 6 * s, vi::Color(10), 0, 2);
+                if (auto *row = FindRow(rows, picking))
+                    changed = Pick(*row, mouse) || changed;
+                if (pickingClick && ImGui::GetFrameCount() > pickingFrame &&
+                    (ImGui::IsMouseClicked(0) || ImGui::IsMouseClicked(1) || ImGui::IsKeyPressed(ImGuiKey_Escape)))
+                    picking = {};
+            }
+            vi::BlockDialogButtons(captured || changedType);
+            ImGui::BeginDisabled(captured && pickingClick);
+            const auto at = ImGui::GetCursorScreenPos();
+            action = DrawRows(rows, values->fields, at, s, !single);
+            ImGui::EndDisabled();
+            const auto measured = RowsSize(rows, values->fields, s, !single);
+            if (single && !rows.empty())
+                ImGui::GetWindowDrawList()->AddRect({at.x - s, at.y - s},
+                                                    {at.x + measured.x + s, at.y + measured.y + s}, vi::Color(0));
+            ImGui::SetCursorScreenPos(at);
+            ImGui::Dummy({std::max(1.f, measured.x), std::max(1.f, measured.y)});
         }
+        vi::EndDialogContent();
         vi::BlockDialogButtons(captured || changedType);
-        ImGui::BeginDisabled(captured && pickingClick);
-        const auto action =
-            DrawRows(rows, values->fields, P((single ? 17 : 12) * s, rowY + (single ? s : 0)), s, !single);
-        ImGui::EndDisabled();
         inputActive |=
             (action & EDITOR_INPUT_ACTIVE) || captured || changedType ||
             ImGui::GetCurrentContext()->OpenPopupStack.Size > ImGui::GetCurrentContext()->BeginPopupStack.Size;
@@ -698,21 +701,18 @@ struct SchematicParameterDialog::Data {
             if (Submit(&candidate))
                 Refresh();
         }
-        if (single && !rows.empty())
-            ImGui::GetWindowDrawList()->AddRect(P(16 * s, rowY), P(18 * s + size.x, rowY + size.y + 2 * s),
-                                                vi::Color(0));
-        float x = width - 70 * s;
-        const auto y = bottom + 4 * s;
+        float x = layout.right - 60 * s;
+        const auto y = layout.buttonsY;
         const bool cancel =
-            !open || (vi::DialogButton("Cancel", P(x, y), s, ImGuiKey_Escape) && !inputActive && !confirming);
+            !open || (vi::DialogButton("Cancel", {x, y}, s, ImGuiKey_Escape) && !inputActive && !confirming);
         ImGui::BeginDisabled(!valid || !AllValid(rows));
         if (apply) {
             x -= 70 * s;
-            if (vi::DialogButton("Apply", P(x, y), s) && !inputActive)
+            if (vi::DialogButton("Apply", {x, y}, s) && !inputActive)
                 Finish(false);
         }
         x -= 70 * s;
-        if (vi::DialogButton("OK", P(x, y), s, ImGuiKey_Enter) && !inputActive) {
+        if (vi::DialogButton("OK", {x, y}, s, ImGuiKey_Enter) && !inputActive) {
             if (single && !invalidLinks.empty()) {
                 confirming = true;
                 ImGui::OpenPopup("Invalid Parameter Link");

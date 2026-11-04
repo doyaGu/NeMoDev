@@ -96,6 +96,7 @@ def main():
             run('behavior-editing', 'edit', module=True, selection='^appearancebehaviors$', expected=3)
             run('sync-state-editing', 'edit', module=True, selection='^appearancesyncstate$', expected=4)
             run('value-dialog-editing', 'edit', module=True, selection='^appearancevaluedialogs$', expected=4)
+            run('schematic-dialog-editing', 'edit', module=True, selection='^appearanceschematicdialogs$', expected=4)
         profile.write_text('{"version":1}', encoding='utf-8')
         saved = run('save', 'save', module=True)
         assert {p['kind'] for p in saved['providers']} == {'theme', 'font', 'image'}
