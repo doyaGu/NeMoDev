@@ -4869,6 +4869,87 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *interfaceObjects =
+        IM_REGISTER_TEST(engine, "appearancesyncstate", "interface_objects_reflow_chunks_rename_cancel_and_undo");
+    interfaceObjects->GuiFunc = MainThreadGui;
+    interfaceObjects->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupControls(ctx);
+        IM_CHECK(objects.interfaceObjects && objects.emptyInterface && objects.chunkSizes.size() == 34);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.interfaceObjects)})
+                                .status <= EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupinterfaceobjects");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        const auto details = [&](ObjectRef target) {
+            return Read<SetupDetails>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "interface-objects", data);
+                return data;
+            });
+        };
+        const auto originalData = details(objects.interfaceObjects);
+        IM_CHECK_EQ(originalData.Values().Integer("count"), 34);
+        IM_CHECK(originalData.Values().Integers("sizes") == objects.chunkSizes);
+        IM_CHECK(objects.chunkSizes[0] == UINT64_MAX && objects.chunkSizes[1] == 0);
+        ImGuiID chunks = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##interfaceobjects-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##interfaceobjects-settings");
+            auto *form = SetupTable(ctx, view, "##interfaceobjects-info");
+            IM_CHECK(table && form);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            IM_CHECK(form->OuterRect.Min.x >= table->Columns[0].WorkMinX - 1 &&
+                     form->OuterRect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            auto *list = SetupChild(ctx, view, "chunks");
+            IM_CHECK(list);
+            IM_CHECK(!chunks || chunks == list->ID);
+            chunks = list->ID;
+            IM_CHECK_GT(list->ScrollMax.y, 0);
+            IM_CHECK(list->Flags & ImGuiWindowFlags_HorizontalScrollbar);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        auto *list = SetupChild(ctx, view, "chunks");
+        ctx->ScrollToBottom(list->ID);
+        ctx->Yield(2);
+        IM_CHECK_GT(list->Scroll.y, 0);
+        CheckSetupRename(ctx, view, objects.interfaceObjects);
+        const auto after = details(objects.interfaceObjects);
+        IM_CHECK_EQ(after.Values().Text("guid"), originalData.Values().Text("guid"));
+        IM_CHECK(after.Values().Integers("sizes") == objects.chunkSizes);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.emptyInterface)})
+                                .status <= EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 690);
+        const auto empty = details(objects.emptyInterface);
+        IM_CHECK_EQ(empty.Values().Integer("count"), 0);
+        IM_CHECK(empty.Values().Integers("sizes").empty() && SetupChild(ctx, view, "chunks"));
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

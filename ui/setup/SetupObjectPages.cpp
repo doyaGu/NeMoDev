@@ -1210,22 +1210,34 @@ void SetupWindows::CriticalSectionPage(ObjectRef target) {
 }
 
 void SetupWindows::InterfaceObjectsPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "interface-objects", description))
         return;
     const auto data = description.Values();
+    SetupColumns columns("##interfaceobjects-settings", 2);
+    if (!columns)
+        return;
+    columns.Next();
     Group("Interface Objects");
-    ImGui::TextUnformatted("GUID");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(data.Text("guid").c_str());
-    ImGui::TextUnformatted("Chunks");
-    ImGui::SameLine(110);
-    ImGui::Text("%d", int(data.Integer("count")));
-    const auto &sizes = data.Integers("sizes");
-    for (size_t i = 0; i < sizes.size(); ++i)
-        if (int64_t(sizes[i]) >= 0)
-            ImGui::BulletText("Chunk %d: %d bytes", int(i), int(sizes[i]));
+    {
+        SetupForm form("##interfaceobjects-info");
+        if (form) {
+            form.Row("GUID");
+            ImGui::TextWrapped("%s", data.Text("guid").c_str());
+            form.Row("Chunks");
+            ImGui::Text("%d", int(data.Integer("count")));
+        }
+    }
+    columns.Next();
+    Group("Chunks");
+    if (ImGui::BeginChild("chunks", {0, 180 * PageUnit()}, ImGuiChildFlags_Borders,
+                          ImGuiWindowFlags_HorizontalScrollbar)) {
+        const auto &sizes = data.Integers("sizes");
+        for (size_t i = 0; i < sizes.size(); ++i)
+            if (int64_t(sizes[i]) >= 0)
+                ImGui::BulletText("Chunk %d: %d bytes", int(i), int(sizes[i]));
+    }
+    ImGui::EndChild();
 }
 
 void SetupWindows::OtherPage(ObjectRef target) {
