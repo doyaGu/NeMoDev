@@ -138,7 +138,7 @@ void SetupWindows::Entity3DPage(ObjectRef target, Setup *setup, const std::funct
         setup->openAddMesh = false;
         ImGui::OpenPopup("Add Mesh");
     }
-    if (ImGui::BeginPopup("Add Mesh")) {
+    if (vi::BeginChoicePopup("Add Mesh", PageUnit())) {
         TypeAhead typeAhead;
         std::vector<SetupObjectRow> choices;
         ReadSetupChoices(Client(m_CurrentOwner), CKCID_MESH, choices);
@@ -1100,18 +1100,24 @@ void SetupWindows::RemoveSlotDialog(Setup &setup, ObjectRef target) {
         setup.confirmRemoveSlot = false;
         ImGui::OpenPopup("Warning!###removeslot");
     }
-    if (!ImGui::BeginPopupModal("Warning!###removeslot", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::TextUnformatted(data.Boolean("texture") ? "Remove current texture slot ?" : "Remove current sprite slot?");
-    if (ImGui::Button("Yes", ImVec2(80, 0))) {
+    const auto unit = PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog("Warning!###removeslot", "Warning!", {280 * unit, 32 * unit}, unit, layout))
+        return;
+    if (vi::BeginDialogContent("##slot-question", layout))
+        ImGui::TextWrapped("%s", data.Boolean("texture") ? "Remove current texture slot ?" : "Remove current sprite slot?");
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 170 * unit, layout.buttonsY});
+    if (ImGui::Button("Yes", {80 * unit, 18 * unit})) {
         RunSetupCommand("setup.slot-remove",
                         {ObjectArgument("target", target), IntegerArgument("slot", data.Integer("slot")),
                          IntegerArgument("document-revision", description.documentRevision)});
         setup.textureFrames = 1000;
         ImGui::CloseCurrentPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("No", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    ImGui::SameLine(0, 10 * unit);
+    if (ImGui::Button("No", {80 * unit, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    vi::EndDialog();
 }
 
 void SetupWindows::SlotMenu(Setup &setup, ObjectRef target, bool alpha) {
@@ -1721,7 +1727,7 @@ void SetupWindows::MeshPage(Setup &setup, ObjectRef target) {
         setup.openAddChannel = false;
         ImGui::OpenPopup("Add Channel");
     }
-    if (ImGui::BeginPopup("Add Channel")) {
+    if (vi::BeginChoicePopup("Add Channel", PageUnit())) {
         TypeAhead typeAhead;
         std::vector<SetupObjectRow> choices;
         ReadSetupChoices(Client(m_CurrentOwner), CKCID_MATERIAL, choices);
@@ -1883,10 +1889,17 @@ void SetupWindows::TexturePage(Setup &setup, ObjectRef target) {
         setup.openResize = false;
         ImGui::OpenPopup("Resize Slot");
     }
-    if (ImGui::BeginPopupModal("Resize Slot", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::SetNextItemWidth(200);
-        ImGui::InputInt2("Size", &setup.resizeWidth);
-        if (ImGui::Button("OK", ImVec2(80, 0))) {
+    const auto unit = PageUnit();
+    vi::DialogLayout resizeLayout;
+    if (vi::BeginScrollableDialog("Resize Slot", "Resize Slot", {300 * unit, 36 * unit}, unit, resizeLayout)) {
+        if (vi::BeginDialogContent("##slot-size", resizeLayout)) {
+            ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Size").x -
+                                                    ImGui::GetStyle().ItemInnerSpacing.x));
+            ImGui::InputInt2("Size", &setup.resizeWidth);
+        }
+        vi::EndDialogContent();
+        ImGui::SetCursorScreenPos({resizeLayout.right - 170 * unit, resizeLayout.buttonsY});
+        if (ImGui::Button("OK", {80 * unit, 18 * unit})) {
             RunSetupCommand("setup.slot-resize",
                             {ObjectArgument("target", target), IntegerArgument("width", setup.resizeWidth),
                              IntegerArgument("height", setup.resizeHeight),
@@ -1894,9 +1907,9 @@ void SetupWindows::TexturePage(Setup &setup, ObjectRef target) {
             setup.textureFrames = 1000;
             ImGui::CloseCurrentPopup();
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80, 0))) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
+        ImGui::SameLine(0, 10 * unit);
+        if (ImGui::Button("Cancel", {80 * unit, 18 * unit})) ImGui::CloseCurrentPopup();
+        vi::EndDialog();
     }
 }
 
@@ -2114,23 +2127,29 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
         setup.openSquare = false;
         ImGui::OpenPopup("Square Value");
     }
-    if (ImGui::BeginPopupModal("Square Value", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        const bool choices =
-            selected.Object("target") && linker(int(selected.Integer("type"))) && !data.Rows("linker-values").empty();
-        ImGui::Text("Square (%d, %d)", setup.squareX, setup.squareY);
-        if (choices) {
-            for (const auto &item : data.Rows("linker-values")) {
-                const SetupFields choice(item.fields);
-                const auto value = int(choice.Integer("value"));
-                if (ImGui::RadioButton(choice.Text("name").c_str(), setup.squareValue == value))
-                    setup.squareValue = value;
+    vi::DialogLayout squareLayout;
+    if (vi::BeginScrollableDialog("Square Value", "Square Value", {280 * unit, 140 * unit}, unit, squareLayout)) {
+        if (vi::BeginDialogContent("##square-value", squareLayout)) {
+            const bool choices =
+                selected.Object("target") && linker(int(selected.Integer("type"))) && !data.Rows("linker-values").empty();
+            ImGui::Text("Square (%d, %d)", setup.squareX, setup.squareY);
+            if (choices) {
+                for (const auto &item : data.Rows("linker-values")) {
+                    const SetupFields choice(item.fields);
+                    const auto value = int(choice.Integer("value"));
+                    if (ImGui::RadioButton(choice.Text("name").c_str(), setup.squareValue == value))
+                        setup.squareValue = value;
+                }
+            } else {
+                ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Value").x -
+                                                        ImGui::GetStyle().ItemInnerSpacing.x));
+                ImGui::InputInt("Value", &setup.squareValue);
+                setup.squareValue = std::max(0, std::min(255, setup.squareValue));
             }
-        } else {
-            ImGui::SetNextItemWidth(120);
-            ImGui::InputInt("Value", &setup.squareValue);
-            setup.squareValue = std::max(0, std::min(255, setup.squareValue));
         }
-        if (ImGui::Button("OK", ImVec2(80, 0))) {
+        vi::EndDialogContent();
+        ImGui::SetCursorScreenPos({squareLayout.right - 170 * unit, squareLayout.buttonsY});
+        if (ImGui::Button("OK", {80 * unit, 18 * unit})) {
             const int x = setup.squareX, y = setup.squareY, value = setup.squareValue;
             auto targets = setup.squareTargets;
             if (!targets.empty() && x >= 0 && x < width && y >= 0 && y < length) {
@@ -2144,9 +2163,9 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
             }
             ImGui::CloseCurrentPopup();
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
+        ImGui::SameLine(0, 10 * unit);
+        if (ImGui::Button("Cancel", {80 * unit, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        vi::EndDialog();
     }
     // Orientation Mode / Priority
     const char *orientations[] = {"Free", "XZ", "XY", "YZ"};
@@ -2362,7 +2381,8 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
             ImGui::PopID();
         }
         ImGui::EndTable();
-        if (ImGui::BeginPopupContextItem("layertypesmenu")) {
+        if (ImGui::BeginPopupContextItem("layertypesmenu",
+                                         ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
             if (ImGui::MenuItem("New Layer Type")) registerType(false);
             ImGui::EndPopup();
         }
@@ -2410,7 +2430,8 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
             ImGui::PopID();
         }
         ImGui::EndTable();
-        if (ImGui::BeginPopupContextItem("classesmenu")) {
+        if (ImGui::BeginPopupContextItem("classesmenu",
+                                         ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup)) {
             if (ImGui::MenuItem("New Classification")) registerType(true);
             ImGui::EndPopup();
         }
@@ -2427,20 +2448,27 @@ void SetupWindows::GridPage(Setup &setup, ObjectRef target) {
         setup.openGridRename = false;
         ImGui::OpenPopup("Rename###gridrename");
     }
-    if (ImGui::BeginPopupModal("Rename###gridrename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-        ImGui::SetNextItemWidth(240);
-        const bool entered = ImGui::InputText("##name", &setup.gridRenameText, ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::Button("OK", ImVec2(80, 0)) || entered) {
+    vi::DialogLayout renameLayout;
+    if (vi::BeginScrollableDialog("Rename###gridrename", "Rename", {300 * unit, 36 * unit}, unit, renameLayout)) {
+        const bool appearing = ImGui::IsWindowAppearing();
+        bool entered = false;
+        if (vi::BeginDialogContent("##grid-name", renameLayout)) {
+            if (appearing) ImGui::SetKeyboardFocusHere();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            entered = ImGui::InputText("##name", &setup.gridRenameText, ImGuiInputTextFlags_EnterReturnsTrue);
+        }
+        vi::EndDialogContent();
+        ImGui::SetCursorScreenPos({renameLayout.right - 170 * unit, renameLayout.buttonsY});
+        if (ImGui::Button("OK", {80 * unit, 18 * unit}) || entered) {
             PreviewIndexedProperty(id, setup.renamingClassification ? "grid.classification-name" : "grid.layer-name",
                                    EditorField{"value", EDITOR_TEXT_VALUE, {}, setup.gridRenameText},
                                    {uint64_t(setup.gridRenameIndex)}, setup.gridRenameRevision);
             FlushPending();
             ImGui::CloseCurrentPopup();
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
+        ImGui::SameLine(0, 10 * unit);
+        if (ImGui::Button("Cancel", {80 * unit, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+        vi::EndDialog();
     }
 }
 

@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -1010,19 +1011,27 @@ void SetupWindows::Header(Setup &setup, const SetupPageData &page) {
         setup.openRename = false;
         ImGui::OpenPopup("Rename###setuprename");
     }
-    if (ImGui::BeginPopupModal("Rename###setuprename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::SetNextItemWidth(260);
-        const bool entered = m_Workspace.DrawInput(setup.renameEdit, "##name", ImGui::IsWindowAppearing());
-        if (ImGui::Button("OK", ImVec2(80, 0)) || entered) {
+    const auto unit = PageUnit();
+    vi::DialogLayout renameLayout;
+    if (vi::BeginScrollableDialog("Rename###setuprename", "Rename", {300 * unit, 36 * unit}, unit, renameLayout)) {
+        const bool appearing = ImGui::IsWindowAppearing();
+        bool entered = false;
+        if (vi::BeginDialogContent("##object-name", renameLayout)) {
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            entered = m_Workspace.DrawInput(setup.renameEdit, "##name", appearing);
+        }
+        vi::EndDialogContent();
+        ImGui::SetCursorScreenPos({renameLayout.right - 170 * unit, renameLayout.buttonsY});
+        if (ImGui::Button("OK", {80 * unit, 18 * unit}) || entered) {
             FlushPending();
             if (m_Workspace.Finish(setup.renameEdit, true)) ImGui::CloseCurrentPopup();
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !setup.renameEdit) {
+        ImGui::SameLine(0, 10 * unit);
+        if (ImGui::Button("Cancel", {80 * unit, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !setup.renameEdit) {
             m_Workspace.Finish(setup.renameEdit, false);
             ImGui::CloseCurrentPopup();
         }
-        ImGui::EndPopup();
+        vi::EndDialog();
     }
     PopDarkChrome();
     ImGui::Spacing();

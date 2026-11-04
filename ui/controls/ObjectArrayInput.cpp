@@ -1,6 +1,7 @@
 #include "ui/controls/ObjectArrayInput.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/setup/SetupLayout.h"
 #include "imgui_internal.h"
 #include <algorithm>
 #include <cstdio>
@@ -187,71 +188,81 @@ uint32_t ObjectArrayInput::Draw(const EditorHost *host, const EditorValueInput &
     }
     uint32_t action = 0;
     if (ImGui::IsPopupOpen(chooser)) {
-        const auto width = 480 * s;
-        ImVec2 origin;
-        if (vi::BeginDialog(chooser, "Edit Parameter", {width, 116 * s}, s, origin)) {
-            const auto P = [&](float x, float y) { return ImVec2(origin.x + x * s, origin.y + y * s); };
-            vi::Panel(P(10, 5), P(470, 89), s);
-            vi::Text(P(16, 15), P(110, 30), "Object", true);
-            std::vector<EditorField> owned{m_Object};
-            const auto value = BorrowEditorFields(owned);
-            EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT};
-            for (uint32_t i = 0; i < input.choicesRequest.count; ++i) {
-                const auto &field = input.choicesRequest.values[i];
-                if (field.type == EDITOR_OBJECT && std::string(field.key.data, field.key.size) == "target")
-                    target.object = field.object;
+        const auto unit = setup::PageUnit();
+        vi::DialogLayout layout;
+        if (vi::BeginScrollableDialog(chooser, "Edit Parameter", {450 * unit, 112 * unit}, unit, layout)) {
+            uint32_t edited = 0;
+            if (vi::BeginDialogContent("##object-choice", layout)) {
+                setup::SetupForm form("##object-choice-fields");
+                if (form) {
+                    form.Row("Object");
+                    std::vector<EditorField> owned{m_Object};
+                    const auto value = BorrowEditorFields(owned);
+                    EditorValue target{EDITOR_TEXT("target"), EDITOR_OBJECT};
+                    for (uint32_t i = 0; i < input.choicesRequest.count; ++i) {
+                        const auto &field = input.choicesRequest.values[i];
+                        if (field.type == EDITOR_OBJECT && std::string(field.key.data, field.key.size) == "target")
+                            target.object = field.object;
+                    }
+                    const EditorValue args[] = {target, IntegerArgument("class", m_Class),
+                                                IntegerArgument("derived", m_Derived ? 1 : 2),
+                                                TextArgument("filter", m_Filter)};
+                    EditorResponse details;
+                    if (m_Object.object)
+                        details = client.Query("object.details", {ObjectArgument("target", m_Object.object)});
+                    const auto name = EditorClient::Text(details, "name");
+                    const EditorValue display{EDITOR_TEXT("display"), EDITOR_TEXT_VALUE, {}, EditorText(name)};
+                    const auto write = [](void *data, const EditorValue *v, uint32_t count) {
+                        std::vector<EditorField> fields;
+                        if (count != 1 || v->type != EDITOR_OBJECT || CopyEditorFields(fields, v, count) != EDITOR_OK)
+                            return EDITOR_INVALID;
+                        *static_cast<EditorField *>(data) = std::move(fields[0]);
+                        return EDITOR_OK;
+                    };
+                    auto object = input;
+                    object.label = EDITOR_TEXT("##object");
+                    object.value = value.values.front();
+                    object.fields = &display;
+                    object.count = 1;
+                    object.width = std::max(1.f, ImGui::GetContentRegionAvail().x);
+                    object.height = 16 * unit;
+                    object.drawMembers = nullptr;
+                    object.membersData = nullptr;
+                    object.update = {&m_Object, write};
+                    object.choicesRequest = {client.Scope(), args, 4, input.choicesRequest.handler};
+                    edited = host->drawValue(host->data, EditorString EDITOR_TEXT("value.object"), &object);
+                    std::vector<std::string> names;
+                    int selected = -1;
+                    for (size_t i = 0; i < m_Classes.size(); ++i) {
+                        EditorResponse row;
+                        row.fields = m_Classes[i].fields;
+                        names.push_back(EditorClient::Text(row, "name"));
+                        if (EditorClient::Integer(row, "id") == m_Class)
+                            selected = int(i);
+                    }
+                    form.Row("Class");
+                    const auto classAt = ImGui::GetCursorScreenPos();
+                    const auto picked = vi::Combo(
+                        "##class", classAt, {classAt.x + std::max(1.f, ImGui::GetContentRegionAvail().x), classAt.y + 18 * unit},
+                        selected >= 0 ? names[size_t(selected)] : "", [&] { return names; },
+                        selected);
+                    if (picked >= 0) {
+                        EditorResponse row;
+                        row.fields = m_Classes[size_t(picked)].fields;
+                        m_Class = EditorClient::Integer(row, "id");
+                    }
+                    form.Row("Derived");
+                    vi::Check("##derived", ImGui::GetCursorScreenPos(), 12 * unit, m_Derived);
+                    form.Row("Text Filter");
+                    const auto filterAt = ImGui::GetCursorScreenPos();
+                    vi::Edit("##filter", filterAt,
+                              {filterAt.x + std::max(1.f, ImGui::GetContentRegionAvail().x), filterAt.y + 18 * unit}, m_Filter,
+                              vi::CENTER);
+                }
             }
-            const EditorValue args[] = {target, IntegerArgument("class", m_Class),
-                                        IntegerArgument("derived", m_Derived ? 1 : 2),
-                                        TextArgument("filter", m_Filter)};
-            EditorResponse details;
-            if (m_Object.object)
-                details = client.Query("object.details", {ObjectArgument("target", m_Object.object)});
-            const auto name = EditorClient::Text(details, "name");
-            const EditorValue display{EDITOR_TEXT("display"), EDITOR_TEXT_VALUE, {}, EditorText(name)};
-            ImGui::SetCursorScreenPos(P(140, 12));
-            const auto write = [](void *data, const EditorValue *v, uint32_t count) {
-                std::vector<EditorField> fields;
-                if (count != 1 || v->type != EDITOR_OBJECT || CopyEditorFields(fields, v, count) != EDITOR_OK)
-                    return EDITOR_INVALID;
-                *static_cast<EditorField *>(data) = std::move(fields[0]);
-                return EDITOR_OK;
-            };
-            auto object = input;
-            object.label = EDITOR_TEXT("##object");
-            object.value = value.values.front();
-            object.fields = &display;
-            object.count = 1;
-            object.width = 300 * s;
-            object.height = 16 * s;
-            object.drawMembers = nullptr;
-            object.membersData = nullptr;
-            object.update = {&m_Object, write};
-            object.choicesRequest = {client.Scope(), args, 4, input.choicesRequest.handler};
-            const auto edited = host->drawValue(host->data, EditorString EDITOR_TEXT("value.object"), &object);
-            std::vector<std::string> names;
-            int selected = -1;
-            for (size_t i = 0; i < m_Classes.size(); ++i) {
-                EditorResponse row;
-                row.fields = m_Classes[i].fields;
-                names.push_back(EditorClient::Text(row, "name"));
-                if (EditorClient::Integer(row, "id") == m_Class)
-                    selected = int(i);
-            }
-            vi::Text(P(140, 37), P(190, 53), "Class", true, vi::LEFT);
-            const auto picked = vi::Combo(
-                "##class", P(190, 36), P(370, 54), selected >= 0 ? names[size_t(selected)] : "", [&] { return names; },
-                selected);
-            if (picked >= 0) {
-                EditorResponse row;
-                row.fields = m_Classes[size_t(picked)].fields;
-                m_Class = EditorClient::Integer(row, "id");
-            }
-            vi::Check("##derived", P(385, 37), 12 * s, m_Derived);
-            vi::Text(P(402, 37), P(460, 53), "Derived", true, vi::LEFT);
-            vi::Text(P(140, 63), P(210, 79), "Text Filter", true, vi::LEFT);
-            vi::Edit("##filter", P(210, 62), P(440, 80), m_Filter, vi::CENTER);
-            if (vi::DialogButton("OK", P(330, 93), s, ImGuiKey_Enter) && !(edited & EDITOR_INPUT_ACTIVE)) {
+            vi::EndDialogContent();
+            if (vi::DialogButton("OK", {layout.right - 130 * unit, layout.buttonsY}, unit, ImGuiKey_Enter) &&
+                !(edited & EDITOR_INPUT_ACTIVE)) {
                 if (m_Object.object) {
                     objects.insert(objects.begin() + std::clamp(m_Anchor, 0, int(objects.size())), m_Object.object);
                     m_Chosen.clear();
@@ -259,7 +270,8 @@ uint32_t ObjectArrayInput::Draw(const EditorHost *host, const EditorValueInput &
                 }
                 ImGui::CloseCurrentPopup();
             }
-            if (vi::DialogButton("Cancel", P(400, 93), s, ImGuiKey_Escape) && !(edited & EDITOR_INPUT_ACTIVE))
+            if (vi::DialogButton("Cancel", {layout.right - 60 * unit, layout.buttonsY}, unit, ImGuiKey_Escape) &&
+                !(edited & EDITOR_INPUT_ACTIVE))
                 ImGui::CloseCurrentPopup();
             vi::EndDialog();
             action |= EDITOR_INPUT_ACTIVE;

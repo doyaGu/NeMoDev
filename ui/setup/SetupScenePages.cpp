@@ -18,6 +18,7 @@
 #include "imgui_internal.h"
 
 #include "ui/controls/DevBitmaps.h"
+#include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/FileDialogs.h"
 #include "ui/controls/TypeAhead.h"
@@ -254,7 +255,7 @@ void SetupWindows::CharacterPage(Setup &setup, ObjectRef target) {
         setup.openAddBodyPart = false;
         ImGui::OpenPopup("Add Body Part");
     }
-    if (ImGui::BeginPopup("Add Body Part")) {
+    if (vi::BeginChoicePopup("Add Body Part", PageUnit())) {
         TypeAhead typeAhead;
         bool any = false;
         for (const auto &value : data.Rows("available")) {

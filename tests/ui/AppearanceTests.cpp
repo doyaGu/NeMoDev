@@ -5,6 +5,8 @@
 #include "core/graph/BehaviorCommands.h"
 #include "core/graph/ValueCommands.h"
 #include "core/graph/RuntimeGraph.h"
+#include "core/graph/ParameterValues.h"
+#include "core/catalog/ParameterUIs.h"
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/DevControls.h"
@@ -654,6 +656,125 @@ void CloseSchematicDialogs(ImGuiTestContext *ctx, const SchematicDialogObjects &
         IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
                         App().Layout().ViewportUploadsForTests() == 0);
     });
+}
+vdev::EditorConfiguration SetupDialogTheme(ImGuiTestContext *ctx) {
+    return Read<vdev::EditorConfiguration>(ctx, [&] {
+        auto &workspace = App().WorkspaceForTests();
+        const auto before = workspace.Application().Configuration();
+        auto next = before;
+        Alternate(next);
+        std::string error;
+        IM_CHECK_NO_RET(workspace.Configure(next, error));
+        return before;
+    });
+}
+EditorView OpenSetupDialogPage(ImGuiTestContext *ctx, vdev::ObjectRef target, const char *role) {
+    const auto view = Read<EditorView>(ctx, [&] {
+        IM_CHECK_NO_RET(EditorCommands().Command("object.open-setup", {vdev::ObjectArgument("target", target)}).status <=
+                        EDITOR_NO_CHANGE);
+        return App().WorkspaceForTests().Role(role);
+    });
+    ctx->Yield(4);
+    ResizeSetup(ctx, view, 1500);
+    return view;
+}
+void FinishSetupDialogs(ImGuiTestContext *ctx, const vdev::EditorConfiguration &configuration) {
+    OnMainThread(ctx, [&] {
+        auto &workspace = App().WorkspaceForTests();
+        IM_CHECK_NO_RET(!workspace.Application().HasEdits());
+        std::string error;
+        IM_CHECK_NO_RET(workspace.Configure(configuration, error));
+        IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                        App().Layout().ViewportUploadsForTests() == 0);
+    });
+}
+ImGuiWindow *SetupDialogContent(ImGuiTestContext *ctx, const char *ref, const char *id) {
+    auto *window = ctx->GetWindowByRef(ref);
+    for (auto *child : window->DC.ChildWindows)
+        if (child->ChildId == window->GetID(id)) return child;
+    return nullptr;
+}
+void CheckSetupDialogBounds(ImGuiTestContext *ctx, const char *ref, const char *content,
+                            const char *accept = "OK", const char *cancel = "Cancel", bool viButtons = false) {
+    auto *window = ctx->GetWindowByRef(ref);
+    auto *values = SetupDialogContent(ctx, ref, content);
+    IM_CHECK_NO_RET(window->WasActive && values && !(window->Flags & ImGuiWindowFlags_NoResize));
+    const auto *viewport = ImGui::GetMainViewport();
+    IM_CHECK_NO_RET(window->Pos.x >= viewport->WorkPos.x - 1 && window->Pos.y >= viewport->WorkPos.y - 1 &&
+                    window->Pos.x + window->Size.x <= viewport->WorkPos.x + viewport->WorkSize.x + 1 &&
+                    window->Pos.y + window->Size.y <= viewport->WorkPos.y + viewport->WorkSize.y + 1);
+    for (const char *label : {accept, cancel}) {
+        const auto id = viButtons ? ImHashStr("##dialogbutton", 0, window->GetID(label)) : window->GetID(label);
+        const auto rect = ctx->ItemInfo(id).RectFull;
+        IM_CHECK_NO_RET(rect.Min.x >= window->Pos.x && rect.Max.x <= window->Pos.x + window->Size.x &&
+                        rect.Min.y >= values->Pos.y + values->Size.y && rect.Max.y <= window->Pos.y + window->Size.y);
+    }
+}
+struct SetupDialogGrid {
+    vdev::ObjectRef object;
+    EditorView view = 0;
+    std::vector<int> types, indices;
+    int classification = -1;
+};
+SetupDialogGrid MakeDialogGrid(ImGuiTestContext *ctx, bool linker, int count = 1) {
+    SetupDialogGrid result;
+    OnMainThread(ctx, [&] {
+        using namespace vdev;
+        auto &doc = *App().State().document;
+        const auto made = EditorCommands().Command("object.create-grid");
+        const auto *created = EditorClient::Find(made, "created");
+        IM_CHECK_NO_RET(created && created->object);
+        result.object = created->object;
+        auto *grid = CKGrid::Cast(doc.Resolve(result.object));
+        grid->SetDimensions(4, 4, 4, 4);
+        for (int i = 0; i < count; ++i) {
+            const auto type = RegisterGridLayerType(doc, "Dialog layer " + std::to_string(result.object.object) + " " + std::to_string(i) + std::string(90, 'L'));
+            IM_CHECK_NO_RET(type.ok);
+            if (linker) IM_CHECK_NO_RET(SetGridLayerTypeLinker(doc, int(type.created), true).ok);
+            IM_CHECK_NO_RET(AddGridLayer(doc, grid->GetID(), int(type.created)).ok);
+            result.types.push_back(int(type.created));
+            for (int index = 0; index < grid->GetLayerCount(); ++index)
+                if (grid->GetLayerByIndex(index)->GetType() == int(type.created)) result.indices.push_back(index);
+        }
+        const auto classification = RegisterGridClassification(doc, "Dialog classification " + std::to_string(result.object.object) + std::string(90, 'C'));
+        IM_CHECK_NO_RET(classification.ok && result.indices.size() == size_t(count));
+        result.classification = int(classification.created);
+    });
+    result.view = OpenSetupDialogPage(ctx, result.object, "setupgrid");
+    return result;
+}
+void OpenSquareDialog(ImGuiTestContext *ctx, const SetupDialogGrid &grid) {
+    ctx->SetRef(SetupRef(grid.view).c_str());
+    ctx->ScrollToTop(SetupPage(ctx, grid.view)->ID);
+    ctx->Yield(3);
+    const auto bar = ctx->ItemInfo(SetupPage(ctx, grid.view)->GetID("##paintvalue")).RectFull;
+    ctx->MouseMoveToPos({bar.Min.x + .1f, bar.GetCenter().y});
+    ctx->MouseClick(0);
+    const auto squares = ctx->ItemInfo(SetupPage(ctx, grid.view)->GetID("##squares")).RectFull;
+    ctx->MouseMoveToPos({squares.Min.x + 5, squares.Min.y + 5});
+    ctx->MouseDoubleClick(0);
+    ctx->Yield(4);
+    ctx->SetRef("//Square Value");
+}
+void SelectDialogGridLayers(ImGuiTestContext *ctx, const SetupDialogGrid &grid) {
+    const auto data = Read<vdev::SetupDetails>(ctx, [&] {
+        vdev::SetupDetails result;
+        vdev::ReadSetupDetails(EditorCommands(), grid.object, "grid", result);
+        return result;
+    });
+    ShowSetupTable(ctx, grid.view, "layers");
+    auto *table = SetupTable(ctx, grid.view, "layers");
+    for (size_t i = 0; i < grid.indices.size(); ++i) {
+        const int row = grid.indices[i];
+        std::string name;
+        for (const auto &item : data.Values().Rows("types"))
+            if (vdev::SetupFields(item.fields).Integer("type") == uint64_t(grid.types[i]))
+                name = vdev::SetupFields(item.fields).Text("name");
+        if (i) ctx->KeyDown(ImGuiMod_Ctrl);
+        ctx->ItemClick(ImHashStr(name.c_str(), 0, ImHashData(&row, sizeof(row), table->ID)), 0,
+                       ImGuiTestOpFlags_MoveToEdgeL);
+        if (i) ctx->KeyUp(ImGuiMod_Ctrl);
+    }
 }
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
@@ -5606,6 +5727,550 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(SetupInteger(ctx, objects.setting), 1);
         OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         CloseSchematicDialogs(ctx, objects);
+    };
+    auto *arrayChoice = IM_REGISTER_TEST(
+        engine, "appearancesetupdialogs", "object_array_chooser_resize_filter_cancel_and_single_undo");
+    arrayChoice->GuiFunc = MainThreadGui;
+    arrayChoice->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto original = SetupDialogTheme(ctx);
+        ObjectRef parameter, first, second;
+        std::string className;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            auto *context = doc.Context();
+            auto *value = context->CreateCKParameterLocal("Array chooser dialog", CKPGUID_OBJECTARRAY);
+            auto *a = context->CreateObject(CKCID_3DENTITY, "Array choice A");
+            auto *b = context->CreateObject(CKCID_3DENTITY, "Array choice B");
+            IM_CHECK_NO_RET(value && a && b);
+            for (auto *object : {static_cast<CKObject *>(value), a, b}) doc.Include(object->GetID());
+            XObjectArray objects;
+            objects.PushBack(a->GetID());
+            IM_CHECK_NO_RET(SetHeldValue(value, &objects));
+            parameter = doc.Reference(value->GetID());
+            first = doc.Reference(a->GetID());
+            second = doc.Reference(b->GetID());
+            const auto classes = EditorCommands().Query("parameter.object-classes");
+            const auto *rows = EditorClient::Find(classes, "rows");
+            IM_CHECK_NO_RET(rows);
+            for (const auto &row : rows->fields)
+                if (SetupFields(row.fields).Integer("id") == CKCID_3DENTITY)
+                    className = SetupFields(row.fields).Text("name");
+            IM_CHECK_NO_RET(!className.empty());
+        });
+        const auto history = App().State().History().UndoCount();
+        const auto value = [&] {
+            return Read<std::vector<ObjectRef>>(ctx, [&] {
+                ParameterValueDescription description;
+                IM_CHECK_NO_RET(DescribeParameterValue(*App().State().document,
+                    CKParameter::Cast(App().State().document->Resolve(parameter)), description));
+                return description.value.objects;
+            });
+        };
+        const char *outer = "//Edit Parameter###AttributeManagerValue", *chooser = "//Edit Parameter###ChooseObject";
+        const auto open = [&] {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(EditorCommands().Command("parameter.edit", {ObjectArgument("target", parameter)}).status <=
+                                EDITOR_NO_CHANGE);
+            });
+            ctx->Yield(4);
+        };
+        const auto choose = [&] {
+            ctx->SetRef(outer);
+            ctx->ItemClick("**/##rest", ImGuiMouseButton_Right);
+            ctx->Yield(3);
+            ctx->SetRef("//$FOCUSED");
+            ctx->ItemClick("**/Add Object");
+            ctx->Yield(3);
+            ctx->SetRef(chooser);
+            ctx->ItemClick("##class/##combo");
+            ctx->Yield(2);
+            ctx->SetRef("//$FOCUSED");
+            ctx->ItemClick(("**/" + className).c_str());
+            ctx->Yield(3);
+            ctx->SetRef(chooser);
+            ctx->ItemClick("##derived");
+            ctx->ItemClick("##filter");
+            ctx->KeyChars("Array choice B");
+            ctx->Yield(2);
+        };
+        open();
+        choose();
+        const auto input = ctx->UiContext->ActiveId;
+        IM_CHECK(input != 0);
+        const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+        for (const float width : {1100.f, 430.f, 760.f, 430.f}) {
+            ResizeParameterDialog(ctx, chooser, {width, 200});
+            CheckSetupDialogBounds(ctx, chooser, "##object-choice", "OK", "Cancel", true);
+            IM_CHECK_EQ(ctx->UiContext->ActiveId, input);
+            IM_CHECK_EQ(ctx->UiContext->OpenPopupStack.back().PopupId, popup);
+            IM_CHECK_GT(SetupDialogContent(ctx, chooser, "##object-choice")->ScrollMax.y, 0);
+            IM_CHECK(value() == std::vector<ObjectRef>{first});
+        }
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(ctx->GetWindowByRef(outer)->WasActive && value() == std::vector<ObjectRef>{first});
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        const auto add = [&] {
+            choose();
+            ctx->ScrollToTop(SetupDialogContent(ctx, chooser, "##object-choice")->ID);
+            ctx->Yield(3);
+            ctx->ItemClick("##object/##combo");
+            ctx->Yield(2);
+            ctx->KeyChars("Array choice B");
+            ctx->Yield(3);
+            ctx->KeyPress(ImGuiKey_Enter);
+            ctx->Yield(3);
+            ctx->SetRef(chooser);
+            ctx->ItemClick("OK/##dialogbutton");
+            ctx->Yield(3);
+            ctx->SetRef(outer);
+        };
+        add();
+        IM_CHECK(value() == std::vector<ObjectRef>{first});
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(value() == std::vector<ObjectRef>{first});
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        open();
+        add();
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        const std::vector<ObjectRef> expected{first, second};
+        IM_CHECK(value() == expected);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(value() == std::vector<ObjectRef>{first});
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK(value() == expected);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        FinishSetupDialogs(ctx, original);
+    };
+    auto *slotDialogs = IM_REGISTER_TEST(
+        engine, "appearancesetupdialogs", "slot_resize_and_texture_sprite_remove_cancel_and_single_undo");
+    slotDialogs->GuiFunc = MainThreadGui;
+    slotDialogs->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto original = SetupDialogTheme(ctx);
+        for (const bool sprite : {false, true}) {
+            const auto target = Read<ObjectRef>(ctx, [&] {
+                auto &doc = *App().State().document;
+                auto *object = doc.Context()->CreateObject(sprite ? CKCID_SPRITE : CKCID_TEXTURE,
+                                                            sprite ? "Slot dialog sprite" : "Slot dialog texture");
+                IM_CHECK_NO_RET(object);
+                doc.Include(object->GetID());
+                const auto prepare = [&](auto *image) {
+                    IM_CHECK_NO_RET(image->Create(8, 8, 32, 0) && image->Create(8, 8, 32, 1));
+                    for (int slot = 0; slot < 2; ++slot) {
+                        image->SetCurrentSlot(slot);
+                        for (int y = 0; y < 8; ++y)
+                            for (int x = 0; x < 8; ++x) image->SetPixel(x, y, slot ? 0x7f123456 : 0xffabcdef);
+                    }
+                    image->SetCurrentSlot(0);
+                };
+                if (sprite) prepare(CKSprite::Cast(object));
+                else prepare(CKTexture::Cast(object));
+                return doc.Reference(object->GetID());
+            });
+            const auto view = OpenSetupDialogPage(ctx, target, sprite ? "setupsprite2d" : "setuptexture");
+            const auto pixelsBefore = Read<std::vector<uint32_t>>(ctx, [&] {
+                auto *object = App().State().document->Resolve(target);
+                const auto read = [](auto *image) {
+                    return std::vector<uint32_t>{image->GetPixel(0, 0, 0), image->GetPixel(0, 0, 1)};
+                };
+                return sprite ? read(CKSprite::Cast(object)) : read(CKTexture::Cast(object));
+            });
+            const auto details = [&] {
+                return Read<SetupDetails>(ctx, [&] {
+                    SetupDetails data;
+                    IM_CHECK_NO_RET(ReadSetupDetails(EditorCommands(), target, "bitmap", data));
+                    return data;
+                });
+            };
+            const auto history = App().State().History().UndoCount();
+            if (!sprite) {
+                const auto open = [&] {
+                    ctx->SetRef(SetupRef(view).c_str());
+                    ShowSetupTable(ctx, view, "##texture-previews");
+                    ctx->ItemClick(ImHashStr("##preview", 0, SetupPage(ctx, view)->GetID("image")), ImGuiMouseButton_Right);
+                    ctx->Yield(3);
+                    ctx->SetRef("//$FOCUSED");
+                    ctx->ItemClick("**/Resize Slot...");
+                    ctx->Yield(3);
+                    ctx->SetRef("//Resize Slot");
+                };
+                open();
+                const int index = 0;
+                const auto input = ImHashData(&index, sizeof(index), ctx->GetWindowByRef("//Resize Slot")->GetID("Size"));
+                ctx->ItemClick(input);
+                ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+                ctx->KeyChars("16");
+                ctx->Yield(2);
+                IM_CHECK(ctx->UiContext->ActiveId != 0);
+                for (const float width : {950.f, 430.f, 760.f, 430.f}) {
+                    ResizeParameterDialog(ctx, "//Resize Slot", {width, 240});
+                    CheckSetupDialogBounds(ctx, "//Resize Slot", "##slot-size");
+                    IM_CHECK_EQ(ctx->UiContext->ActiveId, input);
+                    IM_CHECK_EQ(details().Values().Integer("width"), 8);
+                }
+                ctx->ItemClick("Cancel");
+                ctx->Yield(3);
+                IM_CHECK_EQ(details().Values().Integer("width"), 8);
+                IM_CHECK_EQ(App().State().History().UndoCount(), history);
+                open();
+                ctx->ItemInputValue(input, 16);
+                ResizeParameterDialog(ctx, "//Resize Slot", {430, 240});
+                ctx->ItemClick("OK");
+                ctx->Yield(4);
+                IM_CHECK_EQ(details().Values().Integer("width"), 16);
+                IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+                OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+                IM_CHECK_EQ(details().Values().Integer("width"), 8);
+            }
+            const auto remove = [&] {
+                ctx->SetRef(SetupRef(view).c_str());
+                ShowSetupTable(ctx, view, "##bitmap-info");
+                ctx->ItemClick(SetupPage(ctx, view)->GetID("Remove Current Slot"));
+                ctx->Yield(3);
+                ctx->SetRef("//Warning!###removeslot");
+            };
+            remove();
+            ResizeParameterDialog(ctx, "//Warning!###removeslot", {430, 220});
+            CheckSetupDialogBounds(ctx, "//Warning!###removeslot", "##slot-question", "Yes", "No");
+            ctx->ItemClick("No");
+            ctx->Yield(3);
+            IM_CHECK_EQ(details().Values().Integer("slots"), 2);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history);
+            remove();
+            ResizeParameterDialog(ctx, "//Warning!###removeslot", {760, 240});
+            ctx->ItemClick("Yes");
+            ctx->Yield(4);
+            IM_CHECK_EQ(details().Values().Integer("slots"), 1);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            IM_CHECK_EQ(details().Values().Integer("slots"), 2);
+            OnMainThread(ctx, [&] {
+                auto *object = App().State().document->Resolve(target);
+                const auto restored = [&](auto *image) {
+                    return image->GetPixel(0, 0, 0) == pixelsBefore[0] && image->GetPixel(0, 0, 1) == pixelsBefore[1];
+                };
+                IM_CHECK_NO_RET(sprite ? restored(CKSprite::Cast(object)) : restored(CKTexture::Cast(object)));
+                IM_CHECK_NO_RET(App().State().History().Redo());
+                IM_CHECK_NO_RET(App().State().History().Undo());
+            });
+        }
+        FinishSetupDialogs(ctx, original);
+    };
+    auto *gridSquares = IM_REGISTER_TEST(
+        engine, "appearancesetupdialogs", "grid_square_value_resize_multilayer_cancel_and_single_undo");
+    gridSquares->GuiFunc = MainThreadGui;
+    gridSquares->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto original = SetupDialogTheme(ctx);
+        const auto grid = MakeDialogGrid(ctx, false, 2);
+        const auto data = [&] {
+            return Read<SetupDetails>(ctx, [&] {
+                SetupDetails result;
+                ReadSetupDetails(EditorCommands(), grid.object, "grid", result);
+                return result;
+            });
+        };
+        SelectDialogGridLayers(ctx, grid);
+        const auto history = App().State().History().UndoCount();
+        const auto cells = [&] {
+            std::vector<std::vector<uint64_t>> result;
+            const auto state = data();
+            for (int index : grid.indices)
+                result.push_back(SetupFields(state.Values().Rows("layers")[size_t(index)].fields).Integers("squares"));
+            return result;
+        };
+        const auto initial = cells();
+        OpenSquareDialog(ctx, grid);
+        ctx->ItemClick("Value");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+        ctx->KeyChars("77");
+        const auto active = ctx->UiContext->ActiveId;
+        IM_CHECK(active != 0);
+        for (const float width : {1100.f, 430.f, 760.f, 430.f}) {
+            ResizeParameterDialog(ctx, "//Square Value", {width, 240});
+            CheckSetupDialogBounds(ctx, "//Square Value", "##square-value");
+            IM_CHECK_EQ(ctx->UiContext->ActiveId, active);
+            IM_CHECK(cells() == initial);
+        }
+        ctx->ItemClick("Cancel");
+        ctx->Yield(3);
+        IM_CHECK(cells() == initial);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OpenSquareDialog(ctx, grid);
+        ctx->ItemInputValue("Value", 77);
+        ResizeParameterDialog(ctx, "//Square Value", {430, 240});
+        ctx->ItemClick("OK");
+        ctx->Yield(4);
+        const auto changed = cells();
+        IM_CHECK(changed != initial && changed[0] == changed[1]);
+        IM_CHECK_EQ(std::count(changed[0].begin(), changed[0].end(), 77), 1);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(cells() == initial);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK(cells() == changed);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        FinishSetupDialogs(ctx, original);
+    };
+    auto *gridRename = IM_REGISTER_TEST(
+        engine, "appearancesetupdialogs", "grid_and_setup_rename_resize_cancel_and_single_undo");
+    gridRename->GuiFunc = MainThreadGui;
+    gridRename->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto original = SetupDialogTheme(ctx);
+        const auto grid = MakeDialogGrid(ctx, false);
+        const auto history = App().State().History().UndoCount();
+        for (const bool classification : {false, true}) {
+            const int type = classification ? grid.classification : grid.types.front();
+            const auto name = [&] {
+                return Read<std::string>(ctx, [&] {
+                    SetupDetails state;
+                    ReadSetupDetails(EditorCommands(), grid.object, "grid", state);
+                    for (const auto &row : state.Values().Rows(classification ? "classifications" : "types"))
+                        if (SetupFields(row.fields).Integer("type") == uint64_t(type))
+                            return SetupFields(row.fields).Text("name");
+                    return std::string();
+                });
+            };
+            const auto before = name();
+            IM_CHECK(!before.empty());
+            const auto open = [&] {
+                const auto tableName = classification ? "classifications" : "layertypes";
+                ctx->SetRef(SetupRef(grid.view).c_str());
+                ShowSetupTable(ctx, grid.view, tableName);
+                auto *table = SetupTable(ctx, grid.view, tableName);
+                const auto id = ImHashStr(before.c_str(), 0, ImHashData(&type, sizeof(type), table->ID));
+                ctx->ItemClick(id, ImGuiMouseButton_Right, ImGuiTestOpFlags_MoveToEdgeL);
+                ctx->Yield(3);
+                IM_CHECK_NO_RET(!ctx->UiContext->OpenPopupStack.empty() &&
+                    ctx->UiContext->OpenPopupStack.back().PopupId ==
+                        ImHashStr(classification ? "classmenu" : "typemenu", 0,
+                                  ImHashData(&type, sizeof(type), table->ID)));
+                ctx->SetRef("//$FOCUSED");
+                ctx->ItemClick("**/Rename");
+                ctx->Yield(3);
+                ctx->SetRef("//###gridrename");
+            };
+            open();
+            ctx->ItemInput("##name");
+            ctx->KeyCharsReplace("Cancelled Grid dialog name");
+            const auto input = ctx->UiContext->ActiveId;
+            IM_CHECK(input != 0);
+            for (const float width : {1100.f, 430.f, 760.f, 430.f}) {
+                ResizeParameterDialog(ctx, "//###gridrename", {width, 240});
+                CheckSetupDialogBounds(ctx, "//###gridrename", "##grid-name");
+                IM_CHECK_EQ(ctx->UiContext->ActiveId, input);
+                IM_CHECK(name() == before);
+            }
+            ctx->KeyPress(ImGuiKey_Escape);
+            ctx->Yield(3);
+            IM_CHECK(name() == before);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history);
+            open();
+            ctx->ItemInputValue("##name", classification ? "Confirmed dialog classification" : "Confirmed dialog layer");
+            ctx->Yield(4);
+            IM_CHECK(name() != before);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            IM_CHECK(name() == before);
+            OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+            IM_CHECK(name() != before);
+            OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        }
+        const auto before = ObjectName(ctx, grid.object.object);
+        const auto openName = [&] {
+            ctx->WindowFocus(SetupRef(grid.view).c_str());
+            const auto at = ctx->GetWindowByRef(SetupRef(grid.view).c_str())->Pos;
+            ctx->MouseMoveToPos({at.x + 10, at.y + 10});
+            ctx->KeyPress(ImGuiKey_F2);
+            ctx->Yield(3);
+            ctx->SetRef("//###setuprename");
+        };
+        openName();
+        ctx->ItemInput("##name");
+        ctx->KeyCharsReplace("Cancelled standalone Setup name");
+        const auto input = ctx->UiContext->ActiveId;
+        ResizeParameterDialog(ctx, "//###setuprename", {430, 240});
+        CheckSetupDialogBounds(ctx, "//###setuprename", "##object-name");
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, input);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(ObjectName(ctx, grid.object.object) == before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        openName();
+        ctx->ItemInputValue("##name", "Confirmed standalone Setup name");
+        ctx->Yield(4);
+        IM_CHECK(ObjectName(ctx, grid.object.object) == "Confirmed standalone Setup name");
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(ObjectName(ctx, grid.object.object) == before);
+        FinishSetupDialogs(ctx, original);
+    };
+    auto *linkerSquare = IM_REGISTER_TEST(
+        engine, "appearancesetupdialogs", "grid_linker_square_scroll_resize_cancel_and_single_undo");
+    linkerSquare->GuiFunc = MainThreadGui;
+    linkerSquare->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto original = SetupDialogTheme(ctx);
+        const auto grid = MakeDialogGrid(ctx, true);
+        SelectDialogGridLayers(ctx, grid);
+        const auto state = Read<SetupDetails>(ctx, [&] {
+            SetupDetails result;
+            ReadSetupDetails(EditorCommands(), grid.object, "grid", result);
+            return result;
+        });
+        std::string choice;
+        int value = 0;
+        for (const auto &row : state.Values().Rows("linker-values"))
+            if (SetupFields(row.fields).Integer("value")) {
+                choice = SetupFields(row.fields).Text("name");
+                value = int(SetupFields(row.fields).Integer("value"));
+            }
+        IM_CHECK(!choice.empty());
+        const auto cell = [&] {
+            return Read<int>(ctx, [&] {
+                auto *native = CKGrid::Cast(App().State().document->Resolve(grid.object));
+                int result = 0;
+                native->GetLayerByIndex(grid.indices.front())->GetValue2(0, 3, &result);
+                return result;
+            });
+        };
+        const auto history = App().State().History().UndoCount();
+        const int before = cell();
+        OpenSquareDialog(ctx, grid);
+        ResizeParameterDialog(ctx, "//Square Value", {430, 200});
+        CheckSetupDialogBounds(ctx, "//Square Value", "##square-value");
+        IM_CHECK_GT(SetupDialogContent(ctx, "//Square Value", "##square-value")->ScrollMax.y, 0);
+        ctx->ItemClick(choice.c_str());
+        ctx->ItemClick("Cancel");
+        ctx->Yield(3);
+        IM_CHECK_EQ(cell(), before);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OpenSquareDialog(ctx, grid);
+        ctx->ItemClick(choice.c_str());
+        ResizeParameterDialog(ctx, "//Square Value", {760, 300});
+        ctx->ItemClick("OK");
+        ctx->Yield(4);
+        IM_CHECK_EQ(cell(), value);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK_EQ(cell(), before);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK_EQ(cell(), value);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        FinishSetupDialogs(ctx, original);
+    };
+    auto *objectChoices = IM_REGISTER_TEST(
+        engine, "appearancesetupdialogs", "setup_object_choice_lists_bound_scroll_cancel_and_single_undo");
+    objectChoices->GuiFunc = MainThreadGui;
+    objectChoices->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto original = SetupDialogTheme(ctx);
+        for (int kind = 0; kind < 3; ++kind) {
+            ObjectRef target, choice;
+            std::string choiceName;
+            OnMainThread(ctx, [&] {
+                auto &doc = *App().State().document;
+                auto *context = doc.Context();
+                auto *owner = context->CreateObject(kind == 0 ? CKCID_3DOBJECT : kind == 1 ? CKCID_MESH : CKCID_CHARACTER,
+                                                     "Setup choice owner");
+                IM_CHECK_NO_RET(owner);
+                doc.Include(owner->GetID());
+                target = doc.Reference(owner->GetID());
+                for (int i = 0; i < 65; ++i) {
+                    const auto name = "Dialog choice " + std::to_string(kind) + " " + std::to_string(i) + std::string(250, 'Q');
+                    auto *object = context->CreateObject(kind == 0 ? CKCID_MESH : kind == 1 ? CKCID_MATERIAL : CKCID_BODYPART,
+                                                         name.c_str());
+                    IM_CHECK_NO_RET(object);
+                    doc.Include(object->GetID());
+                    if (i == 0) {
+                        if (kind == 0) IM_CHECK_NO_RET(CK3dObject::Cast(owner)->AddMesh(CKMesh::Cast(object)) == CK_OK);
+                        else if (kind == 1) IM_CHECK_NO_RET(CKMesh::Cast(owner)->AddChannel(CKMaterial::Cast(object)) >= 0);
+                        else IM_CHECK_NO_RET(CKCharacter::Cast(owner)->AddBodyPart(CKBodyPart::Cast(object)) == CK_OK);
+                    }
+                    if (i == 1) {
+                        choice = doc.Reference(object->GetID());
+                        choiceName = name;
+                    }
+                }
+            });
+            const char *role = kind == 0 ? "setup3d" : kind == 1 ? "setupmesh" : "setupcharacter";
+            const char *tableName = kind == 0 ? "meshes" : kind == 1 ? "channels" : "bodyparts";
+            const char *title = kind == 0 ? "Add Mesh" : kind == 1 ? "Add Channel" : "Add Body Part";
+            const auto view = OpenSetupDialogPage(ctx, target, role);
+            const auto count = [&] {
+                return Read<int>(ctx, [&] {
+                    SetupDetails state;
+                    ReadSetupDetails(EditorCommands(), target, kind == 0 ? "entity3d" : kind == 1 ? "mesh" : "character", state);
+                    return kind == 1 ? int(state.Values().Integer("channel-count"))
+                                     : int(state.Values().Rows(kind == 0 ? "meshes" : "bodies").size());
+                });
+            };
+            const auto before = count();
+            const auto history = App().State().History().UndoCount();
+            const auto open = [&] {
+                ctx->SetRef(SetupRef(view).c_str());
+                ImRect list;
+                if (kind == 0) {
+                    ShowSetupTable(ctx, view, "##entity-details");
+                    list = SetupChild(ctx, view, "meshes")->InnerRect;
+                } else {
+                    ShowSetupTable(ctx, view, tableName);
+                    list = SetupTable(ctx, view, tableName)->InnerWindow->InnerRect;
+                }
+                ctx->MouseMoveToPos({list.Min.x + 15, list.Max.y - 20});
+                ctx->MouseClick(ImGuiMouseButton_Right);
+                ctx->Yield(3);
+                ctx->SetRef("//$FOCUSED");
+                ctx->ItemClick(("**/" + std::string(title)).c_str());
+                ctx->Yield(3);
+                ctx->SetRef("//$FOCUSED");
+            };
+            open();
+            auto *popup = ctx->UiContext->OpenPopupStack.back().Window;
+            const auto *viewport = ImGui::GetMainViewport();
+            IM_CHECK(popup->WasActive && popup->Pos.x >= viewport->WorkPos.x - 1 && popup->Pos.y >= viewport->WorkPos.y - 1 &&
+                     popup->Pos.x + popup->Size.x <= viewport->WorkPos.x + viewport->WorkSize.x + 1 &&
+                     popup->Pos.y + popup->Size.y <= viewport->WorkPos.y + viewport->WorkSize.y + 1);
+            IM_CHECK_GT(popup->ScrollMax.x, 0);
+            IM_CHECK_GT(popup->ScrollMax.y, 0);
+            const auto id = ctx->UiContext->OpenPopupStack.back().PopupId;
+            ResizeSetup(ctx, view, 690, false);
+            IM_CHECK_EQ(ctx->UiContext->OpenPopupStack.back().PopupId, id);
+            ctx->KeyPress(ImGuiKey_Escape);
+            ctx->Yield(3);
+            IM_CHECK_EQ(count(), before);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history);
+            ResizeSetup(ctx, view, 1500);
+            open();
+            popup = ctx->UiContext->OpenPopupStack.back().Window;
+            ctx->ScrollToTop(popup->ID);
+            ctx->ScrollToX(popup->ID, 0);
+            ctx->Yield(3);
+            const int key = int(choice.object);
+            ctx->ItemClick(ImHashStr(choiceName.c_str(), 0, ImHashData(&key, sizeof(key), popup->ID)), 0,
+                           ImGuiTestOpFlags_MoveToEdgeL);
+            ctx->Yield(4);
+            IM_CHECK_EQ(count(), before + 1);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            IM_CHECK_EQ(count(), before);
+            OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+            IM_CHECK_EQ(count(), before + 1);
+            OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        }
+        FinishSetupDialogs(ctx, original);
     };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
