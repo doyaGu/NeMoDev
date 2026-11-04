@@ -477,10 +477,11 @@ bool BeginWindow(const char *id, const std::string &title, const ImVec2 &client,
 
 void EndWindow() { ImGui::End(); }
 
-bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client, float s, ImVec2 &origin) {
+bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client, float s, ImVec2 &origin,
+                 ImGuiWindowFlags flags) {
     const float title_ = TitleHeight(s);
     const ImVec2 size(client.x + 2.0f, client.y + title_ + 2.0f);
-    ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(size, flags & ImGuiWindowFlags_NoResize ? ImGuiCond_Always : ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, CurrentDevTheme().dialogRounding * s);
@@ -491,13 +492,21 @@ bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client,
     // Dev's modal dialogs leave the windows behind as they are.
     ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, IM_COL32(0, 0, 0, 0));
     const bool open = ImGui::BeginPopupModal(id, nullptr,
-                                             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                                                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                                 ImGuiWindowFlags_NoSavedSettings);
+                                             ImGuiWindowFlags_NoTitleBar | flags | ImGuiWindowFlags_NoScrollbar |
+                                                 ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings);
     ImGui::PopStyleColor(3);
     ImGui::PopStyleVar(4);
-    if (!open) return false;
-    origin = DialogChrome(title, size, s);
+    if (!open)
+        return false;
+    if (!(flags & ImGuiWindowFlags_NoResize)) {
+        const auto *viewport = ImGui::GetMainViewport();
+        const auto pos = ImGui::GetWindowPos(), actual = ImGui::GetWindowSize();
+        ImGui::SetWindowPos({std::clamp(pos.x, viewport->WorkPos.x,
+                                        viewport->WorkPos.x + std::max(0.f, viewport->WorkSize.x - actual.x)),
+                             std::clamp(pos.y, viewport->WorkPos.y,
+                                        viewport->WorkPos.y + std::max(0.f, viewport->WorkSize.y - actual.y))});
+    }
+    origin = DialogChrome(title, ImGui::GetWindowSize(), s);
     return true;
 }
 

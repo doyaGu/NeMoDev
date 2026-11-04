@@ -87,7 +87,9 @@ int ListView(const char *id, const ImVec2 &min, const ImVec2 &max, float scale, 
 // ZC_DIALOGBACKDARK; client: the size below the title bar. Modal (an
 // ImGui popup opened with ImGui::OpenPopup(id)). origin: the client's
 // top-left corner. EndDialog only after true.
-bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client, float scale, ImVec2 &origin);
+// Resizable dialogs use client as the initial size and draw at the actual size.
+bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client, float scale, ImVec2 &origin,
+                 ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 void EndDialog();
 // A modeless VIDialog (the Script Debugger, the explorers): a window drawn
 // as BeginDialog's, placed at the center when it first shows. EndWindow
