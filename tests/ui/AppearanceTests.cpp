@@ -3842,6 +3842,124 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *operation =
+        IM_REGISTER_TEST(engine, "appearanceparameters", "parameter_operation_reflow_operands_navigation_and_undo");
+    operation->GuiFunc = MainThreadGui;
+    operation->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupParameters(ctx);
+        IM_CHECK(objects.operation && objects.firstOperand && objects.operandValue);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.operation)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupoperation");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID listId = 0, owner = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##operation-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##operation-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            auto *list = SetupTable(ctx, view, "operands");
+            IM_CHECK(list && list->InnerWindow);
+            IM_CHECK(!listId || listId == list->ID);
+            listId = list->ID;
+            const auto id = ImHashStr(">", 0, page->GetID("Owner"));
+            IM_CHECK(!owner || id == owner);
+            owner = id;
+            const auto rect = ctx->ItemInfo(owner).RectFull;
+            IM_CHECK(rect.Min.x >= table->Columns[0].WorkMinX - 1 && rect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            if (width < 1000)
+                IM_CHECK_GT(list->InnerWindow->ScrollMax.x, 0);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto description = SetupParameterDetails(ctx, objects.operation, "operation");
+        const auto &rows = description.Values().Rows("operands");
+        IM_CHECK_EQ(rows.size(), 3);
+        const auto choose = [&](int row) {
+            ShowSetupTable(ctx, view, "operands");
+            ctx->SetRef(SetupRef(view).c_str());
+            const auto *list = SetupTable(ctx, view, "operands");
+            ctx->ScrollToX(list->InnerWindow->ID, 0);
+            ctx->Yield(2);
+            const auto name = SetupFields(rows[size_t(row)].fields).Text("name");
+            const auto seed = ImHashStr(rows[size_t(row)].key.c_str(), 0, listId);
+            ctx->ItemDoubleClick(ImHashStr(name.c_str(), 0, seed), ImGuiTestOpFlags_MoveToEdgeL);
+            ctx->Yield(3);
+        };
+        choose(0);
+        IM_CHECK(ShowsObject(ctx, objects.firstOperand.object));
+        const auto inputView =
+            Read<EditorView>(ctx, [&] { return App().WorkspaceForTests().Role("setupparameterin"); });
+        IM_CHECK(inputView);
+        EditSetupInteger(ctx, inputView, 63, 690, false);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.operandValue), 17);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        EditSetupInteger(ctx, inputView, 74, 1500, true);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.operandValue), 74);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        ctx->SetRef(SetupRef(inputView).c_str());
+        Undo(ctx);
+        IM_CHECK_EQ(SetupInteger(ctx, objects.operandValue), 17);
+        const auto showOperation = [&] {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(EditorCommands()
+                                    .Command("object.open-setup", {ObjectArgument("target", objects.operation)})
+                                    .status <= EDITOR_NO_CHANGE);
+            });
+            ResizeSetup(ctx, view, 1500);
+        };
+        showOperation();
+        choose(1);
+        IM_CHECK(ShowsObject(ctx, objects.secondOperand.object));
+        auto *inputPage = SetupPage(ctx, inputView);
+        IM_CHECK(ctx->ItemInfo(inputPage->GetID("Edit Value...")).ItemFlags & ImGuiItemFlags_Disabled);
+        showOperation();
+        choose(2);
+        IM_CHECK(ShowsObject(ctx, objects.result.object));
+        showOperation();
+        ShowSetupTable(ctx, view, "##operation-settings");
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Show in Schematic"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().Canvas().Navigation().selection.script, objects.script.object);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        showOperation();
+        ShowSetupTable(ctx, view, "##operation-settings");
+        ctx->ItemClick(owner);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.script.object));
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(EditorCommands()
+                                .Command("object.open-setup", {ObjectArgument("target", objects.emptyOperation)})
+                                .status <= EDITOR_NO_CHANGE);
+        });
+        ResizeSetup(ctx, view, 690);
+        ShowSetupTable(ctx, view, "##operation-settings");
+        IM_CHECK(SetupTable(ctx, view, "operands"));
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Show in Schematic")).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

@@ -801,33 +801,42 @@ void SetupWindows::ParameterInPage(ObjectRef target) {
 }
 
 void SetupWindows::OperationPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "operation", description))
         return;
     const auto data = description.Values();
-    ImGui::BeginGroup();
+    SetupColumns columns("##operation-settings", 2);
+    if (!columns)
+        return;
+    columns.Next();
     Group("Parameter Operation");
-    ImGui::TextUnformatted("Operation");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(data.Text("operation").c_str());
-    ImGui::TextUnformatted("GUID");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(data.Text("guid").c_str());
-    ImGui::TextUnformatted("Owner");
-    ImGui::SameLine(110);
-    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
-    ImGui::Dummy(ImVec2(1, 6));
+    {
+        SetupForm form("##operation-info");
+        if (form) {
+            ImGui::PushTextWrapPos(0);
+            form.Row("Operation");
+            ImGui::TextUnformatted(data.Text("operation").c_str());
+            form.Row("GUID");
+            ImGui::TextUnformatted(data.Text("guid").c_str());
+            form.Row("Owner");
+            SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
+            ImGui::PopTextWrapPos();
+        }
+    }
+    ImGui::Spacing();
     ShowInSchematic(data);
-    ImGui::EndGroup();
-    ImGui::SameLine(420);
-    ImGui::BeginGroup();
+    columns.Next();
     Group("Parameters");
-    if (ImGui::BeginTable("operands", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg, ImVec2(560, 0))) {
+    const float unit = PageUnit();
+    if (ImGui::BeginTable("operands", 4,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollX |
+                              ImGuiTableFlags_ScrollY,
+                          {0, 150 * unit}, std::max(560 * unit, ImGui::GetContentRegionAvail().x))) {
         TypeAhead typeAhead(TypeAhead::Shared);
-        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 60);
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 140);
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 120);
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 60 * unit);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed, 140 * unit);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 120 * unit);
         ImGui::TableSetupColumn("Value");
         ImGui::TableHeadersRow();
         for (const auto &value : data.Rows("operands")) {
@@ -849,10 +858,10 @@ void SetupWindows::OperationPage(ObjectRef target) {
         }
         ImGui::EndTable();
     }
+    ImGui::PushTextWrapPos(0);
     ImGui::TextDisabled("Double-click a parameter to show its Setup.");
-    ImGui::EndGroup();
+    ImGui::PopTextWrapPos();
 }
-
 void SetupWindows::BehaviorPage(ObjectRef target) {
     const auto id = target;
     SetupDetails description;
