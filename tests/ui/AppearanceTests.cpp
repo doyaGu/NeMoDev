@@ -6456,6 +6456,72 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         }
         CloseGraphDialogs(ctx, objects);
     };
+    auto *graphComment = IM_REGISTER_TEST(engine, "appearancegraphdialogs",
+                                          "comment_and_script_color_resize_scroll_cancel_and_single_undo");
+    graphComment->GuiFunc = MainThreadGui;
+    graphComment->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        SelectGraphDialog(ctx, objects, objects.graphElement);
+        OnMainThread(ctx, [&] { App().Canvas().AddComment(objects.values.script.object, {300, 600}); });
+        ctx->Yield(4);
+        const auto comment = App().Canvas().Navigation().selection.items.front();
+        IM_CHECK(comment.kind == ElementKind::Comment);
+        OnMainThread(ctx, [&] { App().Canvas().EditElement(objects.values.script.object, comment); });
+        ctx->Yield(4);
+        const auto text = [&] {
+            return Read<std::string>(ctx, [&] {
+                const auto *record =
+                    FindRecord(App().State().document->Session(objects.values.script.object)->Data(), comment.owner);
+                return record ? record->comments[size_t(comment.index)].text : "missing";
+            });
+        };
+        const auto original = text();
+        const auto history = App().State().History().UndoCount();
+        ctx->SetRef("//Edit Comment");
+        TypeGraphDialog(ctx, "##text", "Cancelled multiline comment");
+        const auto id = ctx->ItemInfo("##text").ID;
+        ResizeGraphDialog(ctx, "//Edit Comment", "##comment", "OK", "Cancel", false, 200);
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, id);
+        IM_CHECK_GT(SetupDialogContent(ctx, "//Edit Comment", "##comment")->ScrollMax.y, 0);
+        ctx->ItemClick("Cancel");
+        ctx->Yield(3);
+        IM_CHECK(text() == original && App().State().History().UndoCount() == history);
+        OnMainThread(ctx, [&] { App().Canvas().EditElement(objects.values.script.object, comment); });
+        ctx->Yield(3);
+        TypeGraphDialog(ctx, "//Edit Comment/##text", "Accepted multiline comment");
+        ctx->ItemClick("//Edit Comment/OK");
+        ctx->Yield(3);
+        IM_CHECK(text() == "Accepted multiline comment" && App().State().History().UndoCount() == history + 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(text() == original);
+        const auto color = [&] {
+            return Read<CKDWORD>(ctx, [&] {
+                return App().State().document->Session(objects.values.script.object)->Data().header.color;
+            });
+        };
+        const auto oldColor = color();
+        for (bool accept : {false, true}) {
+            GraphHeaderMenu(ctx, objects, "Set Color");
+            ctx->SetRef("//Script Color");
+            ctx->ScrollToBottom(SetupDialogContent(ctx, "//Script Color", "##script-color")->ID);
+            ctx->Yield(3);
+            IM_CHECK(ctx->ItemExists("**/##color/##hex/##Text"));
+            TypeGraphDialog(ctx, "**/##color/##hex/##Text", "FE10AB");
+            ResizeGraphDialog(ctx, "//Script Color", "##script-color", "OK", "Cancel", false, 200);
+            IM_CHECK(color() == oldColor);
+            ctx->ItemClick(accept ? "OK" : "Cancel");
+            ctx->Yield(4);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + (accept ? 1 : 0));
+            if (accept) {
+                IM_CHECK(color() != oldColor);
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+                IM_CHECK(color() == oldColor);
+            }
+        }
+        CloseGraphDialogs(ctx, objects);
+    };
     auto *graphCreate = IM_REGISTER_TEST(engine, "appearancegraphdialogs",
                                          "local_and_graph_pin_picker_resize_filter_cancel_and_single_undo");
     graphCreate->GuiFunc = MainThreadGui;
@@ -6562,6 +6628,255 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
         IM_CHECK_EQ(count(), before + 1);
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        CloseGraphDialogs(ctx, objects);
+    };
+    auto *graphDelete =
+        IM_REGISTER_TEST(engine, "appearancegraphdialogs", "graph_and_script_deletion_resize_cancel_and_single_undo");
+    graphDelete->GuiFunc = MainThreadGui;
+    graphDelete->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        for (bool script : {false, true}) {
+            const auto target = script ? objects.values.script : objects.graph;
+            const auto history = App().State().History().UndoCount();
+            const auto revision = App().State().document->ChangeRevision();
+            const char *ref = script ? "//Confirm Script(s) Deletion" : "//Warning!###confirmgraphs";
+            const char *content = script ? "##delete-script" : "##delete-graphs";
+            const auto open = [&] {
+                SelectGraphDialog(ctx, objects, script ? Selection::HeaderOf(target.object) : objects.graphElement);
+                OnMainThread(ctx, [] { App().Canvas().DeleteSelection(); });
+                ctx->Yield(4);
+                ctx->SetRef(ref);
+            };
+            open();
+            ResizeGraphDialog(ctx, ref, content, script ? "OK" : "Yes", script ? "Cancel" : "No");
+            ctx->ItemClick(script ? "Cancel" : "No");
+            ctx->Yield(3);
+            IM_CHECK(GraphObjectAlive(ctx, target) && App().State().History().UndoCount() == history);
+            IM_CHECK_EQ(App().State().document->ChangeRevision(), revision);
+            open();
+            ctx->ItemClick(script ? "OK" : "Yes");
+            ctx->Yield(4);
+            IM_CHECK(!GraphObjectAlive(ctx, target) && App().State().History().UndoCount() == history + 1);
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            IM_CHECK(GraphObjectAlive(ctx, target));
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+            IM_CHECK(!GraphObjectAlive(ctx, target));
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        }
+        CloseGraphDialogs(ctx, objects);
+    };
+    auto *graphQueries =
+        IM_REGISTER_TEST(engine, "appearancegraphdialogs", "find_and_ck_properties_resize_keep_document_and_history");
+    graphQueries->GuiFunc = MainThreadGui;
+    graphQueries->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        const auto history = App().State().History().UndoCount();
+        const auto revision = App().State().document->ChangeRevision();
+        SelectGraphDialog(ctx, objects, objects.values.element);
+        ctx->KeyPress(ImGuiKey_K);
+        ctx->Yield(4);
+        ResizeGraphDialog(ctx, "//CK Properties", "##ck-properties", "Close", "Close", false, 200);
+        ctx->ItemClick("//CK Properties/Close");
+        ctx->Yield(3);
+        OnMainThread(ctx, [] { App().Canvas().OpenFind(); });
+        ctx->Yield(3);
+        ctx->SetRef("//Find###SchematicFind");
+        TypeGraphDialog(ctx, "Find", "Graph dialog");
+        const auto id = ctx->ItemInfo("Find").ID;
+        ResizeGraphDialog(ctx, "//Find###SchematicFind", "##find", "Find Next", "Cancel");
+        IM_CHECK_EQ(ctx->UiContext->ActiveId, id);
+        ctx->ItemClick(ctx->GetWindowByRef("//Find###SchematicFind")->GetID("Search Closed Scripts/Graphs"));
+        ctx->ItemClick("Cancel");
+        ctx->Yield(3);
+        IM_CHECK(App().State().History().UndoCount() == history &&
+                 App().State().document->ChangeRevision() == revision);
+        SelectGraphDialog(ctx, objects, Selection::HeaderOf(objects.values.script.object));
+        OnMainThread(ctx, [] { App().Canvas().OpenFind(); });
+        ctx->Yield(3);
+        TypeGraphDialog(ctx, "//Find###SchematicFind/Find", objects.values.name.c_str());
+        ctx->ItemClick("//Find###SchematicFind/Find Next");
+        ctx->Yield(4);
+        IM_CHECK(App().Canvas().Found().IsValid());
+        IM_CHECK(App().State().History().UndoCount() == history &&
+                 App().State().document->ChangeRevision() == revision);
+        CloseGraphDialogs(ctx, objects);
+    };
+    auto *graphReplace =
+        IM_REGISTER_TEST(engine, "appearancegraphdialogs", "block_and_graph_replacement_resize_cancel_and_single_undo");
+    graphReplace->GuiFunc = MainThreadGui;
+    graphReplace->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        ResizeSetup(ctx, App().WorkspaceForTests().Role("main.schematic"), 1800);
+        const auto menu = [&](ObjectRef target, bool recent) {
+            const ElementRef element{ElementKind::Behavior, objects.values.script.object, target.object};
+            SelectGraphDialog(ctx, objects, element);
+            const auto shown =
+                Read<std::vector<SchematicCanvas::ShownBehavior>>(ctx, [] { return App().Canvas().ShownBehaviors(); });
+            const auto found =
+                std::find_if(shown.begin(), shown.end(), [&](const auto &b) { return b.behavior == target.object; });
+            if (found == shown.end()) return false;
+            ctx->MouseMoveToPos(recent ? Center(found->min, found->max) : ImVec2(found->min.x + 12, found->min.y + 12));
+            if (recent) ctx->KeyDown(ImGuiMod_Shift);
+            ctx->MouseClick(ImGuiMouseButton_Right);
+            if (recent) ctx->KeyUp(ImGuiMod_Shift);
+            ctx->Yield(3);
+            return true;
+        };
+        const auto priorRecent = Read<std::vector<CKGUID>>(ctx, [] { return App().RecentBlocksForTests(); });
+        struct RestoreRecent {
+            ImGuiTestContext *ctx;
+            std::vector<CKGUID> value;
+            ~RestoreRecent() {
+                OnMainThread(ctx, [&] { App().RecentBlocksForTests() = value; });
+            }
+        } restore{ctx, priorRecent};
+        OnMainThread(ctx, [&] {
+            auto *block = CKBehavior::Cast(App().State().document->Resolve(objects.values.block));
+            App().RecentBlocksForTests() = {block->GetPrototypeGuid()};
+        });
+        const auto steps = App().State().History().UndoCount();
+        for (bool accept : {false, true}) {
+            IM_CHECK(menu(objects.values.block, true));
+            ctx->ItemClick("//$FOCUSED/Bezier Transform");
+            ctx->Yield(4);
+            ResizeGraphDialog(ctx, "//Replace Building Block", "##replace-block", "Yes", "No");
+            auto *window = ctx->GetWindowByRef("//Replace Building Block");
+            const auto all = ctx->ItemInfo(window->GetID("Apply to All")).RectFull;
+            IM_CHECK(all.Min.x >= window->Pos.x && all.Max.x <= window->Pos.x + window->Size.x);
+            ctx->ItemClick(accept ? "//Replace Building Block/Yes" : "//Replace Building Block/No");
+            ctx->Yield(5);
+            IM_CHECK_EQ(App().State().History().UndoCount(), steps + (accept ? 1 : 0));
+            IM_CHECK(GraphObjectAlive(ctx, objects.values.block) != accept);
+            if (accept) {
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+                IM_CHECK(GraphObjectAlive(ctx, objects.values.block));
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+                IM_CHECK(!GraphObjectAlive(ctx, objects.values.block));
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            }
+        }
+        OnMainThread(ctx, [&] { App().Canvas().ToggleFold(objects.values.script.object, objects.graph.object); });
+        ctx->Yield(4);
+        const auto graphSteps = App().State().History().UndoCount();
+        const auto sourceName = ObjectName(ctx, objects.other.object);
+        const int sourceIndex = Read<int>(ctx, [&] {
+            const auto result =
+                EditorCommands().Query("schematic.replacements", {ObjectArgument("target", objects.graph)});
+            const auto *rows = EditorClient::Find(result, "graphs");
+            IM_CHECK_NO_RET(rows);
+            for (size_t i = 0; rows && i < rows->fields.size(); ++i) {
+                EditorResponse row;
+                row.fields = rows->fields[i].fields;
+                const auto *object = EditorClient::Find(row, "object");
+                if (object && object->object == objects.other) {
+                    IM_CHECK_NO_RET(EditorClient::Text(row, "name") == sourceName);
+                    IM_CHECK_NO_RET(
+                        EditorClient::Text(row, "script") ==
+                        CKBehavior::Cast(App().State().document->Resolve(objects.values.script))->GetName());
+                    return int(i);
+                }
+            }
+            return -1;
+        });
+        IM_CHECK(sourceIndex >= 0);
+        for (bool accept : {false, true}) {
+            IM_CHECK(menu(objects.graph, false));
+            ctx->MenuClick("//$FOCUSED/Replace with/Replace with existing Graph");
+            ctx->Yield(4);
+            ResizeParameterDialog(ctx, "//Replace with", {1200, 600});
+            ctx->SetRef("//Replace with");
+            auto *listTable = ctx->UiContext->Tables.GetByKey(ctx->GetWindowByRef("//Replace with")->GetID("graphs"));
+            IM_CHECK(listTable);
+            ctx->ScrollToY(listTable->InnerWindow->ID,
+                           sourceIndex * (ImGui::GetFontSize() + 2 * ImGui::GetStyle().CellPadding.y));
+            ctx->Yield(3);
+            const auto sourceId =
+                ImHashStr(sourceName.c_str(), 0, ImHashData(&sourceIndex, sizeof(sourceIndex), listTable->ID));
+            const auto item = ctx->ItemInfo(sourceId);
+            IM_CHECK(item.ID == sourceId && item.ID != 0);
+            ctx->ScrollToItemY(item.ID);
+            ctx->Yield(2);
+            auto *table = ctx->UiContext->Tables.GetByKey(ctx->GetWindowByRef("//Replace with")->GetID("graphs"));
+            IM_CHECK(table);
+            const auto row = ctx->ItemInfo(item.ID).RectFull;
+            ctx->MouseMoveToPos({table->InnerClipRect.Min.x + 12, (row.Min.y + row.Max.y) * .5f});
+            ctx->MouseClick(ImGuiMouseButton_Left);
+            ctx->Yield(2);
+            ResizeGraphDialog(ctx, "//Replace with", "##replace-graph", "Ok", "Cancel");
+            ctx->ItemClick(accept ? "Ok" : "Cancel");
+            ctx->Yield(5);
+            IM_CHECK_EQ(App().State().History().UndoCount(), graphSteps + (accept ? 1 : 0));
+            IM_CHECK(GraphObjectAlive(ctx, objects.graph) != accept);
+            IM_CHECK(GraphObjectAlive(ctx, objects.other));
+            if (accept) {
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+                IM_CHECK(GraphObjectAlive(ctx, objects.graph));
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+                IM_CHECK(!GraphObjectAlive(ctx, objects.graph));
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            }
+        }
+        CloseGraphDialogs(ctx, objects);
+    };
+    auto *graphQuickAdd =
+        IM_REGISTER_TEST(engine, "appearancegraphdialogs", "quick_add_bound_filter_cancel_and_single_undo");
+    graphQuickAdd->GuiFunc = MainThreadGui;
+    graphQuickAdd->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        const auto count = [&] {
+            return Read<int>(ctx, [&] {
+                std::function<int(CKBehavior *)> descendants = [&](CKBehavior *owner) {
+                    int total = owner->GetSubBehaviorCount();
+                    for (int i = 0; i < owner->GetSubBehaviorCount(); ++i)
+                        total += descendants(owner->GetSubBehavior(i));
+                    return total;
+                };
+                return descendants(CKBehavior::Cast(App().State().document->Resolve(objects.values.script)));
+            });
+        };
+        const auto before = count();
+        const auto history = App().State().History().UndoCount();
+        for (bool accept : {false, true}) {
+            SelectGraphDialog(ctx, objects, objects.values.element);
+            const auto point = EmptySchematicPoint(objects.values.script.object);
+            IM_CHECK(point.has_value());
+            ctx->MouseMoveToPos(point->second);
+            ctx->KeyDown(ImGuiMod_Ctrl);
+            ctx->MouseDoubleClick(ImGuiMouseButton_Left);
+            ctx->KeyUp(ImGuiMod_Ctrl);
+            ctx->Yield(4);
+            IM_CHECK(!ctx->UiContext->OpenPopupStack.empty());
+            auto *window = ctx->UiContext->OpenPopupStack.back().Window;
+            IM_CHECK(window && window->WasActive);
+            ctx->SetRef(window);
+            IM_CHECK(ctx->ItemExists("##name"));
+            TypeGraphDialog(ctx, "##name", "Bezier Transform");
+            const auto *viewport = ImGui::GetMainViewport();
+            IM_CHECK(window->WasActive && window->Pos.x >= viewport->WorkPos.x &&
+                     window->Pos.y >= viewport->WorkPos.y &&
+                     window->Pos.x + window->Size.x <= viewport->WorkPos.x + viewport->WorkSize.x &&
+                     window->Pos.y + window->Size.y <= viewport->WorkPos.y + viewport->WorkSize.y);
+            IM_CHECK(count() == before && App().State().History().UndoCount() == history);
+            ctx->KeyPress(accept ? ImGuiKey_Enter : ImGuiKey_Escape);
+            ctx->Yield(5);
+            IM_CHECK(count() == before + (accept ? 1 : 0) &&
+                     App().State().History().UndoCount() == history + (accept ? 1 : 0));
+            if (accept) {
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+                IM_CHECK_EQ(count(), before);
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+                IM_CHECK_EQ(count(), before + 1);
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            }
+        }
         CloseGraphDialogs(ctx, objects);
     };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");

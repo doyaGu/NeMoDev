@@ -488,7 +488,8 @@ void SchematicCanvas::BlockMenus() {
         m_Doc.openRecentMenu = false;
     }
     if (!ImGui::IsPopupOpen("BlockCategories") && !ImGui::IsPopupOpen("RecentBlocks")) {
-        if (!ImGui::IsPopupOpen("Replace Building Block") && !m_Doc.openReplaceBlock)
+        if (!ImGui::IsPopupOpen("Replace Building Block") && !m_Doc.openReplaceBlock &&
+            !ImGui::IsPopupOpen("Replace with") && !m_Doc.openReplaceGraph)
             m_Doc.replaceBehavior = {};
         return;
     }
@@ -525,7 +526,8 @@ void SchematicCanvas::BlockMenus() {
     }
     // A menu closed without a choice no longer replaces.
     if (!picked && !ImGui::IsPopupOpen("BlockCategories") && !ImGui::IsPopupOpen("RecentBlocks") &&
-        !ImGui::IsPopupOpen("Replace Building Block") && !m_Doc.openReplaceBlock)
+        !ImGui::IsPopupOpen("Replace Building Block") && !m_Doc.openReplaceBlock &&
+        !ImGui::IsPopupOpen("Replace with") && !m_Doc.openReplaceGraph)
         m_Doc.replaceBehavior = {};
 }
 

@@ -28,6 +28,7 @@
 #include "core/schematic/SchematicSearch.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/setup/SetupLayout.h"
 #include "ui/controls/FileDialogs.h"
 #include "ui/app/DesktopFiles.h"
 #include "ui/controls/TypeAhead.h"
@@ -773,17 +774,27 @@ void SchematicCanvas::ReplaceBlockDialog() {
         ImGui::OpenPopup("Replace Building Block");
         m_Doc.openReplaceBlock = false;
     }
-    if (!ImGui::BeginPopupModal("Replace Building Block", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    m_BlockCatalog.Refresh(Client());
-    const auto *entry = m_BlockCatalog.Find(m_ReplaceGuid);
-    ImGui::Text("Do you want to replace behavior <%s> with <%s>?",
-                EditorClient::Text(m_Doc.replacement, "name").c_str(), entry ? entry->name.c_str() : "?");
-    ImGui::Spacing();
-    const bool yes = ImGui::Button("Yes", {100, 0});
-    ImGui::SameLine();
-    const bool all = ImGui::Button("Apply to All", {100, 0});
-    ImGui::SameLine();
-    const bool no = ImGui::Button("No", {100, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape);
+    if (!ImGui::IsPopupOpen("Replace Building Block")) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog("Replace Building Block", "Replace Building Block", {540 * unit, 80 * unit}, unit,
+                                   layout))
+        return;
+    if (vi::BeginDialogContent("##replace-block", layout)) {
+        m_BlockCatalog.Refresh(Client());
+        const auto *entry = m_BlockCatalog.Find(m_ReplaceGuid);
+        ImGui::TextWrapped("Do you want to replace behavior <%s> with <%s>?",
+                           EditorClient::Text(m_Doc.replacement, "name").c_str(), entry ? entry->name.c_str() : "?");
+        ImGui::Spacing();
+    }
+    vi::EndDialogContent();
+    const float buttonWidth = std::min(100 * unit, std::max(1.f, (layout.contentSize.x - 20 * unit) / 3));
+    ImGui::SetCursorScreenPos({layout.right - 3 * buttonWidth - 20 * unit, layout.buttonsY});
+    const bool yes = ImGui::Button("Yes", {buttonWidth, 18 * unit});
+    ImGui::SameLine(0, 10 * unit);
+    const bool all = ImGui::Button("Apply to All", {buttonWidth, 18 * unit});
+    ImGui::SameLine(0, 10 * unit);
+    const bool no = ImGui::Button("No", {buttonWidth, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape);
     if (yes || all) {
         EditorField scripts{"scripts", EDITOR_OBJECT_LIST}, objects{"objects", EDITOR_OBJECT_LIST},
             prototypes{"prototypes", EDITOR_INTEGER_LIST};
@@ -815,7 +826,7 @@ void SchematicCanvas::ReplaceBlockDialog() {
         m_Doc.replaceBehavior = {};
         ImGui::CloseCurrentPopup();
     }
-    ImGui::EndPopup();
+    vi::EndDialog();
 }
 
 // Dev "Replace with" dialog: the behavior graphs of the composition, by Script.
@@ -824,41 +835,47 @@ void SchematicCanvas::ReplaceGraphDialog() {
         ImGui::OpenPopup("Replace with");
         m_Doc.openReplaceGraph = false;
     }
-    ImGui::SetNextWindowSize({400, 380}, ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal("Replace with", nullptr)) return;
-    ImGui::TextUnformatted("Behavior List");
-    if (ImGui::BeginTable("graphs", 2,
-                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY |
-                              ImGuiTableFlags_Resizable,
-                          {0, -ImGui::GetFrameHeightWithSpacing() * 2.2f})) {
-        ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Behavior");
-        ImGui::TableSetupColumn("Script");
-        ImGui::TableHeadersRow();
-        for (size_t i = 0; i < m_Doc.replacementGraphs.size(); ++i) {
-            EditorResponse row;
-            row.fields = m_Doc.replacementGraphs[i].fields;
-            const auto *object = EditorClient::Find(row, "object");
-            if (!object)
-                continue;
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::PushID(int(i));
-            if (ImGui::Selectable(EditorClient::Text(row, "name").c_str(), m_Doc.replaceSource == object->object,
-                                  ImGuiSelectableFlags_SpanAllColumns))
-                m_Doc.replaceSource = object->object;
-            ImGui::PopID();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(EditorClient::Text(row, "script-name").c_str());
+    if (!ImGui::IsPopupOpen("Replace with")) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog("Replace with", "Replace with", {480 * unit, 340 * unit}, unit, layout)) return;
+    if (vi::BeginDialogContent("##replace-graph", layout)) {
+        ImGui::TextUnformatted("Behavior List");
+        if (ImGui::BeginTable(
+                "graphs", 2,
+                ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollY |
+                    ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollX,
+                {0, std::max(160 * unit, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing())})) {
+            ImGui::TableSetupScrollFreeze(0, 1);
+            ImGui::TableSetupColumn("Behavior", ImGuiTableColumnFlags_WidthFixed, 230 * unit);
+            ImGui::TableSetupColumn("Script", ImGuiTableColumnFlags_WidthFixed, 230 * unit);
+            ImGui::TableHeadersRow();
+            for (size_t i = 0; i < m_Doc.replacementGraphs.size(); ++i) {
+                EditorResponse row;
+                row.fields = m_Doc.replacementGraphs[i].fields;
+                const auto *object = EditorClient::Find(row, "object");
+                if (!object) continue;
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::PushID(int(i));
+                if (ImGui::Selectable(EditorClient::Text(row, "name").c_str(), m_Doc.replaceSource == object->object,
+                                      ImGuiSelectableFlags_SpanAllColumns))
+                    m_Doc.replaceSource = object->object;
+                ImGui::PopID();
+                ImGui::TableNextColumn();
+                ImGui::TextUnformatted(EditorClient::Text(row, "script").c_str());
+            }
+            ImGui::EndTable();
         }
-        ImGui::EndTable();
+        ImGui::Checkbox("Replace All", &m_ReplaceAll);
     }
-    ImGui::Checkbox("Replace All", &m_ReplaceAll);
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 210 * unit, layout.buttonsY});
     ImGui::BeginDisabled(!m_Doc.replaceSource);
-    const bool ok = ImGui::Button("Ok", {100, 0});
+    const bool ok = ImGui::Button("Ok", {100 * unit, 18 * unit});
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    const bool cancel = ImGui::Button("Cancel", {100, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape);
+    ImGui::SameLine(0, 10 * unit);
+    const bool cancel = ImGui::Button("Cancel", {100 * unit, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape);
     if (ok && m_Doc.replaceSource) {
         EditorField objects{"objects", EDITOR_OBJECT_LIST};
         objects.objects = {m_Doc.replaceBehavior};
@@ -877,7 +894,7 @@ void SchematicCanvas::ReplaceGraphDialog() {
         m_Doc.replaceBehavior = {};
         ImGui::CloseCurrentPopup();
     }
-    ImGui::EndPopup();
+    vi::EndDialog();
 }
 
 void SchematicCanvas::ReplaceWithFile(uint32_t script, uint32_t graph) {
@@ -894,18 +911,32 @@ void SchematicCanvas::ConfirmScriptDeletion() {
         ImGui::OpenPopup("Confirm Script(s) Deletion");
         m_Doc.openDeleteScript = false;
     }
-    if (!ImGui::BeginPopupModal("Confirm Script(s) Deletion", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    if (!ImGui::IsPopupOpen("Confirm Script(s) Deletion")) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog("Confirm Script(s) Deletion", "Confirm Script(s) Deletion", {420 * unit, 60 * unit},
+                                   unit, layout))
+        return;
     const auto scripts = m_Doc.deleteScripts;
-    const auto details = scripts.empty() ? EditorResponse{} : Client().Query("object.details", {ObjectArgument("target", scripts.front())});
-    if (scripts.size() > 1) ImGui::Text("Delete the %d Scripts selected?", static_cast<int>(scripts.size()));
-    else ImGui::Text("Delete the Script <%s>?", EditorClient::Text(details, "name").c_str());
-    if (ImGui::Button("OK", ImVec2(100, 0))) {
+    if (vi::BeginDialogContent("##delete-script", layout)) {
+        const auto details = scripts.empty()
+                                 ? EditorResponse{}
+                                 : Client().Query("object.details", {ObjectArgument("target", scripts.front())});
+        if (scripts.size() > 1)
+            ImGui::Text("Delete the %d Scripts selected?", static_cast<int>(scripts.size()));
+        else
+            ImGui::TextWrapped("Delete the Script <%s>?", EditorClient::Text(details, "name").c_str());
+    }
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 210 * unit, layout.buttonsY});
+    if (ImGui::Button("OK", ImVec2(100 * unit, 18 * unit))) {
         Execute("script.delete", {ObjectsArgument("objects", scripts)}, GraphFollow::ClearSelection);
         ImGui::CloseCurrentPopup();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    ImGui::SameLine(0, 10 * unit);
+    if (ImGui::Button("Cancel", ImVec2(100 * unit, 18 * unit)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+        ImGui::CloseCurrentPopup();
+    vi::EndDialog();
 }
 
 // Dev "Confirm Graph(es) Deletion" ([Schematic]<Dialog>#15, "Warning!"; Yes / No).
@@ -914,16 +945,26 @@ void SchematicCanvas::ConfirmGraphDeletion() {
         ImGui::OpenPopup("Warning!###confirmgraphs");
         m_Doc.openDeleteGraphs = false;
     }
-    if (!ImGui::BeginPopupModal("Warning!###confirmgraphs", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::TextUnformatted("Confirm Graph(es) Deletion");
-    const bool keys = !ImGui::IsWindowAppearing();
-    if (ImGui::Button("Yes", ImVec2(100, 0)) || (keys && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+    if (!ImGui::IsPopupOpen("Warning!###confirmgraphs")) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog("Warning!###confirmgraphs", "Warning!", {360 * unit, 40 * unit}, unit, layout))
+        return;
+    const bool appearing = ImGui::IsWindowAppearing();
+    if (vi::BeginDialogContent("##delete-graphs", layout)) {
+        ImGui::TextUnformatted("Confirm Graph(es) Deletion");
+    }
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 210 * unit, layout.buttonsY});
+    const bool keys = !appearing;
+    if (ImGui::Button("Yes", ImVec2(100 * unit, 18 * unit)) || (keys && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
         ImGui::CloseCurrentPopup();
         DeleteSelection(true);
     }
-    ImGui::SameLine();
-    if (ImGui::Button("No", ImVec2(100, 0)) || (keys && ImGui::IsKeyPressed(ImGuiKey_Escape, false))) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    ImGui::SameLine(0, 10 * unit);
+    if (ImGui::Button("No", ImVec2(100 * unit, 18 * unit)) || (keys && ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
+        ImGui::CloseCurrentPopup();
+    vi::EndDialog();
 }
 
 // --------------------------------------------------------------- helpers
@@ -1052,34 +1093,40 @@ void SchematicCanvas::CkPropertiesDialog() {
         ImGui::OpenPopup("CK Properties");
         m_Doc.openCkProperties = false;
     }
-    if (!ImGui::BeginPopupModal("CK Properties", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    const auto info = Client().Query("schematic.object-info", {ObjectArgument("target", m_Doc.ckPropertiesObject)});
-    if (info.status != EDITOR_OK)
-        ImGui::TextUnformatted("The object no longer exists");
-    else {
-        ImGui::Text("Name: %s", EditorClient::Text(info, "name").c_str());
-        ImGui::Text("uint32_t: %u", m_Doc.ckPropertiesObject.object);
-        ImGui::Text("Class: %s", EditorClient::Text(info, "class").c_str());
-        ImGui::Text("Owner: %s", EditorClient::Text(info, "owner-name").c_str());
-        if (EditorClient::Integer(info, "input")) {
-            ImGui::Text("Direct source: %s", EditorClient::Text(info, "direct-source").c_str());
-            ImGui::Text("Shared source: %s", EditorClient::Text(info, "shared-source").c_str());
-            ImGui::Text("Enabled: %s", EditorClient::Integer(info, "enabled") ? "yes" : "no");
-        } else {
-            ImGui::Text("Type: %s", EditorClient::Text(info, "type-name").c_str());
-            if (EditorClient::Integer(info, "self"))
-                ImGui::TextUnformatted("<This> parameter (the Script owner)");
-            if (const auto *destinations = EditorClient::Find(info, "destinations");
-                destinations && EditorClient::Integer(info, "output")) {
-                ImGui::Text("Destinations: %d", int(destinations->texts.size()));
-                for (const auto &text : destinations->texts)
-                    ImGui::BulletText("%s", text.c_str());
+    if (!ImGui::IsPopupOpen("CK Properties")) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog("CK Properties", "CK Properties", {420 * unit, 240 * unit}, unit, layout)) return;
+    if (vi::BeginDialogContent("##ck-properties", layout)) {
+        const auto info = Client().Query("schematic.object-info", {ObjectArgument("target", m_Doc.ckPropertiesObject)});
+        if (info.status != EDITOR_OK)
+            ImGui::TextUnformatted("The object no longer exists");
+        else {
+            ImGui::TextWrapped("Name: %s", EditorClient::Text(info, "name").c_str());
+            ImGui::TextWrapped("uint32_t: %u", m_Doc.ckPropertiesObject.object);
+            ImGui::TextWrapped("Class: %s", EditorClient::Text(info, "class").c_str());
+            ImGui::TextWrapped("Owner: %s", EditorClient::Text(info, "owner-name").c_str());
+            if (EditorClient::Integer(info, "input")) {
+                ImGui::TextWrapped("Direct source: %s", EditorClient::Text(info, "direct-source").c_str());
+                ImGui::TextWrapped("Shared source: %s", EditorClient::Text(info, "shared-source").c_str());
+                ImGui::TextWrapped("Enabled: %s", EditorClient::Integer(info, "enabled") ? "yes" : "no");
+            } else {
+                ImGui::TextWrapped("Type: %s", EditorClient::Text(info, "type-name").c_str());
+                if (EditorClient::Integer(info, "self")) ImGui::TextUnformatted("<This> parameter (the Script owner)");
+                if (const auto *destinations = EditorClient::Find(info, "destinations");
+                    destinations && EditorClient::Integer(info, "output")) {
+                    ImGui::TextWrapped("Destinations: %d", int(destinations->texts.size()));
+                    for (const auto &text : destinations->texts)
+                        ImGui::TextWrapped("• %s", text.c_str());
+                }
             }
         }
     }
-    if (ImGui::Button("Close", {100, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 100 * unit, layout.buttonsY});
+    if (ImGui::Button("Close", {100 * unit, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape))
         ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    vi::EndDialog();
 }
 
 // Dev "Analyze Shortcut Source": the shortcuts of a source; Goto focuses one.
@@ -1093,32 +1140,40 @@ void SchematicCanvas::ShortcutAnalysisDialog() {
         m_Doc.shortcutPick = -1;
         ImGui::OpenPopup("Shortcut Source Analysis");
     }
-    if (!ImGui::BeginPopupModal("Shortcut Source Analysis", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::Text("Shortcuts of %s", EditorClient::Text(m_Doc.shortcutAnalysis, "source").c_str());
+    if (!ImGui::IsPopupOpen("Shortcut Source Analysis")) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog("Shortcut Source Analysis", "Shortcut Source Analysis", {540 * unit, 280 * unit},
+                                   unit, layout))
+        return;
     bool go = false;
     const auto *rows = EditorClient::Find(m_Doc.shortcutAnalysis, "rows");
-    if (ImGui::BeginListBox("##shortcuts", {520, 220})) {
-        TypeAhead typeAhead;
-        for (size_t i = 0; rows && i < rows->fields.size(); ++i) {
-            EditorResponse row;
-            row.fields = rows->fields[i].fields;
-            if (typeAhead.Selectable((EditorClient::Text(row, "label") + "##" + std::to_string(i)).c_str(),
-                                     m_Doc.shortcutPick == int(i), ImGuiSelectableFlags_AllowDoubleClick)) {
-                m_Doc.shortcutPick = int(i);
-                if (ImGui::IsMouseDoubleClicked(0))
-                    go = true;
+    if (vi::BeginDialogContent("##shortcut-analysis", layout)) {
+        ImGui::TextWrapped("Shortcuts of %s", EditorClient::Text(m_Doc.shortcutAnalysis, "source").c_str());
+        if (ImGui::BeginListBox("##shortcuts", {std::max(1.f, ImGui::GetContentRegionAvail().x),
+                                                std::max(160 * unit, ImGui::GetContentRegionAvail().y -
+                                                                         ImGui::GetFrameHeightWithSpacing())})) {
+            TypeAhead typeAhead;
+            for (size_t i = 0; rows && i < rows->fields.size(); ++i) {
+                EditorResponse row;
+                row.fields = rows->fields[i].fields;
+                if (typeAhead.Selectable((EditorClient::Text(row, "label") + "##" + std::to_string(i)).c_str(),
+                                         m_Doc.shortcutPick == int(i), ImGuiSelectableFlags_AllowDoubleClick)) {
+                    m_Doc.shortcutPick = int(i);
+                    if (ImGui::IsMouseDoubleClicked(0)) go = true;
+                }
             }
+            ImGui::EndListBox();
         }
-        ImGui::EndListBox();
+        if (!rows || rows->fields.empty()) ImGui::TextDisabled("No shortcut displays this parameter");
     }
-    if (!rows || rows->fields.empty())
-        ImGui::TextDisabled("No shortcut displays this parameter");
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 210 * unit, layout.buttonsY});
     ImGui::BeginDisabled(m_Doc.shortcutPick < 0);
-    if (ImGui::Button("Goto", {100, 0}))
-        go = true;
+    if (ImGui::Button("Goto", {100 * unit, 18 * unit})) go = true;
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Close", {100, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+    ImGui::SameLine(0, 10 * unit);
+    if (ImGui::Button("Close", {100 * unit, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape))
         ImGui::CloseCurrentPopup();
     if (go && rows && m_Doc.shortcutPick >= 0 && size_t(m_Doc.shortcutPick) < rows->fields.size()) {
         for (const auto &field : rows->fields[size_t(m_Doc.shortcutPick)].fields)
@@ -1128,7 +1183,7 @@ void SchematicCanvas::ShortcutAnalysisDialog() {
             }
         ImGui::CloseCurrentPopup();
     }
-    ImGui::EndPopup();
+    vi::EndDialog();
 }
 
 // Dev "Add Building Block by Name" (Ctrl+double-click): a filtered list;
@@ -1140,9 +1195,12 @@ void SchematicCanvas::QuickAddDialog() {
         m_QuickAddText.clear();
         m_QuickAddPick = 0;
     }
-    if (!ImGui::BeginPopup("Add Building Block by Name")) return;
+    const auto unit = setup::PageUnit();
+    if (!vi::BeginChoicePopup("Add Building Block by Name", unit)) return;
+    const auto *viewport = ImGui::GetMainViewport();
+    const float width = std::max(1.f, std::min(320 * unit, viewport->WorkSize.x - 60 * unit));
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    ImGui::SetNextItemWidth(320);
+    ImGui::SetNextItemWidth(width);
     if (ImGui::InputText("##name", &m_QuickAddText)) m_QuickAddPick = 0;
     m_BlockCatalog.Refresh(Client());
     std::vector<const BuildingBlockInfo *> matches;
@@ -1154,7 +1212,8 @@ void SchematicCanvas::QuickAddDialog() {
     if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) m_QuickAddPick = std::min<int>(m_QuickAddPick + 1, int(matches.size()) - 1);
     if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) m_QuickAddPick = std::max(m_QuickAddPick - 1, 0);
     const BuildingBlockInfo *chosen = nullptr;
-    if (ImGui::BeginListBox("##matches", ImVec2(320, 240))) {
+    if (ImGui::BeginListBox("##matches",
+                            ImVec2(width, std::max(1.f, std::min(240 * unit, viewport->WorkSize.y - 120 * unit))))) {
         for (int i = 0; i < static_cast<int>(matches.size()) && i < 500; ++i) {
             const bool picked = i == m_QuickAddPick;
             if (ImGui::Selectable((matches[i]->name + "##" + std::to_string(i)).c_str(), picked))
@@ -1197,18 +1256,26 @@ void SchematicCanvas::ScriptColorDialog() {
         if (!BeginPropertyInput("schematic.script-color", targets.objects.front(), {targets})) return;
         ImGui::OpenPopup("Script Color");
     }
-    if (!ImGui::BeginPopupModal("Script Color", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    m_Workspace.DrawInput(m_PropertyEdit, "##color", false, nullptr, EDITOR_VALUE_DIALOG, 260, 200);
+    if (!ImGui::IsPopupOpen("Script Color")) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog("Script Color", "Script Color", {300 * unit, 330 * unit}, unit, layout)) return;
+    if (vi::BeginDialogContent("##script-color", layout)) {
+        m_Workspace.DrawInput(m_PropertyEdit, "##color", false, nullptr, EDITOR_VALUE_DIALOG, 260 * unit, 200 * unit);
+    }
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 210 * unit, layout.buttonsY});
     bool close = false;
-    if (ImGui::Button("OK", ImVec2(100, 0))) close = m_Workspace.Finish(m_PropertyEdit, true);
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape) || !m_PropertyEdit)
+    if (ImGui::Button("OK", ImVec2(100 * unit, 18 * unit))) close = m_Workspace.Finish(m_PropertyEdit, true);
+    ImGui::SameLine(0, 10 * unit);
+    if (ImGui::Button("Cancel", ImVec2(100 * unit, 18 * unit)) || ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+        !m_PropertyEdit)
         close = true;
     if (close) {
         ClosePropertyInput();
         ImGui::CloseCurrentPopup();
     }
-    ImGui::EndPopup();
+    vi::EndDialog();
 }
 
 // --------------------------------------------------------------- menus
