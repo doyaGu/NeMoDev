@@ -262,7 +262,7 @@ General Preferences 中原有连线和对象状态配色继续生效，这些项
 旧式 Setup 的固定坐标版式及其他平台的资源、字体和 DPI 实机验证仍在 F25 清单中，不能据此认为全部页面布局已经可自定义。
 
 
-Scene、Frame、Sprite3D、Camera、Light、Material、Entity 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character、Sound、Animation、ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、Parameter、ParameterIn、ParameterOperation、Behavior、BehaviorIO、BehaviorLink、Synchro、State、CriticalSection 和 InterfaceObjects Setup 的完整分组随可用宽度换行；标签和值使用同一列区域。
+Scene、Frame、Sprite3D、Camera、Light、Material、Entity 2D/3D、Texture、Mesh、Grid、Sprite、Curve、Character、Sound、Animation、ObjectAnimation、MidiSound、SpriteText、Layer、KinematicChain、Parameter、ParameterIn、ParameterOperation、Behavior、BehaviorIO、BehaviorLink、Synchro、State、CriticalSection 和 InterfaceObjects 和通用对象说明 Setup 的完整分组随可用宽度换行；标签和值使用同一列区域。
 `metric.setup.column-width`（120–2000）控制分组的最小内容宽度，
 `metric.setup.label-width`（20–600）控制标签列宽，窄列会限制标签宽度并换行。
 `metric.setup.sidebar-width`（72–400）控制左侧对象图片与操作区域。
@@ -280,4 +280,5 @@ SpriteText 的文本、字体、颜色和对齐使用同一分栏，保留原多
 Parameter 的类型、所有者、值和输出目标列表使用同一分栏与字段布局；ParameterIn 分组显示所有者、直接及共享来源和实际值，保留原可编辑条件；ParameterOperation 的操作、GUID、所有者和操作数表使用相同布局。值预览按字段宽度换行，保留原长度限制；Edit Value 仍打开既有参数对话框，取消保留文档原值，确认只产生一步撤销。This 参数保持只读，共享、输出和空来源保留原启用条件，目标、来源、操作数和 Schematic 导航沿用原命令。目标与操作数表在窄窗口可横向滚动，编号保持。
 Behavior 的信息、只读标志与内容统计使用相同分栏，子行为列表支持窄窗口横向滚动；BehaviorIO 保留端口内外的连线和双击导航。BehaviorLink 分组显示端点与延迟，长名称在字段内换行。优先级和延迟仍按 Enter 确认，Escape 取消未提交输入；确认、撤销与重做继续使用原图命令，连线修改仍同时设置初始和当前延迟。
 Synchro 的人数、到达对象和 Used By 使用同一分栏，到达对象列表可以横纵滚动；State 的活动状态及 CriticalSection 的 Reset 保留原操作。人数拖动可跨重排取消，确认只产生一步撤销；State 切换沿用原单步撤销。两个 Reset 仍是运行时操作，不新增撤销或改变文档修改状态。InterfaceObjects 分组显示 GUID、数据块数量和可滚动的只读列表，保留空数据块和缺失数据块的原显示规则。
-通用对象说明和参数等独立弹窗仍需迁移；尚未迁移的坐标页使用同一页面定位函数，滚动范围包括超出原版式的文字和控件。
+通用对象说明按共享字段布局显示名称、类型和编号，长名称和说明可以换行。参数值及多参数对话框复用同一窗口布局，可调整尺寸并限制在可用区域内；值区域按原编辑器的实际尺寸横纵滚动，确认、应用和取消按钮保留在窗口底部。属性参数的类型说明使用共享字段布局。工作副本、专用值编辑器、对象拾取、无效值禁用和 Enter/Escape 行为继续沿用原流程，输入和弹窗编号不因重排变化。
+Schematic 参数编辑与 Building Block 设置、对象数组选择、槽位与 Grid 等其余独立弹窗，以及专用值控件的固定版式仍需迁移；已有坐标控件继续使用原尺寸和滚动范围。
