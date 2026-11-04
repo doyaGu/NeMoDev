@@ -5,6 +5,9 @@
 #include "core/graph/BehaviorCommands.h"
 #include "core/graph/ValueCommands.h"
 #include "core/graph/RuntimeGraph.h"
+#include "core/schematic/SchematicModelBuilder.h"
+#include "core/schematic/SchematicEdits.h"
+#include <cstring>
 #include "core/graph/ParameterValues.h"
 #include "core/catalog/ParameterUIs.h"
 #include "ui/controls/DevBitmaps.h"
@@ -776,6 +779,101 @@ void SelectDialogGridLayers(ImGuiTestContext *ctx, const SetupDialogGrid &grid) 
         if (i) ctx->KeyUp(ImGuiMod_Ctrl);
     }
 }
+bool GraphObjectAlive(ImGuiTestContext *ctx, vdev::ObjectRef object) {
+    return Read<bool>(ctx, [&] { return App().State().document->Resolve(object) != nullptr; });
+}
+struct GraphDialogObjects {
+    SchematicDialogObjects values;
+    vdev::ObjectRef graph, other, link;
+    vdev::ElementRef graphElement, otherElement, linkElement;
+};
+GraphDialogObjects MakeGraphDialogs(ImGuiTestContext *ctx) {
+    GraphDialogObjects objects;
+    // Keep count-based editing assertions below the history cap while this
+    // group builds several complete Scripts in one process.
+    OnMainThread(ctx, [] { App().State().History().SetLimit(1000); });
+    objects.values = MakeSchematicDialogs(ctx);
+    OnMainThread(ctx, [&] {
+        using namespace vdev;
+        auto &doc = *App().State().document;
+        const auto script = objects.values.script.object;
+        const auto graph = CreateBehaviorGraph(
+            doc, script, script, "Graph dialog " + std::to_string(script) + " " + std::string(90, 'G'), {180, 360});
+        const auto other =
+            CreateBehaviorGraph(doc, script, script,
+                                "Replacement graph " + std::to_string(script) + " " + std::string(90, 'R'), {500, 360});
+        auto *root = CKBehavior::Cast(doc.Resolve(objects.values.script));
+        IM_CHECK_NO_RET(graph.ok && other.ok && root);
+        const auto link = CreateBehaviorLink(doc, script, {root->GetInput(0)->GetID(), 0, ENDPOINT_START_BIN},
+                                             {graph.created, 0, ENDPOINT_BIN}, 3);
+        IM_CHECK_NO_RET(link.ok);
+        objects.graph = doc.Reference(graph.created);
+        objects.other = doc.Reference(other.created);
+        objects.link = doc.Reference(link.created);
+        const auto model = BuildSchematicModel(*doc.Session(script), doc.Context(), {}, true);
+        for (const auto &b : model.behaviors) {
+            if (b.id == graph.created) objects.graphElement = b.ref;
+            if (b.id == other.created) objects.otherElement = b.ref;
+        }
+        for (const auto &l : model.links)
+            if (l.behaviorLink && l.ref.object == link.created) objects.linkElement = l.ref;
+        IM_CHECK_NO_RET(objects.graphElement.IsValid() && objects.otherElement.IsValid() &&
+                        objects.linkElement.IsValid());
+    });
+    ctx->Yield(4);
+    return objects;
+}
+void CloseGraphDialogs(ImGuiTestContext *ctx, const GraphDialogObjects &objects) {
+    CloseSchematicDialogs(ctx, objects.values);
+    OnMainThread(ctx, [] { App().State().History().SetLimit(50); });
+}
+void SelectGraphDialog(ImGuiTestContext *ctx, const GraphDialogObjects &objects, const vdev::ElementRef &element) {
+    OnMainThread(ctx, [&] { App().Canvas().ShowScript(objects.values.script.object, element); });
+    ctx->WindowFocus(SchematicRef().c_str());
+    ctx->Yield(4);
+    // Navigation completes in a later frame and can focus a containing graph.
+    OnMainThread(ctx, [&] { App().Canvas().Navigation().selection.Set(objects.values.script.object, element); });
+    ctx->Yield(2);
+}
+void TypeGraphDialog(ImGuiTestContext *ctx, const char *item, const char *text) {
+    ctx->ItemClick(item);
+    ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
+    ctx->KeyChars(text);
+    ctx->Yield(2);
+}
+void ResizeGraphDialog(ImGuiTestContext *ctx, const char *ref, const char *content, const char *accept = "OK",
+                       const char *cancel = "Cancel", bool viButtons = false, float height = 240) {
+    auto *window = ctx->GetWindowByRef(ref);
+    IM_CHECK_NO_RET(window && window->WasActive && !ctx->UiContext->OpenPopupStack.empty());
+    if (!window || !window->WasActive || ctx->UiContext->OpenPopupStack.empty()) return;
+    const auto popup = ctx->UiContext->OpenPopupStack.back().PopupId;
+    for (float width : {1300.f, 430.f, 850.f, 430.f}) {
+        ResizeParameterDialog(ctx, ref, {width, height});
+        CheckSetupDialogBounds(ctx, ref, content, accept, cancel, viButtons);
+        IM_CHECK_EQ(ctx->UiContext->OpenPopupStack.back().PopupId, popup);
+    }
+}
+void GraphHeaderMenu(ImGuiTestContext *ctx, const GraphDialogObjects &objects, const char *item) {
+    SelectGraphDialog(ctx, objects, vdev::Selection::HeaderOf(objects.values.script.object));
+    const auto shown =
+        Read<std::vector<vdev::SchematicCanvas::ShownScript>>(ctx, [] { return App().Canvas().ShownScripts(); });
+    auto script = std::find_if(shown.begin(), shown.end(),
+                               [&](const auto &s) { return s.script == objects.values.script.object; });
+    IM_CHECK_NO_RET(script != shown.end());
+    ctx->MouseMoveToPos(Center(script->headerMin, script->headerMax));
+    ctx->MouseClick(ImGuiMouseButton_Right);
+    ctx->Yield(3);
+    ctx->ItemClick((std::string("//$FOCUSED/") + item).c_str());
+    ctx->Yield(4);
+}
+ImGuiWindow *GraphDialogRows(ImGuiTestContext *ctx, const char *ref, const char *content, const char *rows) {
+    auto *parent = SetupDialogContent(ctx, ref, content);
+    if (parent)
+        for (auto *child : parent->DC.ChildWindows)
+            if (child->ChildId == ctx->GetWindowByRef(ref)->GetID(rows)) return child;
+    return nullptr;
+}
+
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
     struct Source {
@@ -6271,6 +6369,200 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
             OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         }
         FinishSetupDialogs(ctx, original);
+    };
+    auto *graphProperties =
+        IM_REGISTER_TEST(engine, "appearancegraphdialogs", "rename_priority_and_delay_resize_cancel_and_single_undo");
+    graphProperties->GuiFunc = MainThreadGui;
+    graphProperties->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        const auto open = [&](int kind) {
+            SelectGraphDialog(ctx, objects, kind == 2 ? objects.linkElement : objects.graphElement);
+            if (kind == 0)
+                OnMainThread(ctx, [] { App().Canvas().BeginRename(); });
+            else if (kind == 1)
+                OnMainThread(ctx, [&] {
+                    App().Canvas().Navigation().selection.Add(objects.values.script.object, objects.otherElement);
+                    App().Canvas().OpenPriorityDialog();
+                });
+            else
+                ctx->KeyPress(ImGuiKey_E);
+            ctx->Yield(4);
+        };
+        for (int kind = 0; kind < 3; ++kind) {
+            const char *ref = kind == 0 ? "//Rename" : kind == 1 ? "//Priority" : "//Link Delay";
+            const char *label = kind == 0 ? "Name" : kind == 1 ? "Priority" : "Frames";
+            const auto name = ObjectName(ctx, objects.graph.object);
+            const auto value = [&] {
+                return Read<int>(ctx, [&] {
+                    auto &doc = *App().State().document;
+                    return kind == 2 ? CKBehaviorLink::Cast(doc.Resolve(objects.link))->GetInitialActivationDelay()
+                                     : CKBehavior::Cast(doc.Resolve(objects.graph))->GetPriority();
+                });
+            };
+            const int before = value();
+            const auto history = App().State().History().UndoCount();
+            const auto revision = App().State().document->ChangeRevision();
+            open(kind);
+            ctx->SetRef(ref);
+            IM_CHECK(ctx->ItemExists(label));
+            if (kind != 0) {
+                ctx->KeyDown(ImGuiMod_Ctrl);
+                ctx->ItemClick(label);
+                ctx->KeyUp(ImGuiMod_Ctrl);
+            }
+            TypeGraphDialog(ctx, label, kind == 0 ? "Cancelled graph name" : "17");
+            const auto id = ctx->ItemInfo(label).ID;
+            ResizeGraphDialog(ctx, ref, "##property");
+            IM_CHECK_EQ(ctx->UiContext->ActiveId, id);
+            ctx->ItemClick("Cancel");
+            ctx->Yield(3);
+            IM_CHECK(ObjectName(ctx, objects.graph.object) == name && value() == before);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history);
+            IM_CHECK_EQ(App().State().document->ChangeRevision(), revision);
+            open(kind);
+            ctx->SetRef(ref);
+            IM_CHECK(ctx->ItemExists(label));
+            if (kind != 0) {
+                ctx->KeyDown(ImGuiMod_Ctrl);
+                ctx->ItemClick(label);
+                ctx->KeyUp(ImGuiMod_Ctrl);
+            }
+            TypeGraphDialog(ctx, label, kind == 0 ? "Accepted graph name" : "17");
+            ctx->ItemClick("OK");
+            ctx->Yield(4);
+            IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+            if (kind == 0)
+                IM_CHECK(ObjectName(ctx, objects.graph.object) == "Accepted graph name");
+            else
+                IM_CHECK_EQ(value(), 17);
+            if (kind == 1)
+                IM_CHECK_EQ(
+                    Read<int>(
+                        ctx,
+                        [&] {
+                            return CKBehavior::Cast(App().State().document->Resolve(objects.other))->GetPriority();
+                        }),
+                    17);
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            IM_CHECK(ObjectName(ctx, objects.graph.object) == name && value() == before);
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+            if (kind == 0)
+                IM_CHECK(ObjectName(ctx, objects.graph.object) == "Accepted graph name");
+            else
+                IM_CHECK_EQ(value(), 17);
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        }
+        CloseGraphDialogs(ctx, objects);
+    };
+    auto *graphCreate = IM_REGISTER_TEST(engine, "appearancegraphdialogs",
+                                         "local_and_graph_pin_picker_resize_filter_cancel_and_single_undo");
+    graphCreate->GuiFunc = MainThreadGui;
+    graphCreate->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        for (int kind = 0; kind < 3; ++kind) {
+            const auto count = [&] {
+                return Read<int>(ctx, [&] {
+                    auto &doc = *App().State().document;
+                    auto *behavior = CKBehavior::Cast(doc.Resolve(kind == 0 ? objects.values.script : objects.graph));
+                    return kind == 0   ? behavior->GetLocalParameterCount()
+                           : kind == 1 ? behavior->GetInputParameterCount()
+                                       : behavior->GetOutputParameterCount();
+                });
+            };
+            const int before = count();
+            const auto history = App().State().History().UndoCount();
+            const auto open = [&] {
+                SelectGraphDialog(ctx, objects, objects.graphElement);
+                OnMainThread(ctx, [&] {
+                    if (kind == 0)
+                        App().Canvas().OpenLocalParameterPicker(objects.values.script.object, {40, 100});
+                    else
+                        App().Canvas().OpenGraphParameterPicker(kind == 1);
+                });
+                ctx->Yield(4);
+                ctx->SetRef("//Add Parameter");
+                TypeGraphDialog(ctx, "Name", "Graph dialog created parameter");
+                TypeGraphDialog(ctx, "##filter", "Integer");
+                ctx->ItemClick("**/Integer");
+                ctx->Yield(2);
+            };
+            open();
+            TypeGraphDialog(ctx, "Name", "Cancelled parameter");
+            const auto id = ctx->ItemInfo("Name").ID;
+            ResizeGraphDialog(ctx, "//Add Parameter", "##local-parameter", "Add", "Cancel", false, 240);
+            IM_CHECK_EQ(ctx->UiContext->ActiveId, id);
+            ctx->ItemClick("Cancel");
+            ctx->Yield(3);
+            IM_CHECK(count() == before && App().State().History().UndoCount() == history);
+            open();
+            ResizeParameterDialog(ctx, "//Add Parameter", {760, 430});
+            ctx->ItemClick("Add");
+            ctx->Yield(4);
+            IM_CHECK(count() == before + 1 && App().State().History().UndoCount() == history + 1);
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            IM_CHECK_EQ(count(), before);
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+            IM_CHECK_EQ(count(), before + 1);
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        }
+        CloseGraphDialogs(ctx, objects);
+    };
+    auto *graphOperation = IM_REGISTER_TEST(engine, "appearancegraphdialogs",
+                                            "operation_picker_resize_keeps_signature_cancel_and_single_undo");
+    graphOperation->GuiFunc = MainThreadGui;
+    graphOperation->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        const auto count = [&] {
+            return Read<int>(ctx, [&] {
+                return CKBehavior::Cast(App().State().document->Resolve(objects.values.script))
+                    ->GetParameterOperationCount();
+            });
+        };
+        const auto before = count();
+        const auto history = App().State().History().UndoCount();
+        const auto open = [&] {
+            SelectGraphDialog(ctx, objects, objects.graphElement);
+            OnMainThread(ctx, [&] { App().Canvas().OpenOperationPicker(objects.values.script.object, {40, 100}); });
+            ctx->Yield(4);
+            ctx->SetRef("//###Operation");
+        };
+        open();
+        for (const char *part : {"input1", "input2", "output"}) {
+            ctx->ItemClick((std::string(part) + "/##part").c_str());
+            ctx->Yield(2);
+            ctx->KeyChars("Integer");
+            ctx->Yield(3);
+            ctx->KeyPress(ImGuiKey_Enter);
+            ctx->Yield(3);
+        }
+        ctx->ItemClick("operation/##part");
+        ctx->Yield(2);
+        ctx->KeyChars("Addition");
+        ctx->Yield(3);
+        ctx->KeyPress(ImGuiKey_Enter);
+        ctx->Yield(3);
+        const auto combo = ctx->ItemInfo("input1/##part").ID;
+        ResizeGraphDialog(ctx, "//###Operation", "##operation-fields");
+        IM_CHECK_EQ(ctx->ItemInfo("input1/##part").ID, combo);
+        ctx->ItemClick("Cancel");
+        ctx->Yield(3);
+        IM_CHECK(count() == before && App().State().History().UndoCount() == history);
+        open();
+        ctx->ItemClick("OK");
+        ctx->Yield(4);
+        IM_CHECK(count() == before + 1 && App().State().History().UndoCount() == history + 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK_EQ(count(), before);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK_EQ(count(), before + 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        CloseGraphDialogs(ctx, objects);
     };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;

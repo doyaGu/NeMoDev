@@ -19,7 +19,9 @@
 #include "misc/cpp/imgui_stdlib.h"
 
 #include "ui/controls/DevBitmaps.h"
+#include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/setup/SetupLayout.h"
 #include "ui/controls/TypeAhead.h"
 #include "ui/schematic/SchematicCanvasDetail.h"
 #include "core/schematic/SchematicGrid.h"
@@ -1382,18 +1384,26 @@ void SchematicCanvas::ReplaceSourceDialog() {
         m_OpenReplaceSource = false;
         ImGui::OpenPopup(id);
     }
-    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::Text("The parameter input <%s> is already linked.", m_ReplaceInputName.c_str());
-    ImGui::TextUnformatted("Delete the previous link?");
-    if (ImGui::Button("Delete Link", ImVec2(110, 0))) {
+    if (!ImGui::IsPopupOpen(id)) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog(id, "Link", {380 * unit, 70 * unit}, unit, layout)) return;
+    if (vi::BeginDialogContent("##replace-source", layout)) {
+        ImGui::TextWrapped("The parameter input <%s> is already linked.", m_ReplaceInputName.c_str());
+        ImGui::TextUnformatted("Delete the previous link?");
+    }
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 230 * unit, layout.buttonsY});
+    if (ImGui::Button("Delete Link", ImVec2(110 * unit, 18 * unit))) {
         ImGui::CloseCurrentPopup();
         m_Doc.connection.push_back({"replace", EDITOR_INTEGER_VALUE, {}, {}, 1});
         const auto values = BorrowEditorFields(m_Doc.connection);
         Execute("schematic.connect", {values.data(), values.data() + values.size()});
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(110, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    ImGui::SameLine(0, 10 * unit);
+    if (ImGui::Button("Cancel", ImVec2(110 * unit, 18 * unit)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+        ImGui::CloseCurrentPopup();
+    vi::EndDialog();
 }
 
 void SchematicCanvas::AcceptBuildingBlockDrop() {
@@ -2363,34 +2373,50 @@ void SchematicCanvas::OperationChoiceDialog() {
         ImGui::OpenPopup(title);
         m_Doc.openOperationChoice = false;
     }
-    if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    ImGui::TextUnformatted(m_ChoiceMode == OperationChoice::InsertInLink
-                               ? "Operation to insert between the source and the destination:"
-                               : "The parameter types differ; convert through:");
+    if (!ImGui::IsPopupOpen(title)) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog(title,
+                                   m_ChoiceMode == OperationChoice::InsertInLink ? "Add Parameter Operation in Link"
+                                   : m_ChoiceMode == OperationChoice::ReplaceConversion
+                                       ? "Edit Parameter Operation Link"
+                                       : "Parameter Operation Link",
+                                   {480 * unit, 300 * unit}, unit, layout))
+        return;
+    const bool appearing = ImGui::IsWindowAppearing();
     bool go = false;
-    if (ImGui::IsWindowAppearing()) ImGui::SetNextWindowFocus();
-    if (ImGui::BeginListBox("##choices", ImVec2(460, 260))) {
-        TypeAhead typeAhead;
-        for (int i = 0; i < static_cast<int>(m_Doc.choices.size()); ++i)
-            if (typeAhead.Selectable(
-                    (EditorClient::Text(EditorResponse{EDITOR_OK, {}, m_Doc.choices[i].fields}, "label") + "##" +
-                     std::to_string(i))
-                        .c_str(),
-                    i == m_ChoicePick, ImGuiSelectableFlags_AllowDoubleClick)) {
-                m_ChoicePick = i;
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) go = true;
-            }
-        ImGui::EndListBox();
+    if (vi::BeginDialogContent("##operation-choices", layout)) {
+        ImGui::TextWrapped("%s", m_ChoiceMode == OperationChoice::InsertInLink
+                                     ? "Operation to insert between the source and the destination:"
+                                     : "The parameter types differ; convert through:");
+        if (appearing) ImGui::SetNextWindowFocus();
+        if (ImGui::BeginListBox("##choices", ImVec2(std::max(1.f, ImGui::GetContentRegionAvail().x),
+                                                    std::max(160 * unit, ImGui::GetContentRegionAvail().y)))) {
+            TypeAhead typeAhead;
+            for (int i = 0; i < static_cast<int>(m_Doc.choices.size()); ++i)
+                if (typeAhead.Selectable(
+                        (EditorClient::Text(EditorResponse{EDITOR_OK, {}, m_Doc.choices[i].fields}, "label") + "##" +
+                         std::to_string(i))
+                            .c_str(),
+                        i == m_ChoicePick, ImGuiSelectableFlags_AllowDoubleClick)) {
+                    m_ChoicePick = i;
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) go = true;
+                }
+            ImGui::EndListBox();
+        }
     }
-    if (ImGui::Button("OK", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) go = true;
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 210 * unit, layout.buttonsY});
+    if (ImGui::Button("OK", ImVec2(100 * unit, 18 * unit)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) go = true;
+    ImGui::SameLine(0, 10 * unit);
+    if (ImGui::Button("Cancel", ImVec2(100 * unit, 18 * unit)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+        ImGui::CloseCurrentPopup();
     if (go && m_ChoicePick >= 0 && m_ChoicePick < static_cast<int>(m_Doc.choices.size())) {
         const auto signature = m_Doc.choices[m_ChoicePick];
         ImGui::CloseCurrentPopup();
         ApplyOperationChoice(signature);
     }
-    ImGui::EndPopup();
+    vi::EndDialog();
 }
 
 void SchematicCanvas::ApplyOperationChoice(const EditorField &choice) {
@@ -2528,14 +2554,24 @@ void SchematicCanvas::FindDialog() {
         m_OpenFind = false;
         ImGui::OpenPopup(id);
     }
-    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-    ImGui::SetNextItemWidth(280);
-    const bool entered = ImGui::InputText("Find", &m_FindText, ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::Checkbox("Search Closed Scripts/Graphs", &m_FindClosed);
-    ImGui::Checkbox("Search Hidden Scripts", &m_FindHidden);
-    ImGui::Checkbox("Search Backward", &m_FindBackward);
-    if (ImGui::Button("Find Next", ImVec2(90, 0)) || entered) {
+    if (!ImGui::IsPopupOpen(id)) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog(id, "Find", {360 * unit, 130 * unit}, unit, layout)) return;
+    const bool appearing = ImGui::IsWindowAppearing();
+    bool entered = false;
+    if (vi::BeginDialogContent("##find", layout)) {
+        if (appearing) ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("Find").x -
+                                                  ImGui::GetStyle().ItemInnerSpacing.x));
+        entered = ImGui::InputText("Find", &m_FindText, ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::Checkbox("Search Closed Scripts/Graphs", &m_FindClosed);
+        ImGui::Checkbox("Search Hidden Scripts", &m_FindHidden);
+        ImGui::Checkbox("Search Backward", &m_FindBackward);
+    }
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 190 * unit, layout.buttonsY});
+    if (ImGui::Button("Find Next", ImVec2(90 * unit, 18 * unit)) || entered) {
         ImGui::CloseCurrentPopup();
         m_FoundScript = 0;
         m_FoundRef = ElementRef();
@@ -2547,9 +2583,10 @@ void SchematicCanvas::FindDialog() {
         }
         FindNext(m_FindBackward);
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(90, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+    ImGui::SameLine(0, 10 * unit);
+    if (ImGui::Button("Cancel", ImVec2(90 * unit, 18 * unit)) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+        ImGui::CloseCurrentPopup();
+    vi::EndDialog();
 }
 
 } // namespace vdev

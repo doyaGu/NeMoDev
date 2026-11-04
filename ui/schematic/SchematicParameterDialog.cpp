@@ -721,27 +721,31 @@ struct SchematicParameterDialog::Data {
         }
         ImGui::EndDisabled();
         ImGui::EndDisabled();
-        if (confirming &&
-            ImGui::BeginPopupModal("Invalid Parameter Link", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::TextUnformatted(
-                "Parameter Type is incompatible with Parameter Input Type.\nThis link must be deleted.");
-            if (invalidLinks.size() > 1)
-                ImGui::Text("(%d links)", int(invalidLinks.size()));
+        vi::DialogLayout confirmation;
+        if (confirming && vi::BeginScrollableDialog("Invalid Parameter Link", "Invalid Parameter Link",
+                                                    {400 * s, 70 * s}, s, confirmation)) {
             const bool keys = !ImGui::IsWindowAppearing();
-            if (ImGui::Button("OK", {80, 0}) || (keys && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+            if (vi::BeginDialogContent("##invalid-parameter-link", confirmation)) {
+                ImGui::TextWrapped(
+                    "Parameter Type is incompatible with Parameter Input Type.\nThis link must be deleted.");
+                if (invalidLinks.size() > 1) ImGui::Text("(%d links)", int(invalidLinks.size()));
+            }
+            vi::EndDialogContent();
+            ImGui::SetCursorScreenPos({confirmation.right - 170 * s, confirmation.buttonsY});
+            if (ImGui::Button("OK", {80 * s, 18 * s}) || (keys && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
                 confirming = false;
                 ImGui::CloseCurrentPopup();
                 Field(value.fields, "delete-links")->integer = 1;
                 if (Submit())
                     Finish(true);
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel", {80, 0}) || (keys && ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
+            ImGui::SameLine(0, 10 * s);
+            if (ImGui::Button("Cancel", {80 * s, 18 * s}) || (keys && ImGui::IsKeyPressed(ImGuiKey_Escape, false))) {
                 confirming = false;
                 ImGui::CloseCurrentPopup();
                 open = false;
             }
-            ImGui::EndPopup();
+            vi::EndDialog();
         }
         if (cancel || !open) {
             client.CancelEdit(edit);
