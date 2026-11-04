@@ -4184,6 +4184,134 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                             App().Layout().ViewportUploadsForTests() == 0);
         });
     };
+    auto *behaviorIO =
+        IM_REGISTER_TEST(engine, "appearancebehaviors", "behavior_io_reflow_inner_outer_links_and_rename_undo");
+    behaviorIO->GuiFunc = MainThreadGui;
+    behaviorIO->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeSetupBehaviors(ctx);
+        IM_CHECK(objects.input && objects.output);
+        EditorView view = 0;
+        EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            IM_CHECK_NO_RET(
+                EditorCommands().Command("object.open-setup", {ObjectArgument("target", objects.input)}).status <=
+                EDITOR_NO_CHANGE);
+            auto &workspace = App().WorkspaceForTests();
+            view = workspace.Role("setupbehaviorio");
+            original = workspace.Application().Configuration();
+            auto config = original;
+            Alternate(config);
+            std::string error;
+            IM_CHECK_NO_RET(view && workspace.Configure(config, error));
+        });
+        ctx->Yield(4);
+        const auto history = App().State().History().UndoCount();
+        ImGuiID owner = 0, links = 0;
+        for (const float width : {1500.f, 690.f, 450.f, 1500.f}) {
+            ResizeSetup(ctx, view, width);
+            ShowSetupTable(ctx, view, "##behaviorio-settings");
+            auto *page = SetupPage(ctx, view);
+            auto *table = SetupTable(ctx, view, "##behaviorio-settings");
+            IM_CHECK(table);
+            IM_CHECK_EQ(table->ColumnsCount, width > 1000 ? 2 : 1);
+            const auto id = ImHashStr(">", 0, page->GetID("Owner"));
+            IM_CHECK(!owner || id == owner);
+            owner = id;
+            const auto rect = ctx->ItemInfo(owner).RectFull;
+            IM_CHECK(rect.Min.x >= table->Columns[0].WorkMinX - 1 && rect.Max.x <= table->Columns[0].WorkMaxX + 1);
+            auto *list = SetupTable(ctx, view, "links");
+            IM_CHECK(list && list->InnerWindow);
+            IM_CHECK(!links || links == list->ID);
+            links = list->ID;
+            IM_CHECK_GT(list->InnerWindow->ScrollMax.x, 0);
+            if (width == 450)
+                IM_CHECK_GT(page->ScrollMax.x, 0);
+        }
+        const auto details = [&](ObjectRef target) {
+            return Read<SetupDetails>(ctx, [&] {
+                SetupDetails data;
+                ReadSetupDetails(EditorCommands(), target, "behavior-io", data);
+                return data;
+            });
+        };
+        const auto input = details(objects.input);
+        const auto &rows = input.Values().Rows("links");
+        IM_CHECK(input.Values().Boolean("input") && rows.size() == 2);
+        std::set<ObjectRef> connected;
+        for (const auto &row : rows)
+            connected.insert(SetupFields(row.fields).Object("target"));
+        IM_CHECK(connected == std::set<ObjectRef>({objects.outerInputLink, objects.innerInputLink}));
+        ctx->SetRef(SetupRef(view).c_str());
+        const auto name = ObjectName(ctx, objects.input.object);
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(3);
+        ctx->ItemInput("//###setuprename/##name");
+        ctx->KeyCharsReplace("Cancelled Setup IO name");
+        ResizeSetup(ctx, view, 690, false);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK_EQ(ObjectName(ctx, objects.input.object), name);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        ctx->WindowFocus(SetupRef(view).c_str());
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(3);
+        ctx->ItemInputValue("//###setuprename/##name", "Confirmed Setup IO name");
+        ctx->Yield(3);
+        IM_CHECK_EQ(ObjectName(ctx, objects.input.object), "Confirmed Setup IO name");
+        IM_CHECK_EQ(App().State().History().UndoCount(), history + 1);
+        Undo(ctx);
+        IM_CHECK_EQ(ObjectName(ctx, objects.input.object), name);
+        const auto show = [&](ObjectRef target) {
+            OnMainThread(ctx, [&] {
+                IM_CHECK_NO_RET(
+                    EditorCommands().Command("object.open-setup", {ObjectArgument("target", target)}).status <=
+                    EDITOR_NO_CHANGE);
+            });
+            ResizeSetup(ctx, view, 1500);
+            ctx->SetRef(SetupRef(view).c_str());
+        };
+        for (const auto &value : rows) {
+            show(objects.input);
+            ShowSetupTable(ctx, view, "links");
+            auto *list = SetupTable(ctx, view, "links");
+            ctx->ScrollToX(list->InnerWindow->ID, 0);
+            ctx->Yield(2);
+            const SetupFields row(value.fields);
+            const int id = int(row.Object("target").object);
+            const auto seed = ImHashData(&id, sizeof(id), links);
+            ctx->ItemDoubleClick(ImHashStr(row.Text("from").c_str(), 0, seed), ImGuiTestOpFlags_MoveToEdgeL);
+            ctx->Yield(3);
+            IM_CHECK(ShowsObject(ctx, row.Object("target").object));
+        }
+        show(objects.output);
+        const auto output = details(objects.output);
+        IM_CHECK(!output.Values().Boolean("input") && output.Values().Rows("links").size() == 2);
+        connected.clear();
+        for (const auto &row : output.Values().Rows("links"))
+            connected.insert(SetupFields(row.fields).Object("target"));
+        IM_CHECK(connected == std::set<ObjectRef>({objects.innerOutputLink, objects.outerOutputLink}));
+        ctx->ItemClick(SetupPage(ctx, view)->GetID("Show in Schematic"));
+        ctx->Yield(3);
+        IM_CHECK_EQ(App().Canvas().Navigation().selection.script, objects.script.object);
+        show(objects.input);
+        ctx->ItemClick(owner);
+        ctx->Yield(3);
+        IM_CHECK(ShowsObject(ctx, objects.graph.object));
+        show(objects.emptyIO);
+        IM_CHECK(details(objects.emptyIO).Values().Rows("links").empty());
+        IM_CHECK(ctx->ItemInfo(SetupPage(ctx, view)->GetID("Show in Schematic")).ItemFlags & ImGuiItemFlags_Disabled);
+        IM_CHECK(ctx->ItemInfo(ImHashStr(">", 0, SetupPage(ctx, view)->GetID("Owner"))).ItemFlags &
+                 ImGuiItemFlags_Disabled);
+        IM_CHECK_EQ(App().State().History().UndoCount(), history);
+        OnMainThread(ctx, [&] {
+            std::string error;
+            IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error));
+            IM_CHECK_NO_RET(App().Layout().UsesGpuViewport() && App().Layout().View().ReadbackFrames() == 0 &&
+                            App().Layout().ViewportUploadsForTests() == 0);
+        });
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

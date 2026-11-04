@@ -1011,33 +1011,41 @@ void SetupWindows::BehaviorPage(ObjectRef target) {
 }
 
 void SetupWindows::BehaviorIOPage(ObjectRef target) {
-    const auto id = target;
     SetupDetails description;
     if (!ReadDetails(target, "behavior-io", description))
         return;
     const auto data = description.Values();
     const bool input = data.Boolean("input");
-    ImGui::BeginGroup();
+    SetupColumns columns("##behaviorio-settings", 2);
+    if (!columns)
+        return;
+    columns.Next();
     Group(input ? "Behavior Input" : "Behavior Output");
-    ImGui::TextUnformatted("Owner");
-    ImGui::SameLine(110);
-    SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
-    ImGui::TextUnformatted("Active");
-    ImGui::SameLine(110);
-    ImGui::TextUnformatted(data.Boolean("active") ? "Yes" : "No");
-    ImGui::Dummy(ImVec2(1, 6));
+    {
+        SetupForm form("##behaviorio-info");
+        if (form) {
+            form.Row("Owner");
+            ImGui::PushTextWrapPos(0);
+            SetupLink("Owner", data.Object("owner"), data.Text("owner-name"));
+            ImGui::PopTextWrapPos();
+            form.Row("Active");
+            ImGui::TextUnformatted(data.Boolean("active") ? "Yes" : "No");
+        }
+    }
+    ImGui::Spacing();
     ShowInSchematic(data);
-    ImGui::EndGroup();
     // The links are those of the owner's graph and, inside a graph, its own.
-    ImGui::SameLine(330);
-    ImGui::BeginGroup();
+    columns.Next();
     Group("Links");
-    if (ImGui::BeginTable("links", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
-                          ImVec2(560, 180))) {
+    const float unit = PageUnit();
+    if (ImGui::BeginTable("links", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
+                              ImGuiTableFlags_ScrollX,
+                          {0, 180 * unit}, std::max(560 * unit, ImGui::GetContentRegionAvail().x))) {
         TypeAhead typeAhead;
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, 230);
-        ImGui::TableSetupColumn("To", ImGuiTableColumnFlags_WidthFixed, 230);
+        ImGui::TableSetupColumn("From", ImGuiTableColumnFlags_WidthFixed, 230 * unit);
+        ImGui::TableSetupColumn("To", ImGuiTableColumnFlags_WidthFixed, 230 * unit);
         ImGui::TableSetupColumn("Delay");
         ImGui::TableHeadersRow();
         for (const auto &value : data.Rows("links")) {
@@ -1057,7 +1065,6 @@ void SetupWindows::BehaviorIOPage(ObjectRef target) {
         }
         ImGui::EndTable();
     }
-    ImGui::EndGroup();
 }
 
 void SetupWindows::BehaviorLinkPage(ObjectRef target) {
