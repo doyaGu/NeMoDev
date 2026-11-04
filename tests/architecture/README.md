@@ -2186,3 +2186,17 @@ Parameter 的类型、所有者和值使用已有字段布局，输出目标表�
 macOS arm64 Release 构建通过；最终完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观八次成功进程执行 **29** 个用例，其中编辑用例 **24** 项，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1141** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。结果见[Parameter、ParameterIn 和 ParameterOperation Setup 验证记录](baselines/parameter-setup-macos-arm64-metal.json)。
 
 SDK 在本批前和工作期间有独立更新，本批未写入 SDK，已按当前源码同步构建；最终构建及测试的 16 个 SDK 仓库源码内容一致，22 项运行文件在最终回归期间保持一致。Editor C 公开头维持版本二十三，共享 SetupLayout、五份 GPU 渲染及互操作源码未改。GPU 快通道、通用 fallback、显式快照和合法 `.NMO` 直接打开回归通过。F25 仍保留 Behavior、BehaviorIO、BehaviorLink、Synchro 等专用页、参数等独立弹窗及其他平台实机复验；`functional_phase` 保持五，`completed_phase` 保持三，八项阶段六待办继续保留。性能计时验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。
+
+
+### 阶段六：Behavior、BehaviorIO 和 BehaviorLink Setup 布局
+
+Behavior 的原型、GUID、版本、所有者、Script、Parent、优先级、目标和适用类型使用已有字段布局；只读标志与内容统计复用同一分栏，子行为表随页面调整并可横向滚动。BehaviorIO 分组显示所有者、活动状态和连线，保留图内及图外的连线、原行编号、双击及 Schematic 导航。BehaviorLink 的端点和延迟使用同一分栏与字段布局，长端点名及其所有者可以换行，延迟单位保留在原控件旁。
+
+优先级和连线延迟仍按 Enter 确认，Escape 取消未提交输入；控件编号不随布局变化。没有增加查询、命令、编辑状态或公开接口，修改、取消和撤销仍走原有流程。原图命令在确认、Undo 和 Redo 时同时设置初始与当前延迟，范围仍为 0 到 32764；取消未提交输入保留两者。初轮测试中 Behavior 和 BehaviorIO 通过，连线用例误期望确认后保留原当前延迟；核对未修改的 GraphActionRecord.cpp 后修正该断言，并补上取消、Undo/Redo 和范围检查，生产编辑命令没有改动。
+
+新增三个原生组合覆盖替代字体、主题缩放和宽窄往返，检查分栏、控件边界、编辑及导航编号和列表滚动。Behavior 覆盖负优先级的取消、一步 Undo/Redo，子行为、Parent、所有者、Building Block 原型和目标参数导航，以及未附加行为的禁用状态。BehaviorIO 覆盖输入及输出各两条内外连线、行导航、改名对话框跨重排取消和一步 Undo，以及没有所有者的端口。BehaviorLink 覆盖延迟输入跨重排、范围限制、From/To 和 Schematic 跳转，以及只有终点或没有端点的显示与启用条件。新用例使用单独的外观测试批次，旧用例和每进程 45 秒上限保持。
+
+
+macOS arm64 Release 构建通过；完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观九次成功进程执行 **32** 个用例，其中编辑用例 **27** 项，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1142** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。结果见[Behavior、BehaviorIO 和 BehaviorLink Setup 验证记录](baselines/behavior-setup-macos-arm64-metal.json)。
+
+本批未写入 SDK，Editor C 公开头维持版本二十三；共享 SetupLayout、原有 Setup 测试、参数值对话框、core 查询与编辑命令以及五份 GPU 渲染和互操作源码未改。最终构建及测试的 16 个 SDK 仓库源码内容一致，22 项运行文件在最终回归期间保持一致。GPU 快通道、通用 fallback、显式快照和合法 `.NMO` 直接打开回归通过。F25 仍保留 Synchro、State、CriticalSection、InterfaceObjects 等专用页、参数等独立弹窗及其他平台实机复验；`functional_phase` 保持五，`completed_phase` 保持三，八项阶段六待办继续保留。性能计时验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。
