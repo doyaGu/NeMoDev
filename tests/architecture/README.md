@@ -2200,3 +2200,19 @@ Behavior 的原型、GUID、版本、所有者、Script、Parent、优先级、�
 macOS arm64 Release 构建通过；完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观九次成功进程执行 **32** 个用例，其中编辑用例 **27** 项，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1142** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。结果见[Behavior、BehaviorIO 和 BehaviorLink Setup 验证记录](baselines/behavior-setup-macos-arm64-metal.json)。
 
 本批未写入 SDK，Editor C 公开头维持版本二十三；共享 SetupLayout、原有 Setup 测试、参数值对话框、core 查询与编辑命令以及五份 GPU 渲染和互操作源码未改。最终构建及测试的 16 个 SDK 仓库源码内容一致，22 项运行文件在最终回归期间保持一致。GPU 快通道、通用 fallback、显式快照和合法 `.NMO` 直接打开回归通过。F25 仍保留 Synchro、State、CriticalSection、InterfaceObjects 等专用页、参数等独立弹窗及其他平台实机复验；`functional_phase` 保持五，`completed_phase` 保持三，八项阶段六待办继续保留。性能计时验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。
+
+
+### 阶段六：Synchro、State、CriticalSection 和 InterfaceObjects Setup 布局
+
+Synchro 的人数、到达对象和 Used By 采用已有分栏与字段布局，到达对象列表随可用宽度调整并可横纵滚动，保留原子窗口、行编号和双击导航。State 的活动状态及 CriticalSection 的 Reset 与 Used By 使用相同分栏，沿用原查询、修改和导航命令。InterfaceObjects 分组显示 GUID、数据块计数和可滚动的只读列表，保留空数据块、缺失项、原编号和字节数，零块对象仍可安全显示。
+
+人数拖动在重排后取消会恢复原值和到达记录，确认只产生一步撤销；State 切换保留原单步 Undo/Redo。两个 Reset 仍执行原运行时操作，清空到达状态或释放临界区，不新增撤销、不清空 Redo，不修改文档 Dirty 或 Revision。State、CriticalSection 和 InterfaceObjects 的原重命名弹窗继续支持跨重排取消和一步 Undo，改名不改变状态、临界区占用或数据块信息。没有增加编辑状态、公开接口、查询或命令。
+
+新增四个原生组合覆盖替代字体、主题缩放和 1500、690、450、1500 宽度往返，检查分栏、控件边界、表格及子窗口编号、横纵滚动、取消、Undo/Redo、Reset 和对象及 Used By 导航。同步测试使用 16 个长名称到达对象；InterfaceObjects 使用含一个缺失项、一个空块和 32 个有内容块的对象，并复验零块对象。旧外观页、原 SetupTests 及共享输入辅助代码的断言不变，新组合单独分批，保留每进程 45 秒上限。
+
+初轮 Synchro 通过，其余组合按名称复用了前一用例的同步类对象，临界区已被占用。该初始断言失败后，测试引擎跳过后续输入，连带出现控件位置和滚动检查失败。各组使用独立对象名称后四项通过，原布局、取消、撤销、滚动和 Reset 断言保留；临时诊断输出已经移除。SDK 按名称复用同步类对象的既有行为和生产编辑命令均未修改。
+
+
+macOS arm64 Release 构建通过；完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观十次成功进程执行 **36** 个用例，其中编辑用例 **31** 项，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1143** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。结果见[Synchro、State、CriticalSection 和 InterfaceObjects Setup 验证记录](baselines/sync-state-setup-macos-arm64-metal.json)。
+
+本批未写入 SDK；Editor C 公开头维持版本二十三，共享 SetupLayout、原有外观页与 Setup 测试的断言、core 查询及编辑命令、参数值对话框和五份 GPU 渲染及互操作源码未改。最终构建与测试的 16 个 SDK 仓库源码内容一致，22 项运行文件在最终回归期间保持一致。GPU 快通道、通用 fallback、显式快照和合法 `.NMO` 直接打开回归通过。F25 继续保留通用对象说明、参数等独立弹窗和 Windows/Linux 实机复验；`functional_phase` 保持五，`completed_phase` 保持三，八项阶段六待办保留。性能计时验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。
