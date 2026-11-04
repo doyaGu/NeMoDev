@@ -185,7 +185,9 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
         // The list's rows are in its child window (vi::ListView).
         ImGuiWindow *rows = nullptr;
         for (ImGuiWindow *window : ctx->UiContext->Windows)
-            if (window->ParentWindow == list && std::strstr(window->Name, "##breakpoints"))
+            if (window->ParentWindow && window->ParentWindow->ParentWindow == list &&
+                window->ParentWindow->ChildId == list->GetID("##breakpoint-list") &&
+                window->ChildId == list->GetID("##breakpoints"))
                 rows = window;
         IM_CHECK_SILENT(rows != nullptr);
         ctx->SetRef(rows);
@@ -254,7 +256,9 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(dialog);
             ImGuiWindow *rows = nullptr;
             for (auto *w : ctx->UiContext->Windows)
-                if (w->ParentWindow == dialog && std::strstr(w->Name, "##conditions"))
+                if (w->ParentWindow && w->ParentWindow->ParentWindow == dialog &&
+                    w->ParentWindow->ChildId == dialog->GetID("##breakpoint-configuration") &&
+                    w->ChildId == dialog->GetID("##conditions"))
                     rows = w;
             IM_CHECK_NO_RET(rows);
             ctx->SetRef(rows);

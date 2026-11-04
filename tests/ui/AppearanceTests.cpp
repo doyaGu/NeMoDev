@@ -6879,6 +6879,135 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         }
         CloseGraphDialogs(ctx, objects);
     };
+    auto *breakpointConfig =
+        IM_REGISTER_TEST(engine, "appearancebreakpointdialogs", "conditions_resize_cell_edit_cancel_and_single_undo");
+    breakpointConfig->GuiFunc = MainThreadGui;
+    breakpointConfig->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            IM_CHECK_NO_RET(
+                ToggleBreakpoint(doc, objects.values.script.object, EXTRA_DATA_BEHAVIOR, objects.graph.object));
+            ExtraSubData condition;
+            condition.id1 = objects.values.local.object;
+            const int value = 7;
+            condition.buffer.resize(sizeof(value));
+            std::memcpy(condition.buffer.data(), &value, sizeof(value));
+            IM_CHECK_NO_RET(SetBreakpointConditions(doc, objects.values.script.object, EXTRA_DATA_BEHAVIOR,
+                                                    objects.graph.object, {condition}));
+        });
+        const auto read = [&] {
+            return Read<int>(ctx, [&] {
+                const auto *b = FindBreakpoint(App().State().document->Session(objects.values.script.object)->Data(),
+                                               EXTRA_DATA_BEHAVIOR, objects.graph.object);
+                if (!b || b->subData.empty()) return -1;
+                int value = 0;
+                std::memcpy(&value, b->subData.front().buffer.data(), sizeof(value));
+                return value;
+            });
+        };
+        const auto history = App().State().History().UndoCount();
+        const auto revision = App().State().document->ChangeRevision();
+        const auto open = [&] {
+            SelectGraphDialog(ctx, objects, objects.graphElement);
+            OnMainThread(ctx, [] { App().Canvas().ConfigureBreakpoints(); });
+            ctx->Yield(4);
+            ResizeParameterDialog(ctx, "//###BreakpointsConfiguration", {1250, 650});
+            ctx->SetRef(
+                GraphDialogRows(ctx, "//###BreakpointsConfiguration", "##breakpoint-configuration", "##conditions"));
+            ctx->ItemClick("$$0/##row");
+            ctx->Yield(2);
+            ctx->SetRef("//###BreakpointsConfiguration");
+        };
+        const auto edit = [&](const char *text) {
+            ctx->ItemClick("Edit Reference Parameter");
+            ctx->Yield(3);
+            TypeGraphDialog(ctx, "//$FOCUSED/##value", text);
+            ctx->KeyPress(ImGuiKey_Enter);
+            ctx->Yield(3);
+        };
+        open();
+        edit("19");
+        ResizeGraphDialog(ctx, "//###BreakpointsConfiguration", "##breakpoint-configuration", "OK", "Cancel", true,
+                          240);
+        IM_CHECK_GT(SetupDialogContent(ctx, "//###BreakpointsConfiguration", "##breakpoint-configuration")->ScrollMax.x,
+                    0);
+        IM_CHECK_GT(SetupDialogContent(ctx, "//###BreakpointsConfiguration", "##breakpoint-configuration")->ScrollMax.y,
+                    0);
+        IM_CHECK_EQ(read(), 7);
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(read() == 7 && App().State().History().UndoCount() == history &&
+                 App().State().document->ChangeRevision() == revision);
+        open();
+        edit("23");
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(read() == 23 && App().State().History().UndoCount() == history + 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK_EQ(read(), 7);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK_EQ(read(), 23);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        CloseGraphDialogs(ctx, objects);
+    };
+    auto *breakpointList =
+        IM_REGISTER_TEST(engine, "appearancebreakpointdialogs", "list_resize_remove_cancel_goto_and_single_undo");
+    breakpointList->GuiFunc = MainThreadGui;
+    breakpointList->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeGraphDialogs(ctx);
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            IM_CHECK_NO_RET(
+                ToggleBreakpoint(doc, objects.values.script.object, EXTRA_DATA_BEHAVIOR, objects.graph.object));
+            IM_CHECK_NO_RET(
+                ToggleBreakpoint(doc, objects.values.script.object, EXTRA_DATA_BEHAVIOR, objects.other.object));
+        });
+        const auto count = [&] {
+            return Read<size_t>(ctx, [] {
+                const auto result = EditorCommands().Query("schematic.breakpoints");
+                const auto *items = EditorClient::Find(result, "breakpoints");
+                return items ? items->fields.size() : size_t(0);
+            });
+        };
+        const auto before = count();
+        const auto history = App().State().History().UndoCount();
+        const auto open = [&] {
+            OnMainThread(ctx, [] { App().Canvas().OpenBreakpointList(); });
+            ctx->Yield(4);
+            ctx->SetRef("//###BreakpointList");
+        };
+        open();
+        ResizeGraphDialog(ctx, "//###BreakpointList", "##breakpoint-list", "Ok", "Cancel", true, 230);
+        IM_CHECK_GT(SetupDialogContent(ctx, "//###BreakpointList", "##breakpoint-list")->ScrollMax.x, 0);
+        IM_CHECK_GT(SetupDialogContent(ctx, "//###BreakpointList", "##breakpoint-list")->ScrollMax.y, 0);
+        auto *content = SetupDialogContent(ctx, "//###BreakpointList", "##breakpoint-list");
+        ctx->ScrollToBottom(content->ID);
+        ctx->ScrollToX(content->ID, 0);
+        ctx->Yield(3);
+        ctx->ItemClick("Remove All");
+        IM_CHECK_EQ(count(), before);
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(3);
+        IM_CHECK(count() == before && App().State().History().UndoCount() == history);
+        open();
+        ResizeParameterDialog(ctx, "//###BreakpointList", {1200, 650});
+        ctx->ItemClick("Remove All");
+        ctx->ItemClick("Ok/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(count() == 0 && App().State().History().UndoCount() == history + 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK_EQ(count(), before);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK_EQ(count(), size_t(0));
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        CloseGraphDialogs(ctx, objects);
+    };
+
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

@@ -294,13 +294,10 @@ void SchematicCanvas::BreakpointConfigDialog() {
         m_Doc.openBreakpointConfig = false;
     }
     if (!ImGui::IsPopupOpen(id)) return;
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const ImVec2 units(457.0f, 143.0f);
-    const float pad = 8.0f;
-    ImVec2 o;
-    if (!vi::BeginDialog(id, "Breakpoints Configuration", vi::TemplateClient(units, s, pad), s, o)) return;
-    const vi::TemplateLayout l = vi::LayoutTemplate(o, units, s, pad);
-    vi::TemplatePanel(l);
+    const auto s = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog(id, "Breakpoints Configuration", {640 * s, 340 * s}, s, layout)) return;
+    bool close = false;
     const bool available = bool(Client().Scope().document.value);
     std::vector<ConditionRow> &rows = m_Doc.conditions;
     if (m_Doc.conditionPick >= static_cast<int>(rows.size())) m_Doc.conditionPick = -1;
@@ -323,139 +320,162 @@ void SchematicCanvas::BreakpointConfigDialog() {
         if (all[i].script == m_Doc.breakpoint.script && all[i].object == m_Doc.breakpoint.object &&
             all[i].index == m_Doc.breakpoint.index && all[i].type == m_Doc.breakpoint.type)
             current = int(i);
-    const auto chosen = vi::Combo(
-        "##breakpoint", l.Min(5, 3), l.Max(5, 3, 445, 12), m_Doc.breakpoint.label,
-        [&] {
-            std::vector<std::string> names;
-            for (const auto &b : all)
-                names.push_back(b.label);
-            return names;
-        },
-        current);
-    if (chosen >= 0 && chosen != current) {
-        LoadBreakpointConfig(all[size_t(chosen)]);
-        pick = m_Doc.conditionPick;
-    }
-    // The conditions.
-    std::vector<vi::ListColumn> columns{{"Schematic Parameter", 188.0f * s}, {"Condition", 70.0f * s},
-                                        {"Reference Parameter", 201.0f * s}, {"Operation", 54.0f * s}, {"", 0.0f}};
-    bool twice = false;
-    int column = -1;
-    const int row = vi::ListView(
-        "##conditions", l.Min(96, 20), l.Max(96, 20, 354, 96), s, columns, static_cast<int>(rows.size()),
-        [&](int r, int c) -> std::string {
-            const ConditionRow &condition = rows[r];
-            switch (c) {
-            case 0:
-                return condition.parameter ? nameOf(condition.parameter)
-                       : condition.missing ? "(missing parameter)"
-                                           : std::string();
-            case 1: return COMPARISONS[std::max(0, std::min(11, condition.comparison))];
-            case 2: return condition.value;
-            case 3: return r > 0 ? LOGICALS[std::max(0, std::min(2, condition.logical))] : "";
-            default: return std::string();
-            }
-        },
-        [&](int r) { return r == m_Doc.conditionPick; }, &twice, &column);
-    if (row >= 0)
-        m_Doc.conditionPick = pick = row;
-    auto editCell = [&](int r, int c) {
-        if (r < 0 || c < 0 || c > 3 || (c == 3 && r == 0)) return;
-        m_Doc.editRow = r;
-        m_Doc.editColumn = c;
-        m_Doc.editText = rows[r].value;
-        ImGui::OpenPopup("##editcell");
-    };
-    if (row >= 0 && twice) editCell(row, column);
-    // A cell's editor: the candidates, the comparisons, the operations, or
-    // the value typed (a "parameter" condition: the candidates).
-    if (ImGui::BeginPopup("##editcell")) {
-        const int r = m_Doc.editRow, c = m_Doc.editColumn;
-        if (r >= 0 && r < static_cast<int>(rows.size())) {
-            ConditionRow &condition = rows[r];
-            if (c == 0 || (c == 2 && ByParameter(condition.comparison))) {
-                for (const auto &entry : m_Doc.conditionParameters) {
-                    ImGui::PushID(static_cast<int>(entry.object.object));
-                    if (ImGui::Selectable(entry.name.c_str(), c == 0 ? entry.object == condition.parameter
-                                                                     : entry.object == condition.reference)) {
-                        if (c == 0) {
-                            condition.parameter = entry.object;
-                            condition.missing = false;
-                        } else {
-                            condition.reference = entry.object;
-                            condition.value = entry.name;
+    if (vi::BeginDialogContent("##breakpoint-configuration", layout)) {
+        const auto comboAt = ImGui::GetCursorScreenPos();
+        const auto chosen = vi::Combo(
+            "##breakpoint", comboAt, {comboAt.x + std::max(1.f, ImGui::GetContentRegionAvail().x), comboAt.y + 18 * s},
+            m_Doc.breakpoint.label,
+            [&] {
+                std::vector<std::string> names;
+                for (const auto &b : all)
+                    names.push_back(b.label);
+                return names;
+            },
+            current);
+        if (chosen >= 0 && chosen != current) {
+            LoadBreakpointConfig(all[size_t(chosen)]);
+            pick = m_Doc.conditionPick;
+        }
+        // The conditions.
+        std::vector<vi::ListColumn> columns{{"Schematic Parameter", 188.0f * s},
+                                            {"Condition", 70.0f * s},
+                                            {"Reference Parameter", 201.0f * s},
+                                            {"Operation", 54.0f * s},
+                                            {"", 0.0f}};
+        bool twice = false;
+        int column = -1;
+        const auto listAt = ImGui::GetCursorScreenPos();
+        const ImVec2 listSize{std::max(513 * s, ImGui::GetContentRegionAvail().x),
+                              std::max(150 * s, ImGui::GetContentRegionAvail().y - 140 * s)};
+        const int row = vi::ListView(
+            "##conditions", listAt, {listAt.x + listSize.x, listAt.y + listSize.y}, s, columns,
+            static_cast<int>(rows.size()),
+            [&](int r, int c) -> std::string {
+                const ConditionRow &condition = rows[r];
+                switch (c) {
+                case 0:
+                    return condition.parameter ? nameOf(condition.parameter)
+                           : condition.missing ? "(missing parameter)"
+                                               : std::string();
+                case 1:
+                    return COMPARISONS[std::max(0, std::min(11, condition.comparison))];
+                case 2:
+                    return condition.value;
+                case 3:
+                    return r > 0 ? LOGICALS[std::max(0, std::min(2, condition.logical))] : "";
+                default:
+                    return std::string();
+                }
+            },
+            [&](int r) { return r == m_Doc.conditionPick; }, &twice, &column);
+        if (row >= 0) m_Doc.conditionPick = pick = row;
+        auto editCell = [&](int r, int c) {
+            if (r < 0 || c < 0 || c > 3 || (c == 3 && r == 0)) return;
+            m_Doc.editRow = r;
+            m_Doc.editColumn = c;
+            m_Doc.editText = rows[r].value;
+            ImGui::OpenPopup("##editcell");
+        };
+        if (row >= 0 && twice) editCell(row, column);
+        // A cell's editor: the candidates, the comparisons, the operations, or
+        // the value typed (a "parameter" condition: the candidates).
+        if (vi::BeginChoicePopup("##editcell", s)) {
+            const int r = m_Doc.editRow, c = m_Doc.editColumn;
+            if (r >= 0 && r < static_cast<int>(rows.size())) {
+                ConditionRow &condition = rows[r];
+                if (c == 0 || (c == 2 && ByParameter(condition.comparison))) {
+                    for (const auto &entry : m_Doc.conditionParameters) {
+                        ImGui::PushID(static_cast<int>(entry.object.object));
+                        if (ImGui::Selectable(entry.name.c_str(), c == 0 ? entry.object == condition.parameter
+                                                                         : entry.object == condition.reference)) {
+                            if (c == 0) {
+                                condition.parameter = entry.object;
+                                condition.missing = false;
+                            } else {
+                                condition.reference = entry.object;
+                                condition.value = entry.name;
+                            }
                         }
+                        ImGui::PopID();
                     }
-                    ImGui::PopID();
+                } else if (c == 1 || c == 3) {
+                    const int count = c == 1 ? 12 : 3;
+                    const bool numeric = c != 1 || ordered(condition.parameter);
+                    for (int i = 0; i < count; ++i) {
+                        if (c == 1 && i >= 4 && !numeric) continue;
+                        const bool on = c == 1 ? condition.comparison == i : condition.logical == i;
+                        if (ImGui::Selectable(c == 1 ? COMPARISONS[i] : LOGICALS[i], on))
+                            (c == 1 ? condition.comparison : condition.logical) = i;
+                    }
+                } else {
+                    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+                    ImGui::SetNextItemWidth(200.0f * s);
+                    if (ImGui::InputText("##value", &m_Doc.editText, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                        condition.value = m_Doc.editText;
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
-            } else if (c == 1 || c == 3) {
-                const int count = c == 1 ? 12 : 3;
-                const bool numeric = c != 1 || ordered(condition.parameter);
-                for (int i = 0; i < count; ++i) {
-                    if (c == 1 && i >= 4 && !numeric)
-                        continue;
-                    const bool on = c == 1 ? condition.comparison == i : condition.logical == i;
-                    if (ImGui::Selectable(c == 1 ? COMPARISONS[i] : LOGICALS[i], on)) (c == 1 ? condition.comparison : condition.logical) = i;
-                }
-            } else {
-                if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-                ImGui::SetNextItemWidth(200.0f * s);
-                if (ImGui::InputText("##value", &m_Doc.editText, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    condition.value = m_Doc.editText;
-                    ImGui::CloseCurrentPopup();
-                }
+            }
+            ImGui::EndPopup();
+        }
+        // The buttons (always enabled in Dev: without a condition chosen they do nothing).
+        bool picked = pick >= 0;
+        {
+            setup::SetupColumns actions("##condition-actions", 3);
+            auto button = [&](const char *label, bool enabled) {
+                if (actions) actions.Next();
+                const auto at = ImGui::GetCursorScreenPos();
+                return vi::Button(label, at,
+                                  {at.x + std::max(180 * s, ImGui::GetContentRegionAvail().x), at.y + 18 * s}, label,
+                                  available) &&
+                       enabled;
+            };
+            if (button("Add Condition", available)) {
+                ConditionRow added;
+                if (!m_Doc.conditionParameters.empty()) added.parameter = m_Doc.conditionParameters.front().object;
+                rows.push_back(added);
+                m_Doc.conditionPick = static_cast<int>(rows.size()) - 1;
+            }
+            if (button("Remove Condition", picked)) {
+                rows.erase(rows.begin() + pick);
+                m_Doc.conditionPick = pick = std::min(pick, static_cast<int>(rows.size()) - 1);
+                picked = pick >= 0;
+            }
+            if (button("Pick Schematic Parameter", picked)) {
+                m_Doc.pickConditionRow = pick;
+                m_Doc.pickReference = false;
+                close = true;
+            }
+            if (button("Edit Reference Parameter", picked)) editCell(pick, 2);
+            if (button("Pick Reference Parameter", picked)) {
+                rows[pick].comparison = ParameterComparison(rows[pick].comparison);
+                m_Doc.pickConditionRow = pick;
+                m_Doc.pickReference = true;
+                close = true;
+            }
+            if (button("Go To Breakpoint", available)) GoToBreakpoint(m_Doc.breakpoint);
+            auto goToParameter = [&](ObjectRef parameter) {
+                const auto result =
+                    Client().Query("schematic.breakpoint-parameter", {ObjectArgument("parameter", parameter)});
+                const auto *focus = EditorClient::Find(result, "focus-target"),
+                           *target = EditorClient::Find(result, "target");
+                if (result.status == EDITOR_OK && focus && focus->object && target && target->object)
+                    Client().Command("script.navigate", {ObjectArgument("target", target->object),
+                                                         ObjectArgument("focus-target", focus->object)});
+            };
+            if (button("Go to Schematic Parameter", picked && rows[pick].parameter))
+                goToParameter(rows[pick].parameter);
+            if (button("Go To Reference Parameter", picked && ByParameter(rows[pick].comparison))) {
+                goToParameter(rows[pick].reference);
             }
         }
-        ImGui::EndPopup();
+        ImGui::TextWrapped("Double-click on cell to edit");
     }
-    // The buttons (always enabled in Dev: without a condition chosen they do nothing).
-    bool picked = pick >= 0;
-    auto button = [&](const char *label, float y, bool enabled, float x = 5.0f) {
-        return vi::Button(label, l.Min(x, y), l.Max(x, y, 84, 10), label, available) && enabled;
-    };
-    if (button("Add Condition", 20, available)) {
-        ConditionRow added;
-        if (!m_Doc.conditionParameters.empty())
-            added.parameter = m_Doc.conditionParameters.front().object;
-        rows.push_back(added);
-        m_Doc.conditionPick = static_cast<int>(rows.size()) - 1;
-    }
-    if (button("Remove Condition", 32, picked)) {
-        rows.erase(rows.begin() + pick);
-        m_Doc.conditionPick = pick = std::min(pick, static_cast<int>(rows.size()) - 1);
-        picked = pick >= 0;
-    }
-    bool close = false;
-    if (button("Pick Schematic Parameter", 44, picked, 6.0f)) {
-        m_Doc.pickConditionRow = pick;
-        m_Doc.pickReference = false;
-        close = true;
-    }
-    if (button("Edit Reference Parameter", 56, picked)) editCell(pick, 2);
-    if (button("Pick Reference Parameter", 68, picked)) {
-        rows[pick].comparison = ParameterComparison(rows[pick].comparison);
-        m_Doc.pickConditionRow = pick;
-        m_Doc.pickReference = true;
-        close = true;
-    }
-    if (button("Go To Breakpoint", 80, available))
-        GoToBreakpoint(m_Doc.breakpoint);
-    auto goToParameter = [&](ObjectRef parameter) {
-        const auto result = Client().Query("schematic.breakpoint-parameter", {ObjectArgument("parameter", parameter)});
-        const auto *focus = EditorClient::Find(result, "focus-target"), *target = EditorClient::Find(result, "target");
-        if (result.status == EDITOR_OK && focus && focus->object && target && target->object)
-            Client().Command("script.navigate",
-                             {ObjectArgument("target", target->object), ObjectArgument("focus-target", focus->object)});
-    };
-    if (button("Go to Schematic Parameter", 92, picked && rows[pick].parameter)) goToParameter(rows[pick].parameter);
-    if (button("Go To Reference Parameter", 104, picked && ByParameter(rows[pick].comparison))) {
-        goToParameter(rows[pick].reference);
-    }
-    vi::Text(l.Min(254, 126), l.Max(254, 126, 193, 13), "Double-click on cell to edit", false, vi::CENTER);
+    vi::EndDialogContent();
     // OK, Cancel.
-    const float right = l.right - 60.0f * s;
-    const bool cancel = vi::DialogButton("Cancel", ImVec2(right, l.buttonsY), s, ImGuiKey_Escape);
-    const bool ok = vi::DialogButton("OK", ImVec2(right - 70.0f * s, l.buttonsY), s);
+    const float right = layout.right - 60.0f * s;
+    const bool cancel = vi::DialogButton("Cancel", ImVec2(right, layout.buttonsY), s, ImGuiKey_Escape);
+    const bool ok = vi::DialogButton("OK", ImVec2(right - 70.0f * s, layout.buttonsY), s);
     if (m_Doc.breakpointCommit) {
         const auto result = Client().Completion(m_Doc.breakpointCommit);
         if (result.status != EDITOR_QUEUED) {
@@ -507,44 +527,51 @@ void SchematicCanvas::BreakpointListDialog() {
     }
     if (!ImGui::IsPopupOpen(id))
         return;
-    const float s = ImGui::GetFontSize() / 13.f;
-    const ImVec2 units(275, 167);
-    ImVec2 o;
-    if (!vi::BeginDialog(id, "Breakpoints", vi::TemplateClient(units, s, 7), s, o))
-        return;
-    const auto l = vi::LayoutTemplate(o, units, s, 7);
-    vi::TemplatePanel(l);
+    const auto s = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog(id, "Breakpoints", {520 * s, 340 * s}, s, layout)) return;
     auto &list = m_Doc.listBreakpoints;
     if (m_Doc.listPick >= int(list.size()))
         m_Doc.listPick = -1;
-    static const std::vector<vi::ListColumn> columns{{"BreakpointList", 0}};
-    bool twice = false;
-    const int row = vi::ListView(
-        "##breakpoints", l.Min(5, 5), l.Max(5, 5, 265, 146), s, columns, int(list.size()),
-        [&](int r, int) { return list[size_t(r)].label; }, [&](int r) { return r == m_Doc.listPick; }, &twice, nullptr,
-        true);
-    if (row >= 0)
-        m_Doc.listPick = row;
-    int pick = m_Doc.listPick;
-    if (vi::Button("Remove Breakpoint", l.Min(6, 154), l.Max(6, 154, 81, 10), "Remove Breakpoint", pick >= 0)) {
-        list.erase(list.begin() + pick);
-        m_Doc.listPick = pick = -1;
-    }
-    if (vi::Button("Remove All", l.Min(95, 154), l.Max(95, 154, 81, 10), "Remove All", !list.empty())) {
-        list.clear();
-        m_Doc.listPick = pick = -1;
-    }
     bool close = false;
-    if (vi::Button("Configure", l.Min(184, 154), l.Max(184, 154, 39, 10), "Configure", pick >= 0)) {
-        LoadBreakpointConfig(list[size_t(pick)]);
-        close = true;
+    if (vi::BeginDialogContent("##breakpoint-list", layout)) {
+        static const std::vector<vi::ListColumn> columns{{"BreakpointList", 0}};
+        bool twice = false;
+        float width = std::max(1.f, ImGui::GetContentRegionAvail().x);
+        for (const auto &breakpoint : list)
+            width = std::max(width, ImGui::CalcTextSize(breakpoint.label.c_str()).x + 16 * s);
+        const auto at = ImGui::GetCursorScreenPos();
+        const int row = vi::ListView(
+            "##breakpoints", at, {at.x + width, at.y + std::max(150 * s, ImGui::GetContentRegionAvail().y - 70 * s)}, s,
+            columns, int(list.size()), [&](int r, int) { return list[size_t(r)].label; },
+            [&](int r) { return r == m_Doc.listPick; }, &twice, nullptr, true);
+        if (row >= 0) m_Doc.listPick = row;
+        int pick = m_Doc.listPick;
+        setup::SetupColumns actions("##breakpoint-list-actions", 4);
+        const auto button = [&](const char *label, bool enabled) {
+            if (actions) actions.Next();
+            const auto pos = ImGui::GetCursorScreenPos();
+            return vi::Button(label, pos, {pos.x + std::max(100 * s, ImGui::GetContentRegionAvail().x), pos.y + 18 * s},
+                              label, enabled);
+        };
+        if (button("Remove Breakpoint", pick >= 0)) {
+            list.erase(list.begin() + pick);
+            m_Doc.listPick = pick = -1;
+        }
+        if (button("Remove All", !list.empty())) {
+            list.clear();
+            m_Doc.listPick = pick = -1;
+        }
+        if (button("Configure", pick >= 0)) {
+            LoadBreakpointConfig(list[size_t(pick)]);
+            close = true;
+        }
+        if ((button("Goto", pick >= 0) || (row >= 0 && twice)) && pick >= 0) GoToBreakpoint(list[size_t(pick)]);
     }
-    if ((vi::Button("Goto", l.Min(231, 154), l.Max(231, 154, 39, 10), "Goto", pick >= 0) || (row >= 0 && twice)) &&
-        pick >= 0)
-        GoToBreakpoint(list[size_t(pick)]);
-    const float right = l.right - 60 * s;
-    const bool cancel = vi::DialogButton("Cancel", ImVec2(right, l.buttonsY), s, ImGuiKey_Escape);
-    const bool ok = vi::DialogButton("Ok", ImVec2(right - 70 * s, l.buttonsY), s, ImGuiKey_Enter);
+    vi::EndDialogContent();
+    const float right = layout.right - 60 * s;
+    const bool cancel = vi::DialogButton("Cancel", ImVec2(right, layout.buttonsY), s, ImGuiKey_Escape);
+    const bool ok = vi::DialogButton("Ok", ImVec2(right - 70 * s, layout.buttonsY), s, ImGuiKey_Enter);
     if (m_Doc.breakpointListCommit) {
         const auto result = Client().Completion(m_Doc.breakpointListCommit);
         if (result.status != EDITOR_QUEUED) {
