@@ -323,6 +323,82 @@ void ValueAppearance() {
     std::string error;
     IM_CHECK_NO_RET(workspace.Configure(next, error));
 }
+void CompoundFixture(CKGUID type) {
+    auto &state = App().State();
+    auto *parameter = state.host.Context()->CreateCKParameterLocal("Layout compound value", type);
+    IM_CHECK_NO_RET(parameter);
+    if (type == CKPGUID_MATRIX) { VxMatrix matrix; matrix.SetIdentity(); parameter->SetValue(&matrix, sizeof(matrix)); }
+    if (type == CKPGUID_COLOR) { const VxColor color(.12345f, .23456f, .34567f, .45678f); parameter->SetValue(&color, sizeof(color)); }
+    if (type == CKPGUID_RECT) { const VxRect rect(1, 2, 3, 4); parameter->SetValue(&rect, sizeof(rect)); }
+    editing.parameters = {parameter->GetID()}; editing.target = state.document->Reference(parameter->GetID());
+    SingleValueRow(0); editing.open = true;
+    state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
+}
+void CompoundLayout(ImGuiTestContext *ctx, CKGUID type, const char *control, size_t component) {
+    Settle(ctx); Clean cleanup{ctx};
+    OnMainThread(ctx, [=] { CompoundFixture(type); ValueAppearance(); });
+    ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+    const auto before = Components(ctx, editing.parameters[0]);
+    ShowValueItem(ctx, control); const auto wide = ctx->ItemInfo(control).RectFull;
+    if (type == CKPGUID_MATRIX) {
+        ClickValueItem(ctx, "**/##expand"); ctx->Yield(3);
+        IM_CHECK(!ctx->ItemExists("**/##m"));
+        IM_CHECK(WorkingComponents(ctx, 0) == before);
+        ClickValueItem(ctx, "**/##expand"); ctx->Yield(3);
+    }
+    ResizeValueDialog(ctx, {430, 350});
+    ShowValueItem(ctx, control); const auto narrow = ctx->ItemInfo(control).RectFull;
+    IM_CHECK_GT(wide.GetWidth() - narrow.GetWidth(), 30.f);
+    IM_CHECK(std::abs(wide.GetHeight() - narrow.GetHeight()) < 1.f);
+    Input(ctx, control, "9.5");
+    const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+    IM_CHECK(active);
+    ResizeValueDialog(ctx, {1050, 650});
+    IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+    ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+    IM_CHECK(WorkingComponents(ctx, 0) == before && Components(ctx, editing.parameters[0]) == before);
+    Input(ctx, control, "2.5"); ctx->KeyPress(ImGuiKey_Tab);
+    ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+    const auto after = Components(ctx, editing.parameters[0]);
+    IM_CHECK_EQ(after[component], 2.5f);
+    IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+    ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(2);
+    IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+    ctx->ItemClick("**/Cancel/##dialogbutton");
+    OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+    IM_CHECK(Components(ctx, editing.parameters[0]) == before);
+    IM_CHECK(Read<bool>(ctx, [] { return !App().State().document->Dirty() && App().State().History().CanRedo(); }));
+    OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+    IM_CHECK(Components(ctx, editing.parameters[0]) == after);
+}
+void AngleLayout(ImGuiTestContext *ctx, bool euler) {
+    Settle(ctx); Clean cleanup{ctx};
+    OnMainThread(ctx, [=] { CompoundFixture(euler ? CKPGUID_EULERANGLES : CKPGUID_ANGLE); ValueAppearance(); });
+    ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+    const auto control = CompoundItem(ctx, 0, euler ? "##components/$$1/##euler/##degree" : "##components/$$0/##angle/##degree");
+    const auto before = Components(ctx, editing.parameters[0]);
+    ShowValueItem(ctx, control); const auto wide = ctx->ItemInfo(control).RectFull;
+    Input(ctx, control, "45");
+    const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+    ResizeValueDialog(ctx, {430, 350});
+    IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+    ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+    IM_CHECK(WorkingComponents(ctx, 0) == before && Components(ctx, editing.parameters[0]) == before);
+    ShowValueItem(ctx, control); const auto narrow = ctx->ItemInfo(control).RectFull;
+    IM_CHECK(std::abs(wide.GetWidth() - narrow.GetWidth()) > 20.f);
+    IM_CHECK(std::abs(wide.GetHeight() - narrow.GetHeight()) < 1.f);
+    if (!euler) { Input(ctx, "**/##turn", "1"); ctx->KeyPress(ImGuiKey_Tab); }
+    Input(ctx, control, "90"); ctx->KeyPress(ImGuiKey_Tab);
+    ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+    const auto after = Components(ctx, editing.parameters[0]);
+    IM_CHECK(std::abs(after[euler ? 1 : 0] - (euler ? 1.570796327f : 7.853981634f)) < .00001f);
+    IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+    ctx->ItemClick("**/Cancel/##dialogbutton");
+    OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+    IM_CHECK(Components(ctx, editing.parameters[0]) == before);
+    OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+    IM_CHECK(Components(ctx, editing.parameters[0]) == after);
+}
 void ChooseValue(ImGuiTestContext *ctx, const char *control, const char *choice) {
     ClickValueItem(ctx, (std::string("**/") + control + "/##combo").c_str());
     ctx->SetRef("//$FOCUSED"); ctx->ItemClick((std::string("**/") + choice).c_str());
@@ -1599,6 +1675,178 @@ void RegisterSpecializedLayoutTests(ImGuiTestEngine *engine) {
         IM_CHECK(draft() != held);
         ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(3);
         IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 0);
+    };
+}
+void RegisterCompoundLayoutTests(ImGuiTestEngine *engine) {
+    auto *test = IM_REGISTER_TEST(engine, "valuelayout", "vector3_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) { CompoundLayout(ctx, CKPGUID_VECTOR, "**/##x", 0); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "matrix_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) { CompoundLayout(ctx, CKPGUID_MATRIX, "**/$$0/##m", 0); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "vector2_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) { CompoundLayout(ctx, CKPGUID_2DVECTOR, "**/##x", 0); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "quaternion_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) { CompoundLayout(ctx, CKPGUID_QUATERNION, "**/##w", 3); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "box_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) { CompoundLayout(ctx, CKPGUID_BOX, "**/$$5/##b", 5); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "angle_layout_turns_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) { AngleLayout(ctx, false); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "euler_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) { AngleLayout(ctx, true); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "rect_layout_modes_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { CompoundFixture(CKPGUID_RECT); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Components(ctx, editing.parameters[0]);
+        for (int mode = 0; mode < 3; ++mode) {
+            Input(ctx, "**/$$0/##r", "25");
+            const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+            ResizeValueDialog(ctx, {430, 300});
+            IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+            ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+            IM_CHECK(WorkingComponents(ctx, 0) == before && Components(ctx, editing.parameters[0]) == before);
+            ResizeValueDialog(ctx, {1050, 650});
+            if (mode < 2) ClickValueItem(ctx, "**/##expand");
+        }
+        Input(ctx, "**/$$0/##r", "5"); ctx->KeyPress(ImGuiKey_Tab);
+        Input(ctx, "**/$$1/##r", "6"); ctx->KeyPress(ImGuiKey_Tab);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Components(ctx, editing.parameters[0]) == std::vector<float>({4, 5, 6, 7}));
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Components(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "color_layout_channels_picker_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { CompoundFixture(CKPGUID_COLOR); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Components(ctx, editing.parameters[0]);
+        Input(ctx, "**/##r", "128");
+        const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+        ResizeValueDialog(ctx, {430, 300});
+        IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+        IM_CHECK(WorkingComponents(ctx, 0) == before);
+        ClickValueItem(ctx, "**/##swatch"); ctx->Yield(2); ctx->SetRef("//$FOCUSED");
+        const auto alpha = ctx->ItemInfo("**/##picker/alpha").RectFull;
+        ctx->MouseMoveToPos({alpha.GetCenter().x, alpha.Min.y + alpha.GetHeight() * .25f}); ctx->MouseClick(0); ctx->Yield(2);
+        IM_CHECK(WorkingComponents(ctx, 0) != before);
+        ResizeValueDialog(ctx, {1050, 650}); ctx->SetRef("//$FOCUSED");
+        IM_CHECK(ctx->ItemExists("**/##picker/alpha"));
+        ctx->ItemClick("Cancel"); ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
+        IM_CHECK(WorkingComponents(ctx, 0) == before && Components(ctx, editing.parameters[0]) == before);
+        Input(ctx, "**/##r", "128"); ctx->KeyPress(ImGuiKey_Tab);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        auto expected = before; expected[0] = 128.f / 255;
+        IM_CHECK(Components(ctx, editing.parameters[0]) == expected);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Components(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "flags_layout_unknown_bits_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { FlagsFixture(true); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Value(ctx, editing.parameters[0]);
+        ClickValueItem(ctx, "**/$$0/##flag"); ClickValueItem(ctx, "**/$$2/##flag");
+        const auto held = WorkingValue(ctx);
+        ResizeValueDialog(ctx, {430, 300});
+        IM_CHECK(WorkingValue(ctx) == held && Value(ctx, editing.parameters[0]) == before);
+        ShowValueItem(ctx, "**/$$1/##flag");
+        ctx->MouseMove("**/$$1/##flag"); ctx->MouseDown(0); ctx->Yield(2);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(3);
+        IM_CHECK(WorkingValue(ctx) == held);
+        ClickValueItem(ctx, "**/##expand"); ctx->Yield(3);
+        IM_CHECK(!ctx->ItemExists("**/##flag") && WorkingValue(ctx) == held);
+        ClickValueItem(ctx, "**/##expand"); ctx->Yield(3);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]).integer == (INT32_MIN | 0x40000001));
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "nested_compound_layout_batch_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { NestedFixture(); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Value(ctx, editing.parameters[0]);
+        Input(ctx, "**/##r", "128"); ctx->KeyPress(ImGuiKey_Tab);
+        Input(ctx, "**/##x", "7"); ctx->KeyPress(ImGuiKey_Tab);
+        ResizeValueDialog(ctx, {430, 300});
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto after = Value(ctx, editing.parameters[0]);
+        IM_CHECK(std::abs(after.members[0].members[1].components[0] - 128.0 / 255) < .00001 && after.members[1].components[0] == 7);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        Input(ctx, "**/##x", "19"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+        IM_CHECK(WorkingValue(ctx) == after);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "retained_compound_provider_layout");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx}; vdev::EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests(); original = workspace.Application().Configuration();
+            editing.configuration = std::make_unique<vdev::EditorConfiguration>(original);
+            auto selected = original;
+            selected.providers.erase(std::remove_if(selected.providers.begin(), selected.providers.end(),
+                [](const auto &row) { return row.kind == "editor" && row.id == "value.vector3"; }), selected.providers.end());
+            selected.providers.push_back({"editor", "value.vector3", "example.vector"});
+            std::string error; IM_CHECK_NO_RET(workspace.Configure(selected, error));
+            CompoundFixture(CKPGUID_VECTOR);
+        });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Components(ctx, editing.parameters[0]);
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error)); });
+        ResizeValueDialog(ctx, {430, 300});
+        ClickValueItem(ctx, "**/Offset vector");
+        IM_CHECK(Components(ctx, editing.parameters[0]) == before);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Components(ctx, editing.parameters[0]) == std::vector<float>({1, 2, 3}));
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Components(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "angle_layout_drag_reflow_does_not_resample");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { CompoundFixture(CKPGUID_ANGLE); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Components(ctx, editing.parameters[0]);
+        ShowValueItem(ctx, "**/##dial"); const auto dial = ctx->ItemInfo("**/##dial").RectFull.GetCenter();
+        ctx->MouseMoveToPos(dial); ctx->MouseDown(0); ctx->MouseMoveToPos({dial.x - 5, dial.y - 8}); ctx->Yield(3);
+        const auto held = WorkingComponents(ctx, 0);
+        IM_CHECK(held != before);
+        ResizeValueDialog(ctx, {430, 350});
+        IM_CHECK(WorkingComponents(ctx, 0) == held);
+        const auto moved = ctx->ItemInfo("**/##dial").RectFull.GetCenter();
+        ctx->MouseMoveToPos({moved.x + 8, moved.y - 2}); ctx->Yield(3);
+        IM_CHECK(WorkingComponents(ctx, 0) != held);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(3);
+        IM_CHECK(WorkingComponents(ctx, 0) == before && Components(ctx, editing.parameters[0]) == before);
         IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 0);
     };
 }

@@ -53,6 +53,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine);
 void RegisterWorkspaceTests(ImGuiTestEngine *engine);
 void RegisterValueEditTests(ImGuiTestEngine *engine);
 void RegisterSpecializedLayoutTests(ImGuiTestEngine *engine);
+void RegisterCompoundLayoutTests(ImGuiTestEngine *engine);
 void RegisterArrayEditTests(ImGuiTestEngine *engine);
 void RegisterAppTests(ImGuiTestEngine *engine);
 void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine);
