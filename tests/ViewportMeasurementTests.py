@@ -213,6 +213,12 @@ class ViewportMeasurementTests(unittest.TestCase):
         candidate["measurement"]["viewport"] = [800, 600]
         with self.assertRaises(ValueError): compare(candidate, baseline, sdk_change=True)
 
+    def test_unchanged_sdk_measurements_require_identical_runtime_images(self):
+        baseline, candidate = report(), report()
+        candidate["environment"]["sdk_runtime_sha256"] = {"CK2": "changed"}
+        with self.assertRaisesRegex(ValueError, "sdk_runtime"):
+            compare(candidate, baseline)
+
     def test_changed_sdk_binary_is_not_a_same_binary_control(self):
         baseline, candidate = report(), report()
         candidate["environment"]["sdk_runtime_sha256"] = {"CK2": "changed"}

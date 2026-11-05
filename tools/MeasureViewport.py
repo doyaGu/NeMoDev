@@ -115,6 +115,8 @@ def compare(candidate, baseline, sdk_change=False):
             raise ValueError(f"incompatible environment: {key}")
     if not sdk_change and candidate["environment"]["sdk_revisions"] != baseline["environment"]["sdk_revisions"]:
         raise ValueError("incompatible environment: sdk_revisions")
+    if not sdk_change and candidate["environment"].get("sdk_runtime_sha256", {}) != baseline["environment"].get("sdk_runtime_sha256", {}):
+        raise ValueError("incompatible environment: sdk_runtime_sha256")
     if not sdk_change and (candidate["environment"]["sdk_dirty"] or baseline["environment"]["sdk_dirty"]):
         raise ValueError("comparison requires unchanged SDK sources")
     if previous["mad_percent"] > 3.0:
