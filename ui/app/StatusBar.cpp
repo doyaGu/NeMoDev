@@ -14,6 +14,7 @@
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/setup/SetupLayout.h"
 
 namespace vdev {
 
@@ -274,52 +275,62 @@ void EditorStatusBar::TimeSettingsDialog(const EditorClient &editor) {
     }
     m_OpenTimeSettings = false;
     if (!ImGui::IsPopupOpen(id)) return;
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const ImVec2 client(231.0f * 1.5f * s, 95.0f * 1.625f * s + 26.0f * s);
-    ImVec2 o;
-    if (!vi::BeginDialog(id, "Time Settings", client, s, o)) return;
-    auto P = [&](float x, float y) { return ImVec2(o.x + x * 1.5f * s, o.y + y * 1.625f * s); };
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    // The controls on a light panel, the buttons on the dialog's body below.
-    vi::Panel(ImVec2(o.x + 2.0f * s, o.y + 2.0f * s), ImVec2(o.x + client.x - 2.0f * s, P(0, 95).y), s);
-    // The frames (SS_BLACKFRAME).
-    dl->AddRect(P(4, 4), P(109, 77), vi::Color(0));
-    dl->AddRect(P(113, 5), P(226, 45), vi::Color(0));
-    dl->AddRect(P(113, 48), P(226, 77), vi::Color(0));
-    auto number = [&](const char *field, float x, float y, float w, float &value) {
-        char text[32];
-        std::snprintf(text, sizeof(text), "%g", value);
-        std::string typed = text;
-        if (vi::Edit(field, P(x, y), P(x + w, y + 12), typed, vi::CENTER)) {
-            const float parsed = static_cast<float>(std::atof(typed.c_str()));
-            if (parsed > 0.0f) value = parsed;
+    const float s = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog(id, "Time Settings", {620 * s, 260 * s}, s, layout)) return;
+    if (vi::BeginDialogContent("##time-settings", layout)) {
+        auto number = [&](const char *field, float &value) {
+            char text[32];
+            std::snprintf(text, sizeof(text), "%g", value);
+            std::string typed = text;
+            const auto at = ImGui::GetCursorScreenPos();
+            if (vi::Edit(field, at, {at.x + ImGui::GetContentRegionAvail().x, at.y + ImGui::GetFrameHeight()},
+                         typed, vi::CENTER)) {
+                const float parsed = static_cast<float>(std::atof(typed.c_str()));
+                if (parsed > 0.0f) value = parsed;
+            }
+        };
+        {
+            setup::SetupColumns columns("##time-sections", 2);
+            if (columns) {
+                columns.Next();
+                ImGui::SeparatorText("Frame Rate");
+                const float radio = 12 * s;
+                if (vi::Radio("##free", ImGui::GetCursorScreenPos(), radio, m_TimeFrame == 0, "Free")) m_TimeFrame = 0;
+                if (vi::Radio("##sync", ImGui::GetCursorScreenPos(), radio, m_TimeFrame == 1, "Synchronize to Screen"))
+                    m_TimeFrame = 1;
+                if (vi::Radio("##limit", ImGui::GetCursorScreenPos(), radio, m_TimeFrame == 2, "Limit:")) m_TimeFrame = 2;
+                {
+                    setup::SetupForm form("##frame-settings");
+                    if (form) {
+                        form.Row("Limit (FPS)"); number("##frame", m_TimeFrameLimit);
+                        form.Row("Scale Time (X)"); number("##scale", m_TimeScale);
+                    }
+                }
+                columns.Next();
+                ImGui::SeparatorText("Behavior Rate");
+                if (vi::Radio("##linked", ImGui::GetCursorScreenPos(), radio, m_TimeBehavior == 0, "Linked to Frame Rate"))
+                    m_TimeBehavior = 0;
+                if (vi::Radio("##behlimit", ImGui::GetCursorScreenPos(), radio, m_TimeBehavior == 1, "Limit:")) m_TimeBehavior = 1;
+                {
+                    setup::SetupForm form("##behavior-settings");
+                    if (form) { form.Row("Limit (FPS)"); number("##behavior", m_TimeBehaviorLimit); }
+                }
+                ImGui::SeparatorText("Delta Time");
+                setup::SetupForm form("##delta-time");
+                if (form) {
+                    form.Row("Min:"); number("##min", m_TimeMin);
+                    form.Row("Max:"); number("##max", m_TimeMax);
+                }
+            }
         }
-    };
-    const float radio = 8.0f * 1.5f * s;
-    vi::Text(P(8, 8), P(60, 16), "Frame Rate", true);
-    if (vi::Radio("##free", P(14, 21), radio, m_TimeFrame == 0, "Free")) m_TimeFrame = 0;
-    if (vi::Radio("##sync", P(14, 33), radio, m_TimeFrame == 1, "Synchronize to Screen")) m_TimeFrame = 1;
-    if (vi::Radio("##limit", P(14, 45), radio, m_TimeFrame == 2, "Limit:")) m_TimeFrame = 2;
-    number("##frame", 49, 45, 18, m_TimeFrameLimit);
-    vi::Text(P(70, 46), P(90, 56), "FPS");
-    vi::Text(P(16, 62), P(66, 72), "Scale Time");
-    number("##scale", 69, 61, 20, m_TimeScale);
-    vi::Text(P(91, 62), P(102, 72), "X");
-    vi::Text(P(118, 8), P(170, 16), "Behavior Rate", true);
-    if (vi::Radio("##linked", P(117, 19), radio, m_TimeBehavior == 0, "Linked to Frame Rate")) m_TimeBehavior = 0;
-    if (vi::Radio("##behlimit", P(117, 31), radio, m_TimeBehavior == 1, "Limit:")) m_TimeBehavior = 1;
-    number("##behavior", 153, 32, 18, m_TimeBehaviorLimit);
-    vi::Text(P(174, 33), P(194, 43), "FPS");
-    vi::Text(P(117, 50), P(160, 58), "Delta Time", true);
-    vi::Text(P(117, 63), P(132, 71), "Min:");
-    number("##min", 134, 62, 32, m_TimeMin);
-    vi::Text(P(169, 63), P(186, 71), "Max:");
-    number("##max", 189, 62, 32, m_TimeMax);
-    vi::Check("##hidefps", P(4, 83), 8.0f * 1.5f * s, m_HideFps);
-    vi::Text(P(14, 83), P(100, 93), "Hide Fps");
-    const float by = o.y + client.y - 23.0f * s;
-    const bool cancel = vi::DialogButton("Cancel", ImVec2(o.x + client.x - 70.0f * s, by), s, ImGuiKey_Escape);
-    const bool ok = vi::DialogButton("OK", ImVec2(o.x + client.x - 140.0f * s, by), s, ImGuiKey_Enter);
+        vi::Check("##hidefps", ImGui::GetCursorScreenPos(), 12 * s, m_HideFps);
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Hide Fps");
+    }
+    vi::EndDialogContent();
+    const bool cancel = vi::DialogButton("Cancel", {layout.right - 60 * s, layout.buttonsY}, s, ImGuiKey_Escape);
+    const bool ok = vi::DialogButton("OK", {layout.right - 130 * s, layout.buttonsY}, s, ImGuiKey_Enter);
     if (ok) {
         const EditorValue hideFps{EDITOR_TEXT("hide-fps"), EDITOR_INTEGER_VALUE, {}, {}, uint64_t(m_HideFps)};
         const EditorValue settings[] = {

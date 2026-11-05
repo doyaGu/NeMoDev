@@ -994,6 +994,15 @@ void CloseExplorerDialog(ImGuiTestContext *ctx, const ExplorerDialogObjects &obj
     });
     FinishSetupDialogs(ctx, objects.configuration);
 }
+std::vector<double> ReadDialogTime(ImGuiTestContext *ctx) {
+    return Read<std::vector<double>>(ctx, [] {
+        const auto response = EditorCommands().Query("runtime.time");
+        const vdev::SetupFields fields(response.fields);
+        return std::vector<double>{double(fields.Integer("frame-mode")), double(fields.Integer("behavior-mode")),
+                                   fields.Real("frame-limit"), fields.Real("behavior-limit"), fields.Real("scale"),
+                                   fields.Real("minimum"), fields.Real("maximum"), double(fields.Record("display").Integer("hide-fps"))};
+    });
+}
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
     struct Source {
@@ -7223,6 +7232,67 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
         IM_CHECK(GraphObjectAlive(ctx, objects.target) && ObjectName(ctx, objects.target.object) == objects.name);
         CloseExplorerDialog(ctx, objects);
+    };
+    auto *timeSettings = IM_REGISTER_TEST(engine, "appearanceapplicationdialogs", "time_settings_reflow_cancel_validation_and_atomic_apply");
+    timeSettings->GuiFunc = MainThreadGui;
+    timeSettings->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto configuration = SetupDialogTheme(ctx);
+        vdev::ObjectRef object;
+        OnMainThread(ctx, [&] {
+            const auto made = vdev::CreateLayoutObject(*App().State().document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            object = App().State().document->Reference(made.created);
+        });
+        SeedApplicationDialogRedo(ctx, object);
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto values = ReadDialogTime(ctx);
+        const auto original = Read<std::vector<vdev::EditorField>>(ctx, [] { return EditorCommands().Query("runtime.time").fields; });
+        const auto open = [&] {
+            ctx->ItemClick("//##StatusBar/play/##bitmap", 1);
+            ctx->Yield(4);
+            ctx->SetRef("//###TimeSettings");
+            ResizeParameterDialog(ctx, "//###TimeSettings", {1400, 560});
+        };
+        const auto edit = [&] {
+            ctx->ItemClick("##free");
+            ctx->ItemClick("##sync");
+            ctx->ItemClick("##limit");
+            ctx->ItemClick("##linked");
+            ctx->ItemClick("##behlimit");
+            TypeGraphDialog(ctx, "##frame", "75");
+            TypeGraphDialog(ctx, "##behavior", "90");
+            TypeGraphDialog(ctx, "##min", "2");
+            TypeGraphDialog(ctx, "##max", "80");
+            ctx->ItemClick("##hidefps");
+            TypeGraphDialog(ctx, "##scale", "1.5");
+        };
+        open(); edit();
+        const auto active = ctx->UiContext->ActiveId;
+        ResizeGraphDialog(ctx, "//###TimeSettings", "##time-settings", "OK", "Cancel", true, 230);
+        auto *content = SetupDialogContent(ctx, "//###TimeSettings", "##time-settings");
+        const auto table = ctx->UiContext->Tables.GetByKey(ctx->GetWindowByRef("//###TimeSettings")->GetID("##time-sections"));
+        IM_CHECK(table && table->ColumnsCount == 1 && content->ScrollMax.y > 0 && ctx->UiContext->ActiveId == active);
+        IM_CHECK(ReadDialogTime(ctx) == values && ReadApplicationDialogState(ctx) == before);
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(ReadDialogTime(ctx) == values && ReadApplicationDialogState(ctx) == before);
+        open(); edit();
+        TypeGraphDialog(ctx, "##min", "100000");
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(ApplicationDialogShown(ctx, "//###TimeSettings") && ReadDialogTime(ctx) == values && ReadApplicationDialogState(ctx) == before);
+        TypeGraphDialog(ctx, "##min", "2");
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(!ApplicationDialogShown(ctx, "//###TimeSettings"));
+        const std::vector<double> expected{2, 1, 75, 90, 1.5, 2, 80, values.back() == 0 ? 1. : 0.};
+        IM_CHECK(ReadDialogTime(ctx) == expected && ReadApplicationDialogState(ctx) == before);
+        OnMainThread(ctx, [&] {
+            const auto restore = vdev::BorrowEditorFields(original);
+            IM_CHECK_NO_RET(EditorCommands().Command("runtime.set-time", {restore.data(), restore.data() + restore.size()}).status == EDITOR_OK);
+        });
+        FinishSetupDialogs(ctx, configuration);
     };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
