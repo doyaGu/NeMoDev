@@ -4,6 +4,7 @@
 #include "editor/ImGuiDrawing.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/FileDialogs.h"
+#include "ui/setup/SetupLayout.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -76,35 +77,46 @@ struct OutputInputs {
     void Web(uint64_t id) {
         const char *popup = "###CreateWebPage";
         if (!ImGui::IsPopupOpen(popup)) ImGui::OpenPopup(popup);
-        const float s = ImGui::GetFontSize() / 13.0f;
-        const ImVec2 client(254.0f * 1.5f * s, 172.0f * 1.625f * s + 26.0f * s);
-        ImVec2 o;
-        if (!vi::BeginDialog(popup, "Create a Web Page", client, s, o)) return;
-        const auto P = [&](float x, float y) { return ImVec2(o.x + x * 1.5f * s, o.y + y * 1.625f * s); };
-        vi::Panel(ImVec2(o.x + 2 * s, o.y + 2 * s), ImVec2(o.x + client.x - 2 * s, P(0, 172).y), s);
-        auto *draw = ImGui::GetWindowDrawList();
-        draw->AddRect(P(4, 5), P(249, 149), vi::Color(0));
-        draw->AddRect(P(9, 20), P(242, 58), vi::Color(0));
-        draw->AddRect(P(9, 75), P(242, 140), vi::Color(0));
-        vi::Text(P(9, 9), P(47, 18), "Location", true);
-        const bool destination = vi::Button("##destination", P(18, 27), P(101, 39), "- Choose Destination -");
-        vi::Text(P(17, 45), P(234, 54), path.c_str());
-        vi::Text(P(9, 63), P(47, 72), "Settings", true);
-        vi::Text(P(11, 79), P(227, 89), "  Web Page Title");
-        vi::Edit("##title", P(15, 91), P(232, 103), title, vi::LEFT);
-        vi::Text(P(16, 108), P(87, 117), "Window Size");
-        vi::Edit("##width", P(17, 121), P(53, 133), width);
-        vi::Edit("##height", P(61, 121), P(97, 133), height);
-        const float box = 8 * 1.5f * s;
-        vi::Check("##cmo", P(18, 155), box, cmo);
-        vi::Text(ImVec2(P(18, 155).x + box + 3 * s, P(18, 155).y), P(79, 164), "Save as Cmo");
-        vi::Check("##preview", P(86, 155), box, preview);
-        vi::Text(ImVec2(P(86, 155).x + box + 3 * s, P(86, 155).y), P(171, 164), "Preview In Browser");
-        const float by = o.y + client.y - 23 * s;
-        const bool cancel = vi::DialogButton("Cancel", ImVec2(o.x + client.x - 70 * s, by), s, ImGuiKey_Escape);
+        const float s = setup::PageUnit();
+        vi::DialogLayout layout;
+        if (!vi::BeginScrollableDialog(popup, "Create a Web Page", {620 * s, 300 * s}, s, layout)) return;
+        bool destination = false;
+        if (vi::BeginDialogContent("##web-page", layout)) {
+            {
+                setup::SetupColumns columns("##web-sections", 2);
+                if (columns) {
+                    columns.Next();
+                    ImGui::SeparatorText("Location");
+                    const auto at = ImGui::GetCursorScreenPos();
+                    destination = vi::Button("##destination", at,
+                        {at.x + ImGui::GetContentRegionAvail().x, at.y + ImGui::GetFrameHeight()}, "- Choose Destination -");
+                    ImGui::TextWrapped("%s", path.c_str());
+                    columns.Next();
+                    ImGui::SeparatorText("Settings");
+                    setup::SetupForm form("##web-settings");
+                    if (form) {
+                        auto edit = [&](const char *label, const char *id, std::string &value) {
+                            form.Row(label);
+                            const auto pos = ImGui::GetCursorScreenPos();
+                            vi::Edit(id, pos, {pos.x + ImGui::GetContentRegionAvail().x,
+                                               pos.y + ImGui::GetFrameHeight()}, value);
+                        };
+                        edit("Web Page Title", "##title", title);
+                        edit("Width", "##width", width);
+                        edit("Height", "##height", height);
+                    }
+                }
+            }
+            vi::Check("##cmo", ImGui::GetCursorScreenPos(), 12 * s, cmo);
+            ImGui::SameLine(); ImGui::TextUnformatted("Save as Cmo");
+            vi::Check("##preview", ImGui::GetCursorScreenPos(), 12 * s, preview);
+            ImGui::SameLine(); ImGui::TextUnformatted("Preview In Browser");
+        }
+        vi::EndDialogContent();
+        const bool cancel = vi::DialogButton("Cancel", {layout.right - 60 * s, layout.buttonsY}, s, ImGuiKey_Escape);
         const bool valid = !path.empty() && Number(width) && Number(height);
         ImGui::BeginDisabled(!valid);
-        const bool ok = vi::DialogButton("OK", ImVec2(o.x + client.x - 140 * s, by), s, ImGuiKey_Enter);
+        const bool ok = vi::DialogButton("OK", {layout.right - 130 * s, layout.buttonsY}, s, ImGuiKey_Enter);
         ImGui::EndDisabled();
         if (cancel || ok || destination) ImGui::CloseCurrentPopup();
         vi::EndDialog();

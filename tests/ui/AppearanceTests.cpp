@@ -1100,6 +1100,12 @@ void WaitOutputWindow(ImGuiTestContext *ctx, const char *ref) {
     IM_CHECK_NO_RET(ApplicationDialogShown(ctx, ref));
     ctx->SetRef(ref);
 }
+vdev::EditorResponse ReadOutputDialogOptions(ImGuiTestContext *ctx) {
+    return Read<vdev::EditorResponse>(ctx, [] {
+        const auto input = EditorCommands().Query("output.input");
+        return EditorCommands().Query("output.options", {vdev::IntegerArgument("input", vdev::EditorClient::Integer(input, "input"))});
+    });
+}
 
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
@@ -7544,6 +7550,81 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         FinishSetupDialogs(ctx, configuration);
     };
 
+    auto *webDraft = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "web_page_resize_cancel_validate_and_export");
+    webDraft->GuiFunc = MainThreadGui;
+    webDraft->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeOutputDialogs(ctx);
+        const OutputDialogFiles files;
+        const auto page = files.Long("page.htm"), composition = page.parent_path() / "page.cmo";
+        const auto before = ReadApplicationDialogState(ctx);
+        const std::string title = "Web dialog " + std::string(110, 'T');
+        for (bool accept : {false, true}) {
+            const auto operation = StartOutputDialog(ctx, "document.export-web", {TextArgument("path", page.u8string()),
+                IntegerArgument("ask-options", 1), IntegerArgument("cmo", 1)});
+            WaitOutputWindow(ctx, "//###CreateWebPage");
+            ResizeParameterDialog(ctx, "//###CreateWebPage", {1400, 700});
+            TypeGraphDialog(ctx, "##width", "640");
+            TypeGraphDialog(ctx, "##height", "480");
+            TypeGraphDialog(ctx, "##title", title.c_str());
+            const auto active = ctx->UiContext->ActiveId;
+            ResizeGraphDialog(ctx, "//###CreateWebPage", "##web-page", "OK", "Cancel", true, 250);
+            IM_CHECK(ctx->UiContext->ActiveId == active && std::string(ctx->UiContext->InputTextState.GetText()) == title);
+            IM_CHECK(ReadApplicationDialogState(ctx) == before && !std::filesystem::exists(page));
+            ResizeParameterDialog(ctx, "//###CreateWebPage", {1400, 700});
+            if (accept) {
+                TypeGraphDialog(ctx, "##width", "invalid");
+                ctx->ItemClick("OK/##dialogbutton");
+                ctx->Yield(3);
+                IM_CHECK(ApplicationDialogShown(ctx, "//###CreateWebPage") && !std::filesystem::exists(page));
+                TypeGraphDialog(ctx, "##width", "640");
+            } else ctx->ItemClick("##preview");
+            ctx->ItemClick(accept ? "OK/##dialogbutton" : "Cancel/##dialogbutton");
+            IM_CHECK(WaitOutputOperation(ctx, operation) == (accept ? EDITOR_OK : EDITOR_CANCELLED));
+            IM_CHECK(ReadApplicationDialogState(ctx) == before);
+            if (accept) {
+                const auto html = OutputDialogBytes(page);
+                IM_CHECK(html.find(title) != std::string::npos && html.find("WIDTH=\"640\" HEIGHT=\"480\"") != std::string::npos);
+                IM_CHECK(std::filesystem::exists(composition) && !IsPlayerFile(composition.u8string()));
+            } else IM_CHECK(!std::filesystem::exists(page) && !std::filesystem::exists(composition));
+        }
+        CloseOutputDialogs(ctx, objects);
+    };
+    auto *webOverwrite = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "web_overwrite_cancel_returns_to_draft_and_preserves_files");
+    webOverwrite->GuiFunc = MainThreadGui;
+    webOverwrite->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeOutputDialogs(ctx);
+        const OutputDialogFiles files;
+        const auto page = files.Long("existing.htm"), composition = page.parent_path() / "existing.vmo";
+        WriteOutputDialogFile(page, "original HTML");
+        WriteOutputDialogFile(composition, "original composition");
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto operation = StartOutputDialog(ctx, "document.export-web", {TextArgument("path", page.u8string()),
+            IntegerArgument("ask-options", 1), IntegerArgument("preview", 1)});
+        WaitOutputWindow(ctx, "//###CreateWebPage");
+        ResizeParameterDialog(ctx, "//###CreateWebPage", {1200, 600});
+        TypeGraphDialog(ctx, "##title", "Keep this web draft");
+        TypeGraphDialog(ctx, "##width", "800");
+        TypeGraphDialog(ctx, "##height", "600");
+        ctx->ItemClick("OK/##dialogbutton");
+        WaitOutputWindow(ctx, "//###DevMessage");
+        ResizeGraphDialog(ctx, "//###DevMessage", "##message", "OK", "Cancel", true, 180);
+        ctx->KeyPress(ImGuiKey_Escape);
+        WaitOutputWindow(ctx, "//###CreateWebPage");
+        const auto options = ReadOutputDialogOptions(ctx);
+        IM_CHECK(EditorClient::Text(options, "title") == "Keep this web draft" &&
+                 EditorClient::Integer(options, "width") == 800 && EditorClient::Integer(options, "height") == 600 &&
+                 EditorClient::Integer(options, "preview") == 1 && EditorClient::Text(options, "path") == page.u8string());
+        IM_CHECK(ReadApplicationDialogState(ctx) == before && OutputDialogBytes(page) == "original HTML" &&
+                 OutputDialogBytes(composition) == "original composition");
+        ctx->ItemClick("Cancel/##dialogbutton");
+        IM_CHECK(WaitOutputOperation(ctx, operation) == EDITOR_CANCELLED && ReadApplicationDialogState(ctx) == before);
+        IM_CHECK(OutputDialogBytes(page) == "original HTML" && OutputDialogBytes(composition) == "original composition");
+        CloseOutputDialogs(ctx, objects);
+    };
     auto *fileConfirm = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "long_file_confirmation_scroll_cancel_save_and_existing_undo");
     fileConfirm->GuiFunc = MainThreadGui;
     fileConfirm->TestFunc = [](ImGuiTestContext *ctx) {
