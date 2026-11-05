@@ -1,0 +1,218 @@
+{
+  "description": "阶段六复合值与标志位复用已有布局，保留原编辑流程；新增十三项独立自动回归。",
+  "recorded_utc": "2026-11-05T06:03:37.469223+00:00",
+  "base_revision": "46aa86ca665d7c4aff404a72c184d8d5687bda89",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "changes": [
+    "角度、欧拉角、二维与三维向量、四元数、矩阵、颜色、包围盒、矩形及标志位使用已有分栏和字段布局。",
+    "ParameterBox 只为这些类型传递可用宽度，沿用原行高与滚动测量，不增加持久布局缓存、查询或修改命令。",
+    "保留矩阵和标志位折叠、矩形三种显示模式、角度圈数和度数、颜色原始精度及拾色弹窗、未知标志位和原有掩码规则。",
+    "角度盘在激活或指针移动时取样；静止指针下的重排不改值，继续移动仍可编辑，取消恢复原值。",
+    "十三项独立 self-contained CTest 进入现有 CI；多参数测试按原控件 ID 定位，并先滚动到实际拖动控件，保留原行为、取消和撤销断言。"
+  ],
+  "coverage": {
+    "files": 1161,
+    "groups": 59,
+    "features": 32,
+    "states": 51,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 7,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-composite-value-layout/build-final.log",
+      "sha256": "e77c96090ea42d7b3ef8fe2af6ea7964b36a9da4c3fe60f636add06b0d3b0b99"
+    },
+    "complete_suite": {
+      "total": 178,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-composite-value-layout/full.xml",
+        "sha256": "e6d2a5f7a597c76dd98bda1600148a17a7d2b0ad01cb4d5a065d5eefce0d171d"
+      }
+    },
+    "complete_inventory": {
+      "path": "out/phase-six-composite-value-layout/full-inventory.json",
+      "sha256": "ecdbad5eb03d219f323ae90982d3a12a62594315246586a3a1995227411f7b42"
+    },
+    "inventory_check": {
+      "path": "out/phase-six-composite-value-layout/results-check.log",
+      "sha256": "8833a69e80df4775f0363fc7ba89866039303ee74b710446f1c48c05bb172827"
+    },
+    "independent_cases": [
+      "VirtoolsDevUi.ValueLayout.angle_layout_drag_reflow_does_not_resample",
+      "VirtoolsDevUi.ValueLayout.angle_layout_turns_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.box_layout_resize_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.color_layout_channels_picker_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.euler_layout_resize_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.flags_layout_unknown_bits_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.matrix_layout_resize_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.nested_compound_layout_batch_and_undo",
+      "VirtoolsDevUi.ValueLayout.quaternion_layout_resize_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.rect_layout_modes_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.retained_compound_provider_layout",
+      "VirtoolsDevUi.ValueLayout.vector2_layout_resize_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.vector3_layout_resize_cancel_and_undo"
+    ],
+    "independent_and_original_modules": {
+      "total": 14,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-composite-value-layout/independent-final.xml",
+        "sha256": "1d5b6dbe686b9922923d8bc9ff7fa32cb981e5fe1521e27acf672c082ce036ad"
+      }
+    },
+    "independent_final_run": {
+      "total": 13,
+      "failed": 0,
+      "skipped": 0,
+      "included_in": {
+        "path": "out/phase-six-composite-value-layout/full.xml",
+        "sha256": "e6d2a5f7a597c76dd98bda1600148a17a7d2b0ad01cb4d5a065d5eefce0d171d"
+      }
+    },
+    "before_migration": {
+      "total": 2,
+      "failed": 2,
+      "report": {
+        "path": "out/phase-six-composite-value-layout/layout-red.xml",
+        "sha256": "09ae0d38a6fee18b72a397457bade5db24b16b71fb610dbd6a35bfff28a65195"
+      }
+    },
+    "original_modules": {
+      "passed": 74,
+      "total": 74,
+      "included_in": {
+        "path": "out/phase-six-composite-value-layout/full.xml",
+        "sha256": "e6d2a5f7a597c76dd98bda1600148a17a7d2b0ad01cb4d5a065d5eefce0d171d"
+      }
+    },
+    "architecture_checker": {
+      "passed": 58,
+      "total": 58,
+      "included_in": {
+        "path": "out/phase-six-composite-value-layout/full.xml",
+        "sha256": "e6d2a5f7a597c76dd98bda1600148a17a7d2b0ad01cb4d5a065d5eefce0d171d"
+      }
+    },
+    "measurement_tools": {
+      "passed": 27,
+      "total": 27,
+      "included_in": {
+        "path": "out/phase-six-composite-value-layout/full.xml",
+        "sha256": "e6d2a5f7a597c76dd98bda1600148a17a7d2b0ad01cb4d5a065d5eefce0d171d"
+      }
+    },
+    "native_player": {
+      "passed": 1,
+      "selected": 1,
+      "registered": 390,
+      "unselected": 389,
+      "report": {
+        "path": "out/phase-six-composite-value-layout/player.xml",
+        "sha256": "d24737e1ec72d00e83e36fd013e55f6ed5e05516a5ee3c7d78be0a4ce9e693b6"
+      }
+    },
+    "architecture_final": {
+      "path": "out/phase-six-composite-value-layout/architecture-final.json",
+      "sha256": "b6bea156bc28a0991fc8424df831acb1548130983c66903d19530abea477f700"
+    },
+    "initial_complete_run": {
+      "total": 178,
+      "failed": 1,
+      "report": {
+        "path": "out/phase-six-composite-value-layout/full-first.xml",
+        "sha256": "29d1ad20b86a072da148ccebadb5af764db9c06848e0d131b227ec2aceda8ab8"
+      }
+    },
+    "matrix_appearance_recheck": {
+      "passed": 1,
+      "selected": 1,
+      "report": {
+        "path": "out/phase-six-composite-value-layout/matrix-appearance.xml",
+        "sha256": "55141dcc7ec235206e30d49acb35adb24c813c437d5547b06249329be365c013"
+      }
+    },
+    "initial_navigation_failures": {
+      "path": "out/phase-six-composite-value-layout/independent-first.xml",
+      "sha256": "52cc501a54f657b310605715ee455e838467b412f3e1ade4ff877834e2551c95"
+    },
+    "navigation_note": "测试引擎只支持一个层级通配符；多参数用例按父弹窗保留的原输入 ID 定位，拖动前滚动到可见控件；不删除原行为、取消或撤销断言。"
+  },
+  "preservation": {
+    "sdk_sources_unchanged": true,
+    "sdk_repositories": 16,
+    "sdk_before": {
+      "path": "out/phase-six-composite-value-layout/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-composite-value-layout/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_images_unchanged": true,
+    "runtime_files": 22,
+    "runtime_before": {
+      "path": "out/phase-six-composite-value-layout/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-composite-value-layout/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "gpu_sources_unchanged": true,
+    "gpu_source_files": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "core_commands_and_public_editor_headers_unchanged": true,
+    "production_source_sha256": "3cba53a4cd5861aaba1158713a72bcb2467c60a83f6c5b236016849cd3f8fe41",
+    "production_binary": {
+      "path": "out/macos-arm64/runtime/NeMoDev.app/Contents/MacOS/NeMoDev",
+      "sha256": "1b57f9e56d0aca9963bf6b44d2beeb89e18a5f5f392df2db1d3a7955fa5f93f4"
+    },
+    "native_ui_test_binary": {
+      "path": "out/macos-arm64/runtime/NeMoDev.app/Contents/MacOS/VirtoolsDevUiTests",
+      "sha256": "a13e15d51e4591ac3ec1a4f05e56952732ffc162adee9fc9cc3c83bc5b99d1cb"
+    }
+  },
+  "performance": {
+    "accepted": false,
+    "status": "awaiting-user-idle-window",
+    "limits": {
+      "minimum_groups": 11,
+      "minimum_warmup_ms": 15000,
+      "minimum_group_ms": 1000,
+      "maximum_median_regression_percent": 3,
+      "maximum_mad_percent": 3
+    },
+    "previous_record": "tests/architecture/baselines/frame-query-performance-macos-arm64-metal.json",
+    "note": "本批未执行正式性能计时，功能回归通过不代表已达到原定性能门槛；等待用户提供空闲窗口。"
+  },
+  "remaining": {
+    "F25": [
+      "普通数值、字符串、对象筛选和数组行等剩余值布局",
+      "Explorer 等视图与报告弹窗的剩余固定布局",
+      "Windows/Linux 资源、字体与 DPI 实机复验"
+    ],
+    "runtime_process_isolation": "单独实施。",
+    "phase_six_complete": false
+  }
+}
