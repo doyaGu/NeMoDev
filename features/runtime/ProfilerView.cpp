@@ -1,23 +1,26 @@
 #include "features/runtime/RuntimeViewData.h"
 #include "editor/ImGuiDrawing.h"
 #include "ui/controls/DevControls.h"
+#include "ui/setup/SetupLayout.h"
 #include <algorithm>
 
 namespace vdev {
 namespace runtime {
 namespace {
 void Bar(double fraction, bool known) {
-    const ImVec2 size(190, ImGui::GetTextLineHeight()), at = ImGui::GetCursorScreenPos();
+    const ImVec2 size(std::max(1.f, ImGui::GetContentRegionAvail().x - 80 * setup::PageUnit()),
+                      ImGui::GetTextLineHeight()),
+        at = ImGui::GetCursorScreenPos();
     auto *draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), IM_COL32(100, 100, 100, 255));
     if (known && fraction > 0)
         draw->AddRectFilled(at, ImVec2(at.x + size.x * float(std::min(1.0, fraction)), at.y + size.y), IM_COL32(220, 120, 40, 255));
     ImGui::Dummy(size);
 }
-void TimeRow(const char *label, double time, double total, float indent = 0) {
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
-    ImGui::TextUnformatted(label); ImGui::SameLine(260); Bar(total > 0 ? time / total : 0, total > 0);
-    ImGui::SameLine(470);
+void TimeRow(setup::SetupForm &form, const char *label, double time, double total) {
+    form.Row(label);
+    Bar(total > 0 ? time / total : 0, total > 0);
+    ImGui::SameLine();
     if (total > 0) ImGui::Text("%.2f ms", time);
     else ImGui::TextUnformatted("NA");
 }
@@ -70,9 +73,12 @@ bool ProfilerViewState::ReadRows(const EditorClient &client, uint64_t revision, 
     return true;
 }
 void ProfilerViewState::Details(const EditorClient &client, bool dynamic) {
-    if (!ImGui::BeginTable("details", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY, ImVec2(760, 260))) return;
+    if (!ImGui::BeginTable("details", 2,
+                           ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY,
+                           ImVec2(0, 260 * setup::PageUnit())))
+        return;
     ImGui::TableSetupColumn("Item", ImGuiTableColumnFlags_WidthStretch);
-    ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 100);
+    ImGui::TableSetupColumn("Time", ImGuiTableColumnFlags_WidthFixed, 80 * setup::PageUnit());
     const auto order = [&](const std::vector<size_t> &indices, bool managers = false) {
         auto result = indices;
         if (sorted) std::stable_sort(result.begin(), result.end(), [&](size_t a, size_t b) {
@@ -110,63 +116,115 @@ void ProfilerViewState::Draw(const EditorClient &client, EditorViewFrame &frame)
     if (document != client.Scope().document) {
         document = client.Scope().document; rows.clear(); roots.clear(); version = 0;
     }
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(.5f, .5f));
-    EditorImGuiWindow window(frame, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize);
-    if (!window) return;
-    const auto profile = client.Query("runtime.profile", {IntegerArgument("details", details)});
-    const auto state = client.Query("runtime.state");
-    if (profile.status != EDITOR_OK || !Integer(profile, "available") || !Integer(state, "available")) {
-        ImGui::TextDisabled("No composition is open"); return;
+    const float s = setup::PageUnit();
+    vi::DialogLayout layout;
+    EditorPrepareViewWindow(frame);
+    if (!vi::BeginScrollableWindow(frame.window.data, "Profiler", {800 * s, 500 * s}, s, layout)) {
+        vi::EndWindow();
+        return;
     }
-    const auto number = [&](const char *key) { return Integer(profile, key); };
-    const auto time = [&](const char *key) { return Real(profile, key); };
-    const double total = time("frame-time");
-    ImGui::BeginGroup(); ImGui::TextUnformatted("Execution Times"); ImGui::Separator();
-    TimeRow("Interface/Windows", time("interface-time"), total);
-    TimeRow("Rendering", time("render-time"), total);
-    TimeRow("Behaviors Graphs Management", time("graph-time"), total);
-    TimeRow("Behaviors Code Execution", time("behavior-time"), total);
-    TimeRow("Parametric Operations", time("operation-time"), total > 0 ? time("behavior-time") : 0, 20);
-    TimeRow("Animations", time("animation-time"), total > 0 ? time("behavior-time") : 0, 20);
-    ImGui::EndGroup(); ImGui::SameLine(560); ImGui::BeginGroup();
-    ImGui::TextUnformatted("Database"); ImGui::Separator();
-    ImGui::Text("3D Objects  %llu", static_cast<unsigned long long>(number("objects")));
-    ImGui::Text("Textures    %llu", static_cast<unsigned long long>(number("textures")));
-    ImGui::Text("Sprites     %llu", static_cast<unsigned long long>(number("sprites")));
-    ImGui::Text("Behaviors   %llu", static_cast<unsigned long long>(number("behaviors")));
-    ImGui::Text("Faces       %llu", static_cast<unsigned long long>(number("faces")));
-    ImGui::Text("Vertices    %llu", static_cast<unsigned long long>(number("vertices")));
-    ImGui::BeginDisabled(!Ready(client));
-    if (ImGui::Button("Refresh")) client.Command("runtime.refresh-profile");
-    ImGui::EndDisabled(); ImGui::EndGroup(); ImGui::Spacing();
-    ImGui::BeginGroup(); ImGui::TextUnformatted("Render Engine"); ImGui::Separator();
-    if (total > 0 && Integer(state, "state") == EDITOR_EXECUTION_RUNNING) ImGui::Text("Framerate       %.1f", 1000 / total);
-    else ImGui::TextUnformatted("Framerate       -");
-    ImGui::SameLine(200); ImGui::Text("Faces drawn   %llu", static_cast<unsigned long long>(number("drawn-faces")));
-    ImGui::Text("Objects Drawn   %llu", static_cast<unsigned long long>(number("drawn-objects")));
-    ImGui::SameLine(200); ImGui::Text("Lines drawn   %llu", static_cast<unsigned long long>(number("drawn-lines")));
-    ImGui::EndGroup(); ImGui::SameLine(430); ImGui::BeginGroup(); ImGui::TextUnformatted("Video"); ImGui::Separator();
-    const auto bytes = number("texture-bytes");
-    if (bytes <= 0x100000) ImGui::Text("Textures   %llu ( %llu KB)", static_cast<unsigned long long>(number("video-textures")), static_cast<unsigned long long>(bytes / 1024));
-    else ImGui::Text("Textures   %llu ( %.3g MB)", static_cast<unsigned long long>(number("video-textures")), bytes / 1048576.0);
-    ImGui::Text("Sprites    %llu ( %.3g Mb)", static_cast<unsigned long long>(number("video-sprites")), number("sprite-bytes") / 1048576.0);
-    ImGui::EndGroup(); ImGui::Spacing(); ImGui::TextUnformatted("Behavioral Engine"); ImGui::Separator(); ImGui::BeginGroup();
-    ImGui::Text("Objects Processed     %llu", static_cast<unsigned long long>(number("executed-objects")));
-    ImGui::Text("Behaviors Executed    %llu", static_cast<unsigned long long>(number("executed-behaviors")));
-    ImGui::Text("    ( Building Blocks) %llu", static_cast<unsigned long long>(number("executed-blocks")));
-    ImGui::EndGroup(); ImGui::SameLine(330); ImGui::BeginGroup();
-    ImGui::Text("Links Parsed     %llu", static_cast<unsigned long long>(number("parsed-links")));
-    ImGui::Text("Delayed Links    %llu", static_cast<unsigned long long>(number("delayed-links")));
-    ImGui::EndGroup(); ImGui::Spacing();
-    if (ImGui::ArrowButton("##details", details ? ImGuiDir_Up : ImGuiDir_Down)) details = !details;
-    ImGui::SameLine(); ImGui::TextUnformatted("Details");
-    if (details) {
-        ImGui::SameLine(330); ImGui::Checkbox("Sort By Execution time", &sorted);
-        if (version != number("revision")) ReadRows(client, number("revision"), number("row-count"));
-        Details(client, number("show-dynamic") != 0);
+    if (vi::BeginDialogContent("##profiler-content", layout)) {
+        const auto profile = client.Query("runtime.profile", {IntegerArgument("details", details)});
+        const auto state = client.Query("runtime.state");
+        if (profile.status != EDITOR_OK || !Integer(profile, "available") || !Integer(state, "available")) {
+            ImGui::TextDisabled("No composition is open");
+        } else {
+            const auto number = [&](const char *key) { return Integer(profile, key); };
+            const auto time = [&](const char *key) { return Real(profile, key); };
+            const double total = time("frame-time");
+            {
+                setup::SetupColumns columns("##profile-sections", 2);
+                if (columns) {
+                    columns.Next();
+                    ImGui::TextUnformatted("Execution Times");
+                    ImGui::Separator();
+                    {
+                        setup::SetupForm form("##execution-times");
+                        if (form) {
+                            TimeRow(form, "Interface/Windows", time("interface-time"), total);
+                            TimeRow(form, "Rendering", time("render-time"), total);
+                            TimeRow(form, "Behaviors Graphs Management", time("graph-time"), total);
+                            TimeRow(form, "Behaviors Code Execution", time("behavior-time"), total);
+                            TimeRow(form, "Parametric Operations", time("operation-time"),
+                                    total > 0 ? time("behavior-time") : 0);
+                            TimeRow(form, "Animations", time("animation-time"),
+                                    total > 0 ? time("behavior-time") : 0);
+                        }
+                    }
+                    columns.Next();
+                    ImGui::TextUnformatted("Database");
+                    ImGui::Separator();
+                    ImGui::Text("3D Objects  %llu", static_cast<unsigned long long>(number("objects")));
+                    ImGui::Text("Textures    %llu", static_cast<unsigned long long>(number("textures")));
+                    ImGui::Text("Sprites     %llu", static_cast<unsigned long long>(number("sprites")));
+                    ImGui::Text("Behaviors   %llu", static_cast<unsigned long long>(number("behaviors")));
+                    ImGui::Text("Faces       %llu", static_cast<unsigned long long>(number("faces")));
+                    ImGui::Text("Vertices    %llu", static_cast<unsigned long long>(number("vertices")));
+                    ImGui::BeginDisabled(!Ready(client));
+                    if (ImGui::Button("Refresh"))
+                        client.Command("runtime.refresh-profile");
+                    ImGui::EndDisabled();
+                    columns.Next();
+                    ImGui::TextUnformatted("Render Engine");
+                    ImGui::Separator();
+                    if (total > 0 && Integer(state, "state") == EDITOR_EXECUTION_RUNNING)
+                        ImGui::Text("Framerate       %.1f", 1000 / total);
+                    else
+                        ImGui::TextUnformatted("Framerate       -");
+                    ImGui::Text("Faces drawn     %llu",
+                                static_cast<unsigned long long>(number("drawn-faces")));
+                    ImGui::Text("Objects Drawn   %llu",
+                                static_cast<unsigned long long>(number("drawn-objects")));
+                    ImGui::Text("Lines drawn     %llu",
+                                static_cast<unsigned long long>(number("drawn-lines")));
+                    columns.Next();
+                    ImGui::TextUnformatted("Video");
+                    ImGui::Separator();
+                    const auto bytes = number("texture-bytes");
+                    if (bytes <= 0x100000)
+                        ImGui::Text("Textures   %llu ( %llu KB)",
+                                    static_cast<unsigned long long>(number("video-textures")),
+                                    static_cast<unsigned long long>(bytes / 1024));
+                    else
+                        ImGui::Text("Textures   %llu ( %.3g MB)",
+                                    static_cast<unsigned long long>(number("video-textures")),
+                                    bytes / 1048576.0);
+                    ImGui::Text("Sprites    %llu ( %.3g Mb)",
+                                static_cast<unsigned long long>(number("video-sprites")),
+                                number("sprite-bytes") / 1048576.0);
+                    columns.Next();
+                    ImGui::TextUnformatted("Behavioral Engine");
+                    ImGui::Separator();
+                    ImGui::Text("Objects Processed     %llu",
+                                static_cast<unsigned long long>(number("executed-objects")));
+                    ImGui::Text("Behaviors Executed    %llu",
+                                static_cast<unsigned long long>(number("executed-behaviors")));
+                    ImGui::Text("    ( Building Blocks) %llu",
+                                static_cast<unsigned long long>(number("executed-blocks")));
+                    columns.Next();
+                    ImGui::Text("Links Parsed     %llu",
+                                static_cast<unsigned long long>(number("parsed-links")));
+                    ImGui::Text("Delayed Links    %llu",
+                                static_cast<unsigned long long>(number("delayed-links")));
+                }
+            }
+            if (ImGui::ArrowButton("##details", details ? ImGuiDir_Up : ImGuiDir_Down))
+                details = !details;
+            ImGui::SameLine();
+            ImGui::TextUnformatted("Details");
+            if (details) {
+                ImGui::Checkbox("Sort By Execution time", &sorted);
+                if (version != number("revision"))
+                    ReadRows(client, number("revision"), number("row-count"));
+                Details(client, number("show-dynamic") != 0);
+            }
+        }
     }
-    ImGui::Separator(); ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - 90);
-    if (ImGui::Button("Close", ImVec2(90, 0))) frame.close = 1;
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 90 * s, layout.buttonsY});
+    if (ImGui::Button("Close", ImVec2(90 * s, 0)))
+        frame.close = 1;
+    vi::EndWindow();
 }
 } // namespace
 EditorViewDesc ProfilerView() {

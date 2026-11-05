@@ -132,26 +132,6 @@ float TitleHeight(float scale);
 // The rounded panel holding a dialog's controls (VIDialog::SetRoundRect(7, 7)).
 void Panel(const ImVec2 &min, const ImVec2 &max, float scale);
 
-// A dialog laid out after its template in Dev.exe's resources (dialog units
-// of 1.5 pixels, as Dev shows them): the panel 12 pixels from the client's
-// sides and pad pixels around the template, the buttons' bar under it.
-struct TemplateLayout {
-    float s = 1.0f;
-    ImVec2 origin;             // the template's (0, 0)
-    ImVec2 panelMin, panelMax; // the rounded panel
-    float buttonsY = 0.0f;     // the bar's buttons (DialogButton) top
-    float right = 0.0f;        // the bar's right end
-    ImVec2 P(float x, float y) const { return ImVec2(origin.x + x * 1.5f * s, origin.y + y * 1.5f * s); }
-    // The rectangle (x, y, w, h) of the template's control.
-    ImVec2 Min(float x, float y) const { return P(x, y); }
-    ImVec2 Max(float x, float y, float w, float h) const { return P(x + w, y + h); }
-};
-// The client size of a template of units dialog units (buttons: with the bar).
-ImVec2 TemplateClient(const ImVec2 &units, float scale, float pad, bool buttons = true);
-TemplateLayout LayoutTemplate(const ImVec2 &clientOrigin, const ImVec2 &units, float scale, float pad);
-// Draws the layout's panel.
-void TemplatePanel(const TemplateLayout &layout);
-
 // A dialog's custom button (VIDialogButton, 60 x 18): white outline and
 // bold text; Enter / Escape press OK / Cancel when key is set.
 bool DialogButton(const char *label, const ImVec2 &min, float scale, ImGuiKey key = ImGuiKey_None);

@@ -1,12 +1,13 @@
 #include "features/diagnostics/DiagnosticViews.h"
-#include "workspace/EditorClient.h"
 #include "editor/ImGuiDrawing.h"
 #include "imgui_internal.h"
 #include "ui/controls/DevControls.h"
+#include "ui/setup/SetupLayout.h"
+#include "workspace/EditorClient.h"
 #include <algorithm>
+#include <cstdio>
 #include <map>
 #include <set>
-#include <cstdio>
 
 namespace vdev {
 namespace {
@@ -99,8 +100,12 @@ struct CheckView {
             if (result.status != EDITOR_QUEUED) {
                 change = 0;
                 if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE) frame.close = 1;
-                else message = result.message.empty() ? result.status == EDITOR_STALE ?
-                    "The composition changed. Run the check again before applying." : "The operation failed." : result.message;
+                else
+                    message = result.message.empty() ? result.status == EDITOR_STALE
+                                                           ? "The composition changed. Run the check again "
+                                                             "before applying."
+                                                           : "The operation failed."
+                                                     : result.message;
             }
         }
         if (!started && State(client, Scan(kind)) == EDITOR_OK) Refresh(client);
@@ -110,7 +115,10 @@ struct CheckView {
         const auto result = client.Command(id, args);
         if (result.status == EDITOR_QUEUED) change = result.operation;
         else if (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE) frame.close = 1;
-        else message = result.message.empty() ? "The composition changed or the operation failed. Run the check again." : result.message;
+        else
+            message = result.message.empty() ? "The composition changed or the operation failed. Run "
+                                               "the check again."
+                                             : result.message;
     }
     void Unused(const EditorClient &client, EditorViewFrame &frame) {
         const float footer = ImGui::GetFrameHeightWithSpacing() * 2 + 8;
@@ -150,8 +158,11 @@ struct CheckView {
     void Versions(const EditorClient &client, EditorViewFrame &frame) {
         ImGui::PushTextWrapPos(520); ImGui::TextUnformatted(report.empty() ? scan || !started ? "Checking the composition..." : "No result available." : report.c_str());
         if (!rows.empty()) {
-            ImGui::Separator(); ImGui::TextUnformatted("Would you like to replace building blocks whose prototype have changed?\n"
-                "(warning: the composition may not work if you choose yes, you should have to update some links manually)");
+            ImGui::Separator();
+            ImGui::TextUnformatted("Would you like to replace building blocks whose prototype have "
+                                   "changed?\n"
+                                   "(warning: the composition may not work if you choose yes, you "
+                                   "should have to update some links manually)");
         }
         ImGui::PopTextWrapPos();
         if (ImGui::Button("Refresh") && !scan) Refresh(client);
@@ -166,51 +177,106 @@ struct CheckView {
             (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape)))) frame.close = 1;
     }
     void Memory(const EditorClient &, EditorViewFrame &frame) {
-        const float s = ImGui::GetFontSize() / 13.0f; const ImVec2 units(387, 421); ImVec2 origin;
+        const float s = setup::PageUnit();
+        vi::DialogLayout layout;
         EditorPrepareViewWindow(frame);
-        if (!vi::BeginWindow(frame.window.data, "All CK Object In Memory", vi::TemplateClient(units, s, 2), s, origin)) { vi::EndWindow(); return; }
-        const auto l = vi::LayoutTemplate(origin, units, s, 2); vi::TemplatePanel(l);
-        std::vector<vi::ListColumn> columns{{"Name", 130}, {"Class", 120, vi::CENTER}, {"ID", 30}, {"Size", 60}, {"Visi.", 30}, {"Dyn.", 30}, {"IsInCurrentScene", 60}};
-        for (auto &column : columns) column.width *= s;
-        int header = -1;
-        const auto clicked = vi::ListView("##objects", l.Min(7, 7), l.Max(7, 7, 373, message.empty() ? 387 : 370), s, columns, int(order.size()),
-            [&](int r, int c) {
-                const auto &row = rows[order[size_t(r)]];
-                switch (c) { case 0: return Text(row, "name"); case 1: return Text(row, "class-name");
-                case 2: return std::to_string(Number(row, "id")); case 3: return std::to_string(Number(row, "size"));
-                case 4: return std::string(Number(row, "visible") ? "X" : ""); case 5: return std::string(Number(row, "dynamic") ? "X" : "");
-                default: return std::string(Number(row, "in-scene") ? "X" : ""); }
-            }, [&](int r) { return selected.count(order[size_t(r)]) != 0; }, nullptr, nullptr, false, &header);
-        if (clicked >= 0) {
-            const auto &io = ImGui::GetIO(); const auto row = order[size_t(clicked)];
-            if (io.KeyShift && anchor >= 0) {
-                selected.clear();
-                for (int r = std::min(clicked, anchor); r <= std::max(clicked, anchor); ++r) selected.insert(order[size_t(r)]);
-            } else if (io.KeyCtrl) { if (selected.count(row)) selected.erase(row); else selected.insert(row); anchor = clicked; }
-            else { selected = {row}; anchor = clicked; }
+        if (!vi::BeginScrollableWindow(frame.window.data, "All CK Object In Memory", {600 * s, 540 * s}, s,
+                                       layout)) {
+            vi::EndWindow();
+            return;
         }
-        if (header >= 0) {
-            ascending = sort == header ? !ascending : true; sort = header;
-            std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-                int comparison = 0;
-                if (header < 2) comparison = ImStricmp(Text(rows[a], header ? "class-name" : "name").c_str(), Text(rows[b], header ? "class-name" : "name").c_str());
-                else {
-                    const char *key = header == 2 ? "id" : header == 3 ? "size" : header == 4 ? "visible" : header == 5 ? "dynamic" : "in-scene";
-                    const auto x = Number(rows[a], key), y = Number(rows[b], key);
-                    comparison = x < y ? -1 : x > y ? 1 : 0; if (header > 3) comparison = -comparison;
+        if (vi::BeginDialogContent("##memory-content", layout)) {
+            std::vector<vi::ListColumn> columns{
+                {"Name", 130}, {"Class", 120, vi::CENTER}, {"ID", 30}, {"Size", 60}, {"Visi.", 30},
+                {"Dyn.", 30},  {"IsInCurrentScene", 60}};
+            for (auto &column : columns)
+                column.width *= s;
+            float width = 0;
+            for (const auto &column : columns)
+                width += column.width;
+            width = std::max(width, ImGui::GetContentRegionAvail().x);
+            int header = -1;
+            const auto at = ImGui::GetCursorScreenPos();
+            const auto clicked = vi::ListView(
+                "##objects", at, {at.x + width, at.y + 460 * s}, s, columns, int(order.size()),
+                [&](int r, int c) {
+                    const auto &row = rows[order[size_t(r)]];
+                    switch (c) {
+                    case 0:
+                        return Text(row, "name");
+                    case 1:
+                        return Text(row, "class-name");
+                    case 2:
+                        return std::to_string(Number(row, "id"));
+                    case 3:
+                        return std::to_string(Number(row, "size"));
+                    case 4:
+                        return std::string(Number(row, "visible") ? "X" : "");
+                    case 5:
+                        return std::string(Number(row, "dynamic") ? "X" : "");
+                    default:
+                        return std::string(Number(row, "in-scene") ? "X" : "");
+                    }
+                },
+                [&](int r) { return selected.count(order[size_t(r)]) != 0; }, nullptr, nullptr, false,
+                &header);
+            if (clicked >= 0) {
+                const auto &io = ImGui::GetIO();
+                const auto row = order[size_t(clicked)];
+                if (io.KeyShift && anchor >= 0) {
+                    selected.clear();
+                    for (int r = std::min(clicked, anchor); r <= std::max(clicked, anchor); ++r)
+                        selected.insert(order[size_t(r)]);
+                } else if (io.KeyCtrl) {
+                    if (selected.count(row))
+                        selected.erase(row);
+                    else
+                        selected.insert(row);
+                    anchor = clicked;
+                } else {
+                    selected = {row};
+                    anchor = clicked;
                 }
-                return ascending ? comparison < 0 : comparison > 0;
-            }); anchor = -1;
+            }
+            if (header >= 0) {
+                ascending = sort == header ? !ascending : true;
+                sort = header;
+                std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                    int comparison = 0;
+                    if (header < 2)
+                        comparison = ImStricmp(Text(rows[a], header ? "class-name" : "name").c_str(),
+                                               Text(rows[b], header ? "class-name" : "name").c_str());
+                    else {
+                        const char *key = header == 2   ? "id"
+                                          : header == 3 ? "size"
+                                          : header == 4 ? "visible"
+                                          : header == 5 ? "dynamic"
+                                                        : "in-scene";
+                        const auto x = Number(rows[a], key), y = Number(rows[b], key);
+                        comparison = x < y ? -1 : x > y ? 1 : 0;
+                        if (header > 3)
+                            comparison = -comparison;
+                    }
+                    return ascending ? comparison < 0 : comparison > 0;
+                });
+                anchor = -1;
+            }
+            uint64_t selectedBytes = 0;
+            for (auto row : selected)
+                selectedBytes += Number(rows[row], "size");
+            if (!message.empty())
+                ImGui::TextWrapped("%s", message.c_str());
+            ImGui::TextWrapped("Total Object Size = %llu", static_cast<unsigned long long>(bytes));
+            ImGui::TextWrapped("Selected Objects (%llu) Size = %llu",
+                               static_cast<unsigned long long>(selected.size()),
+                               static_cast<unsigned long long>(selectedBytes));
         }
-        uint64_t selectedBytes = 0; for (auto row : selected) selectedBytes += Number(rows[row], "size");
-        if (!message.empty()) vi::Text(l.Min(7, 380), l.Max(7, 380, 373, 14), message.c_str());
-        char line[128]; std::snprintf(line, sizeof(line), "Total Object Size = %llu", static_cast<unsigned long long>(bytes));
-        vi::Text(l.Min(8, 400), l.Max(8, 400, 163, 14), line);
-        std::snprintf(line, sizeof(line), "Selected Objects (%llu) Size = %llu", static_cast<unsigned long long>(selected.size()), static_cast<unsigned long long>(selectedBytes));
-        vi::Text(l.Min(177, 400), l.Max(177, 400, 203, 14), line);
+        vi::EndDialogContent();
         const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-        if (vi::DialogButton("OK", ImVec2(l.right - 60 * s, l.buttonsY), s, focused ? ImGuiKey_Enter : ImGuiKey_None) ||
-            (focused && ImGui::IsKeyPressed(ImGuiKey_Escape, false))) frame.close = 1;
+        if (vi::DialogButton("OK", ImVec2(layout.right - 60 * s, layout.buttonsY), s,
+                             focused ? ImGuiKey_Enter : ImGuiKey_None) ||
+            (focused && ImGui::IsKeyPressed(ImGuiKey_Escape, false)))
+            frame.close = 1;
         vi::EndWindow();
     }
     void Draw(const EditorClient &client, EditorViewFrame &frame) {

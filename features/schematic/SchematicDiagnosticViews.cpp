@@ -1,6 +1,7 @@
 #include "features/schematic/SchematicDiagnosticViews.h"
 #include "editor/ImGuiDrawing.h"
 #include "ui/controls/DevControls.h"
+#include "ui/setup/SetupLayout.h"
 #include <algorithm>
 
 namespace vdev {
@@ -47,23 +48,57 @@ struct DiagnosticView {
         else { selectedAddress.clear(); revision = 0; }
     }
     void Invalid(const EditorClient &client, EditorViewFrame &frame) {
-        const float s = ImGui::GetFontSize() / 13.0f; const ImVec2 units(268, 158); ImVec2 origin;
+        const float s = setup::PageUnit();
+        vi::DialogLayout layout;
         EditorPrepareViewWindow(frame);
-        if (!vi::BeginWindow(frame.window.data, "Invalid Link Explorer", vi::TemplateClient(units, s, 2), s, origin)) { vi::EndWindow(); return; }
-        const auto l = vi::LayoutTemplate(origin, units, s, 2); vi::TemplatePanel(l);
-        std::vector<vi::ListColumn> columns{{"In Script", 184 * s}, {"In Behavior", 184 * s}, {"", 0}};
-        bool twice = false;
-        const auto clicked = vi::ListView("##invalidlinks", l.Min(4, 4), l.Max(4, 4, 260, 134), s, columns, int(rows.size()),
-            [&](int r, int c) { return c < 2 ? Text(rows[size_t(r)], c ? "graph" : "script") : std::string(); },
-            [&](int r) { const auto *address = Field(rows[size_t(r)], "address"); return address && address->fields == selectedAddress; }, &twice);
-        if (clicked >= 0) if (const auto *address = Field(rows[size_t(clicked)], "address")) selectedAddress = address->fields;
-        const EditorField *picked = nullptr;
-        for (const auto &row : rows) if (const auto *address = Field(row, "address"); address && address->fields == selectedAddress) { picked = &row; break; }
-        if ((vi::Button("Goto", l.Min(7, 143), l.Max(7, 143, 71, 10), "Goto", picked != nullptr) || twice) && picked) Goto(client, *picked);
-        if (vi::Button("Delete", l.Min(100, 143), l.Max(100, 143, 71, 10), "Delete", picked && !pending)) Delete(client, false);
-        if (vi::Button("Delete All", l.Min(193, 143), l.Max(193, 143, 71, 10), "Delete All", !rows.empty() && !pending)) Delete(client, true);
-        if (vi::DialogButton("Close", ImVec2(l.right - 60 * s, l.buttonsY), s)) frame.close = 1;
-        if (!pending && vi::DialogButton("Refresh", ImVec2(l.origin.x + 7 * s, l.buttonsY), s)) {
+        if (!vi::BeginScrollableWindow(frame.window.data, "Invalid Link Explorer", {420 * s, 240 * s}, s,
+                                       layout)) {
+            vi::EndWindow();
+            return;
+        }
+        if (vi::BeginDialogContent("##invalid-content", layout)) {
+            std::vector<vi::ListColumn> columns{{"In Script", 184 * s}, {"In Behavior", 184 * s}, {"", 0}};
+            bool twice = false;
+            const auto at = ImGui::GetCursorScreenPos();
+            const auto clicked = vi::ListView(
+                "##invalidlinks", at,
+                {at.x + std::max(368 * s, ImGui::GetContentRegionAvail().x), at.y + 200 * s}, s, columns,
+                int(rows.size()),
+                [&](int r, int c) {
+                    return c < 2 ? Text(rows[size_t(r)], c ? "graph" : "script") : std::string();
+                },
+                [&](int r) {
+                    const auto *address = Field(rows[size_t(r)], "address");
+                    return address && address->fields == selectedAddress;
+                },
+                &twice);
+            if (clicked >= 0)
+                if (const auto *address = Field(rows[size_t(clicked)], "address"))
+                    selectedAddress = address->fields;
+            const EditorField *picked = nullptr;
+            for (const auto &row : rows)
+                if (const auto *address = Field(row, "address");
+                    address && address->fields == selectedAddress) {
+                    picked = &row;
+                    break;
+                }
+            setup::SetupColumns actions("##invalid-actions", 3);
+            if (actions) {
+                actions.Next();
+                if ((vi::Button("Goto", "Goto", picked != nullptr) || twice) && picked)
+                    Goto(client, *picked);
+                actions.Next();
+                if (vi::Button("Delete", "Delete", picked && !pending))
+                    Delete(client, false);
+                actions.Next();
+                if (vi::Button("Delete All", "Delete All", !rows.empty() && !pending))
+                    Delete(client, true);
+            }
+        }
+        vi::EndDialogContent();
+        if (vi::DialogButton("Close", ImVec2(layout.right - 60 * s, layout.buttonsY), s))
+            frame.close = 1;
+        if (!pending && vi::DialogButton("Refresh", ImVec2(layout.contentMin.x, layout.buttonsY), s)) {
             const auto result = client.Command("schematic.refresh-invalid-links");
             if (result.status == EDITOR_QUEUED) pending = result.operation;
             else if (result.status == EDITOR_OK) { revision = 0; selectedAddress.clear(); }
@@ -74,38 +109,63 @@ struct DiagnosticView {
     void Messages(const EditorClient &client, EditorViewFrame &frame) {
         ImGui::SetNextWindowSize(ImVec2(560, 420), ImGuiCond_FirstUseEver);
         EditorImGuiWindow window(frame); if (!window) return;
-        const float width = std::max(160.f, ImGui::GetContentRegionAvail().x * .4f);
-        const float height = std::max(80.f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeightWithSpacing());
-        ImGui::BeginChild("messagelist", ImVec2(width, height), ImGuiChildFlags_Borders); ImGui::TextDisabled("Messages");
-        const EditorField *chosen = nullptr;
-        for (const auto &row : rows) {
-            const int type = int(Number(row, "type")); const auto count = Number(row, "count");
-            const auto label = Text(row, "name") + (count ? "  (" + std::to_string(count) + ")" : "");
-            ImGui::PushID(type);
-            if (ImGui::Selectable(label.c_str(), messageType == type)) { messageType = type; messageUse = {}; messageUses.clear(); }
-            ImGui::PopID(); if (messageType == type) chosen = &row;
-        }
-        ImGui::EndChild(); ImGui::SameLine(); ImGui::BeginGroup();
-        const float half = (height - ImGui::GetStyle().ItemSpacing.y) * .5f;
-        uint64_t usesRevision = 0;
-        if (chosen) ReadSchematicRows(client, "schematic.message-uses", messageUses, usesRevision, {IntegerArgument("message", uint64_t(messageType))});
+        const float unit = setup::PageUnit();
+        const float height = 260 * unit;
         const EditorField *picked = nullptr;
-        auto list = [&](const char *id, const char *title, bool senders) {
-            ImGui::BeginChild(id, ImVec2(0, half), ImGuiChildFlags_Borders); ImGui::TextDisabled("%s", title);
-            if (chosen) for (const auto &use : messageUses) {
-                const auto object = Object(use, "object"); if ((Number(use, "sender") != 0) != senders) continue;
-                if (object == messageUse) picked = &use;
-                const auto label = Text(use, "name") + "   (" + Text(use, "script") + ")";
-                ImGui::PushID(int(object.object));
-                if (ImGui::Selectable(label.c_str(), messageUse == object, ImGuiSelectableFlags_AllowDoubleClick)) {
-                    messageUse = object; picked = &use;
-                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) Goto(client, use);
+        {
+            setup::SetupColumns columns("##message-sections", 2);
+            if (columns) {
+                columns.Next();
+                ImGui::BeginChild("messagelist", ImVec2(0, height), ImGuiChildFlags_Borders,
+                                  ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::TextDisabled("Messages");
+                const EditorField *chosen = nullptr;
+                for (const auto &row : rows) {
+                    const int type = int(Number(row, "type"));
+                    const auto count = Number(row, "count");
+                    const auto label = Text(row, "name") + (count ? "  (" + std::to_string(count) + ")" : "");
+                    ImGui::PushID(type);
+                    if (ImGui::Selectable(label.c_str(), messageType == type)) {
+                        messageType = type;
+                        messageUse = {};
+                        messageUses.clear();
+                    }
+                    ImGui::PopID();
+                    if (messageType == type)
+                        chosen = &row;
                 }
-                ImGui::PopID();
+                ImGui::EndChild();
+                columns.Next();
+                const float half = (height - ImGui::GetStyle().ItemSpacing.y) * .5f;
+                uint64_t usesRevision = 0;
+                if (chosen) ReadSchematicRows(client, "schematic.message-uses", messageUses, usesRevision, {IntegerArgument("message", uint64_t(messageType))});
+                auto list = [&](const char *id, const char *title, bool senders) {
+                    ImGui::BeginChild(id, ImVec2(0, half), ImGuiChildFlags_Borders,
+                                      ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::TextDisabled("%s", title);
+                    if (chosen) for (const auto &use : messageUses) {
+                            const auto object = Object(use, "object");
+                            if ((Number(use, "sender") != 0) != senders)
+                                continue;
+                            if (object == messageUse)
+                                picked = &use;
+                            const auto label = Text(use, "name") + "   (" + Text(use, "script") + ")";
+                            ImGui::PushID(int(object.object));
+                            if (ImGui::Selectable(label.c_str(), messageUse == object,
+                                                  ImGuiSelectableFlags_AllowDoubleClick)) {
+                                messageUse = object;
+                                picked = &use;
+                                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                                    Goto(client, use);
+                            }
+                            ImGui::PopID();
+                        }
+                    ImGui::EndChild();
+                };
+                list("senders", "Senders", true);
+                list("receivers", "Receivers", false);
             }
-            ImGui::EndChild();
-        };
-        list("senders", "Senders", true); list("receivers", "Receivers", false); ImGui::EndGroup();
+        }
         ImGui::BeginDisabled(!picked); if (ImGui::Button("Goto", ImVec2(90, 0)) && picked) Goto(client, *picked); ImGui::EndDisabled();
         if (!message.empty()) ImGui::TextWrapped("%s", message.c_str());
     }

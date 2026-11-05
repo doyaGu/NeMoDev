@@ -7,6 +7,7 @@
 #    not include it;
 #  - tests/ headers stay within the tests; the test engine's headers
 #    (imgui_te_*) and tests/ui/ headers stay within the UI tests.
+# SetupLayout.h belongs to shared controls (S27); it exposes only ImGui layout.
 # cmake -DVIRTOOLSDEV_SOURCE_DIR=<repository root> -P CheckLayering.cmake
 
 if (NOT VIRTOOLSDEV_SOURCE_DIR)
@@ -91,7 +92,7 @@ foreach (_source IN LISTS _sources)
         endif()
         if(_source MATCHES "^features/runtime/" AND
                 (_path MATCHES "^(core/|CK|Vx|SDL)" OR
-                 (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme)\\.h$")))
+                 (_path MATCHES "^ui/" AND NOT _path STREQUAL "ui/setup/SetupLayout.h" AND NOT _path MATCHES "^ui/controls/(DevBitmaps|DevControls|DevTheme)\\.h$")))
             list(APPEND _errors "${_source}: runtime view includes native or legacy editor state ${_path}")
         endif()
         if(_source MATCHES "^features/layout/" AND NOT _source MATCHES "^features/layout/(Layout(Commands|Gestures|Presentation|Authoring)|SnapshotCommands)\\.(h|cpp)$" AND
@@ -110,7 +111,7 @@ foreach (_source IN LISTS _sources)
         endif()
         if(_source MATCHES "^features/diagnostics/" AND NOT _source MATCHES "^features/diagnostics/DiagnosticCommands\\.(h|cpp)$" AND
                 (_path MATCHES "^(core/|CK|Vx|SDL)" OR
-                 (_path MATCHES "^ui/" AND NOT _path MATCHES "^ui/controls/(DevControls|DevTheme|TypeAhead)\\.h$")))
+                 (_path MATCHES "^ui/" AND NOT _path STREQUAL "ui/setup/SetupLayout.h" AND NOT _path MATCHES "^ui/controls/(DevControls|DevTheme|TypeAhead)\\.h$")))
             list(APPEND _errors "${_source}: diagnostic view includes native or legacy editor state ${_path}")
         endif()
         if(_source MATCHES "^features/values/" AND NOT _source MATCHES "^features/values/ParameterCommands\\.(h|cpp)$" AND

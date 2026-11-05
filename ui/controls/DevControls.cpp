@@ -630,24 +630,6 @@ void Panel(const ImVec2 &min, const ImVec2 &max, float s) {
                 CurrentDevTheme().groupBorder * s);
 }
 
-ImVec2 TemplateClient(const ImVec2 &units, float s, float pad, bool buttons) {
-    return ImVec2(2.0f * 12.0f * s + 2.0f * pad * s + units.x * 1.5f * s,
-                  3.0f * s + 4.0f * s + units.y * 1.5f * s + 5.0f * s + (buttons ? 4.0f * s + 18.0f * s + 5.0f * s : 10.0f * s));
-}
-
-TemplateLayout LayoutTemplate(const ImVec2 &clientOrigin, const ImVec2 &units, float s, float pad) {
-    TemplateLayout layout;
-    layout.s = s;
-    layout.panelMin = ImVec2(clientOrigin.x + 12.0f * s, clientOrigin.y + 3.0f * s);
-    layout.origin = ImVec2(layout.panelMin.x + pad * s, layout.panelMin.y + 4.0f * s);
-    layout.panelMax = ImVec2(layout.origin.x + units.x * 1.5f * s + pad * s, layout.origin.y + units.y * 1.5f * s + 5.0f * s);
-    layout.buttonsY = layout.panelMax.y + 4.0f * s;
-    layout.right = layout.panelMax.x;
-    return layout;
-}
-
-void TemplatePanel(const TemplateLayout &layout) { Panel(layout.panelMin, layout.panelMax, layout.s); }
-
 namespace {
 bool g_DialogButtonsBlocked = false;
 }
