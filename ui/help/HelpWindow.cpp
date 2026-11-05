@@ -2,6 +2,7 @@
 #include "application/EditorApplication.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/runtime/Resources.h"
+#include "ui/setup/SetupLayout.h"
 #include "imgui_internal.h"
 #include "misc/cpp/imgui_stdlib.h"
 #include <SDL3/SDL.h>
@@ -240,26 +241,39 @@ void HelpWindow::Draw(EditorViewFrame &frame) {
     ImGui::SetNextWindowSize(ImVec2(1000, 700), ImGuiCond_FirstUseEver);
     EditorImGuiWindow window(frame);
     if (!window) return;
-    ImGui::BeginDisabled(m_History.empty() || m_Visit == 0);
-    if (ImGui::Button("Back"))
-        History(-1);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::BeginDisabled(m_History.empty() || m_Visit + 1 == m_History.size());
-    if (ImGui::Button("Forward"))
-        History(1);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (ImGui::Button("Home") && m_Loaded)
-        m_Pending = m_Book.Home();
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(100);
-    ImGui::SliderFloat("Zoom", &m_Zoom, 0.75f, 2.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+    const float unit = setup::PageUnit();
+    {
+        setup::SetupColumns tools("##help-tools", 2);
+        if (tools) {
+            tools.Next();
+            ImGui::BeginDisabled(m_History.empty() || m_Visit == 0);
+            if (ImGui::Button("Back"))
+                History(-1);
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            ImGui::BeginDisabled(m_History.empty() || m_Visit + 1 == m_History.size());
+            if (ImGui::Button("Forward"))
+                History(1);
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Home") && m_Loaded)
+                m_Pending = m_Book.Home();
+            tools.Next();
+            ImGui::SetNextItemWidth(std::max(1.f, ImGui::GetContentRegionAvail().x -
+                                                      ImGui::CalcTextSize("Zoom").x -
+                                                      ImGui::GetStyle().ItemInnerSpacing.x));
+            ImGui::SliderFloat("Zoom", &m_Zoom, 0.75f, 2.0f, "%.2fx", ImGuiSliderFlags_AlwaysClamp);
+        }
+    }
     ImGui::TextWrapped(
         "Original Virtools reference. Some features and scripted examples are not available in NeMoDev.");
-    if (ImGui::BeginTable("help", 2, ImGuiTableFlags_Resizable)) {
-        ImGui::TableSetupColumn("Navigation", ImGuiTableColumnFlags_WidthFixed, 270.0f);
-        ImGui::TableSetupColumn("Topic", ImGuiTableColumnFlags_WidthStretch);
+    const bool narrow = ImGui::GetContentRegionAvail().x < 480 * unit;
+    if (ImGui::BeginTable("help", narrow ? 1 : 2, ImGuiTableFlags_Resizable)) {
+        ImGui::TableSetupColumn(
+            "Navigation", narrow ? ImGuiTableColumnFlags_WidthStretch : ImGuiTableColumnFlags_WidthFixed,
+            narrow ? 1.f : 270 * unit);
+        if (!narrow)
+            ImGui::TableSetupColumn("Topic", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableNextColumn();
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyCtrl &&
             ImGui::IsKeyPressed(ImGuiKey_F, false)) {
@@ -269,7 +283,7 @@ void HelpWindow::Draw(EditorViewFrame &frame) {
         ImGui::SetNextItemWidth(-1);
         if (ImGui::InputTextWithHint("##search", "Search all help topics", &m_Query))
             m_Results = m_Book.Search(m_Query);
-        ImGui::BeginChild("navigation", ImVec2(0, 0));
+        ImGui::BeginChild("navigation", {0, narrow ? 160 * unit : 0});
         if (m_Query.empty())
             Contents(m_Book.Contents());
         else {
@@ -287,7 +301,8 @@ void HelpWindow::Draw(EditorViewFrame &frame) {
         ImGui::TableNextColumn();
         const HelpTopic *topic = m_Book.Find(m_Current);
         ImGui::PushStyleColor(ImGuiCol_ChildBg, 0xffffffffu);
-        ImGui::BeginChild("article", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_HorizontalScrollbar);
+        ImGui::BeginChild("article", ImVec2(0, narrow ? 260 * unit : 0), ImGuiChildFlags_None,
+                          ImGuiWindowFlags_HorizontalScrollbar);
         m_ArticleId = ImGui::GetCurrentWindow()->ID;
         if (!m_Error.empty())
             ImGui::TextWrapped("%s", m_Error.c_str());
@@ -408,9 +423,23 @@ bool RegisterHelpViews(EditorApplication &editor, const HtmlFonts *fonts, std::s
     }
     const EditorParameter topic{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, 1};
     const EditorParameter arguments[] = {topic, {EDITOR_TEXT("view"), EDITOR_INTEGER_VALUE, 1}};
-    const EditorCommandDesc command{sizeof(EditorCommandDesc), EDITOR_TEXT("help.open"), EDITOR_TEXT("builtin.help"),
-        EDITOR_TEXT("Online Reference"), arguments, 2, OpenHelp, nullptr, EDITOR_WORKSPACE, EDITOR_SESSION_CHANGE,
-        [](void *, const EditorHost *, const EditorRequest *) {
+    const EditorCommandDesc command{
+        sizeof(EditorCommandDesc),
+        EDITOR_TEXT("help.open"),
+        EDITOR_TEXT("builtin.help"),
+        EDITOR_TEXT("Online Reference"),
+        arguments,
+        2,
+        OpenHelp,
+        &editor,
+        EDITOR_WORKSPACE,
+        EDITOR_SESSION_CHANGE,
+        [](void *data, const EditorHost *, const EditorRequest *) {
+            const auto &configuration = static_cast<EditorApplication *>(data)->Configuration();
+            for (const auto &choice : configuration.providers)
+                if (choice.kind == "view" && choice.id == "help.reference" &&
+                    choice.provider != "builtin.help")
+                    return EDITOR_OK;
             std::error_code error;
             return std::filesystem::is_regular_file(std::filesystem::u8path(DataFilePath("help/help.ndh")), error) ?
                 EDITOR_OK : EDITOR_REFUSED;
@@ -468,6 +497,9 @@ bool RegisterHelpViews(EditorApplication &editor, const HtmlFonts *fonts, std::s
         {EDITOR_TEXT("positions"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("visited"), EDITOR_TEXT_LIST}};
     view.settings = settings;
     view.settingCount = uint32_t(std::size(settings));
+    view.inspect = view.saveState;
+    view.fields = settings;
+    view.fieldCount = view.settingCount;
     const EditorBindingDesc binding{EDITOR_TEXT("help.open"), EDITOR_TEXT("F1")};
     const EditorMenuLocation location{EDITOR_TEXT("help.reference"), EDITOR_TEXT("Help menu")};
     const EditorMenuDesc menu{EDITOR_TEXT("help.reference"), EDITOR_TEXT("help.open"),

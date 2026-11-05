@@ -101,6 +101,7 @@ WorkspaceConfiguration DefaultWorkspaceConfiguration() {
                                       {"view", "document.output-dialogs", "builtin.output-dialogs"},
                                       {"view", "resource.file-dialogs", "builtin.resource-dialogs"},
                                       {"view", "application.event-log", "builtin.log"},
+                                      {"view", "help.reference", "builtin.help"},
                                       {"command", "log.append", "builtin.log"},
                                       {"view", "application.messages", "builtin.message-dialogs"},
                                       {"command", "message.show", "builtin.messages"},

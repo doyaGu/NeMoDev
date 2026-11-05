@@ -51,6 +51,8 @@ struct SavedSetupValue {
     std::vector<EditorObject> objects;
     std::vector<uint64_t> integers;
     std::vector<double> reals;
+    std::vector<std::string> texts;
+    mutable std::vector<EditorString> textViews;
     explicit SavedSetupValue(const EditorValue &value)
         : key(value.key.data, value.key.size), text(value.text.data ? value.text.data : "", value.text.size),
           type(value.type), object(value.object), integer(value.integer), real(value.real) {
@@ -60,6 +62,8 @@ struct SavedSetupValue {
             integers.assign(value.integers.data, value.integers.data + value.integers.count);
         if (value.reals.count)
             reals.assign(value.reals.data, value.reals.data + value.reals.count);
+        for (uint32_t i = 0; i < value.texts.count; ++i)
+            texts.emplace_back(value.texts.data[i].data, value.texts.data[i].size);
     }
     EditorValue Borrow() const {
         EditorValue value{};
@@ -72,6 +76,10 @@ struct SavedSetupValue {
         value.objects = {objects.data(), uint32_t(objects.size())};
         value.integers = {integers.data(), uint32_t(integers.size())};
         value.reals = {reals.data(), uint32_t(reals.size())};
+        textViews.clear();
+        for (const auto &text : texts)
+            textViews.push_back({text.data(), uint32_t(text.size())});
+        value.texts = {textViews.data(), uint32_t(textViews.size())};
         return value;
     }
 };
@@ -1708,6 +1716,76 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
              return sink.write(sink.data, fields, 2);
          },
          data, EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, behaviorCounts, 2});
+
+    struct HelpReader {
+        std::vector<SavedSetupValue> state;
+    };
+    static const EditorParameter helpTopic{EDITOR_TEXT("topic"), EDITOR_TEXT_VALUE, 1};
+    static const EditorParameter helpSettings[] = {
+        {EDITOR_TEXT("current"), EDITOR_TEXT_VALUE},  {EDITOR_TEXT("pending"), EDITOR_TEXT_VALUE},
+        {EDITOR_TEXT("query"), EDITOR_TEXT_VALUE},    {EDITOR_TEXT("zoom"), EDITOR_REAL_VALUE},
+        {EDITOR_TEXT("visit"), EDITOR_INTEGER_VALUE}, {EDITOR_TEXT("topics"), EDITOR_TEXT_LIST},
+        {EDITOR_TEXT("positions"), EDITOR_TEXT_LIST}, {EDITOR_TEXT("visited"), EDITOR_TEXT_LIST}};
+    EditorViewDesc help{};
+    help.size = sizeof(help);
+    help.imguiVersion = EDITOR_IMGUI_VERSION;
+    help.id = EDITOR_TEXT("help.reference");
+    help.provider = EDITOR_TEXT("example.help");
+    help.title = EDITOR_TEXT("Help");
+    help.kind = EDITOR_WINDOW_VIEW;
+    help.singleInstance = 1;
+    help.area = EDITOR_WORKSPACE;
+    help.parameters = &helpTopic;
+    help.count = 1;
+    help.stateVersion = 1;
+    help.settings = help.fields = helpSettings;
+    help.settingCount = help.fieldCount = uint32_t(std::size(helpSettings));
+    help.create = [](void *, const EditorHost *, EditorView) -> void * {
+        auto *view = new HelpReader;
+        for (const auto &field : helpSettings) {
+            EditorValue value{};
+            value.key = field.key;
+            value.type = field.type;
+            if (value.type == EDITOR_REAL_VALUE)
+                value.real = 1;
+            view->state.emplace_back(value);
+        }
+        return view;
+    };
+    help.destroy = [](void *data) { delete static_cast<HelpReader *>(data); };
+    help.draw = [](void *data, const EditorHost *, EditorView, EditorViewFrame *frame) {
+        EditorImGuiWindow window(*frame);
+        if (window) {
+            ImGui::TextUnformatted("External Help reader");
+            for (const auto &field : static_cast<HelpReader *>(data)->state)
+                if (field.key == "current")
+                    ImGui::TextWrapped("%s", field.text.c_str());
+        }
+    };
+    help.navigate = [](void *data, const EditorHost *, const EditorRequest *request) {
+        for (auto &field : static_cast<HelpReader *>(data)->state)
+            if (field.key == "current") {
+                const auto &topic = request->values[0].text;
+                field.text.assign(topic.data ? topic.data : "", topic.size);
+            } else if (field.key == "pending")
+                field.text.clear();
+        return EDITOR_OK;
+    };
+    help.saveState = help.inspect = [](void *data, const EditorHost *, const EditorRequest *,
+                                       EditorSink sink) {
+        std::vector<EditorValue> fields;
+        for (const auto &field : static_cast<HelpReader *>(data)->state)
+            fields.push_back(field.Borrow());
+        return sink.write ? sink.write(sink.data, fields.data(), uint32_t(fields.size())) : EDITOR_INVALID;
+    };
+    help.restoreState = [](void *data, const EditorHost *, const EditorRequest *request) {
+        std::vector<SavedSetupValue> next;
+        for (uint32_t i = 0; i < request->count; ++i)
+            next.emplace_back(request->values[i]);
+        static_cast<HelpReader *>(data)->state = std::move(next);
+        return EDITOR_OK;
+    };
+    descriptors->views.push_back(help);
     *out = {};
     out->size = sizeof(*out);
     out->version = EDITOR_VERSION;
