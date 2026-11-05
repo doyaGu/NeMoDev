@@ -339,6 +339,14 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
     endif()
     set(_dev_ui_entities "${_dev_data}/BBSamples/3D Transformations/Add Control Point.cmo")
     virtoolsdev_add_test(VirtoolsDevUi.app VirtoolsDevUiTests --ui-tests "^app$" --ui-results "${_dev_ui_results}/app.xml")
+    virtoolsdev_add_test(VirtoolsDevUi.FrameQueries.StatusControls VirtoolsDevUiTests
+            --ui-tests "status_controls_only_read_runtime_when_displaying_playback"
+            --ui-results "${_dev_ui_results}/frame-query-status.xml")
+    virtoolsdev_add_test(VirtoolsDevUi.FrameQueries.IdleSelection VirtoolsDevUiTests
+            --ui-tests "idle_selection_status_does_not_read_gesture_input"
+            --ui-results "${_dev_ui_results}/frame-query-selection.xml")
+    set_tests_properties(VirtoolsDevUi.FrameQueries.StatusControls VirtoolsDevUi.FrameQueries.IdleSelection
+            PROPERTIES LABELS self-contained)
     virtoolsdev_add_test(VirtoolsDevUi.layoutviews VirtoolsDevUiTests --ui-tests "^layoutviews$" --ui-results "${_dev_ui_results}/layoutviews.xml")
     set_tests_properties(VirtoolsDevUi.layoutviews PROPERTIES LABELS self-contained)
     virtoolsdev_add_test(VirtoolsDevUi.filemenu VirtoolsDevUiTests --ui-tests "^filemenu$" --ui-results "${_dev_ui_results}/filemenu.xml")

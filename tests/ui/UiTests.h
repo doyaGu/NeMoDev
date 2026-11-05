@@ -75,6 +75,7 @@ void RegisterToolsTests(ImGuiTestEngine *engine);
 void RegisterEnvironmentTests(ImGuiTestEngine *engine);
 void RegisterDiagnosticTests(ImGuiTestEngine *engine);
 void RegisterPreferencesTests(ImGuiTestEngine *engine);
+void RegisterFrameQueryTests(ImGuiTestEngine *engine);
 void RegisterPrintTests(ImGuiTestEngine *engine);
 void RegisterPlayerTests(ImGuiTestEngine *engine);
 void RegisterHelpTests(ImGuiTestEngine *engine);

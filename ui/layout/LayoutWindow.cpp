@@ -797,9 +797,9 @@ void LayoutWindow::DebugData(const ImVec2 &at, int x, int y) {
 std::string LayoutWindow::ActionText() const {
     if (!m_Window || !Window().lastUsed)
         return std::string();
-    const bool targeted = EditorClient::Integer(InputState(), "targeted") != 0;
+    const auto targeted = [&] { return EditorClient::Integer(InputState(), "targeted") != 0; };
     if (GestureActive(0))
-        return CameraActionText(CameraAction(Window().gestureAction), true, targeted,
+        return CameraActionText(CameraAction(Window().gestureAction), true, targeted(),
                                 EditorClient::Integer(Window().interaction, "around-selection") != 0);
     if (GestureActive(2))
         return TransformAction(Window().gestureAction) == TransformAction::Translate ? "Moving Objects"
@@ -823,14 +823,14 @@ std::string LayoutWindow::ActionText() const {
     case LayoutTool::EditPoints:
         return GestureActive(1) ? "Moving curve points" : "Edit curve points";
     case LayoutTool::DeletePoints: return "Delete curve points";
-    case LayoutTool::Dolly: return CameraActionText(CameraAction::Dolly, false, targeted, false);
-    case LayoutTool::Zoom: return CameraActionText(CameraAction::Zoom, false, targeted, false);
-    case LayoutTool::Pan: return CameraActionText(CameraAction::Pan, false, targeted, false);
+    case LayoutTool::Dolly: return CameraActionText(CameraAction::Dolly, false, targeted(), false);
+    case LayoutTool::Zoom: return CameraActionText(CameraAction::Zoom, false, targeted(), false);
+    case LayoutTool::Pan: return CameraActionText(CameraAction::Pan, false, targeted(), false);
     case LayoutTool::Orbit:
-        return CameraActionText(Window().orbitMode ? CameraAction::OrbitCamera : CameraAction::Orbit, false, targeted,
+        return CameraActionText(Window().orbitMode ? CameraAction::OrbitCamera : CameraAction::Orbit, false, targeted(),
                                 false);
-    case LayoutTool::Roll: return CameraActionText(CameraAction::Roll, false, targeted, false);
-    case LayoutTool::Fov: return CameraActionText(CameraAction::Fov, false, targeted, false);
+    case LayoutTool::Roll: return CameraActionText(CameraAction::Roll, false, targeted(), false);
+    case LayoutTool::Fov: return CameraActionText(CameraAction::Fov, false, targeted(), false);
     case LayoutTool::Translate: return "Select or Move Objects";
     case LayoutTool::Rotate: return "Select or Rotate Objects";
     case LayoutTool::Scale: return "Select or Scale Objects";

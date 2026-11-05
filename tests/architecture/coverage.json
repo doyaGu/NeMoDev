@@ -1457,7 +1457,9 @@
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
-        "VirtoolsDevUi.layoutviews"
+        "VirtoolsDevUi.layoutviews",
+        "VirtoolsDevUi.FrameQueries.StatusControls",
+        "VirtoolsDevUi.FrameQueries.IdleSelection"
       ],
       "gaps": [
         {

@@ -133,7 +133,7 @@ void EditorStatusBar::Draw(const EditorClient &editor, const StatusBarInfo &info
                 status, false, true);
         separator(206.0f);
         // The frame rate: NA when not playing (Dev hides it with Hide Fps).
-        const auto &runtime = editor.Query("runtime.state");
+        const auto &runtime = RuntimeState(editor);
         const bool running = EditorClient::Integer(runtime, "state") == EDITOR_EXECUTION_RUNNING;
         const auto *measured = EditorClient::Find(runtime, "measured-fps");
         const double measuredFps = measured ? measured->real : 0;
@@ -206,11 +206,21 @@ bool EditorStatusBar::Register(EditorApplication &application, std::string &erro
     module.toolbarItemCount = uint32_t(items.size());
     return application.Register(module, error);
 }
+const EditorResponse &EditorStatusBar::RuntimeState(const EditorClient &editor) {
+    const auto version = editor.Revision("runtime.state");
+    const auto scope = editor.Scope();
+    if (!version || version != m_RuntimeVersion || scope.document != m_RuntimeScope.document ||
+        scope.view != m_RuntimeScope.view) {
+        m_Runtime = editor.Query("runtime.state");
+        m_RuntimeScope = scope;
+        m_RuntimeVersion = m_Runtime.status == EDITOR_OK ? version : 0;
+    }
+    return m_Runtime;
+}
+
 uint32_t EditorStatusBar::DrawControl(const EditorClient &editor, const EditorToolbarFrame &frame) {
     const std::string action(frame.action.data, frame.action.size);
     const ImVec2 at{IM_ROUND(frame.left), IM_ROUND(frame.top)};
-    const auto runtime = editor.Query("runtime.state");
-    const bool running = EditorClient::Integer(runtime, "state") == EDITOR_EXECUTION_RUNNING;
     static const int BOMB[] = {608, 1341, 1342, 1342, 608}, PROFILER[] = {961, 1343, 1344, 1344, 961},
                      REWIND[] = {911, 912, 913, 913, 911}, PLAY[] = {907, 908, 910, 910, 907},
                      STEP[] = {914, 915, 916, 916, 914};
@@ -239,7 +249,7 @@ uint32_t EditorStatusBar::DrawControl(const EditorClient &editor, const EditorTo
         icons = &PLAY;
         id = "play";
         title = "Play/Pause";
-        checked = running;
+        checked = EditorClient::Integer(RuntimeState(editor), "state") == EDITOR_EXECUTION_RUNNING;
     }
     bool right = false;
     const bool clicked = DevBitmapButton(id, at, *icons, checked, frame.enabled, frame.scale, title, &right);

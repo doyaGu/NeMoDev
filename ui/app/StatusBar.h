@@ -14,6 +14,7 @@ public:
     bool Register(EditorApplication &, std::string &);
     void Draw(const EditorClient &, const StatusBarInfo &);
 private:
+    const EditorResponse &RuntimeState(const EditorClient &);
     uint32_t DrawControl(const EditorClient &, const EditorToolbarFrame &);
     void TimeSettingsDialog(const EditorClient &);
     uint64_t m_LogErrorsSeen = 0;
@@ -21,5 +22,8 @@ private:
     bool m_OpenTimeSettings = false, m_HideFps = false;
     int m_TimeFrame = 0, m_TimeBehavior = 0;
     float m_TimeFrameLimit = 60, m_TimeBehaviorLimit = 60, m_TimeScale = 1, m_TimeMin = 1, m_TimeMax = 200;
+    EditorResponse m_Runtime;
+    EditorScope m_RuntimeScope{};
+    uint64_t m_RuntimeVersion = 0;
 };
 } // namespace vdev
