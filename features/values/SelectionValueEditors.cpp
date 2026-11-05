@@ -2,6 +2,7 @@
 #include "features/values/ValueEditors.h"
 #include "core/catalog/ValueText.h"
 #include "ui/controls/DevControls.h"
+#include "ui/setup/SetupLayout.h"
 #include "imgui_internal.h"
 #include <algorithm>
 #include <cmath>
@@ -20,12 +21,11 @@ const EditorField *Field(const std::vector<EditorField> &fields, const char *key
 struct Control {
     const EditorValueInput &input;
     std::vector<EditorField> value;
-    ImVec2 at;
-    float scale;
+    float scale, width;
     bool changed = false, active = false, accept = false, valid = true;
-    explicit Control(const EditorValueInput &input, float width)
-        : input(input), at(ImGui::GetCursorScreenPos()),
-          scale(input.style == EDITOR_VALUE_DIALOG ? input.width / (width * 1.5f) : ImGui::GetFontSize() / 13) {
+    explicit Control(const EditorValueInput &input)
+        : input(input), scale(setup::PageUnit()),
+          width(std::max(1.f, input.width > 0 ? input.width : ImGui::GetContentRegionAvail().x)) {
         valid = CopyEditorFields(value, &input.value, 1) == EDITOR_OK;
         ImGui::PushID(Text(input.label).c_str());
         ImGui::BeginGroup();
@@ -34,16 +34,14 @@ struct Control {
         ImGui::EndGroup();
         ImGui::PopID();
     }
-    ImVec2 P(float x, float y) const { return ImVec2(at.x + x * 1.5f * scale, at.y + y * 1.625f * scale); }
     void Observe() {
         active |= ImGui::IsItemActive() || ImGui::IsItemActivated();
         accept |= ImGui::IsItemDeactivatedAfterEdit();
     }
-    void Label(float x, float y, float right, const char *text) { vi::Text(P(x, y), P(right, y + 10), text); }
-    bool Integer(const char *id, float x, float y, float right, int32_t &number) {
+    bool Integer(const char *id, int32_t &number) {
         std::string text = std::to_string(number);
         bool done = false;
-        const bool edited = vi::Edit(id, P(x, y), P(right, y + 12), text, vi::CENTER, &done);
+        const bool edited = vi::Edit(id, text, vi::CENTER, &done);
         Observe();
         accept |= done;
         if (edited) {
@@ -52,14 +50,14 @@ struct Control {
         }
         return edited && valid;
     }
-    int Combo(const char *id, float x, float y, float right, const std::string &preview, const std::vector<std::string> &names) {
-        const int choice = vi::Combo(id, P(x, y), P(right, y + 12), preview, [&] { return names; }, -1);
+    int Combo(const char *id, const std::string &preview, const std::vector<std::string> &names) {
+        const int choice = vi::Combo(id, preview, [&] { return names; }, -1);
         Observe();
         return choice;
     }
     bool EditCombo(const char *id, std::string &text, const std::vector<std::string> &names) {
         bool editing = false;
-        const bool done = vi::EditCombo(id, P(15, 0), P(210, 12), text, [&] { return names; }, &editing);
+        const bool done = vi::EditCombo(id, text, [&] { return names; }, &editing);
         active |= editing;
         accept |= done;
         return done;
@@ -256,21 +254,26 @@ const Key keys[] = {{ImGuiKey_Escape, 1},
 } // namespace
 uint32_t DrawTimeValue(void *, const EditorHost *, const EditorValueInput *input) {
     if (input->value.type != EDITOR_REAL_VALUE || !std::isfinite(input->value.real)) return EDITOR_INPUT_INVALID;
-    Control ui(*input, 171);
+    Control ui(*input);
     if (!ui.valid) return EDITOR_INPUT_INVALID;
     auto &time = ui.value.front().real;
     const double parts[] = {std::trunc(time / 60000), std::trunc(std::fmod(time, 60000) / 1000), std::fmod(time, 1000)};
     const char *ids[] = {"##min", "##s", "##ms"};
     const char *labels[] = {"Min:", "S:", "Ms:"};
-    const float labelX[] = {5, 50, 90}, editX[] = {20, 60, 105}, factors[] = {60000, 1000, 1};
+    const double factors[] = {60000, 1000, 1};
+    setup::SetupColumns columns("##time-sections", 3, ui.width);
+    if (!columns) return ui.Finish();
     for (unsigned i = 0; i < 3; ++i) {
-        ui.Label(labelX[i], 0, editX[i] - 2, labels[i]);
+        columns.Next();
+        setup::SetupForm form("##time-component");
+        if (!form) continue;
+        form.Row(labels[i]);
         std::string text;
         char number[48];
         std::snprintf(number, sizeof(number), "%.12g", parts[i]);
         text = number;
         bool done = false;
-        if (vi::Edit(ids[i], ui.P(editX[i], 0), ui.P(editX[i] + 25, 12), text, vi::CENTER, &done)) {
+        if (vi::Edit(ids[i], text, vi::CENTER, &done)) {
             double parsed = 0;
             ui.valid &= ParseRealValue(text, parsed);
             if (ui.valid) {
@@ -285,7 +288,7 @@ uint32_t DrawTimeValue(void *, const EditorHost *, const EditorValueInput *input
 }
 uint32_t DrawKeyValue(void *, const EditorHost *, const EditorValueInput *input) {
     if (input->value.type != EDITOR_INTEGER_VALUE) return EDITOR_INPUT_INVALID;
-    Control ui(*input, 146);
+    Control ui(*input);
     if (!ui.valid) return EDITOR_INPUT_INVALID;
     auto *storage = ImGui::GetStateStorage();
     const auto waitingKey = ImGui::GetID("key-capture");
@@ -299,7 +302,9 @@ uint32_t DrawKeyValue(void *, const EditorHost *, const EditorValueInput *input)
             if (int64_t(input->value.integer) == key.scan) name = ImGui::GetKeyName(key.key);
     if (name.empty() || !input->value.integer) name = "Click Here and Push a Key";
     if (waiting) name = "Push a Key";
-    const bool clicked = vi::Button("##key", ui.P(0, 1), ui.P(145, 14), name.c_str());
+    const auto at = ImGui::GetCursorScreenPos();
+    const bool clicked = vi::Button("##key", at,
+        {at.x + ui.width, at.y + std::max(ImGui::GetFrameHeight(), 19.5f * ui.scale)}, name.c_str());
     const bool stopped = clicked && waiting;
     if (clicked) waiting = !waiting;
     const auto id = ImGui::GetItemID();
@@ -330,14 +335,17 @@ uint32_t DrawKeyValue(void *, const EditorHost *, const EditorValueInput *input)
 }
 uint32_t DrawAnimationValue(void *, const EditorHost *host, const EditorValueInput *input) {
     if (input->value.type != EDITOR_OBJECT) return EDITOR_INPUT_INVALID;
-    Control ui(*input, 216);
+    Control ui(*input);
     if (!ui.valid) return EDITOR_INPUT_INVALID;
     Choices choices;
     if (!choices.Load(host, *input)) return EDITOR_INPUT_INVALID;
     const auto objects = choices.Objects();
     const auto &names = choices.Names();
     if (names.size() != objects.size()) return EDITOR_INPUT_INVALID;
-    const int selected = ui.Combo("##objects", 15, 0, 210, Display(*input), names);
+    setup::SetupForm form("##animation-fields", ui.width);
+    if (!form) return ui.Finish();
+    form.Row("Animation:");
+    const int selected = ui.Combo("##objects", Display(*input), names);
     if (selected >= 0) {
         ui.value.front().object = objects[size_t(selected)];
         ui.changed = ui.accept = true;
@@ -346,7 +354,7 @@ uint32_t DrawAnimationValue(void *, const EditorHost *host, const EditorValueInp
 }
 uint32_t DrawScriptValue(void *, const EditorHost *host, const EditorValueInput *input) {
     if (input->value.type != EDITOR_OBJECT) return EDITOR_INPUT_INVALID;
-    Control ui(*input, 216);
+    Control ui(*input);
     if (!ui.valid) return EDITOR_INPUT_INVALID;
     const bool fresh = ValueTargetChanged(*input);
     auto *storage = ImGui::GetStateStorage();
@@ -372,7 +380,10 @@ uint32_t DrawScriptValue(void *, const EditorHost *host, const EditorValueInput 
         if (owners[i] == owner->object) shown = names[i];
     for (size_t i = 0; i < classes.size(); ++i)
         if (classes[i] == cid->integer) classShown = classNames[i];
-    int selected = ui.Combo("##owner", 15, 0, 135, shown, names);
+    setup::SetupForm form("##script-fields", ui.width);
+    if (!form) return ui.Finish();
+    form.Row("Owner:");
+    int selected = ui.Combo("##owner", shown, names);
     if (selected >= 0) {
         SaveOwner(owners[size_t(selected)]);
         storage->SetBool(ownerKey, true);
@@ -384,7 +395,8 @@ uint32_t DrawScriptValue(void *, const EditorHost *host, const EditorValueInput 
         ui.value.front().object = scripts.empty() ? ObjectRef{} : scripts.front();
         ui.changed = ui.accept = true;
     }
-    selected = ui.Combo("##ownerclass", 135, 0, 210, classShown, classNames);
+    form.Row("Class:");
+    selected = ui.Combo("##ownerclass", classShown, classNames);
     if (selected >= 0) {
         storage->SetInt(classKey, int(classes[size_t(selected)]));
         storage->SetBool(ownerKey, true);
@@ -392,7 +404,8 @@ uint32_t DrawScriptValue(void *, const EditorHost *host, const EditorValueInput 
     }
     const auto scripts = choices.Objects();
     if (scripts.size() != choices.Names().size()) return EDITOR_INPUT_INVALID;
-    selected = ui.Combo("##script", 15, 15, 210, Display(*input), choices.Names());
+    form.Row("Script:");
+    selected = ui.Combo("##script", Display(*input), choices.Names());
     if (selected >= 0) {
         ui.value.front().object = scripts[size_t(selected)];
         ui.changed = ui.accept = true;
@@ -401,13 +414,16 @@ uint32_t DrawScriptValue(void *, const EditorHost *host, const EditorValueInput 
 }
 uint32_t DrawMessageValue(void *, const EditorHost *host, const EditorValueInput *input) {
     if (input->value.type != EDITOR_RECORD) return EDITOR_INPUT_INVALID;
-    Control ui(*input, 216);
+    Control ui(*input);
     if (!ui.valid) return EDITOR_INPUT_INVALID;
     Choices choices;
     if (!choices.Load(host, *input)) return EDITOR_INPUT_INVALID;
     auto *id = ui.Member("id"), *name = ui.Member("name");
     if (!id || !name) return EDITOR_INPUT_INVALID;
     auto text = name->text;
+    setup::SetupForm form("##message-fields", ui.width);
+    if (!form) return ui.Finish();
+    form.Row("Message:");
     if (ui.EditCombo("##message", text, choices.Names())) {
         id->integer = uint64_t(int64_t(-1));
         name->text = text;
@@ -421,7 +437,7 @@ uint32_t DrawMessageValue(void *, const EditorHost *host, const EditorValueInput
 }
 uint32_t DrawAttributeValue(void *, const EditorHost *host, const EditorValueInput *input) {
     if (input->value.type != EDITOR_INTEGER_VALUE) return EDITOR_INPUT_INVALID;
-    Control ui(*input, 221);
+    Control ui(*input);
     if (!ui.valid) return EDITOR_INPUT_INVALID;
     auto *storage = ImGui::GetStateStorage();
     const auto categoryKey = ImGui::GetID("attribute-category");
@@ -435,20 +451,23 @@ uint32_t DrawAttributeValue(void *, const EditorHost *host, const EditorValueInp
         if (!choices.Load(host, *input, {{"category", EDITOR_TEXT_VALUE, {}, categories[size_t(category)]}})) return EDITOR_INPUT_INVALID;
     auto values = choices.Integers();
     if (values.size() != choices.Names().size()) return EDITOR_INPUT_INVALID;
-    int selected = ui.Combo("##attribute", 15, 0, 210, Display(*input), choices.Names());
+    setup::SetupForm form("##attribute-fields", ui.width);
+    if (!form) return ui.Finish();
+    form.Row("Attribute:");
+    int selected = ui.Combo("##attribute", Display(*input), choices.Names());
     if (selected >= 0) {
         ui.value.front().integer = values[size_t(selected)];
         ui.changed = ui.accept = true;
     }
     const auto *shown = Field(choices.fields, "category");
-    selected = ui.Combo("##category", 15, 15, 170, shown ? shown->text : "", categories);
+    form.Row("Category:");
+    selected = ui.Combo("##category", shown ? shown->text : "", categories);
     if (selected >= 0) storage->SetInt(categoryKey, selected);
-    ui.Label(170, 15, 208, "Category");
     return ui.Finish();
 }
 uint32_t DrawSynchroValue(void *, const EditorHost *host, const EditorValueInput *input) {
     if (input->value.type != EDITOR_RECORD) return EDITOR_INPUT_INVALID;
-    Control ui(*input, 216);
+    Control ui(*input);
     if (!ui.valid) return EDITOR_INPUT_INVALID;
     Choices choices;
     if (!choices.Load(host, *input)) return EDITOR_INPUT_INVALID;
@@ -464,6 +483,9 @@ uint32_t DrawSynchroValue(void *, const EditorHost *host, const EditorValueInput
     std::vector<std::string> names;
     for (size_t i = 0; i < refs.size(); ++i)
         if (refs[i]) names.push_back(choices.Names()[i]);
+    setup::SetupForm form("##synchro-fields", ui.width);
+    if (!form) return ui.Finish();
+    form.Row("Synchro:");
     if (ui.EditCombo("##synchro", shown, names)) {
         object->object = {};
         name->text = shown;
@@ -492,12 +514,12 @@ uint32_t DrawSynchroValue(void *, const EditorHost *host, const EditorValueInput
     object = ui.Member("object"); name = ui.Member("name");
     const auto *usersEditable = Field(choices.fields, "has-users");
     const bool hasUsers = usersEditable && usersEditable->type == EDITOR_INTEGER_VALUE && usersEditable->integer;
-    ui.Label(15, 15, 150, "Number Of Users:");
+    form.Row("Number Of Users:");
     if (hasUsers) {
         ImGui::BeginDisabled(!object->object && name->text.empty());
         auto *count = ui.Member("users");
         int32_t number = count ? int32_t(int64_t(count->integer)) : 0;
-        if (ui.Integer("##users", 155, 15, 210, number)) {
+        if (ui.Integer("##users", number)) {
             if (count) count->integer = uint64_t(int64_t(number));
             else ui.value.front().fields.push_back({"users", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(int64_t(number))});
             if (!ui.Member("set-users")) ui.value.front().fields.push_back({"set-users", EDITOR_INTEGER_VALUE, {}, {}, 1});

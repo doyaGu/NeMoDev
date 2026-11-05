@@ -52,8 +52,9 @@ public:
     // 100 pixels wide (Dev's Edit Parameters, Dev.exe sub_582930); else the
     // widest name (Dev's Edit Parameter).
     ImVec2 Size(float scale, bool minimum) const;
-    // Draws the rows at at. True when a value changed.
-    bool Draw(const ImVec2 &at, float scale, bool minimum);
+    // Draws the rows at at. True when a value changed. drawnSize receives
+    // current bounds, including reflowed and nested value editors.
+    bool Draw(const ImVec2 &at, float scale, bool minimum, ImVec2 *drawnSize = nullptr);
     // True when a working copy differs from its parameter.
     bool Changed() const;
     bool Valid() const;
@@ -117,8 +118,9 @@ private:
     Layout LayoutOf(const Row &row, float labelWidth, float scale) const;
     ImVec2 UiSize(const Row &row, float scale) const;
     float RowsHeight(const std::vector<Row> &rows, float scale, bool minimum, float *width) const;
-    bool DrawRows(std::vector<Row> &rows, const ImVec2 &at, float scale, bool minimum);
-    bool DrawUi(Row &row, const ImVec2 &at, float scale);
+    bool DrawRows(std::vector<Row> &rows, const ImVec2 &at, float scale, bool minimum,
+                  float width = 0, ImVec2 *drawnSize = nullptr);
+    bool DrawUi(Row &row, const ImVec2 &at, float scale, float width);
     bool ObjectArrayUi(Row &row, const EditorValueInput &, const ImVec2 &at, float scale);
     // The target button (CK2UI's StartPick and WindowProc): the row being
     // picked for, the object of its class under the mouse (message 0x607 to

@@ -14,7 +14,18 @@
 #include <cstring>
 
 namespace vdev {
-namespace { constexpr float DLU_X = 1.5f, DLU_Y = 1.625f; }
+namespace {
+constexpr float DLU_X = 1.5f, DLU_Y = 1.625f;
+bool UsesAvailableWidth(ParameterUI ui) {
+    switch (ui) {
+    case ParameterUI::Time: case ParameterUI::Key: case ParameterUI::Script:
+    case ParameterUI::Message: case ParameterUI::Attribute: case ParameterUI::Animation:
+    case ParameterUI::Synchro: case ParameterUI::Curve2D: case ParameterUI::Dependencies:
+    case ParameterUI::LodOptions: case ParameterUI::Struct: return true;
+    default: return false;
+    }
+}
+}
 ParameterBox::~ParameterBox() { Clear(); }
 
 
@@ -150,7 +161,7 @@ ImVec2 ParameterBox::Size(float s, bool minimum) const {
     return ImVec2(width, height);
 }
 
-bool ParameterBox::Draw(const ImVec2 &at, float s, bool minimum) {
+bool ParameterBox::Draw(const ImVec2 &at, float s, bool minimum, ImVec2 *drawnSize) {
     m_InputAction = 0;
     if (Stale()) return false;
     ImGui::PushID(this);
@@ -179,7 +190,7 @@ bool ParameterBox::Draw(const ImVec2 &at, float s, bool minimum) {
     const bool captured = wasCaptured || (m_PickWork && m_PickClick);
     vi::BlockDialogButtons(captured);
     if (captured) ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
-    changed = DrawRows(m_Rows, at, s, minimum) || changed;
+    changed = DrawRows(m_Rows, at, s, minimum, 0, drawnSize) || changed;
     if (captured) ImGui::PopItemFlag();
     ImGui::PopID();
     return changed;
@@ -188,29 +199,31 @@ bool ParameterBox::Draw(const ImVec2 &at, float s, bool minimum) {
 // The rows one under the other, 1 pixel apart (Dev.exe sub_584150); the
 // gap shows the box's light background and, right of the names, a line of
 // ZC 6 (sub_58BDD0).
-bool ParameterBox::DrawRows(std::vector<Row> &rows, const ImVec2 &at, float s, bool minimum) {
-    ImDrawList *dl = ImGui::GetWindowDrawList();
+bool ParameterBox::DrawRows(std::vector<Row> &rows, const ImVec2 &at, float s, bool minimum,
+                             float available, ImVec2 *drawnSize) {
+    auto *dl = ImGui::GetWindowDrawList();
     const float labels = LabelWidth(rows, s, minimum);
-    float width = 0.0f;
-    RowsHeight(rows, s, minimum, &width);
-    float y = at.y;
+    float width = available > 0 ? available : ImGui::GetContentRegionAvail().x;
+    for (const auto &row : rows)
+        if (!UsesAvailableWidth(row.info.ui)) {
+            const auto layout = LayoutOf(row, labels, s);
+            width = std::max(width, layout.uiX + layout.uiWidth);
+        }
+    width = std::max(1.f, width);
+    float y = at.y, measuredWidth = width;
     bool changed = false;
+    ImDrawListSplitter paint;
+    paint.Split(dl, 2);
+    ImGui::SetCursorScreenPos(at);
+    ImGui::BeginGroup();
     for (size_t i = 0; i < rows.size(); ++i) {
         Row &row = rows[i];
-        const Layout layout = LayoutOf(row, labels, s);
-        if (i) {
-            dl->AddRectFilled(ImVec2(at.x, y), ImVec2(at.x + width, y + 1.0f), vi::Color(7));
-            dl->AddLine(ImVec2(at.x + layout.uiX, y + 0.5f), ImVec2(at.x + width, y + 0.5f), vi::Color(6));
-            y += 1.0f;
-        }
-        const ImVec2 min(at.x, y), max(at.x + layout.uiX + layout.uiWidth, y + layout.height);
-        row.drawnMin = min;
-        row.drawnMax = max;
-        // CK2UI's wrapper (sub_24E64E80, WM_PAINT): the names' part ZC 6, a
-        // black line, the UI's part ZC 7.
-        dl->AddRectFilled(min, ImVec2(min.x + layout.uiX - 1.0f, max.y), vi::Color(6));
-        dl->AddLine(ImVec2(min.x + layout.uiX - 0.5f, min.y), ImVec2(min.x + layout.uiX - 0.5f, max.y), vi::Color(0));
-        dl->AddRectFilled(ImVec2(min.x + layout.uiX, min.y), max, vi::Color(7));
+        auto layout = LayoutOf(row, labels, s);
+        const bool flexible = UsesAvailableWidth(row.info.ui);
+        if (flexible) layout.uiWidth = std::max(100.f * s, width - layout.uiX);
+        if (i) y += 1.f;
+        const ImVec2 min(at.x, y);
+        paint.SetCurrentChannel(dl, 1);
         ImGui::PushID(static_cast<int>(i));
         // The buttons (dialog 2000: (3, 1) and (3, 8)): the expand button
         // (CK2UI bitmaps 2006 / 2008 / 2003) above the target button
@@ -267,18 +280,48 @@ bool ParameterBox::DrawRows(std::vector<Row> &rows, const ImVec2 &at, float s, b
         } else if (row.info.pick) {
             pick(1.0f);
         }
-        const float uiY = y + (layout.height - layout.uiHeight) * 0.5f;
-        vi::Text(ImVec2(min.x + 14.0f * DLU_X * s, uiY), ImVec2(min.x + layout.uiX - 2.0f * s, uiY + 13.0f * s),
-                 row.label.c_str(), true);
-        if (DrawUi(row, ImVec2(min.x + layout.uiX, uiY), s)) changed = true;
+        const float uiY = flexible ? y + s : y + (layout.height - layout.uiHeight) * .5f;
+        ImGui::SetCursorScreenPos({min.x + layout.uiX, uiY});
+        ImGui::BeginGroup();
+        if (DrawUi(row, {min.x + layout.uiX, uiY}, s, layout.uiWidth)) changed = true;
+        ImGui::EndGroup();
+        if (flexible) {
+            const auto size = ImGui::GetItemRectSize();
+            layout.uiWidth = std::max(layout.uiWidth, size.x);
+            layout.uiHeight = size.y;
+            const float side = row.info.expand && row.info.pick ? 15.f * DLU_Y * s : 11.f * DLU_Y * s;
+            layout.height = std::max(size.y, side) + 2.f * s;
+        }
+        vi::Text({min.x + 14.f * DLU_X * s, uiY},
+                 {min.x + layout.uiX - 2.f * s, uiY + 13.f * s}, row.label.c_str(), true);
         ImGui::PopID();
-        y += layout.height;
+        const float right = std::max(width, layout.uiX + layout.uiWidth);
+        const ImVec2 max(at.x + right, y + layout.height);
+        row.drawnMin = min; row.drawnMax = max;
+        measuredWidth = std::max(measuredWidth, right);
+        // The existing row colors are painted behind the measured controls.
+        // A taller form or nested value cannot cover the following row.
+        paint.SetCurrentChannel(dl, 0);
+        if (i) {
+            dl->AddRectFilled({at.x, y - 1}, {max.x, y}, vi::Color(7));
+            dl->AddLine({at.x + layout.uiX, y - .5f}, {max.x, y - .5f}, vi::Color(6));
+        }
+        dl->AddRectFilled(min, {min.x + layout.uiX - 1, max.y}, vi::Color(6));
+        dl->AddLine({min.x + layout.uiX - .5f, min.y}, {min.x + layout.uiX - .5f, max.y}, vi::Color(0));
+        dl->AddRectFilled({min.x + layout.uiX, min.y}, max, vi::Color(7));
+        y = max.y;
     }
+    paint.Merge(dl);
+    const ImVec2 size(measuredWidth, y - at.y);
+    ImGui::SetCursorScreenPos(at);
+    ImGui::Dummy(size);
+    ImGui::EndGroup();
+    if (drawnSize) *drawnSize = size;
     return changed;
 }
 
 // The type's UI at its dialog's top-left corner.
-bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
+bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
     if (!m_Copies.Current(row.workReference)) return false;
     const auto work = row.workReference;
     if (row.typed && !row.References()) { row.invalid = true; return false; }
@@ -398,17 +441,17 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
     case ParameterUI::Struct:
     case ParameterUI::ObjectArray: {
         if (!row.typed) {
-            if (row.info.ui == ParameterUI::Struct) changed = DrawRows(row.members, at, s, false);
+            if (row.info.ui == ParameterUI::Struct) changed = DrawRows(row.members, at, s, false, width);
             else row.invalid = true;
             break;
         }
-        struct Members { ParameterBox *box; Row *row; ImVec2 at; float scale; } members{this, &row, at, s};
+        struct Members { ParameterBox *box; Row *row; ImVec2 at; float scale, width; } members{this, &row, at, s, width};
         const auto draw = [](void *data, const EditorHost *, const EditorValueInput *input) -> uint32_t {
             auto &view = *static_cast<Members *>(data);
             auto &box = *view.box; auto &row = *view.row;
             const auto previous = box.m_InputAction; box.m_InputAction = 0;
             ImGui::BeginGroup();
-            const bool changed = row.info.ui == ParameterUI::Struct ? box.DrawRows(row.members, view.at, view.scale, false) : box.ObjectArrayUi(row, *input, view.at, view.scale);
+            const bool changed = row.info.ui == ParameterUI::Struct ? box.DrawRows(row.members, view.at, view.scale, false, view.width) : box.ObjectArrayUi(row, *input, view.at, view.scale);
             ImGui::EndGroup();
             auto action = box.m_InputAction;
             if (ImGui::IsItemActive() || ImGui::IsItemActivated()) action |= EDITOR_INPUT_ACTIVE;
@@ -430,7 +473,7 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         };
         ImGui::SetCursorScreenPos(at);
         const auto size = UiSize(row, s);
-        const auto action = ParameterDraftEditor(m_Copies, work, "##members", size.x, size.y, 0, true, {},
+        const auto action = ParameterDraftEditor(m_Copies, work, "##members", row.info.ui == ParameterUI::Struct ? width : size.x, size.y, 0, true, {},
             row.References(), &row.property, &m_Editors, 0, &row.beforeInteraction, draw, &members);
         m_InputAction |= action;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
@@ -451,7 +494,7 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s) {
         if (!row.typed) { textEdit(15, 205, vi::LEFT); break; }
         ImGui::SetCursorScreenPos(at);
         const auto size = UiSize(row, s);
-        const auto action = ParameterDraftEditor(m_Copies, work, "##specialized", size.x, size.y, 0, true, {},
+        const auto action = ParameterDraftEditor(m_Copies, work, "##specialized", width, size.y, 0, true, {},
             row.References(), &row.property, &m_Editors, unsigned(row.collapsed), &row.beforeInteraction);
         m_InputAction |= action;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
@@ -548,8 +591,8 @@ DialogAction DrawParameterDialog(const char *id, const std::string &title, Param
             }
         }
         const auto at = ImGui::GetCursorScreenPos();
-        box.Draw(at, s, minimum);
-        const auto measured = box.Size(s, minimum);
+        ImVec2 measured;
+        box.Draw(at, s, minimum, &measured);
         ImGui::GetWindowDrawList()->AddRect({at.x - s, at.y - s}, {at.x + measured.x + s, at.y + measured.y + s},
                                             vi::Color(0));
         ImGui::SetCursorScreenPos(at);

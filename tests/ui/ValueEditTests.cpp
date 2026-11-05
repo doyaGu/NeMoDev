@@ -3,6 +3,7 @@
 #include "core/level/LevelCommands.h"
 #include "ui/controls/ParameterBox.h"
 #include "workspace/EditorClient.h"
+#include <algorithm>
 #include <memory>
 #include <cmath>
 
@@ -247,8 +248,31 @@ void SelectorFixture(bool dialog = true, bool nested = false, bool compact = fal
     } else { editing.property=nested?"parameter.structure":"parameter.time"; editing.owner=(&App().WorkspaceForTests())->Application().OpenScope(); editing.inlineValue=true; editing.inlineHeight=600; }
     state.History().Clear(); state.document->MarkSaved(); state.History().MarkSavePoint();
 }
-void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
+// Responsive editors can place fields below or beside the visible content.
+// Find them by scrolling the same value area a user scrolls, then let the
+// test engine focus and operate the original input.
+void ShowValueItem(ImGuiTestContext *ctx, const char *path) {
+    if (ctx->ItemExists(path) || !editing.open || !editing.box) return;
+    for (int x = 0; x < 2; ++x) for (int y = 0; y <= 8; ++y) {
+        OnMainThread(ctx, [=] {
+            const auto *parent = ImGui::FindWindowByName(dialog);
+            for (auto *window : ImGui::GetCurrentContext()->Windows)
+                if (window->ParentWindow == parent && std::string(window->Name).find("##parameter-values_") != std::string::npos) {
+                    ImGui::SetScrollX(window, x ? window->ScrollMax.x : 0);
+                    ImGui::SetScrollY(window, window->ScrollMax.y * float(y) / 8);
+                }
+        });
+        ctx->Yield(2);
+        if (ctx->ItemExists(path)) return;
+    }
+    IM_CHECK_NO_RET(ctx->ItemExists(path));
+}
+void ClickValueItem(ImGuiTestContext *ctx, const char *path) {
+    ShowValueItem(ctx, path);
     ctx->ItemClick(path);
+}
+void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
+    ClickValueItem(ctx, path);
     ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
     ctx->KeyChars(text);
     ctx->Yield(2);
@@ -949,8 +973,8 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
         const auto curve = Value(ctx, editing.parameters[0]), dependencies = Value(ctx, editing.parameters[1]), lod = Value(ctx, editing.parameters[2]);
         Input(ctx, "**/##cy", "0.25");
-        ctx->ItemClick("**/$$1/##specialized/$$1/##radio");
-        ctx->ItemClick("**/##alpha"); ctx->Yield(2);
+        ClickValueItem(ctx, "**/$$1/##specialized/$$1/##radio");
+        ClickValueItem(ctx, "**/##alpha"); ctx->Yield(2);
         Input(ctx, "**/##screenmag", "25%"); Input(ctx, "**/##alphamag", "50%");
         IM_CHECK(Value(ctx, editing.parameters[0]) == curve && Value(ctx, editing.parameters[1]) == dependencies && Value(ctx, editing.parameters[2]) == lod);
         ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
@@ -1009,15 +1033,16 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
         const auto before = Value(ctx, editing.parameters[1]);
-        ctx->ItemClick("**/$$2/##radio"); ctx->Yield(3);
+        ClickValueItem(ctx, "**/$$2/##radio"); ctx->Yield(3);
         const auto custom = WorkingValue(ctx);
+        ShowValueItem(ctx, "**/$$0/##option");
         ctx->MouseMove("**/$$0/##option"); ctx->MouseDown(0); ctx->Yield(2);
         ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(2);
         IM_CHECK(WorkingValue(ctx) == custom && Read<bool>(ctx, [] { return editing.open; }));
         ctx->ItemClick("**/$$0/##option"); ctx->Yield(2);
         const auto changed = WorkingValue(ctx);
         IM_CHECK(changed.options != custom.options && changed.options.back() == 0xabcdef01);
-        ctx->ItemClick("**/$$1/##radio"); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        ClickValueItem(ctx, "**/$$1/##radio"); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
         const auto applied = Value(ctx, editing.parameters[1]);
         IM_CHECK(applied.integer == CK_DEPENDENCIES_FULL && applied.options == changed.options && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
         ctx->ItemClick("**/Cancel/##dialogbutton"); OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
@@ -1028,7 +1053,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SpecializedFixture(true, true); });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues"); const auto before = Value(ctx, editing.parameters[0]);
-        Input(ctx, "**/##cy", "0.3"); ctx->ItemClick("**/##alpha");
+        Input(ctx, "**/##cy", "0.3"); ClickValueItem(ctx, "**/##alpha");
         Input(ctx, "**/##screenmag", "25%"); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
         const auto applied = Value(ctx, editing.parameters[0]);
         IM_CHECK(applied.members[0].curve.points[0].values[1] == double(float(.3)) && applied.members[2].components[0] == .25);
@@ -1079,14 +1104,14 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(WorkingValue(ctx).real==121345.5);
         Input(ctx,"**/##ms","876.25"); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
         IM_CHECK(WorkingValue(ctx).real==121345.5 && Read<bool>(ctx, [] { return editing.open; }));
-        ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_KeypadEnter); ctx->Yield(2);
+        ClickValueItem(ctx, "**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_KeypadEnter); ctx->Yield(2);
         IM_CHECK(WorkingValue(ctx,1).integer==0x9c && IntegerValue(ctx,editing.parameters[1])==0x1e);
         ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
         IM_CHECK(Value(ctx,editing.parameters[0]).real==121345.5 && IntegerValue(ctx,editing.parameters[1])==0x9c &&
             Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
-        ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2); ctx->KeyPress(ImGuiKey_B); ctx->Yield(2);
+        ClickValueItem(ctx, "**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2); ctx->KeyPress(ImGuiKey_B); ctx->Yield(2);
         IM_CHECK(WorkingValue(ctx,1).integer==0x9c && Read<bool>(ctx, [] { return editing.open; }));
-        ctx->ItemClick("**/##key"); ctx->Yield(2);
+        ClickValueItem(ctx, "**/##key"); ctx->Yield(2);
         ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(2);
         IM_CHECK(Read<bool>(ctx, [] { return !editing.open; }));
         OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
@@ -1103,14 +1128,14 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(Value(ctx,editing.parameters[0]).real==61700.25 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==1);
         OnMainThread(ctx, [] { auto &app=(&App().WorkspaceForTests())->Application(); if(editing.edit)app.FinishEdit(editing.edit,false); editing.edit=0;
             editing.target=App().State().document->Reference(editing.parameters[1]); editing.property="parameter.key"; });
-        ctx->Yield(3); ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_B); ctx->Yield(3);
+        ctx->Yield(3); ClickValueItem(ctx, "**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_B); ctx->Yield(3);
         IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==2);
-        ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_Escape); ctx->KeyPress(ImGuiKey_C); ctx->Yield(3);
+        ClickValueItem(ctx, "**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_Escape); ctx->KeyPress(ImGuiKey_C); ctx->Yield(3);
         IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30 && Read<size_t>(ctx, [] { return App().State().History().UndoCount(); })==2);
-        ctx->ItemClick("**/##key"); ctx->Yield(2);
+        ClickValueItem(ctx, "**/##key"); ctx->Yield(2);
         OnMainThread(ctx, [] { editing.focusWindow=true; }); ctx->Yield(2); ctx->SetRef("//Capture focus"); ctx->ItemClick("Other input");
         ctx->KeyPress(ImGuiKey_E); ctx->Yield(2); IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30);
-        ctx->SetRef("//Typed inline"); ctx->ItemClick("**/##key"); ctx->Yield(2);
+        ctx->SetRef("//Typed inline"); ClickValueItem(ctx, "**/##key"); ctx->Yield(2);
         OnMainThread(ctx, [] { editing.inlineValue=false; editing.focusWindow=false; }); ctx->Yield(3);
         OnMainThread(ctx, [] { editing.inlineValue=true; }); ctx->Yield(3); ctx->KeyPress(ImGuiKey_D); ctx->Yield(2);
         IM_CHECK(IntegerValue(ctx,editing.parameters[1])==0x30);
@@ -1149,13 +1174,13 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(); });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues"); const auto script=Value(ctx,editing.parameters[2]);
         const auto animation=Value(ctx,editing.parameters[3]); const auto attribute=Value(ctx,editing.parameters[5]);
-        ctx->ItemClick("**/##owner/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector owner B");
+        ClickValueItem(ctx, "**/##owner/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector owner B");
         ctx->SetRef("//Value editing###PrimitiveValues");
-        ctx->ItemClick("**/##objects/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector animation B");
+        ClickValueItem(ctx, "**/##objects/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector animation B");
         ctx->SetRef("//Value editing###PrimitiveValues");
-        ctx->ItemClick("**/##category/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/Selector B");
+        ClickValueItem(ctx, "**/##category/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/Selector B");
         ctx->SetRef("//Value editing###PrimitiveValues"); ctx->Yield(2);
-        ctx->ItemClick("**/##attribute/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector attribute B");
+        ClickValueItem(ctx, "**/##attribute/##combo"); ctx->SetRef("//$FOCUSED"); ctx->ItemClick("**/UI selector attribute B");
         ctx->SetRef("//Value editing###PrimitiveValues");
         IM_CHECK(Value(ctx,editing.parameters[2])==script && Value(ctx,editing.parameters[3])==animation && Value(ctx,editing.parameters[5])==attribute);
         ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
@@ -1169,7 +1194,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
     test->TestFunc = [](ImGuiTestContext *ctx) {
         Settle(ctx); Clean cleanup{ctx}; OnMainThread(ctx, [] { SelectorFixture(true,true); });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues"); const auto before=Value(ctx,editing.parameters[0]);
-        Input(ctx,"**/##s","8"); ctx->KeyPress(ImGuiKey_Tab); ctx->ItemClick("**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_F4);
+        Input(ctx,"**/##s","8"); ctx->KeyPress(ImGuiKey_Tab); ClickValueItem(ctx, "**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_F4);
         Input(ctx,"**/##users","9"); ctx->KeyPress(ImGuiKey_Tab); ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
         const auto applied=Value(ctx,editing.parameters[0]);
         IM_CHECK(applied.members[0].real==68345.5 && applied.members[1].integer==0x3e && applied.members[3].waiters==9 &&
