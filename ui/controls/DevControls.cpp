@@ -518,10 +518,12 @@ bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client,
 void EndDialog() { ImGui::EndPopup(); }
 
 bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec2 &content, float s,
-                           DialogLayout &layout) {
+                           DialogLayout &layout, int buttonRows) {
     if (!ImGui::IsPopupOpen(id))
         return false;
-    const float padding = 10 * s, gap = 4 * s, buttonHeight = 18 * s;
+    const float padding = 10 * s, gap = 4 * s;
+    const int rows = std::max(1, buttonRows);
+    const float buttonHeight = rows * 18 * s + (rows - 1) * gap;
     const auto *viewport = ImGui::GetMainViewport();
     const ImVec2 maximum{std::max(1.f, viewport->WorkSize.x - 16 * s), std::max(1.f, viewport->WorkSize.y - 16 * s)};
     const float titleHeight = TitleHeight(s) + 2;
@@ -629,49 +631,46 @@ int MessageDialog(const char *id, const std::string &title, const std::string &t
         static const int icons[] = {0, 0x529, 0x528, 0x52A, 0x525, 0x527, 0x526};
         return type >= 1 && type <= 6 ? icons[type] : 0;
     };
-    const float s = ImGui::GetFontSize() / 13.0f;
-    std::vector<std::string> lines;
-    for (size_t at = 0; at <= text.size();) {
-        size_t end = text.find('\n', at);
-        if (end == std::string::npos) end = text.size();
-        lines.push_back(text.substr(at, end - at));
-        at = end + 1;
-    }
-    float width = 0.0f;
-    for (const std::string &line : lines) width = std::max(width, vi::TextWidth(line.c_str(), false));
-    const float lineHeight = ImGui::GetFontSize(), margin = 10.0f * s;
-    const float textHeight = lineHeight * lines.size();
+    if (!ImGui::IsPopupOpen(id)) return 0;
+    const float s = ImGui::GetFontSize() / 13.0f * CurrentDevTheme().setupCoordinateScale;
     const int icon = MessageIconId(iconType);
-    const float iconSpace = icon ? 40.0f * s : 0.0f;
-    const float body = std::max(icon ? 40.0f * s : 0.0f, textHeight);
-    const float buttons = cancel ? 140.0f * s : 70.0f * s;
-    const ImVec2 client(std::max(margin * 2.0f + iconSpace + width, buttons + 10.0f * s),
-                        margin * 2.0f + body + 26.0f * s);
-    ImVec2 o;
+    const float iconSpace = icon ? 40 * s : 0;
+    const float width = std::clamp(TextWidth(text.c_str(), false) + iconSpace, 320 * s, 560 * s);
+    const float height = std::clamp(ImGui::CalcTextSize(text.c_str(), nullptr, false, width - iconSpace).y,
+                                    40 * s, 240 * s);
+    DialogLayout layout;
     int closed = 0; // 1 OK, 2 Cancel
-    if (vi::BeginDialog(id, title.empty() ? "Warning!" : title, client, s, o)) {
-        ImDrawList *dl = ImGui::GetWindowDrawList();
-        if (icon)
-            if (ImTextureID texture = DevMessageIcon(icon)) {
-                const ImVec2 at(o.x + margin, o.y + margin + (body - 32.0f * s) * 0.5f);
-                dl->AddImage(texture, at, ImVec2(at.x + 32.0f * s, at.y + 32.0f * s));
+    if (BeginScrollableDialog(id, title.empty() ? "Warning!" : title, {width, height}, s, layout)) {
+        if (BeginDialogContent("##message", layout)) {
+            if (icon) {
+                const auto at = ImGui::GetCursorScreenPos();
+                if (ImTextureID texture = DevMessageIcon(icon))
+                    ImGui::GetWindowDrawList()->AddImage(texture, at, {at.x + 32 * s, at.y + 32 * s});
+                ImGui::Dummy({32 * s, 32 * s});
+                ImGui::SameLine(0, 8 * s);
             }
-        const float left = o.x + margin + iconSpace, right = o.x + client.x - margin;
-        float y = o.y + margin + (body - textHeight) * 0.5f;
-        for (const std::string &line : lines) {
-            vi::Text(ImVec2(left, y), ImVec2(right, y + lineHeight), line.c_str(), false, vi::CENTER);
-            y += lineHeight;
+            ImGui::BeginGroup();
+            ImGui::PushStyleColor(ImGuiCol_Text, Color(0));
+            // A horizontal-scroll child retains its old content width. Wrap
+            // messages to the visible width when the dialog becomes narrower.
+            const float available = ImGui::GetCurrentWindow()->InnerRect.GetWidth() -
+                                    2 * ImGui::GetStyle().WindowPadding.x - iconSpace;
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + std::max(1.f, available));
+            ImGui::TextUnformatted(text.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::PopStyleColor();
+            ImGui::EndGroup();
         }
-        const float by = o.y + client.y - 23.0f * s;
+        EndDialogContent();
         if (cancel) {
-            if (vi::DialogButton("Cancel", ImVec2(o.x + client.x - 70.0f * s, by), s, ImGuiKey_Escape)) closed = 2;
-            if (vi::DialogButton("OK", ImVec2(o.x + client.x - 140.0f * s, by), s, ImGuiKey_Enter)) closed = 1;
-        } else if (vi::DialogButton("OK", ImVec2(o.x + client.x - 70.0f * s, by), s, ImGuiKey_Enter) ||
+            if (DialogButton("Cancel", {layout.right - 60 * s, layout.buttonsY}, s, ImGuiKey_Escape)) closed = 2;
+            if (DialogButton("OK", {layout.right - 130 * s, layout.buttonsY}, s, ImGuiKey_Enter)) closed = 1;
+        } else if (DialogButton("OK", {layout.right - 60 * s, layout.buttonsY}, s, ImGuiKey_Enter) ||
                    ImGui::IsKeyPressed(ImGuiKey_Escape)) {
             closed = 1;
         }
         if (closed) ImGui::CloseCurrentPopup();
-        vi::EndDialog();
+        EndDialog();
     }
     return closed;
 

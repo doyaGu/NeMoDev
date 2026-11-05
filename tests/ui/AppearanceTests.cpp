@@ -4,6 +4,7 @@
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/BehaviorCommands.h"
 #include "core/graph/ScriptCommands.h"
+#include "core/document/FileCommands.h"
 #include "core/graph/ValueCommands.h"
 #include "core/graph/RuntimeGraph.h"
 #include "core/schematic/SchematicModelBuilder.h"
@@ -1021,6 +1022,83 @@ void WaitForDuplicateDialog(ImGuiTestContext *ctx) {
     while (!ApplicationDialogShown(ctx, "//###DuplicateNames") && SDL_GetTicks() < deadline) ctx->Sleep(.01f);
     IM_CHECK_NO_RET(ApplicationDialogShown(ctx, "//###DuplicateNames"));
     ctx->SetRef("//###DuplicateNames");
+}
+
+struct OutputDialogObjects {
+    vdev::ObjectRef script, object;
+    vdev::EditorConfiguration configuration;
+};
+OutputDialogObjects MakeOutputDialogs(ImGuiTestContext *ctx) {
+    OutputDialogObjects objects;
+    objects.configuration = SetupDialogTheme(ctx);
+    OnMainThread(ctx, [&] {
+        using namespace vdev;
+        auto &doc = *App().State().document;
+        doc.History().SetLimit(1000);
+        const auto script = CreateScript(doc, doc.Context()->GetCurrentLevel()->GetID(),
+                                          "Output dialog Script " + std::string(100, 'S'));
+        IM_CHECK_NO_RET(script.ok);
+        const auto local = AddLocalParameter(doc, script.created, script.created,
+                                              "Printed local " + std::string(100, 'L'), CKPGUID_INT, {60, 160});
+        const auto made = CreateLayoutObject(doc, LayoutObject::Frame3D);
+        IM_CHECK_NO_RET(local.ok && made.ok);
+        objects.script = doc.Reference(script.created);
+        objects.object = doc.Reference(made.created);
+        doc.Resolve(objects.object)->SetName(("File dialog object " + std::string(120, 'O')).c_str());
+        App().State().objectSelection.Restore(doc, {made.created});
+        App().Canvas().ShowScript(script.created, {ElementKind::LocalParam, script.created, local.created, 0});
+    });
+    SeedApplicationDialogRedo(ctx, objects.object);
+    ctx->Yield(4);
+    return objects;
+}
+void CloseOutputDialogs(ImGuiTestContext *ctx, const OutputDialogObjects &objects) {
+    FinishSetupDialogs(ctx, objects.configuration);
+    OnMainThread(ctx, [] { App().State().History().SetLimit(50); });
+}
+struct OutputDialogFiles {
+    std::filesystem::path root = std::filesystem::temp_directory_path() /
+        ("appearance-output-" + std::to_string(SDL_GetTicksNS()));
+    OutputDialogFiles() { std::filesystem::create_directory(root); }
+    ~OutputDialogFiles() { std::error_code error; std::filesystem::remove_all(root, error); }
+    std::filesystem::path Long(const char *name, int components = 6) const {
+        auto path = root;
+        for (int i = 0; i < components; ++i) path /= "file-dialog-" + std::to_string(i) + "-" + std::string(42, 'p');
+        std::filesystem::create_directories(path);
+        return path / name;
+    }
+};
+std::string OutputDialogBytes(const std::filesystem::path &path) {
+    std::ifstream in(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(in), {}};
+}
+void WriteOutputDialogFile(const std::filesystem::path &path, const std::string &text) {
+    std::ofstream out(path, std::ios::binary);
+    out << text;
+    IM_CHECK_NO_RET(bool(out));
+}
+EditorOperation StartOutputDialog(ImGuiTestContext *ctx, const char *command,
+                                  std::initializer_list<EditorValue> values = {}) {
+    return Read<EditorOperation>(ctx, [&] {
+        const auto result = EditorCommands().Command(command, values);
+        IM_CHECK_NO_RET(result.status == EDITOR_QUEUED);
+        return result.operation;
+    });
+}
+EditorStatus WaitOutputOperation(ImGuiTestContext *ctx, EditorOperation operation) {
+    auto status = EDITOR_QUEUED;
+    const auto deadline = SDL_GetTicks() + 10000;
+    while (status == EDITOR_QUEUED && SDL_GetTicks() < deadline) {
+        ctx->Sleep(.01f);
+        status = Read<EditorStatus>(ctx, [&] { return EditorCommands().Completion(operation).status; });
+    }
+    return status;
+}
+void WaitOutputWindow(ImGuiTestContext *ctx, const char *ref) {
+    const auto deadline = SDL_GetTicks() + 5000;
+    while (!ApplicationDialogShown(ctx, ref) && SDL_GetTicks() < deadline) ctx->Sleep(.01f);
+    IM_CHECK_NO_RET(ApplicationDialogShown(ctx, ref));
+    ctx->SetRef(ref);
 }
 
 // The SDK owns registered managers until Context destruction. Sources are released first.
@@ -7464,6 +7542,48 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         }
         OnMainThread(ctx, [] { App().State().History().SetLimit(50); });
         FinishSetupDialogs(ctx, configuration);
+    };
+
+    auto *fileConfirm = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "long_file_confirmation_scroll_cancel_save_and_existing_undo");
+    fileConfirm->GuiFunc = MainThreadGui;
+    fileConfirm->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeOutputDialogs(ctx);
+        const OutputDialogFiles files;
+        const auto path = files.Long("version.cmo", 10);
+        const auto saved = StartOutputDialog(ctx, "document.save-as", {TextArgument("path", path.u8string())});
+        IM_CHECK(WaitOutputOperation(ctx, saved) == EDITOR_OK);
+        RenameDialogObject(ctx, objects.object, "Versioned dialog object");
+        SeedApplicationDialogRedo(ctx, objects.object);
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto version = std::filesystem::u8path(VersionedPath(path.u8string(), 1));
+        WriteOutputDialogFile(version, "original version file");
+        const auto original = OutputDialogBytes(path);
+        for (bool accept : {false, true}) {
+            const auto operation = StartOutputDialog(ctx, "document.save-version");
+            WaitOutputWindow(ctx, "//###DevMessage");
+            ResizeGraphDialog(ctx, "//###DevMessage", "##message", "OK", "Cancel", true, 180);
+            auto *content = SetupDialogContent(ctx, "//###DevMessage", "##message");
+            IM_CHECK(content->ScrollMax.y > 0 && content->ScrollMax.x == 0);
+            ctx->ScrollToBottom(content->ID);
+            ctx->Yield(3);
+            CheckSetupDialogBounds(ctx, "//###DevMessage", "##message", "OK", "Cancel", true);
+            IM_CHECK(ReadApplicationDialogState(ctx) == before && OutputDialogBytes(version) == "original version file");
+            ctx->KeyPress(accept ? ImGuiKey_Enter : ImGuiKey_Escape);
+            IM_CHECK(WaitOutputOperation(ctx, operation) == (accept ? EDITOR_OK : EDITOR_CANCELLED));
+            if (accept) {
+                const auto after = ReadApplicationDialogState(ctx);
+                IM_CHECK(std::filesystem::file_size(version) > 64 && OutputDialogBytes(path) == original &&
+                         after.document == before.document && after.undo == before.undo && after.redo == before.redo &&
+                         after.objects == before.objects && !after.dirty);
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+                IM_CHECK(ObjectName(ctx, objects.object.object) != "Versioned dialog object");
+                OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+                IM_CHECK(ObjectName(ctx, objects.object.object) == "Versioned dialog object");
+            } else IM_CHECK(ReadApplicationDialogState(ctx) == before && OutputDialogBytes(version) == "original version file");
+        }
+        CloseOutputDialogs(ctx, objects);
     };
 
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");

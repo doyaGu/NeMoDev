@@ -196,6 +196,7 @@
       "name": "属性与参数呈现",
       "patterns": [
         "ui/setup/**",
+        "!ui/setup/SetupLayout.*",
         "ui/controls/ParameterBox.*",
         "ui/controls/ValueEditor.*",
         "ui/controls/BehaviorInfoDialog.*",
@@ -264,7 +265,8 @@
         "!ui/controls/FileDialogs.*",
         "!ui/controls/ObjectArrayInput.*",
         "!ui/controls/ParameterCopies.h",
-        "!ui/controls/ParameterDialog.*"
+        "!ui/controls/ParameterDialog.*",
+        "ui/setup/SetupLayout.*"
       ]
     },
     {

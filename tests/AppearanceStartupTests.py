@@ -101,6 +101,7 @@ def main():
             run('graph-dialog-editing', 'edit', module=True, selection='^appearancegraphdialogs$', expected=8)
             run('breakpoint-dialog-editing', 'edit', module=True, selection='^appearancebreakpointdialogs$', expected=2)
             run('application-dialog-editing', 'edit', module=True, selection='^appearanceapplicationdialogs$', expected=6)
+            run('output-dialog-editing', 'edit', module=True, selection='^appearanceoutputdialogs$', expected=1)
         profile.write_text('{"version":1}', encoding='utf-8')
         saved = run('save', 'save', module=True)
         assert {p['kind'] for p in saved['providers']} == {'theme', 'font', 'image'}
