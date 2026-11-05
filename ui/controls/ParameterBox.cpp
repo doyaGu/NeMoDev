@@ -21,7 +21,10 @@ bool UsesAvailableWidth(ParameterUI ui) {
     case ParameterUI::Time: case ParameterUI::Key: case ParameterUI::Script:
     case ParameterUI::Message: case ParameterUI::Attribute: case ParameterUI::Animation:
     case ParameterUI::Synchro: case ParameterUI::Curve2D: case ParameterUI::Dependencies:
-    case ParameterUI::LodOptions: case ParameterUI::Struct: return true;
+    case ParameterUI::LodOptions: case ParameterUI::Struct: case ParameterUI::Angle:
+    case ParameterUI::EulerAngles: case ParameterUI::Vector: case ParameterUI::Quaternion:
+    case ParameterUI::Vector2D: case ParameterUI::Matrix: case ParameterUI::Color:
+    case ParameterUI::Box: case ParameterUI::Rect: return true;
     default: return false;
     }
 }
@@ -365,7 +368,7 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
         const auto size = UiSize(row, s);
         const unsigned representation = row.info.ui == ParameterUI::Matrix ? unsigned(row.collapsed) :
             row.info.ui == ParameterUI::Rect ? row.representation : 0;
-        const auto action = ParameterDraftEditor(m_Copies, work, "##components", size.x, size.y,
+        const auto action = ParameterDraftEditor(m_Copies, work, "##components", width, size.y,
             0, true, {}, row.References(), &row.property, &m_Editors, representation, &row.beforeInteraction);
         m_InputAction |= action;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;

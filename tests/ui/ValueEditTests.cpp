@@ -251,7 +251,7 @@ void SelectorFixture(bool dialog = true, bool nested = false, bool compact = fal
 // Responsive editors can place fields below or beside the visible content.
 // Find them by scrolling the same value area a user scrolls, then let the
 // test engine focus and operate the original input.
-void ShowValueItem(ImGuiTestContext *ctx, const char *path) {
+void ShowValueItem(ImGuiTestContext *ctx, ImGuiTestRef path) {
     if (ctx->ItemExists(path) || !editing.open || !editing.box) return;
     for (int x = 0; x < 2; ++x) for (int y = 0; y <= 8; ++y) {
         OnMainThread(ctx, [=] {
@@ -267,15 +267,30 @@ void ShowValueItem(ImGuiTestContext *ctx, const char *path) {
     }
     IM_CHECK_NO_RET(ctx->ItemExists(path));
 }
-void ClickValueItem(ImGuiTestContext *ctx, const char *path) {
+void ClickValueItem(ImGuiTestContext *ctx, ImGuiTestRef path) {
     ShowValueItem(ctx, path);
     ctx->ItemClick(path);
 }
-void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
+void Input(ImGuiTestContext *ctx, ImGuiTestRef path, const char *text) {
     ClickValueItem(ctx, path);
     ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
     ctx->KeyChars(text);
     ctx->Yield(2);
+}
+// Use the original input ID in multi-value dialogs. Table nesting is not
+// part of the value's identity and the test engine supports only one **/.
+ImGuiID CompoundItem(ImGuiTestContext *ctx, int row, const char *path) {
+    const auto seed = Read<ImGuiID>(ctx, [=] {
+        auto *parent = ImGui::FindWindowByName(dialog);
+        for (auto *window : ImGui::GetCurrentContext()->Windows)
+            if (window->ParentWindow == parent && std::string(window->Name).find("##parameter-values_") != std::string::npos) {
+                // BeginDialogContent retains the parent dialog's ID seed.
+                const auto box = parent->GetID(editing.box.get());
+                return ImHashData(&row, sizeof(row), box);
+            }
+        IM_CHECK_NO_RET(false); return ImGuiID(0);
+    });
+    return ctx->GetID(path, seed);
 }
 void SingleValueRow(size_t index) {
     auto &doc = *App().State().document;
@@ -595,16 +610,16 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         const auto rect = Components(ctx, editing.parameters[3]);
         std::vector<std::vector<float>> additional;
         for (size_t i = 4; i < 8; ++i) additional.push_back(Components(ctx, editing.parameters[i]));
-        Input(ctx, "**/$$0/##components/##x", "12");
-        Input(ctx, "**/$$0/##components/##y", "14");
-        Input(ctx, "**/$$1/##components/$$0/##m", "3.5");
-        Input(ctx, "**/$$2/##components/##r", "128");
-        Input(ctx, "**/$$3/##components/$$0/##r", "5");
-        Input(ctx, "**/$$4/##components/$$0/##angle/##turn", "1");
-        Input(ctx, "**/$$4/##components/$$0/##angle/##degree", "90");
-        Input(ctx, "**/$$5/##components/$$1/##euler/##degree", "90");
-        Input(ctx, "**/$$6/##components/##w", ".5");
-        Input(ctx, "**/$$7/##components/$$5/##b", "5");
+        Input(ctx, CompoundItem(ctx, 0, "##components/##x"), "12");
+        Input(ctx, CompoundItem(ctx, 0, "##components/##y"), "14");
+        Input(ctx, CompoundItem(ctx, 1, "##components/$$0/##m"), "3.5");
+        Input(ctx, CompoundItem(ctx, 2, "##components/##r"), "128");
+        Input(ctx, CompoundItem(ctx, 3, "##components/$$0/##r"), "5");
+        Input(ctx, CompoundItem(ctx, 4, "##components/$$0/##angle/##turn"), "1");
+        Input(ctx, CompoundItem(ctx, 4, "##components/$$0/##angle/##degree"), "90");
+        Input(ctx, CompoundItem(ctx, 5, "##components/$$1/##euler/##degree"), "90");
+        Input(ctx, CompoundItem(ctx, 6, "##components/##w"), ".5");
+        Input(ctx, CompoundItem(ctx, 7, "##components/$$5/##b"), "5");
         IM_CHECK(Components(ctx, editing.parameters[0]) == vector && Components(ctx, editing.parameters[1]) == matrix);
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 0);
         ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
@@ -619,7 +634,9 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(2);
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
         const auto angleBeforeCancel = WorkingComponents(ctx, 4);
-        const auto dial = ctx->ItemInfo("**/$$4/##components/$$0/##angle/##dial").RectFull.GetCenter();
+        ShowValueItem(ctx, CompoundItem(ctx, 4, "##components/$$0/##angle/##dial"));
+        ctx->MouseMove(CompoundItem(ctx, 4, "##components/$$0/##angle/##dial"));
+        const auto dial = ctx->ItemInfo(CompoundItem(ctx, 4, "##components/$$0/##angle/##dial")).RectFull.GetCenter();
         ctx->MouseMoveToPos(dial); ctx->MouseDown(0);
         ctx->MouseMoveToPos(ImVec2(dial.x - 5, dial.y - 8)); ctx->Yield(2);
         IM_CHECK(WorkingComponents(ctx, 4) != angleBeforeCancel);
@@ -627,7 +644,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->MouseMoveToPos(ImVec2(dial.x + 8, dial.y - 4)); ctx->Yield(2); ctx->MouseUp(0); ctx->Yield(2);
         IM_CHECK(WorkingComponents(ctx, 4) == angleBeforeCancel);
         IM_CHECK(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }) == 1);
-        Input(ctx, "**/$$0/##components/##x", "nan");
+        Input(ctx, CompoundItem(ctx, 0, "##components/##x"), "nan");
         IM_CHECK(Read<bool>(ctx, [] { return !editing.box->Valid(); }));
         ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(2);
         IM_CHECK(Components(ctx, editing.parameters[0])[0] == 12);
@@ -653,7 +670,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
         const auto before = WorkingComponents(ctx, 0);
-        ctx->ItemClick("**/##swatch"); ctx->Yield(2); ctx->SetRef("//$FOCUSED");
+        ClickValueItem(ctx, "**/##swatch"); ctx->Yield(2); ctx->SetRef("//$FOCUSED");
         const auto alpha = ctx->ItemInfo("**/##picker/alpha").RectFull;
         ctx->MouseMoveToPos(ImVec2(alpha.GetCenter().x, alpha.Min.y + alpha.GetHeight() * .65f)); ctx->MouseClick(0); ctx->Yield(2);
         IM_CHECK(WorkingComponents(ctx, 0) != before);
@@ -662,7 +679,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         IM_CHECK(WorkingComponents(ctx, 0) == before);
         IM_CHECK(Read<bool>(ctx, [] { return editing.open && !App().State().document->Dirty() && App().State().History().UndoCount() == 0; }));
         ctx->SetRef("//Value editing###PrimitiveValues");
-        ctx->ItemClick("**/##swatch"); ctx->Yield(2); ctx->SetRef("//$FOCUSED");
+        ClickValueItem(ctx, "**/##swatch"); ctx->Yield(2); ctx->SetRef("//$FOCUSED");
         const auto second = ctx->ItemInfo("**/##picker/alpha").RectFull;
         ctx->MouseMoveToPos(ImVec2(second.GetCenter().x, second.Min.y + second.GetHeight() * .4f)); ctx->MouseClick(0); ctx->Yield(2);
         ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(2);
@@ -763,6 +780,7 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         });
         ctx->Yield(3); ctx->SetRef("//Value editing###PrimitiveValues");
         const auto before = WorkingComponents(ctx, 0);
+        ShowValueItem(ctx, "**/##dial"); ctx->MouseMove("**/##dial");
         const auto dial = ctx->ItemInfo("**/##dial").RectFull.GetCenter();
         ctx->MouseMoveToPos(dial); ctx->MouseDown(0); ctx->MouseMoveToPos(ImVec2(dial.x - 5, dial.y - 8)); ctx->Yield(2);
         IM_CHECK(WorkingComponents(ctx, 0) != before);

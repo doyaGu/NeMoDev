@@ -5702,7 +5702,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
             ctx->SetRef(ref);
         };
         open();
-        ctx->ItemClick("**/##components/$$0/##m");
+        ctx->ItemClick("**/$$0/##m");
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
         ctx->KeyChars("3.5");
         ResizeParameterDialog(ctx, ref, {430, 150});
@@ -5716,7 +5716,7 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK_EQ(first(), 1.f);
         IM_CHECK_EQ(App().State().History().UndoCount(), history);
         open();
-        ctx->ItemClick("**/##components/$$0/##m");
+        ctx->ItemClick("**/$$0/##m");
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
         ctx->KeyChars("4.5");
         ResizeParameterDialog(ctx, ref, {430, 250});
