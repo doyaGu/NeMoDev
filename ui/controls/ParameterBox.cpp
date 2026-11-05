@@ -24,7 +24,7 @@ bool UsesAvailableWidth(ParameterUI ui) {
     case ParameterUI::LodOptions: case ParameterUI::Struct: case ParameterUI::Angle:
     case ParameterUI::EulerAngles: case ParameterUI::Vector: case ParameterUI::Quaternion:
     case ParameterUI::Vector2D: case ParameterUI::Matrix: case ParameterUI::Color:
-    case ParameterUI::Box: case ParameterUI::Rect: return true;
+    case ParameterUI::Box: case ParameterUI::Rect: case ParameterUI::Flags: return true;
     default: return false;
     }
 }
@@ -433,7 +433,7 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
     case ParameterUI::Flags: {
         ImGui::SetCursorScreenPos(at);
         const auto size = UiSize(row, s);
-        const auto action = ParameterDraftEditor(m_Copies, work, "##flags", size.x, size.y, 0, true, {},
+        const auto action = ParameterDraftEditor(m_Copies, work, "##flags", width, size.y, 0, true, {},
             row.References(), &row.property, &m_Editors, unsigned(row.collapsed), &row.beforeInteraction);
         m_InputAction |= action;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;

@@ -53,45 +53,45 @@ uint32_t DrawFlags(void *, const EditorHost *, const EditorValueInput *input) {
     const bool dialog = input->style == EDITOR_VALUE_DIALOG;
     const auto *representation = Field(*input, "representation");
     const auto *display = Field(*input, "display");
-    const auto at = ImGui::GetCursorScreenPos();
-    // The parameter dialog retains its compact text and two-column bit layout.
+    // Collapsed dialog values keep the native text representation.
     const bool collapsed = dialog && representation && representation->type == EDITOR_INTEGER_VALUE && representation->integer;
-    const auto scale = input->width / ((collapsed ? 56 : 169) * 1.5f + 5);
-    const auto sx = 1.5f * scale, sy = 1.625f * scale;
+    const auto scale = setup::PageUnit();
     if (collapsed) {
         if (display && display->type == EDITOR_TEXT_VALUE)
-            vi::Text(ImVec2(at.x + 5 * sx, at.y + 3 * sy), ImVec2(at.x + 56 * sx, at.y + 11 * sy), Text(display->text).c_str());
+            ImGui::TextWrapped("%s", Text(display->text).c_str());
         return 0;
     }
     auto bits = uint32_t(input->value.integer);
     bool changed = false, active = false, deactivated = false;
     const auto label = Text(input->label);
     ImGui::PushID(label.c_str()); ImGui::BeginGroup();
-    for (uint32_t i = 0; i < values->integers.count; ++i) {
-        const auto mask = uint32_t(values->integers.data[i]);
-        int position = -1;
-        if (dialog) {
-            if (!mask || (mask & (mask - 1))) continue;
-            for (unsigned bit = 0; bit < 32; ++bit) if (mask == (uint32_t(1) << bit)) position = int(bit);
+    {
+        setup::SetupColumns columns("##flag-fields", 2, input->width);
+        if (columns) {
+            for (uint32_t i = 0; i < values->integers.count; ++i) {
+                const auto mask = uint32_t(values->integers.data[i]);
+                if (dialog && (!mask || (mask & (mask - 1)))) continue;
+                columns.Next();
+                bool on = mask && (bits & mask) == mask;
+                ImGui::PushID(int(i));
+                const auto name = Text(labels->texts.data[i]);
+                bool toggle = false;
+                if (dialog) {
+                    ImGui::BeginGroup();
+                    toggle = vi::Check("##flag", ImGui::GetCursorScreenPos(), 12 * scale, on);
+                    active |= ImGui::IsItemActive() || ImGui::IsItemActivated();
+                    deactivated |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SameLine(); ImGui::TextWrapped("%s", name.c_str());
+                    ImGui::EndGroup();
+                } else {
+                    toggle = ImGui::Checkbox(name.c_str(), &on);
+                    active |= ImGui::IsItemActive() || ImGui::IsItemActivated();
+                    deactivated |= ImGui::IsItemDeactivatedAfterEdit();
+                }
+                if (toggle) { bits = on ? bits | mask : bits & ~mask; changed = true; }
+                ImGui::PopID();
+            }
         }
-        bool on = mask && (bits & mask) == mask;
-        ImGui::PushID(int(i));
-        const auto name = Text(labels->texts.data[i]);
-        bool toggle = false;
-        if (dialog) {
-            const auto x = (position % 2 ? 91 : 5) * sx;
-            const auto y = (position == 0 ? 3 : 2 + 10 * (position / 2)) * sy;
-            toggle = vi::Check("##flag", ImVec2(at.x + x, at.y + y), 8 * sx, on);
-            active |= ImGui::IsItemActive() || ImGui::IsItemActivated();
-            deactivated |= ImGui::IsItemDeactivatedAfterEdit();
-            vi::Text(ImVec2(at.x + x + 11 * sx, at.y + y), ImVec2(at.x + x + 82 * sx, at.y + y + 10 * sy), name.c_str(), false, vi::LEFT);
-        } else {
-            toggle = ImGui::Checkbox(name.c_str(), &on);
-            active |= ImGui::IsItemActive() || ImGui::IsItemActivated();
-            deactivated |= ImGui::IsItemDeactivatedAfterEdit();
-        }
-        if (toggle) { bits = on ? bits | mask : bits & ~mask; changed = true; }
-        ImGui::PopID();
     }
     ImGui::EndGroup(); ImGui::PopID();
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
