@@ -15,6 +15,7 @@ namespace vi {
 
 namespace {
 
+void KeepWindowInWorkArea();
 ImFont *FontOf(bool bold) { return bold && BoldFont() ? BoldFont() : ImGui::GetFont(); }
 ImVec2 ValueEnd(const ImVec2 &at) {
     const float scale = setup::PageUnit();
@@ -44,6 +45,15 @@ int Combo(const char *id, const std::string &preview, const std::function<std::v
 bool EditCombo(const char *id, std::string &text, const std::function<std::vector<std::string>()> &items, bool *active) {
     const auto at = ImGui::GetCursorScreenPos();
     return EditCombo(id, at, ValueEnd(at), text, items, active);
+}
+
+bool Button(const char *id, const char *label, bool enabled) {
+    const auto at = ImGui::GetCursorScreenPos();
+    return Button(id, at, ValueEnd(at), label, enabled);
+}
+bool CheckButton(const char *id, bool &on, const char *label, bool enabled) {
+    const auto at = ImGui::GetCursorScreenPos();
+    return CheckButton(id, at, ValueEnd(at), on, label, enabled);
 }
 
 void Text(const ImVec2 &min, const ImVec2 &max, const char *text, bool bold, Align align, ImU32 color) {
@@ -448,7 +458,7 @@ namespace {
 
 // The title bar of a VIDialog drawn in the current window; its caption moves
 // the window. The client's top-left corner.
-ImVec2 DialogChrome(const std::string &title, const ImVec2 &size, float s) {
+ImVec2 DialogChrome(const std::string &title, const ImVec2 &size, float s, bool *open = nullptr) {
     const float title_ = TitleHeight(s);
     ImDrawList *dl = ImGui::GetWindowDrawList();
     const ImVec2 at = ImGui::GetWindowPos();
@@ -463,19 +473,24 @@ ImVec2 DialogChrome(const std::string &title, const ImVec2 &size, float s) {
     ImGui::PopFont();
     // Moved by its title bar only (a caption).
     ImGui::SetCursorScreenPos(at);
-    ImGui::InvisibleButton("##caption", ImVec2(size.x, title_ + 1.0f));
+    ImGui::InvisibleButton("##caption", ImVec2(size.x - (open ? title_ : 0), title_ + 1.0f));
     if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f)) {
         const ImVec2 delta = ImGui::GetIO().MouseDelta;
         ImGui::SetWindowPos(ImVec2(at.x + delta.x, at.y + delta.y));
     }
+    if (open &&
+        ImGui::CloseButton(ImGui::GetCurrentWindow()->GetID("#CLOSE"), {at.x + size.x - title_, at.y + 1}))
+        *open = false;
     return ImVec2(at.x + 1.0f, at.y + 2.0f + title_);
 }
 
 } // namespace
 
-bool BeginWindow(const char *id, const std::string &title, const ImVec2 &client, float s, ImVec2 &origin) {
+bool BeginWindow(const char *id, const std::string &title, const ImVec2 &client, float s, ImVec2 &origin,
+                 ImGuiWindowFlags flags, bool *opened) {
     const ImVec2 size(client.x + 2.0f, client.y + TitleHeight(s) + 2.0f);
-    ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(size,
+                             flags & ImGuiWindowFlags_NoResize ? ImGuiCond_Always : ImGuiCond_Appearing);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, CurrentDevTheme().dialogRounding * s);
@@ -484,13 +499,15 @@ bool BeginWindow(const char *id, const std::string &title, const ImVec2 &client,
     ImGui::PushStyleColor(ImGuiCol_WindowBg, Color(4));
     ImGui::PushStyleColor(ImGuiCol_Border, Color(0));
     const bool open = ImGui::Begin(id, nullptr,
-                                   ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-                                       ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse);
+                                   ImGuiWindowFlags_NoTitleBar | flags | ImGuiWindowFlags_NoScrollbar |
+                                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoDocking |
+                                       ImGuiWindowFlags_NoCollapse);
     ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(4);
     if (!open) return false;
-    origin = DialogChrome(title, size, s);
+    if (!(flags & ImGuiWindowFlags_NoResize))
+        KeepWindowInWorkArea();
+    origin = DialogChrome(title, ImGui::GetWindowSize(), s, opened);
     return true;
 }
 
@@ -536,9 +553,10 @@ bool BeginDialog(const char *id, const std::string &title, const ImVec2 &client,
 
 void EndDialog() { ImGui::EndPopup(); }
 
-bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec2 &content, float s,
-                           DialogLayout &layout, int buttonRows) {
-    if (!ImGui::IsPopupOpen(id))
+namespace {
+bool BeginScrollableSurface(const char *id, const std::string &title, const ImVec2 &content, float s,
+                            DialogLayout &layout, int buttonRows, bool modal, bool *opened = nullptr) {
+    if (modal && !ImGui::IsPopupOpen(id))
         return false;
     const float padding = 10 * s, gap = 4 * s;
     const int rows = std::max(1, buttonRows);
@@ -553,7 +571,9 @@ bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec
     const ImVec2 initial{std::clamp(width + 2, minimum.x, maximum.x) - 2,
                          std::clamp(height + titleHeight, minimum.y, maximum.y) - titleHeight};
     ImVec2 origin;
-    if (!BeginDialog(id, title, initial, s, origin, ImGuiWindowFlags_NoMove))
+    const bool open = modal ? BeginDialog(id, title, initial, s, origin, ImGuiWindowFlags_NoMove)
+                            : BeginWindow(id, title, initial, s, origin, ImGuiWindowFlags_NoMove, opened);
+    if (!open)
         return false;
     const auto size = ImGui::GetWindowSize();
     const ImVec2 client{size.x - 2, size.y - titleHeight};
@@ -563,6 +583,16 @@ bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec
     Panel(layout.contentMin,
           {layout.contentMin.x + layout.contentSize.x, layout.contentMin.y + layout.contentSize.y}, s);
     return true;
+}
+
+} // namespace
+bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec2 &content, float s,
+                           DialogLayout &layout, int buttonRows) {
+    return BeginScrollableSurface(id, title, content, s, layout, buttonRows, true);
+}
+bool BeginScrollableWindow(const char *id, const std::string &title, const ImVec2 &content, float s,
+                           DialogLayout &layout, int buttonRows, bool *open) {
+    return BeginScrollableSurface(id, title, content, s, layout, buttonRows, false, open);
 }
 
 bool BeginDialogContent(const char *id, const DialogLayout &layout) {

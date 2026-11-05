@@ -57,6 +57,7 @@ bool Radio(const char *id, const ImVec2 &min, float size, bool on, const char *l
 // A VIButton (InterfaceControls.dll DrawItem: RoundRect 9 x 9, outlined)
 // with its label centered; disabled: the darker fill.
 bool Button(const char *id, const ImVec2 &min, const ImVec2 &max, const char *label, bool enabled = true);
+bool Button(const char *id, const char *label, bool enabled = true);
 
 // A VIToolbarButton of the managers' toolbars (Level Manager's Set IC For
 // Selected, Attribute Manager's): a pill outlined in ZC_TOOLBARBORDER on the
@@ -68,6 +69,7 @@ bool ToolbarButton(const char *id, const ImVec2 &min, const ImVec2 &max, const c
 // right of the box, centered in the control's height. True when toggled.
 bool CheckButton(const char *id, const ImVec2 &min, const ImVec2 &max, bool &on, const char *label,
                  bool enabled = true);
+bool CheckButton(const char *id, bool &on, const char *label, bool enabled = true);
 
 // A static frame of Dev's templates (SS_BLACKFRAME): a gray line.
 void Frame(const ImVec2 &min, const ImVec2 &max);
@@ -108,6 +110,9 @@ struct DialogLayout {
 };
 bool BeginScrollableDialog(const char *id, const std::string &title, const ImVec2 &content, float scale,
                            DialogLayout &layout, int buttonRows = 1);
+// The modeless variant shares the same layout; finish it with EndWindow.
+bool BeginScrollableWindow(const char *id, const std::string &title, const ImVec2 &content, float scale,
+                           DialogLayout &layout, int buttonRows = 1, bool *open = nullptr);
 // EndDialogContent is required even when the content is clipped. Controls keep
 // their dialog IDs, so scrolling does not rename inputs or nested popups.
 bool BeginDialogContent(const char *id, const DialogLayout &layout);
@@ -118,7 +123,9 @@ bool BeginChoicePopup(const char *id, float scale);
 // A modeless VIDialog (the Script Debugger, the explorers): a window drawn
 // as BeginDialog's, placed at the center when it first shows. EndWindow
 // after it whatever it returns (ImGui::End).
-bool BeginWindow(const char *id, const std::string &title, const ImVec2 &client, float scale, ImVec2 &origin);
+bool BeginWindow(const char *id, const std::string &title, const ImVec2 &client, float scale, ImVec2 &origin,
+                 ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove,
+                 bool *open = nullptr);
 void EndWindow();
 float TitleHeight(float scale);
 
