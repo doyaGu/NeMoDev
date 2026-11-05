@@ -235,6 +235,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/PlayerTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/LayoutDropTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/HelpTests.cpp)
+    target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WorkspaceLayoutTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/HtmlTests.cpp)
     target_sources(VirtoolsDevUiTests PRIVATE ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/DesktopTests.cpp)
     if(WIN32)
@@ -370,6 +371,29 @@ if(VIRTOOLSDEV_BUILD_TESTS)
                 --editor-module-dir "$<TARGET_FILE_DIR:NeMoDevUiDocumentInfo>"
                 --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/modules.xml")
         set_tests_properties(VirtoolsDevUi.modules PROPERTIES LABELS self-contained)
+        foreach(_case schematic_explorer_reflow_keeps_navigation_and_cancel
+                layout_explorer_reflow_preserves_locked_selection_and_cancel
+                snapshot_grid_reflow_keeps_slots_and_explicit_readback
+                report_scroll_reflow_preserves_document_history
+                debugger_reflow_keeps_input_and_runtime_commands memory_list_reflow_keeps_sort_and_close
+                invalid_links_reflow_keeps_refresh_and_close schematic_object_filter_reflow_cancel_and_undo
+                profiler_reflow_keeps_details_sort_and_close message_explorer_reflow_keeps_selection_and_lists)
+            add_test(NAME VirtoolsDevUi.WorkspaceLayout.${_case} COMMAND VirtoolsDevUiTests
+                    --ui-tests "${_case}" --editor-module "$<TARGET_FILE:NeMoDevAppearanceModule>"
+                    --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>"
+                    --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/workspace-layout-${_case}.xml")
+            set_tests_properties(VirtoolsDevUi.WorkspaceLayout.${_case}
+                    PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
+        endforeach()
+        foreach(_flow files help)
+            add_test(NAME VirtoolsDevUi.StartupFlows.${_flow} COMMAND ${Python3_EXECUTABLE}
+                    "${VIRTOOLSDEV_SOURCE_DIR}/tests/FileHelpStartupTests.py"
+                    --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevUiObjectModule>"
+                    --help-dir "${_runtime_data}/help" --mode "${_flow}"
+                    --results "${PROJECT_BINARY_DIR}/startup-flows-${_flow}")
+            set_tests_properties(VirtoolsDevUi.StartupFlows.${_flow}
+                    PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 300)
+        endforeach()
         add_test(NAME VirtoolsDevUi.appearance COMMAND ${Python3_EXECUTABLE}
                 "${VIRTOOLSDEV_SOURCE_DIR}/tests/AppearanceStartupTests.py"
                 --binary "$<TARGET_FILE:VirtoolsDevUiTests>" --module "$<TARGET_FILE:NeMoDevAppearanceModule>"

@@ -82,6 +82,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine);
 void RegisterHelpTests(ImGuiTestEngine *engine);
 void RegisterHtmlTests(ImGuiTestEngine *engine);
 void RegisterDesktopTests(ImGuiTestEngine *engine);
+void RegisterWorkspaceLayoutTests(ImGuiTestEngine *engine);
 void ShowScrollableItem(ImGuiTestContext *ctx, const char *window, ImGuiTestRef item);
 
 // ---------------------------------------------------------------- the editor's thread
