@@ -49,6 +49,15 @@ EditorResponse Inspect(EditorView view) {
 void Cancel(ImGuiTestContext *ctx) { ctx->ItemClick(PreferencesRef("/Cancel").c_str()); ctx->Yield(3); }
 }
 void RegisterPreferencesTests(ImGuiTestEngine *engine) {
+    auto *stable = IM_REGISTER_TEST(engine, "app", "layout_preferences_reuse_published_query_version");
+    stable->GuiFunc = MainThreadGui;
+    stable->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx, "//3D Layout");
+        const auto reads = Read<uint64_t>(ctx, [&] { return App().Layout().PreferencesReadsForTests(); });
+        IM_CHECK(reads > 0);
+        ctx->Yield(12);
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(App().Layout().PreferencesReadsForTests() == reads); });
+    };
     auto *test = IM_REGISTER_TEST(engine, "tools", "preferences_pages_draft_defaults_and_cancel");
     test->GuiFunc = MainThreadGui;
     test->TestFunc = [](ImGuiTestContext *ctx) {

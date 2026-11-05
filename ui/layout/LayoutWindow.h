@@ -137,6 +137,7 @@ class LayoutWindow : public LayoutViewport {
     }
     bool UsesGpuViewport() const { return m_GpuTexture != nullptr; }
 #ifdef VIRTOOLSDEV_UI_TESTS
+    std::uint64_t PreferencesReadsForTests() const { return m_PreferencesReads; }
     UiTexture *GpuViewportTextureForTests() const { return m_GpuTexture.get(); }
     uint32_t GpuViewportHandleForTests() const { return m_GpuTextureHandle; }
     void FailNextGpuViewportForTests() { m_FailNextGpuViewport = true; }
@@ -403,6 +404,7 @@ private:
     UiTexture *(LayoutWindow::*m_ViewportRenderer)() = &LayoutWindow::RenderReadbackViewport;
 #ifdef VIRTOOLSDEV_UI_TESTS
     bool m_FailNextGpuViewport = false, m_FailNextGpuViewportRelease = false;
+    std::uint64_t m_PreferencesReads = 0;
     std::uint64_t m_GpuViewportCreations = 0, m_GpuViewportSelections = 0, m_GpuViewportReleases = 0,
                   m_ViewportUploads = 0;
     uint64_t m_StartupDrop = 0;

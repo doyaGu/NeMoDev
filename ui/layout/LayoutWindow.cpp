@@ -256,8 +256,12 @@ void LayoutWindow::ApplyPreferences() {
         const auto *record = EditorClient::Find(values, "value");
         std::string error;
         if (values.status == EDITOR_OK && record && record->type == EDITOR_RECORD &&
-            m_Preferences.ReadValues(record->fields, error))
-            m_PreferencesRevision = EditorClient::Integer(values, "revision");
+            m_Preferences.ReadValues(record->fields, error)) {
+            m_PreferencesRevision = revision;
+#ifdef VIRTOOLSDEV_UI_TESTS
+            ++m_PreferencesReads;
+#endif
+        }
     }
     m_Presentation = Client().Query("layout.presentation");
     m_PlayerMode = m_Presentation.status == EDITOR_OK && EditorClient::Integer(m_Presentation, "player");
