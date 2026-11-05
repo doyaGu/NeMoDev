@@ -1902,7 +1902,7 @@
     {
       "id": "F32",
       "name": "模块文档数据",
-      "owner": "Document / DocumentSaver / EditorApplication（尚未实现模块文档数据）",
+      "owner": "Document / DocumentSaver / EditorApplication",
       "source_groups": [
         "S01",
         "S02",
@@ -1917,16 +1917,13 @@
         "VirtoolsDev.ModuleDocumentFileFailures",
         "VirtoolsDev.ModuleDocumentSerializationFailures",
         "VirtoolsDev.ModuleDocumentInvalidFiles",
+        "NeMoDevDocumentData",
+        "NeMoDevIdentityHeaders",
         "VirtoolsDev.DocumentLayoutMetadata",
         "VirtoolsDev.DocumentPictures"
       ],
       "ui_tests": [],
-      "gaps": [
-        {
-          "due_phase": 6,
-          "reason": "尚未实现通用模块文档数据。需补登记与版本升级、文档所有权、保存加载、未知模块原样保留、对象引用重映射、Import/Merge 冲突及失败恢复、撤销和无数据时不写空区。现有 Layout/Pictures 文档数据回归不能替代这些测试。"
-        }
-      ]
+      "gaps": []
     }
   ],
   "states": [
@@ -1950,7 +1947,8 @@
       "features": [
         "F08",
         "F23",
-        "F24"
+        "F24",
+        "F32"
       ]
     },
     {
@@ -2203,7 +2201,7 @@
     },
     {
       "id": "editor-modules",
-      "name": "模块及命令、查询、属性、编辑器和视图登记",
+      "name": "模块及命令、查询、属性、编辑器、视图和文档数据类型登记",
       "owner": "EditorApplication",
       "lifetime": "启动统一收集、校验、启用；本批失败清理后可重试；全部使用者关闭后逆依赖停止并卸载，不热卸载",
       "persistence": "安装、用户、显式目录和文件只在启动发现；EditorProfile 保存稳定模块 ID、启用状态和可选来源，内置与外部按同一选择装配；禁用或替换下次启动生效，不热卸载；明确禁用的外部路径在调用入口前跳过",
@@ -2492,6 +2490,16 @@
         "F27",
         "F28",
         "F29"
+      ]
+    },
+    {
+      "id": "module-document-data",
+      "name": "模块字节、版本、owner 与有序对象引用",
+      "owner": "Document；类型及转换回调归 EditorApplication，独立于文档数据",
+      "lifetime": "对应 composition；关闭时释放，永久删除 owner 时移除，失效引用清空；清空历史或卸载模块不清空数据",
+      "persistence": "原生 InterfaceObjectManager 数据块；未知版本保留，只由文档命令修改；撤销记录持有前后值及必要对象引用，加载检查点复制恢复整份数据",
+      "features": [
+        "F32"
       ]
     }
   ],

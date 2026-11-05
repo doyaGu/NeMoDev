@@ -1,8 +1,10 @@
 #include "application/EditorApplication.h"
 #include "application/EditorModules.h"
+#include "application/DocumentDataCallbacks.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
 #include "core/runtime/TextEncoding.h"
+#include "core/runtime/CkRuntimeHost.h"
 
 #include <algorithm>
 #include <deque>
@@ -20,6 +22,83 @@
 #endif
 
 namespace vdev {
+
+EditorDocumentData BorrowDocumentData(const DocumentDataRecord &record) {
+    return {sizeof(EditorDocumentData), record.version, record.owner, record.bytes.data(), uint32_t(record.bytes.size()),
+            {record.objects.data(), uint32_t(record.objects.size())}};
+}
+bool CopyDocumentData(const EditorDocumentData &value, DocumentDataRecord &record) {
+    if (value.size != sizeof(value) || !value.version || value.byteCount > 16 * 1024 * 1024 ||
+        value.objects.count > 65536 || (value.byteCount && !value.bytes) || (value.objects.count && !value.objects.data))
+        return false;
+    record.version = value.version;
+    record.owner = value.owner;
+    record.bytes.clear(); record.objects.clear();
+    if (value.byteCount) record.bytes.assign(value.bytes, value.bytes + value.byteCount);
+    if (value.objects.count) record.objects.assign(value.objects.data, value.objects.data + value.objects.count);
+    return true;
+}
+void DocumentDataCallbacks::Close() {
+    std::lock_guard<std::mutex> lock(m_Mutex);
+    m_Closed = true;
+}
+bool DocumentDataCallbacks::Convert(const EditorDocumentDataDesc &desc, const DocumentDataRecord &first,
+                                    const DocumentDataRecord *second, DocumentDataRecord &out, std::string &error) {
+    std::lock_guard<std::mutex> lock(m_Mutex);
+    if (m_Closed) { error = "Document data module has stopped"; return false; }
+    struct Output {
+        DocumentDataRecord record;
+        uint32_t calls = 0;
+        bool valid = false;
+    } result;
+    result.record.id = first.id;
+    const EditorDocumentDataSink sink{&result, [](void *p, const EditorDocumentData *value) -> EditorStatus {
+        auto &out = *static_cast<Output *>(p);
+        if (++out.calls != 1 || !value) { out.valid = false; return EDITOR_INVALID; }
+        try { out.valid = CopyDocumentData(*value, out.record); }
+        catch (...) { out.valid = false; }
+        return out.valid ? EDITOR_OK : EDITOR_INVALID;
+    }};
+    const auto a = BorrowDocumentData(first);
+    EditorStatus status = EDITOR_ERROR;
+    try {
+        // The lock and output owner live outside this protected call. Windows
+        // native faults must not jump over their cleanup to a file-task guard.
+        const bool completed = GuardedCall([&] {
+            if (second) {
+                const auto b = BorrowDocumentData(*second);
+                status = desc.merge(desc.data, &a, &b, sink);
+            } else status = desc.upgrade(desc.data, &a, sink);
+        }, nullptr, "Module document data");
+        if (!completed) {
+            error = "Module document data callback raised an exception: " + first.id;
+            return false;
+        }
+    } catch (...) { error = "Module document data callback raised an exception: " + first.id; return false; }
+    if (status != EDITOR_OK || result.calls != 1 || !result.valid) {
+        error = "Module document data callback failed: " + first.id;
+        return false;
+    }
+    out = std::move(result.record);
+    return true;
+}
+DocumentDataType MakeDocumentDataType(const EditorDocumentDataDesc &desc,
+                                     const std::shared_ptr<DocumentDataCallbacks> &callbacks) {
+    DocumentDataType type;
+    type.id.assign(desc.id.data, desc.id.size);
+    type.version = desc.version;
+    // Strings in desc belong to the registration. The worker needs only
+    // callback pointers/data/version, never those borrowed string addresses.
+    auto call = desc; call.id = {}; call.provider = {};
+    if (call.upgrade) type.upgrade = [call, callbacks](const auto &old, auto &out, auto &error) {
+        return callbacks->Convert(call, old, nullptr, out, error);
+    };
+    if (call.merge) type.merge = [call, callbacks](const auto &current, const auto &incoming, auto &out, auto &error) {
+        return callbacks->Convert(call, current, &incoming, out, error);
+    };
+    return type;
+}
+
 namespace {
 constexpr uint32_t Limit = 1024 * 1024;
 constexpr uint64_t ArrayLimit = uint64_t(64) * Limit;
@@ -220,6 +299,8 @@ struct Module {
     std::vector<EditorThemeDesc> themes;
     std::vector<EditorFontDesc> fonts;
     std::vector<EditorImageDesc> images;
+    std::vector<EditorDocumentDataDesc> documentData;
+    std::shared_ptr<DocumentDataCallbacks> dataCallbacks = std::make_shared<DocumentDataCallbacks>();
     std::deque<std::vector<EditorField>> themeFields;
     std::deque<EditorFieldValues> themeValues;
     std::deque<std::vector<EditorString>> fontFiles;
@@ -270,6 +351,16 @@ struct Module {
         Array(source.themes, source.themeCount);
         Array(source.fonts, source.fontCount);
         Array(source.images, source.imageCount);
+        Array(source.documentData, source.documentDataCount);
+        for (uint32_t i = 0; i < source.documentDataCount; ++i) {
+            auto d = source.documentData[i];
+            if (d.size != sizeof(d) || !d.version) throw std::invalid_argument("Invalid document data descriptor");
+            d.id = Text(d.id, true);
+            d.provider = Text(d.provider, true);
+            if (DefaultDocumentDataRegistry()->Find(String(d.id)))
+                throw std::invalid_argument("Reserved native document data type");
+            documentData.push_back(d);
+        }
         if (source.themeCount > 256 || source.fontCount > 1024 || source.imageCount > 4096)
             throw std::invalid_argument("Too many appearance resources");
         for (uint32_t i = 0; i < source.commandCount; ++i) {
@@ -507,7 +598,11 @@ struct Module {
             images.push_back(d);
         }
     }
-    ~Module() { CloseLibrary(library); }
+    void Stop() {
+        dataCallbacks->Close();
+        if (stop) { try { stop(data); } catch (...) {} }
+    }
+    ~Module() { dataCallbacks->Close(); CloseLibrary(library); }
 };
 template <class T> bool Schema(const T &a, const T &b) {
     if (a.count != b.count)
@@ -597,6 +692,8 @@ struct EditorApplication::State {
     std::map<std::string, const EditorThemeDesc *> themes;
     std::map<std::string, const EditorFontDesc *> fonts;
     std::map<std::string, const EditorImageDesc *> images;
+    std::map<std::string, const EditorDocumentDataDesc *> documentData;
+    std::shared_ptr<const DocumentDataRegistry> dataTypes = DefaultDocumentDataRegistry();
     std::map<std::string, std::map<std::string, EditorField>> themeValues;
     uint64_t appearanceRevision = 1;
     std::map<std::string, EditorToolbarLocation> toolbars;
@@ -750,9 +847,7 @@ struct EditorApplication::State {
         std::set<Module *> removed;
         for (size_t i = first; i < modules.size(); ++i) removed.insert(modules[i].get());
         for (auto it = order.rbegin(); it != order.rend(); ++it)
-            if (removed.count(*it) && (*it)->stop) {
-                try { (*it)->stop((*it)->data); } catch (...) {}
-            }
+            if (removed.count(*it)) (*it)->Stop();
         // All stop callbacks run while every library is still loaded.
         modules.resize(first);
         discarding = false;
@@ -1062,6 +1157,49 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
     h.size = sizeof(h);
     h.version = EDITOR_VERSION;
     h.data = this;
+    h.readDocumentData = [](void *p, EditorScope scope, EditorString id, ObjectRef owner,
+                            EditorDocumentDataSink sink) -> EditorStatus {
+        auto &s = *static_cast<EditorApplication *>(p)->m_State;
+        if (!s.Thread() || !s.NativeReady() || !s.Valid(scope)) return EDITOR_STALE;
+        if (!sink.write || s.querying >= 16) return EDITOR_INVALID;
+        auto *doc = s.CurrentDocument();
+        if (!doc || (owner && !doc->Resolve(owner))) return EDITOR_STALE;
+        try {
+            const auto *record = FindDocumentData(*doc, Id(id), owner);
+            if (!record) return EDITOR_NO_CHANGE;
+            // A sink may call back into the editor. Own its borrowed data until
+            // delivery ends, and prohibit edits during that read-only callback.
+            const auto copy = *record;
+            const auto value = BorrowDocumentData(copy);
+            struct Guard {
+                State &state;
+                explicit Guard(State &state) : state(state) { ++state.readOnlyCallbacks; ++state.querying; }
+                ~Guard() { --state.querying; --state.readOnlyCallbacks; }
+            } guard(s);
+            return sink.write(sink.data, &value);
+        } catch (...) { return EDITOR_ERROR; }
+    };
+    h.writeDocumentData = [](void *p, EditorScope scope, EditorString id, ObjectRef owner,
+                             const EditorDocumentData *value) -> EditorStatus {
+        auto &s = *static_cast<EditorApplication *>(p)->m_State;
+        if (!s.Thread() || !s.NativeReady() || !s.Valid(scope)) return EDITOR_STALE;
+        auto *doc = s.CurrentDocument();
+        if (!s.executing || !s.editing || s.drawing || s.querying || s.checking || s.readOnlyCallbacks ||
+            !doc || !doc->EditOpen()) return EDITOR_REFUSED;
+        try {
+            const auto name = Id(id);
+            if (!s.documentData.count(name)) return EDITOR_REFUSED;
+            if (value && value->owner != owner) return EDITOR_INVALID;
+            if (!value) {
+                const auto result = RemoveDocumentData(*doc, name, owner);
+                return result.ok ? EDITOR_OK : result.Unchanged() ? EDITOR_NO_CHANGE : EDITOR_REFUSED;
+            }
+            DocumentDataRecord record; record.id = name;
+            if (!CopyDocumentData(*value, record)) return EDITOR_INVALID;
+            const auto result = SetDocumentData(*doc, std::move(record));
+            return result.ok ? EDITOR_OK : result.Unchanged() ? EDITOR_NO_CHANGE : EDITOR_REFUSED;
+        } catch (...) { return EDITOR_ERROR; }
+    };
     h.query = [](void *p, EditorString id, const EditorRequest *r, EditorSink sink) -> EditorStatus {
         try {
             return r ? Send(static_cast<EditorApplication *>(p)->Query(Id(id), *r), sink) : EDITOR_INVALID;
@@ -1807,6 +1945,7 @@ bool EditorApplication::Register(const EditorModuleDesc &module, std::string &er
         validate(&Module::themes);
         validate(&Module::fonts);
         validate(&Module::images);
+        validate(&Module::documentData);
         std::set<std::string> properties, menus, locations, toolbarLocations;
         auto unique = [&](Module &m) {
             if (!m.enabled) return;
@@ -1973,6 +2112,7 @@ bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources,
                    : choice.kind == "view"    ? has(&Module::views)
                    : choice.kind == "theme"   ? has(&Module::themes)
                    : choice.kind == "font"    ? has(&Module::fonts)
+                   : choice.kind == "document-data" ? has(&Module::documentData)
                    : choice.kind == "image"   ? has(&Module::images)
                    : choice.kind == "toolbar" ? has(&Module::toolbarItems)
                                               : false;
@@ -1992,9 +2132,7 @@ bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources,
         s.discarding = true;
         for (auto &module : s.modules) if (!module->enabled) disabled.push_back(std::move(module));
         s.modules.erase(std::remove(s.modules.begin(), s.modules.end(), nullptr), s.modules.end());
-        for (auto it = disabled.rbegin(); it != disabled.rend(); ++it) if ((*it)->stop) {
-            try { (*it)->stop((*it)->data); } catch (...) {}
-        }
+        for (auto it = disabled.rbegin(); it != disabled.rend(); ++it) (*it)->Stop();
         disabled.clear();
         s.discarding = false;
         auto effective = s.defaults;
@@ -2075,9 +2213,13 @@ std::string EditorApplication::ProviderModule(const ProviderChoice &choice) cons
            : choice.kind == "view"    ? find(&Module::views)
            : choice.kind == "theme"   ? find(&Module::themes)
            : choice.kind == "font"    ? find(&Module::fonts)
+           : choice.kind == "document-data" ? find(&Module::documentData)
            : choice.kind == "image"   ? find(&Module::images)
            : choice.kind == "toolbar" ? find(&Module::toolbarItems)
                                       : std::string{};
+}
+std::shared_ptr<const DocumentDataRegistry> EditorApplication::DataTypes() const {
+    return m_State->Thread() ? m_State->dataTypes : DefaultDocumentDataRegistry();
 }
 bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string &error,
                                  const EditorConfiguration &configuration) {
@@ -2167,6 +2309,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         decltype(s.themes) themes;
         decltype(s.fonts) fonts;
         decltype(s.images) images;
+        decltype(s.documentData) documentData;
         decltype(s.themeValues) themeValues;
         std::map<std::string, const EditorToolbarItemDesc *> toolbarDescriptors;
         auto choose = [&](auto member, auto &table, const char *kind) {
@@ -2191,6 +2334,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
         choose(&Module::themes, themes, "theme");
         choose(&Module::fonts, fonts, "font");
         choose(&Module::images, images, "image");
+        choose(&Module::documentData, documentData, "document-data");
         std::set<std::pair<std::string, std::string>> choices;
         for (auto &c : configuration.providers) {
             if (!choices.emplace(c.kind, c.id).second)
@@ -2201,6 +2345,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
                                : c.kind == "view"    ? views.count(c.id)
                                : c.kind == "theme"   ? themes.count(c.id)
                                : c.kind == "font"    ? fonts.count(c.id)
+                               : c.kind == "document-data" ? documentData.count(c.id)
                                : c.kind == "image"   ? images.count(c.id)
                                : c.kind == "toolbar" ? toolbarDescriptors.count(c.id)
                                                      : false;
@@ -2489,6 +2634,23 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
             return a.location == b.location ? (a.order == b.order ? a.id < b.id : a.order < b.order)
                                             : a.location < b.location;
         });
+        std::shared_ptr<const DocumentDataRegistry> dataTypes = s.dataTypes;
+        if (s.documentData != documentData) {
+            if (s.document.value) throw std::invalid_argument("Close the composition before replacing document data providers");
+            auto registry = std::make_shared<DocumentDataRegistry>(*DefaultDocumentDataRegistry());
+            for (auto *module : s.activation) for (const auto &desc : module->documentData)
+                if (documentData.count(String(desc.id)) && documentData.at(String(desc.id)) == &desc) {
+                    if (!registry->Register(MakeDocumentDataType(desc, module->dataCallbacks), error))
+                        throw std::invalid_argument(error);
+                }
+            dataTypes = std::move(registry);
+        }
+        if (s.dataTypes != dataTypes)
+            if (auto *doc = s.CurrentDocument())
+                if (!s.NativeReady() || !doc->SetDataTypes(dataTypes))
+                    throw std::invalid_argument("Finish file work and close the composition before replacing document data providers");
+        s.dataTypes = std::move(dataTypes);
+        s.documentData = std::move(documentData);
         s.properties = std::move(properties);
         s.commands = std::move(commands);
         s.queries = std::move(queries);
@@ -3673,6 +3835,8 @@ void EditorApplication::Stop() {
     s.themes.clear();
     s.fonts.clear();
     s.images.clear();
+    s.documentData.clear();
+    s.dataTypes = DefaultDocumentDataRegistry();
     s.themeValues.clear();
     s.bindingViews.clear();
     s.activation.clear();

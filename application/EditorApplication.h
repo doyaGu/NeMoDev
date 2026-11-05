@@ -11,6 +11,7 @@
 namespace vdev {
 
 class Document;
+class DocumentDataRegistry;
 struct EditorModuleSource;
 struct EditorModuleSetting;
 struct EditorModuleInfo;
@@ -156,6 +157,7 @@ class EditorApplication {
     bool Activate(EditorDrawingVersion imguiVersion, std::string &error, const EditorConfiguration &configuration = {});
     bool Configure(const EditorConfiguration &configuration, std::string &error);
     const EditorConfiguration &Configuration() const;
+    std::shared_ptr<const DocumentDataRegistry> DataTypes() const;
     void Attach(DocumentToken document, uint64_t revision, bool available, bool writable);
     void NativeAvailable(bool available);
     bool NativeAvailable() const;

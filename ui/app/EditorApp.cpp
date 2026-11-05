@@ -64,7 +64,7 @@ static void ApplyColors(const Preferences &preferences, SchematicStyle &style) {
 }
 
 EditorApp::EditorApp()
-    : m_Editor([this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
+    : m_Editor([this] { return m_Session.document.get(); },
                [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }),
       m_ObjectCommands([this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }),
       m_Schematics(m_Workspace, m_Style), m_Panels(m_ParameterCopies, m_Workspace, m_Schematics) {
@@ -308,7 +308,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     }
     if (!PrepareUiFrame(ImGui::GetStyle().FontScaleDpi, error)) return fail(error);
     configuration = AvailableWorkspaceConfiguration(std::move(configuration), m_Editor);
-    m_Session.document = std::make_unique<Document>(m_Session.host);
+    m_Session.document = std::make_unique<Document>(m_Session.host, m_Editor.DataTypes());
     m_Editor.Attach({}, 0, true, false);
     m_Debugger = m_Execution.Bind(*m_Session.document);
     // Dev's paths (HKCU\Software\Virtools\Data Paths, read-only) until the

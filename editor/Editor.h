@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 23u
+#define EDITOR_VERSION 24u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -453,6 +453,42 @@ typedef struct EditorImageDesc {
     const unsigned char *pixels;
     uint32_t byteCount;
 } EditorImageDesc;
+// Document-owned binary data. Reference slots, including null slots, keep
+// their order across saves and imports. Bytes must not contain native IDs.
+// One record per (data id, owner); zero owner denotes the composition.
+// A record is bounded to 16 MiB and 65536 reference slots; a document to
+// 4096 records and 64 MiB including references. Zero-length bytes are valid.
+typedef struct EditorDocumentData {
+    uint32_t size, version;
+    EditorObject owner;
+    const unsigned char *bytes;
+    uint32_t byteCount;
+    EditorObjects objects;
+} EditorDocumentData;
+typedef struct EditorDocumentDataSink {
+    void *data;
+    EditorStatus(EDITOR_CALL *write)(void *, const EditorDocumentData *);
+} EditorDocumentDataSink;
+// Pure data callbacks: called by the serialized file task, possibly off the
+// editor thread. Do not call EditorHost, retain borrowed spans or touch UI/CK.
+// Write exactly one result at the declared current version, retaining owner.
+// A failure/exception aborts the load and restores the original document.
+typedef EditorStatus(EDITOR_CALL *EditorUpgradeDocumentData)(void *, const EditorDocumentData *, EditorDocumentDataSink);
+typedef EditorStatus(EDITOR_CALL *EditorMergeDocumentData)(void *, const EditorDocumentData *,
+                                                         const EditorDocumentData *, EditorDocumentDataSink);
+typedef struct EditorDocumentDataDesc {
+    uint32_t size;
+    EditorString id, provider;
+    uint32_t version;
+    EditorUpgradeDocumentData upgrade;
+    EditorMergeDocumentData merge;
+    void *data;
+} EditorDocumentDataDesc;
+// Missing/newer/unsupported schemas are preserved unchanged and read-only.
+// Older schemas are upgraded once on load when upgrade is supplied. Without
+// merge, differing records with the same id and owner fail Import/Merge;
+// identical records and different owners need no callback. Unused descriptors
+// create no file data. Provider selection uses kind "document-data".
 typedef struct EditorModuleDesc {
     uint32_t size, version;
     EditorString id;
@@ -488,6 +524,8 @@ typedef struct EditorModuleDesc {
     uint32_t fontCount;
     const EditorImageDesc *images;
     uint32_t imageCount;
+    const EditorDocumentDataDesc *documentData;
+    uint32_t documentDataCount;
 } EditorModuleDesc;
 typedef EditorStatus(EDITOR_CALL *EditorModuleEntry)(const EditorHost *, EditorModuleDesc *);
 
@@ -581,6 +619,14 @@ struct EditorHost {
     EditorStatus(EDITOR_CALL *toolbar)(void *, EditorString, EditorScope, const EditorToolbarFrame *);
     void(EDITOR_CALL *shortcuts)(void *, EditorScope);
     uint32_t(EDITOR_CALL *inputBinding)(void *, EditorScope, EditorString action, EditorInputPhase, uint32_t consume);
+    // Read copies through sink; a missing record returns NO_CHANGE. Writes
+    // are allowed only inside a registered document editing command, and join
+    // its undo step. Null value removes the owner's record. Unsupported schema
+    // versions cannot be overwritten or removed. Cancellation restores data.
+    EditorStatus(EDITOR_CALL *readDocumentData)(void *, EditorScope, EditorString id, EditorObject owner,
+                                               EditorDocumentDataSink);
+    EditorStatus(EDITOR_CALL *writeDocumentData)(void *, EditorScope, EditorString id, EditorObject owner,
+                                                const EditorDocumentData *value);
 };
 
 #ifdef __cplusplus

@@ -399,3 +399,11 @@ add_test(NAME VirtoolsDevLayering
         COMMAND ${CMAKE_COMMAND} -DVIRTOOLSDEV_SOURCE_DIR=${VIRTOOLSDEV_SOURCE_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/CheckLayering.cmake)
 set_tests_properties(VirtoolsDevLayering PROPERTIES LABELS self-contained)
+
+# Generic document data exercises the same C module loader used in production.
+nemodev_add_module(NeMoDevDocumentDataModule SOURCES modules/DocumentDataModule.cpp)
+add_executable(NeMoDevDocumentDataTests DocumentDataModuleTests.cpp)
+target_link_libraries(NeMoDevDocumentDataTests PRIVATE VirtoolsDevCore NeMoDevEditorApplication Threads::Threads)
+add_dependencies(NeMoDevDocumentDataTests NeMoDevDocumentDataModule)
+virtoolsdev_add_test(NeMoDevDocumentData NeMoDevDocumentDataTests "$<TARGET_FILE:NeMoDevDocumentDataModule>")
+set_tests_properties(NeMoDevDocumentData PROPERTIES LABELS self-contained)

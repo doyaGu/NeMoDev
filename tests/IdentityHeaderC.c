@@ -209,3 +209,12 @@ uint32_t EditorBindingSizeFromC(void) { return sizeof(EditorBindingDesc); }
 uint32_t EditorThemeSizeFromC(void) { return (uint32_t)sizeof(EditorThemeDesc); }
 uint32_t EditorFontSizeFromC(void) { return (uint32_t)sizeof(EditorFontDesc); }
 uint32_t EditorImageSizeFromC(void) { return (uint32_t)sizeof(EditorImageDesc); }
+
+uint32_t EditorDocumentDataSizeFromC(void) { return (uint32_t)sizeof(EditorDocumentData); }
+uint32_t EditorDocumentDataDescSizeFromC(void) { return (uint32_t)sizeof(EditorDocumentDataDesc); }
+EditorDocumentData DocumentDataFromC(const unsigned char *bytes, uint32_t count) {
+    EditorDocumentData value = {0};
+    value.size = sizeof(value); value.version = 1;
+    value.bytes = bytes; value.byteCount = count;
+    return value;
+}

@@ -49,7 +49,11 @@ extern "C" EditorStatus BeginCommandFromC(const EditorHost *, EditorString, cons
 extern "C" EditorStatus FinishCommandFromC(const EditorHost *, EditorEdit, EditorOperation *);
 extern "C" uint32_t EditorCommandSizeFromC(void);
 static_assert(__is_standard_layout(EditorCommandDesc), "C command callbacks");
-static_assert(EDITOR_VERSION == 23, "Editor appearance resources version");
+extern "C" uint32_t EditorDocumentDataSizeFromC(void);
+extern "C" uint32_t EditorDocumentDataDescSizeFromC(void);
+extern "C" EditorDocumentData DocumentDataFromC(const unsigned char *, uint32_t);
+static_assert(__is_standard_layout(EditorDocumentData) && __is_trivially_copyable(EditorDocumentDataDesc), "C document data");
+static_assert(EDITOR_VERSION == 24, "Editor document data version");
 extern "C" EditorQueryDesc RetainedQueryFromC(void *);
 extern "C" uint32_t EditorQuerySizeFromC(void);
 extern "C" EditorViewDesc PickViewFromC(EditorObject *);
@@ -166,6 +170,11 @@ int main() {
     const EditorString item = EDITOR_TEXT("file.nms");
     const auto texts = TextsFromC(&item, 1);
     if (texts.type != EDITOR_TEXT_LIST || texts.texts.data != &item || texts.texts.count != 1) return 1;
+    const unsigned char bytes[] = {0, 255, 17};
+    const auto data = DocumentDataFromC(bytes, sizeof(bytes));
+    if (EditorDocumentDataSizeFromC() != sizeof(EditorDocumentData) ||
+        EditorDocumentDataDescSizeFromC() != sizeof(EditorDocumentDataDesc) ||
+        data.bytes != bytes || data.byteCount != 3 || data.version != 1) return 1;
     const auto integer = IntegerFromC(0x123456789abcdef0ULL);
     if (integer.type != EDITOR_INTEGER_VALUE || integer.integer != 0x123456789abcdef0ULL) return 1;
     const auto reference = IdentityFromC({7}, 19, 31);
