@@ -187,22 +187,29 @@ struct FileInputs {
             return;
         }
         if (!ImGui::IsPopupOpen("Unsaved changes")) ImGui::OpenPopup("Unsaved changes");
-        if (!ImGui::BeginPopupModal("Unsaved changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-        ImGui::TextUnformatted("Save changes to the composition?");
-        const auto button = [&](const char *label, const char *answer) {
-            if (ImGui::Button(label, ImVec2(110, 0))) {
-                ImGui::CloseCurrentPopup();
-                Respond(id, answer);
-            }
-        };
-        button(fields.text["initial"].empty() ? "Save..." : "Save", "save");
-        ImGui::SameLine();
-        button("Save As...", "save-as");
-        ImGui::SameLine();
-        button("Discard", "discard");
-        ImGui::SameLine();
-        button("Cancel", "cancel");
-        ImGui::EndPopup();
+        const float s = setup::PageUnit();
+        vi::DialogLayout layout;
+        if (!vi::BeginScrollableDialog("Unsaved changes", "Unsaved changes", {460 * s, 70 * s}, s, layout, 2)) return;
+        if (vi::BeginDialogContent("##save-changes", layout))
+            ImGui::TextWrapped("Save changes to the composition?");
+        vi::EndDialogContent();
+        // Four choices use two fixed rows so every action remains reachable
+        // at the same minimum width as the other dialogs.
+        const float gap = 10 * s;
+        const float width = std::min(110 * s, (layout.contentSize.x - gap) / 2);
+        const char *labels[] = {fields.text["initial"].empty() ? "Save..." : "Save", "Save As...", "Discard", "Cancel"};
+        const char *answers[] = {"save", "save-as", "discard", "cancel"};
+        const char *answer = nullptr;
+        for (int i = 0; i < 4; ++i) {
+            ImGui::SetCursorScreenPos({layout.right - (2 - i % 2) * width - (i % 2 ? 0 : gap),
+                                      layout.buttonsY + (i / 2) * 22 * s});
+            if (ImGui::Button(labels[i], {width, 18 * s})) answer = answers[i];
+        }
+        if (answer) {
+            ImGui::CloseCurrentPopup();
+            Respond(id, answer);
+        }
+        vi::EndDialog();
     }
 };
 } // namespace

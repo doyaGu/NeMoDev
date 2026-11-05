@@ -1113,6 +1113,19 @@ EditorOperation StartFileExportDialog(ImGuiTestContext *ctx, const char *command
     return StartOutputDialog(ctx, command, {targets, vdev::TextArgument("path", path.u8string()),
         vdev::IntegerArgument(behavior ? "ask-description" : "ask-options", 1)});
 }
+void CheckUnsavedDialogButtons(ImGuiTestContext *ctx, const char *save) {
+    CheckSetupDialogBounds(ctx, "//Unsaved changes", "##save-changes", save, "Cancel");
+    auto *window = ctx->GetWindowByRef("//Unsaved changes");
+    std::vector<ImRect> rects;
+    for (const char *label : {save, "Save As...", "Discard", "Cancel"}) {
+        const auto rect = ctx->ItemInfo(window->GetID(label)).RectFull;
+        IM_CHECK_NO_RET(rect.Min.x >= window->Pos.x && rect.Max.x <= window->Pos.x + window->Size.x &&
+                        rect.Min.y >= SetupDialogContent(ctx, "//Unsaved changes", "##save-changes")->Rect().Max.y &&
+                        rect.Max.y <= window->Pos.y + window->Size.y);
+        for (const auto &previous : rects) IM_CHECK_NO_RET(!rect.Overlaps(previous));
+        rects.push_back(rect);
+    }
+}
 
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
@@ -7748,6 +7761,63 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
                          saved.version == 2.5f && saved.description == description);
             } else IM_CHECK(OutputDialogBytes(path) == "original NMS");
         }
+        CloseOutputDialogs(ctx, objects);
+    };
+    auto *unsavedCancel = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "unsaved_choices_resize_cancel_and_discard_keep_original_behavior");
+    unsavedCancel->GuiFunc = MainThreadGui;
+    unsavedCancel->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeOutputDialogs(ctx);
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto cancelled = StartOutputDialog(ctx, "document.new");
+        WaitOutputWindow(ctx, "//Unsaved changes");
+        const auto save = Read<std::string>(ctx, [] {
+            return EditorClient::Text(EditorCommands().Query("document.input"), "initial").empty() ? "Save..." : "Save";
+        });
+        ResizeGraphDialog(ctx, "//Unsaved changes", "##save-changes", save.c_str(), "Cancel", false, 230);
+        CheckUnsavedDialogButtons(ctx, save.c_str());
+        ctx->ItemClick("Cancel");
+        IM_CHECK(WaitOutputOperation(ctx, cancelled) == EDITOR_CANCELLED && ReadApplicationDialogState(ctx) == before);
+        const auto discarded = StartOutputDialog(ctx, "document.new");
+        WaitOutputWindow(ctx, "//Unsaved changes");
+        ctx->ItemClick("Discard");
+        IM_CHECK(WaitOutputOperation(ctx, discarded) == EDITOR_OK);
+        ctx->Yield(6);
+        const auto after = ReadApplicationDialogState(ctx);
+        IM_CHECK(after.document != before.document && after.undo == 0 && after.objects.empty() &&
+                 !GraphObjectAlive(ctx, objects.object));
+        CloseOutputDialogs(ctx, objects);
+    };
+    auto *unsavedSave = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "unsaved_save_before_new_preserves_saved_object_and_history_rules");
+    unsavedSave->GuiFunc = MainThreadGui;
+    unsavedSave->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeOutputDialogs(ctx);
+        const OutputDialogFiles files;
+        const auto path = files.root / "saved.cmo";
+        const auto saved = StartOutputDialog(ctx, "document.save-as", {TextArgument("path", path.u8string())});
+        IM_CHECK(WaitOutputOperation(ctx, saved) == EDITOR_OK);
+        RenameDialogObject(ctx, objects.object, "Saved choice target");
+        SeedApplicationDialogRedo(ctx, objects.object);
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto created = StartOutputDialog(ctx, "document.new");
+        WaitOutputWindow(ctx, "//Unsaved changes");
+        ResizeGraphDialog(ctx, "//Unsaved changes", "##save-changes", "Save", "Cancel", false, 230);
+        CheckUnsavedDialogButtons(ctx, "Save");
+        IM_CHECK(ReadApplicationDialogState(ctx) == before);
+        ctx->ItemClick("Save");
+        IM_CHECK(WaitOutputOperation(ctx, created) == EDITOR_OK && ReadApplicationDialogState(ctx).document != before.document);
+        const auto reopened = StartOutputDialog(ctx, "document.open", {TextArgument("path", path.u8string())});
+        IM_CHECK(WaitOutputOperation(ctx, reopened) == EDITOR_OK);
+        ctx->Yield(6);
+        const auto found = Read<bool>(ctx, [] {
+            std::vector<SetupObjectRow> rows;
+            return ReadSetupChoices(EditorCommands(), CKCID_3DENTITY, rows) &&
+                std::any_of(rows.begin(), rows.end(), [](const auto &row) { return row.name == "Saved choice target"; });
+        });
+        IM_CHECK(found && !ReadApplicationDialogState(ctx).dirty && ReadApplicationDialogState(ctx).undo == 0);
         CloseOutputDialogs(ctx, objects);
     };
     auto *fileConfirm = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "long_file_confirmation_scroll_cancel_save_and_existing_undo");
