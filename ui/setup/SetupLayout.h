@@ -12,7 +12,7 @@ bool ColorBar(const char *id, float *color, bool alpha = false, ImVec2 size = {}
 // Native table columns wrap complete sections and keep their input IDs stable.
 class SetupColumns {
 public:
-    SetupColumns(const char *id, int maximum);
+    SetupColumns(const char *id, int maximum, float width = 0);
     ~SetupColumns();
     SetupColumns(const SetupColumns &) = delete;
     SetupColumns &operator=(const SetupColumns &) = delete;
@@ -26,7 +26,7 @@ private:
 // A label/control form uses the available section width, including nested cells.
 class SetupForm {
 public:
-    explicit SetupForm(const char *id);
+    explicit SetupForm(const char *id, float width = 0);
     ~SetupForm();
     SetupForm(const SetupForm &) = delete;
     SetupForm &operator=(const SetupForm &) = delete;

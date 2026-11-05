@@ -8,6 +8,7 @@
 
 #include "ui/controls/DevTheme.h"
 #include "ui/controls/TypeAhead.h"
+#include "ui/setup/SetupLayout.h"
 
 namespace vdev {
 namespace vi {
@@ -15,6 +16,11 @@ namespace vi {
 namespace {
 
 ImFont *FontOf(bool bold) { return bold && BoldFont() ? BoldFont() : ImGui::GetFont(); }
+ImVec2 ValueEnd(const ImVec2 &at) {
+    const float scale = setup::PageUnit();
+    return {at.x + std::max(1.f, ImGui::GetContentRegionAvail().x),
+            at.y + std::max(ImGui::GetFrameHeight(), 19.5f * scale)};
+}
 
 } // namespace
 
@@ -25,6 +31,19 @@ float TextWidth(const char *text, bool bold) {
     const float width = ImGui::CalcTextSize(text).x;
     ImGui::PopFont();
     return width;
+}
+
+bool Edit(const char *id, std::string &text, Align align, bool *deactivated) {
+    const auto at = ImGui::GetCursorScreenPos();
+    return Edit(id, at, ValueEnd(at), text, align, deactivated);
+}
+int Combo(const char *id, const std::string &preview, const std::function<std::vector<std::string>()> &items, int current) {
+    const auto at = ImGui::GetCursorScreenPos();
+    return Combo(id, at, ValueEnd(at), preview, items, current);
+}
+bool EditCombo(const char *id, std::string &text, const std::function<std::vector<std::string>()> &items, bool *active) {
+    const auto at = ImGui::GetCursorScreenPos();
+    return EditCombo(id, at, ValueEnd(at), text, items, active);
 }
 
 void Text(const ImVec2 &min, const ImVec2 &max, const char *text, bool bold, Align align, ImU32 color) {

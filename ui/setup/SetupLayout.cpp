@@ -36,13 +36,13 @@ bool ColorBar(const char *id, float *color, bool alpha, ImVec2 size) {
     return changed;
 }
 
-SetupColumns::SetupColumns(const char *id, int maximum) {
+SetupColumns::SetupColumns(const char *id, int maximum, float width) {
     // Table bookkeeping has its own ID; arranging controls does not rename them.
     const auto contentId = ImGui::GetID("");
     const auto &theme = CurrentDevTheme();
     const float scale = PageUnit();
     const ImVec2 padding{theme.setupSpacing.x * scale, theme.setupSpacing.y * scale};
-    const float available = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float available = std::max(1.0f, width > 0 ? width : ImGui::GetContentRegionAvail().x);
     const float minimum = theme.setupColumnWidth * scale + 2 * padding.x;
     const int columns = int(std::clamp(std::floor(available / minimum), 1.0f, float(std::max(1, maximum))));
     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, padding);
@@ -65,12 +65,13 @@ void SetupColumns::Next() {
     if (m_Open) ImGui::TableNextColumn();
 }
 
-SetupForm::SetupForm(const char *id) {
+SetupForm::SetupForm(const char *id, float width) {
     // Preserve the same control and popup IDs in either table or plain layout.
     const auto contentId = ImGui::GetID("");
-    const float available = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float available = std::max(1.0f, width > 0 ? width : ImGui::GetContentRegionAvail().x);
     m_Open = ImGui::BeginTable(
-        id, 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX);
+        id, 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings | ImGuiTableFlags_NoPadOuterX,
+        {width > 0 ? width : 0, 0});
     if (m_Open) {
         const float label = std::min(CurrentDevTheme().setupLabelWidth * PageUnit(), available * .45f);
         ImGui::TableSetupColumn("##label", ImGuiTableColumnFlags_WidthFixed, std::max(1.0f, label));

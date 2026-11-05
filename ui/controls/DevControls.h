@@ -41,6 +41,14 @@ int Combo(const char *id, const ImVec2 &min, const ImVec2 &max, const std::strin
 bool EditCombo(const char *id, const ImVec2 &min, const ImVec2 &max, std::string &text,
                const std::function<std::vector<std::string>()> &items, bool *active = nullptr);
 
+// Forms use the available value column; resizing does not scale the font or
+// rename the input, its editable text, or its popup.
+bool Edit(const char *id, std::string &text, Align align = CENTER, bool *deactivated = nullptr);
+int Combo(const char *id, const std::string &preview, const std::function<std::vector<std::string>()> &items,
+          int current = -1);
+bool EditCombo(const char *id, std::string &text, const std::function<std::vector<std::string>()> &items,
+               bool *active = nullptr);
+
 // A VICheckButton of size pixels; true when toggled.
 bool Check(const char *id, const ImVec2 &min, float size, bool &on);
 // A VIRadioButton of size pixels with its label after it; true when chosen.
