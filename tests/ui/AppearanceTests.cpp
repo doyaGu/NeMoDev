@@ -1003,6 +1003,26 @@ std::vector<double> ReadDialogTime(ImGuiTestContext *ctx) {
                                    fields.Real("minimum"), fields.Real("maximum"), double(fields.Record("display").Integer("hide-fps"))};
     });
 }
+void ChooseDuplicateDialogAction(ImGuiTestContext *ctx, int node, const char *action) {
+    ctx->SetRef("//###DuplicateNames");
+    ctx->ItemClick(("**/$$" + std::to_string(node) + "/##row").c_str(), 1, ImGuiTestOpFlags_MoveToEdgeL | ImGuiTestOpFlags_NoScroll);
+    ctx->Yield(2);
+    ctx->ItemClick((std::string("//$FOCUSED/") + action).c_str());
+    ctx->Yield(2);
+    ctx->SetRef("//###DuplicateNames");
+}
+struct DuplicateDialogFile {
+    std::filesystem::path path = std::filesystem::temp_directory_path() /
+        ("appearance-duplicates-" + std::to_string(SDL_GetTicksNS()) + ".nmo");
+    ~DuplicateDialogFile() { std::error_code error; std::filesystem::remove(path, error); }
+};
+void WaitForDuplicateDialog(ImGuiTestContext *ctx) {
+    const auto deadline = SDL_GetTicks() + 5000;
+    while (!ApplicationDialogShown(ctx, "//###DuplicateNames") && SDL_GetTicks() < deadline) ctx->Sleep(.01f);
+    IM_CHECK_NO_RET(ApplicationDialogShown(ctx, "//###DuplicateNames"));
+    ctx->SetRef("//###DuplicateNames");
+}
+
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
     struct Source {
@@ -7294,6 +7314,158 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         });
         FinishSetupDialogs(ctx, configuration);
     };
+    auto *duplicateTree = IM_REGISTER_TEST(engine, "appearanceapplicationdialogs", "duplicate_tree_long_names_paging_selection_and_cancel");
+    duplicateTree->GuiFunc = MainThreadGui;
+    duplicateTree->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto configuration = SetupDialogTheme(ctx);
+        const DuplicateDialogFile file;
+        struct Choices { unsigned calls = 0; std::vector<DuplicateAction> actions; };
+        const auto choices = std::make_shared<Choices>();
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            std::vector<CK_ID> objects;
+            for (int i = 0; i < 140; ++i) {
+                const auto kind = i < 135 ? LayoutObject::Material : LayoutObject::Frame3D;
+                const auto made = CreateLayoutObject(doc, kind);
+                IM_CHECK_NO_RET(made.ok);
+                doc.Context()->GetObject(made.created)->SetName(("Duplicate " + std::to_string(i) + " " + std::string(160, 'D')).c_str());
+                objects.push_back(made.created);
+            }
+            std::string error;
+            IM_CHECK_NO_RET(SaveObjectsAs(doc, objects, file.path.u8string(), &error));
+        });
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto begin = [&] {
+            OnMainThread(ctx, [&] {
+                App().State().files.WithDuplicates(file.path.u8string(), [choices](const std::vector<DuplicateName> *names) {
+                    ++choices->calls;
+                    choices->actions.clear();
+                    if (names) for (const auto &name : *names) choices->actions.push_back(name.action);
+                });
+            });
+            WaitForDuplicateDialog(ctx);
+            ResizeGraphDialog(ctx, "//###DuplicateNames", "##duplicate-names", "OK", "Cancel", true, 260);
+            ResizeParameterDialog(ctx, "//###DuplicateNames", {850, 600});
+        };
+        begin();
+        auto *rows = GraphDialogRows(ctx, "//###DuplicateNames", "##duplicate-names", "##duplicates");
+        IM_CHECK(rows && rows->ScrollMax.x > 0 && rows->ScrollMax.y > 0);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().files.PendingDuplicates()->duplicates.size() == 140); });
+        ctx->ScrollToBottom(rows->ID);
+        ctx->ScrollToX(rows->ID, rows->ScrollMax.x);
+        ctx->Yield(3);
+        IM_CHECK(rows->Scroll.x > 0 && rows->Scroll.y > 0);
+        ctx->ScrollToTop(rows->ID);
+        ctx->ScrollToX(rows->ID, 0);
+        ctx->Yield(3);
+        ChooseDuplicateDialogAction(ctx, 0, "Use Current");
+        ChooseDuplicateDialogAction(ctx, 1, "Rename");
+        // A Shift range and Ctrl toggle select the first and third leaves.
+        ctx->ItemClick("**/$$2/##row", 0, ImGuiTestOpFlags_MoveToEdgeL | ImGuiTestOpFlags_NoScroll);
+        ctx->KeyDown(ImGuiMod_Shift);
+        ctx->ItemClick("**/$$4/##row", 0, ImGuiTestOpFlags_MoveToEdgeL | ImGuiTestOpFlags_NoScroll);
+        ctx->KeyUp(ImGuiMod_Shift);
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        ctx->ItemClick("**/$$3/##row", 0, ImGuiTestOpFlags_MoveToEdgeL | ImGuiTestOpFlags_NoScroll);
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ChooseDuplicateDialogAction(ctx, 2, "Ignore");
+        // Closing and reopening a category retains its choices.
+        ctx->ItemClick("**/$$1/##arrow");
+        ctx->Yield(2);
+        IM_CHECK(!ctx->ItemExists("**/$$2/##row"));
+        ChooseDuplicateDialogAction(ctx, 1, "Expand Children");
+        IM_CHECK(ctx->ItemExists("**/$$2/##row"));
+        OnMainThread(ctx, [] {
+            const auto *pending = App().State().files.PendingDuplicates();
+            IM_CHECK_NO_RET(std::all_of(pending->duplicates.begin(), pending->duplicates.end(),
+                [](const auto &d) { return d.action == DuplicateAction::Ignore; }));
+        });
+        ctx->ItemClick("Cancel/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(!ApplicationDialogShown(ctx, "//###DuplicateNames") && choices->calls == 0 && ReadApplicationDialogState(ctx) == before);
+        begin();
+        ChooseDuplicateDialogAction(ctx, 0, "Use Current");
+        ChooseDuplicateDialogAction(ctx, 1, "Rename");
+        ctx->ItemClick("**/$$2/##row", 0, ImGuiTestOpFlags_MoveToEdgeL | ImGuiTestOpFlags_NoScroll);
+        ctx->KeyDown(ImGuiMod_Shift);
+        ctx->ItemClick("**/$$4/##row", 0, ImGuiTestOpFlags_MoveToEdgeL | ImGuiTestOpFlags_NoScroll);
+        ctx->KeyUp(ImGuiMod_Shift);
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        ctx->ItemClick("**/$$3/##row", 0, ImGuiTestOpFlags_MoveToEdgeL | ImGuiTestOpFlags_NoScroll);
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ChooseDuplicateDialogAction(ctx, 2, "Ignore");
+        ctx->ItemClick("OK/##dialogbutton");
+        ctx->Yield(4);
+        IM_CHECK(choices->calls == 1 && choices->actions.size() == 140 && ReadApplicationDialogState(ctx) == before);
+        IM_CHECK(choices->actions[0] == DuplicateAction::Ignore && choices->actions[1] == DuplicateAction::Rename &&
+                 choices->actions[2] == DuplicateAction::Ignore && choices->actions[134] == DuplicateAction::Rename &&
+                 choices->actions[135] == DuplicateAction::UseCurrent);
+        FinishSetupDialogs(ctx, configuration);
+    };
+    auto *duplicateImport = IM_REGISTER_TEST(engine, "appearanceapplicationdialogs", "duplicate_import_cancel_keeps_history_and_existing_import_behavior");
+    duplicateImport->GuiFunc = MainThreadGui;
+    duplicateImport->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto configuration = SetupDialogTheme(ctx);
+        const DuplicateDialogFile file;
+        ObjectRef source;
+        OnMainThread(ctx, [&] {
+            auto &doc = *App().State().document;
+            doc.History().SetLimit(1000);
+            const auto made = CreateLayoutObject(doc, LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            source = doc.Reference(made.created);
+            doc.Resolve(source)->SetName(("Imported duplicate " + std::string(160, 'I')).c_str());
+            std::string error;
+            IM_CHECK_NO_RET(SaveObjectsAs(doc, {source.object}, file.path.u8string(), &error));
+        });
+        SeedApplicationDialogRedo(ctx, source);
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto count = [&] { return Read<size_t>(ctx, [] {
+            std::vector<SetupObjectRow> rows;
+            IM_CHECK_NO_RET(ReadSetupChoices(EditorCommands(), CKCID_3DENTITY, rows));
+            return rows.size();
+        }); };
+        const auto original = count();
+        for (bool accept : {false, true}) {
+            const auto operation = Read<EditorOperation>(ctx, [&] {
+                const auto result = EditorCommands().Command("document.import", {TextArgument("path", file.path.u8string())});
+                IM_CHECK_NO_RET(result.status == EDITOR_QUEUED);
+                return result.operation;
+            });
+            WaitForDuplicateDialog(ctx);
+            ResizeGraphDialog(ctx, "//###DuplicateNames", "##duplicate-names", "OK", "Cancel", true, 260);
+            ResizeParameterDialog(ctx, "//###DuplicateNames", {850, 600});
+            ChooseDuplicateDialogAction(ctx, 0, "Rename");
+            IM_CHECK(ReadApplicationDialogState(ctx) == before);
+            ctx->ItemClick(accept ? "OK/##dialogbutton" : "Cancel/##dialogbutton");
+            EditorStatus completed = EDITOR_QUEUED;
+            const auto deadline = SDL_GetTicks() + 10000;
+            while (completed == EDITOR_QUEUED && SDL_GetTicks() < deadline) {
+                ctx->Sleep(.01f);
+                completed = Read<EditorStatus>(ctx, [&] { return EditorCommands().Completion(operation).status; });
+            }
+            IM_CHECK(completed == (accept ? EDITOR_OK : EDITOR_CANCELLED) && !ApplicationDialogShown(ctx, "//###DuplicateNames"));
+            IM_CHECK(count() == original + (accept ? 1 : 0));
+            if (!accept) { IM_CHECK(ReadApplicationDialogState(ctx) == before); continue; }
+            const auto after = ReadApplicationDialogState(ctx);
+            IM_CHECK(after.undo == before.undo && after.redo == before.redo && after.undoLabel == before.undoLabel &&
+                     after.redoLabel == before.redoLabel && after.revision > before.revision && after.dirty);
+            const auto name = ObjectName(ctx, source.object);
+            // Import keeps its existing non-undoable behavior. Older records
+            // remain usable, including Redo retained while the prompt was open.
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+            IM_CHECK(ObjectName(ctx, source.object) == name + " temporary" && count() == original + 1);
+            OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+            IM_CHECK(ObjectName(ctx, source.object) == name && count() == original + 1 && GraphObjectAlive(ctx, source));
+        }
+        OnMainThread(ctx, [] { App().State().History().SetLimit(50); });
+        FinishSetupDialogs(ctx, configuration);
+    };
+
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {
