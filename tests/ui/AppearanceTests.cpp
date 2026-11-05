@@ -4,6 +4,7 @@
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/BehaviorCommands.h"
 #include "core/graph/ScriptCommands.h"
+#include "core/document/BehaviorDescription.h"
 #include "core/document/FileCommands.h"
 #include "core/graph/ValueCommands.h"
 #include "core/graph/RuntimeGraph.h"
@@ -1105,6 +1106,12 @@ vdev::EditorResponse ReadOutputDialogOptions(ImGuiTestContext *ctx) {
         const auto input = EditorCommands().Query("output.input");
         return EditorCommands().Query("output.options", {vdev::IntegerArgument("input", vdev::EditorClient::Integer(input, "input"))});
     });
+}
+EditorOperation StartFileExportDialog(ImGuiTestContext *ctx, const char *command, vdev::ObjectRef object,
+                                     const std::filesystem::path &path, bool behavior) {
+    const EditorValue targets{EDITOR_TEXT("objects"), EDITOR_OBJECT_LIST, {}, {}, 0, {&object, 1}};
+    return StartOutputDialog(ctx, command, {targets, vdev::TextArgument("path", path.u8string()),
+        vdev::IntegerArgument(behavior ? "ask-description" : "ask-options", 1)});
 }
 
 // The SDK owns registered managers until Context destruction. Sources are released first.
@@ -7677,6 +7684,70 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
             IM_CHECK(opaque);
         }
         IM_CHECK(!std::filesystem::exists(pages / "page3.png"));
+        CloseOutputDialogs(ctx, objects);
+    };
+    auto *objectExport = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "object_export_resize_cancel_preserves_file_and_accept_keeps_undo");
+    objectExport->GuiFunc = MainThreadGui;
+    objectExport->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeOutputDialogs(ctx);
+        const OutputDialogFiles files;
+        const auto path = files.root / "object.nmo";
+        WriteOutputDialogFile(path, "original NMO");
+        const auto before = ReadApplicationDialogState(ctx);
+        for (bool accept : {false, true}) {
+            const auto operation = StartFileExportDialog(ctx, "object.export", objects.object, path, false);
+            WaitOutputWindow(ctx, "//###LevelSaveAs");
+            ResizeGraphDialog(ctx, "//###LevelSaveAs", "##file-export", "Save...", "Cancel", false, 190);
+            ResizeParameterDialog(ctx, "//###LevelSaveAs", {900, 350});
+            ctx->ItemClick("Hide script representation in Schematic view");
+            IM_CHECK(ReadApplicationDialogState(ctx) == before && OutputDialogBytes(path) == "original NMO");
+            ctx->ItemClick(accept ? "Save..." : "Cancel");
+            IM_CHECK(WaitOutputOperation(ctx, operation) == (accept ? EDITOR_OK : EDITOR_CANCELLED) &&
+                     ReadApplicationDialogState(ctx) == before);
+            if (accept) IM_CHECK(std::filesystem::file_size(path) > 64 && OutputDialogBytes(path) != "original NMO");
+            else IM_CHECK(OutputDialogBytes(path) == "original NMO");
+        }
+        CloseOutputDialogs(ctx, objects);
+    };
+    auto *behaviorExport = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "behavior_export_resize_invalid_version_cancel_and_description");
+    behaviorExport->GuiFunc = MainThreadGui;
+    behaviorExport->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeOutputDialogs(ctx);
+        const OutputDialogFiles files;
+        const auto path = files.root / "script.nms";
+        WriteOutputDialogFile(path, "original NMS");
+        const auto before = ReadApplicationDialogState(ctx);
+        const std::string author = "Export author " + std::string(100, 'A');
+        const std::string description = "Description\n" + std::string(200, 'D') + "\nEnd";
+        for (bool accept : {false, true}) {
+            const auto operation = StartFileExportDialog(ctx, "script.export", objects.script, path, true);
+            WaitOutputWindow(ctx, "//###behaviorinfo");
+            ResizeParameterDialog(ctx, "//###behaviorinfo", {1200, 650});
+            TypeGraphDialog(ctx, "##author", author.c_str());
+            TypeGraphDialog(ctx, "##description", description.c_str());
+            TypeGraphDialog(ctx, "##version", "1e");
+            ResizeGraphDialog(ctx, "//###behaviorinfo", "##file-export", "OK", "Cancel", false, 220);
+            IM_CHECK(SetupDialogContent(ctx, "//###behaviorinfo", "##file-export")->ScrollMax.y > 0);
+            ctx->ItemClick("OK");
+            ctx->Yield(3);
+            IM_CHECK(ApplicationDialogShown(ctx, "//###behaviorinfo") && ReadApplicationDialogState(ctx) == before &&
+                     OutputDialogBytes(path) == "original NMS");
+            ResizeParameterDialog(ctx, "//###behaviorinfo", {1200, 650});
+            TypeGraphDialog(ctx, "##version", "2.5");
+            ctx->ItemClick("Hide script representation in schematic view");
+            ctx->ItemClick(accept ? "OK" : "Cancel");
+            IM_CHECK(WaitOutputOperation(ctx, operation) == (accept ? EDITOR_OK : EDITOR_CANCELLED) &&
+                     ReadApplicationDialogState(ctx) == before);
+            if (accept) {
+                BehaviorDescription saved;
+                IM_CHECK(ReadBehaviorDescription(path.u8string(), saved) && saved.author == author &&
+                         saved.version == 2.5f && saved.description == description);
+            } else IM_CHECK(OutputDialogBytes(path) == "original NMS");
+        }
         CloseOutputDialogs(ctx, objects);
     };
     auto *fileConfirm = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "long_file_confirmation_scroll_cancel_save_and_existing_undo");

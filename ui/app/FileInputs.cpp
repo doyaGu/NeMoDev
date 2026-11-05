@@ -6,6 +6,7 @@
 #include "editor/ImGuiDrawing.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/FileDialogs.h"
+#include "ui/setup/SetupLayout.h"
 
 #include <map>
 #include "ui/controls/BehaviorInfoFields.h"
@@ -144,24 +145,33 @@ struct FileInputs {
                 behavior.description = exportFields.text["description"];
                 ImGui::OpenPopup(popup);
             }
-            if (!ImGui::BeginPopupModal(popup, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
-            const bool valid = !behaviorExport || DrawBehaviorInfoFields(behavior, !information);
-            if (!behaviorExport) {
-                ImGui::Text("%d object(s) saved as a Virtools file (.nmo)", int(exportFields.number["objects"]));
-                ImGui::Checkbox("Hide script representation in Schematic view", &behavior.hide);
+            const float s = setup::PageUnit();
+            vi::DialogLayout layout;
+            if (!vi::BeginScrollableDialog(popup, behaviorExport ? "Behavior Information" : "Save as",
+                                           {behaviorExport ? 640 * s : 500 * s, behaviorExport ? 300 * s : 100 * s},
+                                           s, layout)) return;
+            bool valid = !behaviorExport;
+            if (vi::BeginDialogContent("##file-export", layout)) {
+                valid = !behaviorExport || DrawBehaviorInfoFields(behavior, !information);
+                if (!behaviorExport) {
+                    ImGui::TextWrapped("%d object(s) saved as a Virtools file (.nmo)", int(exportFields.number["objects"]));
+                    ImGui::Checkbox("Hide script representation in Schematic view", &behavior.hide);
+                }
             }
+            vi::EndDialogContent();
+            const float width = (behaviorExport ? 80 : 100) * s;
+            ImGui::SetCursorScreenPos({layout.right - 2 * width - 10 * s, layout.buttonsY});
             ImGui::BeginDisabled(!valid);
-            if (ImGui::Button(behaviorExport ? "OK" : "Save...", ImVec2(behaviorExport ? 80 : 100, 0)) ||
-                (!behaviorExport && ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
-                ImGui::CloseCurrentPopup();
-                Respond(id, "accept", {}, {}, true);
-            }
+            const bool ok = ImGui::Button(behaviorExport ? "OK" : "Save...", {width, 18 * s}) ||
+                            (!behaviorExport && ImGui::IsKeyPressed(ImGuiKey_Enter, false));
             ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(behaviorExport ? 80 : 100, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-                ImGui::CloseCurrentPopup(); Respond(id, "cancel");
+            ImGui::SameLine(0, 10 * s);
+            const bool cancel = ImGui::Button("Cancel", {width, 18 * s}) || ImGui::IsKeyPressed(ImGuiKey_Escape);
+            if (cancel || ok) {
+                ImGui::CloseCurrentPopup();
+                Respond(id, cancel ? "cancel" : "accept", {}, {}, !cancel);
             }
-            ImGui::EndPopup();
+            vi::EndDialog();
             return;
         }
         if (fields.number["kind"] == EDITOR_CONFIRM_INPUT) {
