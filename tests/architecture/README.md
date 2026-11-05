@@ -1,7 +1,7 @@
 # Architecture checks and migration results
 
 `coverage.json` lists the 59 source groups,
-32 feature/extension targets and 50 state families. It records CTest results,
+32 feature/extension targets and 51 state families. It records CTest results,
 future verification gaps, existing include dependencies and private native
 access. These are migration records, not runtime registries. Phase-five ordinary
 UI/native migration is complete; no legacy UI access entries remain.
@@ -2296,3 +2296,15 @@ NMO 导出选项、NMS 行为信息及共用说明字段使用同一可调整尺
 本批未写入 SDK；core、功能模块、原生适配、公开 Editor 头、SetupLayout 源码和五份 GPU 渲染与互操作源码保持原样，公开 Editor 接口仍为版本二十三。GPU 快通道、通用 fallback、显式快照及文档格式保持。F25 继续保留专用值控件、Explorer 等视图及报告弹窗等剩余固定版式和 Windows/Linux 实机复验；`functional_phase` 为五，`completed_phase` 为三，八项阶段六待办保留。性能验收继续暂缓，原定 3% 门槛不变，进程隔离单独实施。验证结果见[网页、打印和文件确认弹窗记录](baselines/web-print-file-dialogs-macos-arm64-metal.json)。
 
 macOS arm64 Release 构建通过；完整非性能 CTest **137/137**（核心 **113**、UI 组 **24**）通过，无失败或跳过，并按登记清单核对。18 份普通 UI 报告执行 **267** 项；外观十七次成功进程执行 **74** 个用例，其中编辑 **69** 项，新增网页、打印和文件确认组合 **8/8** 通过，三组非法配置按预期拒绝启动并保留原文件，工作区跨启动组合 **9** 组通过。原生双视口全屏退出、焦点与 GPU 恢复另 **1/1** 通过，架构检查自身回归 **58/58**。覆盖清单现有 **1149** 个文件、59 组源码、32 项功能和 50 份状态，旧 UI 原生访问仍为零。最终构建与回归期间，16 个 SDK 仓库的源码和版本记录保持一致，22 项运行文件保持一致，331 份核心、功能模块、原生适配、公开 Editor 头、SetupLayout 与 GPU 实现文件保持原样。
+
+### 阶段六：专用值编辑器布局
+
+二维曲线、依赖、LOD、时间、按键及 Script、Animation、Message、Attribute、Synchro 十类值编辑器复用已有分栏、字段和输入控件。窗口宽度只影响排列和控件宽度，字体随原主题和字号设置；列数变化不改变输入及弹窗编号。曲线按可用列绘制，保留折叠预览；拖动中指针静止时重排不改值，继续移动仍可编辑，取消恢复原曲线。依赖保留类树、模式、隐藏位及选项尾部，LOD 保留标志和六项比例，选择器沿用原筛选及启用条件。
+
+ParameterBox 按当帧实际内容排列参数行并更新滚动范围，嵌套值不会覆盖下一行；没有新增持久布局缓存、草稿或撤销流程。外部值编辑器继续走同一绘制入口，已打开的工作副本保留原提供者。输入取消、整体取消、批量确认与单步 Undo/Redo 均使用原编辑流程，Message 和 Synchro 仍在确认时创建。
+
+新增 **13 项独立 CTest**，均标记 `self-contained`，自动进入现有 CI。覆盖宽窄往返、替代字体与主题、活动输入和按键捕获、滚动、取消恢复、单步撤销、嵌套参数、外部提供者保留及曲线拖动。两项布局用例先在旧实现中失败，再在迁移后通过。重排后部分控件需要滚动才能显示，原模块用例改为先显示实际控件再操作，原行为和撤销断言保留。
+
+macOS arm64 Release 构建及完整非性能测试 **165/165** 通过，无失败或跳过，并按登记清单核对；原模块组 **74/74**、架构检查自身回归 **58/58**、计时工具回归 **27/27** 通过。原生双视口 Player、全屏退出、焦点和 GPU 恢复另 **1/1** 通过。16 个 SDK 仓库、22 项运行库文件和五份 GPU 渲染与互操作源码与本批开始时一致；公开 Editor 接口、核心编辑命令、GPU 快通道和通用 fallback 保留。结果见[专用值布局验证记录](baselines/specialized-value-layout-macos-arm64-metal.json)。
+
+F25 继续保留普通复合值和标志位控件、Explorer 等视图、报告弹窗及 Windows/Linux 资源、字体与 DPI 实机复验。阶段六尚未整体完成，`functional_phase` 为五，`completed_phase` 为三；性能验收等待用户提供空闲窗口，原定 3% 门槛不变，进程隔离单独实施。
