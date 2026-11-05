@@ -18,7 +18,7 @@ struct Editing {
     CKGUID flagsType{0, 0};
     std::vector<CKGUID> structures;
     bool open = false, popup = false, inlineValue = false, focusWindow = false;
-    float inlineHeight = 180;
+    float inlineHeight = 180, inlineWidth = 500;
     const char *property = "parameter.integer";
     vdev::ObjectRef target{};
     EditorView owner = 0;
@@ -36,7 +36,7 @@ void Gui(ImGuiTestContext *ctx) {
         }
     }
     if (editing.inlineValue) {
-        ImGui::SetNextWindowSize(ImVec2(500, editing.inlineHeight), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(editing.inlineWidth, editing.inlineHeight), ImGuiCond_Always);
         ImGui::Begin("Typed inline");
         auto &app = (&App().WorkspaceForTests())->Application();
         app.EnterDraw();
@@ -276,6 +276,68 @@ void Input(ImGuiTestContext *ctx, const char *path, const char *text) {
     ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_A);
     ctx->KeyChars(text);
     ctx->Yield(2);
+}
+void SingleValueRow(size_t index) {
+    auto &doc = *App().State().document;
+    editing.box = std::make_unique<vdev::ParameterBox>(App().ParameterCopiesForTests());
+    IM_CHECK_NO_RET(editing.box->Add(doc.Reference(editing.parameters[index]), "Value"));
+}
+void ResizeValueDialog(ImGuiTestContext *ctx, ImVec2 size) {
+    OnMainThread(ctx, [=] {
+        auto *window = ImGui::FindWindowByName(dialog);
+        IM_CHECK_NO_RET(window && window->WasActive);
+        if (window) {
+            const auto origin = ImGui::GetMainViewport()->WorkPos;
+            ImGui::SetWindowPos(window, {origin.x + 20, origin.y + 20});
+            ImGui::SetWindowSize(window, size);
+        }
+    });
+    ctx->Yield(4); ctx->SetRef("//Value editing###PrimitiveValues");
+}
+void ValueAppearance() {
+    auto &workspace = App().WorkspaceForTests();
+    const auto original = workspace.Application().Configuration();
+    if (!editing.configuration) editing.configuration = std::make_unique<vdev::EditorConfiguration>(original);
+    auto next = original;
+    for (const auto *kind : {"theme", "font"}) {
+        const char *id = std::string(kind) == "theme" ? "editor.theme" : "ui.font.body";
+        next.providers.erase(std::remove_if(next.providers.begin(), next.providers.end(),
+            [&](const auto &row) { return row.kind == kind && row.id == id; }), next.providers.end());
+        next.providers.push_back({kind, id, "example.appearance"});
+    }
+    std::string error;
+    IM_CHECK_NO_RET(workspace.Configure(next, error));
+}
+void ChooseValue(ImGuiTestContext *ctx, const char *control, const char *choice) {
+    ClickValueItem(ctx, (std::string("**/") + control + "/##combo").c_str());
+    ctx->SetRef("//$FOCUSED"); ctx->ItemClick((std::string("**/") + choice).c_str());
+    ctx->SetRef("//Value editing###PrimitiveValues"); ctx->Yield(3);
+}
+void SelectorLayout(ImGuiTestContext *ctx, size_t index) {
+    Settle(ctx); Clean cleanup{ctx};
+    OnMainThread(ctx, [=] { SelectorFixture(); SingleValueRow(index); ValueAppearance(); });
+    ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+    const auto before = Value(ctx, editing.parameters[index]);
+    if (index == 2) ChooseValue(ctx, "##owner", "UI selector owner B");
+    else if (index == 3) ChooseValue(ctx, "##objects", "UI selector animation B");
+    else { ChooseValue(ctx, "##category", "Selector B"); ChooseValue(ctx, "##attribute", "UI selector attribute B"); }
+    const auto changed = WorkingValue(ctx);
+    IM_CHECK(changed != before);
+    ResizeValueDialog(ctx, {430, 400});
+    IM_CHECK(WorkingValue(ctx) == changed && Value(ctx, editing.parameters[index]) == before);
+    ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(3);
+    IM_CHECK(Value(ctx, editing.parameters[index]) == before);
+    OnMainThread(ctx, [=] { SingleValueRow(index); editing.open = true; editing.popup = false; });
+    ctx->Yield(4); ResizeValueDialog(ctx, {900, 600});
+    if (index == 2) ChooseValue(ctx, "##owner", "UI selector owner B");
+    else if (index == 3) ChooseValue(ctx, "##objects", "UI selector animation B");
+    else { ChooseValue(ctx, "##category", "Selector B"); ChooseValue(ctx, "##attribute", "UI selector attribute B"); }
+    ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+    IM_CHECK(Value(ctx, editing.parameters[index]) != before);
+    IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+    ctx->ItemClick("**/Cancel/##dialogbutton");
+    OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+    IM_CHECK(Value(ctx, editing.parameters[index]) == before);
 }
 } // namespace
 void RegisterValueEditTests(ImGuiTestEngine *engine) {
@@ -1258,5 +1320,268 @@ void RegisterValueEditTests(ImGuiTestEngine *engine) {
         ctx->ItemClick("**/Cancel/##dialogbutton");
     };
 
+}
+void RegisterSpecializedLayoutTests(ImGuiTestEngine *engine) {
+    auto *test = IM_REGISTER_TEST(engine, "valuelayout", "curve_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SpecializedFixture(false, false, true); editing.inlineWidth = 600; });
+        ctx->Yield(4); ctx->SetRef("//Typed inline");
+        const auto before = Value(ctx, editing.parameters[0]);
+        const auto wide = ctx->ItemInfo("**/##curve").RectFull;
+        OnMainThread(ctx, [] { editing.inlineWidth = 380; }); ctx->Yield(4);
+        const auto narrow = ctx->ItemInfo("**/##curve").RectFull;
+        IM_CHECK_GT(wide.GetWidth() - narrow.GetWidth(), 100.f);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        Input(ctx, "**/##cy", "0.75");
+        const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+        IM_CHECK(active);
+        OnMainThread(ctx, [] { editing.inlineWidth = 600; }); ctx->Yield(4);
+        IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        Input(ctx, "**/##cy", "0.75"); ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(3);
+        IM_CHECK_EQ(Value(ctx, editing.parameters[0]).curve.points[0].values[1], .75f);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "time_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SelectorFixture(false, false, true); editing.inlineWidth = 600; });
+        ctx->Yield(4); ctx->SetRef("//Typed inline");
+        const auto before = Value(ctx, editing.parameters[0]);
+        const auto wide = ctx->ItemInfo("**/##ms").RectFull;
+        OnMainThread(ctx, [] { editing.inlineWidth = 380; }); ctx->Yield(4);
+        const auto narrow = ctx->ItemInfo("**/##ms").RectFull;
+        IM_CHECK_GT(wide.GetWidth() - narrow.GetWidth(), 100.f);
+        IM_CHECK(std::abs(wide.GetHeight() - narrow.GetHeight()) < 1.f);
+        Input(ctx, "**/##ms", "123.25");
+        const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+        OnMainThread(ctx, [] { editing.inlineWidth = 600; }); ctx->Yield(4);
+        IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        Input(ctx, "**/##ms", "456.25"); ctx->KeyPress(ImGuiKey_Enter); ctx->Yield(3);
+        IM_CHECK_EQ(Value(ctx, editing.parameters[0]).real, 61456.25);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "dependencies_layout_modes_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SpecializedFixture(true); SingleValueRow(1); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Value(ctx, editing.parameters[1]);
+        ClickValueItem(ctx, "**/$$2/##radio"); ctx->Yield(3);
+        const auto custom = WorkingValue(ctx);
+        ResizeValueDialog(ctx, {430, 300});
+        ShowValueItem(ctx, "**/$$0/##option");
+        ctx->MouseMove("**/$$0/##option"); ctx->MouseDown(0); ctx->Yield(2);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(3);
+        IM_CHECK(WorkingValue(ctx) == custom && Value(ctx, editing.parameters[1]) == before);
+        ClickValueItem(ctx, "**/$$0/##option"); ctx->Yield(2);
+        const auto changed = WorkingValue(ctx);
+        IM_CHECK(changed.options != custom.options && changed.options.back() == 0xabcdef01);
+        ClickValueItem(ctx, "**/$$1/##radio");
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[1]).integer == CK_DEPENDENCIES_FULL);
+        IM_CHECK(Value(ctx, editing.parameters[1]).options == changed.options);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[1]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "lod_layout_flags_proportions_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SpecializedFixture(true); SingleValueRow(2); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Value(ctx, editing.parameters[2]);
+        if (!(before.integer & 1)) ClickValueItem(ctx, "**/##alpha");
+        Input(ctx, "**/##screenmag", "25%"); ctx->KeyPress(ImGuiKey_Tab); ctx->Yield(2);
+        const auto changed = WorkingValue(ctx);
+        Input(ctx, "**/##alphamag", "75%");
+        const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+        ResizeValueDialog(ctx, {430, 250});
+        IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+        IM_CHECK(WorkingValue(ctx) == changed && Value(ctx, editing.parameters[2]) == before);
+        Input(ctx, "**/##alphamag", "50%"); ctx->KeyPress(ImGuiKey_Tab);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto applied = Value(ctx, editing.parameters[2]);
+        IM_CHECK(applied.components[0] == .25 && applied.components[4] == .5);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[2]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "key_layout_capture_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SelectorFixture(true, false, true); SingleValueRow(1); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {900, 500});
+        const auto before = Value(ctx, editing.parameters[1]);
+        ClickValueItem(ctx, "**/##key"); ctx->Yield(2);
+        const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+        IM_CHECK(active);
+        ResizeValueDialog(ctx, {430, 300});
+        IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3); ctx->KeyPress(ImGuiKey_B);
+        IM_CHECK(WorkingValue(ctx) == before && Value(ctx, editing.parameters[1]) == before);
+        ClickValueItem(ctx, "**/##key"); ctx->Yield(2); ctx->KeyPress(ImGuiKey_F4); ctx->Yield(3);
+        IM_CHECK_EQ(WorkingValue(ctx).integer, 0x3eu);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[1]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "script_layout_filter_resize_cancel_and_undo");
+    test->GuiFunc = Gui; test->TestFunc = [](ImGuiTestContext *ctx) { SelectorLayout(ctx, 2); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "animation_layout_resize_cancel_and_undo");
+    test->GuiFunc = Gui; test->TestFunc = [](ImGuiTestContext *ctx) { SelectorLayout(ctx, 3); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "attribute_layout_category_resize_cancel_and_undo");
+    test->GuiFunc = Gui; test->TestFunc = [](ImGuiTestContext *ctx) { SelectorLayout(ctx, 5); };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "message_layout_resize_deferred_creation_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SelectorFixture(); SingleValueRow(4); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {900, 500});
+        const auto before = Value(ctx, editing.parameters[4]);
+        const auto messages = Read<int>(ctx, [] { return App().State().host.Context()->GetMessageManager()->GetMessageTypeCount(); });
+        Input(ctx, "**/##message/##text", "Layout cancelled message");
+        const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+        ResizeValueDialog(ctx, {430, 300});
+        IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[4]) == before);
+        IM_CHECK_EQ(Read<int>(ctx, [] { return App().State().host.Context()->GetMessageManager()->GetMessageTypeCount(); }), messages);
+        Input(ctx, "**/##message/##text", "Layout accepted message"); ctx->KeyPress(ImGuiKey_Tab);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK_EQ(Value(ctx, editing.parameters[4]).text, "Layout accepted message");
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[4]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "synchro_layout_users_resize_cancel_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SelectorFixture(); SingleValueRow(6); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {900, 500});
+        const auto before = Value(ctx, editing.parameters[6]);
+        Input(ctx, "**/##synchro/##text", "Layout value synchro"); ctx->KeyPress(ImGuiKey_Tab);
+        Input(ctx, "**/##users", "7");
+        const auto active = Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); });
+        ResizeValueDialog(ctx, {430, 300});
+        IM_CHECK_EQ(Read<ImGuiID>(ctx, [] { return ImGui::GetActiveID(); }), active);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[6]) == before);
+        IM_CHECK(Read<bool>(ctx, [] { return !App().State().host.Context()->GetObjectByNameAndClass("Layout value synchro", CKCID_SYNCHRO); }));
+        ctx->ItemClick("**/Cancel/##dialogbutton"); ctx->Yield(3);
+        OnMainThread(ctx, [] { SingleValueRow(6); editing.open = true; editing.popup = false; });
+        ctx->Yield(4); ResizeValueDialog(ctx, {900, 500});
+        Input(ctx, "**/##synchro/##text", "Layout value synchro"); ctx->KeyPress(ImGuiKey_Tab);
+        Input(ctx, "**/##users", "7"); ctx->KeyPress(ImGuiKey_Tab);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK_EQ(Value(ctx, editing.parameters[6]).waiters, 7);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[6]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "nested_specialized_layout_batch_and_undo");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SpecializedFixture(true, true); ValueAppearance(); });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Value(ctx, editing.parameters[0]);
+        const auto curve = ctx->ItemInfo("**/##curve").RectFull;
+        const auto radio = ctx->ItemInfo("**/$$0/##radio").RectFull;
+        IM_CHECK_LT(curve.Max.y, radio.Min.y);
+        Input(ctx, "**/##cy", "0.5"); ctx->KeyPress(ImGuiKey_Tab);
+        ClickValueItem(ctx, "**/$$1/##radio");
+        Input(ctx, "**/##screenmag", "25%"); ctx->KeyPress(ImGuiKey_Tab);
+        ResizeValueDialog(ctx, {430, 300});
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        const auto after = Value(ctx, editing.parameters[0]);
+        IM_CHECK(after.members[0].curve.points[0].values[1] == .5 && after.members[1].integer == CK_DEPENDENCIES_FULL && after.members[2].components[0] == .25);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "retained_specialized_provider_layout");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        vdev::EditorConfiguration original;
+        OnMainThread(ctx, [&] {
+            auto &workspace = App().WorkspaceForTests(); original = workspace.Application().Configuration();
+            editing.configuration = std::make_unique<vdev::EditorConfiguration>(original);
+            auto selected = original;
+            const char *editors[] = {"value.curve2d", "value.dependencies", "value.lod-options"};
+            for (const auto *id : editors) {
+                selected.providers.erase(std::remove_if(selected.providers.begin(), selected.providers.end(),
+                    [&](const auto &row) { return row.kind == "editor" && row.id == id; }), selected.providers.end());
+                selected.providers.push_back({"editor", id, "example.specialized"});
+            }
+            std::string error; IM_CHECK_NO_RET(workspace.Configure(selected, error));
+            SpecializedFixture(true);
+        });
+        ctx->Yield(4); ResizeValueDialog(ctx, {1050, 650});
+        const auto before = Value(ctx, editing.parameters[0]);
+        OnMainThread(ctx, [&] { std::string error; IM_CHECK_NO_RET(App().WorkspaceForTests().Configure(original, error)); });
+        ResizeValueDialog(ctx, {430, 300});
+        ClickValueItem(ctx, "**/Change external curve");
+        ClickValueItem(ctx, "**/Change external dependencies");
+        ClickValueItem(ctx, "**/Change external LOD");
+        ctx->ItemClick("**/Apply/##dialogbutton"); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]) != before);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 1);
+        ctx->ItemClick("**/Cancel/##dialogbutton");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+    };
+    test = IM_REGISTER_TEST(engine, "valuelayout", "curve_layout_drag_reflow_does_not_resample");
+    test->GuiFunc = Gui;
+    test->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx); Clean cleanup{ctx};
+        OnMainThread(ctx, [] { SpecializedFixture(false, false, true); editing.inlineWidth = 1000; });
+        ctx->Yield(4); ctx->SetRef("//Typed inline");
+        const auto before = Value(ctx, editing.parameters[0]);
+        const auto curve = ctx->ItemInfo("**/##curve").RectFull;
+        const auto at = ImVec2(curve.Min.x + 6 + .4f * (curve.GetWidth() - 12), curve.GetCenter().y);
+        ctx->MouseMoveToPos(at); ctx->MouseDown(0);
+        ctx->MouseMoveToPos({at.x + 20, at.y - 10}); ctx->Yield(3);
+        const auto draft = [&] {
+            return Read<std::vector<double>>(ctx, [] {
+                vdev::EditorField value; EditorValueEditorDesc editor{};
+                IM_CHECK_NO_RET(App().WorkspaceForTests().Application().EditState(editing.edit, value, editor));
+                for (const auto &field : value.fields) if (field.key == "points") return field.reals;
+                return std::vector<double>{};
+            });
+        };
+        const auto held = draft(); IM_CHECK(!held.empty());
+        OnMainThread(ctx, [] { editing.inlineWidth = 380; }); ctx->Yield(4);
+        IM_CHECK(draft() == held);
+        ctx->MouseMoveToPos(ctx->ItemInfo("**/##curve").RectFull.GetCenter()); ctx->Yield(3);
+        IM_CHECK(draft() != held);
+        ctx->KeyPress(ImGuiKey_Escape); ctx->MouseUp(0); ctx->Yield(3);
+        IM_CHECK(Value(ctx, editing.parameters[0]) == before);
+        IM_CHECK_EQ(Read<size_t>(ctx, [] { return App().State().History().UndoCount(); }), 0);
+    };
 }
 } // namespace vdevuitest

@@ -316,6 +316,23 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     add_test(NAME NeMoDevUiAppearance COMMAND NeMoDevUiAppearanceTests)
     set_tests_properties(NeMoDevUiAppearance PROPERTIES LABELS self-contained)
     nemodev_add_module(NeMoDevAppearanceModule SOURCES ../tests/modules/AppearanceModule.cpp)
+    if(TARGET VirtoolsDevUiTests)
+        foreach(_case
+                curve_layout_resize_cancel_and_undo time_layout_resize_cancel_and_undo
+                dependencies_layout_modes_cancel_and_undo lod_layout_flags_proportions_cancel_and_undo
+                key_layout_capture_resize_cancel_and_undo script_layout_filter_resize_cancel_and_undo
+                animation_layout_resize_cancel_and_undo attribute_layout_category_resize_cancel_and_undo
+                message_layout_resize_deferred_creation_and_undo synchro_layout_users_resize_cancel_and_undo
+                nested_specialized_layout_batch_and_undo retained_specialized_provider_layout
+                curve_layout_drag_reflow_does_not_resample)
+            add_test(NAME VirtoolsDevUi.ValueLayout.${_case} COMMAND VirtoolsDevUiTests
+                    --ui-tests "${_case}" --editor-module "$<TARGET_FILE:NeMoDevAppearanceModule>"
+                    --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>"
+                    --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/value-layout-${_case}.xml")
+            set_tests_properties(VirtoolsDevUi.ValueLayout.${_case}
+                    PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
+        endforeach()
+    endif()
     add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule NeMoDevAppearanceModule)
     add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
     set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
