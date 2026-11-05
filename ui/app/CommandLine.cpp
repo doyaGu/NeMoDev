@@ -23,7 +23,16 @@ std::wstring AbsolutePath(const std::wstring &path) {
 }
 
 void CommandLine::Parse(const std::vector<std::wstring> &args) {
+    bool options = true;
     for (size_t i = 1; i < args.size(); ++i) {
+        if (!options) {
+            fileToOpen = AbsolutePath(args[i]);
+            continue;
+        }
+        if (args[i] == L"--") {
+            options = false;
+            continue;
+        }
         if (args[i] == L"--editor-module" && i + 1 < args.size()) {
             editorModules.push_back(WideToUtf8(AbsolutePath(args[++i])));
         } else if (args[i] == L"--editor-module-dir" && i + 1 < args.size()) {

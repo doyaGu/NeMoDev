@@ -48,5 +48,10 @@ int main() {
     vdev::CommandLine missing;
     missing.Parse({L"NeMoDev", L"--runtime"});
     check(missing.badOption == L"--runtime", "A missing runtime argument must fail");
+    vdev::CommandLine escaped;
+    escaped.Parse({L"NeMoDev", L"--", L"--runtime.nmo"});
+    check(escaped.badOption.empty() &&
+              std::filesystem::u8path(vdev::WideToUtf8(escaped.fileToOpen)).filename() == "--runtime.nmo",
+          "The option separator must preserve file names beginning with two hyphens");
     return failures ? 1 : 0;
 }

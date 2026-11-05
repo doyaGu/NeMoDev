@@ -37,7 +37,7 @@ static float WindowContentScale(SDL_Window *window) {
 }
 static std::string ResolveRuntime(const std::vector<std::wstring> &args) {
     std::string path;
-    for (size_t i = 0; i + 1 < args.size(); ++i)
+    for (size_t i = 1; i + 1 < args.size() && args[i] != L"--"; ++i)
         if (args[i] == L"--runtime") { path = vdev::WideToUtf8(args[i+1]); break; }
     if (path.empty()) if (const char *value = SDL_getenv("VIRTOOLS_PATH")) path = value;
     if (path.empty()) path = SDL_GetBasePath();
