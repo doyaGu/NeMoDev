@@ -12,6 +12,26 @@
 #include "core/level/SceneCommands.h"
 
 namespace vdevuitest {
+void ShowScrollableItem(ImGuiTestContext *ctx, const char *name, ImGuiTestRef item) {
+    if (ctx->ItemExists(item))
+        return;
+    const std::string title = std::string(name).rfind("//", 0) == 0 ? name + 2 : name;
+    for (int x = 0; x < 2; ++x)
+        for (int y = 0; y <= 8; ++y) {
+            OnMainThread(ctx, [&] {
+                const auto *parent = ImGui::FindWindowByName(title.c_str());
+                for (auto *child : ImGui::GetCurrentContext()->Windows)
+                    if (child->ParentWindow == parent) {
+                        ImGui::SetScrollX(child, x ? child->ScrollMax.x : 0);
+                        ImGui::SetScrollY(child, child->ScrollMax.y * float(y) / 8);
+                    }
+            });
+            ctx->Yield(2);
+            if (ctx->ItemExists(item))
+                return;
+        }
+    IM_CHECK_NO_RET(ctx->ItemExists(item));
+}
 
 // ---------------------------------------------------------------- objects
 

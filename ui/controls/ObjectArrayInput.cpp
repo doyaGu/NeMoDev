@@ -4,7 +4,6 @@
 #include "ui/setup/SetupLayout.h"
 #include "imgui_internal.h"
 #include <algorithm>
-#include <cstdio>
 
 namespace vdev {
 uint32_t ObjectArrayInput::Draw(const EditorHost *host, const EditorValueInput &input) {
@@ -15,88 +14,74 @@ uint32_t ObjectArrayInput::Draw(const EditorHost *host, const EditorValueInput &
     if (input.value.objects.count)
         objects.assign(input.value.objects.data, input.value.objects.data + input.value.objects.count);
     EditorClient client(host, input.choicesRequest.scope.view);
-    const auto at = ImGui::GetCursorScreenPos();
-    const auto s = ImGui::GetFontSize() / 13.f;
-    const ImVec2 listMin(at.x + 15 * 1.5f * s, at.y + 5 * 1.625f * s),
-        listMax(listMin.x + 195 * 1.5f * s, listMin.y + 95 * 1.625f * s);
-    auto *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(listMin, listMax, vi::Color(9));
-    dl->AddRect(listMin, listMax, vi::Color(0));
-    const float widths[] = {120 * s, 40 * s, 80 * s, 35 * s}, header = 16 * s, line = 15 * s;
-    const char *headers[] = {"Name", "ID", "Class", "Dyn"};
-    dl->PushClipRect({listMin.x + 1, listMin.y + 1}, {listMax.x - 1, listMax.y - 1}, true);
-    float x = listMin.x + 1;
-    for (int c = 0; c < 4; ++c) {
-        const ImVec2 a(x, listMin.y + 1), b(x + widths[c], listMin.y + 1 + header);
-        dl->AddRectFilled(a, b, vi::Color(7));
-        dl->AddLine({b.x - 1, a.y}, {b.x - 1, b.y}, vi::Color(4));
-        dl->AddLine({a.x, b.y - 1}, {b.x, b.y - 1}, vi::Color(4));
-        const auto w = ImGui::CalcTextSize(headers[c]).x;
-        const auto tx = c == 0 ? a.x + 4 * s : c == 1 ? b.x - w - 4 * s : (a.x + b.x - w) * .5f;
-        dl->AddText({tx, a.y + (header - ImGui::GetFontSize()) * .5f}, vi::Color(0), headers[c]);
-        x += widths[c];
-    }
-    dl->PopClipRect();
-    const ImVec2 itemsMin(listMin.x + 1, listMin.y + 1 + header);
-    ImGui::SetCursorScreenPos(itemsMin);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(0, 0, 0, 0));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, 0});
-    ImGui::BeginChild("##items", {listMax.x - itemsMin.x - 1, listMax.y - itemsMin.y - 1});
-    auto *items = ImGui::GetWindowDrawList();
+    const auto s = setup::PageUnit();
+    const ImVec2 size(std::max(100.f * s, input.width > 0 ? input.width : ImGui::GetContentRegionAvail().x),
+                      std::max(80.f * s, input.height > 0 ? input.height : 170.f * s));
+    const float line = ImGui::GetFrameHeight();
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, vi::Color(9));
+    ImGui::BeginChild("##items", size, ImGuiChildFlags_Borders);
     const auto &io = ImGui::GetIO();
     int menu = -1;
     bool changed = false;
     const auto summary = client.Query("parameter.array-objects", {ObjectsArgument("objects", objects)});
     const auto *summaries = EditorClient::Find(summary, "rows");
-    for (int i = 0; i < int(objects.size()); ++i) {
-        EditorResponse info;
-        info.status = summary.status;
-        if (summaries && size_t(i) < summaries->fields.size())
-            info.fields = summaries->fields[size_t(i)].fields;
-        const auto a = ImGui::GetCursorScreenPos();
-        const ImVec2 b(a.x + widths[0] + widths[1] + widths[2] + widths[3], a.y + line);
-        ImGui::PushID(i);
-        ImGui::InvisibleButton("##item", {b.x - a.x, line},
-                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-        if (ImGui::IsItemClicked(0) || (ImGui::IsItemClicked(1) && !m_Chosen.count(i))) {
-            if (io.KeyShift && m_Anchor >= 0) {
-                if (!io.KeyCtrl)
-                    m_Chosen.clear();
-                for (int k = std::min(m_Anchor, i); k <= std::max(m_Anchor, i); ++k)
-                    m_Chosen.insert(k);
-            } else if (io.KeyCtrl) {
-                if (!m_Chosen.erase(i))
-                    m_Chosen.insert(i);
-                m_Anchor = i;
-            } else {
-                m_Chosen = {i};
-                m_Anchor = i;
+    const auto contentId = ImGui::GetID("");
+    const bool table =
+        ImGui::BeginTable("##objects", 4,
+                          ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings);
+    if (table) {
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 2);
+        ImGui::TableSetupColumn("ID", ImGuiTableColumnFlags_WidthStretch, 1);
+        ImGui::TableSetupColumn("Class", ImGuiTableColumnFlags_WidthStretch, 1.5f);
+        ImGui::TableSetupColumn("Dyn", ImGuiTableColumnFlags_WidthStretch, .5f);
+        ImGui::TableHeadersRow();
+        ImGui::PushOverrideID(contentId);
+        ImGuiListClipper clipper;
+        clipper.Begin(int(objects.size()), line + 2 * ImGui::GetStyle().CellPadding.y);
+        while (clipper.Step())
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                EditorResponse info;
+                info.status = summary.status;
+                if (summaries && size_t(i) < summaries->fields.size())
+                    info.fields = summaries->fields[size_t(i)].fields;
+                ImGui::TableNextRow(0, line);
+                ImGui::TableSetColumnIndex(0);
+                ImGui::PushID(i);
+                ImGui::Selectable("##item", m_Chosen.count(i) != 0,
+                                  ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick,
+                                  {0, line});
+                if (ImGui::IsItemClicked(0) || (ImGui::IsItemClicked(1) && !m_Chosen.count(i))) {
+                    if (io.KeyShift && m_Anchor >= 0) {
+                        if (!io.KeyCtrl)
+                            m_Chosen.clear();
+                        for (int k = std::min(m_Anchor, i); k <= std::max(m_Anchor, i); ++k)
+                            m_Chosen.insert(k);
+                    } else if (io.KeyCtrl) {
+                        if (!m_Chosen.erase(i))
+                            m_Chosen.insert(i);
+                        m_Anchor = i;
+                    } else {
+                        m_Chosen = {i};
+                        m_Anchor = i;
+                    }
+                    ImGui::SetKeyboardFocusHere(-1);
+                }
+                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0) && info.status == EDITOR_OK)
+                    client.Command("object.open-setup", {ObjectArgument("target", objects[size_t(i)])});
+                if (ImGui::IsItemClicked(1))
+                    menu = i;
+                ImGui::PopID();
+                const std::string cells[] = {
+                    EditorClient::Text(info, "name"), std::to_string(objects[size_t(i)].object),
+                    EditorClient::Text(info, "class"), EditorClient::Integer(info, "dynamic") ? "X" : "-"};
+                for (int c = 0; c < 4; ++c) {
+                    ImGui::TableSetColumnIndex(c);
+                    ImGui::TextUnformatted(cells[c].c_str());
+                }
             }
-            ImGui::SetKeyboardFocusHere(-1);
-        }
-        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0) && info.status == EDITOR_OK)
-            client.Command("object.open-setup", {ObjectArgument("target", objects[size_t(i)])});
-        if (ImGui::IsItemClicked(1))
-            menu = i;
         ImGui::PopID();
-        const bool selected = m_Chosen.count(i);
-        if (selected) items->AddRectFilled(a, b, CurrentDevTheme().selectionFill);
-        const auto ink = selected ? CurrentDevTheme().selectionText : vi::Color(0);
-        const std::string cells[] = {EditorClient::Text(info, "name"), std::to_string(objects[size_t(i)].object),
-                                     EditorClient::Text(info, "class"),
-                                     EditorClient::Integer(info, "dynamic") ? "X" : "-"};
-        float cx = a.x;
-        for (int c = 0; c < 4; ++c) {
-            const auto w = ImGui::CalcTextSize(cells[c].c_str()).x;
-            const auto tx = c == 0 ? cx + 4 * s : c == 1 ? cx + widths[c] - w - 4 * s : cx + (widths[c] - w) * .5f;
-            items->PushClipRect({cx, a.y}, {cx + widths[c] - 1, b.y}, true);
-            items->AddText({tx, a.y + (line - ImGui::GetFontSize()) * .5f}, ink, cells[c].c_str());
-            items->PopClipRect();
-            cx += widths[c];
-            items->AddLine({cx - 1, a.y}, {cx - 1, b.y}, vi::Color(7));
-        }
-        items->AddLine({a.x, b.y - 1}, {b.x, b.y - 1}, vi::Color(7));
+        ImGui::EndTable();
     }
     const auto rest = ImGui::GetCursorScreenPos();
     const auto restHeight = std::max(1.f, ImGui::GetWindowPos().y + ImGui::GetWindowHeight() - rest.y);
@@ -151,7 +136,6 @@ uint32_t ObjectArrayInput::Draw(const EditorHost *host, const EditorValueInput &
         }
     }
     ImGui::EndChild();
-    ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
     if (menu >= 0) {
         ImGui::OpenPopup("##arraymenu");

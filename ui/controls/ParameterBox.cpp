@@ -16,18 +16,6 @@
 namespace vdev {
 namespace {
 constexpr float DLU_X = 1.5f, DLU_Y = 1.625f;
-bool UsesAvailableWidth(ParameterUI ui) {
-    switch (ui) {
-    case ParameterUI::Time: case ParameterUI::Key: case ParameterUI::Script:
-    case ParameterUI::Message: case ParameterUI::Attribute: case ParameterUI::Animation:
-    case ParameterUI::Synchro: case ParameterUI::Curve2D: case ParameterUI::Dependencies:
-    case ParameterUI::LodOptions: case ParameterUI::Struct: case ParameterUI::Angle:
-    case ParameterUI::EulerAngles: case ParameterUI::Vector: case ParameterUI::Quaternion:
-    case ParameterUI::Vector2D: case ParameterUI::Matrix: case ParameterUI::Color:
-    case ParameterUI::Box: case ParameterUI::Rect: case ParameterUI::Flags: return true;
-    default: return false;
-    }
-}
 }
 ParameterBox::~ParameterBox() { Clear(); }
 
@@ -207,11 +195,6 @@ bool ParameterBox::DrawRows(std::vector<Row> &rows, const ImVec2 &at, float s, b
     auto *dl = ImGui::GetWindowDrawList();
     const float labels = LabelWidth(rows, s, minimum);
     float width = available > 0 ? available : ImGui::GetContentRegionAvail().x;
-    for (const auto &row : rows)
-        if (!UsesAvailableWidth(row.info.ui)) {
-            const auto layout = LayoutOf(row, labels, s);
-            width = std::max(width, layout.uiX + layout.uiWidth);
-        }
     width = std::max(1.f, width);
     float y = at.y, measuredWidth = width;
     bool changed = false;
@@ -222,8 +205,7 @@ bool ParameterBox::DrawRows(std::vector<Row> &rows, const ImVec2 &at, float s, b
     for (size_t i = 0; i < rows.size(); ++i) {
         Row &row = rows[i];
         auto layout = LayoutOf(row, labels, s);
-        const bool flexible = UsesAvailableWidth(row.info.ui);
-        if (flexible) layout.uiWidth = std::max(100.f * s, width - layout.uiX);
+        layout.uiWidth = std::max(100.f * s, width - layout.uiX);
         if (i) y += 1.f;
         const ImVec2 min(at.x, y);
         paint.SetCurrentChannel(dl, 1);
@@ -283,12 +265,12 @@ bool ParameterBox::DrawRows(std::vector<Row> &rows, const ImVec2 &at, float s, b
         } else if (row.info.pick) {
             pick(1.0f);
         }
-        const float uiY = flexible ? y + s : y + (layout.height - layout.uiHeight) * .5f;
+        const float uiY = y + s;
         ImGui::SetCursorScreenPos({min.x + layout.uiX, uiY});
         ImGui::BeginGroup();
         if (DrawUi(row, {min.x + layout.uiX, uiY}, s, layout.uiWidth)) changed = true;
         ImGui::EndGroup();
-        if (flexible) {
+        {
             const auto size = ImGui::GetItemRectSize();
             layout.uiWidth = std::max(layout.uiWidth, size.x);
             layout.uiHeight = size.y;
@@ -328,14 +310,15 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
     if (!m_Copies.Current(row.workReference)) return false;
     const auto work = row.workReference;
     if (row.typed && !row.References()) { row.invalid = true; return false; }
-    auto P = [&](float x, float y) { return ImVec2(at.x + x * DLU_X * s, at.y + y * DLU_Y * s); };
-    auto label = [&](float x, float y, float w, float h, const char *text, bool bold = true, vi::Align align = vi::CENTER) {
-        vi::Text(P(x, y), P(x + w, y + h), text, bold, align);
-    };
+    const float height = std::max(ImGui::GetFrameHeight(), 19.5f * s);
     bool changed = false;
-    auto textEdit = [&](float x, float w, vi::Align align) {
+    auto textEdit = [&] {
+        ImGui::SetCursorScreenPos(at);
         auto text = m_Copies.ReadText(work);
-        if (vi::Edit("##text", P(x, 0), P(x + w, 12), text, align)) { m_Copies.WriteText(work, text); changed = true; }
+        if (vi::Edit("##text", text, vi::LEFT)) {
+            m_Copies.WriteText(work, text);
+            changed = true;
+        }
     };
 
     switch (row.info.ui) {
@@ -344,11 +327,10 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
     case ParameterUI::Enum: {
         const bool boolean = row.info.ui == ParameterUI::Bool;
         const char *id = boolean ? "##bool" : row.info.ui == ParameterUI::Enum ? "##enum" : "##number";
-        const auto min = boolean ? P(5, 2) : P(15, 0);
-        const auto max = row.info.ui == ParameterUI::Enum ? P(210, 12) : P(70, 12);
-        ImGui::SetCursorScreenPos(min);
-        const auto action = ParameterDraftEditor(m_Copies, work, id, max.x - min.x,
-            boolean ? 8 * DLU_X * s : max.y - min.y, 0, true, {}, row.References(), &row.property, &m_Editors, 0, &row.beforeInteraction);
+        ImGui::SetCursorScreenPos(at);
+        const auto action =
+            ParameterDraftEditor(m_Copies, work, id, width, boolean ? 12 * s : height, 0, true, {},
+                                 row.References(), &row.property, &m_Editors, 0, &row.beforeInteraction);
         m_InputAction |= action;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
         if (action & EDITOR_INPUT_INVALID) row.invalid = true;
@@ -377,10 +359,10 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
         break;
     }
     case ParameterUI::String: {
-        const auto min = P(15, 0), max = P(220, 12);
-        ImGui::SetCursorScreenPos(min);
-        const auto action = ParameterDraftEditor(m_Copies, work, "##string", max.x - min.x, row.extended ? 200 * s : max.y - min.y,
-            0, true, {}, row.References(), &row.property, &m_Editors, unsigned(row.extended), &row.beforeInteraction);
+        ImGui::SetCursorScreenPos(at);
+        const auto action = ParameterDraftEditor(
+            m_Copies, work, "##string", width, row.extended ? 200 * s : height, 0, true, {}, row.References(),
+            &row.property, &m_Editors, unsigned(row.extended), &row.beforeInteraction);
         m_InputAction |= action;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
         if (action & EDITOR_INPUT_INVALID) row.invalid = true;
@@ -388,44 +370,52 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
         break;
     }
     case ParameterUI::Object: {
-        // CK2UI's Object UI (dialog 2011, sub_24E6CE00): the objects of the
-        // class; with its filter: Class, Derived, Text Filter, Show Setup.
         ParameterValue currentValue;
         m_Copies.Read(work, currentValue);
         const auto current = currentValue.object;
         const int32_t cid = row.extended ? row.filterClass : row.info.pickClass;
-        ImGui::SetCursorScreenPos(P(19, 0));
-        const auto action = ParameterDraftEditor(m_Copies, work, "##object", 195 * DLU_X * s, 12 * DLU_Y * s,
-            cid, row.extended ? row.derived : true, row.extended ? row.filter : "", row.References(), &row.property, &m_Editors, 0, &row.beforeInteraction);
+        setup::SetupForm form("##object-fields", width);
+        if (!form)
+            break;
+        form.Row("Object");
+        const auto action =
+            ParameterDraftEditor(m_Copies, work, "##object", ImGui::GetContentRegionAvail().x, height, cid,
+                                 row.extended ? row.derived : true, row.extended ? row.filter : "",
+                                 row.References(), &row.property, &m_Editors, 0, &row.beforeInteraction);
         m_InputAction |= action;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
         if (action & EDITOR_INPUT_INVALID) row.invalid = true;
         else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
         if (row.extended) {
-            label(15, 15, 28, 10, "Class", true, vi::LEFT);
+            form.Row("Class");
             const auto classes = m_Copies.Classes(row.info.pickClass);
             int index = -1;
             for (size_t i = 0; i < classes.size(); ++i)
                 if (classes[i].first == row.filterClass) index = static_cast<int>(i);
             const std::string className = index >= 0 ? classes[size_t(index)].second : std::string();
-            const int chosen = vi::Combo("##class", P(53, 15), P(165, 27), className.c_str(),
-                                         [&] {
-                                             std::vector<std::string> names;
-                                             for (const auto &entry : classes) names.push_back(entry.second);
-                                             return names;
-                                         },
-                                         index);
-            if (chosen >= 0) row.filterClass = classes[chosen].first;
-            label(171, 15, 28, 10, "Derived", true, vi::CENTER);
-            vi::Check("##derived", P(206, 15), 8.0f * DLU_X * s, row.derived);
-            label(15, 30, 40, 10, "Text Filter", true, vi::LEFT);
-            vi::Edit("##filter", P(59, 30), P(165, 42), row.filter, vi::CENTER);
-            // Show Setup (sub_24E6D190): render objects, materials, levels,
-            // scenes, places, sounds, arrays, meshes, textures.
+            const int chosen = vi::Combo(
+                "##class", className,
+                [&] {
+                    std::vector<std::string> names;
+                    for (const auto &entry : classes)
+                        names.push_back(entry.second);
+                    return names;
+                },
+                index);
+            if (chosen >= 0)
+                row.filterClass = classes[size_t(chosen)].first;
+            form.Row("Derived");
+            vi::Check("##derived", ImGui::GetCursorScreenPos(), 12 * s, row.derived);
+            form.Row("Text Filter");
+            vi::Edit("##filter", row.filter, vi::CENTER);
             const EditorClient client(m_Copies.Editor().Host(), 0);
             const auto details = client.Query("object.details", {ObjectArgument("target", current)});
-            const bool setup = details.status == EDITOR_OK && EditorClient::Integer(details, "can-setup");
-            if (vi::Button("##showsetup", P(170, 30), P(215, 40), "Show Setup", setup))
+            const bool canSetup = details.status == EDITOR_OK && EditorClient::Integer(details, "can-setup");
+            form.Row("");
+            const auto button = ImGui::GetCursorScreenPos();
+            if (vi::Button("##showsetup", button,
+                           {button.x + ImGui::GetContentRegionAvail().x, button.y + height}, "Show Setup",
+                           canSetup))
                 client.Command("object.open-setup", {ObjectArgument("target", current)});
         }
         break;
@@ -476,8 +466,9 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
         };
         ImGui::SetCursorScreenPos(at);
         const auto size = UiSize(row, s);
-        const auto action = ParameterDraftEditor(m_Copies, work, "##members", row.info.ui == ParameterUI::Struct ? width : size.x, size.y, 0, true, {},
-            row.References(), &row.property, &m_Editors, 0, &row.beforeInteraction, draw, &members);
+        const auto action =
+            ParameterDraftEditor(m_Copies, work, "##members", width, size.y, 0, true, {}, row.References(),
+                                 &row.property, &m_Editors, 0, &row.beforeInteraction, draw, &members);
         m_InputAction |= action;
         if (action & EDITOR_INPUT_CANCEL) row.invalid = false;
         if (action & EDITOR_INPUT_INVALID) row.invalid = true;
@@ -494,7 +485,10 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
     case ParameterUI::Curve2D:
     case ParameterUI::Dependencies:
     case ParameterUI::LodOptions: {
-        if (!row.typed) { textEdit(15, 205, vi::LEFT); break; }
+        if (!row.typed) {
+            textEdit();
+            break;
+        }
         ImGui::SetCursorScreenPos(at);
         const auto size = UiSize(row, s);
         const auto action = ParameterDraftEditor(m_Copies, work, "##specialized", width, size.y, 0, true, {},
@@ -505,7 +499,9 @@ bool ParameterBox::DrawUi(Row &row, const ImVec2 &at, float s, float width) {
         else if (action & EDITOR_INPUT_CHANGED) { row.invalid = false; changed = true; }
         break;
     }
-    default: textEdit(15, 205, vi::LEFT); break;
+    default:
+        textEdit();
+        break;
     }
     return changed;
 }

@@ -331,7 +331,11 @@ if(VIRTOOLSDEV_BUILD_TESTS)
                 euler_layout_resize_cancel_and_undo rect_layout_modes_cancel_and_undo
                 color_layout_channels_picker_cancel_and_undo flags_layout_unknown_bits_cancel_and_undo
                 nested_compound_layout_batch_and_undo retained_compound_provider_layout
-                angle_layout_drag_reflow_does_not_resample)
+                angle_layout_drag_reflow_does_not_resample
+                basic_integer_layout_cancel_and_undo basic_real_layout_cancel_and_undo
+                basic_percent_layout_cancel_and_undo boolean_enum_layout_cancel_and_undo
+                string_multiline_layout_cancel_and_undo object_filter_layout_cancel_and_undo
+                object_array_table_layout_cancel_and_undo)
             add_test(NAME VirtoolsDevUi.ValueLayout.${_case} COMMAND VirtoolsDevUiTests
                     --ui-tests "${_case}" --editor-module "$<TARGET_FILE:NeMoDevAppearanceModule>"
                     --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>"

@@ -30,9 +30,11 @@ uint32_t DrawText(void *data, const EditorHost *, const EditorValueInput *input)
     if (input->focus) ImGui::SetKeyboardFocusHere();
     bool accept = false, dialogDeactivated = false;
     if (input->style == EDITOR_VALUE_DIALOG) {
-        const auto at = ImGui::GetCursorScreenPos();
-        if (input->height > 30) ImGui::InputTextMultiline(label.c_str(), &text, ImVec2(input->width, input->height));
-        else vi::Edit(label.c_str(), at, ImVec2(at.x + input->width, at.y + input->height), text, vi::LEFT, &dialogDeactivated);
+        const auto *representation = Field(*input, "representation");
+        if (representation ? representation->integer != 0 : input->height > 30)
+            ImGui::InputTextMultiline(label.c_str(), &text, ImVec2(input->width, input->height));
+        else
+            vi::Edit(label.c_str(), text, vi::LEFT, &dialogDeactivated);
     } else accept = ImGui::InputText(label.c_str(), &text, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
     bool changed = text != Text(input->value.text);
     bool deactivated = dialogDeactivated || ImGui::IsItemDeactivatedAfterEdit();
@@ -295,7 +297,10 @@ uint32_t DrawObjectArray(void *, const EditorHost *host, const EditorValueInput 
         if (names && names->type == EDITOR_TEXT_LIST && uint32_t(i) < names->texts.count) display.text = names->texts.data[i];
         child.fields = &display; child.count = 1;
         Update update{&objects, size_t(i), &changed}; child.update = {&update, write};
-        ImGui::SetNextItemWidth(std::max(60.0f, ImGui::GetContentRegionAvail().x - 145));
+        const float actions = ImGui::CalcTextSize("RemoveUpDown").x + 6 * ImGui::GetStyle().FramePadding.x +
+                              3 * ImGui::GetStyle().ItemSpacing.x;
+        child.width = std::max(60.f, ImGui::GetContentRegionAvail().x - actions);
+        ImGui::SetNextItemWidth(child.width);
         action |= host->drawValue(host->data, EditorString EDITOR_TEXT("value.object"), &child);
         ImGui::SameLine();
         if (ImGui::SmallButton("Remove")) { objects.erase(objects.begin() + i); changed = true; }

@@ -52,8 +52,7 @@ void RegisterModuleTests(ImGuiTestEngine *engine);
 void RegisterAppearanceTests(ImGuiTestEngine *engine);
 void RegisterWorkspaceTests(ImGuiTestEngine *engine);
 void RegisterValueEditTests(ImGuiTestEngine *engine);
-void RegisterSpecializedLayoutTests(ImGuiTestEngine *engine);
-void RegisterCompoundLayoutTests(ImGuiTestEngine *engine);
+void RegisterValueLayoutTests(ImGuiTestEngine *engine);
 void RegisterArrayEditTests(ImGuiTestEngine *engine);
 void RegisterAppTests(ImGuiTestEngine *engine);
 void RegisterArchitectureBaselineTests(ImGuiTestEngine *engine);
@@ -83,6 +82,7 @@ void RegisterPlayerTests(ImGuiTestEngine *engine);
 void RegisterHelpTests(ImGuiTestEngine *engine);
 void RegisterHtmlTests(ImGuiTestEngine *engine);
 void RegisterDesktopTests(ImGuiTestEngine *engine);
+void ShowScrollableItem(ImGuiTestContext *ctx, const char *window, ImGuiTestRef item);
 
 // ---------------------------------------------------------------- the editor's thread
 
