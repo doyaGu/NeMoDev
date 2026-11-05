@@ -3,6 +3,7 @@
 #include "core/level/LevelCommands.h"
 #include "core/graph/TopologyCommands.h"
 #include "core/graph/BehaviorCommands.h"
+#include "core/graph/ScriptCommands.h"
 #include "core/graph/ValueCommands.h"
 #include "core/graph/RuntimeGraph.h"
 #include "core/schematic/SchematicModelBuilder.h"
@@ -874,6 +875,125 @@ ImGuiWindow *GraphDialogRows(ImGuiTestContext *ctx, const char *ref, const char 
     return nullptr;
 }
 
+bool ApplicationDialogShown(ImGuiTestContext *ctx, const char *ref) {
+    const auto *window = ctx->GetWindowByRef(ref);
+    return window && window->WasActive;
+}
+struct ApplicationDialogState {
+    vdev::DocumentToken document;
+    uint64_t revision = 0;
+    bool dirty = false, redo = false;
+    size_t undo = 0;
+    std::string undoLabel, redoLabel;
+    std::vector<vdev::ObjectRef> objects;
+    vdev::Selection schematic;
+    bool operator==(const ApplicationDialogState &other) const {
+        return document == other.document && revision == other.revision && dirty == other.dirty && redo == other.redo &&
+               undo == other.undo && undoLabel == other.undoLabel && redoLabel == other.redoLabel &&
+               objects == other.objects && schematic.script == other.schematic.script &&
+               schematic.items == other.schematic.items && schematic.headers == other.schematic.headers;
+    }
+};
+ApplicationDialogState ReadApplicationDialogState(ImGuiTestContext *ctx) {
+    return Read<ApplicationDialogState>(ctx, [] {
+        auto &state = App().State();
+        return ApplicationDialogState{state.document->Token(), state.document->ChangeRevision(), state.document->Dirty(),
+                                      state.History().CanRedo(), state.History().UndoCount(), state.History().UndoLabel(),
+                                      state.History().RedoLabel(), state.objectSelection.References(),
+                                      App().Canvas().Navigation().selection};
+    });
+}
+void RenameDialogObject(ImGuiTestContext *ctx, vdev::ObjectRef target, const std::string &name) {
+    OnMainThread(ctx, [&] {
+        IM_CHECK_NO_RET(EditorCommands().Command("object.rename", {vdev::ObjectArgument("target", target),
+                        vdev::TextArgument("name", name)}).status == EDITOR_OK);
+    });
+}
+void SeedApplicationDialogRedo(ImGuiTestContext *ctx, vdev::ObjectRef object) {
+    RenameDialogObject(ctx, object, ObjectName(ctx, object.object) + " temporary");
+    OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+}
+struct ExplorerDialogObjects {
+    vdev::ObjectRef target, other;
+    std::string name, otherName, filter;
+    vdev::EditorConfiguration configuration;
+    std::vector<vdev::EditorField> preferences;
+};
+void SetExplorerDialogOptions(const std::vector<vdev::EditorField> &fields) {
+    vdev::EditorField record{"value", EDITOR_RECORD};
+    record.fields = fields;
+    const std::vector<vdev::EditorField> owned{record};
+    const auto values = vdev::BorrowEditorFields(owned);
+    IM_CHECK_NO_RET(EditorCommands().Command("preferences.set-explorer-options",
+                    {values.data(), values.data() + values.size()}).status <= EDITOR_NO_CHANGE);
+}
+ExplorerDialogObjects OpenExplorerDialog(ImGuiTestContext *ctx, bool tree) {
+    ExplorerDialogObjects objects;
+    objects.configuration = SetupDialogTheme(ctx);
+    if (ApplicationDialogShown(ctx, "//Schematic Explorer")) {
+        ctx->ItemClick("//Schematic Explorer/Cancel/##dialogbutton");
+        ctx->Yield(3);
+    }
+    OnMainThread(ctx, [&] {
+        using namespace vdev;
+        auto &doc = *App().State().document;
+        doc.History().SetLimit(1000);
+        objects.filter = "Explorer " + std::to_string(SDL_GetTicksNS()) + " ";
+        objects.name = objects.filter + "first " + std::string(120, 'N');
+        objects.otherName = objects.filter + "second";
+        const auto a = CreateScript(doc, doc.Context()->GetCurrentLevel()->GetID(), objects.name);
+        const auto b = CreateScript(doc, doc.Context()->GetCurrentLevel()->GetID(), objects.otherName);
+        IM_CHECK_NO_RET(a.ok && b.ok);
+        objects.target = doc.Reference(a.created);
+        objects.other = doc.Reference(b.created);
+        const auto preferences = EditorCommands().Query("preferences.display");
+        for (const auto &field : EditorClient::Find(preferences, "value")->fields)
+            if (field.key.find("Schematic Explorer\\") == 0) objects.preferences.push_back(field);
+        SetExplorerDialogOptions({{"Schematic Explorer\\Show In List", EDITOR_INTEGER_VALUE, {}, {}, SearchScripts},
+                                  {"Schematic Explorer\\Parse All Items", EDITOR_INTEGER_VALUE, {}, {}, 1},
+                                  {"Schematic Explorer\\Tree View", EDITOR_INTEGER_VALUE, {}, {}, uint64_t(tree)},
+                                  {"Schematic Explorer\\Parameter Filter", EDITOR_INTEGER_VALUE, {}, {}, 0}});
+        App().Canvas().ShowScript(a.created);
+    });
+    ctx->WindowFocus(SchematicRef().c_str());
+    ctx->Yield(4);
+    ctx->KeyPress(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_F);
+    ctx->Yield(4);
+    ctx->SetRef("//Schematic Explorer");
+    TypeGraphDialog(ctx, "##text", objects.filter.c_str());
+    ctx->Yield(3);
+    IM_CHECK_NO_RET(ApplicationDialogShown(ctx, "//Schematic Explorer"));
+    return objects;
+}
+void OpenExplorerRename(ImGuiTestContext *ctx, const ExplorerDialogObjects &objects, bool tree) {
+    ctx->SetRef("//Schematic Explorer");
+    if (tree) {
+        auto *rows = SetupDialogContent(ctx, "//Schematic Explorer", "##tree");
+        IM_CHECK_NO_RET(rows && rows->WasActive);
+        if (!rows || !rows->WasActive) return;
+        const int object = int(objects.target.object);
+        ctx->ItemClick(ImHashStr("##node", 0, ImHashData(&object, sizeof(object), rows->ID)));
+        ctx->WindowFocus("//Schematic Explorer");
+    } else {
+        const auto rows = Read<std::vector<vdev::SearchResult>>(ctx, [] { return App().Panels().SearchResults(); });
+        const auto target = std::find_if(rows.begin(), rows.end(), [&](const auto &r) { return r.objectReference == objects.target; });
+        IM_CHECK_NO_RET(target != rows.end());
+        if (target == rows.end()) return;
+        ctx->ItemClick(("**/$$" + std::to_string(target - rows.begin()) + "/##row").c_str());
+    }
+    ctx->KeyPress(ImGuiKey_F2);
+    ctx->Yield(4);
+    ctx->SetRef(tree ? "//Rename###explorertreerename" : "//Rename###explorerrename");
+}
+void CloseExplorerDialog(ImGuiTestContext *ctx, const ExplorerDialogObjects &objects) {
+    ctx->ItemClick("//Schematic Explorer/Cancel/##dialogbutton");
+    ctx->Yield(3);
+    OnMainThread(ctx, [&] {
+        SetExplorerDialogOptions(objects.preferences);
+        App().State().History().SetLimit(50);
+    });
+    FinishSetupDialogs(ctx, objects.configuration);
+}
 // The SDK owns registered managers until Context destruction. Sources are released first.
 class SetupMidiManager final : public CKMidiManager {
     struct Source {
@@ -7008,6 +7128,102 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         CloseGraphDialogs(ctx, objects);
     };
 
+    auto *explorerList = IM_REGISTER_TEST(engine, "appearanceapplicationdialogs", "explorer_list_cancel_refresh_and_single_undo");
+    explorerList->GuiFunc = MainThreadGui;
+    explorerList->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto objects = OpenExplorerDialog(ctx, false);
+        SeedApplicationDialogRedo(ctx, objects.other);
+        OpenExplorerRename(ctx, objects, false);
+        const auto before = ReadApplicationDialogState(ctx);
+        TypeGraphDialog(ctx, "##name", "Cancelled Explorer name");
+        const auto active = ctx->UiContext->ActiveId;
+        ResizeGraphDialog(ctx, "//Rename###explorerrename", "##explorer-name", "OK", "Cancel", false, 170);
+        IM_CHECK(ctx->UiContext->ActiveId == active && std::string(ctx->UiContext->InputTextState.GetText()) == "Cancelled Explorer name");
+        ctx->ItemClick("Cancel");
+        ctx->Yield(3);
+        IM_CHECK(ObjectName(ctx, objects.target.object) == objects.name && ReadApplicationDialogState(ctx) == before);
+        OpenExplorerRename(ctx, objects, false);
+        const auto history = ReadApplicationDialogState(ctx).undo;
+        TypeGraphDialog(ctx, "##name", "Accepted Explorer name");
+        RenameDialogObject(ctx, objects.target, "Outside the Explorer filter");
+        ctx->Yield(4);
+        const auto rows = Read<std::vector<vdev::SearchResult>>(ctx, [] { return App().Panels().SearchResults(); });
+        IM_CHECK(rows.size() == 1 && rows.front().objectReference == objects.other);
+        ResizeParameterDialog(ctx, "//Rename###explorerrename", {850, 180});
+        ctx->ItemClick("OK");
+        ctx->Yield(4);
+        IM_CHECK(ObjectName(ctx, objects.target.object) == "Accepted Explorer name" &&
+                 ObjectName(ctx, objects.other.object) == objects.otherName && ReadApplicationDialogState(ctx).undo == history + 2);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(ObjectName(ctx, objects.target.object) == "Outside the Explorer filter");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK(ObjectName(ctx, objects.target.object) == "Accepted Explorer name");
+        OnMainThread(ctx, [] {
+            IM_CHECK_NO_RET(App().State().History().Undo());
+            IM_CHECK_NO_RET(App().State().History().Undo());
+        });
+        IM_CHECK(ObjectName(ctx, objects.target.object) == objects.name);
+        CloseExplorerDialog(ctx, objects);
+    };
+    auto *explorerTree = IM_REGISTER_TEST(engine, "appearanceapplicationdialogs", "explorer_tree_cancel_reopen_and_single_undo");
+    explorerTree->GuiFunc = MainThreadGui;
+    explorerTree->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto objects = OpenExplorerDialog(ctx, true);
+        SeedApplicationDialogRedo(ctx, objects.other);
+        OpenExplorerRename(ctx, objects, true);
+        const auto before = ReadApplicationDialogState(ctx);
+        TypeGraphDialog(ctx, "##name", "Discarded tree name");
+        ResizeGraphDialog(ctx, "//Rename###explorertreerename", "##explorer-name", "OK", "Cancel", false, 170);
+        ctx->KeyPress(ImGuiKey_Escape);
+        ctx->Yield(3);
+        IM_CHECK(ApplicationDialogShown(ctx, "//Schematic Explorer") &&
+                 ObjectName(ctx, objects.target.object) == objects.name && ReadApplicationDialogState(ctx) == before);
+        OpenExplorerRename(ctx, objects, true);
+        TypeGraphDialog(ctx, "##name", "Renamed tree Script");
+        ctx->KeyPress(ImGuiKey_Enter);
+        ctx->Yield(4);
+        IM_CHECK(ApplicationDialogShown(ctx, "//Schematic Explorer") &&
+                 ObjectName(ctx, objects.target.object) == "Renamed tree Script" && ReadApplicationDialogState(ctx).undo == before.undo + 1);
+        // The selected tree row survived the refresh. F2 reads its current name.
+        ctx->WindowFocus("//Schematic Explorer");
+        ctx->KeyPress(ImGuiKey_F2);
+        ctx->Yield(4);
+        ctx->SetRef("//Rename###explorertreerename");
+        IM_CHECK(ApplicationDialogShown(ctx, "//Rename###explorertreerename") &&
+                 std::string(ctx->UiContext->InputTextState.GetText()) == "Renamed tree Script");
+        const auto renamed = ReadApplicationDialogState(ctx);
+        ctx->ItemClick("OK");
+        ctx->Yield(3);
+        IM_CHECK(ReadApplicationDialogState(ctx) == renamed);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(ObjectName(ctx, objects.target.object) == objects.name);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Redo()); });
+        IM_CHECK(ObjectName(ctx, objects.target.object) == "Renamed tree Script");
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        CloseExplorerDialog(ctx, objects);
+    };
+    auto *explorerDeleted = IM_REGISTER_TEST(engine, "appearanceapplicationdialogs", "explorer_deleted_target_does_not_rename_replacement_row");
+    explorerDeleted->GuiFunc = MainThreadGui;
+    explorerDeleted->TestFunc = [](ImGuiTestContext *ctx) {
+        Settle(ctx);
+        const auto objects = OpenExplorerDialog(ctx, false);
+        OpenExplorerRename(ctx, objects, false);
+        TypeGraphDialog(ctx, "##name", "Do not rename the next row");
+        OnMainThread(ctx, [&] { IM_CHECK_NO_RET(vdev::DeleteScript(*App().State().document, objects.target.object).ok); });
+        ctx->Yield(4);
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto rows = Read<std::vector<vdev::SearchResult>>(ctx, [] { return App().Panels().SearchResults(); });
+        IM_CHECK(rows.size() == 1 && rows.front().objectReference == objects.other);
+        ctx->ItemClick("OK");
+        ctx->Yield(4);
+        IM_CHECK(!GraphObjectAlive(ctx, objects.target) && ObjectName(ctx, objects.other.object) == objects.otherName &&
+                 ReadApplicationDialogState(ctx) == before);
+        OnMainThread(ctx, [] { IM_CHECK_NO_RET(App().State().History().Undo()); });
+        IM_CHECK(GraphObjectAlive(ctx, objects.target) && ObjectName(ctx, objects.target.object) == objects.name);
+        CloseExplorerDialog(ctx, objects);
+    };
     auto *startup = IM_REGISTER_TEST(engine, "appearancestartup", "appearance_startup_state");
     startup->GuiFunc = MainThreadGui;
     startup->TestFunc = [](ImGuiTestContext *ctx) {

@@ -55,13 +55,12 @@ private:
     EditorClient Client() const;
     bool ReadSearch(bool tree, std::vector<SearchResult> &);
     void Command(const char *, const std::vector<EditorField> &);
-    void Rename(const SearchResult &);
+    void ExplorerRenameDialog(const char *id);
     void Poll();
     std::vector<EditorField> m_ParameterTypes;
     uint64_t m_TypesRevision = 0;
     std::vector<std::pair<EditorOperation, bool>> m_Pending;
 
-    int m_ExplorerRename = -1; // the row F2 renames (-2: the tree's node)
     std::string m_ExplorerRenameText;
 
     // What names the open composition's objects (CK gives their ids to the
@@ -69,6 +68,7 @@ private:
     // an object goes here.
     struct DocumentState {
         std::optional<SearchResult> treeTarget;
+        ObjectRef renameTarget; // the object F2 selected, independent of refreshed rows
         // The Schematic Explorer's results (made again when the query or
         // the composition changes), the rows chosen (Shift's anchor), the
         // Schematic's selection when it opened (Cancel gives it back), the

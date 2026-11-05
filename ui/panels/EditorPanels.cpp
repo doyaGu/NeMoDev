@@ -3,6 +3,7 @@
 #include "ui/app/DesktopFiles.h"
 #include "ui/controls/DevControls.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/setup/SetupLayout.h"
 #include "ui/controls/DevBitmaps.h"
 #include "editor/ImGuiDrawing.h"
 
@@ -210,11 +211,36 @@ void EditorPanels::Command(const char *id, const std::vector<EditorField> &field
         Client().Log(EDITOR_LOG_WARNING,
                     result.message.empty() ? "The Schematic target changed; select it again" : result.message);
 }
-void EditorPanels::Rename(const SearchResult &result) {
-    Command("object.rename",
-            {{"target", EDITOR_OBJECT, result.objectReference}, {"name", EDITOR_TEXT_VALUE, {}, m_ExplorerRenameText}});
-    m_Doc.resultsKey.clear();
+void EditorPanels::ExplorerRenameDialog(const char *id) {
+    if (!ImGui::IsPopupOpen(id)) return;
+    const auto unit = setup::PageUnit();
+    vi::DialogLayout layout;
+    if (!vi::BeginScrollableDialog(id, "Rename", {320 * unit, 40 * unit}, unit, layout)) return;
+    const bool appearing = ImGui::IsWindowAppearing();
+    bool entered = false;
+    if (vi::BeginDialogContent("##explorer-name", layout)) {
+        if (appearing) ImGui::SetKeyboardFocusHere();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        entered = ImGui::InputText("##name", &m_ExplorerRenameText, ImGuiInputTextFlags_EnterReturnsTrue);
+    }
+    vi::EndDialogContent();
+    ImGui::SetCursorScreenPos({layout.right - 170 * unit, layout.buttonsY});
+    const bool ok = ImGui::Button("OK", {80 * unit, 18 * unit}) || entered;
+    ImGui::SameLine(0, 10 * unit);
+    const bool cancel = ImGui::Button("Cancel", {80 * unit, 18 * unit}) || ImGui::IsKeyPressed(ImGuiKey_Escape);
+    if (cancel || !m_Doc.renameTarget) {
+        m_Doc.renameTarget = {};
+        ImGui::CloseCurrentPopup();
+    } else if (ok) {
+        Command("object.rename", {{"target", EDITOR_OBJECT, m_Doc.renameTarget},
+                                   {"name", EDITOR_TEXT_VALUE, {}, m_ExplorerRenameText}});
+        m_Doc.resultsKey.clear();
+        m_Doc.renameTarget = {};
+        ImGui::CloseCurrentPopup();
+    }
+    vi::EndDialog();
 }
+
 void EditorPanels::Poll() {
     for (auto it = m_Pending.begin(); it != m_Pending.end();) {
         const auto result = Client().Completion(it->first);
@@ -353,23 +379,17 @@ void EditorPanels::ExplorerTree(const ImVec2 &min, const ImVec2 &max) {
             draw(row);
     if (m_Doc.treeTarget && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
         !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
-        m_ExplorerRename = -2;
-        m_ExplorerRenameText = m_Doc.treeTarget->objectName;
-        ImGui::OpenPopup("Rename###explorertreerename");
-    }
-    if (ImGui::BeginPopupModal("Rename###explorertreerename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (ImGui::IsWindowAppearing())
-            ImGui::SetKeyboardFocusHere();
-        const bool entered = ImGui::InputText("##name", &m_ExplorerRenameText, ImGuiInputTextFlags_EnterReturnsTrue);
-        if ((entered || ImGui::Button("OK", {80, 0})) && m_Doc.treeTarget) {
-            Rename(*m_Doc.treeTarget);
-            ImGui::CloseCurrentPopup();
+        const auto target = std::find_if(rows.begin(), rows.end(), [&](const SearchResult &row) {
+            return row.objectReference == m_Doc.treeTarget->objectReference;
+        });
+        if (target != rows.end()) {
+            m_Doc.treeTarget = *target;
+            m_Doc.renameTarget = target->objectReference;
+            m_ExplorerRenameText = target->objectName;
+            ImGui::OpenPopup("Rename###explorertreerename");
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {80, 0}) || ImGui::IsKeyPressed(ImGuiKey_Escape))
-            ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
     }
+    ExplorerRenameDialog("Rename###explorertreerename");
     ImGui::EndChild();
     ImGui::PopStyleColor(2);
 }
@@ -440,6 +460,9 @@ void EditorPanels::ExplorerPanel(bool *open) {
         vi::EndWindow();
         return;
     }
+    // A child popup may close during this draw. Its Enter/Escape must not
+    // also accept/cancel the Explorer later in the same frame.
+    const bool popupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
     const vi::TemplateLayout l = vi::LayoutTemplate(o, units, s, PAD);
     vi::TemplatePanel(l);
     RunSearch();
@@ -515,23 +538,11 @@ void EditorPanels::ExplorerPanel(bool *open) {
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
             ImGui::IsKeyPressed(ImGuiKey_F2, false) && first >= 0 && first < count && m_Doc.results[first].object &&
             m_Doc.results[first].ref.kind != ElementKind::Comment) {
-            m_ExplorerRename = first;
+            m_Doc.renameTarget = m_Doc.results[first].objectReference;
             m_ExplorerRenameText = m_Doc.results[first].objectName;
             ImGui::OpenPopup("Rename###explorerrename");
         }
-        if (ImGui::BeginPopupModal("Rename###explorerrename", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-            const bool entered = ImGui::InputText("##name", &m_ExplorerRenameText, ImGuiInputTextFlags_EnterReturnsTrue);
-            if ((entered || ImGui::Button("OK", ImVec2(80, 0))) && m_ExplorerRename >= 0 && m_ExplorerRename < count) {
-                const SearchResult &result = m_Doc.results[m_ExplorerRename];
-                Rename(result);
-                m_Doc.resultsKey.clear();
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(80, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape)) ImGui::CloseCurrentPopup();
-            ImGui::EndPopup();
-        }
+        ExplorerRenameDialog("Rename###explorerrename");
     }
 
     // Show in List.
@@ -701,8 +712,10 @@ void EditorPanels::ExplorerPanel(bool *open) {
         m_Doc.resultsKey.clear();
     }
 
-    if (vi::DialogButton("Select", ImVec2(l.right - 130.0f * s, l.buttonsY), s, ImGuiKey_Enter)) close(true);
-    else if (vi::DialogButton("Cancel", ImVec2(l.right - 60.0f * s, l.buttonsY), s, ImGuiKey_Escape)) close(false);
+    if (vi::DialogButton("Select", ImVec2(l.right - 130.0f * s, l.buttonsY), s,
+                         popupOpen ? ImGuiKey_None : ImGuiKey_Enter)) close(true);
+    else if (vi::DialogButton("Cancel", ImVec2(l.right - 60.0f * s, l.buttonsY), s,
+                              popupOpen ? ImGuiKey_None : ImGuiKey_Escape)) close(false);
     vi::EndWindow();
 }
 
