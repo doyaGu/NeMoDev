@@ -1,11 +1,11 @@
 #include "ui/schematic/SchematicParameterDialog.h"
-#include "ui/controls/DevBitmaps.h"
-#include "ui/controls/ObjectArrayInput.h"
-#include "ui/controls/DevControls.h"
-#include "ui/controls/DevTheme.h"
-#include "ui/setup/SetupLayout.h"
 #include "imgui_internal.h"
 #include "misc/cpp/imgui_stdlib.h"
+#include "ui/controls/DevBitmaps.h"
+#include "ui/controls/DevControls.h"
+#include "ui/controls/DevTheme.h"
+#include "ui/controls/ObjectArrayInput.h"
+#include "ui/setup/SetupLayout.h"
 #include <algorithm>
 #include <optional>
 
@@ -257,9 +257,10 @@ struct SchematicParameterDialog::Data {
         }
         return result;
     }
-    uint32_t DrawValue(Row &row, EditorField &v, ImVec2 at, float s) {
+    uint32_t DrawValue(Row &row, EditorField &v, ImVec2 at, float s, float width) {
         if (row.binding.editor.empty()) {
-            vi::Text(at, {at.x + row.width * DX * s, at.y + 14 * DY * s}, Text(row.fields, "display").c_str());
+            ImGui::SetCursorScreenPos(at);
+            ImGui::TextWrapped("%s", Text(row.fields, "display").c_str());
             return 0;
         }
         auto fields = row.fields;
@@ -291,9 +292,9 @@ struct SchematicParameterDialog::Data {
             Row *row;
             EditorField *value;
             ImVec2 at;
-            float scale;
+            float scale, width;
             bool used = false;
-        } members{this, &row, &v, at, s};
+        } members{this, &row, &v, at, s, width};
         const auto draw = [](void *data, const EditorHost *host, const EditorValueInput *input) {
             auto &m = *static_cast<Members *>(data);
             if (m.row->layout == "objects") {
@@ -301,31 +302,33 @@ struct SchematicParameterDialog::Data {
                 return m.row->arrayInput.Draw(host, *input);
             }
             m.used = true;
-            return m.self->DrawRows(m.row->members, m.value->fields, m.at, m.scale, false);
+            return m.self->DrawRows(m.row->members, m.value->fields, m.at, m.scale, false, m.width);
         };
         auto size = UiSize(row, v, s);
-        auto origin = at;
+        size.x = width;
         const auto &kind = row.layout;
+        const float height = std::max(ImGui::GetFrameHeight(), 19.5f * s);
         const char *label = "##components";
         if (kind == "number" || kind == "enum" || kind == "bool" || kind == "string" || kind == "text" ||
             kind == "object") {
-            origin.x += (kind == "bool" ? 5 : kind == "object" ? 19 : 15) * DX * s;
-            if (kind == "bool") {
-                origin.y += 2 * DY * s;
-                size = {8 * DX * s, 8 * DX * s};
-                label = "##bool";
-            } else {
-                size.x = (kind == "number" ? 55 : kind == "object" || kind == "enum" ? 195 : 205) * DX * s;
-                size.y = kind == "string" && row.extended ? 200 * s : 12 * DY * s;
-                label = kind == "number"   ? "##number"
-                        : kind == "enum"   ? "##enum"
-                        : kind == "object" ? "##object"
-                        : kind == "text"   ? "##text"
-                                           : "##string";
-            }
+            size.y = kind == "bool" ? 12 * s : kind == "string" && row.extended ? 200 * s : height;
+            label = kind == "number"   ? "##number"
+                    : kind == "enum"   ? "##enum"
+                    : kind == "bool"   ? "##bool"
+                    : kind == "object" ? "##object"
+                    : kind == "text"   ? "##text"
+                                       : "##string";
         } else if (kind == "flags")
             label = "##flags";
-        ImGui::SetCursorScreenPos(origin);
+        ImGui::SetCursorScreenPos(at);
+        std::optional<setup::SetupForm> objectForm;
+        if (kind == "object") {
+            objectForm.emplace("##object-fields", width);
+            if (!*objectForm)
+                return 0;
+            objectForm->Row("Object");
+            size.x = std::max(1.f, ImGui::GetContentRegionAvail().x);
+        }
         const EditorValueInput input{sizeof(input),
                                      0,
                                      EditorLiteral(label),
@@ -361,8 +364,7 @@ struct SchematicParameterDialog::Data {
         else if (action & EDITOR_INPUT_CHANGED)
             row.invalid = false;
         if (kind == "object" && row.extended) {
-            const auto P = [&](float x, float y) { return ImVec2(at.x + x * DX * s, at.y + y * DY * s); };
-            vi::Text(P(15, 15), P(43, 25), "Class", true, vi::LEFT);
+            objectForm->Row("Class");
             int index = -1;
             std::vector<std::string> names;
             for (size_t i = 0; i < row.classes.size(); ++i) {
@@ -370,25 +372,33 @@ struct SchematicParameterDialog::Data {
                 if (Number(row.classes[i].fields, "id") == row.filterClass)
                     index = int(i);
             }
-            const auto chosenClass = vi::Combo(
-                "##class", P(53, 15), P(165, 27), index >= 0 ? names[size_t(index)] : "", [&] { return names; }, index);
+            const auto chosenClass =
+                vi::Combo("##class", index >= 0 ? names[size_t(index)] : "", [&] { return names; }, index);
             if (chosenClass >= 0)
                 row.filterClass = unsigned(Number(row.classes[size_t(chosenClass)].fields, "id"));
-            vi::Text(P(171, 15), P(199, 25), "Derived", true);
-            vi::Check("##derived", P(206, 15), 8 * DX * s, row.derived);
-            vi::Text(P(15, 30), P(55, 40), "Text Filter", true, vi::LEFT);
-            vi::Edit("##filter", P(59, 30), P(165, 42), row.filter, vi::CENTER);
-            if (vi::Button("##showsetup", P(170, 30), P(215, 40), "Show Setup", bool(v.object)))
+            objectForm->Row("Derived");
+            vi::Check("##derived", ImGui::GetCursorScreenPos(), 12 * s, row.derived);
+            objectForm->Row("Text Filter");
+            vi::Edit("##filter", row.filter, vi::CENTER);
+            objectForm->Row("");
+            if (vi::Button("##showsetup", "Show Setup", bool(v.object)))
                 client.Command("object.open-setup", {ObjectArgument("target", v.object)});
         }
         return action;
     }
-    uint32_t DrawRows(std::vector<Row> &items, std::vector<EditorField> &values, ImVec2 at, float s, bool minimum) {
+    uint32_t DrawRows(std::vector<Row> &items, std::vector<EditorField> &values, ImVec2 at, float s,
+                      bool minimum, float available = 0) {
         uint32_t action = 0;
         const auto labels = Labels(items, s, minimum);
-        const auto extent = RowsSize(items, values, s, minimum);
-        float y = at.y;
+        const float width = std::max(1.f, available > 0 ? available : ImGui::GetContentRegionAvail().x);
+        const float uiX = 14 * DX * s + labels + 2 * s;
+        const float uiWidth = std::max(100.f * s, width - uiX);
+        float y = at.y, measuredWidth = width;
         auto *dl = ImGui::GetWindowDrawList();
+        ImDrawListSplitter paint;
+        paint.Split(dl, 2);
+        ImGui::SetCursorScreenPos(at);
+        ImGui::BeginGroup();
         for (size_t i = 0; i < items.size(); ++i) {
             auto &row = items[i];
             auto *v = Field(values, row.key.c_str());
@@ -396,19 +406,9 @@ struct SchematicParameterDialog::Data {
                 action |= EDITOR_INPUT_INVALID;
                 continue;
             }
-            const auto size = UiSize(row, *v, s);
-            const auto uiX = 14 * DX * s + labels + 2 * s;
-            const auto height = std::max(size.y, (row.expand && row.pick ? 15 : 11) * DY * s) + 2 * s;
-            if (i) {
-                dl->AddRectFilled({at.x, y}, {at.x + extent.x, y + 1}, vi::Color(7));
-                dl->AddLine({at.x + uiX, y + .5f}, {at.x + extent.x, y + .5f}, vi::Color(6));
+            if (i)
                 y += 1;
-            }
-            row.min = {at.x, y};
-            row.max = {at.x + uiX + size.x, y + height};
-            dl->AddRectFilled(row.min, {at.x + uiX - 1, y + height}, vi::Color(6));
-            dl->AddLine({at.x + uiX - .5f, y}, {at.x + uiX - .5f, y + height}, vi::Color(0));
-            dl->AddRectFilled({at.x + uiX, y}, row.max, vi::Color(7));
+            paint.SetCurrentChannel(dl, 1);
             ImGui::PushID(int(i));
             const auto button = [&](const char *id, float dy, const int icons[3], bool pushed) {
                 const ImVec2 p(at.x + 3 * DX * s, y + dy * DY * s);
@@ -449,12 +449,34 @@ struct SchematicParameterDialog::Data {
                     }
                 }
             }
-            const auto uiY = y + (height - size.y) * .5f;
+            const float uiY = y + s;
+            ImGui::SetCursorScreenPos({at.x + uiX, uiY});
+            ImGui::BeginGroup();
+            action |= DrawValue(row, *v, {at.x + uiX, uiY}, s, uiWidth);
+            ImGui::EndGroup();
+            const auto size = ImGui::GetItemRectSize();
+            const float side = (row.expand && row.pick ? 15 : 11) * DY * s;
+            const float height = std::max(size.y, side) + 2 * s;
+            const float right = std::max(width, uiX + std::max(uiWidth, size.x));
             vi::Text({at.x + 14 * DX * s, uiY}, {at.x + uiX - 2 * s, uiY + 13 * s}, row.label.c_str(), true);
-            action |= DrawValue(row, *v, {at.x + uiX, uiY}, s);
             ImGui::PopID();
-            y += height;
+            row.min = {at.x, y};
+            row.max = {at.x + right, y + height};
+            measuredWidth = std::max(measuredWidth, right);
+            paint.SetCurrentChannel(dl, 0);
+            if (i) {
+                dl->AddRectFilled({at.x, y - 1}, {row.max.x, y}, vi::Color(7));
+                dl->AddLine({at.x + uiX, y - .5f}, {row.max.x, y - .5f}, vi::Color(6));
+            }
+            dl->AddRectFilled(row.min, {at.x + uiX - 1, row.max.y}, vi::Color(6));
+            dl->AddLine({at.x + uiX - .5f, y}, {at.x + uiX - .5f, row.max.y}, vi::Color(0));
+            dl->AddRectFilled({at.x + uiX, y}, row.max, vi::Color(7));
+            y = row.max.y;
         }
+        paint.Merge(dl);
+        ImGui::SetCursorScreenPos(at);
+        ImGui::Dummy({measuredWidth, y - at.y});
+        ImGui::EndGroup();
         return action;
     }
     Row *FindRow(std::vector<Row> &items, ObjectRef target, std::vector<uint64_t> *path = nullptr) {
@@ -680,12 +702,10 @@ struct SchematicParameterDialog::Data {
             const auto at = ImGui::GetCursorScreenPos();
             action = DrawRows(rows, values->fields, at, s, !single);
             ImGui::EndDisabled();
-            const auto measured = RowsSize(rows, values->fields, s, !single);
+            const auto measured = ImGui::GetItemRectSize();
             if (single && !rows.empty())
                 ImGui::GetWindowDrawList()->AddRect({at.x - s, at.y - s},
                                                     {at.x + measured.x + s, at.y + measured.y + s}, vi::Color(0));
-            ImGui::SetCursorScreenPos(at);
-            ImGui::Dummy({std::max(1.f, measured.x), std::max(1.f, measured.y)});
         }
         vi::EndDialogContent();
         vi::BlockDialogButtons(captured || changedType);
@@ -726,8 +746,8 @@ struct SchematicParameterDialog::Data {
                                                     {400 * s, 70 * s}, s, confirmation)) {
             const bool keys = !ImGui::IsWindowAppearing();
             if (vi::BeginDialogContent("##invalid-parameter-link", confirmation)) {
-                ImGui::TextWrapped(
-                    "Parameter Type is incompatible with Parameter Input Type.\nThis link must be deleted.");
+                ImGui::TextWrapped("Parameter Type is incompatible with Parameter "
+                                   "Input Type.\nThis link must be deleted.");
                 if (invalidLinks.size() > 1) ImGui::Text("(%d links)", int(invalidLinks.size()));
             }
             vi::EndDialogContent();

@@ -437,10 +437,8 @@ void EditorPanels::ExplorerPanel(bool *open) {
         *open = false;
         return;
     }
-    const float s = ImGui::GetFontSize() / 13.0f;
-    const ImVec2 units(345.0f, 279.0f);
-    constexpr float PAD = 4.5f;
-    ImVec2 o;
+    const float s = setup::PageUnit();
+    vi::DialogLayout l;
     m_Preferences.Refresh(Client());
     const auto &prefs = m_Preferences;
     if (!m_ExplorerShown) {
@@ -456,246 +454,287 @@ void EditorPanels::ExplorerPanel(bool *open) {
         m_SearchDerived = prefs.Bool("Schematic Explorer\\Derived");
     }
     auto close = [&](bool keep) { CloseExplorer(keep); *open = false; };
-    if (!vi::BeginWindow("Schematic Explorer", "Schematic Explorer", vi::TemplateClient(units, s, PAD), s, o)) {
+    if (!vi::BeginScrollableWindow("Schematic Explorer", "Schematic Explorer", {800 * s, 550 * s}, s, l)) {
         vi::EndWindow();
         return;
     }
     // A child popup may close during this draw. Its Enter/Escape must not
     // also accept/cancel the Explorer later in the same frame.
     const bool popupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
-    const vi::TemplateLayout l = vi::LayoutTemplate(o, units, s, PAD);
-    vi::TemplatePanel(l);
     RunSearch();
     Poll();
-    auto text = [&](float x, float y, float w, float h, const char *label, bool bold = false, vi::Align align = vi::LEFT) {
-        vi::Text(l.Min(x, y), l.Max(x, y, w, h), label, bold, align);
-    };
-
-    // The Item List, or the tree.
-    text(0, 2, 65, 10, "Item List", true);
-    if (vi::Button("treeview", l.Min(150, 2), l.Max(150, 2, 80, 10), m_SearchTree ? "Toggle To List View" : "Toggle To Tree View"))
-        m_SearchTree = !m_SearchTree;
-    const int count = static_cast<int>(m_Doc.results.size());
-    if (m_SearchTree) {
-        ExplorerTree(l.Min(0, 13), l.Max(0, 13, 230, 210));
-    } else {
-        static const std::vector<vi::ListColumn> COLUMNS{{"Item", 0.0f}, {"Script", 110.0f}, {"Type", 70.0f}};
-        bool twice = false;
-        const int clicked = vi::ListView(
-            "##items", l.Min(0, 13), l.Max(0, 13, 230, 210), s, COLUMNS, count,
-            [&](int r, int c) -> std::string {
-                const SearchResult &result = m_Doc.results[r];
-                if (c == 0)
-                    return result.label;
-                if (c == 2)
-                    return result.kind;
-                return result.scriptName;
-            },
-            [&](int r) { return m_Doc.chosen.count(r) != 0; }, &twice, nullptr, false, nullptr,
-            // Documentation "Schematic Explorer": "Icons in front of an item is
-            // the element type" (Dev's class icons).
-            [&](int r) -> ImTextureID {
-                const auto icon = m_Doc.results[r].classIcon;
-                return icon ? DevIconImage(icon) : ImTextureID();
-            });
-        if (clicked >= 0) {
-            const ImGuiIO &io = ImGui::GetIO();
-            if (io.KeyShift && m_Doc.anchor >= 0) {
-                m_Doc.chosen.clear();
-                for (int r = std::min(clicked, m_Doc.anchor); r <= std::max(clicked, m_Doc.anchor); ++r) m_Doc.chosen.insert(r);
-            } else if (io.KeyCtrl) {
-                if (!m_Doc.chosen.erase(clicked)) m_Doc.chosen.insert(clicked);
-                m_Doc.anchor = clicked;
-            } else {
-                m_Doc.chosen = {clicked};
-                m_Doc.anchor = clicked;
-            }
-            m_Doc.currentResult = clicked;
-            ExplorerSelect();
-            if (twice) {
-                const SearchResult &result = m_Doc.results[clicked];
-                m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
-            }
-        }
-        // Its menu (Dev.exe sub_5B8520): Edit, the first row chosen's dialog
-        // (sub_5B8690); F2 renames it (the list's label edit).
-        const ImVec2 listMin = l.Min(0, 13), listMax = l.Max(0, 13, 230, 210);
-        const bool overList = ImGui::IsMouseHoveringRect(listMin, listMax) && ImGui::IsWindowHovered();
-        if (overList && ImGui::IsMouseReleased(ImGuiMouseButton_Right)) ImGui::OpenPopup("explorermenu");
-        const int first = m_Doc.chosen.empty() ? -1 : *m_Doc.chosen.begin();
-        if (ImGui::BeginPopup("explorermenu")) {
-            if (ImGui::MenuItem("Edit", nullptr, false, first >= 0 && first < count)) {
-                const SearchResult &result = m_Doc.results[first];
-                m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
-                auto values = SchematicPosition(result.address).fields;
-                if (result.focusReference)
-                    values.push_back({"focus-target", EDITOR_OBJECT, result.focusReference});
-                Command("script.edit-element", values);
-                m_Schematics.Focus(m_Doc.explorerView);
-            }
-            ImGui::EndPopup();
-        }
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
-            ImGui::IsKeyPressed(ImGuiKey_F2, false) && first >= 0 && first < count && m_Doc.results[first].object &&
-            m_Doc.results[first].ref.kind != ElementKind::Comment) {
-            m_Doc.renameTarget = m_Doc.results[first].objectReference;
-            m_ExplorerRenameText = m_Doc.results[first].objectName;
-            ImGui::OpenPopup("Rename###explorerrename");
-        }
-        ExplorerRenameDialog("Rename###explorerrename");
-    }
-
-    // Show in List.
-    text(233, 2, 91, 10, "Show In List", true);
-    vi::Frame(l.Min(233, 13), l.Max(233, 13, 112, 210));
-    struct Kind {
-        const char *label;
-        unsigned bit;
-    };
-    static const Kind KINDS[] = {{"Scripts", SearchScripts},
-                                 {"Behavior Graphs", SearchGraphs},
-                                 {"Building Blocks", SearchBuildingBlocks},
-                                 {"Comments", SearchComments},
-                                 {"Parameter Operations", SearchOperations},
-                                 {"Shortcuts", SearchShortcuts},
-                                 {"Local Parameters", SearchLocalParameters},
-                                 {"Parameter Inputs", SearchParameterInputs},
-                                 {"Parameter Outputs", SearchParameterOutputs},
-                                 {"Behavior Inputs", SearchBehaviorInputs},
-                                 {"Behavior Outputs", SearchBehaviorOutputs}};
-    for (int k = 0; k < 11; ++k) {
-        bool on = (m_SearchKinds & KINDS[k].bit) != 0;
-        const float y = 14.0f + 11.0f * k;
-        if (vi::CheckButton(KINDS[k].label, l.Min(237, y), l.Max(237, y, 104, 10), on, KINDS[k].label, !m_SearchTree))
-            m_SearchKinds = on ? (m_SearchKinds | KINDS[k].bit) : (m_SearchKinds & ~KINDS[k].bit);
-    }
-    text(237, 137, 60, 10, "Filter uint32_t");
-    vi::Edit("##ckid", l.Min(299, 137), l.Max(299, 137, 43, 12), m_SearchIdText);
-    text(237, 149, 105, 10, "Text Filter");
-    if (m_FocusSearch) {
-        ImGui::SetKeyboardFocusHere();
-        m_FocusSearch = false;
-    }
-    vi::Edit("##text", l.Min(237, 158), l.Max(237, 158, 105, 12), m_SearchText, vi::LEFT);
-    // The button names what it changes to (Dev.exe sub_5B5A80 1453).
-    if (vi::Button("parse", l.Min(249, 197), l.Max(249, 197, 80, 10),
-                   m_SearchAllScripts ? "Parse Only Visible Items" : "Parse All Items"))
-        m_SearchAllScripts = !m_SearchAllScripts;
-    char chosen[64];
-    std::snprintf(chosen, sizeof(chosen), m_Doc.chosen.size() == 1 ? "%d Entity Selected" : "%d Entities Selected",
-                  static_cast<int>(m_Doc.chosen.size()));
-    text(237, 211, 105, 10, chosen, false, vi::CENTER);
-
-    // Selection Actions.
-    text(1, 226, 102, 8, "Selection Actions", true);
-    vi::Frame(l.Min(0, 235), l.Max(0, 235, 102, 43));
-    const bool listing = !m_SearchTree;
-    if (vi::Button("All", l.Min(3, 239), l.Max(3, 239, 46, 10), "All", listing)) {
-        for (int r = 0; r < count; ++r) m_Doc.chosen.insert(r);
-        if (m_Doc.anchor < 0 && count) m_Doc.anchor = 0;
-        ExplorerSelect();
-    }
-    if (vi::Button("None", l.Min(3, 251), l.Max(3, 251, 46, 10), "None", listing)) {
-        m_Doc.chosen.clear();
-        ExplorerNavigation().selection.Clear();
-    }
-    if (vi::Button("Invert", l.Min(3, 264), l.Max(3, 264, 46, 10), "Invert", listing)) {
-        std::set<int> inverted;
-        for (int r = 0; r < count; ++r)
-            if (!m_Doc.chosen.count(r)) inverted.insert(r);
-        m_Doc.chosen = inverted;
-        if (!inverted.empty()) m_Doc.anchor = *inverted.begin();
-        ExplorerSelect();
-    }
-    // In the tree: the node chosen.
-    const auto *treeNode = m_Doc.treeTarget ? &*m_Doc.treeTarget : nullptr;
-    if (vi::Button("GoTo", l.Min(53, 239), l.Max(53, 239, 46, 10), "GoTo",
-                   listing ? !m_Doc.chosen.empty() : treeNode != nullptr)) {
-        if (listing) {
-            const auto &row = m_Doc.results[size_t(*m_Doc.chosen.begin())];
-            m_Doc.currentResult = *m_Doc.chosen.begin();
-            m_Schematics.Show(row.address, row.focusReference, true, m_Doc.explorerView);
-            ExplorerSelect();
-        } else if (treeNode)
-            m_Schematics.Show(treeNode->address, treeNode->focusReference, true, m_Doc.explorerView);
-    }
-    if (vi::Button("Delete", l.Min(53, 251), l.Max(53, 251, 46, 10), "Delete",
-                   listing ? !m_Doc.chosen.empty() : treeNode != nullptr)) {
-        EditorField elements{"elements", EDITOR_RECORD};
-        const auto add = [&](const SearchResult &row) {
-            elements.fields.push_back(SchematicPosition(row.address, std::to_string(elements.fields.size()).c_str()));
-        };
-        if (listing)
-            for (int row : m_Doc.chosen)
-                add(m_Doc.results[size_t(row)]);
-        else if (treeNode)
-            add(*treeNode);
-        Command("schematic.delete-search-results", {elements});
-        ExplorerNavigation().selection.Clear();
-        m_Doc.chosen.clear();
-        m_Doc.treeTarget.reset();
-        m_Doc.resultsKey.clear();
-    }
-
-    // The Parameter Filter (Dev.exe sub_5B80C0): the Type with Filter Type,
-    // the values too with Filter Value.
-    text(109, 226, 236, 8, "Parameter Filter", true);
-    vi::Frame(l.Min(109, 235), l.Max(109, 235, 236, 43));
-    static const char *const MODES[] = {"No Filter", "Filter Type", "Filter Value"};
-    const int mode = vi::Combo("##filtermode", l.Min(115, 236), l.Max(115, 236, 93, 12), MODES[m_SearchFilter],
-                               [] { return std::vector<std::string>{"No Filter", "Filter Type", "Filter Value"}; }, m_SearchFilter);
-    if (mode >= 0) m_SearchFilter = mode;
-    const bool typed = m_SearchFilter >= 1 && listing, valued = m_SearchFilter == 2 && listing;
-    text(212, 238, 22, 10, "Type:");
     auto *value = ExplorerValue(false), *replace = ExplorerValue(true);
     std::string currentType;
-    std::vector<std::string> names;
-    for (const auto &row : m_ParameterTypes) {
-        EditorResponse r;
-        r.fields = row.fields;
-        auto name = EditorClient::Text(r, "name");
-        names.push_back(name);
-        if (EditorClient::Integer(r, "type") == m_SearchType)
-            currentType = name;
-    }
-    ImGui::BeginDisabled(!typed);
-    const auto chosenType =
-        vi::Combo("##type", l.Min(237, 236), l.Max(237, 236, 105, 12), currentType, [&] { return names; }, -1);
-    if (chosenType >= 0 && size_t(chosenType) < m_ParameterTypes.size()) {
-        EditorResponse r;
-        r.fields = m_ParameterTypes[size_t(chosenType)].fields;
-        m_SearchType = EditorClient::Integer(r, "type");
-        value = ExplorerValue(false);
-        replace = ExplorerValue(true);
-    }
-    ImGui::EndDisabled();
-    vi::CheckButton("Derived", l.Min(290, 251), l.Max(290, 251, 52, 10), m_SearchDerived, "Derived", typed);
-    if (vi::Button("editvalue", l.Min(115, 251), l.Max(115, 251, 75, 10), "Edit Value", valued && value)) {
-        m_ExplorerBox.Clear();
-        if (m_ExplorerBox.AddDraft(*value, "Filter Value")) {
-            m_ExplorerEditReplace = false;
-            m_OpenExplorerValue = true;
+    if (vi::BeginDialogContent("##explorer-content", l)) {
+        setup::SetupColumns columns("##explorer-sections", 2);
+        if (columns) {
+            columns.Next();
+            // The Item List, or the tree.
+            ImGui::TextUnformatted("Item List");
+            if (vi::Button("treeview", m_SearchTree ? "Toggle To List View" : "Toggle To Tree View"))
+                m_SearchTree = !m_SearchTree;
+            const int count = static_cast<int>(m_Doc.results.size());
+            const auto listMin = ImGui::GetCursorScreenPos();
+            const ImVec2 listMax(listMin.x + ImGui::GetContentRegionAvail().x, listMin.y + 340 * s);
+            if (m_SearchTree) {
+                ExplorerTree(listMin, listMax);
+            } else {
+                static const std::vector<vi::ListColumn> COLUMNS{
+                    {"Item", 0.0f}, {"Script", 110.0f}, {"Type", 70.0f}};
+                bool twice = false;
+                const int clicked = vi::ListView(
+                    "##items", listMin, listMax, s, COLUMNS, count,
+                    [&](int r, int c) -> std::string {
+                        const SearchResult &result = m_Doc.results[r];
+                        if (c == 0)
+                            return result.label;
+                        if (c == 2)
+                            return result.kind;
+                        return result.scriptName;
+                    },
+                    [&](int r) { return m_Doc.chosen.count(r) != 0; }, &twice, nullptr, false, nullptr,
+                    // Documentation "Schematic Explorer": "Icons in front of an item is
+                    // the element type" (Dev's class icons).
+                    [&](int r) -> ImTextureID {
+                        const auto icon = m_Doc.results[r].classIcon;
+                        return icon ? DevIconImage(icon) : ImTextureID();
+                    });
+                if (clicked >= 0) {
+                    const ImGuiIO &io = ImGui::GetIO();
+                    if (io.KeyShift && m_Doc.anchor >= 0) {
+                        m_Doc.chosen.clear();
+                        for (int r = std::min(clicked, m_Doc.anchor); r <= std::max(clicked, m_Doc.anchor);
+                             ++r)
+                            m_Doc.chosen.insert(r);
+                    } else if (io.KeyCtrl) {
+                        if (!m_Doc.chosen.erase(clicked))
+                            m_Doc.chosen.insert(clicked);
+                        m_Doc.anchor = clicked;
+                    } else {
+                        m_Doc.chosen = {clicked};
+                        m_Doc.anchor = clicked;
+                    }
+                    m_Doc.currentResult = clicked;
+                    ExplorerSelect();
+                    if (twice) {
+                        const SearchResult &result = m_Doc.results[clicked];
+                        m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
+                    }
+                }
+                // Its menu (Dev.exe sub_5B8520): Edit, the first row chosen's dialog
+                // (sub_5B8690); F2 renames it (the list's label edit).
+                const bool overList =
+                    ImGui::IsMouseHoveringRect(listMin, listMax) && ImGui::IsWindowHovered();
+                if (overList && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
+                    ImGui::OpenPopup("explorermenu");
+                const int first = m_Doc.chosen.empty() ? -1 : *m_Doc.chosen.begin();
+                if (ImGui::BeginPopup("explorermenu")) {
+                    if (ImGui::MenuItem("Edit", nullptr, false, first >= 0 && first < count)) {
+                        const SearchResult &result = m_Doc.results[first];
+                        m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
+                        auto values = SchematicPosition(result.address).fields;
+                        if (result.focusReference)
+                            values.push_back({"focus-target", EDITOR_OBJECT, result.focusReference});
+                        Command("script.edit-element", values);
+                        m_Schematics.Focus(m_Doc.explorerView);
+                    }
+                    ImGui::EndPopup();
+                }
+                if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) &&
+                    !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false) && first >= 0 &&
+                    first < count && m_Doc.results[first].object &&
+                    m_Doc.results[first].ref.kind != ElementKind::Comment) {
+                    m_Doc.renameTarget = m_Doc.results[first].objectReference;
+                    m_ExplorerRenameText = m_Doc.results[first].objectName;
+                    ImGui::OpenPopup("Rename###explorerrename");
+                }
+                ExplorerRenameDialog("Rename###explorerrename");
+            }
+
+            // Show in List.
+            columns.Next();
+            ImGui::TextUnformatted("Show In List");
+            struct Kind {
+                const char *label;
+                unsigned bit;
+            };
+            static const Kind KINDS[] = {{"Scripts", SearchScripts},
+                                         {"Behavior Graphs", SearchGraphs},
+                                         {"Building Blocks", SearchBuildingBlocks},
+                                         {"Comments", SearchComments},
+                                         {"Parameter Operations", SearchOperations},
+                                         {"Shortcuts", SearchShortcuts},
+                                         {"Local Parameters", SearchLocalParameters},
+                                         {"Parameter Inputs", SearchParameterInputs},
+                                         {"Parameter Outputs", SearchParameterOutputs},
+                                         {"Behavior Inputs", SearchBehaviorInputs},
+                                         {"Behavior Outputs", SearchBehaviorOutputs}};
+            for (int k = 0; k < 11; ++k) {
+                bool on = (m_SearchKinds & KINDS[k].bit) != 0;
+                if (vi::CheckButton(KINDS[k].label, on, KINDS[k].label, !m_SearchTree))
+                    m_SearchKinds = on ? (m_SearchKinds | KINDS[k].bit) : (m_SearchKinds & ~KINDS[k].bit);
+            }
+            {
+                setup::SetupForm filter("##explorer-filter");
+                if (filter) {
+                    filter.Row("Filter uint32_t");
+                    vi::Edit("##ckid", m_SearchIdText);
+                    filter.Row("Text Filter");
+                    if (m_FocusSearch) {
+                        ImGui::SetKeyboardFocusHere();
+                        m_FocusSearch = false;
+                    }
+                    vi::Edit("##text", m_SearchText, vi::LEFT);
+                }
+            }
+            // The button names what it changes to (Dev.exe sub_5B5A80 1453).
+            if (vi::Button("parse", m_SearchAllScripts ? "Parse Only Visible Items" : "Parse All Items"))
+                m_SearchAllScripts = !m_SearchAllScripts;
+            char chosen[64];
+            std::snprintf(chosen, sizeof(chosen),
+                          m_Doc.chosen.size() == 1 ? "%d Entity Selected" : "%d Entities Selected",
+                          static_cast<int>(m_Doc.chosen.size()));
+            ImGui::TextWrapped("%s", chosen);
+
+            // Selection Actions.
+            ImGui::TextUnformatted("Selection Actions");
+            const bool listing = !m_SearchTree;
+            {
+                setup::SetupColumns actions("##explorer-actions", 2);
+                if (actions) {
+                    actions.Next();
+                    if (vi::Button("All", "All", listing)) {
+                        for (int r = 0; r < count; ++r)
+                            m_Doc.chosen.insert(r);
+                        if (m_Doc.anchor < 0 && count)
+                            m_Doc.anchor = 0;
+                        ExplorerSelect();
+                    }
+                    actions.Next();
+                    if (vi::Button("None", "None", listing)) {
+                        m_Doc.chosen.clear();
+                        ExplorerNavigation().selection.Clear();
+                    }
+                    actions.Next();
+                    if (vi::Button("Invert", "Invert", listing)) {
+                        std::set<int> inverted;
+                        for (int r = 0; r < count; ++r)
+                            if (!m_Doc.chosen.count(r))
+                                inverted.insert(r);
+                        m_Doc.chosen = inverted;
+                        if (!inverted.empty())
+                            m_Doc.anchor = *inverted.begin();
+                        ExplorerSelect();
+                    }
+                    // In the tree: the node chosen.
+                    const auto *treeNode = m_Doc.treeTarget ? &*m_Doc.treeTarget : nullptr;
+                    actions.Next();
+                    if (vi::Button("GoTo", "GoTo", listing ? !m_Doc.chosen.empty() : treeNode != nullptr)) {
+                        if (listing) {
+                            const auto &row = m_Doc.results[size_t(*m_Doc.chosen.begin())];
+                            m_Doc.currentResult = *m_Doc.chosen.begin();
+                            m_Schematics.Show(row.address, row.focusReference, true, m_Doc.explorerView);
+                            ExplorerSelect();
+                        } else if (treeNode)
+                            m_Schematics.Show(treeNode->address, treeNode->focusReference, true,
+                                              m_Doc.explorerView);
+                    }
+                    actions.Next();
+                    if (vi::Button("Delete", "Delete",
+                                   listing ? !m_Doc.chosen.empty() : treeNode != nullptr)) {
+                        EditorField elements{"elements", EDITOR_RECORD};
+                        const auto add = [&](const SearchResult &row) {
+                            elements.fields.push_back(SchematicPosition(
+                                row.address, std::to_string(elements.fields.size()).c_str()));
+                        };
+                        if (listing)
+                            for (int row : m_Doc.chosen)
+                                add(m_Doc.results[size_t(row)]);
+                        else if (treeNode)
+                            add(*treeNode);
+                        Command("schematic.delete-search-results", {elements});
+                        ExplorerNavigation().selection.Clear();
+                        m_Doc.chosen.clear();
+                        m_Doc.treeTarget.reset();
+                        m_Doc.resultsKey.clear();
+                    }
+                }
+            }
+            // The Parameter Filter (Dev.exe sub_5B80C0): the Type with Filter Type,
+            // the values too with Filter Value.
+            ImGui::TextUnformatted("Parameter Filter");
+            {
+                setup::SetupForm form("##explorer-parameters");
+                if (form) {
+                    form.Row("Mode");
+                    static const char *const MODES[] = {"No Filter", "Filter Type", "Filter Value"};
+                    const int mode = vi::Combo(
+                        "##filtermode", MODES[m_SearchFilter],
+                        [] { return std::vector<std::string>{"No Filter", "Filter Type", "Filter Value"}; },
+                        m_SearchFilter);
+                    if (mode >= 0)
+                        m_SearchFilter = mode;
+                    const bool typed = m_SearchFilter >= 1 && listing,
+                               valued = m_SearchFilter == 2 && listing;
+                    form.Row("Type:");
+                    std::vector<std::string> names;
+                    for (const auto &row : m_ParameterTypes) {
+                        EditorResponse r;
+                        r.fields = row.fields;
+                        auto name = EditorClient::Text(r, "name");
+                        names.push_back(name);
+                        if (EditorClient::Integer(r, "type") == m_SearchType)
+                            currentType = name;
+                    }
+                    ImGui::BeginDisabled(!typed);
+                    const auto chosenType = vi::Combo("##type", currentType, [&] { return names; }, -1);
+                    if (chosenType >= 0 && size_t(chosenType) < m_ParameterTypes.size()) {
+                        EditorResponse r;
+                        r.fields = m_ParameterTypes[size_t(chosenType)].fields;
+                        m_SearchType = EditorClient::Integer(r, "type");
+                        value = ExplorerValue(false);
+                        replace = ExplorerValue(true);
+                    }
+                    ImGui::EndDisabled();
+                    form.Row("");
+                    vi::CheckButton("Derived", m_SearchDerived, "Derived", typed);
+                    form.Row("Filter Value");
+                    if (vi::Button("editvalue", "Edit Value", valued && value)) {
+                        m_ExplorerBox.Clear();
+                        if (m_ExplorerBox.AddDraft(*value, "Filter Value")) {
+                            m_ExplorerEditReplace = false;
+                            m_OpenExplorerValue = true;
+                        }
+                    }
+                    form.Row("");
+                    ImGui::TextWrapped("%s", value && valued ? AnsiToUtf8(value->Text(0)).c_str() : "");
+                    form.Row("Replace Value");
+                    if (vi::Button("editreplace", "Edit Replace Value", valued && replace)) {
+                        m_ExplorerBox.Clear();
+                        if (m_ExplorerBox.AddDraft(*replace, "Replace Value")) {
+                            m_ExplorerEditReplace = true;
+                            m_OpenExplorerValue = true;
+                        }
+                    }
+                    form.Row("");
+                    ImGui::TextWrapped("%s", replace && valued ? AnsiToUtf8(replace->Text(0)).c_str() : "");
+                    form.Row("");
+                    // Replace Value (Dev.exe sub_5B9600): every parameter listed takes the
+                    // replace value, which the filter then looks for.
+                    if (vi::Button("replacevalue", "Replace Value", valued && replace && value)) {
+                        EditorField elements{"elements", EDITOR_RECORD};
+                        for (const auto &row : m_Doc.results)
+                            if (row.objectReference)
+                                elements.fields.push_back(SchematicPosition(
+                                    row.address, std::to_string(elements.fields.size()).c_str()));
+                        Command("schematic.replace-search-values",
+                                {elements, {"value", EDITOR_OBJECT, replace->WorkReference()}});
+                    }
+                }
+            }
         }
     }
-    text(196, 251, 85, 10, value && valued ? AnsiToUtf8(value->Text(0)).c_str() : "");
-    if (vi::Button("editreplace", l.Min(115, 264), l.Max(115, 264, 75, 10), "Edit Replace Value", valued && replace)) {
-        m_ExplorerBox.Clear();
-        if (m_ExplorerBox.AddDraft(*replace, "Replace Value")) {
-            m_ExplorerEditReplace = true;
-            m_OpenExplorerValue = true;
-        }
-    }
-    text(196, 264, 85, 10, replace && valued ? AnsiToUtf8(replace->Text(0)).c_str() : "");
-    // Replace Value (Dev.exe sub_5B9600): every parameter listed takes the
-    // replace value, which the filter then looks for.
-    if (vi::Button("replacevalue", l.Min(285, 264), l.Max(285, 264, 57, 10), "Replace Value", valued && replace && value)) {
-        EditorField elements{"elements", EDITOR_RECORD};
-        for (const auto &row : m_Doc.results)
-            if (row.objectReference)
-                elements.fields.push_back(
-                    SchematicPosition(row.address, std::to_string(elements.fields.size()).c_str()));
-        Command("schematic.replace-search-values", {elements, {"value", EDITOR_OBJECT, replace->WorkReference()}});
-    }
+    vi::EndDialogContent();
     // Edit Value / Edit Replace Value: Dev's Edit Parameter on the value.
     const char *dialog = "Edit Parameter###ExplorerValue";
     if (m_OpenExplorerValue) {

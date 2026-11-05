@@ -2,6 +2,7 @@
 
 #include "editor/ImGuiDrawing.h"
 #include "ui/controls/DevControls.h"
+#include "ui/setup/SetupLayout.h"
 #include "workspace/EditorClient.h"
 #include "imgui_internal.h"
 
@@ -46,14 +47,23 @@ struct MessageDialog {
         if (!error.empty()) text += "\n\n" + error;
         int answer = 0;
         if (report) {
-            if (ImGui::BeginPopupModal(name, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                ImGui::PushTextWrapPos(560.0f);
-                ImGui::TextUnformatted(text.c_str());
-                ImGui::PopTextWrapPos();
-                if (ImGui::Button("OK", ImVec2(110, 0)) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
+            const float unit = setup::PageUnit();
+            vi::DialogLayout layout;
+            if (vi::BeginScrollableDialog(name, title.empty() ? "Report" : title, {560 * unit, 280 * unit},
+                                          unit, layout)) {
+                if (vi::BeginDialogContent("##report", layout)) {
+                    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() +
+                                           ImGui::GetCurrentWindow()->InnerRect.GetWidth() -
+                                           2 * ImGui::GetStyle().WindowPadding.x);
+                    ImGui::TextUnformatted(text.c_str());
+                    ImGui::PopTextWrapPos();
+                }
+                vi::EndDialogContent();
+                ImGui::SetCursorScreenPos({layout.right - 110 * unit, layout.buttonsY});
+                if (ImGui::Button("OK", {110 * unit, 0}) || ImGui::IsKeyPressed(ImGuiKey_Enter)) {
                     ImGui::CloseCurrentPopup(); answer = 1;
                 }
-                ImGui::EndPopup();
+                vi::EndDialog();
             }
         } else answer = vi::MessageDialog(name, title, text, int(EditorClient::Integer(current, "icon")),
                                           EditorClient::Integer(current, "cancel") != 0);

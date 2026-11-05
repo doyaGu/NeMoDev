@@ -7,6 +7,9 @@
 
 #include "ui/controls/DevBitmaps.h"
 #include "ui/controls/DevTheme.h"
+#include "ui/controls/DevControls.h"
+#include "ui/setup/SetupLayout.h"
+#include "imgui_internal.h"
 #include "ui/schematic/Snapshots.h"
 
 namespace vdev {
@@ -74,77 +77,91 @@ void LayoutWindow::SnapshotWindow() {
     if (!ReadSnapshots(Client(), Window().snapshots))
         return;
     const auto &buffer = Window().snapshots;
-    const float s = Window().scale;
-    const ImGuiStyle &style = ImGui::GetStyle();
-    const float footer = ImGui::GetFrameHeight() + style.ItemSpacing.y * 2.0f;
-    ImGui::SetNextWindowSize(ImVec2(362.0f * s + style.WindowPadding.x * 2.0f,
-                                    304.0f * s + footer + style.WindowPadding.y * 2.0f + ImGui::GetFrameHeight()),
-                             ImGuiCond_Always);
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    const float s = setup::PageUnit();
+    vi::DialogLayout layout;
     bool open = true;
-    const bool visible =
-        ImGui::Begin(AuxiliaryName("Snapshot Buffer").c_str(), &open,
-                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking |
-                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar);
-    if (!visible) {
-        ImGui::End();
+    if (!vi::BeginScrollableWindow(AuxiliaryName("Snapshot Buffer").c_str(), "Snapshot Buffer",
+                                   {362 * s, 304 * s}, s, layout, 1, &open)) {
+        vi::EndWindow();
         if (!open)
             Window().snapshotOpen = false;
         return;
     }
-    const ImVec2 origin = ImGui::GetCursorScreenPos();
-    ImDrawList *dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(origin, ImVec2(origin.x + 362.0f * s, origin.y + 304.0f * s),
-                      CurrentDevTheme().snapshotBackground);
+    ImGui::GetWindowDrawList()->AddRectFilled(
+        {layout.contentMin.x + s, layout.contentMin.y + s},
+        {layout.contentMin.x + layout.contentSize.x - s, layout.contentMin.y + layout.contentSize.y - s},
+        CurrentDevTheme().snapshotBackground);
     auto selected = [&](int slot) {
         return std::find(Window().snapshotSelection.begin(), Window().snapshotSelection.end(), slot) !=
                Window().snapshotSelection.end();
     };
-    for (int slot = 0; slot < SnapshotData::COUNT; ++slot) {
-        const ImVec2 at(origin.x + (10.0f + 56.0f * (slot % 6)) * s, origin.y + (10.0f + 48.0f * (slot / 6)) * s);
-        const ImVec2 size(SnapshotData::WIDTH * s, SnapshotData::HEIGHT * s);
-        ImGui::SetCursorScreenPos(at);
-        ImGui::PushID(slot);
-        ImGui::InvisibleButton("##slot", size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-        const bool hovered = ImGui::IsItemHovered();
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-            if (ImGui::GetIO().KeyCtrl) {
-                auto found = std::find(Window().snapshotSelection.begin(), Window().snapshotSelection.end(), slot);
-                if (found != Window().snapshotSelection.end())
-                    Window().snapshotSelection.erase(found);
+    bool menu = false;
+    if (vi::BeginDialogContent("##snapshot-slots", layout)) {
+        auto *dl = ImGui::GetWindowDrawList();
+        const auto contentId = ImGui::GetID("");
+        const int columns = std::clamp(int(ImGui::GetContentRegionAvail().x / (56 * s)), 1, 6);
+        if (ImGui::BeginTable("##slots", columns, ImGuiTableFlags_NoSavedSettings)) {
+            ImGui::PushOverrideID(contentId);
+            for (int slot = 0; slot < SnapshotData::COUNT; ++slot) {
+                ImGui::TableNextColumn();
+                const auto at = ImGui::GetCursorScreenPos();
+                const ImVec2 size(SnapshotData::WIDTH * s, SnapshotData::HEIGHT * s);
+                ImGui::SetCursorScreenPos(at);
+                ImGui::PushID(slot);
+                ImGui::InvisibleButton("##slot", size,
+                                       ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+                const bool hovered = ImGui::IsItemHovered();
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                    if (ImGui::GetIO().KeyCtrl) {
+                        auto found = std::find(Window().snapshotSelection.begin(),
+                                               Window().snapshotSelection.end(), slot);
+                        if (found != Window().snapshotSelection.end())
+                            Window().snapshotSelection.erase(found);
+                        else
+                            Window().snapshotSelection.push_back(slot);
+                    } else {
+                        Window().snapshotSelection.assign(1, slot);
+                    }
+                }
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    if (!selected(slot))
+                        Window().snapshotSelection.assign(1, slot);
+                    Window().snapshotMenu = slot;
+                    menu = true;
+                }
+                // Dragged onto a Script header in the Schematic: its snapshot.
+                if (buffer.Has(slot) && ImGui::BeginDragDropSource()) {
+                    const SnapshotDrag drag{uint32_t(slot), buffer.Revision(slot)};
+                    ImGui::SetDragDropPayload(SNAPSHOT_PAYLOAD, &drag, sizeof(drag), ImGuiCond_Once);
+                    if (ImTextureID texture = SlotTexture(buffer, slot, Window().snapshotRevisions))
+                        ImGui::Image(texture,
+                                     ImVec2(SnapshotData::WIDTH * 1.0f, SnapshotData::HEIGHT * 1.0f));
+                    ImGui::EndDragDropSource();
+                }
+                ImGui::PopID();
+                ImTextureID texture =
+                    buffer.Has(slot) ? SlotTexture(buffer, slot, Window().snapshotRevisions) : DevBitmap(929);
+                if (texture)
+                    dl->AddImage(texture, at, ImVec2(at.x + size.x, at.y + size.y));
                 else
-                    Window().snapshotSelection.push_back(slot);
-            } else {
-                Window().snapshotSelection.assign(1, slot);
+                    dl->AddRect(at, ImVec2(at.x + size.x, at.y + size.y),
+                                CurrentDevTheme().snapshotEmptyBorder);
+                if (selected(slot))
+                    dl->AddRect(ImVec2(at.x - 2.0f * s, at.y - 2.0f * s),
+                                ImVec2(at.x + size.x + 2.0f * s, at.y + size.y + 2.0f * s),
+                                CurrentDevTheme().selectionBorder, 0.0f, 0, 2.0f * s);
+                else if (hovered)
+                    dl->AddRect(ImVec2(at.x - 1.0f * s, at.y - 1.0f * s),
+                                ImVec2(at.x + size.x + 1.0f * s, at.y + size.y + 1.0f * s),
+                                CurrentDevTheme().hoverBorder);
             }
+            ImGui::PopID();
+            ImGui::EndTable();
         }
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-            if (!selected(slot))
-                Window().snapshotSelection.assign(1, slot);
-            Window().snapshotMenu = slot;
-            ImGui::OpenPopup("##snapshotmenu");
-        }
-        // Dragged onto a Script header in the Schematic: its snapshot.
-        if (buffer.Has(slot) && ImGui::BeginDragDropSource()) {
-            const SnapshotDrag drag{uint32_t(slot), buffer.Revision(slot)};
-            ImGui::SetDragDropPayload(SNAPSHOT_PAYLOAD, &drag, sizeof(drag), ImGuiCond_Once);
-            if (ImTextureID texture = SlotTexture(buffer, slot, Window().snapshotRevisions))
-                ImGui::Image(texture, ImVec2(SnapshotData::WIDTH * 1.0f, SnapshotData::HEIGHT * 1.0f));
-            ImGui::EndDragDropSource();
-        }
-        ImGui::PopID();
-        ImTextureID texture = buffer.Has(slot) ? SlotTexture(buffer, slot, Window().snapshotRevisions) : DevBitmap(929);
-        if (texture) dl->AddImage(texture, at, ImVec2(at.x + size.x, at.y + size.y));
-        else
-            dl->AddRect(at, ImVec2(at.x + size.x, at.y + size.y), CurrentDevTheme().snapshotEmptyBorder);
-        if (selected(slot))
-            dl->AddRect(ImVec2(at.x - 2.0f * s, at.y - 2.0f * s),
-                        ImVec2(at.x + size.x + 2.0f * s, at.y + size.y + 2.0f * s), CurrentDevTheme().selectionBorder,
-                        0.0f, 0, 2.0f * s);
-        else if (hovered)
-            dl->AddRect(ImVec2(at.x - 1.0f * s, at.y - 1.0f * s),
-                        ImVec2(at.x + size.x + 1.0f * s, at.y + size.y + 1.0f * s), CurrentDevTheme().hoverBorder);
     }
+    vi::EndDialogContent();
+    if (menu)
+        ImGui::OpenPopup("##snapshotmenu");
     // The shortcut menu (sub_5BC500): Load bitmap; with an image Save as...
     // and Delete (Del).
     if (ImGui::BeginPopup("##snapshotmenu")) {
@@ -158,20 +175,22 @@ void LayoutWindow::SnapshotWindow() {
         ImGui::EndPopup();
     }
     // Del deletes the slots selected (LVN_KEYDOWN).
-    if (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Delete))
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::IsKeyPressed(ImGuiKey_Delete))
         RemoveSnapshots(Client(), buffer, Window().snapshotSelection);
     // Take, Capture, Close (Dev's custom buttons 1, 2 and 4).
-    const float buttonWidth = 80.0f * s;
-    ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + 304.0f * s + style.ItemSpacing.y));
+    const float buttonWidth =
+        std::min(80.0f * s, (layout.right - layout.contentMin.x - 2 * ImGui::GetStyle().ItemSpacing.x) / 3);
+    ImGui::SetCursorScreenPos({layout.contentMin.x, layout.buttonsY});
     ImGui::BeginDisabled(!m_Started);
     if (ImGui::Button("Take", ImVec2(buttonWidth, 0.0f))) TakeSnapshot();
     ImGui::SameLine();
     if (ImGui::Button("Capture", ImVec2(buttonWidth, 0.0f)))
         Window().capturing = 1;
     ImGui::EndDisabled();
-    ImGui::SameLine(origin.x - ImGui::GetWindowPos().x + 362.0f * s - buttonWidth);
+    ImGui::SameLine();
+    ImGui::SetCursorScreenPos({layout.right - buttonWidth, layout.buttonsY});
     if (ImGui::Button("Close", ImVec2(buttonWidth, 0.0f))) open = false;
-    ImGui::End();
+    vi::EndWindow();
     if (!open) {
         Window().snapshotOpen = false;
         Window().capturing = 0;
