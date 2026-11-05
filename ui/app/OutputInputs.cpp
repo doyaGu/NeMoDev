@@ -130,39 +130,48 @@ struct OutputInputs {
     void Print(uint64_t id) {
         const char *popup = "###PrintParameters";
         if (!ImGui::IsPopupOpen(popup)) ImGui::OpenPopup(popup);
-        const float s = ImGui::GetFontSize() / 13.0f;
-        const ImVec2 client(333 * 1.5f * s, 111 * 1.625f * s + 26 * s);
-        ImVec2 o;
-        if (!vi::BeginDialog(popup, "Schematic Print  Parameters", client, s, o)) return;
-        const auto P = [&](float x, float y) { return ImVec2(o.x + x * 1.5f * s, o.y + y * 1.625f * s); };
-        vi::Panel(ImVec2(o.x + 2 * s, o.y + 2 * s), ImVec2(o.x + client.x - 2 * s, P(0, 111).y), s);
-        vi::Text(P(40, 6), P(96, 14), "pixel per mm");
-        vi::Text(P(125, 6), P(233, 14), "Resolution to print (for 1 page)");
-        vi::Text(P(242, 6), P(284, 14), "Pages");
-        vi::Text(P(2, 24), P(34, 32), "Horizontal");
-        vi::Text(P(2, 39), P(26, 47), "Vertical");
-        const float edits[6][2] = {{40, 24}, {40, 39}, {139, 24}, {139, 39}, {242, 24}, {242, 39}};
-        const char *ids[] = {"##perMmH", "##perMmV", "##resH", "##resV", "##pagesH", "##pagesV"};
-        const char *fields[] = {"per-mm-h", "per-mm-v", "resolution-h", "resolution-v", "pages-h", "pages-v"};
-        for (int i = 0; i < 6; ++i)
-            if (vi::Edit(ids[i], P(edits[i][0], edits[i][1]), P(edits[i][0] + 76, edits[i][1] + 12), printText[i]))
-                SetPrint(id, fields[i], std::max(uint64_t(1), Number(printText[i])));
-        vi::Text(P(242, 57), P(306, 65), "Total pages count =");
-        vi::Text(P(315, 57), P(333, 65), std::to_string(printValues[4] * printValues[5]).c_str());
-        const char *optionIds[] = {"##fillHeader", "##fillBody", "##fillShapes", "##bitmaps", "##colorLinks"};
-        const char *optionFields[] = {"fill-header", "fill-body", "fill-shapes", "bitmaps", "color-links"};
-        const char *labels[] = {"Fill Script Header", "Fill Script Body", "Fill Shapes", "Print Bitmaps",
-                                "Use Color for Links"};
-        const float box = 8 * 1.5f * s;
-        for (int i = 0; i < 5; ++i) {
-            if (vi::Check(optionIds[i], P(6, 57 + 11 * float(i)), box, printOptions[i]))
-                SetPrint(id, optionFields[i], printOptions[i] ? 1 : 0);
-            vi::Text(ImVec2(P(6, 57 + 11 * float(i)).x + box + 3 * s, P(6, 57 + 11 * float(i)).y),
-                     P(100, 67 + 11 * float(i)), labels[i]);
+        const float s = setup::PageUnit();
+        vi::DialogLayout layout;
+        if (!vi::BeginScrollableDialog(popup, "Schematic Print  Parameters", {760 * s, 300 * s}, s, layout)) return;
+        if (vi::BeginDialogContent("##print-parameters", layout)) {
+            {
+                setup::SetupColumns columns("##print-sections", 3);
+                if (columns) {
+                    const char *headings[] = {"pixel per mm", "Resolution to print (for 1 page)", "Pages"};
+                    const char *ids[] = {"##perMmH", "##perMmV", "##resH", "##resV", "##pagesH", "##pagesV"};
+                    const char *fields[] = {"per-mm-h", "per-mm-v", "resolution-h", "resolution-v", "pages-h", "pages-v"};
+                    for (int section = 0; section < 3; ++section) {
+                        columns.Next();
+                        ImGui::TextWrapped("%s", headings[section]);
+                        ImGui::Separator();
+                        const char *forms[] = {"##print-density", "##print-resolution", "##print-pages"};
+                        setup::SetupForm form(forms[section]);
+                        if (form)
+                            for (int axis = 0; axis < 2; ++axis) {
+                                const int i = section * 2 + axis;
+                                form.Row(axis ? "Vertical" : "Horizontal");
+                                const auto at = ImGui::GetCursorScreenPos();
+                                if (vi::Edit(ids[i], at, {at.x + ImGui::GetContentRegionAvail().x,
+                                                           at.y + ImGui::GetFrameHeight()}, printText[i]))
+                                    SetPrint(id, fields[i], std::max(uint64_t(1), Number(printText[i])));
+                            }
+                    }
+                }
+            }
+            ImGui::TextWrapped("Total pages count = %llu", static_cast<unsigned long long>(printValues[4] * printValues[5]));
+            const char *optionIds[] = {"##fillHeader", "##fillBody", "##fillShapes", "##bitmaps", "##colorLinks"};
+            const char *optionFields[] = {"fill-header", "fill-body", "fill-shapes", "bitmaps", "color-links"};
+            const char *labels[] = {"Fill Script Header", "Fill Script Body", "Fill Shapes", "Print Bitmaps",
+                                    "Use Color for Links"};
+            for (int i = 0; i < 5; ++i) {
+                if (vi::Check(optionIds[i], ImGui::GetCursorScreenPos(), 12 * s, printOptions[i]))
+                    SetPrint(id, optionFields[i], printOptions[i] ? 1 : 0);
+                ImGui::SameLine(); ImGui::TextUnformatted(labels[i]);
+            }
         }
-        const float by = o.y + client.y - 23 * s;
-        const bool cancel = vi::DialogButton("Cancel", ImVec2(o.x + client.x - 70 * s, by), s, ImGuiKey_Escape);
-        const bool ok = vi::DialogButton("OK", ImVec2(o.x + client.x - 140 * s, by), s, ImGuiKey_Enter);
+        vi::EndDialogContent();
+        const bool cancel = vi::DialogButton("Cancel", {layout.right - 60 * s, layout.buttonsY}, s, ImGuiKey_Escape);
+        const bool ok = vi::DialogButton("OK", {layout.right - 130 * s, layout.buttonsY}, s, ImGuiKey_Enter);
         if (ok || cancel) ImGui::CloseCurrentPopup();
         vi::EndDialog();
         if (ok || cancel) Respond(id, ok ? "accept" : "cancel");

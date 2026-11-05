@@ -7625,6 +7625,60 @@ void RegisterAppearanceTests(ImGuiTestEngine *engine) {
         IM_CHECK(OutputDialogBytes(page) == "original HTML" && OutputDialogBytes(composition) == "original composition");
         CloseOutputDialogs(ctx, objects);
     };
+    auto *printOptions = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "print_resize_coupled_settings_cancel_and_pages_keep_history");
+    printOptions->GuiFunc = MainThreadGui;
+    printOptions->TestFunc = [](ImGuiTestContext *ctx) {
+        using namespace vdev;
+        Settle(ctx);
+        const auto objects = MakeOutputDialogs(ctx);
+        const OutputDialogFiles files;
+        const auto pages = files.root / "pages";
+        const auto before = ReadApplicationDialogState(ctx);
+        const auto begin = [&] {
+            const auto operation = StartOutputDialog(ctx, "document.print", {TextArgument("path", pages.u8string())});
+            WaitOutputWindow(ctx, "//###PrintParameters");
+            ResizeParameterDialog(ctx, "//###PrintParameters", {1500, 700});
+            return operation;
+        };
+        const auto cancelled = begin();
+        const auto initial = ReadOutputDialogOptions(ctx);
+        const char *ids[] = {"##perMmH", "##perMmV", "##resH", "##resV", "##pagesH", "##pagesV"};
+        const char *values[] = {"5", "6", "400", "300", "2", "2"};
+        for (int i = 0; i < 6; ++i) TypeGraphDialog(ctx, ids[i], values[i]);
+        const auto edited = ReadOutputDialogOptions(ctx);
+        IM_CHECK(EditorClient::Integer(edited, "pages-h") == 2 && EditorClient::Integer(edited, "pages-v") == 2 &&
+                 EditorClient::Integer(edited, "resolution-h") > 0 && EditorClient::Integer(edited, "resolution-v") > 0);
+        const auto active = ctx->UiContext->ActiveId;
+        ResizeGraphDialog(ctx, "//###PrintParameters", "##print-parameters", "OK", "Cancel", true, 250);
+        IM_CHECK(ctx->UiContext->ActiveId == active && ReadApplicationDialogState(ctx) == before);
+        auto *content = SetupDialogContent(ctx, "//###PrintParameters", "##print-parameters");
+        IM_CHECK(content->ScrollMax.y > 0);
+        const auto *table = ctx->UiContext->Tables.GetByKey(ctx->GetWindowByRef("//###PrintParameters")->GetID("##print-sections"));
+        IM_CHECK(table && table->ColumnsCount == 1);
+        ResizeParameterDialog(ctx, "//###PrintParameters", {1500, 700});
+        for (const char *id : {"##fillHeader", "##fillBody", "##fillShapes", "##bitmaps", "##colorLinks"}) ctx->ItemClick(id);
+        ctx->ItemClick("Cancel/##dialogbutton");
+        IM_CHECK(WaitOutputOperation(ctx, cancelled) == EDITOR_CANCELLED && !std::filesystem::exists(pages / "page1.png") &&
+                 ReadApplicationDialogState(ctx) == before);
+        const auto accepted = begin();
+        const auto retained = ReadOutputDialogOptions(ctx);
+        for (const char *field : {"fill-header", "fill-body", "fill-shapes", "bitmaps", "color-links"})
+            IM_CHECK(EditorClient::Integer(retained, field) != EditorClient::Integer(initial, field));
+        TypeGraphDialog(ctx, "##pagesH", "2");
+        TypeGraphDialog(ctx, "##pagesV", "1");
+        ctx->ItemClick("OK/##dialogbutton");
+        IM_CHECK(WaitOutputOperation(ctx, accepted) == EDITOR_OK && ReadApplicationDialogState(ctx) == before);
+        for (int i = 1; i <= 2; ++i) {
+            std::vector<unsigned char> pixels; int width = 0, height = 0;
+            IM_CHECK(ReadImageRgba((pages / ("page" + std::to_string(i) + ".png")).u8string(), pixels, width, height));
+            IM_CHECK(width > 0 && height > 0 && pixels.size() == size_t(width) * height * 4);
+            bool opaque = true;
+            for (size_t a = 3; a < pixels.size(); a += 4) opaque &= pixels[a] == 255;
+            IM_CHECK(opaque);
+        }
+        IM_CHECK(!std::filesystem::exists(pages / "page3.png"));
+        CloseOutputDialogs(ctx, objects);
+    };
     auto *fileConfirm = IM_REGISTER_TEST(engine, "appearanceoutputdialogs", "long_file_confirmation_scroll_cancel_save_and_existing_undo");
     fileConfirm->GuiFunc = MainThreadGui;
     fileConfirm->TestFunc = [](ImGuiTestContext *ctx) {
