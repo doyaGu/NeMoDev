@@ -7,11 +7,13 @@
 #include "core/runtime/CkRuntimeHost.h"
 
 #include <algorithm>
+#include <array>
 #include <deque>
 #include <cmath>
 #include <filesystem>
 #include <set>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 #include <thread>
 #include <utility>
@@ -132,12 +134,20 @@ std::string String(EditorString value) {
     }
     return result;
 }
-std::string Id(EditorString value) {
-    auto id = String(value);
-    if (id.empty() || id.size() > 256 || id.find('.') == std::string::npos ||
-        id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos)
+std::string_view Identifier(EditorString value) {
+    if (!value.data || !value.size || value.size > 256)
+        throw std::invalid_argument("Expected a namespaced identifier");
+    const std::string_view id(value.data, value.size);
+    if (id.find('.') == std::string_view::npos ||
+        id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string_view::npos)
         throw std::invalid_argument("Expected a namespaced identifier");
     return id;
+}
+std::string Id(EditorString value) { return std::string(Identifier(value)); }
+bool SameText(const std::string &text, EditorString registered) {
+    // Registration has already copied and validated descriptor text.
+    return text.size() == registered.size &&
+           text.compare(0, text.size(), registered.data ? registered.data : "", registered.size) == 0;
 }
 bool ModuleFile(const std::string &a, const std::string &b) {
     if (a == b) return true;
@@ -175,7 +185,13 @@ struct ValueBudget {
         Array(values, count);
         if (depth >= ValueDepth) throw std::invalid_argument("Value nesting is too deep");
         std::vector<EditorField> fields;
-        std::set<std::string> keys;
+        fields.reserve(count);
+        // Sort views of the copied keys, rather than allocating a tree node
+        // and copying a key again for every value. Most records fit on stack.
+        std::array<std::string_view, 64> smallKeys;
+        std::vector<std::string_view> largeKeys;
+        if (count > smallKeys.size()) largeKeys.resize(count);
+        auto *keys = count > smallKeys.size() ? largeKeys.data() : smallKeys.data();
         for (uint32_t i = 0; i < count; ++i) {
             const auto &v = values[i];
             if (!ValueType(v.type)) throw std::invalid_argument("Unknown value type");
@@ -187,7 +203,7 @@ struct ValueBudget {
             Add(uint64_t(v.key.size) + (v.type == EDITOR_TEXT_VALUE ? v.text.size : 0), bytes);
             EditorField f;
             f.key = String(v.key); f.type = v.type;
-            if (f.key.empty() || !keys.insert(f.key).second) throw std::invalid_argument("Duplicate or empty value key");
+            if (f.key.empty()) throw std::invalid_argument("Empty value key");
             if (v.type == EDITOR_OBJECT) f.object = v.object;
             if (v.type == EDITOR_TEXT_VALUE) f.text = String(v.text);
             if (v.type == EDITOR_INTEGER_VALUE) f.integer = v.integer;
@@ -214,7 +230,11 @@ struct ValueBudget {
             }
             if (v.type == EDITOR_RECORD && v.fields.count) f.fields = Copy(v.fields.data, v.fields.count, depth + 1);
             fields.push_back(std::move(f));
+            keys[i] = fields.back().key;
         }
+        std::sort(keys, keys + count);
+        if (std::adjacent_find(keys, keys + count) != keys + count)
+            throw std::invalid_argument("Duplicate value key");
         return fields;
     }
 };
@@ -249,14 +269,16 @@ struct Output {
     }
     EditorSink Sink() { return {this, Write}; }
 };
-EditorStatus Send(const EditorResponse &response, EditorSink sink, bool query = true) {
+EditorFieldValues BorrowResponse(const EditorResponse &response) {
+    auto borrowed = BorrowEditorFields(response.fields);
+    if (!response.message.empty())
+        borrowed.values.push_back({EDITOR_TEXT("message"), EDITOR_TEXT_VALUE, {}, EditorText(response.message)});
+    if (response.operation)
+        borrowed.values.push_back({EDITOR_TEXT("operation"), EDITOR_INTEGER_VALUE, {}, {}, response.operation});
+    return borrowed;
+}
+EditorStatus Deliver(const EditorResponse &response, const EditorFieldValues &borrowed, EditorSink sink, bool query) {
     if (sink.write) {
-        auto fields = response.fields;
-        if (!response.message.empty())
-            fields.push_back({"message", EDITOR_TEXT_VALUE, {}, response.message});
-        if (response.operation)
-            fields.push_back({"operation", EDITOR_INTEGER_VALUE, {}, {}, response.operation});
-        auto borrowed = BorrowEditorFields(fields);
         try {
             if (sink.write(sink.data, borrowed.data(), static_cast<uint32_t>(borrowed.size())) != EDITOR_OK && query)
                 return EDITOR_ERROR;
@@ -266,6 +288,9 @@ EditorStatus Send(const EditorResponse &response, EditorSink sink, bool query = 
         }
     }
     return response.status;
+}
+EditorStatus Send(const EditorResponse &response, EditorSink sink, bool query = true) {
+    return sink.write ? Deliver(response, BorrowResponse(response), sink, query) : response.status;
 }
 void CloseLibrary(void *library) {
     if (!library)
@@ -672,6 +697,12 @@ EditorStatus CopyEditorFields(std::vector<EditorField> &fields, const EditorValu
     return Collect(&fields, values, count);
 }
 
+struct EditorApplication::CachedQuery {
+    explicit CachedQuery(EditorResponse result) : response(std::move(result)), values(BorrowResponse(response)) {}
+    const EditorResponse response;
+    const EditorFieldValues values;
+};
+
 struct EditorApplication::State {
     std::function<Document *()> current;
     std::function<bool()> nativeAvailable;
@@ -684,7 +715,7 @@ struct EditorApplication::State {
     std::string sourceFile;
     EditorConfiguration defaults;
     std::map<std::string, const EditorCommandDesc *> commands;
-    std::map<std::string, const EditorQueryDesc *> queries;
+    std::map<std::string, const EditorQueryDesc *, std::less<>> queries;
     EditorValueEditors editors;
     const EditorValueEditors *drawingValues = nullptr;
     std::map<std::string, const EditorViewDesc *> views;
@@ -780,7 +811,7 @@ struct EditorApplication::State {
     struct Cached {
         EditorScope scope;
         std::vector<EditorField> arguments;
-        EditorResponse result;
+        std::shared_ptr<const CachedQuery> result;
         uint64_t version = 0;
     };
     std::map<const EditorQueryDesc *, std::vector<Cached>> cache;
@@ -875,13 +906,13 @@ struct EditorApplication::State {
         for (const auto &field : fields) {
             bool found = false;
             for (uint32_t i = 0; i < count; ++i)
-                found |= field.key == String(parameters[i].key) && field.type == parameters[i].type;
+                found |= SameText(field.key, parameters[i].key) && field.type == parameters[i].type;
             if (!found) return EDITOR_INVALID;
         }
         for (uint32_t i = 0; i < count; ++i) {
             const auto &parameter = parameters[i];
             auto f = std::find_if(fields.begin(), fields.end(),
-                                  [&](const EditorField &f) { return f.key == String(parameter.key); });
+                                  [&](const EditorField &f) { return SameText(f.key, parameter.key); });
             if (f == fields.end()) {
                 if (!parameter.optional) return EDITOR_INVALID;
                 fields.push_back({String(parameter.key), parameter.type, {}, {}});
@@ -1202,7 +1233,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
     };
     h.query = [](void *p, EditorString id, const EditorRequest *r, EditorSink sink) -> EditorStatus {
         try {
-            return r ? Send(static_cast<EditorApplication *>(p)->Query(Id(id), *r), sink) : EDITOR_INVALID;
+            return r ? static_cast<EditorApplication *>(p)->DeliverQuery(Identifier(id), *r, sink) : EDITOR_INVALID;
         } catch (...) {
             return EDITOR_INVALID;
         }
@@ -2789,6 +2820,24 @@ EditorResponse EditorApplication::Query(const std::string &id, const EditorReque
     return result;
 }
 const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const EditorRequest &request) {
+    return ReadQuery(id, request, nullptr);
+}
+EditorStatus EditorApplication::DeliverQuery(std::string_view id, const EditorRequest &request, EditorSink sink) {
+    // A sink may execute commands and clear the query cache while reading the
+    // result. Retain the immutable cached value through that callback, without
+    // copying its fields on each delivery.
+    std::shared_ptr<const CachedQuery> retained;
+    const auto &result = ReadQuery(id, request, &retained);
+    if (retained)
+        return Deliver(retained->response, retained->values, sink, true);
+    if (m_State->Thread() && &result == &m_State->queryResult) {
+        auto owned = std::move(m_State->queryResult);
+        return Send(owned, sink);
+    }
+    return Send(result, sink);
+}
+const EditorResponse &EditorApplication::ReadQuery(std::string_view id, const EditorRequest &request,
+                                                  std::shared_ptr<const CachedQuery> *retained) {
     auto &s = *m_State;
     EditorResponse result;
     if (!s.Thread()) {
@@ -2843,8 +2892,10 @@ const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const 
         return true;
     };
     if (query->refresh != EDITOR_QUERY_EACH_READ)
-        if (auto previous = std::find_if(cache.begin(), cache.end(), same); previous != cache.end() && previous->version == version)
-            return previous->result;
+        if (auto previous = std::find_if(cache.begin(), cache.end(), same); previous != cache.end() && previous->version == version) {
+            if (retained) *retained = previous->result;
+            return previous->result->response;
+        }
     if ((!s.NativeReady() && query->area == EDITOR_DOCUMENT) || s.querying >= 16) {
         result.status = EDITOR_REFUSED;
         return transient();
@@ -2865,7 +2916,7 @@ const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const 
             result.status = EDITOR_INVALID;
         for (uint32_t i = 0; i < query->fieldCount && result.status == EDITOR_OK; ++i) {
             auto field = std::find_if(result.fields.begin(), result.fields.end(), [&](const EditorField &field) {
-                return field.key == String(query->fields[i].key);
+                return SameText(field.key, query->fields[i].key);
             });
             if (field == result.fields.end() || field->type != query->fields[i].type)
                 result.status = EDITOR_INVALID;
@@ -2875,13 +2926,15 @@ const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const 
         result.fields.clear();
     if (result.status == EDITOR_OK && query->refresh != EDITOR_QUERY_EACH_READ) {
         if (auto previous = std::find_if(cache.begin(), cache.end(), same); previous != cache.end()) {
-            previous->result = std::move(result);
+            previous->result = std::make_shared<const CachedQuery>(std::move(result));
             previous->version = version;
-            return previous->result;
+            if (retained) *retained = previous->result;
+            return previous->result->response;
         }
         if (cache.size() >= 256) cache.erase(cache.begin());
-        cache.push_back({request.scope, std::move(fields), std::move(result), version});
-        return cache.back().result;
+        cache.push_back({request.scope, std::move(fields), std::make_shared<const CachedQuery>(std::move(result)), version});
+        if (retained) *retained = cache.back().result;
+        return cache.back().result->response;
     }
     return transient();
 }

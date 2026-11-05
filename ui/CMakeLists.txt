@@ -318,6 +318,13 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule NeMoDevAppearanceModule)
     add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
     set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    add_executable(NeMoDevEditorQueryTests ../tests/EditorQueryTests.cpp)
+    target_link_libraries(NeMoDevEditorQueryTests PRIVATE NeMoDevEditorApplication VirtoolsDevCore VirtoolsDevImGui Threads::Threads)
+    foreach(_case DeliveryLifetime RecordKeys CachedAllocations TimeSettings IdentifierSpans)
+        add_test(NAME NeMoDevEditorQuery.${_case} COMMAND NeMoDevEditorQueryTests ${_case})
+        set_tests_properties(NeMoDevEditorQuery.${_case} PROPERTIES LABELS self-contained
+                ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    endforeach()
     if(TARGET VirtoolsDevUiTests)
         nemodev_add_module(NeMoDevUiDocumentInfo HOST VirtoolsDevUiTests
                 SOURCES "${VIRTOOLSDEV_SOURCE_DIR}/examples/DocumentInfo/DocumentInfo.cpp")

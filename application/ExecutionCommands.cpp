@@ -75,6 +75,8 @@ struct ExecutionCommands::Data {
         uint64_t frameMode = 0, behaviorMode = 0;
         double frameLimit = 60, behaviorLimit = 60, scale = 1, minimum = 0, maximum = 100;
     } time;
+    uint64_t timeRevision = 1;
+    bool hideFps = false;
     Data(EditorApplication &editor, std::function<Document *()> current, std::function<bool()> nativeAvailable,
          Preferences &preferences)
         : editor(editor), current(std::move(current)), nativeAvailable(std::move(nativeAvailable)), preferences(preferences) {}
@@ -165,6 +167,7 @@ struct ExecutionCommands::Data {
     }
     void Publish(bool readTime = false) {
         ++stateRevision;
+        if (readTime) ++timeRevision;
         if (!debugger || !document) { state = {}; return; }
         state.document = document->Token();
         state.available = document->IsOpen();
@@ -418,6 +421,15 @@ struct ExecutionCommands::Data {
             Integer("reached-breakpoints", s.reachedBreakpoints), Integer("faults", s.faults)};
         return sink.write ? sink.write(sink.data, fields, uint32_t(std::size(fields))) : EDITOR_INVALID;
     }
+    static uint64_t TimeRevision(void *data, const EditorHost *) {
+        auto &self = *static_cast<Data *>(data);
+        const auto hideFps = self.preferences.Bool("Time Settings\\Hide Fps");
+        if (hideFps != self.hideFps) {
+            self.hideFps = hideFps;
+            ++self.timeRevision;
+        }
+        return self.timeRevision;
+    }
     static EditorStatus ReadTime(void *data, const EditorHost *, const EditorRequest *, EditorSink sink) {
         const auto &t = static_cast<Data *>(data)->time;
         const auto hideFps = Integer("hide-fps", static_cast<Data *>(data)->preferences.Bool("Time Settings\\Hide Fps"));
@@ -670,7 +682,7 @@ bool ExecutionCommands::Register(std::string &error) {
             &Data::Read, m_Data.get(), EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, stateFields, uint32_t(std::size(stateFields)),
             [](void *data, const EditorHost *) { return static_cast<Data *>(data)->stateRevision; }},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.time"), EDITOR_TEXT("builtin.execution"), nullptr, 0,
-            &Data::ReadTime, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, time, 8},
+            &Data::ReadTime, m_Data.get(), EDITOR_QUERY_VERSIONED, EDITOR_APPLICATION, time, 8, &Data::TimeRevision},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.log"), EDITOR_TEXT("builtin.execution"), logArgs, 2,
             &Data::ReadLog, m_Data.get(), EDITOR_QUERY_EACH_READ, EDITOR_APPLICATION, logFields, 3},
         {sizeof(EditorQueryDesc), EDITOR_TEXT("runtime.context"), EDITOR_TEXT("builtin.execution"), &first, 1,

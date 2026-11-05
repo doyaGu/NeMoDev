@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 #include "editor/Editor.h"
 #include "application/KeyBinding.h"
@@ -237,6 +238,10 @@ class EditorApplication {
     std::function<void(const EditorResponse &)> report;
 
   private:
+    struct CachedQuery;
+    const EditorResponse &ReadQuery(std::string_view, const EditorRequest &,
+                                    std::shared_ptr<const CachedQuery> *retained);
+    EditorStatus DeliverQuery(std::string_view, const EditorRequest &, EditorSink);
     struct State;
     std::unique_ptr<State> m_State;
 };

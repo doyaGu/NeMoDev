@@ -1449,7 +1449,11 @@
       ],
       "tests": [
         "VirtoolsDev.InputViewport",
-        "NeMoDevEditor"
+        "NeMoDevEditor",
+        "NeMoDevEditorQuery.DeliveryLifetime",
+        "NeMoDevEditorQuery.RecordKeys",
+        "NeMoDevEditorQuery.CachedAllocations",
+        "NeMoDevEditorQuery.IdentifierSpans"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1478,7 +1482,8 @@
         "VirtoolsDev.ScriptDebugger",
         "VirtoolsDev.DebuggerBudget",
         "NeMoDevEditor",
-        "NeMoDevIdentityHeaders"
+        "NeMoDevIdentityHeaders",
+        "NeMoDevEditorQuery.TimeSettings"
       ],
       "ui_tests": [
         "VirtoolsDevUi.debugger",
