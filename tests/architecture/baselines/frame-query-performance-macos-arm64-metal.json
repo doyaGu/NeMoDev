@@ -1,0 +1,185 @@
+{
+  "description": "阶段六性能定位后的查询优化及独立自动回归；完整帧性能验收等待空闲窗口。",
+  "recorded_utc": "2026-11-05T04:29:59.573434+00:00",
+  "base_revision": "01fb99e1f6cefcd3a74c2c6312ae4512dac402d1",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "changes": [
+    "状态栏按查询发布版本复用运行状态，工具栏替换仍按实际动作读取；空闲选区不读取无用手势数据。",
+    "宿主缓存同时保存只读字段及其 C 视图；转交期间保留缓存，嵌套命令清空缓存仍保持数据有效。",
+    "名称按长度校验后直接查找；已登记字段不重复转码，记录键排序检查使用栈内视图并保留字段顺序。",
+    "时间设置沿用版本查询，时间命令及显示偏好变化使版本更新。",
+    "七项回归分别登记为 self-contained 测试，自动进入现有 CI；零分配回归先失败再通过。"
+  ],
+  "coverage": {
+    "files": 1158,
+    "groups": 59,
+    "features": 32,
+    "states": 51,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 7,
+    "separate_work": 1
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-frame-performance/build-final.log",
+      "sha256": "a50d618f9477ea2127d01e74ac045d9b297f25a7d8d6b91b9eff0d7d26b06c34"
+    },
+    "complete_suite": {
+      "total": 152,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-frame-performance/full-final.xml",
+        "sha256": "42ba59db5853b28a42310e15e21440f7a9b2ac42f0eb47c9f53ea99dce0cf56a"
+      }
+    },
+    "complete_inventory": {
+      "path": "out/phase-six-frame-performance/ctest-inventory-final.json",
+      "sha256": "9517aa87400dbf8461f7d8e837abc9910807c4b7c833899954a5b28a631b229a"
+    },
+    "inventory_check": {
+      "path": "out/phase-six-frame-performance/results-check-final.log",
+      "sha256": "d8714bd54800b540ea42bd42df611c06f62110211ad29eb60bdc643c924385e3"
+    },
+    "independent_cases": [
+      "NeMoDevEditorQuery.CachedAllocations",
+      "NeMoDevEditorQuery.DeliveryLifetime",
+      "NeMoDevEditorQuery.IdentifierSpans",
+      "NeMoDevEditorQuery.RecordKeys",
+      "NeMoDevEditorQuery.TimeSettings",
+      "VirtoolsDevUi.FrameQueries.IdleSelection",
+      "VirtoolsDevUi.FrameQueries.StatusControls"
+    ],
+    "final_query_cases": {
+      "total": 5,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-frame-performance/query-independent-final.xml",
+        "sha256": "ce5429b54df085361fc05717cd3ad0a75f4737affa0837f567f7ed5434a011c6"
+      }
+    },
+    "native_player": {
+      "passed": 1,
+      "selected": 1,
+      "registered": 364,
+      "unselected": 363,
+      "report": {
+        "path": "out/phase-six-frame-performance/player-final.xml",
+        "sha256": "23b65ee29a1dbed449f66f7a216b8d52bae491aba4a0c097ffa021360c5c5058"
+      }
+    },
+    "cached_cpp_allocations": {
+      "requests": 1000,
+      "before": 2000,
+      "after": 0,
+      "before_report": {
+        "path": "out/phase-six-frame-performance/query-independent-red.xml",
+        "sha256": "bfaccd3020f6b8f93f76338a15e5fb45384036300d70702841b2fd3ae58946d7"
+      },
+      "after_report": {
+        "path": "out/phase-six-frame-performance/query-independent-final.xml",
+        "sha256": "ce5429b54df085361fc05717cd3ad0a75f4737affa0837f567f7ed5434a011c6"
+      }
+    },
+    "status_query_red": {
+      "path": "out/phase-six-frame-performance/status-red.log",
+      "sha256": "397d30ba45ae30ebb6ff831b88c39a072cb1f4ac4b2071c58e26fb4e9826608f"
+    },
+    "idle_input_query_red": {
+      "path": "out/phase-six-frame-performance/selection-red.log",
+      "sha256": "a5129a7abe80244ad0e8adcff4c22991dfe033f5edf5f6a123ffef99d574d05b"
+    },
+    "time_query_red": {
+      "path": "out/phase-six-frame-performance/time-query-red.log",
+      "sha256": "82a7a7e44a35abacf11ad453b63af33a5d98dc8f088cd5fe2717c076cb3f33b0"
+    }
+  },
+  "preservation": {
+    "sdk_sources_unchanged": true,
+    "sdk_repositories": 16,
+    "sdk_before": {
+      "path": "out/phase-six-frame-performance/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-frame-performance/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_images_unchanged": true,
+    "runtime_files": 22,
+    "runtime_before": {
+      "path": "out/phase-six-frame-performance/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-frame-performance/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "gpu_sources_unchanged": true,
+    "gpu_source_files": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "production_source_sha256": "4b58acdc627563e9125bc6f6b3ca4a1a7722ec9637eff23509403fadad360d39",
+    "production_binary": {
+      "path": "out/macos-arm64/runtime/NeMoDev.app/Contents/MacOS/NeMoDev",
+      "sha256": "2490aa0483a71968b334c1efb72420c264e185fc8e47425849b2efff3a64ed4f"
+    },
+    "native_ui_test_binary": {
+      "path": "out/macos-arm64/runtime/NeMoDev.app/Contents/MacOS/VirtoolsDevUiTests",
+      "sha256": "2df0074393f16b3e93e115b67f7c05cf67e88d65047aad3db51455b61e8e009d"
+    }
+  },
+  "performance": {
+    "accepted": false,
+    "deferred": false,
+    "status": "awaiting-user-idle-window",
+    "limits": {
+      "minimum_groups": 11,
+      "minimum_warmup_ms": 15000,
+      "minimum_group_ms": 1000,
+      "maximum_median_regression_percent": 3,
+      "maximum_mad_percent": 3
+    },
+    "last_valid_comparison": {
+      "path": "out/phase-six-module-document-data/performance-common-sdk-paired.json",
+      "sha256": "7eac8b115ac1ae6d2eafd5d96d047ef98ca4c73090439ffb5b0ea1a2585dc5ee"
+    },
+    "last_valid_regression_percent": 31.2283259,
+    "rejected_thermal_capture": {
+      "path": "out/phase-six-frame-performance/query-frequency-paired.json",
+      "sha256": "d81c5b37d79849add0197582e1b09ca301293ccbbc8699add296b69b577f9544"
+    },
+    "aborted_thermal_preparation": {
+      "path": "out/phase-six-frame-performance/query-delivery-paired-aborted.json",
+      "sha256": "aa845492aff73751fe55ac02ee32e12c554487206178c0c248c82f32d17562b0"
+    },
+    "profile": {
+      "path": "out/phase-six-frame-performance/steady-current.sample",
+      "sha256": "b3af14ee7dc8bcfd241b9db6e2db8b628efeb83dd1a697cb8b28e688f81bbc4d"
+    },
+    "note": "上述正式计时均早于最终优化。用户选择稍后提供空闲窗口；当前只有功能和分配回归通过，不能据此宣告完整帧达到原定门槛。"
+  },
+  "remaining": {
+    "runtime_process_isolation": "单独实施。",
+    "platforms_not_run": [
+      "Windows",
+      "Linux"
+    ]
+  }
+}
