@@ -1,0 +1,260 @@
+{
+  "description": "阶段六本地实现收尾：基础值、参数行、工作区与诊断布局、文件入口和 Help 启动恢复。",
+  "base_revision": "e242160d9bafac990bd0c93db2a4ff16f36210d5",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-implementation/build-final.log",
+      "sha256": "0b44e40cde710fce18d3373b69ba03ff3f62c892e918f1aff0fcfd2eeeccf430"
+    },
+    "complete_run": {
+      "total": 197,
+      "failed": 1,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-implementation/full.xml",
+        "sha256": "8ca73c837af4aa7155cc9b4e675007d2883ee3fa34d1f27f10f486c1242150b7"
+      }
+    },
+    "complete_inventory": {
+      "path": "out/phase-six-implementation/full-inventory.json",
+      "sha256": "70282b8a70fc2aecef49a75d86ccdf8780ede41d8e0758076325bc8f6df49de2"
+    },
+    "static_recheck": {
+      "total": 3,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-implementation/static-final.xml",
+        "sha256": "06725db1b9628aff8ea4e45df4000037d7ba26a586052d1f112640dab2831731"
+      }
+    },
+    "static_inventory_check": {
+      "path": "out/phase-six-implementation/static-results-check.log",
+      "sha256": "c74d54f6fde91df181236364ee994ba37d1e5bf6cbc54402de7a8a9982c38b04"
+    },
+    "selected_checks": {
+      "total": 197,
+      "passed": 197,
+      "failed": 0,
+      "skipped": 0,
+      "method": "完整运行 196 项通过；唯一失败为公共 SetupLayout 包含规则，修正后对包含限制、依赖和架构检查自身回归定向复验 3/3 通过。未改写原始报告。",
+      "check": {
+        "path": "out/phase-six-implementation/results-check.log",
+        "sha256": "95f3cf9d39fa27b00e3f11b01695ecba12f62951c3b826289b371952d8df6734"
+      }
+    },
+    "independent_cases": [
+      "VirtoolsDevUi.StartupFlows.files",
+      "VirtoolsDevUi.StartupFlows.help",
+      "VirtoolsDevUi.ValueLayout.basic_integer_layout_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.basic_percent_layout_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.basic_real_layout_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.boolean_enum_layout_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.object_array_table_layout_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.object_filter_layout_cancel_and_undo",
+      "VirtoolsDevUi.ValueLayout.string_multiline_layout_cancel_and_undo",
+      "VirtoolsDevUi.WorkspaceLayout.debugger_reflow_keeps_input_and_runtime_commands",
+      "VirtoolsDevUi.WorkspaceLayout.invalid_links_reflow_keeps_refresh_and_close",
+      "VirtoolsDevUi.WorkspaceLayout.layout_explorer_reflow_preserves_locked_selection_and_cancel",
+      "VirtoolsDevUi.WorkspaceLayout.memory_list_reflow_keeps_sort_and_close",
+      "VirtoolsDevUi.WorkspaceLayout.message_explorer_reflow_keeps_selection_and_lists",
+      "VirtoolsDevUi.WorkspaceLayout.profiler_reflow_keeps_details_sort_and_close",
+      "VirtoolsDevUi.WorkspaceLayout.report_scroll_reflow_preserves_document_history",
+      "VirtoolsDevUi.WorkspaceLayout.schematic_explorer_reflow_keeps_navigation_and_cancel",
+      "VirtoolsDevUi.WorkspaceLayout.schematic_object_filter_reflow_cancel_and_undo",
+      "VirtoolsDevUi.WorkspaceLayout.snapshot_grid_reflow_keeps_slots_and_explicit_readback"
+    ],
+    "architecture_final": {
+      "path": "out/phase-six-implementation/architecture-final.json",
+      "sha256": "d7321346427c2da2cdfa2f28583949a2ab74309f86d24aa08e8787b0a74e2247"
+    },
+    "native_player": {
+      "status": "blocked_by_locked_desktop",
+      "passed": 0,
+      "selected": 1,
+      "original_report": {
+        "path": "out/phase-six-implementation/player.xml",
+        "sha256": "b86f3b6b6d58c1c1e870c5d286185f67f0fe688a83f534c578ee4e833868cdd6"
+      },
+      "original_log": {
+        "path": "out/phase-six-implementation/player.log",
+        "sha256": "b63e85dc72e2cb9995765866d0ba3d7c18fdad0a5676b664187eb2ca68e879fd"
+      },
+      "state_trace": {
+        "path": "out/phase-six-implementation/player-trace.log",
+        "sha256": "f8da6983eda3e1bc74e72d67df007c558ff78b5b07cb6bf9d94935fe7ee9feff"
+      },
+      "activation_probe": {
+        "path": "out/phase-six-implementation/player-active.log",
+        "sha256": "0612bce1bdb28fcab946267f18b0fabc8a3ff752495fcb26f3b4bcb016f0f80b"
+      },
+      "desktop_session": {
+        "path": "out/phase-six-implementation/desktop-session.json",
+        "sha256": "e2f1bbfb29ac2393ef71eb2eeac790f1d1b561be101af05eec6b33ac8c847444"
+      },
+      "observed": "第二视口保持全屏，原生焦点和 SDL 键盘焦点始终为空；测试进程未激活；系统记录确认屏幕锁定。原断言、超时和生产焦点逻辑均未改。",
+      "temporary_source_changes_removed": true
+    },
+    "earlier_runs": {
+      "independent-first.xml": {
+        "total": 13,
+        "failed": 13,
+        "skipped": 0,
+        "report": {
+          "path": "out/phase-six-implementation/independent-first.xml",
+          "sha256": "c56ab6972dad976c4e479a36a000f12d8127c021dbb1ecef21a336176a0b38f7"
+        }
+      },
+      "independent-second.xml": {
+        "total": 13,
+        "failed": 13,
+        "skipped": 0,
+        "report": {
+          "path": "out/phase-six-implementation/independent-second.xml",
+          "sha256": "3231b8c36a22f9ab1f5f26a1fb20fc84dc2a0b5993587c23da2043430c1c7dbd"
+        }
+      },
+      "independent-third.xml": {
+        "total": 13,
+        "failed": 1,
+        "skipped": 0,
+        "report": {
+          "path": "out/phase-six-implementation/independent-third.xml",
+          "sha256": "92e9af10cf534ff12e1501f17a1503c405becd4cdd7b600bf9298ace0a28ae5d"
+        }
+      },
+      "layouts-startup.xml": {
+        "total": 12,
+        "failed": 0,
+        "skipped": 0,
+        "report": {
+          "path": "out/phase-six-implementation/layouts-startup.xml",
+          "sha256": "d25111e2933a5de1b680352b55373e3250ed1cf4265ea16fd56a77aecb316ec8"
+        }
+      },
+      "appearance-first.xml": {
+        "total": 1,
+        "failed": 1,
+        "skipped": 0,
+        "report": {
+          "path": "out/phase-six-implementation/appearance-first.xml",
+          "sha256": "038418a9862f049949d8bd7e14ca1845750b4de8215e31ca0a3e178eacc0c165"
+        }
+      },
+      "appearance-second.xml": {
+        "total": 3,
+        "failed": 2,
+        "skipped": 0,
+        "report": {
+          "path": "out/phase-six-implementation/appearance-second.xml",
+          "sha256": "9a3021d365e77ef6e1b6def16a5f7c27ed900b6b40da36c4ab39034eabf64687"
+        }
+      },
+      "appearance-third.xml": {
+        "total": 2,
+        "failed": 1,
+        "skipped": 0,
+        "report": {
+          "path": "out/phase-six-implementation/appearance-third.xml",
+          "sha256": "2109ca60013ba302be6e2b24990fb8de52396c2795282e5fe3fc38c235580dde"
+        }
+      }
+    }
+  },
+  "remaining": [
+    "严格性能验收等待空闲窗口，保留原 3% 门槛。",
+    "系统锁屏导致原生 Player 焦点检查无法验收；解锁后按原断言复验。",
+    "Windows/Linux 实机、原版帮助全书、真实打印和各平台发布产物复验。",
+    "运行时进程隔离单独实施。"
+  ],
+  "recorded_utc": "2026-11-05T22:42:57.362401+00:00",
+  "changes": [
+    "基础数值、布尔、枚举、文本和对象筛选使用可用宽度；字符串的展开标志决定多行编辑，不再因字体变大切换类型。",
+    "参数行量测当前内容，Schematic 与 Setup 保留输入编号、原草稿、取消恢复与单步撤销；对象数组使用可调列宽表和可见行绘制。",
+    "Explorer、Debugger、Profiler、诊断、快照与报告复用滚动窗口；Message Explorer 和 Help 随宽度排列；删除全部旧 TemplateLayout 实现。",
+    "修复快照菜单的编号作用域、恢复主题背景，窄窗底部按钮避免重叠。",
+    "CLI 支持 -- 分隔符；五次真实文件启动流程验证 CMO/NMO 各入口与失败后文档、选区、Undo/Redo 保持。",
+    "Help 使用真实编译器生成测试包，四次启动比较全部八项保存字段；内置与外部阅读器替换不要求内置帮助文件存在。",
+    "十九项独立 CTest 进入原有 CI；公共布局头归入既有公共控件，原生和可变状态访问限制继续检查。"
+  ],
+  "coverage": {
+    "files": 1164,
+    "groups": 59,
+    "features": 32,
+    "states": 51,
+    "legacy_exposures": 0,
+    "native_hosts": 6,
+    "native_adapters": 4,
+    "value_header_users": 6,
+    "completed_phase": 3,
+    "functional_phase": 5,
+    "test_registration_checked": true,
+    "open_gaps": 6,
+    "separate_work": 1
+  },
+  "preservation": {
+    "sdk_sources_and_metadata_unchanged": true,
+    "sdk_repositories": 16,
+    "sdk_before": {
+      "path": "out/phase-six-implementation/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-implementation/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_files_unchanged": true,
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "runtime_before": {
+      "path": "out/phase-six-implementation/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-implementation/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "gpu_sources_unchanged": true,
+    "gpu_sources": {
+      "ui/native/LayoutRenderer.cpp": "0d1d894d039bacf62390aa6100c2477263211fd332d31c784bc4a57c47030e2d",
+      "ui/render/UiRenderer.cpp": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+      "ui/render/UiRenderer.h": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+      "core/layout/SdlGpuInterop.cpp": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+      "core/layout/SdlGpuInterop.h": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74"
+    },
+    "unchanged_headers_and_native_test": {
+      "editor/Editor.h": "f0bed21249aa3ca30c4cbf765caba91f3e6baa49b2a32d597eb4b26f9845c12b",
+      "editor/Identity.h": "9a62fcb10c8694feaa90e319bf5556ff69d0a19d267d0ff7e5266179136bf440",
+      "tests/ui/PlayerTests.cpp": "bb348c5fb8766c3e2ea8dd7397c98df25d573c71427b69305ffab6b27376bbce"
+    },
+    "native_core_commands_unchanged": true
+  }
+}
