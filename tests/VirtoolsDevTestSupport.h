@@ -463,3 +463,13 @@ int LayoutFile(CkRuntimeHost &host, const std::string &path, const std::string &
 int LayoutObjectsFile(CkRuntimeHost &host, const std::string &path, const std::string &outputDirectory);
 
 } // namespace vdevtest
+
+namespace vdevtest {
+void ModuleDocumentEdits(vdev::CkRuntimeHost &host);
+void ModuleDocumentRoundTrip(vdev::CkRuntimeHost &host);
+void ModuleDocumentVersions(vdev::CkRuntimeHost &host);
+void ModuleDocumentLoadRecovery(vdev::CkRuntimeHost &host);
+void ModuleDocumentFileFailures(vdev::CkRuntimeHost &host);
+void ModuleDocumentSerializationFailures(vdev::CkRuntimeHost &host);
+void ModuleDocumentInvalidFiles(vdev::CkRuntimeHost &host);
+}

@@ -67,11 +67,18 @@ SceneEnvironment DefaultNewSceneEnvironment() {
     return environment;
 }
 
-Document::Document(CkRuntimeHost &host) : m_Host(host), m_History(*this) {
+Document::Document(CkRuntimeHost &host, std::shared_ptr<const DocumentDataRegistry> dataTypes)
+    : m_Host(host), m_DataTypes(dataTypes ? std::move(dataTypes) : DefaultDocumentDataRegistry()), m_History(*this) {
     if (Context()) {
         m_Token = {NextToken()};
         m_ContextGeneration = m_Host.Generation();
     }
+}
+
+bool Document::SetDataTypes(std::shared_ptr<const DocumentDataRegistry> types) {
+    if (IsOpen() || EditOpen() || !types) return false;
+    m_DataTypes = std::move(types);
+    return true;
 }
 
 Document::~Document() {
@@ -174,7 +181,7 @@ std::unique_ptr<Document::PreparedDocument> Document::PrepareDocument(const std:
     auto prepared = std::unique_ptr<PreparedDocument>(new PreparedDocument(*this));
     prepared->m_Host = m_Host.CreateDocumentHost(error);
     if (!prepared->m_Host) return {};
-    prepared->m_Document = std::make_unique<Document>(*prepared->m_Host);
+    prepared->m_Document = std::make_unique<Document>(*prepared->m_Host, m_DataTypes);
     bool loaded = false;
     const bool completed = GuardedCall([&] {
         loaded = path ? prepared->m_Document->Open(*path, error, environment)
@@ -208,10 +215,8 @@ void Document::CommitPrepared(PreparedDocument &prepared) {
     m_Graveyard = std::move(candidate.m_Graveyard);
     m_CreatedObjects = std::move(candidate.m_CreatedObjects);
     m_Bitmaps = std::move(candidate.m_Bitmaps);
-    m_Layout = std::move(candidate.m_Layout);
-    m_Pictures = std::move(candidate.m_Pictures);
-    m_LayoutChanged = candidate.m_LayoutChanged;
-    m_PicturesChanged = candidate.m_PicturesChanged;
+    m_Data = std::move(candidate.m_Data);
+    RebindDocumentData(*this);
     m_TopologyRevision = candidate.m_TopologyRevision;
     m_SavedTopologyRevision = candidate.m_SavedTopologyRevision;
     m_ChangesOutsideUndo = candidate.m_ChangesOutsideUndo;
@@ -275,12 +280,11 @@ bool Document::Open(const std::string &path, std::string *error, const SceneEnvi
     m_Token = {NextToken()};
     m_ContextGeneration = m_Host.Generation();
     m_Origin = Origin::LoadedComposition;
-    if (!GuardedCall([&] {
-        m_Layout = ReadLayoutLists(context, ReadLayoutInterfaceData(context));
-        m_Pictures = ReadObjectPictures(*this);
-    }, &m_Host, "Read document editor data")) {
+    bool dataRead = false;
+    std::string dataError;
+    if (!GuardedCall([&] { dataRead = ReadDocumentData(*this, {}, dataError); }, &m_Host, "Read document editor data") || !dataRead) {
         Close();
-        if (error) *error = "Cannot read editor data from " + path;
+        if (error) *error = "Cannot read editor data from " + path + ": " + dataError;
         return false;
     }
     RefreshScripts();
@@ -356,15 +360,9 @@ bool Document::Merge(const std::string &path, bool asScene, std::string *error, 
     const bool completed = GuardedCall([&] {
         loaded = MergeInPlace(path, asScene, error, &added, duplicates);
         if (loaded) {
-            const std::set<CK_ID> incoming(added.begin(), added.end());
-            auto pictures = ReadObjectPictures(*this);
-            // Existing objects use the document's current data, including
-            // removals not yet reflected in the runtime's saved chunks.
-            for (auto &picture : pictures)
-                if (incoming.count(picture.first)) {
-                    m_Pictures.emplace(picture.first, std::move(picture.second));
-                    m_PicturesChanged = true;
-                }
+            std::string dataError;
+            loaded = ReadDocumentData(*this, {DocumentDataLoad::Merge, added, added}, dataError);
+            if (!loaded && error) *error = dataError;
         }
     },
                                       &m_Host, "Merge composition");
@@ -465,7 +463,14 @@ bool Document::Import(const std::string &path, ImportMode mode, std::string *err
     if (!transaction.Capture(error)) return false;
     std::vector<CK_ID> added;
     bool loaded = false;
-    const bool completed = GuardedCall([&] { loaded = ImportInPlace(path, mode, error, &added, duplicates, environment); },
+    const bool completed = GuardedCall([&] {
+        loaded = ImportInPlace(path, mode, error, &added, duplicates, environment);
+        if (loaded) {
+            std::string dataError;
+            loaded = ReadDocumentData(*this, {DocumentDataLoad::Import, added, added}, dataError);
+            if (!loaded && error) *error = dataError;
+        }
+    },
                                       &m_Host, "Import objects");
     if (!completed || !loaded) {
         if (!completed && error) *error = "Importing " + path + " raised an exception";
@@ -674,9 +679,7 @@ void Document::Close() {
     m_History.Clear();
     for (const auto &entry : m_Sessions) m_ChangesOutsideUndo += entry.second->ChangesOutsideUndo();
     m_Sessions.clear();
-    m_Layout = {};
-    m_Pictures.clear();
-    m_LayoutChanged = m_PicturesChanged = false;
+    m_Data = {};
     m_Bitmaps.clear(); // after the sessions borrowing them
     m_Scripts.clear();
     m_LoadedObjects.clear();
@@ -775,11 +778,12 @@ void Document::CollectGraveyard() {
     };
     const auto id = [](CK_ID value) { return value; };
     const auto key = [](const auto &entry) { return entry.first; };
-    m_LayoutChanged |= prune(m_Layout.cones, id);
-    m_LayoutChanged |= prune(m_Layout.playerShown, id);
-    m_LayoutChanged |= prune(m_Layout.hiddenCurvePoints, id);
-    m_LayoutChanged |= prune(m_Layout.representations, key);
-    m_PicturesChanged |= prune(m_Pictures, key);
+    m_Data.layoutChanged |= prune(m_Data.layout.cones, id);
+    m_Data.layoutChanged |= prune(m_Data.layout.playerShown, id);
+    m_Data.layoutChanged |= prune(m_Data.layout.hiddenCurvePoints, id);
+    m_Data.layoutChanged |= prune(m_Data.layout.representations, key);
+    m_Data.picturesChanged |= prune(m_Data.pictures, key);
+    ForgetDocumentData(*this);
     RefreshScripts();
     CollectBitmaps();
 }
@@ -916,6 +920,7 @@ bool Document::Dirty() const {
 }
 
 void Document::MarkTopologyChanged() {
+    ForgetDocumentData(*this);
     Changed();
     EditorObjectsChanged();
     ++m_TopologyRevision;

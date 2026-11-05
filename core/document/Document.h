@@ -13,7 +13,7 @@
 #include "editor/Identity.h"
 #include "core/document/ScriptSession.h"
 #include "core/document/UndoHistory.h"
-#include "core/document/ObjectPictures.h"
+#include "core/document/DocumentData.h"
 #include "core/layout/LayoutInterface.h"
 #include "core/level/LevelCommands.h"
 
@@ -60,7 +60,7 @@ public:
         ImportedObjects,
     };
     class PreparedDocument;
-    explicit Document(CkRuntimeHost &host);
+    explicit Document(CkRuntimeHost &host, std::shared_ptr<const DocumentDataRegistry> dataTypes = DefaultDocumentDataRegistry());
     ~Document();
     // Construction attaches an editing scope to the host's current context.
     // Successful New/Open replaces it; failed candidates do not. Close ends
@@ -190,11 +190,14 @@ public:
     void MarkSaved();
     // Persistent editor data. Edits use the core's Layout/ObjectPicture commands;
     // selection, focus and open windows belong to the UI.
-    const LayoutLists &Layout() const { return m_Layout; }
-    const ObjectPictures &Pictures() const { return m_Pictures; }
+    const LayoutLists &Layout() const { return m_Data.layout; }
+    const ObjectPictures &Pictures() const { return m_Data.pictures; }
     // Changes not yet installed in the runtime's picture chunks. A failed or
     // rejected save must leave them available to the next attempt.
-    bool PicturesPending() const { return m_PicturesChanged; }
+    bool PicturesPending() const { return m_Data.picturesChanged; }
+    const DocumentDataState &Data() const { return m_Data; }
+    const std::shared_ptr<const DocumentDataRegistry> &DataTypes() const { return m_DataTypes; }
+    bool SetDataTypes(std::shared_ptr<const DocumentDataRegistry> types);
     // Adopt an SDK bitmap and return its shared owner (empty for nullptr).
     // Repeated adoption shares that owner. Display data/history and pictures
     // retain it; collection drops the document's unused staging reference.
@@ -233,9 +236,12 @@ private:
     void SetDiscarded(ObjectRef object, bool discarded);
     // Creating, discarding or restoring objects changes which editor records
     // belong in the saved composition, even when their values stay the same.
+    friend struct DocumentDataAccess;
+    friend class DocumentDataAction;
     void EditorObjectsChanged() {
-        m_LayoutChanged = true;
-        if (!m_Pictures.empty()) m_PicturesChanged = true;
+        if (!m_Data.records.empty()) m_Data.recordsChanged = true;
+        m_Data.layoutChanged = true;
+        if (!m_Data.pictures.empty()) m_Data.picturesChanged = true;
     }
 
     static std::uint64_t NextToken();
@@ -254,10 +260,8 @@ private:
     std::set<ObjectReferences *> m_ObjectReferences;
     std::map<CK_ID, CKQWORD> m_CreatedObjects;
     std::unordered_map<void *, std::shared_ptr<void>> m_Bitmaps;
-    LayoutLists m_Layout;
-    ObjectPictures m_Pictures;
-    bool m_LayoutChanged = false;
-    bool m_PicturesChanged = false;
+    DocumentDataState m_Data;
+    std::shared_ptr<const DocumentDataRegistry> m_DataTypes;
     std::uint64_t m_ChangeRevision = 0;
     std::uint64_t m_TopologyRevision = 0;
     std::uint64_t m_SavedTopologyRevision = 0;

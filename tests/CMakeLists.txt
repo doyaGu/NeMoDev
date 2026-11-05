@@ -211,6 +211,7 @@ add_executable(VirtoolsDevTests
         GraphTestSupport.cpp
         GraveyardTests.cpp
         DocumentEditorDataTests.cpp
+        ModuleDocumentDataTests.cpp
         QueryProjectionTests.cpp
         LevelActionRecordTests.cpp
         GraphActionRecordTests.cpp

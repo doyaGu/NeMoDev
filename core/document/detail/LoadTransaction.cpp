@@ -153,9 +153,7 @@ struct LoadTransaction::State {
     std::uint64_t topology = 0, savedTopology = 0, outside = 0, scriptsRevision = 0;
     std::uint64_t changeRevision = 0;
     std::vector<ScriptInfo> scripts;
-    LayoutLists layout;
-    ObjectPictures pictures;
-    bool layoutChanged = false, picturesChanged = false;
+    DocumentDataState data;
 };
 
 LoadTransaction::LoadTransaction(Document &document) : m_Document(document) {}
@@ -189,10 +187,7 @@ bool LoadTransaction::Capture(std::string *error) {
     state.outside = m_Document.m_ChangesOutsideUndo;
     state.scriptsRevision = m_Document.m_ScriptsRevision;
     state.scripts = m_Document.m_Scripts;
-    state.layout = m_Document.m_Layout;
-    state.pictures = m_Document.m_Pictures;
-    state.layoutChanged = m_Document.m_LayoutChanged;
-    state.picturesChanged = m_Document.m_PicturesChanged;
+    state.data = m_Document.m_Data;
     for (const auto &session : m_Document.m_Sessions)
         state.sessions.emplace(session.first, std::make_pair(session.second.get(), *session.second));
     bool captured = false;
@@ -385,10 +380,7 @@ bool LoadTransaction::Rollback(std::string *error) {
     m_Document.m_ChangesOutsideUndo = state.outside;
     m_Document.m_ScriptsRevision = state.scriptsRevision;
     m_Document.m_Scripts = std::move(state.scripts);
-    m_Document.m_Layout = std::move(state.layout);
-    m_Document.m_Pictures = std::move(state.pictures);
-    m_Document.m_LayoutChanged = state.layoutChanged;
-    m_Document.m_PicturesChanged = state.picturesChanged;
+    m_Document.m_Data = std::move(state.data);
     for (auto it = m_Document.m_Sessions.begin(); it != m_Document.m_Sessions.end();)
         if (!state.sessions.count(it->first)) it = m_Document.m_Sessions.erase(it);
         else ++it;

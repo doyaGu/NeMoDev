@@ -26,10 +26,10 @@ private:
     bool Apply(Document &document, bool listed) {
         const auto member = Members(m_List);
         if (!member) return false;
-        auto &members = document.m_Layout.*member;
+        auto &members = document.m_Data.layout.*member;
         if (listed) members.insert(m_Object);
         else members.erase(m_Object);
-        document.m_LayoutChanged = true;
+        document.m_Data.layoutChanged = true;
         return true;
     }
     LayoutList m_List;
@@ -48,10 +48,10 @@ private:
     bool Apply(Document &document, bool after) {
         for (const auto &entry : m_Before) {
             const int value = after ? m_Representation : entry.second;
-            if (value < 0) document.m_Layout.representations.erase(entry.first);
-            else document.m_Layout.representations[entry.first] = value;
+            if (value < 0) document.m_Data.layout.representations.erase(entry.first);
+            else document.m_Data.layout.representations[entry.first] = value;
         }
-        document.m_LayoutChanged = true;
+        document.m_Data.layoutChanged = true;
         return true;
     }
     std::vector<std::pair<CK_ID, int>> m_Before;

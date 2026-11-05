@@ -113,26 +113,7 @@ struct DocumentSaverAccess {
         return objects;
     }
     static bool EditorDataCurrent(const Document &document) {
-        return !document.m_LayoutChanged && !document.m_PicturesChanged;
-    }
-    static void WriteEditorData(Document &document, const LayoutInterfaceData *view) {
-        if (view || document.m_LayoutChanged) {
-            auto data = view ? *view : ReadLayoutInterfaceData(document.Context());
-            const auto lists = document.m_Layout;
-            if (view || data.present || !lists.Empty()) {
-                WriteLayoutLists(document.Context(), lists, [&](CK_ID id) {
-                    return document.IsLive(id) &&
-                           !(document.Context()->GetObject(id)->GetObjectFlags() & CK_OBJECT_NOTTOBESAVED);
-                }, data);
-                WriteLayoutInterfaceData(document, data);
-            }
-            if (document.m_Layout == lists) document.m_LayoutChanged = false;
-        }
-        if (document.m_PicturesChanged) {
-            const auto pictures = document.m_Pictures;
-            WriteObjectPictures(document, pictures);
-            if (document.m_Pictures == pictures) document.m_PicturesChanged = false;
-        }
+        return !document.m_Data.layoutChanged && !document.m_Data.picturesChanged && !document.m_Data.recordsChanged;
     }
 };
 
@@ -259,7 +240,7 @@ bool CaptureSaved(CKFile &file, ProjectParameterTypes::Snapshot &result, std::os
 // is loaded as a player loads it, outside interface mode.
 bool Verify(Document &document, const std::string &path, const ProjectParameterTypes::Snapshot &expected,
             const std::vector<Replacement> &replacements, const std::map<CK_ID, int> &alignments,
-            bool forViewer, SaveReport &report) {
+            bool forViewer, const DocumentDataRecords &moduleData, SaveReport &report) {
     CKContext *verification = nullptr;
     const CKERROR created = CreateCKContext(&verification, nullptr);
     if (created != CK_OK || !verification) {
@@ -359,6 +340,13 @@ bool Verify(Document &document, const std::string &path, const ProjectParameterT
             ++report.scriptsVerified;
         }
     }
+    if (ok && !forViewer) {
+        std::string error;
+        if (!VerifyDocumentData(moduleData, verification, *file, error)) {
+            report.errors.push_back(error);
+            ok = false;
+        }
+    }
     verification->DeleteCKFile(file);
     DeleteCKObjectArray(objects);
     if (!forViewer) verification->SetInterfaceMode(FALSE, nullptr, nullptr);
@@ -380,9 +368,11 @@ static bool SaveDocument(Document &document, const std::string &path, const Save
         report.errors.push_back("Finish the current edit before saving the composition");
         return false;
     }
-    if (!GuardedCall([&] { DocumentSaverAccess::WriteEditorData(document, view); },
-                     &document.Host(), "Prepare document editor data")) {
-        report.errors.push_back("Cannot prepare document editor data");
+    bool dataWritten = false;
+    std::string dataError;
+    if (!GuardedCall([&] { dataWritten = WriteDocumentData(document, view, dataError); },
+                     &document.Host(), "Prepare document editor data") || !dataWritten) {
+        report.errors.push_back("Cannot prepare document editor data: " + dataError);
         return false;
     }
     std::error_code ec;
@@ -422,6 +412,7 @@ static bool SaveDocument(Document &document, const std::string &path, const Save
         for (const ScriptInfo &info : document.Scripts())
             if (info.hasInterfaceChunk && !document.IsDiscarded(info.id)) document.Session(info.id);
     const DocumentSaveRevisions revisions(document);
+    const auto moduleData = CaptureDocumentDataForSave(document);
     for (const auto &entry : document.Sessions()) {
         ScriptSession &session = *entry.second;
         if (session.ReadOnly()) continue;
@@ -526,7 +517,7 @@ static bool SaveDocument(Document &document, const std::string &path, const Save
         return false;
     }
     // 4. Independent reload.
-    if (!Verify(document, outputName, expected, replacements, alignments, forViewer, report)) {
+    if (!Verify(document, outputName, expected, replacements, alignments, forViewer, moduleData, report)) {
         report.notes.push_back("The temporary composition failed verification; the destination was not replaced");
         return false;
     }

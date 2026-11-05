@@ -23,6 +23,7 @@
       "name": "文档与历史",
       "patterns": [
         "core/document/Document.*",
+        "core/document/DocumentData.*",
         "core/document/ScriptSession.*",
         "core/document/Edit.*",
         "core/document/EditResult.h",
@@ -1908,7 +1909,17 @@
         "S33",
         "S34"
       ],
-      "tests": [],
+      "tests": [
+        "VirtoolsDev.ModuleDocumentEdits",
+        "VirtoolsDev.ModuleDocumentRoundTrip",
+        "VirtoolsDev.ModuleDocumentVersions",
+        "VirtoolsDev.ModuleDocumentLoadRecovery",
+        "VirtoolsDev.ModuleDocumentFileFailures",
+        "VirtoolsDev.ModuleDocumentSerializationFailures",
+        "VirtoolsDev.ModuleDocumentInvalidFiles",
+        "VirtoolsDev.DocumentLayoutMetadata",
+        "VirtoolsDev.DocumentPictures"
+      ],
       "ui_tests": [],
       "gaps": [
         {

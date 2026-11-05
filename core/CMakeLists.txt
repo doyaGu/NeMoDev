@@ -28,6 +28,7 @@ set(VIRTOOLS_DEV_CORE_SOURCES
         runtime/TextEncoding.cpp
         # The composition: opening, Scripts, undo, saving and the file tools.
         document/Document.cpp
+        document/DocumentData.cpp
         document/detail/LoadTransaction.cpp
         document/detail/SaveFileOperations.cpp
         document/BehaviorDescription.cpp

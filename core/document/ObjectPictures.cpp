@@ -88,10 +88,10 @@ private:
         if (!id)
             return false;
         if (picture)
-            document.m_Pictures[id] = picture;
+            document.m_Data.pictures[id] = picture;
         else
-            document.m_Pictures.erase(id);
-        document.m_PicturesChanged = true;
+            document.m_Data.pictures.erase(id);
+        document.m_Data.picturesChanged = true;
         return true;
     }
     ObjectRef m_Object;
