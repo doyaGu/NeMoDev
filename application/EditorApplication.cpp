@@ -891,6 +891,16 @@ struct EditorApplication::State {
         return active && (!scope.view || scopes.count(scope.view)) &&
                (area == EDITOR_WORKSPACE || scope.document == document);
     }
+    EditorStatus ResolveCommandView(const std::string &id, EditorScope &scope) const {
+        if (!Valid(scope, EDITOR_WORKSPACE)) return EDITOR_STALE;
+        const auto found = bindingViews.find(id);
+        if (found == bindingViews.end() || found->second.empty() || !navigation) return EDITOR_OK;
+        const auto view = navigation->ActionView(found->second, scope.view);
+        if (!view) return EDITOR_REFUSED;
+        // Routing selects a view, never a newer document for an old request.
+        scope.view = view;
+        return EDITOR_OK;
+    }
     bool CurrentValues(const std::vector<EditorField> &fields) const {
         return EveryField(fields, [&](const auto &field) {
             if (field.type == EDITOR_OBJECT && field.object && !Current(field.object)) return false;
@@ -2938,20 +2948,13 @@ const EditorResponse &EditorApplication::ReadQuery(std::string_view id, const Ed
     }
     return transient();
 }
-EditorStatus EditorApplication::CommandState(const std::string &id, const EditorRequest &request) {
+EditorStatus EditorApplication::CommandState(const std::string &id, const EditorRequest &input) {
     auto &s = *m_State;
     if (!s.Thread())
         return EDITOR_REFUSED;
-    if (!s.Valid(request.scope, EDITOR_WORKSPACE)) return EDITOR_STALE;
-    if (const auto type = ActionView(id); !type.empty() && s.navigation) {
-        const auto view = s.navigation->ActionView(type, request.scope.view);
-        if (!view) return EDITOR_REFUSED;
-        if (view != request.scope.view) {
-            auto routed = request;
-            routed.scope = Scope(view);
-            return CommandState(id, routed);
-        }
-    }
+    auto request = input;
+    const auto routed = s.ResolveCommandView(id, request.scope);
+    if (routed != EDITOR_OK) return routed;
     auto found = s.commands.find(id);
     if (found == s.commands.end())
         return EDITOR_INVALID;
@@ -2986,23 +2989,16 @@ EditorStatus EditorApplication::CanEdit(const std::string &property, EditorScope
         return EDITOR_REFUSED;
     return s.Current(target) ? EDITOR_OK : EDITOR_STALE;
 }
-EditorResponse EditorApplication::Execute(const std::string &id, const EditorRequest &request) {
+EditorResponse EditorApplication::Execute(const std::string &id, const EditorRequest &input) {
     auto &s = *m_State;
     EditorResponse result;
     if (!s.Thread() || s.readOnlyCallbacks || s.checking) {
         result.status = EDITOR_REFUSED;
         return result;
     }
-    if (!s.Valid(request.scope, EDITOR_WORKSPACE)) return {EDITOR_STALE};
-    if (const auto type = ActionView(id); !type.empty() && s.navigation) {
-        const auto view = s.navigation->ActionView(type, request.scope.view);
-        if (!view) return {EDITOR_REFUSED};
-        if (view != request.scope.view) {
-            auto routed = request;
-            routed.scope = Scope(view);
-            return Execute(id, routed);
-        }
-    }
+    auto request = input;
+    const auto routed = s.ResolveCommandView(id, request.scope);
+    if (routed != EDITOR_OK) return {routed};
     auto found = s.commands.find(id);
     if (found == s.commands.end()) {
         result.status = EDITOR_INVALID;
@@ -3116,13 +3112,16 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, const Edi
     s.drafts.emplace(out, std::move(draft));
     return EDITOR_OK;
 }
-EditorStatus EditorApplication::BeginCommand(const std::string &id, const EditorRequest &request, EditorEdit &out) {
+EditorStatus EditorApplication::BeginCommand(const std::string &id, const EditorRequest &input, EditorEdit &out) {
     auto &s = *m_State;
     out = 0;
+    auto request = input;
     if (!s.Thread() || (s.inputView && request.scope.view != s.inputView)) return EDITOR_REFUSED;
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying || !s.NativeReady() || !s.writable ||
         !s.drafts.empty() || !s.pending.empty())
         return EDITOR_REFUSED;
+    const auto routed = s.ResolveCommandView(id, request.scope);
+    if (routed != EDITOR_OK) return routed;
     const auto selected = s.commands.find(id);
     const auto *command = selected == s.commands.end() ? nullptr : selected->second;
     if (request.handler.size) {
@@ -3314,12 +3313,15 @@ EditorResponse EditorApplication::ApplyEdit(const PropertyBinding &property, Edi
     const auto values = BorrowEditorFields(fields);
     return ApplyEdit(property.command, {scope, values.data(), uint32_t(values.size()), EditorText(property.commandProvider)});
 }
-EditorResponse EditorApplication::ApplyEdit(const std::string &id, const EditorRequest &request) {
+EditorResponse EditorApplication::ApplyEdit(const std::string &id, const EditorRequest &input) {
     auto &s = *m_State;
     EditorResponse result{EDITOR_REFUSED};
+    auto request = input;
     if (!s.Thread() || !s.NativeReady() || s.readOnlyCallbacks || s.querying || s.notifying || !s.drafts.empty() ||
         !s.writable || !s.Valid(request.scope))
         return result;
+    const auto routed = s.ResolveCommandView(id, request.scope);
+    if (routed != EDITOR_OK) return {routed};
     auto *document = s.CurrentDocument();
     if (!document || !document->EditOpen()) return result;
     const auto selected = s.commands.find(id);

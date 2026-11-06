@@ -642,7 +642,8 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
         if (result.action == A::Merge || result.action == A::MergeScene) RememberRecentFile(result.path);
         for (const auto &script : m_Session.document->Scripts())
             if (std::find(result.loaded.objects.begin(), result.loaded.objects.end(), script.id) != result.loaded.objects.end()) {
-                m_Panels.ShowScript(script.id, ElementRef(), 0, false);
+                m_Schematics.Show(
+                    ElementAddress::Capture(*m_Session.document, script.id, Selection::HeaderOf(script.id)), {}, false);
                 break;
             }
     }
@@ -652,7 +653,8 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
         if (item.loaded) {
             m_Schematics.Invalidate();
             if (result.action == A::LoadScripts && item.created && m_Session.document->Resolve(item.created))
-                m_Panels.ShowScript(item.created.object);
+                m_Schematics.Show(ElementAddress::Capture(*m_Session.document, item.created.object,
+                                                         Selection::HeaderOf(item.created.object)));
         }
     }
     if ((result.action == A::ExportObjects || result.action == A::ExportBehaviors) && result.exported.saved)
@@ -713,7 +715,10 @@ void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenR
     if (IsPlayerFile(path))
         m_Session.Log(LogLevel::Warning, "A file for the player: the Scripts' Schematic is rebuilt from their graphs "
                                        "(no comments, colors or saved layout)");
-    if (!m_Session.document->Scripts().empty()) m_Panels.ShowScript(m_Session.document->Scripts().front().id, ElementRef(), 0, false);
+    if (!m_Session.document->Scripts().empty()) {
+        const auto script = m_Session.document->Scripts().front().id;
+        m_Schematics.Show(ElementAddress::Capture(*m_Session.document, script, Selection::HeaderOf(script)), {}, false);
+    }
     UpdateTitle();
 }
 
@@ -1283,8 +1288,8 @@ bool EditorApp::RegisterSceneNavigation(std::string &error){
         if (!id)
             return EDITOR_STALE;
         const bool focus=request->values[1].integer!=0;
-        const auto view=app.m_Schematics.Find(request->scope.view)?request->scope.view:app.m_Schematics.CurrentId();
-        return app.m_Schematics.Show(ElementAddress::Capture(*app.m_Session.document,id,Selection::HeaderOf(id)),{},focus,view);
+        return app.m_Schematics.Show(ElementAddress::Capture(*app.m_Session.document,id,Selection::HeaderOf(id)),
+                                     {},focus,request->scope.view);
     };
     commands[2].run = [](void *data, const EditorHost *, const EditorRequest *, EditorSink) {
         static_cast<EditorApp *>(data)->m_Panels.RefreshStack();

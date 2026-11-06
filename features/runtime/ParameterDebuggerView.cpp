@@ -143,7 +143,7 @@ void ParameterDebugger::Draw(const EditorClient &client, EditorViewFrame &frame)
             if (ImGui::BeginPopupContextItem("watch")) {
                 selected = watch.object;
                 if (ImGui::MenuItem("Go to source", nullptr, false, usable))
-                    client.Command("script.show-parameter", {ObjectArgument("target", watch.object)});
+                    EditorClient(client.Host(), 0).Command("script.show-parameter", {ObjectArgument("target", watch.object)});
                 if (ImGui::MenuItem("Delete")) remove = watch.object;
                 ImGui::Separator();
                 if (ImGui::MenuItem("Paste", "Ctrl+V", false, usable)) Paste(client);

@@ -64,7 +64,6 @@ public:
     }
     void ShowMessageExplorer();
     // Shows a parameter where the Schematic displays it (Parameter Debugger "Go to source").
-    void GoToParameter(ObjectRef parameter) { GoToShortcutSource(parameter); }
     // A file dropped at a screen point (EditorApp::DropFiles); false when unused.
     bool DropFile(const std::wstring &path, const std::string &ansiPath, const ImVec2 &screen);
     // Zoom of one Script body, applied when its view exists (--zoom-script).

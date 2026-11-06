@@ -415,11 +415,14 @@ void EditorWorkspace::CommandShortcuts() {
         }
 }
 EditorView EditorWorkspace::ActionView(const std::string &type, EditorView source) const {
-    if (const auto found = m_Views.find(source); found != m_Views.end() && Text(found->second.desc.id) == type)
-        return source;
-    if (const auto id = LastFocused(type)) return id;
+    if (source) {
+        const auto found = m_Views.find(source);
+        return found != m_Views.end() && !found->second.unavailable && Text(found->second.desc.id) == type
+                   ? source : 0;
+    }
+    if (const auto id = LastFocused(type); id && !m_Views.at(id).unavailable) return id;
     for (const auto &entry : m_Views)
-        if (Text(entry.second.desc.id) == type) return entry.first;
+        if (!entry.second.unavailable && Text(entry.second.desc.id) == type) return entry.first;
     return 0;
 }
 bool EditorWorkspace::InputBinding(EditorScope scope, const std::string &action, EditorInputPhase phase,
@@ -607,9 +610,12 @@ EditorStatus EditorWorkspace::Navigate(const EditorViewDesc &desc, EditorView id
     }
     const auto previousFocus = m_LastFocusRequest;
     bool created = false;
-    if (!id)
-        for (const auto &entry : m_Views)
-            if (Text(entry.second.desc.id) == Text(desc.id)) { id = entry.first; break; }
+    const auto requested = id;
+    id = ActionView(Text(desc.id), id);
+    if (requested && !id) {
+        const auto found = m_Views.find(requested);
+        return found == m_Views.end() || found->second.unavailable ? EDITOR_STALE : EDITOR_INVALID;
+    }
     if (!id) {
         id = Create(desc);
         created = true;

@@ -26,11 +26,6 @@ public:
 
     void ExplorerPanel(bool *open);
 
-    // Shows the Scripts of the given Script's owner (Dev shows the Scripts of
-    // the selected object) and centers the view on it.
-    // Shows the Script's stack (all Scripts, or the owner's); focus scrolls
-    // the Schematic to it (opening a file starts at the top of the stack).
-    void ShowScript(uint32_t script, const ElementRef &ref = ElementRef(), uint32_t focusBehavior = 0, bool focus = true);
     // The stack made again (the Scripts or the filters changed), for the
     // Script it was made for while it exists.
     void RefreshStack();

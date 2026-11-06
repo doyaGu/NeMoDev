@@ -121,7 +121,8 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(vdev::ParameterText(CKParameter::Cast(state.document->Resolve(local))) == "before" &&
                             !state.History().UndoCount() && state.History().CanRedo() && !state.document->Dirty());
             const auto target = vdev::ObjectArgument("target", local);
-            IM_CHECK_NO_RET(editor.Execute("script.show-parameter", {editor.Scope(first), &target, 1}).status == EDITOR_OK);
+            IM_CHECK_NO_RET(editor.Execute("script.show-parameter", {editor.Scope(first), &target, 1}).status == EDITOR_STALE);
+            IM_CHECK_NO_RET(editor.Execute("script.show-parameter", {editor.Scope(), &target, 1}).status == EDITOR_OK);
         }); ctx->Yield(3);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(App().Canvas().Navigation().selection.script == script.object &&
@@ -165,7 +166,7 @@ void RegisterToolsTests(ImGuiTestEngine *engine) {
             const auto watched = client.Inspect(first);
             IM_CHECK_NO_RET(vdev::EditorClient::Find(watched, "objects")->objects == std::vector<vdev::ObjectRef>{output});
             const auto stale = vdev::ObjectArgument("target", local);
-            IM_CHECK_NO_RET(editor.Execute("script.show-parameter", {editor.Scope(first), &stale, 1}).status == EDITOR_STALE);
+            IM_CHECK_NO_RET(editor.Execute("script.show-parameter", {editor.Scope(), &stale, 1}).status == EDITOR_STALE);
             state.document->MarkSaved();
             IM_CHECK_NO_RET(editor.Execute("document.new", {editor.Scope(), nullptr, 0}).status == EDITOR_QUEUED);
             state.FinishRuntimeOperations();

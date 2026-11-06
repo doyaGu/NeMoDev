@@ -1270,7 +1270,7 @@ void SetupWindows::ShowInSchematic(const SetupFields &data) {
     ImGui::BeginDisabled(!data.Boolean("schematic-enabled"));
     if (ImGui::Button("Show in Schematic")) {
         const auto values = BorrowEditorFields(data.Rows("position"));
-        RunSetupCommand("script.navigate", {values.data(), values.data() + values.values.size()});
+        RunSetupCommand("script.navigate", {values.data(), values.data() + values.values.size()}, 0);
     }
     ImGui::EndDisabled();
 }

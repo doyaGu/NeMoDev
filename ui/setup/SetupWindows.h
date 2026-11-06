@@ -3,6 +3,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <type_traits>
@@ -245,7 +246,8 @@ private:
     void UsedByRows(const char *title, const std::vector<EditorField> &, float height);
     bool ObjectChoice(const char *label, uint32_t classId, ObjectRef current, const std::string &name,
                       ObjectRef *chosen, float width = 190.0f);
-    EditorResponse RunSetupCommand(const char *, const std::vector<EditorValue> & = {});
+    EditorResponse RunSetupCommand(const char *, const std::vector<EditorValue> & = {},
+                                   std::optional<EditorView> destination = std::nullopt);
     void ChooseFile(const FileDialogOptions &, std::function<void(const FileDialogResult &)>, bool multiple = false);
     void PreviewProperty(ObjectRef target, const char *property, EditorField value, std::vector<uint64_t> indices = {},
                          ObjectRef relative = {}, std::vector<ObjectRef> targets = {});

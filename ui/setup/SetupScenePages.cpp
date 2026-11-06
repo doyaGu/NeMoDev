@@ -111,7 +111,7 @@ void SetupWindows::CurvePage(Setup &setup, ObjectRef target) {
     // Layout's tool on this curve (pressed again: off); Referential is the
     // plane Add Points puts points on.
     static const char *const tools[4] = {"Add Points", "Insert Points", "Edit Points", "Delete Points"};
-    const auto client = Client(setup.nameOwner);
+    const EditorClient client(Client(setup.nameOwner).Host(), 0);
     const auto tool = client.Query("layout.curve-tool");
     const auto *toolTarget = EditorClient::Find(tool, "target");
     const auto toolId = EditorClient::Integer(tool, "tool");
@@ -653,7 +653,7 @@ void SetupWindows::FramePage(ObjectRef target) {
     ImGui::TextUnformatted("Frame Representation:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(250);
-    const auto presentation = Client().Query("layout.presentation");
+    const auto presentation = EditorClient(Client().Host(), 0).Query("layout.presentation");
     const auto *shapeNames = EditorClient::Find(presentation, "frame-shapes");
     const std::vector<std::string> emptyShapes;
     const auto &shapes = shapeNames && shapeNames->type == EDITOR_TEXT_LIST ? shapeNames->texts : emptyShapes;
@@ -665,13 +665,13 @@ void SetupWindows::FramePage(ObjectRef target) {
         if (typeAhead.Selectable("No Representation", representation == 0))
             RunSetupCommand(
                 "layout.frame-representation",
-                {ObjectArgument("target", target), ObjectsArgument("objects", {target}), IntegerArgument("value", 0)});
+                {ObjectArgument("target", target), ObjectsArgument("objects", {target}), IntegerArgument("value", 0)}, 0);
         for (int i = 0; i < static_cast<int>(shapes.size()); ++i) {
             ImGui::PushID(i);
             if (typeAhead.Selectable(shapes[i].c_str(), representation == i + 1))
                 RunSetupCommand("layout.frame-representation",
                                 {ObjectArgument("target", target), ObjectsArgument("objects", {target}),
-                                 IntegerArgument("value", i + 1)});
+                                 IntegerArgument("value", i + 1)}, 0);
             ImGui::PopID();
         }
         ImGui::EndCombo();

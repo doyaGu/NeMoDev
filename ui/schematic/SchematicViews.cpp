@@ -31,8 +31,7 @@ struct SchematicViews::Data {
     struct Navigation { ElementAddress address; ObjectRef focus; EditorView view; };
     std::vector<Navigation> requested;
     SchematicCanvas *Canvas(EditorView id) const {
-        auto &views = owner;
-        return views.Find(views.Find(id) ? id : views.CurrentId());
+        return owner.Find(workspace.ActionView("script.schematic", id));
     }
 };
 SchematicViews::SchematicViews(EditorWorkspace &workspace, const SchematicStyle &style)
@@ -102,8 +101,7 @@ bool SchematicViews::DropFile(const std::wstring &path, const std::string &ansi,
 EditorStatus SchematicViews::Show(const ElementAddress &address, ObjectRef focus, bool select, EditorView id) {
     if (!address) return EDITOR_STALE;
     auto &workspace = m_Data->workspace;
-    if (!id) id = CurrentId();
-    if (!Find(id)) return EDITOR_STALE;
+    if (!id) id = workspace.ActionView("script.schematic", 0);
     const auto &ref = address.element;
     const EditorValue values[] = {
         {EDITOR_TEXT("target"), EDITOR_OBJECT, address.script}, {EDITOR_TEXT("owner"), EDITOR_OBJECT, address.owner},
@@ -181,9 +179,8 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
         EDITOR_TEXT("builtin.schematic"), EDITOR_TEXT("Show Schematic Element"), schematicNavigation,
         uint32_t(std::size(schematicNavigation)),
         [](void *data, const EditorHost *host, const EditorRequest *request, EditorSink sink) {
-            const auto &views = static_cast<Data *>(data)->owner;
-            const auto id = views.Find(request->scope.view) ? request->scope.view : views.CurrentId();
-            return host->navigateView(host->data, EditorString EDITOR_TEXT("script.schematic"), id, request, sink);
+            return host->navigateView(host->data, EditorString EDITOR_TEXT("script.schematic"),
+                                      request->scope.view, request, sink);
         }, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
         {sizeof(EditorCommandDesc), EDITOR_TEXT("script.pick-breakpoint"), EDITOR_TEXT("builtin.schematic"),
             EDITOR_TEXT("Add Breakpoint"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE},
@@ -195,6 +192,7 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
             EDITOR_TEXT("Go to Parameter Source"), nullptr, 0, nullptr, m_Data.get(), EDITOR_DOCUMENT, EDITOR_SESSION_CHANGE}};
     const EditorParameter parameter{EDITOR_TEXT("target"), EDITOR_OBJECT};
     commands[4].parameters = &parameter; commands[4].count = 1;
+    for (size_t i = 1; i < 4; ++i) commands[i].view = EDITOR_TEXT("script.schematic");
     for (size_t i = 1; i < std::size(commands); ++i)
         commands[i].state = [](void *data, const EditorHost *, const EditorRequest *request) {
             const auto &module = *static_cast<Data *>(data);
@@ -213,11 +211,27 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
     commands[4].run = [](void *data, const EditorHost *, const EditorRequest *request, EditorSink) {
         auto &module = *static_cast<Data *>(data);
         const auto target = request->values[0].object;
-        const auto info = EditorClient(module.workspace.Application().Host(), request->scope.view).Query(
-            "object.details", {ObjectArgument("target", target)});
+        const EditorClient client(module.workspace.Application().Host(), request->scope.view);
+        const auto info = client.Query("object.details", {ObjectArgument("target", target)});
         if (info.status != EDITOR_OK || !EditorClient::Integer(info, "is-parameter")) return EDITOR_INVALID;
-        module.Canvas(request->scope.view)->GoToParameter(target);
+        const auto result = client.Query("schematic.shortcuts", {
+            ObjectArgument("target", target), IntegerArgument("mode", 0)});
+        if (result.status != EDITOR_OK) return result.status;
+        if (const auto *rows = EditorClient::Find(result, "rows"); rows && !rows->fields.empty())
+            for (const auto &field : rows->fields.front().fields)
+                if (field.key == "address") {
+                    const auto values = BorrowEditorFields(field.fields);
+                    return client.Command("script.navigate", {values.data(), values.data() + values.size()}).status;
+                }
+        client.Log(EDITOR_LOG_INFO,
+                   "The shortcut source is not displayed in a Script: " + EditorClient::Text(result, "owner"));
         return EDITOR_OK;
+    };
+    commands[4].state = [](void *data, const EditorHost *, const EditorRequest *request) {
+        const auto &module = *static_cast<Data *>(data);
+        if (!module.workspace.Application().NativeAvailable()) return EDITOR_REFUSED;
+        return !request->scope.view || module.workspace.ActionView("script.schematic", request->scope.view)
+                   ? EDITOR_OK : EDITOR_STALE;
     };
     std::vector<EditorCommandDesc> all(std::begin(commands), std::end(commands));
     EditorCommandDesc edit{sizeof(EditorCommandDesc),
@@ -244,6 +258,7 @@ bool SchematicViews::Register(EditorApplication &editor, std::string &error) {
                            EDITOR_DOCUMENT,
                            EDITOR_SESSION_CHANGE};
     edit.state = commands[1].state;
+    edit.view = EDITOR_TEXT("script.schematic");
     all.push_back(edit);
     EditorModuleDesc module{};
     module.size = sizeof(module);

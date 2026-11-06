@@ -12,15 +12,15 @@ class EditorClient {
     }
     uint32_t DrawProperty(const std::string &property, ObjectRef target, EditorEdit &edit, const char *label) const {
         const EditorValue argument{EditorLiteral("target"),EDITOR_OBJECT,target};
-        const EditorRequest request{Scope(),&argument,1};
+        const EditorRequest request{RequestScope(),&argument,1};
         return m_Host->drawProperty(m_Host->data,EditorText(property),&request,&edit,EditorLiteral(label));
     }
     uint32_t DrawProperty(const std::string &property, const std::vector<EditorValue> &values, EditorEdit &edit, const char *label) const {
-        const EditorRequest request{Scope(), values.data(), uint32_t(values.size())};
+        const EditorRequest request{RequestScope(), values.data(), uint32_t(values.size())};
         return m_Host->drawProperty(m_Host->data, EditorText(property), &request, &edit, EditorLiteral(label));
     }
     EditorStatus BeginEdit(const char *property, const std::vector<EditorValue> &values, EditorEdit &edit) const {
-        const EditorRequest request{Scope(), values.data(), uint32_t(values.size())};
+        const EditorRequest request{RequestScope(), values.data(), uint32_t(values.size())};
         return m_Host->beginEdit(m_Host->data, EditorLiteral(property), &request, &edit);
     }
     void CancelEdit(EditorEdit &edit) const {
@@ -29,7 +29,7 @@ class EditorClient {
         edit = 0;
     }
     EditorStatus BeginCommand(const char *command, const std::vector<EditorValue> &values, EditorEdit &edit) const {
-        const EditorRequest request{Scope(), values.data(), uint32_t(values.size())};
+        const EditorRequest request{RequestScope(), values.data(), uint32_t(values.size())};
         return m_Host->beginCommand(m_Host->data, EditorLiteral(command), &request, &edit);
     }
     EditorResponse Query(const char *id, const std::vector<EditorValue> &values = {}) const {
@@ -39,7 +39,7 @@ class EditorClient {
         return Call(id, values, true);
     }
     EditorStatus SelectTool(const char *id) const {
-        return m_Host->selectTool(m_Host->data, Scope(), EditorLiteral(id));
+        return m_Host->selectTool(m_Host->data, RequestScope(), EditorLiteral(id));
     }
     std::string ActiveTool() const {
         const auto id = m_Host->activeTool(m_Host->data, m_View);
@@ -47,15 +47,15 @@ class EditorClient {
     }
     void CancelTool() const { m_Host->cancelTool(m_Host->data, m_View); }
     EditorStatus ToolInput(const EditorToolInput &input) const {
-        return m_Host->toolInput(m_Host->data, Scope(), &input);
+        return m_Host->toolInput(m_Host->data, RequestScope(), &input);
     }
     EditorStatus Toolbar(const char *id, const EditorToolbarFrame &frame) const {
-        return m_Host->toolbar(m_Host->data, EditorLiteral(id), Scope(), &frame);
+        return m_Host->toolbar(m_Host->data, EditorLiteral(id), RequestScope(), &frame);
     }
     bool Binding(const char *action, EditorInputPhase phase, bool consume = false) const {
-        return m_Host->inputBinding(m_Host->data, Scope(), EditorLiteral(action), phase, consume);
+        return m_Host->inputBinding(m_Host->data, RequestScope(), EditorLiteral(action), phase, consume);
     }
-    void Shortcuts() const { m_Host->shortcuts(m_Host->data, Scope()); }
+    void Shortcuts() const { m_Host->shortcuts(m_Host->data, RequestScope()); }
     void Log(EditorLogLevel level, const std::string &text) const {
         // Log messages belong to the application even when the producing view
         // closes before the frame's command queue runs.
@@ -145,6 +145,12 @@ class EditorClient {
     }
 
   private:
+    EditorScope RequestScope() const {
+        auto scope = Scope();
+        // Retain an explicit source in requests even after its scope is closed.
+        scope.view = m_View;
+        return scope;
+    }
     static EditorValue Number(const char *key, uint64_t value) {
         return {EditorLiteral(key), EDITOR_INTEGER_VALUE, {}, {}, value};
     }
@@ -169,7 +175,7 @@ class EditorClient {
     EditorResponse Call(const char *id, const std::vector<EditorValue> &values, bool command,
                         EditorOperation afterEdit = 0, const char *revisionArgument = nullptr) const {
         EditorResponse result;
-        const EditorRequest request{Scope(),
+        const EditorRequest request{RequestScope(),
                                     values.data(),
                                     uint32_t(values.size()),
                                     {},

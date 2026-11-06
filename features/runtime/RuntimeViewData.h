@@ -17,7 +17,7 @@ inline bool Ready(const EditorClient &client) {
     return client.Host()->commandState(client.Host()->data, EditorString EDITOR_TEXT("runtime.clear-log"), &request) == EDITOR_OK;
 }
 inline void Show(const EditorClient &client, ObjectRef script, ObjectRef behavior = {}, ObjectRef object = {}) {
-    if (script) client.Command("script.navigate", {ObjectArgument("target", script),
+    if (script) EditorClient(client.Host(), 0).Command("script.navigate", {ObjectArgument("target", script),
         ObjectArgument("focus-target", behavior), ObjectArgument("object", object)});
 }
 EditorViewDesc DebuggerView();

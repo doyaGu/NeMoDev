@@ -188,7 +188,8 @@ void EditorApp::RunStartupActions(bool opened) {
             bool found = false;
             for (const auto &script : m_Session.document->Scripts()) {
                 if (AnsiToUtf8(script.name) != m_Startup.showScript) continue;
-                m_Panels.ShowScript(script.id);
+                m_Schematics.Show(
+                    ElementAddress::Capture(*m_Session.document, script.id, Selection::HeaderOf(script.id)));
                 found = true;
                 break;
             }

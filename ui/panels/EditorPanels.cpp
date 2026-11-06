@@ -120,10 +120,6 @@ void EditorPanels::FindNext(int direction) {
     m_Schematics.Show(result.address, result.focusReference, true, m_Doc.explorerView);
 }
 
-void EditorPanels::ShowScript(uint32_t script, const ElementRef &ref, uint32_t focusBehavior, bool focus) {
-    if (auto *canvas = m_Schematics.Find(m_Doc.explorerView ? m_Doc.explorerView : m_Schematics.CurrentId()))
-        canvas->ShowScript(script, ref, focusBehavior, focus);
-}
 void EditorPanels::RefreshStack() { m_Schematics.RefreshStacks(); }
 
 SchematicNavigation &EditorPanels::ExplorerNavigation() {

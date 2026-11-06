@@ -1,4 +1,5 @@
 #include "workspace/EditorWorkspace.h"
+#include "workspace/EditorClient.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/document/Document.h"
 #include <map>
@@ -226,8 +227,14 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     const auto reads=first.inspections;
     Check(workspace.Inspect(id).status==EDITOR_OK&&first.inspections==reads,"unchanged instance query was repeated");
     EditorStatus inspectionThreadStatus=EDITOR_OK;
-    std::thread inspectionThread([&]{inspectionThreadStatus=app.Host()->queryView(app.Host()->data,id,{});});inspectionThread.join();
+    EditorScope inspectionThreadScope{};
+    std::thread inspectionThread([&]{
+        inspectionThreadScope = EditorClient(app.Host(), id).Scope();
+        inspectionThreadStatus=app.Host()->queryView(app.Host()->data,id,{});
+    });inspectionThread.join();
     Check(inspectionThreadStatus!=EDITOR_OK,"instance query crossed threads");
+    Check(!inspectionThreadScope.document.value && !inspectionThreadScope.view,
+          "a client reported a live view scope on another thread");
     Check(app.Host()->pickRegions(app.Host()->data,id,nullptr,0)==EDITOR_REFUSED,"pick publication escaped drawing");
 
     Check(Id(open("second topic")) == id && first.created == 1, "single view was recreated");
@@ -241,6 +248,14 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     const auto other = workspace.Open("test.other"), another = workspace.Open("test.other");
     Check(other && another && other != another && workspace.WindowName(other) != workspace.WindowName(another),
           "independent view instances share identity");
+    Check(workspace.Focus(another) && workspace.ActionView("test.other", 0) == another &&
+              workspace.ActionView("test.other", other) == other,
+          "default and explicit view targets were not resolved independently");
+    const auto anonymous = app.OpenScope();
+    Check(!workspace.ActionView("test.browser", other) && !workspace.ActionView("test.other", id) &&
+              !workspace.ActionView("test.other", anonymous),
+          "a mismatched or unregistered source selected another view");
+    app.CloseScope(anonymous);
     Check(open("wrong target", other).status == EDITOR_INVALID, "navigation accepted another view type");
     const EditorValue invalid{EDITOR_TEXT("topic"), EDITOR_INTEGER_VALUE, {}, {}, 1};
     Check(app.Execute("test.navigate", {app.Scope(), &invalid, 1}).status == EDITOR_INVALID, "invalid navigation type accepted");
@@ -313,6 +328,9 @@ void TestWorkspace(CkRuntimeHost &runtime) {
     const auto old = id;
     id = second.views.begin()->first;
     Check(id != old && !app.Scope(old).view && open("stale", old).status == EDITOR_STALE, "replaced instance scope survived");
+    Check(workspace.ActionView("test.browser", 0) == id && workspace.ActionView("test.browser", id) == id &&
+              !workspace.ActionView("test.browser", old),
+          "view routing retained a replaced provider instance");
     const auto closingBefore = second.closing;
     second.failSave = true;
     Check(!workspace.Close(id) && second.views.count(id), "failed state capture closed a view");

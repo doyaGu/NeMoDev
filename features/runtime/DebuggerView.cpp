@@ -276,11 +276,11 @@ void DebuggerViewState::Draw(const EditorClient &client, EditorViewFrame &frame)
                 columns.Next();
                 ImGui::TextUnformatted("Breakpoints");
                 if (vi::Button("Add Breakpoint", "Add Breakpoint", usable))
-                    execute("script.pick-breakpoint");
+                    EditorClient(client.Host(), 0).Command("script.pick-breakpoint");
                 if (vi::Button("Configure Breakpoints", "Configure Breakpoints", usable))
-                    execute("script.configure-breakpoints");
+                    EditorClient(client.Host(), 0).Command("script.configure-breakpoints");
                 if (vi::Button("Breakpoint List", "Breakpoint List", usable))
-                    execute("script.open-breakpoints");
+                    EditorClient(client.Host(), 0).Command("script.open-breakpoints");
                 const size_t reachedCount = available ? size_t(Integer(state, "reached-breakpoints")) : 0;
                 if (usable && int(Integer(state, "reached")) != lastReached) {
                     lastReached = int(Integer(state, "reached"));

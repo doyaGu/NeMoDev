@@ -28,7 +28,7 @@ struct DiagnosticView {
     explicit DiagnosticView(bool invalid) : invalid(invalid) {}
     void Goto(const EditorClient &client, const EditorField &row) {
         const auto *address = Field(row, "address"); if (!address || address->type != EDITOR_RECORD) return;
-        auto scope = client.Scope(); if (schematic) scope = client.Host()->scope(client.Host()->data, schematic);
+        auto scope = client.Host()->scope(client.Host()->data, schematic);
         if ((schematic && scope.view != schematic) || scope.document != client.Scope().document) {
             message = "This Schematic position is no longer available"; return;
         }

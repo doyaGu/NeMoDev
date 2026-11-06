@@ -545,7 +545,7 @@ void SetupWindows::PrepareFrame() {
         m_Notify = prefs.Bool("3D Layout\\Player RealTime Notifications") &&
                    m_PlayFrames % std::max(1, prefs.Int("3D Layout\\Player RealTime Notifications FrameSkip")) == 0;
     else {
-        const auto input = Client().Query("layout.input");
+        const auto input = EditorClient(Client().Host(), 0).Query("layout.input");
         const bool transforming =
             EditorClient::Integer(input, "active") &&
             (EditorClient::Integer(input, "kind") == 1 || EditorClient::Integer(input, "kind") == 2);
@@ -851,7 +851,8 @@ void SetupWindows::ChooseFile(const FileDialogOptions &options, std::function<vo
             multiple, found->second);
     }
 }
-EditorResponse SetupWindows::RunSetupCommand(const char *id, const std::vector<EditorValue> &arguments) {
+EditorResponse SetupWindows::RunSetupCommand(const char *id, const std::vector<EditorValue> &arguments,
+                                            std::optional<EditorView> destination) {
     auto next = arguments;
     auto revision = std::find_if(next.begin(), next.end(), [](const auto &arg) {
         return std::string(arg.key.data, arg.key.size) == "document-revision";
@@ -867,7 +868,7 @@ EditorResponse SetupWindows::RunSetupCommand(const char *id, const std::vector<E
     if (!FlushPending())
         return {EDITOR_REFUSED};
     const auto client = Client(m_CurrentOwner);
-    const EditorRequest request{client.Scope(),
+    const EditorRequest request{destination ? m_Workspace.Application().Scope(*destination) : client.Scope(),
                                 next.data(),
                                 uint32_t(next.size()),
                                 {},

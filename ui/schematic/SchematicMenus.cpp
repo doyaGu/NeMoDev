@@ -1072,20 +1072,7 @@ void SchematicCanvas::AddThisAt(uint32_t script, const Point &local) {
 }
 
 void SchematicCanvas::GoToShortcutSource(ObjectRef source) {
-    const auto result =
-        Client().Query("schematic.shortcuts", {ObjectArgument("target", source), IntegerArgument("mode", 0)});
-    if (result.status != EDITOR_OK)
-        return;
-    if (const auto *rows = EditorClient::Find(result, "rows"); rows && !rows->fields.empty()) {
-        for (const auto &field : rows->fields.front().fields)
-            if (field.key == "address") {
-                const auto values = BorrowEditorFields(field.fields);
-                Client().Command("script.navigate", {values.data(), values.data() + values.size()});
-                return;
-            }
-    }
-    Client().Log(EDITOR_LOG_INFO,
-                "The shortcut source is not displayed in a Script: " + EditorClient::Text(result, "owner"));
+    Client().Command("script.show-parameter", {ObjectArgument("target", source)});
 }
 
 void SchematicCanvas::OpenHtmlHelp(uint32_t behavior) {

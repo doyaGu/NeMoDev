@@ -367,7 +367,7 @@ void SceneTreeView::ContinueDelete(const EditorClient &client, int step) {
 void SceneTreeView::Menu(const EditorClient &client, const SceneRow &row) {
     const bool script = (row.types & EDITOR_OBJECT_SCRIPT) != 0;
     if (script && ImGui::MenuItem("Show in Schematic")) {
-        client.Command("script.show", {ObjectArgument("target", row.object), IntegerArgument("focus", 1)});
+        EditorClient(client.Host(), 0).Command("script.show", {ObjectArgument("target", row.object), IntegerArgument("focus", 1)});
     }
     if (ImGui::MenuItem("Setup", nullptr, false, bool(row.object))) {
         client.Command("object.open-setup", {ObjectArgument("target", row.object)});
@@ -882,12 +882,12 @@ void SceneTreeView::Rows(const EditorClient &client, ImVec2 origin, ImVec2 room,
         }
         if (row.object && ((ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) || ImGui::IsItemClicked(2))) {
             if (row.types & EDITOR_OBJECT_SCRIPT) {
-                client.Command("script.show", {ObjectArgument("target", row.object), IntegerArgument("focus", 1)});
+                EditorClient(client.Host(), 0).Command("script.show", {ObjectArgument("target", row.object), IntegerArgument("focus", 1)});
             } else {
                 client.Command("object.open-setup", {ObjectArgument("target", row.object)});
             }
         } else if (clicked && row.script) {
-            client.Command("script.show", {ObjectArgument("target", row.script), IntegerArgument("focus", 0)});
+            EditorClient(client.Host(), 0).Command("script.show", {ObjectArgument("target", row.script), IntegerArgument("focus", 0)});
         }
         if (row.object && ImGui::IsItemVisible()) {
             const auto lo = dl->GetClipRectMin(), hi = dl->GetClipRectMax();
@@ -1246,7 +1246,7 @@ void SceneTreeView::Keyboard(const EditorClient &client) {
         auto found =
             std::find_if(tree.rows.begin(), tree.rows.end(), [&](const SceneRow &r) { return r.object == target; });
         if (found != tree.rows.end() && (found->types & EDITOR_OBJECT_SCRIPT)) {
-            client.Command("script.show", {ObjectArgument("target", target), IntegerArgument("focus", 1)});
+            EditorClient(client.Host(), 0).Command("script.show", {ObjectArgument("target", target), IntegerArgument("focus", 1)});
         } else {
             client.Command("object.open-setup", {ObjectArgument("target", target)});
         }

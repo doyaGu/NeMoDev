@@ -221,7 +221,13 @@ void LayoutWindow::CreateScriptsOnSelection() {
 }
 
 void LayoutWindow::ShowScriptInSchematic(ObjectRef script) {
-    if (script) Execute("script.navigate", {ObjectArgument("target", script)});
+    if (!script) return;
+    const EditorClient client(m_EditorHost, 0);
+    const auto result = client.Command("script.navigate", {ObjectArgument("target", script)});
+    if (result.status == EDITOR_QUEUED)
+        m_Commands.push_back({result.operation, client.Scope().document, AfterCommand::None});
+    else
+        Complete(result, AfterCommand::None);
 }
 
 // Command 150; one undo step, the default views' not marking the
