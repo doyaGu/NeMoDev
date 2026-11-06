@@ -92,7 +92,7 @@ CKRasterizerContext *LayoutView::RasterizerContext() const {
 
 bool LayoutView::Start(const std::string &driverName, std::string *error, SDL_GPUDevice *sdlGpuDevice,
                        bool mainRenderContext) {
-    Stop();
+    Detach();
     m_SdlGpuDevice = sdlGpuDevice;
     m_MainRenderContext = mainRenderContext;
     CKContext *context = m_Host.Context();
@@ -139,6 +139,11 @@ bool LayoutView::Start(const std::string &driverName, std::string *error, SDL_GP
 }
 
 void LayoutView::Stop() {
+    Detach();
+    DestroyInterfaceObjects();
+}
+
+void LayoutView::Detach() {
     CKContext *context = m_Host.Context();
     if (FullScreen()) StopFullScreen();
     ReleaseInputViewport();
@@ -146,12 +151,9 @@ void LayoutView::Stop() {
     if (CKRenderContext *rc = RenderContext()) {
         rc->RemovePostRenderCallBack(&LayoutView::PostRender, this);
         rc->RemovePostSpriteRenderCallBack(&LayoutView::PostSpriteRender, this);
-        DestroyInterfaceObjects();
         if (CKLevel *level = context->GetCurrentLevel()) level->RemoveRenderContext(rc);
         if (CKRenderManager *renderer = context->GetRenderManager())
             GuardedCall([&] { renderer->DestroyRenderContext(rc); }, &m_Host, "CKRenderManager::DestroyRenderContext");
-    } else {
-        DestroyInterfaceObjects(); // made without a render context
     }
     m_RenderContext = {};
     if (m_Window) {
@@ -199,7 +201,7 @@ void LayoutView::CompositionChanged() {
         if (CKCurve *curve = CKCurve::Cast(curves[i]))
             if (curve->GetControlPointCount() > 0) GuardedCall([&] { curve->Update(); }, &m_Host, "CKCurve::Update");
     if (rebuilt || !rc->GetAttachedCamera())
-        SetCamera(m_ViewCameras[0]);
+        SetCamera(!rebuilt && CKCamera::Cast(context->GetObject(m_Camera)) ? m_Camera : m_ViewCameras[0]);
 }
 
 void LayoutView::CreateInterfaceObjects() {

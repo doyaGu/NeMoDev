@@ -140,6 +140,9 @@ public:
     bool Start(const std::string &driverName, std::string *error, SDL_GPUDevice *sdlGpuDevice = nullptr,
                bool mainRenderContext = true);
     void Stop();
+    // Release the render context before replacing a document, retaining the
+    // interface objects so a failed replacement resumes the same cameras.
+    void Detach();
     bool Started() const;
     CKRenderContext *RenderContext() const;
     CKRasterizerContext *RasterizerContext() const;
