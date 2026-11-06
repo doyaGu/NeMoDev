@@ -145,7 +145,7 @@ void EditorApp::RunStartupActions(bool opened) {
             else
                 m_Session.Log(LogLevel::Warning, "--setup: no object named " + AnsiToUtf8(name));
         }
-        if (m_Startup.playFrames > 0 && m_Debugger) {
+        if (m_Startup.playFrames > 0 && m_Execution.BoundDebugger()) {
             Command("runtime.open-debugger");
             const EditorValue trace{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, 1};
             m_Editor.Execute("runtime.set-trace", {m_Editor.Scope(), &trace, 1});
@@ -306,7 +306,7 @@ void EditorApp::OpenStartupDialog(const std::string &name) {
         CKBehavior *script = context && !m_Schematics.Current().Navigation().visibleScripts.empty()
                                  ? CKBehavior::Cast(context->GetObject(m_Schematics.Current().Navigation().visibleScripts.front()))
                                  : nullptr;
-        if (m_Debugger && m_Debugger->Breakpoints().empty() && script && script->GetSubBehaviorCount() > 0)
+        if (m_Execution.BoundDebugger() && m_Execution.BoundDebugger()->Breakpoints().empty() && script && script->GetSubBehaviorCount() > 0)
             ToggleBreakpoint(*m_Session.document, script->GetID(), EXTRA_DATA_BEHAVIOR, script->GetSubBehavior(0)->GetID());
         if (name == "breakpoints") m_Schematics.Current().OpenBreakpointList();
         else m_Schematics.Current().ConfigureBreakpoints();

@@ -70,7 +70,7 @@ EditorApp::EditorApp()
       m_Schematics(m_Workspace, m_Style), m_Panels(m_ParameterCopies, m_Workspace, m_Schematics) {
     m_Session.interactionActive = [this] { return m_Editor.HasEdits(); };
     m_Session.documentViews = this;
-    m_Session.files.Execution(&m_Execution);
+    m_Execution.changed = [this] { m_Schematics.RefreshValues(); };
     m_Editor.report = [this](const EditorResponse &result) {
         if (!result.message.empty() && result.status != EDITOR_NO_CHANGE)
             m_Session.Log(result.status == EDITOR_OK ? LogLevel::Info : LogLevel::Warning, result.message);
@@ -93,7 +93,7 @@ void EditorApp::HandleEvent(const SDL_Event &event) {
         return;
     m_Schematics.CancelInteraction();
     m_Layouts.CancelEdits();
-    if (m_Execution.State().state == EDITOR_EXECUTION_RUNNING)
+    if (EditorClient::Integer(m_Editor.ReadQuery("runtime.state", {m_Editor.Scope()}), "state") == EDITOR_EXECUTION_RUNNING)
         Command("runtime.pause");
 }
 
@@ -283,7 +283,7 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
          [&](EditorApplication &, std::string &error) { return m_LayoutAuthoring.Register(error); }},
         {"LayoutPresentation.Register",
          [&](EditorApplication &, std::string &error) { return m_LayoutPresentation.Register(error); }},
-        {"Layout.Register", [&](EditorApplication &, std::string &error) { return m_Layouts.Register(error); }},
+        {"Layout.Register", [&](EditorApplication &, std::string &error) { return m_Layouts.Register(error, window); }},
         {"Snapshots.Register", [&](EditorApplication &, std::string &error) { return m_Snapshots.Register(error); }},
         {"RegisterSnapshotInputs",
          [&](EditorApplication &editor, std::string &error) { return RegisterSnapshotInputs(editor, window, error); }},
@@ -310,13 +310,11 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
     configuration = AvailableWorkspaceConfiguration(std::move(configuration), m_Editor);
     m_Session.document = std::make_unique<Document>(m_Session.host, m_Editor.DataTypes());
     m_Editor.Attach({}, 0, true, false);
-    m_Debugger = m_Execution.Bind(*m_Session.document);
     // Dev's paths (HKCU\Software\Virtools\Data Paths, read-only) until the
     // editor has its own.
     if (!isolated && !preferences.pathsSaved && preferences.ImportDevPaths())
         m_Session.Log(LogLevel::Info, "Path Manager: Virtools Dev's paths");
-    if (!m_Environment.InitializePaths(preferences.paths, error)) m_Session.Log(LogLevel::Warning, error);
-    ApplyRuntimeSettings();
+    if (!m_Editor.StartModules(error)) return fail(error);
     // The 3D Layout's render context (Dev makes it with its main window).
     m_Layouts.createObject = [this](EditorView source, LayoutObject kind) { CreateObject(kind, source); };
 
@@ -367,17 +365,12 @@ bool EditorApp::Initialize(SDL_Window * window, const std::string &runtimeDirect
             }
         }
     }
-    std::string layoutError;
-    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
-    if (!m_Layouts.Start(window, &layoutError))
-        m_Session.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (fileToOpen.empty()) RunStartupActions(false);
     else { m_RunStartupAfterOpen = true; OpenFile(fileToOpen); }
 #else
     if (!fileToOpen.empty()) OpenFile(fileToOpen);
 #endif
-    m_ResourceCommands.Poll();
     m_ResourceCommands.changed = [this] {
         m_Settings.dataResources = m_ResourceCommands.OpenLibraries();
         SavePreferences();
@@ -503,22 +496,6 @@ void EditorApp::ApplyPreferences() {
 
 // The General Preferences values the CK context takes: Dev applies them
 // with OK (Dev.exe sub_5AF2C0) and at start.
-void EditorApp::ApplyRuntimeSettings() {
-    CKContext *context = m_Session.host.Context();
-    if (!context) return;
-    const Preferences &p = m_Settings;
-    const EditorValue reengage[] = {
-        {EDITOR_TEXT("behavior"), EDITOR_INTEGER_VALUE, {}, {}, p.behaviorBreakpointReengage ? 1u : 0u},
-        {EDITOR_TEXT("link"), EDITOR_INTEGER_VALUE, {}, {}, p.linkBreakpointReengage ? 1u : 0u},
-        {EDITOR_TEXT("parameter"), EDITOR_INTEGER_VALUE, {}, {}, p.parameterBreakpointReengage ? 1u : 0u}};
-    m_Editor.Execute("runtime.set-breakpoint-reengagement", {m_Editor.Scope(), reengage, 3});
-    const EditorValue redraw{EDITOR_TEXT("enabled"), EDITOR_INTEGER_VALUE, {}, {}, p.redrawOnlyAtBreakpoint ? 1u : 0u};
-    m_Editor.Execute("runtime.set-redraw-at-breakpoint", {m_Editor.Scope(), &redraw, 1});
-    std::string error;
-    if (!m_Preferences.ApplyRuntimeSettings(error)) m_Session.Log(LogLevel::Warning, error);
-
-}
-
 void EditorApp::ImportFile(Document::ImportMode mode, const std::string &path) {
     static const char *ids[] = {"document.import", "document.import-character", "document.import-place", "document.import-scene"};
     Command(ids[static_cast<unsigned>(mode)], path);
@@ -553,10 +530,6 @@ void EditorApp::Shutdown() {
     if (m_Shutdown) return;
     m_Shutdown = true;
     m_Session.FinishRuntimeOperations();
-    m_FileCommands.Stop();
-    m_Outputs.Stop();
-    m_Diagnostics.Stop();
-    m_Preferences.Stop();
     m_Editor.NativeAvailable(true);
     m_Session.DrainRuntimeLog();
     m_Session.fileDialogs.Close();
@@ -568,33 +541,24 @@ void EditorApp::Shutdown() {
     p.showLinkDelay = view.showLinkInfo;
     p.showPriorities = view.showPriorities;
     p.showScriptLeftPart = view.showHeaders;
-    m_ResourceCommands.Poll();
     SavePreferences();
+    m_Editor.StopModules();
     m_Workspace.ConfigurationWriter({});
     m_ProfileReady = false;
-    // A pending library input must not prevent final plugin restoration.
-    m_ResourceCommands.Stop();
-    m_Environment.Stop();
-    m_Session.DrainRuntimeLog();
-    if (m_Session.document) {
-        CloseDocumentViews();
-        m_Session.files.Close({});
-        m_Session.FinishRuntimeOperations();
-    }
-    m_Debugger = nullptr;
-    m_Snapshots.Stop();
-    m_Execution.Stop();
-    m_Session.files.Execution(nullptr);
-    m_Session.documentViews = nullptr;
-    m_Layouts.Stop();
-    m_Workspace.CloseAll();
-    m_SceneCommands.Stop();
-    m_Session.document.reset();
-    m_Session.host.Stop();
+    if (m_Session.document) CloseDocumentViews();
     m_Session.documentViews = nullptr;
     m_Workspace.CloseAll();
     m_Appearance.Reset();
+    // Entry-owned module data is released while the document, runtime and all
+    // module libraries are still alive. Window data has already been released.
+    m_Editor.NativeAvailable(true);
     m_Editor.Stop();
+    if (m_Session.document) {
+        m_Session.files.Close({});
+        m_Session.FinishRuntimeOperations();
+    }
+    m_Session.document.reset();
+    m_Session.host.Stop();
     // The textures every window draws with, before the device goes (Main.cpp).
     ReleaseDevBitmaps();
     ReleaseSnapshotTextures();
@@ -623,12 +587,10 @@ void EditorApp::FileFinished(const DocumentCommands::Result &result) {
     if (m_Shutdown) return;
     m_Editor.Attach(m_Session.HasDocument() ? m_Session.document->Token() : DocumentToken{},
                     m_Session.document ? m_Session.document->TopologyRevision() : 0, true, m_Session.HasDocument());
-    m_Execution.Synchronize();
     m_Schematics.Validate();
     using A = DocumentCommands::Action;
     if (result.action == A::New && result.status == EDITOR_OK) {
         std::string error;
-        m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
         if (!m_Layouts.Start(m_Window, &error))
             m_Session.Log(LogLevel::Warning, "3D Layout: " + error);
     }
@@ -694,7 +656,6 @@ bool EditorApp::OpenFile(const std::string &path) {
 
 void EditorApp::CompleteOpen(const std::string &path, const DocumentFiles::OpenResult &result) {
     std::string layoutError;
-    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
     if (!m_Layouts.Start(m_Window, &layoutError))
         m_Session.Log(LogLevel::Warning, "3D Layout: " + AnsiToUtf8(layoutError));
     RememberRecentFile(path);
@@ -771,7 +732,6 @@ void EditorApp::RestoreDocument() {
     m_Editor.Attach(m_Session.HasDocument() ? m_Session.document->Token() : DocumentToken{},
                     m_Session.document->TopologyRevision(), true, m_Session.HasDocument());
     std::string error;
-    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
     if (!m_Layouts.Start(m_Window, &error))
         throw std::runtime_error("3D Layout: " + error);
     m_Layouts.Primary().ApplyLayoutData(m_DetachedLayout, m_LayoutCommands.ProjectInterface(m_DetachedLayout), false);
@@ -1133,16 +1093,9 @@ void EditorApp::Frame() {
         RunStartupActions(opened);
     }
 #endif
-    m_FileCommands.Poll();
-    m_Outputs.Poll();
-    m_ResourceCommands.Poll();
     m_Editor.NativeAvailable(!m_Session.runtimeOperation.Busy());
-    m_Environment.Poll();
-    m_Diagnostics.Poll();
-    m_Preferences.Poll();
-    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutCommands.Poll(target.id); });
-    m_LayoutAuthoring.Poll();
-    m_Snapshots.Poll();
+    m_Editor.UpdateModules(EDITOR_PREPARE_FRAME);
+    m_Editor.NativeAvailable(!m_Session.runtimeOperation.Busy());
     if (m_Session.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
     m_Session.DispatchFileRequests();
     if (m_Session.runtimeOperation.Busy()) { RuntimeOperationFrame(); return; }
@@ -1209,12 +1162,10 @@ void EditorApp::Frame() {
         } else if (input.status == EDITOR_NO_CHANGE) m_PrintPagesOperation = 0;
     }
 #endif
-    m_Layouts.ForEach([&](LayoutTarget target) { m_LayoutPresentation.Poll(target.id); });
-    const auto &execution = m_Execution.State();
-    m_SceneCommands.Publish(m_Editor.Revision(), execution.frames, execution.state, m_Settings.Bool("3D Layout\\Show Dynamic Objects"));
+    m_Editor.UpdateModules(EDITOR_BEFORE_VIEWS);
     m_Workspace.Draw();
     m_Layouts.UpdateInput();
-    if (m_Execution.Update(0.010)) m_Schematics.RefreshValues();
+    m_Editor.UpdateModules(EDITOR_AFTER_VIEWS);
 #ifdef VIRTOOLSDEV_UI_TESTS
     const bool settled = m_FocusSchematic <= 0;
 #endif

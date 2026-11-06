@@ -10,7 +10,7 @@ namespace vdev {
 class LayoutWindows {
   public:
     LayoutWindows(CkRuntimeHost &, ParameterCopies &, EditorApplication &, EditorWorkspace &);
-    bool Register(std::string &);
+    bool Register(std::string &, SDL_Window *mainWindow = nullptr);
     LayoutWindow &Primary();
     const LayoutWindow &Primary() const;
     LayoutWindow &Active();

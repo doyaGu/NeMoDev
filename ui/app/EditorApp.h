@@ -110,7 +110,7 @@ public:
     }
 #ifdef VIRTOOLSDEV_UI_TESTS
     ParameterCopies &ParameterCopiesForTests() { return m_ParameterCopies; }
-    const Debugger *DebuggerForTests() const { return m_Debugger; }
+    const Debugger *DebuggerForTests() const { return m_Execution.BoundDebugger(); }
     Preferences &SettingsForTests() { return m_Settings; }
     BuildingBlockCatalog &CatalogForTests() { return m_Catalog; }
     std::vector<CKGUID> &RecentBlocksForTests() { return m_RecentBlocks; }
@@ -164,7 +164,6 @@ private:
     bool RegisterSceneNavigation(std::string &);
     // Values of the General Preferences the CK context takes (file save
     // options, quantization, behavior iterations, path manager).
-    void ApplyRuntimeSettings();
 #ifdef VIRTOOLSDEV_UI_TESTS
     // The capture mode's startup actions (EditorStartup.cpp): after opening,
     // a --tool window, and each frame (settled: the start's focus is done).
@@ -221,7 +220,6 @@ private:
     std::vector<CKGUID> m_RecentBlocks;
     CKDependencies m_CopyDependencies;
     bool m_CopyDependenciesSet = false;
-    const Debugger *m_Debugger = nullptr;
     CKDependencies &CopyDependencies() {
         if (!m_CopyDependenciesSet) {
             if (auto *defaults = CKGetDefaultClassDependencies(CK_DEPENDENCIES_COPY)) m_CopyDependencies = *defaults;
@@ -248,7 +246,7 @@ private:
                               [this] { return m_Session.document.get(); }, *this};
     ExecutionCommands m_Execution{m_Editor, [this] { return m_Session.document.get(); },
                                   [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
-                                  m_Settings};
+                                  m_Settings, &m_Session.files};
     EditorWorkspace m_Workspace{m_Editor};
     DataResourceCommands m_ResourceCommands{m_Editor, m_Session.host, [this] { return FileOperationAvailable(); }};
     DiagnosticCommands m_Diagnostics{m_Editor, m_Session.runtimeOperation, m_Session.host,
@@ -260,7 +258,7 @@ private:
     EnvironmentCommands m_Environment{m_Editor, m_Session.host,
         [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
         [this](const PathCategories &paths, std::string &error) { return SaveSearchPaths(paths, error); },
-        [this] { m_Catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); m_Preferences.InvalidateCatalog(); }};
+        [this] { m_Catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); m_Preferences.InvalidateCatalog(); }, &m_Settings.paths};
     ObjectCommands m_ObjectCommands;
     ParameterCommands m_ParameterCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }, &m_Session.clipboard};
     ArrayCommands m_ArrayCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }, m_Session.clipboard};
@@ -282,13 +280,15 @@ private:
     EditorPanels m_Panels;
     SetupWindows m_Setups{m_Workspace, m_Session.fileDialogs};
     SceneCommands m_SceneCommands{m_Editor, [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-        m_Session.objectClipboard, m_Session.clipboard, [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }, [this]() -> CKDependencies & { return CopyDependencies(); }};
+        m_Session.objectClipboard, m_Session.clipboard, [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }, [this]() -> CKDependencies & { return CopyDependencies(); },
+        [this] { return m_Settings.Bool("3D Layout\\Show Dynamic Objects"); }};
     UiAppearance m_Appearance;
     HtmlFonts m_HtmlFonts;
     LayoutWindows m_Layouts{m_Session.host, m_ParameterCopies, m_Editor, m_Workspace};
     LayoutCommands m_LayoutCommands{
         m_Editor, [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-        [this](EditorView source) { return m_Layouts.Target(source); }, m_Session.objectSelection};
+        [this](EditorView source) { return m_Layouts.Target(source); }, m_Session.objectSelection,
+        [this](const auto &visit) { m_Layouts.ForEach(visit); }};
     LayoutAuthoring m_LayoutAuthoring{
         m_Editor,
         [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
@@ -302,7 +302,8 @@ private:
         [this](EditorView source) { return m_Layouts.Target(source); },
         m_Session.objectSelection,
         m_Settings,
-        [this] { return m_Execution.State().state == EDITOR_EXECUTION_RUNNING; }};
+        [this] { return EditorClient::Integer(m_Editor.ReadQuery("runtime.state", {m_Editor.Scope()}), "state") == EDITOR_EXECUTION_RUNNING; },
+        [this](const auto &visit) { m_Layouts.ForEach(visit); }};
     SnapshotCommands m_Snapshots{
         m_Editor, m_Session.runtimeOperation,
         [this](EditorView source) { return m_Layouts.Target(source).viewport; },

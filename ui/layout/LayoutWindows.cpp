@@ -75,6 +75,7 @@ void LayoutWindows::Destroy(void *data) {
 bool LayoutWindows::Start(SDL_Window *main, std::string *error) {
     m_MainWindow = main;
     m_Primary.m_MainWindow = main;
+    if (m_Instances.empty()) return true;
     bool result = true;
     ForEach([&](LayoutTarget target) {
         auto &window = *static_cast<LayoutWindow *>(target.viewport);
@@ -139,7 +140,9 @@ void LayoutWindows::UpdateInput() {
     if (next)
         next->ApplyInputViewport();
 }
-bool LayoutWindows::Register(std::string &error) {
+bool LayoutWindows::Register(std::string &error, SDL_Window *mainWindow) {
+    m_MainWindow = mainWindow;
+    m_Primary.m_MainWindow = mainWindow;
     using WindowState = LayoutWindow::WindowState;
     EditorViewDesc view{};
     view.size = sizeof(view);
@@ -235,6 +238,8 @@ bool LayoutWindows::Register(std::string &error) {
     module.size = sizeof(module);
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("layout.window");
+    module.data = this;
+    module.stop = [](void *data, const EditorHost *) { static_cast<LayoutWindows *>(data)->Stop(); };
     module.views = &view;
     module.viewCount = 1;
     return RegisterControls(module, error);
