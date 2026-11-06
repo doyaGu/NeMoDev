@@ -362,6 +362,21 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule NeMoDevAppearanceModule)
     add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
     set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    add_executable(NeMoDevWorkspaceCloseTests ../tests/WorkspaceCloseTests.cpp)
+    target_link_libraries(NeMoDevWorkspaceCloseTests PRIVATE VirtoolsDevWorkspace NeMoDevEditorApplication
+            VirtoolsDevCore "$<LINK_LIBRARY:WHOLE_ARCHIVE,VirtoolsDevImGui>")
+    nemodev_add_module(NeMoDevWorkspaceCloseModule SOURCES ../tests/modules/WorkspaceCloseModule.cpp)
+    add_dependencies(NeMoDevWorkspaceCloseTests NeMoDevWorkspaceCloseModule)
+    foreach(_case ReplacementFailure ReplacementRefusal MultipleReplacementFailure WriterRefusal WriterException
+            SuccessfulReplacement NormalClose CloseCleanupExceptions ReplacementCleanupExceptions ForcedClose
+            WrongThread DocumentPreserved ReporterException)
+        add_test(NAME NeMoDevWorkspaceClose.${_case} COMMAND NeMoDevWorkspaceCloseTests ${_case})
+        set_tests_properties(NeMoDevWorkspaceClose.${_case} PROPERTIES LABELS self-contained
+                ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    endforeach()
+    add_test(NAME NeMoDevWorkspaceClose.ExternalProvider COMMAND NeMoDevWorkspaceCloseTests ExternalProvider
+            "$<TARGET_FILE:NeMoDevWorkspaceCloseModule>")
+    set_tests_properties(NeMoDevWorkspaceClose.ExternalProvider PROPERTIES LABELS self-contained)
     add_executable(NeMoDevEditorQueryTests ../tests/EditorQueryTests.cpp)
     target_link_libraries(NeMoDevEditorQueryTests PRIVATE NeMoDevEditorApplication VirtoolsDevCore VirtoolsDevImGui Threads::Threads)
     foreach(_case DeliveryLifetime RecordKeys CachedAllocations TimeSettings IdentifierSpans)

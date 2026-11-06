@@ -1882,7 +1882,21 @@
         "S17"
       ],
       "tests": [
-        "NeMoDevEditor"
+        "NeMoDevEditor",
+        "NeMoDevWorkspaceClose.ReplacementFailure",
+        "NeMoDevWorkspaceClose.ReplacementRefusal",
+        "NeMoDevWorkspaceClose.MultipleReplacementFailure",
+        "NeMoDevWorkspaceClose.WriterRefusal",
+        "NeMoDevWorkspaceClose.WriterException",
+        "NeMoDevWorkspaceClose.SuccessfulReplacement",
+        "NeMoDevWorkspaceClose.NormalClose",
+        "NeMoDevWorkspaceClose.CloseCleanupExceptions",
+        "NeMoDevWorkspaceClose.ReplacementCleanupExceptions",
+        "NeMoDevWorkspaceClose.ForcedClose",
+        "NeMoDevWorkspaceClose.WrongThread",
+        "NeMoDevWorkspaceClose.DocumentPreserved",
+        "NeMoDevWorkspaceClose.ReporterException",
+        "NeMoDevWorkspaceClose.ExternalProvider"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1944,7 +1958,8 @@
         "NeMoDevIdentityHeaders",
         "NeMoDevModuleDiscovery",
         "NeMoDevModuleBuild",
-        "NeMoDevProfile"
+        "NeMoDevProfile",
+        "NeMoDevWorkspaceClose.ExternalProvider"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",
