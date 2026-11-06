@@ -44,7 +44,8 @@
         "core/document/BehaviorDescription.*",
         "core/document/ExportCommands.h",
         "core/document/OutputFiles.*",
-        "core/document/SaveFileOperations.h"
+        "core/document/SaveFileOperations.h",
+        "core/document/SaveReport.h"
       ]
     },
     {

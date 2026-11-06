@@ -11,7 +11,7 @@
 #include <unistd.h>
 #endif
 
-#include "core/document/DocumentSaver.h"
+#include "core/document/SaveReport.h"
 #include "core/document/SaveFileOperations.h"
 
 namespace vdev {
