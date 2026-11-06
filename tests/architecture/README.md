@@ -1,5 +1,32 @@
 # Architecture checks and migration results
 
+EditorApplication now separates internal state by lifetime. Its private State
+coordinates the document, view scopes, command dispatch and callback depth;
+it no longer owns the module, configuration, query, draft or tool maps.
+
+| Owner | State and cleanup |
+| --- | --- |
+| RegisteredModules | Copied descriptors, entry data, libraries, assembly defaults and ordered runtime callbacks; released after all users |
+| SelectedConfiguration | Complete candidate selection and installed provider, appearance, menu, toolbar and binding settings; failure leaves the installed selection intact |
+| QueryState | Immutable results, published versions, transient delivery and subscriptions; document/configuration changes invalidate cache, closing one view removes only its entries |
+| EditDrafts | Captured values, editors and preview restoration; queued previews return to the same owner on completion or cancellation |
+| ViewTools | Per-view choices/capture and scoped input/restoration ownership; nested callbacks restore the previous source |
+
+Appearance and binding changes remain usable during drafts, queued previews and
+captured tools while editing providers stay fixed. Provider callbacks never keep
+a mutable query-cache entry across nested calls. Teardown clears drafts, queued
+previews, query descriptor pointers and selected tables before module data/code.
+The public C interface stays at version 26; SDK, files and rendering paths are
+unchanged. Timing acceptance still waits for the user's idle window; runtime
+process isolation remains separate. Fourteen independent ownership cases and
+all 257 Release CTests passed without skips. Six new configuration cases failed
+against the original implementation while three existing lifecycle cases passed.
+Native Player desktop checks passed 7/7 on a fresh process; the first run's two
+focus/coordinate assertion failures remain in the recorded results, with no
+production or assertion changes between runs. Dispatch and cached query delivery
+retain their zero-allocation checks. Results are recorded in
+`baselines/application-ownership-macos-arm64-metal.json`.
+
 Configurable modules now start, advance and stop through EditorApplication in
 dependency order. Frame preparation, presentation publication and interactive
 advance retain their existing positions around menus and view drawing.

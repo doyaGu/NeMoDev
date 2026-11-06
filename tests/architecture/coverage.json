@@ -1710,7 +1710,15 @@
         "NeMoDevEditor",
         "NeMoDevProfile",
         "NeMoDevUiAppearance",
-        "NeMoDevSchematicDrawing"
+        "NeMoDevSchematicDrawing",
+        "NeMoDevEditorOwnership.CapturedConfiguration",
+        "NeMoDevEditorOwnership.CapturedAppearance",
+        "NeMoDevEditorOwnership.DraftConfiguration",
+        "NeMoDevEditorOwnership.DraftAppearance",
+        "NeMoDevEditorOwnership.FailedConfigurationKeepsDraft",
+        "NeMoDevEditorOwnership.PreviewConfigurationCancel",
+        "NeMoDevEditorOwnership.PendingPreviewConfiguration",
+        "NeMoDevEditorOwnership.QueryConfigurationFailure"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1897,7 +1905,11 @@
         "NeMoDevWorkspaceClose.WrongThread",
         "NeMoDevWorkspaceClose.DocumentPreserved",
         "NeMoDevWorkspaceClose.ReporterException",
-        "NeMoDevWorkspaceClose.ExternalProvider"
+        "NeMoDevWorkspaceClose.ExternalProvider",
+        "NeMoDevEditorOwnership.PendingPreviewClose",
+        "NeMoDevEditorOwnership.DraftScopeLifetime",
+        "NeMoDevEditorOwnership.DocumentReplacement",
+        "NeMoDevEditorOwnership.QueryScopeLifetime"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1976,7 +1988,21 @@
         "NeMoDevModuleLifecycle.OptionalPresent",
         "NeMoDevModuleLifecycle.OptionalAbsent",
         "NeMoDevModuleLifecycle.OptionalCycle",
-        "NeMoDevModuleLifecycle.BorrowedControllerLifetime"
+        "NeMoDevModuleLifecycle.BorrowedControllerLifetime",
+        "NeMoDevEditorOwnership.CapturedConfiguration",
+        "NeMoDevEditorOwnership.CapturedAppearance",
+        "NeMoDevEditorOwnership.DraftConfiguration",
+        "NeMoDevEditorOwnership.DraftAppearance",
+        "NeMoDevEditorOwnership.FailedConfigurationKeepsDraft",
+        "NeMoDevEditorOwnership.PreviewConfigurationCancel",
+        "NeMoDevEditorOwnership.PendingPreviewConfiguration",
+        "NeMoDevEditorOwnership.PendingPreviewClose",
+        "NeMoDevEditorOwnership.DraftScopeLifetime",
+        "NeMoDevEditorOwnership.DocumentReplacement",
+        "NeMoDevEditorOwnership.StopCleanupOrder",
+        "NeMoDevEditorOwnership.QueryConfigurationFailure",
+        "NeMoDevEditorOwnership.DeliveryAcrossConfiguration",
+        "NeMoDevEditorOwnership.QueryScopeLifetime"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",
@@ -2094,7 +2120,7 @@
     {
       "id": "interaction",
       "name": "Schematic 与 Layout 手势预览、曲线工具和输入捕获",
-      "owner": "EditorApplication 按视图持有选中工具、捕获和工具创建的草稿；Schematic/Layout 命令保存恢复数据；LayoutWindows 将运行时输入交给活动视口，主渲染 Context 随之切换",
+      "owner": "EditorApplication::ViewTools 拥有每个视图的工具选择、捕获和临时输入归属；EditDrafts 拥有工具草稿；Schematic/Layout 命令保存恢复数据，原生视口集合管理活动输入和渲染 Context",
       "lifetime": "原文档和视图；确认在帧末提交，Escape、焦点丢失、关闭、失效与停止恢复",
       "persistence": "工具选择按工作区实例保存，缺失模块时保留标识并使用视图默认工具；进行中的输入和预览不写文件。确认产生一步撤销，取消、异常、失焦和关闭恢复原值；Setup 等非工具草稿不随工具取消。",
       "features": [
@@ -2299,7 +2325,7 @@
     {
       "id": "editor-modules",
       "name": "模块登记、依赖顺序、启动、分阶段推进、停止活动与数据释放",
-      "owner": "EditorApplication 持有模块登记、依赖排序及运行阶段；各模块拥有自己的活动和分配，EditorApp 只负责核心运行时与装配",
+      "owner": "EditorApplication 的 RegisteredModules 私有实现拥有模块描述、库、装配设置、依赖顺序和运行阶段；模块拥有自己的活动和入口分配",
       "lifetime": "统一装配与校验后按依赖启动；装配失败清理后可重试，启动失败停止整批；菜单前、视图前和视图后分阶段推进；退出先保存并逆依赖停止活动，关闭视图后释放入口分配，再卸载模块，最后关闭文档和运行时；不热卸载",
       "persistence": "安装、用户、显式目录和文件只在启动发现；EditorProfile 保存稳定模块 ID、启用状态和可选来源，内置与外部按同一选择装配；禁用或替换下次启动生效，不热卸载；明确禁用的外部路径在调用入口前跳过",
       "features": [
@@ -2309,8 +2335,8 @@
     {
       "id": "property-drafts",
       "name": "有类型的属性与嵌套草稿、固定目标与原生类型、编辑器选择",
-      "owner": "EditorApplication",
-      "lifetime": "目标文档和视图；确认后帧末执行，取消、关闭或对象失效时清除",
+      "owner": "EditorApplication::EditDrafts 拥有草稿值、固定提供者和预览清理；命令队列只保留待提交预览，清理仍回到草稿所有者",
+      "lifetime": "目标文档和视图；确认后转交帧末命令，取消、关闭、对象失效和停止统一恢复；配置不清理草稿",
       "persistence": "应用持有递归值与查询数据，子控件只更新父级草稿；一次交互只提交父级命令，取消和无变化保留历史。嵌套编辑器选择随交互固定，对象引用逐层校验。Setup 实时预览由选中的命令保存恢复数据，确认前恢复再执行一次正式命令；取消、关闭、失效与停止恢复原值，临时预览不记历史或 Dirty。 Schematic 注释、脚本颜色、优先级和连线延迟复用同一草稿。批量目标和注释所在图、槽位及各 Script 版本在开始时固定；确认后作用域保留至帧末执行。",
       "features": [
         "F08",
@@ -2325,8 +2351,8 @@
     {
       "id": "editor-queries",
       "name": "查询结果及文档变更订阅",
-      "owner": "EditorApplication",
-      "lifetime": "查询及提供者版本或视图；结果按值复制，提供者切换使缓存版本失效，关闭视图取消订阅",
+      "owner": "EditorApplication::QueryState 私有实现拥有缓存、发布版本、临时结果及订阅",
+      "lifetime": "缓存随文档、查询版本或配置失效；关闭视图仅清理该视图缓存和订阅；投影在交付回调结束前保留；停止时在卸载模块前清空描述指针",
       "persistence": "不保存",
       "features": [
         "F29",
@@ -2348,8 +2374,8 @@
     {
       "id": "editor-configuration",
       "name": "命令、查询、编辑器、视图和工具提供者选择、输入绑定、菜单与工具栏项目",
-      "owner": "EditorProfile 拥有已保存的模块和提供者配置，EditorApplication 拥有本次已生效选择，Workspace 负责活动视图更换",
-      "lifetime": "当前应用；错误设置保留原设置，编辑中禁止切换",
+      "owner": "EditorProfile 拥有保存配置，EditorApplication 的 SelectedConfiguration 拥有完整生效选择；模块默认选择归 RegisteredModules 的启动装配；Workspace 负责视图更换",
+      "lifetime": "当前应用；先准备完整候选再切换，失败保留原选择；草稿、待提交预览及捕获工具不阻止主题、快捷键、菜单和工具栏调整，编辑提供者仍保持固定",
       "persistence": "单一带版本 JSON 保存模块、提供者、按视图生效的键盘/鼠标绑定、菜单、工具栏位置/动作/显隐/参数、偏好、最近文件、资源和路径；旧 INI 只读迁移，未知成员保留；读取失败不覆盖原文件；提供者更换先准备视图再保存，保存失败保留原窗口和配置；无文档、选区或历史数据",
       "features": [
         "F25"

@@ -1,0 +1,312 @@
+{
+  "description": "按生命周期拆分 EditorApplication 的模块、配置、查询缓存、编辑草稿和工具输入状态，清理逻辑归各自所有者。",
+  "base_revision": "ef42e16464bd4ad5e4f47e822f0116f02012fd3b",
+  "recorded_utc": "2026-11-06T04:55:37.389407+00:00",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "module_interface": {
+    "version": 26,
+    "public_c_header_unchanged": true,
+    "sdk_unchanged": true
+  },
+  "owners": {
+    "RegisteredModules": "模块描述、入口分配、库、启动装配设置、依赖顺序和运行阶段；使用者清理后才释放。",
+    "SelectedConfiguration": "完整候选与只读生效选择；失败不修改当前配置；文档数据登记完成后无异常切换。",
+    "QueryState": "不可变投影、发布版本、临时交付和订阅；视图关闭只清理自己的缓存，交付期间保留结果。",
+    "EditDrafts": "草稿值、固定编辑器及预览清理；待提交预览由命令队列保留并回到同一所有者恢复或释放。",
+    "ViewTools": "每个视图的工具选择、捕获和临时输入归属；作用域退出自动恢复上次来源。",
+    "State": "文档与选区、视图作用域、命令队列和结果、线程及回调深度；不向这些私有所有者传递整个 State。"
+  },
+  "changes": [
+    "删除共享 State 中五类容器的平铺实现；模块和配置准备独立编译，查询、草稿和工具状态封装在各自私有头。",
+    "主题、快捷键、菜单和工具栏调整不再被草稿、待提交预览或工具捕获一并阻止，编辑提供者保持固定。",
+    "配置先完整构建并验证，再一次切换；启动失败与停止不再逐项清理分散的提供者表。",
+    "查询不持有跨提供者回调的可变缓存条目；交付中的值保留到消费回调结束。",
+    "文档更换、关闭视图、原生对象失效和退出通过各自所有者统一清理，先恢复预览，再释放模块。"
+  ],
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-application-ownership/build-final.log",
+      "sha256": "223e9975931d089ca57916fe53e1ecdd55a3487fdd70924f52d990d2f21ebccb"
+    },
+    "complete_run": {
+      "total": 257,
+      "passed": 257,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-application-ownership/full.xml",
+        "sha256": "c392acb530ad36a25d91fdb3e83b6e3f65c0f788064db3285279af8950a835b3"
+      },
+      "log": {
+        "path": "out/phase-six-application-ownership/full.log",
+        "sha256": "0df014df77bd35955dd00da6451c6f2cbb4a34e7e39269db4d7428fb76617864"
+      },
+      "inventory": {
+        "path": "out/phase-six-application-ownership/full-inventory.json",
+        "sha256": "cd6bb61937b718aa1b45befa1491ee522a625ad8abb9d1b5292927aa4865d84c"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-application-ownership/full-check.log",
+        "sha256": "e9cde72ef81b5f2da382122a2aca6e429a56d0751b3a21f8a849e502ec464cb0"
+      }
+    },
+    "independent_ownership_cases": [
+      "NeMoDevEditorOwnership.CapturedConfiguration",
+      "NeMoDevEditorOwnership.CapturedAppearance",
+      "NeMoDevEditorOwnership.DraftConfiguration",
+      "NeMoDevEditorOwnership.DraftAppearance",
+      "NeMoDevEditorOwnership.FailedConfigurationKeepsDraft",
+      "NeMoDevEditorOwnership.PreviewConfigurationCancel",
+      "NeMoDevEditorOwnership.PendingPreviewConfiguration",
+      "NeMoDevEditorOwnership.PendingPreviewClose",
+      "NeMoDevEditorOwnership.DraftScopeLifetime",
+      "NeMoDevEditorOwnership.DocumentReplacement",
+      "NeMoDevEditorOwnership.StopCleanupOrder",
+      "NeMoDevEditorOwnership.QueryConfigurationFailure",
+      "NeMoDevEditorOwnership.DeliveryAcrossConfiguration",
+      "NeMoDevEditorOwnership.QueryScopeLifetime"
+    ],
+    "native_player": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "unselected": 416,
+      "cases": [
+        "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+        "fullscreen_delayed_focus_loss_and_close",
+        "fullscreen_focus_loss_keeps_foreground",
+        "windowed_input_focus",
+        "fullscreen_default_mode",
+        "fullscreen_roundtrip_focus",
+        "snapshot_take_capture_cancel"
+      ],
+      "report": {
+        "path": "out/phase-six-application-ownership/player.xml",
+        "sha256": "dd0c291b7e643b1fb4f2111af83b24213eee0c5f2611360dbe24793806b11e1b"
+      },
+      "log": {
+        "path": "out/phase-six-application-ownership/player.log",
+        "sha256": "7d2409cd6803a845afafe99c74d84936b42f908f282f3219df6fc79026247e38"
+      },
+      "sample": {
+        "path": "local-samples/data/BBSamples/3D Transformations/Add Control Point.cmo",
+        "sha256": "8c7226ff981b6a56ae5c44bd0695a6d2e4b7c870ff83e6e73e0e769436f09ad4"
+      }
+    },
+    "stable_dispatch": {
+      "case": "NeMoDevModuleLifecycle.StableAllocations",
+      "groups": 1000,
+      "phases_per_group": 3,
+      "heap_allocations": 0,
+      "timing_measured": false
+    },
+    "cached_query_delivery": {
+      "case": "NeMoDevEditorQuery.CachedAllocations",
+      "iterations": 1000,
+      "heap_allocations": 0,
+      "timing_measured": false
+    },
+    "final_architecture_check": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-application-ownership/architecture-final.xml",
+        "sha256": "733d64de8ddb06bdf69904095cb70dd191ff15a1e0bc433b74f5a8f841208587"
+      },
+      "log": {
+        "path": "out/phase-six-application-ownership/architecture-final.log",
+        "sha256": "6d53ed3da7800559efbcdec040be581a79f7b7c5056749e6e99fd94e585e4e55"
+      }
+    }
+  },
+  "diagnosis": {
+    "layering": {
+      "description": "首次完整回归只有分层检查失败；将文档数据登记留在既有原生适配位置，移除新私有文件对 core 头的直接依赖，检查规则未改。",
+      "initial_report": {
+        "path": "out/phase-six-application-ownership/full-first.xml",
+        "sha256": "a5b2ad4a44ffc473c06e9460164b6cea0720f5729e81a935bc31914556cd54ad"
+      }
+    },
+    "native_desktop": {
+      "description": "首轮窗口焦点与鼠标坐标两项断言失败；同一最终程序新进程复核 7/7，未修改生产代码或测试断言，未据此断定首轮原因。",
+      "initial_report": {
+        "path": "out/phase-six-application-ownership/player-first.xml",
+        "sha256": "e5b9ac218982abb115171588b898fdcf3f6c371f0e629a942b19beec586f08ad"
+      },
+      "initial_log": {
+        "path": "out/phase-six-application-ownership/player-first.log",
+        "sha256": "3cff1b1166d0c69bf7b300e37f4cc18dc38972dcf20f51296ce34dea711742a6"
+      }
+    }
+  },
+  "regression_comparison": {
+    "unchanged_tests_against_original_implementation": [
+      {
+        "case": "CapturedConfiguration",
+        "exit_code": 1,
+        "expected_failure": true
+      },
+      {
+        "case": "CapturedAppearance",
+        "exit_code": 1,
+        "expected_failure": true
+      },
+      {
+        "case": "DraftConfiguration",
+        "exit_code": 1,
+        "expected_failure": true
+      },
+      {
+        "case": "DraftAppearance",
+        "exit_code": 1,
+        "expected_failure": true
+      },
+      {
+        "case": "PreviewConfigurationCancel",
+        "exit_code": 1,
+        "expected_failure": true
+      },
+      {
+        "case": "PendingPreviewConfiguration",
+        "exit_code": 1,
+        "expected_failure": true
+      },
+      {
+        "case": "QueryConfigurationFailure",
+        "exit_code": 0,
+        "expected_failure": false
+      },
+      {
+        "case": "PendingPreviewClose",
+        "exit_code": 0,
+        "expected_failure": false
+      },
+      {
+        "case": "StopCleanupOrder",
+        "exit_code": 0,
+        "expected_failure": false
+      }
+    ],
+    "original_source": {
+      "path": "out/phase-six-application-ownership/EditorApplication-before.cpp",
+      "sha256": "6b14e9304971cb2214a7be200b1aa5c202bac6e02eceeb7409b20ca2a3babd5c"
+    },
+    "compiler_arguments": {
+      "path": "out/phase-six-application-ownership/baseline-compile.json",
+      "sha256": "8c968d81434fe9daf61740cc579ccc6acf0816256bc4f27828b98abdb343dd6e"
+    },
+    "log": {
+      "path": "out/phase-six-application-ownership/before-check-final.log",
+      "sha256": "79fde992d05f991e8ec9db5246f95cecfd414bd89e4ee21ba170d49436badec3"
+    },
+    "reports": [
+      {
+        "path": "out/phase-six-application-ownership/before-check/CapturedConfiguration.log",
+        "sha256": "1783e497fe780165b39155d3e7ec13c517b9b864bee263dcb72c0cf978c700d1"
+      },
+      {
+        "path": "out/phase-six-application-ownership/before-check/CapturedAppearance.log",
+        "sha256": "1783e497fe780165b39155d3e7ec13c517b9b864bee263dcb72c0cf978c700d1"
+      },
+      {
+        "path": "out/phase-six-application-ownership/before-check/DraftConfiguration.log",
+        "sha256": "3f7a79f17aac363e6bc755298b3d05b83254b2b5257af72579d3819f7a0d701b"
+      },
+      {
+        "path": "out/phase-six-application-ownership/before-check/DraftAppearance.log",
+        "sha256": "3f7a79f17aac363e6bc755298b3d05b83254b2b5257af72579d3819f7a0d701b"
+      },
+      {
+        "path": "out/phase-six-application-ownership/before-check/PreviewConfigurationCancel.log",
+        "sha256": "db3afdf39022c6d0fc6b223433c2f161057197e6d9ce9c294898ecc3f6c44c11"
+      },
+      {
+        "path": "out/phase-six-application-ownership/before-check/PendingPreviewConfiguration.log",
+        "sha256": "3cdd97214a151930784d31e18a3a1613cbcaa47d37e6df16fa7daa4b07592d1c"
+      },
+      {
+        "path": "out/phase-six-application-ownership/before-check/QueryConfigurationFailure.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "out/phase-six-application-ownership/before-check/PendingPreviewClose.log",
+        "sha256": "85dc6b78da46545b5a85f948ca6c819b0b3efbbe1e268e1b15a873a195e4643c"
+      },
+      {
+        "path": "out/phase-six-application-ownership/before-check/StopCleanupOrder.log",
+        "sha256": "85dc6b78da46545b5a85f948ca6c819b0b3efbbe1e268e1b15a873a195e4643c"
+      }
+    ]
+  },
+  "preservation": {
+    "sdk_repositories_unchanged": 16,
+    "runtime_files_unchanged": 22,
+    "sdk_before": {
+      "path": "out/phase-six-application-ownership/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-application-ownership/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_before": {
+      "path": "out/phase-six-application-ownership/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-application-ownership/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "protected_sources": {
+      "ui/native/LayoutRenderer.cpp": {
+        "sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.cpp": {
+        "sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.h": {
+        "sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.cpp": {
+        "sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.h": {
+        "sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "unchanged": true
+      },
+      "editor/Editor.h": {
+        "sha256": "3250f5acd55fb01df85f5ceb7fc936ce049af9d5644c4f519aa1cb24261da5bd",
+        "unchanged": true
+      },
+      "tests/CheckLayering.cmake": {
+        "sha256": "21d8262c4e6d66fa2aff9f616464646b677b8efc4a5026adf40d4eb58a1fc58d",
+        "unchanged": true
+      },
+      "tests/CheckArchitecture.py": {
+        "sha256": "bd108c931ee61c88828c5b1b43fe3d7f1afe62f21b72d2b58d4dce864d2c44ca",
+        "unchanged": true
+      }
+    },
+    "gpu_and_cpu_fallback": "完整 app、双视口、故障注入、快照及原生 Player 回归保留普通纹理快通道和通用 readback/upload fallback。"
+  },
+  "performance": {
+    "status": "waiting_for_idle_window",
+    "thresholds_changed": false,
+    "description": "按用户安排等待空闲窗口；本轮验证分配计数，未计时。"
+  },
+  "separate_work": [
+    "runtime-isolation"
+  ]
+}
