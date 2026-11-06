@@ -10,7 +10,7 @@ struct SceneEnvironment;
 class PreferencesCommands {
 public:
     using Save = std::function<bool(const Preferences &, std::string &)>;
-    PreferencesCommands(EditorApplication &, CkRuntimeHost &, Preferences &, std::function<bool()> available,
+    PreferencesCommands(EditorApplication &, CkRuntimeHost &, Preferences &,
                         Save, std::function<void()> changed);
     ~PreferencesCommands();
     bool Register(std::string &error);

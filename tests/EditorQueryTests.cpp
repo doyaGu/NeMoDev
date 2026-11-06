@@ -182,7 +182,7 @@ void TimeQueries() {
     bool native = true;
     EditorApplication app([&] { return &document; }, [&] { return native; });
     Preferences preferences;
-    ExecutionCommands execution(app, [&] { return &document; }, [&] { return native; }, preferences);
+    ExecutionCommands execution(app, [&] { return &document; }, preferences);
     Check(execution.Register(error) && app.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
     execution.Bind(document);
     app.Attach(document.Token(), document.TopologyRevision(), true, true);

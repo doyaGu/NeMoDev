@@ -69,7 +69,6 @@ struct EnvironmentCommands::Data {
     struct Unloaded { EditorView owner = 0; bool attempted = false; std::string error; };
     EditorApplication &editor;
     CkRuntimeHost &runtime;
-    std::function<bool()> nativeAvailable;
     SavePaths savePaths;
     std::function<void()> pluginsChanged;
     std::function<LinkOptions()> readLinks;
@@ -88,9 +87,9 @@ struct EnvironmentCommands::Data {
     std::chrono::steady_clock::time_point sampled{};
     struct Folder { EditorOperation operation = 0; EditorScope origin{}; uint64_t input = 0; } folder;
     uint64_t nextInput = 1;
-    Data(EditorApplication &editor, CkRuntimeHost &runtime, std::function<bool()> available, SavePaths save, std::function<void()> changed)
-        : editor(editor), runtime(runtime), nativeAvailable(std::move(available)), savePaths(std::move(save)), pluginsChanged(std::move(changed)) {}
-    bool Ready() const { return !stopped && editor.NativeAvailable() && (!nativeAvailable || nativeAvailable()) && runtime.Context(); }
+    Data(EditorApplication &editor, CkRuntimeHost &runtime, SavePaths save, std::function<void()> changed)
+        : editor(editor), runtime(runtime), savePaths(std::move(save)), pluginsChanged(std::move(changed)) {}
+    bool Ready() const { return !stopped && editor.NativeAvailable() && runtime.Context(); }
     void CheckGeneration() {
         if (generation == runtime.Generation()) return;
         generation = runtime.Generation(); pluginReady = pathsReady = linksReady = false; ++pluginRevision; ++pathRevision; ++linkRevision;
@@ -355,9 +354,9 @@ struct EnvironmentCommands::Data {
         return Write(sink, {{"revision", EDITOR_INTEGER_VALUE, {}, {}, self.pathRevision}, categories});
     }
 };
-EnvironmentCommands::EnvironmentCommands(EditorApplication &editor, CkRuntimeHost &runtime, std::function<bool()> available, SavePaths save,
+EnvironmentCommands::EnvironmentCommands(EditorApplication &editor, CkRuntimeHost &runtime, SavePaths save,
                                          std::function<void()> changed, const PathCategories *initialPaths)
-    : m_Data(std::make_unique<Data>(editor, runtime, std::move(available), std::move(save), std::move(changed))), m_InitialPaths(initialPaths) {}
+    : m_Data(std::make_unique<Data>(editor, runtime, std::move(save), std::move(changed))), m_InitialPaths(initialPaths) {}
 EnvironmentCommands::~EnvironmentCommands() = default;
 void EnvironmentCommands::ConfigureLinks(std::function<LinkOptions()> read,
     std::function<bool(const LinkOptions &, std::string &)> save) {

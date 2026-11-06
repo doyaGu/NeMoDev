@@ -72,7 +72,6 @@ struct PreferencesCommands::Data {
     EditorApplication &editor;
     CkRuntimeHost &runtime;
     Preferences &preferences;
-    std::function<bool()> available;
     Save save;
     std::function<void()> changed;
     std::vector<EditorField> values, displayValues, catalog;
@@ -81,11 +80,11 @@ struct PreferencesCommands::Data {
     bool catalogDirty = true, stopped = false;
     std::string startedEngine;
     std::chrono::steady_clock::time_point sampled{};
-    Data(EditorApplication &editor, CkRuntimeHost &runtime, Preferences &preferences, std::function<bool()> available,
+    Data(EditorApplication &editor, CkRuntimeHost &runtime, Preferences &preferences,
          Save save, std::function<void()> changed) : editor(editor), runtime(runtime), preferences(preferences),
-         available(std::move(available)), save(std::move(save)), changed(std::move(changed)),
+         save(std::move(save)), changed(std::move(changed)),
          startedEngine(AnsiToUtf8(preferences.Text("CK2 Settings\\Render Engine"))) {}
-    bool Ready() const { return !stopped && editor.NativeAvailable() && (!available || available()) && !editor.HasEdits() && runtime.Context(); }
+    bool Ready() const { return !stopped && editor.NativeAvailable() && !editor.HasEdits() && runtime.Context(); }
     void Sync() {
         if (!Ready()) return;
         auto next = Projection(preferences);
@@ -218,8 +217,8 @@ struct PreferencesCommands::Data {
     }
 };
 PreferencesCommands::PreferencesCommands(EditorApplication &editor, CkRuntimeHost &runtime, Preferences &preferences,
-    std::function<bool()> available, Save save, std::function<void()> changed)
-    : m_Data(std::make_unique<Data>(editor, runtime, preferences, std::move(available), std::move(save), std::move(changed))) {}
+    Save save, std::function<void()> changed)
+    : m_Data(std::make_unique<Data>(editor, runtime, preferences, std::move(save), std::move(changed))) {}
 PreferencesCommands::~PreferencesCommands() = default;
 void PreferencesCommands::Poll() {
     auto &self = *m_Data;

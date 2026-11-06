@@ -7,7 +7,7 @@ class CkRuntimeHost;
 class DiagnosticCommands {
 public:
     DiagnosticCommands(EditorApplication &, RuntimeOperation &, CkRuntimeHost &,
-                       std::function<Document *()> current, std::function<bool()> nativeAvailable);
+                       std::function<Document *()> current);
     ~DiagnosticCommands();
     bool Register(std::string &error);
     static const std::vector<ProviderChoice> &DefaultProviders();

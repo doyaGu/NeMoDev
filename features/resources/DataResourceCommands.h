@@ -1,5 +1,6 @@
 #pragma once
 #include "application/EditorApplication.h"
+#include "application/RuntimeOperation.h"
 #include "core/runtime/CkRuntimeHost.h"
 
 namespace vdev {
@@ -7,12 +8,11 @@ namespace vdev {
 // Views keep only navigation and selections; queries read copied directory data.
 class DataResourceCommands {
   public:
-    DataResourceCommands(EditorApplication &, CkRuntimeHost &, std::function<bool()> nativeAvailable = {});
+    DataResourceCommands(EditorApplication &, RuntimeOperation &, CkRuntimeHost &);
     ~DataResourceCommands();
     bool Register(std::string &error);
     void Poll();
     void Stop();
-    bool Busy() const;
     const std::vector<std::string> &OpenLibraries() const;
     std::function<void()> changed;
 

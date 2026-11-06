@@ -30,7 +30,7 @@ void TestEnvironmentCommands(vdev::CkRuntimeHost &runtime, const std::string &fi
     unsigned saved = 0, catalogs = 0, reads = 0;
     PathCategories preferences;
     EditorApplication editor([&] { ++reads; return &document; }, [&] { return available; });
-    EnvironmentCommands environment(editor, runtime, [&] { return available; },
+    EnvironmentCommands environment(editor, runtime,
         [&](const PathCategories &paths, std::string &error) {
             if (saveThrows) throw std::runtime_error("Injected preferences save exception");
             if (saveFailure) { error = "Injected preferences save refusal"; return false; }

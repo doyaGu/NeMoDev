@@ -94,7 +94,8 @@ struct DataResourceCommands::State {
     std::deque<Scan> scans;
     EditorApplication &editor;
     CkRuntimeHost &runtime;
-    std::function<bool()> nativeAvailable;
+    RuntimeOperation &operations;
+    RuntimeOperation::Request native;
     std::map<std::string, Library> libraries;
     std::vector<std::string> open;
     uint64_t revision = 1, nextInput = 1, viewsRevision = 0;
@@ -102,12 +103,13 @@ struct DataResourceCommands::State {
     std::vector<Handler> handlers;
     std::vector<QueryHandler> queries;
     std::vector<EditorField> answer;
-    State(EditorApplication &editor, CkRuntimeHost &runtime, std::function<bool()> available)
-        : editor(editor), runtime(runtime), nativeAvailable(std::move(available)) {}
-    bool NativeReady() const { return nativeAvailable ? nativeAvailable() : editor.NativeAvailable(); }
+    State(EditorApplication &editor, RuntimeOperation &operations, CkRuntimeHost &runtime)
+        : editor(editor), runtime(runtime), operations(operations) {}
+    bool NativeReady() const { return native ? native.Available() : operations.Available(); }
     bool CanRun(Action action, const EditorRequest &request) const {
         if (stopped) return false;
         if (action == Action::Respond || action == Action::Browse) return true;
+        if (!operations.Available()) return false;
         if (pending.operation) return false;
         if (scan.operation && (action == Action::Information ||
             ((action == Action::Open || action == Action::Create) && !Field(request, "path").text.size))) return false;
@@ -248,6 +250,7 @@ struct DataResourceCommands::State {
         const auto operation = pending.operation;
         pending = {};
         answer.clear();
+        native.Reset();
         EditorResponse result;
         result.status = status;
         result.message = message;
@@ -321,6 +324,7 @@ struct DataResourceCommands::State {
             }
             const auto path = Text(Field(request, "path").text);
             const auto saved = pending;
+            auto submitting = native.Enter();
             EditorResponse result;
             EditorSink output{&result, [](void *data, const EditorValue *values, uint32_t count) {
                                   auto &result = *static_cast<EditorResponse *>(data);
@@ -338,6 +342,7 @@ struct DataResourceCommands::State {
                     break;
                 }
             pending = {};
+            native.Reset();
             if (result.status != EDITOR_QUEUED) Publish(saved.operation, std::move(result));
             return EDITOR_OK;
         }
@@ -347,6 +352,8 @@ struct DataResourceCommands::State {
         if (action == Action::Open || action == Action::Create) {
             if (!path.empty())
                 return Open(host, request, path, Field(request, "view").integer, sink, action == Action::Create);
+            native = operations.Begin("Data Resource input");
+            if (!native) return EDITOR_REFUSED;
             pending = {request.operation,
                        request.scope,
                        nextInput++,
@@ -366,6 +373,8 @@ struct DataResourceCommands::State {
             for (const auto &folder : library.second.folders)
                 for (const auto &file : folder.files)
                     if (file.path == path && file.behavior) {
+                        native = operations.Begin("Behavior Information");
+                        if (!native) return EDITOR_REFUSED;
                         pending = {request.operation,      request.scope, nextInput++, action, path,
                                    "Behavior Information", file};
                         return EDITOR_QUEUED;
@@ -616,10 +625,8 @@ bool DataResourceCommands::Register(std::string &error) {
     module.menuCount = 2;
     return s.editor.Register(module, error);
 }
-DataResourceCommands::DataResourceCommands(EditorApplication &editor, CkRuntimeHost &runtime,
-                                           std::function<bool()> available)
-    : m_State(std::make_unique<State>(editor, runtime, std::move(available))) {}
-bool DataResourceCommands::Busy() const { return m_State->pending.operation != 0; }
+DataResourceCommands::DataResourceCommands(EditorApplication &editor, RuntimeOperation &operations, CkRuntimeHost &runtime)
+    : m_State(std::make_unique<State>(editor, operations, runtime)) {}
 DataResourceCommands::~DataResourceCommands() { Stop(); }
 const std::vector<std::string> &DataResourceCommands::OpenLibraries() const { return m_State->open; }
 void DataResourceCommands::Stop() {

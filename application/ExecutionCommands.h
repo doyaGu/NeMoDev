@@ -24,7 +24,7 @@ class ExecutionCommands {
         uint64_t logEntries = 0, logRevision = 0, reachedBreakpoints = 0, faults = 0;
     };
     ExecutionCommands(EditorApplication &editor, std::function<Document *()> current,
-                      std::function<bool()> nativeAvailable, Preferences &preferences, DocumentFiles *files = nullptr);
+                      Preferences &preferences, DocumentFiles *files = nullptr);
     ~ExecutionCommands();
     bool Register(std::string &error);
     // Application assembly/lifecycle only. The remaining native breakpoint

@@ -65,7 +65,7 @@ static void ApplyColors(const Preferences &preferences, SchematicStyle &style) {
 
 EditorApp::EditorApp()
     : m_Editor([this] { return m_Session.document.get(); },
-               [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }),
+               [this] { return m_Session.runtimeOperation.Available(); }),
       m_ObjectCommands([this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }),
       m_Schematics(m_Workspace, m_Style), m_Panels(m_ParameterCopies, m_Workspace, m_Schematics) {
     m_Session.interactionActive = [this] { return m_Editor.HasEdits(); };

@@ -37,7 +37,7 @@ void TestDiagnosticCommands(vdev::CkRuntimeHost &host) {
         if (failWork) throw std::runtime_error("Injected diagnostic worker refusal");
         if (!GuardedCall(run, &host, label.c_str())) throw std::runtime_error("Diagnostic worker failed");
     });
-    DiagnosticCommands diagnostics(editor, work, host, current, [&] { return native; });
+    DiagnosticCommands diagnostics(editor, work, host, current);
     SchematicCommands schematic(current);
     const auto draw = [](void *, const EditorHost *, const EditorValueInput *) -> uint32_t { return 0; };
     const EditorValueEditorDesc editors[] = {

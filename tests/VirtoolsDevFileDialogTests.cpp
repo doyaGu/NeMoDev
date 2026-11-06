@@ -2,6 +2,8 @@
 #include "core/document/Edit.h"
 #include "core/runtime/TextEncoding.h"
 #include <SDL3/SDL.h>
+#include <chrono>
+#include <cstdlib>
 #include <iostream>
 #include <filesystem>
 #include <stdexcept>
@@ -22,6 +24,16 @@ int main() {
     try {
         Require(SDL_Init(0), "SDL initialization");
         vdev::EditorSession editor;
+        bool unavailableCompleted = false, unavailableRan = false;
+        Require(!editor.runtimeOperation.Available() &&
+                    !editor.RunRuntime("Unstarted runtime", [&] { unavailableRan = true; }, [&](bool ok) {
+                        Require(!ok, "unstarted runtime reports refusal");
+                        unavailableCompleted = true;
+                    }) && unavailableCompleted && !unavailableRan,
+                "unstarted runtime refuses native work");
+        std::string error;
+        const auto *runtimePath = std::getenv("VIRTOOLS_PATH");
+        Require(editor.host.Start(runtimePath ? runtimePath : ".", {}, &error), error.c_str());
         const auto mainThread = std::this_thread::get_id();
         bool called = false;
         {
@@ -52,9 +64,13 @@ int main() {
         std::promise<void> entered, release;
         auto running = entered.get_future();
         auto gate = release.get_future();
-        editor.RunRuntime("Dialog waits for runtime", [&] { entered.set_value(); gate.wait(); });
+        Require(editor.RunRuntime("Dialog waits for runtime", [&] { entered.set_value(); gate.wait(); }),
+                "queue exclusive runtime work");
         editor.runtimeOperation.Start();
-        running.wait();
+        if (running.wait_for(std::chrono::seconds(2)) != std::future_status::ready) {
+            release.set_value();
+            Require(false, "exclusive runtime work started");
+        }
         const char *runtimeFiles[] = {"runtime.cmo", nullptr};
         request.callback(request.userdata, runtimeFiles, 0);
         editor.DispatchFileRequests();

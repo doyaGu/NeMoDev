@@ -64,7 +64,7 @@ void TestDebugFrameLifecycle(vdev::CkRuntimeHost &host) {
         Check(context->RegisterNewManager(probe) == CK_OK, "cannot register debug lifecycle probe");
         EditorApplication editor([&] { return &document; });
         Preferences preferences;
-        ExecutionCommands commands(editor, [&] { return &document; }, [] { return true; }, preferences);
+        ExecutionCommands commands(editor, [&] { return &document; }, preferences);
         Check(commands.Register(error) && editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
         const auto *debugger = commands.Bind(document);
         editor.Attach(document.Token(), document.TopologyRevision(), true, true);
@@ -97,7 +97,7 @@ void TestExecutionCommands(vdev::CkRuntimeHost &host, const std::string &moduleP
     bool native = true;
     EditorApplication editor([&] { return &document; }, [&] { return native; });
     Preferences preferences;
-    ExecutionCommands commands(editor, [&] { return &document; }, [&] { return native; }, preferences);
+    ExecutionCommands commands(editor, [&] { return &document; }, preferences);
     ObjectCommands objects([&] { return &document; });
     Check(commands.Register(error) && objects.Register(editor, error) && editor.Load(modulePath, error), error.c_str());
     auto config = EditorConfiguration{};

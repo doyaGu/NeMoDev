@@ -44,7 +44,6 @@ struct ExecutionCommands::Data {
     struct Command { Data *owner; Action action; const char *id, *title; };
     EditorApplication &editor;
     std::function<Document *()> current;
-    std::function<bool()> nativeAvailable;
     Preferences &preferences;
     Document *document = nullptr;
     std::unique_ptr<Debugger> debugger;
@@ -78,12 +77,11 @@ struct ExecutionCommands::Data {
     } time;
     uint64_t timeRevision = 1;
     bool hideFps = false;
-    Data(EditorApplication &editor, std::function<Document *()> current, std::function<bool()> nativeAvailable,
+    Data(EditorApplication &editor, std::function<Document *()> current,
          Preferences &preferences)
-        : editor(editor), current(std::move(current)), nativeAvailable(std::move(nativeAvailable)), preferences(preferences) {}
+        : editor(editor), current(std::move(current)), preferences(preferences) {}
     bool Ready() const {
         if (!editor.NativeAvailable()) return false;
-        if (nativeAvailable && !nativeAvailable()) return false;
         return document && debugger && current() == document && document->Context() && !document->EditOpen();
     }
     void ClearPublished() {
@@ -542,8 +540,8 @@ struct ExecutionCommands::Data {
 };
 
 ExecutionCommands::ExecutionCommands(EditorApplication &editor, std::function<Document *()> current,
-                                     std::function<bool()> nativeAvailable, Preferences &preferences, DocumentFiles *files)
-    : m_Data(std::make_unique<Data>(editor, std::move(current), std::move(nativeAvailable), preferences)), m_Files(files) {}
+                                     Preferences &preferences, DocumentFiles *files)
+    : m_Data(std::make_unique<Data>(editor, std::move(current), preferences)), m_Files(files) {}
 ExecutionCommands::~ExecutionCommands() { Stop(); }
 const Debugger *ExecutionCommands::Bind(Document &document) {
     if (m_Data->document) m_Data->RestoreProfiling();

@@ -17,7 +17,7 @@ class EnvironmentCommands {
         bool operator==(const LinkOptions &other) const { return delay == other.delay && preventLoop == other.preventLoop && iterations == other.iterations; }
     };
     using SavePaths = std::function<bool(const PathCategories &, std::string &)>;
-    EnvironmentCommands(EditorApplication &, CkRuntimeHost &, std::function<bool()> nativeAvailable, SavePaths = {},
+    EnvironmentCommands(EditorApplication &, CkRuntimeHost &, SavePaths = {},
                         std::function<void()> pluginsChanged = {}, const PathCategories *initialPaths = nullptr);
     ~EnvironmentCommands();
     bool Register(std::string &error);

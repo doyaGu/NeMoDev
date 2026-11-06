@@ -85,7 +85,7 @@ void TestPreferencesCommands(vdev::CkRuntimeHost &runtime) {
     EditorApplication editor([&] { return &document; }, [&] { return available; });
     const auto persisted = directory / "preferences.ini";
     Check(preferences.Save(persisted.u8string()), "seed preference file");
-    PreferencesCommands commands(editor, runtime, preferences, [&] { return available; },
+    PreferencesCommands commands(editor, runtime, preferences,
         [&](const Preferences &next, std::string &error) {
             SaveReport report; OutputFiles files(report); std::vector<std::string> written;
             const auto staged = files.Add(persisted.u8string());

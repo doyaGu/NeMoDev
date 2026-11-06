@@ -8,7 +8,7 @@ EditorSession::EditorSession() : runtimeOperation([this](const std::string &labe
             ? "Finish the current operation before " + label : std::string();
 }, [this](const std::string &label, const std::function<void()> &work) {
     if (!GuardedCall(work, &host, label.c_str())) throw std::runtime_error(label + " failed");
-}) {}
+}, [this] { return host.Context() != nullptr; }) {}
 
 EditorSession::~EditorSession() {
     FinishRuntimeOperations();

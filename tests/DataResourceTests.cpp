@@ -46,9 +46,10 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
     const auto topology = document.TopologyRevision();
     const auto dirty = document.Dirty();
     bool native = true;
-    EditorApplication editor([&] { return &document; }, [&] { return native; });
+    RuntimeOperation operations({}, {}, [&] { return native; });
+    EditorApplication editor([&] { return &document; }, [&] { return operations.Available(); });
     EditorWorkspace workspace(editor);
-    DataResourceCommands resources(editor, runtime, [&] { return native; });
+    DataResourceCommands resources(editor, operations, runtime);
     Check(workspace.Register(error) && resources.Register(error) && RegisterDataResourceViews(editor, error),
           error.c_str());
     Check(editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
@@ -117,7 +118,7 @@ void TestDataResources(vdev::CkRuntimeHost &runtime) {
         return result;
     };
     const auto scanning = client.Command("resource.open-library", {TextArgument("path", library)});
-    Check(scanning.status == EDITOR_QUEUED && !resources.Busy() && workspace.ViewCount() == 0,
+    Check(scanning.status == EDITOR_QUEUED && operations.Available() && workspace.ViewCount() == 0,
           "directory scanning blocked the caller or native rendering");
     native = false;
     resources.Poll();

@@ -54,7 +54,6 @@ struct DiagnosticCommands::Data : std::enable_shared_from_this<Data> {
     RuntimeOperation &work;
     CkRuntimeHost &runtime;
     std::function<Document *()> current;
-    std::function<bool()> nativeAvailable;
     std::map<Key, Snapshot> snapshots;
     std::map<EditorOperation, std::shared_ptr<Job>> jobs;
     std::deque<Handler> handlers;
@@ -62,11 +61,10 @@ struct DiagnosticCommands::Data : std::enable_shared_from_this<Data> {
     uint64_t nextRevision = 1;
     bool stopped = false;
     Data(EditorApplication &editor, RuntimeOperation &work, CkRuntimeHost &runtime,
-         std::function<Document *()> current, std::function<bool()> available)
-        : editor(editor), work(work), runtime(runtime), current(std::move(current)), nativeAvailable(std::move(available)) {}
+         std::function<Document *()> current)
+        : editor(editor), work(work), runtime(runtime), current(std::move(current)) {}
     bool Ready() const {
-        return !stopped && editor.NativeAvailable() && !work.Busy() &&
-            (!nativeAvailable || nativeAvailable()) && runtime.Context() && !editor.HasEdits();
+        return !stopped && editor.NativeAvailable() && work.CanQueue("diagnostics") && runtime.Context() && !editor.HasEdits();
     }
     bool Live(EditorScope scope) const {
         const auto now = editor.Scope(scope.view);
@@ -234,8 +232,8 @@ struct DiagnosticCommands::Data : std::enable_shared_from_this<Data> {
     }
 };
 DiagnosticCommands::DiagnosticCommands(EditorApplication &editor, RuntimeOperation &work, CkRuntimeHost &runtime,
-    std::function<Document *()> current, std::function<bool()> available)
-    : m_Data(std::make_shared<Data>(editor, work, runtime, std::move(current), std::move(available))) {}
+    std::function<Document *()> current)
+    : m_Data(std::make_shared<Data>(editor, work, runtime, std::move(current))) {}
 DiagnosticCommands::~DiagnosticCommands() { Stop(); }
 void DiagnosticCommands::Poll() {
     auto &self = *m_Data;

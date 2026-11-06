@@ -198,9 +198,6 @@ private:
     // Dev's status bar and its Time Settings (StatusBar.cpp).
     void StatusBar();
     void ApplyPreferences();
-    bool FileOperationAvailable() const {
-        return !m_Session.runtimeOperation.Busy() && !m_FileCommands.Busy() && !m_Outputs.Busy();
-    }
     std::string PreferencesPath() const;
     void SaveWorkspaceIfNeeded();
     void SavePreferences(); // not when isolated
@@ -245,18 +242,15 @@ private:
     OutputCommands m_Outputs{m_Editor, m_Session.files, m_Session.runtimeOperation,
                               [this] { return m_Session.document.get(); }, *this};
     ExecutionCommands m_Execution{m_Editor, [this] { return m_Session.document.get(); },
-                                  [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
                                   m_Settings, &m_Session.files};
     EditorWorkspace m_Workspace{m_Editor};
-    DataResourceCommands m_ResourceCommands{m_Editor, m_Session.host, [this] { return FileOperationAvailable(); }};
+    DataResourceCommands m_ResourceCommands{m_Editor, m_Session.runtimeOperation, m_Session.host};
     DiagnosticCommands m_Diagnostics{m_Editor, m_Session.runtimeOperation, m_Session.host,
-        [this] { return m_Session.document.get(); }, [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); }};
+        [this] { return m_Session.document.get(); }};
     PreferencesCommands m_Preferences{m_Editor, m_Session.host, m_Settings,
-        [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
         [this](const Preferences &preferences, std::string &error) { return WriteSettings(preferences, error); },
         [this] { ApplyPreferences(); m_Panels.RefreshStack(); }};
     EnvironmentCommands m_Environment{m_Editor, m_Session.host,
-        [this] { return FileOperationAvailable() && !m_ResourceCommands.Busy(); },
         [this](const PathCategories &paths, std::string &error) { return SaveSearchPaths(paths, error); },
         [this] { m_Catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); m_Preferences.InvalidateCatalog(); }, &m_Settings.paths};
     ObjectCommands m_ObjectCommands;

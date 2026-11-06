@@ -27,7 +27,7 @@ void TestRuntimeProjections(vdev::CkRuntimeHost &host) {
     unsigned documentReads = 0;
     const auto current = [&] { ++documentReads; return &document; };
     EditorApplication editor(current, [&] { return native; });
-    ExecutionCommands execution(editor, current, [&] { return native; }, preferences);
+    ExecutionCommands execution(editor, current, preferences);
     unsigned navigations = 0;
     const EditorParameter target{EDITOR_TEXT("target"), EDITOR_OBJECT};
     const EditorCommandDesc jump{sizeof(EditorCommandDesc), EDITOR_TEXT("test.profile-jump"), EDITOR_TEXT("test.profile"),

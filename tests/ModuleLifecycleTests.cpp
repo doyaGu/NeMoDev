@@ -1,4 +1,5 @@
 #include "application/EditorApplication.h"
+#include "application/RuntimeOperation.h"
 #include "application/EditorModules.h"
 #include "editor/ImGuiDrawing.h"
 #include "core/runtime/CkRuntimeHost.h"
@@ -243,7 +244,8 @@ void BorrowedControllerLifetime() {
     Check(runtime.Start(path ? path : ".", {}, &error), error.c_str());
     EditorApplication app({});
     {
-        DataResourceCommands resources(app, runtime, [] { return true; });
+        RuntimeOperation operations;
+        DataResourceCommands resources(app, operations, runtime);
         Check(resources.Register(error) && app.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
         // Entry descriptions borrow this controller. It was never started, so
         // its own destructor releases it before the application table is closed.
