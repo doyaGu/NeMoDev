@@ -1,5 +1,17 @@
 # Architecture checks and migration results
 
+View closing separates the read-only `canClose` check from final `closing`
+and `destroy` cleanup. Normal close and provider replacement use the same
+check. All original views remain live until every check and configuration save
+succeeds; a failure discards only replacement candidates. Final cleanup errors
+identify the view and provider, finish releasing the old instances, and cannot
+interrupt installing the saved configuration. Editor modules now use interface
+version 25; the SDK and file formats are unchanged. Fourteen independent CTests
+cover refusal, exceptions, multiple views, save failures, external modules,
+thread checks, and preserved document selection and undo/redo. Release checks
+passed 222/222 and native Player desktop checks 7/7 on macOS Metal. Results are
+recorded in `baselines/view-close-macos-arm64-metal.json`.
+
 View provider routing now uses the workspace's view selection for Schematic
 navigation and Layout commands. A zero source selects the last focused available
 instance; a nonzero source must still exist and match the requested type.
