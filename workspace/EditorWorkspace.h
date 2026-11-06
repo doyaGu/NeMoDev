@@ -98,7 +98,8 @@ class EditorWorkspace : private EditorViewNavigation {
     EditorStatus Inspect(EditorView, EditorSink) override;
     EditorStatus PickRegions(EditorView, const EditorPickRegion *, uint32_t) override;
     EditorView Create(const EditorViewDesc &desc, const std::string &role = {});
-    void Destroy(EditorView view, bool prepared = false);
+    bool PrepareClose(const View &, std::string &error);
+    void Destroy(EditorView view);
     static EditorStatus OpenCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus FocusCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);
     static EditorStatus CloseCommand(void *, const EditorHost *, const EditorRequest *, EditorSink);

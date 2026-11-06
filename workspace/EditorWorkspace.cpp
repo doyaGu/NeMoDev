@@ -788,10 +788,8 @@ bool EditorWorkspace::Close(EditorView id) {
                         (view.unavailable || view.desc.singleInstance || !view.role.empty());
     if (retain && !CaptureView(view, m_Configuration, persistent, m_Error))
         return false;
-    if (!m_Application.ClosingView(view.desc, view.data, id)) {
-        m_Error = "View cleanup failed";
+    if (!PrepareClose(view, m_Error))
         return false;
-    }
     if (session)
         m_ClosedStates[{Text(view.desc.id), view.desc.singleInstance ? std::string{} : view.role}] = std::move(saved);
     if (retain) {
@@ -799,15 +797,24 @@ bool EditorWorkspace::Close(EditorView id) {
         m_Saved[persistent.instance] = std::move(persistent);
     } else
         m_Saved.erase(view.instance);
-    Destroy(id, true);
+    Destroy(id);
     return true;
 }
-void EditorWorkspace::Destroy(EditorView id, bool prepared) {
+bool EditorWorkspace::PrepareClose(const View &view, std::string &error) {
+    const auto status = m_Application.CanCloseView(view.desc, view.data, view.id);
+    if (status == EDITOR_OK || status == EDITOR_NO_CHANGE)
+        return true;
+    error = "View close preparation failed: " + Text(view.desc.id) + " (" + Text(view.desc.provider) + ")";
+    return false;
+}
+void EditorWorkspace::Destroy(EditorView id) {
     auto found = m_Views.find(id);
     if (found == m_Views.end())
         return;
-    if (!prepared && !m_Application.ClosingView(found->second.desc, found->second.data, id))
-        m_Error = "View cleanup failed";
+    const auto source = Text(found->second.desc.id) + " (" + Text(found->second.desc.provider) + ")";
+    std::string error;
+    if (!m_Application.ClosingView(found->second.desc, found->second.data, id))
+        error = "View cleanup raised an exception: " + source;
     const auto name = WindowName(id);
     if (ImGui::GetCurrentContext()) {
         auto &context = *ImGui::GetCurrentContext();
@@ -828,12 +835,20 @@ void EditorWorkspace::Destroy(EditorView id, bool prepared) {
         m_LastWindowFocus = 0;
     m_Application.CloseScope(id);
     if (!m_Application.DestroyView(found->second.desc, found->second.data)) {
-        m_Error = "View could not be closed";
+        if (!error.empty()) error += "; ";
+        error += "View destruction raised an exception: " + source;
     }
     if (LastFocused(Text(found->second.desc.id)) == id)
         m_LastFocused.erase(Text(found->second.desc.id));
     m_Views.erase(found);
     ++m_ViewsRevision;
+    if (!error.empty()) {
+        m_Error = std::move(error);
+        if (m_Application.report) {
+            // A diagnostic cannot interrupt the remaining committed releases.
+            try { m_Application.report({EDITOR_ERROR, m_Error}); } catch (...) {}
+        }
+    }
 }
 void EditorWorkspace::CloseAll() {
     while (!m_Views.empty())
@@ -967,14 +982,14 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
             const auto &old = entry.second;
             if (old.desc.documentBound != description.documentBound)
                 return rollback();
-            if ((old.desc.documentBound || old.desc.closing) && ImGui::GetCurrentContext())
+            if ((old.desc.documentBound || old.desc.closing || old.desc.canClose) && ImGui::GetCurrentContext())
                 for (const auto id : old.windows)
                     if (const auto *window = ImGui::FindWindowByID(id);
                         window && window->LastFrameActive == old.drawnFrame &&
                         OwnedPopup(window) < ImGui::GetCurrentContext()->OpenPopupStack.Size)
                         return rollback();
             const auto oldName = WindowName(old.id);
-            if ((old.desc.documentBound || old.desc.closing) &&
+            if ((old.desc.documentBound || old.desc.closing || old.desc.canClose) &&
                 (old.active || (ImGui::GetCurrentContext() && !oldName.empty() &&
                                 OwnedPopup(ImGui::FindWindowByName(oldName.c_str())) <
                                     ImGui::GetCurrentContext()->OpenPopupStack.Size)))
@@ -1036,6 +1051,13 @@ bool EditorWorkspace::Configure(const EditorConfiguration &configuration, const 
             }
         }
     }
+    for (const auto &replacement : replacements)
+        if (replacement.old && !PrepareClose(m_Views.at(replacement.old), error)) {
+            const auto message = error;
+            rollback();
+            error = message;
+            return false;
+        }
     if (m_WriteConfiguration) {
         std::string message;
         bool saved = false;
