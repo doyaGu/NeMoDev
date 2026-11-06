@@ -2,6 +2,7 @@
 #include "application/detail/EditorValidation.h"
 #include "application/detail/EditorModules.h"
 #include "application/detail/EditorConfiguration.h"
+#include "application/detail/EditorQueries.h"
 #include "application/DocumentDataCallbacks.h"
 #include "core/document/Document.h"
 #include "core/document/Edit.h"
@@ -301,11 +302,8 @@ EditorStatus CopyEditorFields(std::vector<EditorField> &fields, const EditorValu
     return Collect(&fields, values, count);
 }
 
-struct EditorApplication::CachedQuery {
-    explicit CachedQuery(EditorResponse result) : response(std::move(result)), values(BorrowResponse(response)) {}
-    const EditorResponse response;
-    const EditorFieldValues values;
-};
+EditorApplication::CachedQuery::CachedQuery(EditorResponse result)
+    : response(std::move(result)), values(BorrowResponse(response)) {}
 
 struct EditorApplication::State {
     std::function<Document *()> current;
@@ -314,6 +312,7 @@ struct EditorApplication::State {
     std::thread::id thread = std::this_thread::get_id();
     RegisteredModules modules;
     SelectedConfiguration configuration;
+    QueryState queries;
     const EditorValueEditors *drawingValues = nullptr;
     struct ToolState {
         std::string type, choice, fallback;
@@ -326,7 +325,7 @@ struct EditorApplication::State {
     unsigned drawing = 0, querying = 0, executing = 0, editing = 0, drawingEdit = 0;
     unsigned readOnlyCallbacks = 0, checking = 0;
     DocumentToken document{};
-    uint64_t revision = 0, contentRevision = 0, published = 1, next = 1;
+    uint64_t revision = 0, contentRevision = 0, next = 1;
     ObjectRef selection{};
     std::set<EditorView> scopes;
     EditorViewNavigation *navigation = nullptr;
@@ -385,27 +384,6 @@ struct EditorApplication::State {
         }
         return true;
     }
-    struct Cached {
-        EditorScope scope;
-        std::vector<EditorField> arguments;
-        std::shared_ptr<const CachedQuery> result;
-        uint64_t version = 0;
-    };
-    std::map<const EditorQueryDesc *, std::vector<Cached>> cache;
-    struct QueryRevision {
-        const EditorQueryDesc *source = nullptr;
-        uint64_t value = 0, published = 0;
-    };
-    std::map<std::string, QueryRevision> queryRevisions;
-    EditorResponse queryResult;
-    struct Watch {
-        EditorScope scope;
-        EditorChanged changed;
-        void *data;
-    };
-    std::map<EditorSubscription, Watch> watches;
-    uint64_t delivered = 0;
-    bool notifying = false;
     State(std::function<Document *()> document, std::function<bool()> native)
         : current(std::move(document)), nativeAvailable(std::move(native)) {}
     bool NativeReady() const { return available && (!nativeAvailable || nativeAvailable()); }
@@ -562,8 +540,7 @@ struct EditorApplication::State {
         }
         --readOnlyCallbacks;
         --executing;
-        cache.clear();
-        ++published;
+        queries.Changed();
         return status == EDITOR_OK || status == EDITOR_STALE ? status : EDITOR_ERROR;
     }
     bool RestorePreview(Draft &draft) {
@@ -612,14 +589,13 @@ struct EditorApplication::State {
         return status >= EDITOR_OK && status <= EDITOR_ERROR ? status : EDITOR_ERROR;
     }
     void RefreshDocument() {
-        if (querying || executing || notifying || !NativeReady()) return;
+        if (querying || executing || queries.Notifying() || !NativeReady()) return;
         auto *doc = CurrentDocument();
         if (!doc || doc->Token() != document || doc->EditOpen()) return;
         if (contentRevision == doc->ChangeRevision() && revision == doc->TopologyRevision()) return;
         contentRevision = doc->ChangeRevision();
         revision = doc->TopologyRevision();
-        cache.clear();
-        ++published;
+        queries.Changed();
     }
     EditorResponse Run(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields,
                        EditorOperation operation = 0, Draft *preview = nullptr) {
@@ -679,7 +655,7 @@ struct EditorApplication::State {
         if (result.status < EDITOR_OK || result.status > EDITOR_QUEUED ||
             (command.effect == EDITOR_DOCUMENT_EDIT && result.status == EDITOR_QUEUED))
             result.status = EDITOR_ERROR;
-        cache.clear();
+        queries.Invalidate();
         if (preview && preview->preview && (result.status == EDITOR_OK || result.status == EDITOR_NO_CHANGE)) {
             const auto released = Preview(*preview, preview->value, EDITOR_PREVIEW_RELEASE);
             if ((released != EDITOR_OK && released != EDITOR_STALE) || preview->preview) {
@@ -868,7 +844,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
         if (s.checking) return EDITOR_REFUSED;
         try {
             const auto id = s.next++;
-            s.watches.emplace(id, State::Watch{self.Scope(view), changed, data});
+            s.queries.Subscribe(id, self.Scope(view), changed, data);
             *out = id;
             return EDITOR_OK;
         } catch (...) {
@@ -878,7 +854,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
     h.unwatch = [](void *p, EditorSubscription id) {
         auto &s = *static_cast<EditorApplication *>(p)->m_State;
         if (s.Thread() && !s.checking)
-            s.watches.erase(id);
+            s.queries.Unsubscribe(id);
     };
     h.scope = [](void *p, EditorView view) { return static_cast<EditorApplication *>(p)->Scope(view); };
     h.selectTool = [](void *p, EditorScope scope, EditorString id) {
@@ -942,7 +918,7 @@ EditorApplication::EditorApplication(std::function<Document *()> current, std::f
                          EditorSink sink) -> EditorStatus {
         auto &app = *static_cast<EditorApplication *>(p);
         auto &s = *app.m_State;
-        if (!s.Thread() || !s.active || !s.navigation || !s.executing || s.editing || s.drawing || s.querying || s.notifying)
+        if (!s.Thread() || !s.active || !s.navigation || !s.executing || s.editing || s.drawing || s.querying || s.queries.Notifying())
             return EDITOR_REFUSED;
         if (!request) return EDITOR_INVALID;
         try {
@@ -1438,18 +1414,14 @@ EditorStatus EditorApplication::QueryRevision(const std::string &id, uint64_t &v
     if (found == s.configuration.Get().queries.end()) return EDITOR_INVALID;
     const auto &desc = *found->second;
     if (desc.refresh == EDITOR_QUERY_EACH_READ || s.querying >= 16) return EDITOR_REFUSED;
-    uint64_t value = s.published;
+    uint64_t value = s.queries.Revision();
     ++s.querying;
     ++s.readOnlyCallbacks;
     try { if (desc.revision) value = desc.revision(desc.data, Host()); }
     catch (...) { --s.querying; --s.readOnlyCallbacks; return EDITOR_ERROR; }
     --s.querying;
     --s.readOnlyCallbacks;
-    auto &revision = s.queryRevisions[id];
-    if (revision.source != &desc || revision.value != value) {
-        revision.source = &desc; revision.value = value; ++revision.published;
-    }
-    version = revision.published;
+    version = s.queries.Version(id, desc, value);
     return EDITOR_OK;
 }
 
@@ -1542,7 +1514,7 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
 }
 bool EditorApplication::Configure(const EditorConfiguration &configuration, std::string &error) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || s.modules.Stopped() || s.drawing || s.querying || s.executing || s.notifying) {
+    if (!s.Thread() || !s.active || s.modules.Stopped() || s.drawing || s.querying || s.executing || s.queries.Notifying()) {
         error = "Finish active callbacks before changing configuration";
         return false;
     }
@@ -1570,7 +1542,7 @@ bool EditorApplication::Configure(const EditorConfiguration &configuration, std:
                 if (!s.NativeReady() || !doc->SetDataTypes(selected.dataTypes))
                     throw std::invalid_argument("Finish file work and close the composition before replacing document data providers");
         s.configuration.Install(std::move(selected));
-        s.cache.clear();
+        s.queries.Invalidate();
         return true;
     } catch (const std::exception &e) {
         error = e.what();
@@ -1589,16 +1561,13 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
         for (const auto &pending : s.pending) s.Complete(pending.operation, {EDITOR_STALE});
         s.pending.clear();
         s.selection = {};
-        s.cache.clear();
     }
     s.available = available;
     auto *current = s.NativeReady() ? s.CurrentDocument() : nullptr;
     const bool contentChanged = current && current->Token() == document && !current->EditOpen() &&
                                 current->ChangeRevision() != s.contentRevision;
-    if (s.revision != revision || s.document != document || contentChanged) {
-        s.cache.clear();
-        ++s.published;
-    }
+    if (documentChanged) s.queries.DocumentChanged(document);
+    else if (s.revision != revision || contentChanged) s.queries.Changed();
     s.document = document;
     s.revision = revision;
     if (current && current->Token() == document && !current->EditOpen()) s.contentRevision = current->ChangeRevision();
@@ -1611,16 +1580,13 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
             } else
                 ++it;
     }
-    if (documentChanged)
-        for (auto &watch : s.watches)
-            watch.second.scope.document = document;
 }
 void EditorApplication::NativeAvailable(bool available) { m_State->available = available; }
 bool EditorApplication::NativeAvailable() const { return m_State->Thread() && m_State->NativeReady(); }
 uint64_t EditorApplication::Revision() const {
     if (!m_State->Thread()) return 0;
     m_State->RefreshDocument();
-    return m_State->published;
+    return m_State->queries.Revision();
 }
 bool EditorApplication::HasEdits() const {
     return !m_State->drafts.empty() || !m_State->pending.empty() ||
@@ -1655,15 +1621,7 @@ void EditorApplication::CloseScope(EditorView view) {
     }
     s.toolStates.erase(view);
     s.scopes.erase(view);
-    s.queryResult = {};
-    for (auto &query : s.cache)
-        query.second.erase(std::remove_if(query.second.begin(), query.second.end(),
-            [&](const State::Cached &entry) { return entry.scope.view == view; }), query.second.end());
-    for (auto it = s.watches.begin(); it != s.watches.end();)
-        if (it->second.scope.view == view)
-            it = s.watches.erase(it);
-        else
-            ++it;
+    s.queries.CloseScope(view);
     for (auto it = s.drafts.begin(); it != s.drafts.end();)
         if (it->second.scope.view == view) {
             s.RestorePreview(it->second);
@@ -1684,7 +1642,7 @@ EditorScope EditorApplication::Scope(EditorView view) const {
 }
 EditorResponse EditorApplication::Query(const std::string &id, const EditorRequest &request) {
     const auto &result = ReadQuery(id, request);
-    if (m_State->Thread() && &result == &m_State->queryResult) return std::move(m_State->queryResult);
+    if (m_State->Thread() && m_State->queries.IsTransient(result)) return m_State->queries.TakeTransient();
     return result;
 }
 const EditorResponse &EditorApplication::ReadQuery(const std::string &id, const EditorRequest &request) {
@@ -1698,8 +1656,8 @@ EditorStatus EditorApplication::DeliverQuery(std::string_view id, const EditorRe
     const auto &result = ReadQuery(id, request, &retained);
     if (retained)
         return Deliver(retained->response, retained->values, sink, true);
-    if (m_State->Thread() && &result == &m_State->queryResult) {
-        auto owned = std::move(m_State->queryResult);
+    if (m_State->Thread() && m_State->queries.IsTransient(result)) {
+        auto owned = m_State->queries.TakeTransient();
         return Send(owned, sink);
     }
     return Send(result, sink);
@@ -1714,7 +1672,7 @@ const EditorResponse &EditorApplication::ReadQuery(std::string_view id, const Ed
         return refused;
     }
     s.RefreshDocument();
-    const auto transient = [&]() -> const EditorResponse & { s.queryResult = std::move(result); return s.queryResult; };
+    const auto transient = [&]() -> const EditorResponse & { return s.queries.Transient(std::move(result)); };
     auto found = s.configuration.Get().queries.find(id);
     if (found == s.configuration.Get().queries.end()) {
         result.status = EDITOR_INVALID;
@@ -1749,20 +1707,10 @@ const EditorResponse &EditorApplication::ReadQuery(std::string_view id, const Ed
         --s.querying;
         if (result.status != EDITOR_OK) return transient();
     }
-    auto &cache = s.cache[query];
-    const auto same = [&](const State::Cached &c) {
-        if (c.scope.document != request.scope.document || c.scope.view != request.scope.view ||
-            c.arguments.size() != fields.size())
-            return false;
-        for (size_t i = 0; i < fields.size(); ++i)
-            if (c.arguments[i] != fields[i])
-                return false;
-        return true;
-    };
     if (query->refresh != EDITOR_QUERY_EACH_READ)
-        if (auto previous = std::find_if(cache.begin(), cache.end(), same); previous != cache.end() && previous->version == version) {
-            if (retained) *retained = previous->result;
-            return previous->result->response;
+        if (const auto *previous = s.queries.Find(query, request.scope, fields, version)) {
+            if (retained) *retained = *previous;
+            return (*previous)->response;
         }
     if ((!s.NativeReady() && query->area == EDITOR_DOCUMENT) || s.querying >= 16) {
         result.status = EDITOR_REFUSED;
@@ -1793,16 +1741,9 @@ const EditorResponse &EditorApplication::ReadQuery(std::string_view id, const Ed
     if (result.status != EDITOR_OK)
         result.fields.clear();
     if (result.status == EDITOR_OK && query->refresh != EDITOR_QUERY_EACH_READ) {
-        if (auto previous = std::find_if(cache.begin(), cache.end(), same); previous != cache.end()) {
-            previous->result = std::make_shared<const CachedQuery>(std::move(result));
-            previous->version = version;
-            if (retained) *retained = previous->result;
-            return previous->result->response;
-        }
-        if (cache.size() >= 256) cache.erase(cache.begin());
-        cache.push_back({request.scope, std::move(fields), std::make_shared<const CachedQuery>(std::move(result)), version});
-        if (retained) *retained = cache.back().result;
-        return cache.back().result->response;
+        const auto &stored = s.queries.Store(query, request.scope, std::move(fields), version, std::move(result));
+        if (retained) *retained = stored;
+        return stored->response;
     }
     return transient();
 }
@@ -1883,7 +1824,7 @@ EditorResponse EditorApplication::Execute(const std::string &id, const EditorReq
         admission.state = nullptr;
     result.status = s.Check(admission, request.scope, fields);
     if (result.status != EDITOR_OK) return result;
-    const bool deferred = s.drawing || s.querying || s.notifying || (!s.executing && !s.pending.empty());
+    const bool deferred = s.drawing || s.querying || s.queries.Notifying() || (!s.executing && !s.pending.empty());
     const auto revisionArgument = String(request.revisionArgument);
     if (request.afterEdit) {
         const auto parent = std::find_if(s.pending.begin(), s.pending.end(), [&](const auto &pending) {
@@ -1947,7 +1888,7 @@ EditorStatus EditorApplication::BeginEdit(const std::string &property, const Edi
     auto &s = *m_State;
     out = 0;
     if (!s.Thread() || (s.inputView && request.scope.view != s.inputView)) return EDITOR_REFUSED;
-    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.queries.Notifying()) return EDITOR_REFUSED;
     std::vector<EditorField> arguments;
     if (CopyEditorFields(arguments, request.values, request.count) != EDITOR_OK) return EDITOR_INVALID;
     const auto targetField = std::find_if(arguments.begin(), arguments.end(), [](const auto &f) { return f.key == "target" && f.type == EDITOR_OBJECT; });
@@ -1975,7 +1916,7 @@ EditorStatus EditorApplication::BeginCommand(const std::string &id, const Editor
     out = 0;
     auto request = input;
     if (!s.Thread() || (s.inputView && request.scope.view != s.inputView)) return EDITOR_REFUSED;
-    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying || !s.NativeReady() || !s.writable ||
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.queries.Notifying() || !s.NativeReady() || !s.writable ||
         !s.drafts.empty() || !s.pending.empty())
         return EDITOR_REFUSED;
     const auto routed = s.ResolveCommandView(id, request.scope);
@@ -2022,7 +1963,7 @@ EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const std::string &t
 }
 EditorStatus EditorApplication::UpdateEdit(EditorEdit edit, const EditorValue &value) {
     auto &s = *m_State;
-    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.queries.Notifying()) return EDITOR_REFUSED;
     const auto found = s.drafts.find(edit);
     if (found == s.drafts.end())
         return EDITOR_STALE;
@@ -2054,7 +1995,7 @@ EditorStatus EditorApplication::FinishEdit(EditorEdit edit, bool commit, EditorO
     if (operation)
         *operation = 0;
     auto &s = *m_State;
-    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.notifying) return EDITOR_REFUSED;
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.queries.Notifying()) return EDITOR_REFUSED;
     auto found = s.drafts.find(edit);
     if (found == s.drafts.end()) return EDITOR_STALE;
     if (s.inputView && found->second.scope.view != s.inputView) return EDITOR_REFUSED;
@@ -2175,7 +2116,7 @@ EditorResponse EditorApplication::ApplyEdit(const std::string &id, const EditorR
     auto &s = *m_State;
     EditorResponse result{EDITOR_REFUSED};
     auto request = input;
-    if (!s.Thread() || !s.NativeReady() || s.readOnlyCallbacks || s.querying || s.notifying || !s.drafts.empty() ||
+    if (!s.Thread() || !s.NativeReady() || s.readOnlyCallbacks || s.querying || s.queries.Notifying() || !s.drafts.empty() ||
         !s.writable || !s.Valid(request.scope))
         return result;
     const auto routed = s.ResolveCommandView(id, request.scope);
@@ -2263,7 +2204,7 @@ uint32_t EditorApplication::DrawProperty(const std::string &property, const Edit
     const auto targetField = std::find_if(arguments.begin(), arguments.end(), [](const auto &f) { return f.key == "target" && f.type == EDITOR_OBJECT; });
     if (targetField == arguments.end()) return EDITOR_INPUT_INVALID;
     const auto target = targetField->object;
-    if (!s.Thread() || !s.drawing || s.readOnlyCallbacks || s.querying || s.notifying || !s.NativeReady() || !s.Valid(scope) || !s.Current(target)) return EDITOR_INPUT_INVALID;
+    if (!s.Thread() || !s.drawing || s.readOnlyCallbacks || s.querying || s.queries.Notifying() || !s.NativeReady() || !s.Valid(scope) || !s.Current(target)) return EDITOR_INPUT_INVALID;
     const auto p = s.configuration.Get().properties.find(property);
     if (p == s.configuration.Get().properties.end()) return EDITOR_INPUT_INVALID;
     auto found = s.drafts.find(edit);
@@ -2634,7 +2575,7 @@ void EditorApplication::EnterDraw() { ++m_State->drawing; }
 void EditorApplication::LeaveDraw() { --m_State->drawing; }
 void EditorApplication::EndFrame() {
     auto &s = *m_State;
-    if (!s.Thread() || s.drawing || s.querying || s.executing || s.notifying)
+    if (!s.Thread() || s.drawing || s.querying || s.executing || s.queries.Notifying())
         return;
     if (!s.pending.empty()) {
         struct PendingRun {
@@ -2693,30 +2634,11 @@ void EditorApplication::EndFrame() {
             ++it;
     }
     s.RefreshDocument();
-    if (s.delivered == s.published)
-        return;
-    s.delivered = s.published;
-    std::vector<EditorSubscription> notices;
-    for (auto &w : s.watches)
-        notices.push_back(w.first);
-    s.notifying = true;
-    for (auto id : notices) {
-        auto w = s.watches.find(id);
-        if (w == s.watches.end() || !s.scopes.count(w->second.scope.view))
-            continue;
-        const auto watcher = w->second;
-        const EditorChange change{watcher.scope, s.published};
-        try {
-            watcher.changed(watcher.data, Host(), &change);
-        } catch (...) {
-            s.watches.erase(id);
-        }
-    }
-    s.notifying = false;
+    s.queries.Notify(Host(), s.scopes);
 }
 bool EditorApplication::StartModules(std::string &error) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || s.stopped || s.modules.Stopped() || s.modules.Busy() || s.drawing || s.querying || s.executing || s.notifying) {
+    if (!s.Thread() || !s.active || s.stopped || s.modules.Stopped() || s.modules.Busy() || s.drawing || s.querying || s.executing || s.queries.Notifying()) {
         error = "Modules cannot start during another callback";
         return false;
     }
@@ -2730,7 +2652,7 @@ bool EditorApplication::StartModules(std::string &error) {
 }
 bool EditorApplication::UpdateModules(EditorModulePhase phase) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || s.drawing || s.querying || s.executing || s.notifying) return false;
+    if (!s.Thread() || !s.active || s.drawing || s.querying || s.executing || s.queries.Notifying()) return false;
     ++s.executing;
     const bool updated = s.modules.Update(Host(), phase, report);
     --s.executing;
@@ -2760,11 +2682,10 @@ void EditorApplication::Stop() {
     s.toolStates.clear();
     s.active = false;
     s.stopped = true;
-    s.watches.clear();
     s.ClearDrafts();
     s.pending.clear();
     s.scopes.clear();
-    s.cache.clear();
+    s.queries.Clear();
     s.configuration.Clear();
     s.modules.Clear();
 }
