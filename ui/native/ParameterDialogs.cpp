@@ -260,7 +260,7 @@ bool RegisterParameterDialogs(EditorApplication &editor,ParameterCopies &copies,
     module.version = EDITOR_VERSION;
     module.id = EDITOR_TEXT("parameters.dialogs");
     module.data = data;
-    module.stop = [](void *data) { delete static_cast<ParameterDialog *>(data); };
+    module.destroy = [](void *data) { delete static_cast<ParameterDialog *>(data); };
     module.commands = commands;
     module.commandCount = 5;
     module.views = &view;

@@ -157,6 +157,9 @@ class EditorApplication {
     std::string ProviderModule(const ProviderChoice &) const;
     const EditorConfiguration &DefaultConfiguration() const;
     bool Activate(EditorDrawingVersion imguiVersion, std::string &error, const EditorConfiguration &configuration = {});
+    bool StartModules(std::string &error);
+    bool UpdateModules(EditorModulePhase phase);
+    void StopModules();
     bool Configure(const EditorConfiguration &configuration, std::string &error);
     const EditorConfiguration &Configuration() const;
     std::shared_ptr<const DocumentDataRegistry> DataTypes() const;

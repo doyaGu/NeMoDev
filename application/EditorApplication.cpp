@@ -304,10 +304,15 @@ void CloseLibrary(void *library) {
 struct Module {
     EditorString id{};
     void *data = nullptr;
-    void(EDITOR_CALL *stop)(void *) = nullptr;
+    void(EDITOR_CALL *destroy)(void *) = nullptr;
+    void(EDITOR_CALL *stop)(void *, const EditorHost *) = nullptr;
+    EditorStatus(EDITOR_CALL *start)(void *, const EditorHost *) = nullptr;
+    void(EDITOR_CALL *update)(void *, const EditorHost *, EditorModulePhase) = nullptr;
+    bool running = false;
     std::deque<std::string> strings;
     std::deque<std::vector<EditorParameter>> parameters;
     std::vector<EditorString> dependencies;
+    std::vector<EditorString> optionalDependencies;
     std::vector<EditorCommandDesc> commands;
     std::vector<EditorQueryDesc> queries;
     std::vector<EditorPropertyDesc> properties;
@@ -359,9 +364,15 @@ struct Module {
         id = Text(source.id, true);
         data = source.data;
         stop = source.stop;
+        destroy = source.destroy;
+        start = source.start;
+        update = source.update;
         Array(source.dependencies, source.dependencyCount);
         for (uint32_t i = 0; i < source.dependencyCount; ++i)
             dependencies.push_back(Text(source.dependencies[i], true));
+        Array(source.optionalDependencies, source.optionalDependencyCount);
+        for (uint32_t i = 0; i < source.optionalDependencyCount; ++i)
+            optionalDependencies.push_back(Text(source.optionalDependencies[i], true));
         Array(source.commands, source.commandCount);
         Array(source.queries, source.queryCount);
         Array(source.properties, source.propertyCount);
@@ -623,9 +634,11 @@ struct Module {
             images.push_back(d);
         }
     }
-    void Stop() {
+    void Destroy() {
         dataCallbacks->Close();
-        if (stop) { try { stop(data); } catch (...) {} }
+        const auto callback = destroy;
+        destroy = nullptr;
+        if (callback) { try { callback(data); } catch (...) {} }
     }
     ~Module() { dataCallbacks->Close(); CloseLibrary(library); }
 };
@@ -745,6 +758,7 @@ struct EditorApplication::State {
     std::map<std::string, std::vector<EditorKey>> shortcuts;
     bool active = false, available = false, writable = false, stopped = false;
     bool assembling = false, loading = false, discarding = false;
+    bool modulesStarted = false, modulesStopped = false, moduleCallback = false;
     std::map<std::string, std::string> locations;
     unsigned drawing = 0, querying = 0, executing = 0, editing = 0, drawingEdit = 0;
     unsigned readOnlyCallbacks = 0, checking = 0;
@@ -859,6 +873,10 @@ struct EditorApplication::State {
                     throw std::invalid_argument("Missing module dependency: " + String(module->id) + " -> " + String(dependency));
                 self(self, found->second);
             }
+            for (auto dependency : module->optionalDependencies) {
+                const auto found = named.find(String(dependency));
+                if (found != named.end()) self(self, found->second);
+            }
             visiting.erase(module);
             done.insert(module);
             order.push_back(module);
@@ -878,8 +896,8 @@ struct EditorApplication::State {
         std::set<Module *> removed;
         for (size_t i = first; i < modules.size(); ++i) removed.insert(modules[i].get());
         for (auto it = order.rbegin(); it != order.rend(); ++it)
-            if (removed.count(*it)) (*it)->Stop();
-        // All stop callbacks run while every library is still loaded.
+            if (removed.count(*it)) (*it)->Destroy();
+        // All module data is released while every library is still loaded.
         modules.resize(first);
         discarding = false;
     }
@@ -1043,7 +1061,7 @@ struct EditorApplication::State {
     }
     EditorStatus Check(const EditorCommandDesc &command, EditorScope scope, const std::vector<EditorField> &fields, bool fromDraft = false) {
         if (!Thread() || !Valid(scope, command.area)) return EDITOR_STALE;
-        if (readOnlyCallbacks) return EDITOR_REFUSED;
+        if (readOnlyCallbacks || modulesStopped) return EDITOR_REFUSED;
         const bool native = command.effect != EDITOR_SESSION_CHANGE;
         // Window navigation can close the owner of a draft. Document session
         // changes, including selection, still wait for the draft to finish.
@@ -2068,9 +2086,9 @@ bool EditorApplication::Load(const std::string &path, std::string &error) {
     } origin{m_State->sourceFile, m_State->sourceFile};
     m_State->sourceFile = file.u8string();
     const auto discard = [&] {
-        if (desc.stop) {
+        if (desc.destroy) {
             try {
-                desc.stop(desc.data);
+                desc.destroy(desc.data);
             } catch (...) {
             }
         }
@@ -2188,7 +2206,7 @@ bool EditorApplication::Assemble(const std::vector<EditorModuleSource> &sources,
         s.discarding = true;
         for (auto &module : s.modules) if (!module->enabled) disabled.push_back(std::move(module));
         s.modules.erase(std::remove(s.modules.begin(), s.modules.end(), nullptr), s.modules.end());
-        for (auto it = disabled.rbegin(); it != disabled.rend(); ++it) (*it)->Stop();
+        for (auto it = disabled.rbegin(); it != disabled.rend(); ++it) (*it)->Destroy();
         disabled.clear();
         s.discarding = false;
         auto effective = s.defaults;
@@ -2349,7 +2367,7 @@ bool EditorApplication::Activate(EditorDrawingVersion imguiVersion, std::string 
 }
 bool EditorApplication::Configure(const EditorConfiguration &configuration, std::string &error) {
     auto &s = *m_State;
-    if (!s.Thread() || !s.active || !s.drafts.empty() ||
+    if (!s.Thread() || !s.active || s.modulesStopped || !s.drafts.empty() ||
         std::any_of(s.pending.begin(), s.pending.end(), [](const auto &p) { return bool(p.preview); }) || s.drawing ||
         s.querying || s.executing || s.notifying ||
         std::any_of(s.toolStates.begin(), s.toolStates.end(),
@@ -3871,12 +3889,89 @@ void EditorApplication::EndFrame() {
     }
     s.notifying = false;
 }
+bool EditorApplication::StartModules(std::string &error) {
+    auto &s = *m_State;
+    if (!s.Thread() || !s.active || s.stopped || s.modulesStopped || s.moduleCallback || s.drawing || s.querying || s.executing || s.notifying) {
+        error = "Modules cannot start during another callback";
+        return false;
+    }
+    if (s.modulesStarted) return true;
+    s.moduleCallback = true;
+    ++s.readOnlyCallbacks;
+    ++s.executing;
+    bool started = true;
+    for (auto *module : s.activation) {
+        module->running = true;
+        if (!module->start) continue;
+        EditorStatus status = EDITOR_ERROR;
+        std::string message;
+        try { status = module->start(module->data, Host()); }
+        catch (const std::exception &failure) { message = failure.what(); }
+        catch (...) { message = "Startup raised an exception"; }
+        if (status == EDITOR_OK || status == EDITOR_NO_CHANGE) continue;
+        error = "Module start failed: " + String(module->id);
+        if (!message.empty()) error += ": " + message;
+        started = false;
+        break;
+    }
+    --s.executing;
+    --s.readOnlyCallbacks;
+    s.moduleCallback = false;
+    if (!started) { Stop(); return false; }
+    s.modulesStarted = true;
+    return true;
+}
+bool EditorApplication::UpdateModules(EditorModulePhase phase) {
+    auto &s = *m_State;
+    if (!s.Thread() || !s.active || !s.modulesStarted || s.moduleCallback || s.drawing || s.querying || s.executing ||
+        s.notifying || (phase != EDITOR_PREPARE_FRAME && phase != EDITOR_BEFORE_VIEWS && phase != EDITOR_AFTER_VIEWS))
+        return false;
+    s.moduleCallback = true;
+    ++s.executing;
+    bool updated = true;
+    for (auto *module : s.activation) {
+        if (!module->update) continue;
+        try { module->update(module->data, Host(), phase); }
+        catch (...) {
+            updated = false;
+            if (report) {
+                try { report({EDITOR_ERROR, "Module update failed: " + String(module->id)}); } catch (...) {}
+            }
+        }
+    }
+    --s.executing;
+    s.moduleCallback = false;
+    return updated;
+}
+void EditorApplication::StopModules() {
+    auto &s = *m_State;
+    if (!s.Thread() || s.modulesStopped || s.moduleCallback || s.assembling || s.loading || s.discarding) return;
+    s.moduleCallback = true;
+    s.modulesStopped = true;
+    ++s.executing;
+    s.modulesStarted = false;
+    for (auto it = s.activation.rbegin(); it != s.activation.rend(); ++it) {
+        auto &module = **it;
+        if (!module.running) continue;
+        module.running = false;
+        if (!module.stop) continue;
+        try { module.stop(module.data, Host()); }
+        catch (...) {
+            if (report) {
+                try { report({EDITOR_ERROR, "Module stop failed: " + String(module.id)}); } catch (...) {}
+            }
+        }
+    }
+    --s.executing;
+    s.moduleCallback = false;
+}
 void EditorApplication::Stop() {
     if (!m_State)
         return;
     auto &s = *m_State;
-    if (!s.Thread() || s.assembling || s.loading || s.discarding)
+    if (!s.Thread() || s.assembling || s.loading || s.discarding || s.moduleCallback)
         return;
+    StopModules();
     for (const auto &entry : s.toolStates) {
         CancelTool(entry.first);
         EditorToolInput leave{};
@@ -3886,6 +3981,7 @@ void EditorApplication::Stop() {
     }
     s.toolStates.clear();
     s.active = false;
+    s.modulesStarted = false;
     s.stopped = true;
     s.watches.clear();
     s.ClearDrafts();

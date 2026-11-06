@@ -30,7 +30,7 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     if (std::string(MODULE_ID) == "fixture.addon")
         if (const auto *value = std::getenv("NEMODEV_MODULE_FAILURE")) mode = value;
     out->data = new Data{mode == "stop-throw"};
-    out->stop = Stop;
+    out->destroy = Stop;
     out->id = EDITOR_TEXT(MODULE_ID);
 #ifdef MODULE_DEPENDENCY
     const EditorString dependency = mode == "missing" ? EditorString EDITOR_TEXT("fixture.missing") :

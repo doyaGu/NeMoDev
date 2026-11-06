@@ -15,6 +15,27 @@ ObjectRef IdentityFromC(DocumentToken document, uint32_t object, uint64_t lifeti
 uint32_t IdentitySizeFromC(void) { return (uint32_t)sizeof(ObjectRef); }
 
 uint32_t EditorModuleSizeFromC(void) { return (uint32_t)sizeof(EditorModuleDesc); }
+static EditorStatus EDITOR_CALL LifecycleStartFromC(void *data, const EditorHost *host) {
+    (void)host;
+    *(uint32_t *)data |= 1u;
+    return EDITOR_OK;
+}
+static void EDITOR_CALL LifecycleUpdateFromC(void *data, const EditorHost *host, EditorModulePhase phase) {
+    (void)host;
+    *(uint32_t *)data |= 2u << phase;
+}
+static void EDITOR_CALL LifecycleStopFromC(void *data, const EditorHost *host) {
+    (void)host;
+    *(uint32_t *)data |= 16u;
+}
+static void EDITOR_CALL LifecycleDestroyFromC(void *data) { *(uint32_t *)data |= 32u; }
+EditorModuleDesc LifecycleModuleFromC(uint32_t *value) {
+    EditorModuleDesc module = {0};
+    module.size = sizeof(module); module.version = EDITOR_VERSION; module.data = value;
+    module.start = LifecycleStartFromC; module.update = LifecycleUpdateFromC;
+    module.stop = LifecycleStopFromC; module.destroy = LifecycleDestroyFromC;
+    return module;
+}
 uint32_t EditorRequestSizeFromC(void) { return (uint32_t)sizeof(EditorRequest); }
 uint32_t EditorHostSizeFromC(void) { return (uint32_t)sizeof(EditorHost); }
 EditorValue IntegerFromC(uint64_t value) {

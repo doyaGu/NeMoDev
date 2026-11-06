@@ -1802,7 +1802,7 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->editors = descriptors->editors.data();
     out->editorCount = uint32_t(descriptors->editors.size());
     out->data = descriptors;
-    out->stop = [](void *p) {
+    out->destroy = [](void *p) {
         auto *d = static_cast<Descriptors *>(p);
         Stop(d->data);
         delete d;

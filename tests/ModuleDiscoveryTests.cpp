@@ -45,7 +45,7 @@ struct Embedded {
         return {"linked fixture", [this](vdev::EditorApplication &editor, std::string &error) {
             EditorModuleDesc desc{}; desc.size = sizeof(desc); desc.version = EDITOR_VERSION;
             desc.id = EDITOR_TEXT("fixture.embedded"); desc.data = this;
-            desc.stop = [](void *data) {
+            desc.destroy = [](void *data) {
                 auto &self = *static_cast<Embedded *>(data); ++self.stops;
                 Record(self.log, "stop fixture.embedded");
             };
@@ -179,13 +179,13 @@ int main(int argc, char **argv) {
             int keptStops = 0;
             EditorModuleDesc kept{}; kept.size = sizeof(kept); kept.version = EDITOR_VERSION;
             kept.id = EDITOR_TEXT("fixture.kept"); kept.data = &keptStops;
-            kept.stop = [](void *data) { ++*static_cast<int *>(data); };
+            kept.destroy = [](void *data) { ++*static_cast<int *>(data); };
             Check(editor.Register(kept, error), error);
             struct Probe { vdev::EditorApplication *editor; bool refused = false; } probe{&editor};
             vdev::EditorModuleSource cleanup{"cleanup reentry", [&](auto &app, auto &message) {
                 EditorModuleDesc desc{}; desc.size = sizeof(desc); desc.version = EDITOR_VERSION;
                 desc.id = EDITOR_TEXT("fixture.cleanup"); desc.data = &probe;
-                desc.stop = [](void *data) {
+                desc.destroy = [](void *data) {
                     auto &probe = *static_cast<Probe *>(data);
                     std::string error;
                     EditorModuleDesc nested{}; nested.size = sizeof(nested); nested.version = EDITOR_VERSION;

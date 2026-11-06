@@ -163,7 +163,7 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->toolbarItems = &owned->button;
     out->bindings = &owned->binding;
     out->data = owned;
-    out->stop = [](void *data) {
+    out->destroy = [](void *data) {
         auto *owned = static_cast<Owned *>(data);
         delete owned->module;
         delete owned;

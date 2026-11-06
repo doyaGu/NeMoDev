@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 25u
+#define EDITOR_VERSION 26u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -498,6 +498,10 @@ typedef struct EditorDocumentDataDesc {
 // merge, differing records with the same id and owner fail Import/Merge;
 // identical records and different owners need no callback. Unused descriptors
 // create no file data. Provider selection uses kind "document-data".
+// Pending work is prepared before menus; presentation state is published just
+// before views draw; interactive work advances after them. Callbacks do not
+// render UI or present a GPU frame.
+typedef enum EditorModulePhase { EDITOR_PREPARE_FRAME, EDITOR_BEFORE_VIEWS, EDITOR_AFTER_VIEWS } EditorModulePhase;
 typedef struct EditorModuleDesc {
     uint32_t size, version;
     EditorString id;
@@ -520,7 +524,9 @@ typedef struct EditorModuleDesc {
     const EditorMenuLocation *locations;
     uint32_t locationCount;
     void *data;
-    void(EDITOR_CALL *stop)(void *);
+    // Releases entry-owned data, including entries that were never started.
+    // All module data is released before any module library is unloaded.
+    void(EDITOR_CALL *destroy)(void *);
     const EditorToolDesc *tools;
     uint32_t toolCount;
     const EditorToolbarItemDesc *toolbarItems;
@@ -535,6 +541,22 @@ typedef struct EditorModuleDesc {
     uint32_t imageCount;
     const EditorDocumentDataDesc *documentData;
     uint32_t documentDataCount;
+    // Called once for enabled modules in dependency order, after activation
+    // and core document creation. Startup may query but cannot submit commands.
+    // OK/NO_CHANGE succeeds; failure stops the application module batch.
+    EditorStatus(EDITOR_CALL *start)(void *, const EditorHost *);
+    // Editor thread only; configuration and recursive lifecycle calls are
+    // refused. All phases also run for modules with no start callback.
+    void(EDITOR_CALL *update)(void *, const EditorHost *, EditorModulePhase);
+    // Ends activity while views, published data and the native context remain
+    // valid. Called once for every attempted start, in reverse dependency order.
+    // It cannot veto shutdown or submit new commands; accepted operations may
+    // still complete and edits may be cancelled. Data stays alive until destroy.
+    void(EDITOR_CALL *stop)(void *, const EditorHost *);
+    // Orders startup, frame callbacks and shutdown when the named module is
+    // present. Missing or disabled optional dependencies are allowed.
+    const EditorString *optionalDependencies;
+    uint32_t optionalDependencyCount;
 } EditorModuleDesc;
 typedef EditorStatus(EDITOR_CALL *EditorModuleEntry)(const EditorHost *, EditorModuleDesc *);
 
@@ -556,8 +578,8 @@ typedef EditorStatus(EDITOR_CALL *EditorModuleEntry)(const EditorHost *, EditorM
 // other asynchronous providers finish through completeOperation on this thread.
 // Once a nested provider accepts asynchronous work, its owner finishes the
 // operation. An outer callback failure is kept with the actual output result.
-// A successful module entry transfers its data to the host until stop. On a
-// failed entry the host also calls stop, if supplied, before unloading code.
+// A successful module entry transfers its data to the host until destroy. On a
+// failed entry the host also calls destroy, if supplied, before unloading code.
 // Exceptions must not leave module callbacks. The host also guards C++ throws.
 struct EditorHost {
     uint32_t size, version;

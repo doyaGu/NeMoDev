@@ -231,6 +231,6 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->views = descriptors->views.data();
     out->viewCount = uint32_t(descriptors->views.size());
     out->data = descriptors;
-    out->stop = [](void *p) { delete static_cast<Descriptors *>(p); };
+    out->destroy = [](void *p) { delete static_cast<Descriptors *>(p); };
     return EDITOR_OK;
 }

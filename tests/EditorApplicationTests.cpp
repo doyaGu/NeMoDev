@@ -477,7 +477,7 @@ void Registration() {
     first.version = EDITOR_VERSION;
     first.id = EditorString EDITOR_TEXT("lifetime.base");
     first.data = &base;
-    first.stop = [](void *p) {
+    first.destroy = [](void *p) {
         const auto &data = *static_cast<ModuleData *>(p);
         data.stopped->push_back(data.id);
     };

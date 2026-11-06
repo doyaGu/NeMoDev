@@ -165,6 +165,6 @@ extern "C" EDITOR_MODULE_EXPORT EditorStatus EDITOR_CALL NeMoDevModule(const Edi
     out->queries = &query;
     out->queryCount = 1;
     out->data = m;
-    out->stop = [](void *data) { delete static_cast<Module *>(data); };
+    out->destroy = [](void *data) { delete static_cast<Module *>(data); };
     return EDITOR_OK;
 }
