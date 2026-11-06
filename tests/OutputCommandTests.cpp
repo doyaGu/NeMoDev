@@ -179,14 +179,12 @@ void TestOutputCommands(vdev::CkRuntimeHost &host) {
         work();
         if (failAfter && label == "Creating web page") throw std::runtime_error("after publication");
     });
-    OutputCommands *owner = nullptr;
-    EditorApplication editor([&] { return &document; }, [&] { return !runtime.Busy() && (!owner || !owner->Busy()); });
+    EditorApplication editor([&] { return &document; }, [&] { return runtime.Available(); });
     Observer observer;
     WebPublication publication;
     DocumentFiles files([&] { return &document; }, runtime, observer, &publication);
     Presentation view;
     OutputCommands commands(editor, files, runtime, [&] { return &document; }, view);
-    owner = &commands;
     Check(commands.Register(error), error.c_str());
     const EditorParameter outputPath{EDITOR_TEXT("path"), EDITOR_TEXT_VALUE};
     const EditorCommandDesc throwing{

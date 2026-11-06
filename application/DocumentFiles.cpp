@@ -121,7 +121,7 @@ bool DocumentFiles::Open(const std::string &path, const OpenOptions &options,
 }
 
 bool DocumentFiles::New(const SceneEnvironment &environment, std::function<void(bool)> completed) {
-    if (m_Runtime.Busy() || !Current() || Current()->EditOpen() || !m_Runtime.CanQueue("Creating composition"))
+    if (!m_Runtime.CanQueue("Creating composition") || !Current() || Current()->EditOpen())
         return false;
     struct Candidate {
         std::unique_ptr<Document::PreparedDocument> prepared;
@@ -153,7 +153,7 @@ bool DocumentFiles::New(const SceneEnvironment &environment, std::function<void(
 }
 
 bool DocumentFiles::Close(std::function<void(bool)> completed) {
-    if (m_Runtime.Busy() || !Current() || Current()->EditOpen() || !m_Runtime.CanQueue("Closing composition"))
+    if (!m_Runtime.CanQueue("Closing composition") || !Current() || Current()->EditOpen())
         return false;
     std::string error;
     if (!Replace(false, error)) { if (completed) completed(false); return true; }
@@ -547,9 +547,12 @@ void DocumentFiles::WithDuplicates(const std::string &path, Load load,
             }
             if (found->empty()) {
                 if (load) load(nullptr);
-            } else
+            } else {
+                if (load) load = m_Runtime.Continue(std::move(load));
+                if (cancelled) cancelled = m_Runtime.Continue(std::move(cancelled));
                 m_Loads.push_back(
                     {{path, std::move(*found), ++m_NextPrompt}, scope, std::move(load), std::move(cancelled)});
+            }
         });
 }
 

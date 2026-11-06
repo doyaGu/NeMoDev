@@ -43,6 +43,7 @@ struct DocumentCommands::State {
     std::deque<Command> commands;
     struct Operation {
         Result result;
+        RuntimeOperation::Request native;
         RuntimeOperation::DocumentScope scope;
         Settings settings;
         DocumentFiles::ResourceLoad resources;
@@ -252,6 +253,7 @@ struct DocumentCommands::State {
             active.reset();
             input.reset();
         }
+        operation->native.Reset();
         // The completed operation remains queryable even when its receiver
         // disappeared. Only current-document results may change views.
         if (operation->scope.IsCurrent() || ((Replacement(operation->result.action) ||
@@ -271,8 +273,8 @@ struct DocumentCommands::State {
     }
     EditorStatus Status(Action action) const {
         if (action == Action::Quit && waitingQuit) return EDITOR_NO_CHANGE;
-        if (action == Action::Quit && (runtime.Busy() || active)) return EDITOR_OK;
-        if (active || runtime.Busy()) return EDITOR_REFUSED;
+        if (action == Action::Quit && (!runtime.Available() || active)) return EDITOR_OK;
+        if (active) return EDITOR_REFUSED;
         if (!runtime.CanQueue("file operations")) return EDITOR_REFUSED;
         if (!ApplicationAction(action) && !HasDocument()) return EDITOR_REFUSED;
         if (action == Action::Undo && !current()->History().CanUndo()) return EDITOR_NO_CHANGE;
@@ -284,7 +286,9 @@ struct DocumentCommands::State {
     }
     static EditorStatus Check(void *data, const EditorHost *, const EditorRequest *request) {
         const auto &command = *static_cast<Command *>(data);
-        return command.owner->ValidArguments(command.action, *request) ? command.owner->Status(command.action) : EDITOR_INVALID;
+        const auto status = command.owner->Status(command.action);
+        if (status != EDITOR_OK) return status;
+        return command.owner->ValidArguments(command.action, *request) ? EDITOR_OK : EDITOR_INVALID;
     }
     static EditorStatus Execute(void *data, const EditorHost *, const EditorRequest *request, EditorSink sink) {
         const auto &command = *static_cast<Command *>(data);
@@ -357,10 +361,13 @@ struct DocumentCommands::State {
             } else
                 operation->askOptions = Field(*request, "ask-options")->integer != 0;
         }
-        if (command.action == Action::Quit && (self.runtime.Busy() || self.active)) {
+        if (command.action == Action::Quit && (!self.runtime.Available() || self.active)) {
             self.waitingQuit = operation;
             return EDITOR_QUEUED;
         }
+        operation->native = self.runtime.Begin("file operations");
+        if (!operation->native) return EDITOR_REFUSED;
+        auto submitting = operation->native.Enter();
         self.active = operation;
         if (Replacement(command.action) && self.HasDocument() && self.current()->Dirty())
             self.Ask(Input::Kind::Unsaved);
@@ -478,6 +485,7 @@ struct DocumentCommands::State {
     void Start() {
         const auto operation = active;
         if (!operation) return;
+        auto submitting = operation->native.Enter();
         try { StartOperation(); }
         catch (const std::exception &error) {
             operation->result.message = error.what();
@@ -713,6 +721,7 @@ struct DocumentCommands::State {
     EditorStatus Respond(uint64_t id, const std::string &choice, const std::string &path,
                          const EditorIntegers *actions = nullptr, const std::string &message = {}) {
         const auto operation = active;
+        auto submitting = operation ? operation->native.Enter() : RuntimeOperation::Request{}.Enter();
         try { return RespondToInput(id, choice, path, actions, message); }
         catch (const std::exception &error) {
             if (operation) { operation->result.message = error.what(); Finish(operation, EDITOR_ERROR); }
@@ -931,8 +940,11 @@ void DocumentCommands::Poll() {
         m_State->Finish(m_State->active, EDITOR_CANCELLED);
     if (m_State->active && !m_State->active->scope.IsCurrent() && !m_State->runtime.Busy())
         m_State->Finish(m_State->active, EDITOR_STALE);
-    if (m_State->waitingQuit && !m_State->runtime.Busy() && !m_State->active) {
+    if (m_State->waitingQuit && !m_State->active && m_State->runtime.CanQueue("Closing application")) {
+        auto native = m_State->runtime.Begin("Closing application");
+        if (!native) return;
         m_State->active = std::move(m_State->waitingQuit);
+        m_State->active->native = std::move(native);
         m_State->active->scope = m_State->runtime.CurrentDocument();
         m_State->active->result.document = m_State->editor.Scope().document;
         if (m_State->HasDocument() && m_State->current()->Dirty())

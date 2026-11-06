@@ -42,6 +42,7 @@ struct OutputCommands::Data {
     SchematicPrint printOptions;
     struct Job {
         Result result;
+        RuntimeOperation::Request native;
         RuntimeOperation::DocumentScope scope;
         uint64_t input = 0;
         EditorInputKind kind = EDITOR_WEB_PAGE_INPUT;
@@ -79,6 +80,7 @@ struct OutputCommands::Data {
         outputs.texts = job->result.written;
         response.fields.push_back(std::move(outputs));
         if (active == job) active.reset();
+        job->native.Reset();
         // Application-owned completion reports actual external effects even if
         // the initiating view or document disappeared during native work.
         try {
@@ -92,7 +94,7 @@ struct OutputCommands::Data {
     static EditorStatus Check(void *data, const EditorHost *, const EditorRequest *request) {
         auto &command = *static_cast<Command *>(data);
         auto &d = *command.owner;
-        if (d.active || d.runtime.Busy() || !d.runtime.CanQueue("document output") || !d.current() ||
+        if (d.active || !d.runtime.CanQueue("document output") || !d.current() ||
             !d.current()->IsOpen())
             return EDITOR_REFUSED;
         if (!command.print) {
@@ -107,6 +109,9 @@ struct OutputCommands::Data {
         auto &command = *static_cast<Command *>(data);
         auto &d = *command.owner;
         auto job = std::make_shared<Job>();
+        job->native = d.runtime.Begin("document output");
+        if (!job->native) return EDITOR_REFUSED;
+        auto submitting = job->native.Enter();
         job->scope = d.runtime.CurrentDocument();
         job->result.operation = request->operation;
         job->result.print = command.print;
@@ -174,6 +179,7 @@ struct OutputCommands::Data {
         return EDITOR_QUEUED;
     }
     void WriteWeb(const std::shared_ptr<Job> &job) {
+        auto submitting = job->native.Enter();
         job->web.layout = presentation.CaptureLayout();
         job->result.path = job->web.path;
         job->writing = true;
@@ -255,6 +261,7 @@ struct OutputCommands::Data {
         auto &d = *static_cast<Data *>(data);
         const auto job = d.active;
         if (!job || !job->input || job->input != Field(*request, "input").integer) return EDITOR_STALE;
+        auto submitting = job->native.Enter();
         if (!job->scope.IsCurrent()) {
             d.Finish(job, EDITOR_STALE);
             return EDITOR_STALE;

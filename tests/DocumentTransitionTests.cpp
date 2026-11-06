@@ -71,15 +71,13 @@ void TestDocumentTransitions(vdev::CkRuntimeHost &host) {
             work();
             if (label == failAfter) throw std::runtime_error("After native work");
         });
-    DocumentCommands *owner = nullptr;
-    EditorApplication editor([&] { return &document; }, [&] { return !runtime.Busy() && (!owner || !owner->Busy()); });
+    EditorApplication editor([&] { return &document; }, [&] { return runtime.Available(); });
     Views views(editor, document);
     viewsPtr = &views;
     DocumentFiles files([&] { return &document; }, runtime, views);
     DocumentCommands commands(editor, files, runtime, [&] { return &document; }, views);
-    owner = &commands;
     Preferences preferences;
-    ExecutionCommands execution(editor, [&] { return &document; }, [&] { return !runtime.Busy() && !commands.Busy(); }, preferences);
+    ExecutionCommands execution(editor, [&] { return &document; }, preferences);
     files.Execution(&execution);
     Check(commands.Register(error) && execution.Register(error) && editor.Activate(EDITOR_IMGUI_VERSION, error),
           error.c_str());

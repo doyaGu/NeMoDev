@@ -69,14 +69,12 @@ void TestDocumentCommands(vdev::CkRuntimeHost &host) {
             }
             if (failAfterPublication) throw std::runtime_error("Injected failure after publishing");
         });
-    DocumentCommands *operations = nullptr;
     unsigned documentReads = 0;
     EditorApplication editor([&] { ++documentReads; return document.IsOpen() ? &document : nullptr; },
-                             [&] { return !runtime.Busy() && (!operations || !operations->Busy()); });
+                             [&] { return runtime.Available(); });
     Views views(document, editor);
     DocumentFiles files([&] { ++documentReads; return &document; }, runtime, views);
     DocumentCommands commands(editor, files, runtime, [&] { ++documentReads; return &document; }, views);
-    operations = &commands;
     Check(commands.Register(error), error.c_str());
     Check(editor.Activate(EDITOR_IMGUI_VERSION, error), error.c_str());
     const auto attach = [&] {
