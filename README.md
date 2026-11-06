@@ -195,6 +195,14 @@ reads its old preferences INI and imports existing Dev settings; subsequent
 writes use JSON and leave the INI intact. Invalid or unsupported JSON is reported
 without replacing the file. Unknown members are retained.
 
+`EditorProfileStorage` owns the configuration file location, live preferences,
+startup migration and saving. It uses `EditorProfile` for JSON and
+`EditorWorkspace` for view state and provider replacement. A failed save keeps
+the previous file and saved configuration; preferences and provider changes
+retain their existing rollback behavior. Pending layout saves survive failure
+and retry after five seconds. Native tasks defer layout capture, and a failed
+workspace restore continues to protect the original profile.
+
 Each window retains its own layout and declared navigation/display settings across
 launches. A missing provider leaves a placeholder with those settings intact;
 closed retained windows are available in **Saved Views**. A failed workspace restore

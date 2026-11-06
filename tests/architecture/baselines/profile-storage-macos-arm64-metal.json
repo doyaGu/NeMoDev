@@ -1,0 +1,247 @@
+{
+  "description": "配置存储拥有文件位置、活动偏好、模块来源、启动恢复和保存重试；复用原有 JSON、工作区和原子文件发布。",
+  "base_revision": "6058bb4e78efb822bf418e355cf4cb70b693f32c",
+  "recorded_utc": "2026-11-06T08:18:01.381320+00:00",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "module_interface": {
+    "version": 27,
+    "changed": false,
+    "sdk_unchanged": true,
+    "files_unchanged": true
+  },
+  "owners": {
+    "EditorProfileStorage": "配置文件位置、活动 Preferences、已保存 EditorProfile、模块发现参数、旧配置只读迁移、启动与停止保存、失败重试。",
+    "EditorProfile": "原有版本 1 JSON 的解码、验证、未知成员保留及候选配置捕获；不依赖工作区或 UI。",
+    "EditorWorkspace": "视图状态、默认工作区、缺失提供者、恢复失败保护和提供者替换回滚；捕获布局保留延迟保存计时器。",
+    "OutputFiles": "沿用同目录临时文件和原子替换；发布失败保留原文件。SaveReport 提取为无 SDK 依赖的内部头。",
+    "PreferencesCommands": "继续拥有原生偏好应用与恢复；保存失败恢复活动偏好及原生设置。",
+    "EditorApp": "装配配置存储、派生 UI 设置、连接资源和最近文件记录，不再实现 JSON 写入、旧配置查找或工作区恢复。"
+  },
+  "changes": [
+    "保存候选只有在完整写出后才替换已保存配置，写入拒绝和抛异常都不改变旧文件。",
+    "模块配置仍只在下次启动生效，内置和外部模块沿用相同发现与装配。",
+    "提供者替换失败由现有工作区恢复原选择、实例和状态，不另建恢复流程。",
+    "自动保存失败保留待保存标记，并间隔五秒重试；原生任务、未完成编辑或工作区恢复失败期间不消费请求。",
+    "布局捕获同时保留尚未触发的延迟保存计时器；只有文件发布成功才清除计时器和待保存标记。",
+    "原生任务期间保存偏好沿用已保存工作区，任务结束后仍可保存待处理布局。",
+    "最近文件、已打开资源和工具栏状态描述已完成操作，写入失败继续保留活动记录，重试时保存。",
+    "旧 INI 和设置只读迁移，JSON 已存在时优先加载 JSON；损坏 JSON 不回退覆盖；相对配置路径在读取时固定。"
+  ],
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-profile-storage/build-session-preferences.log",
+      "sha256": "4c24d958b3d24d2c26027f69ddab56e57b5103c49df171a2a53811197d285fa2"
+    },
+    "complete_run": {
+      "total": 319,
+      "passed": 319,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-profile-storage/full.xml",
+        "sha256": "a13e75f4b8f5c7eb67cce5bc8a9eec6fbd22d84e143a56ac7591510baa218358"
+      },
+      "inventory": {
+        "path": "out/phase-six-profile-storage/full-inventory.json",
+        "sha256": "4081a88b8fb42360cd5a8459d01933a42dcafd145ec3602fcbc492a58afb292e"
+      },
+      "log": {
+        "path": "out/phase-six-profile-storage/full.log",
+        "sha256": "b834aceae04a7d3b87e5c66d3b7ec6317d511996e2e988601bd68c4af62ac2f6"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-profile-storage/full-check.log",
+        "sha256": "a23949bfac2e87702a2dd8f86c9eb21407cbd908847e52de7b1ddd6755454257"
+      }
+    },
+    "final_related_run": {
+      "total": 35,
+      "passed": 35,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-profile-storage/final-focused.xml",
+        "sha256": "bdc00b239da6d67205f9c3627edf53f2ed7341ceea560ddb1c7aa5a1358c04a9"
+      },
+      "inventory": {
+        "path": "out/phase-six-profile-storage/final-focused-inventory.json",
+        "sha256": "51383d297ede5a923cba0e7b47c45cc586a516effb3852ed5bb1bcd1319d80fe"
+      },
+      "log": {
+        "path": "out/phase-six-profile-storage/final-focused.log",
+        "sha256": "4060c7d3372d994d77b1ea96eeee04b7c387821bf9b4bcce495e279cd9e98ffc"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-profile-storage/final-focused-check.log",
+        "sha256": "644ed081ec38cb61f5a50b7c976dba4274935fc2d863df0d2c05ee198ca2e824"
+      }
+    },
+    "current_inventory": {
+      "total": 320,
+      "artifact": {
+        "path": "out/phase-six-profile-storage/final-inventory.json",
+        "sha256": "f1bee42dfe56447feb7ec3e4ceeee3fedff394cd2655d1ca7104a7e72764dbc3"
+      },
+      "description": "完整运行后补充 SessionPreferences 用例，并恢复最近文件、资源与工具栏原有活动记录语义；最终复跑受影响的 35 项，包含全部 23 个配置存储用例、文件菜单、启动恢复和外观。未重复未改动的 SDK 用例。"
+    },
+    "independent_profile_cases": [
+      "NeMoDevProfileStorage.LegacyUser",
+      "NeMoDevProfileStorage.LegacyApplication",
+      "NeMoDevProfileStorage.Isolated",
+      "NeMoDevProfileStorage.LoadFailure",
+      "NeMoDevProfileStorage.LegacyLayout",
+      "NeMoDevProfileStorage.LegacyLayoutInvalid",
+      "NeMoDevProfileStorage.PreferenceRefusal",
+      "NeMoDevProfileStorage.PreferenceException",
+      "NeMoDevProfileStorage.ModuleRefusal",
+      "NeMoDevProfileStorage.ModuleException",
+      "NeMoDevProfileStorage.WorkspaceRefusal",
+      "NeMoDevProfileStorage.WorkspaceException",
+      "NeMoDevProfileStorage.PreparationRefusal",
+      "NeMoDevProfileStorage.PreparationException",
+      "NeMoDevProfileStorage.AutosaveRetry",
+      "NeMoDevProfileStorage.DelayedLayout",
+      "NeMoDevProfileStorage.RelativePath",
+      "NeMoDevProfileStorage.SessionPreferences",
+      "NeMoDevProfileStorage.BusySave",
+      "NeMoDevProfileStorage.StartupFailure",
+      "NeMoDevProfileStorage.RestoreFailure",
+      "NeMoDevProfileStorage.Restart",
+      "NeMoDevProfileStorage.Discovery"
+    ],
+    "delayed_layout": {
+      "before": "原布局捕获实现使延迟保存计时器归零，相同用例失败。",
+      "after": "保留计时器后相同用例通过，原子发布成功后清除计时器。",
+      "result": {
+        "path": "out/phase-six-profile-storage/delayed-layout-result.json",
+        "sha256": "d9e0b4abe57bb13777a292f2a23f56c1e78ffe898234ebc8dd9cbc0460a7efe6"
+      },
+      "before_log": {
+        "path": "out/phase-six-profile-storage/delayed-layout-before.log",
+        "sha256": "6b91de04e72612cdf26650d7f5ad7daeecc7ab08880550cba5d96e5bf58a5816"
+      },
+      "after_log": {
+        "path": "out/phase-six-profile-storage/delayed-layout-after.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "runner": {
+        "path": "out/phase-six-profile-storage/reproduce_delayed_layout.py",
+        "sha256": "32ec0f4aa1c5047ae8d858a6e5cfb384aa112fc5928ef30d223fbb5cdd8606f4"
+      }
+    },
+    "architecture": {
+      "path": "out/phase-six-profile-storage/architecture-final.json",
+      "sha256": "efe05ce23bf6b48d7d301f907c9d47fa6eaa1ecd41d2d92ea4dade64171b2ffb"
+    },
+    "layering": {
+      "path": "out/phase-six-profile-storage/layering-final.log",
+      "sha256": "1d1ef5c896c0657372cdffed7eaf1b14d8101af7c0c505a8e046b18ca0815226"
+    },
+    "visible_player": {
+      "total": 7,
+      "passed": 6,
+      "failed": 1,
+      "accepted": false,
+      "pending": [
+        "fullscreen_focus_loss_keeps_foreground"
+      ],
+      "description": "焦点用例在退出全屏后未取得另一个测试窗口焦点。用户说明当时正在操作桌面，因此该结果不用于验收；已停止桌面复验，未修改焦点实现或断言。",
+      "report": {
+        "path": "out/phase-six-profile-storage/player.xml",
+        "sha256": "b8d73d0a28498cb0ca5048b8fe09cb13b331f0cafc2a94e534ddf75aeb3074aa"
+      },
+      "log": {
+        "path": "out/phase-six-profile-storage/player.log",
+        "sha256": "91b60309d8a428b217295e00254b8ae90596279fc3a0e4f57d7460e1864fd9c5"
+      }
+    }
+  },
+  "preservation": {
+    "sdk_repositories_unchanged": 16,
+    "runtime_files_unchanged": 22,
+    "sdk_before": {
+      "path": "out/phase-six-profile-storage/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-profile-storage/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_before": {
+      "path": "out/phase-six-profile-storage/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-profile-storage/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_files_tested": {
+      "lib/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "lib/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "lib/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "lib/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404",
+      "lib/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "lib/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libCK2.0.1.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.0.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libCK2.dylib": "ba04f24c05dafe45536a3214d449048098386ef46a2e9ddf6803c777c4f5588d",
+      "runtime/Bin/libVxMath.0.1.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.0.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/Bin/libVxMath.dylib": "6a74513c55b61ab78b46ae105c881ba820c1954d6c46afc497f88678a5c007ec",
+      "runtime/RenderEngines/CK2_3D.ini": "091bf0843b5d86e1c1373d69e12ab130dcbe60f0833061b2812b5d524820cf6f",
+      "runtime/RenderEngines/libCK2_3D.0.1.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.0.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCK2_3D.dylib": "da21e479dda23a6a2ce4dc1363d7e69950a8c18b4a85550f68ac7c61ddf15762",
+      "runtime/RenderEngines/libCKSdlGpuRasterizer.dylib": "27ea59a778cbf3aff09297a85623a217b529d630dc7bbab1da4ae3ef7a60b404"
+    },
+    "protected_files": {
+      "ui/native/LayoutRenderer.cpp": {
+        "sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.cpp": {
+        "sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.h": {
+        "sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.cpp": {
+        "sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.h": {
+        "sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "unchanged": true
+      },
+      "tests/CheckArchitecture.py": {
+        "sha256": "bd108c931ee61c88828c5b1b43fe3d7f1afe62f21b72d2b58d4dce864d2c44ca",
+        "unchanged": true
+      },
+      "tests/CheckLayering.cmake": {
+        "sha256": "21d8262c4e6d66fa2aff9f616464646b677b8efc4a5026adf40d4eb58a1fc58d",
+        "unchanged": true
+      }
+    }
+  },
+  "performance": {
+    "status": "waiting_for_idle_window",
+    "thresholds_changed": false,
+    "timing_measured": false,
+    "description": "按用户安排等待空闲窗口；本轮未执行或放宽性能计时验收。"
+  },
+  "separate_work": [
+    "runtime-isolation"
+  ]
+}
