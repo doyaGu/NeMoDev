@@ -582,7 +582,10 @@ void Edits(CkRuntimeHost &runtime, const char *path) {
           "navigation could not cancel its view's draft");
     Check(app.BeginEdit("object.name", scope, object, edit) == EDITOR_OK && app.UpdateEdit(edit, "Draft") == EDITOR_OK,
           "navigation prevented another edit");
-    Check(!app.Configure(config, error), "editor changed under an active draft");
+    Check(app.Configure(config, error), "unchanged providers were refused under an active draft");
+    auto changedEditor = config;
+    changedEditor.providers[0].provider = "test.missing-editor";
+    Check(!app.Configure(changedEditor, error), "invalid editor changed under an active draft");
     app.NativeAvailable(false);
     Check(app.FinishEdit(edit, true) == EDITOR_REFUSED, "busy edit was submitted");
     std::string draft;

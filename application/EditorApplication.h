@@ -233,8 +233,8 @@ class EditorApplication {
     std::string CommandProvider(const std::string &) const;
     std::vector<EditorViewDesc> Views(bool allProviders = false) const;
     std::vector<EditorValueEditorDesc> ValueEditors() const;
-    // Callback execution pins registered code. Mutating configuration is
-    // refused while a draft/callback is active; callers keep the old profile.
+    // Callback execution pins registered code. Drafts and captured tools keep
+    // their providers; unrelated appearance and binding changes remain usable.
     void EnterDraw();
     void LeaveDraw();
     void EndFrame();

@@ -235,9 +235,9 @@ void TestGestureCommands(vdev::CkRuntimeHost &runtime, const std::string &module
     failure(0);
     Check(liveBegin("schematic.edit-geometry", freshGeometry()) == EDITOR_OK && update(delta(40, 0)) == EDITOR_OK,
           "external Schematic preview");
-    Check(!app.Configure(app.Configuration(), error), "configuration replaced a live preview");
+    Check(app.Configure(app.Configuration(), error), "unchanged providers were refused during a live preview");
     Check(app.FinishEdit(edit, true) == EDITOR_QUEUED, "queue external preview");
-    Check(!app.Configure(app.Configuration(), error), "configuration replaced queued live state");
+    Check(app.Configure(app.Configuration(), error), "unchanged providers were refused during a queued preview");
     app.EndFrame();
     sync();
     Check(doc.History().UndoCount() == 1 && doc.History().Undo() && !doc.Dirty(),
