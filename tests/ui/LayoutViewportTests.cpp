@@ -1,4 +1,5 @@
 #include "CKInputManager.h"
+#include "core/level/LevelCommands.h"
 #include "features/layout/SnapshotData.h"
 #include "imgui_internal.h"
 #include "tests/ui/UiTests.h"
@@ -92,6 +93,67 @@ void CheckInput(vdev::LayoutWindow &window) {
 } // namespace
 
 void RegisterLayoutViewportTests(ImGuiTestEngine *engine) {
+    auto *rollback = IM_REGISTER_TEST(engine, "documentviews", "failed_new_keeps_both_viewports_and_setup");
+    rollback->GuiFunc = MainThreadGui;
+    rollback->TestFunc = [](ImGuiTestContext *ctx) {
+        Pair pair; pair.Open(ctx);
+        CK_ID firstCamera = 0, secondCamera = 0;
+        VxMatrix firstMatrix, secondMatrix;
+        EditorView setup = 0;
+        size_t history = 0;
+        uint64_t firstReads = 0, secondReads = 0, firstUploads = 0, secondUploads = 0;
+        OnMainThread(ctx, [&] {
+            auto &state = App().State();
+            auto &workspace = App().WorkspaceForTests();
+            auto &a = App().Layout(), &b = *App().Layout(pair.second);
+            firstCamera = a.View().ViewCamera(vdev::LayoutViewCamera::Top);
+            secondCamera = b.View().ViewCamera(vdev::LayoutViewCamera::Front);
+            a.View().SetCamera(firstCamera); b.View().SetCamera(secondCamera);
+            a.View().Camera()->SetPosition3f(11, 23, 41); b.View().Camera()->SetPosition3f(59, 71, 89);
+            firstMatrix = a.View().Camera()->GetWorldMatrix(); secondMatrix = b.View().Camera()->GetWorldMatrix();
+            const auto made = vdev::CreateLayoutObject(*state.document, vdev::LayoutObject::Frame3D);
+            IM_CHECK_NO_RET(made.ok);
+            const auto object = state.document->Reference(made.created);
+            state.objectSelection.Restore(*state.document, {made.created});
+            const auto opened = Client().Command("object.open-setup", {vdev::ObjectArgument("target", object)});
+            IM_CHECK_NO_RET(opened.status == EDITOR_OK);
+            setup = vdev::EditorClient::Integer(opened, "view");
+            IM_CHECK_NO_RET(setup && workspace.Application().Scope(setup).view == setup);
+            state.document->MarkSaved(); state.History().MarkSavePoint(); history = state.History().UndoCount();
+            firstReads = a.View().ReadbackFrames(); secondReads = b.View().ReadbackFrames();
+            firstUploads = a.ViewportUploadsForTests(); secondUploads = b.ViewportUploadsForTests();
+            const auto token = state.document->Token();
+            struct FailingViews : vdev::DocumentViews {
+                vdev::EditorSession &session;
+                vdev::DocumentViews &original;
+                FailingViews(vdev::EditorSession &session) : session(session), original(*session.documentViews) { session.documentViews = this; }
+                ~FailingViews() { session.documentViews = &original; }
+                bool DocumentInteractionActive() const override { return original.DocumentInteractionActive(); }
+                void DetachDocument(bool context) override { original.DetachDocument(context); throw std::runtime_error("Injected multi-viewport detach failure"); }
+                void RestoreDocument() override { original.RestoreDocument(); }
+                void DocumentReplaced(vdev::DocumentToken document, uint64_t revision, bool open) override { original.DocumentReplaced(document, revision, open); }
+            } failure(state);
+            const auto result = Client().Command("document.new");
+            IM_CHECK_NO_RET(result.status == EDITOR_QUEUED);
+            state.FinishRuntimeOperations();
+            IM_CHECK_NO_RET(Client().Completion(result.operation).status == EDITOR_ERROR);
+            IM_CHECK_NO_RET(state.document->Token() == token && state.objectSelection.Contains(made.created) &&
+                            !state.document->Dirty() && state.History().UndoCount() == history);
+            IM_CHECK_NO_RET(workspace.Application().Scope(setup).view == setup);
+        });
+        ctx->Yield(12);
+        OnMainThread(ctx, [&] {
+            auto &a = App().Layout(), &b = *App().Layout(pair.second);
+            IM_CHECK_NO_RET(a.UsesGpuViewport() && b.UsesGpuViewport());
+            IM_CHECK_NO_RET(a.View().Camera()->GetID() == firstCamera && b.View().Camera()->GetID() == secondCamera &&
+                            Same(a.View().Camera()->GetWorldMatrix(), firstMatrix) && Same(b.View().Camera()->GetWorldMatrix(), secondMatrix));
+            IM_CHECK_NO_RET(a.View().ReadbackFrames() == firstReads && b.View().ReadbackFrames() == secondReads &&
+                            a.ViewportUploadsForTests() == firstUploads && b.ViewportUploadsForTests() == secondUploads);
+            IM_CHECK_NO_RET(App().State().History().UndoCount() == history);
+            IM_CHECK_NO_RET(Client().Command("workspace.close-view", {vdev::IntegerArgument("view", setup)}).status == EDITOR_OK);
+        });
+        pair.Close(ctx);
+    };
     auto *test =
         IM_REGISTER_TEST(engine, "layoutviews", "layout_viewports_keep_cameras_tools_and_gestures_independent");
     test->GuiFunc = MainThreadGui;

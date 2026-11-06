@@ -320,6 +320,10 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     set_tests_properties(NeMoDevUiAppearance PROPERTIES LABELS self-contained)
     nemodev_add_module(NeMoDevAppearanceModule SOURCES ../tests/modules/AppearanceModule.cpp)
     if(TARGET VirtoolsDevUiTests)
+        add_test(NAME VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup COMMAND VirtoolsDevUiTests
+                --ui-tests "^documentviews$" --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/document-views.xml")
+        set_tests_properties(VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup
+                PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
         add_test(NAME VirtoolsDevUi.PlayerState.unavailable_fullscreen_keeps_both_viewports COMMAND VirtoolsDevUiTests
                 --ui-tests unavailable_fullscreen_keeps_both_viewports
                 --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/player-unavailable-fullscreen.xml")
@@ -364,6 +368,21 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
     set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
     add_executable(NeMoDevNativeTaskCommandTests ../tests/NativeTaskCommandTests.cpp)
+    add_executable(NeMoDevDocumentViewTests ../tests/DocumentViewTests.cpp native/EditorSession.cpp controls/FileDialogs.cpp)
+    target_link_libraries(NeMoDevDocumentViewTests PRIVATE VirtoolsDevWorkspace NeMoDevEditorApplication
+            NeMoDevObjectCommands VirtoolsDevCore VirtoolsDevImGui Threads::Threads)
+    nemodev_add_module(NeMoDevDocumentViewModule SOURCES ../tests/modules/DocumentViewModule.cpp)
+    add_dependencies(NeMoDevDocumentViewTests NeMoDevDocumentViewModule)
+    foreach(_case RetainedInstances DispatchFailure DetachFailure CloseRefusal RecoveryRetry SuccessfulReplacement
+            CommittedCallbackFailure ThreadChecks ModuleOrder CameraRestart CameraDetach QueuedReplacement)
+        add_test(NAME NeMoDevDocumentView.${_case} COMMAND NeMoDevDocumentViewTests ${_case})
+        set_tests_properties(NeMoDevDocumentView.${_case} PROPERTIES LABELS self-contained
+                ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    endforeach()
+    add_test(NAME NeMoDevDocumentView.ExternalProvider COMMAND NeMoDevDocumentViewTests ExternalProvider
+            "$<TARGET_FILE:NeMoDevDocumentViewModule>")
+    set_tests_properties(NeMoDevDocumentView.ExternalProvider PROPERTIES LABELS self-contained
+            ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
     target_link_libraries(NeMoDevNativeTaskCommandTests PRIVATE NeMoDevEditorApplication NeMoDevObjectCommands
             VirtoolsDevCore VirtoolsDevImGui Threads::Threads)
     foreach(_case FileInput OutputInput ResourceInput PreparationFailure ExpiredFileInput ExpiredOutputInput)

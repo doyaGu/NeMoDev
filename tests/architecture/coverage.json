@@ -1088,10 +1088,22 @@
         "VirtoolsDevDocumentFiles",
         "NeMoDevEditor",
         "NeMoDevNativeTaskCommand.FileInput",
-        "NeMoDevNativeTaskCommand.ExpiredFileInput"
+        "NeMoDevNativeTaskCommand.ExpiredFileInput",
+        "NeMoDevDocumentView.RetainedInstances",
+        "NeMoDevDocumentView.DispatchFailure",
+        "NeMoDevDocumentView.DetachFailure",
+        "NeMoDevDocumentView.CloseRefusal",
+        "NeMoDevDocumentView.RecoveryRetry",
+        "NeMoDevDocumentView.SuccessfulReplacement",
+        "NeMoDevDocumentView.CommittedCallbackFailure",
+        "NeMoDevDocumentView.ThreadChecks",
+        "NeMoDevDocumentView.ModuleOrder",
+        "NeMoDevDocumentView.ExternalProvider",
+        "NeMoDevDocumentView.QueuedReplacement"
       ],
       "ui_tests": [
-        "VirtoolsDevUi.filemenu"
+        "VirtoolsDevUi.filemenu",
+        "VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup"
       ],
       "gaps": []
     },
@@ -1406,7 +1418,8 @@
         "VirtoolsDevUi.propertyedits",
         "VirtoolsDevUi.character",
         "VirtoolsDevUi.sound",
-        "VirtoolsDevUi.modules"
+        "VirtoolsDevUi.modules",
+        "VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup"
       ],
       "gaps": []
     },
@@ -1462,7 +1475,9 @@
         "NeMoDevEditorQuery.DeliveryLifetime",
         "NeMoDevEditorQuery.RecordKeys",
         "NeMoDevEditorQuery.CachedAllocations",
-        "NeMoDevEditorQuery.IdentifierSpans"
+        "NeMoDevEditorQuery.IdentifierSpans",
+        "NeMoDevDocumentView.CameraRestart",
+        "NeMoDevDocumentView.CameraDetach"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app",
@@ -1475,7 +1490,8 @@
         "VirtoolsDevUi.ViewRouting.layout_foreign_source_keeps_active_camera",
         "VirtoolsDevUi.ViewRouting.layout_replaced_instances_use_selected_command_provider",
         "VirtoolsDevUi.ViewRouting.layout_invalid_sources_cannot_query_edit_or_capture",
-        "VirtoolsDevUi.ViewRouting.layout_default_gesture_keeps_initial_view_after_focus_change"
+        "VirtoolsDevUi.ViewRouting.layout_default_gesture_keeps_initial_view_after_focus_change",
+        "VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup"
       ],
       "gaps": [
         {
@@ -1890,7 +1906,12 @@
         "NeMoDevRuntimeAdmission.DeferredInputOwnership",
         "NeMoDevRuntimeAdmission.ExpiredContinuation",
         "NeMoDevRuntimeAdmission.ContinuationThread",
-        "NeMoDevRuntimeAdmission.StableAvailability"
+        "NeMoDevRuntimeAdmission.StableAvailability",
+        "NeMoDevRuntimeAdmission.ScopedAvailability",
+        "NeMoDevDocumentView.ModuleOrder",
+        "NeMoDevDocumentView.ThreadChecks",
+        "NeMoDevDocumentView.RecoveryRetry",
+        "NeMoDevRuntimeAdmission.CompletionNativeAccess"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app"
@@ -2034,7 +2055,9 @@
         "NeMoDevNativeTaskCommand.ResourceInput",
         "NeMoDevNativeTaskCommand.PreparationFailure",
         "NeMoDevNativeTaskCommand.ExpiredFileInput",
-        "NeMoDevNativeTaskCommand.ExpiredOutputInput"
+        "NeMoDevNativeTaskCommand.ExpiredOutputInput",
+        "NeMoDevDocumentView.ExternalProvider",
+        "NeMoDevDocumentView.RetainedInstances"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",
@@ -2045,7 +2068,8 @@
         "VirtoolsDevUi.ModuleLifecycle.ExternalModule",
         "VirtoolsDevUi.ModuleLifecycle.DisabledExternal",
         "VirtoolsDevUi.ModuleLifecycle.StartRefusal",
-        "VirtoolsDevUi.ModuleLifecycle.StartException"
+        "VirtoolsDevUi.ModuleLifecycle.StartException",
+        "VirtoolsDevUi.DocumentViews.failed_new_keeps_both_viewports_and_setup"
       ],
       "gaps": [
         {
@@ -2316,8 +2340,8 @@
     {
       "id": "view_layout",
       "name": "show*、dock/尺寸、Help history、各 manager filter/open rows、Building Blocks 过滤/分类/多选/展开/排序",
-      "owner": "Workspace/ViewInstance",
-      "lifetime": "实例销毁；重建按 provider schema 恢复",
+      "owner": "EditorWorkspace 拥有实例及文档切换期间的保留；视图和模块拥有自身输入、资源与恢复数据",
+      "lifetime": "实例销毁；重建按 provider schema 恢复；文档切换先检查全部待关闭窗口，准备和恢复不销毁原实例，提交后才关闭旧文档窗口；恢复失败保留待恢复实例并阻止保存不完整工作区",
       "persistence": "保存到声明的工作区状态；不复制全局选择",
       "features": [
         "F29"
@@ -2358,7 +2382,7 @@
       "id": "editor-modules",
       "name": "模块登记、依赖顺序、启动、分阶段推进、停止活动与数据释放",
       "owner": "EditorApplication 的 RegisteredModules 私有实现拥有模块描述、库、装配设置、依赖顺序和运行阶段；模块拥有自己的活动和入口分配",
-      "lifetime": "统一装配与校验后按依赖启动；装配失败清理后可重试，启动失败停止整批；菜单前、视图前和视图后分阶段推进；退出先保存并逆依赖停止活动，关闭视图后释放入口分配，再卸载模块，最后关闭文档和运行时；不热卸载",
+      "lifetime": "统一装配与校验后按依赖启动；装配失败清理后可重试，启动失败停止整批；菜单前、视图前和视图后分阶段推进；退出先保存并逆依赖停止活动，关闭视图后释放入口分配，再卸载模块，最后关闭文档和运行时；不热卸载；文档脱离按反向依赖顺序通知，恢复及切换完成按正向顺序通知；部分脱离失败仍恢复已尝试模块，恢复成功项不重复执行",
       "persistence": "安装、用户、显式目录和文件只在启动发现；EditorProfile 保存稳定模块 ID、启用状态和可选来源，内置与外部按同一选择装配；禁用或替换下次启动生效，不热卸载；明确禁用的外部路径在调用入口前跳过",
       "features": [
         "F31"
@@ -2431,7 +2455,7 @@
       "name": "原生任务准入、流程归属、队列、在途 worker、完成通知和文档作用域",
       "owner": "RuntimeOperation",
       "lifetime": "主线程统一检查运行时可用性、当前流程和编辑状态；任务启动前再次检查；等待输入的流程独占后续原生任务，取消、失败及完成先释放归属再通知呈现；文档替换丢弃尚未执行的旧任务；在途原生调用返回后完成清理",
-      "persistence": "不保存；Busy 仅表示排队或执行，等待输入不进入后台任务专用界面；Available 包含流程占用；worker 完成和延后输入保留提交来源，过期来源不能提交新任务；应用文件任务总是登记完成，原有仅面向当前文档的回调在作用域结束时失效",
+      "persistence": "不保存；Busy 仅表示排队或执行，等待输入不进入后台任务专用界面；Available 包含流程占用；worker 完成和延后输入保留提交来源，过期来源不能提交新任务；应用文件任务总是登记完成，原有仅面向当前文档的回调在作用域结束时失效；只有当前有效提交来源可以在原生任务之间读取上下文，过期输入不能读原生数据或重新取得流程归属",
       "features": [
         "F02",
         "F03",
