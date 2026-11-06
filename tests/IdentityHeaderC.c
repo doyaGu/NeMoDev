@@ -192,10 +192,15 @@ static void EDITOR_CALL ClosingFromC(void *data, const EditorHost *host, EditorV
     (void)host;
     *(uint32_t *)data = (uint32_t)view;
 }
+static EditorStatus EDITOR_CALL CanCloseFromC(void *data, const EditorHost *host, EditorView view) {
+    (void)host;
+    return *(uint32_t *)data == view ? EDITOR_OK : EDITOR_REFUSED;
+}
 EditorViewDesc ClosingViewFromC(uint32_t *value) {
     EditorViewDesc view = {0};
     view.size = sizeof(view);
     view.closing = ClosingFromC;
+    view.canClose = CanCloseFromC;
     view.data = value;
     return view;
 }

@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 24u
+#define EDITOR_VERSION 25u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -255,9 +255,17 @@ typedef struct EditorValueInput {
 typedef uint32_t(EDITOR_CALL *EditorDrawValue)(void *, const EditorHost *, const EditorValueInput *);
 typedef void *(EDITOR_CALL *EditorCreateView)(void *, const EditorHost *, EditorView);
 typedef void(EDITOR_CALL *EditorDestroyView)(void *);
-// Called for an actual close, after replacement views are prepared and before
-// the source scope expires. May cancel the view's edits and restore temporary
-// selection. It is never called while a failed replacement is rolled back.
+// Read-only close preparation, with the source scope still alive. Return OK or
+// NO_CHANGE to allow a user close or provider replacement. Other results and
+// exceptions refuse it before configuration is saved or any source is closed.
+// Must not change edits, navigation or resources: another view or configuration
+// save can still refuse the operation. Forced document close and shutdown skip it.
+typedef EditorStatus(EDITOR_CALL *EditorCanCloseView)(void *, const EditorHost *, EditorView);
+// Final cleanup for an actual close, after all fallible preparation and saving
+// succeeded and before the source scope expires. May cancel edits and restore
+// temporary selection. Must finish its cleanup without throwing; exceptions are
+// reported, but cannot veto a close that has already committed. Destroy still
+// runs. Never called when replacement preparation or configuration saving fails.
 typedef void(EDITOR_CALL *EditorClosingView)(void *, const EditorHost *, EditorView);
 // The workspace owns the window name and focus request. Window views use the
 // drawing adapter to begin/end this window; overlays keep their own popups.
@@ -351,6 +359,7 @@ typedef struct EditorViewDesc {
     const EditorParameter *settings;
     uint32_t settingCount;
     EditorString defaultTool; // optional registered tool for this view type
+    EditorCanCloseView canClose;
 } EditorViewDesc;
 typedef struct EditorMenuDesc {
     EditorString id, action, location, label;

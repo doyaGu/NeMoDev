@@ -133,6 +133,7 @@ class EditorApplication {
     void ViewNavigation(EditorViewNavigation *navigation);
     void *CreateView(const EditorViewDesc &, EditorView);
     bool DestroyView(const EditorViewDesc &, void *data);
+    EditorStatus CanCloseView(const EditorViewDesc &, void *, EditorView);
     bool ClosingView(const EditorViewDesc &, void *, EditorView);
     EditorResponse SaveViewState(const EditorViewDesc &, void *data, EditorScope);
     EditorResponse SaveViewSettings(const EditorViewDesc &, void *data, EditorScope);

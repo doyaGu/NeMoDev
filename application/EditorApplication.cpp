@@ -1657,6 +1657,21 @@ void *EditorApplication::CreateView(const EditorViewDesc &desc, EditorView id) {
     }
     return data;
 }
+EditorStatus EditorApplication::CanCloseView(const EditorViewDesc &desc, void *data, EditorView id) {
+    auto &s = *m_State;
+    if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.drawing || !s.scopes.count(id) ||
+        (desc.area == EDITOR_DOCUMENT && !s.NativeReady()))
+        return EDITOR_REFUSED;
+    if (!desc.canClose)
+        return EDITOR_OK;
+    ++s.readOnlyCallbacks;
+    ++s.querying;
+    EditorStatus status = EDITOR_ERROR;
+    try { status = desc.canClose(data, Host(), id); } catch (...) {}
+    --s.querying;
+    --s.readOnlyCallbacks;
+    return status;
+}
 bool EditorApplication::ClosingView(const EditorViewDesc &desc, void *data, EditorView id) {
     auto &s = *m_State;
     if (!s.Thread() || s.readOnlyCallbacks || s.querying || s.drawing || !s.scopes.count(id))

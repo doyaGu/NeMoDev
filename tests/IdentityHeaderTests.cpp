@@ -53,7 +53,7 @@ extern "C" uint32_t EditorDocumentDataSizeFromC(void);
 extern "C" uint32_t EditorDocumentDataDescSizeFromC(void);
 extern "C" EditorDocumentData DocumentDataFromC(const unsigned char *, uint32_t);
 static_assert(__is_standard_layout(EditorDocumentData) && __is_trivially_copyable(EditorDocumentDataDesc), "C document data");
-static_assert(EDITOR_VERSION == 24, "Editor document data version");
+static_assert(EDITOR_VERSION == 25, "Editor view close preparation version");
 extern "C" EditorQueryDesc RetainedQueryFromC(void *);
 extern "C" uint32_t EditorQuerySizeFromC(void);
 extern "C" EditorViewDesc PickViewFromC(EditorObject *);
@@ -86,8 +86,10 @@ int main() {
         return 1;
     uint32_t closed = 0;
     const auto closing = ClosingViewFromC(&closed);
+    if (closing.canClose(closing.data, nullptr, 81) != EDITOR_REFUSED || closed)
+        return 1;
     closing.closing(closing.data, nullptr, 81);
-    if (closed != 81 || closing.size != sizeof(EditorViewDesc))
+    if (closed != 81 || closing.size != sizeof(EditorViewDesc) || closing.canClose(closing.data, nullptr, 81) != EDITOR_OK)
         return 1;
     const auto after = RequestAfterEditFromC(71);
     if (sizeof(EditorRequest) != EditorRequestSizeFromC() || after.afterEdit != 71 ||
