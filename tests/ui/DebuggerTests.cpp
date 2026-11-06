@@ -433,7 +433,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(workspace.Close(profiler));
         });
         gate->Release();
-        IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(5);
+        IM_CHECK(WaitFor(ctx, 100, [&] { return Read<bool>(ctx, [&] { return !state.runtimeOperation.Busy(); }); })); ctx->Yield(5);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(!state.document->Context()->IsProfilingEnable());
             IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && editor.Selection() == selected);
@@ -478,7 +478,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(client.Command("paths.apply", {vdev::IntegerArgument("revision", vdev::EditorClient::Integer(paths, "revision")), args.values.front()}).status == EDITOR_REFUSED);
             IM_CHECK_NO_RET(workspace.Close(pluginView) && workspace.Close(pathView));
         });
-        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(4);
+        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return Read<bool>(ctx, [&] { return !state.runtimeOperation.Busy(); }); })); ctx->Yield(4);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && state.document->Dirty() == dirty && editor.Selection() == selected);
             IM_CHECK_NO_RET(!workspace.Role("main.plugins") && !workspace.Role("main.paths"));
@@ -540,7 +540,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(client.Command("diagnostics.close-tools").status == EDITOR_OK && client.Command("environment.close-managers").status == EDITOR_OK);
             IM_CHECK_NO_RET(workspace.Close(invalid) && workspace.Close(messages));
         });
-        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(3);
+        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return Read<bool>(ctx, [&] { return !state.runtimeOperation.Busy(); }); })); ctx->Yield(3);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && state.document->Dirty() == dirty && editor.Selection() == selection);
             IM_CHECK_NO_RET(!workspace.Role("main.unused") && !workspace.Role("main.memory") && !workspace.Role("main.versions") && !workspace.Role("main.link-options"));
@@ -581,7 +581,7 @@ void RegisterDebuggerTests(ImGuiTestEngine *engine) {
             IM_CHECK_NO_RET(client.Command("preferences.close").status == EDITOR_OK && !workspace.Role("main.preferences"));
             IM_CHECK_NO_RET(!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId));
         });
-        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return !state.runtimeOperation.Busy(); })); ctx->Yield(3);
+        gate->Release(); IM_CHECK(WaitFor(ctx, 100, [&] { return Read<bool>(ctx, [&] { return !state.runtimeOperation.Busy(); }); })); ctx->Yield(3);
         OnMainThread(ctx, [&] {
             IM_CHECK_NO_RET(state.History().UndoCount() == undo && state.History().CanRedo() == redo && state.document->Dirty() == dirty && editor.Selection() == selection);
         });

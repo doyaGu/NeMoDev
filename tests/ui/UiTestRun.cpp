@@ -116,6 +116,11 @@ UiTestRun::UiTestRun(EditorApp &app, const std::string &filter, const std::wstri
     vdevuitest::RegisterHelpTests(engine);
     vdevuitest::RegisterHtmlTests(engine);
     vdevuitest::RegisterDesktopTests(engine);
+    // All tests can use UI-thread reads, including those with no custom GUI.
+    ImVector<ImGuiTest *> registered;
+    ImGuiTestEngine_GetTestList(engine, &registered);
+    for (auto *test : registered)
+        if (!test->GuiFunc) test->GuiFunc = vdevuitest::MainThreadGui;
     ImGuiTestEngine_QueueTests(engine, ImGuiTestGroup_Tests, filter.c_str(), ImGuiTestRunFlags_RunFromCommandLine);
     m_Engine->queued = !ImGuiTestEngine_IsTestQueueEmpty(engine);
     if (!m_Engine->queued) std::fprintf(stderr, "no UI test matches '%s'\n", filter.c_str());

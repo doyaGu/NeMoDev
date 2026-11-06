@@ -122,8 +122,8 @@ inline void Settle(ImGuiTestContext *ctx, const char *window = nullptr) {
     // A frame count does not bound a background load. Wait for its actual
     // completion and startup focus changes before sending menu input.
     const auto deadline = SDL_GetTicks() + 10000;
-    while (!App().StartupSettled() && SDL_GetTicks() < deadline) ctx->Yield();
-    IM_CHECK_NO_RET(App().StartupSettled());
+    while (!Read<bool>(ctx, [] { return App().StartupSettled(); }) && SDL_GetTicks() < deadline) ctx->Yield();
+    IM_CHECK_NO_RET(Read<bool>(ctx, [] { return App().StartupSettled(); }));
     if (window) {
         ctx->WindowFocus(window);
         ctx->Yield(3);
