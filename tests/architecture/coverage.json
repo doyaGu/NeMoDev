@@ -1457,12 +1457,15 @@
         "VirtoolsDevUi.app",
         "VirtoolsDevUi.layoutviews",
         "VirtoolsDevUi.FrameQueries.StatusControls",
-        "VirtoolsDevUi.FrameQueries.IdleSelection"
+        "VirtoolsDevUi.FrameQueries.IdleSelection",
+        "VirtoolsDevUi.PlayerState.unavailable_fullscreen_keeps_both_viewports",
+        "VirtoolsDevUi.GpuLifetime.gpu_viewport_close_after_draw_keeps_pending_image",
+        "VirtoolsDevUi.GpuLifetime.gpu_viewport_context_stop_after_draw_keeps_pending_image"
       ],
       "gaps": [
         {
           "due_phase": 6,
-          "reason": "性能验收已恢复，原门槛不变。上次有效的十一组原参考对照使用相同 SDK：当前 median 0.271919 ms、参考 0.207211 ms，回退 31.2283%；MAD 1.1630%/0.5045%，未通过 3% 耗时门槛。采样定位到重复查询和字段复制，已修复 Layout 偏好缓存、状态栏与空闲工具的重复读取、只读查询结果交付、字段校验分配和时间设置复用，功能回归已通过，并将查询生命周期、字段校验、缓存分配、时间设置及 UI 查询次数分别登记为独立回归。后续无效采样和中止日志全部保留；优化后的严格验收等待用户提供空闲窗口，不筛选样本或放宽标准。 本轮原生 Player 焦点检查受系统锁屏阻止，解锁后需按原断言复验。"
+          "reason": "性能验收已恢复，原门槛不变。上次有效的十一组原参考对照使用相同 SDK：当前 median 0.271919 ms、参考 0.207211 ms，回退 31.2283%；MAD 1.1630%/0.5045%，未通过 3% 耗时门槛。采样定位到重复查询和字段复制，已修复 Layout 偏好缓存、状态栏与空闲工具的重复读取、只读查询结果交付、字段校验分配和时间设置复用，功能回归已通过，并将查询生命周期、字段校验、缓存分配、时间设置及 UI 查询次数分别登记为独立回归。后续无效采样和中止日志全部保留；优化后的严格验收等待用户提供空闲窗口，不筛选样本或放宽标准。 macOS 原生 Player 与双视口桌面验收 7/7 通过，补测第二视口的快捷键全屏、持键持鼠失焦退出与首视口 GPU 恢复；修复未提交 UI 绘制引用的纹理提前销毁，以及快捷键即时失败未记录日志。三个独立回归检查关闭后取样、Context 清理失败和无效模式后双视口状态。Windows/Linux 原生桌面仍需实机复验。"
         }
       ]
     },
