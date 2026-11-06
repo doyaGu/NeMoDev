@@ -318,6 +318,14 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     set_tests_properties(NeMoDevUiAppearance PROPERTIES LABELS self-contained)
     nemodev_add_module(NeMoDevAppearanceModule SOURCES ../tests/modules/AppearanceModule.cpp)
     if(TARGET VirtoolsDevUiTests)
+        foreach(_case gpu_viewport_close_after_draw_keeps_pending_image
+                gpu_viewport_context_stop_after_draw_keeps_pending_image)
+            add_test(NAME VirtoolsDevUi.GpuLifetime.${_case} COMMAND VirtoolsDevUiTests
+                    --ui-tests "${_case}"
+                    --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/gpu-lifetime-${_case}.xml")
+            set_tests_properties(VirtoolsDevUi.GpuLifetime.${_case}
+                    PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
+        endforeach()
         foreach(_case
                 curve_layout_resize_cancel_and_undo time_layout_resize_cancel_and_undo
                 dependencies_layout_modes_cancel_and_undo lod_layout_flags_proportions_cancel_and_undo

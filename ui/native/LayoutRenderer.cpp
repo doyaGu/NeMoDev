@@ -133,7 +133,9 @@ bool LayoutWindow::ReleaseGpuViewport() {
     if (m_GpuTextureHandle &&
         !ReleaseSdlGpuBackBuffer(m_ViewportContext, &m_GpuTextureHandle))
         return false;
-    m_GpuTexture.reset();
+    // Unbinding ends the rasterizer's use, but this frame's ImGui commands
+    // may still sample the image. Keep it until the UI has submitted them.
+    if (m_GpuTexture) RetireTexture(std::move(m_GpuTexture));
 #ifdef VIRTOOLSDEV_UI_TESTS
     if (hadTexture)
         ++m_GpuViewportReleases;
@@ -172,9 +174,9 @@ bool LayoutWindow::ReleaseTexture() {
 
 void LayoutWindow::ResetViewportAfterContextStop() {
     // Context shutdown destroys its borrowed logical handles without touching
-    // external resources. Releasing the UI texture is safe only afterwards.
+    // external resources. Unsubmitted UI draw commands may still use the image.
     m_GpuTextureHandle = 0;
-    m_GpuTexture.reset();
+    if (m_GpuTexture) RetireTexture(std::move(m_GpuTexture));
     m_ViewportContext = nullptr;
     m_ViewportRenderer = &LayoutWindow::RenderReadbackViewport;
     if (m_Texture)

@@ -43,9 +43,71 @@ SDL_Window *MainWindow() {
         : nullptr;
 }
 
+void CloseViewportAfterDraw(ImGuiTestContext *ctx, bool failRelease) {
+    Settle(ctx, "//3D Layout");
+    EditorView second = 0;
+    OnMainThread(ctx, [&] {
+        auto &workspace = App().WorkspaceForTests();
+        second = workspace.Open("layout.viewport", "test.texture-close");
+        IM_CHECK_NO_RET(second && workspace.Focus(second));
+    });
+    ctx->Yield(5);
+    const auto token = App().State().document->Token();
+    const auto revision = App().State().document->ChangeRevision();
+    const auto history = App().State().History().UndoCount();
+    const auto redo = App().State().History().CanRedo();
+    const auto selection = App().State().objectSelection.References();
+    const auto reads = App().Layout().View().ReadbackFrames();
+    const auto uploads = App().Layout().ViewportUploadsForTests();
+    std::array<unsigned char, 4> expected{};
+    OnMainThread(ctx, [&] {
+        auto *view = App().Layout(second);
+        auto *texture = view ? view->GpuViewportTextureForTests() : nullptr;
+        IM_CHECK_NO_RET(texture && texture->Id());
+        std::vector<unsigned char> pixels;
+        IM_CHECK_NO_RET(vdev::MainRenderer().ReadTextureForTests(*texture, pixels));
+        const auto at = (size_t(4) * texture->Width() + 4) * 4;
+        IM_CHECK_NO_RET(at + 4 <= pixels.size());
+        std::copy_n(pixels.begin() + at, 4, expected.begin());
+        const ImVec2 uv(4.5f / texture->Width(), 4.5f / texture->Height());
+        // This frame already refers to the image when the view closes. The
+        // normal UI submission must still be able to sample that image.
+        ImGui::GetForegroundDrawList()->AddImage(texture->Id(), {10, 10}, {42, 42}, uv, uv);
+        if (failRelease) view->FailNextGpuViewportReleaseForTests();
+        IM_CHECK_NO_RET(App().WorkspaceForTests().Close(second));
+    });
+    // Inspect the submitted frame before another frame removes the test image.
+    OnMainThread(ctx, [&] {
+        std::vector<unsigned char> pixels;
+        int width = 0, height = 0;
+        IM_CHECK_NO_RET(vdev::MainRenderer().ReadFrame(pixels, width, height));
+        const auto size = ImGui::GetIO().DisplaySize;
+        IM_CHECK_NO_RET(size.x > 0 && size.y > 0);
+        IM_CHECK_NO_RET(Pixel(pixels, width, int(26 * width / size.x),
+                             int(26 * height / size.y), expected));
+    });
+    ctx->Yield(3);
+    OnMainThread(ctx, [&] {
+        IM_CHECK_NO_RET(!App().Layout(second) && App().Layout().UsesGpuViewport());
+        IM_CHECK_NO_RET(App().State().document->Token() == token &&
+                        App().State().document->ChangeRevision() == revision &&
+                        App().State().History().UndoCount() == history &&
+                        App().State().History().CanRedo() == redo &&
+                        App().State().objectSelection.References() == selection);
+        IM_CHECK_NO_RET(App().Layout().View().ReadbackFrames() == reads &&
+                        App().Layout().ViewportUploadsForTests() == uploads);
+    });
+}
+
 } // namespace
 
 void RegisterGpuViewportTests(ImGuiTestEngine *engine) {
+    auto *close = IM_REGISTER_TEST(engine, "gpulifetime", "gpu_viewport_close_after_draw_keeps_pending_image");
+    close->GuiFunc = MainThreadGui;
+    close->TestFunc = [](ImGuiTestContext *ctx) { CloseViewportAfterDraw(ctx, false); };
+    auto *stopped = IM_REGISTER_TEST(engine, "gpulifetime", "gpu_viewport_context_stop_after_draw_keeps_pending_image");
+    stopped->GuiFunc = MainThreadGui;
+    stopped->TestFunc = [](ImGuiTestContext *ctx) { CloseViewportAfterDraw(ctx, true); };
     ImGuiTest *t = IM_REGISTER_TEST(
         engine, "app", "gpu_viewport_reuses_one_imported_texture");
     t->GuiFunc = MainThreadGui;
