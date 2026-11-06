@@ -70,6 +70,7 @@ Module::Module(const EditorModuleDesc &source, const std::string &origin) {
     destroy = source.destroy;
     start = source.start;
     update = source.update;
+    document = source.document;
     Array(source.dependencies, source.dependencyCount);
     for (uint32_t i = 0; i < source.dependencyCount; ++i)
         dependencies.push_back(Text(source.dependencies[i], true));
@@ -426,6 +427,7 @@ void RegisteredModules::Stop(const EditorHost *host, const std::function<void(co
     Callback running(callback);
     stopped = true;
     started = false;
+    detached.clear();
     for (auto it = activation.rbegin(); it != activation.rend(); ++it) {
         auto &module = **it;
         if (!module.running) continue;
@@ -437,6 +439,48 @@ void RegisteredModules::Stop(const EditorHost *host, const std::function<void(co
             Report(report, "Module stop failed: " + String(module.id));
         }
     }
+}
+
+bool RegisteredModules::Document(const EditorHost *host, const EditorDocumentChange &change, std::string &error) {
+    if (!started || stopped || Busy()) {
+        error = "Modules cannot change documents during another lifecycle callback";
+        return false;
+    }
+    Callback running(callback);
+    const auto call = [&](Module &module) {
+        EditorStatus status = EDITOR_ERROR;
+        std::string reason;
+        try { status = module.document(module.data, host, &change); }
+        catch (const std::exception &failure) { reason = failure.what(); }
+        catch (...) { reason = "Document callback raised an exception"; }
+        if (status == EDITOR_OK || status == EDITOR_NO_CHANGE) return true;
+        if (!error.empty()) error += "; ";
+        error += "Module document change failed: " + String(module.id);
+        if (!reason.empty()) error += ": " + reason;
+        return false;
+    };
+    if (change.phase == EDITOR_DOCUMENT_DETACH) {
+        if (!detached.empty()) { error = "The previous document has not been restored"; return false; }
+        // Allocate before any module releases resources. Even a throwing module
+        // belongs to recovery, since it may already have changed its own state.
+        detached.reserve(activation.size());
+        for (auto it = activation.rbegin(); it != activation.rend(); ++it) {
+            if (!(*it)->document) continue;
+            detached.push_back(*it);
+            if (!call(**it)) return false;
+        }
+        return true;
+    }
+    bool result = true;
+    for (auto *module : activation) {
+        const auto previous = std::find(detached.begin(), detached.end(), module);
+        if (!module->document || (change.phase == EDITOR_DOCUMENT_RESTORE && previous == detached.end())) continue;
+        const bool ok = call(*module);
+        result = ok && result;
+        if (ok && previous != detached.end()) detached.erase(previous);
+    }
+    if (change.phase == EDITOR_DOCUMENT_REPLACED) detached.clear();
+    return result;
 }
 
 void RegisteredModules::Report(const std::function<void(const EditorResponse &)> &report, std::string message) {

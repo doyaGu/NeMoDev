@@ -13,6 +13,7 @@ struct Module {
     void(EDITOR_CALL *stop)(void *, const EditorHost *) = nullptr;
     EditorStatus(EDITOR_CALL *start)(void *, const EditorHost *) = nullptr;
     void(EDITOR_CALL *update)(void *, const EditorHost *, EditorModulePhase) = nullptr;
+    EditorStatus(EDITOR_CALL *document)(void *, const EditorHost *, const EditorDocumentChange *) = nullptr;
     bool running = false;
     std::deque<std::string> strings;
     std::deque<std::vector<EditorParameter>> parameters;
@@ -72,6 +73,7 @@ class RegisteredModules {
     bool Update(const EditorHost *host, EditorModulePhase phase,
                 const std::function<void(const EditorResponse &)> &report);
     void Stop(const EditorHost *host, const std::function<void(const EditorResponse &)> &report);
+    bool Document(const EditorHost *, const EditorDocumentChange &, std::string &error);
 
   private:
     struct Callback {
@@ -88,6 +90,7 @@ class RegisteredModules {
     EditorConfiguration defaults;
     bool assembling = false, loading = false, discarding = false;
     bool started = false, stopped = false, callback = false;
+    std::vector<Module *> detached;
     std::vector<Module *> ModuleOrder() const;
     void DiscardModules(size_t first);
 };

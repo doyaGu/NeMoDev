@@ -17,6 +17,8 @@ extern "C" vdev::ObjectRef IdentityFromC(vdev::DocumentToken, uint32_t, uint64_t
 extern "C" uint32_t IdentitySizeFromC(void);
 extern "C" uint32_t EditorModuleSizeFromC(void);
 extern "C" EditorModuleDesc LifecycleModuleFromC(uint32_t *);
+extern "C" EditorDocumentChange DocumentChangeFromC(void);
+static_assert(__is_standard_layout(EditorDocumentChange) && __is_trivially_copyable(EditorDocumentChange), "C document change");
 extern "C" uint32_t EditorRequestSizeFromC(void);
 extern "C" uint32_t EditorHostSizeFromC(void);
 extern "C" EditorStatus BeginPositionedEditFromC(const EditorHost *, EditorString, const EditorRequest *, EditorEdit *);
@@ -54,7 +56,7 @@ extern "C" uint32_t EditorDocumentDataSizeFromC(void);
 extern "C" uint32_t EditorDocumentDataDescSizeFromC(void);
 extern "C" EditorDocumentData DocumentDataFromC(const unsigned char *, uint32_t);
 static_assert(__is_standard_layout(EditorDocumentData) && __is_trivially_copyable(EditorDocumentDataDesc), "C document data");
-static_assert(EDITOR_VERSION == 26, "Editor module lifecycle version");
+static_assert(EDITOR_VERSION == 27, "Editor document lifecycle version");
 extern "C" EditorQueryDesc RetainedQueryFromC(void *);
 extern "C" uint32_t EditorQuerySizeFromC(void);
 extern "C" EditorViewDesc PickViewFromC(EditorObject *);
@@ -86,6 +88,9 @@ int main() {
     module.stop(module.data, nullptr);
     module.destroy(module.data);
     if (lifecycle != 63 || module.size != sizeof(EditorModuleDesc) || module.version != EDITOR_VERSION) return 1;
+    const auto documentChange = DocumentChangeFromC();
+    if (documentChange.size != sizeof(EditorDocumentChange) ||
+        module.document(module.data, nullptr, &documentChange) != EDITOR_OK || lifecycle != 127) return 1;
     if (EditorThemeSizeFromC() != sizeof(EditorThemeDesc) || EditorFontSizeFromC() != sizeof(EditorFontDesc) ||
         EditorImageSizeFromC() != sizeof(EditorImageDesc))
         return 1;

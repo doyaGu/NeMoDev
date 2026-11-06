@@ -12,7 +12,7 @@ typedef ObjectRef EditorObject;
 typedef DocumentToken EditorDocument;
 #endif
 
-#define EDITOR_VERSION 26u
+#define EDITOR_VERSION 27u
 #define EDITOR_TEXT(s) {s, sizeof(s) - 1u}
 #if defined(_WIN32)
 #define EDITOR_CALL __cdecl
@@ -346,7 +346,9 @@ typedef struct EditorViewDesc {
     // Runs read-only on the editor thread; references belong to this scope.
     // When supplied, replaces this view's rectangular pick regions.
     EditorQuery pick;
-    // The window belongs to this document and closes before document replacement.
+    // The window belongs to this document and closes once replacement commits.
+    // Its instance survives a failed replacement. Context-dependent resources
+    // must be released/resumed through the module's document callback.
     // Its replacement state may contain checked ObjectRefs; that state is never
     // retained across documents. Other views save only document-independent values.
     uint32_t documentBound;
@@ -502,6 +504,18 @@ typedef struct EditorDocumentDataDesc {
 // before views draw; interactive work advances after them. Callbacks do not
 // render UI or present a GPU frame.
 typedef enum EditorModulePhase { EDITOR_PREPARE_FRAME, EDITOR_BEFORE_VIEWS, EDITOR_AFTER_VIEWS } EditorModulePhase;
+typedef enum EditorDocumentPhase {
+    EDITOR_DOCUMENT_DETACH,
+    EDITOR_DOCUMENT_RESTORE,
+    EDITOR_DOCUMENT_REPLACED
+} EditorDocumentPhase;
+typedef struct EditorDocumentChange {
+    uint32_t size;
+    EditorDocumentPhase phase;
+    EditorDocument document;
+    uint64_t revision;
+    uint32_t replaceContext;
+} EditorDocumentChange;
 typedef struct EditorModuleDesc {
     uint32_t size, version;
     EditorString id;
@@ -553,6 +567,14 @@ typedef struct EditorModuleDesc {
     // It cannot veto shutdown or submit new commands; accepted operations may
     // still complete and edits may be cancelled. Data stays alive until destroy.
     void(EDITOR_CALL *stop)(void *, const EditorHost *);
+    // UI thread, between native tasks. DETACH releases context-dependent
+    // resources while retaining instance state. RESTORE resumes the same
+    // document after failure; REPLACED receives the new document after commit.
+    // Detach visits reverse dependency order, recovery visits forward order.
+    // Callbacks may query and release their own resources, but cannot mutate
+    // documents/configuration or submit commands. OK/NO_CHANGE succeeds.
+    // A failed DETACH is also given RESTORE, since it may have released resources.
+    EditorStatus(EDITOR_CALL *document)(void *, const EditorHost *, const EditorDocumentChange *);
     // Orders startup, frame callbacks and shutdown when the named module is
     // present. Missing or disabled optional dependencies are allowed.
     const EditorString *optionalDependencies;

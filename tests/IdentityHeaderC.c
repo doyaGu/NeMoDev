@@ -29,11 +29,25 @@ static void EDITOR_CALL LifecycleStopFromC(void *data, const EditorHost *host) {
     *(uint32_t *)data |= 16u;
 }
 static void EDITOR_CALL LifecycleDestroyFromC(void *data) { *(uint32_t *)data |= 32u; }
+static EditorStatus EDITOR_CALL DocumentChangeCallbackFromC(void *data, const EditorHost *host, const EditorDocumentChange *change) {
+    (void)host;
+    if (!change || change->size != sizeof(*change) || change->phase != EDITOR_DOCUMENT_RESTORE ||
+        change->document.value != 42 || change->revision != 17 || change->replaceContext != 1) return EDITOR_INVALID;
+    *(uint32_t *)data |= 64u;
+    return EDITOR_OK;
+}
+EditorDocumentChange DocumentChangeFromC(void) {
+    EditorDocumentChange change = {0};
+    change.size = sizeof(change); change.phase = EDITOR_DOCUMENT_RESTORE;
+    change.document.value = 42; change.revision = 17; change.replaceContext = 1;
+    return change;
+}
 EditorModuleDesc LifecycleModuleFromC(uint32_t *value) {
     EditorModuleDesc module = {0};
     module.size = sizeof(module); module.version = EDITOR_VERSION; module.data = value;
     module.start = LifecycleStartFromC; module.update = LifecycleUpdateFromC;
     module.stop = LifecycleStopFromC; module.destroy = LifecycleDestroyFromC;
+    module.document = DocumentChangeCallbackFromC;
     return module;
 }
 uint32_t EditorRequestSizeFromC(void) { return (uint32_t)sizeof(EditorRequest); }

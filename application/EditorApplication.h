@@ -160,6 +160,7 @@ class EditorApplication {
     bool StartModules(std::string &error);
     bool UpdateModules(EditorModulePhase phase);
     void StopModules();
+    bool ChangeDocument(const EditorDocumentChange &, std::string &error);
     bool Configure(const EditorConfiguration &configuration, std::string &error);
     const EditorConfiguration &Configuration() const;
     std::shared_ptr<const DocumentDataRegistry> DataTypes() const;

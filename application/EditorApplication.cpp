@@ -1548,7 +1548,7 @@ void EditorApplication::Attach(DocumentToken document, uint64_t revision, bool a
     s.writable = writable;
     if (available) s.drafts.RemoveInvalid([&](ObjectRef object) { return s.Current(object); });
 }
-void EditorApplication::NativeAvailable(bool available) { m_State->available = available; }
+void EditorApplication::NativeAvailable(bool available) { if (m_State->Thread()) m_State->available = available; }
 bool EditorApplication::NativeAvailable() const { return m_State->Thread() && m_State->NativeReady(); }
 uint64_t EditorApplication::Revision() const {
     if (!m_State->Thread()) return 0;
@@ -2596,6 +2596,21 @@ void EditorApplication::StopModules() {
     ++s.executing;
     s.modules.Stop(Host(), report);
     --s.executing;
+}
+bool EditorApplication::ChangeDocument(const EditorDocumentChange &change, std::string &error) {
+    auto &s = *m_State;
+    if (!s.Thread() || !s.active || s.stopped || s.drawing || s.querying || s.readOnlyCallbacks || s.modules.Busy() || s.queries.Notifying() ||
+        change.size != sizeof(change) || change.phase < EDITOR_DOCUMENT_DETACH ||
+        change.phase > EDITOR_DOCUMENT_REPLACED || change.replaceContext > 1 || change.document != s.document || !s.NativeReady()) {
+        error = "Invalid document change or lifecycle callback";
+        return false;
+    }
+    struct Scope {
+        State &state;
+        Scope(State &state) : state(state) { ++state.readOnlyCallbacks; ++state.executing; }
+        ~Scope() { --state.executing; --state.readOnlyCallbacks; }
+    } scope(s);
+    return s.modules.Document(Host(), change, error);
 }
 void EditorApplication::Stop() {
     if (!m_State)
