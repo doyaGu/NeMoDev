@@ -206,6 +206,7 @@ if (VIRTOOLSDEV_BUILD_UI_TESTS)
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/UiTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/AppTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ModuleTests.cpp
+            ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ViewRoutingTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/WorkspaceTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ValueEditTests.cpp
             ${VIRTOOLSDEV_SOURCE_DIR}/tests/ui/ArrayEditTests.cpp
@@ -379,11 +380,32 @@ if(VIRTOOLSDEV_BUILD_TESTS)
         nemodev_add_module(NeMoDevUiObjectModule HOST VirtoolsDevUiTests SOURCES ../tests/modules/ObjectModule.cpp)
         target_include_directories(NeMoDevUiObjectModule PRIVATE "${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR}/imgui_test_engine")
         target_compile_definitions(NeMoDevUiObjectModule PRIVATE IMGUI_USER_CONFIG="imgui_te_imconfig.h")
+        nemodev_add_module(NeMoDevViewRoutingModule HOST VirtoolsDevUiTests SOURCES ../tests/modules/ViewRoutingModule.cpp)
+        target_include_directories(NeMoDevViewRoutingModule PRIVATE "${VIRTOOLSDEV_IMGUI_TEST_ENGINE_DIR}/imgui_test_engine")
+        target_compile_definitions(NeMoDevViewRoutingModule PRIVATE IMGUI_USER_CONFIG="imgui_te_imconfig.h")
         add_test(NAME VirtoolsDevUi.modules COMMAND VirtoolsDevUiTests --ui-tests "^modules$"
                 --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>"
                 --editor-module-dir "$<TARGET_FILE_DIR:NeMoDevUiDocumentInfo>"
                 --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/modules.xml")
         set_tests_properties(VirtoolsDevUi.modules PROPERTIES LABELS self-contained)
+        foreach(_case schematic_replaced_view_receives_script_show layout_foreign_source_keeps_active_camera
+                schematic_replaced_instances_keep_navigation_targets layout_replaced_instances_use_selected_command_provider
+                schematic_replaced_view_receives_parameter_navigation layout_invalid_sources_cannot_query_edit_or_capture
+                layout_default_gesture_keeps_initial_view_after_focus_change level_navigation_uses_replaced_schematic)
+            set(_routing_sample)
+            if(_case STREQUAL "level_navigation_uses_replaced_schematic")
+                set(_routing_sample "${VIRTOOLSDEV_SAMPLE_ROOT}/data/BBSamples/Interface/2D Flow Layout.cmo")
+            endif()
+            add_test(NAME VirtoolsDevUi.ViewRouting.${_case} COMMAND VirtoolsDevUiTests
+                    --ui-tests "${_case}" --editor-module "$<TARGET_FILE:NeMoDevUiObjectModule>"
+                    --editor-module "$<TARGET_FILE:NeMoDevViewRoutingModule>"
+                    --ui-results "${PROJECT_BINARY_DIR}/virtoolsdev-ui/view-routing-${_case}.xml" ${_routing_sample})
+            set_tests_properties(VirtoolsDevUi.ViewRouting.${_case}
+                    PROPERTIES LABELS self-contained RUN_SERIAL TRUE TIMEOUT 60)
+            if(_routing_sample)
+                set_tests_properties(VirtoolsDevUi.ViewRouting.${_case} PROPERTIES LABELS sample SKIP_RETURN_CODE 77)
+            endif()
+        endforeach()
         foreach(_case schematic_explorer_reflow_keeps_navigation_and_cancel
                 layout_explorer_reflow_preserves_locked_selection_and_cancel
                 snapshot_grid_reflow_keeps_slots_and_explicit_readback
