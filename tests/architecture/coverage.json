@@ -176,7 +176,8 @@
         "application/Preferences.*",
         "application/EditorProfile.*",
         "application/ProfileCommands.*",
-        "application/WorkspaceState.*"
+        "application/WorkspaceState.*",
+        "ui/native/EditorProfileStorage.*"
       ]
     },
     {
@@ -709,7 +710,9 @@
     ],
     "S17": [
       "S13",
-      "S34"
+      "S34",
+      "S02",
+      "S35"
     ],
     "S18": [
       "S07",
@@ -1713,7 +1716,7 @@
     {
       "id": "F25",
       "name": "自定义与偏好",
-      "owner": "EditorProfile / ProfileCommands / PreferencesCommands / EditorApplication / Workspace",
+      "owner": "EditorProfileStorage / EditorProfile / ProfileCommands / PreferencesCommands / EditorApplication / Workspace",
       "source_groups": [
         "S14",
         "S17",
@@ -2421,7 +2424,7 @@
       "name": "已登记视图的实例和输入",
       "owner": "EditorWorkspace",
       "lifetime": "工作区拥有实例、窗口身份、焦点和导航；创建/状态恢复失败保留旧实例和配置",
-      "persistence": "同一次启动中关闭重开和提供者替换恢复完整临时状态；跨启动只保存 settings 声明的版本化字段与稳定窗口编号，禁止对象引用；提供者缺失保留占位和原始设置，恢复失败保留原 JSON",
+      "persistence": "同一次启动中关闭重开和提供者替换恢复完整临时状态；跨启动只保存 settings 声明的版本化字段与稳定窗口编号，禁止对象引用；提供者缺失保留占位和原始设置，恢复失败保留原 JSON；EditorProfileStorage 统一启动恢复和文件发布；捕获布局不会消耗尚未提交的保存请求，原生任务期间只沿用已保存工作区",
       "features": [
         "F29",
         "F31",
@@ -2431,8 +2434,8 @@
     {
       "id": "editor-configuration",
       "name": "命令、查询、编辑器、视图和工具提供者选择、输入绑定、菜单与工具栏项目",
-      "owner": "EditorProfile 拥有保存配置，EditorApplication 的 SelectedConfiguration 拥有完整生效选择；模块默认选择归 RegisteredModules 的启动装配；Workspace 负责视图更换",
-      "lifetime": "当前应用；先准备完整候选再切换，失败保留原选择；草稿、待提交预览及捕获工具不阻止主题、快捷键、菜单和工具栏调整，编辑提供者仍保持固定",
+      "owner": "EditorProfileStorage 拥有配置文件位置、活动偏好、启动恢复及保存重试；EditorProfile 拥有已保存 JSON；EditorApplication 的 SelectedConfiguration 拥有完整生效选择；模块默认选择归 RegisteredModules；EditorWorkspace 负责视图状态和更换",
+      "lifetime": "当前应用；候选设置和工作区完整写入后才替换已保存配置，失败保留原文件、原选择及视图实例；布局捕获保留延迟保存计时器，只有发布成功后才清除待保存标记；自动保存失败间隔五秒重试，运行时不可用和恢复失败时继续保留请求；草稿、待提交预览及捕获工具不阻止主题、快捷键、菜单和工具栏调整，编辑提供者仍保持固定；最近文件、已打开资源和工具栏状态描述已完成操作，写入失败仍留在活动偏好中，重试时一并保存",
       "persistence": "单一带版本 JSON 保存模块、提供者、按视图生效的键盘/鼠标绑定、菜单、工具栏位置/动作/显隐/参数、偏好、最近文件、资源和路径；旧 INI 只读迁移，未知成员保留；读取失败不覆盖原文件；提供者更换先准备视图再保存，保存失败保留原窗口和配置；无文档、选区或历史数据",
       "features": [
         "F25"

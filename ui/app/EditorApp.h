@@ -32,7 +32,7 @@
 #include <SDL3/SDL.h>
 #include "ui/print/Printer.h"
 
-#include "application/EditorProfile.h"
+#include "ui/native/EditorProfileStorage.h"
 #include "application/ProfileCommands.h"
 #include "core/document/DocumentSaver.h"
 #include "features/preferences/PreferencesCommands.h"
@@ -111,7 +111,7 @@ public:
 #ifdef VIRTOOLSDEV_UI_TESTS
     ParameterCopies &ParameterCopiesForTests() { return m_ParameterCopies; }
     const Debugger *DebuggerForTests() const { return m_Execution.BoundDebugger(); }
-    Preferences &SettingsForTests() { return m_Settings; }
+    Preferences &SettingsForTests() { return m_Profile.Settings(); }
     BuildingBlockCatalog &CatalogForTests() { return m_Catalog; }
     std::vector<CKGUID> &RecentBlocksForTests() { return m_RecentBlocks; }
     EditorWorkspace &WorkspaceForTests() { return m_Workspace; }
@@ -189,20 +189,8 @@ private:
     // Dev's status bar and its Time Settings (StatusBar.cpp).
     void StatusBar();
     void ApplyPreferences();
-    std::string PreferencesPath() const;
     void SaveWorkspaceIfNeeded();
-    void SavePreferences(); // not when isolated
-    bool SaveSearchPaths(const PathCategories &, std::string &error);
-    bool SaveSettings(Preferences next, std::string &error);
-    bool WriteSettings(const Preferences &, std::string &error);
-    bool WriteProfile(EditorProfile &, const Preferences &, const EditorConfiguration &, std::string &error,
-                      const WorkspaceState * = nullptr);
-    bool SaveConfiguration(const EditorConfiguration &, std::string &error, const WorkspaceState * = nullptr);
 
-    Preferences m_Settings;
-    EditorProfile m_Profile;
-    std::string m_ProfileFile;
-    bool m_ProfileReady = false;
     SchematicStyle m_Style;
     BuildingBlockCatalog m_Catalog;
     std::vector<CKGUID> m_RecentBlocks;
@@ -219,13 +207,16 @@ private:
     void RememberBlock(CKGUID guid) {
         m_RecentBlocks.erase(std::remove(m_RecentBlocks.begin(), m_RecentBlocks.end(), guid), m_RecentBlocks.end());
         m_RecentBlocks.insert(m_RecentBlocks.begin(), guid);
-        const auto limit = size_t(std::max(1, m_Settings.maxRecentBlocks));
+        const auto limit = size_t(std::max(1, m_Profile.Settings().maxRecentBlocks));
         if (m_RecentBlocks.size() > limit) m_RecentBlocks.resize(limit);
     }
     EditorSession m_Session;
     EditorApplication m_Editor;
-    ProfileCommands m_ProfileCommands{m_Editor, m_Profile, [this](EditorProfile &next, std::string &error) {
-        return m_ProfileReady && WriteProfile(next, m_Settings, m_Editor.Configuration(), error);
+    EditorWorkspace m_Workspace{m_Editor};
+    EditorProfileStorage m_Profile{m_Editor, m_Workspace,
+        [this](std::string &error) { return m_Appearance.Prepare(m_Editor, error); }};
+    ProfileCommands m_ProfileCommands{m_Editor, m_Profile.Profile(), [this](EditorProfile &next, std::string &error) {
+        return m_Profile.Save(next, error);
     }};
     MessageCommands m_Messages;
     DocumentCommands m_FileCommands{m_Editor, m_Session.files, m_Session.runtimeOperation,
@@ -233,17 +224,19 @@ private:
     OutputCommands m_Outputs{m_Editor, m_Session.files, m_Session.runtimeOperation,
                               [this] { return m_Session.document.get(); }, *this};
     ExecutionCommands m_Execution{m_Editor, [this] { return m_Session.document.get(); },
-                                  m_Settings, &m_Session.files};
-    EditorWorkspace m_Workspace{m_Editor};
+                                  m_Profile.Settings(), &m_Session.files};
     DataResourceCommands m_ResourceCommands{m_Editor, m_Session.runtimeOperation, m_Session.host};
     DiagnosticCommands m_Diagnostics{m_Editor, m_Session.runtimeOperation, m_Session.host,
         [this] { return m_Session.document.get(); }};
-    PreferencesCommands m_Preferences{m_Editor, m_Session.host, m_Settings,
-        [this](const Preferences &preferences, std::string &error) { return WriteSettings(preferences, error); },
+    PreferencesCommands m_Preferences{m_Editor, m_Session.host, m_Profile.Settings(),
+        [this](const Preferences &preferences, std::string &error) { return m_Profile.Save(preferences, error); },
         [this] { ApplyPreferences(); m_Panels.RefreshStack(); }};
     EnvironmentCommands m_Environment{m_Editor, m_Session.host,
-        [this](const PathCategories &paths, std::string &error) { return SaveSearchPaths(paths, error); },
-        [this] { m_Catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); m_Preferences.InvalidateCatalog(); }, &m_Settings.paths};
+        [this](const PathCategories &paths, std::string &error) {
+            auto next = m_Profile.Settings(); next.paths = paths; next.pathsSaved = true;
+            return m_Profile.Save(next, error);
+        },
+        [this] { m_Catalog.Refresh(); m_SceneCommands.RefreshCatalog(); m_Schematics.Invalidate(); m_Diagnostics.InvalidateVersions(); m_Preferences.InvalidateCatalog(); }, &m_Profile.Settings().paths};
     ObjectCommands m_ObjectCommands;
     ParameterCommands m_ParameterCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }, &m_Session.clipboard};
     ArrayCommands m_ArrayCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }, m_Session.clipboard};
@@ -251,7 +244,7 @@ private:
     SchematicCommands m_SchematicCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; }};
     SchematicGraphCommands m_SchematicGraph{
         [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
-        [this] { return m_Settings.Bool("Schematic\\Test Parameter Link after Loading"); }, m_Session.clipboard};
+        [this] { return m_Profile.Settings().Bool("Schematic\\Test Parameter Link after Loading"); }, m_Session.clipboard};
     SelectionCommands m_SelectionCommands{[this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
                                           m_Session.objectSelection};
     SchematicViews m_Schematics;
@@ -266,7 +259,7 @@ private:
     SetupWindows m_Setups{m_Workspace, m_Session.fileDialogs};
     SceneCommands m_SceneCommands{m_Editor, [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
         m_Session.objectClipboard, m_Session.clipboard, [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }, [this]() -> CKDependencies & { return CopyDependencies(); },
-        [this] { return m_Settings.Bool("3D Layout\\Show Dynamic Objects"); }};
+        [this] { return m_Profile.Settings().Bool("3D Layout\\Show Dynamic Objects"); }};
     UiAppearance m_Appearance;
     HtmlFonts m_HtmlFonts;
     LayoutWindows m_Layouts{m_Session.host, m_ParameterCopies, m_Editor, m_Workspace};
@@ -279,14 +272,14 @@ private:
         [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
         [this](EditorView source) { return m_Layouts.Target(source); },
         m_Session.objectSelection,
-        m_Settings,
+        m_Profile.Settings(),
         [this]() -> SchematicNavigation & { return m_Schematics.Current().Navigation(); }};
     LayoutPresentation m_LayoutPresentation{
         m_Editor,
         [this] { return m_Session.HasDocument() ? m_Session.document.get() : nullptr; },
         [this](EditorView source) { return m_Layouts.Target(source); },
         m_Session.objectSelection,
-        m_Settings,
+        m_Profile.Settings(),
         [this] { return EditorClient::Integer(m_Editor.ReadQuery("runtime.state", {m_Editor.Scope()}), "state") == EDITOR_EXECUTION_RUNNING; },
         [this](const auto &visit) { m_Layouts.ForEach(visit); }};
     SnapshotCommands m_Snapshots{

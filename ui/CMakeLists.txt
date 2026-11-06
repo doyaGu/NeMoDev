@@ -22,6 +22,7 @@ set(_editor_sources
         app/CommandLine.cpp
         app/EditorApp.cpp
         native/EditorSession.cpp
+        native/EditorProfileStorage.cpp
         app/FileInputs.cpp
         app/OutputInputs.cpp
         app/EnvironmentInputs.cpp
