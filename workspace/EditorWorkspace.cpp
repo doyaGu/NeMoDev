@@ -93,8 +93,10 @@ bool EditorWorkspace::Register(std::string &error) {
                  const auto message = TextArgument("message", error);
                  sink.write(sink.data, &message, 1);
              }
-             if (saved && ImGui::GetCurrentContext())
+             if (saved && ImGui::GetCurrentContext()) {
                  ImGui::GetIO().WantSaveIniSettings = false;
+                 ImGui::GetCurrentContext()->SettingsDirtyTimer = 0;
+             }
              return saved ? EDITOR_OK : EDITOR_ERROR;
          },
          this, EDITOR_WORKSPACE, EDITOR_FILE_OPERATION},

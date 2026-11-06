@@ -284,8 +284,12 @@ bool EditorWorkspace::Capture(const std::map<EditorView, View> &views, const Wor
             if (entry.second.focus && !entry.second.desc.documentBound && entry.second.desc.kind == EDITOR_WINDOW_VIEW)
                 next.focused = entry.second.instance;
     if (ImGui::GetCurrentContext()) {
+        const auto timer = ImGui::GetCurrentContext()->SettingsDirtyTimer;
         size_t size = 0;
         const auto *ini = ImGui::SaveIniSettingsToMemory(&size);
+        // Capturing settings is not a successful write. Preserve a pending
+        // delayed save until the caller publishes the whole profile.
+        ImGui::GetCurrentContext()->SettingsDirtyTimer = timer;
         next.layout.assign(ini, size);
     }
     if (!ValidateWorkspaceState(next, error))
