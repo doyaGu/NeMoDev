@@ -1,5 +1,47 @@
 # Architecture checks and migration results
 
+Document view replacement now belongs to the editing session and workspace.
+EditorApp no longer owns detach/restore methods or a primary-Layout checkpoint.
+The workspace checks every closing view before releasing resources, retains
+original document-bound instances through preparation and failed dispatch, and
+closes them only after native commit. Providers without saveState keep their
+instance identity and private state on failure. Recovery that fails remains
+retryable and blocks saving an incomplete workspace.
+
+Enabled modules receive document detach, restore and replacement through their
+existing lifecycle registration. Detach runs in reverse dependency order;
+recovery runs forward and includes a module whose detach threw. Successful
+recovery entries are removed, so retry only visits failed entries. These UI-thread
+callbacks can query and release their own resources but cannot submit commands,
+change configuration or reenter lifecycle dispatch. Editor modules use interface
+version 27 and must be rebuilt; SDK and file formats are unchanged.
+
+LayoutView separates releasing a render context from destroying its interface
+objects. Each viewport retains its editor cameras and selected viewpoint across
+failed replacement; successful replacement recreates them for the new context.
+The Layout module owns renderer release/restart and interface-data capture,
+while Setup targets are projected into complete object references and opened
+through the selected command. Schematic and Explorer clear document state after
+commit. The five existing GPU transfer source files remain unchanged.
+
+Native access during a completion is safe once the worker has exited, including
+when later tasks are queued. Starting a new workflow and probing task admission
+still require an idle queue. Expired deferred input cannot read native data or
+create a new workflow. Independent regressions cover these distinctions alongside
+view retention, failed preparation/dispatch/recovery, external providers,
+dependency order and two independent cameras. An actual UI regression retains
+both GPU viewports and Setup after a failed New, without readback or upload.
+Thirteen independent document-view cases, two new admission cases and one native
+UI case extend the Release inventory from 281 to 297. All 297 pass without skips.
+The same two-camera probe fails with the original LayoutView and passes with the
+current implementation against the same SDK. Both queued-completion regressions
+were reproduced before their fix. Timing acceptance still waits for an idle
+window, and runtime process isolation remains separate.
+Native Player desktop checks pass 7/7, including double-viewport fullscreen and
+focus restoration. SDK source/runtime fingerprints and protected GPU transfer
+files match the original state. Results and the original failing camera/queue
+checks are recorded in `baselines/document-views-macos-arm64-metal.json`.
+
 RuntimeOperation now owns native task admission and workflow ownership. File,
 output and resource-input controllers keep their parameters and results, while
 a move-only request reserves the runtime across user input and subsequent tasks.

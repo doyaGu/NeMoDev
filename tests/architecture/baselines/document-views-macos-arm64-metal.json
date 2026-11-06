@@ -1,0 +1,309 @@
+{
+  "description": "编辑会话与工作区拥有文档视图切换，模块通过统一生命周期释放和恢复自己的资源。",
+  "base_revision": "deb9dae601b5efcb734319c38658df72ee421de3",
+  "recorded_utc": "2026-11-06T07:20:23.448371+00:00",
+  "configuration": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "build": "Release",
+    "gpu_backend": "SDL_GPU / Metal"
+  },
+  "module_interface": {
+    "version": 27,
+    "sdk_unchanged": true,
+    "files_unchanged": true,
+    "description": "仅 Dev 模块接口增加文档通知；所有内置、外部与示例模块已重编译。C/C++ 公共头仍无 STL、SDK、SDL 依赖。"
+  },
+  "owners": {
+    "EditorSession": "原生文档切换及工作区通知；切换完成后的恢复错误只记录，不回退已提交的新文档。",
+    "EditorWorkspace": "全部待关闭视图的预检查、原实例保留及切换后的关闭；恢复失败保留实例并阻止保存不完整工作区。",
+    "RegisteredModules": "按依赖顺序通知文档变化；保留已尝试脱离且尚未恢复的模块，重试只访问失败项。",
+    "LayoutView": "渲染上下文与独立界面对象；释放渲染上下文不销毁同一文档的编辑相机。",
+    "LayoutWindows": "各视口的原生资源脱离和恢复、文件布局及 Setup 引用收集。",
+    "SchematicViews / EditorPanels": "文档提交后清理自身的导航、模型、搜索与工作参数。"
+  },
+  "changes": [
+    "EditorApp 删除文档脱离、恢复、主 Layout 检查点及 Setup 原生转换，使用工作区和所属模块的既有所有权。",
+    "准备和恢复保留全部原视图，包括没有 saveState 的外部提供者；成功提交后才销毁旧文档窗口。",
+    "脱离按反向依赖顺序，恢复及切换完成按正向顺序；部分失败仍恢复已尝试模块。",
+    "文档通知允许主线程只读查询和自身资源清理，拒绝新命令、配置修改、错误线程及重入。",
+    "每个视口保留同一文档的编辑相机与当前视角，恢复不会重置第二个视口。",
+    "完成回调在原生调用退出后可安全读取，即使有后续排队任务；新流程和任务准入仍要求队列空闲；过期输入不能读原生状态或取得新流程。"
+  ],
+  "verification": {
+    "release_build": {
+      "path": "out/phase-six-document-views/build-queue-final.log",
+      "sha256": "a407b72964a3da27c9ae0303275e721ead6f1e8fad28aaf0ca35179e4b8bd034"
+    },
+    "complete_run": {
+      "total": 297,
+      "passed": 297,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-document-views/full.xml",
+        "sha256": "716d41c942852483c165327c18aab086cc77f6f267cf346501a0db6d7beb7951"
+      },
+      "log": {
+        "path": "out/phase-six-document-views/full.log",
+        "sha256": "4ae894570d7a57109c86b7678d5fb501d2c7adbddc21d02f28a3ec308325df10"
+      },
+      "inventory": {
+        "path": "out/phase-six-document-views/full-inventory.json",
+        "sha256": "fd2fa83ac9c4220511de3ce1d5063ec4f74bd4d9eeb05c4566117df9cc52b679"
+      },
+      "inventory_check": {
+        "path": "out/phase-six-document-views/full-check.log",
+        "sha256": "cf31afc84741b1ed48799301d88aa989128f9a831ba07d646fc1a1500550a021"
+      }
+    },
+    "independent_view_cases": [
+      "NeMoDevDocumentView.RetainedInstances",
+      "NeMoDevDocumentView.DispatchFailure",
+      "NeMoDevDocumentView.DetachFailure",
+      "NeMoDevDocumentView.CloseRefusal",
+      "NeMoDevDocumentView.RecoveryRetry",
+      "NeMoDevDocumentView.SuccessfulReplacement",
+      "NeMoDevDocumentView.CommittedCallbackFailure",
+      "NeMoDevDocumentView.ThreadChecks",
+      "NeMoDevDocumentView.ModuleOrder",
+      "NeMoDevDocumentView.CameraRestart",
+      "NeMoDevDocumentView.CameraDetach",
+      "NeMoDevDocumentView.QueuedReplacement",
+      "NeMoDevDocumentView.ExternalProvider"
+    ],
+    "independent_admission_cases": [
+      "NeMoDevRuntimeAdmission.ScopedAvailability",
+      "NeMoDevRuntimeAdmission.CompletionNativeAccess"
+    ],
+    "focused_run": {
+      "total": 47,
+      "passed": 47,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-document-views/focused-final.xml",
+        "sha256": "75acabc66b5949546646a2f711b1cab11ea00cec76b2d374a4f933bf4488e87e"
+      },
+      "log": {
+        "path": "out/phase-six-document-views/focused-final.log",
+        "sha256": "1a1eb3bb77174bc7af9affb00ee1983a7e6305edea885ad978de67aa9b1ca54d"
+      }
+    },
+    "queue_combination": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-document-views/queued-green.xml",
+        "sha256": "8f1989bec8c750aeb7040f499b48c111ff47c1d4c905f8a8a9124fcd5b27391b"
+      },
+      "log": {
+        "path": "out/phase-six-document-views/queued-green.log",
+        "sha256": "c8ab1b1fcb919d8266d31b30376a310af9a0d6165ed65bc5a1bdf0a92623df4a"
+      }
+    },
+    "native_document_views": {
+      "total": 1,
+      "passed": 1,
+      "report": {
+        "path": "out/phase-six-document-views/document-views-ui.xml",
+        "sha256": "3028d038dd844efe3f2b9cad206adac23abab37817f713729206ef5130fa667c"
+      },
+      "case": "failed_new_keeps_both_viewports_and_setup",
+      "description": "失败 New 保留主/次 GPU 视口相机、Setup 实例、选区及撤销；恢复后十二帧无 readback/upload。"
+    },
+    "native_player": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-document-views/player.xml",
+        "sha256": "2ff0439c87b77b0f5a9fb841b40c22f0594e4e7b82e4180057f44a051c3bda87"
+      },
+      "log": {
+        "path": "out/phase-six-document-views/player.log",
+        "sha256": "9a6f85e2f57e9053cbffd24cdb8a6a82909595ec07fc2827f5ea7a0e1dfdfd6f"
+      },
+      "cases": [
+        "second_layout_fullscreen_keeps_first_viewport_and_restores_gpu",
+        "fullscreen_delayed_focus_loss_and_close",
+        "fullscreen_focus_loss_keeps_foreground",
+        "windowed_input_focus",
+        "fullscreen_default_mode",
+        "fullscreen_roundtrip_focus",
+        "snapshot_take_capture_cancel"
+      ],
+      "sample": {
+        "path": "local-samples/data/BBSamples/3D Transformations/Add Control Point.cmo",
+        "sha256": "8c7226ff981b6a56ae5c44bd0695a6d2e4b7c870ff83e6e73e0e769436f09ad4"
+      }
+    },
+    "stable_allocation_cases": [
+      "NeMoDevRuntimeAdmission.StableAvailability",
+      "NeMoDevModuleLifecycle.StableAllocations",
+      "NeMoDevEditorQuery.CachedAllocations"
+    ],
+    "final_architecture_check": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "report": {
+        "path": "out/phase-six-document-views/architecture-final.xml",
+        "sha256": "3fd80cd23f8df87b1c04caa4a61ac3bddcc6ff7b07e6658f29d3ae0ae7efc7f2"
+      },
+      "log": {
+        "path": "out/phase-six-document-views/architecture-final.log",
+        "sha256": "07024224533137e8f64f5a27d453861acdf234113583194c55a48548e98fc96d"
+      }
+    }
+  },
+  "regression_comparison": {
+    "camera": {
+      "description": "同一 Release 程序及同一 SDK，对照原 LayoutView 与当前实现；原版重建重置相机，当前保留两个独立相机。",
+      "results": [
+        {
+          "name": "camera-before",
+          "exit_code": 1,
+          "expected": 1
+        },
+        {
+          "name": "camera-after",
+          "exit_code": 0,
+          "expected": 0
+        }
+      ],
+      "report": {
+        "path": "out/phase-six-document-views/camera-comparison.json",
+        "sha256": "3cec4bff84019ee90b29a3e0d5bbbe385c16cc275f7ab02253399eef57f3e24f"
+      },
+      "probe": {
+        "path": "out/phase-six-document-views/CameraRestartProbe.cpp",
+        "sha256": "c5b72af9fa2de48a6698bcd4ef77b0e808fb45efad192bff16f8b6785dfaab77"
+      },
+      "original_sources": [
+        {
+          "path": "out/phase-six-document-views/LayoutView-before.cpp",
+          "sha256": "1e5c92c2b0b1ec7b2559587d05a567b619cd2f1427c8bd80b855e123a9aca5f3"
+        },
+        {
+          "path": "out/phase-six-document-views/LayoutView-before.h",
+          "sha256": "b202407a0e6e14d3d15d073f945dca760acdc671f5515ba3ea3a2dc2ece714b2"
+        }
+      ],
+      "compiler_arguments": {
+        "path": "out/phase-six-document-views/camera-probe-compile.json",
+        "sha256": "e2cf94bc8a4757b991befd6564451bde3174e497821a7d85b3be01cb1b7f2a17"
+      },
+      "build_log": {
+        "path": "out/phase-six-document-views/camera-probe-build.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "original_log": {
+        "path": "out/phase-six-document-views/camera-before.log",
+        "sha256": "95d52ca5432551312bb1c2b82b5a01b8c5e0dbd772b560d74bd8d8266e56af91"
+      },
+      "current_log": {
+        "path": "out/phase-six-document-views/camera-after.log",
+        "sha256": "7f100a97edc5b6d8df7bdd0a29a6c5eceb60d2f094d4f250a1a32e3eaa11322a"
+      }
+    },
+    "queued_work": {
+      "description": "两项新增检查先复现后续任务使完成回调访问被误拒，修复后都通过；保持旧文档任务过期。",
+      "original": {
+        "path": "out/phase-six-document-views/queued-red.xml",
+        "sha256": "c31b12077a0716fa3a4a4b81b3f3ce461fb0aeafff288259da25f9a3eca086f0"
+      },
+      "original_log": {
+        "path": "out/phase-six-document-views/queued-red.log",
+        "sha256": "7eb69a047c3b3a27921b228aca7a4d71730b04ba5ca2f11c5d455e6919143c58"
+      },
+      "fixed": {
+        "path": "out/phase-six-document-views/queued-green.xml",
+        "sha256": "8f1989bec8c750aeb7040f499b48c111ff47c1d4c905f8a8a9124fcd5b27391b"
+      }
+    }
+  },
+  "diagnosis": {
+    "initial_focused": {
+      "description": "首次三项失败来自两处未重编译的旧模块和新测试的无命名空间标识，修正并完整重建后通过。",
+      "report": {
+        "path": "out/phase-six-document-views/focused.xml",
+        "sha256": "9c92914ec63d79568500435f5b0c001c1a7c526f130064df8d6d9b405e41d7c7"
+      },
+      "log": {
+        "path": "out/phase-six-document-views/focused.log",
+        "sha256": "41a94dd09bb3bb3c2186ff37e7d956e057b3b7df6ac8c0cc7ea3f061697440b6"
+      }
+    },
+    "native_source_inventory": {
+      "description": "新原生文档实现登记到既有 Layout 源码组和私有适配清单，检查规则未修改。",
+      "report": {
+        "path": "out/phase-six-document-views/focused-second.xml",
+        "sha256": "fb74fd7192b01c5b686584d30171d14637511ddc1d0b6b9234bb441a37f30e91"
+      }
+    }
+  },
+  "preservation": {
+    "sdk_repositories_unchanged": 16,
+    "runtime_files_unchanged": 22,
+    "sdk_before": {
+      "path": "out/phase-six-document-views/sdk-before.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "sdk_after": {
+      "path": "out/phase-six-document-views/sdk-final.json",
+      "sha256": "18b81df19c9cd5ea812c4acfbd917eaa559fdd5fbcb1a77144bee13cad5e254b"
+    },
+    "runtime_before": {
+      "path": "out/phase-six-document-views/runtime-before.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "runtime_after": {
+      "path": "out/phase-six-document-views/runtime-final.json",
+      "sha256": "a194b07afbbf23eef9f474f331c0822a62acacc816506c79a35ff8319b5cd1ae"
+    },
+    "protected_sources": {
+      "ui/native/LayoutRenderer.cpp": {
+        "sha256": "fdf51c3431e39cec456023675e9f086b1ddf6d3db6d9b6bb06d86e3514a60656",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.cpp": {
+        "sha256": "e1b5322b338f707b1a96b9305b0c8a87c2fc9361f7e2027318f3cc00533e4f79",
+        "unchanged": true
+      },
+      "ui/render/UiRenderer.h": {
+        "sha256": "a80f8e8646ef94c16757fd83fea09ae071ea29a404897808bd4642e085b92839",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.cpp": {
+        "sha256": "382101607371918ed6c1a33387981bc6e88a8cae6a404abd1991be54ce2a9a73",
+        "unchanged": true
+      },
+      "core/layout/SdlGpuInterop.h": {
+        "sha256": "1388e95625a13e7283a6d93b3042dec9aeb7d000c87c672ad06d5f8eafa30e74",
+        "unchanged": true
+      },
+      "tests/CheckArchitecture.py": {
+        "sha256": "bd108c931ee61c88828c5b1b43fe3d7f1afe62f21b72d2b58d4dce864d2c44ca",
+        "unchanged": true
+      },
+      "tests/CheckLayering.cmake": {
+        "sha256": "21d8262c4e6d66fa2aff9f616464646b677b8efc4a5026adf40d4eb58a1fc58d",
+        "unchanged": true
+      }
+    }
+  },
+  "performance": {
+    "status": "waiting_for_idle_window",
+    "thresholds_changed": false,
+    "timing_measured": false,
+    "description": "按用户安排等待空闲窗口；本轮只做功能、传输和分配计数，不放宽计时门槛。"
+  },
+  "separate_work": [
+    "runtime-isolation"
+  ]
+}
