@@ -362,6 +362,14 @@ if(VIRTOOLSDEV_BUILD_TESTS)
     add_dependencies(NeMoDevEditorTests NeMoDevGestureModule NeMoDevToolModule NeMoDevAppearanceModule)
     add_test(NAME NeMoDevEditor COMMAND NeMoDevEditorTests "$<TARGET_FILE:NeMoDevEditorModule>" "$<TARGET_FILE:NeMoDevEnvironmentPlugin>" "$<TARGET_FILE:NeMoDevGestureModule>" "$<TARGET_FILE:NeMoDevToolModule>" "$<TARGET_FILE:NeMoDevAppearanceModule>")
     set_tests_properties(NeMoDevEditor PROPERTIES LABELS self-contained ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    add_executable(NeMoDevNativeTaskCommandTests ../tests/NativeTaskCommandTests.cpp)
+    target_link_libraries(NeMoDevNativeTaskCommandTests PRIVATE NeMoDevEditorApplication NeMoDevObjectCommands
+            VirtoolsDevCore VirtoolsDevImGui Threads::Threads)
+    foreach(_case FileInput OutputInput ResourceInput PreparationFailure ExpiredFileInput ExpiredOutputInput)
+        add_test(NAME NeMoDevNativeTaskCommand.${_case} COMMAND NeMoDevNativeTaskCommandTests ${_case})
+        set_tests_properties(NeMoDevNativeTaskCommand.${_case} PROPERTIES LABELS self-contained
+                ENVIRONMENT "VIRTOOLS_PATH=${VIRTOOLS_RUNTIME_PATH}")
+    endforeach()
     add_executable(NeMoDevEditorOwnershipTests ../tests/EditorOwnershipTests.cpp)
     target_link_libraries(NeMoDevEditorOwnershipTests PRIVATE NeMoDevEditorApplication NeMoDevObjectCommands
             VirtoolsDevCore VirtoolsDevImGui Threads::Threads)

@@ -1085,7 +1085,9 @@
         "VirtoolsDev.OpenFailurePreservation",
         "VirtoolsDev.ObjectFileOpen",
         "VirtoolsDevDocumentFiles",
-        "NeMoDevEditor"
+        "NeMoDevEditor",
+        "NeMoDevNativeTaskCommand.FileInput",
+        "NeMoDevNativeTaskCommand.ExpiredFileInput"
       ],
       "ui_tests": [
         "VirtoolsDevUi.filemenu"
@@ -1166,7 +1168,9 @@
       ],
       "tests": [
         "NeMoDevEditor",
-        "NeMoDevIdentityHeaders"
+        "NeMoDevIdentityHeaders",
+        "NeMoDevNativeTaskCommand.OutputInput",
+        "NeMoDevNativeTaskCommand.ExpiredOutputInput"
       ],
       "ui_tests": [
         "VirtoolsDevUi.filemenu",
@@ -1187,7 +1191,8 @@
       ],
       "tests": [
         "NeMoDevEditor",
-        "NeMoDevIdentityHeaders"
+        "NeMoDevIdentityHeaders",
+        "NeMoDevNativeTaskCommand.PreparationFailure"
       ],
       "ui_tests": [
         "VirtoolsDevUi.printCancel",
@@ -1571,7 +1576,8 @@
       "tests": [
         "VirtoolsDev.Resources",
         "VirtoolsDev.EditorCommands",
-        "NeMoDevEditor"
+        "NeMoDevEditor",
+        "NeMoDevNativeTaskCommand.ResourceInput"
       ],
       "ui_tests": [
         "VirtoolsDevUi.tools",
@@ -1865,7 +1871,25 @@
         "VirtoolsDev.ObjectIdentityReplay",
         "VirtoolsDev.ScriptIdentitySessions",
         "NeMoDevUiTextures",
-        "VirtoolsDev.GraphActionRecordDependencies"
+        "VirtoolsDev.GraphActionRecordDependencies",
+        "NeMoDevRuntimeAdmission.DispatchRecheck",
+        "NeMoDevRuntimeAdmission.BusyCheck",
+        "NeMoDevRuntimeAdmission.WrongThread",
+        "NeMoDevRuntimeAdmission.AdmissionException",
+        "NeMoDevRuntimeAdmission.WorkflowIsolation",
+        "NeMoDevRuntimeAdmission.RequestCancellation",
+        "NeMoDevRuntimeAdmission.ScopedSubmission",
+        "NeMoDevRuntimeAdmission.ContinuationOwnership",
+        "NeMoDevRuntimeAdmission.CompletionStartsWorkflow",
+        "NeMoDevRuntimeAdmission.DocumentContinuation",
+        "NeMoDevRuntimeAdmission.AdmissionReentry",
+        "NeMoDevRuntimeAdmission.DispatchException",
+        "NeMoDevRuntimeAdmission.WorkerExclusion",
+        "NeMoDevRuntimeAdmission.NativeAvailability",
+        "NeMoDevRuntimeAdmission.DeferredInputOwnership",
+        "NeMoDevRuntimeAdmission.ExpiredContinuation",
+        "NeMoDevRuntimeAdmission.ContinuationThread",
+        "NeMoDevRuntimeAdmission.StableAvailability"
       ],
       "ui_tests": [
         "VirtoolsDevUi.app"
@@ -2003,7 +2027,13 @@
         "NeMoDevEditorOwnership.StopCleanupOrder",
         "NeMoDevEditorOwnership.QueryConfigurationFailure",
         "NeMoDevEditorOwnership.DeliveryAcrossConfiguration",
-        "NeMoDevEditorOwnership.QueryScopeLifetime"
+        "NeMoDevEditorOwnership.QueryScopeLifetime",
+        "NeMoDevNativeTaskCommand.FileInput",
+        "NeMoDevNativeTaskCommand.OutputInput",
+        "NeMoDevNativeTaskCommand.ResourceInput",
+        "NeMoDevNativeTaskCommand.PreparationFailure",
+        "NeMoDevNativeTaskCommand.ExpiredFileInput",
+        "NeMoDevNativeTaskCommand.ExpiredOutputInput"
       ],
       "ui_tests": [
         "VirtoolsDevUi.modules",
@@ -2250,7 +2280,7 @@
     {
       "id": "file_operations",
       "name": "文档、资源、图与 Script 快照文件操作、对象/NMS 导出和输入请求",
-      "owner": "DocumentCommands",
+      "owner": "DocumentCommands 拥有流程参数与结果；RuntimeOperation 拥有原生任务准入与流程归属",
       "lifetime": "操作完成或取消；旧输入按操作和文档编号拒绝；退出时原生任务返回后结束；图和 Script 快照等待文件选择时，来源视图关闭即取消；重复名按完整动作列表确认，取消、错误和停止清理对应加载；标题和菜单读取上次已发布的文档信息，后台任务期间不进入原生上下文",
       "persistence": "临时流程不保存；等待输入无原生写入；最终结果登记到 EditorApplication",
       "features": [
@@ -2264,7 +2294,7 @@
     {
       "id": "output_jobs",
       "name": "print job 与 webpage fields",
-      "owner": "OutputCommands；输出对话视图仅持有显示草稿",
+      "owner": "OutputCommands 拥有输出参数与结果；RuntimeOperation 拥有原生任务准入与流程归属；输出对话视图仅持有显示草稿",
       "lifetime": "Cancel/完成；视图消失仍做任务清理与结果登记",
       "persistence": "网页与 composition、多页图像共用暂存和恢复；打印持有独立脚本图/位图，提交后登记打印任务标识；旧回复及失效文档拒绝执行",
       "features": [
@@ -2397,15 +2427,19 @@
     },
     {
       "id": "runtime-operations",
-      "name": "原生任务队列、在途 worker、完成通知和文档作用域",
+      "name": "原生任务准入、流程归属、队列、在途 worker、完成通知和文档作用域",
       "owner": "RuntimeOperation",
-      "lifetime": "队列至完成；文档替换丢弃尚未执行的旧任务；在途原生调用返回后完成清理",
-      "persistence": "不保存；应用文件任务总是登记完成，原有仅面向当前文档的回调在作用域结束时失效",
+      "lifetime": "主线程统一检查运行时可用性、当前流程和编辑状态；任务启动前再次检查；等待输入的流程独占后续原生任务，取消、失败及完成先释放归属再通知呈现；文档替换丢弃尚未执行的旧任务；在途原生调用返回后完成清理",
+      "persistence": "不保存；Busy 仅表示排队或执行，等待输入不进入后台任务专用界面；Available 包含流程占用；worker 完成和延后输入保留提交来源，过期来源不能提交新任务；应用文件任务总是登记完成，原有仅面向当前文档的回调在作用域结束时失效",
       "features": [
         "F02",
         "F03",
         "F04",
-        "F28"
+        "F06",
+        "F07",
+        "F20",
+        "F28",
+        "F31"
       ]
     },
     {
@@ -2484,7 +2518,7 @@
     {
       "id": "resource-input",
       "name": "资源库文件选择和行为说明编辑输入",
-      "owner": "DataResourceCommands",
+      "owner": "DataResourceCommands 拥有输入参数；RuntimeOperation 拥有原生任务准入与流程归属",
       "lifetime": "操作结束或来源视图关闭；后台工作期间保留已接受的输入，空闲后继续",
       "persistence": "说明使用原格式和原子替换；取消及失败保留已有文件、文档、选区和历史",
       "features": [
